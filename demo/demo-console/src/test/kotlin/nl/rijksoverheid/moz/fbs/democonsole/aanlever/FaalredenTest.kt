@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments.arguments
 import org.junit.jupiter.params.provider.MethodSource
 
 /**
@@ -22,16 +23,24 @@ class FaalredenTest {
     }
 
     /**
-     * De volledige regel en niet alleen een deel ervan: een reden die zelf op een leesteken eindigt
-     * kreeg er een punt achter geplakt ("...storing aan?."), en dat is precies wat er op het scherm
-     * staat. Asserties die de verwachting met dezelfde productiefunctie opbouwen, zien dat niet.
+     * Elke zin letterlijk, want dit is wat er op het scherm komt. Een reden die zelf op een leesteken
+     * eindigde kreeg er een punt achter geplakt ("...storing aan?."); asserties die hun verwachting
+     * met dezelfde productiefunctie opbouwen, zagen dat niet.
      */
+    @ParameterizedTest
+    @MethodSource("regels")
+    fun `de regel staat er letterlijk zo`(verwacht: String, reden: String) {
+        assertEquals(verwacht, Faalreden.samenvatting(listOf(reden)))
+    }
+
     @Test
-    fun `de regel voor een onbereikbaar magazijn staat er letterlijk zo`() {
-        assertEquals(
-            "Reden: magazijn $RVO was niet bereikbaar; mogelijk staat er nog een storing aan.",
-            Faalreden.samenvatting(listOf(Faalreden.onbereikbaar(RVO))),
-        )
+    fun `een storing op de profielservice leest niet als een afwijzing van het bericht`() {
+        // Het magazijn geeft bij een 503 zelf een detail mee ("probeer over 30 seconden opnieuw").
+        // Dat overnemen zou "wees het bericht af" opleveren terwijl er niets is afgewezen en er
+        // juist een storing aanstaat — de knop waar de bediener dan naartoe moet.
+        val reden = Faalreden.vanStatus(RVO, 503, "De toestemmingscontrole kon niet uitgevoerd worden.")
+
+        assertEquals("magazijn $RVO kon het bericht niet verwerken (HTTP 503); mogelijk staat er nog een storing aan", reden)
     }
 
     @Test
@@ -59,14 +68,18 @@ class FaalredenTest {
 
     @Test
     fun `elke faalmodus benoemt zijn eigen vervolgstap`() {
-        // De woorden waar de bediener op afgaat. Elk hoort bij één faalmodus: staat "storing" ook
-        // in de weigering, dan zet de melding hem alsnog bij de verkeerde knop.
+        // De woorden waar de bediener op afgaat.
         assertTrue(Faalreden.onbereikbaar(RVO).contains("storing"))
         assertTrue(Faalreden.vanStatus(RVO, 403).contains("profielservice"))
         assertTrue(Faalreden.vanStatus(RVO, 400).contains("inhoud"))
         assertTrue(Faalreden.geenMagazijn(RVO).contains("ingericht"))
 
-        assertTrue(alleFaalmodi().count { it.contains("storing") } == 1, "meer dan één zin noemt een storing")
+        // Naar de storingsknop wijzen alleen de twee faalmodi die een storing kán veroorzaken:
+        // een magazijn dat niet antwoordt, en een magazijn dat zelf struikelt. Zou de weigering of
+        // de afkeuring dat woord ook dragen, dan stuurt de melding de bediener naar de verkeerde
+        // knop terwijl er niets stuk is.
+        listOf(Faalreden.vanStatus(RVO, 403), Faalreden.vanStatus(RVO, 400), Faalreden.geenMagazijn(RVO))
+            .forEach { assertTrue(!it.contains("storing"), "deze reden wijst ten onrechte naar een storing: $it") }
     }
 
     @Test
@@ -84,6 +97,17 @@ class FaalredenTest {
         // Anders blijft er van een 500 of een 404 op het aanleverpad niets over om op te zoeken.
         assertTrue(Faalreden.vanStatus(RVO, 500).contains("500"))
         assertNotEquals(Faalreden.vanStatus(RVO, 500), Faalreden.vanStatus(RVO, 404))
+    }
+
+    @Test
+    fun `een lange reden van het magazijn blijft binnen één regel`() {
+        // De lay-out van de melding ligt niet bij het magazijn: het acceptatiecriterium is één
+        // leesbare regel, ook als de keten er een lap tekst met regeleindes in zet.
+        val reden = Faalreden.vanStatus(RVO, 400, "eerste regel\n\ntweede regel " + "x".repeat(500))
+
+        assertTrue(!reden.contains("\n"), "de reden hoort op één regel te passen: $reden")
+        assertTrue(reden.length < 300, "de reden is ${reden.length} tekens lang")
+        assertTrue(reden.contains("eerste regel tweede regel"), reden)
     }
 
     @ParameterizedTest
@@ -110,20 +134,25 @@ class FaalredenTest {
     fun `bij meerdere redenen wint de meest voorkomende, met het aantal soorten erbij`() {
         // Zonder dat aantal leest "97 van de 100" als de hele verklaring, en blijven de drie
         // berichten met een andere oorzaak na de herstelpoging opnieuw liggen.
-        val weigering = Faalreden.vanStatus(RVO, 403)
-        val redenen = List(97) { weigering } + List(3) { Faalreden.onbereikbaar(BELASTINGDIENST) }
+        val redenen = List(97) { Faalreden.vanStatus(RVO, 400) } + List(3) { Faalreden.onbereikbaar(RVO) }
 
-        assertEquals("Meest voorkomende van 2 redenen (97 van de 100): $weigering.", Faalreden.samenvatting(redenen))
+        assertEquals(
+            "Meest voorkomende van 2 redenen (97 van de 100): magazijn $RVO keurde het bericht af op de inhoud.",
+            Faalreden.samenvatting(redenen),
+        )
     }
 
     @Test
     fun `bij gelijke stand wint wat het eerst misging, en heet het niet meest voorkomend`() {
         // Zonder vaste keuze zou dezelfde ronde de ene keer de storing en de andere keer de
         // weigering melden, en dan is de melding geen aanknopingspunt meer.
-        val eerst = Faalreden.onbereikbaar(RVO)
-        val redenen = listOf(eerst, Faalreden.vanStatus(BELASTINGDIENST, 403))
+        val redenen = listOf(Faalreden.onbereikbaar(RVO), Faalreden.vanStatus(BELASTINGDIENST, 403))
 
-        assertEquals("Eerste van 2 redenen (1 van de 2): $eerst.", Faalreden.samenvatting(redenen))
+        assertEquals(
+            "Eerste van 2 redenen (1 van de 2): magazijn $RVO was niet bereikbaar; " +
+                "mogelijk staat er nog een storing aan.",
+            Faalreden.samenvatting(redenen),
+        )
     }
 
     @Test
@@ -156,5 +185,40 @@ class FaalredenTest {
 
         @JvmStatic
         fun faalmodiVoor() = faalmodiVan(BELASTINGDIENST)
+
+        /** Elke zin zoals de bediener hem leest, naast de faalmodus die hem oplevert. */
+        @JvmStatic
+        fun regels() = listOf(
+            arguments(
+                "Reden: voor organisatie $RVO is in deze omgeving geen magazijn-adres ingericht.",
+                Faalreden.geenMagazijn(RVO),
+            ),
+            arguments(
+                "Reden: magazijn $RVO was niet bereikbaar; mogelijk staat er nog een storing aan.",
+                Faalreden.onbereikbaar(RVO),
+            ),
+            arguments(
+                "Reden: aanleveren bij magazijn $RVO brak onverwacht af (IllegalStateException).",
+                Faalreden.onverwacht(RVO, IllegalStateException("stuk")),
+            ),
+            arguments(
+                "Reden: organisatie $RVO weigert het bericht; begin bij de voorkeuren van deze " +
+                    "ondernemer in de profielservice.",
+                Faalreden.vanStatus(RVO, 403),
+            ),
+            arguments(
+                "Reden: magazijn $RVO keurde het bericht af op de inhoud.",
+                Faalreden.vanStatus(RVO, 400),
+            ),
+            arguments(
+                "Reden: magazijn $RVO antwoordde met HTTP 404.",
+                Faalreden.vanStatus(RVO, 404),
+            ),
+            arguments(
+                "Reden: magazijn $RVO kon het bericht niet verwerken (HTTP 500); mogelijk staat er " +
+                    "nog een storing aan.",
+                Faalreden.vanStatus(RVO, 500),
+            ),
+        )
     }
 }

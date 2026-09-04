@@ -12,10 +12,12 @@ import java.util.logging.Logger
  * berichten die wél zijn afgeleverd maar niet op gelezen konden worden gezet — die tellen als
  * geslaagd, want het bericht staat in het magazijn, alleen de lees-mix klopt niet.
  *
- * `letOp` draagt de reden uit [Faalreden], en is null zolang er niets in de aflevering mislukte.
- * Alleen via [van] te maken: `mislukt` en `letOp` komen dan aantoonbaar uit dezelfde lijst en
- * kunnen elkaar niet tegenspreken.
+ * `letOp` draagt de reden uit [Faalreden], en is null zolang er niets in de *aflevering* mislukte —
+ * een mislukte markering krijgt geen reden, want dat bericht kwam wél aan. Alleen via [van] te
+ * maken, en `copy()` erft die zichtbaarheid: `mislukt` en `letOp` komen zo aantoonbaar uit dezelfde
+ * lijst en kunnen elkaar niet tegenspreken.
  */
+@ConsistentCopyVisibility
 data class AanleverResultaat private constructor(
     val aangeboden: Int,
     val geslaagd: Int,
@@ -71,7 +73,12 @@ class AanleverService(private val clients: MagazijnClients) {
             }
         }
 
-        return AanleverResultaat.van(opdrachten.size, geslaagd, markeringMislukt, redenen)
+        return AanleverResultaat.van(
+            aangeboden = opdrachten.size,
+            geslaagd = geslaagd,
+            markeringMislukt = markeringMislukt,
+            redenen = redenen,
+        )
     }
 
     /**
@@ -84,10 +91,18 @@ class AanleverService(private val clients: MagazijnClients) {
     private fun leverBehoedzaam(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): Aanlevering = try {
         lever(opdracht, client)
     } catch (fout: Exception) {
-        log.warning("aanleveren bij magazijn ${opdracht.magazijnOin} brak af: $fout")
+        log.warning("aanleveren bij magazijn ${opdracht.magazijnOin} brak af, ${herkomst(fout)}")
 
         Aanlevering.Mislukt(Faalreden.onverwacht(opdracht.magazijnOin, fout))
     }
+
+    /**
+     * Het type en de regel waar het misging, niet de foutmelding: die kan bij een serialisatiefout
+     * een stuk van de payload dragen, en daar staat het identificatienummer van de ontvanger in.
+     * Een BSN hoort niet in applicatielogs — dezelfde regel die de statusregel hieronder volgt.
+     */
+    private fun herkomst(fout: Throwable): String =
+        "${fout.javaClass.name} bij ${fout.stackTrace.firstOrNull() ?: "een onbekende regel"}"
 
     private fun lever(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): Aanlevering {
         val response = try {
@@ -120,9 +135,12 @@ class AanleverService(private val clients: MagazijnClients) {
      * afwijzing niet uit te lezen was, mag die afwijzing niet verbergen.
      */
     private fun detailVan(response: Response): String? = try {
-        if (response.hasEntity()) response.readEntity(Probleem::class.java)?.detail else null
+        if (response.hasEntity()) response.readEntity(Problem::class.java)?.detail else null
     } catch (fout: Exception) {
-        log.fine("antwoord van het magazijn droeg geen leesbare problem+json: $fout")
+        // Op waarschuwingsniveau, want dit faalt systemisch of niet: gaat één afwijzing hierop
+        // stuk, dan gaan ze allemaal stuk en toont het paneel de rest van de demo een algemene zin
+        // terwijl het magazijn een preciezere gaf.
+        log.warning("antwoord van het magazijn droeg geen leesbare problem+json, ${herkomst(fout)}")
 
         null
     }
@@ -136,27 +154,26 @@ class AanleverService(private val clients: MagazijnClients) {
         client: MagazijnAanleverClient,
         opdracht: AanleverOpdracht,
         berichtId: String,
-    ): Boolean {
-        val response = try {
-            client.markeer(berichtId, ontvangerHeader(opdracht.verzoek.ontvanger), StatusPatch(gelezen = true))
-        } catch (fout: Exception) {
-            log.warning("magazijn ${opdracht.magazijnOin} kon bericht $berichtId niet op gelezen zetten: $fout")
+    ): Boolean = try {
+        // Het hele blok in het vangnet, tot en met het sluiten van de respons: een verbinding die
+        // halverwege wegvalt kan ook bij `close()` nog gooien, en dan viel de vulronde alsnog om.
+        client.markeer(berichtId, ontvangerHeader(opdracht.verzoek.ontvanger), StatusPatch(gelezen = true))
+            .use { antwoord ->
+                if (antwoord.status != GEMARKEERD) {
+                    log.warning(
+                        "markeren-gelezen bij magazijn ${opdracht.magazijnOin} gaf HTTP ${antwoord.status} " +
+                            "voor bericht $berichtId",
+                    )
+                }
 
-            return false
-        }
-
-        return response.use {
-            if (it.status != GEMARKEERD) {
-                log.warning(
-                    "markeren-gelezen bij magazijn ${opdracht.magazijnOin} gaf HTTP ${it.status} " +
-                        "voor bericht $berichtId",
-                )
-
-                return@use false
+                antwoord.status == GEMARKEERD
             }
+    } catch (fout: Exception) {
+        log.warning(
+            "magazijn ${opdracht.magazijnOin} kon bericht $berichtId niet op gelezen zetten, ${herkomst(fout)}",
+        )
 
-            true
-        }
+        false
     }
 
     private fun ontvangerHeader(ontvanger: OntvangerDto): String = "${ontvanger.type}:${ontvanger.waarde}"

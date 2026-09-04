@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
  * Wat de bediener van het paneel te zien krijgt als een aanlevering niet aankomt. De clients zijn
@@ -38,7 +38,7 @@ class AanleverServiceTest {
         every { it.close() } just Runs
         every { it.hasEntity() } returns (detail != null)
 
-        if (detail != null) every { it.readEntity(Probleem::class.java) } returns Probleem(detail)
+        if (detail != null) every { it.readEntity(Problem::class.java) } returns Problem(detail)
 
         if (berichtId != null) every { it.readEntity(AanleverRespons::class.java) } returns AanleverRespons(berichtId)
     }
@@ -58,6 +58,11 @@ class AanleverServiceTest {
     private fun magazijnAntwoordt(status: Int, berichtId: String? = null, detail: String? = null) {
         every { clients[RVO] } returns client
         every { client.leverAan(any()) } returns respons(status, berichtId, detail)
+    }
+
+    private fun magazijnGooit(fout: Throwable) {
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } throws fout
     }
 
     @Test
@@ -102,7 +107,7 @@ class AanleverServiceTest {
             every { it.status } returns 403
             every { it.close() } just Runs
             every { it.hasEntity() } returns true
-            every { it.readEntity(Probleem::class.java) } throws ProcessingException("geen JSON")
+            every { it.readEntity(Problem::class.java) } throws ProcessingException("geen JSON")
         }
 
         assertEquals("Reden: ${Faalreden.vanStatus(RVO, 403)}.", service.leverAan(listOf(opdracht())).letOp)
@@ -120,7 +125,10 @@ class AanleverServiceTest {
         val geweigerd = service.leverAan(listOf(opdracht()))
 
         assertEquals(1, onbereikbaar.mislukt)
-        assertNotNull(onbereikbaar.letOp)
+        // Op identiteit en niet alleen op "anders dan": zonder de smalle catch in `lever` zou het
+        // brede vangnet eromheen "brak onverwacht af" opleveren — óók een andere zin, maar zonder
+        // het woord dat de bediener naar de storingsknop stuurt.
+        assertEquals("Reden: ${Faalreden.onbereikbaar(RVO)}.", onbereikbaar.letOp)
         assertNotEquals(onbereikbaar.letOp, geweigerd.letOp)
     }
 
@@ -150,11 +158,11 @@ class AanleverServiceTest {
         every { client.leverAan(any()) } returns respons(403)
         every { tweedeClient.leverAan(any()) } throws ProcessingException("Connection refused")
 
-        val viaRvo = service.leverAan(listOf(opdracht(RVO)))
-        val viaBelastingdienst = service.leverAan(listOf(opdracht(BELASTINGDIENST)))
+        val viaRvo = service.leverAan(listOf(opdracht(RVO))).letOp!!
+        val viaBelastingdienst = service.leverAan(listOf(opdracht(BELASTINGDIENST))).letOp!!
 
-        assertTrue(viaRvo.letOp!!.contains(RVO), viaRvo.letOp!!)
-        assertTrue(viaBelastingdienst.letOp!!.contains(BELASTINGDIENST), viaBelastingdienst.letOp!!)
+        assertTrue(viaRvo.contains(RVO), viaRvo)
+        assertTrue(viaBelastingdienst.contains(BELASTINGDIENST), viaBelastingdienst)
     }
 
     @Test
@@ -205,12 +213,16 @@ class AanleverServiceTest {
      * er later een reden bij komt.
      */
     @ParameterizedTest
-    @CsvSource("403", "400", "500", "0")
-    fun `geen enkele reden noemt het nummer van de ontvanger`(status: Int) {
-        every { clients[RVO] } returns client
-
-        if (status == 0) every { client.leverAan(any()) } throws ProcessingException("Connection refused")
-        else every { client.leverAan(any()) } returns respons(status)
+    @ValueSource(strings = ["geen adres", "onbereikbaar", "geweigerd", "afgekeurd", "serverfout"])
+    fun `geen enkele reden noemt het nummer van de ontvanger`(faalmodus: String) {
+        when (faalmodus) {
+            "geen adres" -> every { clients[RVO] } returns null
+            "onbereikbaar" -> magazijnGooit(ProcessingException("Connection refused"))
+            // Mét detail: dat is de enige weg waarlangs tekst van buiten in de melding komt.
+            "geweigerd" -> magazijnAntwoordt(403, detail = "Ontvanger heeft geen actieve voorkeur.")
+            "afgekeurd" -> magazijnAntwoordt(400)
+            else -> magazijnAntwoordt(500)
+        }
 
         listOf("BSN", "KVK").forEach { type ->
             val letOp = service.leverAan(listOf(opdracht(type = type))).letOp!!
@@ -246,6 +258,19 @@ class AanleverServiceTest {
     }
 
     @Test
+    fun `alleen de berichten die op gelezen moesten tellen mee in markeringMislukt`() {
+        // Alle tellers gelijk zetten zou verbergen dat deze teller aan `gelezen` hangt en niet aan
+        // het aantal afgeleverde berichten.
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons(201, "b-1")
+        every { client.markeer(any(), any(), any()) } returns respons(500)
+
+        val resultaat = service.leverAan(List(2) { opdracht() } + opdracht(gelezen = true))
+
+        assertEquals(AanleverResultaat.van(3, 3, 1, emptyList()), resultaat)
+    }
+
+    @Test
     fun `een onverwachte fout in één opdracht laat de rest van de ronde staan`() {
         // Zonder deze grens meldt de console niets over wat al wél is afgeleverd, en levert een
         // tweede poging dubbele berichten op. Een 201 zonder berichtId is zo'n geval.
@@ -262,7 +287,9 @@ class AanleverServiceTest {
 
         assertEquals(2, resultaat.geslaagd)
         assertEquals(1, resultaat.mislukt)
-        assertTrue(resultaat.letOp!!.contains(BELASTINGDIENST), resultaat.letOp!!)
+        // De faalmodus erbij: elke reden noemt het magazijn, dus alleen daarop asserteren zou niet
+        // onderscheiden of dit als onbereikbaar, geweigerd of onverwacht gemeld werd.
+        assertEquals("Reden: ${Faalreden.onverwacht(BELASTINGDIENST, IllegalStateException())}.", resultaat.letOp)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.herstel
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -20,6 +21,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class HerstelServiceTest {
@@ -163,6 +165,18 @@ class HerstelServiceTest {
 
         // De volledige regel, want juist de naad tussen de twee zinnen is wat hier kan misgaan.
         assertEquals("${mislukt.letOp} $HERSTELTIJD_MELDING", service.herstel().letOp)
+    }
+
+    @Test
+    fun `de let-op-regel komt als tekst over de lijn`() {
+        // `letOp` is hier een afgeleide property en geen constructor-veld, dus Jackson serialiseert
+        // hem langs de getter. `bediening.js` accepteert alleen een string onder precies die sleutel.
+        alleStappenSlagen()
+
+        val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.herstel()))
+
+        assertTrue(json.path("letOp").isTextual, "veld letOp ontbreekt of is geen tekst: $json")
+        assertEquals(HERSTELTIJD_MELDING, json.path("letOp").asText())
     }
 
     @Test

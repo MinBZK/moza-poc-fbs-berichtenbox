@@ -85,6 +85,10 @@ class PaneelContractTest {
         )
 
         assertEquals(200, respons.statusCode(), "onverwachte status voor $url")
+        assertTrue(
+            respons.headers().firstValue("content-type").orElse("").startsWith("application/json"),
+            "onverwacht content-type voor $url",
+        )
 
         return respons.body()
     }
@@ -107,7 +111,7 @@ class PaneelContractTest {
         // `bediening.js` filtert op het type; een expliciete null zou de regel leeg tonen in plaats
         // van te verbergen. Dat hangt aan quarkus.jackson.serialization-inclusion.
         assertTrue(
-            !stuurJson(legeVullingUrl).contains("letOp"),
+            !ObjectMapper().readTree(stuurJson(legeVullingUrl)).has("letOp"),
             "veld letOp hoort te ontbreken als er niets mislukte",
         )
     }
@@ -240,8 +244,11 @@ class VasteStoringService(register: ToxiproxyRegister) : StoringService(register
 }
 
 /**
- * Geen enkel magazijn ingericht, zodat elke aanlevering hier faalt zonder dat er een magazijn hoeft
- * te draaien. Dat is precies het geval waarin het paneel een reden moet tonen.
+ * Geen enkel magazijn ingericht, zodat elke aanlevering faalt zonder dat er een magazijn hoeft te
+ * draaien. Dat is precies het geval waarin het paneel een reden moet tonen.
+ *
+ * `@Mock` is een CDI-alternative en geldt dus voor élke `@QuarkusTest` in deze module, niet alleen
+ * voor deze klasse: een test die een gelukte aanlevering verwacht, krijgt er hier stilzwijgend geen.
  */
 @Mock
 @Singleton

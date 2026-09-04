@@ -21,6 +21,10 @@ internal object Faalreden {
     fun onbereikbaar(magazijnOin: String): String =
         "magazijn $magazijnOin was niet bereikbaar; mogelijk staat er nog een storing aan"
 
+    /**
+     * Alleen het type, niet de foutmelding: die kan een stuk van de payload dragen, en daar staat
+     * het identificatienummer van de ontvanger in. Het log noemt de regel waar het misging.
+     */
     fun onverwacht(magazijnOin: String, fout: Throwable): String =
         "aanleveren bij magazijn $magazijnOin brak onverwacht af (${fout.javaClass.simpleName})"
 
@@ -30,22 +34,33 @@ internal object Faalreden {
      * actieve voorkeur voor déze afzender, en een auth-fout die de profielservice doorgaf — met elk
      * een ander vervolg. Vandaar `detail` uit het problem+json boven de eigen zin.
      *
-     * Dat is veilig op een scherm: elke mapper in de keten schrijft die tekst met de hand, en de
-     * call-site-invariant achter `DomainValidationException` houdt invoer van de aanleveraar eruit.
-     * Ontbreekt hij, dan blijft de eigen zin over.
+     * Alleen bij een 4xx. Een 5xx zegt niets over dít bericht, en het `detail` erbij ("probeer over
+     * 30 seconden opnieuw") leest dan als een afwijzing terwijl er een storing aanstaat — precies
+     * het verschil dat deze meldingen moeten maken.
+     *
+     * Wat de keten in dat veld zet is handgeschreven of enum-gestuurd, en de mappers houden
+     * identificatienummers eruit; wél kan er invoer van de aanleveraar in staan (een afgekeurd
+     * mimeType bijvoorbeeld), dus de tekst gaat afgekapt en op één regel het scherm op.
      */
     fun vanStatus(magazijnOin: String, status: Int, detail: String? = null): String {
-        if (!detail.isNullOrBlank()) return "magazijn $magazijnOin wees het bericht af (HTTP $status): $detail"
+        val eigenReden = when {
+            status == Response.Status.FORBIDDEN.statusCode ->
+                "organisatie $magazijnOin weigert het bericht; begin bij de voorkeuren van deze " +
+                    "ondernemer in de profielservice"
 
-        return when (status) {
-            Response.Status.FORBIDDEN.statusCode ->
-                "organisatie $magazijnOin weigert het bericht; loop de voorkeuren van deze ondernemer " +
-                    "in de profielservice na"
+            status == Response.Status.BAD_REQUEST.statusCode ->
+                "magazijn $magazijnOin keurde het bericht af op de inhoud"
 
-            Response.Status.BAD_REQUEST.statusCode -> "magazijn $magazijnOin keurde het bericht af op de inhoud"
+            status >= SERVERFOUT ->
+                "magazijn $magazijnOin kon het bericht niet verwerken (HTTP $status); mogelijk staat " +
+                    "er nog een storing aan"
 
             else -> "magazijn $magazijnOin antwoordde met HTTP $status"
         }
+
+        if (detail.isNullOrBlank() || status >= SERVERFOUT) return eigenReden
+
+        return "magazijn $magazijnOin wees het bericht af (HTTP $status): ${opEenRegel(detail)}"
     }
 
     /**
@@ -69,8 +84,21 @@ internal object Faalreden {
         return "$aanhef van ${perReden.size} redenen ($aantal van de ${redenen.size}): ${afgerond(reden)}"
     }
 
-    /** Precies één afsluitend leesteken, ook als de reden of het magazijn er zelf al op eindigde. */
+    /** Precies één afsluitend leesteken, ook als de reden er zelf al op eindigde. */
     private fun afgerond(reden: String): String = if (reden.lastOrNull() in LEESTEKENS) reden else "$reden."
 
+    /** De melding is één regel naast een teller; wat het magazijn stuurt bepaalt niet de lay-out. */
+    private fun opEenRegel(detail: String): String {
+        val plat = detail.replace(REGELEINDEN, " ").trim()
+
+        return if (plat.length <= MAX_DETAIL) plat else plat.take(MAX_DETAIL).trimEnd() + "…"
+    }
+
     private val LEESTEKENS = setOf('.', '?', '!')
+    private val REGELEINDEN = Regex("\\s*[\\r\\n]+\\s*")
+
+    /** Ruim genoeg voor elke zin die de keten zelf schrijft, kort genoeg voor één regel op een scherm. */
+    private const val MAX_DETAIL = 200
+
+    private const val SERVERFOUT = 500
 }
