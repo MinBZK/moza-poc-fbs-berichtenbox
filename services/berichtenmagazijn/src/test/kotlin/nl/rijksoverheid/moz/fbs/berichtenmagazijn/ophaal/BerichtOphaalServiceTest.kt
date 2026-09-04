@@ -4,7 +4,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
@@ -12,6 +11,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
@@ -63,7 +64,12 @@ class BerichtOphaalServiceTest {
         val id = UUID.randomUUID()
         every { berichtRepository.findByBerichtId(id) } returns null
 
-        assertThrows<NotFoundException> { service.haalBerichtOp(id, ontvanger) }
+        val fout = assertThrows<FbsFoutException> { service.haalBerichtOp(id, ontvanger) }
+
+        assertEquals(404, fout.response.status)
+        // Hetzelfde kenmerk als op de beheer-paden: dit gaat over een bericht, niet over een
+        // pad dat niet bestaat.
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test
@@ -91,7 +97,10 @@ class BerichtOphaalServiceTest {
         every { berichtRepository.findByBerichtId(b.berichtId) } returns b
         every { bijlageRepository.findByBerichtIdEnBijlageId(b.berichtId, bijlageId) } returns null
 
-        assertThrows<NotFoundException> { service.haalBijlageOp(b.berichtId, bijlageId, ontvanger) }
+        val fout = assertThrows<FbsFoutException> { service.haalBijlageOp(b.berichtId, bijlageId, ontvanger) }
+
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test

@@ -9,11 +9,17 @@ class ProblemResponsesTest {
 
     @Test
     fun `problemResponse zonder instance zet status, content-type en Problem-velden`() {
-        val response = problemResponse(status = 400, title = "Bad Request", detail = "iets ongeldig")
+        val response = problemResponse(
+            status = 400,
+            title = "Bad Request",
+            detail = "iets ongeldig",
+            foutcode = Foutcode.ONGELDIG_VERZOEK,
+        )
 
         assertEquals(400, response.status)
         assertEquals("application/problem+json", response.mediaType.toString())
         val problem = response.entity as Problem
+        assertEquals(Foutcode.ONGELDIG_VERZOEK.uri, problem.type)
         assertEquals("Bad Request", problem.title)
         assertEquals(400, problem.status)
         assertEquals("iets ongeldig", problem.detail)

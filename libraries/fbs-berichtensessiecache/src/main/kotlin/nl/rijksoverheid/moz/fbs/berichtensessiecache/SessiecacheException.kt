@@ -36,4 +36,12 @@ sealed class SessiecacheException(message: String, cause: Throwable? = null) : R
 
     /** Geen actieve sessie voor de ontvanger (aanmeld-schrijfpad). */
     class GeenActieveSessie(message: String) : SessiecacheException(message)
+
+    /**
+     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone leeft — die
+     * krijgt bij het verwijderen de sessie-TTL mee en schuift daarna niet mee met leesverkeer —
+     * en daarna is het weer een gewone misser. Wordt nooit gegooid voor een bericht van een
+     * andere ontvanger: die krijgt de misser die hij ook voor een onbekend bericht zou krijgen.
+     */
+    class BerichtVerwijderd(message: String) : SessiecacheException(message)
 }

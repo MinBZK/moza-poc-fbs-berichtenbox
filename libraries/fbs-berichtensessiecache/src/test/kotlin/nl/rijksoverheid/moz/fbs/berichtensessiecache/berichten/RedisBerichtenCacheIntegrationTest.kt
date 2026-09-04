@@ -301,6 +301,109 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `delete laat een tombstone achter voor de ontvanger zelf`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `de tombstone geldt alleen voor de ontvanger die verwijderde`() {
+        // Anders zou het antwoord op andermans berichtId verraden dát het bestaat.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        val andereOntvanger = Oin(System.nanoTime().toString().padStart(20, '9').takeLast(20))
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertFalse(berichtenCache.isVerwijderdVoor(target.berichtId, andereOntvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een nooit verwijderd bericht heeft geen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        assertFalse(berichtenCache.isVerwijderdVoor(berichten[0].berichtId, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(UUID.randomUUID(), ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `elk verwijderd bericht krijgt zijn eigen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        berichtenCache.delete(berichten[0].berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(berichten[1].berichtId, ontvanger).await().indefinitely()
+
+        assertTrue(berichtenCache.isVerwijderdVoor(berichten[0].berichtId, ontvanger).await().indefinitely())
+        assertTrue(berichtenCache.isVerwijderdVoor(berichten[1].berichtId, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(berichten[2].berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een tweede delete laat de bestaande tombstone intact`() {
+        // De tweede DELETE vindt geen hash meer en schrijft dus geen tombstone; de eerste moet
+        // blijven staan, anders verliest een client die na een netwerkfout opnieuw probeert
+        // precies het kenmerk waar deze wijziging om draait.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een nieuwe ophaalronde laat een eerder verwijderd bericht weer zien`() {
+        // Het realistische terugkeerpad is `store` (een verse ophaalronde), niet `createBericht`.
+        // De tombstone wordt daarbij niet opgeruimd, dus de correctheid hangt aan de
+        // lookup-volgorde: het bericht bestaat weer en wint.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        assertNotNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een opnieuw aangeleverd bericht wint van zijn eigen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        berichtenCache.createBericht(target, ontvanger).await().indefinitely()
+
+        // De tombstone blijft staan maar wordt nooit geraadpleegd zolang het bericht er is;
+        // de lookup-volgorde in de facade is wat dit afdekt.
+        assertNotNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `de tombstone duikt niet op als zoekresultaat`() {
+        // Onder de RediSearch-prefix zou een tombstone als bericht geïndexeerd worden.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        val treffers = berichtenCache.search(ontvanger, "bericht", 0, 50, null, null).await().indefinitely()
+        assertTrue(treffers.berichten.none { it.berichtId == target.berichtId })
+    }
+
+    @Test
     fun `delete onbestaand bericht is no-op`() {
         // Geen exceptie en geen kerneffect — er is simpelweg niets om te verwijderen.
         berichtenCache.delete(UUID.randomUUID(), ontvanger).await().indefinitely()
@@ -578,6 +681,22 @@ class RedisBerichtenCacheIntegrationTest {
         assertTrue(RedisBerichtenCache.SAMENVATTING_VELDEN.containsAll(
             listOf("berichtId", "afzender", "ontvanger", "onderwerp", "publicatietijdstip", "magazijnId", "aantalBijlagen", "map", "status"),
         ))
+    }
+
+    @Test
+    fun `de tombstone verdwijnt met zijn TTL`() {
+        // Zonder TTL zou de key voorgoed blijven staan: onbegrensde groei in Redis, en een 410
+        // die de sessie overleeft waar de API-beschrijving het tegendeel belooft.
+        val berichten = testBerichten().take(1)
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+
+        // TTL is 2s in RealRedisTestProfile, wacht 3s
+        Thread.sleep(3_000)
+
+        assertFalse(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
     }
 
     @Test

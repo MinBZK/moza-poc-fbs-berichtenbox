@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import org.jboss.logging.Logger
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -34,6 +36,55 @@ class SessiecacheFoutMappingTest {
         assertEquals(500, SessiecacheException.Onleesbaar("x").naApiFout().response.status)
         assertEquals(400, SessiecacheException.OngeldigeInvoer("x").naApiFout().response.status)
         assertEquals(404, SessiecacheException.GeenActieveSessie("x").naApiFout().response.status)
+        assertEquals(410, SessiecacheException.BerichtVerwijderd("x").naApiFout().response.status)
+    }
+
+    @Test
+    fun `elke cache-uitkomst draagt zijn eigen kenmerk naar de client`() {
+        val kenmerken = listOf(
+            SessiecacheException.NogNietGevuld("x") to Foutcode.NOG_NIET_OPGEHAALD,
+            SessiecacheException.OphalenBezig("x") to Foutcode.OPHALEN_BEZIG,
+            SessiecacheException.OphalenMislukt("x") to Foutcode.OPHALEN_MISLUKT,
+            SessiecacheException.Onbereikbaar("x") to Foutcode.TIJDELIJK_NIET_BESCHIKBAAR,
+            SessiecacheException.Onleesbaar("x") to Foutcode.INTERNE_FOUT,
+            SessiecacheException.OngeldigeInvoer("x") to Foutcode.ONGELDIG_VERZOEK,
+            SessiecacheException.GeenActieveSessie("x") to Foutcode.GEEN_ACTIEVE_SESSIE,
+            SessiecacheException.BerichtVerwijderd("x") to Foutcode.BERICHT_VERWIJDERD,
+        )
+
+        kenmerken.forEach { (uitkomst, verwacht) ->
+            val fout = uitkomst.naApiFout()
+
+            assertTrue(fout is FbsFoutException, "${uitkomst.javaClass.simpleName} draagt geen kenmerk")
+            assertEquals(verwacht, (fout as FbsFoutException).foutcode)
+        }
+    }
+
+    @Test
+    fun `isStoring en naApiFout spreken elkaar niet tegen`() {
+        // De twee `when`s worden met de hand consistent gehouden, en logEnVertaal bouwt daarop:
+        // het logniveau volgt uit isStoring, de status uit naApiFout. Loopt dat uiteen, dan
+        // verdwijnt een echte storing op debug of vult de gating de waarschuwingen.
+        val gevallen = listOf(
+            SessiecacheException.NogNietGevuld("x"),
+            SessiecacheException.OphalenBezig("x"),
+            SessiecacheException.OphalenMislukt("x"),
+            SessiecacheException.Onbereikbaar("x"),
+            SessiecacheException.Onleesbaar("x"),
+            SessiecacheException.OngeldigeInvoer("x"),
+            SessiecacheException.GeenActieveSessie("x"),
+            SessiecacheException.BerichtVerwijderd("x"),
+        )
+
+        gevallen.forEach { geval ->
+            val status = geval.naApiFout().response.status
+
+            assertEquals(
+                geval.isStoring(),
+                status >= 500,
+                "${geval.javaClass.simpleName}: isStoring=${geval.isStoring()} maar status=$status",
+            )
+        }
     }
 
     @Test
@@ -46,6 +97,7 @@ class SessiecacheFoutMappingTest {
         assertFalse(SessiecacheException.OphalenBezig("x").isStoring())
         assertFalse(SessiecacheException.OngeldigeInvoer("x").isStoring())
         assertFalse(SessiecacheException.GeenActieveSessie("x").isStoring())
+        assertFalse(SessiecacheException.BerichtVerwijderd("x").isStoring())
     }
 
     /**

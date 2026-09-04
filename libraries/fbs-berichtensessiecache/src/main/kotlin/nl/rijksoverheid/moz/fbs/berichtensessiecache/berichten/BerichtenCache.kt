@@ -45,6 +45,13 @@ internal interface BerichtenCache {
     fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void>
 
+    /**
+     * Of [ontvanger] dit bericht binnen deze sessie zélf verwijderde. Alleen te vertrouwen als
+     * antwoord op een misser: staat het bericht er nog, dan is dat de waarheid en zegt de
+     * tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
+     */
+    fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean>
+
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
@@ -62,6 +69,16 @@ internal interface BerichtenCache {
         }
         fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
         const val BERICHT_PREFIX = "bericht:v1:"
+
+        /**
+         * Key van de tombstone die een zelf-verwijderd bericht achterlaat, onder de sessie-key van
+         * de ontvanger. Twee redenen voor die vorm. De eigenaar zit in de key en niet in de waarde,
+         * dus is de tombstone eigenaar-gescopeerd zonder dat er een identificatienummer in Redis
+         * belandt — [cacheKey] is een SHA-256. En de key valt buiten [BERICHT_PREFIX], het
+         * indexeerpatroon van [SEARCH_INDEX], zodat een tombstone niet als zoekresultaat terugkomt.
+         */
+        fun verwijderdKey(ontvanger: Identificatienummer, berichtId: UUID) =
+            "${cacheKey(ontvanger)}:verwijderd:$berichtId"
         const val SEARCH_INDEX = "berichten-idx"
     }
 }
@@ -807,13 +824,60 @@ internal class RedisBerichtenCache(
                     fields["ontvanger"] != ontvanger.waarde ||
                     fields["ontvangerType"] != ontvanger.type.name
                 ) {
+                    // Twee gevallen tegelijk: er is geen hash (tweede DELETE, of de TTL liep af),
+                    // of de hash is van een ándere ontvanger. In het eerste geval valt de eigenaar
+                    // niet meer vast te stellen, in het tweede is de aanroeper niet de eigenaar —
+                    // in geen van beide hoort hier een tombstone te ontstaan. Een tombstone van een
+                    // eerdere DELETE blijft staan; die wordt hier niet aangeraakt.
                     Uni.createFrom().voidItem()
                 } else {
                     pruneListEnDelHash(listKey, berichtKey, berichtId)
+                        .chain { _ -> schrijfTombstone(berichtId, ontvanger) }
                 }
             }
             .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
     }
+
+    override fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
+        redis.key().exists(BerichtenCache.verwijderdKey(ontvanger, berichtId))
+            // Degradeert naar "niet bekend als verwijderd": de tombstone verrijkt een misser, hij
+            // is er geen voorwaarde voor. Zonder deze terugval maakt een Redis-hik op déze lookup
+            // van een doodgewone 404 een 503 met `Retry-After`, en gaat de client wachten op een
+            // bericht dat nooit bestond.
+            .onFailure().invoke { e -> log.warnf(e, "Tombstone-lookup mislukt; misser blijft onbekend. berichtId=%s", berichtId) }
+            .onFailure().recoverWithItem(false)
+
+    /**
+     * Laat achter dat déze ontvanger dit bericht verwijderde, zodat een volgende lookup het
+     * verschil kan maken tussen "nooit gezien" en "zelf weggegooid".
+     *
+     * `SET … EX` in één commando, net als de aggregatie-lock hierboven: bij een losse SET gevolgd
+     * door EXPIRE blijft de key voorgoed staan zodra die tweede stap faalt. De waarde is een
+     * plaatshouder — de eigenaar zit in de key (zie [BerichtenCache.verwijderdKey]).
+     *
+     * De TTL loopt vanaf het verwijderen en schuift níét mee met leesverkeer, anders dan de
+     * sessie-keys en de berichthashes. Een tombstone hoort bij één handeling in het verleden, niet
+     * bij de activiteit van de sessie; het gevolg is wel dat het antwoord in een lang doorlopende
+     * sessie van 410 terugvalt naar 404 zodra de TTL verstrijkt.
+     */
+    private fun schrijfTombstone(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> =
+        redis.value(String::class.java)
+            .set(BerichtenCache.verwijderdKey(ontvanger, berichtId), "1", SetArgs().ex(ttl.seconds))
+            // Best-effort, net als de TTL-verlenging: de delete zelf is dan al onherroepelijk
+            // uitgevoerd, en die alsnog laten omvallen levert een 502 op een geslaagde verwijdering
+            // plus een compensatie-invalidate die niets meer te invalideren heeft. Wat verloren
+            // gaat is het kenmerk: de rest van de sessie meldt "onbekend" waar "verwijderd" hoorde.
+            // Eigen alert-anker, want de generieke delete-logregel zou beweren dat de delete faalde.
+            .onFailure().invoke { e ->
+                log.errorf(
+                    e,
+                    "%s tombstone-schrijf faalde ná geslaagde cache-delete; een volgende lookup meldt onbekend i.p.v. verwijderd. berichtId=%s",
+                    ALERT_TOMBSTONE_VERLOREN,
+                    berichtId,
+                )
+            }
+            .onFailure().recoverWithNull()
+            .replaceWithVoid()
 
     private fun pruneListEnDelHash(listKey: String, berichtKey: String, berichtId: UUID): Uni<Void> =
         redis.list(String::class.java).lrange(listKey, 0, -1)
@@ -849,6 +913,11 @@ internal class RedisBerichtenCache(
         // plafond volstaat en voorkomt ongebonden retry onder pathologische contentie. (Delete
         // gebruikt LREM en heeft geen retry-loop nodig.)
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
+
+        // Stabiel alert-anker (los van vertaalbare proza) voor de Loki-rule die moet alarmeren
+        // wanneer het verwijderd-kenmerk stil wegvalt. Wijzig de waarde niet zonder de
+        // bijbehorende alert-rule mee te verhuizen.
+        private const val ALERT_TOMBSTONE_VERLOREN = "FBS_ALERT[tombstone_verloren]"
 
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"

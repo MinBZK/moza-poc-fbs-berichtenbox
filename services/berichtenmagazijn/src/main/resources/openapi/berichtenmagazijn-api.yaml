@@ -13,6 +13,36 @@ info:
     De ontvanger van een bericht wordt op alle endpoints onder `/berichten` meegestuurd
     als header `X-Ontvanger` in formaat `<TYPE>:<WAARDE>` (zoals `BSN:123456782`),
     zodat persoonsgegevens niet in URL of toegangslogs verschijnen.
+
+    ## Foutantwoorden herkennen
+
+    Elk foutantwoord is `application/problem+json` (RFC 9457) en draagt in `type` een kenmerk
+    van de vorm `urn:fbs:fout:<code>`. Daaraan zie je dat het antwoord van dit magazijn komt en
+    om welke situatie het gaat; ontbreekt `type` of staat er `about:blank`, dan komt het
+    antwoord ergens onderweg vandaan. De codes liggen vast — stuur je gedrag op `type`, niet op
+    `title` of `detail`.
+
+    | `type` | Status | Situatie |
+    |---|---|---|
+    | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht of de bijlage bestaat niet |
+    | `urn:fbs:fout:bericht-verwijderd` | 410 | Het bericht bestond, de ontvanger verwijderde het |
+    | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende toegang, of `X-Ontvanger` hoort niet bij dit bericht |
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 406, 415 | Het verzoek zelf klopt niet |
+    | `urn:fbs:fout:conflict` | 409 | De aanlevering botst met bestaande data |
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet |
+    | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Tijdelijk niet beschikbaar |
+    | `urn:fbs:fout:keten-fout` | 502, 504 | Een schakel vóór dit magazijn hapert — een gateway, of een magazijn dat een storing simuleert |
+    | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
+
+    Dit magazijn onderscheidt "bestaat niet" (404) wél van "bestaat wel, maar hoort bij een andere
+    ontvanger" (403): het zoekt het bericht op vóór het de eigenaar controleert. Een afnemer die
+    dat verschil voor zijn eigen gebruikers dicht wil houden, moet dat zelf doen — de
+    berichten-uitvraag doet dat door uitsluitend uit een per-ontvanger gesleutelde opslag te lezen.
+
+    `410` verschijnt alleen op `PATCH`, ná de eigenaar-check: daar staat vast dat de aanroeper de
+    eigenaar is. Bij het ophalen van een bericht of bijlage filtert de query verwijderde berichten
+    al weg vóór de eigenaar bekend is, dus zou een eigen code daar het bestaan van andermans
+    bericht verraden.
   contact:
     name: MijnOverheid Zakelijk
     email: moza@minbzk.nl
@@ -204,6 +234,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '406':
           $ref: '#/components/responses/NotAcceptable'
+        '410':
+          $ref: '#/components/responses/Gone'
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
         '500':
@@ -738,7 +770,22 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     NotFound:
-      description: Bericht of bijlage niet gevonden voor de opgegeven IDs
+      description: |
+        Bericht of bijlage niet gevonden voor de opgegeven IDs (`urn:fbs:fout:bericht-onbekend`).
+        Een bericht dat wél bestaat maar bij een andere ontvanger hoort, geeft 403 — niet dit
+        antwoord.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Gone:
+      description: |
+        Het bericht bestond, maar de ontvanger verwijderde het
+        (`urn:fbs:fout:bericht-verwijderd`). Alleen op paden waar de eigenaar-check al geslaagd
+        is; elders blijft het een 404.
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'

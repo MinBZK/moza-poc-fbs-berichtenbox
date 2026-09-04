@@ -78,7 +78,15 @@ internal class BlockingSessiecache(
     override fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht? {
         requireGereedStatus(ontvanger)
 
-        return awaitOrServiceUnavailable { service.getBerichtById(berichtId, ontvanger) }
+        val bericht = awaitOrServiceUnavailable { service.getBerichtById(berichtId, ontvanger) }
+
+        if (bericht != null) return bericht
+
+        val zelfVerwijderd = awaitOrServiceUnavailable { service.isBerichtVerwijderd(berichtId, ontvanger) }
+
+        if (zelfVerwijderd) throw SessiecacheException.BerichtVerwijderd("Bericht is door de ontvanger verwijderd")
+
+        return null
     }
 
     override fun werkBerichtBij(

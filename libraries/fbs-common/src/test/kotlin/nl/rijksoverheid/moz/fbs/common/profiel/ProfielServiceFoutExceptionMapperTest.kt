@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.common.profiel
 
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -35,7 +36,7 @@ class ProfielServiceFoutExceptionMapperTest {
 
         assertEquals(503, problem.status)
         assertEquals("Profiel-service tijdelijk niet beschikbaar", problem.title)
-        assertEquals(URI.create("https://moza.nl/problems/profiel-service-onbereikbaar"), problem.type)
+        assertEquals(Foutcode.TIJDELIJK_NIET_BESCHIKBAAR.uri, problem.type)
         assertNotNull(problem.detail)
         assertTrue(problem.detail!!.contains("30 seconden"), "detail moet retry-window vermelden: ${problem.detail}")
     }
@@ -210,7 +211,7 @@ class ProfielServiceFoutExceptionMapperTest {
         val problem = response.entity as Problem
 
         assertEquals(500, response.status)
-        assertEquals(URI.create("https://moza.nl/problems/configuratie-mismatch"), problem.type)
+        assertEquals(Foutcode.CONFIGURATIE_MISMATCH.uri, problem.type)
         org.junit.jupiter.api.Assertions.assertNull(
             response.getHeaderString("Retry-After"),
             "CONFIG_DRIFT mag geen Retry-After hebben (retry helpt niet)",

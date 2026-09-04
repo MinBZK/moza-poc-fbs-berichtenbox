@@ -1,13 +1,13 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.util.UUID
@@ -38,7 +38,7 @@ class BerichtOphaalService(
 ) {
     fun haalBericht(xOntvanger: String, berichtId: UUID): Bericht {
         val domeinBericht = zoekBerichtInCache(xOntvanger, berichtId)
-            ?: throw NotFoundException("Bericht niet gevonden")
+            ?: throw berichtOnbekend()
 
         return UitvraagDtoMapper.toApiBericht(domeinBericht)
     }
@@ -47,9 +47,10 @@ class BerichtOphaalService(
         // Lookup-then-route: cache is authoritative voor welk magazijn de
         // bron is. De extra cache-read is acceptabel: Redis is snel en
         // het bericht-detail is hoe dan ook nodig om de bijlage-toegang te
-        // autoriseren (404 op cache → 404 op uitvraag i.p.v. lekken via 502).
+        // autoriseren (een misser op de cache wordt hier de 404 of 410 van de
+        // client, i.p.v. te lekken via een 502).
         val bericht = zoekBerichtInCache(xOntvanger, berichtId)
-            ?: throw NotFoundException("Bericht niet gevonden")
+            ?: throw berichtOnbekend()
         val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
 
         // `bijlage` heeft een `Response`-returntype: dán past de Quarkus REST-client
@@ -102,7 +103,7 @@ class BerichtOphaalService(
             // case af te handelen). Volledig ontbrekende header is hier wel
             // een echte upstream-bug → 502.
             val mimeType = response.getHeaderString("Content-Type")
-                ?: throw WebApplicationException("magazijn-bijlage zonder Content-Type", Response.Status.BAD_GATEWAY)
+                ?: throw upstreamBadGateway("magazijn-bijlage zonder Content-Type")
 
             // De body-read kan zelf falen (bv. ProcessingException op een afgekapte/
             // corrupte stream). Dat is een upstream-storing, niet onze fout → 502;
@@ -130,15 +131,26 @@ class BerichtOphaalService(
             sessiecache.bericht(Identificatienummer.fromHeader(xOntvanger), berichtId)
         }
 
+    private fun berichtOnbekend() =
+        FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
+
     // 401 niet via NotAuthorizedException: diens enige String-constructor vult een
-    // WWW-Authenticate-challenge i.p.v. een message. Een expliciete WAE(401) geeft
+    // WWW-Authenticate-challenge i.p.v. een message. Een expliciete fout met 401-status geeft
     // de juiste status zonder een nepwaarde in de challenge-header.
     private fun magazijnFout(status: Int): WebApplicationException = when (status) {
-        401 -> WebApplicationException("magazijn-bijlage 401", Response.Status.UNAUTHORIZED)
-        403 -> ForbiddenException("magazijn-bijlage 403")
-        404 -> NotFoundException("magazijn-bijlage 404")
+        401 -> FbsFoutException(Foutcode.GEEN_TOEGANG, Response.Status.UNAUTHORIZED, "magazijn-bijlage 401")
+        403 -> FbsFoutException(Foutcode.GEEN_TOEGANG, Response.Status.FORBIDDEN, "magazijn-bijlage 403")
+        // Het magazijn filtert een verwijderd bericht al in zijn query weg, vóór de eigenaar-check.
+        // Een eigen kenmerk voor "verwijderd" zou hier dus het bestaan van andermans bericht
+        // verraden; een magazijn-404 op de bytes blijft daarom onbekend. Het onderscheid dat de
+        // client wél krijgt komt uit de cache-lookup hierboven, die per ontvanger gesleuteld is.
+        404 -> berichtOnbekend()
+        // Ook een upstream-410: die kan alleen van een tussenliggende schakel komen (het magazijn
+        // geeft hem op dit pad niet) en zou via de statusterugval anders alsnog als "verwijderd"
+        // bij de client landen.
+        410 -> berichtOnbekend()
         in 400..499 -> WebApplicationException("magazijn-bijlage 4xx ($status)", status)
-        else -> WebApplicationException("magazijn-bijlage 5xx ($status)", Response.Status.BAD_GATEWAY)
+        else -> upstreamBadGateway("magazijn-bijlage 5xx ($status)")
     }
 
     private companion object {

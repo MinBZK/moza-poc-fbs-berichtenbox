@@ -49,6 +49,7 @@ class DomainValidationExceptionMapper : ExceptionMapper<DomainValidationExceptio
             status = 400,
             title = "Bad Request",
             detail = exception.message,
+            foutcode = Foutcode.ONGELDIG_VERZOEK,
             instance = URI.create("urn:uuid:$errorId"),
         )
     }
