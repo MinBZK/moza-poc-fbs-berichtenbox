@@ -77,6 +77,14 @@ ontvanger-mismatch valt hij weg tegen een gewone misser.
 
 Ontbreekt `type` of staat er `about:blank`, dan komt het antwoord niet van de keten.
 
+De codewaarden zijn contract naar buiten, en ze staan op meer plekken dan één: de enum, de twee
+foutentabellen in de specs, en de kopie in de simulator. Drie tests sluiten die keten. Een gouden
+test in `fbs-common` legt de veertien waarden vast, zodat een hernoeming een zichtbare handeling
+wordt. Per service toetst een test dat elke code die de foutentabel noemt ook bestaat — het
+spec-schema voor `Problem.type` is `format: uri`, dus de contracttests merken een verdwenen code
+niet op. En de simulator wordt in beide richtingen tegen de gedeelde magazijn-tabel gepind:
+niets dat hij kan geven ontbreekt daar, en niets uit die tabel kent hij niet.
+
 De terugval per statusklasse mag nooit uit zichzelf `bericht-onbekend` kiezen: een 404 op een
 onbekend pad is geen onbekend bericht. Voor 410 ligt dat anders — geen framework-pad produceert
 die status, dus komt hij altijd van de keten zelf en mag de terugval hem als "verwijderd" lezen.

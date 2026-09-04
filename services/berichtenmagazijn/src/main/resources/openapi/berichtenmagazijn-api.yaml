@@ -31,6 +31,7 @@ info:
     | `urn:fbs:fout:conflict` | 409 | De aanlevering botst met bestaande data |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Tijdelijk niet beschikbaar |
+    | `urn:fbs:fout:keten-fout` | 502, 504 | Een schakel vóór dit magazijn hapert — een gateway, of een magazijn dat een storing simuleert |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
 
     Dit magazijn onderscheidt "bestaat niet" (404) wél van "bestaat wel, maar hoort bij een andere
