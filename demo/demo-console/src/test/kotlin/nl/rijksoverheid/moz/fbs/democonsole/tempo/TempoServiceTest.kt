@@ -75,8 +75,9 @@ class TempoServiceTest {
         ),
     )
 
-    // Een echte generator en geen mock: hij is met drie regels testdata op te tuigen en levert
-    // echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's te pinnen.
+    // Een echte generator en geen mock: hij is met één persona en één organisatie op te tuigen en
+    // levert echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's
+    // te pinnen.
     private val generator = DemoBerichtGenerator(
         personas,
         organisaties,

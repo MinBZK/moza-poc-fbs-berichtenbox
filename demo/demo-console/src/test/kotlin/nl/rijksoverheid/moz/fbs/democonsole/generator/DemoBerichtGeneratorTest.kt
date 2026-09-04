@@ -35,8 +35,8 @@ class DemoBerichtGeneratorTest {
         ),
     )
 
-    // Dezelfde identiteit als de personadienst kent. Altijd `keten`: dat is de enige bron die met
-    // magazijnen samengaat, en zonder magazijnen komt een persona hier sowieso niet doorheen.
+    // Dezelfde identiteit als de personadienst kent. Altijd `keten`, want `dataset` gaat volgens
+    // `DemoPersona` niet met magazijnen samen en die heeft de generator juist nodig.
     private fun persona(id: String, label: String, type: String, waarde: String, magazijnen: List<String>) =
         DemoPersona(
             id = id,
@@ -226,17 +226,20 @@ class DemoBerichtGeneratorTest {
         assertTrue(fout.message!!.contains("zwerver"), "de melding hoort de persona te noemen: ${fout.message}")
     }
 
-    @Test
-    fun `een persona wordt op elk van zijn magazijnen getoetst, niet alleen op het eerste`() {
-        // Met een bekend OIN vóór het onbekende: een implementatie die alleen `magazijnen.first()`
-        // toetst komt hier stil doorheen en klapt pas in de demo om op `organisaties.getValue(...)`.
-        val ongeldig = listOf(persona("halfbekend", "Halfbekend", "BSN", "999993653", listOf(rvo, onbekendOin)))
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1])
+    fun `een persona wordt op elk van zijn magazijnen getoetst`(positie: Int) {
+        // Beide posities, want met alleen de laatste zou `magazijnen.first()` doorkomen en met
+        // alleen de eerste `magazijnen.last()`. Zo'n implementatie start op en klapt pas in de
+        // demo om op `organisaties.getValue(...)`.
+        val magazijnen = listOf(rvo, belastingdienst).toMutableList().also { it[positie] = onbekendOin }
+        val ongeldig = listOf(persona("halfbekend", "Halfbekend", "BSN", "999993653", magazijnen))
 
         val fout = assertThrows(IllegalArgumentException::class.java) {
             DemoBerichtGenerator(ongeldig, organisaties, klok)
         }
 
-        assertTrue(fout.message!!.contains(onbekendOin), "de melding hoort het tweede OIN te noemen: ${fout.message}")
+        assertTrue(fout.message!!.contains(onbekendOin), "de melding hoort het foute OIN te noemen: ${fout.message}")
     }
 
     @Test

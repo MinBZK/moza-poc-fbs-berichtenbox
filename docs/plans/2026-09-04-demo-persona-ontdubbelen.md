@@ -11,10 +11,11 @@ De demo-identiteit stond twee keer beschreven: `DemoPersona` in `demo-personas` 
 `demo-console/generator/AanleverModel.kt` (vijf velden, geen eisen). `GeneratorProducer` schreef de
 ene op de andere over, met `label` → `naam` als enige verschil naast het weggelaten `bron`.
 
-Die kopie kostte drie invarianten: `DemoPersona` weigert een lege id, een lege label en een
-ongeldig identificatienummer, `Persona` accepteerde alle drie. De generator had er daarom eigen
-`require`-regels voor teruggezet — dezelfde controle, tweede plek, en alleen voor wie via de
-generator binnenkomt.
+Die kopie kostte élke invariant van het origineel: naast de lege id, het lege label en het ongeldige
+identificatienummer ook de regel dat een id geen nummer mag zijn (die houdt een identificatienummer
+uit de opstartlog), geen lege of dubbele magazijn-OIN, en de eis dat een `dataset`-persona geen
+magazijnen heeft. De generator had er drie van teruggezet — dezelfde controle, tweede plek, en
+alleen voor wie via de generator binnenkomt; de andere drie golden in het paneel simpelweg niet.
 
 ## Wijziging
 
@@ -29,7 +30,7 @@ Behouden — dit is kennis die alleen de generator heeft:
 
 | Eis | Waarom niet elders |
 |-----|--------------------|
-| minstens één persona | `doelgroep()` mag niet leeg zijn; de personadienst staat een lege set niet toe, maar deze constructor wel |
+| minstens één persona | `doelgroep()` mag niet leeg zijn. De personadienst bewaakt alleen dat `alle()` niet leeg is; de generator krijgt `metMagazijnen()`, en dát filter kan wél leegkomen — dan is er niemand meer om voor aan te leveren en breekt `GeneratorProducer` de boot af |
 | id's uniek | de configuratie sleutelt op id en kan geen twee leveren, deze constructor wel |
 | persona heeft magazijnen | `DemoPersona` staat nul magazijnen expliciet toe (Grootbedrijf). `metMagazijnen()` filtert ze normaal weg, maar de constructor neemt ze aan |
 | magazijn-OIN in `organisaties` | `MagazijnKennisUitInrichting` toetst tegen `demo.magazijnen` (aanlever-URL's), de generator tegen zijn sjablonen-map — twee verschillende verzamelingen |

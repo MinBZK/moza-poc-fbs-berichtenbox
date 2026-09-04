@@ -46,9 +46,9 @@ data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sj
 /**
  * Een persona zoals het bedieningspaneel hem aanwijst: alleen waarmee je hem kiest en wat je van
  * hem ziet. Geen demo-identiteit, maar een projectie daarvan — het identificatienummer dat de
- * identiteit draagt blijft zo uit de generator-API en kan niet in een query belanden.
+ * identiteit draagt blijft zo uit de keuzelijst en kan niet in een query belanden.
  *
- * Dit type dwingt niets af; de velden zijn niet leeg omdat [DemoBerichtGenerator.doelgroep] de
- * enige plek is waar het ontstaat.
+ * Dit type dwingt niets af. Wat [DemoBerichtGenerator.doelgroep] oplevert heeft niet-lege velden
+ * omdat `DemoPersona` een lege id en een leeg label weigert.
  */
 data class Doelpersona(val id: String, val label: String)

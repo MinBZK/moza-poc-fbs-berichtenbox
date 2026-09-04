@@ -13,9 +13,9 @@ import kotlin.random.Random
  * de OIN van zijn magazijn, en gaat naar een persona die bij die organisatie opt-in staat —
  * anders weigert het magazijn de aanlevering (403).
  *
- * De grens met de personadienst: wat een demo-identiteit geldig maakt bewaakt `DemoPersona` zelf,
- * wat hieronder in `init` staat is de kennis die alleen deze generator heeft — zijn afzenders en
- * hun sjablonen.
+ * De grens met de personadienst: wat een demo-identiteit op zichzelf geldig maakt bewaakt
+ * `DemoPersona`. Wat hieronder in `init` staat gaat niet over de identiteit maar over wat déze
+ * generator met een set ervan kan beginnen.
  */
 class DemoBerichtGenerator(
     private val personas: List<DemoPersona>,

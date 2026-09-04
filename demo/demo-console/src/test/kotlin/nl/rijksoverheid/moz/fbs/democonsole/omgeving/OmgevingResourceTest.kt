@@ -18,8 +18,6 @@ import java.util.Optional
 
 class OmgevingResourceTest {
 
-    // Het nummer is een parameter en geen vaste waarde: twee persona's met hetzelfde
-    // identificatienummer weigert de personadienst fail-fast, en zo'n fixture kan dus niet bestaan.
     private fun persona(id: String, waarde: String) = DemoPersona(
         id = id,
         label = id.replaceFirstChar { it.uppercase() },
@@ -32,8 +30,9 @@ class OmgevingResourceTest {
     // Een echte generator en geen mock: hij bewaakt zijn eigen invarianten, dus een testdubbel zou
     // een doelgroep kunnen teruggeven die de productie-generator nooit zou opleveren.
     //
-    // Elke persona een eigen identificatienummer: gelijke nummers worden in de personadienst juist
-    // fail-fast geweigerd, en een fixture die niet kan bestaan bewijst niets.
+    // Elke persona een eigen identificatienummer — hier en in `persona(...)` hierboven: gelijke
+    // nummers worden in de personadienst juist fail-fast geweigerd, en een fixture die niet kan
+    // bestaan bewijst niets.
     private fun generator(vararg doelen: Pair<String, String>): DemoBerichtGenerator {
         require(doelen.size <= KVK_NUMMERS.size) { "de fixture kent ${KVK_NUMMERS.size} nummers toe" }
 
