@@ -84,10 +84,7 @@ class BerichtBeheerService(
             throw NotFoundException("Bericht niet gevonden in cache")
         }
 
-        return UitvraagDtoMapper.toApiBericht(
-            bijgewerkt,
-            afzendernamen.naamVoor(bijgewerkt.magazijnId, bijgewerkt.afzenderNaam),
-        )
+        return UitvraagDtoMapper.toApiBericht(bijgewerkt, afzendernamen.naamVoor(bijgewerkt))
     }
 
     fun verwijder(ontvanger: String, berichtId: UUID, magazijnId: String) {

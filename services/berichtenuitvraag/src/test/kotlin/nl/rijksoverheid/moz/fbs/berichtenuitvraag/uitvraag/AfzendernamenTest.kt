@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting
+import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
@@ -10,6 +12,8 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.net.URI
+import java.time.Instant
+import java.util.UUID
 import java.util.stream.Stream
 
 class AfzendernamenTest {
@@ -27,6 +31,18 @@ class AfzendernamenTest {
         return Afzendernamen(register)
     }
 
+    /** Een bericht zoals het uit de sessiecache komt: een magazijnId plus de naam van toen. */
+    private fun samenvatting(magazijnId: String, meegeschrevenNaam: String) = BerichtSamenvatting(
+        berichtId = UUID.randomUUID(),
+        afzender = "00000001003214345000",
+        afzenderNaam = meegeschrevenNaam,
+        ontvanger = Bsn("999990019"),
+        onderwerp = "Onderwerp",
+        publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
+        magazijnId = magazijnId,
+        aantalBijlagen = 0,
+    )
+
     /**
      * Meerdere inschrijvingen borgen dat de lookup per organisatie discrimineert in plaats van de
      * enige/eerste naam terug te geven.
@@ -37,7 +53,7 @@ class AfzendernamenTest {
         val afzendernamen = afzendernamenMet(inschrijvingen)
 
         inschrijvingen.forEach { (oin, naam) ->
-            assertEquals(naam, afzendernamen.naamVoor(oin.waarde, meegeschrevenNaam = "Oude naam"))
+            assertEquals(naam, afzendernamen.naamVoor(samenvatting(oin.waarde, "Oude naam")))
         }
     }
 
@@ -47,7 +63,7 @@ class AfzendernamenTest {
 
         assertEquals(
             "Belastingdienst",
-            afzendernamen.naamVoor(BELASTINGDIENST.waarde, meegeschrevenNaam = "Naam van vóór de hernoeming"),
+            afzendernamen.naamVoor(samenvatting(BELASTINGDIENST.waarde, "Naam van vóór de hernoeming")),
         )
     }
 
@@ -57,7 +73,7 @@ class AfzendernamenTest {
         // inschrijving niet meer. De naam die bij het schrijven meeging is dan het vangnet.
         val afzendernamen = afzendernamenMet(listOf(BELASTINGDIENST to "Belastingdienst"))
 
-        assertEquals("RVO", afzendernamen.naamVoor(RVO.waarde, meegeschrevenNaam = "RVO"))
+        assertEquals("RVO", afzendernamen.naamVoor(samenvatting(RVO.waarde, "RVO")))
     }
 
     @Test
@@ -66,7 +82,7 @@ class AfzendernamenTest {
 
         assertEquals(
             "Belastingdienst",
-            afzendernamen.naamVoor(BELASTINGDIENST.waarde, meegeschrevenNaam = "Belastingdienst"),
+            afzendernamen.naamVoor(samenvatting(BELASTINGDIENST.waarde, "Belastingdienst")),
         )
     }
 
@@ -88,7 +104,7 @@ class AfzendernamenTest {
     fun `magazijnId dat geen geldige OIN is valt terug op de meegeschreven naam`(magazijnId: String) {
         val afzendernamen = afzendernamenMet(listOf(BELASTINGDIENST to "Belastingdienst"))
 
-        assertEquals("Magazijn A", afzendernamen.naamVoor(magazijnId, meegeschrevenNaam = "Magazijn A"))
+        assertEquals("Magazijn A", afzendernamen.naamVoor(samenvatting(magazijnId, "Magazijn A")))
     }
 
     companion object {

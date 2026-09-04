@@ -6,6 +6,8 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
 import java.util.UUID
 
@@ -43,6 +45,14 @@ class BerichtTest {
     // De ontvanger-invariant (niet-leeg, elfproef, lengte) is verplaatst naar het type
     // Identificatienummer zelf — een Bericht kan per constructie geen ongeldige ontvanger
     // meer dragen, dus een aparte leeg-check-test op Bericht is niet meer construeerbaar.
+
+    @ParameterizedTest(name = "afzenderNaam=''{0}''")
+    @ValueSource(strings = ["", "   ", "\u00A0"])
+    fun `blanco afzenderNaam wordt geweigerd`(blanco: String) {
+        // Non-breaking space telt als blank in Kotlin; die grens breekt een handmatige
+        // `== ""`-check, en juist deze invariant draagt het `minLength: 1` in de API-spec.
+        assertThrows<IllegalArgumentException> { geldigBericht.copy(afzenderNaam = blanco) }
+    }
 
     @Test
     fun `lege onderwerp wordt geweigerd`() {

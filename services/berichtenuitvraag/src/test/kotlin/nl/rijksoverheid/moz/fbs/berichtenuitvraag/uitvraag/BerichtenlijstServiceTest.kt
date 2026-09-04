@@ -10,21 +10,33 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatti
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.net.URI
 import java.time.Instant
 import java.util.UUID
 
 class BerichtenlijstServiceTest {
 
     private val sessiecache: Sessiecache = mockk()
-    private val afzendernamen: Afzendernamen = mockk {
-        every { naamVoor(any(), any()) } returns "Kamer van Koophandel"
-        every { naamVoor("00000001823288444000", any()) } returns "Belastingdienst"
+
+    // Een echt register in plaats van een gemockte Afzendernamen: anders zou de test moeten
+    // voorschrijven wélke naam bij welk magazijn hoort, en dat is precies wat hij wil bewijzen.
+    private val register = object : Magazijnregister {
+        private val entries = listOf(
+            Magazijninschrijving(Oin(BELASTINGDIENST), URI.create("http://localhost:8081"), naam = "Belastingdienst"),
+            Magazijninschrijving(Oin(KVK), URI.create("http://localhost:8082"), naam = "Kamer van Koophandel"),
+        )
+
+        override fun alle(): Collection<Magazijninschrijving> = entries
+        override fun voorOin(oin: Oin): Magazijninschrijving? = entries.firstOrNull { it.oin == oin }
     }
-    private val service = BerichtenlijstService(sessiecache, afzendernamen)
+    private val service = BerichtenlijstService(sessiecache, Afzendernamen(register))
     private val ontvanger = Bsn("999990019")
 
     private fun pagina(
@@ -36,7 +48,7 @@ class BerichtenlijstServiceTest {
 
     private fun samenvatting(
         id: UUID = UUID.randomUUID(),
-        magazijnId: String = "magazijn-a",
+        magazijnId: String = KVK,
     ) = BerichtSamenvatting(
         berichtId = id,
         afzender = "00000001003214345000",
@@ -83,17 +95,14 @@ class BerichtenlijstServiceTest {
         assertEquals("Onderwerp", item.onderwerp)
         assertEquals(2, item.aantalBijlagen)
         assertEquals("werk", item.map)
-        assertEquals("magazijn-a", item.magazijnId)
+        assertEquals(KVK, item.magazijnId)
         assertEquals("/api/v1/berichten/$id", item.links.self.href)
     }
 
     @Test
     fun `lijst zet de afzendernaam per bericht`() {
         every { sessiecache.lijst(ontvanger, null, null) } returns pagina(
-            berichten = listOf(
-                samenvatting(magazijnId = "00000001823288444000"),
-                samenvatting(magazijnId = "00000001003214345000"),
-            ),
+            berichten = listOf(samenvatting(magazijnId = BELASTINGDIENST), samenvatting(magazijnId = KVK)),
         )
 
         val berichten = service.lijst("BSN:999990019", null, null).berichten
@@ -107,7 +116,7 @@ class BerichtenlijstServiceTest {
     @Test
     fun `zoek zet de afzendernaam uit het register op elk bericht`() {
         every { sessiecache.zoek(ontvanger, "rente") } returns pagina(
-            berichten = listOf(samenvatting(magazijnId = "00000001823288444000")),
+            berichten = listOf(samenvatting(magazijnId = BELASTINGDIENST)),
         )
 
         val berichten = service.zoek("BSN:999990019", "rente").berichten
@@ -165,5 +174,11 @@ class BerichtenlijstServiceTest {
         val conflict = assertThrows<WebApplicationException> { service.lijst("BSN:999990019", null, null) }
 
         assertEquals(409, conflict.response.status)
+    }
+
+    private companion object {
+
+        private const val BELASTINGDIENST = "00000001823288444000"
+        private const val KVK = "00000001003214345000"
     }
 }

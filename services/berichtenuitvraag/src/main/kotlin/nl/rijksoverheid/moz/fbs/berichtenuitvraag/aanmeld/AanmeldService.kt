@@ -128,15 +128,25 @@ class AanmeldService(
         val publicatietijdstip = data.publicatietijdstip ?: throw badRequest("data.publicatietijdstip ontbreekt.")
 
         val afzender = parseAfzender(data.afzender!!)
-        val bron = afzenderIndex.magazijnVoor(afzender)
-            ?: throw badRequest("Afzender hoort bij geen geconfigureerd magazijn.")
+        val bron = afzenderIndex.magazijnVoor(afzender) ?: run {
+            // De omringende 400's zijn payload-fouten van de aanleveraar; deze niet — hier deugt
+            // het event en klopt ons register niet. Zonder logregel verdwijnt de geweigerde
+            // aanmelding spoorloos terwijl de peer een 400 ziet die naar zíjn kant wijst.
+            // OIN voluit: publiek organisatienummer, geen PII.
+            log.errorf(
+                "Aanmelding geweigerd: afzender-OIN '%s' staat niet in het magazijnregister — config-drift?",
+                afzender.waarde,
+            )
+
+            throw badRequest("Afzender hoort bij geen geconfigureerd magazijn.")
+        }
 
         return GepubliceerdBerichtEvent(
             eventId = event.id!!,
             berichtId = berichtId,
             afzender = afzender,
             ontvanger = parseOntvanger(ontvangerDto),
-            magazijnId = bron.magazijnId,
+            magazijnId = bron.oin.waarde,
             afzenderNaam = bron.naam,
             onderwerp = data.onderwerp!!,
             inhoud = data.inhoud!!,

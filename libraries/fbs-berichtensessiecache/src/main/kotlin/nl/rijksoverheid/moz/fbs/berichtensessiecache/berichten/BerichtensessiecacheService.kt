@@ -12,6 +12,7 @@ import jakarta.enterprise.event.Observes
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazijn
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
@@ -248,8 +249,8 @@ internal class BerichtensessiecacheService(
 
         val ontvangerString = ontvanger.toCanonicalString()
 
-        val magazijnStreams = clients.map { (magazijnId, client) ->
-            bouwMagazijnStream(magazijnId, client, ontvangerString, alleBerichten, geslaagd, mislukt)
+        val magazijnStreams = clients.map { (magazijnId, magazijn) ->
+            bouwMagazijnStream(magazijnId, magazijn, ontvangerString, alleBerichten, geslaagd, mislukt)
         }
 
         // Aggregatie-pipeline: draait onafhankelijk van de SSE-client door tot voltooiing.
@@ -411,8 +412,8 @@ internal class BerichtensessiecacheService(
      * Cleanup vóór de throw: zonder dit blijft de lock tot TTL hangen en blokkeert
      * legitieme retries na de drift-fix.
      */
-    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, MagazijnClient> {
-        val allClients = clientFactory.getAllClients()
+    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, IngeschrevenMagazijn> {
+        val allClients = clientFactory.getAllMagazijnen()
         val onbekend = resolvedIds - allClients.keys
 
         if (onbekend.isNotEmpty()) {
@@ -503,13 +504,14 @@ internal class BerichtensessiecacheService(
      */
     private fun bouwMagazijnStream(
         magazijnId: String,
-        client: MagazijnClient,
+        magazijn: IngeschrevenMagazijn,
         ontvangerString: String,
         alleBerichten: MutableList<Bericht>,
         geslaagd: AtomicInteger,
         mislukt: AtomicInteger,
     ): Multi<MagazijnEvent> {
-        val naam = clientFactory.getNaam(magazijnId)
+        val naam = magazijn.naam
+        val client = magazijn.client
 
         val gestartEvent = MagazijnBevragingGestart(magazijnId = magazijnId, naam = naam)
 

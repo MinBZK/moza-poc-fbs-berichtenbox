@@ -138,10 +138,10 @@ class ServiceCoverageTest {
 
     @Test
     fun `een magazijn dat uit het register verdween houdt de naam die met het bericht meeging`() {
-        // Config-drift tijdens een lopende sessie: het register kent dit magazijnId niet (meer),
-        // maar het bericht draagt de naam van toen het werd opgeslagen. Het veld is verplicht in
+        // Config-drift tijdens een lopende sessie: een geldige OIN die het register niet (meer)
+        // kent. Het bericht draagt de naam van toen het werd opgeslagen; het veld is verplicht in
         // het contract, dus het mag ook dan niet wegvallen.
-        seedBericht(UUID.randomUUID(), magazijnId = "magazijn-verdwenen", afzenderNaam = "Gemeente Delft")
+        seedBericht(UUID.randomUUID(), magazijnId = ONBEKENDE_OIN, afzenderNaam = "Gemeente Delft")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -149,7 +149,22 @@ class ServiceCoverageTest {
             .get("/api/v1/berichten")
             .then()
             .statusCode(200)
-            .body("berichten[0].magazijnId", equalTo("magazijn-verdwenen"))
+            .body("berichten[0].magazijnId", equalTo(ONBEKENDE_OIN))
+            .body("berichten[0].afzenderNaam", equalTo("Gemeente Delft"))
+    }
+
+    @Test
+    fun `een cache-entry met een niet-OIN magazijnId houdt eveneens zijn meegeschreven naam`() {
+        // Andere tak dan hierboven: deze waarde haalt de OIN-validatie niet eens. Ook dan mag de
+        // lijst niet omvallen en mag het verplichte veld niet wegvallen.
+        seedBericht(UUID.randomUUID(), magazijnId = "magazijn-uit-een-oudere-staat", afzenderNaam = "Gemeente Delft")
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
             .body("berichten[0].afzenderNaam", equalTo("Gemeente Delft"))
     }
 
@@ -539,5 +554,11 @@ class ServiceCoverageTest {
             wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
         )
+    }
+
+    private companion object {
+
+        // Geldige OIN die in geen enkele testconfiguratie is ingeschreven.
+        private const val ONBEKENDE_OIN = "00000009999999990000"
     }
 }

@@ -58,19 +58,16 @@ class MagazijnClientFactoryInitTest {
     }
 
     @Test
-    fun `getNaam levert de register-naam per magazijnId`() {
+    fun `elk magazijn draagt zijn eigen registernaam naast zijn client`() {
+        // Twee inschrijvingen met verschillende namen: dit vangt een client-map en een namen-map
+        // die per sleutel uit de pas lopen, de reden dat ze één map zijn geworden.
         val factory = factory(inschrijving(oinA, naam = "Belastingdienst"), inschrijving(oinB, naam = "RVO"))
 
-        assertEquals("Belastingdienst", factory.getNaam(oinA))
-        assertEquals("RVO", factory.getNaam(oinB))
-    }
+        val magazijnen = factory.getAllMagazijnen()
 
-    @Test
-    fun `getNaam op een niet-ingeschreven magazijnId is een programmeerfout`() {
-        // Aanroepers itereren over getAllClients(); een ander magazijnId hoort hier niet te komen.
-        val factory = factory(inschrijving(oinA))
-
-        assertThrows<IllegalStateException> { factory.getNaam(oinB) }
+        assertEquals("Belastingdienst", magazijnen[oinA]?.naam)
+        assertEquals("RVO", magazijnen[oinB]?.naam)
+        assertEquals(magazijnen.keys, factory.getAllClients().keys)
     }
 
     @Test

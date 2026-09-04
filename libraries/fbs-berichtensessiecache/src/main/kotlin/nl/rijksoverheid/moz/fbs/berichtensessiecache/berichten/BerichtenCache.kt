@@ -63,9 +63,17 @@ internal interface BerichtenCache {
         // v2: sinds berichten een verplichte `afzenderNaam` dragen. Een v1-entry mist dat veld
         // en zou als corrupt gelezen worden; een eigen prefix laat de oude entries via hun TTL
         // verlopen in plaats van leesfouten te geven.
-        fun berichtKey(berichtId: UUID) = "bericht:v2:$berichtId"
+        fun berichtKey(berichtId: UUID) = "$BERICHT_PREFIX$berichtId"
         const val BERICHT_PREFIX = "bericht:v2:"
-        const val SEARCH_INDEX = "berichten-idx"
+
+        // De index-naam draagt dezelfde versie als de prefix waarop hij filtert, en dat is geen
+        // cosmetica: de bootstrap laat een bestaande index bewust ongemoeid, dus een index die op
+        // `bericht:v1:` is aangemaakt zou blijven staan terwijl alle nieuwe hashes onder
+        // `bericht:v2:` landen. Filter- en zoekqueries geven dan stil nul resultaten — een
+        // index op de verkeerde prefix is functioneel identiek aan géén index, maar valt buiten
+        // de fail-fast hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index
+        // aan en blijven oude pods tijdens een rolling deploy op de oude werken.
+        const val SEARCH_INDEX = "berichten-idx-v2"
     }
 }
 

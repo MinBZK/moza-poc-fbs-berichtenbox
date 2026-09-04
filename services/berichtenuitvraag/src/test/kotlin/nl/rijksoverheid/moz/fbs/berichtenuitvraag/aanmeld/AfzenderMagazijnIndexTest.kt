@@ -43,7 +43,7 @@ class AfzenderMagazijnIndexTest {
         ingeschreven.forEach { oin ->
             val bron = index.magazijnVoor(oin)
 
-            assertEquals(oin.waarde, bron?.magazijnId)
+            assertEquals(oin, bron?.oin)
             assertEquals("Magazijn ${oin.waarde.takeLast(4)}", bron?.naam)
         }
     }

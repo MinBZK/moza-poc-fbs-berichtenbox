@@ -16,6 +16,13 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.util.concurrent.TimeUnit
 
+/**
+ * Eén ingeschreven magazijn zoals de aggregatie het nodig heeft: de client om het te bevragen en
+ * de weergavenaam om in de voortgang en op elk bericht te zetten. Samen in één waarde zodat ze
+ * niet per string-sleutel bij elkaar gezocht hoeven te worden en dus ook niet uiteen kunnen lopen.
+ */
+internal data class IngeschrevenMagazijn(val client: MagazijnClient, val naam: String)
+
 @ApplicationScoped
 internal class MagazijnClientFactory(
     private val register: Magazijnregister,
@@ -32,8 +39,10 @@ internal class MagazijnClientFactory(
     private val tlsRegistry: TlsConfigurationRegistry,
 ) {
     private val log = Logger.getLogger(MagazijnClientFactory::class.java)
+    private lateinit var cachedMagazijnen: Map<String, IngeschrevenMagazijn>
+
+    // Afgeleid bij init, niet per aanroep: `getAllClients` draait per ophaalronde.
     private lateinit var cachedClients: Map<String, MagazijnClient>
-    private lateinit var cachedNamen: Map<String, String>
 
     /**
      * Dwingt bean-instantiatie — en daarmee [init] met zijn validatie — af bij het opstarten.
@@ -53,10 +62,14 @@ internal class MagazijnClientFactory(
         // magazijnId == oin.waarde — de identiteitsconventie uit het register.
         val inschrijvingen = register.alle()
 
-        cachedClients = inschrijvingen.associate { it.oin.waarde to createClient(it) }
-        cachedNamen = inschrijvingen.associate { it.oin.waarde to it.naam }
+        // Client en naam in één map: twee parallelle maps kunnen uiteenlopen, en een magazijn
+        // zonder naam zou dan pas midden in een ophaalronde aan het licht komen.
+        cachedMagazijnen = inschrijvingen.associate {
+            it.oin.waarde to IngeschrevenMagazijn(createClient(it), it.naam)
+        }
+        cachedClients = cachedMagazijnen.mapValues { (_, magazijn) -> magazijn.client }
 
-        log.infof("Geconfigureerde magazijnen: %s", cachedClients.keys)
+        log.infof("Geconfigureerde magazijnen: %s", cachedMagazijnen.keys)
     }
 
     /**
@@ -80,13 +93,8 @@ internal class MagazijnClientFactory(
 
     fun getAllClients(): Map<String, MagazijnClient> = cachedClients
 
-    /**
-     * Weergavenaam van een ingeschreven magazijn. Elke inschrijving draagt er verplicht één en
-     * aanroepers itereren over [getAllClients], dus een onbekend magazijnId is een programmeerfout
-     * en geen configuratiegeval.
-     */
-    fun getNaam(magazijnId: String): String = cachedNamen[magazijnId]
-        ?: throw IllegalStateException("Geen magazijninschrijving voor magazijnId '$magazijnId'")
+    /** Alle ingeschreven magazijnen, elk met de client én de weergavenaam uit het register. */
+    fun getAllMagazijnen(): Map<String, IngeschrevenMagazijn> = cachedMagazijnen
 
     /**
      * Magazijn-set voor een opted-in afzender-OIN. Door de 1:1-koppeling OIN↔magazijn

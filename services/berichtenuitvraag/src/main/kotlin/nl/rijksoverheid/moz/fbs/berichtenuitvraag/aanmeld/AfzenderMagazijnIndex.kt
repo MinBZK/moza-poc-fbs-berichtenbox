@@ -23,8 +23,13 @@ class AfzenderMagazijnIndex(private val register: Magazijnregister) {
      * cache-entry hem net zo hard nodig heeft als het `magazijnId`: de berichtenlijst toont hem.
      */
     fun magazijnVoor(afzender: Oin): BronMagazijn? = register.voorOin(afzender)
-        ?.let { BronMagazijn(magazijnId = it.oin.waarde, naam = it.naam) }
+        ?.let { BronMagazijn(oin = it.oin, naam = it.naam) }
 
-    /** Het magazijn waaruit een aangemeld bericht komt: het id om op te routeren, de naam om te tonen. */
-    data class BronMagazijn(val magazijnId: String, val naam: String)
+    /**
+     * Het magazijn waaruit een aangemeld bericht komt, versmald tot wat het aanmeld-pad nodig
+     * heeft: `url` en `grantHash` van de inschrijving horen daar niet te lekken. De `Oin` blijft
+     * getypeerd — hem hier tot `String` wassen zou de validatie weggooien die het register al
+     * gedaan heeft, en twee `String`-velden naast elkaar zijn verwisselbaar.
+     */
+    data class BronMagazijn(val oin: Oin, val naam: String)
 }

@@ -8,6 +8,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazijn
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
@@ -73,7 +74,9 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
             Bericht(
                 berichtId = UUID.fromString("44444444-4444-4444-4444-444444444444"),
                 afzender = "00000005555555550000",
-                afzenderNaam = "Magazijn A",
+                // Bewust een andere naam dan de A-fixtures: met vier identieke namen zou geen
+                // enkele assertie kunnen zien of de naam bij het juiste magazijn wordt opgehaald.
+                afzenderNaam = "Magazijn B",
                 ontvanger = Bsn("999993653"),
                 onderwerp = "Test bericht 4",
                 inhoud = "Inhoud van test bericht 4",
@@ -92,18 +95,19 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
         var shouldHttpFailB: Int? = null
     }
 
-    override fun getAllClients(): Map<String, MagazijnClient> {
-        return mapOf(
-            WireMockMagazijnResource.OIN_A to magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
-            WireMockMagazijnResource.OIN_B to magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
-        )
-    }
+    override fun getAllMagazijnen(): Map<String, IngeschrevenMagazijn> = mapOf(
+        WireMockMagazijnResource.OIN_A to IngeschrevenMagazijn(
+            magazijnClient(testBerichtenA, { shouldFailA }, { shouldTimeoutA }, { shouldHttpFailA }),
+            "Magazijn A",
+        ),
+        WireMockMagazijnResource.OIN_B to IngeschrevenMagazijn(
+            magazijnClient(testBerichtenB, { shouldFailB }, { shouldTimeoutB }, { shouldHttpFailB }),
+            "Magazijn B",
+        ),
+    )
 
-    override fun getNaam(magazijnId: String): String = when (magazijnId) {
-        WireMockMagazijnResource.OIN_A -> "Magazijn A"
-        WireMockMagazijnResource.OIN_B -> "Magazijn B"
-        else -> throw IllegalStateException("Geen magazijninschrijving voor magazijnId '$magazijnId'")
-    }
+    override fun getAllClients(): Map<String, MagazijnClient> =
+        getAllMagazijnen().mapValues { (_, magazijn) -> magazijn.client }
 
     // De @PostConstruct-init van de superclass bouwt clients voor de register-entries;
     // mockk() voorkomt dat de Quarkus-REST-client-builder echte clients opzet (de

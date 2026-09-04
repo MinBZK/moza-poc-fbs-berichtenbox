@@ -194,7 +194,7 @@ magazijnen."00000000000000100000".grantHash=${MAGAZIJN_A_GRANT_HASH:}
 ```
 
 Omdat de map-key de OIN is, zijn dubbele OIN's structureel onmogelijk. `ConfigMagazijnregister`
-valideert keys en URL's bij het opstarten en weigert buiten dev/test een niet-https-adres. In `%dev`
+valideert keys, URL's en namen bij het opstarten en weigert buiten dev/test een niet-https-adres. In `%dev`
 staan de URL's op `http://localhost:8090` en `:8091` als default, zodat dezelfde configuratie in een
 container naar container-DNS wijst zonder de basisregels te hoeven overschrijven. Een lege
 `grantHash` betekent: geen FSC-outway, roep het magazijn rechtstreeks aan.

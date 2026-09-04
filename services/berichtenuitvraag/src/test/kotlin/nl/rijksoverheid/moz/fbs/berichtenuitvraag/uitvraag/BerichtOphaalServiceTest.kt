@@ -26,7 +26,7 @@ class BerichtOphaalServiceTest {
         every { forMagazijn(any()) } returns magazijn
     }
     private val afzendernamen: Afzendernamen = mockk {
-        every { naamVoor(any(), any()) } returns "Magazijn A"
+        every { naamVoor(any<Bericht>()) } returns "Magazijn A"
     }
     private val service = BerichtOphaalService(sessiecache, router, afzendernamen)
 

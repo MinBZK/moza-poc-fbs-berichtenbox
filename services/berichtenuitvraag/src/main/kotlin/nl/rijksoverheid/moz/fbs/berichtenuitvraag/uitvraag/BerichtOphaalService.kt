@@ -41,10 +41,7 @@ class BerichtOphaalService(
         val domeinBericht = zoekBerichtInCache(xOntvanger, berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
 
-        return UitvraagDtoMapper.toApiBericht(
-            domeinBericht,
-            afzendernamen.naamVoor(domeinBericht.magazijnId, domeinBericht.afzenderNaam),
-        )
+        return UitvraagDtoMapper.toApiBericht(domeinBericht, afzendernamen.naamVoor(domeinBericht))
     }
 
     fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {

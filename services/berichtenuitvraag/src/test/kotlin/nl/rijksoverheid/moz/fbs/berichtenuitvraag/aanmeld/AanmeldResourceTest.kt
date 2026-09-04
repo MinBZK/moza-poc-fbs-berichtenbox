@@ -102,6 +102,9 @@ class AanmeldResourceTest {
         assertEquals(afzender, bericht?.magazijnId)
         assertEquals(0, bericht?.aantalBijlagen)
         assertEquals(afzender, bericht?.afzender)
+        // De naam komt uit het register en wordt mee opgeslagen; op het leespad zou het register
+        // hem hoe dan ook leveren, dus alleen deze assertie pint de schrijfkant vast.
+        assertEquals("RVO", bericht?.afzenderNaam)
         assertEquals(Bsn("999990019"), bericht?.ontvanger)
     }
 

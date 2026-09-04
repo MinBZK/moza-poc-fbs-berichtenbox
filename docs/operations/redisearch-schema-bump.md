@@ -3,7 +3,7 @@
 ## Context
 
 `berichtensessiecache` indexeert berichten in een RediSearch-index
-(`berichten-idx`) voor zoek- en filter-queries (`GET /berichten?afzender=...`,
+(`berichten-idx-v2`) voor zoek- en filter-queries (`GET /berichten/_zoeken?q=...`,
 `GET /berichten/_zoeken?q=...`). Het schema wordt gedefinieerd in
 `RedisBerichtenCache.init()`:
 
@@ -14,8 +14,15 @@ CreateArgs()
     .indexedField("onderwerp", FieldType.TEXT)
     .indexedField("afzender", FieldType.TAG)
     .indexedField("ontvanger", FieldType.TAG)
-    .indexedField("tijdstip", FieldType.TAG)
+    .indexedField("ontvangerType", FieldType.TAG)
+    .indexedField("publicatietijdstip", FieldType.TAG)
+    .indexedField("map", FieldType.TAG)
 ```
+
+De index-naam draagt dezelfde versie als de prefix waarop hij filtert. Dat is geen cosmetica:
+verandert alleen de prefix, dan blijft de bestaande index staan (zie het bootstrap-gedrag
+hieronder) en indexeert hij de nieuwe hashes niet. Met de versie in de naam maakt elke nieuwe pod
+zijn eigen index aan en is een handmatige drop niet nodig bij een prefix-wijziging.
 
 ## Bootstrap-gedrag (idempotent)
 
@@ -63,10 +70,10 @@ kubectl exec -it <berichtensessiecache-pod> -- env | grep REDIS_HOSTS
 Vanaf een pod met `redis-cli` of via `redis-cli` op de Redis-host:
 
 ```sh
-redis-cli -h <REDIS_HOST> -p 6379 FT.DROPINDEX berichten-idx
+redis-cli -h <REDIS_HOST> -p 6379 FT.DROPINDEX berichten-idx-v2
 ```
 
-**Niet `FT.DROPINDEX berichten-idx DD`** — de `DD`-flag verwijdert ook de
+**Niet `FT.DROPINDEX berichten-idx-v2 DD`** — de `DD`-flag verwijdert ook de
 onderliggende `bericht:v2:*`-hashes. Dat is onnodig: alleen het index-schema
 wordt opnieuw gebouwd, de berichten zelf blijven via TTL geldig en worden door
 de stap-4-create automatisch opnieuw geïndexeerd.
@@ -75,7 +82,7 @@ Verifieer dat de drop is geslaagd:
 
 ```sh
 redis-cli -h <REDIS_HOST> -p 6379 FT._LIST
-# Verwachte output: lege lijst (of zonder berichten-idx)
+# Verwachte output: lege lijst (of zonder berichten-idx-v2)
 ```
 
 ### 4. Trigger create via pod-restart
@@ -84,11 +91,11 @@ redis-cli -h <REDIS_HOST> -p 6379 FT._LIST
 kubectl rollout restart deployment/berichtensessiecache
 ```
 
-De eerstvolgende pod die start ziet `FT._LIST` zonder `berichten-idx`,
+De eerstvolgende pod die start ziet `FT._LIST` zonder `berichten-idx-v2`,
 voert `FT.CREATE` uit met het **nieuwe** schema, en logt:
 
 ```
-INFO  RediSearch index 'berichten-idx' aangemaakt
+INFO  RediSearch index 'berichten-idx-v2' aangemaakt
 ```
 
 Volgende pods zien de index bestaan en doen niets — idempotent.
@@ -96,7 +103,7 @@ Volgende pods zien de index bestaan en doen niets — idempotent.
 ### 5. Verifieer nieuwe schema-velden
 
 ```sh
-redis-cli -h <REDIS_HOST> -p 6379 FT.INFO berichten-idx
+redis-cli -h <REDIS_HOST> -p 6379 FT.INFO berichten-idx-v2
 ```
 
 Check dat het nieuwe veld (bv. `magazijnId`) in de `attributes`-sectie staat.
@@ -121,7 +128,7 @@ Search-endpoint is weer beschikbaar. Sluit het maintenance-window.
 | Symptoom | Oorzaak | Herstel |
 |---|---|---|
 | `FT.DROPINDEX` returnt `(error) Unknown index name` | Index bestaat niet (al gedropt) | Stap 4: laat pods opnieuw starten; create wordt automatisch gedaan |
-| Pods loggen `RediSearch index 'berichten-idx' kon niet worden aangemaakt` | Redis is overbelast of permissie-issue | Check Redis-logs, verifieer `quarkus.redis.hosts`-credentials |
+| Pods loggen `RediSearch index 'berichten-idx-v2' kon niet worden aangemaakt` | Redis is overbelast of permissie-issue | Check Redis-logs, verifieer `quarkus.redis.hosts`-credentials |
 | Search retourneert 0 resultaten op zojuist opgeslagen bericht | Bericht is geschreven vóór de create | Wacht tot volgende `store()`-aanroep of trigger handmatig een ophaalsessie |
 | Pods loggen `Kan RediSearch indexen niet opvragen (Redis onbereikbaar bij startup?)` | Redis-cluster niet bereikbaar bij pod-start | Standard troubleshooting: netwerk, DNS, credentials |
 
@@ -130,7 +137,16 @@ Search-endpoint is weer beschikbaar. Sluit het maintenance-window.
 | Wijziging | Aanleiding | Actie nodig |
 |---|---|---|
 | `ontvangerType` (TAG) toegevoegd; zoek/filter worden type-aware (`@ontvanger:{..} @ontvangerType:{..}`) | Getypeerde ontvanger + cross-type-isolatie (#625, #648) | Eenmalig deze procedure (drop + restart). **Pre-productie:** cache mag leeglopen; geen maintenance-window nodig. |
-| Sleutel-prefix `bericht:v1:` → `bericht:v2:`; hash-veld `afzenderNaam` toegevoegd aan de opslag en aan de samenvatting-projectie | Elk bericht draagt een verplichte weergavenaam van zijn organisatie (#1065) | Eenmalig deze procedure (drop + restart). De prefix verandert mee, dus de index móet opnieuw. `v1`-entries missen het nieuwe veld en worden door de nieuwe prefix niet meer gelezen; ze verlopen via hun eigen TTL. **Pre-productie:** cache mag leeglopen; geen maintenance-window nodig. |
+| Sleutel-prefix `bericht:v1:` → `bericht:v2:`, index-naam `berichten-idx` → `berichten-idx-v2`; hash-veld `afzenderNaam` toegevoegd aan de opslag en aan de samenvatting-projectie | Elk bericht draagt een verplichte weergavenaam van zijn organisatie (#1065) | **Geen handmatige stap.** De index-naam bumpte mee, dus elke nieuwe pod maakt `berichten-idx-v2` zelf aan terwijl oude pods op `berichten-idx` blijven werken — een rolling deploy verloopt zonder venster. `v1`-entries missen het nieuwe veld en worden door de nieuwe prefix niet meer gelezen; ze verlopen via hun eigen TTL. Opruimtaak achteraf: `FT.DROPINDEX berichten-idx` (zonder `DD`) zodra alle pods op de nieuwe versie draaien. |
+
+**Wat er gebeurt als de index-naam níet meebumpt bij een prefix-wijziging** (de reden dat hij dat
+hier wél doet): de bootstrap laat een bestaande index ongemoeid, dus die blijft op de oude prefix
+filteren. Nieuwe hashes worden dan nooit geïndexeerd en `_zoeken` en de gefilterde lijst geven
+**stil nul resultaten** — HTTP 200 met een lege lijst, geen fout, geen logregel. Draaien er
+tegelijk nog oude pods, dan komen hún hashes wél uit de index en missen die het nieuwe veld:
+`documentToSamenvatting` gooit dan `CacheCorruptedException` → HTTP 500 met een melding die naar
+datacorruptie wijst in plaats van naar een overgeslagen schema-bump. Anders dan de
+`ontvangerType`-bump hierboven is dat fail-*silent*, niet fail-*closed*.
 
 **Veiligheid tijdens de transitie (`ontvangerType`):** draait de type-aware filter op een
 nog-niet-gebumpte index (zonder `ontvangerType`-veld), dan levert RediSearch **lege resultaten
@@ -155,6 +171,6 @@ Geen automatische versie-tracking in Redis (zoals Flyway voor PostgreSQL).
 Houd schema-wijzigingen bij in `CHANGELOG.md` of via PR-titel-conventie zodat
 deploy-team weet wanneer deze procedure nodig is.
 
-Bij twijfel: vergelijk `FT.INFO berichten-idx`-output met
+Bij twijfel: vergelijk `FT.INFO berichten-idx-v2`-output met
 `RedisBerichtenCache.init()` `CreateArgs(...)` — afwijking betekent schema-bump
 nodig.

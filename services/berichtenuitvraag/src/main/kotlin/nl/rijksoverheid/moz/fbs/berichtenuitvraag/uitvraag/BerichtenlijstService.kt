@@ -58,10 +58,7 @@ class BerichtenlijstService(
         }
 
     private fun toApiSamenvatting(samenvatting: DomeinSamenvatting) =
-        UitvraagDtoMapper.toApiSamenvatting(
-            samenvatting,
-            afzendernamen.naamVoor(samenvatting.magazijnId, samenvatting.afzenderNaam),
-        )
+        UitvraagDtoMapper.toApiSamenvatting(samenvatting, afzendernamen.naamVoor(samenvatting))
 
     private fun paginaLinks(pagina: BerichtenPagina, maakHref: (Int) -> String): PaginaLinks {
         val links = PaginaLinks()

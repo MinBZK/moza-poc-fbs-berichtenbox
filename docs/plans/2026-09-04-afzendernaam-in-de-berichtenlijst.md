@@ -103,13 +103,12 @@ gewoon leeglopen.
 - `AfzendernamenTest`: per organisatie de eigen naam (parameterized over één t/m meerdere
   inschrijvingen, zodat de lookup aantoonbaar discrimineert), het register dat van de meegeschreven
   naam wint bij een hernoeming, een leeg register, een niet-ingeschreven organisatie, en zes vormen
-  van een `magazijnId` dat geen geldige OIN is — alle vier de terugvalgevallen leveren een naam.
+  van een `magazijnId` dat geen geldige OIN is — elk terugvalgeval levert een naam.
 - `MagazijninschrijvingTest`/`ConfigMagazijnregisterTest`/`MagazijnregisterConfigMappingTest`: een
   blanco naam is niet construeerbaar, een blanco configwaarde blokkeert de boot, een ontbrekende
   naam bindt niet, en omringende whitespace wordt getrimd.
-- `UitvraagDtoMapperTest` en `BerichtenlijstServiceTest`: mét en zónder bekende naam; twee
-  berichten uit verschillende magazijnen in één lijst bewijzen dat de naam per bericht wordt
-  opgezocht.
+- `BerichtenlijstServiceTest`: draait op een echt register met twee organisaties, zodat twee
+  berichten uit verschillende magazijnen bewijzen dat de naam per bericht wordt opgezocht.
 - `ServiceCoverageTest`: één lijstantwoord met twee magazijnen die elk hun eigen naam dragen
   (bewijst dat het veld per bericht wordt opgezocht), het detail, een magazijn dat uit het register
   verdween en toch zijn naam houdt, en een guard dat `afzender` weg is.

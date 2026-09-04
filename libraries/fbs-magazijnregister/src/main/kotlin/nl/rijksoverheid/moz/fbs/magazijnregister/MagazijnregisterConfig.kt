@@ -22,7 +22,11 @@ internal interface MagazijnregisterConfig {
     interface Inschrijving {
         fun url(): String
 
-        /** Verplicht: zonder weergavenaam is een organisatie niet in te schrijven. */
+        /**
+         * Niet-`Optional`, zodat een ontbrekende sleutel al op bind-niveau faalt (`SRCFG00014`)
+         * in plaats van pas bij de eerste lijst-respons. Zie [Magazijninschrijving.naam] voor
+         * waarom een organisatie zonder weergavenaam geen geldige inschrijving is.
+         */
         fun naam(): String
 
         /**
