@@ -539,7 +539,7 @@ internal class BerichtensessiecacheService(
                         // pool (de downstream-Redis-writes vereisen de Vert.x-duplicated-context, die
                         // een eigen pool niet levert); het bulkhead begrenst enkel de gelijktijdigheid.
                         Uni.createFrom()
-                            .item { paginaLezer.leesAlleBerichten(client, ontvangerString, magazijnQueryBudget) }
+                            .item { paginaLezer.leesAlleBerichten(client, magazijnId, ontvangerString, magazijnQueryBudget) }
                             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                             .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
                             .map<MagazijnResult> { oogst -> naarMagazijnResult(oogst, magazijnId, naam) }

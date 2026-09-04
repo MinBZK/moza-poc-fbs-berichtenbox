@@ -408,6 +408,10 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
   daarnaast `BERICHTENSESSIECACHE_MAX_BERICHTEN_PER_MAGAZIJN` laag (bijvoorbeeld 5): de Berichtenbox
   meldt dan per organisatie "niet alles opgehaald". Standaard staat die grens op de productiewaarde,
   want verlagen betekent berichten weglaten.
+- **Het doorpagineren meelezen** kan met `docker compose logs -f berichtenuitvraag | grep pagina`:
+  de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
+  en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).
+  Dat staat op DEBUG en de demo draait onder het dev-profiel, dus het staat al aan.
 - **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de
   sessie verlopen (409). Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.

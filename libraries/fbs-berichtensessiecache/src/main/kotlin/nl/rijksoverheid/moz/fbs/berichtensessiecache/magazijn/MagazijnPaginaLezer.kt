@@ -4,6 +4,7 @@ import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import org.eclipse.microprofile.config.inject.ConfigProperty
+import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.TimeoutException
@@ -55,6 +56,8 @@ internal class MagazijnPaginaLezer(
     @param:ConfigProperty(name = "berichtensessiecache.max-berichten-per-magazijn", defaultValue = "500")
     private val maxBerichtenPerMagazijn: Int,
 ) {
+    private val log = Logger.getLogger(MagazijnPaginaLezer::class.java)
+
     init {
         require(paginaGrootte in 1..SPEC_MAX_PAGE_SIZE) {
             "berichtensessiecache.magazijn-page-size ($paginaGrootte) moet tussen 1 en $SPEC_MAX_PAGE_SIZE liggen"
@@ -85,7 +88,12 @@ internal class MagazijnPaginaLezer(
      * dat als timeout in plaats van als deelresultaat — een halve lijst als "geslaagd" presenteren
      * zou opnieuw post weglaten, en de ontvanger kan aan zo'n lijst niet zien dat er iets ontbreekt.
      */
-    fun leesAlleBerichten(client: MagazijnClient, ontvanger: String, budget: Duration): GepagineerdeBerichten {
+    fun leesAlleBerichten(
+        client: MagazijnClient,
+        magazijnId: String,
+        ontvanger: String,
+        budget: Duration,
+    ): GepagineerdeBerichten {
         // Op berichtId, want opeenvolgende pagina's zijn niet gegarandeerd disjunct: een bericht
         // dat tijdens het doorpagineren wordt aangeleverd schuift het venster op, en dan staat het
         // bericht op de paginagrens tweemaal in de oogst — en straks tweemaal in de berichtenbox.
@@ -103,6 +111,18 @@ internal class MagazijnPaginaLezer(
             paginaNummer++
             lijstCompleet = isEindeVanDeLijst(respons, verzameld.size, paginaNummer)
 
+            // De ontvanger blijft bewust buiten elke regel: die string draagt het BSN.
+            log.debugf(
+                "Magazijn %s pagina %d: %d van %d gevraagd, oogst nu %d; magazijn meldt totalElements=%s totalPages=%s",
+                magazijnId,
+                paginaNummer - 1,
+                respons.berichten.size,
+                paginaGrootte,
+                verzameld.size,
+                respons.totalElements?.toString() ?: "-",
+                respons.totalPages?.toString() ?: "-",
+            )
+
             // Een volle pagina zonder één nieuw bericht betekent dat het magazijn `page` negeert en
             // steeds hetzelfde teruggeeft; doorvragen levert dan alleen herhaling op.
             if (lijstCompleet || !paginaLeverdeNieuws) {
@@ -116,12 +136,33 @@ internal class MagazijnPaginaLezer(
 
         val berichten = verzameld.values.take(maxBerichtenPerMagazijn)
         val bruikbaarTotaal = saneerTotaal(totaalBeschikbaar, verzameld.size)
+        val afgekapt = isAfgekapt(berichten.size, verzameld.size, bruikbaarTotaal, lijstCompleet)
+
+        log.debugf(
+            "Magazijn %s uitgelezen: %d pagina's, %d berichten, afgekapt=%s, totaalBeschikbaar=%s; gestopt op %s",
+            magazijnId,
+            paginaNummer,
+            berichten.size,
+            afgekapt,
+            bruikbaarTotaal?.toString() ?: "onbekend",
+            stopreden(lijstCompleet, verzameld.size),
+        )
 
         return GepagineerdeBerichten(
             berichten = berichten,
-            afgekapt = isAfgekapt(berichten.size, verzameld.size, bruikbaarTotaal, lijstCompleet),
+            afgekapt = afgekapt,
             totaalBeschikbaar = bruikbaarTotaal,
         )
+    }
+
+    /**
+     * Waaróm de lus stopte, voor de debug-regel. Af te leiden uit de eindtoestand: de enige uitgang
+     * die noch het einde van de lijst noch de cap is, is de pagina die niets nieuws bracht.
+     */
+    private fun stopreden(lijstCompleet: Boolean, verzameld: Int): String = when {
+        lijstCompleet -> "einde van de lijst"
+        verzameld >= maxBerichtenPerMagazijn -> "cap van $maxBerichtenPerMagazijn bereikt"
+        else -> "magazijn herhaalde dezelfde pagina"
     }
 
     /**
