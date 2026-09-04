@@ -277,9 +277,9 @@ Welke magazijnen een persona bevraagt, bepaalt de profiel-stub (opt-in per afzen
 persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (leest alleen de cache).
 
 De twee persona's met 45 en 100 organisaties laten ook zien wat er nog niet af is: een deel van die
-organisaties valt buiten de lijst met de melding "tijdelijk niet beschikbaar", en van elke
-organisatie komen alleen de eerste twintig berichten mee. Weet dat vóór je die persona's kiest —
-zie [Twee beperkingen die tijdens een demonstratie opvallen](ontwikkelen.md#twee-beperkingen-die-tijdens-een-demonstratie-opvallen).
+organisaties valt buiten de lijst met de melding "tijdelijk niet beschikbaar". Weet dat vóór je die
+persona's kiest — zie
+[Een beperking die tijdens een demonstratie opvalt](ontwikkelen.md#een-beperking-die-tijdens-een-demonstratie-opvalt).
 
 ---
 

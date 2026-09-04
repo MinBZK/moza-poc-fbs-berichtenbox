@@ -6,6 +6,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.omgeving.OmgevingConfig
 import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
@@ -126,15 +127,22 @@ class SimulatorServiceTest {
 
     /** De standaardvulling gebruikt dezelfde vier ondernemers als de knop en het herstel. */
     @Test
-    fun `de standaardvulling zet twintig berichten klaar voor alle vier de ondernemers`() {
+    fun `de standaardvulling zet zevenentwintig berichten klaar voor alle vier de ondernemers`() {
         val verzoek = slot<SeedVerzoek>()
 
-        every { beheer.seed(capture(verzoek)) } returns SeedUitkomst(98, 4, 7840, 1960, 0, 500)
+        every { beheer.seed(capture(verzoek)) } returns SeedUitkomst(98, 4, 10584, 2646, 0, 500)
 
         service.vulStandaard()
 
         assertEquals(SimulatorService.ONDERNEMERS, verzoek.captured.ontvangers)
-        assertEquals(20, verzoek.captured.berichtenPerMagazijn)
+        // Het getal zelf mag schuiven, maar niet naar twintig of lager: dat is wat een magazijn
+        // zonder `pageSize` per pagina teruggeeft, en daaronder valt er van het doorpagineren niets
+        // te zien in de demo.
+        assertEquals(27, verzoek.captured.berichtenPerMagazijn)
+        assertTrue(
+            verzoek.captured.berichtenPerMagazijn > 20,
+            "een vulling van hoogstens één pagina laat het doorpagineren niet zien",
+        )
     }
 
     private fun gegevenMagazijnen(aantal: Int) {
