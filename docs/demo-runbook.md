@@ -277,9 +277,9 @@ Welke magazijnen een persona bevraagt, bepaalt de profiel-stub (opt-in per afzen
 persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (leest alleen de cache).
 
 De twee persona's met 45 en 100 organisaties laten ook zien wat er nog niet af is: een deel van die
-organisaties valt buiten de lijst met de melding "tijdelijk niet beschikbaar", en van elke
-organisatie komen alleen de eerste twintig berichten mee. Weet dat vóór je die persona's kiest —
-zie [Twee beperkingen die tijdens een demonstratie opvallen](ontwikkelen.md#twee-beperkingen-die-tijdens-een-demonstratie-opvallen).
+organisaties valt buiten de lijst met de melding "tijdelijk niet beschikbaar". Weet dat vóór je die
+persona's kiest — zie
+[Een beperking die tijdens een demonstratie opvalt](ontwikkelen.md#een-beperking-die-tijdens-een-demonstratie-opvalt).
 
 ---
 
@@ -401,6 +401,17 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
 - **Bulkhead** staat in de demo op 120 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
   n > 60 wijst de uitvraag de overtollige magazijn-calls direct af als "systeem druk" (OVERBELAST) —
   dat is bewust fail-fast-gedrag, geen bug.
+- **Paginagrootte staat in de demo op 5** (`BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE`), waar productie
+  er honderd vraagt. De demo-dataset zet zes tot tien berichten per organisatie per ondernemer; met
+  de productiewaarde komt dat in één call binnen en is er niets van het doorpagineren te zien. Wil je
+  laten zien dat de uitvraag ook afkápt als een organisatie meer heeft dan wij ophalen, zet dan
+  daarnaast `BERICHTENSESSIECACHE_MAX_BERICHTEN_PER_MAGAZIJN` laag (bijvoorbeeld 5): de Berichtenbox
+  meldt dan per organisatie "niet alles opgehaald". Standaard staat die grens op de productiewaarde,
+  want verlagen betekent berichten weglaten.
+- **Het doorpagineren meelezen** kan met `docker compose logs -f berichtenuitvraag | grep pagina`:
+  de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
+  en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).
+  Dat staat op DEBUG en de demo draait onder het dev-profiel, dus het staat al aan.
 - **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de
   sessie verlopen (409). Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.

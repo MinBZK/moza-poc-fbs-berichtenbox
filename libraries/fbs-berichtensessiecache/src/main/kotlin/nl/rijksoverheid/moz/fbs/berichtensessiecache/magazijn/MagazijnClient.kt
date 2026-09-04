@@ -12,11 +12,17 @@ import jakarta.ws.rs.core.MediaType
 @Produces(MediaType.APPLICATION_JSON)
 internal interface MagazijnClient {
 
+    /**
+     * `page`/`pageSize` zijn niet optioneel: weglaten geeft de spec-default van twintig, en dáár
+     * bleef post voorbij het eerste twintigtal liggen.
+     */
     @GET
     @Path("/berichten")
     fun getBerichten(
         @HeaderParam("X-Ontvanger") ontvanger: String?,
         @QueryParam("afzender") afzender: String?,
+        @QueryParam("page") page: Int,
+        @QueryParam("pageSize") pageSize: Int,
     ): MagazijnBerichtenResponse
 
     @GET

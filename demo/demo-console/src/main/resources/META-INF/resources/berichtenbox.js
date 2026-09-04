@@ -94,6 +94,7 @@ function toonVoortgang(regels) {
 // text/event-stream; elk frame heeft een data:-regel met één MagazijnEvent als JSON.
 async function ophalen() {
   const regels = ['Ophalen gestart…'];
+  const afgekapteMagazijnen = new Set();
 
   toonVoortgang(regels);
 
@@ -134,7 +135,7 @@ async function ophalen() {
         if (dataRegel) {
           const gebeurtenis = JSON.parse(dataRegel.slice(5).trim());
 
-          klaar = verwerkOphaalEvent(gebeurtenis, regels) || klaar;
+          klaar = verwerkOphaalEvent(gebeurtenis, regels, afgekapteMagazijnen) || klaar;
         }
       }
     }
@@ -148,8 +149,27 @@ async function ophalen() {
   await laadLijst();
 }
 
-// Werkt de voortgangsregels bij; geeft true terug bij een terminaal event.
-function verwerkOphaalEvent(gebeurtenis, regels) {
+// Zonder deze toevoeging lijkt een afgekapte lijst een volledige lijst. Het totaal komt alleen mee
+// als het magazijn het noemde.
+function afkapMelding(gebeurtenis) {
+  if (!gebeurtenis.afgekapt) return '';
+
+  return typeof gebeurtenis.totaalBeschikbaar === 'number'
+    ? `, van ${gebeurtenis.totaalBeschikbaar} — niet alles opgehaald`
+    : ', er zijn er meer — niet alles opgehaald';
+}
+
+// De slotregel blijft staan als de regels erboven wegscrollen; hij mag een afgekapte oogst dus niet
+// als een volledige ophaalronde melden.
+function slotregelAfkap(afgekapteMagazijnen) {
+  if (afgekapteMagazijnen.size === 0) return '';
+
+  return ` Niet alles opgehaald bij: ${[...afgekapteMagazijnen].join(', ')}.`;
+}
+
+// Werkt de voortgangsregels bij; geeft true terug bij een terminaal event. `afgekapteMagazijnen`
+// verzamelt over de stream heen welke organisaties niet alles leverden, voor de slotregel.
+function verwerkOphaalEvent(gebeurtenis, regels, afgekapteMagazijnen) {
   if (gebeurtenis.magazijnId && gebeurtenis.naam) {
     magazijnNamen.set(gebeurtenis.magazijnId, gebeurtenis.naam);
   }
@@ -160,14 +180,23 @@ function verwerkOphaalEvent(gebeurtenis, regels) {
       break;
 
     case 'magazijn-bevraging-voltooid':
+      if (gebeurtenis.status === 'OK' && gebeurtenis.afgekapt) {
+        afgekapteMagazijnen.add(gebeurtenis.naam || gebeurtenis.magazijnId);
+      }
+
       regels.push(
         `${gebeurtenis.naam || gebeurtenis.magazijnId}: ${gebeurtenis.status}` +
-          (gebeurtenis.status === 'OK' ? ` (${gebeurtenis.aantalBerichten} berichten)` : ` — ${gebeurtenis.foutmelding || ''}`),
+          (gebeurtenis.status === 'OK'
+            ? ` (${gebeurtenis.aantalBerichten} berichten${afkapMelding(gebeurtenis)})`
+            : ` — ${gebeurtenis.foutmelding || ''}`),
       );
       break;
 
     case 'ophalen-gereed':
-      regels.push(`Klaar: ${gebeurtenis.totaalBerichten} berichten uit ${gebeurtenis.totaalMagazijnen} magazijnen (${gebeurtenis.mislukt || 0} mislukt).`);
+      regels.push(
+        `Klaar: ${gebeurtenis.totaalBerichten} berichten uit ${gebeurtenis.totaalMagazijnen} magazijnen (${gebeurtenis.mislukt || 0} mislukt).` +
+          slotregelAfkap(afgekapteMagazijnen),
+      );
 
       toonVoortgang(regels);
 

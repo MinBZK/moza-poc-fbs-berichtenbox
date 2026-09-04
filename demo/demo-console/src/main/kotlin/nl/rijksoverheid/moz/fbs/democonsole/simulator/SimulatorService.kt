@@ -135,10 +135,10 @@ class SimulatorService(
         val ONDERNEMERS = listOf("BSN:999993653", "KVK:90000014", "KVK:90000001", "KVK:90000003")
 
         /**
-         * Twintig is niet toevallig: de uitvraag haalt per magazijn één pagina op en het magazijn
-         * levert er standaard twintig. Daarboven demonstreer je onbedoeld dát gat.
+         * Bewust bóven de twintig die een magazijn zonder `pageSize` per pagina teruggeeft: het
+         * doorpagineren is alleen zichtbaar bij een organisatie met meer post dan één pagina.
          */
-        const val STANDAARD_PER_MAGAZIJN = 20
+        const val STANDAARD_PER_MAGAZIJN = 27
         const val STANDAARD_BIJLAGE_ELKE = 4
 
         const val NORMAAL = "NORMAAL"
