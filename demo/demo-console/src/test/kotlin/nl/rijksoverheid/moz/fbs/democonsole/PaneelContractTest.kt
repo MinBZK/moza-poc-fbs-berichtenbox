@@ -11,6 +11,8 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
+import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoResource
+import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
 import nl.rijksoverheid.moz.fbs.democonsole.omgeving.OmgevingConfig
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorBeheerClient
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
@@ -233,7 +235,7 @@ class PaneelContractTest {
         // afwijkt van `?persona=`, dat wél als bedieningsfout telt: voor een aantal is er een
         // zinnige default, voor een persona niet.
         assertEquals(200, plaatsBericht("?persona=pietersen&aantal=").statusCode())
-        assertEquals(1, VasteAanleverService.opdrachten.size)
+        assertEquals(DemoResource.STANDAARD_GERICHT, VasteAanleverService.opdrachten.size)
     }
 
     @Test
@@ -292,9 +294,10 @@ class PaneelContractTest {
     private fun voerRandomOp(query: String): HttpResponse<String> = post("/api/demo/random", query)
 
     /**
-     * Dezelfde grenzen als bij een gericht bericht, en om dezelfde reden: nul berichten meldt zich
-     * anders groen als "0 van 0 aangeleverd" voor een actie die niets deed, en een onredelijk hoog
-     * aantal houdt de omgeving minutenlang bezig met een antwoord dat pas daarna komt.
+     * Dezelfde soort grens als bij een gericht bericht, ruimer ingesteld, en om dezelfde reden: een
+     * ronde van nul berichten meldt zich anders als geslaagd terwijl er niets gebeurde, en een
+     * onredelijk hoog aantal houdt de omgeving minutenlang bezig met een antwoord dat pas daarna
+     * komt.
      */
     @ParameterizedTest
     @MethodSource("randomBuitenDeGrenzen")
@@ -306,11 +309,7 @@ class PaneelContractTest {
         assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een geweigerd aantal hoort niets aan te leveren")
     }
 
-    /**
-     * De grenzen zelf, en niet alleen wat erbuiten valt: `aantal !in 1 until MAX_RANDOM_BERICHTEN`
-     * zou álle gevallen hierboven even goed doorstaan, en dan geeft de knop een fout op precies de
-     * bovengrens die het invoerveld aanbiedt.
-     */
+    /** De grenzen zelf, om de reden die bij het gerichte bericht hierboven staat. */
     @ParameterizedTest
     @MethodSource("randomOpDeGrenzen")
     fun `een burst op de grens van het toegestane aantal slaagt`(aantal: Int) {
@@ -318,11 +317,7 @@ class PaneelContractTest {
         assertEquals(aantal, VasteAanleverService.opdrachten.size)
     }
 
-    /**
-     * Zou de resource het aantal als `Int` laten injecteren, dan handelt JAX-RS een mislukte
-     * omzetting af vóór de eerste regel van de methode — met een 404, die leest als een knop die
-     * naar een adres wijst dat niet bestaat in plaats van als een cijfer dat verkeerd staat.
-     */
+    /** Zelfde 404-valkuil als bij het gerichte bericht, hier zonder de verwarring met "onbekende persona". */
     @ParameterizedTest
     @ValueSource(strings = ["abc", "1.5", "3000000000"])
     fun `een burst met een onleesbaar aantal geeft 400 en geen 404`(aantal: String) {
@@ -337,13 +332,25 @@ class PaneelContractTest {
     @ValueSource(strings = ["", "?aantal="])
     fun `een burst zonder aantal valt terug op de default`(query: String) {
         assertEquals(200, voerRandomOp(query).statusCode(), "query '$query'")
-        assertEquals(10, VasteAanleverService.opdrachten.size, "de default hoort het getal van het invoerveld te zijn")
+        assertEquals(
+            DemoResource.STANDAARD_RANDOM,
+            VasteAanleverService.opdrachten.size,
+            "de default hoort het getal van het invoerveld te zijn",
+        )
+    }
+
+    @Test
+    fun `een tweemaal opgegeven aantal levert één ronde op`() {
+        // JAX-RS pakt de eerste waarde. Vastgelegd omdat de tweede net zo goed buiten de grenzen kan
+        // liggen: zou de resource ooit de laatste lezen, dan glipt daar een ongetoetste waarde langs.
+        assertEquals(200, voerRandomOp("?aantal=1&aantal=500").statusCode())
+        assertEquals(1, VasteAanleverService.opdrachten.size)
     }
 
     /**
-     * De stroom draagt zijn grens in [TempoService], maar een onleesbaar interval kwam daar nooit
-     * aan: JAX-RS beantwoordde de mislukte omzetting zelf, met 404. Alleen de weigeringen, want een
-     * geslaagde start laat een echte klok achter voor de tests die hierna draaien.
+     * De grens zelf ligt in `TempoService`, die hem ook zonder dit adres al vasthield; wat er níet
+     * aankwam was een onleesbaar interval — dat beantwoordde JAX-RS met 404. Welke van de twee lagen
+     * een weigering gaf, is hier niet te zien; `TempoResourceTest` pint dat los vast.
      */
     @ParameterizedTest
     @ValueSource(strings = ["abc", "0", "-1", "3601"])
@@ -352,7 +359,40 @@ class PaneelContractTest {
 
         assertEquals(400, respons.statusCode(), "interval '$interval'")
         assertTrue(respons.body().contains("interval"), "de melding hoort het interval-veld aan te wijzen")
-        assertFalse(ObjectMapper().readTree(haalJson(tempoUrl)).path("loopt").asBoolean(), "de stroom hoort uit te staan")
+        assertFalse(stroom().path("loopt").asBoolean(), "de stroom hoort uit te staan")
+    }
+
+    /**
+     * De enige test die de stroom écht start: de parameter ging van `Int` naar tekst, en zonder dit
+     * staat nergens vast dat een geldig interval die route overleeft. Op de bovengrens, zodat er
+     * binnen de testrun niets tikt — de `@AfterEach` zet hem daarna hoe dan ook stil.
+     */
+    @Test
+    fun `de stroom starten met een geldig interval geeft de gevraagde stand terug`() {
+        assertEquals(200, post("/api/demo/tempo/start", "?interval=${TempoService.MAX_INTERVAL}").statusCode())
+
+        val gestart = stroom()
+
+        assertTrue(gestart.path("loopt").asBoolean(), "de stroom hoort te lopen")
+        assertEquals(TempoService.MAX_INTERVAL, gestart.path("intervalSeconden").asInt())
+    }
+
+    @Test
+    fun `de stroom starten zonder interval valt terug op de default van het invoerveld`() {
+        assertEquals(200, post("/api/demo/tempo/start", "?interval=").statusCode())
+        assertEquals(TempoResource.STANDAARD_INTERVAL, stroom().path("intervalSeconden").asInt())
+    }
+
+    private fun stroom() = ObjectMapper().readTree(haalJson(tempoUrl))
+
+    /**
+     * Onvoorwaardelijk: de stroom is procesbreed en leeft langer dan één test. Bleef hij lopen, dan
+     * schrijft hij op zijn eigen tempo opdrachten in [VasteAanleverService] en maakt hij een
+     * wíllekeurige andere test rood.
+     */
+    @AfterEach
+    fun stopDeStroom() {
+        post("/api/demo/tempo/stop")
     }
 
     @Test

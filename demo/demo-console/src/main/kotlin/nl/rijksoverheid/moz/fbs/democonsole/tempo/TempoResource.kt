@@ -19,22 +19,29 @@ class TempoResource(private val tempoService: TempoService) {
     /**
      * Het interval komt als tekst binnen en gaat door [heelGetal]; daar staat waarom deze parameter
      * geen `Int` is. De grenzen zijn die van [TempoService], die ze zelf nog eens toetst: dat is de
-     * invariant van de stroom, niet van dit adres.
+     * invariant van de stroom, niet van dit adres. De eenheid gaat mee de melding in, want "tussen
+     * 1 en 3600" leest zonder die eenheid net zo goed als milliseconden of als een aantal berichten.
      */
     @POST
     @Path("/start")
     fun start(@QueryParam("interval") @DefaultValue("") interval: String): TempoStatus =
         tempoService.start(
-            heelGetal("interval", interval, STANDAARD_INTERVAL, TempoService.MIN_INTERVAL..TempoService.MAX_INTERVAL),
+            heelGetal(
+                naam = "interval",
+                waarde = interval,
+                standaard = STANDAARD_INTERVAL,
+                grenzen = TempoService.MIN_INTERVAL..TempoService.MAX_INTERVAL,
+                eenheid = "seconden",
+            ),
         )
 
     @POST
     @Path("/stop")
     fun stop(): TempoStatus = tempoService.stop()
 
-    private companion object {
+    internal companion object {
 
-        /** Wat het paneel als `value` in het veld `tempoInterval` toont. */
+        /** Spiegelt de `value` van het veld `tempoInterval` in `index.html`; `PaneelPadenTest` bewaakt dat. */
         const val STANDAARD_INTERVAL = 10
     }
 }

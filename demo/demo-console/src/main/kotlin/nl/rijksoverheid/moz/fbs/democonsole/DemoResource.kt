@@ -82,14 +82,12 @@ class DemoResource(
      * willekeur ze bij de ondernemer legt die op het scherm staat. Op de persona-`id` en niet op
      * zijn identificatienummer: een BSN hoort niet in een URL, ook niet in een demo.
      *
-     * Elke bedieningsfout wordt hier afgevangen en niet met `require()`: [DemoFoutMapper] vertaalt
-     * alleen een `WebApplicationException` naar zijn eigen status, dus een `require()` zou een
-     * verkeerd ingevulde parameter als HTTP 500 tonen.
+     * Elke bedieningsfout wordt hier afgevangen en niet met `require()`, om de reden die bij
+     * [heelGetal] staat: [DemoFoutMapper] zou een `require()` als HTTP 500 tonen.
      *
-     * Vandaar ook `@DefaultValue("")` op `persona`: een ontbrekende parameter wordt anders `null` in
-     * een niet-nullable parameter, wat Kotlin met een `NullPointerException` beantwoordt vóór de
-     * eerste regel hieronder. Voor `aantal` doet [heelGetal] hetzelfde werk, met daar de uitleg
-     * waarom die parameter tekst is en geen `Int`.
+     * `@DefaultValue("")` staat op beide parameters: een ontbrekende parameter wordt anders `null`
+     * in een niet-nullable parameter, wat Kotlin met een `NullPointerException` beantwoordt vóór de
+     * eerste regel hieronder. Wat een lege waarde daarna betekent, staat bij [heelGetal].
      */
     @POST
     @Path("/bericht")
@@ -109,24 +107,24 @@ class DemoResource(
 
     internal companion object {
 
-        /**
-         * Hoger is voor een demo geen realistische vraag, en elke aanlevering is een synchrone
-         * ronde. Spiegelt de `max` van het veld `berichtAantal` in `index.html`; `PaneelPadenTest`
-         * bewaakt dat die twee gelijk blijven.
-         */
+        // Elke constante hieronder spiegelt een attribuut van het bijbehorende invoerveld in
+        // `index.html`; `PaneelPadenTest` bewaakt dat ze gelijk blijven. De bovengrenzen zijn de
+        // `max`, de standaarden de `value` — zodat een aanroep zónder parameter hetzelfde doet als
+        // een klik op de knop.
+
+        /** Meer berichten voor één persona is geen realistische demonstratievraag. */
         const val MAX_GERICHTE_BERICHTEN = 100
 
         /**
          * Ruimer dan een gericht bericht: hiermee wordt een lege omgeving gevuld, en dan is een paar
-         * honderd berichten een normale vraag. Spiegelt de `max` van het veld `aantal`.
+         * honderd berichten een normale vraag. Elke aanlevering blijft een synchrone ronde, dus veel
+         * hoger laat de knop minutenlang op een antwoord wachten.
          */
         const val MAX_RANDOM_BERICHTEN = 500
 
-        // Waar een aanroep zonder aantal op terugvalt: wat het paneel in het bijbehorende veld
-        // voorinvult, zodat het adres hetzelfde doet als een klik op de knop.
-        private const val STANDAARD_RANDOM = 10
+        const val STANDAARD_RANDOM = 10
 
-        private const val STANDAARD_GERICHT = 1
+        const val STANDAARD_GERICHT = 1
 
         private const val KIES_EEN_PERSONA = "kies een persona uit berichtPersonas van /api/demo/omgeving"
     }

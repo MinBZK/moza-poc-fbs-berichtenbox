@@ -21,7 +21,7 @@ berichten opvoeren* en het adres achter *Stroom starten* kenden hem nog niet:
   verkeerd staat. Voor `/api/demo/tempo/start?interval=abc` gold hetzelfde.
 
 De invoervelden in het paneel bewaakten deze grenzen wel, maar dat is geen contract: deze adressen
-worden ook rechtstreeks aangeroepen — vanuit het runbook en tijdens het testen.
+staan open op de origin van het paneel en worden ook rechtstreeks aangeroepen.
 
 Deze branch is gestapeld op `feature/demo-console-bericht-per-persona` (#280), omdat het patroon
 dat we hier uitbreiden daar wordt geïntroduceerd.
@@ -30,7 +30,7 @@ dat we hier uitbreiden daar wordt geïntroduceerd.
 
 | Bestand | Wijziging |
 |---|---|
-| `democonsole/Bedieningsparameters.kt` | Nieuw: `heelGetal(naam, waarde, standaard, grenzen)` — de lezer achter elk getalveld van het paneel |
+| `democonsole/Bedieningsparameters.kt` | Nieuw: `heelGetal(naam, waarde, standaard, grenzen, eenheid)` — de lezer achter elk getalveld van het paneel |
 | `democonsole/DemoResource.kt` | `random` leest zijn aantal via `heelGetal`; `bericht` doet dat nu ook, in plaats van dezelfde logica inline. `MAX_BERICHTEN` → `MAX_GERICHTE_BERICHTEN`, nieuw `MAX_RANDOM_BERICHTEN` |
 | `democonsole/tempo/TempoResource.kt` | `start` leest zijn interval via `heelGetal`, met de grenzen van `TempoService` |
 | `META-INF/resources/bediening.js` | `vullingSoort` geeft `'let-op'` bij `aangeboden === 0` |
@@ -57,17 +57,18 @@ van hun invoerveld. `MAX_BERICHTEN` is hernoemd omdat die naam naast `MAX_RANDOM
 meer zegt welk van de twee hij is.
 
 **Leeg telt als niet opgegeven.** `?aantal=` en een afwezige parameter leveren allebei de default,
-en dat gebeurt nu in onze eigen code in plaats van via `@DefaultValue` — dat vervangt alleen een
-afwezige waarde, en dat `?aantal=` er vandaag toch doorheen komt is gedrag van JAX-RS dat een
-upgrade kan veranderen.
+en die keuze staat nu in onze eigen code: `@DefaultValue` vervangt alleen een afwezige waarde, dus
+een lege `?aantal=` zou er nog steeds doorheen komen. `@DefaultValue("")` blijft wel nodig, want
+zonder die annotatie wordt een afwezige parameter `null` in een niet-nullable parameter.
 
 **De grens van de stroom blijft in `TempoService`.** `TempoResource` toetst hem ook, maar dat is de
 grens van het adres; de service houdt zijn eigen invariant, met zijn eigen test.
 
-**`vullingSoort` verandert mee.** De adressen weigeren een aantal van nul inmiddels, dus vanuit het
-paneel is dat pad onbereikbaar. Het blijft staan voor de vulacties die hun eigen bron leeg kunnen
-aantreffen — basisvulling, de simulator-vulling: groen mag daar niet "gelukt" betekenen voor een
-ronde waarin niets is aangeboden.
+**`vullingSoort` verandert mee.** `/random` en `/bericht` weigeren een aantal van nul zelf, dus
+vanuit die knoppen is dat pad onbereikbaar. Wat overblijft zijn de basisvulling en het herstel, die
+nul aanbieden zodra `dataset/basis.json` leeg is: groen mag daar niet "gelukt" betekenen voor een
+ronde waarin niets is aangeboden. De simulator-vulling loopt er niet doorheen — die antwoordt met
+een `SeedUitkomst` zonder `aangeboden`-veld, en valt dus al een regel eerder uit.
 
 ## Verificatie
 
@@ -77,12 +78,30 @@ ronde waarin niets is aangeboden.
 - `PaneelContractTest`: voor `/api/demo/random` hetzelfde viertal dat `/api/demo/bericht` al had —
   buiten de grenzen (0, -1, 501) → 400 en niets aangeleverd; óp de grenzen (1, 500) → 200;
   onleesbaar (`abc`, `1.5`, `3000000000`) → 400 en géén 404; ontbrekend en leeg → de default. Voor
-  `/api/demo/tempo/start` alleen de weigeringen, want een geslaagde start laat een echte klok
-  achter voor de tests die erna draaien.
+  `/api/demo/tempo/start` de weigeringen plus één geldige start op de bovengrens — daar valt binnen
+  een testrun niets te tikken — met een `@AfterEach` die de stroom onvoorwaardelijk stopt.
 - `BedieningsparametersTest`: de lezer zelf, pure JVM — leeg, witruimte, de grenzen zelf, buiten de
   grenzen, niet-numeriek en een waarde die niet in een `Int` past.
 - Vóór het implementeren is bewezen dat de nieuwe tests discrimineren: met de oude `Int`-parameters
   gaven ze `aantal=0 ==> expected: <400> but was: <200>` en `aantal='abc' ==> expected: <400> but
   was: <404>` — precies het gedrag uit het issue.
 
-`./mvnw clean verify -pl demo/demo-console -am`: 297 tests groen, detekt 0 bevindingen.
+### Naar aanleiding van de review
+
+- `heelGetal` toetst zijn eigen `standaard` aan de grenzen (`require`) — die terugvalwaarde ging er
+  ongezien langs, dus `standaard = 0` op `1..500` leverde bij een lege parameter precies de nul op
+  die de rest van de functie weigert.
+- De afgewezen waarde wordt afgekapt en van regeleindes ontdaan voor hij in de melding komt.
+  `DemoFoutMapper` logt elke weigering, dus een newline schreef daar een tweede regel die als een
+  echte gebeurtenis leest.
+- De melding draagt de eenheid van de grens, zodat het interval "tussen 1 en 3600 seconden" blijft
+  zeggen; die melding van `TempoService` is via HTTP niet meer te bereiken.
+- `PaneelPadenTest` bewaakt naast `min`/`max` ook de `value` van elk veld — de standaardwaarden
+  claimden een spiegeling met het paneel die niets afdwong.
+- `TempoResourceTest` (nieuw, pure JVM) pint de grens ván het adres los van die van de service. Over
+  HTTP was dat niet te zien: `TempoService` ving dezelfde waarden al af, dus de resource-grens
+  weghalen liet de hele suite groen.
+- `PaneelContractTest` start de stroom nu ook één keer geldig — de parameter ging van `Int` naar
+  tekst zonder dat één test die route aflegde — met een `@AfterEach` die hem onvoorwaardelijk stopt.
+
+`./mvnw clean verify -pl demo/demo-console -am`: alle tests groen, detekt 0 bevindingen.

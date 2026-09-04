@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
+import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoResource
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -140,18 +141,24 @@ class PaneelPadenTest {
     }
 
     /**
-     * Elke grens staat twee keer: in het invoerveld en in de Kotlin-code die het adres achter de
-     * knop bewaakt. Lopen ze uiteen, dan weigert de server een waarde die de browser aanbiedt — of
-     * andersom, en dan is de grens er alleen op het scherm.
+     * Elke grens én elke standaardwaarde staat twee keer: in het invoerveld en in de Kotlin-code die
+     * het adres achter de knop bewaakt. Lopen de grenzen uiteen, dan weigert de server een waarde
+     * die de browser aanbiedt — of andersom, en dan is de grens er alleen op het scherm. Loopt de
+     * `value` uiteen, dan doet een aanroep zonder parameter iets anders dan een klik op de knop.
      */
     @ParameterizedTest
     @MethodSource("veldgrenzen")
-    fun `een getalveld deelt zijn grenzen met de code achter de knop`(veldnaam: String, grenzen: IntRange) {
+    fun `een getalveld deelt zijn grenzen en default met de code achter de knop`(
+        veldnaam: String,
+        grenzen: IntRange,
+        standaard: Int,
+    ) {
         val veld = Regex("""<input id="$veldnaam"[^>]*>""").find(paneel)?.value
 
         assertTrue(veld != null, "het veld $veldnaam niet gevonden in $PANEEL")
         assertEquals("""min="${grenzen.first}"""", Regex("""min="\d+"""").find(veld!!)?.value, "min van $veldnaam")
         assertEquals("""max="${grenzen.last}"""", Regex("""max="\d+"""").find(veld)?.value, "max van $veldnaam")
+        assertEquals("""value="$standaard"""", Regex("""value="\d+"""").find(veld)?.value, "value van $veldnaam")
     }
 
     private fun uitPaneel(patroon: String): List<String> =
@@ -171,9 +178,13 @@ class PaneelPadenTest {
          */
         @JvmStatic
         fun veldgrenzen() = listOf(
-            Arguments.of("aantal", 1..DemoResource.MAX_RANDOM_BERICHTEN),
-            Arguments.of("berichtAantal", 1..DemoResource.MAX_GERICHTE_BERICHTEN),
-            Arguments.of("tempoInterval", TempoService.MIN_INTERVAL..TempoService.MAX_INTERVAL),
+            Arguments.of("aantal", 1..DemoResource.MAX_RANDOM_BERICHTEN, DemoResource.STANDAARD_RANDOM),
+            Arguments.of("berichtAantal", 1..DemoResource.MAX_GERICHTE_BERICHTEN, DemoResource.STANDAARD_GERICHT),
+            Arguments.of(
+                "tempoInterval",
+                TempoService.MIN_INTERVAL..TempoService.MAX_INTERVAL,
+                TempoResource.STANDAARD_INTERVAL,
+            ),
         )
     }
 }

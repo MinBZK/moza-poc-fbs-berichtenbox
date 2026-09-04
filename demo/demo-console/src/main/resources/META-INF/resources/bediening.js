@@ -313,8 +313,9 @@ function vullingSoort(body) {
     if (!vulling || typeof vulling.aangeboden !== 'number') return 'goed';
 
     // Nul aangeboden is geen fout — er ging niets mis — maar groen zou hier "gelukt" betekenen voor
-    // een actie die niets deed. De adressen achter de knoppen weigeren een aantal van nul inmiddels;
-    // dit vangt de vulacties die hun eigen bron leeg kunnen aantreffen.
+    // een actie die niets deed. `/random` en `/bericht` weigeren een aantal van nul zelf; wat hier
+    // overblijft zijn de basisvulling en het herstel, die nul aanbieden zodra `dataset/basis.json`
+    // leeg is. De simulator-vulling loopt hier níet doorheen: die antwoordt zonder `aangeboden`.
     if (vulling.aangeboden === 0) return 'let-op';
 
     if (vulling.geslaagd === 0) return 'fout';
