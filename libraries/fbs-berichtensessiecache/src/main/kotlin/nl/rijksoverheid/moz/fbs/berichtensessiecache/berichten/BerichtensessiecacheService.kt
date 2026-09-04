@@ -2,7 +2,6 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.core.JsonProcessingException
 import io.smallrye.mutiny.Multi
-import io.smallrye.mutiny.TimeoutException
 import io.smallrye.mutiny.Uni
 import io.quarkus.runtime.StartupEvent
 import io.smallrye.mutiny.infrastructure.Infrastructure
@@ -12,15 +11,16 @@ import jakarta.enterprise.event.Observes
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.GepagineerdeBerichten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenResponse
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitOpenException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnOverbelastException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnPaginaLezer
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
@@ -49,17 +49,6 @@ internal class BerichtensessiecacheService(
     private val innerTimeoutSeconds: Long,
     @param:ConfigProperty(name = "profiel.resolver.outer-await-seconds", defaultValue = "25")
     private val outerAwaitSeconds: Long,
-    // Heap-bescherming tegen een rogue/defect magazijn: cap op het AANTAL berichten, toegepast
-    // ná deserialisatie (begrenst de cache-groei + verdere verwerking). LET OP: dit is GEEN
-    // byte-cap vóór deserialisatie — `quarkus.http.limits.max-body-size` geldt enkel voor
-    // INKOMENDE requests naar deze service, niet voor deze outbound magazijn-respons. De
-    // grootte van de inkomende magazijn-respons wordt alleen begrensd door de read-timeout
-    // (leesduur, niet bytes). Een harde outbound byte-cap is bewust niet toegevoegd: magazijn-
-    // URLs komen uit eigen, TLS-bewaakte config (geen attacker-endpoints) en realistische
-    // responses zijn enkele KB — geen speculatieve payload-cap zonder concrete
-    // productieaanleiding. Niet stilzwijgend verhogen zonder load-evidence.
-    @param:ConfigProperty(name = "berichtensessiecache.max-berichten-per-magazijn", defaultValue = "200")
-    private val maxBerichtenPerMagazijn: Int,
     // Per-magazijn query-timeout (Mutiny `ifNoItem`): primaire TIMEOUT-signaalbron richting
     // de client. MOET kleiner zijn dan magazijn-client.read-timeout-ms zodat dit als eerste
     // aanslaat en een TIMEOUT-event oplevert i.p.v. een ruwe client-fout. valideerTimeouts()
@@ -90,8 +79,12 @@ internal class BerichtensessiecacheService(
     // Per-magazijn circuit breaker: slaat een magazijn na herhaalde storingen tijdelijk over,
     // zodat een dood magazijn niet onnodig bulkhead-permits bezet houdt.
     private val circuitBreaker: MagazijnCircuitBreaker,
+    private val paginaLezer: MagazijnPaginaLezer,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
+
+    // Hetzelfde getal als de `ifNoItem`-timeout hieronder; de lus bewaakt het zelf.
+    private val magazijnQueryBudget: Duration get() = Duration.ofSeconds(magazijnQueryTimeoutSeconds)
 
     /**
      * Dwingt bean-instantiatie — en daarmee [valideerTimeouts] — af bij het opstarten. Zonder deze
@@ -372,8 +365,7 @@ internal class BerichtensessiecacheService(
         // thread-sticky en zou een storing op een hergebruikte worker-thread als onderbreking
         // laten gelden — en dat oordeel stuurt hieronder de alert-onderdrukking aan.
         val wasInterrupted = chain.hasCauseOf(InterruptedException::class.java)
-        val isOuterTimeout = chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
-            chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java)
+        val isOuterTimeout = chain.bevatTimeout()
 
         when {
             wasInterrupted -> {
@@ -550,11 +542,11 @@ internal class BerichtensessiecacheService(
                         // De blokkerende magazijn-call draait op de context-bewuste default-worker-
                         // pool (de downstream-Redis-writes vereisen de Vert.x-duplicated-context, die
                         // een eigen pool niet levert); het bulkhead begrenst enkel de gelijktijdigheid.
-                        Uni.createFrom().item { client }
-                            .onItem().transform { c -> c.getBerichten(ontvangerString, null) }
+                        Uni.createFrom()
+                            .item { paginaLezer.leesAlleBerichten(client, magazijnId, ontvangerString, magazijnQueryBudget) }
                             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                             .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
-                            .map<MagazijnResult> { response -> naarMagazijnResult(response, magazijnId, naam) }
+                            .map<MagazijnResult> { oogst -> naarMagazijnResult(oogst, magazijnId, naam) }
                             .onFailure(Exception::class.java).recoverWithItem { error ->
                                 val fault = classifyMagazijnFault(error)
 
@@ -577,31 +569,29 @@ internal class BerichtensessiecacheService(
         )
     }
 
-    private fun naarMagazijnResult(response: MagazijnBerichtenResponse, magazijnId: String, naam: String?): MagazijnResult {
-        if (response.berichten.size > maxBerichtenPerMagazijn) {
-            // ErrorF nodig voor Loki-alert-routing; SSE-event alleen gaat niet naar logs.
-            log.errorf(
-                "Magazijn %s (%s) overschreed berichten-cap: %d > %d",
-                magazijnId, naam, response.berichten.size, maxBerichtenPerMagazijn,
-            )
-            return MagazijnResult.Failure(
-                magazijnId,
-                naam,
-                MagazijnResponseOverflow(),
-                MagazijnFault.OVERFLOW,
+    private fun naarMagazijnResult(oogst: GepagineerdeBerichten, magazijnId: String, naam: String?): MagazijnResult {
+        // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein (toBericht) en
+        // valideer defensief (BerichtLimieten). Eén invalid bericht mag de batch niet killen — drop
+        // het stuk en log warn i.p.v. de hele magazijn-bevraging te laten falen. Dit geldt óók voor
+        // een ongeldige ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
+        // gooien (onbekend type, elfproef/lengte), dus vangen we dat hier per bericht.
+        val berichten = oogst.berichten
+            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
+
+        // Een gedropt bericht is ook post die de ontvanger niet krijgt; zonder deze term meldt het
+        // event "8 berichten, niets afgekapt, 10 beschikbaar".
+        val afgekapt = oogst.afgekapt || berichten.size < oogst.berichten.size
+
+        if (afgekapt) {
+            // Warn, geen error: meestal een grens die werkt. De oorzaak blijft uit de tekst —
+            // afkappen gebeurt ook zonder dat de cap geraakt is, en "verhoog de cap" wijst dan mis.
+            log.warnf(
+                "Magazijn %s (%s) leverde minder dan er beschikbaar is: %d opgehaald van %s",
+                magazijnId, naam, berichten.size, oogst.totaalBeschikbaar?.toString() ?: "onbekend",
             )
         }
 
-        // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein
-        // (toBericht) en valideer defensief (BerichtLimieten). Eén invalid bericht
-        // mag de batch niet killen — drop het stuk en log warn i.p.v. de hele
-        // magazijn-bevraging te laten falen. Dit geldt óók voor een ongeldige
-        // ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
-        // gooien (onbekend type, elfproef/lengte), dus vangen we dat hier per bericht.
-        val berichten = response.berichten
-            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
-
-        return MagazijnResult.Success(magazijnId, naam, berichten)
+        return MagazijnResult.Success(magazijnId, naam, berichten, afgekapt, oogst.totaalBeschikbaar)
     }
 
     /**
@@ -642,6 +632,8 @@ internal class BerichtensessiecacheService(
                 magazijnId = result.magazijnId,
                 naam = result.naam,
                 aantalBerichten = result.berichten.size,
+                afgekapt = result.afgekapt,
+                totaalBeschikbaar = result.totaalBeschikbaar,
             )
         }
         is MagazijnResult.Failure -> {
@@ -685,7 +677,7 @@ internal class BerichtensessiecacheService(
     internal fun foutmeldingVoor(fault: MagazijnFault): String = when (fault) {
         MagazijnFault.TIMEOUT -> "Magazijn reageerde niet binnen de timeout"
         MagazijnFault.MALFORMED -> "Magazijn leverde onleesbare respons (mogelijk schema-drift, contact beheerder)"
-        MagazijnFault.OVERFLOW -> "Magazijn leverde te veel berichten (responsgrootte overschreden, contact beheerder)"
+        MagazijnFault.OVERFLOW -> "Magazijn leverde een onbruikbare berichtenlijst (paginering genegeerd, contact beheerder)"
         MagazijnFault.HTTP_5XX -> "Magazijn tijdelijk niet bereikbaar"
         MagazijnFault.HTTP_4XX -> "Magazijn heeft de aanvraag geweigerd (configuratiefout, contact beheerder)"
         MagazijnFault.HTTP_3XX -> "Magazijn verwijst door naar een ander adres (configuratiefout, contact beheerder)"
@@ -915,6 +907,11 @@ internal class BerichtensessiecacheService(
 
     private fun List<Throwable>.hasCauseOf(cls: Class<*>): Boolean = findCauseOfClass(cls) != null
 
+    /** Beide timeout-typen: die van `ifNoItem`, en die waarmee de pagineerlus zichzelf afbreekt. */
+    private fun List<Throwable>.bevatTimeout(): Boolean =
+        hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
+            hasCauseOf(java.util.concurrent.TimeoutException::class.java)
+
     private companion object {
         private const val MAX_CAUSE_DEPTH = 32
     }
@@ -928,8 +925,7 @@ internal class BerichtensessiecacheService(
         return when {
             chain.hasCauseOf(InterruptedException::class.java) -> LockAcquireError.INTERRUPTED
             chain.hasCauseOf(JsonProcessingException::class.java) -> LockAcquireError.JSON_SERIALIZATION
-            chain.hasCauseOf(io.smallrye.mutiny.TimeoutException::class.java) ||
-                chain.hasCauseOf(java.util.concurrent.TimeoutException::class.java) -> LockAcquireError.TIMEOUT
+            chain.bevatTimeout() -> LockAcquireError.TIMEOUT
             chain.hasCauseOf(java.io.IOException::class.java) -> LockAcquireError.IO_FAULT
             else -> LockAcquireError.UNEXPECTED
         }
@@ -964,7 +960,7 @@ internal class BerichtensessiecacheService(
 
         return when {
             chain.hasCauseOf(MagazijnResponseOverflow::class.java) -> MagazijnFault.OVERFLOW
-            chain.hasCauseOf(TimeoutException::class.java) -> MagazijnFault.TIMEOUT
+            chain.bevatTimeout() -> MagazijnFault.TIMEOUT
             chain.hasCauseOf(JsonProcessingException::class.java) -> MagazijnFault.MALFORMED
             chain.hasCauseOf(ConnectException::class.java) -> MagazijnFault.NETWORK
             webEx != null -> {
@@ -1005,11 +1001,9 @@ internal class BerichtensessiecacheService(
                 log.warnf(error, "Magazijn %s (%s) timeout", magazijnId, naam)
             MagazijnFault.MALFORMED ->
                 log.errorf(error, "Magazijn %s (%s) leverde onleesbare JSON-respons (schema-drift?)", magazijnId, naam)
-            // Map-pad logt overflow zelf met counts; warnf hier vangt overflows die
-            // onverwacht via dit pad komen (toekomstige refactor) — warn ipv debug
-            // omdat prod-INFO-niveau anders silent zou maken.
             MagazijnFault.OVERFLOW ->
-                log.warnf(error, "Magazijn %s (%s) overflow via onFailure-pad — onverwacht, map-pad zou moeten loggen", magazijnId, naam)
+                // ErrorF voor alert-routing: een contractbreuk die een beheerder moet zien.
+                log.errorf(error, "Magazijn %s (%s) leverde een pagina groter dan gevraagd", magazijnId, naam)
             MagazijnFault.HTTP_5XX ->
                 log.warnf(error, "Magazijn %s (%s) 5xx", magazijnId, naam)
             MagazijnFault.HTTP_4XX ->

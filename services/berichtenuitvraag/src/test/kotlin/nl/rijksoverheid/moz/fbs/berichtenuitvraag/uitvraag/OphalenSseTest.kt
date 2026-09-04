@@ -75,7 +75,19 @@ class OphalenSseTest {
             ),
             Arguments.of(
                 MagazijnBevragingGeslaagd(magazijnId = OIN, naam = "Magazijn A", aantalBerichten = 3),
-                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK","aantalBerichten":3}""",
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
+                    """"aantalBerichten":3,"afgekapt":false}""",
+            ),
+            Arguments.of(
+                MagazijnBevragingGeslaagd(
+                    magazijnId = OIN,
+                    naam = "Magazijn A",
+                    aantalBerichten = 500,
+                    afgekapt = true,
+                    totaalBeschikbaar = 1340L,
+                ),
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
+                    """"aantalBerichten":500,"afgekapt":true,"totaalBeschikbaar":1340}""",
             ),
             Arguments.of(
                 MagazijnBevragingMislukt(

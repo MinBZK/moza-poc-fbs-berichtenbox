@@ -23,7 +23,7 @@ class SimulatorResourceTest {
     fun `vullen zonder invoer gebruikt de vastgelegde standaardwaarden`() {
         // De velden zijn optioneel in het paneel; vielen de defaults weg, dan zette de knop nul
         // berichten klaar en leek de demo leeg zonder dat iets rood werd.
-        every { service.vul(any(), any(), any()) } returns SeedUitkomst(98, 4, 7840, 1960, 0, 500)
+        every { service.vul(any(), any(), any()) } returns SeedUitkomst(98, 4, 10584, 2646, 0, 500)
 
         resource.vullen(null, null)
 

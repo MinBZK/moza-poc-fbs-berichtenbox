@@ -157,13 +157,10 @@ dat naar een omgeving die niet meer bestaat, dan leest dat als een storing en ni
 configuratiefout, want de variabele *is* gezet. `compose.yaml` en `proeftuin-component.sh` zetten
 hem daarom allebei.
 
-### Twee beperkingen die tijdens een demonstratie opvallen
+### Een beperking die tijdens een demonstratie opvalt
 
-Zolang [#996](https://github.com/MinBZK/MijnOverheidZakelijk/issues/996) en
-[#1038](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1038) openstaan:
+Zolang [#1038](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1038) openstaat:
 
-- Van elke organisatie komen alleen de eerste twintig berichten mee. Heeft een organisatie er meer,
-  dan ontbreekt de rest zonder dat de berichtenbox dat meldt.
 - Bij tientallen aangesloten organisaties valt een deel buiten de lijst, met de melding "tijdelijk
   niet beschikbaar" terwijl er niets stuk is. Vermoedelijk treft dat steeds dezelfde organisaties,
   want ze worden in vaste volgorde bevraagd. Zichtbaar bij de persona's met 45 en 100 organisaties.

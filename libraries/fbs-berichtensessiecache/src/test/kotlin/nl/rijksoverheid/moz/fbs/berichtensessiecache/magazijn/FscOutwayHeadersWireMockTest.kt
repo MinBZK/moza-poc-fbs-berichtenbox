@@ -50,7 +50,7 @@ class FscOutwayHeadersWireMockTest {
 
         assertNotNull(client, "client voor magazijn-OIN A moet geconfigureerd zijn")
 
-        client!!.getBerichten(ontvanger.toCanonicalString(), null)
+        client!!.getBerichten(ontvanger.toCanonicalString(), null, 0, 100)
 
         WireMockMagazijnResource.serverA!!.verify(
             getRequestedFor(urlPathEqualTo("/api/v1/berichten"))
@@ -67,7 +67,7 @@ class FscOutwayHeadersWireMockTest {
 
         assertNotNull(client, "client voor magazijn-OIN B moet geconfigureerd zijn")
 
-        client!!.getBerichten(ontvanger.toCanonicalString(), null)
+        client!!.getBerichten(ontvanger.toCanonicalString(), null, 0, 100)
 
         WireMockMagazijnResource.serverB!!.verify(
             getRequestedFor(urlPathEqualTo("/api/v1/berichten"))

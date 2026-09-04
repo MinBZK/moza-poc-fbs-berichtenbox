@@ -135,6 +135,13 @@ paths:
         en een afsluitend gereed/fout-event. Geen query-parameters: alle mappen
         worden opgehaald.
 
+        Levert een organisatie meer berichten dan de uitvraag ophaalt, dan draagt het
+        `magazijn-bevraging-voltooid`-event `afgekapt: true` (en `totaalBeschikbaar`
+        als het magazijn een totaal meldde). De status blijft `OK`: de opgehaalde
+        berichten zijn er wél. Toon dat signaal, ook in een samenvattende regel —
+        anders lijkt een afgekapte lijst een volledige lijst en kan de ontvanger niet
+        weten wat hij mist.
+
         Foutsemantiek: header-validatie, een al lopende ophaling (`409`) en een
         onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
         opgezet staat de HTTP-status op `200` vast; een storing daarna uit zich
