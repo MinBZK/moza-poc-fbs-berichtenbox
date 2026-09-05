@@ -5,6 +5,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.URI
@@ -30,7 +31,10 @@ class PersonaMetCijfersTest {
     @TestHTTPResource("/")
     lateinit var basis: URL
 
+    // Ook achteraf: het dubbel is procesbreed, dus wat hier blijft staan zou een andere
+    // @QuarkusTest van deze module rood maken.
     @BeforeEach
+    @AfterEach
     fun leegDeOpnames() {
         VasteOntdubbelingService.nummers.clear()
     }
