@@ -331,6 +331,93 @@ Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand uit `
 in `docs/plans/2026-08-21-magazijn-simulator-design.md`, of onder het issue waaraan je werkt. Een
 meting die alleen in een terminal heeft gestaan, is een volgende keer niet te vergelijken.
 
+## 10. De gezondheidscontrole per component
+
+Deze stap toetst dat elk component gecontroleerd wordt op een manier die bij dat component past —
+hoofdstuk 9 van `README.md` draagt de keuze per component en de reden erbij.
+
+**(a) Staat de gekozen probe in het gerenderde manifest?** Dat manifest is wat Argo synct, en dus
+het enige dat telt; de UI kan een bevroren, verouderde melding tonen. Loop álle vijf de deployments
+af, niet alleen die van de uitvraag:
+
+```bash
+basis=repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production
+probe() {
+  echo "-- $1/$2 $3"
+  gh api "$basis/$1/$2/$3-deployment.yaml" --jq '.content' | base64 -d \
+    | grep -A6 -E 'livenessProbe|readinessProbe'
+}
+probe mpfpsm-lcl test profiel                    # httpGet /__admin/health :8080
+probe mpfm-w3h   test demopersonas               # httpGet /q/health/live :8098
+probe mpfb-8wh   test uitvraag                   # httpGet /q/health/live :8086
+probe mpfb-8wh   fsc-logius logius-fscoutway     # httpGet /health/live :8081
+probe mpfm-w3h   fsc-magazijna magazijna-fscmgr  # httpGet /health/live :8080
+```
+
+Staat er nog een `tcpSocket` waar een `httpGet` hoort, dan is de instelling niet aangekomen. Kijk
+eerst of er een uitrol liep (`gh run list --workflow "Deploy ZAD"`) en draai
+`gezondheidscontrole.sh apply` opnieuw.
+
+Zes componenten kun je zo niet controleren: de vier `tcp`-regels (`redis`, `proeftuin` en de twee
+`fscpg`) renderen hetzelfde manifest als de standaard, en de twee `none`-regels renderen nog steeds
+niets. Wat daar in OM staat lees je met `zadctl -p <project> service config get health-check` — dat
+commando toont de dienst over alle lagen en kent geen componentvlag, dus je zoekt het component in
+de uitvoer op.
+
+**Twee dingen die deze stap voor het eerst bewijst.** Beide staan in hoofdstuk 9 van `README.md` als
+verwacht-maar-ongemeten, en dit is de plek waar ze waar of onwaar worden:
+
+- **Slaat de dienst aan op een component dat al bestond?** Poorten en aliassen doen dat niet. Zie je
+  bij `demopersonas` een `httpGet` op `/q/health/live`, dan is het antwoord ja. Blijft het
+  `tcpSocket`, dan moet elk component herschapen worden (`component remove` + `component add`;
+  nooit `deployment delete` — dat wist in `mpfm-w3h` de gedeelde database). Neem hiervoor niet
+  `democonsole`: dat draait naast de app een authorization-wall die zijn eigen `httpGet /ping` op
+  4180 rendert, dus daar staat een httpGet in het manifest of de instelling nu is aangekomen of niet.
+- **Rendert ZAD een probe op een poort die niet in `ports.inbound` staat?** Alleen de FSC-regels
+  hangen daarvan af. Draagt `logius-fscoutway` een `httpGet` op 8081, dan is het antwoord ja. Zo
+  niet, dan moet de monitoring-poort als extra inbound-poort op die componenten — 8081, en 8080 op
+  de twee managers — en dát vraagt een hercreatie.
+
+**(b) Zakt readiness mee zonder herstart?** Dit is de kern van de stap. De uitvraag publiceert zijn
+health-endpoints op dezelfde poort als zijn API, dus je kunt ze over de ingress bevragen:
+
+```bash
+uitvraag=https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
+curl -sS -w '\n-> %{http_code}\n' "$uitvraag/q/health/ready"
+```
+
+Gezond: `200` met `"status": "UP"` en een lijst checks waarin de berichtenopslag staat. Zet nu de
+Redis-storingsknop dicht via het paneel (tabblad **Storingen**) en herhaal het.
+
+Verwacht binnen enkele seconden een **503** — en let op waar die vandaan komt: zodra de pod
+`NotReady` is haalt de router hem uit de endpoints, dus je krijgt de 503 van de ingress en niet meer
+het JSON-antwoord van de applicatie. Dat is het bewijs dat readiness meezakt.
+
+Verwacht **geen** herstart: liveness staat op `/q/health/live` en zegt alleen iets over het proces.
+`zadctl -p mpfb-8wh logs test -c uitvraag -n 20` hoort geen verse opstartregels te tonen. Zet de
+knop weer open; binnen enkele seconden hoort het `200` met `"status": "UP"` terug te zijn. Blijft
+het 503, dan zakt readiness ergens anders op mee.
+
+Dat de ingress hier 503 antwoordt in plaats van dat de uitvraag zelf zijn degradatie laat zien, is
+een bewuste keuze — hoofdstuk 9 van `README.md` legt uit waarom, en wat het alternatief zou zijn.
+
+**(c) Blijven de storingsknoppen werken?** Zet alle vier de proxies uit en weer aan. Geen enkele
+Toxiproxy-pod hoort te herstarten, en het uitzetten van de ene knop hoort de andere drie niet mee te
+nemen. Stap 6 hierboven beschrijft de knoppen zelf; hier gaat het alleen om de vraag of de probe ze
+met rust laat.
+
+**(d) Staat het logboek in rust stil?** Bij de FSC-componenten was de blinde TCP-probe goed voor een
+`TLS handshake error` per twee seconden. Met de probe op de monitoring-poort hoort dat er nul te
+zijn:
+
+```bash
+zadctl -p mpfb-8wh logs fsc-logius -c logius-fscoutway -n 200 --since 10m \
+  | grep -c 'handshake error' || true
+```
+
+Verwacht `0`. De `|| true` staat er omdat `grep -c` met nul treffers zelf exitcode 1 geeft — precies
+bij de uitkomst die je wilt.
+
 ## Daarna
 
 Laat de omgeving niet leeg achter: druk nog een keer op **Herstel demo**, zodat de volgende

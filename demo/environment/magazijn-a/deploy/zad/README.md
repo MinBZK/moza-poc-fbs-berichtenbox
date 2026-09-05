@@ -72,6 +72,22 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
    `00000000000000100000` zetten, anders publiceert `berichtenmagazijn` nog onder de OUDE
    identiteit terwijl de peer-componenten al onder de nieuwe OIN announcen — een mismatch
    tussen de dienstverlener en de FSC-peer die haar aanmeldt.
+10. **Gezondheidscontrole** — `demo/environment/zad-demo/gezondheidscontrole.sh apply fsc-magazijna`
+    zet de `health-check`-dienst op de zes componenten van déze deployment. Het projectargument
+    (`apply mpfm-w3h`) zou ook de magazijnen, het paneel, de simulator, de personadienst en de
+    proeftuin meenemen; dat mag, maar dan loop je de hele demo mee.
+
+## De gezondheidscontrole staat op de monitoring-poort
+
+De eerste poort van de manager, de inway en de txlog is een TLS-luisteraar, en de standaardcontrole
+van ZAD is een blinde TCP-connect die daar elke twee seconden een `http: TLS handshake error ... EOF`
+achterlaat. De probe wijst daarom niet naar de functionele poort maar naar `MONITORING_ADDRESS`.
+
+Deze peer heeft geen outway; komt hij er met de cutover uit `cutover-interne-outway.md`, dan hoort
+er een regel bij in het script. De waarden per component staan in hoofdstuk 9 van
+`demo/environment/zad-demo/README.md`, samen met de meting waar ze op steunen. Eén ding hoort hier,
+omdat het de reden is dat deze peer twee paden gebruikt en niet één: liveness mag nooit op
+`/health/ready` staan, want dan herstart een component dat alleen zijn txlog kwijt is.
 
 ## Env-vars
 
