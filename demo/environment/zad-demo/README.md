@@ -752,8 +752,16 @@ demo/environment/zad-demo/gezondheidscontrole.sh plan     # toont de aanroepen, 
 demo/environment/zad-demo/gezondheidscontrole.sh apply
 ```
 
-Het script draagt de tabel hieronder als data. Wijzigt de keuze voor een component, wijzig hem daar
-en werk dit hoofdstuk bij.
+Het script draagt de tabel hieronder als data en is daarmee de bron; dit hoofdstuk beschrijft
+diezelfde tabel met de redenen erbij. Wijzigt een keuze, wijzig hem in het script en werk dit
+hoofdstuk bij.
+
+`plan` toetst de tabel, haalt bij OM op wat er in elke deployment staat, en meldt zowel een regel
+zonder component als een component zonder regel — dat laatste is het geval dat stil de
+standaardcontrole houdt. Het tweede argument versmalt de reeks tot één project (`mpfb-8wh`) of één
+deployment (`fsc-logius`); zonder argument loopt hij alle drie de projecten af, in oplopende
+risicovolgorde: eerst de stubs, dan de keten, dan de federatie. Kijk tussendoor in het gerenderde
+manifest of het aankomt.
 
 ### Wat de dienst rendert
 
@@ -762,7 +770,7 @@ Twee paden, drie probes. `liveness-path` voedt zowel de `startupProbe` als de `l
 
 | Probe | Interval | Drempel | Gevolg |
 |---|---|---|---|
-| `startupProbe` | 5s, na 5s | 36× | 180 seconden opstartbudget vóór liveness begint te tellen |
+| `startupProbe` | 5s, na 5s | 36× | ruim drie minuten opstartbudget vóór liveness begint te tellen |
 | `livenessProbe` | 30s, na 5s | 3× | ~90 seconden falen → pod herstart |
 | `readinessProbe` | 2s, direct | 3× | ~6 seconden falen → uit de endpoints, geen verkeer |
 
@@ -789,15 +797,19 @@ wanneer hij netjes staat te wachten — de controle maakt dan de storing die ze 
 | `proeftuin` | `mpfm-w3h` | `tcp` | 8080 | — |
 | `logius-fscpg`, `magazijna-fscpg` | `mpfb-8wh` / `mpfm-w3h` | `tcp` | 5432 | — |
 | `logius-fscmgr`, `magazijna-fscmgr` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8080 | `/health/live` · `/health/ready` |
-| de overige `*-fsc{ctl,inway,outway,txlog}` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8081 | `/health/live` · `/health/ready` |
-| `logius-fscbootstrap`, `magazijna-fscbootstrap` | `mpfb-8wh` / `mpfm-w3h` | `none` | — | — |
+| `logius-fsc{ctl,inway,txlog}`, `magazijna-fsc{ctl,inway,txlog}` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8081 | `/health/live` · `/health/ready` |
+| `logius-fscoutway` (magazijn-a heeft er geen) | `mpfb-8wh` | `http` | 8081 | `/health/live` · `/health/ready` |
+| `logius-fscbootstrap`, `magazijna-fscbootstrap` | `mpfb-8wh` / `mpfm-w3h` | `none` | 8443, betekenisloos | — |
 
 **De Kotlin-componenten** dragen alle `quarkus-smallrye-health`; `/q/health/live` en
-`/q/health/ready` bestaan dus al. Readiness telt de datasource en de berichtenopslag mee, liveness
-niet.
+`/q/health/ready` bestaan dus al. Readiness telt de afhankelijkheden mee die Quarkus zelf aanmeldt,
+liveness niet. Wát readiness meetelt verschilt per component: `democonsole` sluit de twee
+magazijn-datasources bewust uit (`quarkus.datasource.<naam>.health-exclude=true`), zodat een
+magazijn dat wegvalt het paneel niet uit de endpoints haalt. Die uitsluiting blijft staan.
 
-**De Toxiproxy's** houden hun bestaande probe op de admin-API (hoofdstuk 6 legt uit waarom die niet
-naar de stroom mag wijzen). Ze staan hier alleen omdat de keuze op één plek hoort te staan.
+**De Toxiproxy's** houden de probe die hoofdstuk 6 ze gaf, op de admin-API en niet op de proxy die
+de knop dichtzet. Ze staan hier alleen omdat de keuze op één plek hoort te staan; het waarom staat
+daar.
 
 **De WireMock-stubs** krijgen `/__admin/health`. Dat pad hoort bij de admin-API en wordt vóór de
 stub-mappings afgehandeld, dus geen mapping kan het overnemen; op `wiremock/wiremock:3.13.2` — het
@@ -805,38 +817,46 @@ image uit `wiremock/externe-stubs/Dockerfile` — antwoordt het 200 met `{"statu
 geen apart liveness-signaal: een WireMock zonder werkende admin-API is stuk.
 
 **Redis en de twee PostgreSQL'en** spreken geen HTTP. Een TCP-connect is daar een eerlijke probe:
-beide protocollen beginnen met een verbinding die het serverproces zelf accepteert, en geen van
-beide logt een afgebroken poging als fout. `proeftuin` staat om een andere reden in die rij — zie
+beide protocollen beginnen met een connect die het serverproces zelf accepteert, en geen van beide
+logt een afgebroken poging als fout. `proeftuin` staat om een andere reden in die rij — zie
 hoofdstuk 7.
 
 **De bootstrap-componenten** openen geen inbound poort en krijgen nu al geen probe gerenderd.
-`none` maakt daar een opgeschreven keuze van in plaats van een gevolg. De poort in het schema is
-verplicht en betekent daar niets.
+`none` maakt daar een opgeschreven keuze van in plaats van een gevolg. De poort is verplicht in het
+schema en betekent bij `none` niets; 8443 staat er als onschadelijke waarde.
 
 ### De FSC-componenten: de monitoring-poort, niet de functionele poort
 
-De functionele poort van de FSC-familie (8443) spreekt TLS. Een blinde TCP-probe elke twee seconden
-logt daar `http: TLS handshake error ... EOF` — dertig regels per minuut die geen fout zijn.
+De functionele poort van de FSC-familie (8443) spreekt TLS. De standaardcontrole opent daar elke
+twee seconden een socket en sluit hem meteen weer, wat de Go-server logt als
+`http: TLS handshake error ... EOF` — een regel per twee seconden, dag en nacht, die geen fout is.
 
 Alle vijf de FSC-images bedienen op hun `MONITORING_ADDRESS` twee paden: `/health/live` en
 `/health/ready`. Kaal `/health` geeft 404, en dat is waarom eerder onderzoek concludeerde dat er
 niets te vinden was. Nagemeten op v2.5.2 in de lokale harness
-(`demo/environment/logius/deploy/local/`), met de txlog-api stilgezet:
+(`demo/environment/logius/deploy/local/`):
 
 | | manager | controller | inway | outway | txlog |
 |---|---|---|---|---|---|
 | `/health/live`, gezond | 200 | 200 | 200 | 200 | 200 |
 | `/health/ready`, gezond | 200 | 200 | 200 | 200 | 200 |
-| `/health/live`, txlog weg | 200 | 200 | 200 | 200 | — |
-| `/health/ready`, txlog weg | 200 | 200 | 503 | 503 | — |
+| `/health`, gezond | 404 | 404 | 404 | 404 | 404 |
+| `/health/live`, txlog weg | 200 | niet gemeten | 200 | 200 | — |
+| `/health/ready`, txlog weg | 200 | niet gemeten | 503 | 503 | — |
 
-Precies de scheiding die we willen: een outway die zijn transactielog kwijt is krijgt geen verkeer
-meer, maar wordt niet herstart, en komt vanzelf terug zodra de txlog er weer is.
+Precies de scheiding die we willen: een outway die zijn txlog kwijt is krijgt geen verkeer meer,
+maar wordt niet herstart, en komt vanzelf terug zodra de txlog er weer is.
 
-De monitoring-poort staat niet in `ports.inbound` van het component, en dat hoeft ook niet: een
-httpGet-probe mag naar elke poort die de container opent. Zo blijft die poort cluster-intern. De
-manager luistert op 8080, de rest op 8081 — de `MONITORING_ADDRESS`-regels in
+De manager luistert op 8080, de rest op 8081 — de `MONITORING_ADDRESS`-regels in
 `demo/environment/{logius,magazijn-a}/deploy/zad/upsert-peer.sh` zijn daarvoor de bron.
+
+**Die monitoring-poort staat niet in `ports.inbound` van het component.** Kubernetes staat een
+httpGet naar elke poort toe die de container opent, en de beschrijving van de `health-check`-dienst
+noemt "je gezondheidsendpoint zit op een andere poort dan je functionele poort" zelf als reden om de
+dienst te kiezen. Dat ZAD zo'n poort ook werkelijk rendert, is echter nog nergens te zien: geen
+enkel component in deze projecten deed het tot nu toe. Stap 10 van `verify-zad.md` leest het na de
+eerste apply af uit het gerenderde manifest. Komt het er niet, dan moet 8081 als tweede
+inbound-poort op de FSC-componenten — en dát vraagt wél een hercreatie.
 
 ### Readiness op de uitvraag zakt mee met de berichtenopslag
 
@@ -860,9 +880,13 @@ De dienstconfiguratie komt mee in de `clone-from: test` die previews aanmaakt. N
 per preview; previews die van vóór deze instelling dateren lopen mee zodra ze opnieuw worden
 aangemaakt.
 
-Anders dan poorten en aliassen vraagt dit géén hercreatie van het component: de dienstconfiguratie
-is bij OM een eigen laag (`PUT /v2/projects/{p}/services/health-check/config/component/{c}`) en geen
-component-creatie-payload.
+Dat zegt nog niets over de andere richting. Poorten en aliassen gelden alleen bij component-creatie,
+en of een dienst wél aanslaat op een component dat er al staat, is een aparte vraag. De vorm wijst
+de goede kant op — de configuratie gaat naar een eigen laag bij OM
+(`PUT /v2/projects/{p}/services/health-check/config/component/{c}`), geen creatie-payload — maar het
+bewijs is het gerenderde manifest ná de eerste apply. Verandert dat niet, dan is per component
+`component remove` + `component add` nodig; nooit `deployment delete`, want dat wist in `mpfm-w3h`
+de database die de magazijnen, de simulator en het paneel delen.
 
 ## Wat er bewust niet meekomt
 
