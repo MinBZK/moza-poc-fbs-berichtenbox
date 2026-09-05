@@ -337,6 +337,10 @@ gedaan=0
 half=""
 stand_gemeld=0
 
+# Pas gevuld ná een geslaagde refresh. Zou hij vóór de aanroep gevuld worden, dan zou de melding bij
+# een afgebroken run een project als uitgerold opgeven dat alleen opgeslagen staat.
+UITGEROLD=()
+
 meld_stand() {
     [ "$MODE" = apply ] || return 0
     [ "$stand_gemeld" -eq 0 ] || return 0
@@ -351,9 +355,12 @@ meld_stand() {
         echo "  daarmee doet is niet vastgesteld; draai apply opnieuw vóór de volgende uitrol." >&2
     fi
 
-    if [ "${#DRYRUN[@]}" -eq 0 ]; then
+    if [ "${#UITGEROLD[@]}" -eq 0 ]; then
         echo "  Er is niets uitgerold: dit script schrijft met --no-rollout en rolt pas aan het eind" >&2
         echo "  uit. Wil je de opgeslagen stand tóch kwijt, kijk dan met 'zadctl project pending'." >&2
+    else
+        echo "  Al uitgerold: ${UITGEROLD[*]}. De overige projecten dragen de instellingen alleen" >&2
+        echo "  opgeslagen; 'zadctl -p <project> project pending' toont wat daar nog wacht." >&2
     fi
 }
 
@@ -555,14 +562,14 @@ fi
 
 # Alles staat opgeslagen maar nog niet uitgerold. Eén refresh per project laat het in één keer
 # landen, in plaats van 54 losse uitrollen op projecten waarop OM project-breed vergrendelt.
-PROJECTEN_GEDAAN=()
+GEPROBEERD=()
 
 for paar in "${PAREN[@]}"; do
     IFS='|' read -r project _ <<<"$paar"
 
-    bevat "$project" "${PROJECTEN_GEDAAN[@]}" && continue
+    bevat "$project" "${GEPROBEERD[@]}" && continue
 
-    PROJECTEN_GEDAAN+=("$project")
+    GEPROBEERD+=("$project")
 
     echo "== uitrollen: $project"
 
@@ -570,16 +577,23 @@ for paar in "${PAREN[@]}"; do
     zadctl --strict -p "$project" project refresh || status=$?
 
     if [ "$status" -ne 0 ]; then
-        echo "uitrollen van '$project' mislukte; de instellingen staan opgeslagen" >&2
+        echo "uitrollen van '$project' mislukte; de instellingen staan er wel, uitgerold zijn ze niet" >&2
         duid_exitcode "$status"
+
+        if [ "${#UITGEROLD[@]}" -ne 0 ]; then
+            echo "  Al wél uitgerold: ${UITGEROLD[*]}." >&2
+        fi
+
         echo "  'zadctl -p $project project pending' toont wat nog wacht; refresh kan opnieuw." >&2
         exit "$status"
     fi
+
+    UITGEROLD+=("$project")
 done
 
 cat <<KLAAR
 
-Klaar: $gedaan componenten ingesteld en uitgerold over ${#PROJECTEN_GEDAAN[@]} project(en).
+Klaar: $gedaan componenten ingesteld en uitgerold over ${#UITGEROLD[@]} project(en).
 $( [ "$zonder_regel" -eq 0 ] || echo "LET OP: $zonder_regel component(en) houden de blinde TCP-controle — zie de regels hierboven." )
 
 Verifiëren doe je niet in de UI maar in het gerenderde manifest — dat is wat Argo synct:

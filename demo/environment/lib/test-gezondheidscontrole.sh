@@ -71,6 +71,12 @@ case " $* " in
     done
     printf ']}\n'
     ;;
+  *" project refresh "*)
+    echo "$*" >>"${STUB_LOG:-/dev/null}"
+    if [ -n "${STUB_REFRESH_FAAL:-}" ]; then
+      case " $* " in *" $STUB_REFRESH_FAAL "*) echo "stub: refresh faalt" >&2; exit 1 ;; esac
+    fi
+    ;;
   *)
     echo "$*" >>"${STUB_LOG:-/dev/null}"
     if [ -n "${STUB_FAAL:-}" ]; then
@@ -112,6 +118,14 @@ tabel_met() {
   done
 
   sed "s#^REGELS=(.*#REGELS=($vervanging)#" "$SCRIPT" > "${TMP}/variant.sh"
+
+  # Zonder deze controle zou een variant die door de vervanging onleesbaar werd, met een
+  # syntaxfout afbreken — en dan slaagt elke assert_weigert om de verkeerde reden.
+  bash -n "${TMP}/variant.sh" || {
+    echo "FAIL: de variant met [$*] is geen geldige bash meer; de vervanging klopt niet" >&2
+    exit 1
+  }
+
   echo "${TMP}/variant.sh"
 }
 
@@ -308,6 +322,32 @@ case "$rc:$UIT" in
   0:*) fout "apply eindigde met 0 terwijl een component mislukte" ;;
   *"1 van 3 componenten waren ingesteld"*) ok "apply stopt bij de eerste fout en meldt de stand (exit $rc)" ;;
   *) fout "apply na een fout gaf exit $rc zonder standmelding: $UIT" ;;
+esac
+
+echo
+echo "== uitrollen aan het eind"
+
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+
+: >"${TMP}/log"
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
+
+if [ "$rc" -ne 0 ]; then
+  fout "een schone apply faalde met exit $rc: $UIT"
+elif [ "$(grep -c 'project refresh' "${TMP}/log")" -ne 2 ]; then
+  fout "apply rolde niet één keer per project uit: $(grep -c 'project refresh' "${TMP}/log") refreshes"
+elif grep -q 'service config set' "${TMP}/log" && ! grep -q 'no-rollout' "${TMP}/log"; then
+  fout "apply muteerde zonder --no-rollout, dus elke aanroep rolde meteen uit"
+else
+  ok "apply schrijft met --no-rollout en rolt één keer per project uit"
+fi
+
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_REFRESH_FAAL=mpfm-w3h draai "$variant" apply; rc=$RC
+
+case "$rc:$UIT" in
+  0:*) fout "een mislukte uitrol eindigde met exit 0" ;;
+  *"Al wél uitgerold: mpfb-8wh"*) ok "een mislukte uitrol noemt de projecten die wél live staan (exit $rc)" ;;
+  *) fout "een mislukte uitrol zei niet welke projecten al uitgerold waren: $UIT" ;;
 esac
 
 echo
