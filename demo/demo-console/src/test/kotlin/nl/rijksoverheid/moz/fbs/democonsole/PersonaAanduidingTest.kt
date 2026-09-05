@@ -33,8 +33,8 @@ class PersonaAanduidingTest {
 
     /**
      * Twintig cijfers is een OIN: publiek, geen PII, en `DemoPersona` staat zo'n id uitdrukkelijk
-     * toe. Zonder deze bovengrens gaf dit adres 400 op een id dat de personadienst zelf accepteert
-     * — een tweede mening over wat een geldige id is.
+     * toe. Zonder deze uitzondering gaf dit adres 400 op een id dat de personadienst zelf
+     * accepteert — een tweede mening over wat een geldige id is.
      */
     @Test
     fun `een OIN is geen reden om te weigeren`() {
@@ -45,9 +45,10 @@ class PersonaAanduidingTest {
     }
 
     /**
-     * `proeftuin-2026-01` draagt zes cijfers en hoort gewoon een 404 te krijgen. Zonder dat geval
-     * kan de drempel ongemerkt naar beneden schuiven, en dan leest een bediener bij een vertypte id
-     * met een jaartal erin "gebruik een naam, geen nummer" — waarna hij in het verkeerde veld zoekt.
+     * De laatste waarde draagt zes cijfers en hoort net zo goed een 404 te krijgen. Zonder dat
+     * geval kan de drempel ongemerkt naar beneden schuiven, en leest een bediener bij een vertypte
+     * id met een jaartal erin "gebruik een naam, geen nummer" — waarna hij in het verkeerde veld
+     * gaat zoeken.
      */
     @ParameterizedTest
     @ValueSource(strings = ["pietersen", "proeftuin-een", "de.vries", "jan_2", "klant+1", "a@b", "proeftuin-2026-01"])
@@ -112,13 +113,16 @@ class PersonaAanduidingTest {
 
     private companion object {
 
-        /** Uit de ingerichte personaset; fictieve nummers uit de 999-testreeks. */
+        /** Van persona `pietersen`; fictief, uit de 999-testreeks. */
         const val BSN = "999993653"
 
+        /** Geen ingerichte persona; alleen de lengte doet er hier toe, plus de elfproef. */
         const val RSIN = "999999990"
 
+        /** Van persona `vandijk`. Acht cijfers, dus dit pint de ondergrens. */
         const val KVK = "90000014"
 
+        /** Van magazijn-a; de enige nummervorm die wél geciteerd mag worden. */
         const val OIN = "00000000000000100000"
 
         const val TERUGWEG = "kies een persona uit personas van /api/demo/omgeving"
