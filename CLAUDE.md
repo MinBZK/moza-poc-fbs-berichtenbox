@@ -288,11 +288,17 @@ anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
 | `zadctl guide [--section <naam>]` | Volledige uitleg, zonder credentials; `--output json` voor agent-gebruik |
 
 Voor scripts en agents: `-o json` op elk commando (data naar stdout, diagnostiek naar
-stderr), `--dry-run` toont de request zonder te sturen, `--yes` beantwoordt de
-bevestigingsprompts (alleen `delete`/`remove`/`clear`/`unset`/`restore` vragen), `--strict`
-maakt "gelukt maar degraded" non-zero. Exitcodes: `1` = eigen input/config/app, `2` =
-platform/netwerk (retry zinvol), `3` = niet te attribueren. CI blijft `zad-actions`
-gebruiken; de CLI is voor handwerk en debuggen.
+stderr), `--dry-run` toont de request zonder te sturen (en bereikt OM dus niet: een verlopen
+sessie of een component dat niet bestaat blijkt er niet uit), `--yes` beantwoordt de
+bevestigingsprompts. Dat zijn er meer dan `delete`/`remove`/`clear`/`unset`/`restore`:
+`service config set` schrijft het hele document en vraagt bevestiging vóór het een veld
+weggooit, dus in een reeks hoort `--yes` erbij. `--strict` maakt "gelukt maar degraded"
+non-zero — maar niet bij een taak die door een gelijktijdige uitrol is overruled: die meldt
+`status: superseded`, is een succes met exit 0 en géén waarschuwing. Daarvoor is `zadctl
+project pending` het instrument. Exitcodes: `1` = eigen input/config/app, `2` =
+platform/netwerk (retry zinvol), `3` = niet te attribueren. **De API-key is per project**: met
+`-p <ander project>` en de key uit een andere `.env.zadctl` krijg je 401. CI blijft
+`zad-actions` gebruiken; de CLI is voor handwerk en debuggen.
 
 **OM-API rechtstreeks** — vanuit CI, of waar de CLI niets voor heeft (per-project
 `X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`): basis

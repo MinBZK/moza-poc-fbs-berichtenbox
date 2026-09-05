@@ -50,7 +50,8 @@ manifests:
   al géén probe gerenderd. `scheme=none` verandert daar niets aan het manifest; het legt de keuze
   vast.
 
-**Twee dingen blijven onbewezen tot de eerste apply.** Poorten, aliassen en diensten worden
+**Twee dingen bleven onbewezen tot de eerste apply** — beide zijn daar bevestigd; zie "Uitkomst
+van de eerste apply" onderaan. Poorten, aliassen en diensten worden
 toegepast bij component-*creatie*; een tweede `component add` laat ze staan. Of `zadctl service
 assign` op een bestaand component wél doorkomt, is daarmee een open vraag — de dry-run wijst de
 goede kant op (de configuratie gaat naar `PUT /v2/projects/{p}/services/health-check/config/component/{c}`,
@@ -314,8 +315,14 @@ telt over twintig minuten nul handshake-fouten waar het er eerst één per twee 
   Het actieve project van de aanroeper blijft daarbij staan waar het stond.
 - `--strict` maakte van een idempotente waarschuwing een fout. Zodra de dienst op projectniveau
   geselecteerd is, meldt `service assign` "Service 'health-check' already exists on the project", en
-  met `--strict` is dat exitcode 1 — dus elke tweede aanroep brak af. `--strict` staat nu alleen nog
-  op `service config set` en `project refresh`, waar "aangenomen maar overruled" wél een fout is.
+  met `--strict` is dat exitcode 1 — dus elke tweede aanroep brak af. De vlag staat nu op beide
+  aanroepen, met precies die ene melding als toegestane uitzondering; elke andere waarschuwing
+  blijft een fout.
+
+  Bij het opschrijven bleek de motivatie erachter niet te kloppen. `--strict` maakt een waarschuwing
+  non-zero, maar een taak die door een gelijktijdige uitrol overruled is meldt `status: superseded`
+  en is volgens `zadctl guide` een succes met exit 0 — géén waarschuwing. Daarvoor is `zadctl
+  project pending` het instrument, en dat is wat het script na een uitrol aanraadt.
 
 **Eén waarneming voor het runbook:** `project refresh` reconcilieert het hele project. Bij
 `mpfm-w3h` faalde die stap op image-pull-timeouts van de ZAD-mirror voor twee componenten die niets
