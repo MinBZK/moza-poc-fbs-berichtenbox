@@ -115,11 +115,14 @@ zwijgen bij de tweede druk zou die knop precies zo stil maken als hij vóór dez
 
 Drie sets houden dat uit elkaar. `openstaandePaneelfouten` is wat er blijvend mis is — een element
 dat de opmaak niet draagt — en dat gaat niet over van een uitlezing die dat element niet eens
-bekijkt. `onbruikbareLijsten` is de storing die zichzelf wél herstelt: elke inricht-poging stelt
-opnieuw vast of de persona-lijsten bruikbaar binnenkwamen, dus die set wordt aan het begin van elke
-poging geleegd. En `ontdubbeldInLus` is wat de lus al gezegd heeft; die leegt `richtIn` bij een
-handmatige poging. Samen bepalen de eerste twee het merkteken op de klap-knop en of het paneel
-zichzelf compleet mag noemen — en de melding noemt bij naam wat er dan niet werkt.
+bekijkt. `onbruikbareLijsten` is de storing die kan overgaan: elke inricht-poging stelt opnieuw vast
+of de persona-lijsten bruikbaar binnenkwamen, dus die set wordt aan het begin van elke poging
+geleegd. En `ontdubbeldInLus` is wat de lus al gezegd heeft; die leegt `richtIn` bij een handmatige
+poging. Samen bepalen de eerste twee via `ietsOpenstaand()` het merkteken op de klap-knop en of het
+paneel zichzelf compleet mag noemen — en de melding noemt bij naam wat er dan niet werkt.
+
+Alleen een antwoord dát binnenkwam telt als onbruikbare lijst. Kwam er niets, dan zegt het
+inrichtingsblok dat al, en gaat die lijst vanzelf mee zodra de console terug is.
 
 ### Een onbekende losse actie meldt zichzelf
 

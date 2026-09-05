@@ -31,6 +31,13 @@ const INRICHT_WACHT = [2000, 5000, 15000, 30000];
 
 /* Sleutels zoals de API ze gebruikt, namen zoals ze in de demo genoemd worden. Alleen hier: de
  * knoppen en de statusbalk mogen niet ieder hun eigen vertaling verzinnen. */
+/* Zoals de lijsten in de demo heten; `watOpenstaat` zet ze in een melding, en daar hoort geen
+ * API-veldnaam te staan. */
+const LIJSTNAMEN = {
+    personas: 'de keuzelijst voor de ontdubbeling',
+    berichtPersonas: 'de keuzelijst voor een bericht aan één persona',
+};
+
 const MAGAZIJN_NAMEN = {
     'magazijn-a': 'RVO',
     'magazijn-b': 'Bel.dienst',
@@ -197,20 +204,30 @@ function toonBox(bereikbaar) {
 function verversBox() {
     const box = document.getElementById('box');
 
-    if (!box || box.hidden) {
-        // De knop staat er ook wanneer het frame niet in beeld is; zonder deze regel doet hij dan
-        // niets en zegt niets waarom.
+    if (!box) {
+        meldOpmaakfout('het frame van de berichtenbox');
+
+        return;
+    }
+
+    // De knop staat er ook wanneer het frame niet in beeld is; zonder deze regel doet hij dan niets
+    // en zegt niets waarom.
+    if (box.hidden) {
         toonMelding('De berichtenbox staat niet in beeld; er valt niets te verversen', 'let-op', null);
 
         return;
     }
 
-    toonMelding('Berichtenbox herladen', 'goed', null);
-
     try {
         box.contentWindow.location.reload();
+        toonMelding('Berichtenbox herladen', 'goed', null);
     } catch (fout) {
+        // Verwacht bij een frame op een andere origin; maar een frame dat nog niet geladen is geeft
+        // hier dezelfde tak, en dan zegt alleen het log welk van de twee het was.
+        console.error('[bediening] frame niet direct te herladen, terugval op src', fout);
+
         box.src = boxUrl;
+        toonMelding('Berichtenbox opnieuw geladen op ' + boxUrl, 'goed', null);
     }
 }
 
@@ -268,6 +285,11 @@ function toonMelding(tekst, soort, ruw, uitleg) {
     // en dat zou zijn eigen throw opnieuw binnenkrijgen.
     if (!melding || !meldingTekst || !meldingLetOp || !meldingRuw || !meldingJson) {
         console.error('[bediening] melding niet te tonen:', tekst);
+
+        // Niet via `registreerPaneelfout`: die meldt, en melden is precies wat hier niet kan. De stip
+        // op de klap-knop hangt aan een ander element en werkt wél.
+        openstaandePaneelfouten.add('de meldingsbalk');
+        markeerKlap(true);
 
         return;
     }
@@ -481,6 +503,8 @@ function veldnaam(veld) {
 }
 
 function opsom(namen) {
+    if (!namen.length) return '';
+
     return namen.length < 2 ? namen[0] : namen.slice(0, -1).join(', ') + ' en ' + namen[namen.length - 1];
 }
 
@@ -600,7 +624,7 @@ async function voerUit(knop) {
             // te weinig: bij "geslaagd, maar het antwoord had een onverwachte vorm" stond er anders
             // een groen vinkje naast een melding die twijfel uitsprak.
             zetUitkomst(knop, samengevat.soort === 'let-op' ? 'let-op' : 'gelukt');
-            toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw, letOp(uitkomst.body));
+            toonMelding(samengevat.tekst, samengevat.soort, uitkomst.ruw, letOp(uitkomst.body));
         } else {
             zetUitkomst(knop, 'mislukt');
             toonMelding(uitkomst.tekst, 'fout', uitkomst.ruw);
@@ -754,6 +778,12 @@ function tabToets(gebeurtenis) {
 function markeerTab(id, letOp) {
     const tab = document.getElementById(id);
 
+    if (!tab) {
+        meldOpmaakfout('het tabblad ' + id, true);
+
+        return;
+    }
+
     tab.dataset.letOp = String(letOp);
 
     if (letOp) tab.setAttribute('aria-label', tab.dataset.label + ' — er staat iets aan');
@@ -800,6 +830,13 @@ async function lees(pad) {
 
 function zetChip(id, tekst, soort) {
     const chip = document.getElementById(id);
+
+    if (!chip) {
+        meldOpmaakfout('de chip ' + id, true);
+
+        return;
+    }
+
     const label = chip.firstElementChild;
 
     chip.className = 'chip' + (soort ? ' chip--' + soort : '');
@@ -903,16 +940,27 @@ async function verversToestand(metHand) {
     ]);
 
     // Een ronde die al liep toen er geklikt werd, mag de verse toestand van ná die actie niet
-    // terugdraaien.
-    if (beurt !== ververslus) return;
+    // terugdraaien. Wie zelf op de knop drukte hoort dat wél te horen: anders duurt zijn uitlezing
+    // tot de timeout en verandert er daarna niets zichtbaars.
+    if (beurt !== ververslus) {
+        if (metHand) toonMelding('Een nieuwere bijwerking nam het over', 'let-op', null);
+
+        return;
+    }
 
     toonBerichten(status);
     toonStroom(tempo);
     toonStoringen(storingen);
     toonMagazijnen(veel);
 
-    // Anders is een druk op de knop alleen te zien wanneer er toevallig iets veranderde.
-    if (metHand) toonMelding('Toestand bijgewerkt', 'goed', null);
+    if (!metHand) return;
+
+    // Anders is een druk op de knop alleen te zien wanneer er toevallig iets veranderde — en groen
+    // terwijl elke chip op "onbekend" staat is het verkeerde signaal.
+    const onleesbaar = [status, tempo, storingen].filter((antwoord) => antwoord === null).length;
+
+    if (onleesbaar === 0) toonMelding('Toestand bijgewerkt', 'goed', null);
+    else toonMelding('Toestand bijgewerkt, maar ' + onleesbaar + ' uitlezing(en) kwamen niet door', 'let-op', null);
 }
 
 // ---------------------------------------------------------------- omgeving en persona's
@@ -922,6 +970,11 @@ async function verversToestand(metHand) {
  * knoppen die zichtbaar falen zijn beter dan een leeg tabblad zonder uitleg. */
 async function pasOmgevingToe() {
     const omgeving = await lees('/api/demo/omgeving');
+    const gelezen = omgeving !== null;
+
+    // Vooraan, want alles hieronder kan gooien: wat de vorige ronde miste mag een volgende ronde niet
+    // blijven achtervolgen.
+    onbruikbareLijsten.clear();
 
     heeftSimulator = omgeving ? omgeving.simulator : true;
 
@@ -967,22 +1020,21 @@ async function pasOmgevingToe() {
     // /api/demo/personas: dat adres hoort bij de personadienst, en deze module beantwoordt het
     // bewust niet. Console onbereikbaar levert null op, waarop de keuzelijst zegt dat ze niet te
     // lezen was in plaats van dat er niets is ingericht.
-    // Elke poging stelt opnieuw vast welke lijsten bruikbaar zijn; wat de vorige ronde miste mag een
-    // geslaagde ronde niet blijven achtervolgen.
-    onbruikbareLijsten.clear();
-
     try {
-        vulPersonas(omgeving ? omgeving.personas : null, omgeving !== null);
+        vulPersonas(omgeving ? omgeving.personas : null, gelezen);
     } catch (fout) {
         console.error('[bediening] persona-keuzelijst niet te vullen', fout);
-        vulPersonas(null);
+
+        // Mét `gelezen`: een antwoord dat binnenkwam en waarop deze lijst stukloopt, is een dode
+        // bediening — anders zou de volgende geslaagde poging het paneel compleet noemen.
+        vulPersonas(null, gelezen);
     }
 
     try {
-        vulBerichtPersonas(omgeving ? omgeving.berichtPersonas : null, omgeving !== null);
+        vulBerichtPersonas(omgeving ? omgeving.berichtPersonas : null, gelezen);
     } catch (fout) {
         console.error('[bediening] keuzelijst voor losse berichten niet te vullen', fout);
-        vulBerichtPersonas(null);
+        vulBerichtPersonas(null, gelezen);
     }
 
     // Pas nu weet de balk of de magazijnen-chip bestaat; zonder deze ronde blijft hij tot de
@@ -1053,11 +1105,12 @@ async function richtIn(metHand) {
         // gevraagd, en een melding die er altijd staat leest niemand meer. "Compleet" alleen als er
         // ook echt niets openstaat — een ontbrekend element of een onleesbare lijst blijft staan,
         // ook al las deze poging de omgeving gewoon.
-        // `bezig` erbij: een automatische poging die net terugkomt mag de uitkomst van de actie die
-        // de bediener zojuist indrukte niet overschrijven. Een druk op de knop mag dat wel — die
-        // vroeg er zelf om.
-        if ((inrichtPoging > 0 || metHand) && (metHand || bezig === 0)) {
-            const compleet = !ietsOpenstaand();
+        // Een automatische poging die net terugkomt mag de uitkomst van de actie die de bediener
+        // zojuist indrukte niet overschrijven — maar dat geldt alleen voor de bevestiging dat alles
+        // klopt. Blijft er iets stuk, dan is dat het belangrijkere bericht en gaat het voor.
+        const compleet = !ietsOpenstaand();
+
+        if ((inrichtPoging > 0 || metHand) && (metHand || bezig === 0 || !compleet)) {
 
             toonMelding(
                 compleet
@@ -1111,7 +1164,7 @@ function toonInrichtingsfout(tekst) {
         return;
     }
 
-    registreerPaneelfout('de tekstregel van het inrichtingsblok ontbreekt in de opmaak');
+    registreerPaneelfout('de tekstregel van het inrichtingsblok');
 
     // Zonder die regel blijft het blok leeg, dus draagt de meldingsbalk de oorzaak — met de
     // opmaakfout in dezelfde zin, want twee meldingen achter elkaar laten er maar één over.
@@ -1120,7 +1173,7 @@ function toonInrichtingsfout(tekst) {
 
 function toonInrichting(zichtbaar) {
     if (inrichting) inrichting.hidden = !zichtbaar;
-    else registreerPaneelfout('het blok voor een mislukte inrichting ontbreekt in de opmaak');
+    else registreerPaneelfout('het blok voor een mislukte inrichting');
 
     // Ook zonder blok, en ook bij een storing die alleen in de meldingsbalk staat.
     markeerKlap(zichtbaar || ietsOpenstaand());
@@ -1199,12 +1252,11 @@ function vulBerichtPersonas(personas, uitlezingGelukt) {
     );
 }
 
-/* Niet op `=== null`: `lees()` geeft `null` voor élke onbereikbare of onleesbare console, dus wat
- * hier overblijft is een antwoord dát binnenkwam waarin het veld ontbreekt of van vorm veranderd is
- * — een console die dit veld nog niet kent, of een proxy die het herschrijft. Dat is een andere
- * oorzaak dan "de console was even weg", en de keuzelijst kan dat verschil niet tonen. Altijd
- * loggen, ook bij `null`: anders is het geval "de console antwoordde met null" van de twee andere
- * niet te onderscheiden. */
+/* `!Array.isArray` vat twee oorzaken samen: er kwam geen antwoord (`lees()` geeft dan `null`), of er
+ * kwam er wél een waarin dit veld ontbreekt of van vorm veranderd is — een console die het nog niet
+ * kent, of een proxy die het herschrijft. `uitlezingGelukt` is het enige dat die twee uit elkaar
+ * houdt, en alleen het tweede geval is een dode bediening die blijft staan. Altijd loggen, ook bij
+ * `null`: anders is "de console antwoordde met null" van de andere twee niet te onderscheiden. */
 function meldOnbruikbareLijst(veld, waarde, keuze, knop, keuzeId, uitlezingGelukt) {
     console.error('[bediening] ' + veld + ' is niet als lijst binnengekomen', waarde);
 
@@ -1213,7 +1265,7 @@ function meldOnbruikbareLijst(veld, waarde, keuze, knop, keuzeId, uitlezingGeluk
     // compleet noemen. Kwam er helemaal geen antwoord, dan zegt het inrichtingsblok dat al, en gaat
     // deze lijst vanzelf mee zodra de console terug is.
     if (uitlezingGelukt) {
-        onbruikbareLijsten.add('de lijst ' + veld);
+        onbruikbareLijsten.add(LIJSTNAMEN[veld] || veld);
 
         markeerKlap(true);
     }
@@ -1249,8 +1301,9 @@ function meldLijstOnbekend(keuze, knop, keuzeId) {
     keuze.disabled = true;
 }
 
-/* Twee sets, want ze beantwoorden twee vragen. `openstaandePaneelfouten` is wat er nog mis is: dat
- * draagt het merkteken op de klap-knop en houdt tegen dat het paneel zichzelf compleet noemt.
+/* Drie sets, elk met een eigen levensduur. `openstaandePaneelfouten` is wat er blijvend mis is: een
+ * element dat de opmaak niet draagt. Samen met `onbruikbareLijsten` (verderop) bepaalt die via
+ * `ietsOpenstaand()` het merkteken op de klap-knop en of het paneel zichzelf compleet mag noemen.
  * `ontdubbeldInLus` is wat de herhalende inricht-lus al gezegd heeft — die komt hetzelfde ontbrekende
  * element bij elke poging opnieuw tegen, en de meldingsbalk houdt de uitkomst van de laatste actie
  * vast.
@@ -1261,9 +1314,10 @@ function meldLijstOnbekend(keuze, knop, keuzeId) {
 const openstaandePaneelfouten = new Set();
 const ontdubbeldInLus = new Set();
 
-/* En apart daarvan: welke persona-lijsten niet bruikbaar binnenkwamen. Die storing herstelt zichzelf
- * wél — de volgende uitlezing bekijkt precies die lijst opnieuw — dus stelt elke inricht-poging hem
- * opnieuw vast in plaats van hem voor de rest van de sessie vast te houden. */
+/* En apart daarvan: welke persona-lijsten niet bruikbaar binnenkwamen. Die storing kan overgaan — de
+ * volgende inricht-poging bekijkt precies die lijst opnieuw — dus stelt elke poging hem opnieuw vast
+ * in plaats van hem voor de rest van de sessie vast te houden. Ná een geslaagde ronde komt die
+ * volgende poging alleen nog van de knop of van een refresh; de automatische lus is dan gestopt. */
 const onbruikbareLijsten = new Set();
 
 /* Of er nog iets openstaat: dat bepaalt het merkteken op de klap-knop en of het paneel zichzelf
@@ -1276,9 +1330,10 @@ function watOpenstaat() {
     return opsom(Array.from(openstaandePaneelfouten).concat(Array.from(onbruikbareLijsten)));
 }
 
-/* Vastleggen zonder te melden, voor wie de storing zelf in zijn eigen zin verwoordt. */
+/* Vastleggen zonder te melden, voor wie de storing zelf in zijn eigen zin verwoordt. `wat` is een
+ * naamwoordgroep ("de tabbladenrij"), zodat `watOpenstaat()` er een opsomming van kan maken. */
 function registreerPaneelfout(wat) {
-    console.error('[bediening] paneelfout:', wat);
+    console.error('[bediening] werkt niet:', wat);
 
     openstaandePaneelfouten.add(wat);
 
@@ -1300,11 +1355,12 @@ function meldOntbrekendeLijst(keuze, knop, keuzeId) {
 }
 
 function meldOpmaakfout(wat, uitDeLus) {
-    // Vóór de melding maar ná de ontdubbeling zou de storing niet vastliggen; andersom herhaalt elke
-    // ronde het log en het merkteken. Registreren doet daarom de eerste die er langskomt.
+    // Ná de ontdubbelings-guard, anders herhaalt elke ronde hetzelfde log en merkteken; vóór de
+    // melding, zodat de eerste aanroep die er langskomt de storing vastlegt en `openstaandePaneelfouten`
+    // hem vasthoudt ook wanneer latere rondes zwijgen.
     if (uitDeLus && ontdubbeldInLus.has(wat)) return;
 
-    registreerPaneelfout(wat + ' ontbreekt in de opmaak');
+    registreerPaneelfout(wat);
 
     if (uitDeLus) ontdubbeldInLus.add(wat);
 
@@ -1385,7 +1441,7 @@ document.addEventListener('click', (gebeurtenis) => {
         // een TypeError, die het vangnet als "onverwachte fout" toont — hier staat de naam die niet
         // klopt. Geen `meldOpmaakfout`: de opmaak draagt die naam juist wél, het script kent hem niet.
         if (!Object.hasOwn(LOSSE_ACTIES, knop.dataset.actie)) {
-            registreerPaneelfout('de knop met actie ' + knop.dataset.actie + ' hangt aan niets');
+            registreerPaneelfout('de knop met de actie ' + knop.dataset.actie);
             toonMelding('Deze knop noemt een actie die het paneel niet kent: ' + knop.dataset.actie, 'fout', null);
 
             return;
@@ -1429,7 +1485,14 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
     knop.append(merk);
 });
 
-herstelStand();
+// In een eigen try: `kiesTab` raakt een tabblad uit de bewaarde stand, en een hernoemd blad zou hier
+// het hele script stoppen — vóór het inrichten, de poll en de knop die dat opnieuw kan proberen.
+try {
+    herstelStand();
+} catch (fout) {
+    console.error('[bediening] bewaarde stand niet te herstellen', fout);
+    meldOpmaakfout('een tabblad uit de bewaarde stand');
+}
 
 // Fire-and-forget, en dat mag: `richtIn` handelt zowel een onbereikbare console als een fout in de
 // eigen bedrading zelf af, en plant waar dat zin heeft een nieuwe poging. Wat er alsnog uit komt,
