@@ -169,7 +169,7 @@ ERROR ... "http: TLS handshake error from 10.x.x.x:39xxx: EOF"
 Met de probe op de monitoring-poort horen die regels er niet meer te zijn — hoofdstuk 9 van
 `demo/environment/zad-demo/README.md` beschrijft die keuze, en stap 10(d) van
 `demo/environment/zad-demo/verify-zad.md` telt ze op nul. Zie je ze tóch, dan draagt dit component
-de dienst niet (nog) niet.
+de dienst (nog) niet.
 
 Trap er in beide gevallen niet in als je een écht handshake-probleem zoekt: dat komt van het adres
 van de uitvraag-pod en staat aan die kant als `PKIX path building failed`.

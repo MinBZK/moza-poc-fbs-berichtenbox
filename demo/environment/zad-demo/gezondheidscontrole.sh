@@ -14,8 +14,9 @@
 # de database herstart een component dat netjes staat te wachten, en maakt zo de storing die het
 # moest opmerken.
 #
-# Drie eigenschappen van de CLI die de vorm van dit script bepalen, alle drie uit `zadctl service
-# describe health-check` en de `--help` van de gebruikte commando's:
+# Drie eigenschappen van de CLI bepalen de vorm van dit script. De eerste twee staan in
+# `zadctl service assign --help` en `zadctl service config set --help`, de derde in `zadctl --help`
+# (`--rollout` is een globale optie, default true):
 #
 #   - `service config set` schrijft het HELE document: een veld dat je niet noemt wordt verwijderd,
 #     niet met rust gelaten. Daarom mag een tcp- of none-regel gewoon zijn paden weglaten; ze
@@ -41,7 +42,8 @@
 #   - dat een probe-poort die niet in `ports.inbound` staat, gerenderd wordt. Kubernetes staat een
 #     httpGet naar elke geopende poort toe en de dienstbeschrijving noemt "je gezondheidsendpoint
 #     zit op een andere poort dan je functionele poort" als reden om de dienst te kiezen — maar geen
-#     enkel component in deze projecten doet het vandaag. Het raakt alleen de FSC-regels.
+#     enkel component in deze projecten laat ZAD zo'n poort vandaag renderen. Raakt alleen de
+#     FSC-regels.
 #
 # Usage:
 #   zadctl login
@@ -54,8 +56,9 @@
 
 set -euo pipefail
 
-# `mapfile` en een lege array onder `set -u` vragen allebei bash 4.4. De bash die macOS meelevert is
-# 3.2 en zou hier struikelen op een melding die de oorzaak niet noemt.
+# Een lege array expanderen onder `set -u` vraagt bash 4.4, en dit script doet dat op vier plekken
+# (`UITGEROLD`, `GEPROBEERD`, `SELECTIE`, `PAREN`). De bash die macOS meelevert is 3.2 en zou hier
+# struikelen op een melding die de oorzaak niet noemt.
 if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
     echo "dit script vraagt bash 4.4 of nieuwer; deze is ${BASH_VERSION}" >&2
     echo "op macOS: 'brew install bash' en opnieuw draaien" >&2
@@ -64,7 +67,8 @@ fi
 
 gebruik() {
     echo "usage: gezondheidscontrole.sh <plan|apply> [project-of-deployment=alle]" >&2
-    echo "  plan   toont elke aanroep zonder te muteren, en toetst de tabel tegen wat er staat" >&2
+    echo "  plan   toont elke aanroep zonder te muteren, en toetst de tabel tegen de" >&2
+    echo "         componenten die er staan" >&2
     echo "  apply  zet de instellingen door en rolt ze per project in één keer uit" >&2
     exit 1
 }
@@ -94,20 +98,18 @@ done
 # wilt uitrollen — een kale `apply` wisselt van project — dus gebruik het tweede argument om ze
 # gefaseerd te doen: eerst `mpfpsm-lcl`, dan `mpfm-w3h`, dan `mpfb-8wh`, en de FSC-deployments apart.
 
-# De twee WireMock-stubs. /__admin/health hoort bij de admin-API en wordt vóór de stub-mappings
-# afgehandeld, dus geen mapping kan hem overnemen. Nagemeten op wiremock/wiremock:3.13.2 — het image
-# uit wiremock/externe-stubs/Dockerfile: HTTP 200 met {"status":"healthy"}. Er is geen apart
-# liveness-signaal, dus beide paden wijzen hierheen; een WireMock zonder werkende admin-API is stuk.
+# De twee WireMock-stubs. /__admin/health hoort bij de admin-API en kan door geen stub-mapping
+# worden overgenomen. Beide paden wijzen erheen: een WireMock zonder werkende admin-API is stuk, dus
+# een apart liveness-signaal bestaat er niet.
 STUBS=(
     "mpfpsm-lcl|test|profiel|http|8080|/__admin/health|/__admin/health"
     "mpfpsm-lcl|test|notificatie|http|8080|/__admin/health|/__admin/health"
 )
 
-# De vier storingsknoppen. De probe wijst naar de admin-API op 8474 en niet naar de proxy die de knop
-# dichtzet: die poort sluit Toxiproxy zodra je een proxy uitzet, en een probe daarop zou de pod
-# anderhalve minuut later herstarten — mét verlies van álle proxies. Readiness hoort daar juist ook
-# op 8474: de pod blijft Ready terwijl de proxy dicht is, de router antwoordt 503, en de demo laat
-# zien wat een weggevallen dienst doet.
+# De vier storingsknoppen. De probe wijst naar de admin-API op 8474 en niet naar de proxy die de
+# knop dichtzet: die poort sluit Toxiproxy zodra je een proxy uitzet, en een probe daarop zou de pod
+# anderhalve minuut later herstarten — mét verlies van álle proxies. Ook readiness blijft daarom op
+# 8474, zodat de demo een weggevallen dienst toont in plaats van een verdwenen pod.
 TOXIPROXY=(
     "mpfpsm-lcl|test|toxiproxy-profiel|http|8474|/version|/version"
     "mpfpsm-lcl|test|toxiproxy-notificatie|http|8474|/version|/version"
@@ -116,10 +118,8 @@ TOXIPROXY=(
 )
 
 # Onze eigen Kotlin/Quarkus-componenten. `quarkus-smallrye-health` levert /q/health/live (alleen het
-# proces) en /q/health/ready (proces plus de afhankelijkheden die Quarkus zelf aanmeldt). Readiness
-# zakt dus mee met PostgreSQL en Redis, liveness niet. Wat readiness precies meetelt verschilt per
-# component: de console sluit zijn twee magazijn-datasources bewust uit (`health-exclude`), zodat een
-# magazijn dat wegvalt het paneel niet uit de endpoints haalt — daar blijft Redis over.
+# proces) en /q/health/ready (plus de afhankelijkheden die Quarkus aanmeldt). Readiness zakt dus mee
+# met PostgreSQL en Redis, liveness niet — dat onderscheid is de hele reden voor twee paden.
 KOTLIN=(
     "mpfm-w3h|test|demopersonas|http|8098|/q/health/live|/q/health/ready"
     "mpfm-w3h|test|democonsole|http|8095|/q/health/live|/q/health/ready"
@@ -130,12 +130,11 @@ KOTLIN=(
 )
 
 # Wat geen HTTP spreekt. Een TCP-connect is hier een eerlijke probe: Redis en PostgreSQL beginnen
-# allebei met een connect die het serverproces zelf accepteert, en geen van beide logt een
-# afgebroken poging als fout. De regel legt de keuze vast; het gerenderde manifest verandert niet.
+# allebei met een connect die het serverproces zelf accepteert. De regel legt de keuze vast; het
+# gerenderde manifest verandert er niet van.
 #
-# `proeftuin` staat hier om een andere reden: hij spreekt wél HTTP, maar zijn /health proxyt in het
-# proeftuin-image naar een chat-backend die in dit project niet bestaat. Een httpGet daarop faalt
-# gegarandeerd en herstart de pod anderhalve minuut later.
+# `proeftuin` staat hier om een andere reden: zijn /health proxyt in het proeftuin-image naar een
+# chat-backend die in dit project niet bestaat, dus een httpGet daarop faalt gegarandeerd.
 TCP=(
     "mpfm-w3h|test|proeftuin|tcp|8080||"
     "mpfb-8wh|test|redis|tcp|6379||"
@@ -143,25 +142,19 @@ TCP=(
     "mpfm-w3h|fsc-magazijna|magazijna-fscpg|tcp|5432||"
 )
 
-# De FSC-componenten. Op de manager, de inway, de outway en de txlog is de functionele poort (8443)
-# een TLS-luisteraar, en de standaardcontrole opent daar elke twee seconden een socket die hij meteen
-# weer sluit: `http: TLS handshake error ... EOF`, dag en nacht, zonder dat er iets aan de hand is.
+# De FSC-componenten. Op de manager, de inway, de outway en de txlog is de eerste poort een
+# TLS-luisteraar, waar de standaardcontrole elke twee seconden een afgebroken handshake achterlaat.
 # De twee controllers hebben dat probleem niet — hun eerste poort is de plain-HTTP UI op 8080 — maar
-# ze volgen dezelfde keuze, want `/health/ready` zegt meer dan een open UI-poort.
+# volgen dezelfde keuze, want /health/ready zegt meer dan een open UI-poort.
 #
-# Alle vijf de FSC-images bedienen op hun MONITORING_ADDRESS /health/live en /health/ready. Nagemeten
-# op v2.5.2 in de lokale harness, met de txlog-api stilgezet: live blijft 200 terwijl ready op inway
-# en outway naar 503 zakt, en beide komen terug zodra de txlog er weer is. Dat is precies de
-# scheiding die we willen — een outway zonder txlog krijgt geen verkeer meer, maar wordt niet
-# herstart.
+# Alle vijf de FSC-images bedienen /health/live en /health/ready op hun MONITORING_ADDRESS: 8080 op
+# de manager, 8081 op de rest (de MONITORING_ADDRESS-regels in
+# demo/environment/{logius,magazijn-a}/deploy/zad/upsert-peer.sh zijn de bron). Die poort staat niet
+# in `ports.inbound`; zie de kanttekening bovenaan. Hoofdstuk 9 draagt de meting waaruit blijkt dat
+# ready wél meezakt met een weggevallen txlog en live niet.
 #
-# De monitoring-poort staat niet in `ports.inbound`; zie de kanttekening bovenaan. De manager
-# luistert op 8080, de rest op 8081 (de MONITORING_ADDRESS-regels in
-# demo/environment/{logius,magazijn-a}/deploy/zad/upsert-peer.sh zijn de bron).
-#
-# magazijn-a heeft geen outway: die peer is aan de aanbiedende kant en draait manager, controller,
-# inway, txlog en Postgres. Komt hij er ooit (zie cutover-interne-outway.md), dan hoort hier een
-# regel bij.
+# magazijn-a heeft geen outway: die peer is aan de aanbiedende kant. Komt hij er ooit (zie
+# cutover-interne-outway.md), dan hoort hier een regel bij.
 FSC=(
     "mpfb-8wh|fsc-logius|logius-fscmgr|http|8080|/health/live|/health/ready"
     "mpfb-8wh|fsc-logius|logius-fscctl|http|8081|/health/live|/health/ready"
@@ -334,7 +327,8 @@ duid_exitcode() {
 # Wie halverwege afbreekt moet weten waar hij staat: het script kent geen rollback, en de regels die
 # nog niet aan de beurt waren houden de blinde TCP-controle waar dit script juist vanaf wil.
 gedaan=0
-half=""
+half_ingesteld=""
+bezig_uitrollen=""
 stand_gemeld=0
 
 # Pas gevuld ná een geslaagde refresh. Zou hij vóór de aanroep gevuld worden, dan zou de melding bij
@@ -350,9 +344,21 @@ meld_stand() {
     echo "  $gedaan van ${#SELECTIE[@]} componenten waren ingesteld toen dit afbrak;" >&2
     echo "  opnieuw draaien is veilig — elke aanroep schrijft het hele document opnieuw." >&2
 
-    if [ -n "$half" ]; then
-        echo "  LET OP: $half draagt de dienst nu wél maar is niet ingesteld. Wat die component" >&2
-        echo "  daarmee doet is niet vastgesteld; draai apply opnieuw vóór de volgende uitrol." >&2
+    if [ "$zonder_regel" -ne 0 ]; then
+        echo "  En $zonder_regel component(en) houden de blinde TCP-controle; zie de LET OP-regels" >&2
+        echo "  van de voorbeschouwing hierboven." >&2
+    fi
+
+    if [ -n "$half_ingesteld" ]; then
+        echo "  LET OP: $half_ingesteld draagt de dienst nu wél maar is niet ingesteld. Wat die" >&2
+        echo "  component daarmee doet is niet vastgesteld; draai apply opnieuw." >&2
+    fi
+
+    # Een signaal tijdens de refresh is het enige moment waarop het script niet weet of de uitrol
+    # doorging: de aanroep is verstuurd, het antwoord nog niet gelezen.
+    if [ -n "$bezig_uitrollen" ]; then
+        echo "  LET OP: de uitrol van $bezig_uitrollen was onderweg. OM kan hem alsnog hebben" >&2
+        echo "  uitgevoerd; 'zadctl -p $bezig_uitrollen project pending' toont wat er nog wacht." >&2
     fi
 
     if [ "${#UITGEROLD[@]}" -eq 0 ]; then
@@ -482,7 +488,8 @@ mislukt=0
 for r in "${SELECTIE[@]}"; do
     IFS='|' read -r project deployment component scheme poort liveness readiness <<<"$r"
 
-    echo "== [$MODE] $project/$deployment $component -> $scheme ${poort:+:$poort} ${liveness:-(geen paden)} ${readiness:-}"
+    echo "== [$MODE] $project/$deployment $component -> $scheme ${poort:+:$poort}" \
+         "${liveness:-(geen paden)} ${readiness:-}"
 
     # `--no-rollout`: elke aanroep zou anders meteen naar de cluster rollen, dus 54 uitrollen én een
     # moment per component waarop het de dienst draagt zonder configuratie. Aan het eind rolt één
@@ -516,7 +523,7 @@ for r in "${SELECTIE[@]}"; do
 
         rij_mislukt=1
     else
-        half="$project/$deployment $component"
+        half_ingesteld="$project/$deployment $component"
     fi
 
     # `--yes`: `service config set` schrijft het hele document en vraagt bevestiging vóór het een
@@ -537,7 +544,7 @@ for r in "${SELECTIE[@]}"; do
         rij_mislukt=1
     fi
 
-    half=""
+    half_ingesteld=""
 
     if [ "$rij_mislukt" -ne 0 ]; then
         mislukt=$((mislukt + 1))
@@ -573,17 +580,19 @@ for paar in "${PAREN[@]}"; do
 
     echo "== uitrollen: $project"
 
+    # `--strict` ook hier: zonder die vlag telt een taak die door een gelijktijdige uitrol overruled
+    # is als succes, en dan zou het script melden dat het project live staat terwijl het wacht.
+    bezig_uitrollen="$project"
+
     status=0
     zadctl --strict -p "$project" project refresh || status=$?
+
+    bezig_uitrollen=""
 
     if [ "$status" -ne 0 ]; then
         echo "uitrollen van '$project' mislukte; de instellingen staan er wel, uitgerold zijn ze niet" >&2
         duid_exitcode "$status"
-
-        if [ "${#UITGEROLD[@]}" -ne 0 ]; then
-            echo "  Al wél uitgerold: ${UITGEROLD[*]}." >&2
-        fi
-
+        meld_stand
         echo "  'zadctl -p $project project pending' toont wat nog wacht; refresh kan opnieuw." >&2
         exit "$status"
     fi
@@ -593,8 +602,11 @@ done
 
 cat <<KLAAR
 
-Klaar: $gedaan componenten ingesteld en uitgerold over ${#UITGEROLD[@]} project(en).
-$( [ "$zonder_regel" -eq 0 ] || echo "LET OP: $zonder_regel component(en) houden de blinde TCP-controle — zie de regels hierboven." )
+Klaar: $gedaan componenten ingesteld; OM heeft de uitrol voor ${#UITGEROLD[@]} project(en)
+aangenomen. Dat een taak is aangenomen betekent nog niet dat Argo hem gesynct heeft — de
+manifestcontrole hieronder is het bewijs.
+$( [ "$zonder_regel" -eq 0 ] || echo "LET OP: $zonder_regel component(en) houden de blinde
+TCP-controle — zie de LET OP-regels van de voorbeschouwing hierboven." )
 
 Verifiëren doe je niet in de UI maar in het gerenderde manifest — dat is wat Argo synct:
 

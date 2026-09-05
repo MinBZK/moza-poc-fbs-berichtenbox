@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Fixture-tests voor de tabelvalidatie en de dekkingscontrole van
-# demo/environment/zad-demo/gezondheidscontrole.sh.
+# Fixture-tests voor demo/environment/zad-demo/gezondheidscontrole.sh: de tabelvalidatie, de
+# dekkingscontrole, wat er per component naar de CLI gaat, en het verschil tussen plan en apply.
 #
-# Die logica bestaat volledig uit weigeren: een regel met een pad bij een tcp-scheme, een tweede
-# regel voor hetzelfde component, een poort buiten het toegestane bereik. Een operator die `plan`
-# draait toetst per definitie een tabel die klopt, dus het weigeren zelf wordt door geen enkele
-# handmatige run geraakt — en het is precies wat een latere opruiming stilzwijgend kan slopen. Het
-# script muteert 27 componenten in drie projecten zonder rollback; een validatie die niet meer
-# valideert, merk je daar pas als de helft omgezet is.
+# De validatie bestaat volledig uit weigeren — een pad bij een tcp-scheme, een tweede regel voor
+# hetzelfde component, een poort buiten het bereik — en een operator die `plan` draait toetst per
+# definitie een tabel die klopt. Dat weigeren wordt dus door geen enkele handmatige run geraakt, en
+# het is precies wat een latere opruiming stilzwijgend kan slopen. Het script muteert 27 componenten
+# in drie projecten zonder rollback; een validatie die niet meer valideert, merk je daar pas als de
+# helft omgezet is.
+#
+# Hetzelfde geldt voor de argumenten die het script bouwt. Dat de tabel klopt, zegt niets over wat
+# er uiteindelijk in `service config set` terechtkomt — en een omgedraaide liveness of een
+# weggevallen poort is precies de fout die het hele werk moest voorkomen.
 #
 # Er draait geen netwerk: een `zadctl` vooraan op PATH beantwoordt `deployment describe` uit een
 # env-var, zodat elke combinatie van bestaand/ontbrekend component afdwingbaar is.
@@ -32,9 +36,10 @@ trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "${TMP}/bin"
 
-# De stub kent drie standen die de echte CLI ook kan hebben: een normaal antwoord, een antwoord
-# zonder componenten, en een antwoord waarin de sleutel helemaal ontbreekt (een CLI die van vorm
-# verandert). STUB_FAAL laat één component struikelen, STUB_DESCRIBE_FAAL de beschrijving zelf.
+# De stub kent de standen die de echte CLI ook kan hebben: een normaal antwoord (uit STUB_MAP of
+# STUB_COMPONENTEN, leeg als die leeg is) en een antwoord waarin de sleutel `components` helemaal
+# ontbreekt (STUB_GEEN_SLEUTEL — een CLI die van vorm verandert). STUB_FAAL laat één component
+# struikelen, STUB_DESCRIBE_FAAL de beschrijving zelf en STUB_REFRESH_FAAL de uitrol van één project.
 cat > "${TMP}/bin/zadctl" <<'STUB'
 #!/usr/bin/env bash
 set -uo pipefail
@@ -79,6 +84,9 @@ case " $* " in
     ;;
   *)
     echo "$*" >>"${STUB_LOG:-/dev/null}"
+    if [ -n "${STUB_HANG:-}" ]; then
+      case " $* " in *" config set "*" $STUB_HANG "*) sleep 5 ;; esac
+    fi
     if [ -n "${STUB_FAAL:-}" ]; then
       case " $* " in *" $STUB_FAAL "*) echo "stub: faalt op $STUB_FAAL" >&2; exit 1 ;; esac
     fi
@@ -101,7 +109,8 @@ export PATH
 
 # De componentnamen die de meegeleverde tabel noemt, afgeleid uit het script zelf. Zo hoeft de stub
 # geen kopie van de ZAD-werkelijkheid te dragen: hij echoot terug wat de tabel vraagt.
-ALLE_COMPONENTEN="$(grep -oE '^ *"[a-z0-9-]+\|[a-z0-9-]+\|[a-z0-9-]+' "$SCRIPT" | cut -d'|' -f3 | sort -u | tr '\n' ' ')"
+ALLE_COMPONENTEN="$(grep -oE '^ *"[a-z0-9-]+\|[a-z0-9-]+\|[a-z0-9-]+' "$SCRIPT" \
+  | cut -d'|' -f3 | sort -u | tr '\n' ' ')"
 
 # Dezelfde namen, maar per project/deployment. Zonder die verdeling meldt elke deployment elk
 # component terug en verdrinkt het "component zonder regel"-signaal in ruis die de tabel niet aangaat.
@@ -129,8 +138,8 @@ tabel_met() {
   echo "${TMP}/variant.sh"
 }
 
-# draai <script> <modus> <filter>: zet RC en UIT. Bewust geen echo van de exitcode: een aanroeper
-# die `draai ...; rc=$RC` schrijft, draait de functie in een subshell en ziet UIT daarna nooit.
+# draai <script> <modus> <filter>: zet RC en UIT. Bewust geen echo van de exitcode, want dan zou de
+# aanroeper `rc="$(draai ...)"` schrijven — een subshell, waarna UIT bij hem leeg blijft.
 draai() {
   local pad="$1" modus="$2" filter="${3:-alle}"
 
@@ -140,11 +149,13 @@ draai() {
 
 GOEDE_RIJ='mpfb-8wh|test|uitvraag|http|8086|/q/health/live|/q/health/ready'
 
-# assert_weigert <omschrijving> <regel...>: de tabel moet worden afgewezen, en er mag niets
-# gemuteerd zijn — de validatie hoort vóór de eerste aanroep te draaien.
+# assert_weigert <omschrijving> <fragment> <regel...>: de tabel moet worden afgewezen om de reden
+# die <fragment> noemt, en er mag niets gemuteerd zijn — de validatie hoort vóór de eerste aanroep
+# te draaien. Zonder dat fragment zou een regel die verderop op iets ánders omvalt de assert laten
+# slagen terwijl de gecontroleerde validatie allang weg is.
 assert_weigert() {
-  local desc="$1"
-  shift
+  local desc="$1" fragment="$2"
+  shift 2
 
   local variant rc
   variant="$(tabel_met "$@")"
@@ -162,7 +173,10 @@ assert_weigert() {
     return
   fi
 
-  ok "$desc (exit $rc, niets gemuteerd)"
+  case "$UIT" in
+    *"$fragment"*) ok "$desc (exit $rc, niets gemuteerd)" ;;
+    *) fout "$desc — afgewezen, maar niet om '$fragment': $UIT" ;;
+  esac
 }
 
 assert_accepteert() {
@@ -204,38 +218,42 @@ fi
 echo
 echo "== de vorm van een tabelregel"
 
-assert_weigert "een weggevallen scheidingsteken (6 velden)" 'mpfb-8wh|test|uitvraag|http|8086|/q/health/live'
-assert_weigert "een scheidingsteken te veel (8 velden)" "${GOEDE_RIJ}|extra"
-assert_weigert "een lege componentnaam" 'mpfb-8wh|test||http|8086|/a|/a'
-assert_weigert "een lege deploymentnaam" 'mpfb-8wh||uitvraag|http|8086|/a|/a'
-assert_weigert "een onbekend project" 'mpfx-000|test|uitvraag|http|8086|/a|/a'
-assert_weigert "twee regels voor hetzelfde component" "$GOEDE_RIJ" 'mpfb-8wh|test|uitvraag|http|9999|/a|/a'
+assert_weigert "een weggevallen scheidingsteken (6 velden)" "niet precies 7 velden" \
+  'mpfb-8wh|test|uitvraag|http|8086|/q/health/live'
+assert_weigert "een scheidingsteken te veel (8 velden)" "niet precies 7 velden" "${GOEDE_RIJ}|extra"
+assert_weigert "een lege componentnaam" "mist een deployment of een componentnaam" 'mpfb-8wh|test||http|8086|/a|/a'
+assert_weigert "een lege deploymentnaam" "mist een deployment of een componentnaam" 'mpfb-8wh||uitvraag|http|8086|/a|/a'
+assert_weigert "een onbekend project" "onbekend project" 'mpfx-000|test|uitvraag|http|8086|/a|/a'
+assert_weigert "twee regels voor hetzelfde component" "herhaalt" "$GOEDE_RIJ" 'mpfb-8wh|test|uitvraag|http|9999|/a|/a'
 
 echo
 echo "== scheme en paden horen bij elkaar"
 
-assert_weigert "http zonder paden" 'mpfb-8wh|test|uitvraag|http|8086||'
-assert_weigert "http met alleen een liveness-pad" 'mpfb-8wh|test|uitvraag|http|8086|/a|'
-assert_weigert "tcp mét paden" 'mpfb-8wh|test|redis|tcp|6379|/a|/a'
-assert_weigert "none mét een poort" 'mpfb-8wh|fsc-logius|logius-fscbootstrap|none|8443||'
-assert_weigert "een onbekend scheme" 'mpfb-8wh|test|uitvraag|htp|8086|/a|/a'
+assert_weigert "http zonder paden" "mist een pad" 'mpfb-8wh|test|uitvraag|http|8086||'
+assert_weigert "http met alleen een liveness-pad" "mist een pad" 'mpfb-8wh|test|uitvraag|http|8086|/a|'
+assert_weigert "tcp mét paden" "kent geen paden" 'mpfb-8wh|test|redis|tcp|6379|/a|/a'
+assert_weigert "none mét een poort" "hoort poort noch paden te noemen" \
+  'mpfb-8wh|fsc-logius|logius-fscbootstrap|none|8443||'
+assert_weigert "een onbekend scheme" "onbekend scheme" 'mpfb-8wh|test|uitvraag|htp|8086|/a|/a'
 assert_accepteert "https met paden" 'mpfb-8wh|test|uitvraag|https|8086|/a|/a'
 assert_accepteert "none zonder poort en paden" 'mpfb-8wh|fsc-logius|logius-fscbootstrap|none|||'
 
 echo
 echo "== de poortgrens van het schema"
 
-assert_weigert "poort 1023, onder de ondergrens" 'mpfb-8wh|test|uitvraag|http|1023|/a|/a'
-assert_weigert "poort 65536, boven de bovengrens" 'mpfb-8wh|test|uitvraag|http|65536|/a|/a'
-assert_weigert "een niet-numerieke poort" 'mpfb-8wh|test|uitvraag|http|acht|/a|/a'
+assert_weigert "poort 1023, onder de ondergrens" "buiten het toegestane" 'mpfb-8wh|test|uitvraag|http|1023|/a|/a'
+assert_weigert "poort 65536, boven de bovengrens" "buiten het toegestane" 'mpfb-8wh|test|uitvraag|http|65536|/a|/a'
+assert_weigert "een niet-numerieke poort" "geen numerieke poort" 'mpfb-8wh|test|uitvraag|http|acht|/a|/a'
 assert_accepteert "poort 1024, de ondergrens zelf" 'mpfb-8wh|test|uitvraag|http|1024|/a|/a'
 assert_accepteert "poort 65535, de bovengrens zelf" 'mpfb-8wh|test|uitvraag|http|65535|/a|/a'
 
 echo
 echo "== het padformaat van het schema"
 
-assert_weigert "een pad zonder leidende slash" 'mpfb-8wh|test|uitvraag|http|8086|q/health|/a'
-assert_weigert "een pad met een query-string" 'mpfb-8wh|test|uitvraag|http|8086|/q?x=1|/a'
+assert_weigert "een pad zonder leidende slash" "pad dat het schema niet toelaat" \
+  'mpfb-8wh|test|uitvraag|http|8086|q/health|/a'
+assert_weigert "een pad met een query-string" "pad dat het schema niet toelaat" \
+  'mpfb-8wh|test|uitvraag|http|8086|/q?x=1|/a'
 
 echo
 echo "== de dekkingscontrole, beide richtingen"
@@ -270,15 +288,19 @@ fi
 echo
 echo "== een describe die niet levert wat het script verwacht"
 
-STUB_COMPONENTEN="" STUB_LEEG=1 draai "$variant" plan; rc=$RC
+STUB_COMPONENTEN="" draai "$variant" plan; rc=$RC
 case "$UIT" in
   *"noemt geen enkel component"*) ok "een lege componentenlijst wijst naar de CLI, niet naar de tabel" ;;
   *) fout "een lege componentenlijst gaf een verkeerde melding: $UIT" ;;
 esac
 
 STUB_GEEN_SLEUTEL=1 draai "$variant" plan; rc=$RC
-[ "$rc" -ne 0 ] && ok "een antwoord zonder 'components' faalt (exit $rc)" \
-  || fout "een antwoord zonder 'components' werd stilzwijgend geaccepteerd"
+case "$rc:$UIT" in
+  0:*) fout "een antwoord zonder 'components' werd stilzwijgend geaccepteerd" ;;
+  *"componentenlijst niet uit het describe-antwoord"*)
+    ok "een antwoord zonder 'components' faalt op het lezen zelf (exit $rc)" ;;
+  *) fout "een antwoord zonder 'components' faalde, maar niet op het lezen: $UIT" ;;
+esac
 
 STUB_DESCRIBE_FAAL=2 draai "$variant" plan; rc=$RC
 [ "$rc" -eq 2 ] && ok "exitcode 2 van describe komt onveranderd naar buiten" \
@@ -294,8 +316,15 @@ tel() {
 alle="$(tel alle)"
 som=$(( $(tel mpfb-8wh) + $(tel mpfm-w3h) + $(tel mpfpsm-lcl) ))
 
-[ "$alle" -eq "$som" ] && ok "de drie projectfilters samen dekken de hele tabel ($alle regels)" \
-  || fout "alle=$alle maar de projecten samen $som"
+# De ondergrens apart: zonder deze check zou een script dat meteen afbreekt alle=0 en som=0 geven,
+# en dan is "de filters dekken samen de hele tabel" waar zonder iets te betekenen.
+if [ "$alle" -le 0 ]; then
+  fout "de kale plan-run leverde geen enkele regel op; de teller meet niets"
+elif [ "$alle" -eq "$som" ]; then
+  ok "de drie projectfilters samen dekken de hele tabel ($alle regels)"
+else
+  fout "alle=$alle maar de projecten samen $som"
+fi
 
 logius="$(tel fsc-logius)"
 [ "$logius" -gt 0 ] && [ "$logius" -lt "$alle" ] \
@@ -309,7 +338,8 @@ STUB_MAP="$STUB_MAP_SCRIPT" draai "$SCRIPT" plan onbekend-project; rc=$RC
 echo
 echo "== plan loopt door, apply stopt"
 
-variant="$(tabel_met "$GOEDE_RIJ" 'mpfb-8wh|test|redis|tcp|6379||' 'mpfb-8wh|test|toxiproxy-redis|http|8474|/version|/version')"
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfb-8wh|test|redis|tcp|6379||' \
+  'mpfb-8wh|test|toxiproxy-redis|http|8474|/version|/version')"
 
 STUB_COMPONENTEN="uitvraag redis toxiproxy-redis" STUB_FAAL=redis draai "$variant" plan; rc=$RC
 case "$rc:$UIT" in
@@ -327,35 +357,123 @@ esac
 echo
 echo "== uitrollen aan het eind"
 
-variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||' \
+  'mpfb-8wh|fsc-logius|logius-fscbootstrap|none|||')"
 
 : >"${TMP}/log"
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
+STUB_COMPONENTEN="uitvraag proeftuin logius-fscbootstrap" STUB_LOG="${TMP}/log" \
+  draai "$variant" apply; rc=$RC
 
+# `mpfb-8wh` komt in twee deployments voor, dus dit onderscheidt één refresh per PROJECT van één
+# refresh per project/deployment-paar — met twee regels in twee projecten zijn die getallen gelijk.
 if [ "$rc" -ne 0 ]; then
   fout "een schone apply faalde met exit $rc: $UIT"
 elif [ "$(grep -c 'project refresh' "${TMP}/log")" -ne 2 ]; then
   fout "apply rolde niet één keer per project uit: $(grep -c 'project refresh' "${TMP}/log") refreshes"
-elif grep -q 'service config set' "${TMP}/log" && ! grep -q 'no-rollout' "${TMP}/log"; then
-  fout "apply muteerde zonder --no-rollout, dus elke aanroep rolde meteen uit"
+elif grep -v 'project refresh' "${TMP}/log" | grep -qv -- '--no-rollout'; then
+  eerste="$(grep -v 'project refresh' "${TMP}/log" | grep -v -- '--no-rollout' | head -1)"
+  fout "een mutatie ging zonder --no-rollout en rolde dus meteen uit: $eerste"
+elif grep 'service config set' "${TMP}/log" | grep -qv -- '--yes'; then
+  fout "een config set ging zonder --yes en blijft dus op een bevestiging hangen"
 else
-  ok "apply schrijft met --no-rollout en rolt één keer per project uit"
+  ok "elke mutatie draagt --no-rollout, elke config set --yes, en er is één refresh per project"
 fi
 
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_REFRESH_FAAL=mpfm-w3h draai "$variant" apply; rc=$RC
+# Wat er per component geschreven wordt is het product van dit script; de tabelvalidatie zegt daar
+# niets over. Een omgedraaide liveness of een weggevallen poort komt alleen hier aan het licht.
+uitvraagregel="$(grep 'service config set' "${TMP}/log" | grep uitvraag | head -1)"
 
+case "$uitvraagregel" in
+  *"--set scheme=http"*"--set port=8086"*"--set liveness-path=/q/health/live"*"--set readiness-path=/q/health/ready"*)
+    ok "een http-regel wordt volledig en in de goede volgorde doorgegeven" ;;
+  "") fout "geen config set voor uitvraag in het log" ;;
+  *) fout "de argumenten voor uitvraag kloppen niet: $uitvraagregel" ;;
+esac
+
+proeftuinregel="$(grep 'service config set' "${TMP}/log" | grep proeftuin | head -1)"
+
+case "$proeftuinregel" in
+  *"--set scheme=tcp"*"--set port=8080"*) ;;
+  "") fout "geen config set voor proeftuin in het log"; proeftuinregel="x" ;;
+  *) fout "de argumenten voor proeftuin kloppen niet: $proeftuinregel"; proeftuinregel="x" ;;
+esac
+
+case "$proeftuinregel" in
+  x) ;;
+  *liveness-path*|*readiness-path*) fout "een tcp-regel stuurde tóch een pad mee: $proeftuinregel" ;;
+  *) ok "een tcp-regel stuurt scheme en poort, en geen paden" ;;
+esac
+
+bootstrapregel="$(grep 'service config set' "${TMP}/log" | grep fscbootstrap | head -1)"
+
+case "$bootstrapregel" in
+  "") fout "geen config set voor de bootstrap in het log" ;;
+  *port=*|*-path=*) fout "een none-regel stuurde een poort of een pad mee: $bootstrapregel" ;;
+  *"--set scheme=none"*) ok "een none-regel stuurt alleen het scheme" ;;
+  *) fout "de argumenten voor de bootstrap kloppen niet: $bootstrapregel" ;;
+esac
+
+STUB_COMPONENTEN="uitvraag proeftuin logius-fscbootstrap" STUB_REFRESH_FAAL=mpfm-w3h \
+  draai "$variant" apply; rc=$RC
+
+# Mét het afsluitende punt: zonder dat zou een lijst die te vroeg gevuld wordt — en dus ook het
+# mislukte project noemt — nog steeds matchen, terwijl het script dan liegt over wat live staat.
 case "$rc:$UIT" in
   0:*) fout "een mislukte uitrol eindigde met exit 0" ;;
-  *"Al wél uitgerold: mpfb-8wh"*) ok "een mislukte uitrol noemt de projecten die wél live staan (exit $rc)" ;;
+  *"Al uitgerold: mpfb-8wh."*) ok "een mislukte uitrol noemt precies de projecten die live staan (exit $rc)" ;;
   *) fout "een mislukte uitrol zei niet welke projecten al uitgerold waren: $UIT" ;;
+esac
+
+echo
+echo "== afbreken tijdens een mutatie"
+
+# De trap is het enige pad waar het script iets meldt zonder dat een aanroep faalde. Zonder deze
+# test overleeft een refactor die de trap laat doorlopen of `meld_stand` eruit haalt: de operator
+# krijgt dan "afgebroken" te zien terwijl de rest gewoon gemuteerd wordt.
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+
+: >"${TMP}/log"
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" STUB_HANG=uitvraag \
+  bash "$variant" apply >"${TMP}/trap-uit" 2>&1 &
+trap_pid=$!
+
+# Wachten tot de eerste config set écht hangt; anders landt het signaal vóór de mutatielus.
+for _ in $(seq 1 50); do
+  grep -q 'config set' "${TMP}/log" && break
+  sleep 0.2
+done
+
+kill -TERM "$trap_pid" 2>/dev/null
+
+# `wait` geeft de exitcode van het signaal door (143), en onder `set -e` zou dat de suite hier
+# afbreken in plaats van de assert te draaien.
+rc=0
+wait "$trap_pid" || rc=$?
+UIT="$(cat "${TMP}/trap-uit")"
+
+if [ "$rc" -eq 0 ]; then
+  fout "een afgebroken apply eindigde met exit 0"
+elif [ "$(grep -c 'config set' "${TMP}/log")" -ne 1 ]; then
+  fout "het script muteerde door na het signaal: $(grep -c 'config set' "${TMP}/log") config sets"
+else
+  ok "een signaal stopt de reeks in plaats van hem af te maken (exit $rc)"
+fi
+
+case "$UIT" in
+  *"draagt de dienst nu wél maar is niet ingesteld"*)
+    ok "een afgebroken mutatie meldt het component dat half is ingesteld" ;;
+  *) fout "een afgebroken mutatie noemde het half ingestelde component niet: $UIT" ;;
 esac
 
 echo
 echo "== aanroepvorm"
 
 draai "$SCRIPT" onbekende-modus; rc=$RC
-[ "$rc" -ne 0 ] && ok "een onbekende modus faalt met de gebruiksaanwijzing (exit $rc)" \
-  || fout "een onbekende modus werd geaccepteerd"
+case "$rc:$UIT" in
+  0:*) fout "een onbekende modus werd geaccepteerd" ;;
+  *"onbekende modus"*) ok "een onbekende modus faalt met de gebruiksaanwijzing (exit $rc)" ;;
+  *) fout "een onbekende modus faalde, maar niet op de modus zelf: $UIT" ;;
+esac
 
 rc=0
 bash "$SCRIPT" >/dev/null 2>&1 || rc=$?

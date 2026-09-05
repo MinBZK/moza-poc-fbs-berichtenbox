@@ -732,8 +732,9 @@ Open die URL in een browser en log in. **Met `curl` lijkt het component stuk:** 
 authorization-wall antwoordt een niet-ingelogde aanvraag met HTTP 403 en de inlogpagina in de body,
 niet met een 302. Achter deze muur is 403 het teken dát de muur staat.
 
-Loop daarna `verify-zad.md` af. Sla stap 4 daar niet over: dat is de enige controle die een verkeerd
-schema aanwijst.
+Doe daarna hoofdstuk 9 hieronder — de gezondheidscontrole — en loop dan pas `verify-zad.md` af.
+Stap 10 daar controleert wat hoofdstuk 9 instelt, dus in de omgekeerde volgorde meet je niets. Sla
+stap 4 niet over: dat is de enige controle die een verkeerd schema aanwijst.
 
 ## 9. De gezondheidscontrole per component
 
@@ -748,8 +749,13 @@ past. Ook "een TCP-probe volstaat hier" is een prima uitkomst — maar dan als o
 
 ```bash
 zadctl login
-demo/environment/zad-demo/gezondheidscontrole.sh plan     # toont de aanroepen, muteert niet
-demo/environment/zad-demo/gezondheidscontrole.sh apply
+demo/environment/zad-demo/gezondheidscontrole.sh plan          # toont alles, muteert niets
+
+demo/environment/zad-demo/gezondheidscontrole.sh apply mpfpsm-lcl     # de stubs
+demo/environment/zad-demo/gezondheidscontrole.sh apply mpfm-w3h       # de demo
+demo/environment/zad-demo/gezondheidscontrole.sh apply mpfb-8wh       # de keten
+demo/environment/zad-demo/gezondheidscontrole.sh apply fsc-logius     # de federatie
+demo/environment/zad-demo/gezondheidscontrole.sh apply fsc-magazijna
 ```
 
 Het script draagt de tabel hieronder als data en is daarmee de bron; dit hoofdstuk beschrijft
@@ -758,10 +764,14 @@ hoofdstuk bij.
 
 `plan` toetst de tabel, haalt bij OM op wat er in elke deployment staat, en meldt zowel een regel
 zonder component als een component zonder regel — dat laatste is het geval dat stil de
-standaardcontrole houdt. Het tweede argument versmalt de reeks tot één project (`mpfb-8wh`) of één
-deployment (`fsc-logius`); zonder argument loopt hij alle drie de projecten af, in oplopende
-risicovolgorde: eerst de stubs, dan de keten, dan de federatie. Kijk tussendoor in het gerenderde
-manifest of het aankomt.
+standaardcontrole houdt.
+
+**Doe de apply per project, niet in één keer.** Het script groepeert zijn tabel op soort en niet op
+project, dus een kale `apply` wisselt tussendoor van project — en omdat de uitrol pas ná alle
+mutaties komt, is er dan ook geen tussenstand om in het manifest te bekijken. Het tweede argument
+neemt een projectnaam of een deploymentnaam; de twee FSC-deployments hebben die laatste vorm nodig,
+want een projectfilter kan ze niet van de app-componenten scheiden. Let op dat `test` in alle drie
+de projecten bestaat en er dus drie selecteert.
 
 ### Wat de dienst rendert
 
@@ -808,8 +818,9 @@ magazijn-datasources bewust uit (`quarkus.datasource.<naam>.health-exclude=true`
 magazijn dat wegvalt het paneel niet uit de endpoints haalt. Die uitsluiting blijft staan.
 
 **De Toxiproxy's** houden de probe die hoofdstuk 6 ze gaf, op de admin-API en niet op de proxy die
-de knop dichtzet. Ze staan hier alleen omdat de keuze op één plek hoort te staan; het waarom staat
-daar.
+de knop dichtzet; het waarom staat daar. De `--set`-regels in hoofdstuk 6 horen bij het aanmaken van
+die componenten en herhalen dezelfde waarden — wijzigt de keuze, werk dan beide plekken bij, of laat
+het script hem overschrijven en pas hoofdstuk 6 aan zodra het component herschapen wordt.
 
 **De WireMock-stubs** krijgen `/__admin/health`. Dat pad hoort bij de admin-API en wordt vóór de
 stub-mappings afgehandeld, dus geen mapping kan het overnemen; op `wiremock/wiremock:3.13.2` — het

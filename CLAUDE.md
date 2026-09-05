@@ -221,18 +221,16 @@ Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf
   ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`
   (`service.yaml.jinja`, `project_manager.py`). Zo blijft een beheerpoort cluster-intern terwijl de
   eerste poort publiek gaat.
-- Zonder de **`health-check`**-dienst rendert ZAD drie blinde TCP-probes op `ports[0]`:
-  `startupProbe` en `livenessProbe` (30s × 3 → herstart) en `readinessProbe` (2s × 3). Sluit de
-  applicatie die poort bewust (een proxy die je uitzet), dan herstart de pod anderhalve minuut later;
-  is het een TLS-luisteraar, dan logt hij elke twee seconden een afgebroken handshake. De dienst
-  vult diezelfde drie probes uit twee paden: `liveness-path` voedt de `startupProbe` (5s vertraging
-  plus 36 × 5s) én de `livenessProbe`, `readiness-path` de `readinessProbe`. Liveness dus nooit op
-  een pad dat meezakt met een database. Elk component in de drie demo-projecten heeft een vastgelegde
-  keuze: `demo/environment/zad-demo/README.md` hoofdstuk 9 draagt de tabel,
-  `demo/environment/zad-demo/gezondheidscontrole.sh` zet hem. De configuratielaag hangt aan het
-  component binnen het project, niet aan een deployment, dus elke preview leest dezelfde instelling.
-  Nog ongemeten, en te bewijzen bij de eerste apply: of de dienst óók aanslaat op een component dat
-  al bestond, en of ZAD een probe rendert op een poort die niet in `ports.inbound` staat.
+- Zonder de **`health-check`**-dienst rendert ZAD drie blinde TCP-probes op `ports[0]` — een
+  `startupProbe`, een `livenessProbe` (30s × 3 → herstart) en een `readinessProbe` (2s × 3), af te
+  lezen uit elk `*-deployment.yaml` in `rig-cluster-application-test`. Sluit de applicatie die poort
+  bewust (een proxy die je uitzet), dan herstart de pod anderhalve minuut later; is het een
+  TLS-luisteraar, dan logt hij elke twee seconden een afgebroken handshake. Mét de dienst kies je
+  scheme, poort en twee paden: `liveness-path` voedt de startup- én de livenessProbe, dus nooit een
+  pad dat meezakt met een database. De configuratielaag hangt aan het component binnen het project,
+  niet aan een deployment, dus elke deployment van dat component leest dezelfde instelling. De keuze
+  per demo-component staat in `demo/environment/zad-demo/README.md` hoofdstuk 9, met het script dat
+  hem zet.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 

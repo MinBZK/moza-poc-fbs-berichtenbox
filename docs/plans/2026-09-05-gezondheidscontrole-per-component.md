@@ -34,8 +34,8 @@ de `startupProbe` loopt, herstart liveness niets. Flyway en de vulactie passen d
 **De configuratie komt mee in een preview.** Het issue laat dit open. Nagemeten op
 `toxiproxy-redis`: `mpfb-8wh/test/toxiproxy-redis-deployment.yaml` en
 `mpfb-8wh/pr-290/toxiproxy-redis-deployment.yaml` dragen dezelfde drie httpGet-probes op 8474
-`/version`. De `clone-from: test` neemt de dienstconfiguratie dus over, en het runbook hoeft er geen
-extra stap voor te dragen — wél de vaststelling, zodat niemand het opnieuw uitzoekt.
+`/version`. De dienstconfiguratie geldt dus in elke deployment die het component draait, en het runbook hoeft
+er geen extra stap voor te dragen — wél de vaststelling, zodat niemand het opnieuw uitzoekt.
 
 **De inventaris uit het issue klopt niet helemaal.** Drie afwijkingen, alle drie uit de gerenderde
 manifests:
@@ -61,7 +61,8 @@ vraagt die groep een hercreatie per component.
 
 ## De inventaris, en de keuze per component
 
-Zevenentwintig componenten, zes groepen. De kolom "nu" is de gerenderde stand op 2026-09-05.
+Zevenentwintig componenten, zes groepen. De stand die per groep beschreven wordt, is de gerenderde
+stand op 2026-09-05.
 
 ### Groep 1 — De zes Kotlin/Quarkus-componenten
 
@@ -125,8 +126,9 @@ faalt gegarandeerd en herstart de pod na anderhalve minuut. Expliciet `tcp`, met
 
 ### Groep 5 — De FSC-familie op TLS
 
-`logius-fsc{mgr,ctl,inway,outway,txlog}` en `magazijna-fsc{mgr,ctl,inway,txlog}` — negen componenten die op
-hun functionele poort (8443) TLS spreken. De standaardcontrole opent daar elke twee seconden een
+`logius-fsc{mgr,ctl,inway,outway,txlog}` en `magazijna-fsc{mgr,ctl,inway,txlog}` — negen componenten,
+waarvan er zeven op hun eerste poort (8443) TLS spreken; de twee controllers luisteren daar met
+plain HTTP op 8080. De standaardcontrole opent daar elke twee seconden een
 socket en sluit hem meteen weer, wat de Go-server logt als `http: TLS handshake error ... EOF` — een
 regel per twee seconden die geen fout is (#981).
 
@@ -240,14 +242,15 @@ dat vraagt geen workflow-wijziging.
 In deze volgorde, met tussen elke stap een blik op het gerenderde manifest:
 
 1. `apply mpfpsm-lcl` — de twee stubs en hun twee Toxiproxy's, laagste risico.
-2. `apply mpfm-w3h` — de magazijnen, het paneel, de personadienst, de simulator, de proeftuin.
-3. `apply mpfb-8wh` — de uitvraag, Redis en de twee Toxiproxy's.
-4. `apply fsc-logius` en `apply fsc-magazijna` — de federatie.
+2. `apply mpfm-w3h` — de magazijnen, het paneel, de personadienst, de simulator, de proeftuin **en**
+   de zes `magazijna-fsc*`-componenten: een projectfilter kan die niet scheiden.
+3. `apply mpfb-8wh` — de uitvraag, Redis, de twee Toxiproxy's **en** de zeven `logius-fsc*`.
+4. Wil je de federatie apart houden, gebruik dan de deploymentnaam: `apply fsc-logius` en
+   `apply fsc-magazijna` vóór de twee projectstappen hierboven.
 
-Het script groepeert zijn tabel op soort en niet op project — de reden hoort bij de soort — dus
-een kale `apply` wisselt tussendoor van project. Gebruik daarom de filter, ook voor stap 4: een
-projectfilter kan de FSC-componenten niet van de app-componenten scheiden, want beide projecten
-dragen allebei. `apply fsc-logius` en `apply fsc-magazijna` doen dat wél.
+Het script groepeert zijn tabel op soort en niet op project — de reden hoort bij de soort — dus een
+kale `apply` wisselt tussendoor van project, en de uitrol komt pas ná alle mutaties. Er is dan geen
+tussenstand om in het manifest te bekijken; vandaar de filter.
 
 Niet doen terwijl er een deploy loopt: OM vergrendelt op project, en een gelijktijdige taak overruled
 de wachtstap van de uitrol. `gh run list --workflow "Deploy ZAD"` eerst.
