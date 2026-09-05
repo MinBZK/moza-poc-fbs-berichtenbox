@@ -331,6 +331,58 @@ Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand uit `
 in `docs/plans/2026-08-21-magazijn-simulator-design.md`, of onder het issue waaraan je werkt. Een
 meting die alleen in een terminal heeft gestaan, is een volgende keer niet te vergelijken.
 
+## 10. De gezondheidscontrole per component
+
+Deze stap toetst dat elk component gecontroleerd wordt op een manier die bij dat component past —
+hoofdstuk 9 van `README.md` draagt de keuze per component en de reden erbij.
+
+**(a) Staat de gekozen probe in het gerenderde manifest?** Dat manifest is wat Argo synct, en dus
+het enige dat telt; de UI kan een bevroren, verouderde melding tonen.
+
+```bash
+for c in uitvraag redis toxiproxy-aanmeld toxiproxy-redis; do
+  echo "== $c"
+  gh api "repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfb-8wh/test/$c-deployment.yaml" \
+    --jq '.content' | base64 -d | sed -n '/livenessProbe/,/initialDelaySeconds/p'
+done
+```
+
+Verwacht `httpGet` met `path: /q/health/live` op `uitvraag`, `path: /version` op de twee
+Toxiproxy's, en `tcpSocket` op `redis`. Staat er nog een `tcpSocket` waar een `httpGet` hoort, dan
+is de instelling niet uitgerold: kijk of er een uitrol liep (`gh run list --workflow "Deploy ZAD"`)
+en draai `gezondheidscontrole.sh apply` opnieuw.
+
+**(b) Zakt readiness mee zonder herstart?** Dit is de kern van de stap. Zet de Redis-storingsknop
+dicht via het paneel (tabblad **Storingen**), en kijk wat de uitvraag doet:
+
+```bash
+zadctl -p mpfb-8wh logs test -c uitvraag -n 50 --since 5m
+curl -sS -o /dev/null -w '%{http_code}\n' "https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/berichten"
+```
+
+Verwacht binnen enkele seconden een `503` van de ingress: de pod is `NotReady` en krijgt geen
+verkeer meer. Verwacht **geen** herstart — liveness staat op `/q/health/live` en die zegt alleen
+iets over het proces. Zet de knop weer open; binnen enkele seconden hoort het antwoord terug te
+zijn. Blijft het 503, dan zakt readiness ergens anders op mee.
+
+Dat de ingress hier 503 antwoordt in plaats van dat de uitvraag zelf zijn degradatie laat zien, is
+een bewuste keuze — hoofdstuk 9 van `README.md` legt uit waarom, en wat het alternatief zou zijn.
+
+**(c) Blijven de storingsknoppen werken?** Zet alle vier de proxies uit en weer aan. Geen enkele
+Toxiproxy-pod hoort te herstarten, en het uitzetten van de ene knop hoort de andere drie niet mee te
+nemen. Stap 6 hierboven beschrijft de knoppen zelf; hier gaat het alleen om de vraag of de probe ze
+met rust laat.
+
+**(d) Staat het logboek in rust stil?** Bij de FSC-componenten was de blinde TCP-probe goed voor
+dertig regels `TLS handshake error` per minuut. Met de probe op de monitoring-poort hoort dat er
+nul te zijn:
+
+```bash
+zadctl -p mpfb-8wh logs fsc-logius -c logius-fscoutway -n 200 --since 10m | grep -c 'handshake error'
+```
+
+Verwacht `0`.
+
 ## Daarna
 
 Laat de omgeving niet leeg achter: druk nog een keer op **Herstel demo**, zodat de volgende

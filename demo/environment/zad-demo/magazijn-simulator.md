@@ -117,6 +117,10 @@ zadctl service config set health-check -c magazijnsimulator \
 Liveness op `/q/health/live` en niet op `/q/health/ready`: dat laatste zakt mee met de database, en
 dan herstart Kubernetes een pod die alleen maar wacht.
 
+Elk ander component in deze projecten draagt inmiddels dezelfde dienst, met een eigen keuze.
+Hoofdstuk 9 van `README.md` hiernaast houdt die tabel bij en levert het script dat hem opnieuw zet;
+dit blok blijft hier staan omdat het bij het aanmaken van dít component hoort.
+
 ```bash
 zadctl env add -c magazijnsimulator \
   DB_SCHEMA=magazijnsimulator \

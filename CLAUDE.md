@@ -223,7 +223,14 @@ Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf
   eerste poort publiek gaat.
 - Zonder de **`health-check`**-dienst probeert Kubernetes een TCP-socket op `ports[0]`, met
   `livenessProbe` op 30s × 3. Sluit de applicatie die poort bewust (een proxy die je uitzet), dan
-  herstart de pod anderhalve minuut later. Richt de probe dan op een poort die altijd staat.
+  herstart de pod anderhalve minuut later. Richt de probe dan op een poort die altijd staat. De
+  dienst vult drie probes uit twee paden: `liveness-path` voedt de `startupProbe` (36 × 5s = 180s
+  opstartbudget) én de `livenessProbe`, `readiness-path` de `readinessProbe` (2s × 3). Liveness dus
+  nooit op een pad dat meezakt met een database; de probe-poort hoeft géén inbound-poort te zijn.
+  Elk component in de drie demo-projecten heeft een vastgelegde keuze:
+  `demo/environment/zad-demo/README.md` hoofdstuk 9 draagt de tabel,
+  `demo/environment/zad-demo/gezondheidscontrole.sh` zet hem. Anders dan poorten en aliassen vraagt
+  dit geen hercreatie, en previews erven de configuratie via `clone-from: test`.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 

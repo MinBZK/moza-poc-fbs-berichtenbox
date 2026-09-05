@@ -64,6 +64,27 @@ De peer staat daarom in een eigen deployment `fsc-logius`: **wat niet in `test` 
 7. **UI-mount** (zie `cert-manifest.md`) — cert-attachments + "Publicatie op het web"
    (passthrough-TLS) zijn UI-only; de v2-API dekt dit niet.
 8. **`verify-zad.md`** — announce, dienst-publicatie, discover.
+9. **Gezondheidscontrole** — `demo/environment/zad-demo/gezondheidscontrole.sh apply mpfb-8wh` zet
+   de `health-check`-dienst op de zeven `logius-fsc*`-componenten. Zie hieronder waarom die niet op
+   de functionele poort mag staan.
+
+## De gezondheidscontrole staat op de monitoring-poort
+
+De functionele poort van deze componenten (8443) spreekt TLS. De standaardcontrole van ZAD is een
+blinde TCP-connect elke twee seconden, en die logt daar `http: TLS handshake error ... EOF` —
+dertig regels per minuut die geen fout zijn.
+
+Alle vijf de FSC-images bedienen op hun `MONITORING_ADDRESS` (`8080` voor de manager, `8081` voor de
+rest) twee paden: `/health/live` en `/health/ready`. Kaal `/health` geeft 404. Nagemeten op v2.5.2 in
+de lokale harness (`../local/`): met de txlog-api stilgezet blijft `/health/live` op alle componenten
+200, terwijl `/health/ready` op inway en outway naar 503 zakt en terugkomt zodra de txlog er weer is.
+
+Dat is de scheiding die we willen: een component dat zijn afhankelijkheid kwijt is krijgt geen
+verkeer meer, maar wordt niet herstart. Liveness hoort daarom nooit op `/health/ready` te staan.
+
+`logius-fscpg` krijgt `scheme=tcp` (PostgreSQL spreekt geen HTTP) en `logius-fscbootstrap`
+`scheme=none` (geen inbound poort, dus niets te controleren). Hoofdstuk 9 van
+`demo/environment/zad-demo/README.md` draagt de tabel voor alle componenten van de drie projecten.
 
 ## Env-vars
 

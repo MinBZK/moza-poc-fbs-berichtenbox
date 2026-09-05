@@ -72,6 +72,28 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
    `00000000000000100000` zetten, anders publiceert `berichtenmagazijn` nog onder de OUDE
    identiteit terwijl de peer-componenten al onder de nieuwe OIN announcen — een mismatch
    tussen de dienstverlener en de FSC-peer die haar aanmeldt.
+10. **Gezondheidscontrole** — `demo/environment/zad-demo/gezondheidscontrole.sh apply mpfm-w3h` zet
+    de `health-check`-dienst op de zes `magazijna-fsc*`-componenten. Zie hieronder waarom die niet
+    op de functionele poort mag staan.
+
+## De gezondheidscontrole staat op de monitoring-poort
+
+De functionele poort van deze componenten (8443) spreekt TLS. De standaardcontrole van ZAD is een
+blinde TCP-connect elke twee seconden, en die logt daar `http: TLS handshake error ... EOF` —
+dertig regels per minuut die geen fout zijn.
+
+Alle FSC-images bedienen op hun `MONITORING_ADDRESS` (`8080` voor de manager, `8081` voor de rest)
+twee paden: `/health/live` en `/health/ready`. Kaal `/health` geeft 404. Nagemeten op v2.5.2 in de
+lokale harness van de logius-peer: met de txlog-api stilgezet blijft `/health/live` op alle
+componenten 200, terwijl `/health/ready` op inway en outway naar 503 zakt en terugkomt zodra de
+txlog er weer is.
+
+Dat is de scheiding die we willen: een component dat zijn afhankelijkheid kwijt is krijgt geen
+verkeer meer, maar wordt niet herstart. Liveness hoort daarom nooit op `/health/ready` te staan.
+
+`magazijna-fscpg` krijgt `scheme=tcp` (PostgreSQL spreekt geen HTTP) en `magazijna-fscbootstrap`
+`scheme=none` (geen inbound poort, dus niets te controleren). Hoofdstuk 9 van
+`demo/environment/zad-demo/README.md` draagt de tabel voor alle componenten van de drie projecten.
 
 ## Env-vars
 
