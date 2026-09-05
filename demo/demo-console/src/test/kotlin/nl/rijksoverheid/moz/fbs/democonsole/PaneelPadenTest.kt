@@ -156,42 +156,85 @@ class PaneelPadenTest {
      * het verkeerde voorbeeld; de personadienst weigert om dezelfde reden al een persona-id die
      * een nummer is.
      *
-     * Zowel de parameternaam als een letterlijke waarde. Een `?bsn={ontdubbelPersona}` draagt het
-     * nummer pas op het moment dat het paneel het veld invult, dus wie alleen naar cijfers kijkt
-     * ziet zo'n knop niet — en wie alleen naar namen kijkt, mist een nummer dat er hard in staat.
+     * Een allowlist en geen lijst van verboden namen: `?bsn=` afvangen laat `?nummer=` en
+     * `?ontvangerWaarde=` erdoor, terwijl dat dezelfde knop is. Zo'n adres draagt het nummer pas
+     * op het moment dat het paneel het veld invult, dus in het bestand is er niets aan te zien.
+     * Bijschrijven hier hoort daarom een bewuste stap te zijn.
      */
     @Test
-    fun `geen knop-adres draagt een identificatienummer`() {
+    fun `elke knop-parameter staat op de lijst van toegestane namen`() {
+        // `&amp;` terug naar `&`: in HTML staat de scheiding tussen twee parameters als entiteit,
+        // en zonder deze stap heet de tweede parameter "amp;aantal".
+        val parameters = paden
+            .flatMap { pad -> PARAMETERNAAM.findAll(pad.replace("&amp;", "&")).map { it.groupValues[1] } }
+            .toSet()
+
+        assertTrue(parameters.isNotEmpty(), "geen enkele queryparameter gevonden in $PANEEL")
+
+        // Eerst bewijzen dat de meting discrimineert: de vorm die deze test moet vangen.
+        assertEquals(
+            listOf("bsn"),
+            PARAMETERNAAM.findAll("/api/demo/ontdubbeling?bsn={ontdubbelPersona}").map { it.groupValues[1] }.toList(),
+        )
+
+        assertEquals(
+            emptySet<String>(),
+            parameters - TOEGESTANE_PARAMETERS,
+            "knop-adres met een parameter buiten de toegestane namen; wijst hij een persona aan, " +
+                "gebruik dan zijn id en niet zijn identificatienummer",
+        )
+    }
+
+    /**
+     * Het nummer komt er net zo goed in zonder dat een adres het toont: een keuzelijst die het als
+     * optie-waarde zet, vult `{ontdubbelPersona}` ermee. Vandaar over de héle inhoud van alle vier
+     * de bestanden die het paneel en de wegwerp-berichtenbox serveren.
+     */
+    @Test
+    fun `geen pagina van het paneel draagt een identificatienummer`() {
         // Acht of negen cijfers is de vorm van een KVK-nummer, BSN of RSIN; een langere reeks blijft
-        // toegestaan, want een OIN is publiek en staat in de demo gewoon in een pad.
+        // toegestaan, want een OIN is publiek — de magazijn-simulator draagt hem in zijn pad.
         val nummer = Regex("""(?<!\d)\d{8,9}(?!\d)""")
 
-        // Eerst bewijzen dat beide metingen discrimineren: dit is de vorm die deze test moet
-        // vangen, en zonder deze regels zou een regex die nooit meer iets vindt de test groen laten.
-        assertTrue(NUMMERPARAMETER.containsMatchIn("/api/demo/ontdubbeling?bsn={ontdubbelPersona}"))
+        // Eerst bewijzen dat de meting onderscheidt: de vorm die deze test moet vangen én de vorm
+        // die mag blijven. Zonder deze regels zou een regex die alles of niets matcht even groen zijn.
         assertTrue(nummer.containsMatchIn("/api/demo/ontdubbeling?persona=123456789"))
-        assertFalse(nummer.containsMatchIn("/api/demo/magazijn/00000000000000100000"), "een OIN is publiek")
+        assertFalse(nummer.containsMatchIn("/magazijn/00000000000000100000"), "een OIN is publiek")
+
+        PAGINAS.forEach { bestand ->
+            assertEquals(
+                emptyList<String>(),
+                nummer.findAll(File(bestand).readText()).map { it.value }.toList(),
+                "$bestand draagt een reeks van acht of negen cijfers; is het geen identificatienummer, " +
+                    "zet die constante dan buiten deze bestanden",
+            )
+        }
+    }
+
+    /**
+     * De keuzelijsten leveren de waarde die in het adres terechtkomt. Zet een lijst daar het
+     * identificatienummer neer in plaats van de persona-id, dan draagt het adres het nummer alsnog
+     * — en `index.html` toont dat niet, want daar staat alleen `{ontdubbelPersona}`.
+     */
+    @Test
+    fun `elke keuzelijst levert de persona-id als optie-waarde`() {
+        val waarden = OPTIEWAARDE.findAll(script).map { it.groupValues[1] }.toList()
+
+        assertTrue(waarden.isNotEmpty(), "geen enkele optie-waarde gevonden in $SCRIPT")
+
+        // Eerst bewijzen dat de meting discrimineert: dit is de vorm die het nummer wél doorgaf.
+        assertEquals(
+            listOf("persona.ontvanger.slice('BSN:'.length)"),
+            OPTIEWAARDE.findAll("waarde: persona.ontvanger.slice('BSN:'.length), label: persona.label")
+                .map { it.groupValues[1] }
+                .toList(),
+        )
 
         assertEquals(
             emptyList<String>(),
-            paden.filter { NUMMERPARAMETER.containsMatchIn(it) },
-            "knop-adres met een parameter voor een identificatienummer; wijs de persona op zijn id aan",
+            waarden.filterNot { it == "persona.id" },
+            "optie-waarde die niet de persona-id is; het nummer hoort niet in het adres terecht te komen",
         )
-
-        // Over beide bestanden in hun geheel en niet alleen over de adressen: het nummer komt er
-        // net zo goed in als een keuzelijst het als optie-waarde zet, en die waarde staat in het
-        // script. Geen van beide bestanden heeft een reden zo'n reeks of zo'n parameter te dragen.
-        listOf(PANEEL to paneel, SCRIPT to script).forEach { (bestand, inhoud) ->
-            assertFalse(
-                NUMMERPARAMETER.containsMatchIn(inhoud),
-                "$bestand bouwt een adres met een parameter voor een identificatienummer",
-            )
-            assertEquals(
-                emptyList<String>(),
-                nummer.findAll(inhoud).map { it.value }.toList(),
-                "$bestand draagt een identificatienummer",
-            )
-        }
     }
 
     private fun uitPaneel(patroon: String): List<String> =
@@ -205,11 +248,24 @@ class PaneelPadenTest {
 
         const val PROPERTIES = "src/main/resources/application.properties"
 
+        /** Alles wat deze module als pagina serveert; de twee `.js`-bestanden vullen de adressen in. */
+        val PAGINAS = listOf(
+            PANEEL,
+            SCRIPT,
+            "src/main/resources/META-INF/resources/berichtenbox.html",
+            "src/main/resources/META-INF/resources/berichtenbox.js",
+        )
+
         /**
-         * Queryparameters die om een identificatienummer vragen. `ontvanger` staat erbij omdat de
-         * keten dat veld als `<TYPE>:<WAARDE>` draagt: een knop die dát doorgeeft zet het nummer
-         * er net zo goed in.
+         * Wat een knop-adres als queryparameter mag dragen. Een naam die een persona of een andere
+         * partij aanwijst hoort een id te zijn; wie hier een naam bijschrijft, kiest daar bewust
+         * voor.
          */
-        val NUMMERPARAMETER = Regex("""[?&](bsn|rsin|kvk|ontvanger)=""", RegexOption.IGNORE_CASE)
+        val TOEGESTANE_PARAMETERS = setOf("persona", "aantal", "interval")
+
+        val PARAMETERNAAM = Regex("""[?&]([^=&]+)=""")
+
+        /** De waarde die `vulKeuze` op een `<option>` zet en die dus in het adres terechtkomt. */
+        val OPTIEWAARDE = Regex("""waarde: ([^,]+),""")
     }
 }

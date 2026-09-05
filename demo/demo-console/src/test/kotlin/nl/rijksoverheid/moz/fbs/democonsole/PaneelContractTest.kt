@@ -300,10 +300,9 @@ class PaneelContractTest {
     }
 
     /**
-     * Een ontbrekende parameter is een ander faalpad dan een onbekende waarde: Kotlin maakt er
-     * zonder eigen afhandeling een `NullPointerException` van, en dat wordt een HTTP 500 met een
-     * interne melding. Een lege of witruimte-waarde hoort er hetzelfde uit te zien als een
-     * ontbrekende, want voor de bediener is het dezelfde vergissing.
+     * Een lege of witruimte-waarde hoort er hetzelfde uit te zien als een ontbrekende parameter:
+     * voor de bediener is het dezelfde vergissing. Zonder eigen afhandeling zijn het drie
+     * verschillende antwoorden, waarvan één een HTTP 500.
      */
     @ParameterizedTest
     @ValueSource(strings = ["", "?persona=", "?persona=%20"])
@@ -312,7 +311,76 @@ class PaneelContractTest {
 
         assertEquals(400, respons.statusCode(), "query '$query'")
         assertTrue(respons.body().contains("personas"), "de melding hoort de weg terug te wijzen")
+        assertFalse(
+            respons.body().contains("onbekende persona"),
+            "geen keuze is iets anders dan een keuze die niet bestaat; die twee horen niet dezelfde melding te delen",
+        )
         assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "valideren hoort vóór het aanmelden te gaan")
+    }
+
+    /**
+     * Dit adres nam tot voor kort het nummer zelf, dus een aanroep met een BSN erin is het te
+     * verwachten verkeerde gebruik. De melding mag hem dan niet terugciteren: `DemoFoutMapper`
+     * logt elke weigering onverkort, en daarmee zou het nummer alsnog in de applicatielog staan.
+     */
+    @Test
+    fun `een ontdubbeling met een nummer als persona geeft 400 zonder het nummer te herhalen`() {
+        val respons = speelOntdubbeling("?persona=$PIETERSEN_BSN")
+
+        assertEquals(400, respons.statusCode())
+        assertFalse(respons.body().contains(PIETERSEN_BSN), "de melding hoort het aangeboden nummer niet te dragen")
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een nummer hoort niets aan te melden")
+    }
+
+    /**
+     * Bewust geen normalisatie: witruimte eromheen of een afwijkende hoofdletter is geen andere
+     * persona, maar ook geen geldige id. Aannemen wat er bedoeld werd verbergt een verkeerd
+     * ingerichte keuzelijst; het zusterendpoint `/api/demo/bericht` doet hetzelfde.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["%20pietersen", "pietersen%20", "Pietersen"])
+    fun `een ontdubbeling voor een persona met afwijkende schrijfwijze geeft 404`(waarde: String) {
+        assertEquals(404, speelOntdubbeling("?persona=$waarde").statusCode(), "persona '$waarde'")
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een niet-gevonden persona hoort niets aan te melden")
+    }
+
+    /**
+     * De keuzelijst van het paneel en de controle in de resource lezen dezelfde lijst, maar elk
+     * met een eigen regel: `bediening.js` filtert op de tekst `BSN:` in `ontvanger`, de resource
+     * kijkt naar `type`. Lopen die uiteen, dan biedt het paneel een keuze aan die elke klik met
+     * een 400 beantwoordt — of laat het er stil één weg die had gekund.
+     */
+    @Test
+    fun `elke persona die het paneel voor de ontdubbeling aanbiedt wordt geaccepteerd`() {
+        val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").toList()
+        val (metBsn, zonderBsn) = personas.partition { it.path("ontvanger").asText().startsWith("BSN:") }
+
+        // Met één persona zou dit "geeft de enige terug" niet van "zoekt per id op" onderscheiden.
+        assertTrue(metBsn.size >= 2, "minder dan twee BSN-persona's ingericht; dan toetst dit niets")
+        assertTrue(zonderBsn.isNotEmpty(), "zonder een persona zonder BSN blijft de andere helft ongetoetst")
+
+        metBsn.forEach { persona ->
+            VasteOntdubbelingService.nummers.clear()
+
+            val id = persona.path("id").asText()
+
+            assertEquals(200, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
+            assertEquals(
+                listOf(persona.path("ontvanger").asText().removePrefix("BSN:")),
+                VasteOntdubbelingService.nummers,
+                "persona '$id' hoort zijn eigen nummer op te leveren",
+            )
+        }
+
+        VasteOntdubbelingService.nummers.clear()
+
+        zonderBsn.forEach { persona ->
+            val id = persona.path("id").asText()
+
+            assertEquals(400, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
+        }
+
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een persona zonder BSN hoort niets aan te melden")
     }
 
     @Test
@@ -325,10 +393,8 @@ class PaneelContractTest {
     }
 
     /**
-     * Het scenario draait op de aanmeld-webhook, die de ontvanger als BSN draagt. Een persona die
-     * er geen heeft bestáát wel, dus 400 en niet 404 — anders gaat de bediener zoeken naar een
-     * persona die gewoon in de lijst staat. Het paneel biedt hem niet aan; dit adres staat open op
-     * de origin van het paneel.
+     * 400 en niet 404 is hier een bewuste keuze — deze persona bestáát — dus die grens hoort vast
+     * te staan: een 404 stuurt de bediener zoeken naar een persona die gewoon in de lijst staat.
      */
     @Test
     fun `een ontdubbeling voor een persona zonder BSN geeft 400`() {
@@ -493,10 +559,10 @@ class VasteAanleverService(config: DemoConfig) : AanleverService(config) {
 }
 
 /**
- * Vaste demonstratie in plaats van twee CloudEvents naar de uitvraag, die hier niet draait. Neemt
- * op met welk nummer de resource hem aanroept: dat is wat de persona-opzoeking moet opleveren, en
- * het staat niet in het antwoord. Thread-veilig en per test geleegd, om dezelfde reden als bij
- * [VasteAanleverService].
+ * Vaste demonstratie in plaats van hetzelfde CloudEvent tweemaal naar de uitvraag, die hier niet
+ * draait. Neemt op met welk nummer de resource hem aanroept: dat is wat de persona-opzoeking moet
+ * opleveren, en het staat niet in het antwoord. Thread-veilig en per test geleegd, om dezelfde
+ * reden als bij [VasteAanleverService].
  */
 @Mock
 @Singleton

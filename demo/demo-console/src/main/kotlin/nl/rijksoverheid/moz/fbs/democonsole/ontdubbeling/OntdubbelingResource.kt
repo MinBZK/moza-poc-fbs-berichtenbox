@@ -19,22 +19,24 @@ class OntdubbelingResource(
 
     /**
      * Op de persona-`id` en niet op zijn identificatienummer: een BSN hoort niet in een URL, ook
-     * niet in een demo. Een adres belandt in browsergeschiedenis, in proxylogboeken en in de
-     * schermopname van een demonstratie. Het nummer blijft daarom aan deze kant en komt uit
-     * dezelfde ingerichte lijst als de keuzelijst van het paneel.
+     * niet in een demo. Het nummer komt uit dezelfde ingerichte lijst als de keuzelijst.
      *
-     * Elke bedieningsfout wordt hier afgevangen en niet met `require()`: `DemoFoutMapper` vertaalt
-     * alleen een `WebApplicationException` naar zijn eigen status, dus een `require()` zou een
-     * verkeerd ingevulde parameter als HTTP 500 tonen.
-     *
-     * Vandaar ook `@DefaultValue("")` in plaats van een vaste persona: een ontbrekende parameter
-     * wordt anders `null` in een niet-nullable parameter, wat Kotlin met een `NullPointerException`
-     * beantwoordt vóór de eerste regel hieronder. Een vaste default zou bovendien een
-     * identificatienummer terugzetten in deze broncode.
+     * Bedieningsfouten als `WebApplicationException` en niet als `require()`, en `@DefaultValue("")`
+     * in plaats van een niet-nullable parameter zonder default: om dezelfde redenen als bij
+     * `POST /api/demo/bericht`, waar ze uitgeschreven staan. Een vaste persona als default zou hier
+     * bovendien een identificatienummer terugzetten in deze broncode.
      */
     @POST
     fun demonstreer(@QueryParam("persona") @DefaultValue("") persona: String): OntdubbelingResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
+
+        // Weigeren én niet terugciteren. Dit adres nam tot voor kort het nummer zelf, dus een
+        // aanroep met een BSN erin is het te verwachten verkeerde gebruik — en elke weigering gaat
+        // onverkort naar de applicatielog, waar een identificatienummer niet hoort. Acht of negen
+        // cijfers is de vorm van een KVK-nummer, BSN of RSIN, en nooit die van een persona-id.
+        if (persona.matches(NUMMERVORM)) {
+            throw BadRequestException("een persona wordt met zijn naam aangewezen, niet met een nummer; $KIES_EEN_PERSONA")
+        }
 
         val gekozen = personaService.alle().firstOrNull { it.id == persona }
             ?: throw NotFoundException("onbekende persona '$persona'; $KIES_EEN_PERSONA")
@@ -53,6 +55,8 @@ class OntdubbelingResource(
     private companion object {
 
         const val BSN = "BSN"
+
+        val NUMMERVORM = Regex("[0-9]{8,9}")
 
         const val KIES_EEN_PERSONA = "kies een persona met een $BSN uit personas van /api/demo/omgeving"
     }

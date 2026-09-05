@@ -763,10 +763,8 @@ async function pasOmgevingToe() {
 /* De ontdubbeling loopt op een BSN, dus alleen persona's met een BSN kunnen hem spelen. Een vrij
  * tekstveld zou een BSN vragen die verderop in dezelfde pagina al als keuzelijst bestaat.
  *
- * De waarde is de persona-id en niet zijn nummer, net als bij de keuzelijst hieronder: het adres
- * dat de knop aanroept belandt in browsergeschiedenis, proxylogboeken en schermopnames, en daar
- * hoort een identificatienummer niet. De console zoekt het nummer zelf op. Het filter kijkt wél
- * naar de ontvanger, want dat is wat zegt of deze persona het scenario kán spelen. */
+ * De optie draagt de persona-id en niet zijn nummer: het adres dat de knop aanroept hoort geen
+ * identificatienummer te dragen. De console zoekt het nummer zelf op. */
 function vulPersonas(personas) {
     const keuze = document.getElementById('ontdubbelPersona');
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
@@ -777,12 +775,22 @@ function vulPersonas(personas) {
         return;
     }
 
+    const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
+
+    /* Een antwoord zonder `id` — een oudere console, of een proxy die het veld herschrijft — maakt
+     * er anders de tekst "undefined" van: de knop blijft levend en zijn 404 wijst naar de
+     * persona-inrichting, waar niets mis is. Toen de waarde nog uit `ontvanger` werd afgeleid ving
+     * die afleiding dit toevallig af. */
+    if (metBsn.some((persona) => !persona.id)) {
+        meldOnbruikbareLijst('personas', personas, keuze, knop);
+
+        return;
+    }
+
     vulKeuze(
         keuze,
         knop,
-        personas
-            .filter((persona) => persona.ontvanger.startsWith('BSN:'))
-            .map((persona) => ({ waarde: persona.id, label: persona.label })),
+        metBsn.map((persona) => ({ waarde: persona.id, label: persona.label })),
         'geen persona met een BSN ingericht',
     );
 }
