@@ -92,8 +92,9 @@ lus anders nooit laten afgaan — en noemt dan ook geen wachttijd die niet klopt
 ### Eén vangnet voor wat buiten een eigen try/catch omvalt
 
 `voerUit` en `verversToestand` worden fire-and-forget aangeroepen — vanuit de click-listener, vanuit
-de poll-lus en bij het laden — en `vraagBevestiging` kan synchroon gooien. Een throw of een afgewezen promise daaruit belandde alleen in de browserconsole — en
-wie een demo geeft heeft geen devtools open, dus die ziet weer een knop die niets doet. Twee
+de poll-lus en bij het laden — en `vraagBevestiging` kan synchroon gooien. Een throw of een
+afgewezen promise daaruit belandde alleen in de browserconsole — en wie een demo geeft heeft geen
+devtools open, dus die ziet weer een knop die niets doet. Twee
 listeners op `window` (`error`, `unhandledrejection`) zetten dat in de meldingsbalk.
 
 Het vangnet staat direct onder de element-lookups en niet onderaan bij de rest van de bedrading:
@@ -107,16 +108,23 @@ vangnet mee dat hem net aanriep.
 ### Ontdubbeling geldt de lus, niet de bediener
 
 Een ontbrekend element komt bij elke inricht-poging langs, dus `meldOpmaakfout` toont zo'n melding
-één keer en logt hem daarna alleen nog. Die ontdubbeling geldt uitsluitend voor aanroepen uit die
-lus: een melding die volgt op een druk op een knop is per definitie geen ruis, en zwijgen bij de
-tweede druk zou die knop precies zo stil maken als hij vóór deze wijziging was.
+één keer en logt hem daarna alleen nog. De vlag zit op de aanroepplekken die die lus doorloopt — en
+de knop *Nu opnieuw proberen* raakt diezelfde plekken, dus leegt `richtIn` bij handwerk de
+lus-ontdubbeling. Een melding die op een druk op een knop volgt is per definitie geen ruis, en
+zwijgen bij de tweede druk zou die knop precies zo stil maken als hij vóór deze wijziging was.
+
+Twee sets houden dat uit elkaar: `openstaandePaneelfouten` is wat er nog mis is — dat draagt het
+merkteken op de klap-knop en houdt tegen dat het paneel zichzelf compleet noemt — en
+`ontdubbeldInLus` is wat de lus al gezegd heeft. Alleen die tweede wordt geleegd: een ontbrekend
+invoerveld gaat niet over van een uitlezing die dat veld niet eens bekijkt.
 
 ### Een onbekende losse actie meldt zichzelf
 
 `LOSSE_ACTIES[knop.dataset.actie]()` gooide een `TypeError` op een naam die het script niet kent.
 Die vliegt uit de listener en levert precies het gedrag op dat dit issue bestrijdt: een knop die
-niets doet. Nu volgt een opmaakfout-melding, en een test koppelt elke `data-actie` in de opmaak aan
-een sleutel in `LOSSE_ACTIES`.
+niets doet. Nu volgt een eigen melding die de onbekende naam noemt — bewust géén opmaakfout, want de
+opmaak draagt die naam juist wél — en een test koppelt elke `data-actie` in de opmaak aan een sleutel
+in `LOSSE_ACTIES`.
 
 ## Verificatie
 

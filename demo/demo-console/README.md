@@ -93,8 +93,8 @@ plaats van stilte. Een knop die aan een keuzelijst hangt staat uit tot die lijst
 uitlezen van `GET /api/demo/omgeving` — waar die lijsten uit komen — kent een timeout van 4
 seconden: mislukt het, dan zegt een blok onder de meldingsbalk dat en wanneer de volgende poging
 komt (na 2, 5, 15, daarna elke 30 seconden). De knop *Nu opnieuw proberen* daarin slaat het wachten
-over en meldt zelf wat hij vindt. Staat de bediening ingeklapt, dan draagt de klap-knop een stip:
-het blok zelf is dan niet zichtbaar.
+over en meldt zelf wat hij vindt. Zolang er iets mis is draagt de klap-knop een stip; bij een
+ingeklapte bediening is dat het enige dat er nog van te zien is.
 
 Een refresh laat je staan waar je was: het paneel bewaart het actieve tabblad, de in-/uitgeklapte
 stand en de invoervelden in `sessionStorage`. Sluit je het tabblad, dan is het weg — een volgende

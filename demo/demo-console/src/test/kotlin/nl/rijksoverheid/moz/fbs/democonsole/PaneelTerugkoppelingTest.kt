@@ -121,10 +121,15 @@ class PaneelTerugkoppelingTest {
     fun `wat een druk op een knop oplevert wordt niet ontdubbeld`() {
         val melden = functie("meldOpmaakfout")
 
-        assertTrue("uitDeLus && gemeldeOpmaakfouten.has(wat)" in melden, "de ontdubbeling kent het verschil niet")
-        assertTrue("gemeldeOpmaakfouten.add(wat)" in melden, "de ontdubbeling wapent zich nooit")
+        assertTrue("ontdubbeldInLus.has(wat)" in melden, "de ontdubbeling kent het verschil niet")
+        assertTrue("ontdubbeldInLus.add(wat)" in melden, "de ontdubbeling wapent zich nooit")
         assertTrue("toonMelding(" in melden, "een opmaakfout komt niet verder dan de console")
-        assertTrue("markeerKlap(true)" in melden, "een opmaakfout zet geen merkteken op de klap-knop")
+        assertTrue("registreerPaneelfout(" in melden, "de storing wordt niet vastgelegd")
+
+        val registreren = functie("registreerPaneelfout")
+
+        assertTrue("openstaandePaneelfouten.add(wat)" in registreren, "de storing blijft nergens staan")
+        assertTrue("markeerKlap(true)" in registreren, "een storing zet geen merkteken op de klap-knop")
 
         // De aanroepen uit een klik geven die vlag niet mee; die uit de lus wel.
         assertTrue(
@@ -135,27 +140,33 @@ class PaneelTerugkoppelingTest {
             Regex("""meldOpmaakfout\(opsom\(mist\), true\)""").containsMatchIn(script),
             "de keuzelijst uit de lus wordt niet ontdubbeld",
         )
+        // Alleen wat de lus al zei: de storingen zelf blijven staan, want een uitlezing die een
+        // ontbrekend invoerveld niet eens bekijkt, verhelpt het ook niet.
         assertTrue(
-            "if (metHand) gemeldeOpmaakfouten.clear();" in functie("richtIn"),
+            "if (metHand) ontdubbeldInLus.clear();" in functie("richtIn"),
             "een handmatige poging herhaalt niet wat de lus al meldde",
         )
-
-        // Anders beweert het paneel "compleet" over een opmaakfout heen die er net bij kwam.
         assertTrue(
-            "gemeldeOpmaakfouten.size === foutenVooraf" in functie("richtIn"),
-            "de bevestiging kijkt niet of déze poging een opmaakfout meldde",
+            "openstaandePaneelfouten.clear()" !in script,
+            "een geslaagde poging wist storingen die ze niet gecontroleerd heeft",
+        )
+
+        // Anders noemt het paneel zichzelf compleet terwijl er nog een storing openstaat.
+        assertTrue(
+            "openstaandePaneelfouten.size === 0" in functie("richtIn"),
+            "de bevestiging kijkt niet of er nog iets openstaat",
         )
 
         // Anoniem melden maakt twee dode bedieningen tot één melding, en de tweede verdwijnt dan in
         // de ontdubbeling.
         assertTrue("'een keuzelijst'" !in script, "een ontbrekende keuzelijst wordt niet bij naam genoemd")
 
-        // Alle aanroepen samen: wie uit de lus komt draagt de vlag, wie uit een klik komt niet.
-        val metVlag = Regex("""meldOpmaakfout\([^;]*, true\)""").findAll(script).count()
-        val zonderVlag = Regex("""meldOpmaakfout\([^;,]*\)""").findAll(script).count()
-
-        assertTrue(metVlag > 0, "geen enkele aanroep uit de lus wordt ontdubbeld")
-        assertTrue(zonderVlag > 0, "geen enkele aanroep ontsnapt aan de ontdubbeling")
+        // Een lijst die onbruikbaar terugkwam is geen ontbrekend element, maar wel een dode
+        // bediening; zonder dit noemt de volgende geslaagde poging het paneel compleet.
+        assertTrue(
+            "registreerPaneelfout(" in functie("meldOnbruikbareLijst"),
+            "een onbruikbare lijst telt niet mee als storing",
+        )
     }
 
     // ------------------------------------------------------------ een knop die nog niet kan
@@ -322,10 +333,7 @@ class PaneelTerugkoppelingTest {
 
         assertTrue("richtIn();" in plannen, "de geplande poging telt niet als automatische poging")
         assertTrue("inrichtTimer = null;" in plannen, "een afgegane timer laat zijn id staan")
-        assertTrue(
-            "clearTimeout(inrichtTimer)" in functie("planInrichting"),
-            "planInrichting wist de vorige timer niet",
-        )
+        assertTrue("clearTimeout(inrichtTimer)" in plannen, "planInrichting wist de vorige timer niet")
         assertTrue("planInrichting(null)" in functie("richtIn"), "richtIn laat een geplande poging naast zich staan")
     }
 
@@ -447,10 +455,6 @@ class PaneelTerugkoppelingTest {
     }
 
     /**
-     * Het inrichtingsblok staat ín het paneel, en een ingeklapt paneel is `display: none`. Zonder
-     * merkteken op de klap-knop is een half ingericht paneel dan nergens aan te zien.
-     */
-    /**
      * De ingedrukte knop gaat op disabled en verliest zijn focus naar `<body>`. Zonder teruggave
      * begint toetsenbordnavigatie weer bovenaan de pagina; zonder de voorwaarden eromheen trekt een
      * automatische poging de focus weg bij wie ergens anders bezig is.
@@ -465,10 +469,14 @@ class PaneelTerugkoppelingTest {
         assertTrue("offsetParent" in afsluiting, "de focus kan op een onzichtbare knop landen")
     }
 
+    /**
+     * Het inrichtingsblok staat ín het paneel, en een ingeklapt paneel is `display: none`. Zonder
+     * merkteken op de klap-knop is een half ingericht paneel dan nergens aan te zien.
+     */
     @Test
     fun `een ingeklapt paneel laat zien dat het niet compleet is`() {
         assertTrue(
-            "markeerKlap(zichtbaar || gemeldeOpmaakfouten.size > 0)" in functie("toonInrichting"),
+            "markeerKlap(zichtbaar || openstaandePaneelfouten.size > 0)" in functie("toonInrichting"),
             "het foutblok wist het merkteken terwijl er nog een opmaakfout staat",
         )
         assertTrue("dataset.letOp" in functie("markeerKlap"), "markeerKlap zet geen merkteken")
@@ -559,8 +567,9 @@ class PaneelTerugkoppelingTest {
 
     /**
      * `LOSSE_ACTIES[naam]()` gooit een TypeError op een naam die het script niet kent. Die vliegt
-     * uit de listener: de knop doet niets, en niets zegt waarom. Het script vangt dat nu af met een
-     * opmaakfout-melding, maar de naam hoort natuurlijk gewoon te bestaan.
+     * uit de listener: de knop doet niets, en niets zegt waarom. Het script vangt dat af met een
+     * eigen melding — bewust geen opmaakfout, want de opmaak draagt die naam juist wél — maar de
+     * naam hoort natuurlijk gewoon te bestaan.
      */
     @Test
     fun `elke losse actie in de opmaak bestaat in het script`() {
@@ -578,6 +587,15 @@ class PaneelTerugkoppelingTest {
         // Een kale lookup levert bij een naam als `toString` een geërfde functie op, die dan wordt
         // aangeroepen in plaats van gemeld.
         assertTrue("Object.hasOwn(LOSSE_ACTIES" in script, "een onbekende actie kan een geërfde functie oppikken")
+
+        // En zegt het ook: zonder deze melding doet zo'n knop weer niets zonder uitleg.
+        val bedrading = script.substringAfter("Object.hasOwn(LOSSE_ACTIES")
+
+        assertTrue("toonMelding(" in bedrading.substringBefore("}"), "een onbekende actie levert geen melding op")
+        assertTrue(
+            "registreerPaneelfout(" in bedrading.substringBefore("}"),
+            "een knop die aan niets hangt telt niet mee als storing",
+        )
     }
 
     /**
