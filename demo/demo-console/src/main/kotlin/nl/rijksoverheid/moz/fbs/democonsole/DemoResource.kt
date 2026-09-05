@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.democonsole
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.DefaultValue
 import jakarta.ws.rs.GET
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
@@ -105,7 +104,7 @@ class DemoResource(
         }
 
         val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default)
-            ?: throw NotFoundException("onbekende persona '$persona'; $KIES_EEN_PERSONA")
+            ?: throw onbekendePersona(persona, KIES_EEN_PERSONA)
 
         return aanleverService.leverAan(opdrachten)
     }

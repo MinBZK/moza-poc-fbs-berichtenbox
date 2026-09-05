@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -22,6 +23,18 @@ class PaneelPadenTest {
     private val paneel: String = File(PANEEL).readText()
 
     private val script: String = File(SCRIPT).readText()
+
+    /**
+     * Het script zonder commentaar. De tellingen hieronder zoeken naar code-constructies, en een
+     * comment die een functie noemt — precies wat dit project aanmoedigt — zou anders als een extra
+     * aanroep tellen. De test faalt dan met de omgekeerde diagnose van wat er aan de hand is.
+     *
+     * De `(?<!:)` houdt een URL heel: zonder die uitzondering snijdt `https://…` de rest van zijn
+     * regel weg, en dan telt een echte aanroep juist te wéinig — dezelfde verkeerde diagnose.
+     */
+    private val code: String = script
+        .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+        .replace(Regex("""(?<!:)//.*"""), "")
 
     private val paden: List<String> = uitPaneel("""data-pad="([^"]+)"""")
 
@@ -148,15 +161,182 @@ class PaneelPadenTest {
         assertEquals("""max="${DemoResource.MAX_BERICHTEN}"""", Regex("""max="\d+"""").find(veld)?.value)
     }
 
+    /**
+     * Een identificatienummer hoort niet in een webadres — niet in de productcode en ook niet in
+     * de demo. Een adres belandt in browsergeschiedenis, in proxylogboeken en in de schermopname
+     * van een demonstratie. De nummers van de demo zijn fictief, maar een knop die het voordoet is
+     * het verkeerde voorbeeld; de personadienst weigert om dezelfde reden al een persona-id die
+     * een nummer is.
+     *
+     * Een allowlist en geen lijst van verboden namen: `?bsn=` afvangen laat `?nummer=` en
+     * `?ontvangerWaarde=` erdoor, terwijl dat dezelfde knop is. Zo'n adres draagt het nummer pas
+     * op het moment dat het paneel het veld invult, dus in het bestand is er niets aan te zien.
+     * Bijschrijven hier hoort daarom een bewuste stap te zijn.
+     */
+    @Test
+    fun `elke knop-parameter staat op de lijst van toegestane namen`() {
+        // `&amp;` terug naar `&`: in HTML staat de scheiding tussen twee parameters als entiteit,
+        // en zonder deze stap heet de tweede parameter "amp;aantal".
+        val parameters = paden
+            .flatMap { pad -> PARAMETERNAAM.findAll(pad.replace("&amp;", "&")).map { it.groupValues[1] } }
+            .toSet()
+
+        assertTrue(parameters.isNotEmpty(), "geen enkele queryparameter gevonden in $PANEEL")
+
+        // Eerst bewijzen dat de meting discrimineert: de vorm die deze test moet vangen.
+        assertEquals(
+            listOf("bsn"),
+            PARAMETERNAAM.findAll("/api/demo/ontdubbeling?bsn={ontdubbelPersona}").map { it.groupValues[1].trim() }.toList(),
+        )
+
+        assertEquals(
+            emptySet<String>(),
+            parameters - TOEGESTANE_PARAMETERS,
+            "knop-adres met een parameter buiten de toegestane namen; wijst hij een persona aan, " +
+                "gebruik dan zijn id en niet zijn identificatienummer",
+        )
+    }
+
+    /**
+     * Het nummer komt er net zo goed in zonder dat een adres het toont: een keuzelijst die het als
+     * optie-waarde zet, vult `{ontdubbelPersona}` ermee. Vandaar over de héle inhoud.
+     *
+     * De directory uitlezen en geen vaste lijst: een pagina die er later bijkomt — ook in een
+     * submap — hoort er vanzelf onder te vallen, anders bewaakt deze test precies de bestanden
+     * waarin het probleem al opgelost is.
+     */
+    @Test
+    fun `geen pagina van het paneel draagt een identificatienummer`() {
+        // Acht of negen cijfers is de vorm van een KVK-nummer, BSN of RSIN; een langere reeks blijft
+        // toegestaan, want een OIN is publiek.
+        val nummer = Regex("""(?<!\d)\d{8,9}(?!\d)""")
+        val paginas = File(RESOURCES).walkTopDown().filter { it.extension in PAGINA_TYPES }.toList()
+
+        assertTrue(
+            paginas.any { it.name == "index.html" },
+            "index.html niet gevonden onder $RESOURCES; dan meet deze test de verkeerde bestanden",
+        )
+
+        // Eerst bewijzen dat de meting onderscheidt: de vorm die deze test moet vangen én de vorm
+        // die mag blijven. Zonder deze regels zou een regex die alles of niets matcht even groen zijn.
+        assertTrue(nummer.containsMatchIn("/api/demo/ontdubbeling?persona=123456789"))
+        assertFalse(nummer.containsMatchIn("/magazijn/00000000000000100000"), "een OIN is publiek")
+
+        paginas.forEach { bestand ->
+            assertEquals(
+                emptyList<String>(),
+                nummer.findAll(bestand.readText()).map { it.value }.toList(),
+                "${bestand.name} draagt een reeks van acht of negen cijfers; is het geen " +
+                    "identificatienummer, zet die constante dan buiten deze bestanden",
+            )
+        }
+    }
+
+    /**
+     * De keuzelijsten leveren de waarde die in het adres terechtkomt. Zet een lijst daar het
+     * identificatienummer neer in plaats van de persona-id, dan draagt het adres het nummer alsnog
+     * — en `index.html` toont dat niet, want daar staat alleen `{ontdubbelPersona}`.
+     *
+     * De harde grens ligt in `vulKeuze`, dat een optie-waarde met een cijferreeks weigert; dat werkt
+     * ook voor een `{veld}` in een padsegment, waar geen queryparameter aan te pas komt. Deze
+     * controle bewaakt de weg ernaartoe: een lijst die zijn opties zelf opbouwt, komt daar niet
+     * langs.
+     */
+    @Test
+    fun `elke keuzelijst levert de persona-id als optie-waarde`() {
+        val waarden = OPTIEWAARDE.findAll(code).map { it.groupValues[1].trim() }.toList()
+
+        assertTrue(waarden.isNotEmpty(), "geen enkele optie-waarde gevonden in $SCRIPT")
+
+        // Eerst bewijzen dat de meting discrimineert: dit is de vorm die het nummer wél doorgaf,
+        // inclusief de schrijfwijze met de waarde als láátste sleutel.
+        assertEquals(
+            listOf("persona.ontvanger.slice('BSN:'.length)", "persona.ontvanger"),
+            OPTIEWAARDE.findAll(
+                "waarde: persona.ontvanger.slice('BSN:'.length), label: persona.label }\n" +
+                    "{ label: persona.label, waarde: persona.ontvanger }",
+            ).map { it.groupValues[1].trim() }.toList(),
+        )
+
+        assertEquals(
+            emptyList<String>(),
+            waarden.filterNot { it == "persona.id" },
+            "optie-waarde die niet de persona-id is; het nummer hoort niet in het adres terecht te komen",
+        )
+    }
+
+    /**
+     * Elke keuzelijst loopt door dezelfde twee hulpfuncties: `heeftAlleVelden` weigert een lijst
+     * waarin een persona zijn id mist, `vulKeuze` bouwt de opties en weigert een cijferreeks als
+     * waarde. Bouwt een lijst zijn opties zelf op, dan valt hij buiten allebei — en de controle
+     * hierboven ziet dat niet, want er is dan geen `waarde:` meer te vinden.
+     */
+    @Test
+    fun `elke keuzelijst loopt door dezelfde hulpfuncties`() {
+        // Geteld in de pagina en niet in het script: hier staat hoeveel keuzelijsten er zijn, dus
+        // een lijst die zijn opties zelf opbouwt valt op als een ontbrekende aanroep in plaats van
+        // als een getal dat niemand meer kan narekenen.
+        val keuzelijsten = uitPaneel("""<select id="([^"]+)"""").size
+
+        assertTrue(keuzelijsten > 1, "minder dan twee keuzelijsten in $PANEEL; dan toetst dit niets")
+        assertEquals(keuzelijsten, aanroepen("vulKeuze"), "een keuzelijst bouwt zijn opties buiten vulKeuze om")
+        assertEquals(keuzelijsten, OPTIEWAARDE.findAll(code).count(), "een optie-waarde buiten een keuzelijst om")
+        assertEquals(
+            keuzelijsten,
+            aanroepen("heeftAlleVelden"),
+            "een keuzelijst zonder de controle op ontbrekende id's",
+        )
+    }
+
+    /**
+     * Het paneel filtert de ontdubbel-keuzelijst op het type dat de resource als enige accepteert.
+     * Drijft dat filter af — naar `KVK:` bijvoorbeeld — dan biedt de lijst uitsluitend persona's
+     * aan die elke klik met een 400 beantwoorden, en niets in de keten merkt dat: de contracttest
+     * bouwt dezelfde regel na in Kotlin en blijft dus groen.
+     */
+    @Test
+    fun `de keuzelijst filtert op hetzelfde type dat de ontdubbeling accepteert`() {
+        assertTrue(
+            code.contains("""startsWith('BSN:')"""),
+            "$SCRIPT filtert niet meer op BSN; de ontdubbeling accepteert geen ander type",
+        )
+    }
+
+    /** Aanroepen van [functie] in het script; de definitie zelf telt niet mee. */
+    private fun aanroepen(functie: String): Int =
+        Regex("""(?<!function )\b$functie\(""").findAll(code).count()
+
     private fun uitPaneel(patroon: String): List<String> =
         Regex(patroon).findAll(paneel).map { it.groupValues[1] }.toList()
 
     private companion object {
 
-        const val PANEEL = "src/main/resources/META-INF/resources/index.html"
+        const val RESOURCES = "src/main/resources/META-INF/resources"
 
-        const val SCRIPT = "src/main/resources/META-INF/resources/bediening.js"
+        const val PANEEL = "$RESOURCES/index.html"
+
+        const val SCRIPT = "$RESOURCES/bediening.js"
 
         const val PROPERTIES = "src/main/resources/application.properties"
+
+        /** Waarin een adres of een optie-waarde kan staan; de opmaak van de `.css` erbuiten. */
+        val PAGINA_TYPES = setOf("html", "js")
+
+        /**
+         * Wat een knop-adres als queryparameter mag dragen. Een naam die een persona of een andere
+         * partij aanwijst hoort een id te zijn; wie hier een naam bijschrijft, kiest daar bewust
+         * voor.
+         */
+        val TOEGESTANE_PARAMETERS = setOf("persona", "aantal", "interval")
+
+        val PARAMETERNAAM = Regex("""[?&]([^=&]+)=""")
+
+        /**
+         * Elke `waarde:` in het script; die gaat via `vulKeuze` naar een `<option>` en komt zo in
+         * het adres van een knop terecht. `[^,\n}]` en niet `[^,]`: zonder de sluitaccolade ontgaat
+         * hem de schrijfwijze met de waarde als laatste sleutel, en zonder de newline loopt een
+         * capture door tot de komma van de omliggende argumentenlijst.
+         */
+        val OPTIEWAARDE = Regex("""waarde: ([^,\n}]+)""")
     }
 }
