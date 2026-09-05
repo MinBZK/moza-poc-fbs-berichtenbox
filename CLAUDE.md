@@ -221,17 +221,18 @@ Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf
   ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`
   (`service.yaml.jinja`, `project_manager.py`). Zo blijft een beheerpoort cluster-intern terwijl de
   eerste poort publiek gaat.
-- Zonder de **`health-check`**-dienst probeert Kubernetes een TCP-socket op `ports[0]`, met
-  `livenessProbe` op 30s × 3. Sluit de applicatie die poort bewust (een proxy die je uitzet), dan
-  herstart de pod anderhalve minuut later. Richt de probe dan op een poort die altijd staat. De
-  dienst vult drie probes uit twee paden: `liveness-path` voedt de `startupProbe` (5s vertraging plus
-  36 × 5s) én de `livenessProbe` (30s × 3), `readiness-path` de `readinessProbe` (2s × 3). Liveness
-  dus nooit op een pad dat meezakt met een database. Elk component in de drie demo-projecten heeft
-  een vastgelegde keuze: `demo/environment/zad-demo/README.md` hoofdstuk 9 draagt de tabel,
-  `demo/environment/zad-demo/gezondheidscontrole.sh` zet hem. Previews erven de configuratie via
-  `clone-from: test` (nagemeten). Nog ongemeten, en te bewijzen bij de eerste apply: of de dienst óók
-  aanslaat op een component dat al bestond, en of ZAD een probe rendert op een poort die niet in
-  `ports.inbound` staat.
+- Zonder de **`health-check`**-dienst rendert ZAD drie blinde TCP-probes op `ports[0]`:
+  `startupProbe` en `livenessProbe` (30s × 3 → herstart) en `readinessProbe` (2s × 3). Sluit de
+  applicatie die poort bewust (een proxy die je uitzet), dan herstart de pod anderhalve minuut later;
+  is het een TLS-luisteraar, dan logt hij elke twee seconden een afgebroken handshake. De dienst
+  vult diezelfde drie probes uit twee paden: `liveness-path` voedt de `startupProbe` (5s vertraging
+  plus 36 × 5s) én de `livenessProbe`, `readiness-path` de `readinessProbe`. Liveness dus nooit op
+  een pad dat meezakt met een database. Elk component in de drie demo-projecten heeft een vastgelegde
+  keuze: `demo/environment/zad-demo/README.md` hoofdstuk 9 draagt de tabel,
+  `demo/environment/zad-demo/gezondheidscontrole.sh` zet hem. De configuratielaag hangt aan het
+  component binnen het project, niet aan een deployment, dus elke preview leest dezelfde instelling.
+  Nog ongemeten, en te bewijzen bij de eerste apply: of de dienst óók aanslaat op een component dat
+  al bestond, en of ZAD een probe rendert op een poort die niet in `ports.inbound` staat.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 

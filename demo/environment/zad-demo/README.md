@@ -799,7 +799,7 @@ wanneer hij netjes staat te wachten — de controle maakt dan de storing die ze 
 | `logius-fscmgr`, `magazijna-fscmgr` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8080 | `/health/live` · `/health/ready` |
 | `logius-fsc{ctl,inway,txlog}`, `magazijna-fsc{ctl,inway,txlog}` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8081 | `/health/live` · `/health/ready` |
 | `logius-fscoutway` (magazijn-a heeft er geen) | `mpfb-8wh` | `http` | 8081 | `/health/live` · `/health/ready` |
-| `logius-fscbootstrap`, `magazijna-fscbootstrap` | `mpfb-8wh` / `mpfm-w3h` | `none` | 8443, betekenisloos | — |
+| `logius-fscbootstrap`, `magazijna-fscbootstrap` | `mpfb-8wh` / `mpfm-w3h` | `none` | — | — |
 
 **De Kotlin-componenten** dragen alle `quarkus-smallrye-health`; `/q/health/live` en
 `/q/health/ready` bestaan dus al. Readiness telt de afhankelijkheden mee die Quarkus zelf aanmeldt,
@@ -822,14 +822,18 @@ logt een afgebroken poging als fout. `proeftuin` staat om een andere reden in di
 hoofdstuk 7.
 
 **De bootstrap-componenten** openen geen inbound poort en krijgen nu al geen probe gerenderd.
-`none` maakt daar een opgeschreven keuze van in plaats van een gevolg. De poort is verplicht in het
-schema en betekent bij `none` niets; 8443 staat er als onschadelijke waarde.
+`none` maakt daar een opgeschreven keuze van in plaats van een gevolg. Poort en paden blijven leeg —
+het schema laat ze weg — want een waarde invullen zou suggereren dat er iets gecontroleerd wordt.
 
 ### De FSC-componenten: de monitoring-poort, niet de functionele poort
 
-De functionele poort van de FSC-familie (8443) spreekt TLS. De standaardcontrole opent daar elke
-twee seconden een socket en sluit hem meteen weer, wat de Go-server logt als
-`http: TLS handshake error ... EOF` — een regel per twee seconden, dag en nacht, die geen fout is.
+Op de manager, de inway, de outway en de txlog is de eerste poort (8443) een TLS-luisteraar. De
+readinessProbe van de standaardcontrole opent daar elke twee seconden een socket en sluit hem meteen
+weer, wat de Go-server logt als `http: TLS handshake error ... EOF` — dag en nacht, zonder dat er
+iets aan de hand is.
+
+De twee controllers hebben dat probleem niet: hun eerste poort is de plain-HTTP UI op 8080. Ze
+volgen dezelfde keuze omdat `/health/ready` meer zegt dan een open UI-poort, niet vanwege de ruis.
 
 Alle vijf de FSC-images bedienen op hun `MONITORING_ADDRESS` twee paden: `/health/live` en
 `/health/ready`. Kaal `/health` geeft 404, en dat is waarom eerder onderzoek concludeerde dat er
@@ -855,15 +859,17 @@ httpGet naar elke poort toe die de container opent, en de beschrijving van de `h
 noemt "je gezondheidsendpoint zit op een andere poort dan je functionele poort" zelf als reden om de
 dienst te kiezen. Dat ZAD zo'n poort ook werkelijk rendert, is echter nog nergens te zien: geen
 enkel component in deze projecten deed het tot nu toe. Stap 10 van `verify-zad.md` leest het na de
-eerste apply af uit het gerenderde manifest. Komt het er niet, dan moet 8081 als tweede
-inbound-poort op de FSC-componenten — en dát vraagt wél een hercreatie.
+eerste apply af uit het gerenderde manifest. Komt het er niet, dan moet de monitoring-poort als
+extra inbound-poort op de FSC-componenten — 8081, en 8080 op de twee managers — en dát vraagt wél
+een hercreatie.
 
 ### Readiness op de uitvraag zakt mee met de berichtenopslag
 
 `quarkus-redis-client` levert een readiness-check, en `REDIS_HOSTS` van de uitvraag loopt op ZAD
-door `toxiproxy-redis` (hoofdstuk 6). Zet je de Redis-storingsknop dicht, dan is de uitvraag binnen
-ongeveer zes seconden `NotReady`, valt hij uit de endpoints, en antwoordt de ingress 503 — in plaats
-van dat de applicatie zelf laat zien hoe ze degradeert.
+door `toxiproxy-redis` (hoofdstuk 6). Zet je de Redis-storingsknop dicht, dan hoort de uitvraag
+binnen ongeveer zes seconden `NotReady` te zijn, uit de endpoints te vallen, en antwoordt de ingress
+503 — in plaats van dat de applicatie zelf laat zien hoe ze degradeert. Het mechanisme staat vast,
+de timing en het ingress-gedrag zijn afgeleid; stap 10(b) van `verify-zad.md` meet ze.
 
 Dat is een bewuste keuze: zonder berichtenopslag kán de uitvraag zijn werk niet doen, en 503 is wat
 er in productie zou gebeuren. De pod herstart niet — liveness staat op `/q/health/live`.
@@ -872,13 +878,16 @@ Wil de demo die degradatie tóch tonen in plaats van een 503, dan is het alterna
 health-group in de uitvraag die de bewust-breekbare afhankelijkheden buiten readiness houdt. Dat is
 applicatiewerk, geen ZAD-instelling.
 
-### Een preview erft de keuze
+### Elke deployment leest dezelfde keuze
 
-De dienstconfiguratie komt mee in de `clone-from: test` die previews aanmaakt. Nagemeten op
-`toxiproxy-redis`: `mpfb-8wh/test` en `mpfb-8wh/pr-290` dragen in
-`RijksICTGilde/rig-cluster-application-test` dezelfde drie httpGet-probes. Er is dus geen extra stap
-per preview; previews die van vóór deze instelling dateren lopen mee zodra ze opnieuw worden
-aangemaakt.
+De configuratielaag hangt aan het **component binnen het project**
+(`components[*]/services{health-check}`), niet aan een deployment. Elke deployment die dat component
+draait — `test` en elke preview — leest dus dezelfde instelling, en een bestaande preview pikt hem
+op bij zijn eerstvolgende sync. Er is geen stap per preview en ook geen reden om er een opnieuw aan
+te maken.
+
+Dat strookt met de meting: `mpfb-8wh/test` en `mpfb-8wh/pr-290` dragen in
+`RijksICTGilde/rig-cluster-application-test` dezelfde drie httpGet-probes op `toxiproxy-redis`.
 
 Dat zegt nog niets over de andere richting. Poorten en aliassen gelden alleen bij component-creatie,
 en of een dienst wél aanslaat op een component dat er al staat, is een aparte vraag. De vorm wijst

@@ -63,7 +63,7 @@ vraagt die groep een hercreatie per component.
 
 Zevenentwintig componenten, zes groepen. De kolom "nu" is de gerenderde stand op 2026-09-05.
 
-### Groep 1 — De vijf Kotlin/Quarkus-componenten
+### Groep 1 — De zes Kotlin/Quarkus-componenten
 
 `uitvraag` (8086, `mpfb-8wh`), `magazijna` en `magazijnb` (8090, `mpfm-w3h`), `democonsole` (8095),
 `demopersonas` (8098). Nu alle vijf blinde TCP; `magazijnsimulator` (8092) staat al goed en dient als
@@ -85,10 +85,10 @@ systeem niet functioneren, en 503 is wat er in productie zou gebeuren. Het staat
 keuze in de PR-beschrijving en in het runbook, met het alternatief erbij (een eigen health-group die
 de bewust-breekbare afhankelijkheden uitsluit) voor het geval de demo de degradatie tóch wil tonen.
 
-`democonsole` sluit twee magazijn-datasources uit van de check
-(`quarkus.datasource.<naam>.health-exclude=true`). Wat overblijft in readiness is zijn eigen
-datasource en Redis — beide dingen zonder welke het paneel niets kan. Dat is wat we willen; de
-uitsluiting blijft staan.
+`democonsole` sluit zijn twee magazijn-datasources uit van de check
+(`quarkus.datasource.<naam>.health-exclude=true`) en heeft er zelf geen. Wat overblijft in
+readiness is Redis — het enige waar het paneel niet zonder kan. Dat is wat we willen; de
+uitsluiting blijft staan, zodat een magazijn dat wegvalt het paneel niet uit de endpoints haalt.
 
 ### Groep 2 — De vier Toxiproxy's
 
@@ -165,8 +165,8 @@ De monitoring-poort staat niet in `ports.inbound`. Kubernetes staat een httpGet 
 poort toe, en de dienstbeschrijving van `health-check` noemt "je gezondheidsendpoint zit op een
 andere poort dan je functionele poort" zelfs als reden om de dienst te kiezen — maar dát ZAD zo'n
 poort ook rendert, doet vandaag geen enkel component in deze projecten voor. Stap 4 leest het af.
-Komt het er niet, dan moet 8081 als tweede inbound-poort op deze componenten, en dat vraagt een
-hercreatie.
+Komt het er niet, dan moet de monitoring-poort als extra inbound-poort op deze componenten —
+8081, en 8080 op de twee managers — en dat vraagt een hercreatie.
 
 Daarmee is #981 beantwoord zodra de rendering meezit: de ruis verdwijnt zonder het signaal in te
 leveren.
@@ -216,9 +216,24 @@ Waarom een script en niet twintig regels in het runbook: de keuze moet herhaalba
 nieuw project, een herstelde deployment en een hercreëerd component. Knip-plakwerk uit een README
 drift.
 
+Drie eigenschappen van de CLI bepalen de vorm van de aanroepen, alle drie uit `zadctl service
+describe health-check` en de `--help` van de gebruikte commando's. `service config set` schrijft het
+hele document — een veld dat je niet noemt wordt verwijderd — dus een tcp- of none-regel laat zijn
+paden gewoon weg, en `--yes` hoort erbij omdat het commando bevestiging vraagt vóór het iets
+weggooit. `service assign` selecteert de dienst meteen op projectniveau, dus een losse `service add`
+is niet nodig. En beide rollen standaard meteen uit; met `--no-rollout` plus één `project refresh`
+per project aan het eind worden dat geen 54 uitrollen, en bestaat het moment waarop een component de
+dienst draagt zonder configuratie alleen in de opgeslagen stand, niet in de cluster.
+
 Het script komt onder de shellcheck-sweep van `fsc-harness-overlays.yml` te vallen door
 `demo/environment/zad-demo/*.sh` aan de globs toe te voegen. `proeftuin-component.sh` staat daar nu
 buiten en is shellcheck-schoon, dus de glob levert geen bestaande schuld op.
+
+`demo/environment/lib/test-gezondheidscontrole.sh` toetst de tabelvalidatie en de dekkingscontrole
+met een `zadctl` vooraan op PATH. Die logica bestaat volledig uit weigeren, en een operator die
+`plan` draait toetst per definitie een tabel die klopt — het weigeren zelf wordt dus door geen enkele
+handmatige run geraakt. De bash-unittest-lus van dezelfde workflow pikt `lib/test-*.sh` al op, dus
+dat vraagt geen workflow-wijziging.
 
 ### Stap 3 — Toepassen
 
@@ -229,9 +244,10 @@ In deze volgorde, met tussen elke stap een blik op het gerenderde manifest:
 3. `apply mpfb-8wh` — de uitvraag, Redis en de twee Toxiproxy's.
 4. `apply fsc-logius` en `apply fsc-magazijna` — de federatie.
 
-De volgorde van de tabel in het script is dezelfde, dus een kale `apply` loopt hem ook zo af. De
-filter op deployment (stap 4 en 5 hierboven) is er omdat een projectfilter de FSC-componenten niet
-van de app-componenten kan scheiden: `mpfb-8wh` draagt beide.
+Het script groepeert zijn tabel op soort en niet op project — de reden hoort bij de soort — dus
+een kale `apply` wisselt tussendoor van project. Gebruik daarom de filter, ook voor stap 4: een
+projectfilter kan de FSC-componenten niet van de app-componenten scheiden, want beide projecten
+dragen allebei. `apply fsc-logius` en `apply fsc-magazijna` doen dat wél.
 
 Niet doen terwijl er een deploy loopt: OM vergrendelt op project, en een gelijktijdige taak overruled
 de wachtstap van de uitrol. `gh run list --workflow "Deploy ZAD"` eerst.
@@ -263,7 +279,11 @@ verificaties.
   het aanmaken mee".
 - `demo/environment/zad-demo/magazijn-simulator.md`: de bestaande passage aanvullen met de verwijzing
   naar het nieuwe hoofdstuk, zodat er één plek is waar de tabel staat.
-- `demo/environment/{logius,magazijn-a}/deploy/zad/README.md`: de FSC-keuze met zijn onderbouwing.
+- `demo/environment/{logius,magazijn-a}/deploy/zad/README.md`: de FSC-keuze en waarom de probe niet
+  op de functionele poort staat; de waarden zelf blijven in hoofdstuk 9, zodat ze op één plek staan.
+- `demo/environment/logius/deploy/zad/cutover-interne-outway.md`: dat runbook leert nu nog dat de
+  TLS-fout elke twee seconden "hoort zo". Met de probe op de monitoring-poort is nul het criterium,
+  dus die passage moet mee.
 - `CLAUDE.md`: de bestaande `health-check`-alinea onder "ZAD deploy & GitOps" bijstellen — nu zegt ze
   alleen wat er zonder de dienst gebeurt.
 
@@ -274,6 +294,6 @@ verificaties.
 - **Een health-group in de Kotlin-code** om de bewust-breekbare afhankelijkheden uit readiness te
   houden. Dat is het alternatief bij de open keuze hierboven; het wordt pas gebouwd als de
   bevestiging de andere kant op valt.
-- **De `pr-<n>`-deployments handmatig bijwerken.** Ze erven de configuratie van `test` bij het
-  aanmaken; bestaande previews die van vóór deze wijziging dateren, lopen mee zodra ze opnieuw
-  worden aangemaakt.
+- **De `pr-<n>`-deployments apart bijwerken.** De configuratielaag hangt aan het component binnen
+  het project (`components[*]/services{health-check}`), niet aan een deployment, dus elke preview
+  leest dezelfde instelling en pikt hem op bij zijn eerstvolgende sync.

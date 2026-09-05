@@ -71,16 +71,15 @@ De peer staat daarom in een eigen deployment `fsc-logius`: **wat niet in `test` 
 
 ## De gezondheidscontrole staat op de monitoring-poort
 
-De functionele poort van deze componenten (8443) spreekt TLS, en de standaardcontrole van ZAD is een
-blinde TCP-connect die daar elke twee seconden een `http: TLS handshake error ... EOF` achterlaat.
-De probe wijst daarom naar `MONITORING_ADDRESS` — `8080` op de manager, `8081` op de rest — met
-`/health/live` voor liveness en `/health/ready` voor readiness. `logius-fscpg` krijgt `scheme=tcp`,
-`logius-fscbootstrap` `scheme=none`.
+De eerste poort van de manager, de inway, de outway en de txlog is een TLS-luisteraar, en de
+standaardcontrole van ZAD is een blinde TCP-connect die daar elke twee seconden een
+`http: TLS handshake error ... EOF` achterlaat. De probe wijst daarom niet naar de functionele poort
+maar naar `MONITORING_ADDRESS`.
 
-Waarom die paden, en wat er gemeten is toen een afhankelijkheid wegviel, staat in hoofdstuk 9 van
-`demo/environment/zad-demo/README.md`; daar staat ook de tabel voor alle componenten van de drie
-projecten. Eén ding hoort hier: liveness mag nooit op `/health/ready` staan, want dan herstart een
-component dat alleen zijn txlog kwijt is.
+De waarden per component staan in hoofdstuk 9 van `demo/environment/zad-demo/README.md`, samen met
+de meting waar ze op steunen; het script daar zet ze. Eén ding hoort hier, omdat het de reden is dat
+deze peer twee paden gebruikt en niet één: liveness mag nooit op `/health/ready` staan, want dan
+herstart een component dat alleen zijn txlog kwijt is.
 
 ## Env-vars
 
