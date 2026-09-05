@@ -230,7 +230,10 @@ Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf
   pad dat meezakt met een database. De configuratielaag hangt aan het component binnen het project,
   niet aan een deployment, dus elke deployment van dat component leest dezelfde instelling. De keuze
   per demo-component staat in `demo/environment/zad-demo/README.md` hoofdstuk 9, met het script dat
-  hem zet.
+  hem zet. Twee eigenschappen bij de eerste apply vastgesteld: de dienst slaat óók aan op een
+  component dat al bestond (geen hercreatie nodig), en ZAD rendert een probe op een poort die niet
+  in `ports.inbound` staat. De API-key is per project, dus `-p <ander project>` met de verkeerde key
+  geeft 401.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 

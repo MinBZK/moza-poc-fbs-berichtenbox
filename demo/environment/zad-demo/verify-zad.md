@@ -364,19 +364,19 @@ niets. Wat daar in OM staat lees je met `zadctl -p <project> service config get 
 commando toont de dienst over alle lagen en kent geen componentvlag, dus je zoekt het component in
 de uitvoer op.
 
-**Twee dingen die deze stap voor het eerst bewijst.** Beide staan in hoofdstuk 9 van `README.md` als
-verwacht-maar-ongemeten, en dit is de plek waar ze waar of onwaar worden:
+**Twee eigenschappen die deze stap bewaakt.** Beide zijn bij de eerste apply vastgesteld; ze staan
+hier omdat een volgende ZAD-versie ze kan veranderen, en dan verandert er meer dan een probe:
 
-- **Slaat de dienst aan op een component dat al bestond?** Poorten en aliassen doen dat niet. Zie je
-  bij `demopersonas` een `httpGet` op `/q/health/live`, dan is het antwoord ja. Blijft het
-  `tcpSocket`, dan moet elk component herschapen worden (`component remove` + `component add`;
-  nooit `deployment delete` — dat wist in `mpfm-w3h` de gedeelde database). Neem hiervoor niet
-  `democonsole`: dat draait naast de app een authorization-wall die zijn eigen `httpGet /ping` op
-  4180 rendert, dus daar staat een httpGet in het manifest of de instelling nu is aangekomen of niet.
-- **Rendert ZAD een probe op een poort die niet in `ports.inbound` staat?** Alleen de FSC-regels
-  hangen daarvan af. Draagt `logius-fscoutway` een `httpGet` op 8081, dan is het antwoord ja. Zo
-  niet, dan moet de monitoring-poort als extra inbound-poort op die componenten — 8081, en 8080 op
-  de twee managers — en dát vraagt een hercreatie.
+- **De dienst slaat aan op een component dat al bestond.** Bewijs: `demopersonas` draagt een
+  `httpGet` op `/q/health/live`. Blijft het ergens `tcpSocket`, dan moet dat component herschapen
+  worden (`component remove` + `component add`; nooit `deployment delete` — dat wist in `mpfm-w3h`
+  de gedeelde database). Neem hiervoor niet `democonsole`: dat draait naast de app een
+  authorization-wall die zijn eigen `httpGet /ping` op 4180 rendert, dus daar staat een httpGet in
+  het manifest of de instelling nu is aangekomen of niet.
+- **ZAD rendert een probe op een poort die niet in `ports.inbound` staat.** Alleen de FSC-regels
+  hangen daarvan af. Bewijs: `logius-fscoutway` draagt een `httpGet` op 8081. Zo niet, dan moet de
+  monitoring-poort als extra inbound-poort op die componenten — 8081, en 8080 op de twee managers —
+  en dát vraagt een hercreatie.
 
 **(b) Zakt readiness mee zonder herstart?** Dit is de kern van de stap. De uitvraag publiceert zijn
 health-endpoints op dezelfde poort als zijn API, dus je kunt ze over de ingress bevragen:

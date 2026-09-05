@@ -34,16 +34,20 @@
 # preview — leest dus dezelfde instelling. Dat strookt met de meting op `toxiproxy-redis`, waar
 # `mpfb-8wh/test` en `mpfb-8wh/pr-290` dezelfde drie httpGet-probes dragen.
 #
-# Twee dingen die dit script NIET kan aantonen, en die de eerste apply moet uitwijzen (stap 10 van
-# verify-zad.md leest ze af uit het gerenderde manifest):
-#   - dat de dienst óók aanslaat op een component dat al bestond. Poorten en aliassen doen dat niet;
-#     de dienstconfiguratie is een eigen laag bij OM, dus het hoort te werken, maar bewezen is het
-#     pas als het manifest verandert.
-#   - dat een probe-poort die niet in `ports.inbound` staat, gerenderd wordt. Kubernetes staat een
-#     httpGet naar elke geopende poort toe en de dienstbeschrijving noemt "je gezondheidsendpoint
-#     zit op een andere poort dan je functionele poort" als reden om de dienst te kiezen — maar geen
-#     enkel component in deze projecten laat ZAD zo'n poort vandaag renderen. Raakt alleen de
-#     FSC-regels.
+# Twee dingen die bij de eerste apply (2026-09-06) zijn vastgesteld en die de vorm van dit script
+# rechtvaardigen:
+#   - de dienst slaat óók aan op een component dat al bestond. Poorten en aliassen doen dat niet;
+#     de dienstconfiguratie is een eigen laag bij OM. `profiel` ging van een tcpSocket-probe naar
+#     httpGet /__admin/health zonder hercreatie.
+#   - ZAD rendert een probe op een poort die niet in `ports.inbound` staat. `magazijna-fscmgr`
+#     draagt `ports: [8443, 9443, 9444, 1234]` en kreeg `httpGet port: 8080`. Zonder dat hadden alle
+#     elf FSC-componenten herschapen moeten worden om hun monitoring-poort inbound te maken.
+#
+# De API-key is per PROJECT, niet per gebruiker: `zadctl -p <ander project>` met de key van een
+# ander project geeft `401 Invalid API key`. Dit script spreekt drie projecten aan, dus het haalt per
+# project zijn eigen key op met `zadctl project use` in een eigen tijdelijke map. Zo blijft het
+# actieve project in jouw werkmap staan waar het stond, en komt de key in de omgeving van de
+# aanroep terecht in plaats van op de commandoregel — waar `ps` hem zou tonen.
 #
 # Usage:
 #   zadctl login
@@ -53,6 +57,12 @@
 #
 # Draai dit NIET terwijl er een uitrol loopt: OM vergrendelt op project, en een gelijktijdige taak
 # overruled de wachtstap van die uitrol. `gh run list --workflow "Deploy ZAD"` toont het.
+#
+# `project refresh` reconcilieert het HELE project, niet alleen wat dit script schreef. Een
+# component dat om een andere reden niet gezond wordt — een image dat de ZAD-mirror niet kan
+# ophalen, bijvoorbeeld — laat die stap falen terwijl onze wijziging wél in de gerenderde manifests
+# staat. Kijk bij een fout dus eerst naar `zadctl project pending`: staat die op nul, dan is er niets
+# blijven hangen.
 
 set -euo pipefail
 
@@ -91,6 +101,47 @@ for hulp in zadctl python3; do
         exit 1
     }
 done
+
+# De SSO-sessie staat in .env.zadctl van de werkmap; `project use` heeft hem nodig om een key op te
+# halen. Zonder dat bestand is er niets om mee in te loggen.
+[ -f .env.zadctl ] || {
+    echo "geen .env.zadctl in $(pwd)" >&2
+    echo "  Draai 'zadctl login' vanuit deze map; dit script leest de SSO-sessie daaruit." >&2
+    exit 1
+}
+
+SLEUTELMAP="$(mktemp -d)"
+chmod 700 "$SLEUTELMAP"
+trap 'rm -rf "$SLEUTELMAP"' EXIT
+
+cp .env.zadctl "$SLEUTELMAP/.env.zadctl"
+
+declare -A SLEUTELS=()
+
+haal_sleutel() {
+    local project="$1"
+
+    [ -z "${SLEUTELS[$project]:-}" ] || return 0
+
+    # Uitvoer vasthouden en alleen bij een fout tonen: `project use` meldt op stderr dat het actieve
+    # project verandert, en dat is hier een interne stap in een eigen map — geen mededeling voor de
+    # operator, wiens eigen werkmap juist ongemoeid blijft.
+    local melding
+    melding="$( cd "$SLEUTELMAP" && zadctl project use "$project" 2>&1 )" || {
+        echo "kon geen API-key voor '$project' ophalen" >&2
+        echo "$melding" >&2
+        echo "  Is de SSO-sessie nog geldig, en ben je lid van dat project?" >&2
+        echo "  'zadctl login' en daarna 'zadctl project list' laten het zien." >&2
+        exit 1
+    }
+
+    SLEUTELS[$project]="$(grep '^ZAD_API_KEY=' "$SLEUTELMAP/.env.zadctl" | cut -d= -f2-)"
+
+    [ -n "${SLEUTELS[$project]}" ] || {
+        echo "'zadctl project use $project' leverde geen ZAD_API_KEY op" >&2
+        exit 1
+    }
+}
 
 # De regels: project | deployment | component | scheme | poort | liveness-pad | readiness-pad
 #
@@ -403,8 +454,11 @@ for paar in "${PAREN[@]}"; do
     # `--strict` erbij, want zonder die vlag telt "aangenomen, maar er ging iets mis" — een taak die
     # door een gelijktijdige uitrol overruled is — als succes. Geen 2>/dev/null: niet-ingelogd of
     # een lock bij OM zou anders als "niet gevonden" langskomen.
+    haal_sleutel "$project"
+
     status=0
-    beschrijving="$(zadctl --strict -p "$project" deployment describe "$deployment" -o json)" || status=$?
+    beschrijving="$(ZAD_API_KEY="${SLEUTELS[$project]}" \
+        zadctl --strict -p "$project" deployment describe "$deployment" -o json)" || status=$?
 
     if [ "$status" -ne 0 ]; then
         echo "zadctl kon deployment '$deployment' in '$project' niet beschrijven" >&2
@@ -494,7 +548,14 @@ for r in "${SELECTIE[@]}"; do
     # `--no-rollout`: elke aanroep zou anders meteen naar de cluster rollen, dus 54 uitrollen én een
     # moment per component waarop het de dienst draagt zonder configuratie. Aan het eind rolt één
     # `project refresh` per project alles in één keer uit.
-    ZAD=(zadctl --strict --no-rollout -p "$project")
+    #
+    # `--strict` staat hier bewust NIET bij het binden. Zodra de dienst op projectniveau geselecteerd
+    # is — na het eerste component — meldt `service assign` "Service 'health-check' already exists on
+    # the project" als waarschuwing, en `--strict` maakt daar een exitcode 1 van. Dat is precies het
+    # idempotente geval waar dit script op leunt: elke tweede aanroep zou dan afbreken. Het schrijven
+    # zelf gebeurt in `service config set`, en dáár blijft `--strict` staan.
+    ZAD=(zadctl --no-rollout -p "$project")
+    ZAD_STRIKT=(zadctl --strict --no-rollout -p "$project")
 
     INSTELLING=(--set "scheme=$scheme")
 
@@ -510,7 +571,8 @@ for r in "${SELECTIE[@]}"; do
     # uitkomst van het `if` zelf (0), niet die van zadctl, en dan zou een mislukte apply met een
     # nul-exitcode eindigen.
     status=0
-    "${ZAD[@]}" service assign health-check -c "$component" "${DRYRUN[@]}" || status=$?
+    ZAD_API_KEY="${SLEUTELS[$project]}" \
+        "${ZAD[@]}" service assign health-check -c "$component" "${DRYRUN[@]}" || status=$?
 
     if [ "$status" -ne 0 ]; then
         echo "health-check binden aan $project/$deployment $component mislukte" >&2
@@ -530,7 +592,9 @@ for r in "${SELECTIE[@]}"; do
     # veld weggooit. Bij een regel die van http naar tcp gaat zou de reeks daar op stdin blijven
     # hangen, halverwege zevenentwintig componenten.
     status=0
-    "${ZAD[@]}" service config set health-check -c "$component" --yes "${INSTELLING[@]}" "${DRYRUN[@]}" || status=$?
+    ZAD_API_KEY="${SLEUTELS[$project]}" \
+        "${ZAD_STRIKT[@]}" service config set health-check -c "$component" --yes \
+        "${INSTELLING[@]}" "${DRYRUN[@]}" || status=$?
 
     if [ "$status" -ne 0 ]; then
         echo "health-check instellen op $project/$deployment $component mislukte" >&2
@@ -585,7 +649,7 @@ for paar in "${PAREN[@]}"; do
     bezig_uitrollen="$project"
 
     status=0
-    zadctl --strict -p "$project" project refresh || status=$?
+    ZAD_API_KEY="${SLEUTELS[$project]}" zadctl --strict -p "$project" project refresh || status=$?
 
     bezig_uitrollen=""
 

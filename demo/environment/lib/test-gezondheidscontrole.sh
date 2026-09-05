@@ -45,6 +45,19 @@ cat > "${TMP}/bin/zadctl" <<'STUB'
 set -uo pipefail
 
 case " $* " in
+  *" project use "*)
+    # `zadctl project use` schrijft project en key naar .env.zadctl in de werkmap; het script haalt
+    # ze daar per project op. De key draagt hier de projectnaam, zodat een verwisseling opvalt.
+    project=""
+    for arg in "$@"; do
+      [ "$arg" = "use" ] && continue
+      case "$arg" in -*) continue ;; esac
+      [ "$arg" = "project" ] && continue
+      project="$arg"
+    done
+    printf 'ZAD_SSO_TOKEN=stub\nZAD_PROJECT_ID=%s\nZAD_API_KEY=key-%s\n' "$project" "$project" \
+      > .env.zadctl
+    ;;
   *" deployment describe "*)
     [ -n "${STUB_DESCRIBE_FAAL:-}" ] && { echo "stub: describe faalt" >&2; exit "$STUB_DESCRIBE_FAAL"; }
     [ -n "${STUB_GEEN_SLEUTEL:-}" ] && { echo '{"deployment":"test"}'; exit 0; }
@@ -77,13 +90,13 @@ case " $* " in
     printf ']}\n'
     ;;
   *" project refresh "*)
-    echo "$*" >>"${STUB_LOG:-/dev/null}"
+    echo "key=${ZAD_API_KEY:-geen} $*" >>"${STUB_LOG:-/dev/null}"
     if [ -n "${STUB_REFRESH_FAAL:-}" ]; then
       case " $* " in *" $STUB_REFRESH_FAAL "*) echo "stub: refresh faalt" >&2; exit 1 ;; esac
     fi
     ;;
   *)
-    echo "$*" >>"${STUB_LOG:-/dev/null}"
+    echo "key=${ZAD_API_KEY:-geen} $*" >>"${STUB_LOG:-/dev/null}"
     if [ -n "${STUB_HANG:-}" ]; then
       case " $* " in *" config set "*" $STUB_HANG "*) sleep 5 ;; esac
     fi
@@ -140,11 +153,16 @@ tabel_met() {
 
 # draai <script> <modus> <filter>: zet RC en UIT. Bewust geen echo van de exitcode, want dan zou de
 # aanroeper `rc="$(draai ...)"` schrijven — een subshell, waarna UIT bij hem leeg blijft.
+WERKMAP="${TMP}/werkmap"
+mkdir -p "$WERKMAP"
+printf 'ZAD_SSO_TOKEN=stub\nZAD_PROJECT_ID=beginstand\nZAD_API_KEY=key-beginstand\n' \
+  > "$WERKMAP/.env.zadctl"
+
 draai() {
   local pad="$1" modus="$2" filter="${3:-alle}"
 
   RC=0
-  UIT="$(bash "$pad" "$modus" "$filter" 2>&1)" || RC=$?
+  UIT="$(cd "$WERKMAP" && bash "$pad" "$modus" "$filter" 2>&1)" || RC=$?
 }
 
 GOEDE_RIJ='mpfb-8wh|test|uitvraag|http|8086|/q/health/live|/q/health/ready'
@@ -310,7 +328,8 @@ echo
 echo "== de filter"
 
 tel() {
-  STUB_MAP="$STUB_MAP_SCRIPT" bash "$SCRIPT" plan "$1" 2>/dev/null | grep -c '^== \[plan\]' || true
+  ( cd "$WERKMAP" && STUB_MAP="$STUB_MAP_SCRIPT" bash "$SCRIPT" plan "$1" 2>/dev/null ) \
+    | grep -c '^== \[plan\]' || true
 }
 
 alle="$(tel alle)"
@@ -425,6 +444,34 @@ case "$rc:$UIT" in
 esac
 
 echo
+echo "== de API-key per project"
+
+# De key is per project; met de key van een ander project geeft OM 401. Zonder deze assert zou een
+# script dat één key voor alles gebruikt er pas tegenaan lopen als het al halverwege is.
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+
+: >"${TMP}/log"
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
+
+if [ "$rc" -ne 0 ]; then
+  fout "de apply voor de key-controle faalde met exit $rc: $UIT"
+elif grep 'mpfb-8wh' "${TMP}/log" | grep -qv 'key=key-mpfb-8wh'; then
+  fout "een aanroep op mpfb-8wh droeg niet de key van dat project"
+elif grep 'mpfm-w3h' "${TMP}/log" | grep -qv 'key=key-mpfm-w3h'; then
+  fout "een aanroep op mpfm-w3h droeg niet de key van dat project"
+elif grep -q 'key=geen' "${TMP}/log"; then
+  fout "een aanroep ging zonder API-key de deur uit"
+else
+  ok "elke aanroep draagt de API-key van zijn eigen project"
+fi
+
+# En de werkmap van de aanroeper blijft staan waar hij stond.
+case "$(grep '^ZAD_PROJECT_ID=' "$WERKMAP/.env.zadctl")" in
+  ZAD_PROJECT_ID=beginstand) ok "het actieve project van de werkmap blijft ongemoeid" ;;
+  *) fout "het script veranderde het actieve project in de werkmap" ;;
+esac
+
+echo
 echo "== afbreken tijdens een mutatie"
 
 # De trap is het enige pad waar het script iets meldt zonder dat een aanroep faalde. Zonder deze
@@ -433,8 +480,8 @@ echo "== afbreken tijdens een mutatie"
 variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
 
 : >"${TMP}/log"
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" STUB_HANG=uitvraag \
-  bash "$variant" apply >"${TMP}/trap-uit" 2>&1 &
+( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" \
+  STUB_HANG=uitvraag bash "$variant" apply ) >"${TMP}/trap-uit" 2>&1 &
 trap_pid=$!
 
 # Wachten tot de eerste config set écht hangt; anders landt het signaal vóór de mutatielus.
@@ -476,7 +523,7 @@ case "$rc:$UIT" in
 esac
 
 rc=0
-bash "$SCRIPT" >/dev/null 2>&1 || rc=$?
+( cd "$WERKMAP" && bash "$SCRIPT" ) >/dev/null 2>&1 || rc=$?
 [ "$rc" -ne 0 ] && ok "zonder argumenten faalt het script (exit $rc)" \
   || fout "zonder argumenten deed het script iets"
 

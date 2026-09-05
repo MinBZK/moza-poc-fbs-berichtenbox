@@ -766,6 +766,18 @@ hoofdstuk bij.
 zonder component als een component zonder regel — dat laatste is het geval dat stil de
 standaardcontrole houdt.
 
+**De API-key is per project.** `zadctl -p <ander project>` met de key van een ander project geeft
+`401 Invalid API key`, dus het script haalt per project zijn eigen key op met `zadctl project use`
+in een eigen tijdelijke map. Jouw actieve project blijft daardoor staan waar het stond. Wat je wél
+nodig hebt is een geldige SSO-sessie in `.env.zadctl` van de map waaruit je draait — `zadctl login`,
+vanuit de repository-root.
+
+**Een mislukte uitrol is niet hetzelfde als een mislukte instelling.** `project refresh`
+reconcilieert het hele project; een component dat om een losstaande reden niet gezond wordt — bij de
+eerste apply was dat een image dat de ZAD-mirror niet kon ophalen — laat die stap falen terwijl de
+instellingen wél in de gerenderde manifests staan. `zadctl -p <project> project pending` op nul is
+het bewijs dat er niets is blijven hangen.
+
 **Doe de apply per project, niet in één keer.** Het script groepeert zijn tabel op soort en niet op
 project, dus een kale `apply` wisselt tussendoor van project — en omdat de uitrol pas ná alle
 mutaties komt, is er dan ook geen tussenstand om in het manifest te bekijken. Het tweede argument
@@ -865,14 +877,11 @@ maar wordt niet herstart, en komt vanzelf terug zodra de txlog er weer is.
 De manager luistert op 8080, de rest op 8081 — de `MONITORING_ADDRESS`-regels in
 `demo/environment/{logius,magazijn-a}/deploy/zad/upsert-peer.sh` zijn daarvoor de bron.
 
-**Die monitoring-poort staat niet in `ports.inbound` van het component.** Kubernetes staat een
-httpGet naar elke poort toe die de container opent, en de beschrijving van de `health-check`-dienst
-noemt "je gezondheidsendpoint zit op een andere poort dan je functionele poort" zelf als reden om de
-dienst te kiezen. Dat ZAD zo'n poort ook werkelijk rendert, is echter nog nergens te zien: geen
-enkel component in deze projecten deed het tot nu toe. Stap 10 van `verify-zad.md` leest het na de
-eerste apply af uit het gerenderde manifest. Komt het er niet, dan moet de monitoring-poort als
-extra inbound-poort op de FSC-componenten — 8081, en 8080 op de twee managers — en dát vraagt wél
-een hercreatie.
+**Die monitoring-poort staat niet in `ports.inbound` van het component, en dat mag.** Kubernetes
+staat een httpGet toe naar elke poort die de container opent, en ZAD rendert hem ook: nagemeten bij
+de eerste apply op `magazijna-fscmgr`, dat `ports: [8443, 9443, 9444, 1234]` draagt en `httpGet
+port: 8080` kreeg. Was dat anders uitgevallen, dan had de monitoring-poort als extra inbound-poort
+op alle elf FSC-componenten gemoeten — en dát vraagt een hercreatie.
 
 ### Readiness op de uitvraag zakt mee met de berichtenopslag
 
@@ -900,13 +909,11 @@ te maken.
 Dat strookt met de meting: `mpfb-8wh/test` en `mpfb-8wh/pr-290` dragen in
 `RijksICTGilde/rig-cluster-application-test` dezelfde drie httpGet-probes op `toxiproxy-redis`.
 
-Dat zegt nog niets over de andere richting. Poorten en aliassen gelden alleen bij component-creatie,
-en of een dienst wél aanslaat op een component dat er al staat, is een aparte vraag. De vorm wijst
-de goede kant op — de configuratie gaat naar een eigen laag bij OM
-(`PUT /v2/projects/{p}/services/health-check/config/component/{c}`), geen creatie-payload — maar het
-bewijs is het gerenderde manifest ná de eerste apply. Verandert dat niet, dan is per component
-`component remove` + `component add` nodig; nooit `deployment delete`, want dat wist in `mpfm-w3h`
-de database die de magazijnen, de simulator en het paneel delen.
+De andere richting is bij de eerste apply vastgesteld: de dienst slaat óók aan op een component dat
+er al stond. Poorten en aliassen gelden alleen bij component-creatie, maar de dienstconfiguratie
+gaat naar een eigen laag bij OM (`PUT /v2/projects/{p}/services/health-check/config/component/{c}`).
+`profiel` ging van een `tcpSocket`-probe naar `httpGet /__admin/health` zonder dat er iets
+herschapen werd.
 
 ## Wat er bewust niet meekomt
 

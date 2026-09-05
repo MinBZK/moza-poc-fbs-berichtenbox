@@ -1,4 +1,4 @@
-**Status:** Concept
+**Status:** Uitgevoerd
 
 # Een gezondheidscontrole die klopt, per component — plan
 
@@ -289,6 +289,42 @@ verificaties.
   dus die passage moet mee.
 - `CLAUDE.md`: de bestaande `health-check`-alinea onder "ZAD deploy & GitOps" bijstellen — nu zegt ze
   alleen wat er zonder de dienst gebeurt.
+
+## Uitkomst van de eerste apply (2026-09-06)
+
+Alle 27 componenten zijn ingesteld en uitgerold; `zadctl project pending` staat op nul voor alle
+drie de projecten. De preflight meldde `27 regels, 0 component(en) zonder regel` — daarmee is het
+acceptatiecriterium "geen onderdeel houdt de standaardcontrole bij gebrek aan een keuze" niet
+beredeneerd maar gemeten.
+
+**De twee openstaande aannames zijn allebei bevestigd.** De dienst slaat aan op een component dat al
+bestond: `profiel` ging van `tcpSocket` naar `httpGet /__admin/health` zonder hercreatie. En ZAD
+rendert een probe op een poort buiten `ports.inbound`: `magazijna-fscmgr` draagt
+`ports: [8443, 9443, 9444, 1234]` en kreeg `httpGet port: 8080`. Was één van beide anders
+uitgevallen, dan had elk betrokken component herschapen moeten worden.
+
+**#981 is opgelost.** `logius-fscoutway` draagt nu `httpGet :8081 /health/live`, en zijn logboek
+telt over twintig minuten nul handshake-fouten waar het er eerst één per twee seconden produceerde.
+
+**Twee dingen die alleen een echte run kon vinden**, allebei verwerkt in het script en in de tests:
+
+- De API-key is per project. `zadctl -p <ander project>` met de key van een ander project geeft
+  `401 Invalid API key`. Het script haalt nu per project zijn eigen key op met `zadctl project use`
+  in een eigen tijdelijke map, en geeft hem via de omgeving mee in plaats van op de commandoregel.
+  Het actieve project van de aanroeper blijft daarbij staan waar het stond.
+- `--strict` maakte van een idempotente waarschuwing een fout. Zodra de dienst op projectniveau
+  geselecteerd is, meldt `service assign` "Service 'health-check' already exists on the project", en
+  met `--strict` is dat exitcode 1 — dus elke tweede aanroep brak af. `--strict` staat nu alleen nog
+  op `service config set` en `project refresh`, waar "aangenomen maar overruled" wél een fout is.
+
+**Eén waarneming voor het runbook:** `project refresh` reconcilieert het hele project. Bij
+`mpfm-w3h` faalde die stap op image-pull-timeouts van de ZAD-mirror voor twee componenten die niets
+met dit werk te maken hadden, terwijl onze instellingen wél in de gerenderde manifests stonden. Een
+mislukte uitrol is dus niet hetzelfde als een mislukte instelling; `project pending` op nul is het
+bewijs.
+
+Wat nog met de hand moet: de gedragscontroles uit stap 10(b) en 10(c) van `verify-zad.md` — de
+Redis-storingsknop en de vier storingsknoppen — want die vragen bediening via het paneel.
 
 ## Wat hier bewust niet in zit
 
