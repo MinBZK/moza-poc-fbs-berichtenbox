@@ -1,33 +1,49 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import jakarta.ws.rs.BadRequestException
-
-/** Een reeks van acht cijfers of langer: de vorm van een KVK-nummer, BSN, RSIN of OIN. */
-private val NUMMERREEKS = Regex("""\d{8,}""")
-
-/** Wat een persona-id kan zijn; het is een sleutel uit `demo.personas.*`, geen vrije tekst. */
-private val PERSONA_ID = Regex("[A-Za-z0-9_-]{1,64}")
+import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.WebApplicationException
 
 /**
- * Weigert een aanduiding die geen persona-id kán zijn, zónder de aangeboden waarde te herhalen.
+ * Acht tot en met negentien cijfers in één waarde: de lengte van een KVK-nummer, BSN of RSIN.
+ * Twintig cijfers is een OIN, een publiek organisatienummer.
  *
- * Elke weigering gaat via [DemoFoutMapper] onverkort naar de applicatielog, en een
- * identificatienummer hoort daar niet. Een persona aanwijzen met zijn nummer is het te verwachten
- * verkeerde gebruik — de keuzelijst van het paneel toont dat nummer naast de naam — dus zonder deze
- * controle zet de bediener het er zelf in. Wat hier doorheen komt mag verderop wél geciteerd worden;
- * dat citaat is juist wat een tikfout aanwijsbaar maakt.
- *
- * De nummerreeks eerst: een waarde die alleen uit cijfers bestaat voldoet óók aan de vorm van een
- * id, en hoort dan de melding te krijgen die zegt wat er mis is. Dat [nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona]
- * een numerieke id al weigert helpt hier niet — die controle kijkt naar wat er is ingericht, niet
- * naar wat een aanroeper aanbiedt.
+ * Geteld over de héle waarde en niet als aaneengesloten reeks: `999-993-653` is even goed een
+ * burgerservicenummer, en een scheidingsteken is precies wat er tussen staat bij wie het uit een
+ * ander scherm overneemt.
  */
-internal fun vereisPersonaAanduiding(persona: String, kiesEenPersona: String) {
-    if (NUMMERREEKS.containsMatchIn(persona)) {
-        throw BadRequestException("een persona wordt met zijn naam aangewezen, niet met een nummer; $kiesEenPersona")
+private val NUMMERLENGTES = 8..19
+
+/**
+ * Wat onverkort in een melding mag. Ruim genoeg voor elke sleutel die `demo.personas.*` kan dragen,
+ * maar zonder witruimte, aanhalingstekens of regeleindes: een melding gaat naar de applicatielog, en
+ * een regeleinde zou daar een tweede logregel kunnen verzinnen.
+ */
+private val VEILIG_IN_MELDING = Regex("""[\w.@+-]{1,64}""")
+
+/**
+ * De weigering voor een aanduiding die geen ingerichte persona blijkt te zijn.
+ *
+ * Draagt de waarde een identificatienummer, dan een 400 die hem niet herhaalt. Een persona
+ * aanwijzen met zijn nummer is het te verwachten verkeerde gebruik — het antwoord van de
+ * Persona's-knop toont `ontvanger` voluit, dus de bediener heeft dat nummer voor zich — en elke
+ * weigering gaat via [DemoFoutMapper] onverkort naar de applicatielog, waar het niet hoort.
+ *
+ * Pas ná de opzoeking en niet ervoor: een ingerichte persona is per definitie in orde, ook als zijn
+ * id toevallig cijfers draagt. Zou deze controle vooraan staan, dan wees hij een persona af die in
+ * de keuzelijst gewoon wordt aangeboden — een tweede mening over wat een geldige id is, naast die
+ * van de personadienst.
+ */
+internal fun onbekendePersona(persona: String, kiesEenPersona: String): WebApplicationException =
+    if (persona.count(Char::isDigit) in NUMMERLENGTES) {
+        BadRequestException("een persona wordt met zijn naam aangewezen, niet met een nummer; $kiesEenPersona")
+    } else {
+        NotFoundException("onbekende persona ${aanduiding(persona)}; $kiesEenPersona")
     }
 
-    if (!PERSONA_ID.matches(persona)) {
-        throw BadRequestException("een persona-id bestaat uit letters, cijfers, '-' en '_'; $kiesEenPersona")
-    }
-}
+/**
+ * Hoe een aangeboden waarde in een melding terechtkomt. Het citaat is wat een tikfout aanwijsbaar
+ * maakt, dus wat er veilig uitziet gaat voluit mee; de rest wordt benoemd zonder te worden herhaald.
+ */
+private fun aanduiding(persona: String): String =
+    if (VEILIG_IN_MELDING.matches(persona)) "'$persona'" else "de aangeboden waarde"

@@ -787,16 +787,20 @@ function vulPersonas(personas) {
     );
 }
 
-/* Zonder `id` maakt de optie er de tekst "undefined" van: de knop blijft levend en zijn 404 wijst
- * naar de persona-inrichting, waar niets mis is.
+/* Zonder `id` wordt de optie-wáárde de string "undefined" terwijl het label gewoon klopt: de lijst
+ * ziet er goed uit, de knop blijft levend, en zijn 404 wijst naar de persona-inrichting waar niets
+ * mis is.
  *
  * Een eigen melding en niet die van `meldOnbruikbareLijst`: de lijst kwám binnen en was wél op te
  * halen, er ontbreekt een veld. Met de verkeerde reden afhaken stuurt de bediener de andere kant
- * op. En bewust zonder de lijst in de console-regel: daar staan de identificatienummers in. */
+ * op. Het label van de eerste die het mist wijst de inrichting aan; de lijst zelf blijft uit de
+ * console-regel, want daar staan de identificatienummers in. */
 function heeftIedereenEenId(veld, personas, keuze, knop) {
-    if (personas.every((persona) => persona.id)) return true;
+    const zonderId = personas.find((persona) => !persona.id);
 
-    console.error('[bediening] ' + veld + ': een persona zonder id');
+    if (!zonderId) return true;
+
+    console.error('[bediening] ' + veld + ': persona "' + zonderId.label + '" heeft geen id');
     meldLijstOnbekend(keuze, knop, 'persona-lijst onvolledig');
 
     return false;
@@ -831,7 +835,9 @@ function vulBerichtPersonas(personas) {
  * loggen, ook bij `null`: anders is het geval "de console antwoordde met null" van de twee andere
  * niet te onderscheiden. */
 function meldOnbruikbareLijst(veld, waarde, keuze, knop) {
-    console.error('[bediening] ' + veld + ' is niet als lijst binnengekomen', waarde);
+    // De vorm en niet de waarde: die kan het antwoord zijn dát binnenkwam, met de
+    // identificatienummers van de persona's erin, en de browserconsole is daar geen plek voor.
+    console.error('[bediening] ' + veld + ' is niet als lijst binnengekomen, maar ' + typeof waarde);
 
     meldLijstOnbekend(keuze, knop);
 }
@@ -844,7 +850,8 @@ function meldOnbruikbareLijst(veld, waarde, keuze, knop) {
  * en zwijgend niets doet is tijdens een demo erger dan een knop die zichtbaar niet kan. Die lege
  * `value` is er omdat een optie zonder dat attribuut haar tékst als waarde draagt: de knop stuurde
  * dan `?persona=persona-lijst niet op te halen` en kreeg een 404 die naar de persona-inrichting
- * wijst in plaats van naar de mislukte uitlezing.
+ * wijst in plaats van naar de mislukte uitlezing. `tekst` scherpt die reden aan waar de aanroeper
+ * hem kent; de lege `value` blijft in alle gevallen.
  *
  * Ontbreekt een element, dan is de opmaak veranderd zonder dit script. Dat gaat naar de
  * meldingsbalk en niet alleen naar de console: wie een demo geeft heeft geen devtools open. */
@@ -884,13 +891,20 @@ function vulKeuze(keuze, knop, opties, leegTekst) {
     }
 
     /* Een optie-waarde komt via `vulPadIn` in het adres van de knop terecht, en daarmee in
-     * browsergeschiedenis, proxylogboeken en schermopnames. Een identificatienummer hoort daar
-     * niet. Hier afgedwongen en niet bij elke aanroeper: dit is de enige plek waar een keuzelijst
-     * zijn opties krijgt, dus een volgende lijst erft de regel vanzelf. Acht cijfers op rij is de
-     * kortste vorm die een KVK-nummer, BSN of RSIN kan hebben. */
-    if (opties.some((optie) => /\d{8,}/.test(String(optie.waarde)))) {
-        console.error('[bediening] optie-waarde met een identificatienummer in keuzelijst ' + keuze.id);
-        meldLijstOnbekend(keuze, knop, 'keuzelijst geweigerd');
+     * browsergeschiedenis, proxylogboeken en schermopnames. Een identificatienummer hoort daar niet.
+     * Hier afgedwongen en niet bij elke aanroeper: dit is de enige plek waar een keuzelijst van dit
+     * script zijn opties krijgt, dus een volgende lijst erft de regel vanzelf.
+     *
+     * Een kale reeks of `TYPE:reeks` en niet elke waarde mét cijfers erin: dit vangt de vergissing
+     * waarbij een lijst het identificatienummer als waarde neemt in plaats van de id, en laat een
+     * ingerichte id die toevallig cijfers draagt met rust. Het label mag in de melding, de waarde
+     * niet. */
+    const metNummer = opties.find((optie) => /^(?:[A-Za-z]+:)?\d{8,}$/.test(String(optie.waarde)));
+
+    if (metNummer) {
+        console.error('[bediening] keuzelijst ' + keuze.id + ': optie "' + metNummer.label + '" draagt een nummer');
+        toonMelding('De lijst voor ' + keuze.id + ' draagt een identificatienummer als waarde', 'fout', null);
+        meldLijstOnbekend(keuze, knop, 'persona-lijst bevat een nummer');
 
         return;
     }

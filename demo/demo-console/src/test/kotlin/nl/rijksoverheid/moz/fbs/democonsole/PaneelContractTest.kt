@@ -26,7 +26,6 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.io.File
@@ -320,37 +319,49 @@ class PaneelContractTest {
     }
 
     /**
-     * Een aanroep met het nummer erin is het te verwachten verkeerde gebruik — de keuzelijst toont
-     * dat nummer naast de naam, en `BSN:999993653` is precies wat `/api/demo/omgeving` als
-     * `ontvanger` teruggeeft. De melding mag het dan niet terugciteren: `DemoFoutMapper` logt elke
-     * weigering onverkort.
+     * Een aanroep met het nummer erin is het te verwachten verkeerde gebruik: het antwoord van de
+     * Persona's-knop toont `ontvanger` voluit, dus de bediener heeft het nummer voor zich. De
+     * melding mag het dan niet terugciteren — `DemoFoutMapper` logt elke weigering onverkort.
      *
-     * Op de afwezigheid van het nummer en niet op de status: de invariant is "het nummer komt
-     * nergens terug", en welke weigering het wordt is daaraan ondergeschikt. Een variant die op de
-     * opzoeking uitkomt in plaats van op de vormcontrole zou anders langs deze test glippen.
+     * De cijfers uit het antwoord gefilterd en niet de tekst vergeleken: `999-993-653` draagt
+     * hetzelfde nummer, en juist die schrijfwijze glipt langs een toets op de aaneengesloten reeks.
      */
     @ParameterizedTest
-    @ValueSource(strings = ["", "%20", "%20.", "BSN%3A", "0"])
-    fun `geen enkele schrijfwijze van een nummer komt terug in de melding`(omhulsel: String) {
-        val respons = speelOntdubbeling("?persona=$omhulsel$PIETERSEN_BSN")
+    @MethodSource("schrijfwijzenVanEenNummer")
+    fun `geen enkele schrijfwijze van een nummer komt terug in de melding`(waarde: String) {
+        val respons = speelOntdubbeling("?persona=$waarde")
 
+        assertEquals(400, respons.statusCode(), "persona '$waarde'")
         assertFalse(
-            respons.body().contains(PIETERSEN_BSN),
-            "de melding hoort het aangeboden nummer niet te dragen (omhulsel '$omhulsel')",
+            respons.body().filter(Char::isDigit).contains(PIETERSEN_BSN),
+            "de melding hoort het aangeboden nummer niet te dragen (persona '$waarde')",
         )
         assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een nummer hoort niets aan te melden")
     }
 
+    /** Hetzelfde adres dat de knop *Bericht plaatsen* aanroept; het draagt dezelfde parameter. */
+    @ParameterizedTest
+    @MethodSource("schrijfwijzenVanEenNummer")
+    fun `ook een gericht bericht herhaalt het aangeboden nummer niet`(waarde: String) {
+        val respons = plaatsBericht("?persona=$waarde")
+
+        assertEquals(400, respons.statusCode(), "persona '$waarde'")
+        assertFalse(
+            respons.body().filter(Char::isDigit).contains(PIETERSEN_BSN),
+            "de melding hoort het aangeboden nummer niet te dragen (persona '$waarde')",
+        )
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een nummer hoort niets aan te leveren")
+    }
+
     /**
-     * Bewust geen normalisatie. Witruimte eromheen is geen persona-id meer — dat is een 400 op de
-     * vorm, dezelfde weigering die een nummer krijgt — en een afwijkende hoofdletter is een geldige
-     * id die niet bestaat, dus een 404. Aannemen wat er bedoeld werd verbergt een verkeerd
+     * Bewust geen normalisatie: witruimte eromheen of een afwijkende hoofdletter is geen andere
+     * persona, maar ook geen bestaande. Aannemen wat er bedoeld werd verbergt een verkeerd
      * ingerichte keuzelijst.
      */
     @ParameterizedTest
-    @CsvSource("%20pietersen, 400", "pietersen%20, 400", "Pietersen, 404")
-    fun `een persona met een afwijkende schrijfwijze wordt niet alsnog aangenomen`(waarde: String, status: Int) {
-        assertEquals(status, speelOntdubbeling("?persona=$waarde").statusCode(), "persona '$waarde'")
+    @ValueSource(strings = ["%20pietersen", "pietersen%20", "Pietersen"])
+    fun `een persona met een afwijkende schrijfwijze wordt niet alsnog aangenomen`(waarde: String) {
+        assertEquals(404, speelOntdubbeling("?persona=$waarde").statusCode(), "persona '$waarde'")
         assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een niet-gevonden persona hoort niets aan te melden")
     }
 
@@ -391,15 +402,19 @@ class PaneelContractTest {
 
         zonderBsn.forEach { persona ->
             val id = persona.path("id").asText()
+            val ontvanger = persona.path("ontvanger").asText()
             val respons = speelOntdubbeling("?persona=$id")
 
             assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
             assertEquals(400, respons.statusCode(), "persona '$id'")
 
             // Uit dezelfde bron als de persona zelf: een hardgecodeerd "KVK" laat deze test bij een
-            // andere personaset falen op het type in plaats van op wat er werkelijk mis is.
+            // andere personaset falen op het type in plaats van op wat er werkelijk mis is. Wel
+            // eerst de vorm toetsen — zonder dubbele punt geeft `substringBefore` de héle waarde
+            // terug, en dan zou deze assertie het nummer in de melding juist gaan eisen.
+            assertTrue(ontvanger.contains(':'), "ontvanger '$ontvanger' heeft niet de vorm <TYPE>:<WAARDE>")
             assertTrue(
-                respons.body().contains(persona.path("ontvanger").asText().substringBefore(':')),
+                respons.body().contains(ontvanger.substringBefore(':')),
                 "de melding hoort te zeggen wat persona '$id' wél heeft",
             )
         }
@@ -491,6 +506,24 @@ class PaneelContractTest {
 
         // Afgeleid van de constante en niet overgeschreven: wie de grens verzet, verzet anders wel
         // het buiten-bereik-geval en laat de bovengrens zelf als binnenwaarde achter.
+        /**
+         * Hoe een bediener het nummer in de parameter kan krijgen: kaal, met witruimte of een punt
+         * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel uit `ontvanger`, met een
+         * voorloopnul, en met de scheidingstekens die de allowlist voor een id juist toestaat.
+         * Alle acht afgeleid van de constante, zodat er geen tweede nummer in dit bestand staat.
+         */
+        @JvmStatic
+        fun schrijfwijzenVanEenNummer() = listOf(
+            PIETERSEN_BSN,
+            "%20$PIETERSEN_BSN",
+            "$PIETERSEN_BSN%20",
+            "$PIETERSEN_BSN.",
+            "BSN%3A$PIETERSEN_BSN",
+            "0$PIETERSEN_BSN",
+            PIETERSEN_BSN.chunked(3).joinToString("-"),
+            PIETERSEN_BSN.chunked(3).joinToString("_"),
+        )
+
         @JvmStatic
         fun buitenDeGrenzen() = listOf(0, -1, DemoResource.MAX_BERICHTEN + 1)
 

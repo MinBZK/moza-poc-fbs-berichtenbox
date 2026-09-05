@@ -1,0 +1,94 @@
+package nl.rijksoverheid.moz.fbs.democonsole
+
+import jakarta.ws.rs.BadRequestException
+import jakarta.ws.rs.NotFoundException
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+
+/**
+ * De weigering die twee resources delen. Over HTTP toetst `PaneelContractTest` dat het nummer niet
+ * terugkomt; hier staan de randen die daar niet uit te lokken zijn, zoals een OIN en een waarde met
+ * een regeleinde erin.
+ */
+class PersonaAanduidingTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = [BSN, "999-993-653", "999_993_653", "0$BSN", "BSN:$BSN", " $BSN ", KVK, RSIN])
+    fun `een aanduiding met een identificatienummer wordt geweigerd zonder hem te herhalen`(waarde: String) {
+        val fout = onbekendePersona(waarde, TERUGWEG)
+
+        assertTrue(fout is BadRequestException, "verwachtte een 400 voor '$waarde', kreeg ${fout::class.simpleName}")
+        assertFalse(
+            fout.message.orEmpty().filter(Char::isDigit).contains(waarde.filter(Char::isDigit)),
+            "de melding hoort het aangeboden nummer niet te dragen",
+        )
+        assertTrue(fout.message.orEmpty().contains(TERUGWEG), "de melding hoort de weg terug te wijzen")
+    }
+
+    /**
+     * Twintig cijfers is een OIN: publiek, geen PII, en `DemoPersona` staat zo'n id uitdrukkelijk
+     * toe. Zou deze grens ontbreken, dan gaf dit adres 400 op een persona die het paneel gewoon in
+     * zijn keuzelijst aanbiedt.
+     */
+    @Test
+    fun `een OIN is geen reden om te weigeren`() {
+        val fout = onbekendePersona(OIN, TERUGWEG)
+
+        assertTrue(fout is NotFoundException, "een OIN hoort een gewone onbekende persona te zijn")
+        assertTrue(fout.message.orEmpty().contains(OIN), "een OIN is publiek en mag in de melding")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["pietersen", "proeftuin-een", "de.vries", "jan_2", "klant+1", "a@b"])
+    fun `een onbekende maar veilige aanduiding komt voluit in de melding`(waarde: String) {
+        val fout = onbekendePersona(waarde, TERUGWEG)
+
+        assertTrue(fout is NotFoundException, "verwachtte een 404 voor '$waarde'")
+        assertEquals("onbekende persona '$waarde'; $TERUGWEG", fout.message)
+    }
+
+    /**
+     * De melding gaat onverkort naar de applicatielog, dus een regeleinde zou daar een tweede
+     * logregel kunnen verzinnen; een waarde die niet in de vorm van een sleutel past wordt daarom
+     * benoemd in plaats van geciteerd.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["twee\nregels", "met spatie", "quote'erin", "<script>", "müller", "a:b", "../../etc"])
+    fun `een onveilige aanduiding wordt benoemd en niet geciteerd`(waarde: String) {
+        val fout = onbekendePersona(waarde, TERUGWEG)
+
+        assertTrue(fout is NotFoundException, "verwachtte een 404 voor '$waarde'")
+        assertEquals("onbekende persona de aangeboden waarde; $TERUGWEG", fout.message)
+    }
+
+    /**
+     * De lengtegrens, van beide kanten. Zonder de bovengrens zou een melding van willekeurige lengte
+     * de applicatielog in gaan; met alleen een bovengrens zou niets aantonen dat hij ergens ligt.
+     */
+    @Test
+    fun `de lengtegrens van een geciteerde aanduiding ligt op vierenzestig tekens`() {
+        assertTrue(onbekendePersona("a".repeat(64), TERUGWEG).message.orEmpty().contains("a".repeat(64)))
+        assertEquals(
+            "onbekende persona de aangeboden waarde; $TERUGWEG",
+            onbekendePersona("a".repeat(65), TERUGWEG).message,
+        )
+    }
+
+    private companion object {
+
+        /** Uit de ingerichte personaset; fictieve nummers uit de 999-testreeks. */
+        const val BSN = "999993653"
+
+        const val RSIN = "999999990"
+
+        const val KVK = "90000014"
+
+        const val OIN = "00000000000000100000"
+
+        const val TERUGWEG = "kies een persona uit personas van /api/demo/omgeving"
+    }
+}

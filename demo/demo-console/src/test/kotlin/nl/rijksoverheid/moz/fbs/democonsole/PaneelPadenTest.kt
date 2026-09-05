@@ -24,6 +24,15 @@ class PaneelPadenTest {
 
     private val script: String = File(SCRIPT).readText()
 
+    /**
+     * Het script zonder commentaar. De tellingen hieronder zoeken naar code-constructies, en een
+     * comment die een functie noemt — precies wat dit project aanmoedigt — zou anders als een extra
+     * aanroep tellen. De test faalt dan met de omgekeerde diagnose van wat er aan de hand is.
+     */
+    private val code: String = script
+        .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+        .replace(Regex("""//.*"""), "")
+
     private val paden: List<String> = uitPaneel("""data-pad="([^"]+)"""")
 
     @Test
@@ -198,7 +207,8 @@ class PaneelPadenTest {
         // Acht of negen cijfers is de vorm van een KVK-nummer, BSN of RSIN; een langere reeks blijft
         // toegestaan, want een OIN is publiek.
         val nummer = Regex("""(?<!\d)\d{8,9}(?!\d)""")
-        val paginas = File(RESOURCES).listFiles { bestand -> bestand.extension in PAGINA_TYPES }.orEmpty()
+        // Recursief: een pagina die later in een submap belandt hoort er net zo goed onder te vallen.
+        val paginas = File(RESOURCES).walkTopDown().filter { it.extension in PAGINA_TYPES }.toList()
 
         assertTrue(paginas.any { it.name == "index.html" }, "geen pagina's gevonden onder $RESOURCES")
 
@@ -229,7 +239,7 @@ class PaneelPadenTest {
      */
     @Test
     fun `elke keuzelijst levert de persona-id als optie-waarde`() {
-        val waarden = OPTIEWAARDE.findAll(script).map { it.groupValues[1].trim() }.toList()
+        val waarden = OPTIEWAARDE.findAll(code).map { it.groupValues[1].trim() }.toList()
 
         assertTrue(waarden.isNotEmpty(), "geen enkele optie-waarde gevonden in $SCRIPT")
 
@@ -265,7 +275,7 @@ class PaneelPadenTest {
 
         assertTrue(keuzelijsten > 1, "minder dan twee keuzelijsten in $PANEEL; dan toetst dit niets")
         assertEquals(keuzelijsten, aanroepen("vulKeuze"), "een keuzelijst bouwt zijn opties buiten vulKeuze om")
-        assertEquals(keuzelijsten, OPTIEWAARDE.findAll(script).count(), "een optie-waarde buiten een keuzelijst om")
+        assertEquals(keuzelijsten, OPTIEWAARDE.findAll(code).count(), "een optie-waarde buiten een keuzelijst om")
         assertEquals(
             keuzelijsten,
             aanroepen("heeftIedereenEenId"),
@@ -275,7 +285,7 @@ class PaneelPadenTest {
 
     /** Aanroepen van [functie] in het script; de definitie zelf telt niet mee. */
     private fun aanroepen(functie: String): Int =
-        Regex("""(?<!function )\b$functie\(""").findAll(script).count()
+        Regex("""(?<!function )\b$functie\(""").findAll(code).count()
 
     private fun uitPaneel(patroon: String): List<String> =
         Regex(patroon).findAll(paneel).map { it.groupValues[1] }.toList()

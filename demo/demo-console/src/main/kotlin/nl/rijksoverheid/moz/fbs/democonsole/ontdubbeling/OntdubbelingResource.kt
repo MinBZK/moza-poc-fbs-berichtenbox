@@ -2,13 +2,12 @@ package nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling
 
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.DefaultValue
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.QueryParam
 import jakarta.ws.rs.core.MediaType
-import nl.rijksoverheid.moz.fbs.democonsole.vereisPersonaAanduiding
+import nl.rijksoverheid.moz.fbs.democonsole.onbekendePersona
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 
 @Path("/api/demo/ontdubbeling")
@@ -21,17 +20,14 @@ class OntdubbelingResource(
     /**
      * Op de persona-`id`, en bedieningsfouten als `WebApplicationException` met `@DefaultValue("")`:
      * om dezelfde redenen als bij `POST /api/demo/bericht`, waar ze uitgeschreven staan. Het nummer
-     * komt uit dezelfde ingerichte lijst als de keuzelijst van het paneel. Een vaste persona als
-     * default zou hier bovendien een identificatienummer terugzetten in deze broncode.
+     * komt uit dezelfde ingerichte lijst als de keuzelijst van het paneel.
      */
     @POST
     fun demonstreer(@QueryParam("persona") @DefaultValue("") persona: String): OntdubbelingResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
 
-        vereisPersonaAanduiding(persona, KIES_EEN_PERSONA)
-
         val gekozen = personaService.alle().firstOrNull { it.id == persona }
-            ?: throw NotFoundException("onbekende persona '$persona'; $KIES_EEN_PERSONA")
+            ?: throw onbekendePersona(persona, KIES_EEN_PERSONA)
 
         // Een 400 en geen 404: deze persona bestáát, hij kan dit scenario alleen niet spelen —
         // OntdubbelingService bouwt het event met een BSN-ontvanger. Het paneel biedt zo'n persona
