@@ -36,8 +36,9 @@ eigenaar, en leidt één functie de zichtbare toestand daaruit af:
 | `data-actie-loopt` | `voerUit` | er loopt een aanroep vanaf deze knop |
 | `data-wacht-op-lijst` | `vulKeuze` / `meldLijstOnbekend` | de keuzelijst erbij is niet bruikbaar |
 
-`werkKnopBij(knop)` is de enige plek in het script die `knop.disabled` schrijft. Een test bewaakt
-dat.
+`werkKnopBij(knop)` is de enige plek in het script die de beschikbaarheid van een actieknop
+schrijft; een test bewaakt dat. De knop in het inrichtingsblok valt erbuiten — die heeft maar één
+eigenaar (`zetInrichtenBezig`) en volgt zijn eigen poging.
 
 ### Een leeg veld levert een melding op, geen stilte
 
@@ -90,16 +91,18 @@ lus anders nooit laten afgaan — en noemt dan ook geen wachttijd die niet klopt
 
 ### Eén vangnet voor wat buiten een eigen try/catch omvalt
 
-`voerUit`, `vraagBevestiging` en `verversToestand` worden fire-and-forget aangeroepen vanuit de
-click-listener. Een throw of een afgewezen promise daaruit belandde alleen in de browserconsole — en
+`voerUit` en `verversToestand` worden fire-and-forget aangeroepen — vanuit de click-listener, vanuit
+de poll-lus en bij het laden — en `vraagBevestiging` kan synchroon gooien. Een throw of een afgewezen promise daaruit belandde alleen in de browserconsole — en
 wie een demo geeft heeft geen devtools open, dus die ziet weer een knop die niets doet. Twee
 listeners op `window` (`error`, `unhandledrejection`) zetten dat in de meldingsbalk.
 
 Het vangnet staat direct onder de element-lookups en niet onderaan bij de rest van de bedrading:
 die bedrading zoekt zelf elementen op en kan dus zélf omvallen, en dan was het vangnet nog niet
 geregistreerd. Het ontdubbelt op de boodschap, want de poll-lus levert dezelfde fout elke paar
-seconden opnieuw, en `toonMelding` bewaakt alle vijf de elementen van de meldingsbalk — anders
-sleept die het vangnet mee dat hem net aanriep.
+seconden opnieuw — maar `toonMelding` wist die vlag, dus zodra iets anders de balk overschrijft mag
+dezelfde fout weer gemeld worden. Anders zou de tweede druk op een kapotte knop opnieuw zwijgen.
+`toonMelding` bewaakt bovendien alle vijf de elementen van de meldingsbalk, anders sleept die het
+vangnet mee dat hem net aanriep.
 
 ### Ontdubbeling geldt de lus, niet de bediener
 

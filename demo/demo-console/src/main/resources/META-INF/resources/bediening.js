@@ -77,28 +77,33 @@ const inrichtingKnop = document.getElementById('inrichting-knop');
  * Meteen hier en niet onderaan bij de rest van de bedrading: die bedrading zoekt zelf elementen op
  * en kan dus zélf omvallen, en dan was het vangnet nog niet geregistreerd. Alleen de lookups
  * hierboven vallen erbuiten, en die gooien niet. */
+/* Welke vangnet-fout op dit moment in de meldingsbalk staat. De poll draait elke vijf seconden, dus
+ * een storing in die lus levert steeds dezelfde fout op; zonder deze toets schrijft die elke ronde
+ * over de uitkomst van de laatste actie heen. `toonMelding` wist hem, dus zodra iets anders de balk
+ * overschrijft, mag dezelfde fout opnieuw gemeld worden — anders zwijgt de tweede druk op een
+ * kapotte knop. */
+let laatsteVangnetfout = null;
+
 window.addEventListener('error', (gebeurtenis) => {
-    meldVangnet(gebeurtenis.message);
+    meldVangnet(gebeurtenis.message, gebeurtenis.error);
 });
 
 window.addEventListener('unhandledrejection', (gebeurtenis) => {
     const reden = gebeurtenis.reason;
 
-    meldVangnet(reden && reden.message ? reden.message : String(reden));
+    meldVangnet(reden && reden.message ? reden.message : String(reden), reden);
 });
 
-/* Wat het vangnet als laatste toonde. De poll draait elke vijf seconden, dus een storing in die lus
- * levert steeds dezelfde fout op; zonder deze toets schrijft die elke ronde over de uitkomst van de
- * laatste actie heen. Een ándere fout komt er wel doorheen. */
-let laatsteVangnetfout = null;
-
-function meldVangnet(boodschap) {
-    console.error('[bediening] onverwachte fout', boodschap);
+function meldVangnet(boodschap, oorzaak) {
+    // Het originele object erbij: de afgevlakte boodschap draagt geen stack.
+    console.error('[bediening] onverwachte fout', oorzaak || boodschap);
 
     if (boodschap === laatsteVangnetfout) return;
 
-    laatsteVangnetfout = boodschap;
     toonMelding('Onverwachte fout in het paneel: ' + boodschap, 'fout', null);
+
+    // Ná `toonMelding`, want die wist de vlag juist.
+    laatsteVangnetfout = boodschap;
 }
 
 // ---------------------------------------------------------------- waar je gebleven was
@@ -270,6 +275,9 @@ function toonMelding(tekst, soort, ruw, uitleg) {
     // en tijdens een demo klapt niemand een <details> uit.
     meldingRuw.open = Boolean(ruw) && soort === 'let-op';
     meldingJson.textContent = ruw || '';
+
+    // Wat het vangnet toonde staat er nu niet meer; dezelfde fout mag daarna opnieuw gemeld worden.
+    laatsteVangnetfout = null;
 }
 
 function alsJson(waarde) {
@@ -963,20 +971,29 @@ async function pasOmgevingToe() {
  * automatische poging kost een reeks mislukte uitlezingen in het log. */
 async function richtIn(metHand) {
     // De automatische keten mag hier niet doodlopen: die plant zichzelf opnieuw, zodat er een poging
-    // volgt ná degene die nu loopt.
+    // volgt ná degene die nu loopt. De knop staat ondertussen op disabled, dus die komt hier alleen
+    // uit als de opmaak hem niet meer draagt — en dan is een melding het enige dat overblijft.
     if (inrichtLoopt) {
-        if (!metHand) planInrichting(volgendeWachttijd());
+        if (metHand) toonMelding('Er loopt al een poging om de omgeving te lezen', null, null);
+        else planInrichting(volgendeWachttijd());
 
         return;
     }
 
+    // Een druk op de knop is een nieuw verzoek van de bediener: wat de lus eerder al meldde, mag
+    // daarbij opnieuw gezegd worden. Anders zwijgt de knop over precies de storing waarvoor hij is.
+    if (metHand) gemeldeOpmaakfouten.clear();
+
+    const foutenVooraf = gemeldeOpmaakfouten.size;
+
     inrichtLoopt = true;
 
-    // Meteen zichtbaar, want een uitlezing mag tot LEES_TIMEOUT_MS duren; zonder dit ziet een druk
-    // op de knop er secondenlang uit alsof er niets gebeurde.
-    zetInrichtenBezig(true);
-
     try {
+        // Meteen zichtbaar, want een uitlezing mag tot LEES_TIMEOUT_MS duren; zonder dit ziet een
+        // druk op de knop er secondenlang uit alsof er niets gebeurde. Binnen de try, zodat de
+        // finally de vlag hoe dan ook weer uitzet.
+        zetInrichtenBezig(true);
+
         const gelukt = await pasOmgevingToe();
 
         if (!gelukt) {
@@ -1004,8 +1021,9 @@ async function richtIn(metHand) {
 
         // Alleen als er iets te melden vált: bij een gewone start heeft niemand om deze regel
         // gevraagd, en een melding die er altijd staat leest niemand meer. En niet beweren dat het
-        // paneel compleet is terwijl er een opmaakfout langskwam die deze melding zou overschrijven.
-        if ((inrichtPoging > 0 || metHand) && gemeldeOpmaakfouten.size === 0) {
+        // paneel compleet is terwijl déze poging een opmaakfout meldde: die staat dan in de balk, en
+        // deze regel zou er overheen gaan.
+        if ((inrichtPoging > 0 || metHand) && gemeldeOpmaakfouten.size === foutenVooraf) {
             toonMelding('De omgeving is gelezen; het paneel is compleet', 'goed', null);
         }
 
@@ -1016,7 +1034,8 @@ async function richtIn(metHand) {
         // met de enige melding ook de enige knop die er nog iets aan kan doen. `lees()` valt hier
         // niet onder: die vangt een onbereikbare console zelf af en geeft null.
         console.error('[bediening] omgeving niet toe te passen', fout);
-        toonInrichtingsfout('Het paneel kon zichzelf niet inrichten: ' + fout);
+        toonInrichtingsfout('Het paneel kon zichzelf niet inrichten: ' + fout +
+            '. Er volgt geen automatische poging meer.');
     } finally {
         inrichtLoopt = false;
 
@@ -1025,8 +1044,10 @@ async function richtIn(metHand) {
         // De ingedrukte knop ging op disabled en verloor zijn focus naar <body>. Staat het blok er
         // nog, dan hoort die focus terug: anders begint toetsenbordnavigatie weer bovenaan de pagina
         // en moet de bediener het hele paneel doortabben om nog eens te kunnen proberen.
-        if (metHand && inrichtingKnop && inrichting && !inrichting.hidden &&
-            document.activeElement === document.body) {
+        // `offsetParent` erbij: een ingeklapt paneel is display:none, en focus op iets onzichtbaars
+        // laat de bediener zoeken naar waar hij staat.
+        if (metHand && document.activeElement === document.body && inrichtingKnop &&
+            !inrichtingKnop.disabled && inrichtingKnop.offsetParent !== null) {
             inrichtingKnop.focus();
         }
     }
@@ -1041,8 +1062,10 @@ function toonInrichtingsfout(tekst) {
     // meldingsbalk: de concrete oorzaak is meer waard dan de generieke opmaakfout die `toonInrichting`
     // erover meldt.
     if (!inrichting || !inrichtingTekst) {
-        toonMelding(tekst, 'fout', null);
+        // In deze volgorde: `toonInrichting` meldt de ontbrekende opmaak, en die generieke tekst mag
+        // de concrete oorzaak niet overschrijven.
         toonInrichting(true);
+        toonMelding(tekst, 'fout', null);
 
         return;
     }
@@ -1054,21 +1077,15 @@ function toonInrichtingsfout(tekst) {
 }
 
 function toonInrichting(zichtbaar) {
-    if (!inrichting) {
-        meldOpmaakfout('het blok voor een mislukte inrichting', true);
+    if (inrichting) inrichting.hidden = !zichtbaar;
+    else meldOpmaakfout('het blok voor een mislukte inrichting', true);
 
-        return;
-    }
-
-    inrichting.hidden = !zichtbaar;
-
-    // Ook een opmaakfout telt: die staat in de meldingsbalk, en die zit net als dit blok in het
-    // paneel dat ingeklapt kan zijn.
+    // Ook zonder blok, en ook bij een opmaakfout: die staat alleen in de meldingsbalk.
     markeerKlap(zichtbaar || gemeldeOpmaakfouten.size > 0);
 }
 
-/* De knop uit terwijl zijn eigen poging loopt: hij zou anders een tweede poging naast de eerste
- * starten, en `richtIn` heeft daar niets aan toe te voegen behalve een afwijzing. */
+/* De knop uit terwijl zijn eigen poging loopt, met de tekst en de rand van het blok erop afgestemd:
+ * een tweede poging naast de eerste zou alleen elkaars uitkomst overschrijven. */
 function zetInrichtenBezig(bezigMetInrichten) {
     if (inrichtingKnop) inrichtingKnop.disabled = bezigMetInrichten;
 
@@ -1086,9 +1103,14 @@ function zetInrichtenBezig(bezigMetInrichten) {
 function planInrichting(wacht) {
     clearTimeout(inrichtTimer);
 
-    // Zonder argument, dus als automatische poging: `setTimeout` geeft er geen door, en `metHand`
-    // blijft undefined. Wie hier een pijl-functie van maakt, moet dat zo houden.
-    inrichtTimer = wacht === null ? null : setTimeout(richtIn, wacht);
+    // De id wist zichzelf zodra de timer afgaat: `inrichtTimer` moet "er staat een poging klaar"
+    // betekenen, en niet "er is er ooit een gepland" — daar hangt de belofte aan de bediener aan.
+    // `richtIn()` zonder argument, dus als automatische poging.
+    inrichtTimer = wacht === null ? null : setTimeout(() => {
+        inrichtTimer = null;
+
+        richtIn();
+    }, wacht);
 }
 
 /* De ontdubbeling loopt op een BSN, dus alleen persona's met een BSN kunnen hem spelen. Een vrij
@@ -1162,16 +1184,9 @@ function meldOnbruikbareLijst(veld, waarde, keuze, knop, keuzeId) {
 function meldLijstOnbekend(keuze, knop, keuzeId) {
     if (knop) zetWachtOpLijst(knop, true);
 
-    // De id erbij: er zijn twee keuzelijsten, en "een keuzelijst ontbreekt" laat de bediener niet
-    // zien wélke bediening dood is. Allebei melden als allebei de elementen weg zijn, anders blijft
-    // de helft van de storing onbenoemd.
-    if (!knop) meldOpmaakfout('de knop bij keuzelijst ' + (keuze ? keuze.id : keuzeId), true);
+    meldOntbrekendeLijst(keuze, knop, keuzeId);
 
-    if (!keuze) {
-        meldOpmaakfout('de keuzelijst ' + keuzeId, true);
-
-        return;
-    }
+    if (!keuze) return;
 
     const onbekend = document.createElement('option');
 
@@ -1186,9 +1201,24 @@ function meldLijstOnbekend(keuze, knop, keuzeId) {
  * doen we dan wel steeds — dat is diagnostiek — maar de meldingsbalk houdt de uitkomst van de laatste
  * actie vast en mag daar niet telkens overheen geschreven worden.
  *
- * Alleen die lus wordt ontdubbeld. Een melding die uit een druk op een knop volgt is per definitie
- * geen ruis, en zwijgen bij de tweede druk zou de knop precies zo stil maken als bij de eerste. */
+ * De vlag zit op de aanroepplekken die alleen die lus doorloopt. Een melding die rechtstreeks uit
+ * een druk op een knop volgt, geeft hem niet mee: die is per definitie geen ruis, en zwijgen bij de
+ * tweede druk zou de knop precies zo stil maken als bij de eerste. `richtIn` leegt de set bovendien
+ * bij een handmatige poging, zodat ook de knop die de lus aanstuurt alles opnieuw meldt. */
 const gemeldeOpmaakfouten = new Set();
+
+/* De id erbij: er zijn twee keuzelijsten, en "een keuzelijst ontbreekt" laat de bediener niet zien
+ * wélke bediening dood is. In één melding en niet in twee: de meldingsbalk toont er maar één, dus
+ * bij twee aanroepen blijft de eerste helft van de storing in het log hangen. */
+function meldOntbrekendeLijst(keuze, knop, keuzeId) {
+    const mist = [];
+
+    if (!keuze) mist.push('de keuzelijst ' + keuzeId);
+
+    if (!knop) mist.push('de knop bij keuzelijst ' + (keuze ? keuze.id : keuzeId));
+
+    if (mist.length) meldOpmaakfout(opsom(mist), true);
+}
 
 function meldOpmaakfout(wat, uitDeLus) {
     console.error('[bediening] ' + wat + ' ontbreekt in de opmaak');
@@ -1197,6 +1227,10 @@ function meldOpmaakfout(wat, uitDeLus) {
 
     gemeldeOpmaakfouten.add(wat);
     toonMelding('Het paneel mist ' + wat + ' in zijn opmaak; die bediening werkt niet', 'fout', null);
+
+    // Deze melding staat in het paneel, dat ingeklapt kan zijn; de meeste aanroepen hier komen uit
+    // een druk op een knop en niet langs `toonInrichting`.
+    markeerKlap(true);
 }
 
 function vulKeuze(keuze, knop, opties, leegTekst, keuzeId) {
@@ -1204,7 +1238,7 @@ function vulKeuze(keuze, knop, opties, leegTekst, keuzeId) {
     // TypeError geven, die de aanroeper opvangt en als "lijst niet op te halen" toont — terwijl de
     // lijst gewoon binnenkwam. Precies de verkeerde diagnose, in de andere richting.
     if (!keuze || !knop) {
-        meldOpmaakfout((keuze ? 'de knop bij keuzelijst ' + keuze.id : 'de keuzelijst ' + keuzeId), true);
+        meldOntbrekendeLijst(keuze, knop, keuzeId);
 
         return;
     }
@@ -1270,10 +1304,12 @@ document.addEventListener('click', (gebeurtenis) => {
     if (knop.dataset.actie) {
         // `hasOwn` en niet een kale lookup: een naam als `toString` levert anders een geërfde functie
         // op die wordt aangeroepen in plaats van gemeld. Zonder deze toets geeft een onbekende naam
-        // een TypeError, die het vangnet als "onverwachte fout" toont — hier staat wélke knop en
-        // welke naam het is.
+        // een TypeError, die het vangnet als "onverwachte fout" toont — hier staat de naam die niet
+        // klopt. Geen `meldOpmaakfout`: de opmaak draagt die naam juist wél, het script kent hem niet.
         if (!Object.hasOwn(LOSSE_ACTIES, knop.dataset.actie)) {
-            meldOpmaakfout('de actie ' + knop.dataset.actie);
+            console.error('[bediening] onbekende actie', knop.dataset.actie);
+            toonMelding('Deze knop noemt een actie die het paneel niet kent: ' + knop.dataset.actie, 'fout', null);
+            markeerKlap(true);
 
             return;
         }
