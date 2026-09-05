@@ -85,12 +85,28 @@ Handmatige pogingen tellen niet mee in de oplopende wachttijd.
 Het blok staat ín het paneel en een ingeklapt paneel is `display: none`; de klap-knop ernaast krijgt
 daarom een stip zolang de inrichting niet compleet is.
 
+Een druk op de knop stelt een al geplande poging niet uit — wie blijft drukken zou de automatische
+lus anders nooit laten afgaan — en noemt dan ook geen wachttijd die niet klopt.
+
 ### Eén vangnet voor wat buiten een eigen try/catch omvalt
 
 `voerUit`, `vraagBevestiging` en `verversToestand` worden fire-and-forget aangeroepen vanuit de
 click-listener. Een throw of een afgewezen promise daaruit belandde alleen in de browserconsole — en
 wie een demo geeft heeft geen devtools open, dus die ziet weer een knop die niets doet. Twee
 listeners op `window` (`error`, `unhandledrejection`) zetten dat in de meldingsbalk.
+
+Het vangnet staat direct onder de element-lookups en niet onderaan bij de rest van de bedrading:
+die bedrading zoekt zelf elementen op en kan dus zélf omvallen, en dan was het vangnet nog niet
+geregistreerd. Het ontdubbelt op de boodschap, want de poll-lus levert dezelfde fout elke paar
+seconden opnieuw, en `toonMelding` bewaakt alle vijf de elementen van de meldingsbalk — anders
+sleept die het vangnet mee dat hem net aanriep.
+
+### Ontdubbeling geldt de lus, niet de bediener
+
+Een ontbrekend element komt bij elke inricht-poging langs, dus `meldOpmaakfout` toont zo'n melding
+één keer en logt hem daarna alleen nog. Die ontdubbeling geldt uitsluitend voor aanroepen uit die
+lus: een melding die volgt op een druk op een knop is per definitie geen ruis, en zwijgen bij de
+tweede druk zou die knop precies zo stil maken als hij vóór deze wijziging was.
 
 ### Een onbekende losse actie meldt zichzelf
 
