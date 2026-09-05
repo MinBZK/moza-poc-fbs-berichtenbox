@@ -288,6 +288,20 @@ class PaneelPadenTest {
         )
     }
 
+    /**
+     * Het paneel filtert de ontdubbel-keuzelijst op het type dat de resource als enige accepteert.
+     * Drijft dat filter af — naar `KVK:` bijvoorbeeld — dan biedt de lijst uitsluitend persona's
+     * aan die elke klik met een 400 beantwoorden, en niets in de keten merkt dat: de contracttest
+     * bouwt dezelfde regel na in Kotlin en blijft dus groen.
+     */
+    @Test
+    fun `de keuzelijst filtert op hetzelfde type dat de ontdubbeling accepteert`() {
+        assertTrue(
+            code.contains("""startsWith('BSN:')"""),
+            "$SCRIPT filtert niet meer op BSN; de ontdubbeling accepteert geen ander type",
+        )
+    }
+
     /** Aanroepen van [functie] in het script; de definitie zelf telt niet mee. */
     private fun aanroepen(functie: String): Int =
         Regex("""(?<!function )\b$functie\(""").findAll(code).count()

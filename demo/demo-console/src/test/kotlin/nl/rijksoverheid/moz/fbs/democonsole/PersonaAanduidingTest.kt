@@ -44,8 +44,13 @@ class PersonaAanduidingTest {
         assertTrue(fout.message.orEmpty().contains(OIN), "een OIN is publiek en mag in de melding")
     }
 
+    /**
+     * `proeftuin-2026-01` draagt zes cijfers en hoort gewoon een 404 te krijgen. Zonder dat geval
+     * kan de drempel ongemerkt naar beneden schuiven, en dan leest een bediener bij een vertypte id
+     * met een jaartal erin "gebruik een naam, geen nummer" — waarna hij in het verkeerde veld zoekt.
+     */
     @ParameterizedTest
-    @ValueSource(strings = ["pietersen", "proeftuin-een", "de.vries", "jan_2", "klant+1", "a@b"])
+    @ValueSource(strings = ["pietersen", "proeftuin-een", "de.vries", "jan_2", "klant+1", "a@b", "proeftuin-2026-01"])
     fun `een onbekende maar veilige aanduiding komt voluit in de melding`(waarde: String) {
         val fout = onbekendePersona(waarde, TERUGWEG)
 
@@ -65,6 +70,31 @@ class PersonaAanduidingTest {
 
         assertTrue(fout is NotFoundException, "verwachtte een 404 voor '$waarde'")
         assertEquals("onbekende persona de aangeboden waarde; $TERUGWEG", fout.message)
+    }
+
+    /**
+     * De uitzondering hangt op de vorm van een OIN — precies twintig cijfers en verder niets — en
+     * niet op "twintig of meer". Zonder dit geval zou een ruimere vorm dezelfde uitkomst geven op
+     * elke andere testwaarde, en glipt er een reeks van eenentwintig cijfers mee naar de melding.
+     */
+    @Test
+    fun `een reeks die langer is dan een OIN blijft een nummer`() {
+        assertTrue(onbekendePersona(OIN + "0", TERUGWEG) is BadRequestException)
+    }
+
+    /**
+     * Losse voorbeelden tonen niet wat de allowlist buitensluit. Elk printbaar ASCII-teken langs, in
+     * een verder onschuldige waarde: alles buiten de toegestane vorm hoort benoemd te worden in
+     * plaats van geciteerd, zodat een verruiming van de tekenklasse hier opvalt.
+     */
+    @Test
+    fun `elk teken buiten de toegestane vorm wordt benoemd en niet geciteerd`() {
+        val toegestaan = ('a'..'z') + ('A'..'Z') + ('0'..'9') + listOf('_', '.', '@', '+', '-')
+        val geciteerd = (' '..'~').filter { teken ->
+            onbekendePersona("ab${teken}cd", TERUGWEG).message.orEmpty().contains("'ab${teken}cd'")
+        }
+
+        assertEquals(toegestaan.sorted(), geciteerd.sorted(), "de toegestane tekens zijn verschoven")
     }
 
     /**
