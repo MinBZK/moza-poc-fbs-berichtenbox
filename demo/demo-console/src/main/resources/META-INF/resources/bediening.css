@@ -154,6 +154,21 @@ body.ingeklapt #paneel {
     z-index: 1;
 }
 
+/* Een stip op de klap-knop wanneer het paneel niet volledig ingericht is. Nooit de enige drager:
+   elders in het paneel staat in tekst wát er mis is — het inrichtingsblok, de meldingsbalk of de
+   keuzelijst zelf — en `werkKlapBij` zet een generieke waarschuwing in het aria-label. Bij een
+   ingeklapt paneel is die stip het enige dat nog zichtbaar is. */
+#klap[data-let-op="true"]::after {
+    background: var(--bediening-color-feedback-error-emphasis);
+    border-radius: var(--bediening-border-radius-round);
+    content: "";
+    display: inline-block;
+    height: 0.4em;
+    margin-left: 0.15em;
+    vertical-align: super;
+    width: 0.4em;
+}
+
 #klap:hover {
     background: var(--bediening-color-box-vlak-hover);
     color: var(--bediening-color-box-text-hover);
@@ -376,6 +391,16 @@ body.ingeklapt #paneel {
 .knop:disabled {
     cursor: progress;
     opacity: 0.6;
+}
+
+/* Een knop die op zijn keuzelijst wacht is niet bezig; de progress-cursor zou suggereren dat er op
+   dit moment iets voor hém loopt. */
+.knop[data-wacht-op-lijst="ja"]:disabled {
+    cursor: not-allowed;
+}
+
+#inrichting .knop {
+    margin-top: var(--bediening-space-xs);
 }
 
 .knop--primair {
