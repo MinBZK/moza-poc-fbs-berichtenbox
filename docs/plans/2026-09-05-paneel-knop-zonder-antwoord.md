@@ -113,10 +113,13 @@ de knop *Nu opnieuw proberen* raakt diezelfde plekken, dus leegt `richtIn` bij h
 lus-ontdubbeling. Een melding die op een druk op een knop volgt is per definitie geen ruis, en
 zwijgen bij de tweede druk zou die knop precies zo stil maken als hij vóór deze wijziging was.
 
-Twee sets houden dat uit elkaar: `openstaandePaneelfouten` is wat er nog mis is — dat draagt het
-merkteken op de klap-knop en houdt tegen dat het paneel zichzelf compleet noemt — en
-`ontdubbeldInLus` is wat de lus al gezegd heeft. Alleen die tweede wordt geleegd: een ontbrekend
-invoerveld gaat niet over van een uitlezing die dat veld niet eens bekijkt.
+Drie sets houden dat uit elkaar. `openstaandePaneelfouten` is wat er blijvend mis is — een element
+dat de opmaak niet draagt — en dat gaat niet over van een uitlezing die dat element niet eens
+bekijkt. `onbruikbareLijsten` is de storing die zichzelf wél herstelt: elke inricht-poging stelt
+opnieuw vast of de persona-lijsten bruikbaar binnenkwamen, dus die set wordt aan het begin van elke
+poging geleegd. En `ontdubbeldInLus` is wat de lus al gezegd heeft; die leegt `richtIn` bij een
+handmatige poging. Samen bepalen de eerste twee het merkteken op de klap-knop en of het paneel
+zichzelf compleet mag noemen — en de melding noemt bij naam wat er dan niet werkt.
 
 ### Een onbekende losse actie meldt zichzelf
 

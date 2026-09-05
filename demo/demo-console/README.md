@@ -87,7 +87,7 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 | Info | Gesimuleerde magazijnen | Toont hoe elk gesimuleerd magazijn zich gedraagt |
 | Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
 
-Een druk op een knop levert altijd een antwoord op. Een leeg of ongeldig invoerveld geeft een
+Elke knop levert een antwoord op. Een leeg of ongeldig invoerveld geeft een
 melding die het veld bij naam noemt (uit `data-veldnaam` in de opmaak) plus een ✗ op de knop, in
 plaats van stilte. Een knop die aan een keuzelijst hangt staat uit tot die lijst gevuld is. En het
 uitlezen van `GET /api/demo/omgeving` — waar die lijsten uit komen — kent een timeout van 4
