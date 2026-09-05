@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -148,6 +149,51 @@ class PaneelPadenTest {
         assertEquals("""max="${DemoResource.MAX_BERICHTEN}"""", Regex("""max="\d+"""").find(veld)?.value)
     }
 
+    /**
+     * Een identificatienummer hoort niet in een webadres — niet in de productcode en ook niet in
+     * de demo. Een adres belandt in browsergeschiedenis, in proxylogboeken en in de schermopname
+     * van een demonstratie. De nummers van de demo zijn fictief, maar een knop die het voordoet is
+     * het verkeerde voorbeeld; de personadienst weigert om dezelfde reden al een persona-id die
+     * een nummer is.
+     *
+     * Zowel de parameternaam als een letterlijke waarde. Een `?bsn={ontdubbelPersona}` draagt het
+     * nummer pas op het moment dat het paneel het veld invult, dus wie alleen naar cijfers kijkt
+     * ziet zo'n knop niet — en wie alleen naar namen kijkt, mist een nummer dat er hard in staat.
+     */
+    @Test
+    fun `geen knop-adres draagt een identificatienummer`() {
+        // Acht of negen cijfers is de vorm van een KVK-nummer, BSN of RSIN; een langere reeks blijft
+        // toegestaan, want een OIN is publiek en staat in de demo gewoon in een pad.
+        val nummer = Regex("""(?<!\d)\d{8,9}(?!\d)""")
+
+        // Eerst bewijzen dat beide metingen discrimineren: dit is de vorm die deze test moet
+        // vangen, en zonder deze regels zou een regex die nooit meer iets vindt de test groen laten.
+        assertTrue(NUMMERPARAMETER.containsMatchIn("/api/demo/ontdubbeling?bsn={ontdubbelPersona}"))
+        assertTrue(nummer.containsMatchIn("/api/demo/ontdubbeling?persona=123456789"))
+        assertFalse(nummer.containsMatchIn("/api/demo/magazijn/00000000000000100000"), "een OIN is publiek")
+
+        assertEquals(
+            emptyList<String>(),
+            paden.filter { NUMMERPARAMETER.containsMatchIn(it) },
+            "knop-adres met een parameter voor een identificatienummer; wijs de persona op zijn id aan",
+        )
+
+        // Over beide bestanden in hun geheel en niet alleen over de adressen: het nummer komt er
+        // net zo goed in als een keuzelijst het als optie-waarde zet, en die waarde staat in het
+        // script. Geen van beide bestanden heeft een reden zo'n reeks of zo'n parameter te dragen.
+        listOf(PANEEL to paneel, SCRIPT to script).forEach { (bestand, inhoud) ->
+            assertFalse(
+                NUMMERPARAMETER.containsMatchIn(inhoud),
+                "$bestand bouwt een adres met een parameter voor een identificatienummer",
+            )
+            assertEquals(
+                emptyList<String>(),
+                nummer.findAll(inhoud).map { it.value }.toList(),
+                "$bestand draagt een identificatienummer",
+            )
+        }
+    }
+
     private fun uitPaneel(patroon: String): List<String> =
         Regex(patroon).findAll(paneel).map { it.groupValues[1] }.toList()
 
@@ -158,5 +204,12 @@ class PaneelPadenTest {
         const val SCRIPT = "src/main/resources/META-INF/resources/bediening.js"
 
         const val PROPERTIES = "src/main/resources/application.properties"
+
+        /**
+         * Queryparameters die om een identificatienummer vragen. `ontvanger` staat erbij omdat de
+         * keten dat veld als `<TYPE>:<WAARDE>` draagt: een knop die dát doorgeeft zet het nummer
+         * er net zo goed in.
+         */
+        val NUMMERPARAMETER = Regex("""[?&](bsn|rsin|kvk|ontvanger)=""", RegexOption.IGNORE_CASE)
     }
 }

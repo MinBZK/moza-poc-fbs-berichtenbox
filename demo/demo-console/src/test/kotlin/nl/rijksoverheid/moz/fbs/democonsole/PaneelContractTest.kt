@@ -8,6 +8,9 @@ import jakarta.inject.Singleton
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.AanmeldWebhookClient
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingResultaat
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
@@ -63,13 +66,14 @@ class PaneelContractTest {
     @TestHTTPResource("/")
     lateinit var basis: URL
 
-    // Onvoorwaardelijk en niet in de testbody: het dubbel vervangt AanleverService voor élke
+    // Onvoorwaardelijk en niet in de testbody: de dubbels vervangen hun service voor élke
     // @QuarkusTest van deze module, dus de eerste test die een ander vulpad aanroept zou anders
-    // stil in deze lijst bijschrijven en een ándere test rood maken.
+    // stil in deze lijsten bijschrijven en een ándere test rood maken.
     @BeforeEach
     @AfterEach
-    fun leegDeOpdrachten() {
+    fun leegDeOpnames() {
         VasteAanleverService.opdrachten.clear()
+        VasteOntdubbelingService.nummers.clear()
     }
 
     private fun haal(url: URL): HttpResponse<String> =
@@ -284,6 +288,64 @@ class PaneelContractTest {
         HttpResponse.BodyHandlers.ofString(),
     )
 
+    /**
+     * De knop wijst de persona op zijn id aan; het identificatienummer blijft aan deze kant. Dat
+     * de opzoeking het juiste nummer oplevert is uit het antwoord niet af te lezen — daar staan
+     * alleen het event-id en twee statussen in — dus dit pint wat de service binnenkreeg.
+     */
+    @Test
+    fun `de ontdubbeling zoekt het nummer bij de gekozen persona zelf op`() {
+        assertEquals(200, speelOntdubbeling("?persona=pietersen").statusCode())
+        assertEquals(listOf(PIETERSEN_BSN), VasteOntdubbelingService.nummers)
+    }
+
+    /**
+     * Een ontbrekende parameter is een ander faalpad dan een onbekende waarde: Kotlin maakt er
+     * zonder eigen afhandeling een `NullPointerException` van, en dat wordt een HTTP 500 met een
+     * interne melding. Een lege of witruimte-waarde hoort er hetzelfde uit te zien als een
+     * ontbrekende, want voor de bediener is het dezelfde vergissing.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["", "?persona=", "?persona=%20"])
+    fun `een ontdubbeling zonder bruikbare persona geeft 400 en geen 500`(query: String) {
+        val respons = speelOntdubbeling(query)
+
+        assertEquals(400, respons.statusCode(), "query '$query'")
+        assertTrue(respons.body().contains("personas"), "de melding hoort de weg terug te wijzen")
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "valideren hoort vóór het aanmelden te gaan")
+    }
+
+    @Test
+    fun `een ontdubbeling voor een onbekende persona geeft 404 en niet een lege 500`() {
+        val respons = speelOntdubbeling("?persona=bestaat-niet")
+
+        assertEquals(404, respons.statusCode())
+        assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een onbekende persona hoort niets aan te melden")
+    }
+
+    /**
+     * Het scenario draait op de aanmeld-webhook, die de ontvanger als BSN draagt. Een persona die
+     * er geen heeft bestáát wel, dus 400 en niet 404 — anders gaat de bediener zoeken naar een
+     * persona die gewoon in de lijst staat. Het paneel biedt hem niet aan; dit adres staat open op
+     * de origin van het paneel.
+     */
+    @Test
+    fun `een ontdubbeling voor een persona zonder BSN geeft 400`() {
+        val respons = speelOntdubbeling("?persona=vandijk")
+
+        assertEquals(400, respons.statusCode())
+        assertTrue(respons.body().contains("KVK"), "de melding hoort te zeggen wat deze persona wél heeft")
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "zonder BSN valt er niets aan te melden")
+    }
+
+    private fun speelOntdubbeling(query: String): HttpResponse<String> = HttpClient.newHttpClient().send(
+        HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + "/api/demo/ontdubbeling" + query))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build(),
+        HttpResponse.BodyHandlers.ofString(),
+    )
+
     @Test
     fun `deze module beantwoordt het personas-adres niet`() {
         // Dat adres hoort bij de personadienst. Zouden beide het beantwoorden, dan levert een proxy
@@ -427,5 +489,28 @@ class VasteAanleverService(config: DemoConfig) : AanleverService(config) {
     companion object {
 
         val opdrachten: MutableList<AanleverOpdracht> = CopyOnWriteArrayList()
+    }
+}
+
+/**
+ * Vaste demonstratie in plaats van twee CloudEvents naar de uitvraag, die hier niet draait. Neemt
+ * op met welk nummer de resource hem aanroept: dat is wat de persona-opzoeking moet opleveren, en
+ * het staat niet in het antwoord. Thread-veilig en per test geleegd, om dezelfde reden als bij
+ * [VasteAanleverService].
+ */
+@Mock
+@Singleton
+class VasteOntdubbelingService(@RestClient client: AanmeldWebhookClient) :
+    OntdubbelingService(client, ObjectMapper()) {
+
+    override fun demonstreer(ontvangerBsn: String): OntdubbelingResultaat {
+        nummers += ontvangerBsn
+
+        return OntdubbelingResultaat(eventId = "vast-event-id", eersteStatus = 202, tweedeStatus = 202)
+    }
+
+    companion object {
+
+        val nummers: MutableList<String> = CopyOnWriteArrayList()
     }
 }

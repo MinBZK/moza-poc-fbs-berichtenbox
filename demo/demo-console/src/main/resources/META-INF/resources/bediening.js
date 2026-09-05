@@ -761,7 +761,12 @@ async function pasOmgevingToe() {
 }
 
 /* De ontdubbeling loopt op een BSN, dus alleen persona's met een BSN kunnen hem spelen. Een vrij
- * tekstveld zou een BSN vragen die verderop in dezelfde pagina al als keuzelijst bestaat. */
+ * tekstveld zou een BSN vragen die verderop in dezelfde pagina al als keuzelijst bestaat.
+ *
+ * De waarde is de persona-id en niet zijn nummer, net als bij de keuzelijst hieronder: het adres
+ * dat de knop aanroept belandt in browsergeschiedenis, proxylogboeken en schermopnames, en daar
+ * hoort een identificatienummer niet. De console zoekt het nummer zelf op. Het filter kijkt wél
+ * naar de ontvanger, want dat is wat zegt of deze persona het scenario kán spelen. */
 function vulPersonas(personas) {
     const keuze = document.getElementById('ontdubbelPersona');
     const knop = document.querySelector('button[data-samenvatting="ontdubbeling"]');
@@ -777,7 +782,7 @@ function vulPersonas(personas) {
         knop,
         personas
             .filter((persona) => persona.ontvanger.startsWith('BSN:'))
-            .map((persona) => ({ waarde: persona.ontvanger.slice('BSN:'.length), label: persona.label })),
+            .map((persona) => ({ waarde: persona.id, label: persona.label })),
         'geen persona met een BSN ingericht',
     );
 }
