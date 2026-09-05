@@ -8,8 +8,9 @@ import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
-import nl.rijksoverheid.moz.fbs.democonsole.generator.Persona
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
+import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -63,10 +64,20 @@ class TempoServiceTest {
         rvo to Organisatie(rvo, "RVO", listOf(Sjabloon("Subsidie", "Uw subsidie is toegekend."))),
     )
 
-    private val personas = listOf(Persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo)))
+    private val personas = listOf(
+        DemoPersona(
+            id = "pietersen",
+            label = "J. Pietersen",
+            type = "BSN",
+            waarde = "999993653",
+            magazijnen = listOf(rvo),
+            bron = PersonaBron.KETEN,
+        ),
+    )
 
-    // Een echte generator en geen mock: hij is met drie regels testdata op te tuigen en levert
-    // echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's te pinnen.
+    // Een echte generator en geen mock: hij is met één persona en één organisatie op te tuigen en
+    // levert echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's
+    // te pinnen.
     private val generator = DemoBerichtGenerator(
         personas,
         organisaties,

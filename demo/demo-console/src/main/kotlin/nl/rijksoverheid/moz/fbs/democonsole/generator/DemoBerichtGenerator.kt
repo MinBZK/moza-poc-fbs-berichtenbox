@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.generator
 
-import nl.rijksoverheid.moz.fbs.demopersonas.Identificatiecheck
+import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
 import java.time.Clock
 import java.time.temporal.ChronoUnit
 import kotlin.random.Random
@@ -12,9 +12,13 @@ import kotlin.random.Random
  * Trouw aan het FBS-model: één magazijn = één organisatie. Elk bericht krijgt als afzender
  * de OIN van zijn magazijn, en gaat naar een persona die bij die organisatie opt-in staat —
  * anders weigert het magazijn de aanlevering (403).
+ *
+ * De grens met de personadienst: wat een demo-identiteit op zichzelf geldig maakt bewaakt
+ * `DemoPersona`. Wat hieronder in `init` staat gaat niet over de identiteit maar over wat déze
+ * generator met een set ervan kan beginnen.
  */
 class DemoBerichtGenerator(
-    private val personas: List<Persona>,
+    private val personas: List<DemoPersona>,
     private val organisaties: Map<String, Organisatie>,
     private val klok: Clock,
 ) {
@@ -22,18 +26,13 @@ class DemoBerichtGenerator(
     init {
         require(personas.isNotEmpty()) { "minstens één persona vereist" }
 
-        // Met de positie erbij: bij een lege id is er geen id om de kapotte persona mee aan te
-        // wijzen, en dan staat de operator met N ingerichte persona's zonder aanknopingspunt.
-        personas.forEachIndexed { positie, persona ->
-            // Een lege id levert een knop die om een persona vraagt die niet bestaat; een lege naam
-            // een onzichtbare optie in de keuzelijst. Hier, want dit blok draait bij het opstarten.
-            require(persona.id.isNotBlank()) { "persona op positie $positie heeft geen id (naam: '${persona.naam}')" }
-            require(persona.naam.isNotBlank()) { "persona ${persona.id} heeft geen naam" }
-
-            Identificatiecheck.valideer(persona.type, persona.waarde)
-
+        // Nul magazijnen is een geldige demo-identiteit; `metMagazijnen()` filtert die er normaal al
+        // uit, maar deze constructor neemt ze aan, en dan valt er geen afzender te kiezen.
+        personas.forEach { persona ->
             require(persona.magazijnen.isNotEmpty()) { "persona ${persona.id} heeft geen magazijnen" }
 
+            // Tegen de organisaties van deze generator, niet tegen de ingerichte aanlever-URL's: een
+            // OIN kan een URL hebben zonder dat hier sjablonen voor die afzender staan.
             persona.magazijnen.forEach { oin ->
                 require(oin in organisaties) { "onbekende organisatie-OIN '$oin' voor ${persona.id}" }
             }
@@ -46,7 +45,7 @@ class DemoBerichtGenerator(
         }
     }
 
-    fun doelgroep(): List<Doelpersona> = personas.map { Doelpersona(id = it.id, label = it.naam) }
+    fun doelgroep(): List<Doelpersona> = personas.map { Doelpersona(id = it.id, label = it.label) }
 
     fun genereer(aantal: Int, random: Random): List<AanleverOpdracht> =
         (0 until aantal).map { opdracht(personas[random.nextInt(personas.size)], random) }
@@ -63,7 +62,7 @@ class DemoBerichtGenerator(
         return (0 until aantal).map { opdracht(persona, random) }
     }
 
-    private fun opdracht(persona: Persona, random: Random): AanleverOpdracht {
+    private fun opdracht(persona: DemoPersona, random: Random): AanleverOpdracht {
         val organisatie = organisaties.getValue(persona.magazijnen[random.nextInt(persona.magazijnen.size)])
         val sjabloon = organisatie.sjablonen[random.nextInt(organisatie.sjablonen.size)]
 
@@ -75,7 +74,7 @@ class DemoBerichtGenerator(
             afzender = organisatie.oin,
             ontvanger = OntvangerDto(persona.type, persona.waarde),
             onderwerp = sjabloon.onderwerp,
-            inhoud = "Beste ${persona.naam},\n\n${sjabloon.inhoud}\n\nMet vriendelijke groet,\n${organisatie.naam}",
+            inhoud = "Beste ${persona.label},\n\n${sjabloon.inhoud}\n\nMet vriendelijke groet,\n${organisatie.naam}",
             publicatietijdstip = klok.instant().minus(minutenTerug, ChronoUnit.MINUTES).toString(),
         )
 
