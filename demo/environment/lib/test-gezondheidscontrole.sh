@@ -55,10 +55,27 @@ case " $* " in
       [ "$arg" = "project" ] && continue
       project="$arg"
     done
-    printf 'ZAD_SSO_TOKEN=stub\nZAD_PROJECT_ID=%s\nZAD_API_KEY=key-%s\n' "$project" "$project" \
-      > .env.zadctl
+    [ -n "${STUB_PWD_LOG:-}" ] && pwd > "$STUB_PWD_LOG"
+
+    # Wacht op invoer die er niet is, tenzij de aanroeper stdin op /dev/null zet.
+    [ -n "${STUB_USE_LEEST_STDIN:-}" ] && read -r _negeer
+
+    # Laat .env.zadctl staan zoals hij was: een `use` die niets herschrijft mag de key van het
+    # vorige project niet stilzwijgend laten doorwerken.
+    [ -n "${STUB_USE_NOOP:-}" ] && exit 0
+
+    if [ -n "${STUB_KEY_VORM:-}" ]; then
+      printf 'ZAD_SSO_TOKEN=stub\nZAD_PROJECT_ID=%s\nZAD_API_KEY=%s\n' "$project" "$STUB_KEY_VORM" \
+        > .env.zadctl
+    elif [ -n "${STUB_GEEN_KEY:-}" ]; then
+      printf 'ZAD_SSO_TOKEN=stub\nZAD_PROJECT_ID=%s\n' "$project" > .env.zadctl
+    else
+      printf 'ZAD_SSO_TOKEN=stub\nZAD_PROJECT_ID=%s\nZAD_API_KEY=key-%s\n' "$project" "$project" \
+        > .env.zadctl
+    fi
     ;;
   *" deployment describe "*)
+    [ -n "${STUB_DESCRIBE_TRAAG:-}" ] && sleep 5
     [ -n "${STUB_DESCRIBE_FAAL:-}" ] && { echo "stub: describe faalt" >&2; exit "$STUB_DESCRIBE_FAAL"; }
     [ -n "${STUB_GEEN_SLEUTEL:-}" ] && { echo '{"deployment":"test"}'; exit 0; }
 
@@ -93,6 +110,13 @@ case " $* " in
     echo "key=${ZAD_API_KEY:-geen} $*" >>"${STUB_LOG:-/dev/null}"
     if [ -n "${STUB_REFRESH_FAAL:-}" ]; then
       case " $* " in *" $STUB_REFRESH_FAAL "*) echo "stub: refresh faalt" >&2; exit 1 ;; esac
+    fi
+    ;;
+  *" service assign "*)
+    echo "key=${ZAD_API_KEY:-geen} $*" >>"${STUB_LOG:-/dev/null}"
+    if [ -n "${STUB_ASSIGN_WAARSCHUWING:-}" ]; then
+      echo "$STUB_ASSIGN_WAARSCHUWING" >&2
+      exit 1
     fi
     ;;
   *)
@@ -470,6 +494,137 @@ case "$(grep '^ZAD_PROJECT_ID=' "$WERKMAP/.env.zadctl")" in
   ZAD_PROJECT_ID=beginstand) ok "het actieve project van de werkmap blijft ongemoeid" ;;
   *) fout "het script veranderde het actieve project in de werkmap" ;;
 esac
+
+echo
+echo "== de idempotente waarschuwing van het binden"
+
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+
+# Zodra de dienst op projectniveau staat meldt `service assign` dit, met exitcode 1 onder --strict.
+# Dat is het idempotente geval: elke tweede aanroep zou anders afbreken.
+STUB_COMPONENTEN="uitvraag proeftuin" \
+  STUB_ASSIGN_WAARSCHUWING="Service 'health-check' already exists on the project" \
+  draai "$variant" apply; rc=$RC
+
+[ "$rc" -eq 0 ] && ok "een 'already exists'-waarschuwing bij het binden telt als succes" \
+  || fout "een 'already exists'-waarschuwing liet de apply falen (exit $rc): $UIT"
+
+# En elke ándere waarschuwing moet wél een fout blijven: de uitzondering hoort zo smal te zijn dat
+# alleen die ene, verwachte melding erdoorheen komt.
+STUB_COMPONENTEN="uitvraag proeftuin" \
+  STUB_ASSIGN_WAARSCHUWING="approval denied by an administrator" \
+  draai "$variant" apply; rc=$RC
+
+[ "$rc" -ne 0 ] && ok "een andere waarschuwing bij het binden blijft een fout (exit $rc)" \
+  || fout "een andere waarschuwing bij het binden werd als succes geteld"
+
+# En beide mutaties dragen --strict; een verwisseling van de twee aanroepen is anders onzichtbaar.
+: >"${TMP}/log"
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
+
+if [ "$rc" -ne 0 ]; then
+  fout "de apply voor de --strict-controle faalde met exit $rc: $UIT"
+elif [ "$(grep -cE 'service (assign|config set)' "${TMP}/log")" -eq 0 ]; then
+  fout "er stond geen enkele mutatie in het log; deze controle meet niets"
+elif grep -E 'service (assign|config set)' "${TMP}/log" | grep -qv -- '--strict'; then
+  fout "een mutatie ging zonder --strict de deur uit"
+else
+  ok "zowel het binden als het instellen draagt --strict"
+fi
+
+echo
+echo "== een key die uitblijft"
+
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_GEEN_KEY=1 draai "$variant" apply; rc=$RC
+
+case "$rc:$UIT" in
+  0:*) fout "een ontbrekende API-key werd stilzwijgend geaccepteerd" ;;
+  *"geen bruikbare ZAD_API_KEY"*) ok "een ontbrekende API-key faalt met een melding die dat zegt" ;;
+  *) fout "een ontbrekende API-key faalde zonder bruikbare melding: $UIT" ;;
+esac
+
+# Een `project use` die het bestand ongemoeid laat: dan zou de key van de werkmap kunnen doorwerken.
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_USE_NOOP=1 draai "$variant" apply; rc=$RC
+
+case "$rc:$UIT" in
+  0:*) fout "de key van de werkmap werd stilzwijgend hergebruikt" ;;
+  *"geen bruikbare ZAD_API_KEY"*) ok "een 'use' die niets herschrijft levert geen key op" ;;
+  *) fout "een niet-herschrijvende 'use' faalde zonder bruikbare melding: $UIT" ;;
+esac
+
+# Een key met een vorm die niet door een header past: aanhalingstekens, spatie, of een achtergebleven
+# CR uit een bestand met Windows-regeleindes.
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_KEY_VORM='"key met spatie"' draai "$variant" apply; rc=$RC
+
+case "$rc:$UIT" in
+  0:*) fout "een key met een onmogelijke vorm ging gewoon de deur uit" ;;
+  *"geen bruikbare ZAD_API_KEY"*) ok "een key met een onmogelijke vorm wordt geweigerd" ;;
+  *) fout "een key met een onmogelijke vorm faalde zonder bruikbare melding: $UIT" ;;
+esac
+
+# En een `use` die op invoer wacht mag de reeks niet stil laten hangen.
+# Stdin die NIET op EOF staat, anders blokkeert een `read` sowieso niet en toetst dit niets: de
+# procesvervanging houdt hem vijftien seconden open zonder ooit iets te leveren.
+: >"${TMP}/stdin-uit"
+( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag proeftuin" STUB_USE_LEEST_STDIN=1 \
+  timeout 8 bash "$variant" apply ) >"${TMP}/stdin-uit" 2>&1 < <(sleep 15)
+rc=$?
+
+if [ "$rc" -eq 124 ]; then
+  fout "het script bleef hangen op een 'project use' die om invoer vroeg"
+else
+  ok "een 'project use' die om invoer vraagt laat de reeks niet hangen (exit $rc)"
+fi
+
+# De tijdelijke map draagt een SSO-sessie; die hoort na afloop weg te zijn.
+: >"${TMP}/sleutelmap"
+STUB_COMPONENTEN="uitvraag proeftuin" STUB_PWD_LOG="${TMP}/sleutelmap" draai "$variant" apply
+sleutelmap="$(head -1 "${TMP}/sleutelmap")"
+
+if [ -z "$sleutelmap" ]; then
+  fout "de stub legde geen sleutelmap vast; deze controle meet niets"
+elif [ -d "$sleutelmap" ]; then
+  fout "de tijdelijke map met de SSO-sessie bleef staan: $sleutelmap"
+else
+  ok "de tijdelijke map met de SSO-sessie is na afloop opgeruimd"
+fi
+
+echo
+echo "== afbreken tijdens de voorbeschouwing"
+
+# De traagste stap praat met OM; een signaal daar moet dezelfde stand opleveren als elders. Zonder
+# een `zonder_regel` die vóór de traps bestaat sneuvelt de handler hier op `set -u`.
+: >"${TMP}/log"
+( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag proeftuin" STUB_DESCRIBE_TRAAG=1 \
+  bash "$variant" apply ) >"${TMP}/vooraf-uit" 2>&1 &
+vooraf_pid=$!
+
+sleep 1
+kill -TERM "$vooraf_pid" 2>/dev/null
+rc=0
+wait "$vooraf_pid" || rc=$?
+UIT="$(cat "${TMP}/vooraf-uit")"
+
+case "$rc:$UIT" in
+  0:*) fout "een afgebroken voorbeschouwing eindigde met exit 0" ;;
+  *"unbound variable"*) fout "de signaalhandler sneuvelde zelf: $UIT" ;;
+  *"Er is niets uitgerold"*) ok "een signaal tijdens de voorbeschouwing geeft de volledige stand (exit $rc)" ;;
+  *) fout "een signaal tijdens de voorbeschouwing gaf geen stand: $UIT" ;;
+esac
+
+# De opruim-trap hoort ALLEEN op EXIT te staan. Zet je er ook INT/TERM/HUP/QUIT bij, dan is het een
+# handler zonder `exit`: die ruimt de map op en laat het script dóórlopen, precies het
+# tegenovergestelde van afbreken. Bij een fataal signaal draait bash de EXIT-trap toch al.
+#
+# Dit is bewust een controle op de tekst en niet op gedrag: het verschil is alleen zichtbaar bij
+# QUIT — INT, TERM en HUP worden verderop opnieuw getrapt, mét exit — en een achtergrondproces in
+# een testsuite kan QUIT niet betrouwbaar ontvangen. De regel zelf is dan het enige wat te pinnen
+# valt.
+if grep -qE "^trap 'rm -rf \"\\\$SLEUTELMAP\"' EXIT\$" "$SCRIPT"; then
+  ok "de opruim-trap staat alleen op EXIT"
+else
+  fout "de opruim-trap staat niet meer alleen op EXIT: $(grep -n 'rm -rf .*SLEUTELMAP' "$SCRIPT")"
+fi
 
 echo
 echo "== afbreken tijdens een mutatie"

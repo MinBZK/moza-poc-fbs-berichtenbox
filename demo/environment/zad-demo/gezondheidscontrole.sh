@@ -110,11 +110,20 @@ done
     exit 1
 }
 
+# Alleen op EXIT, en dat is genoeg: bij een fataal signaal draait bash de EXIT-trap ook, en dan
+# eindigt het script (nagemeten: TERM geeft 143, HUP 129, en de map is in beide gevallen weg). Zou
+# hier ook INT/TERM/HUP/QUIT staan, dan wordt dit een handler zónder `exit` — die ruimt de map op en
+# laat het script gewoon doorlopen, precies het tegenovergestelde van afbreken.
 SLEUTELMAP="$(mktemp -d)"
-chmod 700 "$SLEUTELMAP"
 trap 'rm -rf "$SLEUTELMAP"' EXIT
 
-cp .env.zadctl "$SLEUTELMAP/.env.zadctl"
+# De ZAD_API_KEY van de aanroeper blijft er bewust uit. Zou hij meekomen, dan levert een
+# `project use` die de key niet herschrijft stilzwijgend de key van het verkeerde project op — en
+# dat komt pas als 401 boven, halverwege een reeks van zevenentwintig.
+#
+# `mktemp -d` maakt de map al 0700, maar het bestand erft de umask van de aanroeper; met de gangbare
+# 022 zou een bestand mét SSO-sessie 0644 worden.
+( umask 077; sed '/^ZAD_API_KEY=/d' .env.zadctl > "$SLEUTELMAP/.env.zadctl" )
 
 declare -A SLEUTELS=()
 
@@ -126,8 +135,10 @@ haal_sleutel() {
     # Uitvoer vasthouden en alleen bij een fout tonen: `project use` meldt op stderr dat het actieve
     # project verandert, en dat is hier een interne stap in een eigen map — geen mededeling voor de
     # operator, wiens eigen werkmap juist ongemoeid blijft.
+    # `</dev/null`: zou `project use` ooit iets vragen, dan faalt hij meteen in plaats van te wachten
+    # op invoer die niemand ziet — de uitvoer wordt hieronder immers opgevangen.
     local melding
-    melding="$( cd "$SLEUTELMAP" && zadctl project use "$project" 2>&1 )" || {
+    melding="$( cd "$SLEUTELMAP" && zadctl project use "$project" </dev/null 2>&1 )" || {
         echo "kon geen API-key voor '$project' ophalen" >&2
         echo "$melding" >&2
         echo "  Is de SSO-sessie nog geldig, en ben je lid van dat project?" >&2
@@ -135,12 +146,23 @@ haal_sleutel() {
         exit 1
     }
 
-    SLEUTELS[$project]="$(grep '^ZAD_API_KEY=' "$SLEUTELMAP/.env.zadctl" | cut -d= -f2-)"
+    # `|| true`: vindt grep niets, dan zou pipefail plus `set -e` de shell hier doden — vóór de
+    # melding hieronder, die dan nooit gedrukt wordt. `tail -n 1` omdat een append in plaats van een
+    # herschrijving anders twee regels tot één meerregelige key plakt.
+    local sleutel
+    sleutel="$(grep '^ZAD_API_KEY=' "$SLEUTELMAP/.env.zadctl" | tail -n 1 | cut -d= -f2- || true)"
 
-    [ -n "${SLEUTELS[$project]}" ] || {
-        echo "'zadctl project use $project' leverde geen ZAD_API_KEY op" >&2
+    # Niet alleen "niet leeg": een key met een afgekapte regel, aanhalingstekens of een
+    # achtergebleven CR gaat er anders uit en komt als 401 terug, halverwege de reeks. Bewust breed —
+    # het keyformaat staat nergens vast, dus alles wat drukbaar is en geen spatie of CR bevat mag
+    # door; een te smalle klasse zou een base64-key (`+`, `/`, `=`) ten onrechte weigeren.
+    [[ "$sleutel" =~ ^[[:graph:]]+$ ]] || {
+        echo "'zadctl project use $project' leverde geen bruikbare ZAD_API_KEY op" >&2
+        echo "  Verwacht werd één regel ZAD_API_KEY=<waarde>; kijk in $SLEUTELMAP/.env.zadctl." >&2
         exit 1
     }
+
+    SLEUTELS[$project]="$sleutel"
 }
 
 # De regels: project | deployment | component | scheme | poort | liveness-pad | readiness-pad
@@ -382,6 +404,11 @@ half_ingesteld=""
 bezig_uitrollen=""
 stand_gemeld=0
 
+# Vóór de traps geplaatst worden, want `meld_stand` leest hem: een signaal tijdens de vooraf-lus —
+# de traagste stap, die met OM praat — zou de handler anders op `set -u` doen sneuvelen, precies
+# waar de operator de stand nodig heeft.
+zonder_regel=0
+
 # Pas gevuld ná een geslaagde refresh. Zou hij vóór de aanroep gevuld worden, dan zou de melding bij
 # een afgebroken run een project als uitgerold opgeven dat alleen opgeslagen staat.
 UITGEROLD=()
@@ -451,9 +478,11 @@ echo "== vooraf: wat staat er in ${#PAREN[@]} deployment(s)?"
 for paar in "${PAREN[@]}"; do
     IFS='|' read -r project deployment <<<"$paar"
 
-    # `--strict` erbij, want zonder die vlag telt "aangenomen, maar er ging iets mis" — een taak die
-    # door een gelijktijdige uitrol overruled is — als succes. Geen 2>/dev/null: niet-ingelogd of
-    # een lock bij OM zou anders als "niet gevonden" langskomen.
+    # `--strict` maakt van een waarschuwing een non-nul exit, zodat "gelukt maar degraded" niet als
+    # gelukt langskomt. Let op wat het NIET vangt: een taak die door een gelijktijdige uitrol
+    # overruled is, meldt `status: superseded` en is volgens `zadctl guide` een succes met exit 0 —
+    # geen waarschuwing. Daarvoor is `zadctl project pending` het instrument. Geen 2>/dev/null:
+    # niet-ingelogd of een lock bij OM zou anders als "niet gevonden" langskomen.
     haal_sleutel "$project"
 
     status=0
@@ -509,7 +538,6 @@ done
 # De andere richting: een component dat er wél staat maar geen regel heeft, houdt de blinde
 # TCP-controle. Dat is geen fout in dit script maar wel precies wat dit werk wil uitsluiten, dus het
 # hoort luid gemeld te worden in plaats van stil te blijven.
-zonder_regel=0
 
 for paar in "${PAREN[@]}"; do
     IFS='|' read -r project deployment <<<"$paar"
@@ -549,13 +577,12 @@ for r in "${SELECTIE[@]}"; do
     # moment per component waarop het de dienst draagt zonder configuratie. Aan het eind rolt één
     # `project refresh` per project alles in één keer uit.
     #
-    # `--strict` staat hier bewust NIET bij het binden. Zodra de dienst op projectniveau geselecteerd
-    # is — na het eerste component — meldt `service assign` "Service 'health-check' already exists on
-    # the project" als waarschuwing, en `--strict` maakt daar een exitcode 1 van. Dat is precies het
-    # idempotente geval waar dit script op leunt: elke tweede aanroep zou dan afbreken. Het schrijven
-    # zelf gebeurt in `service config set`, en dáár blijft `--strict` staan.
-    ZAD=(zadctl --no-rollout -p "$project")
-    ZAD_STRIKT=(zadctl --strict --no-rollout -p "$project")
+    # `--strict` staat op béide aanroepen, zodat een waarschuwing niet als succes langskomt — een
+    # geweigerde approval bijvoorbeeld. Bij het binden levert dat één verwachte uitzondering op:
+    # zodra de dienst op projectniveau geselecteerd is meldt `service assign` "already exists on the
+    # project" als waarschuwing, en dat is exact het idempotente geval waar dit script op leunt. Die
+    # ene melding wordt hieronder als succes geteld; elke andere non-nul blijft een fout.
+    ZAD=(zadctl --strict --no-rollout -p "$project")
 
     INSTELLING=(--set "scheme=$scheme")
 
@@ -570,9 +597,26 @@ for r in "${SELECTIE[@]}"; do
     # De status apart opvangen en niet met `if ! ...; then status=$?`: binnen die tak is `$?` de
     # uitkomst van het `if` zelf (0), niet die van zadctl, en dan zou een mislukte apply met een
     # nul-exitcode eindigen.
+    # Uitvoer opvangen om de idempotente waarschuwing van een echte fout te kunnen onderscheiden, en
+    # daarna alsnog tonen: de operator hoort te zien wat er gebeurde.
     status=0
-    ZAD_API_KEY="${SLEUTELS[$project]}" \
-        "${ZAD[@]}" service assign health-check -c "$component" "${DRYRUN[@]}" || status=$?
+    bind_uitvoer="$(ZAD_API_KEY="${SLEUTELS[$project]}" \
+        "${ZAD[@]}" service assign health-check -c "$component" "${DRYRUN[@]}" 2>&1)" || status=$?
+
+    [ -z "$bind_uitvoer" ] || printf '%s\n' "$bind_uitvoer" >&2
+
+    # Alleen exit 1 — een waarschuwing onder `--strict`. Exit 2 is platform of netwerk en boven 128
+    # een signaal; die mogen nooit door deze uitzondering glippen. De tekst zelf komt uit zadctl en
+    # staat nergens als contract vast: herformuleert de CLI hem, dan breekt elke tweede aanroep weer
+    # af, en dan hoort deze regel mee te veranderen (de testsuite draagt dezelfde constante).
+    if [ "$status" -eq 1 ]; then
+        case "$bind_uitvoer" in
+            *"already exists on the project"*)
+                # De dienst stond al op het project; het binden zelf is gelukt.
+                status=0
+                ;;
+        esac
+    fi
 
     if [ "$status" -ne 0 ]; then
         echo "health-check binden aan $project/$deployment $component mislukte" >&2
@@ -593,7 +637,7 @@ for r in "${SELECTIE[@]}"; do
     # hangen, halverwege zevenentwintig componenten.
     status=0
     ZAD_API_KEY="${SLEUTELS[$project]}" \
-        "${ZAD_STRIKT[@]}" service config set health-check -c "$component" --yes \
+        "${ZAD[@]}" service config set health-check -c "$component" --yes \
         "${INSTELLING[@]}" "${DRYRUN[@]}" || status=$?
 
     if [ "$status" -ne 0 ]; then
@@ -644,8 +688,9 @@ for paar in "${PAREN[@]}"; do
 
     echo "== uitrollen: $project"
 
-    # `--strict` ook hier: zonder die vlag telt een taak die door een gelijktijdige uitrol overruled
-    # is als succes, en dan zou het script melden dat het project live staat terwijl het wacht.
+    # `--strict` ook hier, voor dezelfde waarschuwingen. Het zegt niets over een uitrol die door een
+    # gelijktijdige taak overruled is: die heet `superseded`, is een succes met exit 0, en is alleen
+    # zichtbaar via `zadctl project pending` — wat de slottekst hieronder aanraadt.
     bezig_uitrollen="$project"
 
     status=0
