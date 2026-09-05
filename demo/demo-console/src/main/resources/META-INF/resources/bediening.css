@@ -285,6 +285,12 @@ body.ingeklapt #paneel {
     cursor: pointer;
 }
 
+/* De knop hoort in het blok zelf: wie hier leest dat het inrichten mislukte, moet de weg terug
+   niet elders in het paneel hoeven zoeken. */
+#inrichting .knop {
+    margin-top: var(--bediening-space-xs);
+}
+
 .melding__ruw pre {
     margin: var(--bediening-space-xs) 0 0;
     max-height: 12rem;
@@ -376,6 +382,12 @@ body.ingeklapt #paneel {
 .knop:disabled {
     cursor: progress;
     opacity: 0.6;
+}
+
+/* Een knop die op zijn keuzelijst wacht is niet bezig maar onbruikbaar; de progress-cursor zou
+   suggereren dat er iets loopt en dat de knop vanzelf terugkomt. */
+.knop[data-wacht-op-lijst="ja"]:disabled {
+    cursor: not-allowed;
 }
 
 .knop--primair {

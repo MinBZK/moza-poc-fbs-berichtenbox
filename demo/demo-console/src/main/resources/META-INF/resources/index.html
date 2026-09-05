@@ -46,6 +46,13 @@
         </details>
       </div>
 
+      <div class="melding melding--fout" id="inrichting" role="status" aria-live="polite" hidden>
+        <p class="melding__tekst">Het paneel kon de omgeving niet lezen; knoppen die daarvan
+          afhangen blijven uit. Het paneel probeert het zelf opnieuw.</p>
+        <button type="button" class="knop knop--subtiel" data-actie="omgeving-opnieuw">Nu opnieuw
+          proberen</button>
+      </div>
+
       <div class="tabs" role="tablist" aria-label="Bediening">
         <button type="button" class="tab" role="tab" id="tab-demo"
                 aria-controls="blad-demo" aria-selected="true">Demo</button>
@@ -90,7 +97,8 @@
         <div class="groep">
           <p class="groep__kop">Losse berichten</p>
           <label class="veld">Aantal
-            <input id="aantal" type="number" value="10" min="1" max="500">
+            <input id="aantal" type="number" value="10" min="1" max="500" required
+                   data-veldnaam="het aantal losse berichten">
           </label>
           <div class="knoppen">
             <button type="button" class="knop" data-methode="POST" data-pad="/api/demo/random?aantal={aantal}"
@@ -101,13 +109,17 @@
         <div class="groep">
           <p class="groep__kop">Bericht voor één persona</p>
           <label class="veld">Persona
-            <select id="berichtPersona"></select>
+            <select id="berichtPersona" data-veldnaam="de persona voor het bericht" disabled>
+              <option value="">persona&rsquo;s laden&hellip;</option>
+            </select>
           </label>
           <label class="veld">Aantal
-            <input id="berichtAantal" type="number" value="1" min="1" max="100">
+            <input id="berichtAantal" type="number" value="1" min="1" max="100" required
+                   data-veldnaam="het aantal berichten voor deze persona">
           </label>
           <div class="knoppen">
-            <button type="button" class="knop" id="berichtKnop" data-methode="POST"
+            <button type="button" class="knop" id="berichtKnop" data-methode="POST" disabled
+                    data-wacht-op-lijst="ja"
                     data-pad="/api/demo/bericht?persona={berichtPersona}&amp;aantal={berichtAantal}"
                     data-samenvatting="vulling">Bericht plaatsen</button>
           </div>
@@ -120,7 +132,8 @@
         <div class="groep">
           <p class="groep__kop">Stroom</p>
           <label class="veld">Elke
-            <input id="tempoInterval" type="number" value="10" min="1" max="3600"> seconden
+            <input id="tempoInterval" type="number" value="10" min="1" max="3600" required
+                   data-veldnaam="het interval van de stroom"> seconden
           </label>
           <div class="knoppen">
             <button type="button" class="knop" data-methode="POST"
@@ -213,10 +226,12 @@
         <div class="groep">
           <p class="groep__kop">Ontdubbeling</p>
           <label class="veld">Persona
-            <select id="ontdubbelPersona"></select>
+            <select id="ontdubbelPersona" data-veldnaam="de persona voor de ontdubbeling" disabled>
+              <option value="">persona&rsquo;s laden&hellip;</option>
+            </select>
           </label>
           <div class="knoppen">
-            <button type="button" class="knop" data-methode="POST"
+            <button type="button" class="knop" data-methode="POST" disabled data-wacht-op-lijst="ja"
                     data-pad="/api/demo/ontdubbeling?bsn={ontdubbelPersona}"
                     data-samenvatting="ontdubbeling">Tweemaal hetzelfde event
               sturen<span class="scenario">#13</span></button>
@@ -228,7 +243,8 @@
         <div class="groep" id="groep-simulator">
           <p class="groep__kop">Gesimuleerde magazijnen</p>
           <label class="veld">Actief aantal
-            <input id="actiefAantal" type="number" value="2" min="0">
+            <input id="actiefAantal" type="number" value="2" min="0" required
+                   data-veldnaam="het aantal actieve gesimuleerde magazijnen">
           </label>
           <div class="knoppen">
             <button type="button" class="knop" data-methode="POST"
