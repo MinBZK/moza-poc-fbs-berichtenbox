@@ -19,8 +19,8 @@ class OntdubbelingResource(
 
     /**
      * Op de persona-`id`, en bedieningsfouten als `WebApplicationException` met `@DefaultValue("")`:
-     * om dezelfde redenen als bij `POST /api/demo/bericht`, waar ze uitgeschreven staan. Het nummer
-     * komt uit dezelfde ingerichte lijst als de keuzelijst van het paneel.
+     * om dezelfde redenen als bij `POST /api/demo/bericht`, waar ze uitgeschreven staan. De
+     * ontvanger wordt hier opgezocht in dezelfde ingerichte lijst die de keuzelijst vult.
      */
     @POST
     fun demonstreer(@QueryParam("persona") @DefaultValue("") persona: String): OntdubbelingResultaat {

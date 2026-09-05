@@ -5,19 +5,29 @@ import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 
 /**
- * Acht tot en met negentien cijfers in één waarde: de lengte van een KVK-nummer, BSN of RSIN.
- * Twintig cijfers is een OIN, een publiek organisatienummer.
+ * Vanaf hoeveel cijfers een waarde als identificatienummer telt. Acht is de kortste vorm die
+ * meetelt — een KVK-nummer; BSN en RSIN zijn er negen — en een bovengrens is er bewust niet: een
+ * geplakte `<OIN>-<BSN>` telt er negenentwintig en draagt het nummer net zo goed.
  *
  * Geteld over de héle waarde en niet als aaneengesloten reeks: `999-993-653` is even goed een
  * burgerservicenummer, en een scheidingsteken is precies wat er tussen staat bij wie het uit een
  * ander scherm overneemt.
  */
-private val NUMMERLENGTES = 8..19
+private const val NUMMER_VANAF = 8
 
 /**
- * Wat onverkort in een melding mag. Ruim genoeg voor elke sleutel die `demo.personas.*` kan dragen,
- * maar zonder witruimte, aanhalingstekens of regeleindes: een melding gaat naar de applicatielog, en
- * een regeleinde zou daar een tweede logregel kunnen verzinnen.
+ * De enige uitzondering: een waarde die niets anders is dan een OIN. Dat is een publiek
+ * organisatienummer — `DemoPersona` staat het als id uitdrukkelijk toe — en het mag dus voluit in
+ * een melding. Op de vorm en niet op een cijfertelling, zodat een OIN mét iets erachter geplakt er
+ * niet alsnog onder valt.
+ */
+private val OIN = Regex("""\d{20}""")
+
+/**
+ * Wat onverkort in een melding mag: geen witruimte, aanhalingstekens of regeleindes, en begrensd op
+ * lengte. Een melding gaat naar de applicatielog, waar een regeleinde een tweede logregel zou kunnen
+ * verzinnen. Een persona-id daarbuiten is niet verboden — de personadienst bepaalt wat een sleutel
+ * mag zijn — die wordt alleen benoemd in plaats van geciteerd.
  */
 private val VEILIG_IN_MELDING = Regex("""[\w.@+-]{1,64}""")
 
@@ -35,7 +45,7 @@ private val VEILIG_IN_MELDING = Regex("""[\w.@+-]{1,64}""")
  * van de personadienst.
  */
 internal fun onbekendePersona(persona: String, kiesEenPersona: String): WebApplicationException =
-    if (persona.count(Char::isDigit) in NUMMERLENGTES) {
+    if (persona.count(Char::isDigit) >= NUMMER_VANAF && !OIN.matches(persona)) {
         BadRequestException("een persona wordt met zijn naam aangewezen, niet met een nummer; $kiesEenPersona")
     } else {
         NotFoundException("onbekende persona ${aanduiding(persona)}; $kiesEenPersona")

@@ -775,9 +775,9 @@ function vulPersonas(personas) {
         return;
     }
 
-    const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
+    if (!heeftAlleVelden('personas', personas, ['id', 'ontvanger'], keuze, knop)) return;
 
-    if (!heeftIedereenEenId('personas', metBsn, keuze, knop)) return;
+    const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
 
     vulKeuze(
         keuze,
@@ -789,18 +789,32 @@ function vulPersonas(personas) {
 
 /* Zonder `id` wordt de optie-wáárde de string "undefined" terwijl het label gewoon klopt: de lijst
  * ziet er goed uit, de knop blijft levend, en zijn 404 wijst naar de persona-inrichting waar niets
- * mis is.
+ * mis is. Zonder `ontvanger` gooit het filter hierboven een TypeError, die de aanroeper opvangt en
+ * als "niet op te halen" toont — dezelfde verkeerde diagnose, in de andere richting. Vandaar een
+ * lijst met de velden die de aanroeper nodig heeft: `berichtPersonas` draagt bewust geen ontvanger.
  *
  * Een eigen melding en niet die van `meldOnbruikbareLijst`: de lijst kwám binnen en was wél op te
  * halen, er ontbreekt een veld. Met de verkeerde reden afhaken stuurt de bediener de andere kant
- * op. Het label van de eerste die het mist wijst de inrichting aan; de lijst zelf blijft uit de
+ * op. Het label van de eerste die iets mist wijst de inrichting aan; de lijst zelf blijft uit de
  * console-regel, want daar staan de identificatienummers in. */
-function heeftIedereenEenId(veld, personas, keuze, knop) {
-    const zonderId = personas.find((persona) => !persona.id);
+function heeftAlleVelden(bron, personas, velden, keuze, knop) {
+    // `!persona ||` vóór de rest: een null in de lijst zou anders een TypeError geven, die de
+    // aanroeper opvangt en als "niet als lijst binnengekomen" toont — weer de verkeerde diagnose.
+    // En `findIndex` en niet `find`: die geeft bij precies dat null-element een falsy waarde terug,
+    // waarna de regel hieronder de lijst goedkeurt.
+    const plek = personas.findIndex((persona) => !persona || velden.some((veld) => !persona[veld]));
 
-    if (!zonderId) return true;
+    if (plek === -1) return true;
 
-    console.error('[bediening] ' + veld + ': persona "' + zonderId.label + '" heeft geen id');
+    const onvolledig = personas[plek];
+
+    // Wélk veld, want de twee wijzen naar verschillende plekken in de inrichting: een ontbrekende
+    // `id` naar de sleutel onder demo.personas, een ontbrekende `ontvanger` naar type en waarde.
+    const gemist = (onvolledig && velden.find((veld) => !onvolledig[veld])) || 'de persona zelf';
+    const wie = (onvolledig && onvolledig.label) || 'zonder label';
+
+    console.error('[bediening] ' + bron + ': persona "' + wie + '" mist ' + gemist);
+    toonMelding('In de persona-lijst ' + bron + ' mist "' + wie + '" het veld ' + gemist, 'fout', null);
     meldLijstOnbekend(keuze, knop, 'persona-lijst onvolledig');
 
     return false;
@@ -818,7 +832,7 @@ function vulBerichtPersonas(personas) {
         return;
     }
 
-    if (!heeftIedereenEenId('berichtPersonas', personas, keuze, knop)) return;
+    if (!heeftAlleVelden('berichtPersonas', personas, ['id'], keuze, knop)) return;
 
     vulKeuze(
         keuze,
@@ -837,7 +851,11 @@ function vulBerichtPersonas(personas) {
 function meldOnbruikbareLijst(veld, waarde, keuze, knop) {
     // De vorm en niet de waarde: die kan het antwoord zijn dát binnenkwam, met de
     // identificatienummers van de persona's erin, en de browserconsole is daar geen plek voor.
-    console.error('[bediening] ' + veld + ' is niet als lijst binnengekomen, maar ' + typeof waarde);
+    // `null` apart, want `typeof null` is `'object'` — juist het onderscheid dat hierboven de reden
+    // is om altijd te loggen zou anders wegvallen.
+    const vorm = waarde === null ? 'null' : typeof waarde;
+
+    console.error('[bediening] ' + veld + ' is niet als lijst binnengekomen, maar ' + vorm);
 
     meldLijstOnbekend(keuze, knop);
 }
@@ -895,11 +913,13 @@ function vulKeuze(keuze, knop, opties, leegTekst) {
      * Hier afgedwongen en niet bij elke aanroeper: dit is de enige plek waar een keuzelijst van dit
      * script zijn opties krijgt, dus een volgende lijst erft de regel vanzelf.
      *
-     * Een kale reeks of `TYPE:reeks` en niet elke waarde mét cijfers erin: dit vangt de vergissing
-     * waarbij een lijst het identificatienummer als waarde neemt in plaats van de id, en laat een
-     * ingerichte id die toevallig cijfers draagt met rust. Het label mag in de melding, de waarde
-     * niet. */
-    const metNummer = opties.find((optie) => /^(?:[A-Za-z]+:)?\d{8,}$/.test(String(optie.waarde)));
+     * Bewust smaller dan de weigering aan de serverkant: die kijkt naar een aangeboden waarde en
+     * moet elke schrijfwijze aankunnen, deze vangt de vergissing waarbij een lijst het
+     * identificatienummer als waarde neemt in plaats van de id. Dat is een kale reeks of
+     * `TYPE:reeks`, geankerd, zodat een ingerichte id die toevallig cijfers draagt met rust blijft.
+     * Acht of negen cijfers: een KVK-nummer, BSN of RSIN. Een OIN is er twintig en publiek — een
+     * keuzelijst van magazijnen mag die gewoon dragen. Het label mag in de melding, de waarde niet. */
+    const metNummer = opties.find((optie) => /^(?:[A-Za-z]+:)?\d{8,9}$/.test(String(optie.waarde)));
 
     if (metNummer) {
         console.error('[bediening] keuzelijst ' + keuze.id + ': optie "' + metNummer.label + '" draagt een nummer');
@@ -916,6 +936,10 @@ function vulKeuze(keuze, knop, opties, leegTekst) {
     if (!opties.length) {
         const leeg = document.createElement('option');
 
+        // Lege `value` om dezelfde reden als in meldLijstOnbekend: een optie zonder dat attribuut
+        // draagt haar tékst als waarde, en dan stuurt de knop die zin als persona-id mee. Dat de
+        // knop hieronder uit gaat is de eerste borging; dit is de tweede.
+        leeg.value = '';
         leeg.textContent = leegTekst;
 
         keuze.append(leeg);

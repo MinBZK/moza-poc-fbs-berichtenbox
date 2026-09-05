@@ -301,8 +301,8 @@ class PaneelContractTest {
 
     /**
      * Een lege of witruimte-waarde hoort er hetzelfde uit te zien als een ontbrekende parameter:
-     * voor de bediener is het dezelfde vergissing. Zonder eigen afhandeling zijn het drie
-     * verschillende antwoorden, waarvan één een HTTP 500.
+     * voor de bediener is het dezelfde vergissing. Zonder eigen afhandeling is het ontbrekende geval
+     * een HTTP 500 en zijn de twee andere een 404 — drie manieren om dezelfde vergissing te tonen.
      */
     @ParameterizedTest
     @ValueSource(strings = ["", "?persona=", "?persona=%20"])
@@ -319,10 +319,6 @@ class PaneelContractTest {
     }
 
     /**
-     * Een aanroep met het nummer erin is het te verwachten verkeerde gebruik: het antwoord van de
-     * Persona's-knop toont `ontvanger` voluit, dus de bediener heeft het nummer voor zich. De
-     * melding mag het dan niet terugciteren — `DemoFoutMapper` logt elke weigering onverkort.
-     *
      * De cijfers uit het antwoord gefilterd en niet de tekst vergeleken: `999-993-653` draagt
      * hetzelfde nummer, en juist die schrijfwijze glipt langs een toets op de aaneengesloten reeks.
      */
@@ -504,13 +500,11 @@ class PaneelContractTest {
         /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
         const val PIETERSEN_BSN = "999993653"
 
-        // Afgeleid van de constante en niet overgeschreven: wie de grens verzet, verzet anders wel
-        // het buiten-bereik-geval en laat de bovengrens zelf als binnenwaarde achter.
         /**
          * Hoe een bediener het nummer in de parameter kan krijgen: kaal, met witruimte of een punt
          * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel uit `ontvanger`, met een
-         * voorloopnul, en met de scheidingstekens die de allowlist voor een id juist toestaat.
-         * Alle acht afgeleid van de constante, zodat er geen tweede nummer in dit bestand staat.
+         * voorloopnul, en met scheidingstekens ertussen. Alle acht afgeleid van de constante, zodat
+         * er geen tweede nummer in dit bestand staat.
          */
         @JvmStatic
         fun schrijfwijzenVanEenNummer() = listOf(
@@ -524,6 +518,8 @@ class PaneelContractTest {
             PIETERSEN_BSN.chunked(3).joinToString("_"),
         )
 
+        // Afgeleid van de constante en niet overgeschreven: wie de grens verzet, verzet anders wel
+        // het buiten-bereik-geval en laat de bovengrens zelf als binnenwaarde achter.
         @JvmStatic
         fun buitenDeGrenzen() = listOf(0, -1, DemoResource.MAX_BERICHTEN + 1)
 

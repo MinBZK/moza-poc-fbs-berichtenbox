@@ -11,13 +11,15 @@ import org.junit.jupiter.params.provider.ValueSource
 
 /**
  * De weigering die twee resources delen. Over HTTP toetst `PaneelContractTest` dat het nummer niet
- * terugkomt; hier staan de randen die daar niet uit te lokken zijn, zoals een OIN en een waarde met
- * een regeleinde erin.
+ * terugkomt; hier staan de randen rechtstreeks op de functie, zonder de omweg van een
+ * `@QuarkusTest` — een OIN, de lengtegrens, en een waarde met een regeleinde erin.
  */
 class PersonaAanduidingTest {
 
     @ParameterizedTest
-    @ValueSource(strings = [BSN, "999-993-653", "999_993_653", "0$BSN", "BSN:$BSN", " $BSN ", KVK, RSIN])
+    @ValueSource(
+        strings = [BSN, "999-993-653", "999_993_653", "0$BSN", "BSN:$BSN", " $BSN ", KVK, RSIN, "$OIN-$BSN"],
+    )
     fun `een aanduiding met een identificatienummer wordt geweigerd zonder hem te herhalen`(waarde: String) {
         val fout = onbekendePersona(waarde, TERUGWEG)
 
@@ -31,8 +33,8 @@ class PersonaAanduidingTest {
 
     /**
      * Twintig cijfers is een OIN: publiek, geen PII, en `DemoPersona` staat zo'n id uitdrukkelijk
-     * toe. Zou deze grens ontbreken, dan gaf dit adres 400 op een persona die het paneel gewoon in
-     * zijn keuzelijst aanbiedt.
+     * toe. Zonder deze bovengrens gaf dit adres 400 op een id dat de personadienst zelf accepteert
+     * — een tweede mening over wat een geldige id is.
      */
     @Test
     fun `een OIN is geen reden om te weigeren`() {

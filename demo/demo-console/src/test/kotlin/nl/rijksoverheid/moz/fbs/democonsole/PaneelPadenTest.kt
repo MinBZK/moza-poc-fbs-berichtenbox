@@ -28,10 +28,13 @@ class PaneelPadenTest {
      * Het script zonder commentaar. De tellingen hieronder zoeken naar code-constructies, en een
      * comment die een functie noemt — precies wat dit project aanmoedigt — zou anders als een extra
      * aanroep tellen. De test faalt dan met de omgekeerde diagnose van wat er aan de hand is.
+     *
+     * De `(?<!:)` houdt een URL heel: zonder die uitzondering snijdt `https://…` de rest van zijn
+     * regel weg, en dan telt een echte aanroep juist te wéinig — dezelfde verkeerde diagnose.
      */
     private val code: String = script
         .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
-        .replace(Regex("""//.*"""), "")
+        .replace(Regex("""(?<!:)//.*"""), "")
 
     private val paden: List<String> = uitPaneel("""data-pad="([^"]+)"""")
 
@@ -198,19 +201,21 @@ class PaneelPadenTest {
      * Het nummer komt er net zo goed in zonder dat een adres het toont: een keuzelijst die het als
      * optie-waarde zet, vult `{ontdubbelPersona}` ermee. Vandaar over de héle inhoud.
      *
-     * De directory uitlezen en geen vaste lijst: een pagina die er later bijkomt hoort er vanzelf
-     * onder te vallen, anders bewaakt deze test precies de bestanden waarin het probleem al opgelost
-     * is.
+     * De directory uitlezen en geen vaste lijst: een pagina die er later bijkomt — ook in een
+     * submap — hoort er vanzelf onder te vallen, anders bewaakt deze test precies de bestanden
+     * waarin het probleem al opgelost is.
      */
     @Test
     fun `geen pagina van het paneel draagt een identificatienummer`() {
         // Acht of negen cijfers is de vorm van een KVK-nummer, BSN of RSIN; een langere reeks blijft
         // toegestaan, want een OIN is publiek.
         val nummer = Regex("""(?<!\d)\d{8,9}(?!\d)""")
-        // Recursief: een pagina die later in een submap belandt hoort er net zo goed onder te vallen.
         val paginas = File(RESOURCES).walkTopDown().filter { it.extension in PAGINA_TYPES }.toList()
 
-        assertTrue(paginas.any { it.name == "index.html" }, "geen pagina's gevonden onder $RESOURCES")
+        assertTrue(
+            paginas.any { it.name == "index.html" },
+            "index.html niet gevonden onder $RESOURCES; dan meet deze test de verkeerde bestanden",
+        )
 
         // Eerst bewijzen dat de meting onderscheidt: de vorm die deze test moet vangen én de vorm
         // die mag blijven. Zonder deze regels zou een regex die alles of niets matcht even groen zijn.
@@ -261,7 +266,7 @@ class PaneelPadenTest {
     }
 
     /**
-     * Elke keuzelijst loopt door dezelfde twee hulpfuncties: `heeftIedereenEenId` weigert een lijst
+     * Elke keuzelijst loopt door dezelfde twee hulpfuncties: `heeftAlleVelden` weigert een lijst
      * waarin een persona zijn id mist, `vulKeuze` bouwt de opties en weigert een cijferreeks als
      * waarde. Bouwt een lijst zijn opties zelf op, dan valt hij buiten allebei — en de controle
      * hierboven ziet dat niet, want er is dan geen `waarde:` meer te vinden.
@@ -278,7 +283,7 @@ class PaneelPadenTest {
         assertEquals(keuzelijsten, OPTIEWAARDE.findAll(code).count(), "een optie-waarde buiten een keuzelijst om")
         assertEquals(
             keuzelijsten,
-            aanroepen("heeftIedereenEenId"),
+            aanroepen("heeftAlleVelden"),
             "een keuzelijst zonder de controle op ontbrekende id's",
         )
     }
