@@ -19,9 +19,9 @@ import java.util.Properties
  */
 class PaneelPadenTest {
 
-    private val paneel: String = File(PANEEL).readText()
+    private val paneel: String = PaneelBestanden.paneel()
 
-    private val script: String = File(SCRIPT).readText()
+    private val script: String = PaneelBestanden.script()
 
     private val paden: List<String> = uitPaneel("""data-pad="([^"]+)"""")
 
@@ -153,9 +153,9 @@ class PaneelPadenTest {
 
     private companion object {
 
-        const val PANEEL = "src/main/resources/META-INF/resources/index.html"
+        const val PANEEL = PaneelBestanden.PANEEL_PAD
 
-        const val SCRIPT = "src/main/resources/META-INF/resources/bediening.js"
+        const val SCRIPT = PaneelBestanden.SCRIPT_PAD
 
         const val PROPERTIES = "src/main/resources/application.properties"
     }

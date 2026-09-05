@@ -15,7 +15,15 @@ object PaneelBestanden {
 
     const val SCRIPT_PAD = "src/main/resources/META-INF/resources/bediening.js"
 
+    const val STIJL_PAD = "src/main/resources/META-INF/resources/bediening.css"
+
+    const val LEESMIJ_PAD = "README.md"
+
     fun paneel(): String = File(PANEEL_PAD).readText()
 
     fun script(): String = File(SCRIPT_PAD).readText()
+
+    fun stijl(): String = File(STIJL_PAD).readText()
+
+    fun leesmij(): String = File(LEESMIJ_PAD).readText()
 }

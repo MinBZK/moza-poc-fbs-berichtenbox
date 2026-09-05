@@ -15,7 +15,7 @@ storing: er is niets om aan te trekken.
    riep `reportValidity()` aan. Voor een veld dat leeg maar geldig is (geen `required`) toont de
    browser dan niets, en `voerUit` keerde terug vóór `zetUitkomst()`/`toonMelding()`.
 2. **Een keuzelijst die nog niet gevuld is.** `pasOmgevingToe()` draaide precies één keer bij het
-   laden. `lees()` kende geen tijdslimiet en geen tweede poging, dus een uitvraag die bleef hangen
+   laden. `lees()` kende geen timeout en geen tweede poging, dus een uitvraag die bleef hangen
    liet de knoppen onbeperkt dood achter terwijl ze er bruikbaar uitzagen — de toestandsbalk werkte
    zichzelf wél bij, dus de pagina oogde gezond.
 
@@ -48,6 +48,9 @@ elk een andere oorzaak hebben:
 - **veld is leeg** → "Vul eerst … in"
 - **veld is ongeldig** → "… is niet geldig"
 
+Leeg en ongeldig komen samen in één melding: een knop met allebei zou anders na het invullen van het
+ene een tweede, andere afwijzing geven.
+
 `voerUit` toont die reden via `toonMelding()` *en* zet het merkteken op de knop, zodat beide kanalen
 antwoord geven. De naam in de melding komt uit `data-veldnaam` op het element zelf: de labels in de
 opmaak zijn niet bruikbaar als zin ("Elke … seconden"), en twee groepen dragen allebei een veld dat
@@ -60,16 +63,34 @@ De twee knoppen die aan een keuzelijst hangen staan in de opmaak op `disabled` m
 `data-wacht-op-lijst="ja"`, en hun keuzelijst draagt een optie "persona's laden…". `vulKeuze` haalt
 die vlag weg zodra er echte opties zijn. Voorheen stonden ze enabled boven een lege lijst.
 
-### Een tijdslimiet op het uitlezen, en een tweede poging op het inrichten
+### Een timeout op het uitlezen, en een tweede poging op het inrichten
 
 `lees()` krijgt een `AbortController` met `LEES_TIMEOUT_MS = 4000` — bewust korter dan `POLL_MS`
-(5000), zodat een vastgelopen ronde afgelopen is voordat de volgende begint.
+(5000), zodat een vastgelopen ronde afgelopen is voordat de volgende begint. De catch-tak kijkt naar
+`fout.name === 'AbortError'` en houdt de HTTP-status vast: breekt de timer af tijdens het lezen van
+de body, dan is die status het enige dat de oorzaak nog aanwijst.
 
 `pasOmgevingToe()` geeft nu terug óf de omgeving gelezen is. `richtIn()` eromheen plant bij een
 mislukking een nieuwe poging (2s, 5s, 15s, daarna elke 30s) en toont een blok met een knop "Nu
 opnieuw proberen". Automatisch én handmatig, want tijdens een demo is wachten op een lus geen optie
-en is de knop het enige dat zeker werkt. Bij succes ná een mislukking verdwijnt het blok met een
-melding; bij succes meteen bij het laden zwijgt het paneel — daar valt niets te melden.
+en is de knop het enige dat zeker werkt.
+
+Die knop mag zelf niet stil zijn — precies de storing die dit issue beschrijft. Hij gaat daarom bij
+de start uit met de tekst "Bezig de omgeving te lezen…" (een uitlezing duurt tot de timeout, dus
+zonder dat lijkt een druk secondenlang niets te doen), en het blok zegt na een mislukking wanneer de
+volgende poging komt. `inrichtLoopt` sluit een tweede poging naast een lopende uit: die twee zouden
+elkaars uitkomst overschrijven, en de laatste die terugkomt is niet per se de meest actuele.
+Handmatige pogingen tellen niet mee in de oplopende wachttijd.
+
+Het blok staat ín het paneel en een ingeklapt paneel is `display: none`; de klap-knop ernaast krijgt
+daarom een stip zolang de inrichting niet compleet is.
+
+### Eén vangnet voor wat buiten een eigen try/catch omvalt
+
+`voerUit`, `vraagBevestiging` en `verversToestand` worden fire-and-forget aangeroepen vanuit de
+click-listener. Een throw of een afgewezen promise daaruit belandde alleen in de browserconsole — en
+wie een demo geeft heeft geen devtools open, dus die ziet weer een knop die niets doet. Twee
+listeners op `window` (`error`, `unhandledrejection`) zetten dat in de meldingsbalk.
 
 ### Een onbekende losse actie meldt zichzelf
 
@@ -80,12 +101,22 @@ een sleutel in `LOSSE_ACTIES`.
 
 ## Verificatie
 
-`bediening.js` wordt in deze repo statisch getoetst (geen node/jsdom); de nieuwe invarianten staan
-in `PaneelTerugkoppelingTest` en in twee aanvullingen op `PaneelPadenTest`:
+`bediening.js` wordt in deze repo statisch getoetst (geen node/jsdom in de build); de nieuwe
+invarianten staan in `PaneelTerugkoppelingTest`, dat de bestanden via `PaneelBestanden` van schijf
+leest. Onder meer:
 
-- elk `{veld}` in een knop-adres wijst naar een element met een `data-veldnaam`
+- elk `{veld}` in een knop-adres wijst naar een element met een `data-veldnaam`, en `veldnaam()`
+  leest dat attribuut ook echt
 - elk getalveld achter een knop-adres draagt `required`
+- elke vroege uitgang in `voerUit` laat evenveel merktekens achter als er uitgangen zijn
 - een knop achter een keuzelijst staat in de opmaak uit, met `data-wacht-op-lijst`
-- alleen `werkKnopBij` schrijft `knop.disabled`
-- `lees()` draagt een tijdslimiet die korter is dan de poll-lus
-- elke `data-actie` in de opmaak bestaat in `LOSSE_ACTIES`
+- alleen `werkKnopBij` schrijft `knop.disabled`, en het weegt allebei de vlaggen
+- `lees()` geeft zijn `fetch` een `signal` mee en houdt zijn timeout onder de poll-lus
+- de wachttijden lopen strikt op, worden geklemd, en staan zo ook in de README
+- `richtIn` sluit twee gelijktijdige pogingen uit en telt handmatige pogingen niet mee
+- elke `data-actie` in de opmaak bestaat in `LOSSE_ACTIES`, en de lookup gebruikt `Object.hasOwn`
+- elk element dat het script met `getElementById` opzoekt, bestaat in de opmaak
+
+De drie uitkomsten van `vulPadIn` en de eigenaars-splitsing zijn daarnaast lokaal doorgemeten met
+een wegwerp-harnas op node; dat harnas is bewust niet toegevoegd, want een JS-toolchain in deze
+build is een eigen besluit.

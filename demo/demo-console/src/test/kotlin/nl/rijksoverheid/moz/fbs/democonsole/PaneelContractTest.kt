@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
-import java.io.File
 import java.net.URI
 import java.net.URL
 import java.net.http.HttpClient
@@ -320,7 +319,7 @@ class PaneelContractTest {
     @Test
     fun `elk pad achter een knop komt uit op een route van deze applicatie`() {
         val paden = Regex("""data-pad="([^"]+)"""")
-            .findAll(File("src/main/resources/META-INF/resources/index.html").readText())
+            .findAll(PaneelBestanden.paneel())
             .map { it.groupValues[1].substringBefore('?').replace(Regex("""\{[^}]+}"""), "1") }
             .toSet()
 
