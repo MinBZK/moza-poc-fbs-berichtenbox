@@ -58,8 +58,8 @@ class PaneelTerugkoppelingTest {
     @Test
     fun `het script noemt het veld bij die naam`() {
         assertTrue(
-            "dataset.veldnaam" in functie("veldnaam"),
-            "veldnaam() leest data-veldnaam niet en valt dus altijd terug op de id",
+            "veld.dataset.veldnaam || veld.id" in functie("veldnaam"),
+            "veldnaam() valt terug op de id in plaats van het attribuut te gebruiken",
         )
     }
 
@@ -121,9 +121,14 @@ class PaneelTerugkoppelingTest {
     fun `wat een druk op een knop oplevert wordt niet ontdubbeld`() {
         val melden = functie("meldOpmaakfout")
 
-        assertTrue("ontdubbeldInLus.has(wat)" in melden, "de ontdubbeling kent het verschil niet")
-        assertTrue("ontdubbeldInLus.add(wat)" in melden, "de ontdubbeling wapent zich nooit")
-        assertTrue("toonMelding(" in melden, "een opmaakfout komt niet verder dan de console")
+        // Binnen de vlag-tak en niet ergens in de functie: zonder die afbakening blijft deze test
+        // groen als de `if (uitDeLus)` eromheen verdwijnt, en dan wordt ook een melding uit een klik
+        // ontdubbeld — precies de stilte waar deze wijziging over gaat.
+        val binnenVlag = melden.substringAfter("if (uitDeLus) {").substringBefore("    }")
+
+        assertTrue("ontdubbeldInLus.has(wat)" in binnenVlag, "de ontdubbeling geldt ook voor een druk op een knop")
+        assertTrue("ontdubbeldInLus.add(wat)" in binnenVlag, "een klik-melding komt in de ontdubbelset terecht")
+        assertTrue("+ wat +" in melden, "de melding noemt niet wélk element ontbreekt")
         assertTrue("registreerPaneelfout(" in melden, "de storing wordt niet vastgelegd")
 
         val registreren = functie("registreerPaneelfout")
@@ -140,6 +145,13 @@ class PaneelTerugkoppelingTest {
             Regex("""meldOpmaakfout\(opsom\(mist\), true\)""").containsMatchIn(script),
             "de keuzelijst uit de lus wordt niet ontdubbeld",
         )
+
+        // Beide helften apart: samen zeggen ze wélke bediening dood is, en dat is de reden dat deze
+        // functie bestaat.
+        val ontbrekend = functie("meldOntbrekendeLijst")
+
+        assertTrue("if (!keuze) mist.push(" in ontbrekend, "een ontbrekende keuzelijst wordt niet genoemd")
+        assertTrue("if (!knop) mist.push(" in ontbrekend, "een ontbrekende knop wordt niet genoemd")
         // Alleen wat de lus al zei: de storingen zelf blijven staan, want een uitlezing die een
         // ontbrekend invoerveld niet eens bekijkt, verhelpt het ook niet.
         assertTrue(
@@ -147,14 +159,21 @@ class PaneelTerugkoppelingTest {
             "een handmatige poging herhaalt niet wat de lus al meldde",
         )
         assertTrue(
-            "openstaandePaneelfouten.clear()" !in script,
+            Regex("""openstaandePaneelfouten\.(clear|delete)\(""").containsMatchIn(script).not(),
             "een geslaagde poging wist storingen die ze niet gecontroleerd heeft",
         )
 
-        // Anders noemt het paneel zichzelf compleet terwijl er nog een storing openstaat.
+        // Anders noemt het paneel zichzelf compleet terwijl er nog een storing openstaat. De tak
+        // zelf, want de losse uitdrukking laat zowel een omgekeerde toets als één gedeelde tekst door.
+        val bevestiging = functie("richtIn").substringAfter("const compleet =").substringBefore("inrichtPoging = 0;")
+
+        assertTrue("openstaandePaneelfouten.size === 0" in bevestiging, "de bevestiging kijkt niet wat er openstaat")
+        assertTrue("compleet ? 'goed' : 'let-op'" in bevestiging, "een halve inrichting leest als een geslaagde")
+        assertTrue("het paneel is compleet" in bevestiging, "de bevestiging bij een complete inrichting ontbreekt")
+        assertTrue("werkt niet" in bevestiging, "de bevestiging bij een halve inrichting ontbreekt")
         assertTrue(
-            "openstaandePaneelfouten.size === 0" in functie("richtIn"),
-            "de bevestiging kijkt niet of er nog iets openstaat",
+            "if (inrichtPoging > 0 || metHand)" in functie("richtIn"),
+            "een gewone start meldt ongevraagd dat de omgeving gelezen is",
         )
 
         // Anoniem melden maakt twee dode bedieningen tot één melding, en de tweede verdwijnt dan in
@@ -207,6 +226,14 @@ class PaneelTerugkoppelingTest {
      * de persona's wijst in plaats van naar de mislukte uitlezing.
      */
     @Test
+    fun `een onleesbare keuzelijst zet zijn knop uit`() {
+        assertTrue(
+            "zetWachtOpLijst(knop, true)" in functie("meldLijstOnbekend"),
+            "een knop boven een onleesbare lijst blijft indrukbaar",
+        )
+    }
+
+    @Test
     fun `een keuzelijst zonder bruikbare opties draagt een lege waarde`() {
         val vullen = functie("vulKeuze")
 
@@ -253,8 +280,10 @@ class PaneelTerugkoppelingTest {
     fun `werkKnopBij weegt allebei de redenen, en allebei worden ze gezet`() {
         val afleiding = functie("werkKnopBij")
 
-        assertTrue("actieLoopt" in afleiding, "werkKnopBij weegt de lopende actie niet mee")
-        assertTrue("wachtOpLijst" in afleiding, "werkKnopBij weegt de wachtende keuzelijst niet mee")
+        assertTrue(
+            Regex("""actieLoopt === 'ja' \|\| knop\.dataset\.wachtOpLijst === 'ja'""").containsMatchIn(afleiding),
+            "werkKnopBij weegt de twee redenen niet als losse redenen; met && staat een wachtende knop aan",
+        )
 
         assertTrue("zetActieLoopt(knop, true)" in functie("voerUit"), "voerUit meldt de lopende actie niet")
         assertTrue("zetActieLoopt(knop, false)" in functie("voerUit"), "voerUit meldt het einde van de actie niet")
@@ -283,13 +312,13 @@ class PaneelTerugkoppelingTest {
             Regex("""fetch\([^)]*signal:""").containsMatchIn(uitlezen),
             "lees() geeft zijn fetch geen signal mee en breekt dus nooit af",
         )
-        assertTrue("clearTimeout" in uitlezen, "lees() laat zijn timer staan na een geslaagde uitlezing")
+        assertTrue("clearTimeout(timer)" in uitlezen, "lees() laat zijn timer staan na een geslaagde uitlezing")
 
         // Op de fout zelf en met de status erbij: `signal.aborted` staat ook op true wanneer de timer
         // net ná een echte fout afgaat, en een status die tijdens het lezen van de body verloren gaat
         // is juist het enige aanknopingspunt.
         assertTrue("AbortError" in uitlezen, "lees() leidt een afgebroken uitlezing af uit het signal")
-        assertTrue("status" in uitlezen, "lees() houdt de HTTP-status niet vast")
+        assertTrue("status = respons.status" in uitlezen, "lees() houdt de HTTP-status niet vast")
     }
 
     /**
@@ -363,10 +392,13 @@ class PaneelTerugkoppelingTest {
         )
 
         // Verborgen tot er iets mis is: anders opent elke demo met een rood foutblok.
-        assertTrue(
-            Regex("""<div[^>]*\sid="inrichting"[^>]*\shidden""").containsMatchIn(paneel),
-            "het foutblok van de inrichting staat bij het laden open",
-        )
+        val blok = Regex("""<div[^>]*\sid="inrichting"[^>]*>""").find(paneel)?.value.orEmpty()
+
+        assertTrue("hidden" in blok, "het foutblok van de inrichting staat bij het laden open")
+
+        // Het blok verschijnt ná het laden; zonder deze rol hoort een schermlezer dat niet.
+        assertTrue("role=\"status\"" in blok, "het foutblok kondigt zichzelf niet aan")
+        assertTrue("aria-live" in blok, "het foutblok kondigt zichzelf niet aan")
     }
 
     /**
@@ -393,7 +425,13 @@ class PaneelTerugkoppelingTest {
             "const opnieuwGepland = !metHand || inrichtTimer === null;" in mislukt,
             "de keuze om opnieuw te plannen staat er niet meer; een dode lus valt zo niet op",
         )
-        assertTrue("toonInrichtingsfout(" in inrichten.substringAfter("} catch"), "de catch-tak meldt niets")
+        val catchTak = inrichten.substringAfter("} catch")
+
+        assertTrue("toonInrichtingsfout(" in catchTak, "de catch-tak meldt niets")
+        assertTrue(
+            "inrichtTimer === null ?" in catchTak,
+            "de catch-tak belooft dat het paneel het opgeeft, ook als er nog een poging klaarstaat",
+        )
 
         val geslaagd = inrichten.substringAfter("planInrichting(null);").substringBefore("} catch")
 
@@ -406,6 +444,15 @@ class PaneelTerugkoppelingTest {
         assertTrue("inrichtingTekst.textContent = tekst;" in fouttekst, "de tekst wordt niet geschreven")
         assertTrue("toonInrichting(true)" in fouttekst, "de tekst komt in een blok dat verborgen blijft")
         assertTrue("toonMelding(tekst" in fouttekst, "zonder blok gaat de concrete oorzaak verloren")
+        assertTrue("'melding melding--fout'" in fouttekst, "een storing krijgt de opmaak van een gewone melding")
+        assertTrue("registreerPaneelfout(" in fouttekst, "een blok zonder tekstregel telt niet mee als storing")
+
+        // Eén melding en niet twee: de balk toont er maar één, dus de tweede wist de eerste.
+        assertEquals(
+            1,
+            Regex("""toonMelding\(""").findAll(fouttekst).count(),
+            "twee meldingen achter elkaar laten er maar één over",
+        )
         assertTrue(
             "inrichtingKnop.disabled = bezigMetInrichten" in functie("zetInrichtenBezig"),
             "de knop volgt de poging niet; hij kan zo permanent uit blijven staan",
@@ -466,7 +513,7 @@ class PaneelTerugkoppelingTest {
         assertTrue("inrichtingKnop.focus()" in afsluiting, "de focus blijft op body staan")
         assertTrue("metHand &&" in afsluiting, "een automatische poging kaapt de focus")
         assertTrue("document.activeElement === document.body" in afsluiting, "de focus wordt weggetrokken")
-        assertTrue("offsetParent" in afsluiting, "de focus kan op een onzichtbare knop landen")
+        assertTrue("offsetParent !== null" in afsluiting, "de focus kan op een onzichtbare knop landen")
     }
 
     /**
@@ -479,11 +526,24 @@ class PaneelTerugkoppelingTest {
             "markeerKlap(zichtbaar || openstaandePaneelfouten.size > 0)" in functie("toonInrichting"),
             "het foutblok wist het merkteken terwijl er nog een opmaakfout staat",
         )
-        assertTrue("dataset.letOp" in functie("markeerKlap"), "markeerKlap zet geen merkteken")
-        assertTrue("dataset.letOp" in functie("werkKlapBij"), "het merkteken overleeft een in- of uitklap niet")
+        assertTrue("dataset.letOp = String(letOp)" in functie("markeerKlap"), "markeerKlap zet geen merkteken")
+
+        val klapbijschrift = functie("werkKlapBij")
+
+        assertTrue("dataset.letOp === 'true'" in klapbijschrift, "het merkteken overleeft een in- of uitklap niet")
+        assertTrue("letOp ?" in klapbijschrift, "het bijschrift zegt niet dat het paneel niet compleet is")
         assertTrue(
             Regex("""#klap\[data-let-op="true"]::after""").containsMatchIn(stijl),
             "de opmaak toont geen merkteken op de klap-knop",
+        )
+    }
+
+    /** Een knop die op zijn lijst wacht is niet bezig; de progress-cursor zou zeggen van wel. */
+    @Test
+    fun `een wachtende knop draagt niet de cursor van een lopende actie`() {
+        assertTrue(
+            Regex("""\.knop\[data-wacht-op-lijst="ja"]:disabled \{[^}]*not-allowed""").containsMatchIn(stijl),
+            "een wachtende knop krijgt de bezig-cursor",
         )
     }
 
@@ -506,6 +566,10 @@ class PaneelTerugkoppelingTest {
             script.indexOf("addEventListener('error'") < eersteBedrading,
             "het vangnet staat ná de bedrading die het zou moeten dekken",
         )
+        assertTrue(
+            script.indexOf("addEventListener('unhandledrejection'") < eersteBedrading,
+            "de listener voor afgewezen promises staat ná de bedrading die het zou moeten dekken",
+        )
 
         // De meldingsbalk is vijf elementen; valt `toonMelding` over één ervan, dan sleept hij het
         // vangnet mee dat hem net aanriep.
@@ -522,6 +586,11 @@ class PaneelTerugkoppelingTest {
         assertTrue("toonMelding(" in vangnet, "het vangnet komt niet verder dan de console")
         assertTrue("boodschap === laatsteVangnetfout" in vangnet, "het vangnet ontdubbelt niet")
         assertTrue("laatsteVangnetfout = boodschap;" in vangnet, "de ontdubbeling wapent zich nooit")
+        assertTrue("+ boodschap" in vangnet, "de melding noemt de fout niet")
+        assertTrue(
+            vangnet.indexOf("toonMelding(") < vangnet.indexOf("laatsteVangnetfout = boodschap;"),
+            "de vlag wordt gezet vóór toonMelding, die hem juist wist; de ontdubbeling grijpt dan nooit",
+        )
         assertTrue(
             "laatsteVangnetfout = null;" in functie("toonMelding"),
             "een andere melding maakt de weg niet vrij; dezelfde fout blijft daarna stil",
@@ -591,7 +660,14 @@ class PaneelTerugkoppelingTest {
         // En zegt het ook: zonder deze melding doet zo'n knop weer niets zonder uitleg.
         val bedrading = script.substringAfter("Object.hasOwn(LOSSE_ACTIES")
 
-        assertTrue("toonMelding(" in bedrading.substringBefore("}"), "een onbekende actie levert geen melding op")
+        assertTrue(
+            "+ knop.dataset.actie" in bedrading.substringBefore("}"),
+            "de melding noemt niet wélke actie het paneel niet kent",
+        )
+        assertTrue(
+            "!Object.hasOwn(LOSSE_ACTIES" in script,
+            "de toets staat er, maar niet als guard; een bekende actie wordt dan als onbekend gemeld",
+        )
         assertTrue(
             "registreerPaneelfout(" in bedrading.substringBefore("}"),
             "een knop die aan niets hangt telt niet mee als storing",
