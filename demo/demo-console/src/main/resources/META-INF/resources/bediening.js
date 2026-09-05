@@ -777,15 +777,7 @@ function vulPersonas(personas) {
 
     const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
 
-    /* Een antwoord zonder `id` — een oudere console, of een proxy die het veld herschrijft — maakt
-     * er anders de tekst "undefined" van: de knop blijft levend en zijn 404 wijst naar de
-     * persona-inrichting, waar niets mis is. Toen de waarde nog uit `ontvanger` werd afgeleid ving
-     * die afleiding dit toevallig af. */
-    if (metBsn.some((persona) => !persona.id)) {
-        meldOnbruikbareLijst('personas', personas, keuze, knop);
-
-        return;
-    }
+    if (!heeftIedereenEenId('personas', metBsn, keuze, knop)) return;
 
     vulKeuze(
         keuze,
@@ -793,6 +785,21 @@ function vulPersonas(personas) {
         metBsn.map((persona) => ({ waarde: persona.id, label: persona.label })),
         'geen persona met een BSN ingericht',
     );
+}
+
+/* Zonder `id` maakt de optie er de tekst "undefined" van: de knop blijft levend en zijn 404 wijst
+ * naar de persona-inrichting, waar niets mis is.
+ *
+ * Een eigen melding en niet die van `meldOnbruikbareLijst`: de lijst kwám binnen en was wél op te
+ * halen, er ontbreekt een veld. Met de verkeerde reden afhaken stuurt de bediener de andere kant
+ * op. En bewust zonder de lijst in de console-regel: daar staan de identificatienummers in. */
+function heeftIedereenEenId(veld, personas, keuze, knop) {
+    if (personas.every((persona) => persona.id)) return true;
+
+    console.error('[bediening] ' + veld + ': een persona zonder id');
+    meldLijstOnbekend(keuze, knop, 'persona-lijst onvolledig');
+
+    return false;
 }
 
 /* De persona's waarvoor de console kán aanleveren; de uitvraag levert die deelverzameling apart.
@@ -806,6 +813,8 @@ function vulBerichtPersonas(personas) {
 
         return;
     }
+
+    if (!heeftIedereenEenId('berichtPersonas', personas, keuze, knop)) return;
 
     vulKeuze(
         keuze,
@@ -839,7 +848,7 @@ function meldOnbruikbareLijst(veld, waarde, keuze, knop) {
  *
  * Ontbreekt een element, dan is de opmaak veranderd zonder dit script. Dat gaat naar de
  * meldingsbalk en niet alleen naar de console: wie een demo geeft heeft geen devtools open. */
-function meldLijstOnbekend(keuze, knop) {
+function meldLijstOnbekend(keuze, knop, tekst) {
     if (knop) knop.disabled = true;
 
     if (!keuze) {
@@ -851,7 +860,7 @@ function meldLijstOnbekend(keuze, knop) {
     const onbekend = document.createElement('option');
 
     onbekend.value = '';
-    onbekend.textContent = 'persona-lijst niet op te halen';
+    onbekend.textContent = tekst || 'persona-lijst niet op te halen';
 
     keuze.replaceChildren(onbekend);
     keuze.disabled = true;
@@ -870,6 +879,18 @@ function vulKeuze(keuze, knop, opties, leegTekst) {
     // lijst gewoon binnenkwam. Precies de verkeerde diagnose, in de andere richting.
     if (!keuze || !knop) {
         meldOpmaakfout(keuze ? 'de knop bij keuzelijst ' + keuze.id : 'een keuzelijst');
+
+        return;
+    }
+
+    /* Een optie-waarde komt via `vulPadIn` in het adres van de knop terecht, en daarmee in
+     * browsergeschiedenis, proxylogboeken en schermopnames. Een identificatienummer hoort daar
+     * niet. Hier afgedwongen en niet bij elke aanroeper: dit is de enige plek waar een keuzelijst
+     * zijn opties krijgt, dus een volgende lijst erft de regel vanzelf. Acht cijfers op rij is de
+     * kortste vorm die een KVK-nummer, BSN of RSIN kan hebben. */
+    if (opties.some((optie) => /\d{8,}/.test(String(optie.waarde)))) {
+        console.error('[bediening] optie-waarde met een identificatienummer in keuzelijst ' + keuze.id);
+        meldLijstOnbekend(keuze, knop, 'keuzelijst geweigerd');
 
         return;
     }

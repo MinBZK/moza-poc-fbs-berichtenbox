@@ -174,7 +174,7 @@ class PaneelPadenTest {
         // Eerst bewijzen dat de meting discrimineert: de vorm die deze test moet vangen.
         assertEquals(
             listOf("bsn"),
-            PARAMETERNAAM.findAll("/api/demo/ontdubbeling?bsn={ontdubbelPersona}").map { it.groupValues[1] }.toList(),
+            PARAMETERNAAM.findAll("/api/demo/ontdubbeling?bsn={ontdubbelPersona}").map { it.groupValues[1].trim() }.toList(),
         )
 
         assertEquals(
@@ -187,26 +187,32 @@ class PaneelPadenTest {
 
     /**
      * Het nummer komt er net zo goed in zonder dat een adres het toont: een keuzelijst die het als
-     * optie-waarde zet, vult `{ontdubbelPersona}` ermee. Vandaar over de héle inhoud van alle vier
-     * de bestanden die het paneel en de wegwerp-berichtenbox serveren.
+     * optie-waarde zet, vult `{ontdubbelPersona}` ermee. Vandaar over de héle inhoud.
+     *
+     * De directory uitlezen en geen vaste lijst: een pagina die er later bijkomt hoort er vanzelf
+     * onder te vallen, anders bewaakt deze test precies de bestanden waarin het probleem al opgelost
+     * is.
      */
     @Test
     fun `geen pagina van het paneel draagt een identificatienummer`() {
         // Acht of negen cijfers is de vorm van een KVK-nummer, BSN of RSIN; een langere reeks blijft
-        // toegestaan, want een OIN is publiek — de magazijn-simulator draagt hem in zijn pad.
+        // toegestaan, want een OIN is publiek.
         val nummer = Regex("""(?<!\d)\d{8,9}(?!\d)""")
+        val paginas = File(RESOURCES).listFiles { bestand -> bestand.extension in PAGINA_TYPES }.orEmpty()
+
+        assertTrue(paginas.any { it.name == "index.html" }, "geen pagina's gevonden onder $RESOURCES")
 
         // Eerst bewijzen dat de meting onderscheidt: de vorm die deze test moet vangen én de vorm
         // die mag blijven. Zonder deze regels zou een regex die alles of niets matcht even groen zijn.
         assertTrue(nummer.containsMatchIn("/api/demo/ontdubbeling?persona=123456789"))
         assertFalse(nummer.containsMatchIn("/magazijn/00000000000000100000"), "een OIN is publiek")
 
-        PAGINAS.forEach { bestand ->
+        paginas.forEach { bestand ->
             assertEquals(
                 emptyList<String>(),
-                nummer.findAll(File(bestand).readText()).map { it.value }.toList(),
-                "$bestand draagt een reeks van acht of negen cijfers; is het geen identificatienummer, " +
-                    "zet die constante dan buiten deze bestanden",
+                nummer.findAll(bestand.readText()).map { it.value }.toList(),
+                "${bestand.name} draagt een reeks van acht of negen cijfers; is het geen " +
+                    "identificatienummer, zet die constante dan buiten deze bestanden",
             )
         }
     }
@@ -215,19 +221,26 @@ class PaneelPadenTest {
      * De keuzelijsten leveren de waarde die in het adres terechtkomt. Zet een lijst daar het
      * identificatienummer neer in plaats van de persona-id, dan draagt het adres het nummer alsnog
      * — en `index.html` toont dat niet, want daar staat alleen `{ontdubbelPersona}`.
+     *
+     * De harde grens ligt in `vulKeuze`, dat een optie-waarde met een cijferreeks weigert; dat werkt
+     * ook voor een `{veld}` in een padsegment, waar geen queryparameter aan te pas komt. Deze
+     * controle bewaakt de weg ernaartoe: een lijst die zijn opties zelf opbouwt, komt daar niet
+     * langs.
      */
     @Test
     fun `elke keuzelijst levert de persona-id als optie-waarde`() {
-        val waarden = OPTIEWAARDE.findAll(script).map { it.groupValues[1] }.toList()
+        val waarden = OPTIEWAARDE.findAll(script).map { it.groupValues[1].trim() }.toList()
 
         assertTrue(waarden.isNotEmpty(), "geen enkele optie-waarde gevonden in $SCRIPT")
 
-        // Eerst bewijzen dat de meting discrimineert: dit is de vorm die het nummer wél doorgaf.
+        // Eerst bewijzen dat de meting discrimineert: dit is de vorm die het nummer wél doorgaf,
+        // inclusief de schrijfwijze met de waarde als láátste sleutel.
         assertEquals(
-            listOf("persona.ontvanger.slice('BSN:'.length)"),
-            OPTIEWAARDE.findAll("waarde: persona.ontvanger.slice('BSN:'.length), label: persona.label")
-                .map { it.groupValues[1] }
-                .toList(),
+            listOf("persona.ontvanger.slice('BSN:'.length)", "persona.ontvanger"),
+            OPTIEWAARDE.findAll(
+                "waarde: persona.ontvanger.slice('BSN:'.length), label: persona.label }\n" +
+                    "{ label: persona.label, waarde: persona.ontvanger }",
+            ).map { it.groupValues[1].trim() }.toList(),
         )
 
         assertEquals(
@@ -237,24 +250,48 @@ class PaneelPadenTest {
         )
     }
 
+    /**
+     * Elke keuzelijst loopt door dezelfde twee hulpfuncties: `heeftIedereenEenId` weigert een lijst
+     * waarin een persona zijn id mist, `vulKeuze` bouwt de opties en weigert een cijferreeks als
+     * waarde. Bouwt een lijst zijn opties zelf op, dan valt hij buiten allebei — en de controle
+     * hierboven ziet dat niet, want er is dan geen `waarde:` meer te vinden.
+     */
+    @Test
+    fun `elke keuzelijst loopt door dezelfde hulpfuncties`() {
+        // Geteld in de pagina en niet in het script: hier staat hoeveel keuzelijsten er zijn, dus
+        // een lijst die zijn opties zelf opbouwt valt op als een ontbrekende aanroep in plaats van
+        // als een getal dat niemand meer kan narekenen.
+        val keuzelijsten = uitPaneel("""<select id="([^"]+)"""").size
+
+        assertTrue(keuzelijsten > 1, "minder dan twee keuzelijsten in $PANEEL; dan toetst dit niets")
+        assertEquals(keuzelijsten, aanroepen("vulKeuze"), "een keuzelijst bouwt zijn opties buiten vulKeuze om")
+        assertEquals(keuzelijsten, OPTIEWAARDE.findAll(script).count(), "een optie-waarde buiten een keuzelijst om")
+        assertEquals(
+            keuzelijsten,
+            aanroepen("heeftIedereenEenId"),
+            "een keuzelijst zonder de controle op ontbrekende id's",
+        )
+    }
+
+    /** Aanroepen van [functie] in het script; de definitie zelf telt niet mee. */
+    private fun aanroepen(functie: String): Int =
+        Regex("""(?<!function )\b$functie\(""").findAll(script).count()
+
     private fun uitPaneel(patroon: String): List<String> =
         Regex(patroon).findAll(paneel).map { it.groupValues[1] }.toList()
 
     private companion object {
 
-        const val PANEEL = "src/main/resources/META-INF/resources/index.html"
+        const val RESOURCES = "src/main/resources/META-INF/resources"
 
-        const val SCRIPT = "src/main/resources/META-INF/resources/bediening.js"
+        const val PANEEL = "$RESOURCES/index.html"
+
+        const val SCRIPT = "$RESOURCES/bediening.js"
 
         const val PROPERTIES = "src/main/resources/application.properties"
 
-        /** Alles wat deze module als pagina serveert; de twee `.js`-bestanden vullen de adressen in. */
-        val PAGINAS = listOf(
-            PANEEL,
-            SCRIPT,
-            "src/main/resources/META-INF/resources/berichtenbox.html",
-            "src/main/resources/META-INF/resources/berichtenbox.js",
-        )
+        /** Waarin een adres of een optie-waarde kan staan; de opmaak van de `.css` erbuiten. */
+        val PAGINA_TYPES = setOf("html", "js")
 
         /**
          * Wat een knop-adres als queryparameter mag dragen. Een naam die een persona of een andere
@@ -265,7 +302,12 @@ class PaneelPadenTest {
 
         val PARAMETERNAAM = Regex("""[?&]([^=&]+)=""")
 
-        /** De waarde die `vulKeuze` op een `<option>` zet en die dus in het adres terechtkomt. */
-        val OPTIEWAARDE = Regex("""waarde: ([^,]+),""")
+        /**
+         * Elke `waarde:` in het script; die gaat via `vulKeuze` naar een `<option>` en komt zo in
+         * het adres van een knop terecht. `[^,\n}]` en niet `[^,]`: zonder de sluitaccolade ontgaat
+         * hem de schrijfwijze met de waarde als laatste sleutel, en zonder de newline loopt een
+         * capture door tot de komma van de omliggende argumentenlijst.
+         */
+        val OPTIEWAARDE = Regex("""waarde: ([^,\n}]+)""")
     }
 }

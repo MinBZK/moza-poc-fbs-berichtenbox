@@ -91,6 +91,8 @@ class DemoResource(
     ): AanleverResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
 
+        vereisPersonaAanduiding(persona, KIES_EEN_PERSONA)
+
         // Leeg telt als "niet opgegeven", net als een afwezige parameter. Die keuze staat hier en
         // niet bij `@DefaultValue`: die vervangt alleen een afwezige waarde, en dat `?aantal=` er
         // vandaag toch doorheen komt is gedrag van JAX-RS dat een upgrade kan veranderen.

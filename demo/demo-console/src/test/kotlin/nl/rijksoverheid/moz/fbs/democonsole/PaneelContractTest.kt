@@ -26,6 +26,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.io.File
@@ -319,36 +320,48 @@ class PaneelContractTest {
     }
 
     /**
-     * Dit adres nam tot voor kort het nummer zelf, dus een aanroep met een BSN erin is het te
-     * verwachten verkeerde gebruik. De melding mag hem dan niet terugciteren: `DemoFoutMapper`
-     * logt elke weigering onverkort, en daarmee zou het nummer alsnog in de applicatielog staan.
+     * Een aanroep met het nummer erin is het te verwachten verkeerde gebruik — de keuzelijst toont
+     * dat nummer naast de naam, en `BSN:999993653` is precies wat `/api/demo/omgeving` als
+     * `ontvanger` teruggeeft. De melding mag het dan niet terugciteren: `DemoFoutMapper` logt elke
+     * weigering onverkort.
+     *
+     * Op de afwezigheid van het nummer en niet op de status: de invariant is "het nummer komt
+     * nergens terug", en welke weigering het wordt is daaraan ondergeschikt. Een variant die op de
+     * opzoeking uitkomt in plaats van op de vormcontrole zou anders langs deze test glippen.
      */
-    @Test
-    fun `een ontdubbeling met een nummer als persona geeft 400 zonder het nummer te herhalen`() {
-        val respons = speelOntdubbeling("?persona=$PIETERSEN_BSN")
+    @ParameterizedTest
+    @ValueSource(strings = ["", "%20", "%20.", "BSN%3A", "0"])
+    fun `geen enkele schrijfwijze van een nummer komt terug in de melding`(omhulsel: String) {
+        val respons = speelOntdubbeling("?persona=$omhulsel$PIETERSEN_BSN")
 
-        assertEquals(400, respons.statusCode())
-        assertFalse(respons.body().contains(PIETERSEN_BSN), "de melding hoort het aangeboden nummer niet te dragen")
+        assertFalse(
+            respons.body().contains(PIETERSEN_BSN),
+            "de melding hoort het aangeboden nummer niet te dragen (omhulsel '$omhulsel')",
+        )
         assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een nummer hoort niets aan te melden")
     }
 
     /**
-     * Bewust geen normalisatie: witruimte eromheen of een afwijkende hoofdletter is geen andere
-     * persona, maar ook geen geldige id. Aannemen wat er bedoeld werd verbergt een verkeerd
-     * ingerichte keuzelijst; het zusterendpoint `/api/demo/bericht` doet hetzelfde.
+     * Bewust geen normalisatie. Witruimte eromheen is geen persona-id meer — dat is een 400 op de
+     * vorm, dezelfde weigering die een nummer krijgt — en een afwijkende hoofdletter is een geldige
+     * id die niet bestaat, dus een 404. Aannemen wat er bedoeld werd verbergt een verkeerd
+     * ingerichte keuzelijst.
      */
     @ParameterizedTest
-    @ValueSource(strings = ["%20pietersen", "pietersen%20", "Pietersen"])
-    fun `een ontdubbeling voor een persona met afwijkende schrijfwijze geeft 404`(waarde: String) {
-        assertEquals(404, speelOntdubbeling("?persona=$waarde").statusCode(), "persona '$waarde'")
+    @CsvSource("%20pietersen, 400", "pietersen%20, 400", "Pietersen, 404")
+    fun `een persona met een afwijkende schrijfwijze wordt niet alsnog aangenomen`(waarde: String, status: Int) {
+        assertEquals(status, speelOntdubbeling("?persona=$waarde").statusCode(), "persona '$waarde'")
         assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een niet-gevonden persona hoort niets aan te melden")
     }
 
     /**
-     * De keuzelijst van het paneel en de controle in de resource lezen dezelfde lijst, maar elk
-     * met een eigen regel: `bediening.js` filtert op de tekst `BSN:` in `ontvanger`, de resource
-     * kijkt naar `type`. Lopen die uiteen, dan biedt het paneel een keuze aan die elke klik met
-     * een 400 beantwoordt — of laat het er stil één weg die had gekund.
+     * Het paneel filtert op de tekst `BSN:` in `ontvanger`, de resource kijkt naar `type`. Die regel
+     * staat hier nagebouwd, dus dit pint de resource-kant: elke persona die het paneel doorlaat
+     * hoort geaccepteerd te worden, elke andere geweigerd. Dat het script diezelfde regel houdt is
+     * hiermee niet bewezen — een filter dat verschuift laat deze test groen.
+     *
+     * De weigering is een 400 en geen 404: zo'n persona bestáát, en een 404 stuurt de bediener
+     * zoeken naar iets dat gewoon in de lijst staat.
      */
     @Test
     fun `elke persona die het paneel voor de ontdubbeling aanbiedt wordt geaccepteerd`() {
@@ -364,6 +377,8 @@ class PaneelContractTest {
 
             val id = persona.path("id").asText()
 
+            // Zonder id zou de blank-check hieronder slagen op de verkeerde grond.
+            assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
             assertEquals(200, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
             assertEquals(
                 listOf(persona.path("ontvanger").asText().removePrefix("BSN:")),
@@ -376,8 +391,17 @@ class PaneelContractTest {
 
         zonderBsn.forEach { persona ->
             val id = persona.path("id").asText()
+            val respons = speelOntdubbeling("?persona=$id")
 
-            assertEquals(400, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
+            assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
+            assertEquals(400, respons.statusCode(), "persona '$id'")
+
+            // Uit dezelfde bron als de persona zelf: een hardgecodeerd "KVK" laat deze test bij een
+            // andere personaset falen op het type in plaats van op wat er werkelijk mis is.
+            assertTrue(
+                respons.body().contains(persona.path("ontvanger").asText().substringBefore(':')),
+                "de melding hoort te zeggen wat persona '$id' wél heeft",
+            )
         }
 
         assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een persona zonder BSN hoort niets aan te melden")
@@ -390,19 +414,6 @@ class PaneelContractTest {
         assertEquals(404, respons.statusCode())
         assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
         assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een onbekende persona hoort niets aan te melden")
-    }
-
-    /**
-     * 400 en niet 404 is hier een bewuste keuze — deze persona bestáát — dus die grens hoort vast
-     * te staan: een 404 stuurt de bediener zoeken naar een persona die gewoon in de lijst staat.
-     */
-    @Test
-    fun `een ontdubbeling voor een persona zonder BSN geeft 400`() {
-        val respons = speelOntdubbeling("?persona=vandijk")
-
-        assertEquals(400, respons.statusCode())
-        assertTrue(respons.body().contains("KVK"), "de melding hoort te zeggen wat deze persona wél heeft")
-        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "zonder BSN valt er niets aan te melden")
     }
 
     private fun speelOntdubbeling(query: String): HttpResponse<String> = HttpClient.newHttpClient().send(
