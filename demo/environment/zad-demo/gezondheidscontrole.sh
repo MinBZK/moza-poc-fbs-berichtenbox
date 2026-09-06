@@ -40,14 +40,21 @@
 #     de dienstconfiguratie is een eigen laag bij OM. `profiel` ging van een tcpSocket-probe naar
 #     httpGet /__admin/health zonder hercreatie.
 #   - ZAD rendert een probe op een poort die niet in `ports.inbound` staat. `magazijna-fscmgr`
-#     draagt `ports: [8443, 9443, 9444, 1234]` en kreeg `httpGet port: 8080`. Zonder dat hadden alle
-#     elf FSC-componenten herschapen moeten worden om hun monitoring-poort inbound te maken.
+#     draagt `ports: [8443, 9443, 9444, 1234]` en kreeg `httpGet port: 8080`. Zonder dat hadden de
+#     negen FSC-componenten met een monitoring-poort herschapen moeten worden om die poort inbound
+#     te maken.
 #
 # De API-key is per PROJECT, niet per gebruiker: `zadctl -p <ander project>` met de key van een
 # ander project geeft `401 Invalid API key`. Dit script spreekt drie projecten aan, dus het haalt per
 # project zijn eigen key op met `zadctl project use` in een eigen tijdelijke map. Zo blijft het
 # actieve project in jouw werkmap staan waar het stond, en komt de key in de omgeving van de
 # aanroep terecht in plaats van op de commandoregel — waar `ps` hem zou tonen.
+#
+# `project use` kent twee opties die deze omweg misschien overbodig maken. `--export` is het niet:
+# nagemeten levert hij alléén een `export ZAD_PROJECT_ID=…` en géén key, en hij herschrijft de
+# .env.zadctl van de werkmap alsnog. `--write-env <bestand>` is niet gemeten — dat vraagt een
+# geldige sessie. Werkt dat wel, dan vervalt de tijdelijke map: dan schrijf je de instellingen
+# rechtstreeks weg en blijft de sessie van de werkmap ongemoeid.
 #
 # Usage:
 #   zadctl login
@@ -111,9 +118,10 @@ done
 }
 
 # Alleen op EXIT, en dat is genoeg: bij een fataal signaal draait bash de EXIT-trap ook, en dan
-# eindigt het script (nagemeten: TERM geeft 143, HUP 129, en de map is in beide gevallen weg). Zou
-# hier ook INT/TERM/HUP/QUIT staan, dan wordt dit een handler zónder `exit` — die ruimt de map op en
-# laat het script gewoon doorlopen, precies het tegenovergestelde van afbreken.
+# eindigt het script (nagemeten met alléén deze trap: TERM geeft 143, HUP 129, map weg). Zou hier ook
+# INT/TERM/HUP/QUIT staan, dan wordt dit een handler zónder `exit` — die ruimt de map op en laat het
+# script gewoon doorlopen, precies het tegenovergestelde van afbreken. Verderop krijgen INT, TERM en
+# HUP een eigen handler die wél afsluit; deze regel dekt het venster daarvóór en QUIT.
 SLEUTELMAP="$(mktemp -d)"
 trap 'rm -rf "$SLEUTELMAP"' EXIT
 
@@ -330,7 +338,7 @@ for r in "${REGELS[@]}"; do
             ;;
     esac
 
-    # Het schema kent voor beide paden `^/[A-Za-z0-9/_.\-]*$`. Een pad met een query-string of een
+    # Het schema kent voor beide paden `^/[A-Za-z0-9/_.\-]*\Z`. Een pad met een query-string of een
     # relatief pad zou pas bij de aanroep struikelen, halverwege een reeks die de rest al gemuteerd
     # heeft — dezelfde reden als bij de poortgrens hieronder.
     for pad in "$liveness" "$readiness"; do
@@ -452,7 +460,8 @@ meld_stand() {
 # verder. Zonder de exit meldt het script "afgebroken" en muteert het de resterende componenten
 # alsnog — het tegenovergestelde van wat de operator net vroeg.
 trap 'echo >&2; echo "afgebroken." >&2; meld_stand; exit 130' INT
-trap 'echo >&2; echo "afgebroken." >&2; meld_stand; exit 143' TERM HUP
+trap 'echo >&2; echo "afgebroken." >&2; meld_stand; exit 143' TERM
+trap 'echo >&2; echo "afgebroken." >&2; meld_stand; exit 129' HUP
 
 # Vooraf ophalen wat er in elke geselecteerde deployment staat. Dat doet drie dingen die `plan` zelf
 # niet kan: het bewijst dat de sessie geldig is (--dry-run bereikt OM niet, dus een verlopen login
@@ -478,13 +487,13 @@ echo "== vooraf: wat staat er in ${#PAREN[@]} deployment(s)?"
 for paar in "${PAREN[@]}"; do
     IFS='|' read -r project deployment <<<"$paar"
 
+    haal_sleutel "$project"
+
     # `--strict` maakt van een waarschuwing een non-nul exit, zodat "gelukt maar degraded" niet als
     # gelukt langskomt. Let op wat het NIET vangt: een taak die door een gelijktijdige uitrol
     # overruled is, meldt `status: superseded` en is volgens `zadctl guide` een succes met exit 0 —
     # geen waarschuwing. Daarvoor is `zadctl project pending` het instrument. Geen 2>/dev/null:
     # niet-ingelogd of een lock bij OM zou anders als "niet gevonden" langskomen.
-    haal_sleutel "$project"
-
     status=0
     beschrijving="$(ZAD_API_KEY="${SLEUTELS[$project]}" \
         zadctl --strict -p "$project" deployment describe "$deployment" -o json)" || status=$?
@@ -507,9 +516,12 @@ print('\n'.join(c['name'] for c in json.load(sys.stdin)['components']))
 ")" || status=$?
 
     if [ "$status" -ne 0 ]; then
+        # Bewust géén duid_exitcode: die exitcode komt van python3, en de duiding daar gaat over
+        # zadctl — "platform of netwerk, kijk naar een lopende uitrol" zou hier onzin zijn.
         echo "componentenlijst niet uit het describe-antwoord van '$deployment' te lezen" >&2
-        duid_exitcode "$status"
-        exit "$status"
+        echo "  De uitvoer van zadctl had een andere vorm dan verwacht; kijk er zelf naar met" >&2
+        echo "  'zadctl -p $project deployment describe $deployment -o json'." >&2
+        exit 1
     fi
 
     [ -n "$namen" ] || {
@@ -603,7 +615,9 @@ for r in "${SELECTIE[@]}"; do
     bind_uitvoer="$(ZAD_API_KEY="${SLEUTELS[$project]}" \
         "${ZAD[@]}" service assign health-check -c "$component" "${DRYRUN[@]}" 2>&1)" || status=$?
 
-    [ -z "$bind_uitvoer" ] || printf '%s\n' "$bind_uitvoer" >&2
+    # Naar stdout, niet naar stderr: in plan-modus is dit de helft van de voorbeschouwing, en
+    # `gezondheidscontrole.sh plan > plan.txt` hoort niet de ene aanroep te tonen en de andere niet.
+    [ -z "$bind_uitvoer" ] || printf '%s\n' "$bind_uitvoer"
 
     # Alleen exit 1 — een waarschuwing onder `--strict`. Exit 2 is platform of netwerk en boven 128
     # een signaal; die mogen nooit door deze uitzondering glippen. De tekst zelf komt uit zadctl en

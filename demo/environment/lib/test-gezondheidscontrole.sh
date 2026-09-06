@@ -566,9 +566,11 @@ esac
 # Stdin die NIET op EOF staat, anders blokkeert een `read` sowieso niet en toetst dit niets: de
 # procesvervanging houdt hem vijftien seconden open zonder ooit iets te leveren.
 : >"${TMP}/stdin-uit"
+# `|| rc=$?`: zonder die vangst breekt `set -e` de hele suite af op exact het geval dat deze test
+# moet aanwijzen — een hang levert exit 124, en dan zou er geen FAIL en geen slotregel komen.
+rc=0
 ( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag proeftuin" STUB_USE_LEEST_STDIN=1 \
-  timeout 8 bash "$variant" apply ) >"${TMP}/stdin-uit" 2>&1 < <(sleep 15)
-rc=$?
+  timeout 8 bash "$variant" apply ) >"${TMP}/stdin-uit" 2>&1 < <(sleep 15) || rc=$?
 
 if [ "$rc" -eq 124 ]; then
   fout "het script bleef hangen op een 'project use' die om invoer vroeg"
@@ -620,8 +622,12 @@ esac
 # QUIT — INT, TERM en HUP worden verderop opnieuw getrapt, mét exit — en een achtergrondproces in
 # een testsuite kan QUIT niet betrouwbaar ontvangen. De regel zelf is dan het enige wat te pinnen
 # valt.
-if grep -qE "^trap 'rm -rf \"\\\$SLEUTELMAP\"' EXIT\$" "$SCRIPT"; then
-  ok "de opruim-trap staat alleen op EXIT"
+trapregels="$(grep -c 'rm -rf .*SLEUTELMAP' "$SCRIPT")"
+
+if [ "$trapregels" -ne 1 ]; then
+  fout "er staan $trapregels traps op de sleutelmap; een tweede overschrijft de eerste stil"
+elif grep -qE "^trap 'rm -rf \"\\\$SLEUTELMAP\"' EXIT\$" "$SCRIPT"; then
+  ok "de opruim-trap staat alleen op EXIT, en staat er één keer"
 else
   fout "de opruim-trap staat niet meer alleen op EXIT: $(grep -n 'rm -rf .*SLEUTELMAP' "$SCRIPT")"
 fi

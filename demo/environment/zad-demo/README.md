@@ -881,7 +881,7 @@ De manager luistert op 8080, de rest op 8081 — de `MONITORING_ADDRESS`-regels 
 staat een httpGet toe naar elke poort die de container opent, en ZAD rendert hem ook: nagemeten bij
 de eerste apply op `magazijna-fscmgr`, dat `ports: [8443, 9443, 9444, 1234]` draagt en `httpGet
 port: 8080` kreeg. Was dat anders uitgevallen, dan had de monitoring-poort als extra inbound-poort
-op alle elf FSC-componenten gemoeten — en dát vraagt een hercreatie.
+gemoeten op de negen FSC-componenten die er een gebruiken — en dát vraagt een hercreatie.
 
 ### Readiness op de uitvraag zakt mee met de berichtenopslag
 

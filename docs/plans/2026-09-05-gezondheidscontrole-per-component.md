@@ -50,15 +50,14 @@ manifests:
   al géén probe gerenderd. `scheme=none` verandert daar niets aan het manifest; het legt de keuze
   vast.
 
-**Twee dingen bleven onbewezen tot de eerste apply** — beide zijn daar bevestigd; zie "Uitkomst
-van de eerste apply" onderaan. Poorten, aliassen en diensten worden
-toegepast bij component-*creatie*; een tweede `component add` laat ze staan. Of `zadctl service
-assign` op een bestaand component wél doorkomt, is daarmee een open vraag — de dry-run wijst de
-goede kant op (de configuratie gaat naar `PUT /v2/projects/{p}/services/health-check/config/component/{c}`,
-een eigen laag bij OM), maar bewezen is het pas als een manifest verandert. Hetzelfde geldt voor de
-tweede aanname, die alleen de FSC-regels raakt: dat ZAD een probe rendert op een poort die niet in
-`ports.inbound` staat. Beide worden afgelezen bij stap 4; valt er één de verkeerde kant op, dan
-vraagt die groep een hercreatie per component.
+**Twee dingen bleven onbewezen tot de eerste apply**, en de opzet hing van beide af. Poorten,
+aliassen en diensten worden toegepast bij component-*creatie*; een tweede `component add` laat ze
+staan. Of `zadctl service assign` op een bestaand component wél doorkomt, was daarmee een open
+vraag — de dry-run wees de goede kant op (de configuratie gaat naar
+`PUT /v2/projects/{p}/services/health-check/config/component/{c}`, een eigen laag bij OM), maar
+bewijzen kon alleen een manifest dat verandert. Hetzelfde gold voor de tweede aanname, die alleen de
+FSC-regels raakt: dat ZAD een probe rendert op een poort die niet in `ports.inbound` staat. Beide
+zijn bij de eerste apply bevestigd — zie "Uitkomst van de eerste apply" onderaan.
 
 ## De inventaris, en de keuze per component
 
@@ -166,13 +165,12 @@ het geldt ook voor een component dat nooit gezond is geweest.
 
 De monitoring-poort staat niet in `ports.inbound`. Kubernetes staat een httpGet naar elke geopende
 poort toe, en de dienstbeschrijving van `health-check` noemt "je gezondheidsendpoint zit op een
-andere poort dan je functionele poort" zelfs als reden om de dienst te kiezen — maar dát ZAD zo'n
-poort ook rendert, doet vandaag geen enkel component in deze projecten voor. Stap 4 leest het af.
-Komt het er niet, dan moet de monitoring-poort als extra inbound-poort op deze componenten —
-8081, en 8080 op de twee managers — en dat vraagt een hercreatie.
+andere poort dan je functionele poort" zelfs als reden om de dienst te kiezen. Of ZAD zo'n poort ook
+werkelijk rendert, deed op het moment van schrijven geen enkel component in deze projecten voor;
+stap 4 heeft het afgelezen en het antwoord is ja. Was het nee geweest, dan had die poort als extra
+inbound-poort gemoeten — 8081, en 8080 op de twee managers — en dat vraagt een hercreatie.
 
-Daarmee is #981 beantwoord zodra de rendering meezit: de ruis verdwijnt zonder het signaal in te
-leveren.
+Daarmee is #981 beantwoord: de ruis verdwijnt zonder het signaal in te leveren.
 
 `logius-fscctl` en `magazijna-fscctl` worden nu op 8080 geprobed — de plain-HTTP controller-UI, dus
 zonder TLS-ruis. Ze volgen niettemin dezelfde keuze: hun monitoring-poort is 8081, en `/health/ready`
