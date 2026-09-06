@@ -1,23 +1,27 @@
 {
   "hooks": {
-    "PostToolUse": [
+    "PreToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'services/berichtensessiecache/src/main'; then ./mvnw test -pl services/berichtensessiecache -q 2>&1 | tail -5; fi"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gegenereerde-code-blokkeren.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/flyway-immutabel.sh"
           }
         ]
       }
     ],
-    "PreToolUse": [
+    "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'target/generated-sources'; then echo 'BLOCK: Gegenereerde code mag niet handmatig worden aangepast. Wijzig de OpenAPI spec.' && exit 1; fi"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/geraakte-module-test.sh"
           }
         ]
       }
