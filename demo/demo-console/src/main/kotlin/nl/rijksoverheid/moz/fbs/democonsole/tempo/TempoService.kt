@@ -29,6 +29,9 @@ class TempoService(
 
     private var interval = 0
     private var geleverd = 0
+
+    /** De bovengrens telt pogingen: een magazijn dat uit staat mag de stroom niet oneindig rekken. */
+    private var pogingen = 0
     private var gestartOp: Instant? = null
 
     @Synchronized
@@ -46,6 +49,7 @@ class TempoService(
 
         interval = intervalSeconden
         geleverd = 0
+        pogingen = 0
         gestartOp = clock.instant()
 
         klok.start(intervalSeconden) { tik() }
@@ -69,15 +73,17 @@ class TempoService(
     internal fun tik() {
         val start = gestartOp ?: return
 
-        if (geleverd >= MAX_BERICHTEN || Duration.between(start, clock.instant()) > MAX_DUUR) {
+        if (pogingen >= MAX_BERICHTEN || Duration.between(start, clock.instant()) > MAX_DUUR) {
             stop()
 
             return
         }
 
-        aanleverService.leverAan(generator.genereer(1, Random.Default))
+        pogingen++
 
-        geleverd++
+        // Het aantal afleveringen en niet het aantal tikken: staat een magazijn uit, dan hoort de
+        // chip stil te blijven staan in plaats van door te tellen alsof er berichten aankomen.
+        geleverd += aanleverService.leverAan(generator.genereer(1, Random.Default)).geslaagd
     }
 
     companion object {

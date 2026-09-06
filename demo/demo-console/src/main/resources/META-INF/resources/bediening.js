@@ -181,9 +181,9 @@ function toonMelding(tekst, soort, ruw, uitleg) {
     meldingLetOp.textContent = uitleg || '';
     meldingRuw.hidden = !ruw;
 
-    // Bij twijfel staat het antwoord meteen open: dan is de ruwe JSON het enige aanknopingspunt,
-    // en tijdens een demo klapt niemand een <details> uit.
-    meldingRuw.open = Boolean(ruw) && soort === 'let-op';
+    // Alles wat niet goed ging staat meteen open: dan is de ruwe JSON het aanknopingspunt, en
+    // tijdens een demo klapt niemand een <details> uit.
+    meldingRuw.open = Boolean(ruw) && soort !== 'goed';
     meldingJson.textContent = ruw || '';
 }
 
@@ -269,12 +269,23 @@ const SAMENVATTINGEN = {
         body.personas.length + " persona's: " + body.personas.map((persona) => persona.label).join(', '),
 };
 
+/* De uitkomstsoorten van een samenvatting vertaald naar het merkteken naast de knop. Zonder
+ * 'fout' erin viel een volledig mislukte vulling in de 'gelukt'-tak. Een soort die hier ontbreekt
+ * valt daarom op 'let-op' terug en niet op 'gelukt': een uitkomst die we niet kennen is twijfel. */
+const MERKTEKEN = { 'fout': 'mislukt', 'let-op': 'let-op', 'goed': 'gelukt' };
+
 function vullingTekst(vulling) {
     let tekst = vulling.geslaagd + ' van ' + vulling.aangeboden + ' berichten aangeleverd';
 
     if (vulling.mislukt) tekst += ', ' + vulling.mislukt + ' mislukt';
 
     if (vulling.markeringMislukt) tekst += ', ' + vulling.markeringMislukt + ' niet op gelezen gezet';
+
+    /* Het bericht staat in het magazijn, maar het magazijn bevestigde het zonder berichtnummer.
+     * Zonder deze regel leest zo'n ronde als volledig geslaagd terwijl het magazijn haperde. */
+    if (vulling.zonderBerichtId) {
+        tekst += ', ' + vulling.zonderBerichtId + ' zonder bevestigd berichtnummer';
+    }
 
     return tekst;
 }
@@ -314,7 +325,7 @@ function vullingSoort(body) {
 
     if (vulling.aangeboden > 0 && vulling.geslaagd === 0) return 'fout';
 
-    return vulling.mislukt || vulling.markeringMislukt ? 'let-op' : 'goed';
+    return vulling.mislukt || vulling.markeringMislukt || vulling.zonderBerichtId ? 'let-op' : 'goed';
 }
 
 // ---------------------------------------------------------------- acties uitvoeren
@@ -422,9 +433,9 @@ async function voerUit(knop) {
             const samengevat = samenvatting(knop.dataset.samenvatting, uitkomst.body);
 
             // Het merkteken pas hierna, en naar de soort van de samenvatting. HTTP 200 alleen zegt
-            // te weinig: bij "geslaagd, maar het antwoord had een onverwachte vorm" stond er anders
-            // een groen vinkje naast een melding die twijfel uitsprak.
-            zetUitkomst(knop, samengevat.soort === 'let-op' ? 'let-op' : 'gelukt');
+            // te weinig: de console verwerkte het verzoek, maar dat zegt niets over de berichten.
+            // Zonder deze vertaling stond er een groen vinkje naast "0 van 100 aangeleverd".
+            zetUitkomst(knop, MERKTEKEN[samengevat.soort] || 'let-op');
             toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw, letOp(uitkomst.body));
         } else {
             zetUitkomst(knop, 'mislukt');
