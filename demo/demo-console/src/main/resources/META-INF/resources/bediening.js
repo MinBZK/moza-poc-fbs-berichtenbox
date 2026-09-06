@@ -269,6 +269,10 @@ const SAMENVATTINGEN = {
         body.personas.length + " persona's: " + body.personas.map((persona) => persona.label).join(', '),
 };
 
+/* De uitkomstsoorten van een samenvatting vertaald naar het merkteken naast de knop. Zonder
+ * 'fout' erin viel een volledig mislukte vulling in de 'gelukt'-tak. */
+const MERKTEKEN = { 'fout': 'mislukt', 'let-op': 'let-op', 'goed': 'gelukt' };
+
 function vullingTekst(vulling) {
     let tekst = vulling.geslaagd + ' van ' + vulling.aangeboden + ' berichten aangeleverd';
 
@@ -428,9 +432,9 @@ async function voerUit(knop) {
             const samengevat = samenvatting(knop.dataset.samenvatting, uitkomst.body);
 
             // Het merkteken pas hierna, en naar de soort van de samenvatting. HTTP 200 alleen zegt
-            // te weinig: bij "geslaagd, maar het antwoord had een onverwachte vorm" stond er anders
-            // een groen vinkje naast een melding die twijfel uitsprak.
-            zetUitkomst(knop, samengevat.soort === 'let-op' ? 'let-op' : 'gelukt');
+            // te weinig: de console verwerkte het verzoek, maar dat zegt niets over de berichten.
+            // Zonder deze vertaling stond er een groen vinkje naast "0 van 100 aangeleverd".
+            zetUitkomst(knop, MERKTEKEN[samengevat.soort] || 'gelukt');
             toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw, letOp(uitkomst.body));
         } else {
             zetUitkomst(knop, 'mislukt');

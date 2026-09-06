@@ -421,6 +421,7 @@ class VasteAanleverService(config: DemoConfig) : AanleverService(config) {
             geslaagd = opdrachten.size,
             mislukt = 0,
             markeringMislukt = 0,
+            zonderBerichtId = 0,
         )
     }
 

@@ -43,7 +43,7 @@ class HerstelServiceTest {
         every { storingService.reset() } just Runs
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(40, 40, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat(40, 40, 0, 0, 0)
         every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(berichten = 2000, magazijnen = 98)
         every { simulatorService.vulStandaard() } returns
             nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 10584, 2646, 0, 500)

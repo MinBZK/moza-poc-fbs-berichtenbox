@@ -10,9 +10,14 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverVerzoek
 import nl.rijksoverheid.moz.fbs.democonsole.generator.OntvangerDto
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.util.logging.Handler
+import java.util.logging.Level
+import java.util.logging.LogRecord
+import java.util.logging.Logger
 
 /**
  * Een vulronde levert een reeks berichten achter elkaar aan, en het paneel heeft knoppen om een
@@ -117,7 +122,7 @@ class AanleverServiceTest {
 
         AanleverService(mapOf(OIN_A to magazijn({ kapot }))).leverAan(ronde(1))
 
-        verify { kapot.close() }
+        verify(exactly = 1) { kapot.close() }
     }
 
     @Test
@@ -133,6 +138,29 @@ class AanleverServiceTest {
     }
 
     @Test
+    fun `een antwoord wordt ook gesloten als alles goed gaat`() {
+        // Het succespad is het pad dat een vulronde honderd keer loopt; lekt het daar, dan raakt de
+        // connection-pool leeg en strandt de ronde alsnog.
+        val geslaagd = antwoord(201, AanleverRespons(berichtId(1)))
+
+        AanleverService(mapOf(OIN_A to magazijn({ geslaagd }))).leverAan(ronde(1))
+
+        verify(exactly = 1) { geslaagd.close() }
+    }
+
+    @Test
+    fun `het antwoord op een geweigerde markering wordt gesloten`() {
+        val magazijn = magazijn(geldig(1))
+        val geweigerd = antwoord(500, null)
+
+        every { magazijn.markeer(any(), any(), any()) } returns geweigerd
+
+        AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1, gelezen = true))
+
+        verify(exactly = 1) { geweigerd.close() }
+    }
+
+    @Test
     fun `het antwoord op een markering wordt gesloten`() {
         val magazijn = magazijn(geldig(1))
         val markeerAntwoord = antwoord(200, null)
@@ -141,7 +169,7 @@ class AanleverServiceTest {
 
         AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1, gelezen = true))
 
-        verify { markeerAntwoord.close() }
+        verify(exactly = 1) { markeerAntwoord.close() }
     }
 
     // ------------------------------------------- een aanlevering die het magazijn niet haalt
@@ -177,10 +205,21 @@ class AanleverServiceTest {
 
         assertEquals(uitkomst(aangeboden = 3, geslaagd = 2, mislukt = 1), resultaat)
         verify(exactly = 0) { geweigerd.readEntity(AanleverRespons::class.java) }
-        verify { geweigerd.close() }
+        verify(exactly = 1) { geweigerd.close() }
     }
 
     // ------------------------------------------------------------------------- de routering
+
+    @Test
+    fun `een andere 2xx dan 201 telt als mislukt`() {
+        // Het aanlevercontract kent maar één succesvorm. Een 200 draagt geen berichtId en betekent
+        // niet dat het bericht is opgeslagen, dus hem meetellen zou een aflevering verzinnen.
+        val magazijn = magazijn(geldig(1), { antwoord(200, null) }, geldig(3))
+
+        val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(3))
+
+        assertEquals(uitkomst(aangeboden = 3, geslaagd = 2, mislukt = 1), resultaat)
+    }
 
     @Test
     fun `een opdracht voor een onbekend magazijn telt als mislukt en laat de rest doorlopen`() {
@@ -296,6 +335,86 @@ class AanleverServiceTest {
         verify(exactly = 1) { magazijn.markeer(any(), any(), any()) }
     }
 
+    @Test
+    fun `twee onbruikbare antwoorden in één ronde tellen allebei`() {
+        // Met alleen rondes waarin de teller op 1 uitkomt, is een teller die blijft staan niet van
+        // een teller die telt te onderscheiden — en "1 zonder bevestigd berichtnummer" na honderd
+        // haperingen leest geloofwaardiger dan de waarheid.
+        val magazijn = magazijn(
+            gooitBijLezen(ProcessingException("Unexpected end-of-input")),
+            geldig(2),
+            { antwoord(201, null) },
+        )
+
+        val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(3))
+
+        assertEquals(uitkomst(aangeboden = 3, geslaagd = 3, zonderBerichtId = 2), resultaat)
+    }
+
+    // -------------------------------------------------------------------------------- de logregels
+
+    @Test
+    fun `geen enkele logregel draagt de waarde van de ontvanger`() {
+        // Een BSN hoort niet in een applicatielog. De ontvanger reist mee in de request-body en in
+        // de X-Ontvanger-header, dus elke onderdrukte fout is een kans om hem alsnog weg te
+        // schrijven — en dat valt zonder deze test nergens op.
+        val magazijn = magazijn(
+            { antwoord(400, null) },
+            gooitBijLezen(ProcessingException("body bevat 999999011")),
+            { throw ProcessingException("header BSN:999999011 geweigerd") },
+            geldig(4),
+        )
+
+        every { magazijn.markeer(any(), any(), any()) } throws ProcessingException("BSN:999999011 onbekend")
+
+        val regels = vangLogregels {
+            AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(4, gelezen = true))
+        }
+
+        assertEquals(4, regels.size, "elke onderdrukte fout hoort een regel op te leveren")
+        regels.forEach { regel ->
+            WAARDEN.forEach { waarde ->
+                assertTrue(waarde !in regel.message, "logregel draagt de ontvangerwaarde: ${regel.message}")
+            }
+
+            assertTrue(OIN_A in regel.message, "logregel wijst het magazijn niet aan: ${regel.message}")
+        }
+    }
+
+    @Test
+    fun `de logregel noemt waarom het berichtId ontbrak`() {
+        // "201 zonder berichtId" is de uitkomst; zonder de oorzaak erbij weet niemand of het
+        // antwoord afgekapt was of gewoon geen id droeg, en dat scheelt bij het uitzoeken alles.
+        val afgekapt = magazijn(gooitBijLezen(ProcessingException("Unexpected end-of-input")))
+        val leeg = magazijn({ antwoord(201, null) })
+
+        val bijAfgekapt = vangLogregels { AanleverService(mapOf(OIN_A to afgekapt)).leverAan(ronde(1)) }
+        val bijLeeg = vangLogregels { AanleverService(mapOf(OIN_A to leeg)).leverAan(ronde(1)) }
+
+        assertTrue(
+            "ProcessingException" in bijAfgekapt.single().message,
+            "de oorzaak ontbreekt: ${bijAfgekapt.single().message}",
+        )
+        assertTrue(
+            "geen berichtId in het antwoord" in bijLeeg.single().message,
+            "een leeg antwoord hoort als zodanig te lezen: ${bijLeeg.single().message}",
+        )
+    }
+
+    @Test
+    fun `een fout die geen magazijnstoring is klinkt luider`() {
+        // Het paneel toont een bedradingsfout in de console net zo als een magazijn dat uit staat.
+        // De log is dan het enige dat de bediener bij de goede oorzaak brengt.
+        val storing = magazijn({ throw ProcessingException("Connection refused") })
+        val bedrading = magazijn({ throw IllegalStateException("geen MessageBodyWriter") })
+
+        val storingsregels = vangLogregels { AanleverService(mapOf(OIN_A to storing)).leverAan(ronde(1)) }
+        val bedradingsregels = vangLogregels { AanleverService(mapOf(OIN_A to bedrading)).leverAan(ronde(1)) }
+
+        assertEquals(Level.WARNING, storingsregels.single().level)
+        assertEquals(Level.SEVERE, bedradingsregels.single().level)
+    }
+
     // ---------------------------------------------------------------------- de cardinaliteiten
 
     @Test
@@ -325,6 +444,9 @@ class AanleverServiceTest {
         const val OIN_A = "00000000000000100000"
         const val OIN_B = "00000001823288444000"
         const val ONBEKENDE_OIN = "00000000000000000000"
+
+        /** De identificatienummers uit [ontvanger]; deze mogen nergens in een logregel opduiken. */
+        val WAARDEN = listOf("999999011", "90000001")
 
         /**
          * Magazijn dat de opgegeven antwoorden op volgorde afwerkt: één per aanlevering, zodat een
@@ -405,6 +527,29 @@ class AanleverServiceTest {
         )
 
         fun ronde(aantal: Int, gelezen: Boolean = false) = (1..aantal).map { opdracht(it, gelezen) }
+
+        fun vangLogregels(actie: () -> Unit): List<LogRecord> {
+            val logger = Logger.getLogger(AanleverService::class.java.name)
+            val gevangen = mutableListOf<LogRecord>()
+
+            val handler = object : Handler() {
+                override fun publish(record: LogRecord) { gevangen += record }
+
+                override fun flush() = Unit
+
+                override fun close() = Unit
+            }
+
+            logger.addHandler(handler)
+
+            try {
+                actie()
+            } finally {
+                logger.removeHandler(handler)
+            }
+
+            return gevangen
+        }
 
         fun uitkomst(
             aangeboden: Int,
