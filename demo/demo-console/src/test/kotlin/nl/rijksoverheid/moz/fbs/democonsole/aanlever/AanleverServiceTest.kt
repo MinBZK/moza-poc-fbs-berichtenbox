@@ -5,15 +5,18 @@ import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.ProcessingException
+import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverVerzoek
 import nl.rijksoverheid.moz.fbs.democonsole.generator.OntvangerDto
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.io.IOException
 import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
@@ -67,10 +70,7 @@ class AanleverServiceTest {
 
         val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(3, gelezen = true))
 
-        assertEquals(
-            uitkomst(aangeboden = 3, geslaagd = 3, markeringMislukt = 1, zonderBerichtId = 1),
-            resultaat,
-        )
+        assertEquals(uitkomst(aangeboden = 3, geslaagd = 3, zonderBerichtId = 1), resultaat)
         verify(exactly = 2) { magazijn.markeer(any(), any(), any()) }
         verify(exactly = 0) { magazijn.markeer(leeg, any(), any()) }
     }
@@ -88,17 +88,15 @@ class AanleverServiceTest {
     }
 
     @Test
-    fun `een onbruikbaar antwoord telt ook als mislukte markering wanneer gelezen gevraagd is`() {
+    fun `een onbruikbaar antwoord telt één keer, ook wanneer om gelezen gevraagd was`() {
         // Het bericht staat in het magazijn — de Aanlever-API belooft dat bij een 201 — dus
-        // geslaagd. Alleen het berichtId is weg, en zonder dat kan de leesstatus niet gezet worden.
+        // geslaagd. Het berichtId is weg, en zonder dat valt er niets te markeren; dat telt als één
+        // ding en niet als twee, anders leest één bericht in het paneel als twee problemen.
         val magazijn = magazijn(gooitBijLezen(ProcessingException("kapot")))
 
         val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1, gelezen = true))
 
-        assertEquals(
-            uitkomst(aangeboden = 1, geslaagd = 1, markeringMislukt = 1, zonderBerichtId = 1),
-            resultaat,
-        )
+        assertEquals(uitkomst(aangeboden = 1, geslaagd = 1, zonderBerichtId = 1), resultaat)
         verify(exactly = 0) { magazijn.markeer(any(), any(), any()) }
     }
 
@@ -292,6 +290,19 @@ class AanleverServiceTest {
     }
 
     @Test
+    fun `alleen HTTP 200 telt als geslaagde markering`() {
+        // Het magazijn beantwoordt de status-PATCH met 200; een andere 2xx betekent iets anders en
+        // zegt niet dat de leesstatus is gezet.
+        val magazijn = magazijn(geldig(1))
+
+        every { magazijn.markeer(any(), any(), any()) } returns antwoord(204, null)
+
+        val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1, gelezen = true))
+
+        assertEquals(uitkomst(aangeboden = 1, geslaagd = 1, markeringMislukt = 1), resultaat)
+    }
+
+    @Test
     fun `een onbereikbaar magazijn bij het markeren telt als mislukte markering`() {
         val magazijn = magazijn(geldig(1))
 
@@ -329,7 +340,7 @@ class AanleverServiceTest {
         val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(opdrachten)
 
         assertEquals(
-            uitkomst(aangeboden = 5, geslaagd = 3, mislukt = 2, markeringMislukt = 2, zonderBerichtId = 1),
+            uitkomst(aangeboden = 5, geslaagd = 3, mislukt = 2, markeringMislukt = 1, zonderBerichtId = 1),
             resultaat,
         )
         verify(exactly = 1) { magazijn.markeer(berichtId(5), header(5), StatusPatch(gelezen = true)) }
@@ -363,16 +374,19 @@ class AanleverServiceTest {
             { antwoord(400, null) },
             gooitBijLezen(ProcessingException("body bevat 999999011")),
             { throw ProcessingException("header BSN:999999011 geweigerd") },
-            geldig(4),
+            // Landt op de luide tak mét throwable: die voegt de oorzaakketen én het stackframe samen,
+            // en juist daar is een melding het makkelijkst alsnog binnen te smokkelen.
+            gooitBijLezen(NullPointerException("geen reader voor BSN:999999011")),
+            geldig(5),
         )
 
         every { magazijn.markeer(any(), any(), any()) } throws ProcessingException("BSN:999999011 onbekend")
 
         val regels = vangLogregels {
-            AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(4, gelezen = true))
+            AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(5, gelezen = true))
         }
 
-        assertEquals(4, regels.size, "elke onderdrukte fout hoort een regel op te leveren")
+        assertEquals(5, regels.size, "elke onderdrukte fout hoort een regel op te leveren")
         regels.forEach { regel ->
             // Niet alleen de melding: een LogRecord draagt ook zijn throwable en parameters, en de
             // idiomatische JUL-vorm `log.log(niveau, melding, fout)` zet de exception dáár neer.
@@ -401,9 +415,70 @@ class AanleverServiceTest {
             "de oorzaak ontbreekt: ${bijAfgekapt.single().message}",
         )
         assertTrue(
-            "geen berichtId in het antwoord" in bijLeeg.single().message,
+            "het antwoord droeg er geen" in bijLeeg.single().message,
             "een leeg antwoord hoort als zodanig te lezen: ${bijLeeg.single().message}",
         )
+    }
+
+    @Test
+    fun `de logregel draagt de hele oorzaakketen en niet alleen de bovenste fout`() {
+        // De bovenste fout is bijna altijd de wrapper van de client; de diagnose zit in wat eronder
+        // zit. toString() laat juist dat weg, dus de keten wordt zelf opgebouwd.
+        val magazijn = magazijn({ throw ProcessingException("wrapper", IOException("Connection refused")) })
+
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
+
+        assertTrue(
+            "ProcessingException <- IOException" in regels.single().message,
+            "de oorzaakketen ontbreekt: ${regels.single().message}",
+        )
+    }
+
+    @Test
+    fun `een fout die zichzelf als oorzaak noemt levert één naam op`() {
+        // Throwable.initCause weigert een zelfverwijzing, maar een subklasse die getCause overschrijft
+        // kan het wél — en dan zou de keten zichzelf tot de dieptegrens herhalen.
+        val regels = vangLogregels {
+            AanleverService(mapOf(OIN_A to magazijn({ throw ZichzelfAlsOorzaak() }))).leverAan(ronde(1))
+        }
+
+        assertFalse(
+            " <- " in regels.single().message,
+            "de keten herhaalt zichzelf: ${regels.single().message}",
+        )
+    }
+
+    @Test
+    fun `een antwoord dat niet te sluiten is levert een logregel op`() {
+        // Het bericht is afgeleverd, dus geen teller — maar herhaald lekken put de connection-pool
+        // uit, en dan strandt een latere ronde zonder dat iets naar deze oorzaak wijst.
+        val magazijn = magazijn(gooitBijSluiten())
+
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
+
+        assertEquals(Level.WARNING, regels.single().level)
+        assertTrue(OIN_A in regels.single().message, "de regel wijst het magazijn niet aan")
+    }
+
+    @Test
+    fun `een geweigerde markering klinkt luider dan een magazijn dat het even niet aankan`() {
+        val geweigerd = magazijn(geldig(1))
+        val overbelast = magazijn(geldig(1))
+        val kwijt = magazijn(geldig(1))
+
+        every { geweigerd.markeer(any(), any(), any()) } returns antwoord(400, null)
+        every { overbelast.markeer(any(), any(), any()) } returns antwoord(503, null)
+        // Het magazijn is het bericht kwijt dat het één aanroep eerder zelf bevestigde: de overkant.
+        every { kwijt.markeer(any(), any(), any()) } returns antwoord(404, null)
+
+        val bijGeweigerd = vangLogregels { markeerRonde(geweigerd) }
+        val bijOverbelast = vangLogregels { markeerRonde(overbelast) }
+        val bijKwijt = vangLogregels { markeerRonde(kwijt) }
+
+        assertEquals(Level.SEVERE, bijGeweigerd.single().level)
+        assertEquals(Level.WARNING, bijOverbelast.single().level)
+        assertEquals(Level.WARNING, bijKwijt.single().level)
+        assertTrue(OIN_A in bijGeweigerd.single().message, "de regel wijst het magazijn niet aan")
     }
 
     @Test
@@ -450,6 +525,54 @@ class AanleverServiceTest {
     }
 
     @Test
+    fun `een magazijn dat om uitstel vraagt is geen fout van de console`() {
+        // 408, 425 en 429 zitten in de 4xx-reeks maar zeggen "later nog eens proberen" — dat is het
+        // magazijn of de ingress ervoor, niet een verzoek dat wij verkeerd bouwden.
+        val uitstel = magazijn({ antwoord(429, null) })
+        val serverfout = magazijn({ antwoord(500, null) })
+
+        val bijUitstel = vangLogregels { AanleverService(mapOf(OIN_A to uitstel)).leverAan(ronde(1)) }
+        val bijServerfout = vangLogregels { AanleverService(mapOf(OIN_A to serverfout)).leverAan(ronde(1)) }
+
+        assertEquals(Level.WARNING, bijUitstel.single().level)
+        assertEquals(Level.WARNING, bijServerfout.single().level)
+    }
+
+    @Test
+    fun `een statuscode van het magazijn in een exception wordt op zijn status beoordeeld`() {
+        // Zet iemand de default-exception-mapper weer aan, dan komt de status als exception binnen in
+        // plaats van als antwoord. Het oordeel hoort dan hetzelfde te zijn.
+        val overbelast = magazijn({ throw WebApplicationException(Response.status(503).build()) })
+        val geweigerd = magazijn({ throw WebApplicationException(Response.status(400).build()) })
+
+        val bijOverbelast = vangLogregels { AanleverService(mapOf(OIN_A to overbelast)).leverAan(ronde(1)) }
+        val bijGeweigerd = vangLogregels { AanleverService(mapOf(OIN_A to geweigerd)).leverAan(ronde(1)) }
+
+        assertEquals(Level.WARNING, bijOverbelast.single().level)
+        assertEquals(Level.SEVERE, bijGeweigerd.single().level)
+    }
+
+    @Test
+    fun `een IO-fout onderweg is een storing`() {
+        val magazijn = magazijn({ throw IOException("Broken pipe") })
+
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
+
+        assertEquals(Level.WARNING, regels.single().level)
+    }
+
+    @Test
+    fun `een luide logregel wijst aan waar de fout ontstond`() {
+        // Op de luide tak is een klassenaam alléén te weinig; het bovenste stackframe draagt namen
+        // en regelnummers, en dus geen gegevens.
+        val magazijn = magazijn({ throw IllegalStateException("blocking op de event-loop") })
+
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
+
+        assertTrue(" @ " in regels.single().message, "de regel noemt geen plek: ${regels.single().message}")
+    }
+
+    @Test
     fun `een opdracht voor een onbekend magazijn klinkt als inrichtingsfout`() {
         val regels = vangLogregels {
             AanleverService(mapOf(OIN_A to magazijn())).leverAan(listOf(opdracht(1).copy(magazijnOin = ONBEKENDE_OIN)))
@@ -481,6 +604,12 @@ class AanleverServiceTest {
     }
 
     // ---------------------------------------------------------------------------- gereedschap
+
+    /** Een fout die zichzelf als oorzaak opgeeft; met `initCause` is dat niet te bouwen. */
+    private class ZichzelfAlsOorzaak : RuntimeException("kringloop") {
+
+        override val cause: Throwable get() = this
+    }
 
     private companion object {
 
@@ -577,10 +706,15 @@ class AanleverServiceTest {
 
         fun ronde(aantal: Int, gelezen: Boolean = false) = (1..aantal).map { opdracht(it, gelezen) }
 
-        /** De meldingen door de hele cause-keten van een gelogde throwable. */
+        /** De meldingen door de cause-keten van een gelogde throwable; begrensd tegen kringlopen. */
         fun uitFout(fout: Throwable?): String =
             generateSequence(fout) { it.cause?.takeIf { oorzaak -> oorzaak !== it } }
+                .take(10)
                 .joinToString { it.message.orEmpty() }
+
+        /** Eén ronde van één bericht dat op gelezen gezet moet worden. */
+        fun markeerRonde(magazijn: MagazijnAanleverClient) =
+            AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1, gelezen = true))
 
         fun vangLogregels(actie: () -> Unit): List<LogRecord> {
             val logger = Logger.getLogger(AanleverService::class.java.name)

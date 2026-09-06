@@ -181,9 +181,8 @@ function toonMelding(tekst, soort, ruw, uitleg) {
     meldingLetOp.textContent = uitleg || '';
     meldingRuw.hidden = !ruw;
 
-    // Bij twijfel staat het antwoord meteen open: dan is de ruwe JSON het enige aanknopingspunt,
-    // en tijdens een demo klapt niemand een <details> uit.
-    // Alles wat niet goed ging: bij 'fout' heeft de bediener de ruwe JSON het hardst nodig.
+    // Alles wat niet goed ging staat meteen open: dan is de ruwe JSON het aanknopingspunt, en
+    // tijdens een demo klapt niemand een <details> uit.
     meldingRuw.open = Boolean(ruw) && soort !== 'goed';
     meldingJson.textContent = ruw || '';
 }

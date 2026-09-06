@@ -5,6 +5,7 @@ import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.inject.Inject
 import jakarta.ws.rs.ProcessingException
+import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import java.io.IOException
@@ -17,14 +18,14 @@ import java.util.logging.Logger
  * hier ook terecht. De twee tellers daarna tellen berichten die wél in het magazijn staan — en dus
  * ook als geslaagd tellen — maar waar naast de aflevering iets misging:
  *
- * - `markeringMislukt`: het bericht was niet op gelezen te zetten.
+ * - `markeringMislukt`: de PATCH die het bericht op gelezen zet, is geprobeerd en mislukt.
  * - `zonderBerichtId`: het magazijn bevestigde de ontvangst met een antwoord waar geen bruikbaar
- *   berichtId uit te halen was. Dat telt los van `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener
+ *   berichtId uit te halen was — en zonder dat valt er ook niets te markeren. Dat telt los van `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener
  *   te zien dát het magazijn haperde in plaats van een volledig groene melding.
  *
- * De laatste twee overlappen wanneer om gelezen gevraagd was: dat bericht is zowel zonder berichtId
- * binnengekomen als niet gemarkeerd. Het paneel noemt dan twee dingen over één bericht — beide
- * waar, en niet bij elkaar op te tellen.
+ * De twee sluiten elkaar uit, zodat het paneel per bericht één cijfer noemt: een aflevering zonder
+ * berichtId telt alleen als `zonderBerichtId`, ook wanneer om gelezen was gevraagd. Anders leest één
+ * bericht als twee problemen.
  */
 data class AanleverResultaat(
     val aangeboden: Int,
@@ -72,8 +73,6 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
                 LeverUitkomst.AfgeleverdZonderId -> {
                     geslaagd++
                     zonderBerichtId++
-
-                    if (opdracht.gelezen) markeringMislukt++
                 }
 
                 is LeverUitkomst.Afgeleverd -> {
@@ -106,7 +105,8 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         // Eén hapering mag de vulling niet halverwege afbreken: dan rapporteert de console niets
         // over wat al wél is afgeleverd en levert een tweede poging dubbele berichten op. De
         // aanroep hier, het uitlezen van de body en het sluiten vallen daarom elk in een vangnet,
-        // en dat vangnet is bewust breed. Welk exception-type een afgekapt antwoord precies
+        // en dat vangnet is bewust breed. Het uitlezen van de statuscode valt erbuiten: dat is een
+        // veldlezing op een antwoord dat er al is. Welk exception-type een afgekapt antwoord precies
         // oplevert, is een implementatiedetail van de REST-client dat met een upgrade kan
         // verschuiven; de garantie dat de ronde doorloopt mag daar niet aan hangen.
         val response = try {
@@ -139,7 +139,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
             meld(
                 "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP ${response.status} " +
                     "voor ontvanger-type ${opdracht.verzoek.ontvanger.type}",
-                storing = response.status !in 400..499,
+                storing = isStoring(response.status),
             )
 
             return LeverUitkomst.Mislukt
@@ -161,7 +161,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
             "berichtId; het bericht staat in het magazijn, maar de console kan het niet meer aanwijzen"
 
         if (fout == null) {
-            meld("$melding (geen berichtId in het antwoord)", storing = true)
+            meld("$melding (het antwoord droeg er geen)", storing = true)
         } else {
             meld(melding, isStoring(fout, bijUitlezen = true), fout)
         }
@@ -191,7 +191,9 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
                 meld(
                     "markeren-gelezen gaf HTTP ${response.status} voor bericht $berichtId " +
                         "bij magazijn ${opdracht.magazijnOin}",
-                    storing = response.status !in 400..499,
+                    // Een 404 hoort er ook bij: het magazijn is dan het bericht kwijt dat het één
+                    // aanroep eerder zelf met een 201 bevestigde. Dat is de overkant, niet de console.
+                    storing = isStoring(response.status) || response.status == 404,
                 )
             }
 
@@ -233,17 +235,29 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
 
     /**
      * Gaat deze fout het magazijn of de lijn ernaartoe aan, of komt hij uit de console zelf? De
-     * REST-client wikkelt alles wat er onderweg misgaat in een `ProcessingException` — alleen een
-     * `WebApplicationException` en een blocking aanroep op de event-loop komen ongewikkeld door — dus
-     * dat type is hier het signaal, en niet de oorzaak eronder.
+     * REST-client wikkelt alles wat er onderweg misgaat in een `ProcessingException`, ook wat er in
+     * de asynchrone pipeline gebeurt zoals het schrijven van de request-body. Alleen een
+     * `WebApplicationException` en een blocking aanroep op de event-loop komen ongewikkeld door, dus
+     * het bovenste type is hier het signaal en niet de oorzaak eronder.
      *
-     * Bij het uitlezen of sluiten van een antwoord telt `IllegalStateException` er ook bij: een
-     * stream die al gesloten is doordat het antwoord halverwege wegviel, meldt zich zo. Bij de
-     * aanroep zélf wijst datzelfde type juist op een bedradingsfout — blocking op de event-loop — en
-     * dan hoort het luid.
+     * Een `WebApplicationException` draagt een statuscode van het magazijn en wordt dus op status
+     * beoordeeld. Bij het uitlezen of sluiten van een antwoord telt `IllegalStateException` als
+     * storing: een stream die al gesloten is doordat het antwoord halverwege wegviel, meldt zich zo.
+     * Bij de aanroep zélf wijst datzelfde type juist op blocking op de event-loop, en dan hoort het
+     * luid.
      */
-    private fun isStoring(fout: Throwable, bijUitlezen: Boolean) =
-        fout is ProcessingException || fout is IOException || (bijUitlezen && fout is IllegalStateException)
+    private fun isStoring(fout: Throwable, bijUitlezen: Boolean) = when {
+        fout is WebApplicationException -> isStoring(fout.response.status)
+        fout is ProcessingException || fout is IOException -> true
+        else -> bijUitlezen && fout is IllegalStateException
+    }
+
+    /**
+     * Een 4xx zegt dat wij iets ongeldigs stuurden, een 5xx dat het magazijn het niet aankon. De
+     * uitzonderingen zijn wacht-en-probeer-later-codes: die komen van de overkant, en het magazijn
+     * gebruikt voor zijn eigen retries dezelfde lijst.
+     */
+    private fun isStoring(status: Int) = status !in 400..499 || status in WACHTCODES
 
     /**
      * De klassennamen van een fout en zijn oorzaken, zonder ook maar één melding. `toString()` laat
@@ -268,6 +282,9 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
 
         /** Hoe diep de oorzaakketen de log in gaat; genoeg voor wrapper-om-wrapper. */
         const val MAX_OORZAKEN = 5
+
+        /** Statuscodes die zeggen "later nog eens proberen"; die komen van de overkant. */
+        val WACHTCODES = setOf(408, 425, 429)
 
         fun bouwClients(config: DemoConfig): Map<String, MagazijnAanleverClient> =
             config.magazijnen().mapValues { (_, magazijn) ->
