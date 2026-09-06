@@ -109,6 +109,34 @@ class TempoServiceTest {
     }
 
     @Test
+    fun `een magazijn dat niets aanneemt laat de teller stilstaan`() {
+        // De chip meldt "N geleverd". Telde die de tikken, dan liep hij tijdens een demo vrolijk door
+        // terwijl er geen enkel bericht aankwam — en dan is er niets dat de storing verraadt.
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat(1, 0, 1, 0, 0)
+
+        service.start(5)
+
+        klok.tik(3)
+
+        verify(exactly = 3) { aanleverService.leverAan(any()) }
+        assertEquals(0, service.status().geleverd)
+    }
+
+    @Test
+    fun `de stroom stopt op het aantal pogingen, ook als er niets aankomt`() {
+        // Zou de bovengrens aan de afleveringen hangen, dan bleef de stroom bij een uitstaand magazijn
+        // een uur doortikken in plaats van na MAX_BERICHTEN te stoppen.
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat(1, 0, 1, 0, 0)
+
+        service.start(1)
+
+        klok.tik(TempoService.MAX_BERICHTEN + 1)
+
+        verify(exactly = TempoService.MAX_BERICHTEN) { aanleverService.leverAan(any()) }
+        assertFalse(service.status().loopt)
+    }
+
+    @Test
     fun `een tweede start vervangt de lopende stroom in plaats van te stapelen`() {
         service.start(5)
         service.start(10)

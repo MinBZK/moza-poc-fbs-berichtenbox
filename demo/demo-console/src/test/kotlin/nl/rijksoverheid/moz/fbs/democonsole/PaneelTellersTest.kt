@@ -111,6 +111,12 @@ class PaneelTellersTest {
         // is dat opnieuw een groen vinkje voor iets wat we niet begrijpen.
         val terugval = Regex("MERKTEKEN\\[[^\\]]+\\]\\s*\\|\\|\\s*'([A-Za-z0-9-]+)'").find(code)
 
+        // Ook de opzoeksleutel: een tabel die op iets anders dan de uitkomstsoort wordt bevraagd,
+        // geeft élke knop hetzelfde teken — en dan is het gepinde merkteken niets waard.
+        assertTrue(
+            "MERKTEKEN[samengevat.soort]" in code,
+            "het merkteken komt niet uit de soort van de samenvatting",
+        )
         assertTrue(terugval != null, "geen terugval gevonden achter MERKTEKEN[...]")
         assertNotEquals(merktekens["goed"], terugval!!.groupValues[1], "een onbekende soort leest als geslaagd")
     }

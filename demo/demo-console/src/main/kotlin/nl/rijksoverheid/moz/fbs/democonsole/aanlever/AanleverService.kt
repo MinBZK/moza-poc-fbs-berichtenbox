@@ -112,7 +112,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         val response = try {
             client.leverAan(opdracht.verzoek)
         } catch (fout: Exception) {
-            meld("aanleveren bij magazijn ${opdracht.magazijnOin} mislukte", isStoring(fout, bijUitlezen = false), fout)
+            meld("aanleveren bij magazijn ${opdracht.magazijnOin} mislukte", isStoring(fout), fout)
 
             return LeverUitkomst.Mislukt
         }
@@ -163,7 +163,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         if (fout == null) {
             meld("$melding (het antwoord droeg er geen)", storing = true)
         } else {
-            meld(melding, isStoring(fout, bijUitlezen = true), fout)
+            meld(melding, isStoring(fout), fout)
         }
 
         return LeverUitkomst.AfgeleverdZonderId
@@ -177,7 +177,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         } catch (fout: Exception) {
             meld(
                 "markeren-gelezen van bericht $berichtId bij magazijn ${opdracht.magazijnOin} mislukte",
-                isStoring(fout, bijUitlezen = false),
+                isStoring(fout),
                 fout,
             )
 
@@ -192,7 +192,9 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
                     "markeren-gelezen gaf HTTP ${response.status} voor bericht $berichtId " +
                         "bij magazijn ${opdracht.magazijnOin}",
                     // Een 404 hoort er ook bij: het magazijn is dan het bericht kwijt dat het één
-                    // aanroep eerder zelf met een 201 bevestigde. Dat is de overkant, niet de console.
+                    // aanroep eerder zelf met een 201 bevestigde — de overkant, niet de console. (Een
+                    // mismatch op de ontvanger geeft 403, dus die valt hier niet onder; wie tijdens
+                    // een ronde op Legen drukt, ziet zijn eigen ingreep wel als hapering terug.)
                     storing = isStoring(response.status) || response.status == 404,
                 )
             }
@@ -212,7 +214,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         try {
             response.close()
         } catch (fout: Exception) {
-            meld("antwoord van magazijn $magazijnOin niet netjes te sluiten", isStoring(fout, bijUitlezen = true), fout)
+            meld("antwoord van magazijn $magazijnOin niet netjes te sluiten", isStoring(fout), fout)
         }
     }
 
@@ -241,15 +243,18 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
      * het bovenste type is hier het signaal en niet de oorzaak eronder.
      *
      * Een `WebApplicationException` draagt een statuscode van het magazijn en wordt dus op status
-     * beoordeeld. Bij het uitlezen of sluiten van een antwoord telt `IllegalStateException` als
-     * storing: een stream die al gesloten is doordat het antwoord halverwege wegviel, meldt zich zo.
-     * Bij de aanroep zélf wijst datzelfde type juist op blocking op de event-loop, en dan hoort het
-     * luid.
+     * beoordeeld. Al het andere is onze kant: de enige `IllegalStateException`en die hier aankomen
+     * zijn blocking op de event-loop bij de aanroep, en een antwoord dat al gesloten was bij het
+     * uitlezen — allebei fouten in de console, niet in het magazijn.
+     *
+     * Let op: dit oordeel hangt aan het wikkelgedrag van de client. Zou die ooit onbewerkte
+     * I/O-fouten doorgeven — wat het reactieve, `Uni`-teruggevende pad wél doet — dan kantelt elke
+     * magazijnstoring naar de luide tak zonder dat een test omvalt.
      */
-    private fun isStoring(fout: Throwable, bijUitlezen: Boolean) = when {
-        fout is WebApplicationException -> isStoring(fout.response.status)
-        fout is ProcessingException -> true
-        else -> bijUitlezen && fout is IllegalStateException
+    private fun isStoring(fout: Throwable) = when (fout) {
+        is WebApplicationException -> isStoring(fout.response?.status ?: 0)
+        is ProcessingException -> true
+        else -> false
     }
 
     /**

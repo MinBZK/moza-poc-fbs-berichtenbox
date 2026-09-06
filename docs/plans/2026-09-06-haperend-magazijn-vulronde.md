@@ -28,6 +28,11 @@ dus dit is een demo-realistisch geval.
 Raakt alle vulknoppen tegelijk — *Basisvulling*, *Random berichten*, *Bericht plaatsen*,
 *Herstel demo* en de stroom uit `TempoService` — want die gaan alle vijf door dezelfde `lever()`.
 
+Bij de stroom kwam daar een eigen variant van hetzelfde probleem bij: `TempoService.tik()` gooide het
+`AanleverResultaat` weg en telde `geleverd++` per tik. De chip meldde dus "42 geleverd" terwijl er
+niets aankwam. Die telt nu de afleveringen; de bovengrens telt de pogingen, zodat een uitstaand
+magazijn de stroom niet oneindig rekt.
+
 Concrete gaten in het oude `lever()`:
 
 | Antwoord van het magazijn | Was | Is |
@@ -113,10 +118,10 @@ Een breed vangnet kost wel iets, en dat wordt apart teruggegeven:
   van de request-body. Wat ongewikkeld doorkomt is een `WebApplicationException` (die draagt een
   statuscode van het magazijn en wordt dáárop beoordeeld) en `BlockingNotAllowedException`.
 
-  Bij het uitlezen en sluiten van een antwoord telt `IllegalStateException` ook als storing: een
-  stream die al dicht is doordat het antwoord halverwege wegviel meldt zich zo. Bij de aanroep zélf
-  wijst datzelfde type op blocking op de event-loop, en dan is het geen storing. Ook de HTTP-status
-  splitst mee: een 4xx betekent dat de console iets ongeldigs stuurde en klinkt luid, een 5xx is het
+  Daarmee is het oordeel simpel: een `ProcessingException` is de overkant, al het andere is onze
+  kant. Een `IllegalStateException` uit het uitlezen betekent dat de console het antwoord al gelezen
+  had, en bij de aanroep dat er op de event-loop geblokkeerd wordt — allebei van ons. Ook de
+  HTTP-status splitst mee: een 4xx betekent dat de console iets ongeldigs stuurde en klinkt luid, een 5xx is het
   magazijn. Alleen een 5xx en de wacht-en-probeer-later-codes 408 en 429 zijn de overkant; al het
   andere — een 4xx, maar ook een 2xx of 3xx die hier belandt en dus het contract breekt — komt van
   onze kant en treft elk bericht van de ronde. Het magazijn hanteert voor zijn eigen retries dezelfde
@@ -128,6 +133,12 @@ Een breed vangnet kost wel iets, en dat wordt apart teruggegeven:
   Dat de default-exception-mapper uitstaat (`microprofile.rest.client.disable.default.mapper`) is
   wat de statuscodes als antwoord binnen laat komen in plaats van als exception. Die property is nu
   gepind in `ApplicationPropertiesTest`; valt hij weg, dan wordt de hele splitsing dode code.
+
+  Het oordeel op het type hangt wél aan het wikkelgedrag van de client, en dat staat in geen enkele
+  test — alle tests bouwen hun exception met de hand. Zou de client onbewerkte I/O-fouten gaan
+  doorgeven, wat het reactieve `Uni`-pad doet, dan kantelt elke magazijnstoring naar de luide tak
+  zonder dat er iets rood wordt. De KDoc bij `isStoring` zegt dat; een test die het vastpint zou een
+  echte socket vergen en staat hieronder bij wat er niet in deze wijziging zit.
 - **Een melding is geen veilige logregel.** `catch (Exception)` vangt nu ook fouten die de aanroep
   zelf afwijzen, en die dragen de request-body of de `X-Ontvanger`-header in hun melding — dus een
   BSN. `oorzaakketen(...)` schrijft daarom alleen de klassennamen door de cause-keten
@@ -160,8 +171,8 @@ In de meerstapstests staat de hapering in het **middelste** bericht, zodat "de r
 echt getoetst wordt en niet alleen "de laatste opdracht slaagde". Elke test asserteert de hele
 `AanleverResultaat`, niet één veld.
 
-Drieënveertig testmethodes, drieënvijftig gevallen (drie ervan zijn `@ParameterizedTest`en), plus
-zes in `PaneelTellersTest`. Wat ze dekken:
+Tweeënveertig testmethodes, drieënvijftig gevallen (drie ervan zijn `@ParameterizedTest`en), plus
+zes in `PaneelTellersTest` en twee in `TempoServiceTest`. Wat ze dekken:
 
 - **de ronde loopt door** — afgekapte body, lege body, blanco berichtId, ontkoppelde entity, een
   `close()` die zelf gooit, een onbereikbaar magazijn, een fout buiten `ProcessingException`, HTTP
@@ -177,25 +188,29 @@ zes in `PaneelTellersTest`. Wat ze dekken:
 - **het sluiten** — precies één keer, op het succespad, het foutpad, het niet-201-pad en beide
   markeer-paden; een falende `close()` die de ronde niet raakt maar wel een logregel oplevert, zowel
   bij een transportfout als bij een stream die al dicht was.
-- **de logregels** — geen enkele draagt een identificatienummer (melding, throwable én parameters,
-  over vijf onderdrukte fouten waarvan één op de luide tak mét throwable); elke regel wijst zijn
-  magazijn, ontvanger-type of berichtId aan; de oorzaakketen loopt drie diep door; een fout die
+- **de logregels** — geen enkele draagt een identificatienummer (melding, throwable én parameters),
+  en dat scenario raakt élke plek waar een fout wordt onderdrukt: negen regels in één ronde, waarvan
+  één op de luide tak mét throwable. Elke regel wijst zijn magazijn, ontvanger-type, statuscode of
+  berichtId aan; de oorzaakketen loopt drie diep door; een fout die
   zichzelf als oorzaak noemt levert één naam op; een fout zonder eenvoudige naam wordt alsnog
   benoemd; en de luide tak wijst naar het frame waar de fout ontstond.
-- **de ernst-splitsing** — storing versus bedradingsfout, een ontkoppelde stream versus een kapotte
-  deserialisatie, een `WebApplicationException` op zijn status, de onbekende OIN, en twee
-  `@ParameterizedTest`en over de statuscodes: 408/429/500/503/599 klinken als storing, 200/302/400/
-  409/499 als een fout van onze kant.
+- **de ernst-splitsing** — storing versus bedradingsfout, een afgekapte stream versus een antwoord
+  dat de console al gelezen had, een `WebApplicationException` op zijn status, de onbekende OIN, en
+  twee `@ParameterizedTest`en over de statuscodes: 408/429/500/503/599 klinken als storing,
+  200/302/400/409/425/499 als een fout van onze kant.
 - **het paneel** — `PaneelContractTest` pint de vijf veldnamen in het antwoord; `PaneelTellersTest`
   pint dat `vullingTekst` elke teller noemt, `vullingSoort` elke foutteller meeweegt en een rode
-  uitkomst kán geven, dat elke uitkomstsoort naar het juiste merkteken wijst, en dat een onbekende
-  soort niet op het geslaagd-teken terugvalt.
+  uitkomst kán geven, dat elke uitkomstsoort naar het juiste merkteken wijst, dat dat merkteken op
+  de soort van de samenvatting wordt opgezocht, en dat een onbekende soort niet op het
+  geslaagd-teken terugvalt.
+- **de stroom** — `TempoServiceTest` pint dat de chip afleveringen telt en niet tikken, en dat de
+  bovengrens aan de pogingen hangt zodat een uitstaand magazijn de stroom niet rekt.
 
 ### Mutatietest
 
 Er staat geen mutatietest-plugin in de build, dus met de hand: mutant erin, de betrokken testklassen
-draaien, noteren wélke tests omvallen, mutant eruit. Tegen de eindstand zijn **vijfenzestig mutanten**
-gedraaid en alle vijfenzestig worden gedood.
+draaien, noteren wélke tests omvallen, mutant eruit. Tegen de eindstand zijn **vijfenzeventig mutanten**
+gedraaid en alle vijfenzeventig worden gedood.
 
 Dat is een gerichte steekproef en geen volledige mutatiedekking: de mutanten zijn met de hand
 gekozen op de plekken waar het gedrag van deze wijziging zit. De lijst staat in het scriptje dat hem
@@ -209,8 +224,8 @@ draaide, zodat een volgende ronde niet hoeft te raden wat al geprobeerd is. Waar
 | het sluiten | niet gesloten; alleen bij een niet-afgeleverd antwoord; falende `close()` ontsnapt; `sluitStil` zwijgt; twee keer gesloten; markeer-antwoord niet gesloten |
 | de aanroep en de status | beide vangnetten versmald; `!= 201` omgedraaid of verruimd tot 2xx; markeer-status omgedraaid of verruimd tot 2xx; markeer-statusmelding weg |
 | de ronde | eerste opdracht overgeslagen; routering pakt het eerste magazijn; `X-Ontvanger` zonder waarde of met een vast type |
-| de logregels | ontvanger-*waarde* in plaats van -*type*; ontvanger-type weg; `oorzaakketen` logt `toString()`; luide tak logt de melding erbij; terugval op de volledige klassenaam weg; keten stopt na twee; ander scheidingsteken; cyclus-guard weg; `plek` geeft niets, pakt het onderste frame of laat klasse en regel weg; magazijn-OIN of berichtId weg uit drie regels |
-| het paneel | `fout` krijgt het geslaagd-merkteken; twee merktekens verwisseld; geen weg meer naar een rode melding; terugval op groen; `zonderBerichtId` weegt niet meer mee in de kleur; `zonderBerichtId` of `markeringMislukt` niet meer genoemd in de tekst |
+| de logregels | ontvanger-*waarde* in vijf verschillende regels; ontvanger-type weg of vast op BSN; statuscode weg; `oorzaakketen` logt `toString()`; luide tak logt de melding erbij; terugval op de volledige klassenaam weg; keten stopt na twee; ander scheidingsteken; cyclus-guard weg; `plek` geeft niets, pakt het onderste frame of laat klasse en regel weg; magazijn-OIN of berichtId weg uit vier regels |
+| het paneel | `fout` krijgt het geslaagd-merkteken; twee merktekens verwisseld; het merkteken op een vaste sleutel opgezocht; geen weg meer naar een rode melding; terugval op groen; `zonderBerichtId` weegt niet meer mee in de kleur; `zonderBerichtId` of `markeringMislukt` niet meer genoemd in de tekst |
 
 Twee mutanten die eerder als "equivalent" waren afgeboekt — de safe call weghalen en de oorzaak uit
 de `onleesbaar`-regel laten vallen — bleken dat niet te zijn zodra de logtekst zelf werd vastgelegd.
@@ -218,9 +233,9 @@ Het verschil zat in de diagnose, en die is nu getoetst.
 
 ## Verificatie
 
-- `./mvnw clean verify -pl demo/demo-console -am` groen: 325 tests in de module (waarvan 53 in
+- `./mvnw clean verify -pl demo/demo-console -am` groen: 327 tests in de module (waarvan 53 in
   `AanleverServiceTest`), detekt 0 bevindingen.
-- Mutatietest: 65 met de hand gekozen mutanten tegen de eindstand, alle 65 gedood. Een gerichte
+- Mutatietest: 75 met de hand gekozen mutanten tegen de eindstand, alle 75 gedood. Een gerichte
   steekproef, geen volledige mutatiedekking.
 - Geen nieuwe build-warnings. De `WARN Proxy … niet uit te lezen`- en `gesimuleerde magazijnen niet
   gevuld`-regels zijn logoutput van tests die foutpaden uitlokken, geen bouwmelding.
@@ -231,9 +246,6 @@ Het verschil zat in de diagnose, en die is nu getoetst.
 
 Losse defecten met hun eigen afweging; ze horen niet bij deze wijziging thuis:
 
-- `TempoService.tik()` telt `geleverd++` per tik in plaats van per aflevering, dus de chip van de
-  berichtenstroom blijft doortellen terwijl een magazijn uit staat. Ook de bovengrens
-  (`geleverd >= MAX_BERICHTEN`) hangt aan die telling, dus het is geen wijziging van één regel.
 - Een `ProcessingException` op de aanroep zelf telt onvoorwaardelijk als `mislukt`, ook als het
   magazijn het bericht wél opsloeg en alleen het antwoord wegviel (read-timeout). Onderscheid maken
   vergt classificatie van de oorzaak en een eigen "onzeker"-teller in het paneel.
@@ -241,6 +253,9 @@ Losse defecten met hun eigen afweging; ze horen niet bij deze wijziging thuis:
   bediener niet wát er mis was, terwijl het magazijn `title`/`detail`/`instance` meestuurt.
 - `FoutieveAanleverService` heeft een ongeschermde `readEntity` — daar is het één actie en geen
   ronde, dus de uitwerking is kleiner, maar het is dezelfde valkuil.
+- Het oordeel "een `ProcessingException` is de overkant" leunt op het wikkelgedrag van de
+  REST-client en wordt door geen enkele test geraakt. Eén test met een echte socket die de body
+  halverwege afkapt zou dat vastpinnen; dat is de enige plek waar een upgrade dit kan verraden.
 - `bediening.js` heeft geen gedragstests: er is geen JS-runtime in de build. `PaneelTellersTest`
   klemt de namen en de merktekens vast, maar wát `vullingTekst` van een uitkomst maakt blijft
   ongetoetst. Een JS-engine als test-dependency zou dat oplossen; dat is een eigen afweging en geen

@@ -91,22 +91,12 @@ class AanleverServiceTest {
         // Het bericht staat in het magazijn — de Aanlever-API belooft dat bij een 201 — dus
         // geslaagd. Het berichtId is weg, en zonder dat valt er niets te markeren; dat telt als één
         // ding en niet als twee, anders leest één bericht in het paneel als twee problemen.
+        //
+        // Het telt bovendien los van `gelezen`: drie van de vier berichten in de basisvulling staan
+        // op niet-gelezen, en zonder eigen teller meldde het paneel daar een volledig groene ronde.
         val magazijn = magazijn(gooitBijLezen(ProcessingException("kapot")))
 
         val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1, gelezen = true))
-
-        assertEquals(uitkomst(aangeboden = 1, geslaagd = 1, zonderBerichtId = 1), resultaat)
-        verify(exactly = 0) { magazijn.markeer(any(), any(), any()) }
-    }
-
-    @Test
-    fun `een onbruikbaar antwoord blijft zichtbaar wanneer er niets gemarkeerd hoefde te worden`() {
-        // Drie van de vier berichten in de basisvulling staan op niet-gelezen. Telde alleen
-        // markeringMislukt dit geval, dan meldde het paneel daar een volledig groene ronde terwijl
-        // het magazijn haperde.
-        val magazijn = magazijn(gooitBijLezen(ProcessingException("kapot")))
-
-        val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1, gelezen = false))
 
         assertEquals(uitkomst(aangeboden = 1, geslaagd = 1, zonderBerichtId = 1), resultaat)
         verify(exactly = 0) { magazijn.markeer(any(), any(), any()) }
@@ -159,6 +149,23 @@ class AanleverServiceTest {
     }
 
     @Test
+    fun `een markeer-antwoord dat niet te sluiten is laat de ronde doorlopen`() {
+        // Het lever-pad is hierop gedekt; het markeer-pad sluit zijn antwoord met dezelfde reden, en
+        // een fout die daar ontsnapt strandt de ronde net zo goed.
+        val magazijn = magazijn(geldig(1), geldig(2), geldig(3))
+        val onsluitbaar = mockk<Response>()
+
+        every { onsluitbaar.status } returns 200
+        every { onsluitbaar.close() } throws ProcessingException("stream niet af te ronden")
+        every { magazijn.markeer(any(), any(), any()) } returns onsluitbaar
+
+        val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(3, gelezen = true))
+
+        assertEquals(uitkomst(aangeboden = 3, geslaagd = 3), resultaat)
+        verify(exactly = 3) { magazijn.markeer(any(), any(), any()) }
+    }
+
+    @Test
     fun `het antwoord op een markering wordt gesloten`() {
         val magazijn = magazijn(geldig(1))
         val markeerAntwoord = antwoord(200, null)
@@ -202,7 +209,6 @@ class AanleverServiceTest {
         val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(3))
 
         assertEquals(uitkomst(aangeboden = 3, geslaagd = 2, mislukt = 1), resultaat)
-        verify(exactly = 0) { geweigerd.readEntity(AanleverRespons::class.java) }
         verify(exactly = 1) { geweigerd.close() }
     }
 
@@ -376,6 +382,8 @@ class AanleverServiceTest {
         // Een BSN hoort niet in een applicatielog. De ontvanger reist mee in de request-body en in
         // de X-Ontvanger-header, dus elke onderdrukte fout is een kans om hem alsnog weg te
         // schrijven — en dat valt zonder deze test nergens op.
+        // Elke plek waar een fout wordt onderdrukt komt hier langs; een regel die dit scenario niet
+        // raakt, is een regel waar een identificatienummer ongemerkt in kan blijven staan.
         val magazijn = magazijn(
             { antwoord(400, null) },
             gooitBijLezen(ProcessingException("body bevat 999999011")),
@@ -383,16 +391,26 @@ class AanleverServiceTest {
             // Landt op de luide tak mét throwable: die voegt de oorzaakketen én het stackframe samen,
             // en juist daar is een melding het makkelijkst alsnog binnen te smokkelen.
             gooitBijLezen(NullPointerException("geen reader voor BSN:999999011")),
-            geldig(5),
+            { antwoord(201, null) },
+            gooitBijSluiten(ProcessingException("stream van BSN:999999011 niet af te ronden")),
+            geldig(7),
+            geldig(8),
+        )
+        val markeerAntwoorden = ArrayDeque(
+            listOf<() -> Response>(
+                { antwoord(500, null) },
+                { throw ProcessingException("BSN:999999011 onbekend") },
+            ),
         )
 
-        every { magazijn.markeer(any(), any(), any()) } throws ProcessingException("BSN:999999011 onbekend")
+        every { magazijn.markeer(any(), any(), any()) } answers { markeerAntwoorden.removeFirst()() }
 
-        val regels = vangLogregels {
-            AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(5, gelezen = true))
-        }
+        val opdrachten = ronde(6) + opdracht(7, gelezen = true) + opdracht(8, gelezen = true) +
+            opdracht(9).copy(magazijnOin = ONBEKENDE_OIN)
 
-        assertEquals(5, regels.size, "elke onderdrukte fout hoort een regel op te leveren")
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(opdrachten) }
+
+        assertEquals(9, regels.size, "elke onderdrukte fout hoort een regel op te leveren")
         regels.forEach { regel ->
             // Niet alleen de melding: een LogRecord draagt ook zijn throwable en parameters, en de
             // idiomatische JUL-vorm `log.log(niveau, melding, fout)` zet de exception dáár neer.
@@ -402,7 +420,10 @@ class AanleverServiceTest {
                 assertTrue(waarde !in alles, "logregel draagt de ontvangerwaarde: $alles")
             }
 
-            assertTrue(OIN_A in regel.message, "logregel wijst het magazijn niet aan: ${regel.message}")
+            assertTrue(
+                OIN_A in regel.message || ONBEKENDE_OIN in regel.message,
+                "logregel wijst het magazijn niet aan: ${regel.message}",
+            )
         }
     }
 
@@ -424,6 +445,10 @@ class AanleverServiceTest {
             "het antwoord droeg er geen" in bijLeeg.single().message,
             "een leeg antwoord hoort als zodanig te lezen: ${bijLeeg.single().message}",
         )
+        // Een antwoord zonder berichtId is het magazijn dat zijn eigen contract niet nakomt, geen
+        // fout in de console — dus dezelfde toon als een hapering.
+        assertEquals(Level.WARNING, bijLeeg.single().level)
+        assertEquals(Level.WARNING, bijAfgekapt.single().level)
     }
 
     @Test
@@ -468,17 +493,6 @@ class AanleverServiceTest {
     }
 
     @Test
-    fun `een stream die al dicht was telt bij het sluiten ook als hapering`() {
-        // Sluiten hoort bij het uitlezen: een stream die al weg is doordat het antwoord wegviel meldt
-        // zich als IllegalStateException, en dat is het magazijn en niet de console.
-        val magazijn = magazijn(gooitBijSluiten(IllegalStateException("stream already closed")))
-
-        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
-
-        assertEquals(Level.WARNING, regels.single().level)
-    }
-
-    @Test
     fun `een geweigerde markering klinkt luider dan een magazijn dat het even niet aankan`() {
         val geweigerd = magazijn(geldig(1))
         val overbelast = magazijn(geldig(1))
@@ -514,18 +528,18 @@ class AanleverServiceTest {
     }
 
     @Test
-    fun `een ontkoppelde stream is een hapering, een kapotte deserialisatie niet`() {
-        // Bij het uitlezen betekent IllegalStateException dat de stream al dicht was doordat het
-        // antwoord wegviel — een hapering. Een fout uit de deserialisatie zelf treft juist élk
-        // bericht van de ronde en komt uit de console.
-        val ontkoppeld = magazijn(gooitBijLezen(IllegalStateException("stream already closed")))
-        val kapot = magazijn(gooitBijLezen(NullPointerException("geen MessageBodyReader")))
+    fun `een afgekapte stream is een hapering, een antwoord dat al gelezen was niet`() {
+        // De client wikkelt alles wat er onderweg misgaat in een ProcessingException, ook een body die
+        // halverwege wegvalt. Een IllegalStateException komt daar dus niet vandaan: die betekent dat
+        // de console het antwoord al had gelezen, en dat is onze fout.
+        val afgekapt = magazijn(gooitBijLezen(ProcessingException("Unexpected end-of-input")))
+        val algelezen = magazijn(gooitBijLezen(IllegalStateException("Response has been closed")))
 
-        val bijOntkoppeld = vangLogregels { AanleverService(mapOf(OIN_A to ontkoppeld)).leverAan(ronde(1)) }
-        val bijKapot = vangLogregels { AanleverService(mapOf(OIN_A to kapot)).leverAan(ronde(1)) }
+        val bijAfgekapt = vangLogregels { AanleverService(mapOf(OIN_A to afgekapt)).leverAan(ronde(1)) }
+        val bijAlGelezen = vangLogregels { AanleverService(mapOf(OIN_A to algelezen)).leverAan(ronde(1)) }
 
-        assertEquals(Level.WARNING, bijOntkoppeld.single().level)
-        assertEquals(Level.SEVERE, bijKapot.single().level)
+        assertEquals(Level.WARNING, bijAfgekapt.single().level)
+        assertEquals(Level.SEVERE, bijAlGelezen.single().level)
     }
 
     @Test
@@ -555,7 +569,7 @@ class AanleverServiceTest {
     }
 
     @ParameterizedTest(name = "HTTP {0}")
-    @ValueSource(ints = [200, 302, 400, 409, 499])
+    @ValueSource(ints = [200, 302, 400, 409, 425, 499])
     fun `alles buiten een 5xx en de wachtcodes komt van onze kant`(status: Int) {
         // Een 4xx zegt dat we iets ongeldigs stuurden; een 2xx of 3xx die hier belandt is een gebroken
         // contract. Allebei treffen ze elk bericht van de ronde, en allebei herstellen ze zichzelf
@@ -611,17 +625,23 @@ class AanleverServiceTest {
     fun `elke logregel wijst aan waar hij over gaat`() {
         // Een ronde van honderd berichten levert honderd regels op; zonder magazijn, ontvanger-type of
         // berichtId erin is er geen beginnen aan om ze uit elkaar te houden.
-        val magazijn = magazijn({ antwoord(400, null) }, geldig(2))
+        // De tweede opdracht draagt een KVK-ontvanger, zodat een vast "BSN" in de melding opvalt.
+        val magazijn = magazijn(geldig(1), { antwoord(409, null) }, geldig(3), geldig(4))
+        val markeerAntwoorden = ArrayDeque(
+            listOf<() -> Response>({ antwoord(500, null) }, { throw ProcessingException("weg") }),
+        )
 
-        every { magazijn.markeer(any(), any(), any()) } returns antwoord(500, null)
+        every { magazijn.markeer(any(), any(), any()) } answers { markeerAntwoorden.removeFirst()() }
 
-        val regels = vangLogregels {
-            AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(2, gelezen = true))
-        }
+        val opdrachten = listOf(opdracht(1), opdracht(2), opdracht(3, gelezen = true), opdracht(4, gelezen = true))
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(opdrachten) }
 
         assertTrue(OIN_A in regels[0].message, "de aanlever-regel noemt het magazijn niet")
-        assertTrue("BSN" in regels[0].message, "de aanlever-regel noemt het ontvanger-type niet")
-        assertTrue(berichtId(2) in regels[1].message, "de markeer-regel noemt het bericht niet")
+        assertTrue("KVK" in regels[0].message, "de aanlever-regel noemt het ontvanger-type niet")
+        assertTrue("409" in regels[0].message, "de aanlever-regel noemt de statuscode niet")
+        assertTrue(berichtId(3) in regels[1].message, "de markeer-statusregel noemt het bericht niet")
+        assertTrue("500" in regels[1].message, "de markeer-statusregel noemt de statuscode niet")
+        assertTrue(berichtId(4) in regels[2].message, "de markeer-foutregel noemt het bericht niet")
     }
 
     @Test
