@@ -25,8 +25,9 @@ import java.util.logging.Logger
  * geen enkel cijfer over wat er al wél is afgeleverd en levert de tweede druk op de knop dubbele
  * berichten op.
  *
- * In de meerstapstests staat de hapering daarom in het míddelste bericht: alleen daar onderscheidt
- * de test of de ronde doorliep, in plaats van of hij toevallig op een geslaagd bericht eindigde.
+ * Waar één hapering wordt getoetst staat die daarom in het míddelste bericht: alleen daar
+ * onderscheidt de test of de ronde doorliep, in plaats van of hij toevallig op een geslaagd bericht
+ * eindigde.
  *
  * Het magazijn is een MockK-mock en niet een eigen implementatie van [MagazijnAanleverClient]: die
  * interface draagt JAX-RS-annotaties, dus een geïndexeerde klasse die hem implementeert wordt in de
@@ -373,8 +374,12 @@ class AanleverServiceTest {
 
         assertEquals(4, regels.size, "elke onderdrukte fout hoort een regel op te leveren")
         regels.forEach { regel ->
+            // Niet alleen de melding: een LogRecord draagt ook zijn throwable en parameters, en de
+            // idiomatische JUL-vorm `log.log(niveau, melding, fout)` zet de exception dáár neer.
+            val alles = regel.message + uitFout(regel.thrown) + regel.parameters.orEmpty().joinToString()
+
             WAARDEN.forEach { waarde ->
-                assertTrue(waarde !in regel.message, "logregel draagt de ontvangerwaarde: ${regel.message}")
+                assertTrue(waarde !in alles, "logregel draagt de ontvangerwaarde: $alles")
             }
 
             assertTrue(OIN_A in regel.message, "logregel wijst het magazijn niet aan: ${regel.message}")
@@ -406,13 +411,51 @@ class AanleverServiceTest {
         // Het paneel toont een bedradingsfout in de console net zo als een magazijn dat uit staat.
         // De log is dan het enige dat de bediener bij de goede oorzaak brengt.
         val storing = magazijn({ throw ProcessingException("Connection refused") })
-        val bedrading = magazijn({ throw IllegalStateException("geen MessageBodyWriter") })
+        val bedrading = magazijn({ throw IllegalStateException("blocking op de event-loop") })
 
         val storingsregels = vangLogregels { AanleverService(mapOf(OIN_A to storing)).leverAan(ronde(1)) }
         val bedradingsregels = vangLogregels { AanleverService(mapOf(OIN_A to bedrading)).leverAan(ronde(1)) }
 
         assertEquals(Level.WARNING, storingsregels.single().level)
         assertEquals(Level.SEVERE, bedradingsregels.single().level)
+    }
+
+    @Test
+    fun `een ontkoppelde stream is een hapering, een kapotte deserialisatie niet`() {
+        // Bij het uitlezen betekent IllegalStateException dat de stream al dicht was doordat het
+        // antwoord wegviel — een hapering. Een fout uit de deserialisatie zelf treft juist élk
+        // bericht van de ronde en komt uit de console.
+        val ontkoppeld = magazijn(gooitBijLezen(IllegalStateException("stream already closed")))
+        val kapot = magazijn(gooitBijLezen(NullPointerException("geen MessageBodyReader")))
+
+        val bijOntkoppeld = vangLogregels { AanleverService(mapOf(OIN_A to ontkoppeld)).leverAan(ronde(1)) }
+        val bijKapot = vangLogregels { AanleverService(mapOf(OIN_A to kapot)).leverAan(ronde(1)) }
+
+        assertEquals(Level.WARNING, bijOntkoppeld.single().level)
+        assertEquals(Level.SEVERE, bijKapot.single().level)
+    }
+
+    @Test
+    fun `een geweigerde aanlevering klinkt luider dan een magazijn dat het even niet aankan`() {
+        // Een 4xx betekent dat de console iets ongeldigs stuurde; dat herstelt zichzelf niet en
+        // treft elk bericht van de ronde. Een 5xx is het magazijn.
+        val geweigerd = magazijn({ antwoord(400, null) })
+        val overbelast = magazijn({ antwoord(503, null) })
+
+        val bijGeweigerd = vangLogregels { AanleverService(mapOf(OIN_A to geweigerd)).leverAan(ronde(1)) }
+        val bijOverbelast = vangLogregels { AanleverService(mapOf(OIN_A to overbelast)).leverAan(ronde(1)) }
+
+        assertEquals(Level.SEVERE, bijGeweigerd.single().level)
+        assertEquals(Level.WARNING, bijOverbelast.single().level)
+    }
+
+    @Test
+    fun `een opdracht voor een onbekend magazijn klinkt als inrichtingsfout`() {
+        val regels = vangLogregels {
+            AanleverService(mapOf(OIN_A to magazijn())).leverAan(listOf(opdracht(1).copy(magazijnOin = ONBEKENDE_OIN)))
+        }
+
+        assertEquals(Level.SEVERE, regels.single().level)
     }
 
     // ---------------------------------------------------------------------- de cardinaliteiten
@@ -457,7 +500,13 @@ class AanleverServiceTest {
             val client = mockk<MagazijnAanleverClient>()
             val rij = ArrayDeque(antwoorden.toList())
 
-            every { client.leverAan(any()) } answers { rij.removeFirst()() }
+            // Luid falen in plaats van NoSuchElementException: die zou door het vangnet van de
+            // service worden opgeslokt en als één mislukt bericht lezen.
+            every { client.leverAan(any()) } answers {
+                val volgende = rij.removeFirstOrNull() ?: error("magazijn kreeg meer aanleveringen dan antwoorden")
+
+                volgende()
+            }
             every { client.markeer(any(), any(), any()) } answers { antwoord(200, null) }
 
             return client
@@ -527,6 +576,11 @@ class AanleverServiceTest {
         )
 
         fun ronde(aantal: Int, gelezen: Boolean = false) = (1..aantal).map { opdracht(it, gelezen) }
+
+        /** De meldingen door de hele cause-keten van een gelogde throwable. */
+        fun uitFout(fout: Throwable?): String =
+            generateSequence(fout) { it.cause?.takeIf { oorzaak -> oorzaak !== it } }
+                .joinToString { it.message.orEmpty() }
 
         fun vangLogregels(actie: () -> Unit): List<LogRecord> {
             val logger = Logger.getLogger(AanleverService::class.java.name)

@@ -183,7 +183,8 @@ function toonMelding(tekst, soort, ruw, uitleg) {
 
     // Bij twijfel staat het antwoord meteen open: dan is de ruwe JSON het enige aanknopingspunt,
     // en tijdens een demo klapt niemand een <details> uit.
-    meldingRuw.open = Boolean(ruw) && soort === 'let-op';
+    // Alles wat niet goed ging: bij 'fout' heeft de bediener de ruwe JSON het hardst nodig.
+    meldingRuw.open = Boolean(ruw) && soort !== 'goed';
     meldingJson.textContent = ruw || '';
 }
 
@@ -270,7 +271,8 @@ const SAMENVATTINGEN = {
 };
 
 /* De uitkomstsoorten van een samenvatting vertaald naar het merkteken naast de knop. Zonder
- * 'fout' erin viel een volledig mislukte vulling in de 'gelukt'-tak. */
+ * 'fout' erin viel een volledig mislukte vulling in de 'gelukt'-tak. Een soort die hier ontbreekt
+ * valt daarom op 'let-op' terug en niet op 'gelukt': een uitkomst die we niet kennen is twijfel. */
 const MERKTEKEN = { 'fout': 'mislukt', 'let-op': 'let-op', 'goed': 'gelukt' };
 
 function vullingTekst(vulling) {
@@ -434,7 +436,7 @@ async function voerUit(knop) {
             // Het merkteken pas hierna, en naar de soort van de samenvatting. HTTP 200 alleen zegt
             // te weinig: de console verwerkte het verzoek, maar dat zegt niets over de berichten.
             // Zonder deze vertaling stond er een groen vinkje naast "0 van 100 aangeleverd".
-            zetUitkomst(knop, MERKTEKEN[samengevat.soort] || 'gelukt');
+            zetUitkomst(knop, MERKTEKEN[samengevat.soort] || 'let-op');
             toonMelding(samengevat.tekst || 'Gelukt', samengevat.soort, uitkomst.ruw, letOp(uitkomst.body));
         } else {
             zetUitkomst(knop, 'mislukt');

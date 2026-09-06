@@ -9,7 +9,6 @@ import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import java.io.IOException
 import java.net.URI
-import java.util.concurrent.TimeoutException
 import java.util.logging.Logger
 
 /**
@@ -19,8 +18,8 @@ import java.util.logging.Logger
  * ook als geslaagd tellen — maar waar naast de aflevering iets misging:
  *
  * - `markeringMislukt`: het bericht was niet op gelezen te zetten.
- * - `zonderBerichtId`: het magazijn bevestigde de ontvangst met een antwoord waar geen berichtId
- *   in stond. Dat telt los van `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener
+ * - `zonderBerichtId`: het magazijn bevestigde de ontvangst met een antwoord waar geen bruikbaar
+ *   berichtId uit te halen was. Dat telt los van `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener
  *   te zien dát het magazijn haperde in plaats van een volledig groene melding.
  *
  * De laatste twee overlappen wanneer om gelezen gevraagd was: dat bericht is zowel zonder berichtId
@@ -59,7 +58,9 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
             val client = clients[opdracht.magazijnOin]
 
             if (client == null) {
-                log.warning("geen magazijn-URL voor OIN ${opdracht.magazijnOin} — opdracht overgeslagen")
+                // Geen storing maar een inrichtingsfout: deze OIN staat niet in demo.magazijnen,
+                // en dat herstelt zichzelf niet en raakt elk bericht voor dat magazijn.
+                meld("geen magazijn-URL voor OIN ${opdracht.magazijnOin} — opdracht overgeslagen", storing = false)
                 mislukt++
 
                 return@forEach
@@ -111,7 +112,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         val response = try {
             client.leverAan(opdracht.verzoek)
         } catch (fout: Exception) {
-            meldStoring("aanleveren bij magazijn ${opdracht.magazijnOin} mislukte", fout)
+            meld("aanleveren bij magazijn ${opdracht.magazijnOin} mislukte", isStoring(fout, bijUitlezen = false), fout)
 
             return LeverUitkomst.Mislukt
         }
@@ -132,9 +133,13 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         if (response.status != 201) {
             // Alleen het type van de ontvanger, nooit de waarde: een BSN hoort niet in
             // applicatielogs. De magazijn-OIN is publiek en wijst de fout net zo goed aan.
-            log.warning(
+            //
+            // Een 4xx betekent dat de console iets ongeldigs stuurde — geen magazijnstoring, en het
+            // treft elk bericht van de ronde op dezelfde manier.
+            meld(
                 "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP ${response.status} " +
                     "voor ontvanger-type ${opdracht.verzoek.ontvanger.type}",
+                storing = response.status !in 400..499,
             )
 
             return LeverUitkomst.Mislukt
@@ -143,20 +148,23 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         val berichtId = try {
             response.readEntity(AanleverRespons::class.java)?.berichtId
         } catch (fout: Exception) {
-            return onleesbaar(opdracht, oorzaakketen(fout))
+            return onleesbaar(opdracht, fout)
         }
 
-        if (berichtId.isNullOrBlank()) return onleesbaar(opdracht, "geen berichtId in het antwoord")
+        if (berichtId.isNullOrBlank()) return onleesbaar(opdracht, null)
 
         return LeverUitkomst.Afgeleverd(berichtId)
     }
 
-    private fun onleesbaar(opdracht: AanleverOpdracht, oorzaak: String): LeverUitkomst {
-        log.warning(
-            "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP 201 zonder bruikbaar " +
-                "berichtId ($oorzaak); het bericht staat in het magazijn, maar de console kan het " +
-                "niet meer aanwijzen",
-        )
+    private fun onleesbaar(opdracht: AanleverOpdracht, fout: Throwable?): LeverUitkomst {
+        val melding = "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP 201 zonder bruikbaar " +
+            "berichtId; het bericht staat in het magazijn, maar de console kan het niet meer aanwijzen"
+
+        if (fout == null) {
+            meld("$melding (geen berichtId in het antwoord)", storing = true)
+        } else {
+            meld(melding, isStoring(fout, bijUitlezen = true), fout)
+        }
 
         return LeverUitkomst.AfgeleverdZonderId
     }
@@ -167,7 +175,11 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         val response = try {
             client.markeer(berichtId, "${ontvanger.type}:${ontvanger.waarde}", StatusPatch(gelezen = true))
         } catch (fout: Exception) {
-            meldStoring("markeren-gelezen van bericht $berichtId bij magazijn ${opdracht.magazijnOin} mislukte", fout)
+            meld(
+                "markeren-gelezen van bericht $berichtId bij magazijn ${opdracht.magazijnOin} mislukte",
+                isStoring(fout, bijUitlezen = false),
+                fout,
+            )
 
             return false
         }
@@ -176,9 +188,10 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
             val gelukt = response.status == 200
 
             if (!gelukt) {
-                log.warning(
+                meld(
                     "markeren-gelezen gaf HTTP ${response.status} voor bericht $berichtId " +
                         "bij magazijn ${opdracht.magazijnOin}",
+                    storing = response.status !in 400..499,
                 )
             }
 
@@ -197,40 +210,63 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         try {
             response.close()
         } catch (fout: Exception) {
-            meldStoring("antwoord van magazijn $magazijnOin niet netjes te sluiten", fout)
+            meld("antwoord van magazijn $magazijnOin niet netjes te sluiten", isStoring(fout, bijUitlezen = true), fout)
         }
     }
 
     /**
-     * Meldt een onderdrukte fout. Een storing van het magazijn of het netwerk is waar deze demo
-     * knoppen voor heeft en hoort bij de ronde; alles daarbuiten is een fout in de console zelf. Het
-     * paneel toont die twee hetzelfde — als mislukt bericht — dus de log is het enige dat een
-     * bediener bij de goede oorzaak brengt, en dan moet de tweede soort er bovenuit komen.
+     * Schrijft een onderdrukte fout weg. `storing` scheidt wat het magazijn of de lijn ernaartoe
+     * aangaat van wat uit de console zelf komt: het paneel telt allebei hooguit als één cijfer en
+     * noemt de oorzaak nooit, dus de log is het enige dat een bediener bij de goede kant brengt — en
+     * dan hoort een fout aan onze kant erbovenuit te komen. Die treft namelijk elk bericht van de
+     * ronde, terwijl een storing bij het volgende bericht alweer voorbij kan zijn.
      */
-    private fun meldStoring(bericht: String, fout: Throwable) {
-        val storing = fout is ProcessingException || fout is IOException || fout is TimeoutException
+    private fun meld(melding: String, storing: Boolean, fout: Throwable? = null) {
+        val oorzaak = fout?.let { ": ${oorzaakketen(it)}" }.orEmpty()
 
         if (storing) {
-            log.warning("$bericht: ${oorzaakketen(fout)}")
+            log.warning("$melding$oorzaak")
         } else {
-            log.severe("$bericht — onverwacht, dit is geen magazijnstoring: ${oorzaakketen(fout)}")
+            log.severe("$melding — onverwacht, dit is geen magazijnstoring$oorzaak${plek(fout)}")
         }
     }
+
+    /**
+     * Gaat deze fout het magazijn of de lijn ernaartoe aan, of komt hij uit de console zelf? De
+     * REST-client wikkelt alles wat er onderweg misgaat in een `ProcessingException` — alleen een
+     * `WebApplicationException` en een blocking aanroep op de event-loop komen ongewikkeld door — dus
+     * dat type is hier het signaal, en niet de oorzaak eronder.
+     *
+     * Bij het uitlezen of sluiten van een antwoord telt `IllegalStateException` er ook bij: een
+     * stream die al gesloten is doordat het antwoord halverwege wegviel, meldt zich zo. Bij de
+     * aanroep zélf wijst datzelfde type juist op een bedradingsfout — blocking op de event-loop — en
+     * dan hoort het luid.
+     */
+    private fun isStoring(fout: Throwable, bijUitlezen: Boolean) =
+        fout is ProcessingException || fout is IOException || (bijUitlezen && fout is IllegalStateException)
 
     /**
      * De klassennamen van een fout en zijn oorzaken, zonder ook maar één melding. `toString()` laat
      * juist de oorzaak weg terwijl die hier de diagnose draagt, maar een melding is geen veilige
      * logregel: de ontvanger reist mee in de request-body en in de X-Ontvanger-header, en een BSN
      * hoort niet in een applicatielog.
+     *
+     * Java-reflectie en niet `::class`: deze functie draait binnen elke catch, en Kotlin-reflectie
+     * kan zelf gooien — dan ontsnapt er alsnog een fout uit de ronde die dit vangnet moest houden.
+     * `take` maakt de keten meteen cyclusvast: a-b-a levert vijf namen en stopt.
      */
     private fun oorzaakketen(fout: Throwable): String =
         generateSequence<Throwable>(fout) { huidige -> huidige.cause?.takeIf { it !== huidige } }
             .take(MAX_OORZAKEN)
-            .joinToString(" <- ") { it::class.simpleName ?: it::class.java.name }
+            .joinToString(" <- ") { it.javaClass.simpleName.ifEmpty { it.javaClass.name } }
+
+    /** Waar een onverwachte fout ontstond. Een frame draagt namen en regelnummers, geen gegevens. */
+    private fun plek(fout: Throwable?): String =
+        fout?.stackTrace?.firstOrNull()?.let { " @ ${it.className}.${it.methodName}:${it.lineNumber}" }.orEmpty()
 
     private companion object {
 
-        /** Hoe diep de oorzaakketen de log in gaat; genoeg voor wrapper-om-wrapper, en cyclusvast. */
+        /** Hoe diep de oorzaakketen de log in gaat; genoeg voor wrapper-om-wrapper. */
         const val MAX_OORZAKEN = 5
 
         fun bouwClients(config: DemoConfig): Map<String, MagazijnAanleverClient> =
