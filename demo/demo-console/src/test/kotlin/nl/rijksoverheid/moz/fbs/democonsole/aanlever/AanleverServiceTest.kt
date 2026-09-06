@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
-import java.io.IOException
 import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
@@ -254,7 +253,11 @@ class AanleverServiceTest {
     fun `een haperend magazijn sleept het gezonde magazijn niet mee`() {
         val magazijnA = magazijn(gooitBijLezen(ProcessingException("Unexpected end-of-input")))
         val magazijnB = magazijn(geldig(2), geldig(3))
-        val opdrachten = listOf(opdracht(1), opdracht(2).copy(magazijnOin = OIN_B), opdracht(3).copy(magazijnOin = OIN_B))
+        val opdrachten = listOf(
+            opdracht(1),
+            opdracht(2).copy(magazijnOin = OIN_B),
+            opdracht(3).copy(magazijnOin = OIN_B),
+        )
 
         val resultaat = AanleverService(mapOf(OIN_A to magazijnA, OIN_B to magazijnB))
             .leverAan(opdrachten)
@@ -267,14 +270,17 @@ class AanleverServiceTest {
 
     @Test
     fun `elk bericht wordt gemarkeerd met zijn eigen berichtId en ontvanger`() {
+        // Eén BSN- en één KVK-ontvanger: staat het type vast in plaats van uit de opdracht te komen,
+        // dan ketst het magazijn de markering af voor het merendeel van de demo.
         val magazijn = magazijn(geldig(1), geldig(2), geldig(3))
-        val opdrachten = listOf(opdracht(1, gelezen = true), opdracht(2), opdracht(3, gelezen = true))
+        val opdrachten = listOf(opdracht(1, gelezen = true), opdracht(2, gelezen = true), opdracht(3))
 
         val resultaat = AanleverService(mapOf(OIN_A to magazijn)).leverAan(opdrachten)
 
         assertEquals(uitkomst(aangeboden = 3, geslaagd = 3), resultaat)
+        assertEquals(listOf("BSN", "KVK"), listOf(1, 2).map { ontvanger(it).type }, "de fixtures dekken beide typen")
         verify(exactly = 1) { magazijn.markeer(berichtId(1), header(1), StatusPatch(gelezen = true)) }
-        verify(exactly = 1) { magazijn.markeer(berichtId(3), header(3), StatusPatch(gelezen = true)) }
+        verify(exactly = 1) { magazijn.markeer(berichtId(2), header(2), StatusPatch(gelezen = true)) }
         verify(exactly = 2) { magazijn.markeer(any(), any(), any()) }
     }
 
@@ -424,13 +430,14 @@ class AanleverServiceTest {
     fun `de logregel draagt de hele oorzaakketen en niet alleen de bovenste fout`() {
         // De bovenste fout is bijna altijd de wrapper van de client; de diagnose zit in wat eronder
         // zit. toString() laat juist dat weg, dus de keten wordt zelf opgebouwd.
-        val magazijn = magazijn({ throw ProcessingException("wrapper", IOException("Connection refused")) })
+        val kern = ArithmeticException("kern")
+        val magazijn = magazijn({ throw ProcessingException("wrapper", IllegalStateException("tussen", kern)) })
 
         val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
 
         assertTrue(
-            "ProcessingException <- IOException" in regels.single().message,
-            "de oorzaakketen ontbreekt: ${regels.single().message}",
+            "ProcessingException <- IllegalStateException <- ArithmeticException" in regels.single().message,
+            "de oorzaakketen ontbreekt of stopt te vroeg: ${regels.single().message}",
         )
     }
 
@@ -452,12 +459,23 @@ class AanleverServiceTest {
     fun `een antwoord dat niet te sluiten is levert een logregel op`() {
         // Het bericht is afgeleverd, dus geen teller — maar herhaald lekken put de connection-pool
         // uit, en dan strandt een latere ronde zonder dat iets naar deze oorzaak wijst.
-        val magazijn = magazijn(gooitBijSluiten())
+        val magazijn = magazijn(gooitBijSluiten(ProcessingException("stream niet af te ronden")))
 
         val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
 
         assertEquals(Level.WARNING, regels.single().level)
         assertTrue(OIN_A in regels.single().message, "de regel wijst het magazijn niet aan")
+    }
+
+    @Test
+    fun `een stream die al dicht was telt bij het sluiten ook als hapering`() {
+        // Sluiten hoort bij het uitlezen: een stream die al weg is doordat het antwoord wegviel meldt
+        // zich als IllegalStateException, en dat is het magazijn en niet de console.
+        val magazijn = magazijn(gooitBijSluiten(IllegalStateException("stream already closed")))
+
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
+
+        assertEquals(Level.WARNING, regels.single().level)
     }
 
     @Test
@@ -524,18 +542,29 @@ class AanleverServiceTest {
         assertEquals(Level.WARNING, bijOverbelast.single().level)
     }
 
-    @Test
-    fun `een magazijn dat om uitstel vraagt is geen fout van de console`() {
-        // 408, 425 en 429 zitten in de 4xx-reeks maar zeggen "later nog eens proberen" — dat is het
+    @ParameterizedTest(name = "HTTP {0}")
+    @ValueSource(ints = [408, 429, 500, 503, 599])
+    fun `een magazijn dat het niet aankan of om uitstel vraagt klinkt als storing`(status: Int) {
+        // 408 en 429 zitten in de 4xx-reeks maar zeggen "later nog eens proberen" — dat is het
         // magazijn of de ingress ervoor, niet een verzoek dat wij verkeerd bouwden.
-        val uitstel = magazijn({ antwoord(429, null) })
-        val serverfout = magazijn({ antwoord(500, null) })
+        val magazijn = magazijn({ antwoord(status, null) })
 
-        val bijUitstel = vangLogregels { AanleverService(mapOf(OIN_A to uitstel)).leverAan(ronde(1)) }
-        val bijServerfout = vangLogregels { AanleverService(mapOf(OIN_A to serverfout)).leverAan(ronde(1)) }
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
 
-        assertEquals(Level.WARNING, bijUitstel.single().level)
-        assertEquals(Level.WARNING, bijServerfout.single().level)
+        assertEquals(Level.WARNING, regels.single().level)
+    }
+
+    @ParameterizedTest(name = "HTTP {0}")
+    @ValueSource(ints = [200, 302, 400, 409, 499])
+    fun `alles buiten een 5xx en de wachtcodes komt van onze kant`(status: Int) {
+        // Een 4xx zegt dat we iets ongeldigs stuurden; een 2xx of 3xx die hier belandt is een gebroken
+        // contract. Allebei treffen ze elk bericht van de ronde, en allebei herstellen ze zichzelf
+        // niet — dus allebei horen ze boven het geruis van een haperend magazijn uit te komen.
+        val magazijn = magazijn({ antwoord(status, null) })
+
+        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
+
+        assertEquals(Level.SEVERE, regels.single().level)
     }
 
     @Test
@@ -553,15 +582,6 @@ class AanleverServiceTest {
     }
 
     @Test
-    fun `een IO-fout onderweg is een storing`() {
-        val magazijn = magazijn({ throw IOException("Broken pipe") })
-
-        val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
-
-        assertEquals(Level.WARNING, regels.single().level)
-    }
-
-    @Test
     fun `een luide logregel wijst aan waar de fout ontstond`() {
         // Op de luide tak is een klassenaam alléén te weinig; het bovenste stackframe draagt namen
         // en regelnummers, en dus geen gegevens.
@@ -569,7 +589,12 @@ class AanleverServiceTest {
 
         val regels = vangLogregels { AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(1)) }
 
-        assertTrue(" @ " in regels.single().message, "de regel noemt geen plek: ${regels.single().message}")
+        // Het bovenste frame en niet het onderste: het onderste wijst naar de testrunner, en dat is
+        // op elke fout hetzelfde.
+        assertTrue(
+            Regex(""" @ \S*AanleverServiceTest\S*\.\S+:\d+""").containsMatchIn(regels.single().message),
+            "de regel wijst niet naar waar de fout ontstond: ${regels.single().message}",
+        )
     }
 
     @Test
@@ -579,6 +604,39 @@ class AanleverServiceTest {
         }
 
         assertEquals(Level.SEVERE, regels.single().level)
+        assertTrue(ONBEKENDE_OIN in regels.single().message, "de regel noemt de OIN niet die ontbreekt")
+    }
+
+    @Test
+    fun `elke logregel wijst aan waar hij over gaat`() {
+        // Een ronde van honderd berichten levert honderd regels op; zonder magazijn, ontvanger-type of
+        // berichtId erin is er geen beginnen aan om ze uit elkaar te houden.
+        val magazijn = magazijn({ antwoord(400, null) }, geldig(2))
+
+        every { magazijn.markeer(any(), any(), any()) } returns antwoord(500, null)
+
+        val regels = vangLogregels {
+            AanleverService(mapOf(OIN_A to magazijn)).leverAan(ronde(2, gelezen = true))
+        }
+
+        assertTrue(OIN_A in regels[0].message, "de aanlever-regel noemt het magazijn niet")
+        assertTrue("BSN" in regels[0].message, "de aanlever-regel noemt het ontvanger-type niet")
+        assertTrue(berichtId(2) in regels[1].message, "de markeer-regel noemt het bericht niet")
+    }
+
+    @Test
+    fun `een fout zonder eenvoudige naam wordt alsnog benoemd`() {
+        // Een anonieme of lambda-klasse heeft een lege simpleName; zonder terugval staat er dan niets.
+        val naamloos = object : RuntimeException("naamloos") {}
+
+        val regels = vangLogregels {
+            AanleverService(mapOf(OIN_A to magazijn({ throw naamloos }))).leverAan(ronde(1))
+        }
+
+        assertTrue(
+            naamloos.javaClass.name in regels.single().message,
+            "de regel benoemt de fout niet: ${regels.single().message}",
+        )
     }
 
     // ---------------------------------------------------------------------- de cardinaliteiten
@@ -672,12 +730,12 @@ class AanleverServiceTest {
 
         fun gooitBijLezen(fout: Throwable): () -> Response = { antwoordDatGooit(fout) }
 
-        fun gooitBijSluiten(): () -> Response = {
+        fun gooitBijSluiten(fout: Throwable = ProcessingException("stream niet af te ronden")): () -> Response = {
             val response = mockk<Response>()
 
             every { response.status } returns 201
             every { response.readEntity(AanleverRespons::class.java) } returns AanleverRespons(berichtId(2))
-            every { response.close() } throws ProcessingException("stream niet af te ronden")
+            every { response.close() } throws fout
 
             response
         }
@@ -706,7 +764,12 @@ class AanleverServiceTest {
 
         fun ronde(aantal: Int, gelezen: Boolean = false) = (1..aantal).map { opdracht(it, gelezen) }
 
-        /** De meldingen door de cause-keten van een gelogde throwable; begrensd tegen kringlopen. */
+        /**
+         * De meldingen door de cause-keten van een gelogde throwable; begrensd tegen kringlopen.
+         *
+         * Vandaag altijd leeg: `meld` geeft de throwable niet aan JUL mee. Het staat er als vangnet
+         * voor de idiomatische vorm `log.log(niveau, melding, fout)`, die de melding wél meestuurt.
+         */
         fun uitFout(fout: Throwable?): String =
             generateSequence(fout) { it.cause?.takeIf { oorzaak -> oorzaak !== it } }
                 .take(10)

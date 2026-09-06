@@ -8,7 +8,6 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
-import java.io.IOException
 import java.net.URI
 import java.util.logging.Logger
 
@@ -20,8 +19,9 @@ import java.util.logging.Logger
  *
  * - `markeringMislukt`: de PATCH die het bericht op gelezen zet, is geprobeerd en mislukt.
  * - `zonderBerichtId`: het magazijn bevestigde de ontvangst met een antwoord waar geen bruikbaar
- *   berichtId uit te halen was — en zonder dat valt er ook niets te markeren. Dat telt los van `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener
- *   te zien dát het magazijn haperde in plaats van een volledig groene melding.
+ *   berichtId uit te halen was — en zonder dat valt er ook niets te markeren. Dat telt los van
+ *   `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener te zien dát het magazijn
+ *   haperde in plaats van een volledig groene melding.
  *
  * De twee sluiten elkaar uit, zodat het paneel per bericht één cijfer noemt: een aflevering zonder
  * berichtId telt alleen als `zonderBerichtId`, ook wanneer om gelezen was gevraagd. Anders leest één
@@ -248,16 +248,19 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
      */
     private fun isStoring(fout: Throwable, bijUitlezen: Boolean) = when {
         fout is WebApplicationException -> isStoring(fout.response.status)
-        fout is ProcessingException || fout is IOException -> true
+        fout is ProcessingException -> true
         else -> bijUitlezen && fout is IllegalStateException
     }
 
     /**
-     * Een 4xx zegt dat wij iets ongeldigs stuurden, een 5xx dat het magazijn het niet aankon. De
-     * uitzonderingen zijn wacht-en-probeer-later-codes: die komen van de overkant, en het magazijn
-     * gebruikt voor zijn eigen retries dezelfde lijst.
+     * Alleen een 5xx zegt dat het magazijn het even niet aankon; daar komen de
+     * wacht-en-probeer-later-codes bij, want die komen ook van de overkant en het magazijn gebruikt
+     * voor zijn eigen retries dezelfde lijst. Al het andere is onze kant: een 4xx betekent dat we
+     * iets ongeldigs stuurden, en een status buiten 4xx en 5xx die hier belandt is een gebroken
+     * contract — het magazijn antwoordt dan iets waar de API geen betekenis aan geeft, en dat treft
+     * elk bericht van de ronde.
      */
-    private fun isStoring(status: Int) = status !in 400..499 || status in WACHTCODES
+    private fun isStoring(status: Int) = status in 500..599 || status in WACHTCODES
 
     /**
      * De klassennamen van een fout en zijn oorzaken, zonder ook maar één melding. `toString()` laat
@@ -284,7 +287,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         const val MAX_OORZAKEN = 5
 
         /** Statuscodes die zeggen "later nog eens proberen"; die komen van de overkant. */
-        val WACHTCODES = setOf(408, 425, 429)
+        val WACHTCODES = setOf(408, 429)
 
         fun bouwClients(config: DemoConfig): Map<String, MagazijnAanleverClient> =
             config.magazijnen().mapValues { (_, magazijn) ->

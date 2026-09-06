@@ -29,8 +29,10 @@ class PaneelTellersTest {
 
     private val script: String = javaClass.getResource(SCRIPT)!!.readText()
 
-    /** Zonder commentaarregels: een teller die alleen in een comment staat, wordt niet gelezen. */
-    private val code: String = script.lineSequence()
+    /** Zonder commentaar: een teller die alleen in een comment staat, wordt niet gelezen. */
+    private val code: String = script
+        .replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
+        .lineSequence()
         .map { it.substringBefore("//") }
         .joinToString("\n")
 
@@ -59,11 +61,13 @@ class PaneelTellersTest {
     }
 
     @Test
-    fun `het paneel leest elke teller van de uitkomst`() {
+    fun `de samenvattende tekst noemt elke teller`() {
         // Komt hier een teller bij, dan moet bediening.js mee — deze test is de plek waar dat blijkt.
-        val ongelezen = tellers.filterNot { "vulling.$it" in code }
+        // Per functie en niet over het hele bestand: anders volstaat het dat vullingSoort hem noemt.
+        val tekst = deel("function vullingTekst(")
+        val ongenoemd = tellers.filterNot { "vulling.$it" in tekst }
 
-        assertTrue(ongelezen.isEmpty(), "bediening.js leest deze tellers niet: $ongelezen")
+        assertTrue(ongenoemd.isEmpty(), "vullingTekst noemt deze tellers niet: $ongenoemd")
     }
 
     @Test
@@ -92,10 +96,12 @@ class PaneelTellersTest {
             soorten - merktekens.keys,
             "MERKTEKEN kent deze uitkomstsoorten niet",
         )
+        // Niet alleen "elk teken komt één keer voor": twee soorten van teken laten wisselen zou dat
+        // overleven, en dan draagt een mislukte ronde het teken van een geslaagde.
         assertEquals(
-            soorten.size,
-            soorten.mapNotNull { merktekens[it] }.toSet().size,
-            "twee uitkomstsoorten delen een merkteken: $merktekens",
+            mapOf("goed" to "gelukt", "let-op" to "let-op", "fout" to "mislukt"),
+            merktekens,
+            "een uitkomstsoort wijst naar het verkeerde merkteken",
         )
     }
 
@@ -109,7 +115,14 @@ class PaneelTellersTest {
         assertNotEquals(merktekens["goed"], terugval!!.groupValues[1], "een onbekende soort leest als geslaagd")
     }
 
-    /** Het stuk script tussen twee ankers, of een lege string als het eerste anker ontbreekt. */
+    /**
+     * Het stuk script tussen twee ankers, of een lege string als het eerste anker ontbreekt.
+     *
+     * De ankers en de regexen hierboven lezen enkele quotes en de huidige schrijfwijze van de tabel;
+     * een herformattering naar dubbele quotes of kale sleutels laat deze tests falen op een melding
+     * over een ontbrekende soort. Dat is de veilige kant om op te falen, maar het is geen fout in
+     * het paneel — pas dan de patronen aan.
+     */
     private fun deel(vanaf: String, tot: String = "\n}"): String =
         if (vanaf in code) code.substringAfter(vanaf).substringBefore(tot) else ""
 

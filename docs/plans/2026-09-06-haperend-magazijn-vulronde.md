@@ -83,7 +83,7 @@ een vierde uitkomst er later niet stilletjes bij kan.
 Elke stap in `lever()` valt in een vangnet: de aanroep, het uitlezen én het sluiten. Die vangnetten
 zijn `catch (fout: Exception)` en niet een opsomming van bekende types.
 
-Voor `readEntity` is nagegaan wat de Quarkus REST-client (3.38) werkelijk kan gooien — een
+Voor `readEntity` is nagegaan wat de Quarkus REST-client (3.39.1) werkelijk kan gooien — een
 `IOException` gewikkeld in `ProcessingException`, en `IllegalStateException` uit `checkClosed()` of
 `BlockingNotAllowedException` — dus een opsomming zóú vandaag volstaan. Maar dan hangt de garantie
 "één bericht kan de ronde niet afbreken" aan een implementatiedetail dat met een upgrade verschuift,
@@ -117,8 +117,10 @@ Een breed vangnet kost wel iets, en dat wordt apart teruggegeven:
   stream die al dicht is doordat het antwoord halverwege wegviel meldt zich zo. Bij de aanroep zélf
   wijst datzelfde type op blocking op de event-loop, en dan is het geen storing. Ook de HTTP-status
   splitst mee: een 4xx betekent dat de console iets ongeldigs stuurde en klinkt luid, een 5xx is het
-  magazijn — met 408, 425 en 429 als uitzondering, want die zeggen "later nog eens proberen" en
-  komen van de overkant; het magazijn hanteert voor zijn eigen retries dezelfde lijst. Een 404 op de
+  magazijn. Alleen een 5xx en de wacht-en-probeer-later-codes 408 en 429 zijn de overkant; al het
+  andere — een 4xx, maar ook een 2xx of 3xx die hier belandt en dus het contract breekt — komt van
+  onze kant en treft elk bericht van de ronde. Het magazijn hanteert voor zijn eigen retries dezelfde
+  lijst wachtcodes. Een 404 op de
   status-PATCH telt ook als storing: het magazijn is dan het bericht kwijt dat het één aanroep eerder
   zelf bevestigde. Een opdracht voor een OIN die niet in `demo.magazijnen` staat is per definitie een
   inrichtingsfout en gaat op `SEVERE`.
@@ -158,8 +160,8 @@ In de meerstapstests staat de hapering in het **middelste** bericht, zodat "de r
 echt getoetst wordt en niet alleen "de laatste opdracht slaagde". Elke test asserteert de hele
 `AanleverResultaat`, niet één veld.
 
-Eenenveertig testmethodes, drieënveertig gevallen (de blanco-`berichtId`-test is een
-`@ParameterizedTest` over `""`, `" "` en `"\t"`), plus zes in `PaneelTellersTest`. Wat ze dekken:
+Drieënveertig testmethodes, drieënvijftig gevallen (drie ervan zijn `@ParameterizedTest`en), plus
+zes in `PaneelTellersTest`. Wat ze dekken:
 
 - **de ronde loopt door** — afgekapte body, lege body, blanco berichtId, ontkoppelde entity, een
   `close()` die zelf gooit, een onbereikbaar magazijn, een fout buiten `ProcessingException`, HTTP
@@ -169,40 +171,46 @@ Eenenveertig testmethodes, drieënveertig gevallen (de blanco-`berichtId`-test i
   vlag), een ronde met vier soorten hapering door elkaar, en de cardinaliteiten leeg/één/meer.
 - **de routering** — twee magazijnen, elk bericht naar zijn eigen OIN, en een haperende A die B niet
   meesleept.
-- **de markering** — elk bericht met zijn eigen berichtId en ontvanger, een geweigerde PATCH, een
-  onbereikbaar magazijn, en een 204 die geen geslaagde markering is.
+- **de markering** — elk bericht met zijn eigen berichtId en ontvanger (één BSN en één KVK, zodat het
+  type niet vast kan staan), een geweigerde PATCH, een onbereikbaar magazijn, en een 204 die geen
+  geslaagde markering is.
 - **het sluiten** — precies één keer, op het succespad, het foutpad, het niet-201-pad en beide
-  markeer-paden, en een falende `close()` die de ronde niet raakt maar wel een logregel oplevert.
+  markeer-paden; een falende `close()` die de ronde niet raakt maar wel een logregel oplevert, zowel
+  bij een transportfout als bij een stream die al dicht was.
 - **de logregels** — geen enkele draagt een identificatienummer (melding, throwable én parameters,
-  over vijf onderdrukte fouten waarvan één op de luide tak mét throwable); de oorzaakketen loopt door
-  tot de onderste fout; een fout die zichzelf als oorzaak noemt levert één naam op; de luide tak
-  wijst een plek aan; en elke ernst-splitsing is apart vastgelegd — storing versus bedradingsfout, een
-  ontkoppelde stream versus een kapotte deserialisatie, 4xx versus 5xx, de wachtcodes, een
-  `WebApplicationException` op zijn status, een `IOException`, en de onbekende OIN.
+  over vijf onderdrukte fouten waarvan één op de luide tak mét throwable); elke regel wijst zijn
+  magazijn, ontvanger-type of berichtId aan; de oorzaakketen loopt drie diep door; een fout die
+  zichzelf als oorzaak noemt levert één naam op; een fout zonder eenvoudige naam wordt alsnog
+  benoemd; en de luide tak wijst naar het frame waar de fout ontstond.
+- **de ernst-splitsing** — storing versus bedradingsfout, een ontkoppelde stream versus een kapotte
+  deserialisatie, een `WebApplicationException` op zijn status, de onbekende OIN, en twee
+  `@ParameterizedTest`en over de statuscodes: 408/429/500/503/599 klinken als storing, 200/302/400/
+  409/499 als een fout van onze kant.
 - **het paneel** — `PaneelContractTest` pint de vijf veldnamen in het antwoord; `PaneelTellersTest`
-  pint dat `bediening.js` elke teller leest, elke foutteller in de kleur meeweegt, een rode uitkomst
-  kán geven, elke uitkomstsoort een éigen merkteken heeft, en een onbekende soort niet op het
-  geslaagd-teken terugvalt.
+  pint dat `vullingTekst` elke teller noemt, `vullingSoort` elke foutteller meeweegt en een rode
+  uitkomst kán geven, dat elke uitkomstsoort naar het juiste merkteken wijst, en dat een onbekende
+  soort niet op het geslaagd-teken terugvalt.
 
 ### Mutatietest
 
 Er staat geen mutatietest-plugin in de build, dus met de hand: mutant erin, de betrokken testklassen
-draaien, noteren wélke tests omvallen, mutant eruit. Over vier rondes zijn **vierenvijftig mutanten**
-gedraaid — vierendertig op de Kotlin-kant in ronde 3, en twintig in ronde 4 op de code die er
-daarna bij kwam plus vier in `bediening.js`. Alle vierenvijftig worden gedood.
+draaien, noteren wélke tests omvallen, mutant eruit. Tegen de eindstand zijn **vijfenzestig mutanten**
+gedraaid en alle vijfenzestig worden gedood.
 
-Waar de mutanten op zitten:
+Dat is een gerichte steekproef en geen volledige mutatiedekking: de mutanten zijn met de hand
+gekozen op de plekken waar het gedrag van deze wijziging zit. De lijst staat in het scriptje dat hem
+draaide, zodat een volgende ronde niet hoeft te raden wat al geprobeerd is. Waar ze op zitten:
 
 | Groep | Wat er gemuteerd is |
 |---|---|
 | het uitlezen | vangnet versmald; safe call weg; blanco-check naar leeg of naar null; oorzaak niet gelogd; ernst-splitsing weg |
-| de ernst-splitsing | ontkoppelde stream telt niet meer als hapering; élke fout telt als hapering; `IOException` telt niet mee; `WebApplicationException` niet op status; wachtcodes tellen als onze fout; grens naar 500; aanleveren, markeren en sluiten zonder splitsing; onbekend magazijn als storing |
-| de tellers | `zonderBerichtId` niet geteld; blijft op 1; `AfgeleverdZonderId` telt als mislukt; `markeringMislukt` onvoorwaardelijk; onbekend magazijn telt als geslaagd; `aangeboden` minstens 1 |
-| het sluiten | niet gesloten; alleen bij een niet-afgeleverd antwoord; falende `close()` ontsnapt; twee keer gesloten; markeer-antwoord niet gesloten; `sluitStil` zwijgt |
-| de statuscontrole | `!= 201` omgedraaid; verruimd tot 2xx; markeer-status omgedraaid of verruimd tot 2xx; markeer-melding weg |
-| de ronde | eerste opdracht overgeslagen; routering pakt het eerste magazijn; `gelezen`-guard weg; `X-Ontvanger` zonder waarde |
-| de logregels | ontvanger-*waarde* in plaats van -*type*; `oorzaakketen` logt `toString()`; luide tak logt de melding erbij; `plek` geeft niets; keten stopt na de bovenste fout; ander scheidingsteken; cyclus-guard weg; magazijn-OIN weg uit twee regels |
-| het paneel | `fout` krijgt het geslaagd-merkteken; geen weg meer naar een rode melding; terugval op groen; `zonderBerichtId` weegt niet meer mee in de kleur |
+| de ernst-splitsing | ontkoppelde stream telt niet meer als hapering; élke fout telt als hapering; `WebApplicationException` niet op status; wachtcodes tellen als onze fout; wachtcodes zonder 408 of zonder 429; 5xx-grens naar 501 of naar 598; alles-buiten-4xx als storing; aanleveren, markeren en sluiten zonder splitsing; onbekend magazijn als storing |
+| de tellers | `zonderBerichtId` niet geteld; blijft op 1; `AfgeleverdZonderId` telt als mislukt; onbekend magazijn telt als geslaagd; `aangeboden` minstens 1; `gelezen`-guard weg |
+| het sluiten | niet gesloten; alleen bij een niet-afgeleverd antwoord; falende `close()` ontsnapt; `sluitStil` zwijgt; twee keer gesloten; markeer-antwoord niet gesloten |
+| de aanroep en de status | beide vangnetten versmald; `!= 201` omgedraaid of verruimd tot 2xx; markeer-status omgedraaid of verruimd tot 2xx; markeer-statusmelding weg |
+| de ronde | eerste opdracht overgeslagen; routering pakt het eerste magazijn; `X-Ontvanger` zonder waarde of met een vast type |
+| de logregels | ontvanger-*waarde* in plaats van -*type*; ontvanger-type weg; `oorzaakketen` logt `toString()`; luide tak logt de melding erbij; terugval op de volledige klassenaam weg; keten stopt na twee; ander scheidingsteken; cyclus-guard weg; `plek` geeft niets, pakt het onderste frame of laat klasse en regel weg; magazijn-OIN of berichtId weg uit drie regels |
+| het paneel | `fout` krijgt het geslaagd-merkteken; twee merktekens verwisseld; geen weg meer naar een rode melding; terugval op groen; `zonderBerichtId` weegt niet meer mee in de kleur; `zonderBerichtId` of `markeringMislukt` niet meer genoemd in de tekst |
 
 Twee mutanten die eerder als "equivalent" waren afgeboekt — de safe call weghalen en de oorzaak uit
 de `onleesbaar`-regel laten vallen — bleken dat niet te zijn zodra de logtekst zelf werd vastgelegd.
@@ -210,9 +218,10 @@ Het verschil zat in de diagnose, en die is nu getoetst.
 
 ## Verificatie
 
-- `./mvnw clean verify -pl demo/demo-console -am` groen: 314 tests in de module (waarvan 42 in
+- `./mvnw clean verify -pl demo/demo-console -am` groen: 325 tests in de module (waarvan 53 in
   `AanleverServiceTest`), detekt 0 bevindingen.
-- Mutatietest: 54/54 gedood, geen overlevers.
+- Mutatietest: 65 met de hand gekozen mutanten tegen de eindstand, alle 65 gedood. Een gerichte
+  steekproef, geen volledige mutatiedekking.
 - Geen nieuwe build-warnings. De `WARN Proxy … niet uit te lezen`- en `gesimuleerde magazijnen niet
   gevuld`-regels zijn logoutput van tests die foutpaden uitlokken, geen bouwmelding.
 - Geen enkele logregel draagt een identificatienummer — melding, throwable én parameters — en dat is
