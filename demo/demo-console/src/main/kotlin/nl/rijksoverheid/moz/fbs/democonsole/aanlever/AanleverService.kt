@@ -4,23 +4,27 @@ import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.inject.Inject
-import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
-import nl.rijksoverheid.moz.fbs.democonsole.generator.OntvangerDto
 import java.net.URI
 import java.util.logging.Logger
 
 /**
- * Uitkomst van een vulronde. `mislukt` telt niet-afgeleverde berichten; `markeringMislukt` telt
- * berichten die wél zijn afgeleverd maar niet op gelezen konden worden gezet — die tellen als
- * geslaagd, want het bericht staat in het magazijn, alleen de lees-mix klopt niet.
+ * Uitkomst van een vulronde. `mislukt` telt niet-afgeleverde berichten; de twee tellers daarna
+ * tellen berichten die wél in het magazijn staan — en dus ook als geslaagd tellen — maar waar
+ * naast de aflevering iets misging:
+ *
+ * - `markeringMislukt`: het bericht was niet op gelezen te zetten.
+ * - `zonderBerichtId`: het magazijn bevestigde de ontvangst met een antwoord waar geen berichtId
+ *   in stond. Dat telt los van `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener
+ *   te zien dát het magazijn haperde in plaats van een volledig groene melding.
  */
 data class AanleverResultaat(
     val aangeboden: Int,
     val geslaagd: Int,
     val mislukt: Int,
     val markeringMislukt: Int,
+    val zonderBerichtId: Int = 0,
 )
 
 /**
@@ -30,6 +34,8 @@ data class AanleverResultaat(
 @ApplicationScoped
 class AanleverService internal constructor(private val clients: Map<String, MagazijnAanleverClient>) {
 
+    // CDI bouwt de clients uit config; de map-constructor is de ingang voor tests met een eigen
+    // magazijn. Zonder deze @Inject weet ArC niet welke van de twee het moet zijn.
     @Inject
     constructor(config: DemoConfig) : this(bouwClients(config))
 
@@ -39,6 +45,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         var geslaagd = 0
         var mislukt = 0
         var markeringMislukt = 0
+        var zonderBerichtId = 0
 
         opdrachten.forEach { opdracht ->
             val client = clients[opdracht.magazijnOin]
@@ -50,134 +57,143 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
                 return@forEach
             }
 
-            val berichtId = when (val uitkomst = lever(opdracht, client)) {
-                LeverUitkomst.Mislukt -> {
-                    mislukt++
+            when (val uitkomst = lever(opdracht, client)) {
+                LeverUitkomst.Mislukt -> mislukt++
 
-                    return@forEach
+                LeverUitkomst.AfgeleverdZonderId -> {
+                    geslaagd++
+                    zonderBerichtId++
+
+                    if (opdracht.gelezen) markeringMislukt++
                 }
 
-                LeverUitkomst.AfgeleverdZonderId -> null
-                is LeverUitkomst.Afgeleverd -> uitkomst.berichtId
-            }
+                is LeverUitkomst.Afgeleverd -> {
+                    geslaagd++
 
-            geslaagd++
-
-            if (!opdracht.gelezen) return@forEach
-
-            // Zonder berichtId valt er niets te patchen: dat telt als mislukte markering, niet als
-            // mislukt bericht — het bericht zelf staat wél in het magazijn.
-            if (berichtId == null || !markeerGelezen(client, berichtId, opdracht.verzoek.ontvanger)) {
-                markeringMislukt++
+                    if (opdracht.gelezen && !markeerGelezen(client, opdracht, uitkomst.berichtId)) markeringMislukt++
+                }
             }
         }
 
-        return AanleverResultaat(opdrachten.size, geslaagd, mislukt, markeringMislukt)
+        return AanleverResultaat(opdrachten.size, geslaagd, mislukt, markeringMislukt, zonderBerichtId)
     }
 
-    /** Wat er van één aanlevering terechtkwam. */
     private sealed interface LeverUitkomst {
 
         /** Afgeleverd, met het door het magazijn toegekende berichtId. */
         data class Afgeleverd(val berichtId: String) : LeverUitkomst
 
         /**
-         * Afgeleverd — het magazijn gaf een 201 en stuurt die pas ná het opslaan — maar het antwoord
-         * droeg geen bruikbaar berichtId, dus het bericht is niet meer op gelezen te zetten.
+         * Afgeleverd — de Aanlever-API belooft bij een 201 dat het bericht is opgeslagen — maar het
+         * antwoord droeg geen bruikbaar berichtId, dus de console kan het bericht niet meer
+         * aanwijzen en het dus ook niet op gelezen zetten.
          */
         data object AfgeleverdZonderId : LeverUitkomst
 
-        /** Niet afgeleverd. */
         data object Mislukt : LeverUitkomst
     }
 
-    /** Levert één bericht aan bij het magazijn. */
     private fun lever(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): LeverUitkomst {
-        // Een magazijn dat hapert — precies wat de storingsknoppen doen — mag de vulling niet
-        // halverwege afbreken: dan rapporteert de console niets over wat al wél is afgeleverd en
-        // levert een tweede poging dubbele berichten op. Zowel de aanroep als het uitlezen van het
-        // antwoord moet daarom binnen een vangnet vallen.
+        // Eén hapering mag de vulling niet halverwege afbreken: dan rapporteert de console niets
+        // over wat al wél is afgeleverd en levert een tweede poging dubbele berichten op. Elke stap
+        // valt daarom in een vangnet — de aanroep hier, het uitlezen en het sluiten hieronder — en
+        // dat vangnet is bewust breed. Welk exception-type een afgekapt antwoord precies oplevert,
+        // is een implementatiedetail van de REST-client dat met een upgrade kan verschuiven; de
+        // garantie dat de ronde doorloopt mag daar niet aan hangen.
         val response = try {
             client.leverAan(opdracht.verzoek)
-        } catch (fout: ProcessingException) {
-            log.warning("magazijn ${opdracht.magazijnOin} niet bereikbaar voor aanleveren: $fout")
+        } catch (fout: Exception) {
+            log.warning("aanleveren bij magazijn ${opdracht.magazijnOin} mislukte: $fout")
 
             return LeverUitkomst.Mislukt
         }
 
-        return response.use {
-            if (it.status != 201) {
-                // Alleen het type van de ontvanger, nooit de waarde: een BSN hoort niet in
-                // applicatielogs. De magazijn-OIN is publiek en wijst de fout net zo goed aan.
-                log.warning(
-                    "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP ${it.status} " +
-                        "voor ontvanger-type ${opdracht.verzoek.ontvanger.type}",
-                )
-
-                return@use LeverUitkomst.Mislukt
-            }
-
-            val berichtId = berichtIdUit(it, opdracht)
-
-            if (berichtId == null) LeverUitkomst.AfgeleverdZonderId else LeverUitkomst.Afgeleverd(berichtId)
+        return try {
+            uitkomstVan(response, opdracht)
+        } finally {
+            sluitStil(response, opdracht.magazijnOin)
         }
     }
 
     /**
-     * Leest het toegekende berichtId uit een 201-antwoord, of null als dat antwoord het niet draagt:
-     * afgekapt, leeg, geen JSON, of JSON zonder gevulde `berichtId`. Een blanco waarde telt als
-     * afwezig — die zou een PATCH op `/berichten/` opleveren, een aanroep die alleen maar een tweede
-     * fout oplevert.
+     * Leest uit het antwoord wat er van de aanlevering terechtkwam. Een blanco berichtId telt als
+     * afwezig: dat zou een PATCH op `/berichten/` opleveren, een aanroep die alleen een tweede fout
+     * geeft.
      */
-    private fun berichtIdUit(response: Response, opdracht: AanleverOpdracht): String? {
-        val respons = try {
-            response.readEntity(AanleverRespons::class.java)
-        } catch (fout: ProcessingException) {
-            log.warning(onleesbaar(opdracht, fout))
+    private fun uitkomstVan(response: Response, opdracht: AanleverOpdracht): LeverUitkomst {
+        if (response.status != 201) {
+            // Alleen het type van de ontvanger, nooit de waarde: een BSN hoort niet in
+            // applicatielogs. De magazijn-OIN is publiek en wijst de fout net zo goed aan.
+            log.warning(
+                "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP ${response.status} " +
+                    "voor ontvanger-type ${opdracht.verzoek.ontvanger.type}",
+            )
 
-            return null
-        } catch (fout: IllegalStateException) {
-            // De entity wordt niet (meer) door een stream gedragen — bijvoorbeeld omdat de
-            // verbinding wegviel voordat de body er was.
-            log.warning(onleesbaar(opdracht, fout))
-
-            return null
+            return LeverUitkomst.Mislukt
         }
 
-        val berichtId = respons?.berichtId
-
-        if (berichtId.isNullOrBlank()) {
-            log.warning(onleesbaar(opdracht, "het antwoord droeg geen berichtId"))
-
-            return null
+        val berichtId = try {
+            response.readEntity(AanleverRespons::class.java)?.berichtId
+        } catch (fout: Exception) {
+            // Alleen het type van de fout, niet de melding: de body die hier niet te lezen viel
+            // draagt de ontvanger, en een parserfout mag zijn bron in die melding meenemen.
+            return onleesbaar(opdracht, fout::class.simpleName.orEmpty())
         }
 
-        return berichtId
+        if (berichtId.isNullOrBlank()) return onleesbaar(opdracht, "geen berichtId in het antwoord")
+
+        return LeverUitkomst.Afgeleverd(berichtId)
     }
 
-    private fun onleesbaar(opdracht: AanleverOpdracht, oorzaak: Any) =
-        "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP 201 zonder bruikbaar berichtId " +
-            "($oorzaak); het bericht staat in het magazijn maar is niet meer op gelezen te zetten"
+    private fun onleesbaar(opdracht: AanleverOpdracht, oorzaak: String): LeverUitkomst {
+        log.warning(
+            "aanleveren bij magazijn ${opdracht.magazijnOin} gaf HTTP 201 zonder bruikbaar " +
+                "berichtId ($oorzaak); het bericht staat in het magazijn, maar de console kan het " +
+                "niet meer aanwijzen",
+        )
 
-    private fun markeerGelezen(client: MagazijnAanleverClient, berichtId: String, ontvanger: OntvangerDto): Boolean {
-        val header = "${ontvanger.type}:${ontvanger.waarde}"
+        return LeverUitkomst.AfgeleverdZonderId
+    }
+
+    private fun markeerGelezen(client: MagazijnAanleverClient, opdracht: AanleverOpdracht, berichtId: String): Boolean {
+        val ontvanger = opdracht.verzoek.ontvanger
 
         val response = try {
-            client.markeer(berichtId, header, StatusPatch(gelezen = true))
-        } catch (fout: ProcessingException) {
-            log.warning("magazijn niet bereikbaar voor markeren-gelezen van bericht $berichtId: $fout")
+            client.markeer(berichtId, "${ontvanger.type}:${ontvanger.waarde}", StatusPatch(gelezen = true))
+        } catch (fout: Exception) {
+            log.warning(
+                "markeren-gelezen van bericht $berichtId bij magazijn ${opdracht.magazijnOin} mislukte: $fout",
+            )
 
             return false
         }
 
-        return response.use {
-            if (it.status != 200) {
-                log.warning("markeren-gelezen gaf HTTP ${it.status} voor bericht $berichtId")
+        return try {
+            val gelukt = response.status == 200
 
-                return@use false
+            if (!gelukt) {
+                log.warning(
+                    "markeren-gelezen gaf HTTP ${response.status} voor bericht $berichtId " +
+                        "bij magazijn ${opdracht.magazijnOin}",
+                )
             }
 
-            true
+            gelukt
+        } finally {
+            sluitStil(response, opdracht.magazijnOin)
+        }
+    }
+
+    /**
+     * Sluit een antwoord zonder de ronde te kunnen raken. `Response.close()` mag zelf gooien — het
+     * afhandelen van een half afgekapte stream is precies het geval dat hier speelt — en dat mag
+     * geen bericht kosten dat al is afgeleverd.
+     */
+    private fun sluitStil(response: Response, magazijnOin: String) {
+        try {
+            response.close()
+        } catch (fout: Exception) {
+            log.warning("antwoord van magazijn $magazijnOin niet netjes te sluiten: $fout")
         }
     }
 

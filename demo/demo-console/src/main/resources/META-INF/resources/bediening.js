@@ -276,6 +276,12 @@ function vullingTekst(vulling) {
 
     if (vulling.markeringMislukt) tekst += ', ' + vulling.markeringMislukt + ' niet op gelezen gezet';
 
+    /* Het bericht staat in het magazijn, maar het magazijn bevestigde het zonder berichtnummer.
+     * Zonder deze regel leest zo'n ronde als volledig geslaagd terwijl het magazijn haperde. */
+    if (vulling.zonderBerichtId) {
+        tekst += ', ' + vulling.zonderBerichtId + ' zonder bevestigd berichtnummer';
+    }
+
     return tekst;
 }
 
@@ -314,7 +320,7 @@ function vullingSoort(body) {
 
     if (vulling.aangeboden > 0 && vulling.geslaagd === 0) return 'fout';
 
-    return vulling.mislukt || vulling.markeringMislukt ? 'let-op' : 'goed';
+    return vulling.mislukt || vulling.markeringMislukt || vulling.zonderBerichtId ? 'let-op' : 'goed';
 }
 
 // ---------------------------------------------------------------- acties uitvoeren
