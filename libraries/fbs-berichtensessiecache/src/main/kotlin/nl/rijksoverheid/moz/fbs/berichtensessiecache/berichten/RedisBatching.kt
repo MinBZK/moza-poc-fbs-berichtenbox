@@ -23,6 +23,12 @@ internal object RedisBatching {
      * lopen de commando's parallel en fail-fast; batches volgen elkaar sequentieel op. Een lege
      * [items] levert een direct voltooide `Uni` zonder Redis te raken.
      *
+     * Faalt een batch, dan stopt het aanbieden van volgende batches en propageert de fout naar de
+     * aanroeper. Binnen een MULTI/EXEC is dat effectloos — zonder EXEC is geen van de commando's
+     * toegepast, ook niet die van eerdere, wél geslaagde batches. Roept de aanroeper deze functie
+     * buiten een transactie aan, dan blijven de al toegepaste commando's van voorgaande batches
+     * staan; alleen de nog niet aangeboden batches worden overgeslagen.
+     *
      * @throws IllegalArgumentException als [batchgrootte] niet groter is dan 0 — bij 0 zou
      *   `chunked` werpen met een melding die de configuratiesleutel niet noemt.
      */

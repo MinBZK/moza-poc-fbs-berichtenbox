@@ -189,28 +189,27 @@ Het bewaren van een ophaalronde kost twee Redis-commando's per bericht (de hash 
 vervaltermijn). Die commando's gaan in batches naar Redis, zodat er nooit meer tegelijk onderweg
 zijn dan de client aankan — ongeacht bij hoeveel organisaties de ondernemer is aangesloten.
 
-| Property | Default | Wat |
-|---|---|---|
-| `berichtensessiecache.redis-batchgrootte` | 256 | Berichten per batch |
-| `quarkus.redis.max-waiting-handlers` | 2048 | Commando's per connection waarvan het antwoord nog moet komen |
+| Property | Env var | Default | Wat |
+|---|---|---|---|
+| `berichtensessiecache.redis-batchgrootte` | `REDIS_BATCHGROOTTE` | 256 | Berichten per batch |
+| `quarkus.redis.max-waiting-handlers` | `REDIS_MAX_WAITING_HANDLERS` | 2048 | Commando's per connection waarvan het antwoord nog moet komen |
 
-De invariant die je moet bewaken:
+De invariant:
 
 ```
-2 x berichtensessiecache.redis-batchgrootte  <  quarkus.redis.max-waiting-handlers
+berichtensessiecache.redis-batchgrootte  <  quarkus.redis.max-waiting-handlers
 ```
 
-Bij de defaults is dat 512 tegen 2048. Verlaag je `max-waiting-handlers`, verlaag dan de
-batchgrootte mee; verhoog je de batchgrootte, controleer dan of de bovengrens nog past. Er is geen
-startup-controle op deze invariant: de twee sleutels wonen in verschillende extensies en de
-Vert.x-waarde is bij boot niet uit de sessiecache-configuratie te lezen.
+HSET en EXPIRE zijn per bericht met `.chain` geregen, dus staan nooit tegelijk in de wachtrij —
+de piek per batch is de batchgrootte zelf, niet het dubbele. Bij de defaults is dat 256 tegen 2048.
+`RedisBerichtenCache.init()` bewaakt deze invariant bij het opstarten: een configuratie die hem
+schendt (bijvoorbeeld `REDIS_BATCHGROOTTE` opgehoogd zonder `REDIS_MAX_WAITING_HANDLERS` mee te
+bewegen) laat de service niet starten, met een foutmelding die beide sleutels en hun waarden
+noemt.
 
-Wordt de invariant tóch overschreden, dan faalt een ophaalronde in de laatste stap — ná alle
-bevragingen — met `Redis waiting queue is full` in de log en een `OPHALEN_FOUT`-event richting de
-ondernemer. De ophaalronde is dan niet bewaard; opnieuw ophalen is de herstelactie.
-
-Een hogere batchgrootte betekent minder round-trips naar Redis (een ronde van 2700 berichten kost
-er 11 bij 256) maar een hogere piek. Er is geen reden om hem aan te passen zolang
+Een hogere batchgrootte betekent minder round-trips naar Redis: een ronde van 2700 berichten kost
+11 batches bij batchgrootte 256, elk twee round-trips (een HSET-golf, dan een EXPIRE-golf) — 22
+round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 `max-waiting-handlers` op de default staat.
 
 ## Cache-levensduur

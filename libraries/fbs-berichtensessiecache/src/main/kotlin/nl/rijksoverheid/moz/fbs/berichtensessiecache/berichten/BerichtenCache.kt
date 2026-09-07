@@ -87,10 +87,17 @@ internal class RedisBerichtenCache(
     // Begrenst het aantal Redis-commando's dat tegelijk in de connection-wachtrij staat
     // (`quarkus.redis.max-waiting-handlers`, default 2048). Zonder deze grens groeit een
     // store-transactie mee met het aantal organisaties van de ontvanger en loopt die wachtrij
-    // vol — de ophaalronde faalt dan pas in de laatste stap, ná alle bevragingen. Elke bericht
-    // kost twee commando's (HSET + EXPIRE), dus de piek is 2 × deze waarde.
+    // vol — de ophaalronde faalt dan pas in de laatste stap, ná alle bevragingen. Elk bericht
+    // kost twee commando's (HSET + EXPIRE), maar die zijn per bericht met `.chain` geregen, dus
+    // de piek per batch is deze waarde zelf, niet het dubbele.
     @param:ConfigProperty(name = "berichtensessiecache.redis-batchgrootte", defaultValue = "256")
     private val redisBatchgrootte: Int,
+    // Los binnengehaald i.p.v. hardgecodeerd, zodat `init()` de invariant met redisBatchgrootte
+    // kan bewaken ook wanneer een operator alleen de sessiecache-sleutel aanpast. De sleutel
+    // hoort bij de Redis-client-extensie, niet bij deze library — vandaar dat hij hier via
+    // `@ConfigProperty` binnenkomt in plaats van een eigen sessiecache-configuratienaam te krijgen.
+    @param:ConfigProperty(name = "quarkus.redis.max-waiting-handlers", defaultValue = "2048")
+    private val maxWaitingHandlers: Int,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
@@ -108,6 +115,16 @@ internal class RedisBerichtenCache(
         // met een melding die de configuratiesleutel niet noemt.
         require(redisBatchgrootte > 0) {
             "berichtensessiecache.redis-batchgrootte ($redisBatchgrootte) moet groter zijn dan 0"
+        }
+
+        // Moet < maxWaitingHandlers: de piek per batch is redisBatchgrootte (HSET en EXPIRE zijn
+        // per bericht met `.chain` geregen, dus staan nooit tegelijk in de wachtrij). Zonder deze
+        // guard kan een operator de batchgrootte via de omgeving optrekken zonder dat er iets
+        // waarschuwt, en faalt een store pas in de laatste stap van een ophaalronde — ná alle
+        // bevragingen — met een melding die geen van beide configuratiesleutels noemt.
+        require(redisBatchgrootte < maxWaitingHandlers) {
+            "berichtensessiecache.redis-batchgrootte ($redisBatchgrootte) moet kleiner zijn dan " +
+                "quarkus.redis.max-waiting-handlers ($maxWaitingHandlers)"
         }
 
         val startupTimeout = Duration.ofSeconds(startupRedisearchTimeoutSeconds)

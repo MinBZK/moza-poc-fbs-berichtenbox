@@ -1382,17 +1382,18 @@ gaf `curl`-exitcode 18. Het aantal geslaagd/mislukt varieert per ronde door de g
 `TIMEOUT`-magazijnen (bekend, gedocumenteerd demo-gedrag — losstaand van deze fix).
 
 **Falend-schrijfpad:** `berichtensessiecache.redis-batchgrootte=1000000` alleen (zoals de brief
-voorstelde) reproduceerde de overloop op demo-schaal **niet** — een genuine bevinding. Twee
-oorzaken: (1) de default Redis-clientpool (`quarkus.redis.max-pool-size=6`) verspreidt de
-in-flight commando's over meerdere connecties, ruim onder de aggregaat-capaciteit
-(6 × `max-waiting-handlers` 2048); (2) binnen de MULTI/EXEC-transactie antwoordt Redis op elk
-commando met `+QUEUED`, en op een lokale, onbelaste Redis komt dat antwoord vrijwel ogenblikkelijk
-terug, dus de wachtrij loopt niet vol. Reproductie vergde drie knoppen tegelijk, alle drie op de
-eigen containerinstantie: `berichtensessiecache.redis-batchgrootte=1000000`,
-`quarkus.redis.max-pool-size=1` (dwingt alle commando's op één connection), en een
-Toxiproxy-`latency`-toxic van 50ms (jitter 10ms) op de `redis`-proxy (verwijderd na de meting) om
-de vertraging te introduceren die een gevulde wachtrij pas laat ontstaan. Onder die drie
-voorwaarden trad de overloop op:
+voorstelde) reproduceerde de overloop op demo-schaal **niet** — een genuine bevinding. De reden:
+`withTransaction` claimt één connection voor de duur van de hele MULTI/EXEC, dus de
+connectiepool-grootte (`quarkus.redis.max-pool-size=6`) speelt op het store-pad geen rol. Binnen
+die transactie antwoordt Redis op elk commando met `+QUEUED`, en op een lokale, onbelaste Redis
+komt dat antwoord vrijwel ogenblikkelijk terug — de wachtrij loopt daardoor niet vol, ook niet bij
+een miljoen in één keer aangeboden commando's. Reproductie vergde drie knoppen tegelijk, alle drie
+op de eigen containerinstantie: `berichtensessiecache.redis-batchgrootte=1000000`,
+`quarkus.redis.max-pool-size=1` (dwingt alle commando's op één connection — dezelfde situatie die
+de transactie op het store-pad toch al oplegt, maar sluit een pool-gerelateerde verklaring
+expliciet uit), en een Toxiproxy-`latency`-toxic van 50ms (jitter 10ms) op de `redis`-proxy
+(verwijderd na de meting) om de vertraging te introduceren die een gevulde wachtrij pas laat
+ontstaan. Onder die drie voorwaarden trad de overloop op:
 
 ```
 2026-09-07 10:33:47,709 ERROR [...RedisBerichtenCache] Redis store mislukt voor key=...:
