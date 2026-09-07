@@ -1,6 +1,6 @@
 # Sequentiële Redis-batcher + Throwable-foutfilter — implementatieplan
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 > **Voor agentische uitvoerders:** VEREISTE SUB-SKILL: gebruik `superpowers:subagent-driven-development`
 > (aanbevolen) of `superpowers:executing-plans` om dit plan taak voor taak uit te voeren. Stappen
@@ -1302,3 +1302,118 @@ de exacte constructor van `Bericht` (taak 2 stap 5), het `pageSize`-plafond van 
 (taak 3 stap 1), de opzet van een bevraging met één magazijn (taak 4 stap 1), en de vraag of
 `classifyMagazijnFault` een `Throwable` accepteert (taak 4 stap 4). Elk daarvan is een lokale
 lees-actie in bestaande code, geen ontwerpbeslissing.
+
+---
+
+## Uitkomst
+
+### Suites (taak 7 stap 1)
+
+`clean verify` op alle drie geraakte modules, elk zonder falende tests en zonder nieuwe,
+onverklaarde waarschuwingen:
+
+| Module | Tests | Resultaat |
+|---|---|---|
+| `libraries/fbs-berichtensessiecache` | 411 | GROEN, JaCoCo- en detekt-gate gehaald |
+| `services/berichtenuitvraag` | 246 | GROEN, JaCoCo- en detekt-gate gehaald |
+| `services/berichtenmagazijn` | 439 | GROEN (regressiecontrole; deze branch raakt de module niet) |
+
+`berichtenmagazijn` toonde één `[WARNING]` (`quarkus.smallrye-openapi.always-run-filter` is
+deprecated); die staat al in `application.properties` sinds commit `fe3bf6a9`, buiten het bereik
+van deze branch, en is dus geen regressie. Overige waarschuwingen in alle drie modules vallen
+onder de al geaccepteerde categorieën (jansi `System::load`, `Unsafe::objectFieldOffset`,
+`LogManager accessed before ...`).
+
+### Mutatietesten (taken 1-4)
+
+18 mutanten toegepast, 16 gedood (ROOD op de bedoelde test, teruggedraaid → GROEN bevestigd), 2
+bewijsbaar equivalent.
+
+| # | Taak | Mutant | Uitkomst |
+|---|---|---|---|
+| M1 | 1 | `items.chunked(batchgrootte)` → `listOf(items)` | ROOD |
+| M2 | 1 | `voorgaande.chain { ... }` → directe `Uni.join().all(...)` zonder `chain` | ROOD |
+| M3 | 1 | `.andFailFast()` → `.andCollectFailures()` | ROOD |
+| M4 | 1 | `require(batchgrootte > 0)` → `>= 0` | ROOD |
+| M5 | 1 | `if (items.isEmpty()) return ...` weglaten | **Equivalent** — `chunked` op een lege lijst levert zelf al `emptyList()`, en `fold` over een lege lijst geeft de ongewijzigde initiële `Uni` terug; met of zonder guard wordt `commando` nul keer aangeroepen en is de resulterende `Uni` ononderscheidbaar. Guard blijft staan als documentatie van de kortsluiting. |
+| M6 | 1 | `items.chunked(batchgrootte)` → `...reversed()` | ROOD |
+| M7 | 2 | `inBatches(sorted, redisBatchgrootte)` → `inBatches(sorted, Int.MAX_VALUE)` | ROOD |
+| M8 | 2 | `inBatches(sorted, ...)` → `inBatches(sorted.take(redisBatchgrootte), ...)` | ROOD (gedood door de atomiciteits- en TTL-tests; de derde test raakt een ander, ongebatcht pad en bleef terecht groen) |
+| M9 | 2 | TTL-`.chain` na `hset` weglaten | ROOD |
+| M10 | 2 | `require(redisBatchgrootte > 0)` → `>= 0` | ROOD |
+| M11 | 2 | guard verplaatst tot ná `ft_list` | ROOD |
+| M12 | 3 | `inBatches(sleutels, redisBatchgrootte)` → `inBatches(sleutels, Int.MAX_VALUE)` in `renewBerichtTtls` | ROOD |
+| M13 | 3 | sessie-keys weggelaten uit `renewBerichtTtls` | ROOD |
+| M14 | 3 | `inBatches(matching, ...)` → `inBatches(matching.take(1), ...)` in `pruneListEnDelHash` | ROOD |
+| M15 | 4 | `.onFailure()` → `.onFailure(Exception::class.java)` (regel 848, `aggregeerEnSlaOp`) | ROOD |
+| M16 | 4 | `.onFailure()` → `.onFailure(Exception::class.java)` (regel 621, per-magazijn recover) | ROOD |
+| M17 | 4 | `OphalenMisluktNaBevraging(...)` → `OphalenGereed(...)` in `herstelNaAggregatieCacheFout` | ROOD |
+| M18 | 4 | `catch (ex: Exception)` → `catch (ex: RuntimeException)` in `legeResultaten` | **Equivalent** — `javap -c` op `UniBlockingAwait.await` (mutiny 3.3.0, de gebruikte versie) toont dat elke faalwaarde die uit `.await().atMost(...)` komt óf al een `RuntimeException` is (ongewijzigd doorgegooid) óf in een `CompletionException` verpakt wordt (zelf altijd een `RuntimeException`). Geen faalwaarde bereikt deze `catch` als iets anders dan een `RuntimeException`; `catch (e: Exception)` en `catch (e: RuntimeException)` zijn hier bewijsbaar gedrags-equivalent. |
+
+### Foutfilters repo-breed (taak 5)
+
+Sweep van `libraries/fbs-common`, `libraries/fbs-magazijnregister`,
+`libraries/fbs-berichtensessiecache`, `services/berichtenuitvraag` en `services/berichtenmagazijn`
+beoordeelde 25 treffers (typed `onFailure`/`catch`-sites, plus het brede predicate-filter in
+`ProfielMagazijnResolver`) en leverde geen wijziging op: elke overige site is ofwel al ongetypeerd
+(vangt `Throwable`), ofwel structureel beschermd tegen de klasse defect uit taak 4 — een blocking
+`catch` ná `.await().atMost(...)` (dezelfde Mutiny-garantie als M18), of een synchrone
+MP-Rest-Client-aanroep waarvan de JAX-RS-clientlaag bewijsbaar nooit iets anders dan een
+`Exception`-subtype naar boven laat komen (bevestigd met `javap -c` op
+`InvocationImpl.invoke` in `resteasy-reactive-client-3.39.1.jar`).
+
+### Demo-verificatie (taak 7 stap 3-4)
+
+Gemeten tegen de gecontaineriseerde stack (image herbouwd uit deze worktree met jib, `docker
+compose up -d --force-recreate berichtenuitvraag` tegen de al draaiende infra), niet tegen een los
+dev-mode-proces. Persona: Landelijk Concern N.V. (KVK 90000003), 100 organisaties, demo-vulling van
+27 berichten per organisatie.
+
+**Drie ophaalrondes, ongewijzigde fix:**
+
+| Ronde | Organisaties | Berichten in de ronde | Slotevent | `curl`-exitcode |
+|---|---|---|---|---|
+| 1 | 100 | 2241 (85 geslaagd, 15 mislukt) | `ophalen-gereed` | 0 |
+| 2 | 100 | 2133 (81 geslaagd, 19 mislukt) | `ophalen-gereed` | 0 |
+| 3 | 100 | 2187 (83 geslaagd, 17 mislukt) | `ophalen-gereed` | 0 |
+
+3 van 3 met slotevent en gevulde lijst (`GET /berichten` → 200 na elke ronde). Geen enkele ronde
+gaf `curl`-exitcode 18. Het aantal geslaagd/mislukt varieert per ronde door de gesimuleerde
+`TIMEOUT`-magazijnen (bekend, gedocumenteerd demo-gedrag — losstaand van deze fix).
+
+**Falend-schrijfpad:** `berichtensessiecache.redis-batchgrootte=1000000` alleen (zoals de brief
+voorstelde) reproduceerde de overloop op demo-schaal **niet** — een genuine bevinding. Twee
+oorzaken: (1) de default Redis-clientpool (`quarkus.redis.max-pool-size=6`) verspreidt de
+in-flight commando's over meerdere connecties, ruim onder de aggregaat-capaciteit
+(6 × `max-waiting-handlers` 2048); (2) binnen de MULTI/EXEC-transactie antwoordt Redis op elk
+commando met `+QUEUED`, en op een lokale, onbelaste Redis komt dat antwoord vrijwel ogenblikkelijk
+terug, dus de wachtrij loopt niet vol. Reproductie vergde drie knoppen tegelijk, alle drie op de
+eigen containerinstantie: `berichtensessiecache.redis-batchgrootte=1000000`,
+`quarkus.redis.max-pool-size=1` (dwingt alle commando's op één connection), en een
+Toxiproxy-`latency`-toxic van 50ms (jitter 10ms) op de `redis`-proxy (verwijderd na de meting) om
+de vertraging te introduceren die een gevulde wachtrij pas laat ontstaan. Onder die drie
+voorwaarden trad de overloop op:
+
+```
+2026-09-07 10:33:47,709 ERROR [...RedisBerichtenCache] Redis store mislukt voor key=...:
+  io.vertx.core.impl.NoStackTraceThrowable: Redis waiting queue is full
+2026-09-07 10:33:47,711 FATAL [...BerichtensessiecacheService] [ALERT cache_doublefail]
+  (errorId=dabe9038-a5de-46d8-9a3c-0525130fef74) Cache-write FAIL/FAIL (...):
+  Redis onbruikbaar voor sessie, lock leunt op TTL: io.vertx.core.impl.NoStackTraceThrowable: Redis waiting queue is full
+```
+
+en de client ontving het afsluitende SSE-event, verbatim:
+
+```
+data:{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: dabe9038-a5de-46d8-9a3c-0525130fef74)","geslaagd":84,"mislukt":16,"totaalMagazijnen":100,"referentie":"dabe9038-a5de-46d8-9a3c-0525130fef74"}
+```
+
+`curl` sloot af met exitcode 0 op een normaal beëindigde HTTP 200-stream — geen exitcode 18, geen
+weggevallen verbinding. Een controlemeting met dezelfde toxic en dezelfde pool-instelling, maar
+met `redis-batchgrootte` terug op de default (256, de fix actief), rondde de ronde wél gewoon af
+met `ophalen-gereed` — het is dus aantoonbaar de batcher die de overloop voorkomt, niet de toxic of
+de pool-instelling op zichzelf.
+
+De stack is na de meting teruggezet: de toxic verwijderd, en `berichtenuitvraag` herstart op de
+oorspronkelijke, twee dagen draaiende image (geen env-overrides), geverifieerd op 19 draaiende
+containers vóór en na.
