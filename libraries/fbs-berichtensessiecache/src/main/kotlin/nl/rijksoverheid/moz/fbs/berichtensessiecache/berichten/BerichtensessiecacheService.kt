@@ -618,7 +618,11 @@ internal class BerichtensessiecacheService(
                             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
                             .ifNoItem().after(Duration.ofSeconds(magazijnQueryTimeoutSeconds)).fail()
                             .map<MagazijnResult> { oogst -> naarMagazijnResult(oogst, magazijnId, naam) }
-                            .onFailure(Exception::class.java).recoverWithItem { error ->
+                            // Ongetypeerd, om dezelfde reden als bij het opslaan na aggregatie: een
+                            // Vert.x-Throwable moet hier geclassificeerd worden als de fout die hij
+                            // is. Viel hij door naar het vangnet, dan zou het magazijn als
+                            // "niet opgehaald" gerapporteerd worden terwijl het wél bevraagd is.
+                            .onFailure().recoverWithItem { error ->
                                 val fault = classifyMagazijnFault(error)
 
                                 logMagazijnFault(error, magazijnId, naam, fault)
@@ -845,7 +849,11 @@ internal class BerichtensessiecacheService(
                         )
                     }
             }
-            .onFailure(Exception::class.java).recoverWithUni { error ->
+            // Ongetypeerd: Vert.x meldt clientfouten (zoals een volgelopen commando-wachtrij) met
+            // NoStackTraceThrowable, dat rechtstreeks van Throwable erft. Een filter op Exception
+            // laat dat type door naar de SSE-emitter, waarna de verbinding wegvalt zonder dat de
+            // gebruiker hoort dat zijn ophaalronde niet bewaard is.
+            .onFailure().recoverWithUni { error ->
                 herstelNaAggregatieCacheFout(error, cacheKey, totaalMagazijnen, alleBerichten, geslaagd, mislukt)
             }
             .toMulti()

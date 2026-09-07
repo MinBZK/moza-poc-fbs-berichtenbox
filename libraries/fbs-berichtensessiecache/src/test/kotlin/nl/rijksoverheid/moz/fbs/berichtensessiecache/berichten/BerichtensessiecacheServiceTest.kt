@@ -8,6 +8,7 @@ import io.mockk.verify
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.smallrye.mutiny.Uni
+import io.vertx.core.impl.NoStackTraceThrowable
 import jakarta.ws.rs.ProcessingException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
@@ -399,6 +400,73 @@ class BerichtensessiecacheServiceTest {
                 match { it.status == OphalenStatus.FOUT },
             )
         }
+    }
+
+    @Test
+    fun `een Throwable op het blocking lege-magazijn-pad wordt door de bestaande catch gevangen`() {
+        // `await().atMost(...)` verpakt een niet-RuntimeException in een CompletionException, die
+        // wél een Exception is. Daarom volstaat `catch (e: Exception)` op de blocking paden, terwijl
+        // de reactieve recovers op Throwable moeten filteren. Deze test bewaakt die aanname: valt
+        // hij ooit om, dan moeten de blocking catches mee verbreed worden.
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
+        every { clientFactory.getAllClients() } returns emptyMap()
+        every { berichtenCache.store(cacheKey, emptyList()) } returns
+            Uni.createFrom().failure(NoStackTraceThrowable("Redis waiting queue is full"))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(5))
+
+        assertInstanceOf(OphalenMisluktVoorBevraging::class.java, events.single())
+    }
+
+    @Test
+    fun `een Vert-x-fout bij het opslaan na bevraging levert OPHALEN_FOUT met referentie`() {
+        // Alle organisaties zijn bevraagd en hebben geantwoord; alleen het bewaren mislukt. De
+        // gebruiker moet horen dat het ophalen niet bewaard kon worden en dat hij opnieuw moet
+        // ophalen — niet in een afgekapte verbinding blijven hangen.
+        val client = mockk<MagazijnClient>()
+
+        stubAggregatie(client)
+        every { client.getBerichten(any(), any(), any(), any()) } returns eenPagina(testMagazijnBericht())
+        every { berichtenCache.store(cacheKey, any()) } returns
+            Uni.createFrom().failure(NoStackTraceThrowable("Redis waiting queue is full"))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(10))
+
+        val fout = assertInstanceOf(OphalenFout::class.java, events.last())
+
+        assertTrue(
+            fout.foutmelding.contains("(ref: ${fout.referentie})"),
+            "Foutmelding moet de (ref: <UUID>)-suffix dragen; was: ${fout.foutmelding}",
+        )
+        assertTrue(
+            events.filterIsInstance<OphalenGereed>().isEmpty(),
+            "een mislukte opslag mag niet als GEREED eindigen",
+        )
+    }
+
+    @Test
+    fun `een Vert-x-fout uit een magazijn-bevraging levert FOUT, niet NIET_OPGEHAALD`() {
+        // De per-magazijn recover filterde op Exception; een Throwable viel door naar het
+        // vangnet en werd daar als OVERBELAST geclassificeerd. Dat zegt "niet bevraagd" terwijl
+        // het magazijn wél bevraagd is en gefaald heeft — een onjuiste uitspraak richting de
+        // gebruiker.
+        val client = mockk<MagazijnClient>()
+
+        stubAggregatie(client)
+        every { client.getBerichten(any(), any(), any(), any()) } throws
+            NoStackTraceThrowable("Redis waiting queue is full")
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(10))
+
+        val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
+
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
     }
 
     @Test
