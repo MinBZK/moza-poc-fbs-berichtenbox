@@ -200,8 +200,9 @@ Wat je hoe dan ook moet weten:
   matrix van `.github/workflows/cleanup-preview.yml`.
 - **`DELETE /api/v2/projects/{p}/{d}` is DESTRUCTIEF.** Het draait Argo `prune`+`Delete` en, voor
   projecten met de `postgresql-database`-service, `database_cleanup` → DB-data weg (geverifieerd
-  2026-07-02 op magazijnen `mpfm-w3h`). Het is tegelijk de enige werkende fix voor een door OM
-  uitgeschakeld component; doe het nooit zonder de gids erbij.
+  2026-07-02 op magazijnen `mpfm-w3h`). Doe het nooit zonder de gids erbij — en niet om een door
+  OM uitgeschakeld component weer aan te zetten: daar volstaat één `zadctl deployment
+  update-image` met dezelfde tag.
 - **Geen handmatig OM-werk terwijl er een deploy loopt** (`gh run list --workflow "Deploy ZAD"`):
   OM vergrendelt op project, en de deploy faalt dan op een melding die de oorzaak niet noemt.
 
