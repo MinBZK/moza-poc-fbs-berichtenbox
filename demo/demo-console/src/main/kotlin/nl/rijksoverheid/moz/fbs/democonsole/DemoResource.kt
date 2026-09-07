@@ -63,46 +63,41 @@ class DemoResource(
     @Path("/basisvulling")
     fun basisvulling(): AanleverResultaat = aanleverService.leverAan(basisdataset.laad())
 
+    /**
+     * Een burst willekeurige berichten, om de demo-omgeving in één klik te vullen.
+     *
+     * Het aantal komt als tekst binnen en gaat door [heelGetal]; daar staat waarom deze grenzen er
+     * zijn en waarom de parameter geen `Int` is.
+     */
     @POST
     @Path("/random")
-    fun random(@QueryParam("aantal") @DefaultValue("10") aantal: Int): AanleverResultaat =
-        aanleverService.leverAan(generator.genereer(aantal, Random.Default))
+    fun random(@QueryParam("aantal") @DefaultValue("") aantal: String): AanleverResultaat {
+        val gevraagd = heelGetal("aantal", aantal, STANDAARD_RANDOM, 1..MAX_RANDOM_BERICHTEN)
+
+        return aanleverService.leverAan(generator.genereer(gevraagd, Random.Default))
+    }
 
     /**
      * Berichten voor één aangewezen persona, zodat een demonstratie niet hoeft af te wachten of de
      * willekeur ze bij de ondernemer legt die op het scherm staat. Op de persona-`id` en niet op
      * zijn identificatienummer: een BSN hoort niet in een URL, ook niet in een demo.
      *
-     * Elke bedieningsfout wordt hier afgevangen en niet met `require()`: [DemoFoutMapper] vertaalt
-     * alleen een `WebApplicationException` naar zijn eigen status, dus een `require()` zou een
-     * verkeerd ingevulde parameter als HTTP 500 tonen.
+     * Elke bedieningsfout wordt hier afgevangen en niet met `require()`, om de reden die bij
+     * [heelGetal] staat: [DemoFoutMapper] zou een `require()` als HTTP 500 tonen.
      *
-     * Vandaar ook `aantal` als tekst en `@DefaultValue("")` op `persona`. Laat je JAX-RS het werk
-     * doen, dan beantwoordt hij een mislukte omzetting naar `Int` met 404 — dezelfde status die
-     * hieronder "onbekende persona" betekent, waarna de bediener in de verkeerde lijst gaat zoeken;
-     * en een ontbrekende `persona` wordt `null` in een niet-nullable parameter, wat Kotlin met een
-     * `NullPointerException` beantwoordt vóór de eerste regel hieronder.
+     * `@DefaultValue("")` staat op beide parameters: een ontbrekende parameter wordt anders `null`
+     * in een niet-nullable parameter, wat Kotlin met een `NullPointerException` beantwoordt vóór de
+     * eerste regel hieronder. Wat een lege waarde daarna betekent, staat bij [heelGetal].
      */
     @POST
     @Path("/bericht")
     fun bericht(
         @QueryParam("persona") @DefaultValue("") persona: String,
-        @QueryParam("aantal") @DefaultValue("1") aantal: String,
+        @QueryParam("aantal") @DefaultValue("") aantal: String,
     ): AanleverResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
 
-        // Leeg telt als "niet opgegeven", net als een afwezige parameter. Die keuze staat hier en
-        // niet bij `@DefaultValue`: die vervangt alleen een afwezige waarde, en dat `?aantal=` er
-        // vandaag toch doorheen komt is gedrag van JAX-RS dat een upgrade kan veranderen.
-        val gevraagd = if (aantal.isBlank()) 1 else aantal.toIntOrNull()
-            ?: throw BadRequestException("aantal moet een geheel getal zijn tussen 1 en $MAX_BERICHTEN, was: '$aantal'")
-
-        // Nul zou anders een groene melding "0 van 0 aangeleverd" opleveren voor een actie die niets
-        // deed, en een groot getal evenveel synchrone aanleveringen. Dat het invoerveld dezelfde
-        // grenzen kent is geen contract: dit adres staat open op de origin van het paneel.
-        if (gevraagd !in 1..MAX_BERICHTEN) {
-            throw BadRequestException("aantal moet tussen 1 en $MAX_BERICHTEN liggen, was: $gevraagd")
-        }
+        val gevraagd = heelGetal("aantal", aantal, STANDAARD_GERICHT, 1..MAX_GERICHTE_BERICHTEN)
 
         val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default)
             ?: throw NotFoundException("onbekende persona '$persona'; $KIES_EEN_PERSONA")
@@ -112,12 +107,24 @@ class DemoResource(
 
     internal companion object {
 
+        // Elke constante hieronder spiegelt een attribuut van het bijbehorende invoerveld in
+        // `index.html`; `PaneelPadenTest` bewaakt dat ze gelijk blijven. De bovengrenzen zijn de
+        // `max`, de standaarden de `value` — zodat een aanroep zónder parameter hetzelfde doet als
+        // een klik op de knop.
+
+        /** Meer berichten voor één persona is geen realistische demonstratievraag. */
+        const val MAX_GERICHTE_BERICHTEN = 100
+
         /**
-         * Hoger is voor een demo geen realistische vraag, en elke aanlevering is een synchrone
-         * ronde. Spiegelt de `max` van het veld `berichtAantal` in `index.html`; `PaneelPadenTest`
-         * bewaakt dat die twee gelijk blijven.
+         * Ruimer dan een gericht bericht: hiermee wordt een lege omgeving gevuld, en dan is een paar
+         * honderd berichten een normale vraag. Elke aanlevering blijft een synchrone ronde, dus veel
+         * hoger laat de knop minutenlang op een antwoord wachten.
          */
-        const val MAX_BERICHTEN = 100
+        const val MAX_RANDOM_BERICHTEN = 500
+
+        const val STANDAARD_RANDOM = 10
+
+        const val STANDAARD_GERICHT = 1
 
         private const val KIES_EEN_PERSONA = "kies een persona uit berichtPersonas van /api/demo/omgeving"
     }
