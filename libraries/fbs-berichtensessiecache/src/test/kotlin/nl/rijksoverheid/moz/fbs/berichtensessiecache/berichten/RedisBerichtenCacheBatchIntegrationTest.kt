@@ -75,6 +75,35 @@ class RedisBerichtenCacheBatchIntegrationTest {
     }
 
     @Test
+    fun `een read verlengt de TTL van elk geraakt bericht, ook voorbij de eerste batch`() {
+        val berichten = (1..200).map { bericht(it) }
+
+        berichtenCache.store(cacheKey, berichten).await().atMost(Duration.ofSeconds(30))
+
+        // getPageFiltered (afzender-filter, dus het RediSearch-pad) sorteert dalend op
+        // publicatietijdstip. `berichten.first()` (index 1) heeft de laagste publicatietijdstip
+        // en staat dus als laatste resultaat — en daarmee als laatste sleutel in
+        // renewBerichtTtls' batches. Zonder batching valt de EXPIRE-transactie in zijn geheel om
+        // (queue-overflow) en blijft deze TTL onaangeroerd.
+        val laatsteInBatchVolgorde = berichten.first()
+        val berichtKey = BerichtenCache.berichtKey(laatsteInBatchVolgorde.berichtId)
+
+        // `store` zet deze TTL al op de volle profiel-waarde (PT5M); een korte, kunstmatige TTL
+        // vooraf maakt een uitgebleven renew zichtbaar — anders zou "TTL nog positief" ook zonder
+        // renew waar zijn.
+        redis.key().expire(berichtKey, Duration.ofSeconds(2)).await().atMost(Duration.ofSeconds(5))
+
+        val pagina = berichtenCache.getPage(cacheKey, 0, 200, "00000001800866472000", ontvanger, null)
+            .await().atMost(Duration.ofSeconds(30))
+
+        assertEquals(200, pagina!!.berichten.size)
+
+        val ttl = redis.key().ttl(berichtKey).await().atMost(Duration.ofSeconds(5))
+
+        assertTrue(ttl > 2, "TTL van het laatste bericht in batchvolgorde moet verlengd zijn boven de kunstmatig verkorte waarde; was: $ttl")
+    }
+
+    @Test
     fun `de transactie blijft atomair over batches heen`() {
         // Alles of niets: na een geslaagde store moet elk bericht individueel opvraagbaar zijn,
         // niet alleen de kop van de lijst.

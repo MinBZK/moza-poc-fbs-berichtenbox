@@ -441,20 +441,21 @@ internal class RedisBerichtenCache(
 
     /**
      * MULTI/EXEC pipeline-batch: alle EXPIRE-commands (2 sessie-keys + N bericht-hashes) in één
-     * round-trip i.p.v. losse calls. Op pageSize=100 scheelt dit 100+ RTT's.
+     * transactie, in batches aangeboden zodat een grote pagina de connection-wachtrij niet vult.
      * Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing in de batch
      * ongezien blijven; de read zelf is al gelukt.
      */
     private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
         val listKey = listKey(cacheKey)
         val statusKey = statusKey(cacheKey)
+
         return redis.withTransaction { tx ->
             val txKey = tx.key()
-            val expires = mutableListOf<Uni<Void>>()
-            expires.add(txKey.expire(listKey, ttl))
-            expires.add(txKey.expire(statusKey, ttl))
-            ids.forEach { id -> expires.add(txKey.expire(BerichtenCache.berichtKey(id), ttl)) }
-            Uni.join().all(expires).andFailFast().replaceWithVoid()
+            val sleutels = listOf(listKey, statusKey) + ids.map { BerichtenCache.berichtKey(it) }
+
+            RedisBatching.inBatches(sleutels, redisBatchgrootte) { sleutel ->
+                txKey.expire(sleutel, ttl).replaceWithVoid()
+            }
         }.replaceWithVoid()
             .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
             .onFailure().recoverWithNull().replaceWithVoid()
@@ -832,18 +833,12 @@ internal class RedisBerichtenCache(
         redis.list(String::class.java).lrange(listKey, 0, -1)
             .chain { entries ->
                 val matching = entries.filter { json -> blobMatchtBerichtId(json, berichtId) }
-                val lremAll = if (matching.isEmpty()) {
-                    Uni.createFrom().voidItem()
-                } else {
-                    // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek).
-                    // count=0: verwijder alle exact-matchende voorkomens.
-                    val lremUnis = matching.map { blob ->
-                        redis.list(String::class.java).lrem(listKey, 0, blob)
-                    }
-                    Uni.join().all(lremUnis).andFailFast().replaceWithVoid()
-                }
 
-                lremAll.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
+                // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek). count=0:
+                // verwijder alle exact-matchende voorkomens.
+                RedisBatching.inBatches(matching, redisBatchgrootte) { blob ->
+                    redis.list(String::class.java).lrem(listKey, 0, blob).replaceWithVoid()
+                }.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
             }
 
     private fun blobMatchtBerichtId(json: String, berichtId: UUID): Boolean =
