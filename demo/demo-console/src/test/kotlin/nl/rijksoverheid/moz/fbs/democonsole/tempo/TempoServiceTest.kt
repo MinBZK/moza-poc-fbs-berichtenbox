@@ -57,16 +57,16 @@ class TempoServiceTest {
     private val testKlok = TestKlok()
     private val aanleverService = mockk<AanleverService>()
 
-    // Geen mockk<DemoBerichtGenerator>(): de klasse is niet @ApplicationScoped en dus finaal,
-    // en MockK kan finale klassen alleen via zijn inline-agent aan, die deze module niet gebruikt.
     private val rvo = "00000000000000100000"
 
     private val organisaties = mapOf(
         rvo to Organisatie(rvo, "RVO", listOf(Sjabloon("Subsidie", "Uw subsidie is toegekend."))),
     )
 
-    private val personas = listOf(Persona("J. Pietersen", "BSN", "999993653", listOf(rvo)))
+    private val personas = listOf(Persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo)))
 
+    // Een echte generator en geen mock: hij is met drie regels testdata op te tuigen en levert
+    // echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's te pinnen.
     private val generator = DemoBerichtGenerator(
         personas,
         organisaties,

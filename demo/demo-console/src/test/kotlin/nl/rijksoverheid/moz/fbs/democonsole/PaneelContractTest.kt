@@ -5,6 +5,9 @@ import io.quarkus.test.Mock
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Singleton
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
@@ -14,21 +17,29 @@ import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorStand
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.io.File
 import java.net.URI
 import java.net.URL
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * De afspraak tussen het bedieningspaneel en de console, over HTTP. `bediening.js` hangt aan drie
- * dingen die nergens anders vastliggen: de paden, de kleine letters van de storingstoestanden
- * (het paneel filtert op de letterlijke tekst `normaal`) en de sleutels `actief`/`totaal`. Alle
- * drie falen stil — een verschoven pad geeft een chip "onbekend", een `"NORMAAL"` in hoofdletters
- * kleurt élke proxy als afwijkend — dus zonder deze test merkt niemand het tot de dag van de demo.
+ * De afspraak tussen het bedieningspaneel en de console, over HTTP. `bediening.js` hangt aan een
+ * reeks dingen die nergens anders vastliggen: de paden, de kleine letters van de storingstoestanden
+ * (het paneel filtert op de letterlijke tekst `normaal`), de sleutels `actief`/`totaal`, de vorm van
+ * de persona-lijsten en de statussen die een bedieningsfout onderscheiden. Ze falen allemaal stil —
+ * een verschoven pad geeft een chip "onbekend", een `"NORMAAL"` in hoofdletters kleurt élke proxy
+ * als afwijkend — dus zonder deze test merkt niemand het tot de dag van de demo.
  *
  * De services zijn vervangen door vaste dubbels: hun logica heeft eigen unittests, en Toxiproxy en
  * de simulator draaien hier niet. Wat overblijft is precies wat we willen pinnen — route, status,
@@ -51,6 +62,15 @@ class PaneelContractTest {
 
     @TestHTTPResource("/")
     lateinit var basis: URL
+
+    // Onvoorwaardelijk en niet in de testbody: het dubbel vervangt AanleverService voor élke
+    // @QuarkusTest van deze module, dus de eerste test die een ander vulpad aanroept zou anders
+    // stil in deze lijst bijschrijven en een ándere test rood maken.
+    @BeforeEach
+    @AfterEach
+    fun leegDeOpdrachten() {
+        VasteAanleverService.opdrachten.clear()
+    }
 
     private fun haal(url: URL): HttpResponse<String> =
         HttpClient.newHttpClient().send(
@@ -104,6 +124,165 @@ class PaneelContractTest {
             assertEquals(setOf("id", "label", "ontvanger", "bron"), it.fieldNames().asSequence().toSet())
         }
     }
+
+    @Test
+    fun `berichtPersonas is de echte deelverzameling van personas, met alleen id en label`() {
+        // Op de ingerichte personaset, want die draagt het tegenvoorbeeld: Grootbedrijf en Landelijk
+        // Concern staan zonder magazijn in de configuratie. Een regressie naar "geef alle persona's
+        // terug" zet hen in de keuzelijst en levert bij elke klik een weigering van het magazijn.
+        val antwoord = ObjectMapper().readTree(haalJson(omgevingUrl))
+        val doelen = antwoord.path("berichtPersonas")
+        val alle = antwoord.path("personas").map { it.path("id").asText() }.toSet()
+        val doelIds = doelen.map { it.path("id").asText() }.toSet()
+
+        assertTrue(doelen.isArray, "veld berichtPersonas ontbreekt of is geen lijst")
+        assertFalse(doelen.isEmpty, "geen enkele persona om een bericht voor te plaatsen")
+        assertEquals(emptySet<String>(), doelIds - alle, "berichtPersonas hoort binnen personas te vallen")
+        assertTrue(doelIds.size < alle.size, "er wordt niets gefilterd; het tegenvoorbeeld is weggevallen")
+        assertEquals(emptySet<String>(), doelIds intersect setOf("grootbedrijf", "concern"))
+
+        // Geen `ontvanger`: dit is de lijst die als queryparameter in een URL belandt.
+        doelen.forEach { assertEquals(setOf("id", "label"), it.fieldNames().asSequence().toSet()) }
+    }
+
+    @Test
+    fun `het label van een doelpersona is dat van dezelfde persona in personas`() {
+        // Verwisseld compileert de mapping, waarna de knop de mensennaam als id verstuurt.
+        val antwoord = ObjectMapper().readTree(haalJson(omgevingUrl))
+        val labels = antwoord.path("personas").associate { it.path("id").asText() to it.path("label").asText() }
+
+        val doelen = antwoord.path("berichtPersonas")
+
+        assertFalse(doelen.isEmpty, "zonder doelpersona's toetst deze vergelijking niets")
+        doelen.forEach { assertEquals(labels[it.path("id").asText()], it.path("label").asText()) }
+    }
+
+    @Test
+    fun `een bericht voor een onbekende persona geeft 404 en niet een lege 500`() {
+        // De knop faalt dan met een leesbare melding in plaats van met de regel die het paneel voor
+        // elke storing toont; er gaat bovendien geen aanlevering naar een magazijn.
+        val respons = plaatsBericht("?persona=bestaat-niet")
+
+        assertEquals(404, respons.statusCode())
+        assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een onbekende persona hoort niets aan te leveren")
+    }
+
+    /**
+     * Een ontbrekende parameter is een ander faalpad dan een onbekende waarde: Kotlin maakt er
+     * zonder eigen afhandeling een `NullPointerException` van, en dat wordt een HTTP 500 met een
+     * interne melding. Een lege of witruimte-waarde hoort er hetzelfde uit te zien als een
+     * ontbrekende, want voor de bediener is het dezelfde vergissing.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["", "?aantal=1", "?persona=", "?persona=%20"])
+    fun `een bericht zonder bruikbare persona geeft 400 en geen 500`(query: String) {
+        val respons = plaatsBericht(query)
+
+        assertEquals(400, respons.statusCode(), "query '$query'")
+        assertTrue(respons.body().contains("berichtPersonas"), "de melding hoort de weg terug te wijzen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "valideren hoort vóór aanleveren te gaan")
+    }
+
+    /**
+     * De browser bewaakt deze grenzen ook, maar dat is geen contract: dit adres staat open op de
+     * origin van het paneel. Nul zou een groene melding "0 van 0 aangeleverd" opleveren voor een
+     * actie die niets deed.
+     */
+    @ParameterizedTest
+    @MethodSource("buitenDeGrenzen")
+    fun `een bericht met een aantal buiten de grenzen geeft 400`(aantal: Int) {
+        assertEquals(400, plaatsBericht("?persona=pietersen&aantal=$aantal").statusCode())
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een geweigerd aantal hoort niets aan te leveren")
+    }
+
+    /**
+     * De grenzen zelf, en niet alleen wat erbuiten valt: `aantal !in 1 until MAX_BERICHTEN` zou
+     * álle gevallen hierboven even goed doorstaan, en dan geeft de knop een fout op precies de
+     * bovengrens die het invoerveld aanbiedt.
+     */
+    @ParameterizedTest
+    @MethodSource("opDeGrenzen")
+    fun `een bericht op de grens van het toegestane aantal slaagt`(aantal: Int) {
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=$aantal").statusCode())
+        assertEquals(aantal, VasteAanleverService.opdrachten.size)
+    }
+
+    /**
+     * Zou de resource het aantal als `Int` laten injecteren, dan handelt JAX-RS een mislukte
+     * omzetting af vóór de eerste regel van de methode — met een 404, dezelfde status die dit
+     * endpoint voor een onbekende persona gebruikt. De bediener zoekt dan in de persona-lijst naar
+     * een fout die in het aantal-veld zit.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["abc", "1.5", "3000000000"])
+    fun `een bericht met een onleesbaar aantal geeft 400 en geen 404`(aantal: String) {
+        val respons = plaatsBericht("?persona=pietersen&aantal=$aantal")
+
+        assertEquals(400, respons.statusCode(), "aantal '$aantal'")
+        assertTrue(respons.body().contains("aantal"), "de melding hoort het aantal-veld aan te wijzen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een onleesbaar aantal hoort niets aan te leveren")
+    }
+
+    @Test
+    fun `een aantal-parameter zonder waarde valt terug op de default`() {
+        // `?aantal=` lost JAX-RS met @DefaultValue op, dus de resource ziet "1" en niet een lege
+        // waarde. Vastgelegd omdat het afwijkt van `?persona=`, dat wél als bedieningsfout telt:
+        // voor een aantal is er een zinnige default, voor een persona niet.
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=").statusCode())
+        assertEquals(1, VasteAanleverService.opdrachten.size)
+    }
+
+    @Test
+    fun `het aantal komt door tot bij de aanlevering, met 1 als default`() {
+        assertEquals(200, plaatsBericht("?persona=pietersen").statusCode())
+        assertEquals(1, VasteAanleverService.opdrachten.size, "zonder aantal hoort er één bericht te gaan")
+
+        VasteAanleverService.opdrachten.clear()
+
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=3").statusCode())
+        assertEquals(3, VasteAanleverService.opdrachten.size)
+        assertTrue(
+            VasteAanleverService.opdrachten.all { it.verzoek.ontvanger.waarde == PIETERSEN_BSN },
+            "elk bericht hoort naar de gevraagde persona te gaan",
+        )
+    }
+
+    @Test
+    fun `een geweigerd verzoek antwoordt in de vorm die het paneel leest`() {
+        // `bediening.js` leest `body.fout` uit het geparste antwoord; is die sleutel er niet, dan
+        // valt de melding terug op de ruwe tekst en leest de bediener JSON in plaats van een zin.
+        val respons = plaatsBericht("?persona=bestaat-niet")
+        val body = ObjectMapper().readTree(respons.body())
+
+        assertTrue(
+            respons.headers().firstValue("content-type").orElse("").startsWith("application/json"),
+            "een fout hoort als JSON terug te komen",
+        )
+        assertEquals(setOf("fout", "soort"), body.fieldNames().asSequence().toSet())
+        assertTrue(body.path("fout").asText().contains("bestaat-niet"))
+    }
+
+    @Test
+    fun `het antwoord draagt de vier tellers die het paneel samenvat`() {
+        // `bediening.js` leest ze bij naam in zijn `vulling`-samenvatter, zonder te toetsen of ze er
+        // zijn: een hernoemd veld levert een groene melding "undefined van 3 berichten aangeleverd",
+        // want `vullingTekst` gooit niet en `vullingSoort` valt dan terug op "goed".
+        val body = ObjectMapper().readTree(plaatsBericht("?persona=pietersen&aantal=3").body())
+
+        assertEquals(
+            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt"),
+            body.fieldNames().asSequence().toSet(),
+        )
+        assertEquals(3, body.path("aangeboden").asInt())
+    }
+
+    private fun plaatsBericht(query: String): HttpResponse<String> = HttpClient.newHttpClient().send(
+        HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + "/api/demo/bericht" + query))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build(),
+        HttpResponse.BodyHandlers.ofString(),
+    )
 
     @Test
     fun `deze module beantwoordt het personas-adres niet`() {
@@ -166,6 +345,20 @@ class PaneelContractTest {
         HttpResponse.BodyHandlers.discarding(),
     ).statusCode()
 
+    private companion object {
+
+        /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
+        const val PIETERSEN_BSN = "999993653"
+
+        // Afgeleid van de constante en niet overgeschreven: wie de grens verzet, verzet anders wel
+        // het buiten-bereik-geval en laat de bovengrens zelf als binnenwaarde achter.
+        @JvmStatic
+        fun buitenDeGrenzen() = listOf(0, -1, DemoResource.MAX_BERICHTEN + 1)
+
+        @JvmStatic
+        fun opDeGrenzen() = listOf(1, DemoResource.MAX_BERICHTEN)
+    }
+
     @Test
     fun `de omgeving meldt of de sessiecache bereikbaar is`() {
         // Het paneel laat de sessie-groep hierop weg; ontbreekt het veld, dan blijft een knop
@@ -206,4 +399,33 @@ class VasteSimulatorService(
 ) : SimulatorService(beheer, omgeving) {
 
     override fun status(): SimulatorStand = SimulatorStand(actief = 3, totaal = 12)
+}
+
+/**
+ * Vaste aanlevering in plaats van twee magazijnen: de tests hieraan pinnen de bedrading van de knop
+ * — komt het aantal aan, en gaat het naar de gevraagde persona — niet wat een magazijn ermee doet.
+ *
+ * `@Mock` vervangt AanleverService voor élke @QuarkusTest van deze module, en de opgenomen
+ * opdrachten staan dus in één procesbrede lijst. Vandaar de thread-veilige lijst — er wordt op een
+ * worker-thread geschreven en op de test-thread gelezen — en de @BeforeEach die hem leegt.
+ */
+@Mock
+@Singleton
+class VasteAanleverService(config: DemoConfig) : AanleverService(config) {
+
+    override fun leverAan(opdrachten: List<AanleverOpdracht>): AanleverResultaat {
+        Companion.opdrachten += opdrachten
+
+        return AanleverResultaat(
+            aangeboden = opdrachten.size,
+            geslaagd = opdrachten.size,
+            mislukt = 0,
+            markeringMislukt = 0,
+        )
+    }
+
+    companion object {
+
+        val opdrachten: MutableList<AanleverOpdracht> = CopyOnWriteArrayList()
+    }
 }
