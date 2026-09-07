@@ -257,6 +257,20 @@ class BerichtenOphalenIntegrationTest {
             .statusCode(200)
             .contentType("application/pdf")
             .header("Content-Disposition", equalTo("inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf"))
+            // Wat getoond mag worden, mag een berichtenbox ook insluiten — dezelfde
+            // verzameling, afgeleid uit dezelfde dispositie.
+            .header("X-Frame-Options", equalTo("SAMEORIGIN"))
+            .header(
+                "Content-Security-Policy",
+                equalTo(
+                    "default-src 'none'; img-src 'self'; object-src 'self'; base-uri 'none'; " +
+                        "form-action 'none'; frame-ancestors 'self'",
+                ),
+            )
+            // Het veiligheidsargument onder `inline` leunt hierop; de versmalling raakt
+            // twee headers en hier ligt vast dat het daarbij blijft.
+            .header("X-Content-Type-Options", equalTo("nosniff"))
+            .header("Referrer-Policy", equalTo("no-referrer"))
     }
 
     @Test
@@ -278,6 +292,13 @@ class BerichtenOphalenIntegrationTest {
             .statusCode(200)
             .contentType("text/html")
             .header("Content-Disposition", equalTo("attachment; filename=\"kwaad.html\"; filename*=UTF-8''kwaad.html"))
+            // Een download valt er niets van te tonen en dus ook niets in te sluiten: de
+            // versmalling hoort dit type niet te raken.
+            .header("X-Frame-Options", equalTo("DENY"))
+            .header(
+                "Content-Security-Policy",
+                equalTo("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
+            )
     }
 
     @Test

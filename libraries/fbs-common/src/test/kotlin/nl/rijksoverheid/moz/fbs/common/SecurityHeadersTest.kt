@@ -11,6 +11,10 @@ class SecurityHeadersTest {
 
     private val strikt = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+    private val cspBijlage =
+        "default-src 'none'; img-src 'self'; object-src 'self'; base-uri 'none'; " +
+            "form-action 'none'; frame-ancestors 'self'"
+
     private fun csp(pad: String, root: String = "/q") =
         SecurityHeaders.voorPad(pad, root).getValue(SecurityHeaders.CONTENT_SECURITY_POLICY)
 
@@ -120,6 +124,83 @@ class SecurityHeadersTest {
 
         assertEquals("frame-ancestors 'none'", csp("/q/health", root))
         assertEquals(strikt, csp("/api/v1/berichten", root))
+    }
+
+    @Test
+    fun `een inline-bijlage mag door de eigen berichtenbox ingesloten worden`() {
+        assertEquals(
+            mapOf("X-Frame-Options" to "SAMEORIGIN", "Content-Security-Policy" to cspBijlage),
+            SecurityHeaders.voorInlineBijlage("inline"),
+        )
+    }
+
+    // De naam-parameters horen de beslissing niet te veranderen: de dispositie is `inline`,
+    // en wat erachter staat is de bestandsnaam.
+    @Test
+    fun `een inline-bijlage met bestandsnaam telt net zo goed`() {
+        val waarde = "inline; filename=\"aanslag.pdf\"; filename*=UTF-8''aanslag.pdf"
+
+        assertEquals("SAMEORIGIN", SecurityHeaders.voorInlineBijlage(waarde)?.get("X-Frame-Options"))
+    }
+
+    // Alles wat niet als download getoond wordt, valt terug op de gewone headers — er is
+    // dan niets te tonen en dus ook niets te framen. `null` betekent: laat staan wat er staat.
+    // `INLINE`, `inline ;` en `" inline"` zijn volgens RFC 6266 legale schrijfwijzen die we
+    // bewust níét accepteren: de waarde die hier gelezen wordt is er één die we zelf zetten,
+    // altijd in precies deze vorm. Alles daarbuiten valt terug op `DENY` — de veilige kant.
+    // `attachment; filename="inline; x"` staat erbij omdat een bestandsnaam de dispositie
+    // niet mag kunnen vervalsen.
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "attachment",
+            "attachment; filename=\"kwaad.html\"",
+            "attachment; filename=\"inline; x\"",
+            "ATTACHMENT",
+            "INLINE",
+            " inline",
+            "inline ",
+            "inline ; filename=\"a.pdf\"",
+            "inlineaardig",
+        ],
+    )
+    fun `alles wat geen inline-dispositie is houdt de gewone frame-headers`(dispositie: String) {
+        assertEquals(null, SecurityHeaders.voorInlineBijlage(dispositie))
+    }
+
+    // De kale puntkomma is de ondergrens van wat wél telt; zonder deze test is dat gedrag
+    // ongedocumenteerd.
+    @Test
+    fun `een dispositie met een kale puntkomma telt nog als inline`() {
+        assertEquals("SAMEORIGIN", SecurityHeaders.voorInlineBijlage("inline;")?.get("X-Frame-Options"))
+    }
+
+    @Test
+    fun `zonder dispositie verandert er niets`() {
+        assertEquals(null, SecurityHeaders.voorInlineBijlage(null))
+        assertEquals(null, SecurityHeaders.voorInlineBijlage(""))
+    }
+
+    // De versmalling raakt precies twee headers; de rest van de baseline hoort te blijven
+    // staan. Zou hier ooit `nosniff` of HSTS tussen sluipen, dan overschrijft dit pad ze.
+    @Test
+    fun `de versmalling raakt alleen de twee frame-headers`() {
+        assertEquals(
+            setOf(SecurityHeaders.X_FRAME_OPTIONS, SecurityHeaders.CONTENT_SECURITY_POLICY),
+            SecurityHeaders.voorInlineBijlage("inline")?.keys,
+        )
+    }
+
+    // `'self'` en `'none'` zijn de enige waarden die de internet.nl-toets voor
+    // frame-ancestors accepteert; een benoemde origin zou daar doorheen vallen.
+    @Test
+    fun `de bijlage-policy blijft binnen wat de toets accepteert en voert geen script uit`() {
+        val csp = SecurityHeaders.voorInlineBijlage("inline")?.getValue(SecurityHeaders.CONTENT_SECURITY_POLICY)!!
+
+        assertTrue(csp.contains("frame-ancestors 'self'"), csp)
+        assertTrue(csp.contains("default-src 'none'"), csp)
+        assertTrue(!csp.contains("script-src"), "geen script-src, dus default-src 'none' geldt: $csp")
+        assertTrue(!csp.contains("https://"), "geen benoemde origin: $csp")
     }
 
     @Test

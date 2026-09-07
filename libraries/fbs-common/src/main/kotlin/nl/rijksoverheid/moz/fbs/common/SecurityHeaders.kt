@@ -18,6 +18,10 @@ object SecurityHeaders {
     const val CONTENT_SECURITY_POLICY = "Content-Security-Policy"
     const val REFERRER_POLICY = "Referrer-Policy"
     const val CACHE_CONTROL = "Cache-Control"
+    const val CONTENT_DISPOSITION = "Content-Disposition"
+
+    /** De dispositie waarmee `BijlageContentDisposition` een toonbare bijlage aankondigt. */
+    private const val INLINE = "inline"
 
     /**
      * `no-store` als de response zelf niets zegt: de API-antwoorden dragen
@@ -42,6 +46,29 @@ object SecurityHeaders {
      * risico van een stukke Swagger UI groot. De clickjacking-bescherming blijft wél staan.
      */
     private const val CSP_BEHEERPAD = "frame-ancestors 'none'"
+
+    /**
+     * De policy voor een bijlage die veilig te tonen is. Twee dingen wijken af.
+     *
+     * `frame-ancestors 'self'` laat een berichtenbox die de keten server-side aanroept de
+     * bijlage in een ingesloten viewer tonen. Dat kan alleen omdat zo'n berichtenbox het
+     * bijlage-adres onder zijn éigen origin uitserveert (zijn proxy zet de ontvanger uit
+     * het cookie om in de header die de keten eist), dus `'self'` dekt precies dat geval —
+     * zonder ooit een vreemde origin te hoeven noemen. Een benoemde origin zou bovendien
+     * de toets van internet.nl niet halen: die accepteert alleen `'self'` en `'none'`.
+     *
+     * `img-src`/`object-src 'self'` staan er omdat `default-src 'none'` niet alleen
+     * scripts blokkeert. Navigeert een browser top-level naar een afbeelding, dan bouwt
+     * hij daar een document omheen en valt het plaatje zelf onder `img-src`; bij een PDF
+     * doet de ingebouwde viewer iets vergelijkbaars via `object-src`. Zonder deze twee kan
+     * de weergave leeg blijven — de bytes zijn er dan wel, maar je ziet niets.
+     *
+     * Wat blijft staan is wat ertoe doet: geen `script-src`, dus een aangeleverd bestand
+     * dat de browser tóch als HTML zou lezen voert niets uit.
+     */
+    private const val CSP_BIJLAGE_INLINE =
+        "default-src 'none'; img-src 'self'; object-src 'self'; base-uri 'none'; " +
+            "form-action 'none'; frame-ancestors 'self'"
 
     /**
      * Maakt van de geconfigureerde beheerpad-root een absoluut pad.
@@ -85,6 +112,44 @@ object SecurityHeaders {
             REFERRER_POLICY to "no-referrer",
         )
     }
+
+    /**
+     * De headers voor een response die als `inline` de deur uit gaat, of `null` wanneer
+     * dat niet zo is en de gewone [voorPad]-waarden blijven staan.
+     *
+     * De beslissing hangt aan de `Content-Disposition` die de response al draagt, en niet
+     * aan het pad of aan een aparte vlag. Dat is met opzet: `inline` en "mag in een frame"
+     * horen dezelfde verzameling te zijn — de typen waarvan een browser de weergave
+     * afhandelt zonder aangeleverde code uit te voeren. Eén bron, dus ze kunnen niet uit
+     * elkaar lopen. Staat er `attachment`, dan valt er niets te tonen en dus ook niets te
+     * framen, en blijft `DENY` staan.
+     *
+     * Die koppeling is breder dan alleen bijlagen: élk endpoint dat ooit
+     * `Content-Disposition: inline` zet — een export, een gegenereerd document — krijgt
+     * hiermee ook het frame-recht, en op een beheerpad overschrijft dat de strengere
+     * `frame-ancestors 'none'`. Zet die dispositie dus niet lichtvaardig.
+     */
+    fun voorInlineBijlage(contentDisposition: String?): Map<String, String>? {
+        if (!isInline(contentDisposition)) return null
+
+        return mapOf(
+            X_FRAME_OPTIONS to "SAMEORIGIN",
+            CONTENT_SECURITY_POLICY to CSP_BIJLAGE_INLINE,
+        )
+    }
+
+    /**
+     * De dispositie is een token, gevolgd door het eind van de waarde of een `;` met de
+     * bestandsnaam erachter. De grens hoort er dus bij: zonder die eis zou `inlineaardig`
+     * meetellen, en versmalt een naam-achtige waarde de frame-headers.
+     *
+     * Bewust hoofdlettergevoelig, hoewel RFC 6266 de dispositie case-insensitive noemt.
+     * De waarde die hier gelezen wordt is er één die we zélf zetten, altijd in kleine
+     * letters. Zo kan alleen onze eigen dispositie de versmalling aanzetten, en niet een
+     * component die er ooit een anders geschreven waarde neerzet.
+     */
+    private fun isInline(contentDisposition: String?): Boolean =
+        contentDisposition == INLINE || contentDisposition?.startsWith("$INLINE;") == true
 
     /**
      * Een pad hoort bij het beheerpad wanneer het de root zelf is of eronder hangt.
