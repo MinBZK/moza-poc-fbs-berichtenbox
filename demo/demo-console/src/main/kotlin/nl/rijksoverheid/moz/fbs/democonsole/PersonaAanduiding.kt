@@ -28,6 +28,10 @@ private val OIN = Regex("""\d{20}""")
  * lengte. Een melding gaat naar de applicatielog, waar een regeleinde een tweede logregel zou kunnen
  * verzinnen. Een persona-id daarbuiten is niet verboden — de personadienst bepaalt wat een sleutel
  * mag zijn — die wordt alleen benoemd in plaats van geciteerd.
+ *
+ * Strenger dan de echo bij [heelGetal], en om een andere reden: daar is de waarde een getal, en
+ * helpt een afgekapt citaat de bediener zijn tikfout te vinden. Hier kan het citaat zelf het
+ * identificatienummer zijn, dus is afkappen niet genoeg — een halve BSN is nog steeds een BSN.
  */
 private val VEILIG_IN_MELDING = Regex("""[\w.@+-]{1,64}""")
 
