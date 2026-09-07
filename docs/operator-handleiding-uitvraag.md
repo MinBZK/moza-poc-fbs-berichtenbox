@@ -183,6 +183,36 @@ beheerder van dat magazijn, niet bij de ontvanger. Raakt een magazijn de query-t
 lijst uit is, dan is dat een `TIMEOUT` — geen half resultaat: een halve lijst als geslaagd tonen zou
 opnieuw post weglaten zonder dat de ontvanger het kan zien.
 
+## Hoeveel Redis-commando's tegelijk
+
+Het bewaren van een ophaalronde kost twee Redis-commando's per bericht (de hash zelf en zijn
+vervaltermijn). Die commando's gaan in batches naar Redis, zodat er nooit meer tegelijk onderweg
+zijn dan de client aankan — ongeacht bij hoeveel organisaties de ondernemer is aangesloten.
+
+| Property | Default | Wat |
+|---|---|---|
+| `berichtensessiecache.redis-batchgrootte` | 256 | Berichten per batch |
+| `quarkus.redis.max-waiting-handlers` | 2048 | Commando's per connection waarvan het antwoord nog moet komen |
+
+De invariant die je moet bewaken:
+
+```
+2 x berichtensessiecache.redis-batchgrootte  <  quarkus.redis.max-waiting-handlers
+```
+
+Bij de defaults is dat 512 tegen 2048. Verlaag je `max-waiting-handlers`, verlaag dan de
+batchgrootte mee; verhoog je de batchgrootte, controleer dan of de bovengrens nog past. Er is geen
+startup-controle op deze invariant: de twee sleutels wonen in verschillende extensies en de
+Vert.x-waarde is bij boot niet uit de sessiecache-configuratie te lezen.
+
+Wordt de invariant tóch overschreden, dan faalt een ophaalronde in de laatste stap — ná alle
+bevragingen — met `Redis waiting queue is full` in de log en een `OPHALEN_FOUT`-event richting de
+ondernemer. De ophaalronde is dan niet bewaard; opnieuw ophalen is de herstelactie.
+
+Een hogere batchgrootte betekent minder round-trips naar Redis (een ronde van 2700 berichten kost
+er 11 bij 256) maar een hogere piek. Er is geen reden om hem aan te passen zolang
+`max-waiting-handlers` op de default staat.
+
 ## Cache-levensduur
 
 | Property | Default | Wanneer aanpassen |
