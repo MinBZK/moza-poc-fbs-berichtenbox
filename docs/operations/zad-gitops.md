@@ -94,7 +94,7 @@ anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
 |----------|----------|
 | `zadctl logs <deployment> -c <component> -n 200 --since 1h` | Pod-logs (API-equivalent: `GET /api/logs/{project}?deployment=&component=&lines=`, max 1000) |
 | `zadctl deployment list` / `describe <d>` / `url <d> -c <c>` | Deployments, component-images, publieke adressen |
-| `zadctl deployment update-image` / `refresh <d>` | Image zetten / reconcilen — **reactiveert géén uitgeschakeld component** (zie deadlock hieronder) |
+| `zadctl deployment update-image` / `refresh <d>` | Image zetten / reconcilen; beide zetten een uitgeschakeld component ook weer aan (zie de valkuilen hieronder) |
 | `zadctl deployment delete <d>` → `create <d> …` | De delete+upsert-herstelroute; **destructief**, lees eerst de waarschuwing onderaan |
 | `zadctl resource tune` / `sanitize` | Auto-tune CPU/geheugen op werkelijk gebruik; kapotte deployments detecteren |
 | `zadctl project pending` / `refresh` | Wat is opgeslagen maar nog niet uitgerold, en alles alsnog uitrollen |
@@ -112,8 +112,8 @@ gebruiken; de CLI is voor handwerk en debuggen.
 `https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api`, spec op `/openapi.json`.
 Handig (v2, read-only tenzij anders): `GET /projects/{p}/deployments` (lijst),
 `GET …/deployments/{d}` (detail incl. component-images), `PUT …/deployments/{d}/image`
-(zet image per component), `POST …/deployments/{d}/:refresh` (reconcile — **reactiveert
-géén uitgeschakeld component**).
+(zet image per component), `POST …/deployments/{d}/:refresh` (reconcile; heft een
+image-pull-uitschakeling op, zie de valkuilen hieronder).
 
 **OM vergrendelt op project, niet op deployment.** Draait er een tweede taak in hetzelfde project,
 dan wordt de wachtstap van een lopende deploy overruled: `zadctl` eindigt met 0 en `zad-actions`
@@ -143,17 +143,41 @@ project **en** PR, dus die race sluiten ze niet uit.
 - De ghcr-images (`ghcr.io/minbzk/fbs-*`) zijn **public**; ZAD trekt ze via de
   pull-through-mirror `rcr.rijksapps.nl/ghcr-rig/minbzk/*`. Een 404 op een bestaande,
   publieke tag wijst op de mirror/registry-config aan ZAD-zijde, niet op onze push.
-- `:refresh`/UI-"herverwerken"/`gh run rerun`/`PUT …/image` reconcilen wel, maar
-  **reactiveren een door OM uitgeschakeld component NIET** (ze verhogen `replicas` niet).
-  Een disabled/replicas-0-deployment zit in een deadlock: replicas 0 → geen pod → geen
-  verse pull → controller herverifieert de image nooit → blijft uit. **De enige werkende
-  fix = deployment HERSCHEPPEN via de API:** `DELETE /api/v2/projects/{p}/{d}` (let op:
-  korte pad, zónder `/deployments/`) → `POST /api/v2/projects/{p}/:upsert-deployment`
-  (body: `deploymentName` + `components:[{reference,image}]`). Upsert-na-delete = create
-  → start **enabled**, synct gezond, trekt de geldige tag prima. Env overleeft (staat in
-  de project-spec, niet in de deployment). Dit is precies wat onze zad-actions **cleanup**
-  (delete) + **deploy** (upsert) doen; de workflow verwijdert `test` nooit, dus doe het
-  met de hand tegen de baseline. **DESTRUCTIEF:** `DELETE` draait Argo `prune`+`Delete`
+- **Een door OM uitgeschakeld component zet je weer aan met een rollout, niet met een
+  delete.** Eén `update-image` volstaat — **ook met exact dezelfde tag**:
+
+  ```bash
+  zadctl -p <project> deployment update-image <deployment> -c <component> --image <zelfde image>
+  ```
+
+  Het `disabled`-blok verdwijnt daarmee uit de projectspec en het gerenderde manifest gaat
+  van `replicas: 0` terug naar 1. Twee mechanismen doen dat, met verschillende reikwijdte:
+
+  | Route | Wat het opheft |
+  |-------|----------------|
+  | `update-image`, en een upsert van een bestaande deployment (dus ook een herdraai van onze deploy-workflow) | **elke** uitschakeling, ongeacht de reden — image-pull, OOM, crashloop |
+  | Een door een mens gestarte (her)verwerking: `zadctl project refresh`, `deployment refresh`, UI-"herverwerken" | alleen een **image-pull**-uitschakeling; die is als enige aan `disabled-image` te herkennen |
+
+  De eerste route loopt over `ActionEvent.REDEPLOY`: nieuwe inhoud maakt het oordeel over de
+  oude inhoud ongeldig, dus wist elke dienst wat hij had vastgelegd. De tweede is de
+  `disabled-image`-sweep, die op een handmatige (her)verwerking ook een ongewijzigde tag
+  opnieuw probeert — precies het geval van een transiënte registry-fout. De automatische
+  herverwerking ná een uitschakeling doet dat bewust niet, anders gaat een echt kapot
+  component flapperen. Blijf je na een rollout op `replicas: 0` staan, kijk dan naar
+  `disabled-reason` in de projectspec: OM heeft het component dan opnieuw uitgezet, met een
+  verse reden.
+
+  Noem het component expliciet (`-c <component>`): de hook raakt alleen wat in de
+  image-update genoemd wordt.
+
+- **Herscheppen is het zware alternatief, alleen als een rollout de uitschakeling niet
+  houdt.** `DELETE /api/v2/projects/{p}/{d}` (let op: korte pad, zónder `/deployments/`) →
+  `POST /api/v2/projects/{p}/:upsert-deployment` (body: `deploymentName` +
+  `components:[{reference,image}]`). Upsert-na-delete = create → start **enabled**, synct
+  gezond, trekt de geldige tag prima. Env overleeft (staat in de project-spec, niet in de
+  deployment). Dit is precies wat onze zad-actions **cleanup** (delete) + **deploy**
+  (upsert) doen; de workflow verwijdert `test` nooit, dus doe het met de hand tegen de
+  baseline. **DESTRUCTIEF:** `DELETE` draait Argo `prune`+`Delete`
   en, voor projecten met de `postgresql-database`-service, `database_cleanup` →
   DB-data weg — geverifieerd 2026-07-02 voor magazijnen `mpfm-w3h`. Hetzelfde geldt
   voor uitvraag `mpfb-8wh` zodra de LDV-PostgreSQL-migratie die service daar aan het
