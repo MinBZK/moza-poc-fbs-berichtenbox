@@ -84,6 +84,13 @@ internal class RedisBerichtenCache(
     // dezelfde 5s-ondergrens als de overige cache-awaits. Overschrijden → fail-fast bij startup.
     @param:ConfigProperty(name = "berichtensessiecache.startup-redisearch-timeout-seconds", defaultValue = "5")
     private val startupRedisearchTimeoutSeconds: Long,
+    // Begrenst het aantal Redis-commando's dat tegelijk in de connection-wachtrij staat
+    // (`quarkus.redis.max-waiting-handlers`, default 2048). Zonder deze grens groeit een
+    // store-transactie mee met het aantal organisaties van de ontvanger en loopt die wachtrij
+    // vol — de ophaalronde faalt dan pas in de laatste stap, ná alle bevragingen. Elke bericht
+    // kost twee commando's (HSET + EXPIRE), dus de piek is 2 × deze waarde.
+    @param:ConfigProperty(name = "berichtensessiecache.redis-batchgrootte", defaultValue = "256")
+    private val redisBatchgrootte: Int,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
@@ -95,6 +102,12 @@ internal class RedisBerichtenCache(
         require(startupRedisearchTimeoutSeconds > 0) {
             "berichtensessiecache.startup-redisearch-timeout-seconds " +
                 "($startupRedisearchTimeoutSeconds) moet groter zijn dan 0"
+        }
+
+        // Moet > 0: 0 laat `chunked` pas bij de eerste store werpen, midden in een ophaalronde,
+        // met een melding die de configuratiesleutel niet noemt.
+        require(redisBatchgrootte > 0) {
+            "berichtensessiecache.redis-batchgrootte ($redisBatchgrootte) moet groter zijn dan 0"
         }
 
         val startupTimeout = Duration.ofSeconds(startupRedisearchTimeoutSeconds)
@@ -162,14 +175,14 @@ internal class RedisBerichtenCache(
                 .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
                 .chain { _ -> txKey.expire(listKey, ttl) }
                 .chain { _ ->
-                    val stores = sorted.map { bericht ->
+                    RedisBatching.inBatches(sorted, redisBatchgrootte) { bericht ->
                         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
                         val fields = berichtToHash(bericht)
+
                         txHash.hset(berichtKey, fields)
                             .chain { _ -> txKey.expire(berichtKey, ttl) }
                             .replaceWithVoid()
                     }
-                    Uni.join().all(stores).andFailFast().replaceWithVoid()
                 }
         }.replaceWithVoid()
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache", berichten.size) }
