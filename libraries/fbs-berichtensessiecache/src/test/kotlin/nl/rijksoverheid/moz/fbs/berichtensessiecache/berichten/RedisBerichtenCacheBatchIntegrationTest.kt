@@ -63,10 +63,12 @@ class RedisBerichtenCacheBatchIntegrationTest {
 
         berichtenCache.store(cacheKey, berichten).await().atMost(Duration.ofSeconds(30))
 
-        // Het laatste bericht valt in de laatste batch: als alleen de eerste batch verwerkt zou
-        // zijn, mist juist deze hash of zijn TTL.
-        val laatste = berichten.last()
-        val ttl = redis.key().ttl(BerichtenCache.berichtKey(laatste.berichtId))
+        // `store` batcht op `sorted`, de lijst ná `sortedByDescending { publicatietijdstip }` —
+        // niet op de invoervolgorde. `berichten.first()` heeft de laagste publicatietijdstip en
+        // staat dus als laatste in `sorted`, in de laatste batch. Zou alleen de eerste batch
+        // verwerkt zijn, dan mist juist deze hash of zijn TTL.
+        val laatsteInBatchVolgorde = berichten.first()
+        val ttl = redis.key().ttl(BerichtenCache.berichtKey(laatsteInBatchVolgorde.berichtId))
             .await().atMost(Duration.ofSeconds(5))
 
         assertTrue(ttl > 0, "hash van het laatste bericht moet bestaan met een TTL; was: $ttl")
