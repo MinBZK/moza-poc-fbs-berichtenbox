@@ -7,12 +7,14 @@ import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.core.MultivaluedHashMap
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 class BijlageContentTypeFilterTest {
 
     private val filter = BijlageContentTypeFilter()
 
-    private fun run(property: Any?, naam: Any? = null): MultivaluedHashMap<String, Any> {
+    private fun run(property: Any?, naam: Any? = null, status: Int = 200): MultivaluedHashMap<String, Any> {
         val req = mockk<ContainerRequestContext>()
         val res = mockk<ContainerResponseContext>()
         val headers = MultivaluedHashMap<String, Any>()
@@ -20,8 +22,32 @@ class BijlageContentTypeFilterTest {
         every { req.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) } returns property
         every { req.getProperty(BIJLAGE_NAAM_PROPERTY) } returns naam
         every { res.headers } returns headers
+        every { res.status } returns status
         filter.filter(req, res)
         return headers
+    }
+
+    // 199 en 300 zijn de grenswaarden: zonder die twee glipt een `200..300`-typefout in de
+    // range er ongemerkt doorheen. De rest is wat dit endpoint werkelijk kan opleveren.
+    @ParameterizedTest
+    @ValueSource(ints = [199, 300, 301, 400, 403, 404, 406, 409, 500, 503])
+    fun `een niet-geslaagde response blijft ongemoeid`(status: Int) {
+        val headers = run("application/pdf", naam = "aanslag.pdf", status = status)
+
+        assertEquals("application/octet-stream", headers.getFirst("Content-Type"))
+        assertEquals(null, headers.getFirst("Content-Disposition"))
+    }
+
+    // De grens loopt op de hele 2xx-reeks en niet op "precies 200": response-filters dragen
+    // geen `@Priority`, dus de volgorde t.o.v. een filter dat de status nog verzet ligt niet
+    // vast. 206 is bovendien wat range-support zou opleveren.
+    @ParameterizedTest
+    @ValueSource(ints = [200, 206, 299])
+    fun `elke geslaagde status krijgt het type en de dispositie wel`(status: Int) {
+        val headers = run("application/pdf", status = status)
+
+        assertEquals("application/pdf", headers.getFirst("Content-Type"))
+        assertEquals("inline", headers.getFirst("Content-Disposition"))
     }
 
     @Test

@@ -48,11 +48,22 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.bijlage.naam"
  * NameBinding is overwogen voor expliciete scoping, maar Quarkus REST neemt de
  * annotatie op de override-methode niet over uit de gegenereerde interface;
  * property-driven gating is daardoor robuuster.
+ *
+ * **Alleen op een geslaagde response.** De property beschrijft het request, niet de afloop:
+ * hij blijft staan als er ná de resource-methode nog een fout ontstaat — het logboek is
+ * fail-closed en gooit daar. Zonder deze grens gaat de `problem+json` van de exception
+ * mapper de deur uit als `application/pdf` mét bestandsnaam. Een afnemer routeert op het
+ * mediatype en behandelt de melding dan als document; de ondernemer houdt een kapot bestand
+ * over in plaats van een storingsmelding, terwijl het fail-closed-logboek juist bestaat om
+ * die storing zichtbaar te maken.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
+
+        if (responseContext.status !in GESLAAGD) return
+
         val naam = requestContext.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
         val parsed = BijlageMediaType.parse(mimeType)
 
@@ -70,5 +81,9 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
 
     private companion object {
         private val log: Logger = Logger.getLogger(BijlageContentTypeFilter::class.java)
+
+        /** Een range en geen `== 200`: response-filters dragen geen `@Priority`, dus de
+         *  volgorde t.o.v. een filter dat de status nog verzet ligt niet vast. */
+        private val GESLAAGD = 200..299
     }
 }

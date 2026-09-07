@@ -4,10 +4,13 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
- * End-to-end dekking voor [BijlageContentTypeFilter] (review T-H2). Drijft de filter via
+ * End-to-end dekking voor [BijlageContentTypeFilter]. Drijft de filter via
  * [BijlageMimeTestResource], zodat de security-kritieke fail-closed-tak mee-telt voor
  * quarkus-jacoco — een regressie naar fail-open (de KDoc waarschuwt daar expliciet voor)
  * faalt hierdoor CI i.p.v. onopgemerkt door te glippen.
@@ -84,5 +87,24 @@ class BijlageContentTypeFilterQuarkusTest {
                         "filename*=UTF-8''%CE%9B%CE%BF%CE%B3%CE%B1%CF%81%CE%B9%CE%B1%CF%83%CE%BC%CF%8C%CF%82%22%3B%20drop.pdf",
                 ),
             )
+    }
+
+    // Het scenario waar de statusgrens voor bestaat, langs het échte pad: de resource zet
+    // de property en gooit daarna, zoals het fail-closed logboek in productie doet. De
+    // pure tests fabriceren een status en zouden ook slagen als het filter helemaal niet
+    // op een gemapte foutresponse zou draaien — deze test toetst dát het dat doet.
+    @ParameterizedTest
+    @ValueSource(ints = [403, 500, 503])
+    fun `een fout na het zetten van de property komt als problem-json aan, niet als bijlage`(status: Int) {
+        given()
+            .queryParam("mime", "application/pdf")
+            .queryParam("naam", "aanslag 2026.pdf")
+            .queryParam("faalNa", status)
+            .`when`()
+            .get("/api/v1/test-only/bijlage-mime")
+            .then()
+            .statusCode(status)
+            .contentType("application/problem+json")
+            .header("Content-Disposition", nullValue())
     }
 }

@@ -43,11 +43,18 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.uitvraag.bijlage.naam"
  * eventuele consolidatie naar fbs-common moet het fail-closed blijven; verzwak het
  * niet naar "laat de onderhandelde Content-Type staan" — dan gaan de bytes de deur uit
  * onder het type dat de aanroeper in zijn `Accept` zette.
+ *
+ * **Alleen op een geslaagde response**, om de reden die bij de magazijn-tegenhanger staat:
+ * de property beschrijft het request en niet de afloop, dus zonder deze grens gaat een
+ * foutbody de deur uit vermomd als bijlage.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(req: ContainerRequestContext, resp: ContainerResponseContext) {
         val mimeType = req.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
+
+        if (resp.status !in GESLAAGD) return
+
         val naam = req.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
 
         val parsed = BijlageMediaType.parse(mimeType)
@@ -62,5 +69,9 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
 
     private companion object {
         private val log: Logger = Logger.getLogger(BijlageContentTypeFilter::class.java)
+
+        /** Een range en geen `== 200`: response-filters dragen geen `@Priority`, dus de
+         *  volgorde t.o.v. een filter dat de status nog verzet ligt niet vast. */
+        private val GESLAAGD = 200..299
     }
 }

@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.QueryParam
+import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 
@@ -20,9 +21,18 @@ import jakarta.ws.rs.core.Context
 class BijlageMimeTestResource(@param:Context private val request: ContainerRequestContext) {
 
     @GET
-    fun get(@QueryParam("mime") mime: String, @QueryParam("naam") naam: String?): ByteArray {
+    fun get(
+        @QueryParam("mime") mime: String,
+        @QueryParam("naam") naam: String?,
+        @QueryParam("faalNa") faalNa: Int?,
+    ): ByteArray {
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, mime)
         request.setProperty(BIJLAGE_NAAM_PROPERTY, naam)
+
+        // Bootst na wat het fail-closed logboek in productie doet: gooien nádat de resource
+        // de property heeft gezet. Alleen zo doorloopt een test het échte pad
+        // interceptor → exception mapper → response-filter, en niet een gefabriceerde status.
+        if (faalNa != null) throw WebApplicationException(faalNa)
 
         return byteArrayOf(1, 2, 3)
     }

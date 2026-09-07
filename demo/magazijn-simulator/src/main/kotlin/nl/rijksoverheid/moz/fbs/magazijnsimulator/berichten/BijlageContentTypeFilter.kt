@@ -41,12 +41,19 @@ internal const val BIJLAGE_NAAM_PROPERTY = "fbs.simulator.bijlage.naam"
  * een waarde mét control-tekens: die parseert wél, maar laat de HTTP-laag pas bij het schrijven van
  * de response klappen. Bij een onbruikbare waarde gaan de bytes niet de deur uit maar volgt een 500
  * met correlatie-id — een bijlage met een `Content-Type` dat niet klopt is erger dan geen bijlage.
+ *
+ * **Alleen op een geslaagde response**, net als het echte magazijn. De property beschrijft het
+ * request en niet de afloop: hij blijft staan als er ná de resource-methode nog een fout ontstaat.
+ * Zonder die grens zou een foutbody de deur uit gaan vermomd als bijlage, en zou de 500 hierboven
+ * bovenop een bestaande fout komen — met een ander correlatie-id dan de oorspronkelijke storing.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
 
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
+
+        if (responseContext.status !in GESLAAGD) return
 
         val geparsed = bijlageMediaType(mimeType)
 
@@ -73,5 +80,9 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
 
     private companion object {
         private val log: Logger = Logger.getLogger(BijlageContentTypeFilter::class.java)
+
+        /** Een range en geen `== 200`: response-filters dragen geen `@Priority`, dus de
+         *  volgorde t.o.v. een filter dat de status nog verzet ligt niet vast. */
+        private val GESLAAGD = 200..299
     }
 }
