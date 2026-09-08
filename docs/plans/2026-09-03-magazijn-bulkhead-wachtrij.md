@@ -222,7 +222,8 @@ maar de tellers in `OPHALEN_GEREED` doen dat niet — een wachtbudget dat verstr
 `ERROR`. Dat is strikt genomen onjuist: capaciteitsbeleid is geen verwerkingsfout. Een derde teller
 zou echter het SSE-contract, de aggregatiestatus in Redis, `demo/meet-fanout.sh` (die de tellingen
 kruiscontroleert) en de berichtenbox-weergave raken, voor een toestand die alleen bij aanhoudende
-verzadiging over sessies heen voorkomt. Losgetrokken als vervolgwerk, niet stilzwijgend gelaten.
+verzadiging over sessies heen voorkomt. Losgetrokken als vervolgwerk, niet stilzwijgend gelaten —
+opgepakt in MinBZK/MijnOverheidZakelijk#1086, samen met het publiceren van de SSE-woordenlijst.
 
 Ook niet overgenomen: het bulkhead de query-timeout laten kennen zodat de vierde invariant in zijn
 eigen `init` past. Dat zou een tweede lezer van `magazijn-query-timeout-seconds` maken, terwijl álle

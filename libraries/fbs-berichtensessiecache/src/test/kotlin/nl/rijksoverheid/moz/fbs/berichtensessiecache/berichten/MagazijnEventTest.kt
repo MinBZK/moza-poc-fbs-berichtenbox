@@ -84,8 +84,14 @@ class MagazijnEventTest {
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"NIET_OPGEHAALD","foutmelding":"Nog niet opgehaald: te veel organisaties tegelijk in behandeling (probeer het opnieuw)"}""",
             ),
             Arguments.of(
-                OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, totaalMagazijnen = 2),
-                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":2,"mislukt":0,"totaalMagazijnen":2}""",
+                OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 2),
+                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":2,"mislukt":0,"nietOpgehaald":0,"totaalMagazijnen":2}""",
+            ),
+            // De drie tellers naast elkaar: een ronde waarin één organisatie leverde, één stuk was
+            // en één niet bevraagd is. Wie ze zou samenvoegen, meldt hier twee mislukkingen.
+            Arguments.of(
+                OphalenGereed(totaalBerichten = 5, geslaagd = 1, mislukt = 1, nietOpgehaald = 1, totaalMagazijnen = 3),
+                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":1,"mislukt":1,"nietOpgehaald":1,"totaalMagazijnen":3}""",
             ),
             Arguments.of(
                 OphalenMisluktVoorBevraging(foutmelding = "Interne fout (ref: abc)", referentie = "abc"),
@@ -96,10 +102,11 @@ class MagazijnEventTest {
                     foutmelding = "Resultaten konden niet worden opgeslagen (ref: abc)",
                     geslaagd = 1,
                     mislukt = 1,
-                    totaalMagazijnen = 2,
+                    nietOpgehaald = 1,
+                    totaalMagazijnen = 3,
                     referentie = "abc",
                 ),
-                """{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen (ref: abc)","geslaagd":1,"mislukt":1,"totaalMagazijnen":2,"referentie":"abc"}""",
+                """{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen (ref: abc)","geslaagd":1,"mislukt":1,"nietOpgehaald":1,"totaalMagazijnen":3,"referentie":"abc"}""",
             ),
         )
 

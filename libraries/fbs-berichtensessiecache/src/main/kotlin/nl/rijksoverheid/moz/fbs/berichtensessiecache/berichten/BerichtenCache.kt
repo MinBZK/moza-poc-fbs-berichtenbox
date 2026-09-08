@@ -884,17 +884,29 @@ internal class RedisBerichtenCache(
     }
 }
 
+/**
+ * De uitkomst van een ophaalronde zoals die de sessie overleeft. [nietOpgehaald] telt de
+ * organisaties die door de gelijktijdigheidsgrens van de uitvraag niet bevraagd zijn; die horen
+ * niet bij [mislukt], want er is geen uitspraak over dat magazijn gedaan.
+ *
+ * Een status die vóór dit veld in de cache is geschreven leest terug met `nietOpgehaald = 0` — de
+ * default hierboven. Dat klopt inhoudelijk: zo'n ronde kende de categorie nog niet.
+ */
 internal data class AggregationStatus(
     val status: OphalenStatus = OphalenStatus.GEREED,
     val totaalMagazijnen: Int = 0,
     val geslaagd: Int = 0,
     val mislukt: Int = 0,
+    val nietOpgehaald: Int = 0,
 ) {
     init {
         require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn" }
         require(geslaagd >= 0) { "geslaagd mag niet negatief zijn" }
         require(mislukt >= 0) { "mislukt mag niet negatief zijn" }
-        require(geslaagd + mislukt <= totaalMagazijnen) { "geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen" }
+        require(nietOpgehaald >= 0) { "nietOpgehaald mag niet negatief zijn" }
+        require(geslaagd + mislukt + nietOpgehaald <= totaalMagazijnen) {
+            "geslaagd + mislukt + nietOpgehaald mag niet groter zijn dan totaalMagazijnen"
+        }
     }
 }
 

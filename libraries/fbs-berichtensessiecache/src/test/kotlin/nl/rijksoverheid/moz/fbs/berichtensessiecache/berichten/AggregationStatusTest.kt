@@ -5,6 +5,8 @@ import io.quarkus.test.junit.TestProfile
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 
 @QuarkusTest
 @TestProfile(MockedDependenciesProfile::class)
@@ -35,11 +37,50 @@ class AggregationStatusTest {
     }
 
     @Test
-    fun `geslaagd + mislukt groter dan totaalMagazijnen wordt geweigerd`() {
+    fun `negatief nietOpgehaald wordt geweigerd`() {
         val ex = assertThrows<IllegalArgumentException> {
-            AggregationStatus(totaalMagazijnen = 2, geslaagd = 2, mislukt = 1)
+            AggregationStatus(totaalMagazijnen = 2, nietOpgehaald = -1)
         }
-        assertEquals("geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen", ex.message)
+        assertEquals("nietOpgehaald mag niet negatief zijn", ex.message)
+    }
+
+    /**
+     * De drie tellers verdelen samen alle organisaties van de ronde; elke combinatie die er méér
+     * verdeelt dan er zijn, is een boekhoudfout. Ook de tak waarin alleen `nietOpgehaald` over de
+     * grens duwt: die zou anders pas opvallen als de som van de andere twee al te hoog was.
+     */
+    @ParameterizedTest
+    @CsvSource("2, 1, 0", "0, 2, 1", "0, 0, 3", "1, 1, 1")
+    fun `de tellers samen groter dan totaalMagazijnen wordt geweigerd`(geslaagd: Int, mislukt: Int, nietOpgehaald: Int) {
+        val ex = assertThrows<IllegalArgumentException> {
+            AggregationStatus(
+                totaalMagazijnen = 2,
+                geslaagd = geslaagd,
+                mislukt = mislukt,
+                nietOpgehaald = nietOpgehaald,
+            )
+        }
+        assertEquals("geslaagd + mislukt + nietOpgehaald mag niet groter zijn dan totaalMagazijnen", ex.message)
+    }
+
+    @Test
+    fun `geldige status met alle drie de uitkomsten`() {
+        val status = AggregationStatus(
+            status = OphalenStatus.GEREED,
+            totaalMagazijnen = 3,
+            geslaagd = 1,
+            mislukt = 1,
+            nietOpgehaald = 1,
+        )
+        assertEquals(1, status.nietOpgehaald)
+    }
+
+    /** Een status die vóór de derde teller is weggeschreven, leest terug met nietOpgehaald 0. */
+    @Test
+    fun `nietOpgehaald is optioneel`() {
+        val status = AggregationStatus(totaalMagazijnen = 2, geslaagd = 2)
+
+        assertEquals(0, status.nietOpgehaald)
     }
 
     @Test

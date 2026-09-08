@@ -799,6 +799,16 @@ class BerichtensessiecacheServiceTest {
         // De magazijn-call is nooit gestart: de afwijzing claimt geen permit (blijft 0 = vastgehouden).
         assertEquals(0, volBulkhead.vrijePermits())
 
+        // En zo komt het bij het portaal aan: op de eigen teller, niet op die van de storingen. Wie
+        // deze twee samenvoegt, laat een samenvattende regel "1 mislukt" melden terwijl er niets
+        // stuk is en opnieuw ophalen juist helpt.
+        val slot = events.filterIsInstance<OphalenGereed>().single()
+
+        assertEquals(1, slot.nietOpgehaald)
+        assertEquals(0, slot.mislukt)
+        assertEquals(0, slot.geslaagd)
+        assertEquals(1, slot.totaalMagazijnen)
+
         // verify getBerichten nooit aangeroepen: bevestigt dat de call daadwerkelijk werd overgeslagen.
         verify(exactly = 0) { client.getBerichten(any(), any(), any(), any()) }
 
@@ -912,6 +922,7 @@ class BerichtensessiecacheServiceTest {
 
         assertEquals(aantalMagazijnen, gereed.geslaagd)
         assertEquals(0, gereed.mislukt)
+        assertEquals(0, gereed.nietOpgehaald)
         assertEquals(aantalMagazijnen, gereed.totaalMagazijnen)
         assertEquals(grens, bulkheadMetGrens.vrijePermits(), "alle permits terug na de ronde")
     }
