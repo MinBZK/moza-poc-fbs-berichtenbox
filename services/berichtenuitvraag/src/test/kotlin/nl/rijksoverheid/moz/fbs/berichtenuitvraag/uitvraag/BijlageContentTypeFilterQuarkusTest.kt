@@ -106,5 +106,70 @@ class BijlageContentTypeFilterQuarkusTest {
             .statusCode(status)
             .contentType("application/problem+json")
             .header("Content-Disposition", nullValue())
+            // En dus ook niet de versoepelde frame-headers: die hangen aan de dispositie,
+            // die er op een foutresponse niet meer op staat.
+            .header("X-Frame-Options", equalTo("DENY"))
+    }
+
+    // De versmalling hangt aan de dispositie en niet aan het pad: precies de bijlagen die
+    // een browser mag tónen, mag een berichtenbox ook ínsluiten. Eén bron voor beide.
+    //
+    // Alle drie de inline-veilige typen, want `img-src` en `object-src` zijn twee
+    // verschillende renderpaden; met alleen een PDF blijft de helft ongetest.
+    @ParameterizedTest
+    @ValueSource(strings = ["application/pdf", "image/png", "image/jpeg"])
+    fun `een inline-bijlage mag door de eigen berichtenbox ingesloten worden`(mime: String) {
+        given()
+            .queryParam("mime", mime)
+            .queryParam("naam", "aanslag.pdf")
+            .`when`()
+            .get("/api/v1/test-only/bijlage-mime")
+            .then()
+            .statusCode(200)
+            .header("X-Frame-Options", equalTo("SAMEORIGIN"))
+            .header(
+                "Content-Security-Policy",
+                equalTo(
+                    "default-src 'none'; img-src 'self'; object-src 'self'; base-uri 'none'; " +
+                        "form-action 'none'; frame-ancestors 'self'",
+                ),
+            )
+            // Het hele veiligheidsargument onder `inline` leunt hierop: zonder nosniff mag
+            // een browser er alsnog HTML in zien. De versmalling raakt twee headers, en
+            // deze assertie legt vast dat het bij die twee blijft.
+            .header("X-Content-Type-Options", equalTo("nosniff"))
+            .header("Referrer-Policy", equalTo("no-referrer"))
+            .header("Cache-Control", equalTo("no-store"))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["text/html", "image/svg+xml", "application/octet-stream"])
+    fun `een bijlage die een download blijft, valt ook niet in te sluiten`(mime: String) {
+        given()
+            .queryParam("mime", mime)
+            .queryParam("naam", "kwaad.html")
+            .`when`()
+            .get("/api/v1/test-only/bijlage-mime")
+            .then()
+            .statusCode(200)
+            .header("X-Frame-Options", equalTo("DENY"))
+            .header(
+                "Content-Security-Policy",
+                equalTo("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
+            )
+            .header("X-Content-Type-Options", equalTo("nosniff"))
+    }
+
+    // De versmalling mag niet uitlekken naar een gewoon endpoint op hetzelfde pad-prefix.
+    // De statuscode staat er expliciet bij: zonder dat zou deze test ook slagen wanneer het
+    // endpoint iets heel anders gaat doen, en test hij niet meer wat hij bedoelt.
+    @Test
+    fun `een endpoint zonder bijlage-dispositie houdt DENY`() {
+        given()
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(400)
+            .header("X-Frame-Options", equalTo("DENY"))
     }
 }

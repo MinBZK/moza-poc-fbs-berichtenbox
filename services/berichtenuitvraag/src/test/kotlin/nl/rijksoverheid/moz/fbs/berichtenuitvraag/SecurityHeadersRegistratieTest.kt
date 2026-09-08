@@ -13,6 +13,8 @@ import nl.rijksoverheid.moz.fbs.common.SecurityHeaders
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 /** `addHeadersEndHandler` geeft een handler-id terug; welke waarde doet er niet toe. */
 private const val HANDLER_ID = 1
@@ -27,12 +29,17 @@ class SecurityHeadersRegistratieTest {
      * Draait de registratie zoals Quarkus dat doet — observer, dan het route-filter, dan
      * de `headersEndHandler` — en geeft de headers terug die de response overhoudt.
      */
-    private fun headersNaVerwerking(pad: String, aanwezig: Map<String, String> = emptyMap()): MultiMap {
+    private fun headersNaVerwerking(
+        pad: String,
+        aanwezig: Map<String, String> = emptyMap(),
+        status: Int = 200,
+    ): MultiMap {
         val headers = MultiMap.caseInsensitiveMultiMap()
         aanwezig.forEach { (naam, waarde) -> headers.set(naam, waarde) }
 
         val response = mockk<HttpServerResponse>()
         every { response.headers() } returns headers
+        every { response.statusCode } returns status
 
         val context = mockk<RoutingContext>(relaxed = true)
         every { context.response() } returns response
@@ -82,6 +89,32 @@ class SecurityHeadersRegistratieTest {
             listOf("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
             headers.getAll(SecurityHeaders.CONTENT_SECURITY_POLICY),
         )
+    }
+
+    @Test
+    fun `een geslaagde inline-bijlage krijgt de versmalde frame-headers`() {
+        val headers = headersNaVerwerking(
+            "/api/v1/berichten/1/bijlagen/2",
+            mapOf(SecurityHeaders.CONTENT_DISPOSITION to "inline; filename=\"aanslag.pdf\""),
+        )
+
+        assertEquals(listOf("SAMEORIGIN"), headers.getAll(SecurityHeaders.X_FRAME_OPTIONS))
+    }
+
+    // De dispositie staat op de response zodra de bytes opgehaald zijn, maar een fout die
+    // daarná ontstaat — het logboek is in productie fail-closed en gooit ná de
+    // resource-methode — levert een foutbody op die de dispositie nog steeds draagt. Zo'n
+    // response hoort de versoepeling niet te erven.
+    @ParameterizedTest
+    @ValueSource(ints = [301, 400, 403, 404, 500, 503])
+    fun `een foutresponse met een inline-dispositie erft de versoepeling niet`(status: Int) {
+        val headers = headersNaVerwerking(
+            "/api/v1/berichten/1/bijlagen/2",
+            mapOf(SecurityHeaders.CONTENT_DISPOSITION to "inline; filename=\"aanslag.pdf\""),
+            status = status,
+        )
+
+        assertEquals(listOf("DENY"), headers.getAll(SecurityHeaders.X_FRAME_OPTIONS))
     }
 
     @Test

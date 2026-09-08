@@ -74,6 +74,20 @@ class SecurityHeadersRegistratie(
             SecurityHeaders.voorPad(context.normalizedPath(), beheerpadRoot)
                 .forEach { (naam, waarde) -> headers.set(naam, waarde) }
 
+            // Ná de vaste set, want dit versmalt er twee. De dispositie is op dit moment
+            // al gezet door BijlageContentTypeFilter; die volgorde is precies waarom het
+            // hier gebeurt en niet in dat filter, dat de HTTP-laag niet kan overstemmen.
+            //
+            // Alleen op een geslaagde response. De dispositie staat op de request-context
+            // zodra de bytes opgehaald zijn, maar een fout die daarná ontstaat — het
+            // logboek is in productie fail-closed en gooit ná de resource-methode — levert
+            // een foutbody op die de dispositie nog steeds draagt. Zo'n response hoort de
+            // versoepeling niet te erven.
+            if (context.response().statusCode in GESLAAGD) {
+                SecurityHeaders.voorInlineBijlage(headers.get(SecurityHeaders.CONTENT_DISPOSITION))
+                    ?.forEach { (naam, waarde) -> headers.set(naam, waarde) }
+            }
+
             if (headers.get(SecurityHeaders.CACHE_CONTROL) == null) {
                 headers.set(SecurityHeaders.CACHE_CONTROL, SecurityHeaders.CACHE_CONTROL_DEFAULT)
             }
@@ -89,6 +103,9 @@ class SecurityHeadersRegistratie(
          * is de host-validatie op 400; deze waarde ligt daar ruim boven. Verlaag hem niet.
          */
         private const val PRIORITEIT = 10_000
+
+        /** De statuscodes waarop een `inline`-dispositie werkelijk bytes aankondigt. */
+        private val GESLAAGD = 200..299
     }
 }
 
