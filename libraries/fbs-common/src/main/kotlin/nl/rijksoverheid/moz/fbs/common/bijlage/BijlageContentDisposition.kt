@@ -9,8 +9,10 @@ import jakarta.ws.rs.core.MediaType
  *
  * `attachment` is de fallback en niet andersom, omdat een aangeleverde
  * `text/html` of `image/svg+xml` bij top-level navigatie naar het download-adres
- * onder onze origin zou draaien (stored XSS). CSP `frame-ancestors 'none'` dekt
- * die navigatie niet — die geldt alleen voor iframes. Voor de typen op
+ * onder onze origin zou draaien (stored XSS). De CSP op dit pad bevat weliswaar
+ * `default-src 'none'`, wat scripts in zo'n pagina zou blokkeren, maar leun daar
+ * niet op: een CSP is één header ver van uitgezet, en `frame-ancestors` — het deel
+ * dat er vóór stond — dekt alleen iframes en niet deze navigatie. Voor de typen op
  * [INLINE_VEILIGE_TYPEN] bestaat dat pad niet: een browser voert er geen code uit
  * die bij de DOM of de cookies van onze origin kan — de PDF-viewer draait het
  * JavaScript in een PDF wél, maar afgeschermd — en `X-Content-Type-Options:
