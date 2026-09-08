@@ -84,6 +84,7 @@ class ServiceCoverageTest {
     fun `bericht-detail bereikt BerichtOphaalService_haalBericht`() {
         val id = UUID.randomUUID()
         seedBericht(id)
+        stubMagazijnDetail(id, "Tekst uit het magazijn")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -92,6 +93,26 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
             .body("berichtId", equalTo(id.toString()))
+            .body("inhoud", equalTo("Tekst uit het magazijn"))
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het bronmagazijn de tekst niet levert`() {
+        // De tekst staat niet in de cache: valt het bronmagazijn uit, dan is het bericht
+        // niet te openen. De lijst blijft ondertussen wel gewoon werken.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
     }
 
     @Test
@@ -463,10 +484,19 @@ class ServiceCoverageTest {
             afzender = "00000001003214345000",
             ontvanger = Bsn("999990019"),
             onderwerp = "X",
-            inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = magazijnId,
             aantalBijlagen = 0,
+        )
+    }
+
+    private fun stubMagazijnDetail(id: UUID, inhoud: String) {
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "$inhoud"}"""),
+            ),
         )
     }
 

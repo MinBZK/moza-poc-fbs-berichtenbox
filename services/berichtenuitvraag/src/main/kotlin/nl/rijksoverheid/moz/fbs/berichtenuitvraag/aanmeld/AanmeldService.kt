@@ -81,7 +81,6 @@ class AanmeldService(
             afzender = event.afzender.waarde,
             ontvanger = event.ontvanger,
             onderwerp = event.onderwerp,
-            inhoud = event.inhoud,
             publicatietijdstip = event.publicatietijdstip,
             magazijnId = event.magazijnId,
             aantalBijlagen = 0,
@@ -123,6 +122,9 @@ class AanmeldService(
         vereis(!data.afzender.isNullOrBlank(), "data.afzender ontbreekt.")
         val ontvangerDto = data.ontvanger ?: throw badRequest("data.ontvanger ontbreekt.")
         vereis(!data.onderwerp.isNullOrBlank(), "data.onderwerp ontbreekt.")
+        // Wel afgedwongen, niet bewaard: het contract belooft een inhoud, dus een event
+        // zonder inhoud is een contractschending. De waarde zelf slaan we niet op — de
+        // tekst blijft bij het magazijn tot de ontvanger het bericht opent.
         vereis(!data.inhoud.isNullOrBlank(), "data.inhoud ontbreekt.")
         val publicatietijdstip = data.publicatietijdstip ?: throw badRequest("data.publicatietijdstip ontbreekt.")
 
@@ -137,7 +139,6 @@ class AanmeldService(
             ontvanger = parseOntvanger(ontvangerDto),
             magazijnId = magazijnId,
             onderwerp = data.onderwerp!!,
-            inhoud = data.inhoud!!,
             publicatietijdstip = publicatietijdstip,
         )
     }

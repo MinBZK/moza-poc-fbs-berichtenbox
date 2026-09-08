@@ -68,7 +68,6 @@ class OpenApiContractTest {
             afzender = "00000001003214345000",
             ontvanger = Bsn("999990019"),
             onderwerp = "Test",
-            inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = magazijnId,
             aantalBijlagen = 0,
@@ -107,6 +106,13 @@ class OpenApiContractTest {
     fun `GET bericht by id levert valide Bericht`() {
         val id = UUID.randomUUID()
         seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "Tekst uit het magazijn"}"""),
+            ),
+        )
 
         given()
             .filter(validator)

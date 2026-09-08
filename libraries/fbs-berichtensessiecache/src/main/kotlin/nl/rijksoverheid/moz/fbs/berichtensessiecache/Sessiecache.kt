@@ -51,8 +51,10 @@ interface Sessiecache {
     ): BerichtenPagina
 
     /**
-     * Volledig bericht (inclusief inhoud en bijlage-metadata), of `null` als het
-     * niet bestaat of niet van [ontvanger] is. Vereist een afgeronde ophaling.
+     * Alle gecachete gegevens van één bericht (kopgegevens en bijlage-handles), of
+     * `null` als het niet bestaat of niet van [ontvanger] is. Vereist een afgeronde
+     * ophaling. De berichttekst zit hier niet bij: die haalt de aanroeper bij het
+     * bronmagazijn op wanneer de ontvanger het bericht opent.
      */
     fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht?
 

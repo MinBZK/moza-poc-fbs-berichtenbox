@@ -11,6 +11,9 @@ import java.util.UUID
  * verplicht en dragen `afzender`/`ontvanger` hun domeintype — illegale staat is
  * onrepresenteerbaar, zodat downstream-code geen null-checks of `!!` meer nodig
  * heeft. Constructie gebeurt uitsluitend via de parse-stap in [AanmeldService].
+ *
+ * De berichttekst uit het event wordt bewust niet overgenomen: die hoort niet in de
+ * centrale opslag thuis en wordt bij het openen bij het bronmagazijn opgehaald.
  */
 internal data class GepubliceerdBerichtEvent(
     val eventId: String,
@@ -19,6 +22,5 @@ internal data class GepubliceerdBerichtEvent(
     val ontvanger: Identificatienummer,
     val magazijnId: String,
     val onderwerp: String,
-    val inhoud: String,
     val publicatietijdstip: Instant,
 )

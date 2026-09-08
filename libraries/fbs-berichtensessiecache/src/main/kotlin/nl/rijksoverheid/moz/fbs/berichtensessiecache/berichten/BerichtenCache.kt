@@ -261,8 +261,8 @@ internal class RedisBerichtenCache(
                 if (total == 0L && jsonList.isEmpty()) {
                     null
                 } else {
-                    // De ongefilterde list-cache bewaart de volledige `Bericht`-JSON-blob (incl. inhoud
-                    // en bijlagen), zodat ook `update` deze in-place kan herschrijven. Voor de
+                    // De ongefilterde list-cache bewaart de volledige `Bericht`-JSON-blob (incl.
+                    // bijlage-handles), zodat ook `update` deze in-place kan herschrijven. Voor de
                     // publieke lijst-respons projecteren we naar samenvatting; zo behoudt de
                     // BerichtenPagina één uniform element-type met het RediSearch-pad.
                     // try/catch op JsonProcessingException: cache-data niet deserialiseerbaar duidt
@@ -274,7 +274,7 @@ internal class RedisBerichtenCache(
                     } catch (ex: com.fasterxml.jackson.core.JsonProcessingException) {
                         // Log de fout-soort, NIET de exception zelf: Jackson zet bij
                         // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment in de
-                        // message — dat bevat BSN/RSIN + inhoud. PII mag nooit in de log; key +
+                        // message — dat bevat BSN/RSIN. PII mag nooit in de log; key +
                         // exception-klasse volstaan voor diagnose (corruptie/schema-drift).
                         log.errorf("Cache-bericht niet deserialiseerbaar voor key=%s (corruptie of schema-drift); fout=%s", key, ex.javaClass.name)
                         throw ex
@@ -366,9 +366,9 @@ internal class RedisBerichtenCache(
     }
 
     // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons heeft
-    // `inhoud`/`bijlagen` niet nodig, dus het is verspilling om die — potentieel grote —
-    // velden over de wire op te halen. `documentToSamenvatting` mapt naar het lichte
-    // [BerichtSamenvatting]-type. De detail-lookup (`getById`) gebruikt de hash en blijft volledig.
+    // `bijlagen` niet nodig, dus het is verspilling om dat veld over de wire op te halen.
+    // `documentToSamenvatting` mapt naar het lichte [BerichtSamenvatting]-type. De
+    // detail-lookup (`getById`) gebruikt de hash en blijft volledig.
     private fun samenvattingQueryArgs(): QueryArgs {
         val args = QueryArgs()
         SAMENVATTING_VELDEN.forEach { args.returnAttribute(it) }
@@ -453,7 +453,6 @@ internal class RedisBerichtenCache(
         put("ontvanger", bericht.ontvanger.waarde)
         put("ontvangerType", bericht.ontvanger.type.name)
         put("onderwerp", bericht.onderwerp)
-        put("inhoud", bericht.inhoud)
         put("publicatietijdstip", bericht.publicatietijdstip.toString())
         put("magazijnId", bericht.magazijnId)
         put("aantalBijlagen", bericht.aantalBijlagen.toString())
@@ -503,7 +502,6 @@ internal class RedisBerichtenCache(
             afzender = required("afzender"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
-            inhoud = required("inhoud"),
             publicatietijdstip = try {
                 Instant.parse(required("publicatietijdstip"))
             } catch (ex: java.time.format.DateTimeParseException) {
@@ -535,7 +533,7 @@ internal class RedisBerichtenCache(
 
     /**
      * Maakt een [BerichtSamenvatting] uit een FT.SEARCH-document. Bevat alleen de samenvatting-
-     * velden uit [SAMENVATTING_VELDEN]; `inhoud` en `bijlagen` worden bewust niet geprojecteerd.
+     * velden uit [SAMENVATTING_VELDEN]; `bijlagen` wordt bewust niet geprojecteerd.
      * Ontbrekende samenvatting-kernvelden duiden op corruptie — geen fallback-defaults.
      */
     private fun documentToSamenvatting(doc: io.quarkus.redis.datasource.search.Document): BerichtSamenvatting {
@@ -858,7 +856,7 @@ internal class RedisBerichtenCache(
         private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}
 
         // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst
-        // zodat list/zoek de zware `inhoud`/`bijlagen`-velden niet ophaalt.
+        // zodat list/zoek het zware `bijlagen`-veld niet ophaalt.
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",
             "afzender",

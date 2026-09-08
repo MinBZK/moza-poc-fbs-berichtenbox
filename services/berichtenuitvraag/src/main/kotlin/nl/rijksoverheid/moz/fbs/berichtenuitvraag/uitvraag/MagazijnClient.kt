@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
@@ -19,6 +21,10 @@ import java.util.UUID
  *
  * TODO(#552): vervangen door FSC outway zodra de federatieve connectiviteit
  * op MOZ-niveau is vastgesteld.
+ *
+ * `bericht` haalt de berichttekst op bij het openen van een bericht. De tekst staat
+ * niet in de sessiecache — die blijft bij de bron tot de ontvanger het bericht opent —
+ * dus is dit het enige pad waarlangs de uitvraag eraan komt.
  *
  * `bijlage` retourneert `Response` zodat we zowel het werkelijke
  * `Content-Type` als de bytes kunnen lezen — magazijn levert dynamic
@@ -55,6 +61,19 @@ interface MagazijnClient {
         @PathParam("berichtId") berichtId: UUID,
     )
 
+    /**
+     * Levert een eigen, smalle DTO in plaats van het gegenereerde magazijn-model: het
+     * magazijn modelleert `status` als object waar uitvraag een enum-string gebruikt,
+     * en Jackson kan die twee vormen niet op één type deserialiseren (zelfde reden als
+     * bij [patchBericht]). De overige velden komen uit de sessiecache.
+     */
+    @GET
+    @Path("/{berichtId}")
+    fun bericht(
+        @HeaderParam("X-Ontvanger") xOntvanger: String,
+        @PathParam("berichtId") berichtId: UUID,
+    ): MagazijnBerichtDetail
+
     @GET
     @Path("/{berichtId}/bijlagen/{bijlageId}")
     fun bijlage(
@@ -63,3 +82,9 @@ interface MagazijnClient {
         @PathParam("bijlageId") bijlageId: UUID,
     ): Response
 }
+
+/** Het deel van het magazijn-detailantwoord dat de uitvraag nodig heeft: de berichttekst. */
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class MagazijnBerichtDetail(
+    @param:JsonProperty("inhoud") val inhoud: String,
+)

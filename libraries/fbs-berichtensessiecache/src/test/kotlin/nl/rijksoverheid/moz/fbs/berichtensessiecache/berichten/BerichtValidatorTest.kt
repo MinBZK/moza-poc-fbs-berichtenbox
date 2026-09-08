@@ -23,7 +23,6 @@ class BerichtValidatorTest {
         afzender = "00000001234567890000",
         ontvanger = Bsn("999993653"),
         onderwerp = "Test",
-        inhoud = "Inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,

@@ -1067,7 +1067,6 @@ class BerichtensessiecacheServiceTest {
         afzender = "00000001234567890000",
         ontvanger = ontvanger,
         onderwerp = "Test bericht",
-        inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,
@@ -1110,7 +1109,6 @@ class BerichtensessiecacheServiceTest {
         afzender = "00000001234567890000",
         ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", ontvanger.waarde),
         onderwerp = "Test bericht",
-        inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
     )
 

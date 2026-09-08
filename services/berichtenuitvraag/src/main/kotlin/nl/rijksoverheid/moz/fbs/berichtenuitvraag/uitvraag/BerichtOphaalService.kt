@@ -13,9 +13,9 @@ import org.jboss.logging.Logger
 import java.util.UUID
 
 /**
- * Bericht-detail uit de in-process [Sessiecache]-facade; bijlagen als
- * passthrough uit het magazijn. `haalBijlage` levert `(mimeType, bytes)`: de
- * resource zet het mimeType op een request-property zodat
+ * Bericht-detail uit de in-process [Sessiecache]-facade, aangevuld met de berichttekst
+ * uit het bronmagazijn; bijlagen als passthrough uit het magazijn. `haalBijlage` levert
+ * `(mimeType, bytes)`: de resource zet het mimeType op een request-property zodat
  * [BijlageContentTypeFilter] de response-`Content-Type` overrult.
  *
  * Bijlage-bytes worden volledig in een ByteArray geladen; de magazijn-limiet
@@ -40,7 +40,24 @@ class BerichtOphaalService(
         val domeinBericht = zoekBerichtInCache(xOntvanger, berichtId)
             ?: throw NotFoundException("Bericht niet gevonden")
 
-        return UitvraagDtoMapper.toApiBericht(domeinBericht)
+        return UitvraagDtoMapper.toApiBericht(domeinBericht, haalInhoud(xOntvanger, berichtId, domeinBericht.magazijnId))
+    }
+
+    /**
+     * De berichttekst staat niet in de cache: die blijft bij de bron tot de ontvanger het
+     * bericht opent. Routeren op het `magazijnId` uit het gecachete bericht — niet op iets
+     * uit het verzoek — zodat een aanroeper geen tekst uit een vreemd magazijn kan opvragen.
+     *
+     * Een magazijn dat het bericht inmiddels niet meer geeft (404/403) propageert
+     * status-behoudend; een storing wordt 502. Gevolg: bij een onbereikbaar bronmagazijn is
+     * het bericht niet te openen terwijl de lijst gewoon zichtbaar blijft.
+     */
+    private fun haalInhoud(xOntvanger: String, berichtId: UUID, magazijnId: String): String {
+        val magazijn = magazijnRouter.forMagazijn(magazijnId)
+
+        return mapUpstreamFout(log, "magazijn-bericht-detail") {
+            magazijn.bericht(xOntvanger, berichtId)
+        }.inhoud
     }
 
     fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {

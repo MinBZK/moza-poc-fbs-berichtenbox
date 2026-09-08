@@ -41,7 +41,6 @@ class BerichtBeheerServiceTest {
         afzender = "00000001003214345000",
         ontvanger = Bsn("999990019"),
         onderwerp = "X",
-        inhoud = "Inhoud",
         publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,

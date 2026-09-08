@@ -22,7 +22,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatti
  *
  * `BijlageMetadata.mimeType`/`grootteInBytes` blijven leeg: de sessiecache
  * bewaart per bijlage alleen `bijlageId` en `naam`; het werkelijke MIME-type
- * komt mee bij het downloaden van de bijlage zelf.
+ * komt mee bij het downloaden van de bijlage zelf. De berichttekst zit om dezelfde
+ * reden niet in het domeintype: die komt bij het openen uit het bronmagazijn.
  */
 object UitvraagDtoMapper {
 
@@ -50,11 +51,17 @@ object UitvraagDtoMapper {
         null -> null
     }
 
-    fun toApiBericht(bericht: DomeinBericht): Bericht = Bericht().apply {
+    /**
+     * [inhoud] komt niet uit de cache maar uit het bronmagazijn, en wordt alleen
+     * meegegeven waar de ontvanger het bericht daadwerkelijk opent. Op het
+     * status-beheerpad blijft hij weg: die aanroeper heeft de tekst al en een extra
+     * magazijn-call per markeer-als-gelezen zou pure verspilling zijn.
+     */
+    fun toApiBericht(bericht: DomeinBericht, inhoud: String? = null): Bericht = Bericht().apply {
         berichtId = bericht.berichtId
         onderwerp = bericht.onderwerp
         afzender = bericht.afzender
-        inhoud = bericht.inhoud
+        this.inhoud = inhoud
         publicatietijdstip = bericht.publicatietijdstip
         map = bericht.map
         status = toApiStatus(bericht.status)

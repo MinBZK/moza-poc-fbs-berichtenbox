@@ -50,7 +50,6 @@ class BlockingSessiecacheTest {
         afzender = "00000001003214345000",
         ontvanger = ontvanger,
         onderwerp = "Testonderwerp",
-        inhoud = "Testinhoud",
         publicatietijdstip = Instant.parse("2026-01-01T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,

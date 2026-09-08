@@ -57,13 +57,18 @@ internal object BerichtDtoMapper {
         links = pagineerLinks(pagina, afzender, baseUri)
     }
 
+    /**
+     * De samenvatting draagt geen `inhoud`: een afnemer die een lijst toont heeft de
+     * berichttekst niet nodig, dus versturen we die pas bij `GET /berichten/{berichtId}`
+     * wanneer de ontvanger het bericht opent (data-minimalisatie, AVG art. 5(1)(c)).
+     * Bijlagen blijven als download-handle (id + naam) staan; dat zijn kopgegevens.
+     */
     private fun toBerichtSamenvatting(bericht: Bericht, baseUri: UriBuilder): BerichtSamenvatting =
         BerichtSamenvatting().apply {
             berichtId = bericht.berichtId
             afzender = bericht.afzender.waarde
             ontvanger = toIdentificatienummerDto(bericht.ontvanger)
             onderwerp = bericht.onderwerp
-            inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
             publicatietijdstip = bericht.publicatietijdstip
             aantalBijlagen = bericht.bijlagen.size

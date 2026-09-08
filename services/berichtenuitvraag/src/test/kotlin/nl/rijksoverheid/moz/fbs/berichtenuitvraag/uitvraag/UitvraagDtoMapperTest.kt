@@ -86,7 +86,6 @@ class UitvraagDtoMapperTest {
             afzender = "00000001003214345000",
             ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
-            inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 1,
@@ -99,7 +98,6 @@ class UitvraagDtoMapperTest {
 
         assertEquals(id, api.berichtId)
         assertEquals("Onderwerp", api.onderwerp)
-        assertEquals("Inhoud", api.inhoud)
         assertEquals("magazijn-a", api.magazijnId)
         assertEquals("werk", api.map)
         assertEquals(BerichtStatus.GELEZEN, api.status)

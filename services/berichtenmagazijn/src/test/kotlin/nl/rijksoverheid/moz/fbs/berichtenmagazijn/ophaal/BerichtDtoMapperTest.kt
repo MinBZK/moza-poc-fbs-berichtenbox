@@ -10,8 +10,8 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Kvk
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.PagedBerichten
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -110,10 +110,10 @@ class BerichtDtoMapperTest {
     }
 
     @Test
-    fun `toBerichtenLijst-samenvatting bevat inhoud en lichte bijlagen-lijst`() {
-        // De BerichtSamenvatting is bewust verrijkt met inhoud + bijlagen[]
-        // (bijlageId + naam) zodat downstream-consumers (sessiecache) hun cache
-        // na één lijst-call compleet kunnen vullen zonder per-bericht detail-call.
+    fun `toBerichtenLijst-samenvatting draagt lichte bijlagen-lijst maar geen inhoud`() {
+        // De samenvatting draagt bijlagen[] (bijlageId + naam) zodat een afnemer een lijst
+        // kan tonen zonder vervolg-call, maar niet de berichttekst: die gaat pas mee als de
+        // ontvanger het bericht opent (data-minimalisatie, AVG art. 5(1)(c)).
         val bijlageId = UUID.fromString("33333333-3333-3333-3333-333333333333")
         val pagina = PagedBerichten(
             berichten = listOf(
@@ -127,7 +127,6 @@ class BerichtDtoMapperTest {
         val dto = BerichtDtoMapper.toBerichtenLijst(pagina, afzender = null, baseUri())
 
         val samenvatting = dto.berichten.single()
-        assertEquals("Tekst", samenvatting.inhoud)
         assertEquals(1, samenvatting.aantalBijlagen)
         assertEquals(1, samenvatting.bijlagen.size)
         assertEquals(bijlageId, samenvatting.bijlagen[0].bijlageId)

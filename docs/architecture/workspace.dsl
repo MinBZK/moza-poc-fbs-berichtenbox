@@ -181,10 +181,10 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         // beschrijving van de eerst geparste relatie erft — het beheerverkeer verdwijnt zo uit beeld. Door
         // de systeemlijn hier expliciet en vóór die componentrelaties te declareren, staat de samengevoegde
         // beschrijving vast en blijft het bij één lijn per richting.
-        berichtenUitvraagSysteem -> bboMagazijn "Haalt berichtenlijst, berichtinhoud en bijlagen op en beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
-        berichtenUitvraagSysteem -> eigenMagazijn "Haalt berichtenlijst, berichtinhoud en bijlagen op en beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
+        berichtenUitvraagSysteem -> bboMagazijn "Haalt berichtenlijst op, en berichtinhoud of bijlagen per geopend bericht; beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
+        berichtenUitvraagSysteem -> eigenMagazijn "Haalt berichtenlijst op, en berichtinhoud of bijlagen per geopend bericht; beheert berichtstatus per gebruiker" "Digikoppeling REST API via FSC"
 
-        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op" "Digikoppeling REST API via FSC"
+        uitvraagOphaalService -> magazijnOphaalBeheerApi "Haalt berichtenlijst met kopgegevens op, en berichtinhoud of bijlagen per geopend bericht" "Digikoppeling REST API via FSC"
         uitvraagBeheerService -> magazijnOphaalBeheerApi "Beheert berichtstatus" "Digikoppeling REST API via FSC"
 
         publicatieStream -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
@@ -200,9 +200,9 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         // wordt bevraagd voor ophalen en beheren, meldt nieuwe berichten aan bij de centrale Aanmeld
         // Service, stuurt bericht-events naar de Notificatie Service, en controleert toestemming bij de
         // Profiel Service. Het enige verschil is de aanleverende organisatie (orgA i.p.v. orgB).
-        uitvraagOphaalService -> eigenMagazijn "Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op" "Digikoppeling REST API via FSC"
+        uitvraagOphaalService -> eigenMagazijn "Haalt berichtenlijst met kopgegevens op, en berichtinhoud of bijlagen per geopend bericht" "Digikoppeling REST API via FSC"
         uitvraagBeheerService -> eigenMagazijn "Beheert berichtstatus" "Digikoppeling REST API via FSC"
-        sessiecacheMagazijnClient -> eigenMagazijn "Haalt berichten op" "Digikoppeling REST API via FSC"
+        sessiecacheMagazijnClient -> eigenMagazijn "Haalt berichtenlijst met kopgegevens op (zonder berichtinhoud)" "Digikoppeling REST API via FSC"
         eigenMagazijn -> aanmeldService "Meldt nieuw bericht aan" "Digikoppeling REST API via FSC"
         eigenMagazijn -> notificatieService "Stuurt bericht-events door" "CloudEvents webhook via FSC" "Async"
         eigenMagazijn -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
@@ -210,7 +210,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         validatieToestemming -> profielService "Controleert of de ontvanger toestemming gegeven heeft" "Digikoppeling REST API via FSC"
 
         magazijnResolver -> profielService "Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden" "Digikoppeling REST API via FSC"
-        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichten op" "Digikoppeling REST API via FSC"
+        sessiecacheMagazijnClient -> magazijnOphaalBeheerApi "Haalt berichtenlijst met kopgegevens op (zonder berichtinhoud)" "Digikoppeling REST API via FSC"
 
     }
 

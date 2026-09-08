@@ -14,7 +14,6 @@ class MagazijnBerichtTest {
         afzender = "00000001234567890000",
         ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", "123456782"),
         onderwerp = "Onderwerp",
-        inhoud = "Inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         status = status,
     )

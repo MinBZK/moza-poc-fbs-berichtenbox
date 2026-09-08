@@ -47,16 +47,17 @@ class LdvSubjectRegistrationTest {
             afzender = "00000001003214345000",
             ontvanger = nl.rijksoverheid.moz.fbs.common.identificatie.Bsn("999990019"),
             onderwerp = "X",
-            inhoud = "Inhoud",
             publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 0,
         )
 
+        // Via de lijst: elk leespad registreert het subject op dezelfde manier, en de
+        // lijst komt volledig uit de cache — dan hoeft deze test geen magazijn te stubben.
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten")
             .then()
             .statusCode(200)
 
