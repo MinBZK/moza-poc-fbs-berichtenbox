@@ -146,6 +146,11 @@ class OphalenSseResource(
  * resource, zodat de audit-invariant per event-type gepind kan worden in een unit-test.
  * De `when` is uitputtend over de sealed hiërarchie: een nieuw soort voortgangsbericht
  * dwingt hier een bewuste keuze af in plaats van stil in een `else` te verdwijnen.
+ *
+ * `nietOpgehaald` telt bewust niet mee. Die organisaties zijn niet bevraagd omdat de uitvraag
+ * zelf te veel werk tegelijk had; de verwerking die hier gelogd wordt is dan gewoon goed
+ * verlopen, alleen over minder organisaties. Wat de ondernemer wél en niet gekregen heeft staat
+ * in de tellers van het slotevent, niet in deze status.
  */
 internal fun logboekStatusVoor(event: MagazijnEvent): StatusCode? = when (event) {
     is OphalenGereed -> if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR

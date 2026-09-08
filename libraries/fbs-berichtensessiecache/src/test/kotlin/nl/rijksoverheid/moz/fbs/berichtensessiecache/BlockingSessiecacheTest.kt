@@ -169,7 +169,7 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `ophalen geeft de event-stream van de service ongewijzigd door`() {
-        val event: MagazijnEvent = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, totaalMagazijnen = 0)
+        val event: MagazijnEvent = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 0)
 
         every { service.haalBerichtenOp(ontvanger) } returns Multi.createFrom().item(event)
 
