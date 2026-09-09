@@ -53,8 +53,7 @@ class AanmeldServiceTest {
         afzenderOin: String = afzender,
         ontvanger: AangemeldOntvanger? = AangemeldOntvanger("BSN", ontvangerBsn),
         onderwerp: String? = "Onderwerp",
-        inhoud: String? = "Inhoud",
-    ) = AangemeldBerichtData(berichtId, afzenderOin, ontvanger, onderwerp, inhoud, Instant.now(), Instant.now())
+    ) = AangemeldBerichtData(berichtId, afzenderOin, ontvanger, onderwerp, Instant.now(), Instant.now())
 
     @Test
     fun `happy path schrijft bericht met afgeleid magazijnId en geen bijlagen`() {

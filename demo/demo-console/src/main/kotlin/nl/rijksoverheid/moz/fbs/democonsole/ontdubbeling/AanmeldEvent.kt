@@ -6,7 +6,6 @@ data class AanmeldData(
     val afzender: String,
     val ontvanger: Ontvanger,
     val onderwerp: String,
-    val inhoud: String,
     val tijdstipOntvangst: String,
     val publicatietijdstip: String,
 )

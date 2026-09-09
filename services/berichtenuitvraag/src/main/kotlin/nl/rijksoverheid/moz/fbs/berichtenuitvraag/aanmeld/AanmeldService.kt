@@ -122,10 +122,6 @@ class AanmeldService(
         vereis(!data.afzender.isNullOrBlank(), "data.afzender ontbreekt.")
         val ontvangerDto = data.ontvanger ?: throw badRequest("data.ontvanger ontbreekt.")
         vereis(!data.onderwerp.isNullOrBlank(), "data.onderwerp ontbreekt.")
-        // Wel afgedwongen, niet bewaard: het contract belooft een inhoud, dus een event
-        // zonder inhoud is een contractschending. De waarde zelf slaan we niet op — de
-        // tekst blijft bij het magazijn tot de ontvanger het bericht opent.
-        vereis(!data.inhoud.isNullOrBlank(), "data.inhoud ontbreekt.")
         val publicatietijdstip = data.publicatietijdstip ?: throw badRequest("data.publicatietijdstip ontbreekt.")
 
         val afzender = parseAfzender(data.afzender!!)

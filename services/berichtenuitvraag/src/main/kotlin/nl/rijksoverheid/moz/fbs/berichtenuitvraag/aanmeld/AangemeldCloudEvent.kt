@@ -43,7 +43,6 @@ data class AangemeldBerichtData
     @param:JsonProperty("afzender") val afzender: String?,
     @param:JsonProperty("ontvanger") val ontvanger: AangemeldOntvanger?,
     @param:JsonProperty("onderwerp") val onderwerp: String?,
-    @param:JsonProperty("inhoud") val inhoud: String?,
     @param:JsonProperty("tijdstipOntvangst") val tijdstipOntvangst: Instant?,
     @param:JsonProperty("publicatietijdstip") val publicatietijdstip: Instant?,
 )

@@ -64,3 +64,32 @@ data class Bericht(
         const val MAX_INHOUD_BYTES = 1_048_576
     }
 }
+
+/**
+ * Een bericht zonder zijn tekst: wat een lijstweergave nodig heeft.
+ *
+ * Bestaat naast [Bericht] omdat het lijstpad de `inhoud`-kolom niet leest. Die kolom is
+ * een TEXT van maximaal 1 MiB per rij; hem voor een pagina van twintig berichten inlezen
+ * om hem daarna weg te gooien is werk dat de database en het geheugen niet hoeven te doen,
+ * nu de samenvatting in het koppelvlak toch geen tekst meer draagt.
+ */
+data class BerichtKop(
+    val berichtId: UUID,
+    val afzender: Oin,
+    val ontvanger: Identificatienummer,
+    val onderwerp: String,
+    val tijdstipOntvangst: Instant,
+    val publicatietijdstip: Instant,
+    val bijlagen: List<BijlageMetadata> = emptyList(),
+    val status: BerichtStatus? = null,
+) {
+    init {
+        requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
+        requireValid(onderwerp.length <= Bericht.MAX_ONDERWERP_LENGTE) {
+            "Onderwerp mag max ${Bericht.MAX_ONDERWERP_LENGTE} characters zijn"
+        }
+        requireValid(afzender != ontvanger) {
+            "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
+        }
+    }
+}

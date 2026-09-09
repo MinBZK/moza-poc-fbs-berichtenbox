@@ -48,6 +48,9 @@ gecorrigeerd in plaats van het veld te verwijderen.
 | `berichtenuitvraag/AanmeldService` | Neemt de inhoud uit het CloudEvent niet meer over in de cache |
 | `demo/magazijn-simulator` | Volgt de spec; de comment die de tegenstrijdigheid documenteerde vervalt |
 | `workspace.dsl` | Relatiebeschrijvingen noemen geen berichtinhoud meer op het lijstpad |
+| `berichtenuitvraag-api.yaml` | Het aanmeld-CloudEvent draagt geen `inhoud` meer (property én `required`) |
+| `berichtenmagazijn/publicatie` | `CloudEventBuilder` bouwt de payload zonder tekst |
+| `berichtenmagazijn/opslag` | Het lijstpad leest de `inhoud`-kolom niet meer (`BerichtKop` + projectie) |
 
 ## Prestatie-effect
 
@@ -78,15 +81,33 @@ status-wijziging (`PATCH /berichten/{id}`) draagt geen `inhoud` meer. Dat veld w
 optioneel, en die aanroeper heeft de tekst net getoond — een extra magazijn-aanroep per
 markeer-als-gelezen zou alleen verkeer kosten.
 
-## Openstaand
+## Twee vervolgbesluiten, hier meegenomen
 
-- Het aanmeld-CloudEvent (`AangemeldBerichtData`) draagt `inhoud` nog als verplicht veld.
-  De uitvraag valideert dat veld nog wel, maar bewaart het niet meer. Het uit het
-  notificatie-contract halen is dezelfde afweging, maar raakt een ander koppelvlak;
-  voorgelegd aan de opdrachtgever in plaats van hier meegenomen.
-- Het magazijn laadt voor een lijstantwoord nog steeds de volledige `inhoud`-kolom uit de
-  database, om die daarna weg te gooien. Een projectie op de kopgegevens scheelt werk in de
-  database; los van deze wijziging op te pakken.
+Beide punten lagen eerst als open vraag bij het team; die zijn beantwoord en in deze
+wijziging verwerkt, zodat de regel niet half toegepast op `main` landt.
+
+### Het aanmeld-event draagt de tekst ook niet meer
+
+`AangemeldBerichtData` had `inhoud` nog als verplicht veld. Datzelfde argument geldt daar
+sterker dan op de lijst: een aanmelding of notificatie zegt *dát* er een bericht is, en
+verspreidde tot nu toe de tekst van élk gepubliceerd bericht over het stelsel — ook van
+berichten die niemand opent. Het veld is uit de spec, uit de wire-DTO's aan beide kanten en
+uit de validatie. `CloudEventBuilder` bouwt de payload zonder tekst; een test bewaakt dat de
+geserialiseerde event de tekst nergens toont.
+
+Dit raakt ook de notificatiedienst, die hetzelfde event ontvangt. Die heeft de tekst niet
+nodig om een notificatie te sturen, dus het contract wordt daar smaller zonder functieverlies.
+
+### Het lijstpad leest de `inhoud`-kolom niet meer
+
+Het magazijn laadde voor een lijstantwoord nog steeds de volledige `inhoud`-TEXT van elke rij
+op de pagina, om die daarna weg te gooien. Het lijstpad werkt nu op [`BerichtKop`] —
+kopgegevens zonder tekst — en de repository projecteert met Panache's `project(...)` op de
+kopkolommen. De SELECT raakt de `inhoud`-kolom daarmee niet meer.
+
+Dat het domeintype de tekst niet kent, is meteen de bewaking: een projectie kan geen kolom
+selecteren die het doeltype niet heeft, dus terugvallen op de oude situatie breekt de
+compilatie in plaats van stilletjes weer een MiB per rij in te lezen.
 
 ## Verificatie
 
@@ -94,5 +115,7 @@ markeer-als-gelezen zou alleen verkeer kosten.
 - `./mvnw clean test -pl libraries/fbs-berichtensessiecache -am`
 - `./mvnw clean test -pl services/berichtenuitvraag -am`
 - `./mvnw clean test -pl demo/magazijn-simulator -am`
+- `./mvnw clean test -pl demo/demo-console -am`
 - Contracttests toetsen dat een lijstantwoord geen `inhoud` draagt en dat het detailantwoord
-  die wél draagt.
+  die wél draagt; aparte tests bewaken dat noch de sessiecache, noch het gepubliceerde
+  CloudEvent de tekst meedraagt.

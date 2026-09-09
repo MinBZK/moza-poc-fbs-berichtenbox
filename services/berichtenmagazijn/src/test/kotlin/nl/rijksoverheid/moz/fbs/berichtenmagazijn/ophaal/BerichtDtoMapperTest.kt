@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 import jakarta.ws.rs.core.UriBuilder
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtKop
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
@@ -32,6 +33,20 @@ class BerichtDtoMapperTest {
         ontvanger = Bsn("999993653"),
         onderwerp = "Aanslag",
         inhoud = "Tekst",
+        tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
+        bijlagen = bijlagen,
+        status = status,
+    )
+
+    private fun kop(
+        bijlagen: List<BijlageMetadata> = emptyList(),
+        status: BerichtStatus? = null,
+    ): BerichtKop = BerichtKop(
+        berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
+        afzender = Oin("00000001003214345000"),
+        ontvanger = Bsn("999993653"),
+        onderwerp = "Aanslag",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
         publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
         bijlagen = bijlagen,
@@ -76,7 +91,7 @@ class BerichtDtoMapperTest {
     @Test
     fun `toBerichtenLijst maakt pagina-links inclusief next en prev`() {
         val pagina = PagedBerichten(
-            berichten = listOf(bericht(), bericht()),
+            berichten = listOf(kop(), kop()),
             page = 1,
             pageSize = 10,
             totalElements = 35L,
@@ -99,7 +114,7 @@ class BerichtDtoMapperTest {
     @Test
     fun `toBerichtenLijst zonder volgende pagina laat next weg`() {
         val pagina = PagedBerichten(
-            berichten = listOf(bericht()),
+            berichten = listOf(kop()),
             page = 0,
             pageSize = 10,
             totalElements = 1L,
@@ -117,7 +132,7 @@ class BerichtDtoMapperTest {
         val bijlageId = UUID.fromString("33333333-3333-3333-3333-333333333333")
         val pagina = PagedBerichten(
             berichten = listOf(
-                bericht(bijlagen = listOf(BijlageMetadata(bijlageId, "brief.pdf", "application/pdf"))),
+                kop(bijlagen = listOf(BijlageMetadata(bijlageId, "brief.pdf", "application/pdf"))),
             ),
             page = 0,
             pageSize = 10,

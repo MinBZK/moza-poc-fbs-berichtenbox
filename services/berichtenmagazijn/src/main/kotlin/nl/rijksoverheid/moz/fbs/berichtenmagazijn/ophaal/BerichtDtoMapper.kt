@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.PaginationLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht as BerichtDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtKop
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.PagedBerichten
@@ -63,7 +64,7 @@ internal object BerichtDtoMapper {
      * wanneer de ontvanger het bericht opent (data-minimalisatie, AVG art. 5(1)(c)).
      * Bijlagen blijven als download-handle (id + naam) staan; dat zijn kopgegevens.
      */
-    private fun toBerichtSamenvatting(bericht: Bericht, baseUri: UriBuilder): BerichtSamenvatting =
+    private fun toBerichtSamenvatting(bericht: BerichtKop, baseUri: UriBuilder): BerichtSamenvatting =
         BerichtSamenvatting().apply {
             berichtId = bericht.berichtId
             afzender = bericht.afzender.waarde

@@ -525,8 +525,12 @@ components:
 
     AangemeldBerichtData:
       type: object
-      description: Payload van het gepubliceerd-bericht-event; spiegelt het magazijn-contract.
-      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, publicatietijdstip]
+      description: |
+        Payload van het gepubliceerd-bericht-event; spiegelt het magazijn-contract.
+        Draagt de kopgegevens waarmee een ontvanger weet dát er een bericht is, niet de
+        tekst: die blijft in het bronmagazijn tot de ontvanger het bericht opent
+        (data-minimalisatie, AVG art. 5(1)(c)).
+      required: [berichtId, afzender, ontvanger, onderwerp, publicatietijdstip]
       properties:
         berichtId: { type: string, format: uuid }
         afzender:
@@ -534,7 +538,6 @@ components:
           description: OIN (20 cijfers) van de afzendende organisatie.
         ontvanger: { $ref: '#/components/schemas/AangemeldOntvanger' }
         onderwerp: { type: string }
-        inhoud: { type: string }
         tijdstipOntvangst:
           type: string
           format: date-time

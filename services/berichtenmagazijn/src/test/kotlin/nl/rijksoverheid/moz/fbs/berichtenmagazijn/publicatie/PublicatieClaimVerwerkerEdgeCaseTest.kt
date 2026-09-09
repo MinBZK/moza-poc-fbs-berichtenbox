@@ -90,7 +90,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         data = BerichtData(
             berichtId = bericht.berichtId, afzender = bericht.afzender.waarde,
             ontvanger = OntvangerData("BSN", "999993653"),
-            onderwerp = "X", inhoud = "x",
+            onderwerp = "X",
             tijdstipOntvangst = bericht.tijdstipOntvangst,
             publicatietijdstip = bericht.publicatietijdstip,
         ),

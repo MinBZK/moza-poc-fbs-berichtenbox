@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
@@ -84,11 +85,21 @@ class CloudEventBuilderTest {
     }
 
     @Test
-    fun `data-payload bevat berichtinhoud en ontvanger-info`() {
+    fun `het event draagt de berichttekst nergens mee`() {
+        // De aanmelding en de notificatie zeggen dát er een bericht is. Zou de tekst hier
+        // toch in de payload staan, dan verspreidt elk gepubliceerd bericht zijn inhoud over
+        // het stelsel zonder dat iemand het opent.
+        val json = jacksonObjectMapper().findAndRegisterModules()
+            .writeValueAsString(builder.bouw(bericht, aanmeld, nu))
+
+        assertFalse(json.contains(bericht.inhoud), "Was: $json")
+    }
+
+    @Test
+    fun `data-payload bevat de kopgegevens en ontvanger-info, geen berichttekst`() {
         val event = builder.bouw(bericht, aanmeld, nu)
         assertEquals(bericht.berichtId, event.data.berichtId)
         assertEquals(bericht.onderwerp, event.data.onderwerp)
-        assertEquals(bericht.inhoud, event.data.inhoud)
         assertEquals(bericht.afzender.waarde, event.data.afzender)
         assertEquals("BSN", event.data.ontvanger.type)
         assertEquals(bsnWaarde, event.data.ontvanger.waarde)
