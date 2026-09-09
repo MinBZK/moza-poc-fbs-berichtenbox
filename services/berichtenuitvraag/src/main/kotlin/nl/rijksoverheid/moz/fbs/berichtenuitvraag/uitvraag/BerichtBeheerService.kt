@@ -31,6 +31,7 @@ import java.util.UUID
 class BerichtBeheerService(
     private val sessiecache: Sessiecache,
     private val magazijnRouter: MagazijnRouter,
+    private val afzendernamen: Afzendernamen,
 ) {
 
     fun patch(ontvanger: String, berichtId: UUID, magazijnId: String, patch: BerichtPatch): Bericht {
@@ -83,7 +84,11 @@ class BerichtBeheerService(
             throw NotFoundException("Bericht niet gevonden in cache")
         }
 
-        return UitvraagDtoMapper.toApiBericht(bijgewerkt, inhoud = null)
+        return UitvraagDtoMapper.toApiBericht(
+            bijgewerkt,
+            afzenderNaam = afzendernamen.naamVoor(bijgewerkt),
+            inhoud = null,
+        )
     }
 
     fun verwijder(ontvanger: String, berichtId: UUID, magazijnId: String) {

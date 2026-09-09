@@ -20,10 +20,10 @@ class SessieService(private val redis: RedisDataSource) {
 
     private companion object {
 
-        // Spiegelt `BerichtenCache.cacheKey` in fbs-berichtensessiecache. Het paneel heeft geen
-        // dependency op die library (en hoort die niet te krijgen: de demo-grens loopt één kant
-        // op), dus de sleutelvorm staat hier met de hand. Verandert het versienummer daar, dan
-        // moet het hier mee — anders wist de knop stilzwijgend niets meer.
-        const val SESSIE_PATROON = "berichtensessiecache:v2:*"
+        // Versieloos patroon: de sessiecache versienummert zijn sleutels (`:v1:`, `:v2:`, …) en
+        // die versie bumpt bij elke wijziging van het opslagformaat. Een patroon met een vast
+        // versienummer zou na zo'n bump niets meer vinden en tóch "0 sessie-keys gewist" melden —
+        // een knop die succes rapporteert zonder iets te doen. De prefix zelf is specifiek genoeg.
+        const val SESSIE_PATROON = "berichtensessiecache:*"
     }
 }

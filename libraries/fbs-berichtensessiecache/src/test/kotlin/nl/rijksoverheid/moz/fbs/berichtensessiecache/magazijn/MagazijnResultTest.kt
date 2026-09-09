@@ -20,6 +20,7 @@ class MagazijnResultTest {
     private val bericht = Bericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
+        afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999993653"),
         onderwerp = "test",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),

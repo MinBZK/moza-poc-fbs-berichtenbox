@@ -130,7 +130,7 @@ class MagazijnContractIntegrationTest {
             }
         """.trimIndent()
 
-        val bericht = objectMapper.readValue(json, MagazijnBericht::class.java).toBericht("magazijn-a")
+        val bericht = objectMapper.readValue(json, MagazijnBericht::class.java).toBericht("magazijn-a", "Magazijn A")
 
         assertFalse(
             objectMapper.writeValueAsString(bericht).contains("Deze tekst hoort nergens terecht te komen"),

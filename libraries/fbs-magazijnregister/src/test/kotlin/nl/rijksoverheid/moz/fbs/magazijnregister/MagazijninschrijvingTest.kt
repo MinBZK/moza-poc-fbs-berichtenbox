@@ -19,14 +19,14 @@ class MagazijninschrijvingTest {
 
     @Test
     fun `http- en https-URLs met host zijn construeerbaar`() {
-        assertDoesNotThrow { Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null) }
+        assertDoesNotThrow { Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = "Magazijn") }
         assertDoesNotThrow { Magazijninschrijving(oin, URI.create("https://magazijn.intern:8443"), naam = "Magazijn") }
     }
 
     @Test
     fun `niet-http-scheme is niet construeerbaar`() {
         val ex = assertThrows<IllegalArgumentException> {
-            Magazijninschrijving(oin, URI.create("ftp://example.com"), naam = null)
+            Magazijninschrijving(oin, URI.create("ftp://example.com"), naam = "Magazijn")
         }
 
         assertTrue(ex.message!!.contains("http(s)"))
@@ -35,26 +35,39 @@ class MagazijninschrijvingTest {
     @Test
     fun `hostloze URL is niet construeerbaar`() {
         val ex = assertThrows<IllegalArgumentException> {
-            Magazijninschrijving(oin, URI.create("http:///geen-host"), naam = null)
+            Magazijninschrijving(oin, URI.create("http:///geen-host"), naam = "Magazijn")
         }
 
         assertTrue(ex.message!!.contains("host"))
     }
 
     @Test
+    fun `lege of whitespace-only naam is niet construeerbaar`() {
+        // De naam is verplicht omdat de berichtenlijst hem aan de ondernemer toont; blanco zou
+        // daar als lege afzender landen, niet als herkenbaar ontbrekende naam.
+        listOf("", "   ").forEach { blanco ->
+            val ex = assertThrows<IllegalArgumentException> {
+                Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = blanco)
+            }
+
+            assertTrue(ex.message!!.contains("naam"))
+        }
+    }
+
+    @Test
     fun `grantHash is optioneel en niet-blanco waarden zijn construeerbaar`() {
         assertDoesNotThrow {
-            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = null)
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = "Magazijn", grantHash = null)
         }
         assertDoesNotThrow {
-            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = "abc123")
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = "Magazijn", grantHash = "abc123")
         }
     }
 
     @Test
     fun `lege grantHash is niet construeerbaar`() {
         val ex = assertThrows<IllegalArgumentException> {
-            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = "")
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = "Magazijn", grantHash = "")
         }
 
         assertTrue(ex.message!!.contains("grantHash"))
@@ -63,7 +76,7 @@ class MagazijninschrijvingTest {
     @Test
     fun `whitespace-only grantHash is niet construeerbaar`() {
         val ex = assertThrows<IllegalArgumentException> {
-            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = null, grantHash = "   ")
+            Magazijninschrijving(oin, URI.create("http://localhost:8081"), naam = "Magazijn", grantHash = "   ")
         }
 
         assertTrue(ex.message!!.contains("grantHash"))

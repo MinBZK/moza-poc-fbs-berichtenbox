@@ -83,14 +83,20 @@ hash-veld, struikelt over een entry die wij zonder tekst schreven, en geeft een 
 berichtenlijst zolang het venster duurt. Aan het gedrag van die oude pod valt niets te
 veranderen; het enige werkende antwoord is disjuncte sleutels.
 
-**Daarom gaat de cache-sleutel van `v1` naar `v2`** (`cacheKey`, `berichtKey` en
-`BERICHT_PREFIX`). Oud en nieuw zien elkaars entries dan niet: de oude pod krijgt een
+**Daarom gaat de cache-sleutel naar `v3`** (`cacheKey`, `berichtKey`, `BERICHT_PREFIX` en
+`SEARCH_INDEX`). Oud en nieuw zien elkaars entries dan niet: de oude pod krijgt een
 cache-miss en de berichtenbox vraagt netjes om opnieuw ophalen, in plaats van een 500.
 
-> **Operations-stap bij de uitrol.** `BERICHT_PREFIX` is tevens de RediSearch-index-prefix.
-> Volg [`docs/operations/redisearch-schema-bump.md`](../operations/redisearch-schema-bump.md);
-> de index moet opnieuw worden aangemaakt op de nieuwe prefix. De `v1`-entries verlopen
-> vanzelf via hun TTL en hoeven niet te worden opgeruimd.
+Waarom `v3` en niet `v2`: deze wijziging en de `afzenderNaam`-wijziging bumpten los van
+elkaar naar `v2`, elk voor hun eigen schemawijziging. Eén versienummer voor twee vormen
+brengt precies de botsing terug die de bump moest voorkomen.
+
+Een handmatige operations-stap is niet nodig. De index-naam draagt de versie mee, dus elke
+nieuwe pod maakt zijn eigen index aan en oude pods blijven tijdens de uitrol op de oude
+werken. De `v2`-entries verlopen via hun TTL. Wat blijft staan is de oude index zelf;
+opruimen kan met de procedure in
+[`docs/operations/redisearch-schema-bump.md`](../operations/redisearch-schema-bump.md), maar
+dat is nawerk en geen voorwaarde om te deployen.
 
 ## Wat er niet verandert voor de berichtenbox
 

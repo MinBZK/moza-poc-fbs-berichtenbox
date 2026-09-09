@@ -18,7 +18,7 @@ class SessieServiceTest {
     fun `verlopen wist de gevonden sessie-keys en geeft het aantal terug`() {
         val gevonden = listOf("berichtensessiecache:v2:abc:status", "berichtensessiecache:v2:abc:list")
 
-        every { keyCommands.keys("berichtensessiecache:v2:*") } returns gevonden
+        every { keyCommands.keys("berichtensessiecache:*") } returns gevonden
         every { keyCommands.del("berichtensessiecache:v2:abc:status", "berichtensessiecache:v2:abc:list") } returns 2
 
         assertEquals(2, service.laatSessiesVerlopen())

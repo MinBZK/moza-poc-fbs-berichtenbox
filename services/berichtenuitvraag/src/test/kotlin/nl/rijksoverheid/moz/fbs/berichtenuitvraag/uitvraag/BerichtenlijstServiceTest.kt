@@ -10,17 +10,33 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatti
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.net.URI
 import java.time.Instant
 import java.util.UUID
 
 class BerichtenlijstServiceTest {
 
     private val sessiecache: Sessiecache = mockk()
-    private val service = BerichtenlijstService(sessiecache)
+
+    // Een echt register in plaats van een gemockte Afzendernamen: anders zou de test moeten
+    // voorschrijven wélke naam bij welk magazijn hoort, en dat is precies wat hij wil bewijzen.
+    private val register = object : Magazijnregister {
+        private val entries = listOf(
+            Magazijninschrijving(Oin(BELASTINGDIENST), URI.create("http://localhost:8081"), naam = "Belastingdienst"),
+            Magazijninschrijving(Oin(KVK), URI.create("http://localhost:8082"), naam = "Kamer van Koophandel"),
+        )
+
+        override fun alle(): Collection<Magazijninschrijving> = entries
+        override fun voorOin(oin: Oin): Magazijninschrijving? = entries.firstOrNull { it.oin == oin }
+    }
+    private val service = BerichtenlijstService(sessiecache, Afzendernamen(register))
     private val ontvanger = Bsn("999990019")
 
     private fun pagina(
@@ -30,13 +46,17 @@ class BerichtenlijstServiceTest {
         totalPages: Int = if (berichten.isEmpty()) 0 else 1,
     ) = BerichtenPagina(berichten, page, pageSize, berichten.size.toLong(), totalPages)
 
-    private fun samenvatting(id: UUID = UUID.randomUUID()) = BerichtSamenvatting(
+    private fun samenvatting(
+        id: UUID = UUID.randomUUID(),
+        magazijnId: String = KVK,
+    ) = BerichtSamenvatting(
         berichtId = id,
         afzender = "00000001003214345000",
+        afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999990019"),
         onderwerp = "Onderwerp",
         publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
-        magazijnId = "magazijn-a",
+        magazijnId = magazijnId,
         aantalBijlagen = 2,
         map = "werk",
         status = Leesstatus.ONGELEZEN,
@@ -73,11 +93,35 @@ class BerichtenlijstServiceTest {
 
         assertEquals(id, item.berichtId)
         assertEquals("Onderwerp", item.onderwerp)
-        assertEquals("00000001003214345000", item.afzender)
         assertEquals(2, item.aantalBijlagen)
         assertEquals("werk", item.map)
-        assertEquals("magazijn-a", item.magazijnId)
+        assertEquals(KVK, item.magazijnId)
         assertEquals("/api/v1/berichten/$id", item.links.self.href)
+    }
+
+    @Test
+    fun `lijst zet de afzendernaam per bericht`() {
+        every { sessiecache.lijst(ontvanger, null, null) } returns pagina(
+            berichten = listOf(samenvatting(magazijnId = BELASTINGDIENST), samenvatting(magazijnId = KVK)),
+        )
+
+        val berichten = service.lijst("BSN:999990019", null, null).berichten
+
+        // Twee berichten uit verschillende magazijnen: dit bewijst dat de naam per bericht
+        // wordt opgezocht en niet één keer voor de hele lijst wordt overgenomen.
+        assertEquals("Belastingdienst", berichten[0].afzenderNaam)
+        assertEquals("Kamer van Koophandel", berichten[1].afzenderNaam)
+    }
+
+    @Test
+    fun `zoek zet de afzendernaam uit het register op elk bericht`() {
+        every { sessiecache.zoek(ontvanger, "rente") } returns pagina(
+            berichten = listOf(samenvatting(magazijnId = BELASTINGDIENST)),
+        )
+
+        val berichten = service.zoek("BSN:999990019", "rente").berichten
+
+        assertEquals("Belastingdienst", berichten.single().afzenderNaam)
     }
 
     @Test
@@ -130,5 +174,11 @@ class BerichtenlijstServiceTest {
         val conflict = assertThrows<WebApplicationException> { service.lijst("BSN:999990019", null, null) }
 
         assertEquals(409, conflict.response.status)
+    }
+
+    private companion object {
+
+        private const val BELASTINGDIENST = "00000001823288444000"
+        private const val KVK = "00000001003214345000"
     }
 }

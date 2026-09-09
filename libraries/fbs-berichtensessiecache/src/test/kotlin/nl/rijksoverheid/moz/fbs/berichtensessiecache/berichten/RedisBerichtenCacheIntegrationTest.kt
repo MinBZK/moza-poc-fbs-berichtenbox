@@ -43,6 +43,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
+            afzenderNaam = "Belastingdienst",
             ontvanger = ontvanger,
             onderwerp = "Eerste bericht over belastingaangifte",
             publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
@@ -53,6 +54,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000009876543210000",
+            afzenderNaam = "Rijksdienst voor Ondernemend Nederland",
             ontvanger = ontvanger,
             onderwerp = "Tweede bericht over subsidie",
             publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
@@ -63,6 +65,7 @@ class RedisBerichtenCacheIntegrationTest {
         Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
+            afzenderNaam = "Kamer van Koophandel",
             ontvanger = ontvanger,
             onderwerp = "Derde bericht over vergunning",
             publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
@@ -84,6 +87,72 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(berichten[1].berichtId, page.berichten[0].berichtId) // 12:00 eerst
         assertEquals(berichten[2].berichtId, page.berichten[1].berichtId) // 11:00
         assertEquals(berichten[0].berichtId, page.berichten[2].berichtId) // 10:00
+    }
+
+    @Test
+    fun `afzenderNaam overleeft de roundtrip op alle drie de leespaden`() {
+        // Elk bericht draagt een naam die van geen enkel ander stringveld gelijk is: een
+        // verwisselde veldmapping (`afzenderNaam` uit `afzender` lezen, of andersom) levert dan
+        // een andere waarde op in plaats van toevallig te slagen. Drie paden, drie leesroutes:
+        // de list-blob (ongefilterde lijst), de hash (detail) en de RediSearch-projectie (zoeken).
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val uitLijst = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!
+
+        assertEquals(
+            berichten.associate { it.berichtId to it.afzenderNaam },
+            uitLijst.berichten.associate { it.berichtId to it.afzenderNaam },
+        )
+
+        val uitHash = berichtenCache.getById(berichten[1].berichtId, ontvanger).await().indefinitely()
+
+        assertEquals("Rijksdienst voor Ondernemend Nederland", uitHash?.afzenderNaam)
+
+        val uitZoek = berichtenCache.search(ontvanger, "subsidie", 0, 20, null).await().indefinitely()
+
+        assertEquals(
+            "Rijksdienst voor Ondernemend Nederland",
+            uitZoek.berichten.single { it.berichtId == berichten[1].berichtId }.afzenderNaam,
+        )
+    }
+
+    @Test
+    fun `afzenderNaam overleeft ook de gefilterde lijst via de RediSearch-projectie`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val gefilterd = berichtenCache
+            .getPage(cacheKey(), 0, 20, "00000009876543210000", ontvanger)
+            .await().indefinitely()!!
+
+        assertEquals(
+            "Rijksdienst voor Ondernemend Nederland",
+            gefilterd.berichten.single().afzenderNaam,
+        )
+    }
+
+    @Test
+    fun `een achtergebleven v1-entry wordt niet gelezen en geeft geen leesfout`() {
+        // De prefix-bump bestaat juist hierom: een entry uit de vorige versie mist `afzenderNaam`
+        // en zou als corrupt gelezen worden (500). Onder een eigen prefix wordt hij simpelweg niet
+        // meer gevonden en verloopt hij via zijn eigen TTL.
+        val berichtId = UUID.randomUUID()
+        val v1Hash = mapOf(
+            "berichtId" to berichtId.toString(),
+            "afzender" to "00000001234567890000",
+            "ontvanger" to ontvanger.waarde,
+            "ontvangerType" to ontvanger.type.name,
+            "onderwerp" to "Bericht uit de vorige cacheversie",
+            "inhoud" to "inhoud",
+            "publicatietijdstip" to "2026-03-10T10:00:00Z",
+            "magazijnId" to "magazijn-a",
+            "aantalBijlagen" to "0",
+        )
+
+        redis.hash(String::class.java).hset("bericht:v1:$berichtId", v1Hash).await().indefinitely()
+
+        assertNull(berichtenCache.getById(berichtId, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -317,6 +386,7 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuw = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Concurrent toegevoegd",
             publicatietijdstip = Instant.parse("2026-03-10T15:00:00Z"),
@@ -357,6 +427,7 @@ class RedisBerichtenCacheIntegrationTest {
         val bericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000001234567890000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Bericht met bijlage",
             publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
@@ -404,6 +475,7 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuwBericht = Bericht(
             berichtId = UUID.randomUUID(),
             afzender = "00000005555555550000",
+            afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Nieuw bericht",
             publicatietijdstip = Instant.parse("2026-03-10T14:00:00Z"),
@@ -555,6 +627,7 @@ class RedisBerichtenCacheIntegrationTest {
     private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001234567890000",
+        afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = onderwerp,
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
@@ -568,7 +641,10 @@ class RedisBerichtenCacheIntegrationTest {
         // dat de samenvatting-mapper weggooit).
         assertFalse(RedisBerichtenCache.SAMENVATTING_VELDEN.contains("bijlagen"))
         assertTrue(RedisBerichtenCache.SAMENVATTING_VELDEN.containsAll(
-            listOf("berichtId", "afzender", "ontvanger", "onderwerp", "publicatietijdstip", "magazijnId", "aantalBijlagen", "map", "status"),
+            listOf(
+                "berichtId", "afzender", "afzenderNaam", "ontvanger", "onderwerp",
+                "publicatietijdstip", "magazijnId", "aantalBijlagen", "map", "status",
+            ),
         ))
     }
 
@@ -704,6 +780,7 @@ class RedisBerichtenCacheIntegrationTest {
         val partialHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
@@ -733,6 +810,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corrupteHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "corrupt zoekdocument",
@@ -771,6 +849,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to "geen-uuid-meer",
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
@@ -796,6 +875,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
@@ -823,6 +903,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to "123456789",
             "ontvangerType" to "BSN",
             "onderwerp" to "test",
@@ -847,6 +928,7 @@ class RedisBerichtenCacheIntegrationTest {
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
+            "afzenderNaam" to "Magazijn A",
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to "ONBEKEND",
             "onderwerp" to "test",

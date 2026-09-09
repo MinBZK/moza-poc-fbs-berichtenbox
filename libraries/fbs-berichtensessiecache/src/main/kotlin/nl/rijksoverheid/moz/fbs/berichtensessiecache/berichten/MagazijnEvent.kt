@@ -37,10 +37,10 @@ enum class MagazijnFoutStatus(val wire: MagazijnStatus) {
  * soort draagt, zodat een onvolledige of tegenstrijdige combinatie niet te construeren is.
  *
  * Het wire-formaat is een vlak JSON-object met `event` als discriminator; [JsonPropertyOrder]
- * pint per type de veldvolgorde. Alleen de per-magazijn-typen hebben een optioneel veld
- * (`naam`) en dragen daarom `NON_NULL` — de library legt dat zelf vast in plaats van te
- * leunen op de Jackson-instelling van de service die haar gebruikt. De stroom wordt alleen
- * geproduceerd, nooit door ons ingelezen — er is dus geen polymorfe deserialisatie.
+ * pint per type de veldvolgorde. `MagazijnBevragingGeslaagd` draagt als enige een optioneel veld
+ * (`totaalBeschikbaar`) en daarom `NON_NULL`; de library legt dat zelf vast in plaats van te leunen
+ * op de Jackson-instelling van de service die haar gebruikt. De stroom wordt alleen geproduceerd,
+ * nooit door ons ingelezen — er is dus geen polymorfe deserialisatie.
  */
 sealed interface MagazijnEvent {
     val event: EventType
@@ -49,14 +49,13 @@ sealed interface MagazijnEvent {
 /** Bevraging van één magazijn: het `magazijnId` is de afzender-OIN, `naam` de weergavenaam. */
 sealed interface MagazijnBevraging : MagazijnEvent {
     val magazijnId: String
-    val naam: String?
+    val naam: String
 }
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam")
 data class MagazijnBevragingGestart(
     override val magazijnId: String,
-    override val naam: String?,
+    override val naam: String,
 ) : MagazijnBevraging {
     override val event: EventType get() = EventType.MAGAZIJN_BEVRAGING_GESTART
 }
@@ -71,7 +70,7 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
  * Een magazijn dat antwoord gaf. `afgekapt`: er staat méér bij deze organisatie dan is opgehaald.
  * Het portaal hoort dat te tonen, óók in een samenvattende regel — anders houdt de ontvanger een
  * onvolledige lijst voor een volledige. `totaalBeschikbaar` staat er alleen bij een bruikbaar
- * totaal van het magazijn zelf.
+ * totaal van het magazijn zelf, en is daarmee het enige optionele veld op dit type.
  *
  * Het signaal leeft alleen in deze stroom; de sessiecache bewaart het niet, dus wie de lijst later
  * opnieuw opvraagt krijgt hem zonder deze mededeling. TODO(MinBZK/MijnOverheidZakelijk#1072)
@@ -80,7 +79,7 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten", "afgekapt", "totaalBeschikbaar")
 data class MagazijnBevragingGeslaagd(
     override val magazijnId: String,
-    override val naam: String?,
+    override val naam: String,
     val aantalBerichten: Int,
     val afgekapt: Boolean = false,
     val totaalBeschikbaar: Long? = null,
@@ -88,11 +87,10 @@ data class MagazijnBevragingGeslaagd(
     override val status: MagazijnStatus get() = MagazijnStatus.OK
 }
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "foutmelding")
 data class MagazijnBevragingMislukt(
     override val magazijnId: String,
-    override val naam: String?,
+    override val naam: String,
     @get:JsonIgnore val fout: MagazijnFoutStatus,
     val foutmelding: String,
 ) : MagazijnBevragingVoltooid {

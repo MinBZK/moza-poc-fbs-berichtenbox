@@ -58,20 +58,26 @@ internal interface BerichtenCache {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v2:${HEX.formatHex(digest)}"
+            return "berichtensessiecache:v3:${HEX.formatHex(digest)}"
         }
-        // Let op: demo-console's SessieService spiegelt deze sleutelvorm met de hand (het paneel
-        // mag geen dependency op deze library hebben). Een bump hier moet daar mee.
-        //
-        // v2: de vorm van hash én blob wijzigde toen de berichttekst uit de cache verdween.
-        // Zonder deze bump leest een nog draaiende pod van de vorige versie tijdens een uitrol
-        // een entry zonder `inhoud` en strandt op een ontbrekend veld — een 500 op de
-        // berichtenlijst, voor de duur van het venster. Met disjuncte sleutels ziet die pod een
-        // cache-miss en vraagt de box netjes om opnieuw ophalen. Een bump van BERICHT_PREFIX
-        // verandert de RediSearch-index-prefix: volg docs/operations/redisearch-schema-bump.md.
-        fun berichtKey(berichtId: UUID) = "bericht:v2:$berichtId"
-        const val BERICHT_PREFIX = "bericht:v2:"
-        const val SEARCH_INDEX = "berichten-idx"
+        // v3: twee schemawijzigingen tegelijk. Berichten dragen sinds kort een verplichte
+        // `afzenderNaam`, en de berichttekst is uit hash én blob verdwenen. Een pod van een
+        // vorige versie die zo'n entry leest mist een veld dat hij verplicht acht en geeft een
+        // 500 op de berichtenlijst; aan dat gedrag valt niets te veranderen, dus moeten de
+        // sleutels disjunct zijn. Beide wijzigingen kwamen los van elkaar op v2 uit — vandaar
+        // v3, want één versienummer voor twee vormen brengt precies de botsing terug die de
+        // bump moest voorkomen.
+        fun berichtKey(berichtId: UUID) = "$BERICHT_PREFIX$berichtId"
+        const val BERICHT_PREFIX = "bericht:v3:"
+
+        // De index-naam draagt dezelfde versie als de prefix waarop hij filtert, en dat is geen
+        // cosmetica: de bootstrap laat een bestaande index bewust ongemoeid, dus een index die op
+        // een oudere prefix is aangemaakt zou blijven staan terwijl alle nieuwe hashes elders
+        // landen. Filter- en zoekqueries geven dan stil nul resultaten — een index op de
+        // verkeerde prefix is functioneel identiek aan géén index, maar valt buiten de fail-fast
+        // hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index aan en
+        // blijven oude pods tijdens een rolling deploy op de oude werken.
+        const val SEARCH_INDEX = "berichten-idx-v3"
     }
 }
 
@@ -459,6 +465,7 @@ internal class RedisBerichtenCache(
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
         put("berichtId", bericht.berichtId.toString())
         put("afzender", bericht.afzender)
+        put("afzenderNaam", bericht.afzenderNaam)
         put("ontvanger", bericht.ontvanger.waarde)
         put("ontvangerType", bericht.ontvanger.type.name)
         put("onderwerp", bericht.onderwerp)
@@ -509,6 +516,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
+            afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             publicatietijdstip = try {
@@ -561,6 +569,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
+            afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             publicatietijdstip = try {
@@ -869,6 +878,7 @@ internal class RedisBerichtenCache(
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",
             "afzender",
+            "afzenderNaam",
             "ontvanger",
             "ontvangerType",
             "onderwerp",

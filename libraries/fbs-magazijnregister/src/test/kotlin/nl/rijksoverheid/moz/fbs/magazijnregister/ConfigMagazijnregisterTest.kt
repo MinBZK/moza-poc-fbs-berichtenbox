@@ -23,7 +23,7 @@ class ConfigMagazijnregisterTest {
         val register = register(
             "test",
             oinA to inschrijving("http://localhost:8081", "Belastingdienst"),
-            oinB to inschrijving("http://localhost:8082", null),
+            oinB to inschrijving("http://localhost:8082"),
         )
 
         assertEquals(2, register.alle().size)
@@ -36,15 +36,28 @@ class ConfigMagazijnregisterTest {
     }
 
     @Test
-    fun `naam is optioneel en wordt null zonder waarde`() {
-        val register = register("test", oinA to inschrijving("http://localhost:8081", null))
+    fun `blanco naam blokkeert de boot`() {
+        // De naam is gebruikersgezichtbaar: liever een pod die niet start dan een berichtenlijst
+        // met een lege afzender.
+        listOf("", "   ").forEach { blanco ->
+            val ex = assertThrows<IllegalStateException> {
+                register("test", oinA to inschrijving("http://localhost:8081", blanco))
+            }
 
-        assertNull(register.voorOin(Oin(oinA))!!.naam)
+            assertTrue(ex.message!!.contains("naam"))
+        }
+    }
+
+    @Test
+    fun `naam wordt getrimd`() {
+        val register = register("test", oinA to inschrijving("http://localhost:8081", "  Belastingdienst  "))
+
+        assertEquals("Belastingdienst", register.voorOin(Oin(oinA))!!.naam)
     }
 
     @Test
     fun `onbekende OIN levert null via voorOin`() {
-        val register = register("test", oinA to inschrijving("http://localhost:8081", null))
+        val register = register("test", oinA to inschrijving("http://localhost:8081"))
 
         assertNull(register.voorOin(Oin(oinB)))
     }
@@ -59,7 +72,7 @@ class ConfigMagazijnregisterTest {
     @Test
     fun `ongeldige OIN-key faalt fail-fast met de key in de melding`() {
         val ex = assertThrows<IllegalStateException> {
-            register("test", "magazijn-a" to inschrijving("http://localhost:8081", null))
+            register("test", "magazijn-a" to inschrijving("http://localhost:8081"))
         }
 
         assertTrue(ex.message!!.contains("magazijn-a"), "foutmelding moet de ongeldige key tonen")
@@ -69,14 +82,14 @@ class ConfigMagazijnregisterTest {
     @Test
     fun `OIN-key geheel uit nullen faalt fail-fast`() {
         assertThrows<IllegalStateException> {
-            register("test", "00000000000000000000" to inschrijving("http://localhost:8081", null))
+            register("test", "00000000000000000000" to inschrijving("http://localhost:8081"))
         }
     }
 
     @Test
     fun `ongeldige URI faalt fail-fast met config-key in de melding`() {
         val ex = assertThrows<IllegalStateException> {
-            register("test", oinA to inschrijving("http://exa mple.com", null))
+            register("test", oinA to inschrijving("http://exa mple.com"))
         }
 
         assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".url"))
@@ -85,7 +98,7 @@ class ConfigMagazijnregisterTest {
     @Test
     fun `niet-http-scheme faalt fail-fast`() {
         val ex = assertThrows<IllegalStateException> {
-            register("test", oinA to inschrijving("ftp://example.com", null))
+            register("test", oinA to inschrijving("ftp://example.com"))
         }
 
         assertTrue(ex.message!!.contains("http(s)"))
@@ -96,7 +109,7 @@ class ConfigMagazijnregisterTest {
         // URI.create accepteert `http:///pad` (scheme zonder host); zonder deze check
         // zou de boot slagen en pas het eerste verkeer falen.
         val ex = assertThrows<IllegalStateException> {
-            register("test", oinA to inschrijving("http:///geen-host", null))
+            register("test", oinA to inschrijving("http:///geen-host"))
         }
 
         assertTrue(ex.message!!.contains("host"), "foutmelding moet de ontbrekende host benoemen")
@@ -104,7 +117,7 @@ class ConfigMagazijnregisterTest {
 
     @Test
     fun `bijOpstart logt na geslaagde init zonder fout`() {
-        val register = register("test", oinA to inschrijving("http://localhost:8081", null))
+        val register = register("test", oinA to inschrijving("http://localhost:8081"))
 
         assertDoesNotThrow { (register as ConfigMagazijnregister).bijOpstart(StartupEvent()) }
     }
@@ -112,7 +125,7 @@ class ConfigMagazijnregisterTest {
     @Test
     fun `prod-profiel weigert http-URL`() {
         val ex = assertThrows<IllegalArgumentException> {
-            register("prod", oinA to inschrijving("http://magazijn.intern:8081", null))
+            register("prod", oinA to inschrijving("http://magazijn.intern:8081"))
         }
 
         assertTrue(ex.message!!.contains("BIO 13.2.1"), "foutmelding moet naar BIO 13.2.1 verwijzen")
@@ -125,14 +138,14 @@ class ConfigMagazijnregisterTest {
 
     @Test
     fun `grantHash is null zonder configwaarde`() {
-        val register = register("test", oinA to inschrijving("http://localhost:8081", null))
+        val register = register("test", oinA to inschrijving("http://localhost:8081"))
 
         assertNull(register.voorOin(Oin(oinA))!!.grantHash)
     }
 
     @Test
     fun `grantHash wordt doorgegeven vanuit config`() {
-        val register = register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "abc123"))
+        val register = register("test", oinA to inschrijving("http://localhost:8081", grantHash = "abc123"))
 
         assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
     }
@@ -141,8 +154,8 @@ class ConfigMagazijnregisterTest {
     fun `meerdere magazijnen waarvan er een grantHash heeft en een niet`() {
         val register = register(
             "test",
-            oinA to inschrijving("http://localhost:8081", null, grantHash = "abc123"),
-            oinB to inschrijving("http://localhost:8082", null),
+            oinA to inschrijving("http://localhost:8081", grantHash = "abc123"),
+            oinB to inschrijving("http://localhost:8082"),
         )
 
         assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
@@ -151,7 +164,7 @@ class ConfigMagazijnregisterTest {
 
     @Test
     fun `grantHash wordt getrimd`() {
-        val register = register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "  abc123  "))
+        val register = register("test", oinA to inschrijving("http://localhost:8081", grantHash = "  abc123  "))
 
         assertEquals("abc123", register.voorOin(Oin(oinA))!!.grantHash)
     }
@@ -159,7 +172,7 @@ class ConfigMagazijnregisterTest {
     @Test
     fun `lege grantHash faalt fail-fast met de config-key in de melding`() {
         val ex = assertThrows<IllegalStateException> {
-            register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = ""))
+            register("test", oinA to inschrijving("http://localhost:8081", grantHash = ""))
         }
 
         assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".grantHash"))
@@ -168,7 +181,7 @@ class ConfigMagazijnregisterTest {
     @Test
     fun `whitespace-only grantHash faalt fail-fast met de config-key in de melding`() {
         val ex = assertThrows<IllegalStateException> {
-            register("test", oinA to inschrijving("http://localhost:8081", null, grantHash = "   "))
+            register("test", oinA to inschrijving("http://localhost:8081", grantHash = "   "))
         }
 
         assertTrue(ex.message!!.contains("magazijnen.\"$oinA\".grantHash"))
@@ -191,6 +204,7 @@ class ConfigMagazijnregisterTest {
                 PropertiesConfigSource(
                     mapOf(
                         "magazijnen.\"$oinA\".url" to "http://localhost:8081",
+                        "magazijnen.\"$oinA\".naam" to "Belastingdienst",
                         "magazijnen.\"$oinA\".grantHash" to "\${MAGAZIJN_A_GRANT_HASH:}",
                     ),
                     "test",
@@ -213,10 +227,10 @@ class ConfigMagazijnregisterTest {
         return ConfigMagazijnregister(config, profiel).apply { init() }
     }
 
-    private fun inschrijving(url: String, naam: String?, grantHash: String? = null): MagazijnregisterConfig.Inschrijving =
+    private fun inschrijving(url: String, naam: String = "Belastingdienst", grantHash: String? = null): MagazijnregisterConfig.Inschrijving =
         object : MagazijnregisterConfig.Inschrijving {
             override fun url(): String = url
-            override fun naam(): Optional<String> = Optional.ofNullable(naam)
+            override fun naam(): String = naam
             override fun grantHash(): Optional<String> = Optional.ofNullable(grantHash)
         }
 }

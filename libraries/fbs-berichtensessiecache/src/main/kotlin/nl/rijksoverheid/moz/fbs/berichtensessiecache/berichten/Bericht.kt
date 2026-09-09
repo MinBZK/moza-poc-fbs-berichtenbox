@@ -46,6 +46,14 @@ enum class Leesstatus(@get:JsonValue val wire: String) {
 data class Bericht(
     val berichtId: UUID,
     val afzender: String,
+    /**
+     * Weergavenaam van de afzendende organisatie, bij het schrijven overgenomen uit het
+     * magazijnregister op [magazijnId]. De cache bewaart hem en zoekt zelf niets op, zodat een
+     * bericht zijn naam houdt ook als de organisatie intussen uit het register verdwijnt — de
+     * berichtenlijst mag nooit een nummer tonen waar een naam hoort. Een consumer mag deze naam
+     * wél tegen een actueel register houden en de verse naam prefereren.
+     */
+    val afzenderNaam: String,
     @param:JsonDeserialize(using = IdentificatienummerCanonicalDeserializer::class)
     @get:JsonSerialize(using = IdentificatienummerCanonicalSerializer::class)
     val ontvanger: Identificatienummer,
@@ -59,6 +67,7 @@ data class Bericht(
 ) {
     init {
         require(afzender.isNotBlank()) { "afzender mag niet leeg zijn" }
+        require(afzenderNaam.isNotBlank()) { "afzenderNaam mag niet leeg zijn" }
         require(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
         require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
         require(aantalBijlagen >= 0) { "aantalBijlagen mag niet negatief zijn" }
@@ -79,6 +88,7 @@ data class Bericht(
 fun Bericht.toSamenvatting(): BerichtSamenvatting = BerichtSamenvatting(
     berichtId = berichtId,
     afzender = afzender,
+    afzenderNaam = afzenderNaam,
     ontvanger = ontvanger,
     onderwerp = onderwerp,
     publicatietijdstip = publicatietijdstip,
@@ -99,6 +109,8 @@ fun Bericht.toSamenvatting(): BerichtSamenvatting = BerichtSamenvatting(
 data class BerichtSamenvatting(
     val berichtId: UUID,
     val afzender: String,
+    /** Zie [Bericht.afzenderNaam]. */
+    val afzenderNaam: String,
     val ontvanger: Identificatienummer,
     val onderwerp: String,
     val publicatietijdstip: Instant,
