@@ -9,6 +9,8 @@ import jakarta.ws.rs.Produces
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.MediaType
 import nl.rijksoverheid.moz.fbs.common.fsc.ProfielFscOutwayHeadersFilter
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import org.eclipse.microprofile.faulttolerance.Retry
 import org.eclipse.microprofile.rest.client.annotation.RegisterProvider
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
@@ -75,11 +77,39 @@ interface ProfielServiceClient {
  * upstream-contract laten we weg: dat filtert de voorkeuren aan de bron op scope, terwijl
  * [ProfielVoorkeuren] die filtering al doet op de volledige respons — één plek waar de
  * opt-in-regel leeft, in plaats van twee die uit elkaar kunnen lopen.
+ *
+ * Bouw hem via [van]: twee losse strings zijn onderling verwisselbaar zonder dat de compiler
+ * mokt, en de vertaling naar de contract-labels hoort op één plek te staan.
  */
 data class PartijRequest(
     val identificatieType: String,
     val identificatieNummer: String,
-)
+) {
+
+    /**
+     * Zonder deze override drukt de gegenereerde `toString()` het identificatienummer voluit
+     * af — voor een burger het BSN — zodra dit object in een logregel, foutmelding of
+     * assertie belandt. [nl.rijksoverheid.moz.fbs.common.identificatie.Bsn] maskeert om
+     * dezelfde reden.
+     */
+    override fun toString(): String = "PartijRequest(identificatieType=$identificatieType)"
+
+    companion object {
+
+        /**
+         * Vertaalt een ontvanger naar de aanvraag-body. Expliciete `when` en geen `.name`:
+         * een hernoeming van de interne enum mag het externe contract niet stilletjes breken.
+         * OIN hoort door de aanroeper afgevangen te zijn — de Profiel-service kent dat type
+         * niet.
+         */
+        fun van(ontvanger: Identificatienummer): PartijRequest = when (ontvanger.type) {
+            IdentificatienummerType.BSN -> PartijRequest("BSN", ontvanger.waarde)
+            IdentificatienummerType.RSIN -> PartijRequest("RSIN", ontvanger.waarde)
+            IdentificatienummerType.KVK -> PartijRequest("KVK", ontvanger.waarde)
+            IdentificatienummerType.OIN -> error("OIN-ontvanger moet vóór de Profiel-call afgevangen worden")
+        }
+    }
+}
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class PartijResponse(

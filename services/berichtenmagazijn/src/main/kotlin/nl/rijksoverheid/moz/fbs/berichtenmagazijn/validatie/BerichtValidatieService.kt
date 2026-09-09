@@ -53,21 +53,19 @@ class BerichtValidatieService(
     }
 
     private fun controleerAbonnement(bericht: Bericht) {
-        val ontvangerType = when (bericht.ontvanger.type) {
-            IdentificatienummerType.BSN -> "BSN"
-            IdentificatienummerType.RSIN -> "RSIN"
-            IdentificatienummerType.KVK -> "KVK"
-            // Organisatie-naar-organisatie valt buiten het profiel-service-model.
-            IdentificatienummerType.OIN -> return
-        }
+        // Organisatie-naar-organisatie valt buiten het profiel-service-model.
+        if (bericht.ontvanger.type == IdentificatienummerType.OIN) return
+
+        val aanvraag = PartijRequest.van(bericht.ontvanger)
+        val ontvangerType = aanvraag.identificatieType
 
         val partij = try {
-            profielServiceClient.getPartij(PartijRequest(ontvangerType, bericht.ontvanger.waarde))
+            profielServiceClient.getPartij(aanvraag)
         } catch (ex: WebApplicationException) {
             // Quarkus REST Reactive werpt `ClientWebApplicationException` voor élke
             // 4xx — niet de typespecifieke `NotFoundException`. We filteren expliciet
             // op statuscode 404 en behandelen dat als fail-closed; elke andere status
-            // (400 op invalide path, 401/403 op auth-misser, 5xx) propageert wél, zodat de
+            // (400 op een geweigerd aanvraag-lichaam, 401/403 op auth-misser, 5xx) propageert wél, zodat de
             // aanleveraar een fout ziet in plaats van een stille afwijzing. Ze tellen
             // niet mee voor het circuit: een HTTP-antwoord betekent dat de upstream
             // leeft. Netwerk-fouten zijn geen `WebApplicationException`, passeren deze
@@ -78,6 +76,14 @@ class BerichtValidatieService(
             // de upstream-URL, dus ook een ongesaneerde message zou het niet dragen.
             if (ex.response?.status != 404) throw ex
             // Onbekende ontvanger → fail-closed: behandel als geen toestemming.
+            //
+            // Hier wordt élke 404 zo behandeld, terwijl de ophaalkant een storings-404 van een
+            // "partij niet gevonden" scheidt. Dat verschil is opzet: aanleveren mag bij twijfel
+            // niet doorgaan, dus beide uitkomsten weigeren en de keuze verandert niets aan wat
+            // er gebeurt. Die scheiding hier alsnog inbouwen zou een storing juist wél laten
+            // passeren — fail-open op het pad waar dat het duurst is. Wat er wél aan mankeert
+            // is de melding: de aanleveraar leest een storing als een toestemmingsoordeel.
+            //
             // Log op WARN zodat een configuratiefout (verkeerd base-path → 404 op
             // élke ontvanger) zichtbaar wordt; de ontvanger-waarde blijft uit de
             // log om geen BSN/RSIN te lekken.

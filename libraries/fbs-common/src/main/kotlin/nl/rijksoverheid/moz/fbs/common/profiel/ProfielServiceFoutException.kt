@@ -78,7 +78,7 @@ class ProfielServiceFoutException private constructor(
          *
          * **Invariant**: geen dynamische `message` of `cause` toevoegen zonder PII-review
          * van [ProfielServiceFoutExceptionMapper] — die mapper logt voor CONFIG_DRIFT een
-         * stacktrace; een cause met upstream-URL (BSN/RSIN in pad) zou daarmee lekken.
+         * stacktrace; een cause die het aanvraag-lichaam meedraagt (BSN/RSIN) zou daarmee lekken.
          */
         fun configDrift() =
             ProfielServiceFoutException(Categorie.CONFIG_DRIFT, message = "Configuratie-mismatch: opt-in OINs onbekend bij magazijn-config")

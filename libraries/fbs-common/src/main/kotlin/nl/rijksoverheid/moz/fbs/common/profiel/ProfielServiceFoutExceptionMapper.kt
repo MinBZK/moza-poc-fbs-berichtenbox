@@ -36,8 +36,9 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
         // af in een SSE-OPHALEN_FOUT-pad; deze mapper-tak is defense-in-depth voor
         // paden waar het exception buiten de service-catch doorlekt.
         if (exception.categorie == ProfielServiceFoutException.Categorie.CONFIG_DRIFT) {
-            // CONFIG_DRIFT hoort geen cause te dragen: een stacktrace via de cause zou de
-            // upstream-URL (BSN/RSIN/KVK in het pad) naar de log lekken. We gooien hier
+            // CONFIG_DRIFT hoort geen cause te dragen: een stacktrace via de cause kan het
+            // aanvraag-lichaam of upstream-detail meedragen, en daarin zit BSN/RSIN/KVK.
+            // We gooien hier
             // bewust GEEN exception: een throw binnen een ExceptionMapper valt terug op het
             // JAX-RS-default-500-pad dat juist wél een stacktrace kan renderen — precies het
             // PII-lek dat we willen voorkomen. Bij een toekomstige factory die toch een cause
@@ -76,8 +77,8 @@ class ProfielServiceFoutExceptionMapper : ExceptionMapper<ProfielServiceFoutExce
         }
 
         // Bewust geen full stacktrace via .warnf(exception, …): de cause-chain van
-        // lower-level HTTP-clients kan in randgevallen de upstream-URL bevatten,
-        // die de BSN/RSIN/KVK in het pad heeft (extern Profiel-contract). Log alleen
+        // lower-level HTTP-clients kan in randgevallen het aanvraag-lichaam of
+        // upstream-detail meedragen, en daarin zit BSN/RSIN/KVK. Log alleen
         // de categorie + cause-type voor diagnose; errorId verbindt naar deze response.
         // Categorie als gestructureerd veld zodat log-aggregatie op fault-mode kan filteren.
         val httpStatusLabel = exception.httpStatus?.toString() ?: "n.v.t."

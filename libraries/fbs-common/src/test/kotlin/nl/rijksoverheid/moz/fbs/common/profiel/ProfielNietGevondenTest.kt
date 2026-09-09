@@ -1,10 +1,12 @@
 package nl.rijksoverheid.moz.fbs.common.profiel
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.NullAndEmptySource
+import org.junit.jupiter.params.provider.NullSource
 import org.junit.jupiter.params.provider.ValueSource
 
 class ProfielNietGevondenTest {
@@ -20,18 +22,38 @@ class ProfielNietGevondenTest {
             }
         """.trimIndent()
 
-        assertTrue(ProfielNietGevonden.isPartijZonderProfiel(body))
+        assertEquals(Profiel404Duiding.PartijZonderProfiel, ProfielNietGevonden.duid(body))
     }
 
     @Test
     fun `omringende witruimte en afwijkende hoofdletters blijven herkenbaar`() {
-        assertTrue(ProfielNietGevonden.isPartijZonderProfiel("""{"title":"  partij NIET gevonden  "}"""))
+        assertEquals(
+            Profiel404Duiding.PartijZonderProfiel,
+            ProfielNietGevonden.duid("""{"title":"  partij NIET gevonden  "}"""),
+        )
+    }
+
+    @Test
+    fun `een antwoord dat zichzelf niet als 404 aankondigt telt niet als opt-out`() {
+        // Zonder deze controle zou een 200 of 500 die toevallig dezelfde title draagt de
+        // berichtenbox stil leegmaken.
+        assertStoring("""{"title":"Partij niet gevonden","status":500}""")
+    }
+
+    @Test
+    fun `een ontbrekende status laat de titel beslissen`() {
+        // `status` is optioneel in RFC 9457; een problem-body zonder dat veld mag niet
+        // daarom al als storing gelden.
+        assertEquals(
+            Profiel404Duiding.PartijZonderProfiel,
+            ProfielNietGevonden.duid("""{"title":"Partij niet gevonden"}"""),
+        )
     }
 
     @ParameterizedTest
     @ValueSource(
         strings = [
-            // Een ander 404-geval van dezelfde dienst: hoort géén opt-out te zijn.
+            // Andere 404-gevallen van dezelfde dienst: horen géén opt-out te zijn.
             """{"type":"about:blank","title":"Contactgegeven niet gevonden","status":404}""",
             """{"type":"about:blank","title":"Voorkeur niet gevonden","status":404}""",
             // Problem-body zonder title, of met een title die geen tekst is.
@@ -46,14 +68,62 @@ class ProfielNietGevondenTest {
             "{",
         ],
     )
-    fun `elk ander 404-antwoord telt niet als partij zonder profiel`(body: String) {
-        assertFalse(ProfielNietGevonden.isPartijZonderProfiel(body))
+    fun `elk ander 404-antwoord telt als storing`(body: String) {
+        assertStoring(body)
     }
 
     @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = ["   ", "\n"])
-    fun `een ontbrekend of leeg antwoord telt niet als partij zonder profiel`(body: String?) {
-        assertFalse(ProfielNietGevonden.isPartijZonderProfiel(body))
+    @NullSource
+    @ValueSource(strings = ["", "   ", "\n"])
+    fun `een ontbrekend of leeg antwoord telt als storing`(body: String?) {
+        assertStoring(body)
     }
+
+    @Test
+    fun `een lichaam boven de bovengrens telt als storing en wordt niet geparsed`() {
+        // Een defecte upstream die een foutpagina van megabytes teruggeeft mag niet als
+        // JSON-boom op de heap belanden.
+        val teGroot = "{\"title\":\"Partij niet gevonden\",\"vulling\":\"" +
+            "x".repeat(ProfielNietGevonden.MAX_LICHAAM_TEKENS) + "\"}"
+
+        val duiding = assertStoring(teGroot)
+
+        assertTrue(
+            duiding.omschrijving.contains("te groot"),
+            "omschrijving moet de reden benoemen — gevonden: ${duiding.omschrijving}",
+        )
+    }
+
+    @Test
+    fun `de omschrijving draagt de titel van het afwijkende antwoord`() {
+        val duiding = assertStoring("""{"title":"Voorkeur niet gevonden","status":404}""")
+
+        assertTrue(
+            duiding.omschrijving.contains("Voorkeur niet gevonden"),
+            "beheer moet aan de omschrijving zien wélk antwoord het was — gevonden: ${duiding.omschrijving}",
+        )
+    }
+
+    @Test
+    fun `een titel met control-chars komt gesaniteerd en afgekapt in de omschrijving`() {
+        // De titel komt ongevalideerd van buiten; een CRLF erin zou een tweede logregel
+        // kunnen vervalsen.
+        val duiding = assertStoring("""{"title":"Ramp\r\nERROR: nep","status":404}""")
+
+        assertFalse(duiding.omschrijving.contains("\n"), "geen regeleinde in de omschrijving")
+        assertFalse(duiding.omschrijving.contains("\r"), "geen carriage return in de omschrijving")
+    }
+
+    @Test
+    fun `een extreem lange titel wordt afgekapt`() {
+        val duiding = assertStoring("""{"title":"${"A".repeat(500)}","status":404}""")
+
+        assertTrue(
+            duiding.omschrijving.length < 200,
+            "omschrijving moet begrensd zijn — lengte ${duiding.omschrijving.length}",
+        )
+    }
+
+    private fun assertStoring(body: String?): Profiel404Duiding.Storing =
+        assertInstanceOf(Profiel404Duiding.Storing::class.java, ProfielNietGevonden.duid(body))
 }

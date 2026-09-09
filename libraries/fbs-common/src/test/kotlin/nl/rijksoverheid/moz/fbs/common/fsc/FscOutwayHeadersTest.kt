@@ -105,9 +105,11 @@ class FscOutwayHeadersTest {
 
     @Test
     fun `debuglog bevat de host maar geen pad of query van de call`() {
-        // De Profiel-call draagt de BSN in het pad (zie zetHeaders); deze log-regel
-        // draait op DEBUG, dat in %dev/%test aanstaat. Een refactor die weer het
-        // volledige requestContext.uri logt, zou BSN's naar de applicatielog schrijven.
+        // Deze filter draait voor élke uitgaande FSC-call, dus wat er in pad of query staat
+        // is hier niet te overzien; de fixture-URI hieronder draagt bewust een BSN als
+        // worst-case. De log-regel staat op DEBUG, dat in %dev/%test aanstaat — een refactor
+        // die weer de volledige requestContext.uri logt, zou zoiets naar de applicatielog
+        // schrijven.
         zetHeaders("abc123")
 
         val debugRecords = records.filter { it.level == Level.FINE }
@@ -117,7 +119,7 @@ class FscOutwayHeadersTest {
                 ?: rec.message
         }
         assertTrue(rendered.contains("outway.voorbeeld.test"), "host moet aanwezig zijn — gevonden: $rendered")
-        assertFalse(rendered.contains("999993653"), "BSN uit het pad mag NIET gelogd worden — gevonden: $rendered")
+        assertFalse(rendered.contains("999993653"), "een identificatienummer in de URI mag NIET gelogd worden — gevonden: $rendered")
         assertFalse(rendered.contains("/api/profielservice"), "pad mag NIET gelogd worden — gevonden: $rendered")
     }
 }

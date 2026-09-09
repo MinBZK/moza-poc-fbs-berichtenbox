@@ -197,12 +197,12 @@ class DemoDatasetConsistentieTest {
      * de request-body, niet meer in het pad.
      */
     private fun sleutelVan(stub: JsonNode): Pair<String, String>? {
-        val paden = stub.path("request").path("bodyPatterns")
+        val velden = stub.path("request").path("bodyPatterns")
             .mapNotNull { BODY_MATCH.find(it.path("matchesJsonPath").asText("")) }
             .associate { it.groupValues[1] to it.groupValues[2] }
 
-        val type = paden["identificatieType"] ?: return null
-        val nummer = paden["identificatieNummer"] ?: return null
+        val type = velden["identificatieType"] ?: return null
+        val nummer = velden["identificatieNummer"] ?: return null
 
         return (type to nummer).takeIf { it.first in TYPEN }
     }

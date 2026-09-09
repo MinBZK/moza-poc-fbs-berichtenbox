@@ -159,7 +159,7 @@ class ProfielServiceFoutExceptionMapperTest {
 
         ctor.isAccessible = true
 
-        val piiInCause = "http://profiel-service/api/v1/partij/BSN/999993653"
+        val piiInCause = """aanvraag geweigerd: {"identificatieType":"BSN","identificatieNummer":"999993653"}"""
         val exceptionMetCause = ctor.newInstance(
             ProfielServiceFoutException.Categorie.CONFIG_DRIFT,
             null,

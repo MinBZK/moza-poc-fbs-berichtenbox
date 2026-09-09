@@ -24,6 +24,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockedDependenciesProfile
@@ -267,17 +270,14 @@ class ProfielMagazijnResolverTest {
         assertEquals(404, ex.httpStatus)
     }
 
-    @Test
-    fun `404 waarvan het lichaam niet te lezen is telt als storing`() {
-        // Een al geconsumeerde of gesloten respons gooit bij het uitlezen. Dat mag geen
-        // onverwachte fout worden en zeker geen opt-out.
-        val response = mockk<Response>()
-
-        every { response.status } returns 404
-        // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
-        every { response.statusInfo } returns Response.Status.NOT_FOUND
-        every { response.readEntity(String::class.java) } throws IllegalStateException("entity al gelezen")
-        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(response)
+    @ParameterizedTest
+    @MethodSource("onleesbareLichamen")
+    fun `404 waarvan het lichaam niet te lezen is telt als storing`(leesfout: RuntimeException) {
+        // Een al geconsumeerde respons gooit IllegalStateException; een onbekende charset in
+        // de Content-Type levert een IllegalArgumentException uit de body-reader. Beide zijn
+        // "niet herkenbaar" en mogen géén opt-out worden — en ook geen ONVERWACHT, want dan
+        // zou een upstream-defect als onze eigen bug gealarmeerd worden.
+        stubFout(status = 404, leesfout = leesfout)
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -287,15 +287,53 @@ class ProfielMagazijnResolverTest {
         assertEquals(404, ex.httpStatus)
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = [401, 403, 500, 503])
+    fun `het opt-out-lichaam op een andere status blijft een storing`(status: Int) {
+        // Regressie-guard op de volgorde van de foutafhandeling: zou de lichaam-herkenning
+        // ooit vóór de statuscontrole komen, dan maakte een auth-misser of een upstream-crash
+        // met dit lichaam stilletjes een lege berichtenbox.
+        stubFout(status, lichaam = """{"type":"about:blank","title":"Partij niet gevonden","status":404}""")
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(status, ex.httpStatus)
+    }
+
     /** 404-respons met [lichaam] als problem+json-body; `null` = een respons zonder lichaam. */
-    private fun stub404(lichaam: String?) {
+    private fun stub404(lichaam: String?) = stubFout(status = 404, lichaam = lichaam)
+
+    /**
+     * Foutrespons met [status]. Levert [lichaam] bij het uitlezen, of werpt [leesfout] wanneer
+     * die gegeven is — zo dekt één helper zowel "lichaam aanwezig/afwezig" als "onleesbaar".
+     */
+    private fun stubFout(status: Int, lichaam: String? = null, leesfout: RuntimeException? = null) {
         val response = mockk<Response>()
 
-        every { response.status } returns 404
+        every { response.status } returns status
         // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
-        every { response.statusInfo } returns Response.Status.NOT_FOUND
-        every { response.readEntity(String::class.java) } returns lichaam
+        every { response.statusInfo } returns Response.Status.fromStatusCode(status)
+
+        if (leesfout != null) {
+            every { response.readEntity(String::class.java) } throws leesfout
+        } else {
+            every { response.readEntity(String::class.java) } returns lichaam
+        }
+
         every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(response)
+    }
+
+    companion object {
+
+        @JvmStatic
+        fun onleesbareLichamen() = listOf(
+            IllegalStateException("entity al gelezen"),
+            IllegalArgumentException("onbekende charset in Content-Type"),
+            ProcessingException("body-reader faalde"),
+        )
     }
 
     @Test

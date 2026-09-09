@@ -167,20 +167,54 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `een storing bij de voorkeurenbron overschrijft de gecachte berichten niet met een lege lijst`() {
-        // Het lege-magazijn-pad schrijft `store(key, emptyList())` + GEREED. Dat is precies wat
-        // een storing niet mag doen: wie eerder berichten ophaalde zou ze kwijtraken en een
-        // geslaagde lege berichtenbox te zien krijgen.
-        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
-        every { resolver.resolve(ontvanger) } returns
+    fun `een storing bij de voorkeurenbron laat de gecachte berichten ongemoeid`() {
+        // Tegen een échte (in-memory) cache in plaats van een mock: de belofte is dat de
+        // inhoud er ná de storing nog staat, niet dat een bepaalde methode niet is aangeroepen.
+        // Een toekomstig foutpad dat de berichten via een ánder mechanisme kwijtraakt, valt
+        // hier wél door de mand.
+        val cache = MockBerichtenCache()
+        val storendeResolver = mockk<MagazijnResolver>()
+        val dienst = BerichtensessiecacheService(
+            cache,
+            clientFactory,
+            validator,
+            storendeResolver,
+            innerTimeoutSeconds = 2L,
+            outerAwaitSeconds = 3L,
+            paginaLezer = MagazijnPaginaLezer(paginaGrootte = 100, maxBerichtenPerMagazijn = 1000),
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = testBulkhead,
+            circuitBreaker = testBreaker,
+        ).also { it.valideerTimeouts() }
+
+        val eerderBericht = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = "00000001003214345000",
+            afzenderNaam = "Belastingdienst",
+            ontvanger = ontvanger,
+            onderwerp = "Eerder opgehaald bericht",
+            inhoud = "Inhoud",
+            publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+            magazijnId = "00000001003214345000",
+            aantalBijlagen = 0,
+        )
+
+        cache.store(cacheKey, listOf(eerderBericht)).await().indefinitely()
+        cache.storeAggregationStatus(cacheKey, AggregationStatus(status = OphalenStatus.GEREED)).await().indefinitely()
+
+        every { storendeResolver.resolve(ontvanger) } returns
             Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(404))
-        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         assertThrows<ProfielServiceFoutException> {
-            service.haalBerichtenOp(ontvanger)
+            dienst.haalBerichtenOp(ontvanger)
         }
 
-        verify(exactly = 0) { berichtenCache.store(cacheKey, any()) }
+        val pagina = cache.getPage(cacheKey, page = 0, pageSize = 20).await().indefinitely()
+
+        assertEquals(1, pagina?.berichten?.size, "het eerder opgehaalde bericht moet er nog staan")
+        assertEquals(eerderBericht.berichtId, pagina?.berichten?.first()?.berichtId)
     }
 
     @Test

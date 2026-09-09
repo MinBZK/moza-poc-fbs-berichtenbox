@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
@@ -124,6 +125,57 @@ class ProfielMagazijnResolverCacheTest {
         assertEquals(emptySet<String>(), eerste)
         assertEquals(eerste, tweede)
         wireMock.verify(1, postRequestedFor(urlEqualTo(urlPath)))
+    }
+
+    @Test
+    fun `de storing van de ene ontvanger raakt de opt-out van de andere niet`() {
+        // Twee ontvangers naast elkaar: met één ontvanger zou een cache die alles onder
+        // dezelfde sleutel legt er net zo goed uitzien. Hier moet de opt-out van de één
+        // gecacht blijven terwijl de storing van de ander elke keer opnieuw uitgaat.
+        val urlPath = "/api/profielservice/v1/partij"
+        val optOut = Bsn("999990056")
+        val storing = Bsn("999990068")
+
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${optOut.waarde}"}"""),
+            ).willReturn(
+                aResponse().withStatus(404)
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody("""{"type":"about:blank","title":"Partij niet gevonden","status":404}"""),
+            ),
+        )
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${storing.waarde}"}"""),
+            ).willReturn(aResponse().withStatus(404)),
+        )
+
+        assertEquals(emptySet<String>(), resolver.resolve(optOut).await().atMost(Duration.ofSeconds(5)))
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(storing).await().atMost(Duration.ofSeconds(20))
+        }
+
+        assertEquals(emptySet<String>(), resolver.resolve(optOut).await().atMost(Duration.ofSeconds(5)))
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(storing).await().atMost(Duration.ofSeconds(20))
+        }
+
+        // Opt-out: 1 call (tweede kwam uit de cache). Storing: 2 calls (nooit gecacht).
+        wireMock.verify(
+            1,
+            postRequestedFor(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${optOut.waarde}"}"""),
+            ),
+        )
+        wireMock.verify(
+            2,
+            postRequestedFor(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${storing.waarde}"}"""),
+            ),
+        )
     }
 
     @Test

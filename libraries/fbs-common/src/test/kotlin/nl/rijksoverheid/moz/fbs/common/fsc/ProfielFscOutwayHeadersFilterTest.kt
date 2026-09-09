@@ -27,7 +27,7 @@ class ProfielFscOutwayHeadersFilterTest {
     private fun mockContext(headers: MultivaluedHashMap<String, Any>): ClientRequestContext {
         val ctx = mockk<ClientRequestContext>()
         every { ctx.headers } returns headers
-        every { ctx.uri } returns URI.create("https://outway.voorbeeld.test/api/profielservice/v1/BSN/999993653")
+        every { ctx.uri } returns URI.create("https://outway.voorbeeld.test/api/profielservice/v1/partij")
 
         return ctx
     }
@@ -36,7 +36,7 @@ class ProfielFscOutwayHeadersFilterTest {
         val ctx = mockk<ClientRequestContext>()
         val headers = MultivaluedHashMap<String, Any>()
         every { ctx.headers } returns headers
-        every { ctx.uri } returns URI.create("https://outway.voorbeeld.test/api/profielservice/v1/BSN/999993653")
+        every { ctx.uri } returns URI.create("https://outway.voorbeeld.test/api/profielservice/v1/partij")
 
         ProfielFscOutwayHeadersFilter { grantHash }.filter(ctx)
 
@@ -88,7 +88,7 @@ class ProfielFscOutwayHeadersFilterTest {
         listOf(eerste, tweede).forEach { headers ->
             val ctx = mockk<ClientRequestContext>()
             every { ctx.headers } returns headers
-            every { ctx.uri } returns URI.create("https://outway.voorbeeld.test/api/profielservice/v1/BSN/999993653")
+            every { ctx.uri } returns URI.create("https://outway.voorbeeld.test/api/profielservice/v1/partij")
             filter.filter(ctx)
         }
 
