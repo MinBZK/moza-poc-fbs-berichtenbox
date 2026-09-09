@@ -12,6 +12,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.GepagineerdeBerichten
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazijn
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
@@ -241,8 +242,8 @@ internal class BerichtensessiecacheService(
 
         val ontvangerString = ontvanger.toCanonicalString()
 
-        val magazijnStreams = clients.map { (magazijnId, client) ->
-            bouwMagazijnStream(magazijnId, client, ontvangerString, alleBerichten, geslaagd, mislukt)
+        val magazijnStreams = clients.map { (magazijnId, magazijn) ->
+            bouwMagazijnStream(magazijnId, magazijn, ontvangerString, alleBerichten, geslaagd, mislukt)
         }
 
         // Aggregatie-pipeline: draait onafhankelijk van de SSE-client door tot voltooiing.
@@ -403,8 +404,8 @@ internal class BerichtensessiecacheService(
      * Cleanup vóór de throw: zonder dit blijft de lock tot TTL hangen en blokkeert
      * legitieme retries na de drift-fix.
      */
-    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, MagazijnClient> {
-        val allClients = clientFactory.getAllClients()
+    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, IngeschrevenMagazijn> {
+        val allClients = clientFactory.getAllMagazijnen()
         val onbekend = resolvedIds - allClients.keys
 
         if (onbekend.isNotEmpty()) {
@@ -495,13 +496,14 @@ internal class BerichtensessiecacheService(
      */
     private fun bouwMagazijnStream(
         magazijnId: String,
-        client: MagazijnClient,
+        magazijn: IngeschrevenMagazijn,
         ontvangerString: String,
         alleBerichten: MutableList<Bericht>,
         geslaagd: AtomicInteger,
         mislukt: AtomicInteger,
     ): Multi<MagazijnEvent> {
-        val naam = clientFactory.getNaam(magazijnId)
+        val naam = magazijn.naam
+        val client = magazijn.client
 
         val gestartEvent = MagazijnBevragingGestart(magazijnId = magazijnId, naam = naam)
 
@@ -565,14 +567,14 @@ internal class BerichtensessiecacheService(
         )
     }
 
-    private fun naarMagazijnResult(oogst: GepagineerdeBerichten, magazijnId: String, naam: String?): MagazijnResult {
+    private fun naarMagazijnResult(oogst: GepagineerdeBerichten, magazijnId: String, naam: String): MagazijnResult {
         // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein (toBericht) en
         // valideer defensief (BerichtLimieten). Eén invalid bericht mag de batch niet killen — drop
         // het stuk en log warn i.p.v. de hele magazijn-bevraging te laten falen. Dit geldt óók voor
         // een ongeldige ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
         // gooien (onbekend type, elfproef/lengte), dus vangen we dat hier per bericht.
         val berichten = oogst.berichten
-            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
+            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId, naam) }
 
         // Een gedropt bericht is ook post die de ontvanger niet krijgt; zonder deze term meldt het
         // event "8 berichten, niets afgekapt, 10 beschikbaar".
@@ -597,9 +599,9 @@ internal class BerichtensessiecacheService(
      * (toBericht gooit) of een limietsoverschrijding ([BerichtValidator]). berichtId/magazijnId
      * zijn geen PII; de ontvanger-waarde wordt bewust niet gelogd.
      */
-    private fun naarValidCacheBericht(magazijnBericht: MagazijnBericht, magazijnId: String): Bericht? {
+    private fun naarValidCacheBericht(magazijnBericht: MagazijnBericht, magazijnId: String, afzenderNaam: String): Bericht? {
         val bericht = try {
-            magazijnBericht.toBericht(magazijnId)
+            magazijnBericht.toBericht(magazijnId, afzenderNaam)
         } catch (e: IllegalArgumentException) {
             log.warnf(
                 "Bericht overgeslagen tijdens magazijn-aggregatie (ongeldige ontvanger): berichtId=%s magazijnId=%s reden=%s",

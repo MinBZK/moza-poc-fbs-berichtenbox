@@ -29,7 +29,10 @@ class BerichtBeheerServiceTest {
     private val router: MagazijnRouter = mockk {
         every { forMagazijn(any()) } returns magazijn
     }
-    private val service = BerichtBeheerService(sessiecache, router)
+    private val afzendernamen: Afzendernamen = mockk {
+        every { naamVoor(any<Bericht>()) } returns "Magazijn A"
+    }
+    private val service = BerichtBeheerService(sessiecache, router, afzendernamen)
 
     private val id: UUID = UUID.randomUUID()
     private val ontvanger = "BSN:999990019"
@@ -39,6 +42,7 @@ class BerichtBeheerServiceTest {
     private val bijgewerkt = Bericht(
         berichtId = id,
         afzender = "00000001003214345000",
+        afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999990019"),
         onderwerp = "X",
         inhoud = "Inhoud",
@@ -62,6 +66,19 @@ class BerichtBeheerServiceTest {
             magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = true, map = null))
             sessiecache.werkBerichtBij(ontvangerId, id, Leesstatus.GELEZEN, null)
         }
+    }
+
+    @Test
+    fun `patch-respons draagt de afzendernaam van het bijgewerkte bericht`() {
+        // De naam wordt opgezocht op het magazijnId van het bericht uit de cache, niet op de
+        // magazijnId-queryparameter of het berichtId.
+        every { afzendernamen.naamVoor(any<Bericht>()) } returns "Belastingdienst"
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+
+        val result = service.patch(ontvanger, id, magazijnId, patch)
+
+        assertEquals("Belastingdienst", result.afzenderNaam)
     }
 
     @Test

@@ -13,9 +13,10 @@ import java.util.Optional
 
 /**
  * Config-backed [Magazijnregister]: leest `magazijnen."<OIN>".{url,naam,grantHash}` en
- * valideert fail-fast bij opstart — een ongeldige OIN-key, ongeldige of
- * niet-versleutelde URL of een leeg register hoort de boot te blokkeren,
- * niet pas een runtime-fout bij het eerste verkeer te veroorzaken.
+ * valideert fail-fast bij opstart. Alles wat een inschrijving onbruikbaar maakt hoort de boot
+ * te blokkeren in plaats van pas bij het eerste verkeer of in de berichtenlijst van een
+ * ondernemer op te duiken: een ongeldige OIN-key, een ongeldige of niet-versleutelde URL, een
+ * blanco weergavenaam of een leeg register.
  */
 @ApplicationScoped
 internal class ConfigMagazijnregister(
@@ -48,7 +49,7 @@ internal class ConfigMagazijnregister(
             oin to Magazijninschrijving(
                 oin = oin,
                 url = parseUrl(oin, entry.url()),
-                naam = entry.naam().orElse(null),
+                naam = parseNaam(oin, entry.naam()),
                 grantHash = parseGrantHash(oin, entry.grantHash()),
             )
         }
@@ -93,6 +94,21 @@ internal class ConfigMagazijnregister(
         OutboundTlsValidator.requireHttps(profile = profile, endpoint = url, configKey = configKey)
 
         return uri
+    }
+
+    /**
+     * Trimmen zoals [parseGrantHash], fail-fast zoals [parseUrl]: de weergavenaam is
+     * gebruikersgezichtbaar, dus een blanco naam hoort de boot te blokkeren in plaats van als
+     * lege afzender in de berichtenlijst van een ondernemer te landen.
+     */
+    private fun parseNaam(oin: Oin, naam: String): String {
+        val getrimd = naam.trim()
+
+        check(getrimd.isNotBlank()) {
+            "magazijnen.\"${oin.waarde}\".naam mag niet leeg of alleen whitespace zijn"
+        }
+
+        return getrimd
     }
 
     /**
