@@ -45,9 +45,10 @@ object DomainValidationFuzzer {
             Bericht(
                 berichtId = UUID.randomUUID(),
                 afzender = data.consumeString(200),
+                afzenderNaam = data.consumeString(200),
                 // ontvanger is een getypeerd Identificatienummer; de waarde-invarianten worden
                 // door dat type afgedwongen en elders gefuzzd. Hier vast zodat de overige
-                // Bericht-init-invarianten (afzender/onderwerp/magazijnId/...) gefuzzd worden.
+                // Bericht-init-invarianten (afzender/afzenderNaam/onderwerp/magazijnId/...) gefuzzd worden.
                 ontvanger = Bsn("999993653"),
                 onderwerp = data.consumeString(200),
                 inhoud = data.consumeString(500),
@@ -119,7 +120,7 @@ object DomainValidationFuzzer {
      * kan dus geen configuratiedrift zien.
      */
     private fun fuzzMagazijnEventWire(data: FuzzedDataProvider) {
-        val naam = if (data.consumeBoolean()) data.consumeString(100) else null
+        val naam = data.consumeString(100)
         val magazijnId = data.consumeString(100)
         val tekst = data.consumeString(200)
         val event: MagazijnEvent = when (data.pickValue(EventType.entries.toTypedArray())) {

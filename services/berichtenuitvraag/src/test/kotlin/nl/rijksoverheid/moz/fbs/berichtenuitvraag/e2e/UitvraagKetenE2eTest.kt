@@ -181,6 +181,64 @@ class UitvraagKetenE2eTest {
     }
 
     @Test
+    fun `ophaalronde levert per bericht de naam die het register voor zijn magazijn kent`() {
+        // Het andere been van de aanmeld-test: hier komen de berichten uit een échte ophaalronde
+        // langs twee magazijnen, elk met een eigen naam in het register.
+        val bsn = "999990111"
+        val berichtVanA = "44444444-4444-4444-4444-444444444444"
+        val berichtVanB = "55555555-5555-5555-5555-555555555555"
+        stubProfielOptIn(bsn, OIN_A, OIN_B)
+        stubMagazijnBericht(magazijnA, berichtVanA, bsn, "magazijn-a", OIN_A)
+        stubMagazijnBericht(magazijnB, berichtVanB, bsn, "magazijn-b", OIN_B)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body(
+                "berichten.find { it.magazijnId == '$OIN_B' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_B),
+            )
+            .body(
+                "berichten.find { it.magazijnId == '$OIN_A' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_A),
+            )
+    }
+
+    @Test
+    fun `de afzendernaam volgt het bevraagde magazijn, niet de afzender die het bericht claimt`() {
+        // Magazijn A levert een bericht dat zichzelf als magazijn B presenteert. De weergavenaam
+        // hoort die claim niet te volgen: hij komt uit het register op het magazijn dat we
+        // daadwerkelijk bevraagd hebben. Anders kan een magazijn zich als een andere organisatie
+        // voordoen in de berichtenlijst van een ondernemer.
+        val bsn = "999990123"
+        val berichtId = "66666666-6666-6666-6666-666666666666"
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, berichtId, bsn, "magazijn-a", afzender = OIN_B)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].magazijnId", equalTo(OIN_A))
+            .body("berichten[0].afzenderNaam", equalTo(WireMockBackendsResource.NAAM_A))
+    }
+
+    @Test
     fun `profiel-500 geeft 503 met Retry-After vóór de stream`() {
         profiel.stubFor(
             get(urlEqualTo("/api/profielservice/v1/BSN/999991401")).willReturn(aResponse().withStatus(500)),
