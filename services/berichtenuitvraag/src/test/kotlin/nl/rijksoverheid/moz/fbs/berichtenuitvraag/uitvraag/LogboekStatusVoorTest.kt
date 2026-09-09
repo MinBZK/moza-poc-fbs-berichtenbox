@@ -30,7 +30,7 @@ class LogboekStatusVoorTest {
         @JvmStatic
         fun tussentijdseEvents(): List<MagazijnEvent> = listOf(
             MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = "Magazijn A"),
-            MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = null),
+            MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = "Magazijn A"),
             MagazijnBevragingGeslaagd(magazijnId = "00000001001234567890", naam = "Magazijn A", aantalBerichten = 3),
             MagazijnBevragingMislukt(
                 magazijnId = "00000001001234567890",

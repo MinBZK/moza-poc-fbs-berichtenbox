@@ -92,6 +92,35 @@ class ApplicationPropertiesTest {
     }
 
     /**
+     * Elk geconfigureerd magazijn moet een `naam`-sleutel hebben.
+     *
+     * De weergavenaam is verplicht in het register: ontbreekt hij, dan bindt de config-mapping niet
+     * en start de pod niet. Dat komt nu pas bij de deploy aan het licht — deze test verplaatst het
+     * naar de build, voor wie later een magazijn toevoegt en de naam vergeet.
+     */
+    @Test
+    fun `elk magazijn met een url heeft ook een naam-sleutel`() {
+        val properties = Properties().apply {
+            File("src/main/resources/application.properties").inputStream().use { load(it) }
+        }
+
+        val urlSleutel = Regex("""^magazijnen\."(\d+)"\.url$""")
+        val oins = properties.stringPropertyNames()
+            .mapNotNull { urlSleutel.find(it)?.groupValues?.get(1) }
+            .toSortedSet()
+
+        assertTrue(oins.isNotEmpty(), "geen enkel magazijn in application.properties — deze test meet niets")
+
+        val zonderNaam = oins.filter { properties.getProperty("""magazijnen."$it".naam""").isNullOrBlank() }
+
+        assertEquals(
+            emptyList<String>(),
+            zonderNaam,
+            "magazijn(en) zonder naam-sleutel: daarmee start de uitvraag niet",
+        )
+    }
+
+    /**
      * Een `%dev`-override mag de env-var van de basissleutel niet doodslaan.
      *
      * Leest de basissleutel `${VAR}` en zet `%dev` er een kale waarde tegenover, dan wint die kale
