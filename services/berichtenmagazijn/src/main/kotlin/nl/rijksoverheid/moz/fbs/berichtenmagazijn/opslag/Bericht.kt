@@ -23,32 +23,23 @@ data class Bericht(
     val tijdstipOntvangst: Instant,
     val publicatietijdstip: Instant,
     // Metadata van bijlagen bij het bericht. Bytes worden separaat opgehaald via
-    // de bijlage-repository; in de berichtenlijst is alleen metadata zichtbaar.
+    // de bijlage-repository.
     val bijlagen: List<BijlageMetadata> = emptyList(),
     // Leesstatus voor de ontvanger die het bericht opvraagt. `null` als de
     // ontvanger het bericht nog niet heeft aangeraakt.
     val status: BerichtStatus? = null,
 ) {
     init {
-        requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
-        requireValid(onderwerp.length <= MAX_ONDERWERP_LENGTE) {
-            "Onderwerp mag max $MAX_ONDERWERP_LENGTE characters zijn"
-        }
+        valideerKopgegevens(onderwerp, afzender, ontvanger)
         requireValid(inhoud.isNotBlank()) { "Inhoud mag niet leeg zijn" }
         // UTF-8 is hooguit 4 bytes/char. Als char-lengte × 4 onder de limiet blijft is
-        // bytes-encoding onnodig; dit pad raakt bij elke `copy()` (verrijking met
-        // status/bijlagen in de Ophaal-flow) en zou anders per lijst-element een
-        // ~MiB ByteArray-allocatie veroorzaken.
+        // bytes-encoding onnodig; dat scheelt een ~MiB ByteArray-allocatie bij elke `copy()`
+        // waarmee het detailpad het bericht met status en bijlagen verrijkt.
         if (inhoud.length > MAX_INHOUD_BYTES / Charsets.UTF_8.newEncoder().maxBytesPerChar().toInt()) {
             val inhoudBytes = inhoud.toByteArray(Charsets.UTF_8).size
             requireValid(inhoudBytes <= MAX_INHOUD_BYTES) {
                 "Inhoud mag max ${MAX_INHOUD_BYTES / 1024 / 1024} MiB UTF-8 zijn (kreeg $inhoudBytes bytes)"
             }
-        }
-        // Vergelijk de volledige identiteit (type + waarde): twee verschillende typen
-        // met dezelfde cijferreeks zijn verschillende identificatienummers.
-        requireValid(afzender != ontvanger) {
-            "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
         }
         // publicatietijdstip mag zowel in de toekomst (uitgestelde publicatie) als in
         // het verleden liggen: bij een late her-aanlevering kan het oorspronkelijke
@@ -80,16 +71,30 @@ data class BerichtKop(
     val onderwerp: String,
     val tijdstipOntvangst: Instant,
     val publicatietijdstip: Instant,
+    // Komen NIET uit de projectie: de repository levert ze leeg en BerichtOphaalService.lijst
+    // vult ze achteraf in twee batch-queries aan (vermijdt N+1). Wie de repository rechtstreeks
+    // aanroept en die stap overslaat, krijgt dus een lijst waarin elk bericht 0 bijlagen meldt.
     val bijlagen: List<BijlageMetadata> = emptyList(),
     val status: BerichtStatus? = null,
 ) {
     init {
-        requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
-        requireValid(onderwerp.length <= Bericht.MAX_ONDERWERP_LENGTE) {
-            "Onderwerp mag max ${Bericht.MAX_ONDERWERP_LENGTE} characters zijn"
-        }
-        requireValid(afzender != ontvanger) {
-            "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
-        }
+        valideerKopgegevens(onderwerp, afzender, ontvanger)
+    }
+}
+
+/**
+ * De invarianten die [Bericht] en [BerichtKop] delen. Eén plek, zodat een nieuwe regel niet op
+ * één van de twee paden blijft hangen en dezelfde rij zich per endpoint anders gaat gedragen.
+ *
+ * De afzender-ontvanger-vergelijking kijkt naar de volledige identiteit (type én waarde): twee
+ * verschillende typen met dezelfde cijferreeks zijn verschillende identificatienummers.
+ */
+private fun valideerKopgegevens(onderwerp: String, afzender: Oin, ontvanger: Identificatienummer) {
+    requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
+    requireValid(onderwerp.length <= Bericht.MAX_ONDERWERP_LENGTE) {
+        "Onderwerp mag max ${Bericht.MAX_ONDERWERP_LENGTE} characters zijn"
+    }
+    requireValid(afzender != ontvanger) {
+        "Afzender en ontvanger mogen niet hetzelfde identificatienummer hebben"
     }
 }

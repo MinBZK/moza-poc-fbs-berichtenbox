@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het

@@ -10,7 +10,7 @@
 ```kotlin
 CreateArgs()
     .onHash()
-    .prefixes("bericht:v1:")
+    .prefixes("bericht:v2:")
     .indexedField("onderwerp", FieldType.TEXT)
     .indexedField("afzender", FieldType.TAG)
     .indexedField("ontvanger", FieldType.TAG)
@@ -67,7 +67,7 @@ redis-cli -h <REDIS_HOST> -p 6379 FT.DROPINDEX berichten-idx
 ```
 
 **Niet `FT.DROPINDEX berichten-idx DD`** — de `DD`-flag verwijdert ook de
-onderliggende `bericht:v1:*`-hashes. Dat is onnodig: alleen het index-schema
+onderliggende `bericht:v2:*`-hashes. Dat is onnodig: alleen het index-schema
 wordt opnieuw gebouwd, de berichten zelf blijven via TTL geldig en worden door
 de stap-4-create automatisch opnieuw geïndexeerd.
 

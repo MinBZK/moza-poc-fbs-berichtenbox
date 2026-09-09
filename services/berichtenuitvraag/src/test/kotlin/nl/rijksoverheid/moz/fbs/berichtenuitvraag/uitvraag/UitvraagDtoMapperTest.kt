@@ -94,7 +94,7 @@ class UitvraagDtoMapperTest {
             status = Leesstatus.GELEZEN,
         )
 
-        val api = UitvraagDtoMapper.toApiBericht(domein)
+        val api = UitvraagDtoMapper.toApiBericht(domein, inhoud = "Tekst uit het magazijn")
 
         assertEquals(id, api.berichtId)
         assertEquals("Onderwerp", api.onderwerp)

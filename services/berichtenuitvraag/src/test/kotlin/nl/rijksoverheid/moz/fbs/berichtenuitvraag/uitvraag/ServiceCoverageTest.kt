@@ -98,14 +98,61 @@ class ServiceCoverageTest {
 
     @Test
     fun `bericht-detail geeft 502 als het bronmagazijn de tekst niet levert`() {
-        // De tekst staat niet in de cache: valt het bronmagazijn uit, dan is het bericht
-        // niet te openen. De lijst blijft ondertussen wel gewoon werken.
+        // De tekst staat niet in de cache: valt het bronmagazijn uit, dan is dit ene bericht
+        // niet te openen. De lijst blijft wél werken — dat is de degradatie-eigenschap, en die
+        // wordt hieronder meegetoetst.
         val id = UUID.randomUUID()
         seedBericht(id)
         WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(500)),
         )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het magazijn een antwoord zonder tekst levert`() {
+        // Een 200 met een body die niet op het contract past is een upstream-storing. Zonder
+        // eigen afhandeling landt de Jackson-fout op de 400-mapper en leest de gebruiker dat
+        // zíjn verzoek fout is, terwijl de fout volledig bovenstrooms zit.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{}"""),
+            ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het magazijn een lege berichttekst levert`() {
+        // Een leeg scherm is voor de ontvanger niet te onderscheiden van een leeg bericht;
+        // luid falen is hier het bruikbare signaal. Het contract eist een niet-lege tekst.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        stubMagazijnDetail(id, "")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")

@@ -12,8 +12,9 @@ import java.util.UUID
  * onrepresenteerbaar, zodat downstream-code geen null-checks of `!!` meer nodig
  * heeft. Constructie gebeurt uitsluitend via de parse-stap in [AanmeldService].
  *
- * De berichttekst uit het event wordt bewust niet overgenomen: die hoort niet in de
- * centrale opslag thuis en wordt bij het openen bij het bronmagazijn opgehaald.
+ * Het event draagt de berichttekst niet; die wordt bij het openen bij het bronmagazijn
+ * opgehaald. Een peer die hem nog wél meestuurt, wordt genegeerd door
+ * [AangemeldBerichtData]'s `ignoreUnknown`.
  */
 internal data class GepubliceerdBerichtEvent(
     val eventId: String,

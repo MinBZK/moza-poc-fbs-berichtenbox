@@ -112,7 +112,7 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
         val items = query.project(BerichtKopProjectie::class.java)
             .page(Page.of(page, pageSize))
             .list()
-            .map { it.toDomein() }
+            .map { it.toDomain() }
 
         return PagedBerichten(
             berichten = items,
@@ -234,11 +234,13 @@ data class PagedBerichten(
 
 /**
  * Vlakke vorm van de kopkolommen zoals Hibernate ze projecteert: losse velden, want een
- * JPQL-projectie kan de value classes van het domein niet zelf construeren. [toDomein]
- * bouwt daar het gevalideerde [BerichtKop] van, zodat een niet-conforme rij aan dezelfde
- * grens strandt als bij het volledige bericht.
+ * JPQL-projectie kan de value classes van het domein niet zelf construeren. De veldnamen
+ * moeten die van [BerichtEntity] volgen — Panache bindt de projectie op naam.
+ *
+ * [toDomain] loopt via [uitDbRij], zodat een niet-conforme rij op het lijstpad dezelfde
+ * serverfout geeft als op het detailpad in plaats van een misleidende 400.
  */
-data class BerichtKopProjectie(
+internal data class BerichtKopProjectie(
     val berichtId: UUID,
     val afzender: String,
     val ontvangerType: IdentificatienummerType,
@@ -247,12 +249,20 @@ data class BerichtKopProjectie(
     val tijdstipOntvangst: Instant,
     val publicatietijdstip: Instant,
 ) {
-    fun toDomein(): BerichtKop = BerichtKop(
-        berichtId = berichtId,
-        afzender = Oin(afzender),
-        ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
-        onderwerp = onderwerp,
-        tijdstipOntvangst = tijdstipOntvangst,
-        publicatietijdstip = publicatietijdstip,
-    )
+    fun toDomain(): BerichtKop = uitDbRij(
+        berichtId,
+        diagnose = {
+            "afzender.length=${afzender.length} ontvangerType=$ontvangerType " +
+                "ontvangerWaarde.length=${ontvangerWaarde.length}"
+        },
+    ) {
+        BerichtKop(
+            berichtId = berichtId,
+            afzender = Oin(afzender),
+            ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
+            onderwerp = onderwerp,
+            tijdstipOntvangst = tijdstipOntvangst,
+            publicatietijdstip = publicatietijdstip,
+        )
+    }
 }

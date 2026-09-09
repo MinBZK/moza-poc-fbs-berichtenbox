@@ -67,11 +67,30 @@ Nieuw gedrag bij storing: is het bronmagazijn onbereikbaar, dan is het bericht n
 openen (502) terwijl het vroeger uit de cache kwam. De lijst blijft in dat geval wél
 zichtbaar. Dat is de prijs van niet-vooruit-kopiëren en is hier bewust betaald.
 
-## Cache-compatibiliteit
+## Cache-compatibiliteit en de uitrol
 
-Het RediSearch-schema verandert niet: `inhoud` was geen geïndexeerd veld (alleen `onderwerp`
-is TEXT). Bestaande cache-entries met een `inhoud`-hash-veld blijven leesbaar — het veld
-wordt alleen niet meer uitgelezen. Geen schema-bump nodig.
+Twee richtingen, en alleen de eerste was aanvankelijk doordacht.
+
+**Nieuw leest oud** — een entry die nog een `inhoud`-veld draagt, blijft leesbaar; het veld
+wordt niet meer uitgelezen. De JSON-blob van de list-cache heeft daarvoor wel
+`@JsonIgnoreProperties(ignoreUnknown = true)` op `Bericht` nodig: zonder die annotatie hangt
+het aan een Jackson-default die nergens is vastgelegd, en een andere default maakt van elke
+lijst-read een 500.
+
+**Oud leest nieuw** — dit is het echte uitrolrisico. Tijdens een rolling update deelt een nog
+draaiende pod van de vorige versie dezelfde Redis. Die pod eist `inhoud` als verplicht
+hash-veld, struikelt over een entry die wij zonder tekst schreven, en geeft een 500 op de
+berichtenlijst zolang het venster duurt. Aan het gedrag van die oude pod valt niets te
+veranderen; het enige werkende antwoord is disjuncte sleutels.
+
+**Daarom gaat de cache-sleutel van `v1` naar `v2`** (`cacheKey`, `berichtKey` en
+`BERICHT_PREFIX`). Oud en nieuw zien elkaars entries dan niet: de oude pod krijgt een
+cache-miss en de berichtenbox vraagt netjes om opnieuw ophalen, in plaats van een 500.
+
+> **Operations-stap bij de uitrol.** `BERICHT_PREFIX` is tevens de RediSearch-index-prefix.
+> Volg [`docs/operations/redisearch-schema-bump.md`](../operations/redisearch-schema-bump.md);
+> de index moet opnieuw worden aangemaakt op de nieuwe prefix. De `v1`-entries verlopen
+> vanzelf via hun TTL en hoeven niet te worden opgeruimd.
 
 ## Wat er niet verandert voor de berichtenbox
 
@@ -108,6 +127,32 @@ kopkolommen. De SELECT raakt de `inhoud`-kolom daarmee niet meer.
 Dat het domeintype de tekst niet kent, is meteen de bewaking: een projectie kan geen kolom
 selecteren die het doeltype niet heeft, dus terugvallen op de oude situatie breekt de
 compilatie in plaats van stilletjes weer een MiB per rij in te lezen.
+
+## Uit de review overgenomen
+
+Een review met vijf agents leverde één kritieke en drie hoge bevindingen op; alle vier zijn
+verwerkt.
+
+- **Een corrupte databaserij gedroeg zich per endpoint anders.** Het detailpad wrapt een
+  geschonden invariant al sinds jaar en dag naar een gemaskeerde 500 — er staat een test op
+  met als motivatie "anders krijgt de aanroeper een misleidende statuscode". De nieuwe
+  projectie op het lijstpad deed dat niet, en gaf een 400 mét de domeinmelding erin. Beide
+  paden lopen nu door `uitDbRij`, één grens met één PII-veilige logregel.
+- **Een magazijn-4xx propageerde ongelogd.** Sinds het openen van een bericht een aanroep naar
+  het bronmagazijn doet, is dat de faalklasse die élke klik raakt: een verkeerde grant maakt
+  alle berichten onopenbaar terwijl de uitvraag-log schoon blijft. Er is nu een `warnf` met
+  `berichtId` en `magazijnId` — nooit de `X-Ontvanger`, dat is een BSN of RSIN.
+- **Een onparsebaar magazijn-antwoord werd een 400 richting de gebruiker.** Jackson-fouten
+  vielen buiten `mapUpstreamFout` en landden op de JSON-mapper. Ze worden nu als
+  upstream-storing geclassificeerd: 502 met een error-log.
+- **Een lege berichttekst werd stil een leeg scherm.** Het contract eist een niet-lege tekst;
+  levert een magazijn er tóch een, dan is dat nu 502 in plaats van een leeg bericht dat de
+  ontvanger niet van een echt leeg bericht kan onderscheiden.
+
+Verder: de kop-invarianten die `Bericht` en `BerichtKop` delen staan op één plek
+(`valideerKopgegevens`) met tests op beide typen, `toApiBericht` heeft geen default meer voor
+`inhoud` zodat weglaten een zichtbare keuze is, en de uitvraag-spec krijgt dezelfde
+versiebump als de magazijn-spec.
 
 ## Verificatie
 

@@ -20,6 +20,10 @@ class SessieService(private val redis: RedisDataSource) {
 
     private companion object {
 
-        const val SESSIE_PATROON = "berichtensessiecache:v1:*"
+        // Spiegelt `BerichtenCache.cacheKey` in fbs-berichtensessiecache. Het paneel heeft geen
+        // dependency op die library (en hoort die niet te krijgen: de demo-grens loopt één kant
+        // op), dus de sleutelvorm staat hier met de hand. Verandert het versienummer daar, dan
+        // moet het hier mee — anders wist de knop stilzwijgend niets meer.
+        const val SESSIE_PATROON = "berichtensessiecache:v2:*"
     }
 }

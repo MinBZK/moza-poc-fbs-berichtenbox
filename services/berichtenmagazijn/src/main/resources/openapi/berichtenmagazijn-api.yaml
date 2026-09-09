@@ -468,8 +468,9 @@ components:
         Volledig bericht inclusief tekstuele inhoud en metadata van eventuele bijlagen.
         Bijlage-bytes worden separaat opgehaald via
         `GET /berichten/{berichtId}/bijlagen/{bijlageId}`. Dit schema wordt gebruikt
-        door `GET /berichten` (lijst), `GET /berichten/{berichtId}` en
-        `PATCH /berichten/{berichtId}` zodat consumers één representatie kennen.
+        door `GET /berichten/{berichtId}` en `PATCH /berichten/{berichtId}` zodat consumers
+        één representatie van een volledig bericht kennen. De lijst levert
+        `BerichtSamenvatting`.
       required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, publicatietijdstip, bijlagen, _links]
       properties:
         berichtId:

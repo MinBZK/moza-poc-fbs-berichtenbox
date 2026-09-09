@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
@@ -23,13 +24,17 @@ import java.util.UUID
  * TODO(#572): vervang door StreamingOutput-passthrough zodra de werkelijke grootte-
  * verdeling het dubbel-bufferen (client-read + JAX-RS-serialize) rechtvaardigt.
  *
- * Magazijn-fouten zijn status-behoudend: echte 4xx propageert (401/403/404 expliciet,
- * overige generiek) zodat OpenAPI-404 en LDV-audittrail kloppen; 5xx, transport-fouten
- * en een 2xx zónder Content-Type → 502 (downstream-faal).
+ * Magazijn-fouten zijn op beide paden status-behoudend: een echte 4xx propageert zodat
+ * OpenAPI-404 en LDV-audittrail kloppen, 5xx en transport-fouten worden 502. De twee paden
+ * bereiken dat langs verschillende weg: de tekst-call via [mapUpstreamFout], de bijlage-call
+ * met een eigen mapping op `response.status` — een `Response`-returntype schakelt de
+ * exception-mapper van de client uit, en levert daarbij de extra tak "2xx zónder
+ * Content-Type → 502".
  *
  * Routering: het bericht-detail (uit de cache, niet een client-id — anders kon een
- * aanvaller bijlages uit een vreemd magazijn opvragen) levert het bron-`magazijnId`
- * waarmee [MagazijnRouter] de juiste magazijn-URL voor de bytes kiest.
+ * aanvaller tekst of bijlages uit een vreemd magazijn opvragen) levert het bron-`magazijnId`
+ * waarmee [MagazijnRouter] de juiste magazijn-URL kiest, zowel voor de berichttekst als
+ * voor de bijlage-bytes.
  */
 @ApplicationScoped
 class BerichtOphaalService(
@@ -48,16 +53,56 @@ class BerichtOphaalService(
      * bericht opent. Routeren op het `magazijnId` uit het gecachete bericht — niet op iets
      * uit het verzoek — zodat een aanroeper geen tekst uit een vreemd magazijn kan opvragen.
      *
-     * Een magazijn dat het bericht inmiddels niet meer geeft (404/403) propageert
-     * status-behoudend; een storing wordt 502. Gevolg: bij een onbereikbaar bronmagazijn is
-     * het bericht niet te openen terwijl de lijst gewoon zichtbaar blijft.
+     * Gevolg van het niet-vooruit-kopiëren: bij een onbereikbaar bronmagazijn is dit ene
+     * bericht niet te openen, terwijl de lijst gewoon zichtbaar blijft.
+     *
+     * Een 404 laat de cache-entry bewust staan. Zelfherstel zou een schrijfactie op een
+     * leespad zijn en zou een routeringsfout maskeren als "bericht bestaat niet meer"; de
+     * TTL ruimt de entry op. De logregel hieronder is wat het onderscheid mogelijk maakt.
      */
     private fun haalInhoud(xOntvanger: String, berichtId: UUID, magazijnId: String): String {
         val magazijn = magazijnRouter.forMagazijn(magazijnId)
 
-        return mapUpstreamFout(log, "magazijn-bericht-detail") {
-            magazijn.bericht(xOntvanger, berichtId)
-        }.inhoud
+        val detail = try {
+            mapUpstreamFout(log, MAGAZIJN_DETAIL) {
+                magazijn.bericht(xOntvanger, berichtId)
+            }
+        } catch (e: WebApplicationException) {
+            // mapUpstreamFout logt zijn eigen 502-gevallen; een propagerende 4xx ging tot nu toe
+            // ongelogd de deur uit. Sinds het openen van een bericht een magazijn-aanroep doet is
+            // dat de faalklasse die élke klik raakt: een verkeerde grant of een ontvanger-mismatch
+            // maakt elk bericht onopenbaar zonder dat hier iets van te zien is. Geen X-Ontvanger
+            // in de log — dat is een BSN/RSIN.
+            if (!isUpstreamStoring(e)) {
+                log.warnf(
+                    "%s: magazijn gaf %d (berichtId=%s magazijnId=%s)",
+                    MAGAZIJN_DETAIL,
+                    e.response.status,
+                    berichtId,
+                    magazijnId,
+                )
+            }
+
+            throw e
+        } catch (e: JsonProcessingException) {
+            // Een 200 met een body die niet op het contract past. Zonder deze tak landt hij op de
+            // Jackson-mapper, die er een 400 van maakt: de gebruiker leest dan dat zíjn verzoek
+            // fout is terwijl de fout volledig bovenstrooms zit.
+            log.errorf(e, "%s: onleesbaar antwoord (schema-drift?) berichtId=%s magazijnId=%s → 502", MAGAZIJN_DETAIL, berichtId, magazijnId)
+
+            throw upstreamBadGateway("$MAGAZIJN_DETAIL: onleesbaar antwoord", e)
+        }
+
+        // Het contract eist een niet-lege tekst. Levert een magazijn er tóch een, dan is een leeg
+        // scherm niet van een leeg bericht te onderscheiden; luid falen is hier het bruikbare
+        // signaal, voor de gebruiker en voor de beheerder van dat magazijn.
+        if (detail.inhoud.isBlank()) {
+            log.errorf("%s: magazijn leverde lege berichttekst (berichtId=%s magazijnId=%s) → 502", MAGAZIJN_DETAIL, berichtId, magazijnId)
+
+            throw upstreamBadGateway("$MAGAZIJN_DETAIL: lege berichttekst")
+        }
+
+        return detail.inhoud
     }
 
     fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): Pair<String, ByteArray> {
@@ -160,5 +205,8 @@ class BerichtOphaalService(
 
     private companion object {
         private val log: Logger = Logger.getLogger(BerichtOphaalService::class.java)
+
+        /** Log-context van de tekst-call; één waarde zodat de regels bij elkaar te zoeken zijn. */
+        private const val MAGAZIJN_DETAIL = "magazijn-bericht-detail"
     }
 }

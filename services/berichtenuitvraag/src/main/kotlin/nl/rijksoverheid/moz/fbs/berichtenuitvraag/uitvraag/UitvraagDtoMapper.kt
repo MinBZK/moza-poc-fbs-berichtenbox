@@ -22,8 +22,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatti
  *
  * `BijlageMetadata.mimeType`/`grootteInBytes` blijven leeg: de sessiecache
  * bewaart per bijlage alleen `bijlageId` en `naam`; het werkelijke MIME-type
- * komt mee bij het downloaden van de bijlage zelf. De berichttekst zit om dezelfde
- * reden niet in het domeintype: die komt bij het openen uit het bronmagazijn.
+ * komt mee bij het downloaden van de bijlage zelf. De berichttekst ontbreekt in het
+ * domeintype om een andere reden: die wordt bewust niet vooruit gekopieerd en komt bij
+ * het openen uit het bronmagazijn.
  */
 object UitvraagDtoMapper {
 
@@ -52,12 +53,15 @@ object UitvraagDtoMapper {
     }
 
     /**
-     * [inhoud] komt niet uit de cache maar uit het bronmagazijn, en wordt alleen
-     * meegegeven waar de ontvanger het bericht daadwerkelijk opent. Op het
-     * status-beheerpad blijft hij weg: die aanroeper heeft de tekst al en een extra
-     * magazijn-call per markeer-als-gelezen zou pure verspilling zijn.
+     * [inhoud] komt niet uit de cache maar uit het bronmagazijn. De parameter heeft bewust
+     * géén default: `inhoud` is optioneel in de spec en verdwijnt bij `null` uit de respons,
+     * dus een pad dat hem zou vergeten antwoordt stilzwijgend zonder tekst en geen enkele
+     * contracttest merkt dat. Zo staat de keuze per pad in de code.
+     *
+     * Het status-beheerpad geeft `null`: die aanroeper toont het bericht al, en een extra
+     * magazijn-aanroep per markeer-als-gelezen zou alleen verkeer kosten.
      */
-    fun toApiBericht(bericht: DomeinBericht, inhoud: String? = null): Bericht = Bericht().apply {
+    fun toApiBericht(bericht: DomeinBericht, inhoud: String?): Bericht = Bericht().apply {
         berichtId = bericht.berichtId
         onderwerp = bericht.onderwerp
         afzender = bericht.afzender

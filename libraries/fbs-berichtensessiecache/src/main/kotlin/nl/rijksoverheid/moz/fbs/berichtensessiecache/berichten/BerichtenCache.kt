@@ -58,10 +58,19 @@ internal interface BerichtenCache {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v1:${HEX.formatHex(digest)}"
+            return "berichtensessiecache:v2:${HEX.formatHex(digest)}"
         }
-        fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
-        const val BERICHT_PREFIX = "bericht:v1:"
+        // Let op: demo-console's SessieService spiegelt deze sleutelvorm met de hand (het paneel
+        // mag geen dependency op deze library hebben). Een bump hier moet daar mee.
+        //
+        // v2: de vorm van hash én blob wijzigde toen de berichttekst uit de cache verdween.
+        // Zonder deze bump leest een nog draaiende pod van de vorige versie tijdens een uitrol
+        // een entry zonder `inhoud` en strandt op een ontbrekend veld — een 500 op de
+        // berichtenlijst, voor de duur van het venster. Met disjuncte sleutels ziet die pod een
+        // cache-miss en vraagt de box netjes om opnieuw ophalen. Een bump van BERICHT_PREFIX
+        // verandert de RediSearch-index-prefix: volg docs/operations/redisearch-schema-bump.md.
+        fun berichtKey(berichtId: UUID) = "bericht:v2:$berichtId"
+        const val BERICHT_PREFIX = "bericht:v2:"
         const val SEARCH_INDEX = "berichten-idx"
     }
 }
@@ -365,10 +374,10 @@ internal class RedisBerichtenCache(
             }
     }
 
-    // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons heeft
-    // `bijlagen` niet nodig, dus het is verspilling om dat veld over de wire op te halen.
-    // `documentToSamenvatting` mapt naar het lichte [BerichtSamenvatting]-type. De
-    // detail-lookup (`getById`) gebruikt de hash en blijft volledig.
+    // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons draagt
+    // `bijlagen` niet, dus dat veld hoeft niet over de wire. `documentToSamenvatting` mapt naar
+    // het lichte [BerichtSamenvatting]-type; de detail-lookup (`getById`) gebruikt de hash en
+    // blijft volledig.
     private fun samenvattingQueryArgs(): QueryArgs {
         val args = QueryArgs()
         SAMENVATTING_VELDEN.forEach { args.returnAttribute(it) }
@@ -855,8 +864,8 @@ internal class RedisBerichtenCache(
         // TypeReference voor Jackson-deserialisatie van de `bijlagen`-hash-field (JSON-array).
         private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}
 
-        // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst
-        // zodat list/zoek het zware `bijlagen`-veld niet ophaalt.
+        // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst.
+        // `bijlagen` blijft eruit omdat de samenvatting het niet draagt, niet omdat het groot is.
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",
             "afzender",

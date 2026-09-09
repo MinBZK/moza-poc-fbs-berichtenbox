@@ -22,10 +22,6 @@ import java.util.UUID
  * TODO(#552): vervangen door FSC outway zodra de federatieve connectiviteit
  * op MOZ-niveau is vastgesteld.
  *
- * `bericht` haalt de berichttekst op bij het openen van een bericht. De tekst staat
- * niet in de sessiecache — die blijft bij de bron tot de ontvanger het bericht opent —
- * dus is dit het enige pad waarlangs de uitvraag eraan komt.
- *
  * `bijlage` retourneert `Response` zodat we zowel het werkelijke
  * `Content-Type` als de bytes kunnen lezen — magazijn levert dynamic
  * Content-Type per bijlage en wij overrulen ons eigen response-header via
@@ -62,17 +58,20 @@ interface MagazijnClient {
     )
 
     /**
-     * Levert een eigen, smalle DTO in plaats van het gegenereerde magazijn-model: het
-     * magazijn modelleert `status` als object waar uitvraag een enum-string gebruikt,
-     * en Jackson kan die twee vormen niet op één type deserialiseren (zelfde reden als
-     * bij [patchBericht]). De overige velden komen uit de sessiecache.
+     * Haalt de berichttekst op bij het openen van een bericht; de sessiecache draagt hem niet,
+     * dus dit is het enige pad waarlangs de uitvraag eraan komt.
+     *
+     * Een eigen, smalle DTO als returntype: uitvraags eigen `Bericht`-model hergebruiken kan
+     * niet, want het magazijn modelleert `status` als object waar uitvraag een enum-string
+     * gebruikt en Jackson die twee vormen niet op één type deserialiseert (dezelfde botsing
+     * als bij [patchBericht]). De overige velden komen uit de sessiecache.
      */
     @GET
     @Path("/{berichtId}")
     fun bericht(
         @HeaderParam("X-Ontvanger") xOntvanger: String,
         @PathParam("berichtId") berichtId: UUID,
-    ): MagazijnBerichtDetail
+    ): MagazijnBerichtInhoud
 
     @GET
     @Path("/{berichtId}/bijlagen/{bijlageId}")
@@ -85,6 +84,6 @@ interface MagazijnClient {
 
 /** Het deel van het magazijn-detailantwoord dat de uitvraag nodig heeft: de berichttekst. */
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class MagazijnBerichtDetail(
+data class MagazijnBerichtInhoud(
     @param:JsonProperty("inhoud") val inhoud: String,
 )

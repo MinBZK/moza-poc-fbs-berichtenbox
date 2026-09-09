@@ -42,7 +42,7 @@ class BerichtOphaalServiceTest {
     }
 
     private fun stubInhoud(berichtId: UUID, inhoud: String = "Inhoud") {
-        every { magazijn.bericht("BSN:999990019", berichtId) } returns MagazijnBerichtDetail(inhoud)
+        every { magazijn.bericht("BSN:999990019", berichtId) } returns MagazijnBerichtInhoud(inhoud)
     }
 
     @Test
