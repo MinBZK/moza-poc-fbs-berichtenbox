@@ -165,11 +165,30 @@ class BeheerService(
         return ontvangers
     }
 
-    fun seed(verzoek: SeedVerzoek): SeedUitkomst {
+    /** Vult elk magazijn: de handeling achter de vul-knop. */
+    fun seed(verzoek: SeedVerzoek): SeedUitkomst = seed(verzoek, magazijnen.alle())
+
+    /**
+     * Vult alleen de magazijnen waar nog niets staat.
+     *
+     * Een ronde die halverwege afbreekt laat magazijnen zonder post achter. Wie daarna beslist op
+     * "staat er érgens iets", besluit dat het gevuld is en werkt die achterblijvers nooit meer bij;
+     * per magazijn kijken maakt de volgende ronde het werk af. Eén los aangeleverd bericht houdt zo
+     * ook niet de negenennegentig andere magazijnen leeg.
+     */
+    fun seedOntbrekende(verzoek: SeedVerzoek): SeedUitkomst {
+        val gevuld = bulk.magazijnenMetBerichten()
+
+        return seed(verzoek, magazijnen.alle().filter { it.dbId !in gevuld })
+    }
+
+    private fun seed(verzoek: SeedVerzoek, teVullen: List<GesimuleerdMagazijn>): SeedUitkomst {
         val begin = System.nanoTime()
         val nu = klok.instant()
-        val teVullen = magazijnen.alle()
-        val ontvangers = valideer(verzoek, teVullen)
+
+        // Toetsen tegen de héle set en niet tegen wat er gevuld wordt: een ontvanger die zelf een
+        // gesimuleerd magazijn is, blijft fout ook als dat magazijn deze ronde niet aan de beurt is.
+        val ontvangers = valideer(verzoek, magazijnen.alle())
 
         var berichten = 0
         var bijlagen = 0

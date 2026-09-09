@@ -332,12 +332,17 @@ De console draait ook als component `democonsole` in de deployment `test` van he
 Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de authorization-wall,
 niet een kapot component.
 
-De gesimuleerde magazijnen hoef je daar niet als eerste handeling te vullen: de simulator zet bij
-het opstarten zelf post klaar wanneer zijn opslag leeg is, voor de ondernemers uit zijn gegenereerde
-configuratie. Dat geldt ook voor een verse preview en voor een deployment waarvan de database
-opnieuw is aangemaakt. Staat er al post, dan blijft die staan — ook post die je zelf met de vul-knop
-hebt neergezet. Wie tijdens een demo bewust leegt en daarna een herstart krijgt, ziet de
-basisvulling dus terug.
+De gesimuleerde magazijnen hoef je daar niet als eerste handeling te vullen: de simulator zet bij het
+opstarten zelf post klaar in elk magazijn dat er geen heeft, voor de ondernemers uit zijn
+gegenereerde configuratie. Dat geldt ook voor een verse preview en voor een deployment waarvan de
+database opnieuw is aangemaakt. Magazijnen die al post hebben blijven ongemoeid — ook wat je zelf met
+de vul-knop neerzette. Wie tijdens een demo bewust leegt en daarna een herstart krijgt, ziet de post
+dus terug.
+
+Dat werkt alleen als het geüploade configuratiebestand de `magazijnsimulator.opstartvulling.*`-regels
+draagt; §2 van `demo/environment/zad-demo/magazijn-simulator.md` zegt hoe je dat controleert en
+bijwerkt. Ontbreken ze, dan blijven de gesimuleerde magazijnen leeg en zegt de simulator dat bij elke
+start met een `WARN` — het beeld is dan hetzelfde als vroeger, dus vullen met de knop.
 
 Eén knopgroep ontbreekt daar, en het paneel laat hem zelf weg op grond van
 `GET /api/demo/omgeving`: de magazijn-storingen. Het storingsgedrag van een gesimuleerd magazijn

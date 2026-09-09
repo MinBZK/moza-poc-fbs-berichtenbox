@@ -58,13 +58,22 @@ class BulkOpslag(private val entityManager: EntityManager) {
     }
 
     /**
-     * Of er ergens in de opslag een bericht staat.
+     * Welke magazijnen op dit moment post hebben staan.
      *
-     * Bewust een bestaanstoets en geen telling: de vraag is "is hier al eens gevuld", en `EXISTS`
-     * stopt bij de eerste rij in plaats van er honderdduizend te tellen om hetzelfde te zeggen.
+     * Per magazijn en niet tabelbreed: wie alleen vraagt of er érgens iets staat, kan een half
+     * gevulde opslag niet van een volle onderscheiden. Deze klasse werkt sowieso over de magazijnen
+     * heen — de discriminator-regel van `BerichtRepository` gaat hier dus niet op — en een
+     * `GROUP BY` over de index op `magazijn_db_id` kost één query in plaats van er honderd.
+     *
+     * `@Transactional` omdat dit ook vanaf het opstartpad wordt aangeroepen: daar is geen
+     * request-context actief, en zonder transactie is er dan geen sessie om mee te lezen.
      */
-    fun ergensBerichten(): Boolean =
-        entityManager.createNativeQuery("SELECT EXISTS (SELECT 1 FROM bericht)").singleResult as Boolean
+    @Transactional
+    fun magazijnenMetBerichten(): Set<Long> =
+        entityManager.createNativeQuery("SELECT DISTINCT magazijn_db_id FROM bericht")
+            .resultList
+            .map { (it as Number).toLong() }
+            .toSet()
 
     /** Verwijdert alle berichten van alle magazijnen; child-eerst, want de FK's staan op RESTRICT. */
     @Transactional

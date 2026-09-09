@@ -140,8 +140,8 @@ staat de database op 200 verbindingen.
 
 ## 2. De set die hij voorstelt
 
-`demo/generated/magazijn-simulator.properties` (twee regels per magazijn: naam en volgnummer) gaat
-als attachment mee. Die inhoud is deployment-onafhankelijk, dus hier speelt het
+`demo/generated/magazijn-simulator.properties` (twee regels per magazijn — naam en volgnummer — plus
+de opstartvulling hieronder) gaat als attachment mee. Die inhoud is deployment-onafhankelijk, dus hier speelt het
 substitutie-probleem niet.
 
 Toevoegen en toewijzen zijn twee stappen: `add` legt het bestand in het project, `assign` hangt het
@@ -160,16 +160,23 @@ Het volgnummer bepaalt het gedrag van elk magazijn — traag, haperend, onbereik
 zit in de simulator zelf en is deterministisch, dus de gedeelde omgeving gedraagt zich hetzelfde als
 een laptop. Dat is de bedoeling: een demo die je thuis oefent moet daar hetzelfde doen.
 
-Hetzelfde bestand draagt sinds
-[#1087](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1087) ook
-`magazijnsimulator.basisvulling.ontvangers`: de ondernemers voor wie de simulator zichzelf vult
-zodra hij opstart met een lege opslag. Dat is wat een preview en een opnieuw aangemaakte deployment
-van "leeg maar gezond" afhoudt — een toestand die tijdens een demo niet van een kapotte keten te
-onderscheiden is. Is het attachment ouder dan die regel, dan werkt de simulator gewoon, maar vult
-hij zichzelf niet: **vervang de inhoud** met
-`zadctl attachment update magazijn-simulator-set --from-file demo/generated/magazijn-simulator.properties`
-— de koppeling aan het component blijft daarbij staan — en herstart het component. Staat er al post, dan blijft die staan; de vulling is een vangnet voor
-een lege opslag, geen periodieke opruiming.
+Hetzelfde bestand draagt ook `magazijnsimulator.opstartvulling.*`: voor wie de simulator zichzelf
+vult, en hoeveel. Bij het opstarten krijgt elk magazijn zonder post die vulling; magazijnen die al
+post hebben blijven ongemoeid. Dat is wat een preview en een opnieuw aangemaakte deployment weghoudt
+bij "leeg maar gezond" — een toestand die tijdens een demo niet van een kapotte keten te
+onderscheiden is.
+
+Draagt het geüploade bestand die regels niet, dan werkt de simulator gewoon maar vult hij zichzelf
+niet; hij zegt dat bij elke start met een `WARN`. Controleer het vóór je uploadt, en vervang daarna
+de inhoud — de koppeling aan het component blijft dan staan:
+
+```bash
+grep opstartvulling demo/generated/magazijn-simulator.properties
+zadctl attachment update magazijn-simulator-set \
+  --from-file demo/generated/magazijn-simulator.properties
+```
+
+Herstart het component daarna; het bestand wordt alleen bij het opstarten gelezen.
 
 ## 3. Het register op de uitvraag
 
