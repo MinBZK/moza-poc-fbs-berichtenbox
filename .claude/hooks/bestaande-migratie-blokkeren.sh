@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# PreToolUse-guard: een toegepaste Flyway-migratie is immutable.
+# PreToolUse-guard: blokkeer een edit in een bestaande Flyway-migratie.
 #
-# Flyway slaat per migratie een checksum op in flyway_schema_history. Wijzig je een V*.sql die al
-# gedraaid heeft, dan start de service pas de volgende keer niet meer op — ver weg van de edit die
-# het veroorzaakte. Een nieuwe V(N+1) toevoegen mag wel, dus alleen een BESTAAND bestand blokkeren.
+# Een toegepaste migratie is immutable: Flyway slaat er een checksum van op in
+# flyway_schema_history. Wijzig je een V*.sql die al gedraaid heeft, dan start de service pas de
+# volgende keer niet meer op — ver weg van de edit die het veroorzaakte. Een nieuwe V(N+1)
+# toevoegen mag wel, dus alleen een BESTAAND bestand blokkeren.
 #
 # Rollback-scripts onder db/rollback/ vallen hier bewust buiten: die zijn lokale hulpmiddelen die
 # Flyway niet kent en dus niet controleert.
