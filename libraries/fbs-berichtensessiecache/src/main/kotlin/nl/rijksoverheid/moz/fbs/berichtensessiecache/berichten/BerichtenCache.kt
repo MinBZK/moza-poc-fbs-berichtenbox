@@ -58,11 +58,22 @@ internal interface BerichtenCache {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v1:${HEX.formatHex(digest)}"
+            return "berichtensessiecache:v2:${HEX.formatHex(digest)}"
         }
-        fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
-        const val BERICHT_PREFIX = "bericht:v1:"
-        const val SEARCH_INDEX = "berichten-idx"
+        // v2: sinds berichten een verplichte `afzenderNaam` dragen. Een v1-entry mist dat veld
+        // en zou als corrupt gelezen worden; een eigen prefix laat de oude entries via hun TTL
+        // verlopen in plaats van leesfouten te geven.
+        fun berichtKey(berichtId: UUID) = "$BERICHT_PREFIX$berichtId"
+        const val BERICHT_PREFIX = "bericht:v2:"
+
+        // De index-naam draagt dezelfde versie als de prefix waarop hij filtert, en dat is geen
+        // cosmetica: de bootstrap laat een bestaande index bewust ongemoeid, dus een index die op
+        // `bericht:v1:` is aangemaakt zou blijven staan terwijl alle nieuwe hashes onder
+        // `bericht:v2:` landen. Filter- en zoekqueries geven dan stil nul resultaten — een
+        // index op de verkeerde prefix is functioneel identiek aan géén index, maar valt buiten
+        // de fail-fast hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index
+        // aan en blijven oude pods tijdens een rolling deploy op de oude werken.
+        const val SEARCH_INDEX = "berichten-idx-v2"
     }
 }
 
@@ -450,6 +461,7 @@ internal class RedisBerichtenCache(
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
         put("berichtId", bericht.berichtId.toString())
         put("afzender", bericht.afzender)
+        put("afzenderNaam", bericht.afzenderNaam)
         put("ontvanger", bericht.ontvanger.waarde)
         put("ontvangerType", bericht.ontvanger.type.name)
         put("onderwerp", bericht.onderwerp)
@@ -501,6 +513,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
+            afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             inhoud = required("inhoud"),
@@ -554,6 +567,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
+            afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             publicatietijdstip = try {
@@ -862,6 +876,7 @@ internal class RedisBerichtenCache(
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",
             "afzender",
+            "afzenderNaam",
             "ontvanger",
             "ontvangerType",
             "onderwerp",
