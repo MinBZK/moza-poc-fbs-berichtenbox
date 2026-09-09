@@ -5,7 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
-/** Bedrading: één REST-client per uniek Toxiproxy-adres, gebouwd zoals `AanleverService` dat doet. */
+/** Bedrading: één REST-client per uniek Toxiproxy-adres, gebouwd zoals `MagazijnClients` dat doet. */
 @ApplicationScoped
 class ToxiproxyRegister(config: ToxiproxyConfig) {
 
