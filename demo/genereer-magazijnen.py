@@ -168,6 +168,15 @@ def simulator_regels(n: int) -> list:
         regels.append(f'magazijnsimulator.magazijnen."{oin(i)}".naam={naam(i)}')
         regels.append(f'magazijnsimulator.magazijnen."{oin(i)}".index={i}')
 
+    # Voor wie de simulator zichzelf vult zodra zijn opslag leeg is. Uit ONDERNEMERS en niet met de
+    # hand: een verse omgeving die zich voor iemand anders vult dan de personas in de keuzelijst,
+    # toont lege magazijnen die wél netjes antwoorden -- en dat is van een kapotte keten niet te
+    # onderscheiden. Hoeveel berichten en om de hoeveel een bijlage laat dit script aan de simulator;
+    # die kent zijn eigen standaardwaardes.
+    ontvangers = ",".join(f"{soort}:{nummer}" for _, soort, nummer, _ in ONDERNEMERS)
+
+    regels.append(f'magazijnsimulator.basisvulling.ontvangers={ontvangers}')
+
     return regels
 
 

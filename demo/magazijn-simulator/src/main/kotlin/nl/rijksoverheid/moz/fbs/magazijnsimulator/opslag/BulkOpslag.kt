@@ -57,6 +57,15 @@ class BulkOpslag(private val entityManager: EntityManager) {
         )
     }
 
+    /**
+     * Of er ergens in de opslag een bericht staat.
+     *
+     * Bewust een bestaanstoets en geen telling: de vraag is "is hier al eens gevuld", en `EXISTS`
+     * stopt bij de eerste rij in plaats van er honderdduizend te tellen om hetzelfde te zeggen.
+     */
+    fun ergensBerichten(): Boolean =
+        entityManager.createNativeQuery("SELECT EXISTS (SELECT 1 FROM bericht)").singleResult as Boolean
+
     /** Verwijdert alle berichten van alle magazijnen; child-eerst, want de FK's staan op RESTRICT. */
     @Transactional
     fun leegAlleBerichten(): Int {

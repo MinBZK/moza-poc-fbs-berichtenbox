@@ -43,6 +43,28 @@ class OndernemersConsistentieTest {
     }
 
     /**
+     * De simulator vult zichzelf bij het opstarten voor de ontvangers die in zijn gegenereerde
+     * configuratie staan. Die lijst hoort uit dezelfde ONDERNEMERS te komen als de vul-knop.
+     *
+     * Faalscenario zonder deze test: iemand schrijft de ontvangers van de basisvulling met de hand
+     * in het generatiescript. Een verse omgeving vult zich dan voor iemand die geen persona is, en
+     * de demo toont lege magazijnen die wél netjes antwoorden — precies het beeld dat de
+     * basisvulling moest wegnemen.
+     */
+    @Test
+    fun `de basisvulling van de simulator gebruikt dezelfde ondernemers`() {
+        val script = File(ROOT, "demo/genereer-magazijnen.py").readText()
+        val regel = Regex("""magazijnsimulator\.basisvulling\.ontvangers=\{([^}]*)}""").find(script)
+
+        assertTrue(regel != null, "geen regel voor magazijnsimulator.basisvulling.ontvangers in het script")
+        assertEquals(
+            "ontvangers",
+            regel!!.groupValues[1],
+            "de ontvangers van de basisvulling horen uit ONDERNEMERS te komen, niet uit een eigen lijst",
+        )
+    }
+
+    /**
      * De rookproef bevraagt dezelfde vier ondernemers en controleert bij hoeveel organisaties ze
      * uitkomen. Hij staat buiten de reactor, dus niets houdt hem bij het generatiescript.
      *

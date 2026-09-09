@@ -160,6 +160,17 @@ Het volgnummer bepaalt het gedrag van elk magazijn — traag, haperend, onbereik
 zit in de simulator zelf en is deterministisch, dus de gedeelde omgeving gedraagt zich hetzelfde als
 een laptop. Dat is de bedoeling: een demo die je thuis oefent moet daar hetzelfde doen.
 
+Hetzelfde bestand draagt sinds
+[#1087](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1087) ook
+`magazijnsimulator.basisvulling.ontvangers`: de ondernemers voor wie de simulator zichzelf vult
+zodra hij opstart met een lege opslag. Dat is wat een preview en een opnieuw aangemaakte deployment
+van "leeg maar gezond" afhoudt — een toestand die tijdens een demo niet van een kapotte keten te
+onderscheiden is. Is het attachment ouder dan die regel, dan werkt de simulator gewoon, maar vult
+hij zichzelf niet: **vervang de inhoud** met
+`zadctl attachment update magazijn-simulator-set --from-file demo/generated/magazijn-simulator.properties`
+— de koppeling aan het component blijft daarbij staan — en herstart het component. Staat er al post, dan blijft die staan; de vulling is een vangnet voor
+een lege opslag, geen periodieke opruiming.
+
 ## 3. Het register op de uitvraag
 
 **Zet eerst de alias, dan pas het register** — zie de volgorde bovenaan. In het uitvraag-project
