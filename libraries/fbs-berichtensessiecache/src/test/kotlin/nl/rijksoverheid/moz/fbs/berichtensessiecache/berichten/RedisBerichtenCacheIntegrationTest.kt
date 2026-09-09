@@ -356,6 +356,23 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `delete-prune verwijdert alle list-entries die naar hetzelfde berichtId matchen`() {
+        // berichtId is uniek per aanlevering, dus normaal staat een berichtId maar één keer in de
+        // list — maar de prune-batch moet ook een dubbele match volledig opruimen, anders blijft
+        // een duplicaat na delete zichtbaar in `GET /berichten`.
+        val bericht = testBerichten().take(1)[0]
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
+
+        val duplicaatJson = objectMapper.writeValueAsString(bericht.copy(onderwerp = "Duplicaat"))
+        redis.list(String::class.java).rpush(listKey(), duplicaatJson).await().indefinitely()
+
+        berichtenCache.delete(bericht.berichtId, ontvanger).await().indefinitely()
+
+        val entries = redis.list(String::class.java).lrange(listKey(), 0, -1).await().indefinitely()
+        assertTrue(entries.isEmpty(), "beide list-entries voor het doelbericht moeten verwijderd zijn; over: $entries")
+    }
+
+    @Test
     fun `roundtrip bewaart bijlagen-lijst correct`() {
         val bijlageId = UUID.randomUUID()
         val bericht = Bericht(
@@ -686,6 +703,24 @@ class RedisBerichtenCacheIntegrationTest {
             val bericht = berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
             assertNotNull(bericht, "Bericht-hash is vroegtijdig verlopen op iteratie $it")
         }
+    }
+
+    @Test
+    fun `sliding TTL - getById verlengt ook de list-key`() {
+        // getById verlengt naast de berichthash ook de sessie-keys (list + status), zodat een
+        // detailweergave alléén de pagina-navigatie niet alsnog laat verlopen. TTL is 2s; 3 reads
+        // met 1s ertussen tonen dat de list-key blijft leven zolang er gelezen wordt.
+        val berichten = testBerichten().take(1)
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val berichtId = berichten[0].berichtId
+
+        repeat(3) {
+            Thread.sleep(1_000)
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        val listTtl = redis.key().ttl(listKey()).await().indefinitely()
+        assertTrue(listTtl > 0, "list-key is vroegtijdig verlopen ondanks herhaalde getById-reads; was: $listTtl")
     }
 
     @Test

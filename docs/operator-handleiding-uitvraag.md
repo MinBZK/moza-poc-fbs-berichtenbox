@@ -189,6 +189,35 @@ beheerder van dat magazijn, niet bij de ontvanger. Raakt een magazijn de query-t
 lijst uit is, dan is dat een `TIMEOUT` — geen half resultaat: een halve lijst als geslaagd tonen zou
 opnieuw post weglaten zonder dat de ontvanger het kan zien.
 
+## Hoeveel Redis-commando's tegelijk
+
+Het bewaren van een ophaalronde kost twee Redis-commando's per bericht (de hash zelf en zijn
+vervaltermijn). Die commando's gaan in batches naar Redis, zodat er nooit meer tegelijk onderweg
+zijn dan de client aankan — ongeacht bij hoeveel organisaties de ondernemer is aangesloten.
+
+| Property | Env var | Default | Wat |
+|---|---|---|---|
+| `berichtensessiecache.redis-batchgrootte` | `REDIS_BATCHGROOTTE` | 256 | Berichten per batch |
+| `quarkus.redis.max-waiting-handlers` | `REDIS_MAX_WAITING_HANDLERS` | 2048 | Commando's per connection waarvan het antwoord nog moet komen |
+
+De invariant:
+
+```
+berichtensessiecache.redis-batchgrootte  <  quarkus.redis.max-waiting-handlers
+```
+
+HSET en EXPIRE zijn per bericht met `.chain` geregen, dus staan nooit tegelijk in de wachtrij —
+de piek per batch is de batchgrootte zelf, niet het dubbele. Bij de defaults is dat 256 tegen 2048.
+`RedisBerichtenCache.init()` bewaakt deze invariant bij het opstarten: een configuratie die hem
+schendt (bijvoorbeeld `REDIS_BATCHGROOTTE` opgehoogd zonder `REDIS_MAX_WAITING_HANDLERS` mee te
+bewegen) laat de service niet starten, met een foutmelding die beide sleutels en hun waarden
+noemt.
+
+Een hogere batchgrootte betekent minder round-trips naar Redis: een ronde van 2700 berichten kost
+11 batches bij batchgrootte 256, elk twee round-trips (een HSET-golf, dan een EXPIRE-golf) — 22
+round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
+`max-waiting-handlers` op de default staat.
+
 ## Cache-levensduur
 
 | Property | Default | Wanneer aanpassen |
