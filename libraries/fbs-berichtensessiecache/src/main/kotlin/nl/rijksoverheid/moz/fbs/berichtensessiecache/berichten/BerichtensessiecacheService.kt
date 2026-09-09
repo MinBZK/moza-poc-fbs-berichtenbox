@@ -253,8 +253,7 @@ internal class BerichtensessiecacheService(
         // kan callbacks parallel emitten, dus sync is nodig. Geen lock-free CAS per Node
         // (queue) maar wel goedkoop blocking; payload-size is paar honderd berichten.
         val alleBerichten: MutableList<Bericht> = Collections.synchronizedList(ArrayList())
-        val geslaagd = AtomicInteger(0)
-        val mislukt = AtomicInteger(0)
+        val tellers = RondeTellers()
 
         zetBezigStatusMetTotaal(cacheKey, bezigStatus, clients.size)
 
@@ -279,7 +278,7 @@ internal class BerichtensessiecacheService(
         val aanDeBeurt = AtomicInteger(0)
 
         val voltooidStreams = clients.map { (magazijnId, client) ->
-            bouwVoltooidStream(magazijnId, namen[magazijnId], client, ontvangerString, alleBerichten, geslaagd, mislukt)
+            bouwVoltooidStream(magazijnId, namen[magazijnId], client, ontvangerString, alleBerichten, tellers)
                 // `onSubscription` vuurt precies wanneer de ronde-wachtrij deze organisatie oppakt.
                 // Bij een fan-out boven de per-ronde-grens zie je hier de golven: de eerste groep op
                 // ~0 ms, de rest zodra er een plek vrijkomt.
@@ -297,9 +296,9 @@ internal class BerichtensessiecacheService(
         return Multi.createBy().concatenating().streams(
             gestartEvents,
             bulkhead.ronde(voltooidStreams).onCompletion().invoke(
-                Runnable { logRondeAfgerond(clients.size, rondeStartNanos, geslaagd, mislukt) },
+                Runnable { logRondeAfgerond(clients.size, rondeStartNanos, tellers) },
             ),
-            aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, geslaagd, mislukt),
+            aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, tellers),
         )
     }
 
@@ -308,12 +307,11 @@ internal class BerichtensessiecacheService(
      * hoe lang dat duurde. Op INFO omdat dit het antwoord is op "zijn ze allemaal aan bod gekomen"
      * — één regel per ophaalronde, en zonder PII (aantallen en een duur, geen ontvanger).
      */
-    private fun logRondeAfgerond(totaal: Int, rondeStartNanos: Long, geslaagd: AtomicInteger, mislukt: AtomicInteger) {
-        val bevraagd = geslaagd.get() + mislukt.get()
-
+    private fun logRondeAfgerond(totaal: Int, rondeStartNanos: Long, tellers: RondeTellers) {
         log.infof(
-            "Ophaalronde afgerond in %d ms: %d van %d organisaties bevraagd (%d geslaagd, %d niet)",
-            verstrekenMs(rondeStartNanos), bevraagd, totaal, geslaagd.get(), mislukt.get(),
+            "Ophaalronde afgerond in %d ms: %d van %d organisaties bevraagd (%d geslaagd, %d mislukt), %d niet opgehaald",
+            verstrekenMs(rondeStartNanos), tellers.bevraagd(), totaal,
+            tellers.geslaagd.get(), tellers.mislukt.get(), tellers.nietOpgehaald.get(),
         )
     }
 
@@ -547,6 +545,7 @@ internal class BerichtensessiecacheService(
                 totaalBerichten = 0,
                 geslaagd = 0,
                 mislukt = 0,
+                nietOpgehaald = 0,
                 totaalMagazijnen = 0,
             ),
         )
@@ -559,8 +558,7 @@ internal class BerichtensessiecacheService(
      * is. De per-magazijn query-timeout levert het primaire TIMEOUT-signaal; de berichten-cap
      * beschermt de heap tegen een rogue magazijn; de fout-classificatie
      * ([classifyMagazijnFault]) bepaalt log-niveau + eindgebruiker-melding. Geslaagde berichten
-     * worden in [alleBerichten] verzameld; [geslaagd]/[mislukt] tellen de uitkomst voor de
-     * eind-aggregatie.
+     * worden in [alleBerichten] verzameld; [tellers] houdt de uitkomst bij voor de eind-aggregatie.
      */
     private fun bouwVoltooidStream(
         magazijnId: String,
@@ -568,8 +566,7 @@ internal class BerichtensessiecacheService(
         client: MagazijnClient,
         ontvangerString: String,
         alleBerichten: MutableList<Bericht>,
-        geslaagd: AtomicInteger,
-        mislukt: AtomicInteger,
+        tellers: RondeTellers,
     ): Multi<MagazijnEvent> {
         // De half-open probe die `toegestaan()` claimt wordt door niets anders gewist dan een
         // terminale melding: raakt die zoek, dan blijft dit magazijn tot de herstart overgeslagen
@@ -652,7 +649,7 @@ internal class BerichtensessiecacheService(
             }
             .onTermination().invoke(Runnable { meldOnbeslistIndienNodig(magazijnId, circuitGemeld) })
             .toMulti()
-            .map { result -> naarVoltooidEvent(result, alleBerichten, geslaagd, mislukt) }
+            .map { result -> naarVoltooidEvent(result, alleBerichten, tellers) }
     }
 
     /**
@@ -720,12 +717,11 @@ internal class BerichtensessiecacheService(
     private fun naarVoltooidEvent(
         result: MagazijnResult,
         alleBerichten: MutableList<Bericht>,
-        geslaagd: AtomicInteger,
-        mislukt: AtomicInteger,
+        tellers: RondeTellers,
     ): MagazijnBevragingVoltooid = when (result) {
         is MagazijnResult.Success -> {
             alleBerichten.addAll(result.berichten)
-            geslaagd.incrementAndGet()
+            tellers.geslaagd.incrementAndGet()
             MagazijnBevragingGeslaagd(
                 magazijnId = result.magazijnId,
                 naam = result.naam,
@@ -735,11 +731,14 @@ internal class BerichtensessiecacheService(
             )
         }
         is MagazijnResult.Failure -> {
-            mislukt.incrementAndGet()
+            val fout = magazijnFoutStatusVoor(result.fault)
+
+            tellers.tel(fout)
+
             MagazijnBevragingMislukt(
                 magazijnId = result.magazijnId,
                 naam = result.naam,
-                fout = magazijnFoutStatusVoor(result.fault),
+                fout = fout,
                 foutmelding = foutmeldingVoor(result.fault),
             )
         }
@@ -818,8 +817,7 @@ internal class BerichtensessiecacheService(
         cacheKey: String,
         totaalMagazijnen: Int,
         alleBerichten: MutableList<Bericht>,
-        geslaagd: AtomicInteger,
-        mislukt: AtomicInteger,
+        tellers: RondeTellers,
     ): Multi<MagazijnEvent> =
         Uni.createFrom().voidItem()
             .chain { _ ->
@@ -827,8 +825,9 @@ internal class BerichtensessiecacheService(
                 val status = AggregationStatus(
                     status = OphalenStatus.GEREED,
                     totaalMagazijnen = totaalMagazijnen,
-                    geslaagd = geslaagd.get(),
-                    mislukt = mislukt.get(),
+                    geslaagd = tellers.geslaagd.get(),
+                    mislukt = tellers.mislukt.get(),
+                    nietOpgehaald = tellers.nietOpgehaald.get(),
                 )
 
                 // Parallel: store(berichten) en storeAggregationStatus(GEREED) hebben
@@ -843,8 +842,9 @@ internal class BerichtensessiecacheService(
                     .map<MagazijnEvent> { _ ->
                         OphalenGereed(
                             totaalBerichten = alleBerichten.size,
-                            geslaagd = geslaagd.get(),
-                            mislukt = mislukt.get(),
+                            geslaagd = tellers.geslaagd.get(),
+                            mislukt = tellers.mislukt.get(),
+                            nietOpgehaald = tellers.nietOpgehaald.get(),
                             totaalMagazijnen = totaalMagazijnen,
                         )
                     }
@@ -854,7 +854,7 @@ internal class BerichtensessiecacheService(
             // laat dat type door naar de SSE-emitter, waarna de verbinding wegvalt zonder dat de
             // gebruiker hoort dat zijn ophaalronde niet bewaard is.
             .onFailure().recoverWithUni { error ->
-                herstelNaAggregatieCacheFout(error, cacheKey, totaalMagazijnen, alleBerichten, geslaagd, mislukt)
+                herstelNaAggregatieCacheFout(error, cacheKey, totaalMagazijnen, alleBerichten, tellers)
             }
             .toMulti()
 
@@ -868,8 +868,7 @@ internal class BerichtensessiecacheService(
         cacheKey: String,
         totaalMagazijnen: Int,
         alleBerichten: MutableList<Bericht>,
-        geslaagd: AtomicInteger,
-        mislukt: AtomicInteger,
+        tellers: RondeTellers,
     ): Uni<MagazijnEvent> {
         val errorId = UUID.randomUUID()
         val ref = errorId.toString()
@@ -886,16 +885,18 @@ internal class BerichtensessiecacheService(
         } else {
             log.errorf(
                 error,
-                "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d)",
-                errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                "(errorId=%s) Fout bij opslaan in cache na aggregatie (key=%s, berichten=%d, geslaagd=%d, mislukt=%d, nietOpgehaald=%d)",
+                errorId, cacheKey, alleBerichten.size,
+                tellers.geslaagd.get(), tellers.mislukt.get(), tellers.nietOpgehaald.get(),
             )
         }
 
         val foutStatus = AggregationStatus(
             status = OphalenStatus.FOUT,
             totaalMagazijnen = totaalMagazijnen,
-            geslaagd = geslaagd.get(),
-            mislukt = mislukt.get(),
+            geslaagd = tellers.geslaagd.get(),
+            mislukt = tellers.mislukt.get(),
+            nietOpgehaald = tellers.nietOpgehaald.get(),
         )
 
         return berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
@@ -916,8 +917,9 @@ internal class BerichtensessiecacheService(
                 } else {
                     log.fatalf(
                         e,
-                        "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
-                        errorId, cacheKey, alleBerichten.size, geslaagd.get(), mislukt.get(),
+                        "[ALERT cache_doublefail] (errorId=%s) Cache-write FAIL/FAIL (key=%s, berichten=%d, geslaagd=%d, mislukt=%d, nietOpgehaald=%d): Redis onbruikbaar voor sessie, lock leunt op TTL",
+                        errorId, cacheKey, alleBerichten.size,
+                        tellers.geslaagd.get(), tellers.mislukt.get(), tellers.nietOpgehaald.get(),
                     )
                 }
             }
@@ -929,8 +931,9 @@ internal class BerichtensessiecacheService(
             .replaceWith(
                 OphalenMisluktNaBevraging(
                     foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
-                    geslaagd = geslaagd.get(),
-                    mislukt = mislukt.get(),
+                    geslaagd = tellers.geslaagd.get(),
+                    mislukt = tellers.mislukt.get(),
+                    nietOpgehaald = tellers.nietOpgehaald.get(),
                     totaalMagazijnen = totaalMagazijnen,
                     referentie = ref,
                 )
@@ -1153,4 +1156,29 @@ internal class BerichtensessiecacheService(
                 log.errorf(error, "Onverwachte fout bij magazijn %s (%s) (cause=%s)", magazijnId, naam, error.javaClass.simpleName)
         }
     }
+}
+
+/**
+ * De uitkomsten van één ophaalronde, geteld terwijl de per-magazijn-events voorbijkomen. De
+ * merging-stream emit parallel, vandaar [AtomicInteger] per teller.
+ *
+ * `nietOpgehaald` staat naast `mislukt` en niet erin: een organisatie die de gelijktijdigheids-
+ * grens van de uitvraag niet passeerde is helemaal niet bevraagd, dus er is geen uitspraak over
+ * dat magazijn te doen. Wie de twee optelt, meldt een storing waar opnieuw proberen juist helpt.
+ */
+internal class RondeTellers {
+    val geslaagd = AtomicInteger(0)
+    val mislukt = AtomicInteger(0)
+    val nietOpgehaald = AtomicInteger(0)
+
+    /** Boekt één mislukte uitkomst op de teller die bij zijn status hoort. */
+    fun tel(fout: MagazijnFoutStatus) {
+        when (fout) {
+            MagazijnFoutStatus.NIET_OPGEHAALD -> nietOpgehaald.incrementAndGet()
+            MagazijnFoutStatus.FOUT, MagazijnFoutStatus.TIMEOUT -> mislukt.incrementAndGet()
+        }
+    }
+
+    /** Organisaties waarvan een antwoord terugkwam — geslaagd of mislukt, maar wél benaderd. */
+    fun bevraagd(): Int = geslaagd.get() + mislukt.get()
 }

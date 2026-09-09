@@ -138,6 +138,7 @@ object DomainValidationFuzzer {
                 totaalBerichten = data.consumeInt(),
                 geslaagd = data.consumeInt(),
                 mislukt = data.consumeInt(),
+                nietOpgehaald = data.consumeInt(),
                 totaalMagazijnen = data.consumeInt(),
             )
             EventType.OPHALEN_FOUT -> if (data.consumeBoolean()) {
@@ -147,6 +148,7 @@ object DomainValidationFuzzer {
                     foutmelding = tekst,
                     geslaagd = data.consumeInt(),
                     mislukt = data.consumeInt(),
+                    nietOpgehaald = data.consumeInt(),
                     totaalMagazijnen = data.consumeInt(),
                     referentie = data.consumeString(50),
                 )

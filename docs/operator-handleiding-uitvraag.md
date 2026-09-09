@@ -99,6 +99,12 @@ hoort hangt af van het patroon: komt het in vlagen tijdens pieken, dan is het wa
 voor die piek; blijft het aanhouden terwijl de magazijnen gezond zijn, dan is `max-concurrent` te
 laag voor de gelijktijdige belasting en helpt een groter budget alleen om het uit te stellen.
 
+Het slotevent van de ronde telt deze organisaties in `nietOpgehaald`, apart van `mislukt`, en de
+regel `Ophaalronde afgerond in … ms` doet hetzelfde. Zoek je naar storingen, kijk dan naar
+`mislukt`; `nietOpgehaald` is een capaciteitscijfer. Om dezelfde reden blijft de verwerking in het
+Logboek Dataverwerkingen op `OK` zolang `mislukt` nul is: overgeslagen organisaties zijn een keuze
+van deze service, geen verwerking die misging.
+
 **Let op bij een grote fan-out.** Een ophaalronde duurt in het slechtste geval
 `⌈organisaties ÷ max-parallel-per-ronde⌉ × (max-wachttijd-ms ÷ 1000 + magazijn-query-timeout-seconds)`.
 De wachttijd hoort erbij omdat een bevraging eerst haar budget kan volmaken en daarna alsnog op de
