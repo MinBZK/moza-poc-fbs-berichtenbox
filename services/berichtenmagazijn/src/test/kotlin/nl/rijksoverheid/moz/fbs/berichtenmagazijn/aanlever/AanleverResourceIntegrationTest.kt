@@ -64,7 +64,10 @@ class AanleverResourceIntegrationTest {
             .header("X-Content-Type-Options", `is`("nosniff"))
             .header("Strict-Transport-Security", containsString("max-age=31536000"))
             .header("Strict-Transport-Security", containsString("includeSubDomains"))
-            .header("Content-Security-Policy", `is`("frame-ancestors 'none'"))
+            .header(
+                "Content-Security-Policy",
+                `is`("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
+            )
             .header("Referrer-Policy", `is`("no-referrer"))
             .header("Cache-Control", `is`("no-store"))
             .contentType("application/json")

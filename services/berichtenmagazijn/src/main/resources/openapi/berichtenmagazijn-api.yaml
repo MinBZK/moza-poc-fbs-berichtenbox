@@ -252,9 +252,19 @@ paths:
       description: |
         Levert de ruwe inhoud (bytes) van een bijlage. De `Content-Type` response-header
         bevat het MIME-type zoals geregistreerd bij aanlevering (bijvoorbeeld
-        `application/pdf`). De response zet altijd `Content-Disposition: attachment`
-        zodat consumer-browsers de inhoud nooit inline renderen — voorkomt stored
-        XSS via aangeleverde `text/html`- of `image/svg+xml`-bijlagen.
+        `application/pdf`).
+
+        `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
+        mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
+        `image/jpeg`: typen waarvan de weergave geen code uitvoert die bij de DOM of de
+        cookies van de afnemer kan. Elk ander type krijgt `attachment` — met name `text/html` en
+        `image/svg+xml`, die bij het openen van dit adres onder de origin van de afnemer
+        zouden draaien (stored XSS); CSP `frame-ancestors` dekt die top-level navigatie
+        niet.
+
+        Een geregistreerd MIME-type dat onbruikbaar is als headerwaarde (niet te parsen,
+        of met control-tekens) levert 500 in plaats van bytes onder een type dat niet
+        klopt.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
       responses:
@@ -264,10 +274,14 @@ paths:
             API-Version:
               $ref: '#/components/headers/API-Version'
             Content-Disposition:
-              description: Altijd `attachment` om browser-inline-rendering uit te sluiten.
+              description: |
+                `inline` voor `application/pdf`, `image/png` en `image/jpeg`, `attachment`
+                voor elk ander type. Draagt de bestandsnaam als `filename` (ASCII-vorm voor
+                clients die `filename*` niet kennen) en `filename*` (RFC 5987, UTF-8, voor
+                de naam zoals hij werkelijk is).
               schema:
                 type: string
-                example: attachment
+                example: "inline; filename=\"voorlopige-aanslag-2026.pdf\"; filename*=UTF-8''voorlopige-aanslag-2026.pdf"
           content:
             '*/*':
               schema:
