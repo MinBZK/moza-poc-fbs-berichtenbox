@@ -4,7 +4,6 @@ import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
-import nl.rijksoverheid.moz.fbs.democonsole.generator.Persona
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
 import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
@@ -19,11 +18,11 @@ import java.util.Optional
 
 class OmgevingResourceTest {
 
-    private fun persona(id: String) = DemoPersona(
+    private fun persona(id: String, waarde: String) = DemoPersona(
         id = id,
         label = id.replaceFirstChar { it.uppercase() },
         type = "BSN",
-        waarde = "999993653",
+        waarde = waarde,
         magazijnen = emptyList(),
         bron = PersonaBron.KETEN,
     )
@@ -31,14 +30,22 @@ class OmgevingResourceTest {
     // Een echte generator en geen mock: hij bewaakt zijn eigen invarianten, dus een testdubbel zou
     // een doelgroep kunnen teruggeven die de productie-generator nooit zou opleveren.
     //
-    // Elke persona een eigen identificatienummer: gelijke nummers worden in de personadienst juist
-    // fail-fast geweigerd, en een fixture die niet kan bestaan bewijst niets.
+    // Elke persona een eigen identificatienummer — hier en in `persona(...)` hierboven: gelijke
+    // nummers worden in de personadienst juist fail-fast geweigerd, en een fixture die niet kan
+    // bestaan bewijst niets.
     private fun generator(vararg doelen: Pair<String, String>): DemoBerichtGenerator {
         require(doelen.size <= KVK_NUMMERS.size) { "de fixture kent ${KVK_NUMMERS.size} nummers toe" }
 
         return DemoBerichtGenerator(
             personas = doelen.mapIndexed { volgnummer, (id, label) ->
-                Persona(id = id, naam = label, type = "KVK", waarde = KVK_NUMMERS[volgnummer], magazijnen = listOf(RVO))
+                DemoPersona(
+                    id = id,
+                    label = label,
+                    type = "KVK",
+                    waarde = KVK_NUMMERS[volgnummer],
+                    magazijnen = listOf(RVO),
+                    bron = PersonaBron.KETEN,
+                )
             },
             organisaties = mapOf(RVO to Organisatie(RVO, "RVO", listOf(Sjabloon("Onderwerp", "Inhoud.")))),
             klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
@@ -134,7 +141,10 @@ class OmgevingResourceTest {
 
         assertEquals(
             listOf("pietersen", "vandijk"),
-            resource(null, personas = listOf(persona("pietersen"), persona("vandijk"))).omgeving().personas.map { it.id },
+            resource(
+                null,
+                personas = listOf(persona("pietersen", "999993653"), persona("vandijk", "999996666")),
+            ).omgeving().personas.map { it.id },
         )
     }
 

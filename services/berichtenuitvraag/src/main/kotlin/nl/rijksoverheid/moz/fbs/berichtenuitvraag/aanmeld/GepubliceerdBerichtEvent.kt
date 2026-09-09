@@ -18,6 +18,7 @@ internal data class GepubliceerdBerichtEvent(
     val afzender: Oin,
     val ontvanger: Identificatienummer,
     val magazijnId: String,
+    val afzenderNaam: String,
     val onderwerp: String,
     val inhoud: String,
     val publicatietijdstip: Instant,

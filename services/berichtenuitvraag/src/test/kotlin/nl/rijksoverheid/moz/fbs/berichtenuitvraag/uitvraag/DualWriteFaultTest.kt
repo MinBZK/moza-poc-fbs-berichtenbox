@@ -44,6 +44,7 @@ class DualWriteFaultTest {
         sessiecache.berichten[id] = Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "X",
             inhoud = "Inhoud",

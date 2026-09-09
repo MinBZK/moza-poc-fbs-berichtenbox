@@ -37,6 +37,7 @@ class RedisBerichtenCacheRenewFailureTest {
             mapOf(
                 "berichtId" to berichtId.toString(),
                 "afzender" to "00000001800866472000",
+                "afzenderNaam" to "Testmagazijn",
                 "ontvanger" to ontvanger.waarde,
                 "ontvangerType" to "OIN",
                 "onderwerp" to "onderwerp",

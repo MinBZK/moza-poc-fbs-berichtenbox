@@ -12,6 +12,7 @@ import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.GepagineerdeBerichten
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazijn
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
@@ -259,16 +260,12 @@ internal class BerichtensessiecacheService(
 
         val ontvangerString = ontvanger.toCanonicalString()
 
-        // Eén lookup per magazijn, gedeeld door het GESTART- en het VOLTOOID-event: twee keer
-        // ophalen zou de weergavenaam binnen dezelfde ronde uiteen kunnen laten lopen.
-        val namen = clients.keys.associateWith { magazijnId -> clientFactory.getNaam(magazijnId) }
-
         // Alle GESTART-events vooruit, vóór de eerste bevraging. De ronde-wachtrij hieronder pakt
         // een organisatie pas op als er een plek vrij is; zonder deze vooruitgeschoven events zou
         // een wachtende organisatie helemáál niet in de stroom voorkomen — onzichtbaar in plaats
         // van "wordt nog opgehaald". Het portaal krijgt zo direct de volledige lijst.
         val gestartEvents: Multi<MagazijnEvent> = Multi.createFrom().iterable(
-            clients.keys.map { magazijnId -> MagazijnBevragingGestart(magazijnId, namen[magazijnId]) },
+            clients.map { (magazijnId, magazijn) -> MagazijnBevragingGestart(magazijnId, magazijn.naam) },
         )
 
         // Diagnostiek van de wachtrij: wanneer een organisatie aan de beurt kwam, en of ze
@@ -277,8 +274,8 @@ internal class BerichtensessiecacheService(
         val rondeStartNanos = System.nanoTime()
         val aanDeBeurt = AtomicInteger(0)
 
-        val voltooidStreams = clients.map { (magazijnId, client) ->
-            bouwVoltooidStream(magazijnId, namen[magazijnId], client, ontvangerString, alleBerichten, tellers)
+        val voltooidStreams = clients.map { (magazijnId, magazijn) ->
+            bouwVoltooidStream(magazijnId, magazijn, ontvangerString, alleBerichten, tellers)
                 // `onSubscription` vuurt precies wanneer de ronde-wachtrij deze organisatie oppakt.
                 // Bij een fan-out boven de per-ronde-grens zie je hier de golven: de eerste groep op
                 // ~0 ms, de rest zodra er een plek vrijkomt.
@@ -468,8 +465,8 @@ internal class BerichtensessiecacheService(
      * Cleanup vóór de throw: zonder dit blijft de lock tot TTL hangen en blokkeert
      * legitieme retries na de drift-fix.
      */
-    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, MagazijnClient> {
-        val allClients = clientFactory.getAllClients()
+    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, IngeschrevenMagazijn> {
+        val allClients = clientFactory.getAllMagazijnen()
         val onbekend = resolvedIds - allClients.keys
 
         if (onbekend.isNotEmpty()) {
@@ -562,12 +559,14 @@ internal class BerichtensessiecacheService(
      */
     private fun bouwVoltooidStream(
         magazijnId: String,
-        naam: String?,
-        client: MagazijnClient,
+        magazijn: IngeschrevenMagazijn,
         ontvangerString: String,
         alleBerichten: MutableList<Bericht>,
         tellers: RondeTellers,
     ): Multi<MagazijnEvent> {
+        val naam = magazijn.naam
+        val client = magazijn.client
+
         // De half-open probe die `toegestaan()` claimt wordt door niets anders gewist dan een
         // terminale melding: raakt die zoek, dan blijft dit magazijn tot de herstart overgeslagen
         // met een CIRCUIT_OPEN die niets over dát magazijn zegt. De vlag maakt de melding
@@ -664,14 +663,14 @@ internal class BerichtensessiecacheService(
         meldCircuitVeilig(magazijnId) { circuitBreaker.meldOnbeslist(magazijnId) }
     }
 
-    private fun naarMagazijnResult(oogst: GepagineerdeBerichten, magazijnId: String, naam: String?): MagazijnResult {
+    private fun naarMagazijnResult(oogst: GepagineerdeBerichten, magazijnId: String, naam: String): MagazijnResult {
         // Magazijn levert MagazijnBericht-DTO's; vlak af naar het cache-domein (toBericht) en
         // valideer defensief (BerichtLimieten). Eén invalid bericht mag de batch niet killen — drop
         // het stuk en log warn i.p.v. de hele magazijn-bevraging te laten falen. Dit geldt óók voor
         // een ongeldige ontvanger-identificatie: toBericht bouwt het gevalideerde domeintype en kan
         // gooien (onbekend type, elfproef/lengte), dus vangen we dat hier per bericht.
         val berichten = oogst.berichten
-            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId) }
+            .mapNotNull { magazijnBericht -> naarValidCacheBericht(magazijnBericht, magazijnId, naam) }
 
         // Een gedropt bericht is ook post die de ontvanger niet krijgt; zonder deze term meldt het
         // event "8 berichten, niets afgekapt, 10 beschikbaar".
@@ -696,9 +695,9 @@ internal class BerichtensessiecacheService(
      * (toBericht gooit) of een limietsoverschrijding ([BerichtValidator]). berichtId/magazijnId
      * zijn geen PII; de ontvanger-waarde wordt bewust niet gelogd.
      */
-    private fun naarValidCacheBericht(magazijnBericht: MagazijnBericht, magazijnId: String): Bericht? {
+    private fun naarValidCacheBericht(magazijnBericht: MagazijnBericht, magazijnId: String, afzenderNaam: String): Bericht? {
         val bericht = try {
-            magazijnBericht.toBericht(magazijnId)
+            magazijnBericht.toBericht(magazijnId, afzenderNaam)
         } catch (e: IllegalArgumentException) {
             log.warnf(
                 "Bericht overgeslagen tijdens magazijn-aggregatie (ongeldige ontvanger): berichtId=%s magazijnId=%s reden=%s",

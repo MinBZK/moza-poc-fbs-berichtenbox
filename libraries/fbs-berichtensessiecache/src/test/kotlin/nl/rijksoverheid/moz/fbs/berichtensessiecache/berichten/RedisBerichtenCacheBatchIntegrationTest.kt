@@ -36,6 +36,7 @@ class RedisBerichtenCacheBatchIntegrationTest {
     private fun bericht(index: Int) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001800866472000",
+        afzenderNaam = "Testmagazijn",
         ontvanger = ontvanger,
         onderwerp = "Bericht $index",
         inhoud = "Inhoud van bericht $index",
