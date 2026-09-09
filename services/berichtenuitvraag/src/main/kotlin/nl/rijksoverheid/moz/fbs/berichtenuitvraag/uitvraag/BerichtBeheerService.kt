@@ -32,6 +32,7 @@ import java.util.UUID
 class BerichtBeheerService(
     private val sessiecache: Sessiecache,
     private val magazijnRouter: MagazijnRouter,
+    private val afzendernamen: Afzendernamen,
 ) {
 
     fun patch(ontvanger: String, berichtId: UUID, magazijnId: String, patch: BerichtPatch): Bericht {
@@ -88,7 +89,7 @@ class BerichtBeheerService(
             )
         }
 
-        return UitvraagDtoMapper.toApiBericht(bijgewerkt)
+        return UitvraagDtoMapper.toApiBericht(bijgewerkt, afzendernamen.naamVoor(bijgewerkt))
     }
 
     fun verwijder(ontvanger: String, berichtId: UUID, magazijnId: String) {

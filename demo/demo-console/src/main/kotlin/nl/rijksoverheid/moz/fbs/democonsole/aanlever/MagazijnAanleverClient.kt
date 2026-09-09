@@ -17,8 +17,14 @@ data class AanleverRespons(val berichtId: String)
 data class StatusPatch(val gelezen: Boolean)
 
 /**
+ * Het stuk RFC 9457 dat de console gebruikt: de reden die het magazijn zelf voor een afwijzing gaf.
+ * De overige velden blijven ongelezen — Jackson faalt hier niet op onbekende velden.
+ */
+data class Problem(val detail: String? = null)
+
+/**
  * Minimale client voor de magazijn-API. De base-URI wordt per magazijn programmatisch gezet
- * (zie AanleverService), zodat de console met een variabel aantal magazijnen overweg kan.
+ * (zie [MagazijnClients]), zodat de console met een variabel aantal magazijnen overweg kan.
  */
 @Path("/api/v1")
 interface MagazijnAanleverClient {

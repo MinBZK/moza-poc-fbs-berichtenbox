@@ -65,10 +65,13 @@ internal interface BerichtenCache {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v1:${HEX.formatHex(digest)}"
+            return "berichtensessiecache:v2:${HEX.formatHex(digest)}"
         }
-        fun berichtKey(berichtId: UUID) = "bericht:v1:$berichtId"
-        const val BERICHT_PREFIX = "bericht:v1:"
+        // v2: sinds berichten een verplichte `afzenderNaam` dragen. Een v1-entry mist dat veld
+        // en zou als corrupt gelezen worden; een eigen prefix laat de oude entries via hun TTL
+        // verlopen in plaats van leesfouten te geven.
+        fun berichtKey(berichtId: UUID) = "$BERICHT_PREFIX$berichtId"
+        const val BERICHT_PREFIX = "bericht:v2:"
 
         /**
          * Key van de tombstone die een zelf-verwijderd bericht achterlaat, onder de sessie-key van
@@ -79,7 +82,15 @@ internal interface BerichtenCache {
          */
         fun verwijderdKey(ontvanger: Identificatienummer, berichtId: UUID) =
             "${cacheKey(ontvanger)}:verwijderd:$berichtId"
-        const val SEARCH_INDEX = "berichten-idx"
+
+        // De index-naam draagt dezelfde versie als de prefix waarop hij filtert, en dat is geen
+        // cosmetica: de bootstrap laat een bestaande index bewust ongemoeid, dus een index die op
+        // `bericht:v1:` is aangemaakt zou blijven staan terwijl alle nieuwe hashes onder
+        // `bericht:v2:` landen. Filter- en zoekqueries geven dan stil nul resultaten — een
+        // index op de verkeerde prefix is functioneel identiek aan géén index, maar valt buiten
+        // de fail-fast hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index
+        // aan en blijven oude pods tijdens een rolling deploy op de oude werken.
+        const val SEARCH_INDEX = "berichten-idx-v2"
     }
 }
 
@@ -101,6 +112,20 @@ internal class RedisBerichtenCache(
     // dezelfde 5s-ondergrens als de overige cache-awaits. Overschrijden → fail-fast bij startup.
     @param:ConfigProperty(name = "berichtensessiecache.startup-redisearch-timeout-seconds", defaultValue = "5")
     private val startupRedisearchTimeoutSeconds: Long,
+    // Begrenst het aantal Redis-commando's dat tegelijk in de connection-wachtrij staat
+    // (`quarkus.redis.max-waiting-handlers`, default 2048). Zonder deze grens groeit een
+    // store-transactie mee met het aantal organisaties van de ontvanger en loopt die wachtrij
+    // vol — de ophaalronde faalt dan pas in de laatste stap, ná alle bevragingen. Elk bericht
+    // kost twee commando's (HSET + EXPIRE), maar die zijn per bericht met `.chain` geregen, dus
+    // de piek per batch is deze waarde zelf, niet het dubbele.
+    @param:ConfigProperty(name = "berichtensessiecache.redis-batchgrootte", defaultValue = "256")
+    private val redisBatchgrootte: Int,
+    // Los binnengehaald i.p.v. hardgecodeerd, zodat `init()` de invariant met redisBatchgrootte
+    // kan bewaken ook wanneer een operator alleen de sessiecache-sleutel aanpast. De sleutel
+    // hoort bij de Redis-client-extensie, niet bij deze library — vandaar dat hij hier via
+    // `@ConfigProperty` binnenkomt in plaats van een eigen sessiecache-configuratienaam te krijgen.
+    @param:ConfigProperty(name = "quarkus.redis.max-waiting-handlers", defaultValue = "2048")
+    private val maxWaitingHandlers: Int,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
@@ -112,6 +137,22 @@ internal class RedisBerichtenCache(
         require(startupRedisearchTimeoutSeconds > 0) {
             "berichtensessiecache.startup-redisearch-timeout-seconds " +
                 "($startupRedisearchTimeoutSeconds) moet groter zijn dan 0"
+        }
+
+        // Moet > 0: 0 laat `chunked` pas bij de eerste store werpen, midden in een ophaalronde,
+        // met een melding die de configuratiesleutel niet noemt.
+        require(redisBatchgrootte > 0) {
+            "berichtensessiecache.redis-batchgrootte ($redisBatchgrootte) moet groter zijn dan 0"
+        }
+
+        // Moet < maxWaitingHandlers: de piek per batch is redisBatchgrootte (HSET en EXPIRE zijn
+        // per bericht met `.chain` geregen, dus staan nooit tegelijk in de wachtrij). Zonder deze
+        // guard kan een operator de batchgrootte via de omgeving optrekken zonder dat er iets
+        // waarschuwt, en faalt een store pas in de laatste stap van een ophaalronde — ná alle
+        // bevragingen — met een melding die geen van beide configuratiesleutels noemt.
+        require(redisBatchgrootte < maxWaitingHandlers) {
+            "berichtensessiecache.redis-batchgrootte ($redisBatchgrootte) moet kleiner zijn dan " +
+                "quarkus.redis.max-waiting-handlers ($maxWaitingHandlers)"
         }
 
         val startupTimeout = Duration.ofSeconds(startupRedisearchTimeoutSeconds)
@@ -179,14 +220,14 @@ internal class RedisBerichtenCache(
                 .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
                 .chain { _ -> txKey.expire(listKey, ttl) }
                 .chain { _ ->
-                    val stores = sorted.map { bericht ->
+                    RedisBatching.inBatches(sorted, redisBatchgrootte) { bericht ->
                         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
                         val fields = berichtToHash(bericht)
+
                         txHash.hset(berichtKey, fields)
                             .chain { _ -> txKey.expire(berichtKey, ttl) }
                             .replaceWithVoid()
                     }
-                    Uni.join().all(stores).andFailFast().replaceWithVoid()
                 }
         }.replaceWithVoid()
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache", berichten.size) }
@@ -445,20 +486,21 @@ internal class RedisBerichtenCache(
 
     /**
      * MULTI/EXEC pipeline-batch: alle EXPIRE-commands (2 sessie-keys + N bericht-hashes) in één
-     * round-trip i.p.v. losse calls. Op pageSize=100 scheelt dit 100+ RTT's.
+     * transactie, in batches aangeboden zodat een grote pagina de connection-wachtrij niet vult.
      * Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing in de batch
      * ongezien blijven; de read zelf is al gelukt.
      */
     private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
         val listKey = listKey(cacheKey)
         val statusKey = statusKey(cacheKey)
+
         return redis.withTransaction { tx ->
             val txKey = tx.key()
-            val expires = mutableListOf<Uni<Void>>()
-            expires.add(txKey.expire(listKey, ttl))
-            expires.add(txKey.expire(statusKey, ttl))
-            ids.forEach { id -> expires.add(txKey.expire(BerichtenCache.berichtKey(id), ttl)) }
-            Uni.join().all(expires).andFailFast().replaceWithVoid()
+            val sleutels = listOf(listKey, statusKey) + ids.map { BerichtenCache.berichtKey(it) }
+
+            RedisBatching.inBatches(sleutels, redisBatchgrootte) { sleutel ->
+                txKey.expire(sleutel, ttl).replaceWithVoid()
+            }
         }.replaceWithVoid()
             .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
             .onFailure().recoverWithNull().replaceWithVoid()
@@ -467,6 +509,7 @@ internal class RedisBerichtenCache(
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
         put("berichtId", bericht.berichtId.toString())
         put("afzender", bericht.afzender)
+        put("afzenderNaam", bericht.afzenderNaam)
         put("ontvanger", bericht.ontvanger.waarde)
         put("ontvangerType", bericht.ontvanger.type.name)
         put("onderwerp", bericht.onderwerp)
@@ -518,6 +561,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
+            afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             inhoud = required("inhoud"),
@@ -571,6 +615,7 @@ internal class RedisBerichtenCache(
                 throw CacheCorruptedException.onleesbareWaarde("berichtId", ex)
             },
             afzender = required("afzender"),
+            afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
             publicatietijdstip = try {
@@ -883,18 +928,12 @@ internal class RedisBerichtenCache(
         redis.list(String::class.java).lrange(listKey, 0, -1)
             .chain { entries ->
                 val matching = entries.filter { json -> blobMatchtBerichtId(json, berichtId) }
-                val lremAll = if (matching.isEmpty()) {
-                    Uni.createFrom().voidItem()
-                } else {
-                    // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek).
-                    // count=0: verwijder alle exact-matchende voorkomens.
-                    val lremUnis = matching.map { blob ->
-                        redis.list(String::class.java).lrem(listKey, 0, blob)
-                    }
-                    Uni.join().all(lremUnis).andFailFast().replaceWithVoid()
-                }
 
-                lremAll.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
+                // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek). count=0:
+                // verwijder alle exact-matchende voorkomens.
+                RedisBatching.inBatches(matching, redisBatchgrootte) { blob ->
+                    redis.list(String::class.java).lrem(listKey, 0, blob).replaceWithVoid()
+                }.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
             }
 
     private fun blobMatchtBerichtId(json: String, berichtId: UUID): Boolean =
@@ -931,6 +970,7 @@ internal class RedisBerichtenCache(
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",
             "afzender",
+            "afzenderNaam",
             "ontvanger",
             "ontvangerType",
             "onderwerp",
@@ -953,17 +993,29 @@ internal class RedisBerichtenCache(
     }
 }
 
+/**
+ * De uitkomst van een ophaalronde zoals die de sessie overleeft. [nietOpgehaald] telt de
+ * organisaties die door de gelijktijdigheidsgrens van de uitvraag niet bevraagd zijn; die horen
+ * niet bij [mislukt], want er is geen uitspraak over dat magazijn gedaan.
+ *
+ * Een status die vóór dit veld in de cache is geschreven leest terug met `nietOpgehaald = 0` — de
+ * default hierboven. Dat klopt inhoudelijk: zo'n ronde kende de categorie nog niet.
+ */
 internal data class AggregationStatus(
     val status: OphalenStatus = OphalenStatus.GEREED,
     val totaalMagazijnen: Int = 0,
     val geslaagd: Int = 0,
     val mislukt: Int = 0,
+    val nietOpgehaald: Int = 0,
 ) {
     init {
         require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn" }
         require(geslaagd >= 0) { "geslaagd mag niet negatief zijn" }
         require(mislukt >= 0) { "mislukt mag niet negatief zijn" }
-        require(geslaagd + mislukt <= totaalMagazijnen) { "geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen" }
+        require(nietOpgehaald >= 0) { "nietOpgehaald mag niet negatief zijn" }
+        require(geslaagd + mislukt + nietOpgehaald <= totaalMagazijnen) {
+            "geslaagd + mislukt + nietOpgehaald mag niet groter zijn dan totaalMagazijnen"
+        }
     }
 }
 

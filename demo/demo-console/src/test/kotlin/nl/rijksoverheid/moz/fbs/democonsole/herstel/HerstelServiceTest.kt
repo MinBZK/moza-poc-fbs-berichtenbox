@@ -1,13 +1,16 @@
 package nl.rijksoverheid.moz.fbs.democonsole.herstel
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.Faalreden
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
@@ -18,6 +21,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class HerstelServiceTest {
@@ -43,7 +47,7 @@ class HerstelServiceTest {
         every { storingService.reset() } just Runs
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(40, 40, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(40, 40, 0, emptyList())
         every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(berichten = 2000, magazijnen = 98)
         every { simulatorService.vulStandaard() } returns
             nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 10584, 2646, 0, 500)
@@ -142,6 +146,37 @@ class HerstelServiceTest {
         alleStappenSlagen()
 
         assertNull(service.herstel().gesimuleerd.overgeslagen)
+    }
+
+    @Test
+    fun `een herstel zonder mislukkingen meldt alleen de hersteltijd`() {
+        alleStappenSlagen()
+
+        assertEquals(HERSTELTIJD_MELDING, service.herstel().letOp)
+    }
+
+    @Test
+    fun `een vulling die niet aankwam draagt haar reden mee naar het paneel`() {
+        alleStappenSlagen()
+
+        val mislukt = AanleverResultaat.van(40, 0, 0, List(40) { Faalreden.onbereikbaar("00000000000000100000") })
+
+        every { aanleverService.leverAan(any()) } returns mislukt
+
+        // De volledige regel, want juist de naad tussen de twee zinnen is wat hier kan misgaan.
+        assertEquals("${mislukt.letOp} $HERSTELTIJD_MELDING", service.herstel().letOp)
+    }
+
+    @Test
+    fun `de let-op-regel komt als tekst over de lijn`() {
+        // `letOp` is hier een afgeleide property en geen constructor-veld, dus Jackson serialiseert
+        // hem langs de getter. `bediening.js` accepteert alleen een string onder precies die sleutel.
+        alleStappenSlagen()
+
+        val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.herstel()))
+
+        assertTrue(json.path("letOp").isTextual, "veld letOp ontbreekt of is geen tekst: $json")
+        assertEquals(HERSTELTIJD_MELDING, json.path("letOp").asText())
     }
 
     @Test

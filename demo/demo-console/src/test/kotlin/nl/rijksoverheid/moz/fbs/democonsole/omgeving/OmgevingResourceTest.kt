@@ -2,24 +2,55 @@ package nl.rijksoverheid.moz.fbs.democonsole.omgeving
 
 import io.mockk.every
 import io.mockk.mockk
+import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
+import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
+import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
 import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import java.util.Optional
 
 class OmgevingResourceTest {
 
-    private fun persona(id: String) = DemoPersona(
+    private fun persona(id: String, waarde: String) = DemoPersona(
         id = id,
         label = id.replaceFirstChar { it.uppercase() },
         type = "BSN",
-        waarde = "999993653",
+        waarde = waarde,
         magazijnen = emptyList(),
         bron = PersonaBron.KETEN,
     )
+
+    // Een echte generator en geen mock: hij bewaakt zijn eigen invarianten, dus een testdubbel zou
+    // een doelgroep kunnen teruggeven die de productie-generator nooit zou opleveren.
+    //
+    // Elke persona een eigen identificatienummer — hier en in `persona(...)` hierboven: gelijke
+    // nummers worden in de personadienst juist fail-fast geweigerd, en een fixture die niet kan
+    // bestaan bewijst niets.
+    private fun generator(vararg doelen: Pair<String, String>): DemoBerichtGenerator {
+        require(doelen.size <= KVK_NUMMERS.size) { "de fixture kent ${KVK_NUMMERS.size} nummers toe" }
+
+        return DemoBerichtGenerator(
+            personas = doelen.mapIndexed { volgnummer, (id, label) ->
+                DemoPersona(
+                    id = id,
+                    label = label,
+                    type = "KVK",
+                    waarde = KVK_NUMMERS[volgnummer],
+                    magazijnen = listOf(RVO),
+                    bron = PersonaBron.KETEN,
+                )
+            },
+            organisaties = mapOf(RVO to Organisatie(RVO, "RVO", listOf(Sjabloon("Onderwerp", "Inhoud.")))),
+            klok = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
+        )
+    }
 
     private fun resource(
         basis: String?,
@@ -28,6 +59,7 @@ class OmgevingResourceTest {
         sessiecache: Boolean = true,
         berichtenbox: String? = null,
         personas: List<DemoPersona> = emptyList(),
+        generator: DemoBerichtGenerator = generator("pietersen" to "J. Pietersen"),
     ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
             every { uitvraagBasis() } returns Optional.ofNullable(basis)
@@ -38,7 +70,7 @@ class OmgevingResourceTest {
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
         val personaService = mockk<PersonaService> { every { alle() } returns personas }
 
-        return OmgevingResource(config, register, personaService)
+        return OmgevingResource(config, register, personaService, generator)
     }
 
     @Test
@@ -109,8 +141,27 @@ class OmgevingResourceTest {
 
         assertEquals(
             listOf("pietersen", "vandijk"),
-            resource(null, personas = listOf(persona("pietersen"), persona("vandijk"))).omgeving().personas.map { it.id },
+            resource(
+                null,
+                personas = listOf(persona("pietersen", "999993653"), persona("vandijk", "999996666")),
+            ).omgeving().personas.map { it.id },
         )
+    }
+
+    @Test
+    fun `berichtPersonas draagt de persona's waarvoor de console kan aanleveren`() {
+        // Op volgorde en met beide velden: een verwisseling van id en label compileert, en levert
+        // een keuzelijst die er normaal uitziet terwijl elke keuze een 404 geeft.
+        assertEquals(
+            listOf("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"),
+            resource(null, generator = generator("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"))
+                .omgeving().berichtPersonas.map { it.id to it.label },
+        )
+    }
+
+    @Test
+    fun `berichtPersonas met precies één persona levert een lijst met dat ene element`() {
+        assertEquals(listOf("pietersen"), resource(null).omgeving().berichtPersonas.map { it.id })
     }
 
     @Test
@@ -126,5 +177,13 @@ class OmgevingResourceTest {
         val url = "https://proeftuin-demo-mpfm-w3h.example/moza/berichtenbox/"
 
         assertEquals(url, resource(null, berichtenbox = url).omgeving().berichtenboxUrl)
+    }
+
+    private companion object {
+
+        const val RVO = "00000000000000100000"
+
+        /** Geldige, onderling verschillende KVK-nummers; ze begrenzen hoeveel doelen de fixture aankan. */
+        val KVK_NUMMERS = listOf("12345678", "87654321")
     }
 }

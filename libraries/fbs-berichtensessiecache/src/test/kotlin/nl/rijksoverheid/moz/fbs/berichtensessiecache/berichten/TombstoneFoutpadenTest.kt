@@ -41,6 +41,8 @@ class TombstoneFoutpadenTest {
         ttl = Duration.ofHours(12),
         aggregationLockTtl = Duration.ofMinutes(2),
         startupRedisearchTimeoutSeconds = 5,
+        redisBatchgrootte = 256,
+        maxWaitingHandlers = 2048,
     )
 
     private fun stubRedisCommands() {

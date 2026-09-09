@@ -38,7 +38,7 @@ class AanmeldServiceTest {
     fun setup() {
         every { dedup.eerstgezien(any()) } returns true
         every { dedup.verwijder(any()) } just Runs
-        every { index.magazijnVoor(Oin(afzender)) } returns "magazijn-a"
+        every { index.magazijnVoor(Oin(afzender)) } returns AfzenderMagazijnIndex.BronMagazijn(Oin(afzender), "Magazijn A")
     }
 
     private fun event(
@@ -64,7 +64,8 @@ class AanmeldServiceTest {
         service.verwerk(event())
 
         verify(exactly = 1) { sessiecache.schrijfBericht(ontvanger, any()) }
-        assertEquals("magazijn-a", slot.captured.magazijnId)
+        // 1:1 OIN↔magazijn: het magazijn-id is de afzender-OIN zelf.
+        assertEquals(afzender, slot.captured.magazijnId)
         assertEquals(0, slot.captured.aantalBijlagen)
         assertEquals(afzender, slot.captured.afzender)
         assertEquals(ontvanger, slot.captured.ontvanger)

@@ -8,8 +8,9 @@ import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
-import nl.rijksoverheid.moz.fbs.democonsole.generator.Persona
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
+import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -57,16 +58,26 @@ class TempoServiceTest {
     private val testKlok = TestKlok()
     private val aanleverService = mockk<AanleverService>()
 
-    // Geen mockk<DemoBerichtGenerator>(): de klasse is niet @ApplicationScoped en dus finaal,
-    // en MockK kan finale klassen alleen via zijn inline-agent aan, die deze module niet gebruikt.
     private val rvo = "00000000000000100000"
 
     private val organisaties = mapOf(
         rvo to Organisatie(rvo, "RVO", listOf(Sjabloon("Subsidie", "Uw subsidie is toegekend."))),
     )
 
-    private val personas = listOf(Persona("J. Pietersen", "BSN", "999993653", listOf(rvo)))
+    private val personas = listOf(
+        DemoPersona(
+            id = "pietersen",
+            label = "J. Pietersen",
+            type = "BSN",
+            waarde = "999993653",
+            magazijnen = listOf(rvo),
+            bron = PersonaBron.KETEN,
+        ),
+    )
 
+    // Een echte generator en geen mock: hij is met één persona en één organisatie op te tuigen en
+    // levert echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's
+    // te pinnen.
     private val generator = DemoBerichtGenerator(
         personas,
         organisaties,
@@ -76,7 +87,7 @@ class TempoServiceTest {
     private val service = TempoService(klok, aanleverService, generator, testKlok)
 
     init {
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(1, 1, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 1, 0, emptyList())
     }
 
     @ParameterizedTest

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import kotlin.reflect.KClass
 
 /**
@@ -30,7 +31,7 @@ class LogboekStatusVoorTest {
         @JvmStatic
         fun tussentijdseEvents(): List<MagazijnEvent> = listOf(
             MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = "Magazijn A"),
-            MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = null),
+            MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = "Magazijn A"),
             MagazijnBevragingGeslaagd(magazijnId = "00000001001234567890", naam = "Magazijn A", aantalBerichten = 3),
             MagazijnBevragingMislukt(
                 magazijnId = "00000001001234567890",
@@ -54,6 +55,7 @@ class LogboekStatusVoorTest {
                 foutmelding = "Resultaten konden niet worden opgeslagen (ref: abc)",
                 geslaagd = 1,
                 mislukt = 1,
+                nietOpgehaald = 0,
                 totaalMagazijnen = 2,
                 referentie = "abc",
             ),
@@ -62,30 +64,57 @@ class LogboekStatusVoorTest {
 
     @Test
     fun `volledig geslaagde ophaling logt OK`() {
-        val gereed = OphalenGereed(totaalBerichten = 2, geslaagd = 2, mislukt = 0, totaalMagazijnen = 2)
+        val gereed = OphalenGereed(totaalBerichten = 2, geslaagd = 2, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 2)
 
         assertEquals(StatusCode.OK, logboekStatusVoor(gereed))
     }
 
     @Test
     fun `ophaling zonder magazijnen logt OK`() {
-        val leeg = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, totaalMagazijnen = 0)
+        val leeg = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 0)
 
         assertEquals(StatusCode.OK, logboekStatusVoor(leeg))
     }
 
     @Test
     fun `partial failure (mislukt groter dan 0) logt ERROR`() {
-        val deelsMislukt = OphalenGereed(totaalBerichten = 1, geslaagd = 1, mislukt = 1, totaalMagazijnen = 2)
+        val deelsMislukt = OphalenGereed(totaalBerichten = 1, geslaagd = 1, mislukt = 1, nietOpgehaald = 0, totaalMagazijnen = 2)
 
         assertEquals(StatusCode.ERROR, logboekStatusVoor(deelsMislukt))
     }
 
     @Test
     fun `volledig mislukte ophaling logt ERROR`() {
-        val allesMislukt = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 2, totaalMagazijnen = 2)
+        val allesMislukt = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 2, nietOpgehaald = 0, totaalMagazijnen = 2)
 
         assertEquals(StatusCode.ERROR, logboekStatusVoor(allesMislukt))
+    }
+
+    /**
+     * Niet-bevraagde organisaties zijn geen verwerkingsfout: de uitvraag had te veel werk tegelijk
+     * en heeft die organisaties overgeslagen. Wat de ondernemer wél en niet kreeg staat in de
+     * tellers van het slotevent; deze status zegt alleen of de verwerking zelf goed verliep.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [1, 2])
+    fun `niet-opgehaalde organisaties logt OK zolang er niets misging`(nietOpgehaald: Int) {
+        val gedeeltelijk = OphalenGereed(
+            totaalBerichten = 3,
+            geslaagd = 2,
+            mislukt = 0,
+            nietOpgehaald = nietOpgehaald,
+            totaalMagazijnen = 2 + nietOpgehaald,
+        )
+
+        assertEquals(StatusCode.OK, logboekStatusVoor(gedeeltelijk))
+    }
+
+    /** Een echte mislukking blijft ERROR, ook als er daarnaast overgeslagen organisaties zijn. */
+    @Test
+    fun `mislukking naast niet-opgehaalde organisaties logt ERROR`() {
+        val gemengd = OphalenGereed(totaalBerichten = 1, geslaagd = 1, mislukt = 1, nietOpgehaald = 1, totaalMagazijnen = 3)
+
+        assertEquals(StatusCode.ERROR, logboekStatusVoor(gemengd))
     }
 
     @ParameterizedTest

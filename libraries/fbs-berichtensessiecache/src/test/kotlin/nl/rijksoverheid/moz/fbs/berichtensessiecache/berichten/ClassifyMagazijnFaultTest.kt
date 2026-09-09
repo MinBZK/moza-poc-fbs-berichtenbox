@@ -43,7 +43,7 @@ class ClassifyMagazijnFaultTest {
         magazijnQueryTimeoutSeconds = 10L,
         magazijnReadTimeoutMs = 12000L,
         cacheAwaitTimeoutSeconds = 5L,
-        bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20),
+        bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 15000L),
         circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
     ).also { it.valideerTimeouts() }
 

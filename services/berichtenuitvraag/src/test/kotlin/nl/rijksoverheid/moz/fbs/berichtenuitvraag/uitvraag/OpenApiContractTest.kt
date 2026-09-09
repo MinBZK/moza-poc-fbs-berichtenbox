@@ -16,6 +16,7 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -64,16 +65,22 @@ class OpenApiContractTest {
         WireMockBackendsResource.magazijnA.resetAll()
     }
 
-    private fun seedBericht(berichtId: UUID, magazijnId: String = WireMockBackendsResource.OIN_A): Bericht {
+    private fun seedBericht(
+        berichtId: UUID,
+        magazijnId: String = WireMockBackendsResource.OIN_A,
+        bijlagen: List<BijlageSamenvatting> = emptyList(),
+    ): Bericht {
         val bericht = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Test",
             inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = magazijnId,
-            aantalBijlagen = 0,
+            aantalBijlagen = bijlagen.size,
+            bijlagen = bijlagen,
         )
         sessiecache.berichten[berichtId] = bericht
 
@@ -82,6 +89,9 @@ class OpenApiContractTest {
 
     @Test
     fun `GET berichten levert valide BerichtenLijst`() {
+        // Twee bronnen in één antwoord, zodat de validator een lijst met meerdere
+        // `afzenderNaam`-waarden ziet en niet alleen de default-seed.
+        seedBericht(UUID.randomUUID(), magazijnId = WireMockBackendsResource.OIN_B)
         seedBericht(UUID.randomUUID())
 
         given()
@@ -161,8 +171,9 @@ class OpenApiContractTest {
     fun `GET bijlage streamt bytes met juist Content-Type`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        // De service haalt eerst het bericht op om de magazijnId te bepalen.
-        seedBericht(berichtId)
+        // De service haalt eerst het bericht op om de magazijnId te bepalen, en haalt
+        // de bestandsnaam uit datzelfde detail.
+        seedBericht(berichtId, bijlagen = listOf(BijlageSamenvatting(bijlageId, "aanslag 2026.pdf")))
         WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
@@ -181,7 +192,7 @@ class OpenApiContractTest {
             .then()
             .statusCode(200)
             .header("Content-Type", "application/pdf")
-            .header("Content-Disposition", "attachment")
+            .header("Content-Disposition", "inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf")
     }
 
     // --- Foutresponses tegen het Problem-schema (RFC 9457), via de validator ---

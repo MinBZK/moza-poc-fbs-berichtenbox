@@ -33,11 +33,22 @@ data class Sjabloon(val onderwerp: String, val inhoud: String)
  * Verzendende organisatie: één per magazijn (1:1 OIN↔magazijn). `oin` is tegelijk de
  * afzender-OIN én het magazijnId; `sjablonen` levert realistische onderwerp+inhoud-paren.
  */
-data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>)
+data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sjabloon>) {
+
+    init {
+        // Zonder sjablonen valt er niets te kiezen en klapt de generator om op `nextInt(0)` — een
+        // HTTP 500 met "bound must be positive" midden in een demonstratie. Liever hier: een
+        // organisatie zonder sjablonen is in elke context onbruikbaar, niet alleen in de generator.
+        require(sjablonen.isNotEmpty()) { "organisatie $naam ($oin) heeft geen sjablonen" }
+    }
+}
 
 /**
- * Vaste demo-ontvanger. `type` is BSN/KVK/RSIN; `waarde` het (geldige) nummer. `magazijnen`
- * zijn de organisatie-OIN's waar deze persona berichten van ontvangt — dit moet één-op-één
- * sporen met de profielservice-voorkeuren, anders weigert het magazijn de aanlevering (403).
+ * Een persona zoals het bedieningspaneel hem aanwijst: alleen waarmee je hem kiest en wat je van
+ * hem ziet. Geen demo-identiteit, maar een projectie daarvan — het identificatienummer dat de
+ * identiteit draagt blijft zo uit de keuzelijst en kan niet in een query belanden.
+ *
+ * Dit type dwingt niets af. Wat [DemoBerichtGenerator.doelgroep] oplevert heeft niet-lege velden
+ * omdat `DemoPersona` een lege id en een leeg label weigert.
  */
-data class Persona(val naam: String, val type: String, val waarde: String, val magazijnen: List<String>)
+data class Doelpersona(val id: String, val label: String)

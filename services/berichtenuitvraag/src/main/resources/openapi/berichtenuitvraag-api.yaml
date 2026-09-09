@@ -142,11 +142,22 @@ paths:
         anders lijkt een afgekapte lijst een volledige lijst en kan de ontvanger niet
         weten wat hij mist.
 
+        Een organisatie die niet bevraagd is omdat de uitvraag te veel werk tegelijk
+        had, krijgt status `NIET_OPGEHAALD`. Dat is geen storing bij die organisatie:
+        opnieuw ophalen helpt hier wél. Het afsluitende `ophalen-gereed`-event telt
+        die organisaties in `nietOpgehaald`, apart van `mislukt`, zodat een
+        samenvattende regel het onderscheid kan maken.
+
+        Uitbreidbaarheid — deze woordenlijst kan groeien. Behandel een `status` die je
+        niet kent als "niet geleverd, opnieuw proberen kan helpen", nooit als `OK`, en
+        tel hem nooit als geslaagd. Negeer een `event` dat je niet kent. Een afnemer die
+        zich hieraan houdt, breekt niet op een latere toevoeging.
+
         Foutsemantiek: header-validatie, een al lopende ophaling (`409`) en een
         onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
         opgezet staat de HTTP-status op `200` vast; een storing daarna uit zich
         niet in een afwijkende status maar in het uitblijven van het afsluitende
-        `OPHALEN_GEREED`-event (en de per-magazijn FOUT-events) — de client
+        `ophalen-gereed`-event (en de per-magazijn fout-events) — de client
         detecteert de storing dus op stream-niveau.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -157,7 +168,7 @@ paths:
             API-Version: { $ref: '#/components/headers/API-Version' }
           content:
             text/event-stream:
-              schema: { type: string }
+              schema: { $ref: '#/components/schemas/OphaalEvent' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -283,7 +294,20 @@ paths:
     get:
       tags: [Uitvraag]
       summary: Bijlage ophalen (octet-stream, dynamic Content-Type)
-      description: Streamt bijlage-bytes rechtstreeks uit het magazijn met Content-Type uit de metadata; Content-Disposition altijd `attachment` (stored-XSS-bescherming).
+      description: |
+        Streamt bijlage-bytes rechtstreeks uit het magazijn, met `Content-Type` uit de
+        metadata van de bijlage.
+
+        `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
+        mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
+        `image/jpeg`: typen waarvan de weergave geen code uitvoert die bij de DOM of de
+        cookies van de afnemer kan. Elk ander type krijgt `attachment` — met name `text/html` en
+        `image/svg+xml`, die bij het openen van dit adres onder de origin van de afnemer
+        zouden draaien (stored XSS); CSP `frame-ancestors` dekt die top-level navigatie
+        niet. Een MIME-type dat onbruikbaar is als headerwaarde (niet te parsen, of met
+        control-tekens) wordt `application/octet-stream` en dus een download. Dezelfde
+        afweging als het magazijn maakt, zodat een rechtstreekse magazijn-afname
+        hetzelfde antwoord geeft.
       operationId: getBijlage
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -297,8 +321,13 @@ paths:
               description: Werkelijk MIME-type van de bijlage
             Content-Disposition:
               schema: { type: string }
-              description: Altijd `attachment` om browser-inline-rendering uit te sluiten.
-              example: attachment
+              description: |
+                `inline` voor `application/pdf`, `image/png` en `image/jpeg`, `attachment`
+                voor elk ander type. Draagt de bestandsnaam als `filename` (ASCII-vorm voor
+                clients die `filename*` niet kennen) en `filename*` (RFC 5987, UTF-8, voor
+                de naam zoals hij werkelijk is). Kent de sessiecache de bijlage niet, dan
+                blijft de naam weg en draagt de header alleen de dispositie.
+              example: "inline; filename=\"voorlopige-aanslag-2026.pdf\"; filename*=UTF-8''voorlopige-aanslag-2026.pdf"
           content:
             '*/*':
               schema: { type: string, format: binary }
@@ -470,11 +499,19 @@ components:
 
     BerichtSamenvatting:
       type: object
-      required: [berichtId, onderwerp, publicatietijdstip, aantalBijlagen, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, aantalBijlagen, magazijnId]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
-        afzender: { type: string }
+        afzenderNaam:
+          type: string
+          minLength: 1
+          description: |
+            Weergavenaam van de afzendende organisatie, bijvoorbeeld "RVO" of
+            "Belastingdienst". Altijd aanwezig en nooit leeg: elke deelnemende organisatie
+            draagt een verplichte naam in het magazijnregister, en elk bericht krijgt die naam
+            mee op het moment dat het in de sessie wordt opgeslagen. Een afnemer hoeft dus geen
+            terugval te bouwen — `magazijnId` is een twintigcijferig nummer en geen naam.
         publicatietijdstip:
           type: string
           format: date-time
@@ -489,11 +526,19 @@ components:
 
     Bericht:
       type: object
-      required: [berichtId, onderwerp, publicatietijdstip, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, magazijnId]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
-        afzender: { type: string }
+        afzenderNaam:
+          type: string
+          minLength: 1
+          description: |
+            Weergavenaam van de afzendende organisatie, bijvoorbeeld "RVO" of
+            "Belastingdienst". Altijd aanwezig en nooit leeg: elke deelnemende organisatie
+            draagt een verplichte naam in het magazijnregister, en elk bericht krijgt die naam
+            mee op het moment dat het in de sessie wordt opgeslagen. Een afnemer hoeft dus geen
+            terugval te bouwen — `magazijnId` is een twintigcijferig nummer en geen naam.
         inhoud: { type: string }
         publicatietijdstip:
           type: string
@@ -561,6 +606,155 @@ components:
         self: { $ref: '#/components/schemas/Link' }
         next: { $ref: '#/components/schemas/Link' }
         prev: { $ref: '#/components/schemas/Link' }
+
+    OphaalEvent:
+      description: |
+        Eén voortgangsbericht uit de SSE-stroom van `GET /berichten/_ophalen`. Elke SSE-regel
+        draagt in zijn `data`-veld één van deze objecten als JSON; `event` zegt om welk soort
+        bericht het gaat. Een soort die je niet kent, mag je negeren.
+
+        Een ophaalronde levert eerst één `magazijn-bevraging-gestart` per organisatie, daarna per
+        organisatie één `magazijn-bevraging-voltooid`, en sluit af met precies één
+        `ophalen-gereed` of `ophalen-fout`. Blijft dat slotbericht uit, dan is de ronde afgebroken.
+      oneOf:
+        - $ref: '#/components/schemas/MagazijnBevragingGestart'
+        - $ref: '#/components/schemas/MagazijnBevragingVoltooid'
+        - $ref: '#/components/schemas/OphalenGereed'
+        - $ref: '#/components/schemas/OphalenFout'
+      discriminator:
+        propertyName: event
+        mapping:
+          magazijn-bevraging-gestart: '#/components/schemas/MagazijnBevragingGestart'
+          magazijn-bevraging-voltooid: '#/components/schemas/MagazijnBevragingVoltooid'
+          ophalen-gereed: '#/components/schemas/OphalenGereed'
+          ophalen-fout: '#/components/schemas/OphalenFout'
+
+    MagazijnStatus:
+      type: string
+      description: |
+        Uitkomst van de bevraging van één organisatie.
+
+        * `OK` — de organisatie heeft geantwoord; haar berichten zitten in deze ophaalronde.
+        * `FOUT` — de organisatie kon niet geraadpleegd worden.
+        * `TIMEOUT` — de organisatie antwoordde niet binnen de tijd.
+        * `NIET_OPGEHAALD` — de organisatie is niet bevraagd: de uitvraag had te veel
+          organisaties tegelijk in behandeling. Dit zegt niets over die organisatie, en opnieuw
+          ophalen helpt hier wél.
+
+        Deze lijst kan groeien. Een waarde die je niet kent betekent "niet geleverd, opnieuw
+        proberen kan helpen" — behandel hem nooit als `OK` en tel hem nooit als geslaagd.
+      enum: [OK, FOUT, TIMEOUT, NIET_OPGEHAALD]
+
+    MagazijnBevragingGestart:
+      type: object
+      description: |
+        De bevraging van deze organisatie hoort bij deze ophaalronde. Alle
+        `magazijn-bevraging-gestart`-berichten komen vooruit, vóór de eerste uitkomst, zodat het
+        portaal meteen de volledige lijst kan tonen. Een organisatie waarvoor nog geen
+        `magazijn-bevraging-voltooid` binnen is, is nog onderweg.
+      required: [event, magazijnId]
+      properties:
+        event: { type: string, enum: [magazijn-bevraging-gestart] }
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        naam: { $ref: '#/components/schemas/MagazijnNaam' }
+
+    MagazijnBevragingVoltooid:
+      type: object
+      description: |
+        De bevraging van deze organisatie is afgerond; `status` zegt hoe.
+
+        Bij `OK` staan `aantalBerichten` en `afgekapt` erbij, en `totaalBeschikbaar` wanneer de
+        organisatie een bruikbaar totaal meldde. Bij elke andere status staat er in plaats daarvan
+        een `foutmelding` die aan de ontvanger getoond mag worden.
+      required: [event, magazijnId, status]
+      properties:
+        event: { type: string, enum: [magazijn-bevraging-voltooid] }
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        naam: { $ref: '#/components/schemas/MagazijnNaam' }
+        status: { $ref: '#/components/schemas/MagazijnStatus' }
+        aantalBerichten:
+          type: integer
+          description: Aantal berichten dat deze organisatie in deze ronde leverde. Alleen bij `OK`.
+        afgekapt:
+          type: boolean
+          description: |
+            Er staat méér bij deze organisatie dan er is opgehaald. Alleen bij `OK` — de opgehaalde
+            berichten zijn er wél. Toon dit signaal, ook in een samenvattende regel: anders lijkt
+            een afgekapte lijst een volledige lijst.
+        totaalBeschikbaar:
+          type: integer
+          format: int64
+          description: Wat de organisatie zelf als totaal meldde. Ontbreekt als ze geen bruikbaar totaal gaf.
+        foutmelding:
+          type: string
+          description: Aan de ontvanger toonbare uitleg. Staat er bij elke status behalve `OK`.
+
+    OphalenGereed:
+      type: object
+      description: |
+        De ophaalronde is afgerond en het resultaat staat in de sessiecache. De tellers dekken
+        samen alle organisaties uit `totaalMagazijnen`.
+      required: [event, totaalBerichten, geslaagd, mislukt, nietOpgehaald, totaalMagazijnen]
+      properties:
+        event: { type: string, enum: [ophalen-gereed] }
+        totaalBerichten:
+          type: integer
+          description: Aantal opgehaalde berichten over alle organisaties samen.
+        geslaagd: { $ref: '#/components/schemas/AantalGeslaagd' }
+        mislukt: { $ref: '#/components/schemas/AantalMislukt' }
+        nietOpgehaald: { $ref: '#/components/schemas/AantalNietOpgehaald' }
+        totaalMagazijnen: { $ref: '#/components/schemas/AantalMagazijnen' }
+
+    OphalenFout:
+      type: object
+      description: |
+        De ophaalronde is gestrand; er staat geen resultaat van deze ronde in de sessiecache.
+        `referentie` is het support-anker dat ook in onze foutlog staat en dat in de tekst van
+        `foutmelding` herhaald wordt.
+
+        Strandde de ronde ná het bevragen — de organisaties antwoordden, maar het bewaren
+        mislukte — dan staan de tellers erbij: het portaal heeft de uitkomsten per organisatie al
+        gezien en moet weten dat ze niet bewaard zijn. Strandde de ronde ervóór, dan ontbreken ze
+        en is `totaalMagazijnen` 0.
+      required: [event, foutmelding, totaalMagazijnen, referentie]
+      properties:
+        event: { type: string, enum: [ophalen-fout] }
+        foutmelding: { type: string, description: Aan de ontvanger toonbare uitleg. }
+        geslaagd: { $ref: '#/components/schemas/AantalGeslaagd' }
+        mislukt: { $ref: '#/components/schemas/AantalMislukt' }
+        nietOpgehaald: { $ref: '#/components/schemas/AantalNietOpgehaald' }
+        totaalMagazijnen: { $ref: '#/components/schemas/AantalMagazijnen' }
+        referentie: { type: string, description: Support-anker; noem dit bij een melding aan de beheerder. }
+
+    MagazijnId:
+      type: string
+      description: |
+        Identificeert de organisatie waarvan de berichten komen — het OIN van de deelnemende
+        organisatie (per organisatie bestaat precies één magazijn). Voor de client een opaque
+        waarde; dezelfde waarde staat in het `magazijnId`-veld van een bericht.
+
+    MagazijnNaam:
+      type: string
+      description: Weergavenaam van de organisatie. Ontbreekt als er geen naam bekend is; val dan terug op `magazijnId`.
+
+    AantalGeslaagd:
+      type: integer
+      description: Organisaties die antwoordden (`OK`).
+
+    AantalMislukt:
+      type: integer
+      description: Organisaties die bevraagd zijn maar niet leverden (`FOUT` of `TIMEOUT`).
+
+    AantalNietOpgehaald:
+      type: integer
+      description: |
+        Organisaties die niet bevraagd zijn omdat de uitvraag te veel werk tegelijk had
+        (`NIET_OPGEHAALD`). Bewust apart van `mislukt`: hier is niets stuk en helpt opnieuw
+        ophalen wél. Presenteer ze niet als mislukking.
+
+    AantalMagazijnen:
+      type: integer
+      description: Aantal organisaties in deze ophaalronde.
 
     CloudEvent:
       type: object

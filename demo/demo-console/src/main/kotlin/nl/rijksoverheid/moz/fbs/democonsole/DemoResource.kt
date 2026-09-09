@@ -1,7 +1,9 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
+import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.DefaultValue
 import jakarta.ws.rs.GET
+import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.Produces
@@ -61,8 +63,69 @@ class DemoResource(
     @Path("/basisvulling")
     fun basisvulling(): AanleverResultaat = aanleverService.leverAan(basisdataset.laad())
 
+    /**
+     * Een burst willekeurige berichten, om de demo-omgeving in één klik te vullen.
+     *
+     * Het aantal komt als tekst binnen en gaat door [heelGetal]; daar staat waarom deze grenzen er
+     * zijn en waarom de parameter geen `Int` is.
+     */
     @POST
     @Path("/random")
-    fun random(@QueryParam("aantal") @DefaultValue("10") aantal: Int): AanleverResultaat =
-        aanleverService.leverAan(generator.genereer(aantal, Random.Default))
+    fun random(@QueryParam("aantal") @DefaultValue("") aantal: String): AanleverResultaat {
+        val gevraagd = heelGetal("aantal", aantal, STANDAARD_RANDOM, 1..MAX_RANDOM_BERICHTEN)
+
+        return aanleverService.leverAan(generator.genereer(gevraagd, Random.Default))
+    }
+
+    /**
+     * Berichten voor één aangewezen persona, zodat een demonstratie niet hoeft af te wachten of de
+     * willekeur ze bij de ondernemer legt die op het scherm staat. Op de persona-`id` en niet op
+     * zijn identificatienummer: een BSN hoort niet in een URL, ook niet in een demo.
+     *
+     * Elke bedieningsfout wordt hier afgevangen en niet met `require()`, om de reden die bij
+     * [heelGetal] staat: [DemoFoutMapper] zou een `require()` als HTTP 500 tonen.
+     *
+     * `@DefaultValue("")` staat op beide parameters: een ontbrekende parameter wordt anders `null`
+     * in een niet-nullable parameter, wat Kotlin met een `NullPointerException` beantwoordt vóór de
+     * eerste regel hieronder. Wat een lege waarde daarna betekent, staat bij [heelGetal].
+     */
+    @POST
+    @Path("/bericht")
+    fun bericht(
+        @QueryParam("persona") @DefaultValue("") persona: String,
+        @QueryParam("aantal") @DefaultValue("") aantal: String,
+    ): AanleverResultaat {
+        if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
+
+        val gevraagd = heelGetal("aantal", aantal, STANDAARD_GERICHT, 1..MAX_GERICHTE_BERICHTEN)
+
+        val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default)
+            ?: throw NotFoundException("onbekende persona '$persona'; $KIES_EEN_PERSONA")
+
+        return aanleverService.leverAan(opdrachten)
+    }
+
+    internal companion object {
+
+        // Elke constante hieronder spiegelt een attribuut van het bijbehorende invoerveld in
+        // `index.html`; `PaneelPadenTest` bewaakt dat ze gelijk blijven. De bovengrenzen zijn de
+        // `max`, de standaarden de `value` — zodat een aanroep zónder parameter hetzelfde doet als
+        // een klik op de knop.
+
+        /** Meer berichten voor één persona is geen realistische demonstratievraag. */
+        const val MAX_GERICHTE_BERICHTEN = 100
+
+        /**
+         * Ruimer dan een gericht bericht: hiermee wordt een lege omgeving gevuld, en dan is een paar
+         * honderd berichten een normale vraag. Elke aanlevering blijft een synchrone ronde, dus veel
+         * hoger laat de knop minutenlang op een antwoord wachten.
+         */
+        const val MAX_RANDOM_BERICHTEN = 500
+
+        const val STANDAARD_RANDOM = 10
+
+        const val STANDAARD_GERICHT = 1
+
+        private const val KIES_EEN_PERSONA = "kies een persona uit berichtPersonas van /api/demo/omgeving"
+    }
 }

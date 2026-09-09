@@ -223,12 +223,47 @@ niet laten verversen. Online geldt dit niet: daar proxyt de proeftuin zelf.
 
 Geen Node of Eleventy nodig. De image staat op digest gepind in `compose.yaml`; een andere versie
 (een release-tag voor een gebruikersonderzoek, of nog niet gemergd werk uit hun preview-repository)
-draai je met de overlay ernaast, die een hele image-referentie neemt:
+zet je met `PROEFTUIN_IMAGE`. Diezelfde naam stuurt de lokale stack én de uitrol op ZAD:
 
 ```bash
+# Lokaal, via podman-up.sh: die neemt de overlay vanzelf mee zodra de variabele staat.
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a demo/podman-up.sh
+
+# Lokaal, met compose rechtstreeks.
 PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
   docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
 ```
+
+De hele referentie en niet alleen de tag: nog niet gemergd werk van hun kant staat in een ánder
+ghcr-repository (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`, met de **merge**-sha, niet die van
+de laatste commit op hun branch). De nieuwste tag van een PR vind je met:
+
+```bash
+gh api /orgs/MinBZK/packages/container/moza-poc%2Fpreview/versions \
+  --jq '[.[] | select((.metadata.container.tags // []) | any(startswith("pr-151-")))]
+        | sort_by(.updated_at) | reverse | .[0].metadata.container.tags[]'
+```
+
+### Op ZAD een andere berichtenbox draaien
+
+`PROEFTUIN_IMAGE` bestaat daar als **repo-variabele**. Zetten, de deploy opnieuw draaien, en de
+demo hangt aan die versie — zonder de pin te wijzigen en zonder commit:
+
+```bash
+gh variable set PROEFTUIN_IMAGE --body ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a
+gh workflow run deploy.yml --ref main     # of: gh run rerun <id> op de PR-run van een preview
+gh variable delete PROEFTUIN_IMAGE        # terug naar de pin
+```
+
+De variabele geldt voor **`test` én elke preview**: hij zit in de `meta`-job die alle drie de
+projecten voedt. Een uitrol die hem gebruikt, zet er een `notice` over bovenaan de run, zodat een
+demo die zich anders gedraagt dan de repo pint terug te vinden is. `.github/scripts/proeftuin-image.sh`
+weigert een waarde zonder tag of digest, dus een typfout hangt geen component in ImagePullBackOff.
+
+Wil je een draaiend component *nu* verzetten zonder een deploy af te wachten, dan kan dat met
+`zadctl deployment update-image` — maar de eerstvolgende uitrol zet het terug naar wat de variabele
+of de pin zegt. Voor iets dat langer dan een demonstratie moet blijven staan, is de variabele de
+route.
 
 **Van buiten de machine of van buiten een dev-container.** Standaard bindt alles op loopback, want
 via dit adres is `/api/demo/legen` een TRUNCATE op beide magazijn-databases. Wil je erbij vanaf een
@@ -303,6 +338,10 @@ vragen om bevestiging in het paneel; de vraag noemt wat er precies gebeurt.
 - *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases. Twee keer vullen zonder legen
   geeft dubbele berichten.
 - *Random berichten opvoeren* — N random berichten; tegelijk scenario 5.
+- *Bericht plaatsen* — N berichten voor de persona die je in de keuzelijst aanwijst, zodat je
+  niet hoeft af te wachten of de willekeur ze bij de ondernemer op het scherm legt. Welk van
+  de magazijnen waar die persona berichten van ontvangt het wordt, blijft toeval. De lijst
+  toont alleen persona's mét magazijn: voor de andere weigert het magazijn de aanlevering.
 - *Stroom* — levert elke *n* seconden (1–3600) automatisch één gegenereerd bericht aan, tot een
   handmatige stop of tot de ingebouwde grens (500 berichten of 60 minuten, wat het eerst komt). Een
   tweede start vervangt de lopende stroom in plaats van te stapelen.
@@ -398,9 +437,13 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
 - **Genereer vóór `up`** voor de gesimuleerde magazijnen; anders is het register leeg.
 - **`export DEMO_MAGAZIJNEN=N`** voedt het script; de console vraagt het aantal aan de simulator zelf (anders klopt
   de k-schuif niet met het aantal magazijnen).
-- **Bulkhead** staat in de demo op 120 (`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`). Bij
-  n > 60 wijst de uitvraag de overtollige magazijn-calls direct af als "systeem druk" (OVERBELAST) —
-  dat is bewust fail-fast-gedrag, geen bug.
+- **De gelijktijdigheidsgrens hoeft niet meer opgerekt te worden.** De uitvraag bevraagt per ronde
+  vijftig organisaties tegelijk en zet de rest in de wachtrij, dus ook de persona met honderd
+  organisaties krijgt ze allemaal — in twee golven. In de log van de uitvraag staat dat per ronde:
+  `Ophaalronde: 100 bevragingen, 50 tegelijk, 50 in de wachtrij` en daarna
+  `Ophaalronde afgerond in … ms: 100 van 100 organisaties bevraagd`. Zie je toch de status
+  `NIET_OPGEHAALD` bij gezonde magazijnen, dan is het wachtbudget te krap voor wat er tegelijk loopt
+  (`MAGAZIJN_WACHTBUDGET_MS`).
 - **Paginagrootte staat in de demo op 5** (`BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE`), waar productie
   er honderd vraagt. De demo-dataset zet zes tot tien berichten per organisatie per ondernemer; met
   de productiewaarde komt dat in één call binnen en is er niets van het doorpagineren te zien. Wil je

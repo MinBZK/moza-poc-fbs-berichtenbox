@@ -77,14 +77,24 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo* |
 | Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen |
-| Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten |
-| Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval; stopt vanzelf na 500 berichten of 60 minuten |
+| Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten, 1 tot 500 |
+| Demo | Bericht plaatsen | *n* berichten (1 tot 100) voor de persona uit de keuzelijst; het magazijn is een willekeurige van de magazijnen waar die persona berichten van ontvangt. De keuzelijst komt uit `berichtPersonas` van `GET /api/demo/omgeving` en bevat alleen persona's mét magazijn |
+| Demo | Stroom starten / stoppen | Eén willekeurig bericht per interval van 1 tot 3600 seconden; stopt vanzelf na 500 berichten of 60 minuten |
 | Storingen | Traag (alleen magazijn A/B) / Uit per proxy | Zet een Toxiproxy traag of uit; "Alles normaal" herstelt elke instantie en meldt pas succes nadat het teruggelezen heeft dat alles normaal staat |
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
 | Scenario's | Gesimuleerde magazijnen | Zet *k* van de *n* zonder storing, zet berichten klaar, en leegt alles inclusief het gedrag; *n* vraagt de console aan de simulator zelf |
 | Info | Gesimuleerde magazijnen | Toont hoe elk gesimuleerd magazijn zich gedraagt |
 | Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
+
+Elke knop die iets aanroept levert een antwoord op. Een leeg of ongeldig invoerveld geeft een
+melding die het veld bij naam noemt (uit `data-veldnaam` in de opmaak) plus een ✗ op de knop, in
+plaats van stilte. Een knop die aan een keuzelijst hangt staat uit tot die lijst gevuld is. En het
+uitlezen van `GET /api/demo/omgeving` — waar die lijsten uit komen — kent een timeout van 4
+seconden: mislukt het, dan zegt een blok onder de meldingsbalk dat en wanneer de volgende poging
+komt (na 2, 5, 15, daarna elke 30 seconden). De knop *Nu opnieuw proberen* daarin slaat het wachten
+over en meldt zelf wat hij vindt. Zolang er iets mis is draagt de klap-knop een stip; bij een
+ingeklapte bediening is dat het enige dat er nog van te zien is.
 
 Een refresh laat je staan waar je was: het paneel bewaart het actieve tabblad, de in-/uitgeklapte
 stand en de invoervelden in `sessionStorage`. Sluit je het tabblad, dan is het weg — een volgende
