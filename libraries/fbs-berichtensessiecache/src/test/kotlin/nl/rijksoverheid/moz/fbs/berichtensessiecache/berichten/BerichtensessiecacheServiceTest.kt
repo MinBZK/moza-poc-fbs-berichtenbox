@@ -167,6 +167,23 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `een storing bij de voorkeurenbron overschrijft de gecachte berichten niet met een lege lijst`() {
+        // Het lege-magazijn-pad schrijft `store(key, emptyList())` + GEREED. Dat is precies wat
+        // een storing niet mag doen: wie eerder berichten ophaalde zou ze kwijtraken en een
+        // geslaagde lege berichtenbox te zien krijgen.
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns
+            Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(404))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        assertThrows<ProfielServiceFoutException> {
+            service.haalBerichtenOp(ontvanger)
+        }
+
+        verify(exactly = 0) { berichtenCache.store(cacheKey, any()) }
+    }
+
+    @Test
     fun `resolver levert onbekende magazijn-ID werpt IllegalArgumentException en zet FOUT-status`() {
         // Hard falen ipv stil leeg-degraderen; cleanup vóór throw voorkomt lock-TTL-hang.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)

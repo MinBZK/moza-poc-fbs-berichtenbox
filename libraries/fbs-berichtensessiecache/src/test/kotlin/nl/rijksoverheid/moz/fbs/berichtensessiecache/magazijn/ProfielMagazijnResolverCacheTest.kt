@@ -86,6 +86,47 @@ class ProfielMagazijnResolverCacheTest {
     }
 
     @Test
+    fun `een 404 zonder herkenbaar antwoord wordt NIET gecacht`() {
+        // Een storing mag niet TTL-lang blijven hangen: zodra de koppeling hersteld is moet de
+        // eerstvolgende ophaalactie de dienst weer bereiken. De opt-out-404 hieronder wordt wél
+        // gecacht — dat onderscheid is precies wat deze twee tests naast elkaar vastleggen.
+        val urlPath = "/api/profielservice/v1/partij"
+
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).willReturn(aResponse().withStatus(404)),
+        )
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999990044")).await().atMost(Duration.ofSeconds(20))
+        }
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999990044")).await().atMost(Duration.ofSeconds(20))
+        }
+
+        wireMock.verify(2, postRequestedFor(urlEqualTo(urlPath)))
+    }
+
+    @Test
+    fun `een 404 met het partij-niet-gevonden-antwoord wordt wel gecacht`() {
+        val urlPath = "/api/profielservice/v1/partij"
+
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).willReturn(
+                aResponse().withStatus(404)
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody("""{"type":"about:blank","title":"Partij niet gevonden","status":404}"""),
+            ),
+        )
+
+        val eerste = resolver.resolve(Bsn("999990020")).await().atMost(Duration.ofSeconds(5))
+        val tweede = resolver.resolve(Bsn("999990020")).await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(emptySet<String>(), eerste)
+        assertEquals(eerste, tweede)
+        wireMock.verify(1, postRequestedFor(urlEqualTo(urlPath)))
+    }
+
+    @Test
     fun `call na TTL-expiry triggert nieuwe Profiel-call (cache miss)`() {
         val urlPath = "/api/profielservice/v1/partij"
 

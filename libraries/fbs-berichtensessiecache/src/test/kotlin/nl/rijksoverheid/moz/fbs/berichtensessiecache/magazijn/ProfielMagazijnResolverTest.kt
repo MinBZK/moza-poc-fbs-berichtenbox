@@ -224,10 +224,78 @@ class ProfielMagazijnResolverTest {
     }
 
     @Test
-    fun `404 van Profiel levert lege set zonder fout`() {
-        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(Response.status(404).build())
+    fun `404 met het partij-niet-gevonden-antwoord levert lege set zonder fout`() {
+        stub404(
+            """
+            {
+              "type": "about:blank",
+              "title": "Partij niet gevonden",
+              "status": 404,
+              "detail": "Geen partij gevonden voor het opgegeven identificatienummer."
+            }
+            """.trimIndent(),
+        )
+
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+
         assertEquals(emptySet<String>(), result)
+    }
+
+    @Test
+    fun `404 zonder herkenbaar antwoord telt als storing en niet als opt-out`() {
+        // Een kale 404 komt van een verkeerd pad of een tussenliggende voorziening. Als opt-out
+        // gelezen zou die de berichtenbox stil leegmaken; daarom de veilige kant: storing.
+        stub404(lichaam = null)
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    @Test
+    fun `404 met een ander problem-antwoord telt als storing`() {
+        stub404("""{"type":"about:blank","title":"Contactgegeven niet gevonden","status":404}""")
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    @Test
+    fun `404 waarvan het lichaam niet te lezen is telt als storing`() {
+        // Een al geconsumeerde of gesloten respons gooit bij het uitlezen. Dat mag geen
+        // onverwachte fout worden en zeker geen opt-out.
+        val response = mockk<Response>()
+
+        every { response.status } returns 404
+        // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
+        every { response.statusInfo } returns Response.Status.NOT_FOUND
+        every { response.readEntity(String::class.java) } throws IllegalStateException("entity al gelezen")
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(response)
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    /** 404-respons met [lichaam] als problem+json-body; `null` = een respons zonder lichaam. */
+    private fun stub404(lichaam: String?) {
+        val response = mockk<Response>()
+
+        every { response.status } returns 404
+        // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
+        every { response.statusInfo } returns Response.Status.NOT_FOUND
+        every { response.readEntity(String::class.java) } returns lichaam
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(response)
     }
 
     @Test
