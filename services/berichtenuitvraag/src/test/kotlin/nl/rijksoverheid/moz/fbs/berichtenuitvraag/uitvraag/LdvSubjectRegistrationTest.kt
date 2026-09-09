@@ -45,6 +45,7 @@ class LdvSubjectRegistrationTest {
         sessiecache.berichten[id] = nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = nl.rijksoverheid.moz.fbs.common.identificatie.Bsn("999990019"),
             onderwerp = "X",
             inhoud = "Inhoud",
