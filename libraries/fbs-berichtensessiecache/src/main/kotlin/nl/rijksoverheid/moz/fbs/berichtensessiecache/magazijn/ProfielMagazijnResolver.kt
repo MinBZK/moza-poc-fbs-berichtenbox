@@ -11,6 +11,7 @@ import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
@@ -90,7 +91,7 @@ internal class ProfielMagazijnResolver(
         // MOET groter zijn — startup-validatie in `valideerTimeouts()` borgt dit — anders
         // verliest de caller de juiste foutclassificatie (Mutiny-TimeoutException vs
         // j.u.c.TimeoutException).
-        return Uni.createFrom().item { profielClient.getPartij(profielType, ontvanger.waarde) }
+        return Uni.createFrom().item { profielClient.getPartij(PartijRequest(profielType, ontvanger.waarde)) }
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
             .ifNoItem().after(Duration.ofSeconds(innerTimeoutSeconds)).fail()
             .map { partij -> bepaalMagazijnen(partij) }

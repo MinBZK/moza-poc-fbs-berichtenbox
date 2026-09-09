@@ -16,6 +16,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
 import nl.rijksoverheid.moz.fbs.common.profiel.DienstResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ScopeResponse
@@ -82,7 +83,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer PDF bijlage met actieve voorkeur gooit geen exception`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns profielMetAbonnement()
+        every { profielServiceClient.getPartij(any()) } returns profielMetAbonnement()
 
         assertDoesNotThrow {
             service.valideer(maakBericht(), listOf(pdfBijlage()))
@@ -141,29 +142,29 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer BSN-ontvanger roept profielservice aan met type BSN`() {
-        every { profielServiceClient.getPartij("BSN", ontvangerBsn.waarde) } returns profielMetAbonnement()
+        every { profielServiceClient.getPartij(PartijRequest("BSN", ontvangerBsn.waarde)) } returns profielMetAbonnement()
 
         service.valideer(maakBericht(ontvangerBsn), listOf(pdfBijlage()))
 
-        verify(exactly = 1) { profielServiceClient.getPartij("BSN", ontvangerBsn.waarde) }
+        verify(exactly = 1) { profielServiceClient.getPartij(PartijRequest("BSN", ontvangerBsn.waarde)) }
     }
 
     @Test
     fun `valideer RSIN-ontvanger roept profielservice aan met type RSIN`() {
-        every { profielServiceClient.getPartij("RSIN", ontvangerRsin.waarde) } returns profielMetAbonnement()
+        every { profielServiceClient.getPartij(PartijRequest("RSIN", ontvangerRsin.waarde)) } returns profielMetAbonnement()
 
         service.valideer(maakBericht(ontvangerRsin), listOf(pdfBijlage()))
 
-        verify(exactly = 1) { profielServiceClient.getPartij("RSIN", ontvangerRsin.waarde) }
+        verify(exactly = 1) { profielServiceClient.getPartij(PartijRequest("RSIN", ontvangerRsin.waarde)) }
     }
 
     @Test
     fun `valideer KVK-ontvanger roept profielservice aan met type KVK`() {
-        every { profielServiceClient.getPartij("KVK", ontvangerKvk.waarde) } returns profielMetAbonnement()
+        every { profielServiceClient.getPartij(PartijRequest("KVK", ontvangerKvk.waarde)) } returns profielMetAbonnement()
 
         service.valideer(maakBericht(ontvangerKvk), listOf(pdfBijlage()))
 
-        verify(exactly = 1) { profielServiceClient.getPartij("KVK", ontvangerKvk.waarde) }
+        verify(exactly = 1) { profielServiceClient.getPartij(PartijRequest("KVK", ontvangerKvk.waarde)) }
     }
 
     @Test
@@ -176,7 +177,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer accepteert waarde 'ja' (Nederlands) als actief`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns
+        every { profielServiceClient.getPartij(any()) } returns
             profielMetAbonnement(waarde = "ja")
 
         assertDoesNotThrow {
@@ -186,7 +187,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer accepteert waarde 'TRUE' case-insensitive als actief`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns
+        every { profielServiceClient.getPartij(any()) } returns
             profielMetAbonnement(waarde = "TRUE")
 
         assertDoesNotThrow {
@@ -198,7 +199,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer gooit Geweigerd als partij geen voorkeuren heeft`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns PartijResponse()
+        every { profielServiceClient.getPartij(any()) } returns PartijResponse()
 
         assertThrows(ToestemmingGeweigerdException::class.java) {
             service.valideer(maakBericht(), listOf(pdfBijlage()))
@@ -207,7 +208,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer gooit Geweigerd als voorkeur scope naar andere afzender wijst`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns
+        every { profielServiceClient.getPartij(any()) } returns
             profielMetAbonnement(afzenderOin = andereAfzender.waarde)
 
         assertThrows(ToestemmingGeweigerdException::class.java) {
@@ -217,7 +218,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer gooit Geweigerd als voorkeur geen enkele scope heeft`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns PartijResponse(
+        every { profielServiceClient.getPartij(any()) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(voorkeurType = "OntvangViaBerichtenbox", waarde = "true", scopes = emptyList()),
             ),
@@ -230,7 +231,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer gooit Geweigerd als voorkeur waarde 'false' is`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns
+        every { profielServiceClient.getPartij(any()) } returns
             profielMetAbonnement(waarde = "false")
 
         assertThrows(ToestemmingGeweigerdException::class.java) {
@@ -240,7 +241,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer gooit Geweigerd als waarde null is`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns PartijResponse(
+        every { profielServiceClient.getPartij(any()) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox",
@@ -260,7 +261,7 @@ class BerichtValidatieServiceTest {
     @Test
     fun `valideer gooit Geweigerd als alleen andere voorkeur-typen aanwezig zijn`() {
         // Partij heeft WebsiteTaal-voorkeur maar geen OntvangViaBerichtenbox.
-        every { profielServiceClient.getPartij(any(), any()) } returns PartijResponse(
+        every { profielServiceClient.getPartij(any()) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "WebsiteTaal",
@@ -277,7 +278,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer accepteert wanneer meerdere scopes aanwezig zijn en één matcht`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns PartijResponse(
+        every { profielServiceClient.getPartij(any()) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox",
@@ -299,7 +300,7 @@ class BerichtValidatieServiceTest {
     fun `valideer negeert scope zonder partij (bv alleen-dienst-scope)`() {
         // Een scope met alleen `dienst` en geen `partij` mag de afzender-check niet bedienen,
         // anders zou een willekeurige dienst onbedoeld als toestemming gelden.
-        every { profielServiceClient.getPartij(any(), any()) } returns PartijResponse(
+        every { profielServiceClient.getPartij(any()) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox",
@@ -318,7 +319,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer gooit Geweigerd bij 404 van profielservice (onbekende partij, fail-closed)`() {
-        every { profielServiceClient.getPartij(any(), any()) } throws NotFoundException()
+        every { profielServiceClient.getPartij(any()) } throws NotFoundException()
 
         assertThrows(ToestemmingGeweigerdException::class.java) {
             service.valideer(maakBericht(), listOf(pdfBijlage()))
@@ -329,7 +330,7 @@ class BerichtValidatieServiceTest {
     fun `valideer laat andere HTTP-fouten doorvloeien (geen swallow)`() {
         // Een 5xx is een infrastructuurfout — die moet de circuit breaker triggeren,
         // niet stilzwijgend als toestemmings-weigering worden behandeld.
-        every { profielServiceClient.getPartij(any(), any()) } throws RuntimeException("upstream down")
+        every { profielServiceClient.getPartij(any()) } throws RuntimeException("upstream down")
 
         assertThrows(RuntimeException::class.java) {
             service.valideer(maakBericht(), listOf(pdfBijlage()))
@@ -338,7 +339,7 @@ class BerichtValidatieServiceTest {
 
     @Test
     fun `valideer met lege bijlagenlijst en actief abonnement gooit geen exception`() {
-        every { profielServiceClient.getPartij(any(), any()) } returns profielMetAbonnement()
+        every { profielServiceClient.getPartij(any()) } returns profielMetAbonnement()
 
         assertDoesNotThrow {
             service.valideer(maakBericht(), emptyList())

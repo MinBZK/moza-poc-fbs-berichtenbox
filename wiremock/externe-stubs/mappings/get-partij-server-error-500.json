@@ -1,8 +1,16 @@
 {
   "priority": 10,
   "request": {
-    "method": "GET",
-    "urlPattern": "/api/profielservice/v1/BSN/999991401"
+    "method": "POST",
+    "url": "/api/profielservice/v1/partij",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$[?(@.identificatieType == 'BSN')]"
+      },
+      {
+        "matchesJsonPath": "$[?(@.identificatieNummer == '999991401')]"
+      }
+    ]
   },
   "response": {
     "status": 500,

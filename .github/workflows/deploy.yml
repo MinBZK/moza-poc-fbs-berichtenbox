@@ -458,7 +458,9 @@ jobs:
             sleep 1
           done
 
-          scopes=$(curl -sf http://localhost:8089/api/profielservice/v1/KVK/90000003 \
+          scopes=$(curl -sf -X POST http://localhost:8089/api/profielservice/v1/partij \
+            -H 'Content-Type: application/json' \
+            -d '{"identificatieType":"KVK","identificatieNummer":"90000003"}' \
             | jq '.voorkeuren[0].scopes | length' || echo 0)
           docker rm -f profiel-controle >/dev/null || true
 

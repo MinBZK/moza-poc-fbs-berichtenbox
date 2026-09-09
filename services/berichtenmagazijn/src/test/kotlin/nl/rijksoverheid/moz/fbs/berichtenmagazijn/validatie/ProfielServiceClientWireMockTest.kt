@@ -1,10 +1,15 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
 import com.github.tomakehurst.wiremock.WireMockServer
+import com.github.tomakehurst.wiremock.client.WireMock.any
+import com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.anyUrl
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
+import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
+import com.github.tomakehurst.wiremock.client.WireMock.urlMatching
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager
@@ -13,6 +18,7 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -24,7 +30,8 @@ import org.junit.jupiter.api.Test
  * Contracttest van [ProfielServiceClient] tegen een WireMock-stub. CLAUDE.md
  * "Testlagen → spec-driven aan de randen" eist deze laag voor uitgaande clients:
  * andere tests vervangen de client via een `@Mock` CDI-bean en valideren daarmee
- * niet de échte JSON-deserialisatie, path-encoding of HTTP-foutmapping.
+ * niet de échte JSON-serialisatie van de aanvraag, de deserialisatie van het antwoord
+ * of de HTTP-foutmapping.
  *
  * `WireMockProfielServiceTestProfile` sluit `MockProfielServiceClient` uit met
  * `quarkus.arc.exclude-types`, zodat de échte REST-client wordt geïnjecteerd.
@@ -51,7 +58,7 @@ class ProfielServiceClientWireMockTest {
     @Test
     fun `200-respons wordt correct gedeserialiseerd`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(
                     aResponse()
                         .withStatus(200)
@@ -75,7 +82,7 @@ class ProfielServiceClientWireMockTest {
                 ),
         )
 
-        val partij = client.getPartij("BSN", "999993653")
+        val partij = client.getPartij(PartijRequest("BSN", "999993653"))
 
         assertEquals(1, partij.voorkeuren.size)
         assertEquals("OntvangViaBerichtenbox", partij.voorkeuren[0].voorkeurType)
@@ -87,7 +94,7 @@ class ProfielServiceClientWireMockTest {
     @Test
     fun `404 wordt vertaald naar WebApplicationException met status 404`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(404)),
         )
 
@@ -96,7 +103,7 @@ class ProfielServiceClientWireMockTest {
         // BerichtValidatieService filtert daarom expliciet op status 404; deze
         // assert borgt het contract waar die filter op vertrouwt.
         val ex = assertThrows(WebApplicationException::class.java) {
-            client.getPartij("BSN", "999993653")
+            client.getPartij(PartijRequest("BSN", "999993653"))
         }
         assertEquals(404, ex.response?.status)
     }
@@ -104,7 +111,7 @@ class ProfielServiceClientWireMockTest {
     @Test
     fun `5xx wordt vertaald naar WebApplicationException`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(500).withBody("internal error")),
         )
 
@@ -114,14 +121,14 @@ class ProfielServiceClientWireMockTest {
         // skipOn (WebApplicationException) en laat het de circuit breaker NIET trippen
         // — een single-shot 5xx mag niet de hele aanlever-flow offline halen.
         assertThrows(WebApplicationException::class.java) {
-            client.getPartij("BSN", "999993653")
+            client.getPartij(PartijRequest("BSN", "999993653"))
         }
     }
 
     @Test
     fun `malformed JSON wordt als fout gemeld (geen stille fallback)`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(
                     aResponse()
                         .withStatus(200)
@@ -135,14 +142,14 @@ class ProfielServiceClientWireMockTest {
         // GEEN happy-path-respons opleveren die stilletjes als "geen
         // voorkeuren" wordt geïnterpreteerd.
         assertThrows(RuntimeException::class.java) {
-            client.getPartij("BSN", "999993653")
+            client.getPartij(PartijRequest("BSN", "999993653"))
         }
     }
 
     @Test
     fun `lege body op 200 levert lege PartijResponse op`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(
                     aResponse()
                         .withStatus(200)
@@ -151,14 +158,14 @@ class ProfielServiceClientWireMockTest {
                 ),
         )
 
-        val partij = client.getPartij("BSN", "999993653")
+        val partij = client.getPartij(PartijRequest("BSN", "999993653"))
         assertEquals(0, partij.voorkeuren.size, "Lege body MOET default lege voorkeuren-lijst opleveren")
     }
 
     @Test
     fun `onbekende velden in respons worden genegeerd (forward-compat)`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(
                     aResponse()
                         .withStatus(200)
@@ -176,29 +183,33 @@ class ProfielServiceClientWireMockTest {
                 ),
         )
 
-        val partij = client.getPartij("BSN", "999993653")
+        val partij = client.getPartij(PartijRequest("BSN", "999993653"))
         assertEquals(0, partij.voorkeuren.size)
     }
 
     @Test
-    fun `path-encoding zet type en nummer correct in de URL`() {
+    fun `KVK-identificatie gaat in dezelfde body-vorm als BSN`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/KVK/12345678"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("{}")),
         )
 
-        client.getPartij("KVK", "12345678")
+        client.getPartij(PartijRequest("KVK", "12345678"))
 
-        // Geen exception ⇒ WireMock matchte het verwachte path. De `urlEqualTo`-stub
-        // hierboven is de echte assert: als de client-implementatie spaties of
-        // path-segmenten zou veranderen, kwam er hier een 404 terug en zou de call
-        // met NotFoundException falen.
+        // Twee typen in de suite, niet één: een serialisatie die het type hardcodeert of
+        // laat vallen slaagt op een enkel geval en valt hier alsnog door de mand.
+        wireMock.verify(
+            postRequestedFor(urlEqualTo("/api/profielservice/v1/partij"))
+                .withRequestBody(
+                    equalToJson("""{"identificatieType":"KVK","identificatieNummer":"12345678"}"""),
+                ),
+        )
     }
 
     @Test
     fun `zonder grant-hash draagt de Profiel-call geen FSC-outway-headers`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
                 aResponse()
                     .withStatus(200)
                     .withHeader("Content-Type", "application/json")
@@ -206,13 +217,41 @@ class ProfielServiceClientWireMockTest {
             )
         )
 
-        client.getPartij("BSN", "999993653")
+        client.getPartij(PartijRequest("BSN", "999993653"))
 
         wireMock.verify(
-            getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            postRequestedFor(urlEqualTo("/api/profielservice/v1/partij"))
                 .withoutHeader("Fsc-Grant-Hash")
                 .withoutHeader("Fsc-Transaction-Id")
         )
+    }
+
+    @Test
+    fun `identificatienummer gaat in de request-body en niet in het webadres`() {
+        // Catch-all-stub zodat de call slaagt wélke vorm de client ook stuurt; de verify
+        // hieronder is de echte assert. Zonder de catch-all zou een afwijkende vorm al op
+        // een 404 stranden en daarmee verbergen wát er verstuurd werd.
+        wireMock.stubFor(
+            any(anyUrl()).willReturn(
+                aResponse()
+                    .withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"voorkeuren":[]}"""),
+            ),
+        )
+
+        client.getPartij(PartijRequest("BSN", "999993653"))
+
+        wireMock.verify(
+            postRequestedFor(urlEqualTo("/api/profielservice/v1/partij"))
+                .withRequestBody(
+                    equalToJson("""{"identificatieType":"BSN","identificatieNummer":"999993653"}"""),
+                ),
+        )
+
+        // Het identificatienummer mag in geen enkel opgevraagd webadres voorkomen:
+        // webadressen worden onderweg breder vastgelegd dan een request-body.
+        wireMock.verify(0, anyRequestedFor(urlMatching(".*999993653.*")))
     }
 }
 

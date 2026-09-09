@@ -12,6 +12,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
 import nl.rijksoverheid.moz.fbs.common.profiel.DienstResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
@@ -72,7 +73,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `BSN met 1 OIN-match levert 1 magazijn`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox",
@@ -87,7 +88,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `BSN met 2 OIN-matches levert 2 magazijnen`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     "OntvangViaBerichtenbox", "true",
@@ -106,7 +107,7 @@ class ProfielMagazijnResolverTest {
     fun `BSN met scope-OIN buiten config-lijst gooit configDrift exception`() {
         // 100% drift: alle opt-in OINs zijn onbekend bij magazijn-config → CONFIG_DRIFT.
         // Caller (service) emit dan OPHALEN_FOUT i.p.v. silent empty-result.
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     "OntvangViaBerichtenbox", "true",
@@ -122,7 +123,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `BSN met voorkeur false levert lege set`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     "OntvangViaBerichtenbox", "false",
@@ -136,7 +137,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `BSN met case-variant TRUE en Ja is opt-in`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     "OntvangViaBerichtenbox", "TRUE",
@@ -154,7 +155,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `BSN met YES is geen opt-in`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     "OntvangViaBerichtenbox", "YES",
@@ -168,14 +169,14 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `BSN met lege voorkeuren levert lege set`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(voorkeuren = emptyList())
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(voorkeuren = emptyList())
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         assertEquals(emptySet<String>(), result)
     }
 
     @Test
     fun `BSN met andere voorkeurType wordt genegeerd`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     "WebsiteTaal", "nl",
@@ -189,7 +190,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `BSN met scope-identificatieType KVK wordt genegeerd`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     "OntvangViaBerichtenbox", "true",
@@ -205,33 +206,33 @@ class ProfielMagazijnResolverTest {
     fun `OIN-ontvanger skipt Profiel-call en levert alle magazijnen`() {
         val result = resolver.resolve(Oin("00000001003214345000")).await().atMost(Duration.ofSeconds(2))
         assertEquals(setOf(oinA, oinB), result)
-        verify(exactly = 0) { profielClient.getPartij(any(), any()) }
+        verify(exactly = 0) { profielClient.getPartij(any()) }
     }
 
     @Test
     fun `RSIN-ontvanger gebruikt RSIN-pad in Profiel-call`() {
-        every { profielClient.getPartij("RSIN", "002564440") } returns PartijResponse(voorkeuren = emptyList())
+        every { profielClient.getPartij(PartijRequest("RSIN", "002564440")) } returns PartijResponse(voorkeuren = emptyList())
         resolver.resolve(Rsin("002564440")).await().atMost(Duration.ofSeconds(2))
-        verify(exactly = 1) { profielClient.getPartij("RSIN", "002564440") }
+        verify(exactly = 1) { profielClient.getPartij(PartijRequest("RSIN", "002564440")) }
     }
 
     @Test
     fun `KVK-ontvanger gebruikt KVK-pad in Profiel-call`() {
-        every { profielClient.getPartij("KVK", "12345678") } returns PartijResponse(voorkeuren = emptyList())
+        every { profielClient.getPartij(PartijRequest("KVK", "12345678")) } returns PartijResponse(voorkeuren = emptyList())
         resolver.resolve(Kvk("12345678")).await().atMost(Duration.ofSeconds(2))
-        verify(exactly = 1) { profielClient.getPartij("KVK", "12345678") }
+        verify(exactly = 1) { profielClient.getPartij(PartijRequest("KVK", "12345678")) }
     }
 
     @Test
     fun `404 van Profiel levert lege set zonder fout`() {
-        every { profielClient.getPartij("BSN", "999993653") } throws WebApplicationException(Response.status(404).build())
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(Response.status(404).build())
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         assertEquals(emptySet<String>(), result)
     }
 
     @Test
     fun `500 van Profiel werpt UPSTREAM_ERROR met httpStatus`() {
-        every { profielClient.getPartij("BSN", "999993653") } throws WebApplicationException(Response.status(500).build())
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(Response.status(500).build())
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -246,7 +247,7 @@ class ProfielMagazijnResolverTest {
         // Regressie-guard: 401/403/405 mogen NOOIT in het 404-emptySet-pad vallen (silent
         // failure: auth-fout zou dan "geen voorkeuren" worden). Assert dus expliciet de
         // categorie + httpStatus, niet alleen het exception-type.
-        every { profielClient.getPartij("BSN", "999993653") } throws WebApplicationException(Response.status(403).build())
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(Response.status(403).build())
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -258,7 +259,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `401 van Profiel werpt UPSTREAM_ERROR met httpStatus (auth-misser)`() {
-        every { profielClient.getPartij("BSN", "999993653") } throws WebApplicationException(Response.status(401).build())
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(Response.status(401).build())
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -270,7 +271,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `ProcessingException van Profiel werpt ProfielServiceFoutException`() {
-        every { profielClient.getPartij("BSN", "999993653") } throws ProcessingException("connection reset")
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws ProcessingException("connection reset")
         assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
         }
@@ -283,7 +284,7 @@ class ProfielMagazijnResolverTest {
         // een 18s WireMock-delay (te duur in CI). Hier valideren we alleen dat
         // de mapping naar `timeout()` werkt; de timing zelf wordt door
         // bestaande Mutiny-tests gedekt.
-        every { profielClient.getPartij("BSN", "999993653") } throws io.smallrye.mutiny.TimeoutException()
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws io.smallrye.mutiny.TimeoutException()
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -295,7 +296,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `NullPointerException uit client wraps als ProfielServiceFoutException onverwacht`() {
-        every { profielClient.getPartij("BSN", "999993653") } throws NullPointerException("client interne NPE")
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws NullPointerException("client interne NPE")
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -309,7 +310,7 @@ class ProfielMagazijnResolverTest {
     @Test
     fun `ProcessingException met JsonProcessingException cause routes naar malformed`() {
         val cause = com.fasterxml.jackson.core.JsonParseException(null, "bad json")
-        every { profielClient.getPartij("BSN", "999993653") } throws jakarta.ws.rs.ProcessingException(cause)
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws jakarta.ws.rs.ProcessingException(cause)
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -320,7 +321,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `ProcessingException met IOException cause routes naar netwerk`() {
-        every { profielClient.getPartij("BSN", "999993653") } throws jakarta.ws.rs.ProcessingException(IOException("conn reset"))
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws jakarta.ws.rs.ProcessingException(IOException("conn reset"))
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -331,7 +332,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `scope met alleen dienst (partij null) wordt genegeerd`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox",
@@ -348,7 +349,7 @@ class ProfielMagazijnResolverTest {
 
     @Test
     fun `onleesbare upstream-OIN wordt defensief overgeslagen zonder exception`() {
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox",
@@ -371,7 +372,7 @@ class ProfielMagazijnResolverTest {
         // alleen het bekende magazijn wordt geleverd. Pint de partiële-skip-tak vast — die
         // verschilt van zowel 100%-drift (alles onbekend → exception) als van het ongeldig-
         // formaat-pad (`NOT-AN-OIN`, andere teller).
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox", waarde = "true",
@@ -391,7 +392,7 @@ class ProfielMagazijnResolverTest {
         // Tellers-pad: ongeldig=N, driftSkips=0 → exception én log-tekst "Upstream-
         // data-issue" (niet "Config-drift"). Onderscheid is alleen in log; productie
         // moet wel CONFIG_DRIFT-categorie gooien zodat caller eenduidig kan handelen.
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox", waarde = "true",
@@ -412,7 +413,7 @@ class ProfielMagazijnResolverTest {
     fun `mixed pad (ongeldig + driftSkip + 0 valid) gooit CONFIG_DRIFT`() {
         // Combinatie van beide skip-redenen → totaal>0, result.isEmpty() → exception.
         // Triggert eerste tak (driftSkips>0) met ongeldig-counter in log-format.
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox", waarde = "true",
@@ -438,7 +439,7 @@ class ProfielMagazijnResolverTest {
         val waeZonderResponse = object : WebApplicationException("geen response") {
             override fun getResponse(): Response? = null
         }
-        every { profielClient.getPartij("BSN", "999993653") } throws waeZonderResponse
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws waeZonderResponse
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -452,7 +453,7 @@ class ProfielMagazijnResolverTest {
     fun `CRLF in ongeldige upstream-OIN wordt defensief overgeslagen en levert de geldige match`() {
         // Exerceert het sanitisatiepad end-to-end: de CRLF-bevattende OIN is ongeldig van formaat
         // en wordt overgeslagen (gesanitiseerd gelogd), de geldige OIN bepaalt het resultaat.
-        every { profielClient.getPartij("BSN", "999993653") } returns PartijResponse(
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } returns PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
                     voorkeurType = "OntvangViaBerichtenbox", waarde = "true",

@@ -1,8 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -45,10 +45,10 @@ class ProfielMagazijnResolverCacheTest {
 
     @Test
     fun `tweede call binnen TTL doet 0 extra Profiel-calls (cache-hit)`() {
-        val urlPath = "/api/profielservice/v1/BSN/999993653"
+        val urlPath = "/api/profielservice/v1/partij"
 
         wireMock.stubFor(
-            get(urlEqualTo(urlPath)).willReturn(
+            post(urlEqualTo(urlPath)).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
                     """{"partijId":1,"voorkeuren":[]}""",
                 ),
@@ -59,17 +59,17 @@ class ProfielMagazijnResolverCacheTest {
         val second = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
 
         assertEquals(first, second)
-        wireMock.verify(1, getRequestedFor(urlEqualTo(urlPath)))
+        wireMock.verify(1, postRequestedFor(urlEqualTo(urlPath)))
     }
 
     @Test
     fun `fout-response wordt NIET gecacht (volgende call triggert nieuwe Profiel-call)`() {
         // Cruciaal: hand-rolled cache vult alleen bij succes. Anders zou tijdelijke
         // Profiel-storing de ontvanger TTL-lang in een 503-loop houden.
-        val urlPath = "/api/profielservice/v1/BSN/999991772"
+        val urlPath = "/api/profielservice/v1/partij"
 
         wireMock.stubFor(
-            get(urlEqualTo(urlPath))
+            post(urlEqualTo(urlPath))
                 .willReturn(aResponse().withStatus(500)),
         )
 
@@ -81,16 +81,16 @@ class ProfielMagazijnResolverCacheTest {
         }
 
         // 500 = WebApplicationException, niet ProcessingException → @Retry niet getriggerd
-        // → 1 GET per resolve-call. Belangrijk: 2 resolve-calls → 2 GETs (niet 1).
-        wireMock.verify(2, getRequestedFor(urlEqualTo(urlPath)))
+        // → 1 POST per resolve-call. Belangrijk: 2 resolve-calls → 2 POSTs (niet 1).
+        wireMock.verify(2, postRequestedFor(urlEqualTo(urlPath)))
     }
 
     @Test
     fun `call na TTL-expiry triggert nieuwe Profiel-call (cache miss)`() {
-        val urlPath = "/api/profielservice/v1/BSN/999996915"
+        val urlPath = "/api/profielservice/v1/partij"
 
         wireMock.stubFor(
-            get(urlEqualTo(urlPath)).willReturn(
+            post(urlEqualTo(urlPath)).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
                     """{"partijId":1,"voorkeuren":[]}""",
                 ),
@@ -102,7 +102,7 @@ class ProfielMagazijnResolverCacheTest {
         Thread.sleep(1500)
         resolver.resolve(Bsn("999996915")).await().atMost(Duration.ofSeconds(5))
 
-        wireMock.verify(2, getRequestedFor(urlEqualTo(urlPath)))
+        wireMock.verify(2, postRequestedFor(urlEqualTo(urlPath)))
     }
 }
 
