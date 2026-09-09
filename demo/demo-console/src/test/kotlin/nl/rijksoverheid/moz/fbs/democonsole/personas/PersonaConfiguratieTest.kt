@@ -68,7 +68,7 @@ class PersonaConfiguratieTest {
         // daadwerkelijk op elkaar aansluiten.
         personaService.alle().forEach { persona ->
             persona.magazijnen.forEach { oin ->
-                assertNull(magazijnKennis.get().bezwaarTegen(oin), "persona '${'$'}{persona.id}' wijst naar ${'$'}oin")
+                assertNull(magazijnKennis.get().bezwaarTegen(oin), "persona '${persona.id}' wijst naar $oin")
             }
         }
     }
