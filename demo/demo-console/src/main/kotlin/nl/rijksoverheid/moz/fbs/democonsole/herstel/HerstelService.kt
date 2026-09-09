@@ -18,8 +18,15 @@ data class HerstelResultaat(
     val gesimuleerd: GesimuleerdHerstel,
     /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
     val gesimuleerdGevuld: Int = 0,
-    val letOp: String = HERSTELTIJD_MELDING,
-)
+) {
+
+    /**
+     * Het paneel toont één let-op-regel per antwoord; deze knop heeft er soms twee te melden. De
+     * reden van een mislukte basisvulling voorop — daar valt iets aan te doen, aan het
+     * overslaan-venster van de uitvraag niet.
+     */
+    val letOp: String = listOfNotNull(vulling.letOp, HERSTELTIJD_MELDING).joinToString(" ")
+}
 
 /**
  * De omgeving terug naar de toestand van vlak na de eerste basisvulling — de knop aan het eind van

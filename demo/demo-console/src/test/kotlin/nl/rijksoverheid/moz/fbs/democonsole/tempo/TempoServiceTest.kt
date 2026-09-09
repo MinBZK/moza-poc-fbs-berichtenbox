@@ -76,7 +76,7 @@ class TempoServiceTest {
     private val service = TempoService(klok, aanleverService, generator, testKlok)
 
     init {
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(1, 1, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 1, 0, emptyList())
     }
 
     @ParameterizedTest
