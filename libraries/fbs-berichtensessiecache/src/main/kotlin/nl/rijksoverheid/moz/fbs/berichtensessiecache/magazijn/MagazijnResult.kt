@@ -63,10 +63,11 @@ internal sealed class MagazijnResult {
  * werkelijke oorzaak noemt; het circuit-breaker-gedrag is identiek (het magazijn ís bereikt, en
  * een configuratiefout telt niet als availability-storing).
  *
- * [OVERBELAST]: het concurrency-bulkhead ([MagazijnAggregatieBulkhead]) zat vol — er was geen
- * vrije permit, dus het magazijn is niet eens bevraagd. Geen uitspraak over de beschikbaarheid
- * van dít magazijn (de saturatie komt typisch door een ánder, traag magazijn), dus telt niet als
- * storing én niet als succes.
+ * [OVERBELAST]: het concurrency-bulkhead ([MagazijnAggregatieBulkhead]) bleef vol zolang het
+ * wachtbudget duurde, dus het magazijn is niet eens bevraagd. Geen uitspraak over de
+ * beschikbaarheid van dít magazijn (de saturatie komt typisch door een ánder, traag magazijn), dus
+ * telt niet als storing én niet als succes. Op de lijn een eigen status (`NIET_OPGEHAALD`) zodat
+ * een portaal dit niet als storing van de organisatie toont.
  */
 internal enum class MagazijnFault {
     TIMEOUT, MALFORMED, OVERFLOW, HTTP_5XX, HTTP_4XX, HTTP_3XX, NETWORK, INTERNAL_BUG, CIRCUIT_OPEN, OVERBELAST
@@ -91,8 +92,8 @@ internal val MagazijnFault.teltAlsStoring: Boolean
 
 /**
  * Of de call het magazijn daadwerkelijk bereikte. CIRCUIT_OPEN (overgeslagen) en OVERBELAST
- * (bulkhead vol vóór de call) deden geen uitspraak over het magazijn — alle overige faults zijn
- * uitkomsten van een échte call. Exhaustief (geen `else`) zodat een nieuwe fault niet stilzwijgend
+ * (bulkhead bleef vol, call niet gestart) deden geen uitspraak over het magazijn — alle overige
+ * faults zijn uitkomsten van een échte call. Exhaustief (geen `else`) zodat een nieuwe fault niet stilzwijgend
  * als "bereikt" of "niet bereikt" wordt geclassificeerd: de auteur moet expliciet kiezen.
  */
 internal val MagazijnFault.magazijnBereikt: Boolean
@@ -142,9 +143,9 @@ internal class MagazijnCircuitOpenException(magazijnId: String) :
     RuntimeException("Magazijn '$magazijnId' tijdelijk overgeslagen: circuit open na herhaalde storingen")
 
 /**
- * Marker-exception voor een door het concurrency-bulkhead afgewezen magazijn-call: er was geen
- * vrije permit ([MagazijnAggregatieBulkhead] vol), dus de call is niet gestart. Draagt de
- * `magazijnId` als `error`-veld van de [MagazijnResult.Failure]; nooit een echte upstream-fout.
+ * Marker-exception voor een magazijn-call die niet gestart is omdat er binnen het wachtbudget geen
+ * permit vrijkwam ([MagazijnAggregatieBulkhead] bleef vol). Draagt de `magazijnId` als
+ * `error`-veld van de [MagazijnResult.Failure]; nooit een echte upstream-fout.
  */
 internal class MagazijnOverbelastException(magazijnId: String) :
-    RuntimeException("Magazijn '$magazijnId' tijdelijk afgewezen: aggregatie-bulkhead vol")
+    RuntimeException("Magazijn '$magazijnId' niet bevraagd: geen vrije permit binnen het wachtbudget van het aggregatie-bulkhead")
