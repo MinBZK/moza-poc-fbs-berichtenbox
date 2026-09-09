@@ -4,7 +4,8 @@ import io.mockk.Called
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
@@ -19,10 +20,12 @@ import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import nl.rijksoverheid.moz.fbs.common.profiel.ScopeResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ToestemmingGeweigerdException
 import nl.rijksoverheid.moz.fbs.common.profiel.VoorkeurResponse
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -318,12 +321,50 @@ class BerichtValidatieServiceTest {
     }
 
     @Test
-    fun `valideer gooit Geweigerd bij 404 van profielservice (onbekende partij, fail-closed)`() {
-        every { profielServiceClient.getPartij(any()) } throws NotFoundException()
+    fun `valideer gooit Geweigerd bij het partij-niet-gevonden-antwoord (fail-closed)`() {
+        every { profielServiceClient.getPartij(any()) } throws
+            profiel404("""{"type":"about:blank","title":"Partij niet gevonden","status":404}""")
 
         assertThrows(ToestemmingGeweigerdException::class.java) {
             service.valideer(maakBericht(), listOf(pdfBijlage()))
         }
+    }
+
+    @Test
+    fun `valideer meldt een 404 zonder herkenbaar antwoord als storing en niet als weigering`() {
+        // Een verschoven pad of een gateway ertussen geeft een kale 404. Als weigering
+        // gelezen krijgt de aanleveraar een definitief klinkend toestemmingsoordeel op wat
+        // een storing is — en die weigering wordt niet opnieuw geprobeerd.
+        every { profielServiceClient.getPartij(any()) } throws profiel404(lichaam = null)
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            service.valideer(maakBericht(), listOf(pdfBijlage()))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    @Test
+    fun `valideer meldt een 404 van een ander niet-gevonden-geval als storing`() {
+        every { profielServiceClient.getPartij(any()) } throws
+            profiel404("""{"type":"about:blank","title":"Voorkeur niet gevonden","status":404}""")
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            service.valideer(maakBericht(), listOf(pdfBijlage()))
+        }
+    }
+
+    /** 404-respons van de Profiel-service met [lichaam] als problem+json-body. */
+    private fun profiel404(lichaam: String?): WebApplicationException {
+        val response = mockk<Response>()
+
+        every { response.status } returns 404
+        // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
+        every { response.statusInfo } returns Response.Status.NOT_FOUND
+        every { response.readEntity(String::class.java) } returns lichaam
+
+        return WebApplicationException(response)
     }
 
     @Test

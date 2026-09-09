@@ -164,7 +164,7 @@ internal class ProfielMagazijnResolver(
      * gebruiker een zichtbare melding krijgt in plaats van "0 berichten".
      */
     private fun verwerk404(webEx: WebApplicationException, profielType: String): Uni<Set<String>> {
-        val duiding = duid404(webEx)
+        val duiding = ProfielNietGevonden.duidRespons(webEx.response)
 
         if (duiding is Profiel404Duiding.PartijZonderProfiel) {
             // Normaal gedrag voor wie nog niets heeft vastgelegd, dus geen WARN: op INFO of
@@ -187,27 +187,6 @@ internal class ProfielMagazijnResolver(
         )
 
         return Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(404, webEx))
-    }
-
-    /**
-     * Leest het foutlichaam en laat het duiden. Een respons die niet meer uit te lezen valt
-     * krijgt een eigen omschrijving: dat wijst op onze eigen client en niet op een verschoven
-     * adres, en stuurt beheer dus een andere kant op dan een 404 zónder lichaam.
-     *
-     * Vangt `RuntimeException` en niet enkel de twee verwachte types: welke uitzondering een
-     * body-reader werpt hangt af van wat de upstream meestuurt — een onbekende charset in de
-     * Content-Type levert bijvoorbeeld een `IllegalArgumentException`. Die zou anders in het
-     * vangnet voor eigen-code-bugs belanden en een upstream-defect als onze bug alarmeren.
-     * `Error`-types passeren wél, zoals overal in deze klasse.
-     */
-    private fun duid404(webEx: WebApplicationException): Profiel404Duiding {
-        val lichaam = try {
-            webEx.response?.readEntity(String::class.java)
-        } catch (ex: RuntimeException) {
-            return Profiel404Duiding.Storing("lichaam onleesbaar (cause=${ex.javaClass.simpleName})")
-        }
-
-        return ProfielNietGevonden.duid(lichaam)
     }
 
     private fun bepaalMagazijnen(partij: PartijResponse): Set<String> {

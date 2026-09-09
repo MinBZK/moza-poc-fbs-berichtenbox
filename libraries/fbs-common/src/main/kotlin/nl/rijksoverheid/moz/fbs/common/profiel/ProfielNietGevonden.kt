@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JacksonException
 import com.fasterxml.jackson.core.StreamReadConstraints
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import jakarta.ws.rs.core.Response
 
 /**
  * Duiding van een 404 van de Profiel-service. De storings-variant draagt een korte
@@ -75,9 +76,32 @@ object ProfielNietGevonden {
     private val CONTROL_CHARS = Regex("[\\u0000-\\u001f\\u007f\\u2028\\u2029]")
 
     /**
+     * Duidt een 404-respons: leest het lichaam uit en classificeert het.
+     *
+     * Een respons die niet meer uit te lezen valt krijgt een eigen omschrijving — dat wijst
+     * op onze eigen client en niet op een verschoven adres, en stuurt beheer dus een andere
+     * kant op dan een 404 zónder lichaam.
+     *
+     * Vangt `RuntimeException` en niet enkel de verwachte types: welke uitzondering een
+     * body-reader werpt hangt af van wat de upstream meestuurt — een onbekende charset in de
+     * Content-Type levert bijvoorbeeld een `IllegalArgumentException`. Zonder deze breedte
+     * belandt zo'n upstream-defect bij de aanroeper in het vangnet voor eigen-code-bugs.
+     * `Error`-types passeren wél.
+     */
+    fun duidRespons(response: Response?): Profiel404Duiding {
+        val lichaam = try {
+            response?.readEntity(String::class.java)
+        } catch (ex: RuntimeException) {
+            return Profiel404Duiding.Storing("lichaam onleesbaar (cause=${ex.javaClass.simpleName})")
+        }
+
+        return duid(lichaam)
+    }
+
+    /**
      * Duidt het lichaam van een 404-respons. [problemBody] is `null` wanneer de respons geen
-     * lichaam had; gebruik [Profiel404Duiding.Storing] met een eigen omschrijving wanneer het
-     * lichaam niet uitgelezen kón worden — dat onderscheid kent alleen de aanroeper.
+     * lichaam had. Gebruik [duidRespons] wanneer je de respons zelf hebt; die kent ook het
+     * geval waarin het lichaam niet uit te lezen valt.
      */
     fun duid(problemBody: String?): Profiel404Duiding {
         if (problemBody == null) return Profiel404Duiding.Storing("zonder lichaam")
