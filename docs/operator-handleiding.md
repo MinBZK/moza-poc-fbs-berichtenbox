@@ -136,6 +136,10 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
   + `FoutBeschrijving.saneer()`.
 * **Categorie-logs**: zoek op `categorie=` in MISLUKT/retry-logs voor
   programmatische aggregatie van foutsoorten.
+* **`Content-Disposition` op een bijlage-download kan persoonsgegevens dragen.** De header
+  draagt sinds de inline-weergave de bestandsnaam, en die is door de aanleveraar gekozen
+  (`aanslag-de-vries.pdf`). De keten logt hem nergens, maar response-header-logging op een
+  ingress of outway zou hem alsnog in een log zetten: laat die uit staan voor dit endpoint.
 
 ### W3C Trace Context (outbound)
 * Alleen `traceparent` wordt naar downstream gestuurd; `tracestate`
