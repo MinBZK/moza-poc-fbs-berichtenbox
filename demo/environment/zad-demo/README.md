@@ -156,6 +156,11 @@ dus niets over de muur; kom hier na die stap op terug. Krijg je `502` of `503`, 
 wel maar draait er geen pod — controleer `replicas` in het gerenderde manifest (stap 0 van
 `verify-zad.md`).
 
+**Elk nieuw component krijgt hier ook zijn gezondheidscontrole.** Laat je de `health-check`-dienst
+weg, dan controleert Kubernetes het component met een blinde TCP-connect op zijn eerste poort — en
+dat is een keuze die je dan niet gemaakt hebt. Zet het component in de tabel van hoofdstuk 9, en
+draai het script daar; ook "een TCP-probe volstaat" hoort daar als regel te staan.
+
 ## 3. De omgevingsvariabelen die geen alias kunnen zijn
 
 ```bash
@@ -380,6 +385,9 @@ zadctl service config set health-check -c toxiproxy-profiel \
 
 Readiness op 8474 is precies goed: de pod blijft `Ready` terwijl de stroom dicht is, dus de router
 antwoordt een 503 en het magazijn ziet een dienst die wegviel — wat de demo wil laten zien.
+
+Hoofdstuk 9 draagt deze keuze samen met die van alle andere componenten; het script daar zet ze
+opnieuw wanneer een component herschapen is.
 
 ### De vier componenten aanmaken
 
@@ -698,7 +706,8 @@ proxyen; `BACKEND_DEMO` valt bij afwezigheid terug op `BACKEND_KETEN`.
 
 **Richt de health-check niet op `/health`.** Dat pad proxyt in het proeftuin-image naar een
 chat-backend die in dit project niet bestaat; een probe erop faalt gegarandeerd en herstart de pod
-anderhalve minuut later. De TCP-probe op de eerste poort volstaat.
+anderhalve minuut later. Een TCP-probe op de eerste poort volstaat — hoofdstuk 9 legt dat vast als
+`scheme=tcp`, zodat het een keuze is en niet een gevolg van de standaard.
 
 **Geen `authorization-wall` op dit component.** De muur staat op het paneel, waar de legen-knop op
 zit. De berichtenbox zelf leest alleen, en leest bij de uitvraag die op deze omgeving toch al
@@ -723,8 +732,188 @@ Open die URL in een browser en log in. **Met `curl` lijkt het component stuk:** 
 authorization-wall antwoordt een niet-ingelogde aanvraag met HTTP 403 en de inlogpagina in de body,
 niet met een 302. Achter deze muur is 403 het teken dát de muur staat.
 
-Loop daarna `verify-zad.md` af. Sla stap 4 daar niet over: dat is de enige controle die een verkeerd
-schema aanwijst.
+Doe daarna hoofdstuk 9 hieronder — de gezondheidscontrole — en loop dan pas `verify-zad.md` af.
+Stap 10 daar controleert wat hoofdstuk 9 instelt, dus in de omgekeerde volgorde meet je niets. Sla
+stap 4 niet over: dat is de enige controle die een verkeerd schema aanwijst.
+
+## 9. De gezondheidscontrole per component
+
+Zonder de `health-check`-dienst controleert Kubernetes een component met een blinde TCP-connect op
+zijn eerste inbound-poort. Een open poort telt dan als een gezonde dienst: een component dat zijn
+database of zijn berichtenopslag kwijt is blijft verkeer krijgen, en de storing komt pas aan het
+licht bij degene die de demo staat te geven. Andersom net zo: een te grove probe herstart een
+component dat alleen maar netjes op iets anders staat te wachten.
+
+Elk component in de drie projecten draagt daarom de dienst, met een keuze die bij dat component
+past. Ook "een TCP-probe volstaat hier" is een prima uitkomst — maar dan als opgeschreven keuze.
+
+```bash
+zadctl login
+demo/environment/zad-demo/gezondheidscontrole.sh plan          # toont alles, muteert niets
+
+demo/environment/zad-demo/gezondheidscontrole.sh apply mpfpsm-lcl     # de stubs
+demo/environment/zad-demo/gezondheidscontrole.sh apply mpfm-w3h       # de demo
+demo/environment/zad-demo/gezondheidscontrole.sh apply mpfb-8wh       # de keten
+demo/environment/zad-demo/gezondheidscontrole.sh apply fsc-logius     # de federatie
+demo/environment/zad-demo/gezondheidscontrole.sh apply fsc-magazijna
+```
+
+Het script draagt de tabel hieronder als data en is daarmee de bron; dit hoofdstuk beschrijft
+diezelfde tabel met de redenen erbij. Wijzigt een keuze, wijzig hem in het script en werk dit
+hoofdstuk bij.
+
+`plan` toetst de tabel, haalt bij OM op wat er in elke deployment staat, en meldt zowel een regel
+zonder component als een component zonder regel — dat laatste is het geval dat stil de
+standaardcontrole houdt.
+
+**De API-key is per project.** `zadctl -p <ander project>` met de key van een ander project geeft
+`401 Invalid API key`, dus het script haalt per project zijn eigen key op met `zadctl project use`
+in een eigen tijdelijke map. Jouw actieve project blijft daardoor staan waar het stond. Wat je wél
+nodig hebt is een geldige SSO-sessie in `.env.zadctl` van de map waaruit je draait — `zadctl login`,
+vanuit de repository-root.
+
+**Een mislukte uitrol is niet hetzelfde als een mislukte instelling.** `project refresh`
+reconcilieert het hele project; een component dat om een losstaande reden niet gezond wordt — bij de
+eerste apply was dat een image dat de ZAD-mirror niet kon ophalen — laat die stap falen terwijl de
+instellingen wél in de gerenderde manifests staan. `zadctl -p <project> project pending` op nul is
+het bewijs dat er niets is blijven hangen.
+
+**Doe de apply per project, niet in één keer.** Het script groepeert zijn tabel op soort en niet op
+project, dus een kale `apply` wisselt tussendoor van project — en omdat de uitrol pas ná alle
+mutaties komt, is er dan ook geen tussenstand om in het manifest te bekijken. Het tweede argument
+neemt een projectnaam of een deploymentnaam; de twee FSC-deployments hebben die laatste vorm nodig,
+want een projectfilter kan ze niet van de app-componenten scheiden. Let op dat `test` in alle drie
+de projecten bestaat en er dus drie selecteert.
+
+### Wat de dienst rendert
+
+Twee paden, drie probes. `liveness-path` voedt zowel de `startupProbe` als de `livenessProbe`,
+`readiness-path` alleen de `readinessProbe`. De cadans ligt vast en is niet instelbaar:
+
+| Probe | Interval | Drempel | Gevolg |
+|---|---|---|---|
+| `startupProbe` | 5s, na 5s | 36× | ruim drie minuten opstartbudget vóór liveness begint te tellen |
+| `livenessProbe` | 30s, na 5s | 3× | ~90 seconden falen → pod herstart |
+| `readinessProbe` | 2s, direct | 3× | ~6 seconden falen → uit de endpoints, geen verkeer |
+
+Dat opstartbudget is waarom een omgeving die opstart niet als kapot wordt herstart: zolang de
+`startupProbe` loopt telt liveness niet mee, en Flyway-migraties en een vulactie passen daarbinnen.
+
+**Liveness hoort naar een pad te wijzen dat alléén over het proces gaat.** Op `/q/health/ready`
+gezet zou liveness meezakken met de datasource en de berichtenopslag, en dan herstart de pod precies
+wanneer hij netjes staat te wachten — de controle maakt dan de storing die ze moest opmerken.
+
+### De keuze per component
+
+| Component | Project | `scheme` | Poort | Paden |
+|---|---|---|---|---|
+| `uitvraag` | `mpfb-8wh` | `http` | 8086 | `/q/health/live` · `/q/health/ready` |
+| `magazijna`, `magazijnb` | `mpfm-w3h` | `http` | 8090 | `/q/health/live` · `/q/health/ready` |
+| `democonsole` | `mpfm-w3h` | `http` | 8095 | `/q/health/live` · `/q/health/ready` |
+| `demopersonas` | `mpfm-w3h` | `http` | 8098 | `/q/health/live` · `/q/health/ready` |
+| `magazijnsimulator` | `mpfm-w3h` | `http` | 8092 | `/q/health/live` · `/q/health/ready` |
+| `toxiproxy-aanmeld`, `-redis` | `mpfb-8wh` | `http` | 8474 | `/version` · `/version` |
+| `toxiproxy-profiel`, `-notificatie` | `mpfpsm-lcl` | `http` | 8474 | `/version` · `/version` |
+| `profiel`, `notificatie` | `mpfpsm-lcl` | `http` | 8080 | `/__admin/health` · `/__admin/health` |
+| `redis` | `mpfb-8wh` | `tcp` | 6379 | — |
+| `proeftuin` | `mpfm-w3h` | `tcp` | 8080 | — |
+| `logius-fscpg`, `magazijna-fscpg` | `mpfb-8wh` / `mpfm-w3h` | `tcp` | 5432 | — |
+| `logius-fscmgr`, `magazijna-fscmgr` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8080 | `/health/live` · `/health/ready` |
+| `logius-fsc{ctl,inway,txlog}`, `magazijna-fsc{ctl,inway,txlog}` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8081 | `/health/live` · `/health/ready` |
+| `logius-fscoutway` (magazijn-a heeft er geen) | `mpfb-8wh` | `http` | 8081 | `/health/live` · `/health/ready` |
+| `logius-fscbootstrap`, `magazijna-fscbootstrap` | `mpfb-8wh` / `mpfm-w3h` | `none` | — | — |
+
+**De Kotlin-componenten** dragen alle `quarkus-smallrye-health`; `/q/health/live` en
+`/q/health/ready` bestaan dus al. Readiness telt de afhankelijkheden mee die Quarkus zelf aanmeldt,
+liveness niet. Wát readiness meetelt verschilt per component: `democonsole` sluit de twee
+magazijn-datasources bewust uit (`quarkus.datasource.<naam>.health-exclude=true`), zodat een
+magazijn dat wegvalt het paneel niet uit de endpoints haalt. Die uitsluiting blijft staan.
+
+**De Toxiproxy's** houden de probe die hoofdstuk 6 ze gaf, op de admin-API en niet op de proxy die
+de knop dichtzet; het waarom staat daar. De `--set`-regels in hoofdstuk 6 horen bij het aanmaken van
+die componenten en herhalen dezelfde waarden — wijzigt de keuze, werk dan beide plekken bij, of laat
+het script hem overschrijven en pas hoofdstuk 6 aan zodra het component herschapen wordt.
+
+**De WireMock-stubs** krijgen `/__admin/health`. Dat pad hoort bij de admin-API en wordt vóór de
+stub-mappings afgehandeld, dus geen mapping kan het overnemen; op `wiremock/wiremock:3.13.2` — het
+image uit `wiremock/externe-stubs/Dockerfile` — antwoordt het 200 met `{"status":"healthy"}`. Er is
+geen apart liveness-signaal: een WireMock zonder werkende admin-API is stuk.
+
+**Redis en de twee PostgreSQL'en** spreken geen HTTP. Een TCP-connect is daar een eerlijke probe:
+beide protocollen beginnen met een connect die het serverproces zelf accepteert, en geen van beide
+logt een afgebroken poging als fout. `proeftuin` staat om een andere reden in die rij — zie
+hoofdstuk 7.
+
+**De bootstrap-componenten** openen geen inbound poort en krijgen nu al geen probe gerenderd.
+`none` maakt daar een opgeschreven keuze van in plaats van een gevolg. Poort en paden blijven leeg —
+het schema laat ze weg — want een waarde invullen zou suggereren dat er iets gecontroleerd wordt.
+
+### De FSC-componenten: de monitoring-poort, niet de functionele poort
+
+Op de manager, de inway, de outway en de txlog is de eerste poort (8443) een TLS-luisteraar. De
+readinessProbe van de standaardcontrole opent daar elke twee seconden een socket en sluit hem meteen
+weer, wat de Go-server logt als `http: TLS handshake error ... EOF` — dag en nacht, zonder dat er
+iets aan de hand is.
+
+De twee controllers hebben dat probleem niet: hun eerste poort is de plain-HTTP UI op 8080. Ze
+volgen dezelfde keuze omdat `/health/ready` meer zegt dan een open UI-poort, niet vanwege de ruis.
+
+Alle vijf de FSC-images bedienen op hun `MONITORING_ADDRESS` twee paden: `/health/live` en
+`/health/ready`. Kaal `/health` geeft 404, en dat is waarom eerder onderzoek concludeerde dat er
+niets te vinden was. Nagemeten op v2.5.2 in de lokale harness
+(`demo/environment/logius/deploy/local/`):
+
+| | manager | controller | inway | outway | txlog |
+|---|---|---|---|---|---|
+| `/health/live`, gezond | 200 | 200 | 200 | 200 | 200 |
+| `/health/ready`, gezond | 200 | 200 | 200 | 200 | 200 |
+| `/health`, gezond | 404 | 404 | 404 | 404 | 404 |
+| `/health/live`, txlog weg | 200 | niet gemeten | 200 | 200 | — |
+| `/health/ready`, txlog weg | 200 | niet gemeten | 503 | 503 | — |
+
+Precies de scheiding die we willen: een outway die zijn txlog kwijt is krijgt geen verkeer meer,
+maar wordt niet herstart, en komt vanzelf terug zodra de txlog er weer is.
+
+De manager luistert op 8080, de rest op 8081 — de `MONITORING_ADDRESS`-regels in
+`demo/environment/{logius,magazijn-a}/deploy/zad/upsert-peer.sh` zijn daarvoor de bron.
+
+**Die monitoring-poort staat niet in `ports.inbound` van het component, en dat mag.** Kubernetes
+staat een httpGet toe naar elke poort die de container opent, en ZAD rendert hem ook: nagemeten bij
+de eerste apply op `magazijna-fscmgr`, dat `ports: [8443, 9443, 9444, 1234]` draagt en `httpGet
+port: 8080` kreeg. Was dat anders uitgevallen, dan had de monitoring-poort als extra inbound-poort
+gemoeten op de negen FSC-componenten die er een gebruiken — en dát vraagt een hercreatie.
+
+### Readiness op de uitvraag zakt mee met de berichtenopslag
+
+`quarkus-redis-client` levert een readiness-check, en `REDIS_HOSTS` van de uitvraag loopt op ZAD
+door `toxiproxy-redis` (hoofdstuk 6). Zet je de Redis-storingsknop dicht, dan hoort de uitvraag
+binnen ongeveer zes seconden `NotReady` te zijn, uit de endpoints te vallen, en antwoordt de ingress
+503 — in plaats van dat de applicatie zelf laat zien hoe ze degradeert. Het mechanisme staat vast,
+de timing en het ingress-gedrag zijn afgeleid; stap 10(b) van `verify-zad.md` meet ze.
+
+Dat is een bewuste keuze: zonder berichtenopslag kán de uitvraag zijn werk niet doen, en 503 is wat
+er in productie zou gebeuren. De pod herstart niet — liveness staat op `/q/health/live`.
+
+Wil de demo die degradatie tóch tonen in plaats van een 503, dan is het alternatief een eigen
+health-group in de uitvraag die de bewust-breekbare afhankelijkheden buiten readiness houdt. Dat is
+applicatiewerk, geen ZAD-instelling.
+
+### Elke deployment leest dezelfde keuze
+
+De configuratielaag hangt aan het **component binnen het project**
+(`components[*]/services{health-check}`), niet aan een deployment. Elke deployment die dat component
+draait — `test` en elke preview — leest dus dezelfde instelling, en een bestaande preview pikt hem
+op bij zijn eerstvolgende sync. Er is geen stap per preview en ook geen reden om er een opnieuw aan
+te maken.
+
+Dat strookt met de meting: `mpfb-8wh/test` en `mpfb-8wh/pr-290` dragen in
+`RijksICTGilde/rig-cluster-application-test` dezelfde drie httpGet-probes op `toxiproxy-redis`.
+
+De andere richting is bij de eerste apply vastgesteld: de dienst slaat óók aan op een component dat
+er al stond. Poorten en aliassen gelden alleen bij component-creatie, maar de dienstconfiguratie
+gaat naar een eigen laag bij OM (`PUT /v2/projects/{p}/services/health-check/config/component/{c}`).
+`profiel` ging van een `tcpSocket`-probe naar `httpGet /__admin/health` zonder dat er iets
+herschapen werd.
 
 ## Wat er bewust niet meekomt
 

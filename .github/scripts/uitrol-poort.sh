@@ -72,6 +72,25 @@ eis_as() {
   done <<<"$regels"
 }
 
+# Twee jobs rond de preview-uitrol dragen geen `deploy-preview-`-voorvoegsel en vallen dus buiten
+# de as-telling hierboven: `preview-klaarzetten` zet de deployments en hun netwerkregels klaar vóór
+# de eerste uitrol, `preview-afronding` plaatst de comment. Geen van beide is een required check,
+# dus zonder deze controle zou een preview zonder netwerkregels of zonder comment een groene poort
+# opleveren en daarmee een merge dragen.
+PREVIEW_HULPJOBS='preview-klaarzetten preview-afronding'
+
+eis_hulpjobs() {
+  local verwacht=$1 job resultaat
+
+  for job in $PREVIEW_HULPJOBS; do
+    resultaat=$(jq -r --arg j "$job" '.[$j].result // "ontbreekt"' <<<"$NEEDS") \
+      || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer — het oordeel is onbepaald."
+
+    [ "$resultaat" = "$verwacht" ] \
+      || fout "Preview-job '$job' eindigde als '$resultaat' terwijl '$verwacht' verwacht was."
+  done
+}
+
 beoordeel() {
   # Een afgebroken run bewijst niets, en is aan de job-resultaten niet te herkennen: `gate` en de
   # uitrol-jobs dragen zelf `!cancelled()`, dus bij een annulering vóór hun start rapporteren ze
@@ -143,6 +162,14 @@ beoordeel() {
 
     eis_as "$uitrol" success " (bouw: $(tr '\n' ' ' <<<"$bouw"))"
 
+    # Alleen previews krijgen per-deployment netwerkregels en een comment; de test-deployments
+    # dragen hun regels op projectniveau, dus daar horen de hulpjobs stil te blijven.
+    if [ "$as" = deploy-preview- ]; then
+      eis_hulpjobs success
+    else
+      eis_hulpjobs skipped
+    fi
+
     echo "Alle $VERWACHT_AANTAL uitrol-jobs geslaagd."
   else
     # Zonder uitrol slaat `gate` zichzelf over. Draaide hij tóch en viel hij om, dan is dat een
@@ -151,6 +178,7 @@ beoordeel() {
       || fout "De kwaliteitspoort eindigde als '$GATE'."
 
     eis_as "$uitrol" skipped " (deploy=$DEPLOY)"
+    eis_hulpjobs skipped
 
     echo "Geen uitrolbare wijziging (deploy=$DEPLOY) — geen uitrol verwacht, en er draaide er ook geen."
   fi

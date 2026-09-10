@@ -86,7 +86,11 @@ on:
     # Geen `closed`: het sluiten van een PR heeft hier niets te doen sinds het opruimen in
     # cleanup-preview.yml staat. Elke job zou eraan moeten ontsnappen met een
     # `action != 'closed'`-clausule, en de run zelf zou een lege, volledig overgeslagen run zijn.
-    types: [opened, synchronize, reopened]
+    #
+    # Wel `ready_for_review`: een draft-PR rolt niet uit (zie `changes`), dus het moment dat hij uit
+    # draft komt moet de uitrol aftrappen, ook zonder nieuwe commit. Geen `converted_to_draft`: een
+    # preview die er al staat, mag blijven tot de PR sluit.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -183,14 +187,17 @@ env:
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
   # uitkomsten: `run` (code-checks), `deploy` (bouwen en uitrollen), `demo-only` (test-scope)
-  # en `fuzz` (fuzz-ronde). Voor een bot-PR valt alléén het uitrollen af — tests, detekt en
-  # fuzz draaien juist wél, want een dependency-bump hoort getoetst te worden.
+  # en `fuzz` (fuzz-ronde). Voor een bot- of draft-PR valt alléén het uitrollen af — tests, detekt
+  # en fuzz draaien juist wél, want ook die PR's horen getoetst te worden.
   #
   # De build-, gate- en deploy-preview-jobs hangen aan `deploy`; een via `if` overgeslagen job ín
   # deze workflow telt als 'skipped' = succes voor de required checks, dus de merge blijft
   # mogelijk. Op een push naar main staat alles aan.
   #
-  # Twee gevallen rollen niet uit:
+  # Drie gevallen rollen niet uit:
+  # - Draft-PR's: bij veel gelijktijdige PR's bekijkt niemand alle previews, dus die komt pas bij
+  #   `ready_for_review`. Die overgeslagen checks laten geen merge door: GitHub merget geen draft,
+  #   en de run van `ready_for_review` vervangt ze op dezelfde commit.
   # - Wijzigingen die de uitgerolde applicatie niet raken (documentatie, repo-meta, bruno, en de
   #   niet-uitgerolde delen van demo/). Welke paden dat precies zijn staat in
   #   .github/scripts/wijzigingsfilter.sh.
@@ -241,6 +248,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
 
@@ -272,6 +280,9 @@ jobs:
       tag: ${{ steps.m.outputs.tag }}
       owner: ${{ steps.m.outputs.owner }}
       proeftuin_image: ${{ steps.proeftuin.outputs.image }}
+      componenten-uitvraag: ${{ steps.componenten.outputs.uitvraag }}
+      componenten-externe-stubs: ${{ steps.componenten.outputs.externe-stubs }}
+      componenten-magazijnen: ${{ steps.componenten.outputs.magazijnen }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -313,6 +324,7 @@ jobs:
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         env:
           EVENT: ${{ github.event_name }}
+          ACTIE: ${{ github.event.action }}
           PR: ${{ github.event.number }}
           # Op een pull_request-event is GITHUB_SHA de (efemere) merge-commit; de head-sha is
           # wat in de PR-tijdlijn staat en waar een reviewer op kan matchen.
@@ -329,11 +341,71 @@ jobs:
               tag="${tag}-r${GITHUB_RUN_ATTEMPT}"
             fi
 
+            # Hetzelfde bij `ready_for_review`: een PR die al een preview had, naar draft ging en
+            # zonder nieuwe commit terugkomt, bouwt tegen een nieuwere main onder dezelfde head-sha.
+            # Die preview blijft op draft staan, dus zonder eigen tag rolt er niets uit.
+            if [ "$ACTIE" = "ready_for_review" ]; then
+              tag="${tag}-k${GITHUB_RUN_NUMBER}"
+            fi
+
             echo "tag=$tag" >> "$GITHUB_OUTPUT"
           else
             echo "tag=main-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
           echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      # De componenten van elke preview op één plek. `preview-klaarzetten` maakt een nieuwe preview
+      # aan met deze lijst en de deploy rolt dezelfde lijst uit. Operations Manager neemt bij het
+      # aanmaken alleen de meegegeven componenten over, dus een component die alleen in de deploy
+      # staat, zou de preview bij het aanmaken missen.
+      #
+      # De profiel-stub draait het demo-image: dat layert op dezelfde gedeelde mappings en voegt de
+      # voorkeuren van de demo-persona's toe. Zonder die voorkeuren geeft de catch-all voor élke
+      # ontvanger hetzelfde ene magazijn terug, en valt er van de federatie niets te zien. De
+      # Toxiproxy's staan in dezelfde deployment als hun upstream, zodat de proxy die de console
+      # aanmaakt naar de stub van díe preview wijst en niet naar die van `test`.
+      - id: componenten
+        env:
+          OWNER: ${{ steps.m.outputs.owner }}
+          TAG: ${{ steps.m.outputs.tag }}
+          BERICHTENBOX: ${{ steps.proeftuin.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          eigen() { printf '%s/%s/%s:%s' "$REGISTRY" "$OWNER" "$1" "$TAG"; }
+
+          uitvraag=$(jq -nc --arg redis "$REDIS_IMAGE" --arg toxiproxy "$TOXIPROXY_IMAGE" \
+            --arg uitvraag "$(eigen fbs-berichtenuitvraag)" '[
+              {name: "redis", image: $redis},
+              {name: "toxiproxy-aanmeld", image: $toxiproxy},
+              {name: "toxiproxy-redis", image: $toxiproxy},
+              {name: "uitvraag", image: $uitvraag}
+            ]')
+
+          stubs=$(jq -nc --arg toxiproxy "$TOXIPROXY_IMAGE" \
+            --arg profiel "$(eigen fbs-demo-profiel)" --arg notificatie "$(eigen fbs-externe-stubs)" '[
+              {name: "profiel", image: $profiel},
+              {name: "notificatie", image: $notificatie},
+              {name: "toxiproxy-profiel", image: $toxiproxy},
+              {name: "toxiproxy-notificatie", image: $toxiproxy}
+            ]')
+
+          magazijnen=$(jq -nc --arg magazijn "$(eigen fbs-berichtenmagazijn)" \
+            --arg console "$(eigen fbs-demo-console)" --arg simulator "$(eigen fbs-magazijn-simulator)" \
+            --arg personas "$(eigen fbs-demo-personas)" --arg berichtenbox "$BERICHTENBOX" '[
+              {name: "magazijna", image: $magazijn},
+              {name: "magazijnb", image: $magazijn},
+              {name: "democonsole", image: $console},
+              {name: "magazijnsimulator", image: $simulator},
+              {name: "demopersonas", image: $personas},
+              {name: "proeftuin", image: $berichtenbox}
+            ]')
+
+          {
+            echo "uitvraag=$uitvraag"
+            echo "externe-stubs=$stubs"
+            echo "magazijnen=$magazijnen"
+          } >> "$GITHUB_OUTPUT"
 
   # Bouw + push de service-images met jib (geen Dockerfile). Niet wanneer `changes` de keten heeft
   # uitgesloten: zo'n revisie deployt toch niet, dus twee volledige Maven/jib-builds + push kosten
@@ -697,9 +769,86 @@ jobs:
 
           echo "Alle verplichte checks groen — deploy vrijgegeven."
 
-  # PR-preview: één job PER project zodat ze PARALLEL draaien — bij een fout falen alle drie
-  # projecten tegelijk (geen fail-fast tussen losse jobs), dus alle fouten in één run
-  # zichtbaar i.p.v. één-voor-één. Config geërfd van `test`. wait-for-ready staat UIT: de
+  # Zet de drie preview-deployments en hun cross-domain-regels klaar in de projectbestanden, zonder
+  # uit te rollen; de deploy-jobs hieronder rollen daarna uit wat er dan staat. Waarom dat nodig is,
+  # staat in .github/scripts/preview-klaarzetten.sh. Kort: Operations Manager slaat een regel
+  # waarvan de peer-deployment bij het renderen nog niet bestaat stil over en rendert hem daarna niet
+  # opnieuw, en de console van de magazijnen haalt zonder zijn regels de sync-wacht niet.
+  #
+  # Dezelfde legs als de opruim-matrix in cleanup-preview.yml: die ruimt op wat deze klaarzet.
+  # test-preview-klaarzetten.sh bewaakt dat de twee gelijk blijven.
+  #
+  # Geen `deploy-preview-`-voorvoegsel: `uitrol-poort` telt op dat voorvoegsel de uitrol-jobs per
+  # as, en dit is er geen. De poort beoordeelt hem apart.
+  preview-klaarzetten:
+    # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
+    # het transitief overgeslagen `checks-fuzz` onder `gate`.
+    if: >-
+      !cancelled()
+      && needs.meta.result == 'success'
+      && needs.build.result == 'success'
+      && needs.build-externe-stubs.result == 'success'
+      && needs.build-demo-images.result == 'success'
+      && needs.gate.result == 'success'
+      && github.event_name == 'pull_request'
+      && needs.changes.outputs.deploy == 'true'
+    # Ook na de builds, hoewel hier niets uitgerold wordt: herverwerkt iets anders het project
+    # voordat de deploy draait, dan rolt dat de klaargezette preview alsnog uit, en dan moeten de
+    # images er staan.
+    needs: [meta, build, build-externe-stubs, build-demo-images, gate, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      # Een falende leg laat de deploys hoe dan ook overslaan; de andere twee afmaken zet wel alle
+      # meldingen in één run.
+      fail-fast: false
+      matrix:
+        include:
+          - naam: uitvraag
+            project: mpfb-8wh
+            key: ZAD_API_KEY_UITVRAAG
+            richting: inbound
+            regelsleutel: CROSS_DOMAIN_REGELS_UITVRAAG
+          - naam: externe-stubs
+            project: mpfpsm-lcl
+            key: ZAD_API_KEY_PROFIEL
+            richting: inbound
+            regelsleutel: CROSS_DOMAIN_REGELS_EXTERNE_STUBS
+          - naam: magazijnen
+            project: mpfm-w3h
+            key: ZAD_API_KEY_MAGAZIJNEN
+            richting: outbound
+            regelsleutel: CROSS_DOMAIN_REGELS_MAGAZIJNEN
+    # Dezelfde groep als de deploy en de cleanup van dit project: Operations Manager vergrendelt op
+    # project, en van twee taken tegelijk eindigt er één als `superseded`.
+    concurrency:
+      group: zad-${{ matrix.naam }}-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Zet de deployment en zijn netwerkregels klaar
+        env:
+          ZAD_API_KEY: ${{ secrets[matrix.key] }}
+          PROJECT: ${{ matrix.project }}
+          DEPLOYMENT: pr-${{ github.event.pull_request.number }}
+          COMPONENTEN: ${{ needs.meta.outputs[format('componenten-{0}', matrix.naam)] }}
+          RICHTING: ${{ matrix.richting }}
+          REGELS: ${{ env[matrix.regelsleutel] }}
+        run: |
+          # Bewust ongequote: REGELS draagt meerdere regelnamen, gescheiden door spaties, en die
+          # moeten als losse argumenten aankomen. De waarde komt uit het env-blok bovenaan en is
+          # daarmee een vaste, spatie-vrije lijst.
+          # shellcheck disable=SC2086
+          .github/scripts/preview-klaarzetten.sh "$PROJECT" "$DEPLOYMENT" test "$COMPONENTEN" "$RICHTING" $REGELS
+
+  # PR-preview: één job PER project. Uitvraag en externe stubs draaien parallel, de magazijnen erna
+  # (het waarom staat bij die job); een fout in de ene slaat de andere niet af, dus alle fouten staan
+  # in één run. Config geërfd van `test`. wait-for-ready staat UIT: de
   # zad-action doet geen k8s-readinessprobe maar curlt vanaf de runner ELKE component-URL op
   # één health-endpoint (input `health-endpoint`, default '/'). De services bieden nu wél
   # /q/health/ready (smallrye-health), maar deze deployments mengen niet-HTTP-componenten
@@ -722,13 +871,14 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
+      && needs.preview-klaarzetten.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, gate, changes]
+    needs: [meta, build, build-externe-stubs, gate, changes, preview-klaarzetten]
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # De URL's gaan naar de magazijnen-job, die ná deze draait en de PR-comment samenstelt: één
-    # comment met de demo én deze uitvraag erin.
+    # De URL's gaan naar `preview-afronding`, die de PR-comment samenstelt: één comment met de demo
+    # én deze uitvraag erin.
     outputs:
       urls: ${{ steps.deploy.outputs.urls }}
     # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
@@ -747,12 +897,8 @@ jobs:
       name: pr-${{ github.event.pull_request.number }}
       url: ${{ steps.deploy.outputs.url }}
     steps:
-      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
-      # draait een script uit .github/scripts/.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
+      # De inbound-regels voor de console staan al in het projectbestand (`preview-klaarzetten`), dus
+      # deze uitrol rendert ze meteen mee.
       - name: Deploy uitvraag-project
         id: deploy
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
@@ -763,24 +909,7 @@ jobs:
           clone-from: test
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
-          components: |
-            [
-              {"name": "redis", "image": "${{ env.REDIS_IMAGE }}"},
-              {"name": "toxiproxy-aanmeld", "image": "${{ env.TOXIPROXY_IMAGE }}"},
-              {"name": "toxiproxy-redis", "image": "${{ env.TOXIPROXY_IMAGE }}"},
-              {"name": "uitvraag", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenuitvraag:${{ needs.meta.outputs.tag }}"}
-            ]
-
-      # De sessiecache en twee Toxiproxy-admin-API's staan in dít project en de console in het
-      # magazijnen-project, dus deze kant draagt de inbound-regels. Ná de deploy: een regel noemt een
-      # deployment, en die moet bestaan.
-      - name: Sessiecache en storingen openzetten voor de console van deze preview
-        env:
-          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
-        run: >-
-          .github/scripts/cross-domain-preview.sh zet
-          "${{ env.PROJECT_UITVRAAG }}" "pr-${{ github.event.pull_request.number }}"
-          inbound ${{ env.CROSS_DOMAIN_REGELS_UITVRAAG }}
+          components: ${{ needs.meta.outputs.componenten-uitvraag }}
 
   deploy-preview-externe-stubs:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -791,9 +920,10 @@ jobs:
       && needs.build.result == 'success'
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
+      && needs.preview-klaarzetten.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    needs: [meta, build, build-externe-stubs, gate, changes]
+    needs: [meta, build, build-externe-stubs, gate, changes, preview-klaarzetten]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -802,19 +932,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
-      # draait een script uit .github/scripts/.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # profiel + notificatie = losse componenten (eigen subdomein per stub). De profiel-stub draait
-      # het demo-image: dat layert op dezelfde gedeelde mappings en voegt de voorkeuren van de
-      # demo-persona's toe. Zonder die voorkeuren geeft de catch-all voor élke ontvanger hetzelfde
-      # ene magazijn terug, en valt er van de federatie niets te zien.
-      #
-      # De twee Toxiproxy's staan in dezelfde deployment als hun upstream, zodat de proxy die de
-      # console aanmaakt naar de stub van díe preview wijst en niet naar die van `test`.
+      # profiel + notificatie = losse componenten (eigen subdomein per stub); wat erin draait staat
+      # bij de componentenlijst in `meta`. De inbound-regels voor de Toxiproxy's staan al in het
+      # projectbestand (`preview-klaarzetten`), dus deze uitrol rendert ze meteen mee.
       - name: Deploy externe-stubs-project
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
@@ -824,23 +944,7 @@ jobs:
           clone-from: test
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
-          components: |
-            [
-              {"name": "profiel", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-profiel:${{ needs.meta.outputs.tag }}"},
-              {"name": "notificatie", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-externe-stubs:${{ needs.meta.outputs.tag }}"},
-              {"name": "toxiproxy-profiel", "image": "${{ env.TOXIPROXY_IMAGE }}"},
-              {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
-            ]
-
-      # De admin-API's van die twee Toxiproxy's staan in dít project, dus deze kant draagt hun
-      # inbound-regels. Ná de deploy: een regel noemt een deployment, en die moet bestaan.
-      - name: Storingen openzetten voor de console van deze preview
-        env:
-          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_PROFIEL }}
-        run: >-
-          .github/scripts/cross-domain-preview.sh zet
-          "${{ env.PROJECT_EXTERNE_STUBS }}" "pr-${{ github.event.pull_request.number }}"
-          inbound ${{ env.CROSS_DOMAIN_REGELS_EXTERNE_STUBS }}
+          components: ${{ needs.meta.outputs.componenten-externe-stubs }}
 
   deploy-preview-magazijnen:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -852,16 +956,15 @@ jobs:
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
       && needs.build-demo-images.result == 'success'
+      && needs.preview-klaarzetten.result == 'success'
       && needs.deploy-preview-uitvraag.result == 'success'
       && needs.deploy-preview-externe-stubs.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    # Ná de twee andere preview-deploys, en niet er parallel aan. Dit project draagt de
-    # outbound-kant van álle regels, en elke regel noemt een peer-deployment in een ánder project.
-    # Bestaat die peer nog niet op het moment van genereren, dan slaat de resolver de regel over —
-    # met een regel in een log en verder niets (`resolve.py`: "a missing deployment/component in a
-    # project that IS known ... is logged with the rule name and skipped"). De preview meldt dan
-    # groen met dode storingsknoppen. Kost wat doorlooptijd; die twee jobs zijn kort.
+    # Ná de twee andere preview-deploys. De console in dit project wordt pas gezond als hij bij de
+    # sessiecache en de Toxiproxy's in die projecten kan, en de inbound-policies daarvoor staan pas
+    # in het cluster als die deploys ze hebben uitgerold. Parallel zou het afhangen van wie er
+    # eerst is, en Operations Manager wacht 300 s op een gezonde sync voordat hij het opgeeft.
     needs:
       - meta
       - build
@@ -869,6 +972,7 @@ jobs:
       - build-demo-images
       - gate
       - changes
+      - preview-klaarzetten
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
     runs-on: ubuntu-latest
@@ -878,15 +982,11 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      # Voor de preview-comment onderaan deze job.
-      pull-requests: write
+    # Naar `preview-afronding`, dat de comment samenstelt uit de URL's van deze deploy en die van
+    # de uitvraag.
+    outputs:
+      urls: ${{ steps.deploy.outputs.urls }}
     steps:
-      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
-      # draait een script uit .github/scripts/.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: Deploy magazijnen-project
         id: deploy
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
@@ -897,54 +997,61 @@ jobs:
           clone-from: test
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
-          components: |
-            [
-              {"name": "magazijna", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnb", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-berichtenmagazijn:${{ needs.meta.outputs.tag }}"},
-              {"name": "democonsole", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-console:${{ needs.meta.outputs.tag }}"},
-              {"name": "magazijnsimulator", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-magazijn-simulator:${{ needs.meta.outputs.tag }}"},
-              {"name": "demopersonas", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-demo-personas:${{ needs.meta.outputs.tag }}"},
-              {"name": "proeftuin", "image": "${{ needs.meta.outputs.proeftuin_image }}"}
-            ]
+          components: ${{ needs.meta.outputs.componenten-magazijnen }}
 
-      # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
-      # één kant alleen zet niets open. De console is overal de aanroepende kant, dus dit project
-      # draagt de outbound-kant van álle regels.
-      - name: De console van deze preview bij de sessiecache en de storingen laten
-        env:
-          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
-        run: >-
-          .github/scripts/cross-domain-preview.sh zet
-          "${{ env.PROJECT_MAGAZIJNEN }}" "pr-${{ github.event.pull_request.number }}"
-          outbound ${{ env.CROSS_DOMAIN_REGELS_MAGAZIJNEN }}
+  # De comment met de preview-URL's, in een eigen job omdat hij de URL's van twee deploys nodig
+  # heeft.
+  #
+  # De job draagt geen `deploy-preview-`-voorvoegsel: `uitrol-poort` telt op dat voorvoegsel de
+  # uitrol-jobs per as, en dit is er geen. De poort beoordeelt hem apart.
+  preview-afronding:
+    # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
+    # het transitief overgeslagen `checks-fuzz` onder `gate`.
+    if: >-
+      !cancelled()
+      && needs.deploy-preview-uitvraag.result == 'success'
+      && needs.deploy-preview-externe-stubs.result == 'success'
+      && needs.deploy-preview-magazijnen.result == 'success'
+      && github.event_name == 'pull_request'
+      && needs.changes.outputs.deploy == 'true'
+    needs:
+      - changes
+      - deploy-preview-uitvraag
+      - deploy-preview-externe-stubs
+      - deploy-preview-magazijnen
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Voor de preview-comment onderaan deze job.
+      pull-requests: write
+    steps:
+      # Voor preview-comment.sh uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # De comment met de preview-URL's, hier en niet bij de uitvraag-deploy: dit project draagt de
-      # demo — de bedieningsconsole, de berichtenbox en de magazijnen — en dat is voor een lezer van
-      # de PR de ingang, dus staat die sectie ook vooraan. Deze job is de laatste van de drie, dus
-      # pas hier zijn de URL's van beide kanten bekend.
+      # De comment met de preview-URL's staat met de demo vooraan: dit project draagt de
+      # bedieningsconsole, de berichtenbox en de magazijnen, en dat is voor een lezer van de PR de
+      # ingang. Deze job draait ná alle drie de deploys, dus pas hier zijn de URL's van beide
+      # kanten bekend.
       #
       # Het derde project (profiel, notificatie en hun twee Toxiproxy's) blijft eruit: daar zit geen
       # scherm dat je opent, alleen stubs waar de demo doorheen praat. De grens loopt per project en
       # niet per component — binnen een project gaat de hele `urls`-map mee.
       #
-      # Zonder `!cancelled()` blijft de comment weg zodra de netwerkregel-stap hierboven faalt,
-      # terwijl de preview dan wél draait; de storingsknoppen in de console werken alleen niet.
-      # De deploy zelf is wél een voorwaarde: mislukt die, dan zijn er geen URL's voor de demo en
-      # zou de comment een halve preview aankondigen als een hele.
-      #
-      # Twee gevolgen van het samenstellen ná de laatste deploy, allebei aanvaard. Faalt een van de
-      # twee andere preview-jobs, dan wordt deze job overgeslagen en komt er géén comment, ook niet
-      # met de URL's die er wél zijn — maar dan is de preview zelf incompleet en is de run rood. En
-      # faalt deze stap, dan is de job rood en blokkeert `uitrol-poort` de merge terwijl de preview
+      # Twee gevolgen van het samenstellen in een eigen job, allebei aanvaard. Faalt een van de drie
+      # preview-deploys, dan wordt deze job overgeslagen en komt er géén comment, ook niet met de
+      # URL's die er wél zijn — maar dan is de preview zelf incompleet en is de run rood. En faalt
+      # deze stap, dan is de job rood en blokkeert `uitrol-poort` de merge terwijl de preview
       # draait; dat is de bedoelde prijs voor "een uitgebleven comment mag niet stil zijn".
       - name: Plaats de preview-URL's op de PR
-        if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           COMMENT_HEADER: ${{ env.COMMENT_HEADER }}
           PR_NUMMER: ${{ github.event.pull_request.number }}
-          URLS_DEMO: ${{ steps.deploy.outputs.urls }}
+          URLS_DEMO: ${{ needs.deploy-preview-magazijnen.outputs.urls }}
           URLS_UITVRAAG: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
         run: >-
           .github/scripts/preview-comment.sh "$PR_NUMMER"
@@ -1132,6 +1239,8 @@ jobs:
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen
+      - preview-klaarzetten
+      - preview-afronding
       - deploy-test-uitvraag
       - deploy-test-externe-stubs
       - deploy-test-magazijnen

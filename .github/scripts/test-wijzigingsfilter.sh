@@ -50,12 +50,13 @@ verwacht() {
 }
 
 # Draait `main` met een gestubde `gh`, zodat het ophaal-, fail-safe- en event-pad meetellen.
-# $1 = omschrijving, $2 = definitie van de gh-stub, $3 = EVENT, $4 = PR_AUTHOR_TYPE, $5 = verwacht.
+# $1 = omschrijving, $2 = definitie van de gh-stub, $3 = EVENT, $4 = PR_AUTHOR_TYPE, $5 = verwacht,
+# $6 = optioneel PR_DRAFT.
 verwacht_main() {
-  local omschrijving=$1 stub=$2 event=$3 auteur=$4 verwachting=$5
+  local omschrijving=$1 stub=$2 event=$3 auteur=$4 verwachting=$5 draft=${6:-}
 
   local gekregen
-  gekregen=$(eval "$stub"; EVENT="$event" PR_AUTHOR_TYPE="$auteur" REPO=o/r PR=1 main 2>/dev/null)
+  gekregen=$(eval "$stub"; EVENT="$event" PR_AUTHOR_TYPE="$auteur" PR_DRAFT="$draft" REPO=o/r PR=1 main 2>/dev/null)
   vergelijk "$omschrijving" "$gekregen" "$verwachting"
 }
 
@@ -307,6 +308,41 @@ verwacht_main "ophalen levert code op een bot-PR" \
 deploy=false
 demo-only=false
 fuzz=true'
+
+# --- draft-PR ----------------------------------------------------------------------------------
+verwacht_main "draft-PR met code — toetsen ja, uitrollen nee" \
+  'gh() { echo services/berichtenmagazijn/A.kt; }' pull_request '' 'run=true
+deploy=false
+demo-only=false
+fuzz=true' true
+
+# Zonder uitrol vervalt de reden om de test-scope open te trekken. Op `ready_for_review` staat
+# deploy weer aan en draait de volle scope alsnog vóór de uitrol, in dezelfde run.
+verwacht_main "draft-PR aan de demo-console — test-scope naar de demo-modules" \
+  'gh() { echo demo/demo-console/src/main/kotlin/Console.kt; }' pull_request '' "$DEMO_STACK" true
+
+verwacht_main "PR die ready for review is rolt uit" \
+  'gh() { echo services/berichtenmagazijn/A.kt; }' pull_request '' "$ALLES_AAN" false
+
+# Alleen de letterlijke `true` schakelt uit; elke andere waarde valt op uitrollen.
+verwacht_main "onverwachte draft-waarde — fail-safe op uitrollen" \
+  'gh() { echo services/berichtenmagazijn/A.kt; }' pull_request '' "$ALLES_AAN" True
+
+verwacht_main "ophalen faalt op een draft-PR — wel toetsen, niet uitrollen" \
+  'gh() { return 1; }' pull_request '' 'run=true
+deploy=false
+demo-only=false
+fuzz=true' true
+
+verwacht_main "draft-PR van een bot" \
+  'gh() { echo services/berichtenmagazijn/A.kt; }' pull_request Bot 'run=true
+deploy=false
+demo-only=false
+fuzz=true' true
+
+# De draft-vlag hoort bij een PR; op een push naar main rolt `test` altijd uit.
+verwacht_main "push negeert een draft-vlag" \
+  'gh() { echo "nooit aanroepen" >&2; return 9; }' push '' "$ALLES_AAN" true
 
 # De hele aanroep is het contract met de GitHub-API, niet alleen de vlag: zonder `--paginate`
 # levert hij de eerste 30 bestanden (een PR met documentatie vooraan geeft dan `run=false` — alle
