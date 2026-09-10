@@ -725,28 +725,63 @@ else
   fi
 fi
 
-# De shard-verdeling zelf: haal de complement-shard uit de matrix en alleen berichtenmagazijn draait
-# nog. De andere modules worden dan niet getest, elke shard slaagt, en de aggregator meldt groen.
-matrix=$(python3 - "$REPO_ROOT/.github/workflows/test.yml" <<'PY'
+# De shard-verdeling zelf. Stil minder testen kan op drie manieren, en telkens slaagt elke shard en
+# meldt de aggregator groen: de demo-shard verdwijnt, het complement verdwijnt (een nieuwe module
+# valt dan in geen enkele shard), of het complement sluit een module uit die geen andere shard noemt.
+# Gelezen uit de JSON-literals in de matrix-expressie, dus precies wat GitHub ook krijgt.
+shardcontrole=$(python3 - "$REPO_ROOT/.github/workflows/test.yml" <<'PY' || true
+import json
+import re
 import sys
+
 import yaml
 
 with open(sys.argv[1], encoding="utf-8") as bestand:
     jobs = yaml.safe_load(bestand)["jobs"]
 
-print(str(((jobs.get("shard") or {}).get("strategy") or {}).get("matrix", {}).get("shard", "")))
+expressie = str(((jobs.get("shard") or {}).get("strategy") or {}).get("matrix", {}).get("shard", ""))
+matrices = [json.loads(literal) for literal in re.findall(r"'(\[[^']*\])'", expressie)]
+demo = [m for m in matrices if [shard.get("modules") for shard in m] == ["demo/*"]]
+volledig = [m for m in matrices if m not in demo]
+
+print("demo=" + ("ja" if len(demo) == 1 else f"{len(demo)} demo-matrices"))
+
+if len(volledig) != 1:
+    print(f"complement={len(volledig)} volledige matrices")
+    print("uitsluitingen=niet te bepalen zonder precies één volledige matrix")
+    sys.exit(0)
+
+genoemd = set()
+complementen = []
+
+for shard in volledig[0]:
+    modules = shard.get("modules", "").split(",")
+
+    if all(module.startswith("!") for module in modules):
+        complementen.append({module[1:] for module in modules})
+    else:
+        genoemd.update(module for module in modules if not module.startswith("!"))
+
+print("complement=" + ("ja" if len(complementen) == 1 else f"{len(complementen)} complement-shards"))
+
+ongetest = sorted(set().union(*complementen) - genoemd)
+print("uitsluitingen=" + (" ".join(ongetest) if ongetest else "ja"))
 PY
 )
 
-ontbreekt=""
+shardwaarde() { sed -n "s/^$1=//p" <<<"$shardcontrole"; }
 
-for deel in '"modules":"services/berichtenmagazijn"' '"modules":"!services/berichtenmagazijn"' '"modules":"demo/*"'; do
-  grep -qF "$deel" <<<"$matrix" || ontbreekt="$ontbreekt $deel"
-done
+[ "$(shardwaarde demo)" = ja ] \
+  && ok "de demo-only-matrix test de demo-modules" \
+  || fout "de shard-matrix mist de demo-shard ($(shardwaarde demo)) — een demo-only-PR test dan niets terwijl de check slaagt"
 
-[ -z "$ontbreekt" ] \
-  && ok "de shard-matrix dekt berichtenmagazijn, zijn complement en de demo-modules" \
-  || fout "de shard-matrix mist:$ontbreekt — die modules worden dan niet getest terwijl elke shard slaagt"
+[ "$(shardwaarde complement)" = ja ] \
+  && ok "de volledige shard-matrix heeft precies één complement-shard" \
+  || fout "de volledige shard-matrix heeft niet precies één complement-shard ($(shardwaarde complement)) — een nieuwe module valt dan in geen enkele shard, of in meer dan één"
+
+[ "$(shardwaarde uitsluitingen)" = ja ] \
+  && ok "elke uitsluiting van het complement noemt een andere shard expliciet" \
+  || fout "het complement sluit uit wat geen andere shard noemt: $(shardwaarde uitsluitingen) — die modules worden nergens getest terwijl elke shard slaagt"
 
 # ci-scripts.yml is de enige aanroeper van de drie suites, en geen enkele suite zegt iets over dát
 # bestand: de stap eruit knippen laat de check groen (alleen actionlint blijft dan over).
