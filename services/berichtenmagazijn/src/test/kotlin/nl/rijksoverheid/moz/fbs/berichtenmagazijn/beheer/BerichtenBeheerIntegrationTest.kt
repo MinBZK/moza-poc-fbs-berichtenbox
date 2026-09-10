@@ -9,12 +9,15 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import jakarta.ws.rs.NotFoundException
+import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.`is`
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -121,13 +124,14 @@ class BerichtenBeheerIntegrationTest {
     }
 
     @Test
-    fun `PATCH op onbekend bericht geeft 404`() {
+    fun `PATCH op onbekend bericht geeft 404 met het kenmerk bericht-onbekend`() {
         given()
             .header("X-Ontvanger", ontvangerHeader)
             .contentType("application/merge-patch+json")
             .body("""{"gelezen": true}""")
             .`when`().patch("/api/v1/berichten/${UUID.randomUUID()}")
             .then().statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
     }
 
     @Test
@@ -211,7 +215,10 @@ class BerichtenBeheerIntegrationTest {
     }
 
     @Test
-    fun `PATCH op eigen soft-deleted bericht geeft 404 (bestaat niet meer voor zichtbaarheid)`() {
+    fun `PATCH op eigen soft-deleted bericht geeft 410 met het kenmerk bericht-verwijderd`() {
+        // De eigenaar-check is hier al geslaagd, dus het antwoord mag zeggen dát het bericht
+        // bestond — de aanroeper gooide het zelf weg. Andermans verwijderde bericht strandt
+        // op 403 en komt hier niet.
         val b = insertBericht()
         given().header("X-Ontvanger", ontvangerHeader)
             .`when`().delete("/api/v1/berichten/${b.berichtId}")
@@ -221,7 +228,8 @@ class BerichtenBeheerIntegrationTest {
             .contentType("application/merge-patch+json")
             .body("""{"gelezen": true}""")
             .`when`().patch("/api/v1/berichten/${b.berichtId}")
-            .then().statusCode(404)
+            .then().statusCode(410)
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
     }
 
     @Test
@@ -284,20 +292,22 @@ class BerichtenBeheerIntegrationTest {
 
     @Test
     @Transactional
-    fun `upsert op ontbrekend bericht gooit NotFoundException`() {
+    fun `upsert op ontbrekend bericht geeft 404 met het kenmerk bericht-onbekend`() {
         // Race-condition op repository-niveau: tussen findByBerichtId (in de service)
-        // en deze upsert kan het parent-bericht verdwijnen. Dat moet een NotFoundException
-        // worden zodat ProblemExceptionMapper er 404 van maakt — niet een gemaskeerde
-        // 500 via UncaughtExceptionMapper (functioneel onjuist en niet diagnoseerbaar
-        // voor de client).
+        // en deze upsert kan het parent-bericht verdwijnen. Dat moet een 404 worden — niet een
+        // gemaskeerde 500 via UncaughtExceptionMapper (functioneel onjuist en niet
+        // diagnoseerbaar voor de client).
         val onbekend = UUID.randomUUID()
-        assertThrows(NotFoundException::class.java) {
+        val fout = assertThrows(FbsFoutException::class.java) {
             statusRepository.upsert(
                 berichtId = onbekend,
                 patch = BerichtStatusPatch(gelezen = true, map = null),
                 tijdstip = Instant.now(),
             )
         }
+
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Transactional

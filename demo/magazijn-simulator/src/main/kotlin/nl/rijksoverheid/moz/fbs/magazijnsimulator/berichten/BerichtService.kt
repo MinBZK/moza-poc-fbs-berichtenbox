@@ -2,7 +2,9 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.SimulatorFout
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtRepository
@@ -19,7 +21,7 @@ import java.util.UUID
  * De zes operaties van de spec, uitgevoerd op het magazijn dat het pad-filter heeft gekozen.
  *
  * Wat hier telt is niet dat het werkt, maar dat het **hetzelfde** werkt als het echte magazijn: de
- * volgorde van 403 en 404, de merge-patch-semantiek, en dat een tweede `DELETE` gewoon opnieuw
+ * volgorde van 403, 404 en 410, de merge-patch-semantiek, en dat een tweede `DELETE` gewoon opnieuw
  * slaagt. Die regels staan nergens in de spec — een tweede implementatie die ze zelf verzint, wijkt
  * stilzwijgend af, en dan demonstreert de demo iets dat in werkelijkheid anders gaat.
  */
@@ -54,7 +56,11 @@ class BerichtService(
         haalOp(berichtId, ontvanger)
 
         return repository.zoekBijlage(magazijnDbId(), berichtId, bijlageId)
-            ?: throw NotFoundException("Bijlage $bijlageId bestaat niet bij bericht $berichtId")
+            ?: throw SimulatorFout(
+                Foutcode.BERICHT_ONBEKEND,
+                Response.Status.NOT_FOUND,
+                "Bijlage $bijlageId bestaat niet bij bericht $berichtId",
+            )
     }
 
     /**
@@ -63,7 +69,8 @@ class BerichtService(
      * De volgorde is hier bewust anders dan bij [haalOp]: eerst wordt gekeken of het bericht
      * bestaat — óók als het al verwijderd is — dan of de aanroeper de ontvanger is, en pas daarna of
      * het verwijderd is. Zo levert andermans verwijderde bericht een 403 op en niet een 404, want
-     * uit dat verschil zou af te leiden zijn welke bericht-id's bestaan.
+     * uit dat verschil zou af te leiden zijn welke bericht-id's bestaan. Het eigen verwijderde
+     * bericht komt daardoor pas ná de eigenaar-check langs, en mag dus een 410 krijgen.
      */
     fun wijzigStatus(berichtId: UUID, ontvanger: Identificatie, wijziging: BerichtStatusWijziging): Bericht {
         vereis(!wijziging.isLeeg) { "Patch moet minstens een van 'gelezen' of 'map' bevatten" }
@@ -72,7 +79,10 @@ class BerichtService(
 
         vereisOntvanger(bestaand.bericht, ontvanger)
 
-        if (bestaand.isVerwijderd) throw nietGevonden(berichtId)
+        // 410 en niet 404: de eigenaar-check hierboven slaagde, dus de aanroeper mag weten dat dit
+        // bericht bestond — hij gooide het zelf weg. Andermans verwijderde bericht strandt op 403
+        // en bereikt deze regel niet.
+        if (bestaand.isVerwijderd) throw alVerwijderd(berichtId)
 
         return repository.wijzigStatus(magazijnDbId(), berichtId, wijziging, clock.instant())
             // Alleen bereikbaar als het bericht tussen de twee stappen door verdwijnt; dan is 404
@@ -149,8 +159,17 @@ class BerichtService(
         }
     }
 
-    private fun nietGevonden(berichtId: UUID) =
-        NotFoundException("Bericht $berichtId bestaat niet in magazijn ${magazijnContext.magazijn.oin}")
+    private fun nietGevonden(berichtId: UUID) = SimulatorFout(
+        Foutcode.BERICHT_ONBEKEND,
+        Response.Status.NOT_FOUND,
+        "Bericht $berichtId bestaat niet in magazijn ${magazijnContext.magazijn.oin}",
+    )
+
+    private fun alVerwijderd(berichtId: UUID) = SimulatorFout(
+        Foutcode.BERICHT_VERWIJDERD,
+        Response.Status.GONE,
+        "Bericht $berichtId is verwijderd in magazijn ${magazijnContext.magazijn.oin}",
+    )
 
     private fun magazijnDbId(): Long = magazijnContext.magazijn.dbId
 

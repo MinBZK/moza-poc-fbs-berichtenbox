@@ -8,8 +8,10 @@ import java.time.Clock
 
 /**
  * Levert de gedeelde generator-configuratie als CDI-bean. De organisaties (één per magazijn)
- * staan hier centraal; de persona's komen uit de configuratie, zodat de keuzelijst van een
- * berichtenbox en de gegenereerde berichten dezelfde set gebruiken.
+ * staan hier centraal; de persona's komen uit dezelfde `PersonaService` als die een berichtenbox
+ * bevraagt (de jar van `demo-personas`, in-process), zodat de keuzelijst en de gegenereerde
+ * berichten niet uiteen kunnen lopen. Niet dezelfde set: de generator krijgt alleen de persona's
+ * mét magazijnen, want voor de rest valt geen afzender te kiezen.
  *
  * `@Startup`: de invarianten van de generator (minstens één persona, elke opt-in-OIN bekend)
  * zitten in zijn init-blok. Zonder dit wordt de bean lazy gebouwd en klapt een fout in de
@@ -22,9 +24,7 @@ class GeneratorProducer {
     @Startup
     fun generator(personaService: PersonaService): DemoBerichtGenerator =
         DemoBerichtGenerator(
-            personas = personaService.metMagazijnen().map {
-                Persona(id = it.id, naam = it.label, type = it.type, waarde = it.waarde, magazijnen = it.magazijnen)
-            },
+            personas = personaService.metMagazijnen(),
             organisaties = mapOf(
                 RVO to Organisatie(RVO, "RVO", RVO_SJABLONEN),
                 BELASTINGDIENST to Organisatie(BELASTINGDIENST, "Belastingdienst", BELASTINGDIENST_SJABLONEN),

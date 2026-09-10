@@ -6,6 +6,66 @@ info:
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
     berichtenmagazijn voor bijlagen en persistente status-mutaties.
+
+    ## Foutantwoorden herkennen
+
+    Elk foutantwoord is `application/problem+json` (RFC 9457) en draagt in `type` een
+    kenmerk van de vorm `urn:fbs:fout:<code>`. Daaraan zie je twee dingen: dat het antwoord
+    van deze keten komt, en om welke situatie het gaat. Ontbreekt `type`, of staat er
+    `about:blank`, dan komt het antwoord ergens anders vandaan — een proxy onderweg
+    bijvoorbeeld — en zegt het niets over het bericht.
+
+    De codes liggen vast: een bestaande code verandert niet van betekenis, er komen er
+    hooguit bij. Stuur je gedrag op `type`, niet op `title` of `detail` — die zijn proza en
+    mogen wijzigen.
+
+    | `type` | Status | Situatie | Wat je de gebruiker kunt vertellen |
+    |---|---|---|---|
+    | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht bestaat niet, hoort bij een andere ondernemer, of zat niet in de opgehaalde set | "Dit bericht is niet (meer) beschikbaar" |
+    | `urn:fbs:fout:bericht-verwijderd` | 410 | De ondernemer verwijderde dit bericht zelf | "Je hebt dit bericht verwijderd" |
+    | `urn:fbs:fout:nog-niet-opgehaald` | 409 | Er is nog geen ophaalronde geweest | Start `GET /berichten/_ophalen` en probeer daarna opnieuw |
+    | `urn:fbs:fout:ophalen-bezig` | 409 | Er loopt een ophaalronde | "Een moment" — wachten, dit is geen fout |
+    | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
+    | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
+    | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
+    | `urn:fbs:fout:keten-fout` | 502 | Een schakel verderop hapert | "Probeer het straks nog eens" |
+    | `urn:fbs:fout:configuratie-mismatch` | 500, 502 | De configuratie van de keten spreekt zichzelf tegen | Opnieuw proberen helpt niet; dit vraagt een beheerder |
+    | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout | "Er ging iets mis", met de referentie uit `instance` |
+
+    ### Wat `bericht-verwijderd` wel en niet zegt
+
+    De keten weet van een verwijdering zolang het spoor ervan leeft — dat krijgt bij het
+    verwijderen de sessie-bewaartermijn mee en schuift daarna niet mee met leesverkeer — en
+    alleen van verwijderingen die via deze API liepen. Drie gevolgen:
+
+    - Zodra dat spoor verlopen is, wordt het antwoord weer `bericht-onbekend`, ook als de sessie
+      dan nog loopt. Het uitblijven van `bericht-verwijderd` is dus géén bewijs dat er niets
+      verwijderd is.
+    - Haalt de organisatie het bericht in haar eigen magazijn weg, dan verdwijnt het bij de
+      volgende ophaalronde uit de lijst zonder dat deze code verschijnt.
+    - Op `PATCH` komt de code niet uit dat spoor maar rechtstreeks uit het magazijn, dat de
+      verwijdering persistent kent. Daar geldt de bewaartermijn dus niet.
+
+    Het downloaden van een bijlage begint met dezelfde opzoeking als het ophalen van het bericht
+    zelf en geeft dus dezelfde 410. Wat daar níét kan, is een verwijdering die alleen het magazijn
+    kent: dat filtert een verwijderd bericht weg vóór het de eigenaar controleert, dus een eigen
+    code op díé misser zou het bestaan van andermans bericht verraden. Die blijft
+    `bericht-onbekend`.
+
+    ### Wat het nooit zegt
+
+    Bij het ophalen van een bericht of een bijlage leveren "dit bericht bestaat niet" en "dit
+    bericht bestaat wel, maar is niet van jou" exact hetzelfde antwoord: `bericht-onbekend` met
+    een 404. Dat is opzet — een verschil daartussen zou het bestaan van andermans berichten
+    aftastbaar maken. De opzoeking is per ontvanger gesleuteld, dus die twee gevallen zijn hier
+    letterlijk dezelfde misser.
+
+    Op `PATCH` en `DELETE` geldt dat niet: die gaan naar het magazijn, dat het bericht opzoekt
+    vóór het de eigenaar controleert en daardoor `geen-toegang` (403) geeft op andermans bericht
+    en `bericht-onbekend` (404) op een bericht dat niet bestaat. Wie dat verschil wil dichten,
+    kan het gedrag van het magazijn niet uit deze API afleiden.
   contact:
     name: MOZA Team
     email: moza@minbzk.nl
@@ -82,11 +142,22 @@ paths:
         anders lijkt een afgekapte lijst een volledige lijst en kan de ontvanger niet
         weten wat hij mist.
 
+        Een organisatie die niet bevraagd is omdat de uitvraag te veel werk tegelijk
+        had, krijgt status `NIET_OPGEHAALD`. Dat is geen storing bij die organisatie:
+        opnieuw ophalen helpt hier wél. Het afsluitende `ophalen-gereed`-event telt
+        die organisaties in `nietOpgehaald`, apart van `mislukt`, zodat een
+        samenvattende regel het onderscheid kan maken.
+
+        Uitbreidbaarheid — deze woordenlijst kan groeien. Behandel een `status` die je
+        niet kent als "niet geleverd, opnieuw proberen kan helpen", nooit als `OK`, en
+        tel hem nooit als geslaagd. Negeer een `event` dat je niet kent. Een afnemer die
+        zich hieraan houdt, breekt niet op een latere toevoeging.
+
         Foutsemantiek: header-validatie, een al lopende ophaling (`409`) en een
         onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
         opgezet staat de HTTP-status op `200` vast; een storing daarna uit zich
         niet in een afwijkende status maar in het uitblijven van het afsluitende
-        `OPHALEN_GEREED`-event (en de per-magazijn FOUT-events) — de client
+        `ophalen-gereed`-event (en de per-magazijn fout-events) — de client
         detecteert de storing dus op stream-niveau.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -97,7 +168,7 @@ paths:
             API-Version: { $ref: '#/components/headers/API-Version' }
           content:
             text/event-stream:
-              schema: { type: string }
+              schema: { $ref: '#/components/schemas/OphaalEvent' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -155,6 +226,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -185,6 +257,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
@@ -221,7 +294,20 @@ paths:
     get:
       tags: [Uitvraag]
       summary: Bijlage ophalen (octet-stream, dynamic Content-Type)
-      description: Streamt bijlage-bytes rechtstreeks uit het magazijn met Content-Type uit de metadata; Content-Disposition altijd `attachment` (stored-XSS-bescherming).
+      description: |
+        Streamt bijlage-bytes rechtstreeks uit het magazijn, met `Content-Type` uit de
+        metadata van de bijlage.
+
+        `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
+        mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
+        `image/jpeg`: typen waarvan de weergave geen code uitvoert die bij de DOM of de
+        cookies van de afnemer kan. Elk ander type krijgt `attachment` — met name `text/html` en
+        `image/svg+xml`, die bij het openen van dit adres onder de origin van de afnemer
+        zouden draaien (stored XSS); CSP `frame-ancestors` dekt die top-level navigatie
+        niet. Een MIME-type dat onbruikbaar is als headerwaarde (niet te parsen, of met
+        control-tekens) wordt `application/octet-stream` en dus een download. Dezelfde
+        afweging als het magazijn maakt, zodat een rechtstreekse magazijn-afname
+        hetzelfde antwoord geeft.
       operationId: getBijlage
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -235,8 +321,13 @@ paths:
               description: Werkelijk MIME-type van de bijlage
             Content-Disposition:
               schema: { type: string }
-              description: Altijd `attachment` om browser-inline-rendering uit te sluiten.
-              example: attachment
+              description: |
+                `inline` voor `application/pdf`, `image/png` en `image/jpeg`, `attachment`
+                voor elk ander type. Draagt de bestandsnaam als `filename` (ASCII-vorm voor
+                clients die `filename*` niet kennen) en `filename*` (RFC 5987, UTF-8, voor
+                de naam zoals hij werkelijk is). Kent de sessiecache de bijlage niet, dan
+                blijft de naam weg en draagt de header alleen de dispositie.
+              example: "inline; filename=\"voorlopige-aanslag-2026.pdf\"; filename*=UTF-8''voorlopige-aanslag-2026.pdf"
           content:
             '*/*':
               schema: { type: string, format: binary }
@@ -245,6 +336,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -331,7 +423,20 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
-      description: Bericht niet gevonden
+      description: |
+        Bericht niet gevonden (`urn:fbs:fout:bericht-onbekend`). Dekt met opzet drie
+        situaties onder één antwoord: het bericht bestaat niet, het hoort bij een andere
+        ondernemer, of het zat niet in de opgehaalde set.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Gone:
+      description: |
+        De ondernemer verwijderde dit bericht zelf (`urn:fbs:fout:bericht-verwijderd`). Op de
+        ophaalpaden alleen bekend zolang het spoor van die verwijdering leeft (de
+        sessie-bewaartermijn vanaf het verwijderen) en alleen voor verwijderingen die via deze API
+        liepen; daarbuiten is het antwoord een gewone 404. Op `PATCH` komt de code uit het
+        magazijn, dat de verwijdering persistent kent.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -501,6 +606,155 @@ components:
         self: { $ref: '#/components/schemas/Link' }
         next: { $ref: '#/components/schemas/Link' }
         prev: { $ref: '#/components/schemas/Link' }
+
+    OphaalEvent:
+      description: |
+        Eén voortgangsbericht uit de SSE-stroom van `GET /berichten/_ophalen`. Elke SSE-regel
+        draagt in zijn `data`-veld één van deze objecten als JSON; `event` zegt om welk soort
+        bericht het gaat. Een soort die je niet kent, mag je negeren.
+
+        Een ophaalronde levert eerst één `magazijn-bevraging-gestart` per organisatie, daarna per
+        organisatie één `magazijn-bevraging-voltooid`, en sluit af met precies één
+        `ophalen-gereed` of `ophalen-fout`. Blijft dat slotbericht uit, dan is de ronde afgebroken.
+      oneOf:
+        - $ref: '#/components/schemas/MagazijnBevragingGestart'
+        - $ref: '#/components/schemas/MagazijnBevragingVoltooid'
+        - $ref: '#/components/schemas/OphalenGereed'
+        - $ref: '#/components/schemas/OphalenFout'
+      discriminator:
+        propertyName: event
+        mapping:
+          magazijn-bevraging-gestart: '#/components/schemas/MagazijnBevragingGestart'
+          magazijn-bevraging-voltooid: '#/components/schemas/MagazijnBevragingVoltooid'
+          ophalen-gereed: '#/components/schemas/OphalenGereed'
+          ophalen-fout: '#/components/schemas/OphalenFout'
+
+    MagazijnStatus:
+      type: string
+      description: |
+        Uitkomst van de bevraging van één organisatie.
+
+        * `OK` — de organisatie heeft geantwoord; haar berichten zitten in deze ophaalronde.
+        * `FOUT` — de organisatie kon niet geraadpleegd worden.
+        * `TIMEOUT` — de organisatie antwoordde niet binnen de tijd.
+        * `NIET_OPGEHAALD` — de organisatie is niet bevraagd: de uitvraag had te veel
+          organisaties tegelijk in behandeling. Dit zegt niets over die organisatie, en opnieuw
+          ophalen helpt hier wél.
+
+        Deze lijst kan groeien. Een waarde die je niet kent betekent "niet geleverd, opnieuw
+        proberen kan helpen" — behandel hem nooit als `OK` en tel hem nooit als geslaagd.
+      enum: [OK, FOUT, TIMEOUT, NIET_OPGEHAALD]
+
+    MagazijnBevragingGestart:
+      type: object
+      description: |
+        De bevraging van deze organisatie hoort bij deze ophaalronde. Alle
+        `magazijn-bevraging-gestart`-berichten komen vooruit, vóór de eerste uitkomst, zodat het
+        portaal meteen de volledige lijst kan tonen. Een organisatie waarvoor nog geen
+        `magazijn-bevraging-voltooid` binnen is, is nog onderweg.
+      required: [event, magazijnId]
+      properties:
+        event: { type: string, enum: [magazijn-bevraging-gestart] }
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        naam: { $ref: '#/components/schemas/MagazijnNaam' }
+
+    MagazijnBevragingVoltooid:
+      type: object
+      description: |
+        De bevraging van deze organisatie is afgerond; `status` zegt hoe.
+
+        Bij `OK` staan `aantalBerichten` en `afgekapt` erbij, en `totaalBeschikbaar` wanneer de
+        organisatie een bruikbaar totaal meldde. Bij elke andere status staat er in plaats daarvan
+        een `foutmelding` die aan de ontvanger getoond mag worden.
+      required: [event, magazijnId, status]
+      properties:
+        event: { type: string, enum: [magazijn-bevraging-voltooid] }
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        naam: { $ref: '#/components/schemas/MagazijnNaam' }
+        status: { $ref: '#/components/schemas/MagazijnStatus' }
+        aantalBerichten:
+          type: integer
+          description: Aantal berichten dat deze organisatie in deze ronde leverde. Alleen bij `OK`.
+        afgekapt:
+          type: boolean
+          description: |
+            Er staat méér bij deze organisatie dan er is opgehaald. Alleen bij `OK` — de opgehaalde
+            berichten zijn er wél. Toon dit signaal, ook in een samenvattende regel: anders lijkt
+            een afgekapte lijst een volledige lijst.
+        totaalBeschikbaar:
+          type: integer
+          format: int64
+          description: Wat de organisatie zelf als totaal meldde. Ontbreekt als ze geen bruikbaar totaal gaf.
+        foutmelding:
+          type: string
+          description: Aan de ontvanger toonbare uitleg. Staat er bij elke status behalve `OK`.
+
+    OphalenGereed:
+      type: object
+      description: |
+        De ophaalronde is afgerond en het resultaat staat in de sessiecache. De tellers dekken
+        samen alle organisaties uit `totaalMagazijnen`.
+      required: [event, totaalBerichten, geslaagd, mislukt, nietOpgehaald, totaalMagazijnen]
+      properties:
+        event: { type: string, enum: [ophalen-gereed] }
+        totaalBerichten:
+          type: integer
+          description: Aantal opgehaalde berichten over alle organisaties samen.
+        geslaagd: { $ref: '#/components/schemas/AantalGeslaagd' }
+        mislukt: { $ref: '#/components/schemas/AantalMislukt' }
+        nietOpgehaald: { $ref: '#/components/schemas/AantalNietOpgehaald' }
+        totaalMagazijnen: { $ref: '#/components/schemas/AantalMagazijnen' }
+
+    OphalenFout:
+      type: object
+      description: |
+        De ophaalronde is gestrand; er staat geen resultaat van deze ronde in de sessiecache.
+        `referentie` is het support-anker dat ook in onze foutlog staat en dat in de tekst van
+        `foutmelding` herhaald wordt.
+
+        Strandde de ronde ná het bevragen — de organisaties antwoordden, maar het bewaren
+        mislukte — dan staan de tellers erbij: het portaal heeft de uitkomsten per organisatie al
+        gezien en moet weten dat ze niet bewaard zijn. Strandde de ronde ervóór, dan ontbreken ze
+        en is `totaalMagazijnen` 0.
+      required: [event, foutmelding, totaalMagazijnen, referentie]
+      properties:
+        event: { type: string, enum: [ophalen-fout] }
+        foutmelding: { type: string, description: Aan de ontvanger toonbare uitleg. }
+        geslaagd: { $ref: '#/components/schemas/AantalGeslaagd' }
+        mislukt: { $ref: '#/components/schemas/AantalMislukt' }
+        nietOpgehaald: { $ref: '#/components/schemas/AantalNietOpgehaald' }
+        totaalMagazijnen: { $ref: '#/components/schemas/AantalMagazijnen' }
+        referentie: { type: string, description: Support-anker; noem dit bij een melding aan de beheerder. }
+
+    MagazijnId:
+      type: string
+      description: |
+        Identificeert de organisatie waarvan de berichten komen — het OIN van de deelnemende
+        organisatie (per organisatie bestaat precies één magazijn). Voor de client een opaque
+        waarde; dezelfde waarde staat in het `magazijnId`-veld van een bericht.
+
+    MagazijnNaam:
+      type: string
+      description: Weergavenaam van de organisatie. Ontbreekt als er geen naam bekend is; val dan terug op `magazijnId`.
+
+    AantalGeslaagd:
+      type: integer
+      description: Organisaties die antwoordden (`OK`).
+
+    AantalMislukt:
+      type: integer
+      description: Organisaties die bevraagd zijn maar niet leverden (`FOUT` of `TIMEOUT`).
+
+    AantalNietOpgehaald:
+      type: integer
+      description: |
+        Organisaties die niet bevraagd zijn omdat de uitvraag te veel werk tegelijk had
+        (`NIET_OPGEHAALD`). Bewust apart van `mislukt`: hier is niets stuk en helpt opnieuw
+        ophalen wél. Presenteer ze niet als mislukking.
+
+    AantalMagazijnen:
+      type: integer
+      description: Aantal organisaties in deze ophaalronde.
 
     CloudEvent:
       type: object

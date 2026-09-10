@@ -11,7 +11,7 @@ Communicatie in het Nederlands. Code en technische termen in het Engels waar gan
 
 Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **Domeinbegrippen blijven Nederlands:** bericht, magazijn, ontvanger, afzender, ophalen, aanleveren, sessie. Ook in code (`meldFout`, `toegestaan`, `drempel`).
-- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, timeout, permit, semaphore, stream, connection, push, **root**. Dus `probe`/`pairing`/`starvation`/`stream`/`connection`/`push`/`root`, niet `proef`/`paring`/`uithongeren`/`stroom`/`verbinding`/`duw`/`wortel` — ook niet in samenstellingen: `module-root`, `root-pom`.
+- **Vaste technische idiomen blijven Engels en worden NIET vertaald.** Patroon-, concurrency- en infrastructuurjargon hebben een herkenbare Engelse standaardvorm; vertalen maakt ze juist minder leesbaar. Voorbeelden: circuit breaker, bulkhead, (half-open) probe, acquire/release pairing, starvation, retry, backoff, batch, timeout, permit, semaphore, stream, connection, push, **root**. Dus `probe`/`pairing`/`starvation`/`stream`/`connection`/`push`/`root`/`batch`, niet `proef`/`paring`/`uithongeren`/`stroom`/`verbinding`/`duw`/`wortel`/`partij` — ook niet in samenstellingen: `module-root`, `root-pom`.
 - **Werkwoorden vertalen wél, en dan naar de Nederlandse vakterm.** `call`/`caller` wordt `aanroepen`/`aanroeper`, niet `bellen`/`beller`; kun je geen natuurlijke Nederlandse vorm vinden, laat het dan Engels staan.
 - **Twijfel?** Is de Engelse vorm de term die in de docs/libraries van dát patroon staat? Dan niet vertalen.
 - **Uitzondering: user-facing tekst.** Deze grens geldt voor identifiers en code-comments, niet voor Nederlandse tekst die rechtstreeks aan een gebruiker of operator getoond wordt (foutmeldingen, UI-labels, alerts). Die blijft Nederlands, ook als de onderliggende oorzaak een technisch idioom is: een UI-string als `'geen verbinding: ' + fout` is prima, ook al heet de variabele in de code zelf `connection`.
@@ -125,7 +125,10 @@ class Voorbeeld {
 
 ## Quarkus configuratie
 
-- **Globale HTTP-headers vs JAX-RS filters:** `ContainerResponseFilter` dekt alleen JAX-RS-paden, niet `/openapi.json`, `/q/health`, `/q/metrics`, dev-UI. Security-headers daarom ÓÓK globaal via `quarkus.http.header."X-Frame-Options".value=DENY` etc. — `fbs-common/SecurityHeadersFilter` blijft als JAX-RS-defense-in-depth.
+- **Security-headers staan op de Vert.x-laag, niet in config of een JAX-RS-filter:** `fbs-common/SecurityHeaders` bepaalt de waarden, `SecurityHeadersRegistratie` plaatst ze via een `headersEndHandler` met `set`. Dat is de enige laag waar een header te *vervangen* is; `quarkus.http.header.*` en `quarkus.http.filter.*` vóegen toe en kennen bovendien één pad per headernaam. Twee lagen naast elkaar leverde eerder elke header dubbel op — en twee CSP-headers doorsnijdt een browser tot de strengste, dus een padspecifieke waarde is zo niet uit te drukken. Voeg security-headers voor de **stelsel-diensten** dus niet toe in `application.properties` of in een `ContainerResponseFilter`. De demo-modules hangen bewust niet aan `fbs-common` en zetten ze wél in hun eigen `application.properties` — daar is dat de juiste plek.
+- **`SecurityHeadersRegistratie` staat per dienst, niet in fbs-common:** alleen de wáárden zijn gedeeld. Elke consumer van `fbs-common` erft de jandex-index en dus elke bean daarin, ook `fbs-berichtensessiecache` — een library die een Quarkus zónder HTTP-laag start en daardoor omviel op een `ClassNotFoundException` voor `Filters` (de Vert.x-runtime stond er als `provided` niet op). Een bibliotheek die door niet-HTTP-consumers wordt gebruikt, hoort geen HTTP-bedrading te bevatten. De twee kopieën moeten identiek blijven; een derde dienst krijgt zijn eigen kopie.
+- **CSP verschilt per pad:** API-paden (inclusief `/openapi.json`) krijgen `default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`; alles onder het non-application root-pad (`/q`) houdt alleen `frame-ancestors 'none'`, want Swagger UI en de dev-UI laden hun eigen script en stylesheet. Let op: Quarkus levert `quarkus.http.non-application-root-path` relatief terug (`q`, niet `/q`).
+- **Een `inline`-bijlage mag same-origin geframed worden:** die responses krijgen `SAMEORIGIN` + `frame-ancestors 'self'` (plus `img-src`/`object-src 'self'`, anders blijft de weergave leeg). De beslissing hangt aan de `Content-Disposition` die er al op staat en niet aan het pad — zo zijn "mag getoond worden" en "mag ingesloten worden" per definitie dezelfde verzameling. Toegestaan binnen NCSC U/PW.03-04 (`SAMEORIGIN` "indien functioneel noodzakelijk"; `frame-ancestors: none of self`); een benóémde vreemde origin mag niet, die haalt de internet.nl-toets niet.
 - **`/openapi.json` expliciet configureren:** ADR-vereiste; default Quarkus-path is `/q/openapi`. Beide services hebben `quarkus.smallrye-openapi.path=/openapi.json`.
 - **`quarkus.jackson.serialization-inclusion=non_null`:** optionele HAL-velden (bv. `_links.next` op laatste pagina) moeten afwezig zijn i.p.v. `null`, anders faalt `swagger-request-validator` op de Problem-schema-check.
 - **Dynamic Content-Type pattern:** voor endpoints met variabel MIME-type (bv. bijlage-download) — OpenAPI `content: '*/*':` + een `ContainerResponseFilter` die `Content-Type` overschrijft uit een unieke request-property. **NameBinding (`@NameBinding`) werkt niet** op override-methodes vanuit gegenereerde JAX-RS interfaces in Quarkus REST; property-driven gating is de werkbare guard (zie `BijlageContentTypeFilter`).
@@ -196,7 +199,8 @@ run groen en blijft de preview staan):**
 `magazijnsimulator`, `proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
 `toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
-Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
+Een draft-PR krijgt geen preview; die rolt uit zodra de PR ready for review is. Previews worden
+opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
 opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
 
 `democonsole` is het bedieningspaneel van de demo. Het staat in `mpfm-w3h` en niet in een eigen
@@ -204,7 +208,7 @@ deployment omdat `postgresql-database` deployment-gebonden is: alleen een compon
 deployment als de magazijnen erft hun database-secret, en dat secret is wat de legen-knop mogelijk
 maakt. De eenmalige creatie staat in `demo/environment/zad-demo/README.md`.
 
-Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf geverifieerd in
+Zes ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle zes geverifieerd in
 `RijksICTGilde/RIG-Cluster`:
 
 - De inhoud van een **attachment** wordt ongewijzigd gemount (geen `$DEPLOYMENT_NAME`-substitutie,
@@ -217,13 +221,30 @@ Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf
   cluster-intern verkeer naar een ánder project volgt geen preview, tenzij de regel per deployment
   wordt bijgeschreven
   (`PATCH /api/v2/projects/{p}/services/cross-domain-access/config/deployment/{d}/{inbound,outbound}`).
+- Zo'n regel wordt **opgelost op het moment dat OM de deployment rendert**: noemt hij een
+  peer-deployment die dan nog niet bestaat, dan slaat OM hem stil over en rendert hem niet opnieuw
+  zodra die peer er wél is (`cross_domain_access/resolve.py`). Met `rollout=false` (API) of
+  `--no-rollout` (`zadctl`) sla je een wijziging alleen op; de resolver leest het projectbestand, dus
+  zo'n deployment telt al als bestaand. `.github/scripts/preview-klaarzetten.sh` zet zo een nieuwe
+  preview klaar vóór zijn eerste uitrol. Een uitgestelde wijziging telt in OM als "wacht op uitrol"
+  tot een refresh van het héle project, ook nadat een deploy hem uitrolde (`core/task_rollout.py`).
 - Een component **draagt meer dan één poort** (`ports: [...]`), maar publiceert er één: elke poort
   ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`
   (`service.yaml.jinja`, `project_manager.py`). Zo blijft een beheerpoort cluster-intern terwijl de
   eerste poort publiek gaat.
-- Zonder de **`health-check`**-dienst probeert Kubernetes een TCP-socket op `ports[0]`, met
-  `livenessProbe` op 30s × 3. Sluit de applicatie die poort bewust (een proxy die je uitzet), dan
-  herstart de pod anderhalve minuut later. Richt de probe dan op een poort die altijd staat.
+- Zonder de **`health-check`**-dienst rendert ZAD drie blinde TCP-probes op `ports[0]` — een
+  `startupProbe`, een `livenessProbe` (30s × 3 → herstart) en een `readinessProbe` (2s × 3), af te
+  lezen uit elk `*-deployment.yaml` in `rig-cluster-application-test`. Sluit de applicatie die poort
+  bewust (een proxy die je uitzet), dan herstart de pod anderhalve minuut later; is het een
+  TLS-luisteraar, dan logt hij elke twee seconden een afgebroken handshake. Mét de dienst kies je
+  scheme, poort en twee paden: `liveness-path` voedt de startup- én de livenessProbe, dus nooit een
+  pad dat meezakt met een database. De configuratielaag hangt aan het component binnen het project,
+  niet aan een deployment, dus elke deployment van dat component leest dezelfde instelling. De keuze
+  per demo-component staat in `demo/environment/zad-demo/README.md` hoofdstuk 9, met het script dat
+  hem zet. Twee eigenschappen bij de eerste apply vastgesteld: de dienst slaat óók aan op een
+  component dat al bestond (geen hercreatie nodig), en ZAD rendert een probe op een poort die niet
+  in `ports.inbound` staat. De API-key is per project, dus `-p <ander project>` met de verkeerde key
+  geeft 401.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 
@@ -278,11 +299,17 @@ anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
 | `zadctl guide [--section <naam>]` | Volledige uitleg, zonder credentials; `--output json` voor agent-gebruik |
 
 Voor scripts en agents: `-o json` op elk commando (data naar stdout, diagnostiek naar
-stderr), `--dry-run` toont de request zonder te sturen, `--yes` beantwoordt de
-bevestigingsprompts (alleen `delete`/`remove`/`clear`/`unset`/`restore` vragen), `--strict`
-maakt "gelukt maar degraded" non-zero. Exitcodes: `1` = eigen input/config/app, `2` =
-platform/netwerk (retry zinvol), `3` = niet te attribueren. CI blijft `zad-actions`
-gebruiken; de CLI is voor handwerk en debuggen.
+stderr), `--dry-run` toont de request zonder te sturen (en bereikt OM dus niet: een verlopen
+sessie of een component dat niet bestaat blijkt er niet uit), `--yes` beantwoordt de
+bevestigingsprompts. Dat zijn er meer dan `delete`/`remove`/`clear`/`unset`/`restore`:
+`service config set` schrijft het hele document en vraagt bevestiging vóór het een veld
+weggooit, dus in een reeks hoort `--yes` erbij. `--strict` maakt "gelukt maar degraded"
+non-zero — maar niet bij een taak die door een gelijktijdige uitrol is overruled: die meldt
+`status: superseded`, is een succes met exit 0 en géén waarschuwing. Daarvoor is `zadctl
+project pending` het instrument. Exitcodes: `1` = eigen input/config/app, `2` =
+platform/netwerk (retry zinvol), `3` = niet te attribueren. **De API-key is per project**: met
+`-p <ander project>` en de key uit een andere `.env.zadctl` krijg je 401. CI blijft
+`zad-actions` gebruiken; de CLI is voor handwerk en debuggen.
 
 **OM-API rechtstreeks** — vanuit CI, of waar de CLI niets voor heeft (per-project
 `X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`): basis

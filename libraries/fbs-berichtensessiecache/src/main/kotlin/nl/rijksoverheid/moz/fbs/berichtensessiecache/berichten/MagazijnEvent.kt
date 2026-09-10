@@ -13,11 +13,19 @@ enum class EventType(@get:JsonValue val value: String) {
     OPHALEN_FOUT("ophalen-fout"),
 }
 
-/** Uitkomst van een afgeronde magazijn-bevraging, zoals die op de lijn verschijnt. */
+/**
+ * Uitkomst van een afgeronde magazijn-bevraging, zoals die op de lijn verschijnt.
+ *
+ * [NIET_OPGEHAALD] is geen storing van dát magazijn: de bevraging is niet eens gestart omdat de
+ * gelijktijdigheidsgrens van de uitvraag zelf vol bleef binnen het wachtbudget. Een portaal hoort
+ * dat als "dit deel ontbreekt nog" te tonen en niet als een organisatie die eruit ligt — het
+ * verschil is voor de ondernemer betekenisvol, want opnieuw proberen helpt hier wél.
+ */
 enum class MagazijnStatus(@get:JsonValue val value: String) {
     OK("OK"),
     FOUT("FOUT"),
     TIMEOUT("TIMEOUT"),
+    NIET_OPGEHAALD("NIET_OPGEHAALD"),
 }
 
 /**
@@ -29,6 +37,7 @@ enum class MagazijnStatus(@get:JsonValue val value: String) {
 enum class MagazijnFoutStatus(val wire: MagazijnStatus) {
     FOUT(MagazijnStatus.FOUT),
     TIMEOUT(MagazijnStatus.TIMEOUT),
+    NIET_OPGEHAALD(MagazijnStatus.NIET_OPGEHAALD),
 }
 
 /**
@@ -100,17 +109,23 @@ data class MagazijnBevragingMislukt(
 /**
  * Afsluitend bericht van een geslaagde ophaalronde; de tellers dekken alle bevraagde magazijnen.
  *
+ * [nietOpgehaald] staat naast [mislukt] en niet erin: een organisatie die door de
+ * gelijktijdigheidsgrens van de uitvraag niet bevraagd is, is geen storing. Zou het portaal die
+ * twee in één getal krijgen, dan meldt de samenvattende regel een mislukking waar opnieuw proberen
+ * juist helpt — en gaat het onderscheid dat de per-magazijn-events wél maken alsnog verloren.
+ *
  * De tellers worden hier bewust niet gevalideerd. De grenzen liggen op de aggregatiestatus
  * die van dezelfde waarden wordt gebouwd, vlak vóór dit bericht en vóórdat er iets in de
  * cache belandt. Een tweede check hier zou pas kunnen aanslaan als die eerste al door was,
  * en dan midden in een geopende stroom: het bericht is de laatste stap ná een geslaagde
  * opslag, dus een throw zou de gebruiker een al veilig opgeslagen resultaat afnemen.
  */
-@JsonPropertyOrder("event", "totaalBerichten", "geslaagd", "mislukt", "totaalMagazijnen")
+@JsonPropertyOrder("event", "totaalBerichten", "geslaagd", "mislukt", "nietOpgehaald", "totaalMagazijnen")
 data class OphalenGereed(
     val totaalBerichten: Int,
     val geslaagd: Int,
     val mislukt: Int,
+    val nietOpgehaald: Int,
     val totaalMagazijnen: Int,
 ) : MagazijnEvent {
     override val event: EventType get() = EventType.OPHALEN_GEREED
@@ -152,11 +167,12 @@ data class OphalenMisluktVoorBevraging(
  * dit bericht is bovendien zelf het herstelpad, dus een throw zou de gebruiker helemáál geen
  * afsluitend bericht opleveren.
  */
-@JsonPropertyOrder("event", "foutmelding", "geslaagd", "mislukt", "totaalMagazijnen", "referentie")
+@JsonPropertyOrder("event", "foutmelding", "geslaagd", "mislukt", "nietOpgehaald", "totaalMagazijnen", "referentie")
 data class OphalenMisluktNaBevraging(
     override val foutmelding: String,
     val geslaagd: Int,
     val mislukt: Int,
+    val nietOpgehaald: Int,
     override val totaalMagazijnen: Int,
     override val referentie: String,
 ) : OphalenFout

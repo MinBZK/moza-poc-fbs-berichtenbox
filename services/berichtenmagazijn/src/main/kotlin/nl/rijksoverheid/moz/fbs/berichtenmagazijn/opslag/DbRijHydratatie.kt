@@ -5,7 +5,7 @@ import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.jboss.logging.Logger
 import java.util.UUID
 
-private val log = Logger.getLogger("nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.DbRijHydratie")
+private val log = Logger.getLogger("nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.DbRijHydratatie")
 
 /**
  * Bouwt een domeinobject uit een databaserij en vertaalt een geschonden invariant naar een
