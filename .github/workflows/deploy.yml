@@ -86,7 +86,11 @@ on:
     # Geen `closed`: het sluiten van een PR heeft hier niets te doen sinds het opruimen in
     # cleanup-preview.yml staat. Elke job zou eraan moeten ontsnappen met een
     # `action != 'closed'`-clausule, en de run zelf zou een lege, volledig overgeslagen run zijn.
-    types: [opened, synchronize, reopened]
+    #
+    # Wel `ready_for_review`: een draft-PR rolt niet uit (zie `changes`), dus het moment dat hij uit
+    # draft komt moet de uitrol aftrappen, ook zonder nieuwe commit. Geen `converted_to_draft`: een
+    # preview die er al staat, mag blijven tot de PR sluit.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -183,14 +187,17 @@ env:
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
   # uitkomsten: `run` (code-checks), `deploy` (bouwen en uitrollen), `demo-only` (test-scope)
-  # en `fuzz` (fuzz-ronde). Voor een bot-PR valt alléén het uitrollen af — tests, detekt en
-  # fuzz draaien juist wél, want een dependency-bump hoort getoetst te worden.
+  # en `fuzz` (fuzz-ronde). Voor een bot- of draft-PR valt alléén het uitrollen af — tests, detekt
+  # en fuzz draaien juist wél, want ook die PR's horen getoetst te worden.
   #
   # De build-, gate- en deploy-preview-jobs hangen aan `deploy`; een via `if` overgeslagen job ín
   # deze workflow telt als 'skipped' = succes voor de required checks, dus de merge blijft
   # mogelijk. Op een push naar main staat alles aan.
   #
-  # Twee gevallen rollen niet uit:
+  # Drie gevallen rollen niet uit:
+  # - Draft-PR's: bij veel gelijktijdige PR's bekijkt niemand alle previews, dus die komt pas bij
+  #   `ready_for_review`. Die overgeslagen checks laten geen merge door: GitHub merget geen draft,
+  #   en de run van `ready_for_review` vervangt ze op dezelfde commit.
   # - Wijzigingen die de uitgerolde applicatie niet raken (documentatie, repo-meta, bruno, en de
   #   niet-uitgerolde delen van demo/). Welke paden dat precies zijn staat in
   #   .github/scripts/wijzigingsfilter.sh.
@@ -241,6 +248,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
 
@@ -316,6 +324,7 @@ jobs:
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         env:
           EVENT: ${{ github.event_name }}
+          ACTIE: ${{ github.event.action }}
           PR: ${{ github.event.number }}
           # Op een pull_request-event is GITHUB_SHA de (efemere) merge-commit; de head-sha is
           # wat in de PR-tijdlijn staat en waar een reviewer op kan matchen.
@@ -330,6 +339,13 @@ jobs:
             # dus een eigen tag. Poging 1 (het normale geval) blijft kaal en leesbaar.
             if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
               tag="${tag}-r${GITHUB_RUN_ATTEMPT}"
+            fi
+
+            # Hetzelfde bij `ready_for_review`: een PR die al een preview had, naar draft ging en
+            # zonder nieuwe commit terugkomt, bouwt tegen een nieuwere main onder dezelfde head-sha.
+            # Die preview blijft op draft staan, dus zonder eigen tag rolt er niets uit.
+            if [ "$ACTIE" = "ready_for_review" ]; then
+              tag="${tag}-k${GITHUB_RUN_NUMBER}"
             fi
 
             echo "tag=$tag" >> "$GITHUB_OUTPUT"

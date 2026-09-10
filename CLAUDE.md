@@ -199,7 +199,8 @@ run groen en blijft de preview staan):**
 `magazijnsimulator`, `proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
 `toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
-Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
+Een draft-PR krijgt geen preview; die rolt uit zodra de PR ready for review is. Previews worden
+opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
 opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
 
 `democonsole` is het bedieningspaneel van de demo. Het staat in `mpfm-w3h` en niet in een eigen
