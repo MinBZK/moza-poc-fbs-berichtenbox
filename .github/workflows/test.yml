@@ -97,9 +97,9 @@ jobs:
 
   # De modules draaiden achter elkaar in één reactor: 8 minuten, waarvan berichtenmagazijn
   # alleen al 4,5. Dat maakte deze controle de traagste van de keten en daarmee de wachttijd
-  # per wijziging. Over twee machines verdeeld bepaalt die ene module nog wel de vloer, maar
-  # loopt de rest ernaast in plaats van erna. De dekking blijft gelijk: elke module wordt
-  # precies zo getest als eerst, alleen niet meer op dezelfde machine.
+  # per wijziging, want de uitrol wacht erop. Over drie machines verdeeld bepaalt die ene module
+  # nog wel de vloer, maar loopt de rest ernaast in plaats van erna. De dekking blijft gelijk: elke
+  # module wordt precies zo getest als eerst, alleen niet meer op dezelfde machine.
   shard:
     needs: changes
     # Sla alleen over bij een expliciete 'false', uit welke van de twee bronnen dan ook; een
@@ -113,17 +113,28 @@ jobs:
       # van de tests gedraaid en volgt de rest pas na een tweede push.
       fail-fast: false
       matrix:
-        # De shard-verdeling: berichtenmagazijn alleen, de rest ernaast. Die ene module kost
-        # ~4,5 van de ~8 minuten reactor-tijd en vormt dus de vloer; alles bij elkaar past
-        # binnen die tijd op een tweede machine.
+        # De shard-verdeling volgt de reactor-tijd per module op een runner. Berichtenmagazijn is
+        # met fbs-common erbij de vloer (~4,5 min); een shard die daarboven uitkomt, wordt zelf de
+        # wachttijd. Alles buiten berichtenmagazijn in één shard deed precies dat (~6 min), met
+        # fbs-berichtensessiecache (~2:10) en magazijn-simulator (~1:40) als grootste posten. Die
+        # twee staan daarom elk in een andere shard.
         #
-        # De tweede shard is het COMPLEMENT (`!services/berichtenmagazijn`), geen opsomming:
-        # zo valt een nieuwe reactor-module er per constructie in. Met een handmatige lijst
-        # zou een module die nergens genoemd wordt én nergens upstream van is, stil ongetest
-        # blijven terwijl beide shards groen rapporteren.
+        # De berichtenuitvraag-shard noemt zijn bibliotheken zelf, ook al trekt `-am` ze toch mee:
+        # zo hangt hun dekking niet aan de afhankelijkheden van die service.
         #
-        # `-am` bouwt en test in beide shards ook de gedeelde bibliotheken (~35s dubbel);
-        # dat is goedkoper dan per shard uitzoeken welke upstream-modules erbij horen.
+        # De laatste shard is het COMPLEMENT van wat de andere shards noemen, geen opsomming: zo
+        # valt een nieuwe reactor-module er per constructie in. Met een handmatige lijst zou een
+        # module die nergens genoemd wordt, stil ongetest blijven terwijl elke shard groen
+        # rapporteert. Het omgekeerde gat — een uitsluiting die geen andere shard noemt — bewaakt
+        # test-wijzigingsfilter.sh.
+        #
+        # Een uitsluiting wint in Maven van `-am`. Gaat een module uit het complement een
+        # uitgesloten bibliotheek gebruiken, dan faalt die shard op een onvindbaar artefact: geen
+        # workflow installeert de bibliotheken in de lokale Maven-repository, dus de cache vult het
+        # niet stil aan met een oude versie.
+        #
+        # `-am` bouwt en test fbs-common ook in de berichtenmagazijn-shard (~30s dubbel); dat is
+        # goedkoper dan per shard uitzoeken welke upstream-modules erbij horen.
         #
         # Hier afgeleid en niet in de `changes`-job, omdat die overgeslagen wordt zodra de
         # aanroeper de uitkomst meegeeft — dan is er geen job-output om de matrix uit te vullen.
@@ -132,7 +143,7 @@ jobs:
           ${{ fromJSON(
             (inputs.demo-only || needs.changes.outputs.demo-only) == 'true'
             && '[{"id":"demo","modules":"demo/*"}]'
-            || '[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"overig","modules":"!services/berichtenmagazijn"}]'
+            || '[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"berichtenuitvraag","modules":"libraries/fbs-common,libraries/fbs-magazijnregister,libraries/fbs-berichtensessiecache,services/berichtenuitvraag"},{"id":"overig","modules":"!services/berichtenmagazijn,!libraries/fbs-common,!libraries/fbs-magazijnregister,!libraries/fbs-berichtensessiecache,!services/berichtenuitvraag"}]'
           ) }}
     runs-on: ubuntu-latest
     # Vangnet tegen een hangende test: een request tegen een niet-bestaande route
@@ -178,12 +189,12 @@ jobs:
           #
           # Gescoped op de modules van deze shard en niet repo-breed: `-am` bouwt de upstream-
           # modules mee, en hun rapporten zouden de guard vullen terwijl de module waar het om
-          # gaat nul tests draaide. Het complement (`!services/berichtenmagazijn`) is geen pad,
+          # gaat nul tests draaide. Het complement (een reeks `!pad`-uitsluitingen) is geen pad,
           # dus die shard valt terug op de hele werkmap — daar is het onderscheid niet nodig,
           # want die shard test per definitie meer dan één module.
           # Per gebouwde module en niet per shard: met één rapport uit de hele shard lift een
           # module zonder gedraaide tests mee op zijn zusters, en juist het complement
-          # (`!services/berichtenmagazijn`) is geen pad — die shard zou dan op de werkmap als
+          # (een reeks `!pad`-uitsluitingen) is geen pad — die shard zou dan op de werkmap als
           # geheel terugvallen. De reactor levert de modulelijst; `target/` verraadt welke daarvan
           # deze shard getest heeft. Op `target/test-classes` en niet op `target/`: dat laatste
           # laat ook een detekt- of compile-run achter, en dan zou de eis slaan op een module die
