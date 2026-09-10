@@ -70,6 +70,15 @@
             <artifactId>quarkus-container-image-jib</artifactId>
         </dependency>
 
+        <!-- PaneelTellersTest leest de tellers van AanleverResultaat via Kotlin-reflectie, zodat
+             een nieuwe teller vanzelf opvalt. kotlin-reflect zit ook transitief in de boom, maar dan
+             verdwijnt hij zodra een upstream-dependency hem laat vallen. -->
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-reflect</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Alleen quarkus-junit5 voor eventuele @QuarkusTest; junit-jupiter en mockk-jvm
              komen als test-deps uit de parent. Geen Mockito — dit project gebruikt MockK. -->
         <dependency>

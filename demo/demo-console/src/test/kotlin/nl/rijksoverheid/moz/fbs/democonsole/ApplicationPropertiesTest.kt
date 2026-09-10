@@ -6,7 +6,7 @@ import java.io.File
 import java.util.Properties
 
 /**
- * Pint drie eigenschappen van `application.properties` die alleen buiten een testomgeving stuk
+ * Pint vier eigenschappen van `application.properties` die alleen buiten een testomgeving stuk
  * kunnen gaan.
  *
  * De eerste: de scheduler start geforceerd. `SchedulerTempoKlok` plant zijn tik-taak uitsluitend
@@ -38,6 +38,15 @@ class ApplicationPropertiesTest {
         // en dat is een fout die pas bij een druk op de knop verschijnt, niet bij het starten.
         // De lege default houdt het lokaal werkend: SmallRye leest een lege waarde als afwezig.
         assertEquals("\${REDIS_PASSWORD:}", properties.getProperty("quarkus.redis.password"))
+    }
+
+    @Test
+    fun `de default rest-client-exception-mapper staat uit`() {
+        // Staat hij aan, dan mapt de client élke 4xx en 5xx naar een WebApplicationException, ook op
+        // methodes die een Response teruggeven. De statuscontroles in deze module — de aanlevering,
+        // de storingsknoppen, de foutieve aanlevering — worden dan onbereikbaar, en een 503 van een
+        // magazijn komt als exception binnen in plaats van als antwoord.
+        assertEquals("true", properties.getProperty("microprofile.rest.client.disable.default.mapper"))
     }
 
     @Test

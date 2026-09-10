@@ -317,14 +317,14 @@ class PaneelContractTest {
     }
 
     @Test
-    fun `het antwoord draagt de vier tellers die het paneel samenvat`() {
+    fun `het antwoord draagt de vijf tellers die het paneel samenvat`() {
         // `bediening.js` leest ze bij naam in zijn `vulling`-samenvatter, zonder te toetsen of ze er
         // zijn: een hernoemd veld levert een groene melding "undefined van 3 berichten aangeleverd",
         // want `vullingTekst` gooit niet en `vullingSoort` valt dan terug op "goed".
         val body = ObjectMapper().readTree(plaatsBericht("?persona=pietersen&aantal=3").body())
 
         assertEquals(
-            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt"),
+            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt", "zonderBerichtId"),
             body.fieldNames().asSequence().toSet(),
         )
         assertEquals(3, body.path("aangeboden").asInt())
@@ -746,6 +746,7 @@ class VasteAanleverService(clients: MagazijnClients) : AanleverService(clients) 
             aangeboden = opdrachten.size,
             geslaagd = if (reden == null) opdrachten.size else 0,
             markeringMislukt = 0,
+            zonderBerichtId = 0,
             redenen = if (reden == null) emptyList() else List(opdrachten.size) { reden },
         )
     }

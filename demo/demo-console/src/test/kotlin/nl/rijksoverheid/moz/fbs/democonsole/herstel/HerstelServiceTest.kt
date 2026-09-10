@@ -47,7 +47,7 @@ class HerstelServiceTest {
         every { storingService.reset() } just Runs
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(40, 40, 0, emptyList())
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(40, 40, 0, 0, emptyList())
         every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(berichten = 2000, magazijnen = 98)
         every { simulatorService.vulStandaard() } returns
             nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 10584, 2646, 0, 500)
@@ -159,7 +159,7 @@ class HerstelServiceTest {
     fun `een vulling die niet aankwam draagt haar reden mee naar het paneel`() {
         alleStappenSlagen()
 
-        val mislukt = AanleverResultaat.van(40, 0, 0, List(40) { Faalreden.onbereikbaar("00000000000000100000") })
+        val mislukt = AanleverResultaat.van(40, 0, 0, 0, List(40) { Faalreden.onbereikbaar("00000000000000100000") })
 
         every { aanleverService.leverAan(any()) } returns mislukt
 
