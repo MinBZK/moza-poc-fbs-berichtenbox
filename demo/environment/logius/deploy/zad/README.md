@@ -64,6 +64,22 @@ De peer staat daarom in een eigen deployment `fsc-logius`: **wat niet in `test` 
 7. **UI-mount** (zie `cert-manifest.md`) — cert-attachments + "Publicatie op het web"
    (passthrough-TLS) zijn UI-only; de v2-API dekt dit niet.
 8. **`verify-zad.md`** — announce, dienst-publicatie, discover.
+9. **Gezondheidscontrole** — `demo/environment/zad-demo/gezondheidscontrole.sh apply fsc-logius` zet
+   de `health-check`-dienst op de zeven componenten van déze deployment. Het projectargument
+   (`apply mpfb-8wh`) zou ook `uitvraag`, `redis` en de twee Toxiproxy's meenemen; dat mag, maar dan
+   loop je de hele keten mee.
+
+## De gezondheidscontrole staat op de monitoring-poort
+
+De eerste poort van de manager, de inway, de outway en de txlog is een TLS-luisteraar, en de
+standaardcontrole van ZAD is een blinde TCP-connect die daar elke twee seconden een
+`http: TLS handshake error ... EOF` achterlaat. De probe wijst daarom niet naar de functionele poort
+maar naar `MONITORING_ADDRESS`.
+
+De waarden per component staan in hoofdstuk 9 van `demo/environment/zad-demo/README.md`, samen met
+de meting waar ze op steunen; het script daar zet ze. Eén ding hoort hier, omdat het de reden is dat
+deze peer twee paden gebruikt en niet één: liveness mag nooit op `/health/ready` staan, want dan
+herstart een component dat alleen zijn txlog kwijt is.
 
 ## Env-vars
 
