@@ -11,8 +11,9 @@ FROM docker.io/library/alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9
 # bash — de scripts gebruiken arrays; curl — de manager-API; jq — de idempotentie leest contract-JSON;
 # openssl — de outway-thumbprint uit een certificaat, alleen nodig als FSC_OUTWAY_THUMBPRINT niet
 # gezet is. Géén ca-certificates: elke call geeft zijn eigen --cacert mee (de interne PKI), dus de
-# publieke trust store wordt nergens geraadpleegd.
-RUN apk add --no-cache bash curl jq openssl
+# publieke trust store wordt nergens geraadpleegd. tzdata — zonder tijdzonedatabase negeert alpine
+# de TZ hieronder en logt het zonder melding in UTC.
+RUN apk add --no-cache bash curl jq openssl tzdata
 
 # Alleen wat draait. De hele map kopiëren zou ook de fixture-tests meenemen en, erger, `bootstrap.sh`
 # en `fbs-contracten.sh` uitvoerbaar in de pod zetten — twee scripts die hier niets te zoeken hebben
@@ -29,5 +30,7 @@ RUN chmod -R g=u /opt/fsc && chmod 0755 /opt/fsc/contracts/*.sh
 
 USER 1001
 ENV FSC_LIBDIR=/opt/fsc/lib
+# Nederlandse tijd, zodat logtijden overeenkomen met de klok van wie meekijkt.
+ENV TZ=Europe/Amsterdam
 
 ENTRYPOINT ["/opt/fsc/contracts/zad-lus.sh"]
