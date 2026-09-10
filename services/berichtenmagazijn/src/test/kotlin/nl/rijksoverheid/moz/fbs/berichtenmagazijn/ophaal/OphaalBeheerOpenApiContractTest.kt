@@ -153,6 +153,42 @@ class OphaalBeheerOpenApiContractTest {
             .`when`().get("/api/v1/berichten/${UUID.randomUUID()}")
             .then()
             .statusCode(404)
+            // Hetzelfde kenmerk als op de beheer-paden: een afnemer die op `bericht-onbekend`
+            // filtert, mag de meest voorkomende 404 van dit magazijn niet mislopen.
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-onbekend"))
+    }
+
+    @Test
+    fun `404 Problem response op GET bijlage draagt hetzelfde kenmerk`() {
+        val id = insertBericht()
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().get("/api/v1/berichten/$id/bijlagen/${UUID.randomUUID()}")
+            .then()
+            .statusCode(404)
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-onbekend"))
+    }
+
+    @Test
+    fun `410 Problem response op PATCH van een eigen verwijderd bericht respecteert spec`() {
+        val id = insertBericht()
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`().delete("/api/v1/berichten/$id")
+            .then()
+            .statusCode(204)
+
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .contentType("application/merge-patch+json")
+            .body("""{"gelezen": true}""")
+            .`when`().patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(410)
     }
 
     @Test

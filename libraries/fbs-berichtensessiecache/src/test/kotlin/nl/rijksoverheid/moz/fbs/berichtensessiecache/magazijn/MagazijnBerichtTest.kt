@@ -21,21 +21,21 @@ class MagazijnBerichtTest {
 
     @Test
     fun `gelezen=true mapt naar status gelezen`() {
-        val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = true)).toBericht("magazijn-a")
+        val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = true)).toBericht("magazijn-a", "Magazijn A")
 
         assertEquals(Leesstatus.GELEZEN, bericht.status)
     }
 
     @Test
     fun `gelezen=false mapt naar status ongelezen`() {
-        val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = false)).toBericht("magazijn-a")
+        val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = false)).toBericht("magazijn-a", "Magazijn A")
 
         assertEquals(Leesstatus.ONGELEZEN, bericht.status)
     }
 
     @Test
     fun `status-object zonder gelezen geeft status null`() {
-        val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = null, map = "inkomend")).toBericht("magazijn-a")
+        val bericht = magazijnBericht(MagazijnBericht.MagazijnBerichtStatus(gelezen = null, map = "inkomend")).toBericht("magazijn-a", "Magazijn A")
 
         assertNull(bericht.status)
         assertEquals("inkomend", bericht.map)
@@ -43,7 +43,7 @@ class MagazijnBerichtTest {
 
     @Test
     fun `ontbrekend status-object geeft status null`() {
-        val bericht = magazijnBericht(null).toBericht("magazijn-a")
+        val bericht = magazijnBericht(null).toBericht("magazijn-a", "Magazijn A")
 
         assertNull(bericht.status)
     }

@@ -265,8 +265,10 @@ Vooraf drie dingen, want elk ervan laat de meting anders stil verkeerd uitkomen:
 gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production/mpfm-w3h/test/magazijnsimulator-deployment.yaml \
   --jq '.content' | base64 -d | grep -E '^\s+(replicas|image):'
 
-# b. Staat de bulkhead boven de grootste fan-out? Bij de standaard 20 meet je die grens en niet de keten.
-zadctl -p mpfb-8wh env list -c uitvraag | grep BULKHEAD    # verwacht 120
+# b. Staat er nog een handmatige gelijktijdigheidsgrens? Die hoort er niet meer te zijn: de uitvraag
+#    zet organisaties boven de grens in de wachtrij in plaats van ze af te wijzen. Een oude
+#    override maakt de meting onvergelijkbaar met de standaardsituatie.
+zadctl -p mpfb-8wh env list -c uitvraag | grep BULKHEAD    # verwacht: geen regel
 
 # c. Is de simulator gevuld? Anders bevraagt de uitvraag honderd lege magazijnen.
 ```
@@ -323,7 +325,7 @@ Wat wél een bevinding is:
 |---|---|
 | `WAARSCHUWING: <n> organisaties bevraagd, verwacht <m>` | Het register op de uitvraag en de set van de simulator lopen uiteen — beide attachments komen uit hetzelfde script met hetzelfde getal, dus één is niet opnieuw geüpload. |
 | Veel meer mislukt dan de tabel, verspreid over alle ondernemers | Kijk eerst naar de simulator: zijn database-pool draagt honderd magazijnen tegelijk, en een te lage waarde laat magazijnen omvallen die op *normaal* staan. |
-| Precies 20 geslaagd bij 45 en 100 | De bulkhead staat nog op de standaardwaarde: controle (b) hierboven. |
+| `NIET_OPGEHAALD` bij gezonde magazijnen | De bevraging is niet gestart omdat de gelijktijdigheidsgrens vol bleef; geen storing van die organisatie. In vlagen: het wachtbudget (`MAGAZIJN_WACHTBUDGET_MS`) is te krap voor de piek. Aanhoudend: `MAX_CONCURRENT` is te laag voor wat er tegelijk loopt — draaien er meer metingen of demo's naast elkaar? |
 | `de uitvraag op … is niet gezond` | De meting is niet begonnen; dit zegt niets over de fan-out. |
 
 Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand uit `$UITVOER` (standaard

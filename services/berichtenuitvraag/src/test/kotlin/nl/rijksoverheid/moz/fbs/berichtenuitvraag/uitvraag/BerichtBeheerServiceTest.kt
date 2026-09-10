@@ -6,7 +6,6 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.InternalServerErrorException
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
@@ -15,6 +14,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -29,7 +30,10 @@ class BerichtBeheerServiceTest {
     private val router: MagazijnRouter = mockk {
         every { forMagazijn(any()) } returns magazijn
     }
-    private val service = BerichtBeheerService(sessiecache, router)
+    private val afzendernamen: Afzendernamen = mockk {
+        every { naamVoor(any<Bericht>()) } returns "Magazijn A"
+    }
+    private val service = BerichtBeheerService(sessiecache, router, afzendernamen)
 
     private val id: UUID = UUID.randomUUID()
     private val ontvanger = "BSN:999990019"
@@ -39,6 +43,7 @@ class BerichtBeheerServiceTest {
     private val bijgewerkt = Bericht(
         berichtId = id,
         afzender = "00000001003214345000",
+        afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999990019"),
         onderwerp = "X",
         inhoud = "Inhoud",
@@ -62,6 +67,19 @@ class BerichtBeheerServiceTest {
             magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = true, map = null))
             sessiecache.werkBerichtBij(ontvangerId, id, Leesstatus.GELEZEN, null)
         }
+    }
+
+    @Test
+    fun `patch-respons draagt de afzendernaam van het bijgewerkte bericht`() {
+        // De naam wordt opgezocht op het magazijnId van het bericht uit de cache, niet op de
+        // magazijnId-queryparameter of het berichtId.
+        every { afzendernamen.naamVoor(any<Bericht>()) } returns "Belastingdienst"
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+
+        val result = service.patch(ontvanger, id, magazijnId, patch)
+
+        assertEquals("Belastingdienst", result.afzenderNaam)
     }
 
     @Test
@@ -133,10 +151,12 @@ class BerichtBeheerServiceTest {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
         every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns null
 
-        assertThrows(NotFoundException::class.java) {
+        val fout = assertThrows(FbsFoutException::class.java) {
             service.patch(ontvanger, id, magazijnId, patch)
         }
 
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
         verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any()) }
     }
 

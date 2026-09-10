@@ -5,6 +5,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -74,8 +75,23 @@ class MagazijnEventTest {
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"TIMEOUT","foutmelding":"Magazijn reageerde niet binnen de timeout"}""",
             ),
             Arguments.of(
-                OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, totaalMagazijnen = 2),
-                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":2,"mislukt":0,"totaalMagazijnen":2}""",
+                MagazijnBevragingMislukt(
+                    magazijnId = OIN,
+                    naam = "Magazijn A",
+                    fout = MagazijnFoutStatus.NIET_OPGEHAALD,
+                    foutmelding = "Nog niet opgehaald: te veel organisaties tegelijk in behandeling (probeer het opnieuw)",
+                ),
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"NIET_OPGEHAALD","foutmelding":"Nog niet opgehaald: te veel organisaties tegelijk in behandeling (probeer het opnieuw)"}""",
+            ),
+            Arguments.of(
+                OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 2),
+                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":2,"mislukt":0,"nietOpgehaald":0,"totaalMagazijnen":2}""",
+            ),
+            // De drie tellers naast elkaar: een ronde waarin één organisatie leverde, één stuk was
+            // en één niet bevraagd is. Wie ze zou samenvoegen, meldt hier twee mislukkingen.
+            Arguments.of(
+                OphalenGereed(totaalBerichten = 5, geslaagd = 1, mislukt = 1, nietOpgehaald = 1, totaalMagazijnen = 3),
+                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":1,"mislukt":1,"nietOpgehaald":1,"totaalMagazijnen":3}""",
             ),
             Arguments.of(
                 OphalenMisluktVoorBevraging(foutmelding = "Interne fout (ref: abc)", referentie = "abc"),
@@ -86,10 +102,11 @@ class MagazijnEventTest {
                     foutmelding = "Resultaten konden niet worden opgeslagen (ref: abc)",
                     geslaagd = 1,
                     mislukt = 1,
-                    totaalMagazijnen = 2,
+                    nietOpgehaald = 1,
+                    totaalMagazijnen = 3,
                     referentie = "abc",
                 ),
-                """{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen (ref: abc)","geslaagd":1,"mislukt":1,"totaalMagazijnen":2,"referentie":"abc"}""",
+                """{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen (ref: abc)","geslaagd":1,"mislukt":1,"nietOpgehaald":1,"totaalMagazijnen":3,"referentie":"abc"}""",
             ),
         )
 
@@ -107,27 +124,15 @@ class MagazijnEventTest {
         assertEquals(verwacht, objectMapper.writeValueAsString(event))
     }
 
-    @Test
-    fun `ontbrekende naam wordt weggelaten in plaats van als null geschreven`() {
-        assertEquals(
-            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN"}""",
-            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = null)),
-        )
-        assertEquals(
-            """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","status":"OK","aantalBerichten":0,"afgekapt":false}""",
-            objectMapper.writeValueAsString(MagazijnBevragingGeslaagd(magazijnId = OIN, naam = null, aantalBerichten = 0)),
-        )
-    }
-
     /**
-     * Een lege naam is niet hetzelfde als een ontbrekende naam: hij wordt wél uitgeschreven,
-     * waarna het portaal via zijn eigen `naam || magazijnId`-terugval de OIN toont.
+     * De naam is verplicht in het register en gaat daarom altijd mee op de lijn. Dit pint dat er
+     * geen weglaat-gedrag meer op zit: een portaal hoeft geen terugval op `magazijnId` te bouwen.
      */
     @Test
-    fun `lege naam wordt uitgeschreven, niet weggelaten`() {
+    fun `naam gaat altijd mee op de lijn`() {
         assertEquals(
-            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN","naam":""}""",
-            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = "")),
+            """{"event":"magazijn-bevraging-gestart","magazijnId":"$OIN","naam":"Belastingdienst"}""",
+            objectMapper.writeValueAsString(MagazijnBevragingGestart(magazijnId = OIN, naam = "Belastingdienst")),
         )
     }
 
@@ -174,6 +179,25 @@ class MagazijnEventTest {
         assertEquals(
             MagazijnStatus.entries.toSet() - MagazijnStatus.OK,
             MagazijnFoutStatus.entries.map { it.wire }.toSet(),
+        )
+    }
+
+    /**
+     * De twee enums dragen dezelfde namen; alleen de set-gelijkheid hierboven laat een verkeerde
+     * koppeling passeren (`TIMEOUT(FOUT)` blijft groen zodra iets anders `TIMEOUT` levert). En de
+     * `value` op de lijn hoort woordelijk de naam te zijn: een typefout daarin verandert stil het
+     * statuswoord dat het portaal en `demo/smoke.sh` verwachten.
+     */
+    @Test
+    fun `foutstatus, wire-status en het woord op de lijn dragen dezelfde naam`() {
+        assertTrue(
+            MagazijnFoutStatus.entries.all { it.name == it.wire.name },
+            "Foutstatus en wire-status uit elkaar gelopen: ${MagazijnFoutStatus.entries.map { it.name to it.wire.name }}",
+        )
+
+        assertTrue(
+            MagazijnStatus.entries.all { it.value == it.name },
+            "Wire-woord wijkt af van de naam: ${MagazijnStatus.entries.map { it.name to it.value }}",
         )
     }
 }

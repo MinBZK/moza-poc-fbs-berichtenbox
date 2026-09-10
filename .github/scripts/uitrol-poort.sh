@@ -72,6 +72,20 @@ eis_as() {
   done <<<"$regels"
 }
 
+# De afronding van een preview — de netwerkregels zetten en de comment plaatsen — is een eigen job
+# zonder `deploy-preview-`-voorvoegsel, en valt dus buiten de as-telling hierboven. Ze is ook geen
+# required check, dus zonder deze controle zou een mislukte netwerkregel een groene poort opleveren
+# en daarmee een merge dragen over een preview met dode storingsknoppen.
+eis_afronding() {
+  local verwacht=$1 resultaat
+
+  resultaat=$(jq -r '.["preview-afronding"].result // "ontbreekt"' <<<"$NEEDS") \
+    || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer — het oordeel is onbepaald."
+
+  [ "$resultaat" = "$verwacht" ] \
+    || fout "Afrondingsjob 'preview-afronding' eindigde als '$resultaat' terwijl '$verwacht' verwacht was."
+}
+
 beoordeel() {
   # Een afgebroken run bewijst niets, en is aan de job-resultaten niet te herkennen: `gate` en de
   # uitrol-jobs dragen zelf `!cancelled()`, dus bij een annulering vóór hun start rapporteren ze
@@ -143,6 +157,14 @@ beoordeel() {
 
     eis_as "$uitrol" success " (bouw: $(tr '\n' ' ' <<<"$bouw"))"
 
+    # Alleen previews krijgen per-deployment netwerkregels en een comment; de test-deployments
+    # dragen hun regels op projectniveau, dus daar hoort de afronding stil te blijven.
+    if [ "$as" = deploy-preview- ]; then
+      eis_afronding success
+    else
+      eis_afronding skipped
+    fi
+
     echo "Alle $VERWACHT_AANTAL uitrol-jobs geslaagd."
   else
     # Zonder uitrol slaat `gate` zichzelf over. Draaide hij tóch en viel hij om, dan is dat een
@@ -151,6 +173,7 @@ beoordeel() {
       || fout "De kwaliteitspoort eindigde als '$GATE'."
 
     eis_as "$uitrol" skipped " (deploy=$DEPLOY)"
+    eis_afronding skipped
 
     echo "Geen uitrolbare wijziging (deploy=$DEPLOY) — geen uitrol verwacht, en er draaide er ook geen."
   fi

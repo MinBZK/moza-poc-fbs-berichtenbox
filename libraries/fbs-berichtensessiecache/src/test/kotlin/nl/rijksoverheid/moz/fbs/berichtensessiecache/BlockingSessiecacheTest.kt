@@ -48,6 +48,7 @@ class BlockingSessiecacheTest {
     private fun testBericht(ontvanger: Identificatienummer = this.ontvanger) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001003214345000",
+        afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = "Testonderwerp",
         inhoud = "Testinhoud",
@@ -114,8 +115,48 @@ class BlockingSessiecacheTest {
         val id = UUID.randomUUID()
 
         every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(false)
 
         assertNull(facade.bericht(ontvanger, id))
+    }
+
+    @Test
+    fun `bericht meldt een misser met tombstone als zelf verwijderd`() {
+        stubStatus(gereed)
+        val id = UUID.randomUUID()
+
+        every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(true)
+
+        assertThrows<SessiecacheException.BerichtVerwijderd> { facade.bericht(ontvanger, id) }
+    }
+
+    @Test
+    fun `het bericht van een andere ontvanger levert dezelfde misser als een onbekend bericht`() {
+        // Het privacy-criterium van deze facade: de tombstone van de verwijderaar mag het
+        // antwoord aan een ander niet kleuren, anders is het bestaan van andermans bericht
+        // aftastbaar via het verschil tussen 404 en 410.
+        stubStatus(gereed)
+        val id = UUID.randomUUID()
+
+        every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(false)
+
+        assertNull(facade.bericht(ontvanger, id))
+    }
+
+    @Test
+    fun `bericht raadpleegt de tombstone niet zolang het bericht er is`() {
+        // Een achtergebleven tombstone van een eerder verwijderd-en-opnieuw-aangeleverd
+        // bericht mag een bestaand bericht niet als verwijderd bestempelen.
+        stubStatus(gereed)
+        val bericht = testBericht()
+
+        every { service.getBerichtById(bericht.berichtId, ontvanger) } returns Uni.createFrom().item(bericht)
+
+        // `isBerichtVerwijderd` blijft bewust ongestubd: de mock is strikt, dus een aanroep
+        // laat deze test falen. Dat is directer dan een verify achteraf.
+        assertSame(bericht, facade.bericht(ontvanger, bericht.berichtId))
     }
 
     // --- werkBerichtBij ---
@@ -169,7 +210,7 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `ophalen geeft de event-stream van de service ongewijzigd door`() {
-        val event: MagazijnEvent = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, totaalMagazijnen = 0)
+        val event: MagazijnEvent = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 0)
 
         every { service.haalBerichtenOp(ontvanger) } returns Multi.createFrom().item(event)
 
