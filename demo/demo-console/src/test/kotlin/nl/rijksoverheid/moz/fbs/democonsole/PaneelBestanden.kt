@@ -11,11 +11,14 @@ import java.io.File
  */
 object PaneelBestanden {
 
-    const val PANEEL_PAD = "src/main/resources/META-INF/resources/index.html"
+    /** De map die het paneel uitserveert; wie alle pagina's wil aflopen begint hier. */
+    const val RESOURCES_PAD = "src/main/resources/META-INF/resources"
 
-    const val SCRIPT_PAD = "src/main/resources/META-INF/resources/bediening.js"
+    const val PANEEL_PAD = "$RESOURCES_PAD/index.html"
 
-    const val STIJL_PAD = "src/main/resources/META-INF/resources/bediening.css"
+    const val SCRIPT_PAD = "$RESOURCES_PAD/bediening.js"
+
+    const val STIJL_PAD = "$RESOURCES_PAD/bediening.css"
 
     const val LEESMIJ_PAD = "README.md"
 
