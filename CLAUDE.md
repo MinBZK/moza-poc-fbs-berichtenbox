@@ -199,7 +199,8 @@ run groen en blijft de preview staan):**
 `magazijnsimulator`, `proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
 `toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
-Previews worden opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
+Een draft-PR krijgt geen preview; die rolt uit zodra de PR ready for review is. Previews worden
+opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
 opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
 
 `democonsole` is het bedieningspaneel van de demo. Het staat in `mpfm-w3h` en niet in een eigen
@@ -207,7 +208,7 @@ deployment omdat `postgresql-database` deployment-gebonden is: alleen een compon
 deployment als de magazijnen erft hun database-secret, en dat secret is wat de legen-knop mogelijk
 maakt. De eenmalige creatie staat in `demo/environment/zad-demo/README.md`.
 
-Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf geverifieerd in
+Zes ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle zes geverifieerd in
 `RijksICTGilde/RIG-Cluster`:
 
 - De inhoud van een **attachment** wordt ongewijzigd gemount (geen `$DEPLOYMENT_NAME`-substitutie,
@@ -220,13 +221,30 @@ Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf
   cluster-intern verkeer naar een ánder project volgt geen preview, tenzij de regel per deployment
   wordt bijgeschreven
   (`PATCH /api/v2/projects/{p}/services/cross-domain-access/config/deployment/{d}/{inbound,outbound}`).
+- Zo'n regel wordt **opgelost op het moment dat OM de deployment rendert**: noemt hij een
+  peer-deployment die dan nog niet bestaat, dan slaat OM hem stil over en rendert hem niet opnieuw
+  zodra die peer er wél is (`cross_domain_access/resolve.py`). Met `rollout=false` (API) of
+  `--no-rollout` (`zadctl`) sla je een wijziging alleen op; de resolver leest het projectbestand, dus
+  zo'n deployment telt al als bestaand. `.github/scripts/preview-klaarzetten.sh` zet zo een nieuwe
+  preview klaar vóór zijn eerste uitrol. Een uitgestelde wijziging telt in OM als "wacht op uitrol"
+  tot een refresh van het héle project, ook nadat een deploy hem uitrolde (`core/task_rollout.py`).
 - Een component **draagt meer dan één poort** (`ports: [...]`), maar publiceert er één: elke poort
   ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`
   (`service.yaml.jinja`, `project_manager.py`). Zo blijft een beheerpoort cluster-intern terwijl de
   eerste poort publiek gaat.
-- Zonder de **`health-check`**-dienst probeert Kubernetes een TCP-socket op `ports[0]`, met
-  `livenessProbe` op 30s × 3. Sluit de applicatie die poort bewust (een proxy die je uitzet), dan
-  herstart de pod anderhalve minuut later. Richt de probe dan op een poort die altijd staat.
+- Zonder de **`health-check`**-dienst rendert ZAD drie blinde TCP-probes op `ports[0]` — een
+  `startupProbe`, een `livenessProbe` (30s × 3 → herstart) en een `readinessProbe` (2s × 3), af te
+  lezen uit elk `*-deployment.yaml` in `rig-cluster-application-test`. Sluit de applicatie die poort
+  bewust (een proxy die je uitzet), dan herstart de pod anderhalve minuut later; is het een
+  TLS-luisteraar, dan logt hij elke twee seconden een afgebroken handshake. Mét de dienst kies je
+  scheme, poort en twee paden: `liveness-path` voedt de startup- én de livenessProbe, dus nooit een
+  pad dat meezakt met een database. De configuratielaag hangt aan het component binnen het project,
+  niet aan een deployment, dus elke deployment van dat component leest dezelfde instelling. De keuze
+  per demo-component staat in `demo/environment/zad-demo/README.md` hoofdstuk 9, met het script dat
+  hem zet. Twee eigenschappen bij de eerste apply vastgesteld: de dienst slaat óók aan op een
+  component dat al bestond (geen hercreatie nodig), en ZAD rendert een probe op een poort die niet
+  in `ports.inbound` staat. De API-key is per project, dus `-p <ander project>` met de verkeerde key
+  geeft 401.
 
 **Drie GitOps-lagen (allemaal `RijksICTGilde`-repos, `gh api` leest ze — deels private):**
 
@@ -281,11 +299,17 @@ anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
 | `zadctl guide [--section <naam>]` | Volledige uitleg, zonder credentials; `--output json` voor agent-gebruik |
 
 Voor scripts en agents: `-o json` op elk commando (data naar stdout, diagnostiek naar
-stderr), `--dry-run` toont de request zonder te sturen, `--yes` beantwoordt de
-bevestigingsprompts (alleen `delete`/`remove`/`clear`/`unset`/`restore` vragen), `--strict`
-maakt "gelukt maar degraded" non-zero. Exitcodes: `1` = eigen input/config/app, `2` =
-platform/netwerk (retry zinvol), `3` = niet te attribueren. CI blijft `zad-actions`
-gebruiken; de CLI is voor handwerk en debuggen.
+stderr), `--dry-run` toont de request zonder te sturen (en bereikt OM dus niet: een verlopen
+sessie of een component dat niet bestaat blijkt er niet uit), `--yes` beantwoordt de
+bevestigingsprompts. Dat zijn er meer dan `delete`/`remove`/`clear`/`unset`/`restore`:
+`service config set` schrijft het hele document en vraagt bevestiging vóór het een veld
+weggooit, dus in een reeks hoort `--yes` erbij. `--strict` maakt "gelukt maar degraded"
+non-zero — maar niet bij een taak die door een gelijktijdige uitrol is overruled: die meldt
+`status: superseded`, is een succes met exit 0 en géén waarschuwing. Daarvoor is `zadctl
+project pending` het instrument. Exitcodes: `1` = eigen input/config/app, `2` =
+platform/netwerk (retry zinvol), `3` = niet te attribueren. **De API-key is per project**: met
+`-p <ander project>` en de key uit een andere `.env.zadctl` krijg je 401. CI blijft
+`zad-actions` gebruiken; de CLI is voor handwerk en debuggen.
 
 **OM-API rechtstreeks** — vanuit CI, of waar de CLI niets voor heeft (per-project
 `X-API-Key`, secrets `ZAD_API_KEY_UITVRAAG`/`_MAGAZIJNEN`/`_PROFIEL`): basis
