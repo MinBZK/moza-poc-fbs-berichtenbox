@@ -76,10 +76,11 @@ zadctl logs <deployment> -c <component> -n 200 --since 1h
 
 "No resources found in namespace" is géén logfout: dat is `replicas: 0`, dus terug naar stap 1.
 
-**De tijdstempels staan in UTC.** Onze images zetten geen tijdzone, dus een incident van vijf
-minuten geleden staat in de log een of twee uur eerder dan je klok aangeeft. Werk met een relatief
-venster (`--since`); vergelijk een tijdstempel uit de log nooit rechtstreeks met een lokale tijd,
-en reken een tijd die iemand je in lokale tijd noemt eerst om.
+**Check de tijdzone van de log.** Onze eigen diensten loggen in `Europe/Amsterdam`, met de offset in
+elke regel (`+01:00`/`+02:00`). Componenten uit een extern image (`redis`, `proeftuin`, de
+FSC-componenten) loggen in UTC zonder offset, en lopen dus een of twee uur achter op je klok. Werk
+met een relatief venster (`--since`), en reken een tijd die iemand je in lokale tijd noemt om
+voordat je hem in zo'n log opzoekt.
 
 ## 4. Bereikbaarheid
 
