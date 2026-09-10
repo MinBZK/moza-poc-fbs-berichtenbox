@@ -1,0 +1,745 @@
+#!/usr/bin/env bash
+# Zet de ZAD-dienst `health-check` op elk component van de drie demo-projecten. Zonder die dienst
+# controleert Kubernetes een component met een blinde TCP-connect op zijn eerste inbound-poort: een
+# open poort telt dan als een gezonde dienst, en een component dat zijn database kwijt is blijft
+# verkeer krijgen. Dit script maakt van die controle per component een keuze, mét de reden erbij.
+#
+# De keuze zelf staat in de tabel hieronder; die tabel is de bron. Hoofdstuk 9 van README.md ernaast
+# geeft de achtergrond per groep en moet meebewegen als hier een regel verandert.
+#
+# De dienst vult drie probes uit twee paden: `liveness-path` voedt zowel de startupProbe (5s
+# initiële vertraging plus 36 × 5s, dus ruim drie minuten opstartbudget) als de livenessProbe
+# (30s × 3 → herstart), `readiness-path` de readinessProbe (2s × 3 → geen verkeer meer). Liveness
+# hoort daarom naar een pad te wijzen dat alléén over het proces gaat: een liveness die meezakt met
+# de database herstart een component dat netjes staat te wachten, en maakt zo de storing die het
+# moest opmerken.
+#
+# Drie eigenschappen van de CLI bepalen de vorm van dit script. De eerste twee staan in
+# `zadctl service assign --help` en `zadctl service config set --help`, de derde in `zadctl --help`
+# (`--rollout` is een globale optie, default true):
+#
+#   - `service config set` schrijft het HELE document: een veld dat je niet noemt wordt verwijderd,
+#     niet met rust gelaten. Daarom mag een tcp- of none-regel gewoon zijn paden weglaten; ze
+#     verdwijnen dan bij een component dat ze eerder wél had. Het commando vraagt bevestiging vóór
+#     het iets weggooit, dus `--yes` hoort erbij in een reeks van zevenentwintig.
+#   - `service assign` is idempotent (een component dat de dienst al draagt houdt zijn configuratie)
+#     en selecteert de dienst meteen op projectniveau, zodat een losse `service add` niet nodig is.
+#   - Beide rollen standaard meteen uit naar de cluster. Dat zou 54 uitrollen betekenen, met tussen
+#     het binden en het instellen van elk component een moment waarop het de dienst draagt zonder
+#     configuratie. `--no-rollout` schuift dat op; één `project refresh` per project aan het eind
+#     laat alles in één keer landen.
+#
+# De configuratielaag hangt aan het COMPONENT binnen het project (`components[*]/services{health-
+# check}`), niet aan een deployment. Elke deployment die het component draait — `test` en elke
+# preview — leest dus dezelfde instelling. Dat strookt met de meting op `toxiproxy-redis`, waar
+# `mpfb-8wh/test` en `mpfb-8wh/pr-290` dezelfde drie httpGet-probes dragen.
+#
+# Twee dingen die bij de eerste apply (2026-09-06) zijn vastgesteld en die de vorm van dit script
+# rechtvaardigen:
+#   - de dienst slaat óók aan op een component dat al bestond. Poorten en aliassen doen dat niet;
+#     de dienstconfiguratie is een eigen laag bij OM. `profiel` ging van een tcpSocket-probe naar
+#     httpGet /__admin/health zonder hercreatie.
+#   - ZAD rendert een probe op een poort die niet in `ports.inbound` staat. `magazijna-fscmgr`
+#     draagt `ports: [8443, 9443, 9444, 1234]` en kreeg `httpGet port: 8080`. Zonder dat hadden de
+#     negen FSC-componenten met een monitoring-poort herschapen moeten worden om die poort inbound
+#     te maken.
+#
+# De API-key is per PROJECT, niet per gebruiker: `zadctl -p <ander project>` met de key van een
+# ander project geeft `401 Invalid API key`. Dit script spreekt drie projecten aan, dus het haalt per
+# project zijn eigen key op met `zadctl project use` in een eigen tijdelijke map. Zo blijft het
+# actieve project in jouw werkmap staan waar het stond, en komt de key in de omgeving van de
+# aanroep terecht in plaats van op de commandoregel — waar `ps` hem zou tonen.
+#
+# `project use` kent twee opties die deze omweg misschien overbodig maken. `--export` is het niet:
+# nagemeten levert hij alléén een `export ZAD_PROJECT_ID=…` en géén key, en hij herschrijft de
+# .env.zadctl van de werkmap alsnog. `--write-env <bestand>` is niet gemeten — dat vraagt een
+# geldige sessie. Werkt dat wel, dan vervalt de tijdelijke map: dan schrijf je de instellingen
+# rechtstreeks weg en blijft de sessie van de werkmap ongemoeid.
+#
+# Usage:
+#   zadctl login
+#   demo/environment/zad-demo/gezondheidscontrole.sh plan              # alle drie de projecten
+#   demo/environment/zad-demo/gezondheidscontrole.sh apply mpfpsm-lcl  # één project
+#   demo/environment/zad-demo/gezondheidscontrole.sh apply fsc-logius  # één deployment
+#
+# Draai dit NIET terwijl er een uitrol loopt: OM vergrendelt op project, en een gelijktijdige taak
+# overruled de wachtstap van die uitrol. `gh run list --workflow "Deploy ZAD"` toont het.
+#
+# `project refresh` reconcilieert het HELE project, niet alleen wat dit script schreef. Een
+# component dat om een andere reden niet gezond wordt — een image dat de ZAD-mirror niet kan
+# ophalen, bijvoorbeeld — laat die stap falen terwijl onze wijziging wél in de gerenderde manifests
+# staat. Kijk bij een fout dus eerst naar `zadctl project pending`: staat die op nul, dan is er niets
+# blijven hangen.
+
+set -euo pipefail
+
+# Een lege array expanderen onder `set -u` vraagt bash 4.4, en dit script doet dat op vier plekken
+# (`UITGEROLD`, `GEPROBEERD`, `SELECTIE`, `PAREN`). De bash die macOS meelevert is 3.2 en zou hier
+# struikelen op een melding die de oorzaak niet noemt.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+    echo "dit script vraagt bash 4.4 of nieuwer; deze is ${BASH_VERSION}" >&2
+    echo "op macOS: 'brew install bash' en opnieuw draaien" >&2
+    exit 1
+fi
+
+gebruik() {
+    echo "usage: gezondheidscontrole.sh <plan|apply> [project-of-deployment=alle]" >&2
+    echo "  plan   toont elke aanroep zonder te muteren, en toetst de tabel tegen de" >&2
+    echo "         componenten die er staan" >&2
+    echo "  apply  zet de instellingen door en rolt ze per project in één keer uit" >&2
+    exit 1
+}
+
+[ "$#" -ge 1 ] || gebruik
+
+MODE="$1"
+FILTER="${2:-alle}"
+
+case "$MODE" in
+    plan) DRYRUN=(--dry-run) ;;
+    apply) DRYRUN=() ;;
+    *) echo "onbekende modus '$MODE'" >&2; gebruik ;;
+esac
+
+for hulp in zadctl python3; do
+    command -v "$hulp" >/dev/null || {
+        echo "$hulp niet gevonden; dit script heeft het nodig" >&2
+        echo "zadctl: https://github.com/RijksICTGilde/zad-cli/releases/latest" >&2
+        exit 1
+    }
+done
+
+# De SSO-sessie staat in .env.zadctl van de werkmap; `project use` heeft hem nodig om een key op te
+# halen. Zonder dat bestand is er niets om mee in te loggen.
+[ -f .env.zadctl ] || {
+    echo "geen .env.zadctl in $(pwd)" >&2
+    echo "  Draai 'zadctl login' vanuit deze map; dit script leest de SSO-sessie daaruit." >&2
+    exit 1
+}
+
+# Alleen op EXIT, en dat is genoeg: bij een fataal signaal draait bash de EXIT-trap ook, en dan
+# eindigt het script (nagemeten met alléén deze trap: TERM geeft 143, HUP 129, map weg). Zou hier ook
+# INT/TERM/HUP/QUIT staan, dan wordt dit een handler zónder `exit` — die ruimt de map op en laat het
+# script gewoon doorlopen, precies het tegenovergestelde van afbreken. Verderop krijgen INT, TERM en
+# HUP een eigen handler die wél afsluit; deze regel dekt het venster daarvóór en QUIT.
+SLEUTELMAP="$(mktemp -d)"
+trap 'rm -rf "$SLEUTELMAP"' EXIT
+
+# De ZAD_API_KEY van de aanroeper blijft er bewust uit. Zou hij meekomen, dan levert een
+# `project use` die de key niet herschrijft stilzwijgend de key van het verkeerde project op — en
+# dat komt pas als 401 boven, halverwege een reeks van zevenentwintig.
+#
+# `mktemp -d` maakt de map al 0700, maar het bestand erft de umask van de aanroeper; met de gangbare
+# 022 zou een bestand mét SSO-sessie 0644 worden.
+( umask 077; sed '/^ZAD_API_KEY=/d' .env.zadctl > "$SLEUTELMAP/.env.zadctl" )
+
+declare -A SLEUTELS=()
+
+haal_sleutel() {
+    local project="$1"
+
+    [ -z "${SLEUTELS[$project]:-}" ] || return 0
+
+    # Uitvoer vasthouden en alleen bij een fout tonen: `project use` meldt op stderr dat het actieve
+    # project verandert, en dat is hier een interne stap in een eigen map — geen mededeling voor de
+    # operator, wiens eigen werkmap juist ongemoeid blijft.
+    # `</dev/null`: zou `project use` ooit iets vragen, dan faalt hij meteen in plaats van te wachten
+    # op invoer die niemand ziet — de uitvoer wordt hieronder immers opgevangen.
+    local melding
+    melding="$( cd "$SLEUTELMAP" && zadctl project use "$project" </dev/null 2>&1 )" || {
+        echo "kon geen API-key voor '$project' ophalen" >&2
+        echo "$melding" >&2
+        echo "  Is de SSO-sessie nog geldig, en ben je lid van dat project?" >&2
+        echo "  'zadctl login' en daarna 'zadctl project list' laten het zien." >&2
+        exit 1
+    }
+
+    # `|| true`: vindt grep niets, dan zou pipefail plus `set -e` de shell hier doden — vóór de
+    # melding hieronder, die dan nooit gedrukt wordt. `tail -n 1` omdat een append in plaats van een
+    # herschrijving anders twee regels tot één meerregelige key plakt.
+    local sleutel
+    sleutel="$(grep '^ZAD_API_KEY=' "$SLEUTELMAP/.env.zadctl" | tail -n 1 | cut -d= -f2- || true)"
+
+    # Niet alleen "niet leeg": een key met een afgekapte regel, aanhalingstekens of een
+    # achtergebleven CR gaat er anders uit en komt als 401 terug, halverwege de reeks. Bewust breed —
+    # het keyformaat staat nergens vast, dus alles wat drukbaar is en geen spatie of CR bevat mag
+    # door; een te smalle klasse zou een base64-key (`+`, `/`, `=`) ten onrechte weigeren.
+    [[ "$sleutel" =~ ^[[:graph:]]+$ ]] || {
+        echo "'zadctl project use $project' leverde geen bruikbare ZAD_API_KEY op" >&2
+        echo "  Verwacht werd één regel ZAD_API_KEY=<waarde>; kijk in $SLEUTELMAP/.env.zadctl." >&2
+        exit 1
+    }
+
+    SLEUTELS[$project]="$sleutel"
+}
+
+# De regels: project | deployment | component | scheme | poort | liveness-pad | readiness-pad
+#
+# De groepen staan op soort, want de reden hoort bij de soort. Dat is niet de volgorde waarin je ze
+# wilt uitrollen — een kale `apply` wisselt van project — dus gebruik het tweede argument om ze
+# gefaseerd te doen: eerst `mpfpsm-lcl`, dan `mpfm-w3h`, dan `mpfb-8wh`, en de FSC-deployments apart.
+
+# De twee WireMock-stubs. /__admin/health hoort bij de admin-API en kan door geen stub-mapping
+# worden overgenomen. Beide paden wijzen erheen: een WireMock zonder werkende admin-API is stuk, dus
+# een apart liveness-signaal bestaat er niet.
+STUBS=(
+    "mpfpsm-lcl|test|profiel|http|8080|/__admin/health|/__admin/health"
+    "mpfpsm-lcl|test|notificatie|http|8080|/__admin/health|/__admin/health"
+)
+
+# De vier storingsknoppen. De probe wijst naar de admin-API op 8474 en niet naar de proxy die de
+# knop dichtzet: die poort sluit Toxiproxy zodra je een proxy uitzet, en een probe daarop zou de pod
+# anderhalve minuut later herstarten — mét verlies van álle proxies. Ook readiness blijft daarom op
+# 8474, zodat de demo een weggevallen dienst toont in plaats van een verdwenen pod.
+TOXIPROXY=(
+    "mpfpsm-lcl|test|toxiproxy-profiel|http|8474|/version|/version"
+    "mpfpsm-lcl|test|toxiproxy-notificatie|http|8474|/version|/version"
+    "mpfb-8wh|test|toxiproxy-aanmeld|http|8474|/version|/version"
+    "mpfb-8wh|test|toxiproxy-redis|http|8474|/version|/version"
+)
+
+# Onze eigen Kotlin/Quarkus-componenten. `quarkus-smallrye-health` levert /q/health/live (alleen het
+# proces) en /q/health/ready (plus de afhankelijkheden die Quarkus aanmeldt). Readiness zakt dus mee
+# met PostgreSQL en Redis, liveness niet — dat onderscheid is de hele reden voor twee paden.
+KOTLIN=(
+    "mpfm-w3h|test|demopersonas|http|8098|/q/health/live|/q/health/ready"
+    "mpfm-w3h|test|democonsole|http|8095|/q/health/live|/q/health/ready"
+    "mpfm-w3h|test|magazijna|http|8090|/q/health/live|/q/health/ready"
+    "mpfm-w3h|test|magazijnb|http|8090|/q/health/live|/q/health/ready"
+    "mpfm-w3h|test|magazijnsimulator|http|8092|/q/health/live|/q/health/ready"
+    "mpfb-8wh|test|uitvraag|http|8086|/q/health/live|/q/health/ready"
+)
+
+# Wat geen HTTP spreekt. Een TCP-connect is hier een eerlijke probe: Redis en PostgreSQL beginnen
+# allebei met een connect die het serverproces zelf accepteert. De regel legt de keuze vast; het
+# gerenderde manifest verandert er niet van.
+#
+# `proeftuin` staat hier om een andere reden: zijn /health proxyt in het proeftuin-image naar een
+# chat-backend die in dit project niet bestaat, dus een httpGet daarop faalt gegarandeerd.
+TCP=(
+    "mpfm-w3h|test|proeftuin|tcp|8080||"
+    "mpfb-8wh|test|redis|tcp|6379||"
+    "mpfb-8wh|fsc-logius|logius-fscpg|tcp|5432||"
+    "mpfm-w3h|fsc-magazijna|magazijna-fscpg|tcp|5432||"
+)
+
+# De FSC-componenten. Op de manager, de inway, de outway en de txlog is de eerste poort een
+# TLS-luisteraar, waar de standaardcontrole elke twee seconden een afgebroken handshake achterlaat.
+# De twee controllers hebben dat probleem niet — hun eerste poort is de plain-HTTP UI op 8080 — maar
+# volgen dezelfde keuze, want /health/ready zegt meer dan een open UI-poort.
+#
+# Alle vijf de FSC-images bedienen /health/live en /health/ready op hun MONITORING_ADDRESS: 8080 op
+# de manager, 8081 op de rest (de MONITORING_ADDRESS-regels in
+# demo/environment/{logius,magazijn-a}/deploy/zad/upsert-peer.sh zijn de bron). Die poort staat niet
+# in `ports.inbound`; zie de kanttekening bovenaan. Hoofdstuk 9 draagt de meting waaruit blijkt dat
+# ready wél meezakt met een weggevallen txlog en live niet.
+#
+# magazijn-a heeft geen outway: die peer is aan de aanbiedende kant. Komt hij er ooit (zie
+# cutover-interne-outway.md), dan hoort hier een regel bij.
+FSC=(
+    "mpfb-8wh|fsc-logius|logius-fscmgr|http|8080|/health/live|/health/ready"
+    "mpfb-8wh|fsc-logius|logius-fscctl|http|8081|/health/live|/health/ready"
+    "mpfb-8wh|fsc-logius|logius-fscinway|http|8081|/health/live|/health/ready"
+    "mpfb-8wh|fsc-logius|logius-fscoutway|http|8081|/health/live|/health/ready"
+    "mpfb-8wh|fsc-logius|logius-fsctxlog|http|8081|/health/live|/health/ready"
+    "mpfm-w3h|fsc-magazijna|magazijna-fscmgr|http|8080|/health/live|/health/ready"
+    "mpfm-w3h|fsc-magazijna|magazijna-fscctl|http|8081|/health/live|/health/ready"
+    "mpfm-w3h|fsc-magazijna|magazijna-fscinway|http|8081|/health/live|/health/ready"
+    "mpfm-w3h|fsc-magazijna|magazijna-fsctxlog|http|8081|/health/live|/health/ready"
+)
+
+# De twee bootstrap-componenten draaien eenmalig en openen geen inbound poort. Zonder poort rendert
+# ZAD nu al geen enkele probe; `none` maakt daar een opgeschreven keuze van in plaats van een gevolg.
+# Poort en paden blijven leeg: het schema laat ze weg, en een waarde invullen zou suggereren dat er
+# iets gecontroleerd wordt.
+GEEN=(
+    "mpfb-8wh|fsc-logius|logius-fscbootstrap|none|||"
+    "mpfm-w3h|fsc-magazijna|magazijna-fscbootstrap|none|||"
+)
+
+REGELS=("${STUBS[@]}" "${TOXIPROXY[@]}" "${KOTLIN[@]}" "${TCP[@]}" "${FSC[@]}" "${GEEN[@]}")
+
+PROJECTEN=(mpfb-8wh mpfm-w3h mpfpsm-lcl)
+
+bevat() {
+    local naald="$1" kandidaat
+    shift
+
+    for kandidaat in "$@"; do
+        [ "$kandidaat" = "$naald" ] && return 0
+    done
+
+    return 1
+}
+
+# De tabel is handwerk, en een typefout erin faalt op een manier die de oorzaak niet noemt: een
+# verkeerd project slaat regels stil over, een pad bij een tcp-regel zou een httpGet zetten op een
+# pad dat gegarandeerd faalt, en twee regels voor hetzelfde component laten stil de laatste winnen.
+# Daarom eerst de hele tabel toetsen, vóór er één aanroep uitgaat.
+declare -A GEZIEN=()
+
+regel=0
+
+for r in "${REGELS[@]}"; do
+    regel=$((regel + 1))
+
+    # De sluitwaarde erachter is er omdat `read` lege velden aan het eind wegzuigt: een tcp-regel
+    # eindigt op twee lege paden, en zonder deze truc telt een regel met een weggevallen scheidings-
+    # teken even lang als een goede. Blijft de sluitwaarde staan, dan waren het precies zeven velden.
+    IFS='|' read -r project deployment component scheme poort liveness readiness rest <<<"$r|EIND"
+
+    [ "$rest" = EIND ] || {
+        echo "tabelregel $regel heeft niet precies 7 velden: $r" >&2
+        exit 1
+    }
+
+    bevat "$project" "${PROJECTEN[@]}" || {
+        echo "tabelregel $regel noemt onbekend project '$project': $r" >&2
+        exit 1
+    }
+
+    [ -n "$deployment" ] && [ -n "$component" ] || {
+        echo "tabelregel $regel mist een deployment of een componentnaam: $r" >&2
+        exit 1
+    }
+
+    sleutel="$project|$deployment|$component"
+
+    [ -z "${GEZIEN[$sleutel]:-}" ] || {
+        echo "tabelregel $regel herhaalt $project/$deployment $component (eerder op regel ${GEZIEN[$sleutel]})" >&2
+        echo "  twee regels voor hetzelfde component laten stil de laatste winnen." >&2
+        exit 1
+    }
+
+    GEZIEN[$sleutel]="$regel"
+
+    case "$scheme" in
+        http|https)
+            [ -n "$liveness" ] && [ -n "$readiness" ] || {
+                echo "tabelregel $regel is '$scheme' maar mist een pad: $r" >&2
+                exit 1
+            }
+            ;;
+        tcp)
+            [ -z "$liveness" ] && [ -z "$readiness" ] || {
+                echo "tabelregel $regel is 'tcp' en kent geen paden: $r" >&2
+                exit 1
+            }
+            ;;
+        none)
+            [ -z "$poort" ] && [ -z "$liveness" ] && [ -z "$readiness" ] || {
+                echo "tabelregel $regel is 'none' en hoort poort noch paden te noemen: $r" >&2
+                exit 1
+            }
+            ;;
+        *)
+            echo "tabelregel $regel noemt onbekend scheme '$scheme': $r" >&2
+            exit 1
+            ;;
+    esac
+
+    # Het schema kent voor beide paden `^/[A-Za-z0-9/_.\-]*\Z`. Een pad met een query-string of een
+    # relatief pad zou pas bij de aanroep struikelen, halverwege een reeks die de rest al gemuteerd
+    # heeft — dezelfde reden als bij de poortgrens hieronder.
+    for pad in "$liveness" "$readiness"; do
+        [ -z "$pad" ] && continue
+
+        case "$pad" in
+            /*[!A-Za-z0-9/_.-]*|[!/]*)
+                echo "tabelregel $regel heeft een pad dat het schema niet toelaat: $pad" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    # Het schema laat 1024-65535 toe en vult zonder waarde de eerste inbound-poort in. Die default
+    # willen we nergens: hij zou een probe op de functionele poort zetten bij precies de componenten
+    # waar dat de fout is.
+    if [ "$scheme" != none ]; then
+        case "$poort" in
+            ''|*[!0-9]*)
+                echo "tabelregel $regel heeft geen numerieke poort: $r" >&2
+                exit 1
+                ;;
+        esac
+
+        if [ "$poort" -lt 1024 ] || [ "$poort" -gt 65535 ]; then
+            echo "tabelregel $regel heeft poort $poort, buiten het toegestane 1024-65535: $r" >&2
+            exit 1
+        fi
+    fi
+done
+
+# De filter mag een project of een deployment noemen. Een project is de eenheid waarop OM
+# vergrendelt; een deployment is de eenheid waarin de FSC-runbooks denken. `test` bestaat in alle
+# drie de projecten en selecteert ze dus alle drie.
+SELECTIE=()
+
+for r in "${REGELS[@]}"; do
+    IFS='|' read -r project deployment _ <<<"$r"
+
+    if [ "$FILTER" = alle ] || [ "$FILTER" = "$project" ] || [ "$FILTER" = "$deployment" ]; then
+        SELECTIE+=("$r")
+    fi
+done
+
+if [ "${#SELECTIE[@]}" -eq 0 ]; then
+    echo "'$FILTER' selecteert geen enkele regel. Kies 'alle', een project (${PROJECTEN[*]})" >&2
+    echo "  of een deploymentnaam (test, fsc-logius, fsc-magazijna). Let op: 'test' bestaat in alle" >&2
+    echo "  drie de projecten en selecteert ze dus alle drie." >&2
+    exit 1
+fi
+
+# Exitcode 2 is platform of netwerk en dus de moeite van opnieuw proberen waard; 1 en 3 niet. Boven
+# 128 is het een signaal — meestal Ctrl-C — en dan is er geen melding van zadctl om naar te wijzen.
+duid_exitcode() {
+    local status="$1"
+
+    if [ "$status" -ge 128 ]; then
+        echo "  afgebroken door signaal $((status - 128))." >&2
+    elif [ "$status" -eq 2 ] && [ "$MODE" = apply ]; then
+        echo "  platform of netwerk (exit 2). Vaak een uitrol die op dit project al loopt — kijk met" >&2
+        echo "  'gh run list --workflow \"Deploy ZAD\"' en draai daarna opnieuw." >&2
+    else
+        echo "  exit $status; zie de melding van zadctl hierboven." >&2
+    fi
+}
+
+# Wie halverwege afbreekt moet weten waar hij staat: het script kent geen rollback, en de regels die
+# nog niet aan de beurt waren houden de blinde TCP-controle waar dit script juist vanaf wil.
+gedaan=0
+half_ingesteld=""
+bezig_uitrollen=""
+stand_gemeld=0
+
+# Vóór de traps geplaatst worden, want `meld_stand` leest hem: een signaal tijdens de vooraf-lus —
+# de traagste stap, die met OM praat — zou de handler anders op `set -u` doen sneuvelen, precies
+# waar de operator de stand nodig heeft.
+zonder_regel=0
+
+# Pas gevuld ná een geslaagde refresh. Zou hij vóór de aanroep gevuld worden, dan zou de melding bij
+# een afgebroken run een project als uitgerold opgeven dat alleen opgeslagen staat.
+UITGEROLD=()
+
+meld_stand() {
+    [ "$MODE" = apply ] || return 0
+    [ "$stand_gemeld" -eq 0 ] || return 0
+
+    stand_gemeld=1
+
+    echo "  $gedaan van ${#SELECTIE[@]} componenten waren ingesteld toen dit afbrak;" >&2
+    echo "  opnieuw draaien is veilig — elke aanroep schrijft het hele document opnieuw." >&2
+
+    if [ "$zonder_regel" -ne 0 ]; then
+        echo "  En $zonder_regel component(en) houden de blinde TCP-controle; zie de LET OP-regels" >&2
+        echo "  van de voorbeschouwing hierboven." >&2
+    fi
+
+    if [ -n "$half_ingesteld" ]; then
+        echo "  LET OP: $half_ingesteld draagt de dienst nu wél maar is niet ingesteld. Wat die" >&2
+        echo "  component daarmee doet is niet vastgesteld; draai apply opnieuw." >&2
+    fi
+
+    # Een signaal tijdens de refresh is het enige moment waarop het script niet weet of de uitrol
+    # doorging: de aanroep is verstuurd, het antwoord nog niet gelezen.
+    if [ -n "$bezig_uitrollen" ]; then
+        echo "  LET OP: de uitrol van $bezig_uitrollen was onderweg. OM kan hem alsnog hebben" >&2
+        echo "  uitgevoerd; 'zadctl -p $bezig_uitrollen project pending' toont wat er nog wacht." >&2
+    fi
+
+    if [ "${#UITGEROLD[@]}" -eq 0 ]; then
+        echo "  Er is niets uitgerold: dit script schrijft met --no-rollout en rolt pas aan het eind" >&2
+        echo "  uit. Wil je de opgeslagen stand tóch kwijt, kijk dan met 'zadctl project pending'." >&2
+    else
+        echo "  Al uitgerold: ${UITGEROLD[*]}. De overige projecten dragen de instellingen alleen" >&2
+        echo "  opgeslagen; 'zadctl -p <project> project pending' toont wat daar nog wacht." >&2
+    fi
+}
+
+# De handler moet zelf afsluiten: bash draait hem tussen twee commando's door en gaat daarna gewoon
+# verder. Zonder de exit meldt het script "afgebroken" en muteert het de resterende componenten
+# alsnog — het tegenovergestelde van wat de operator net vroeg.
+trap 'echo >&2; echo "afgebroken." >&2; meld_stand; exit 130' INT
+trap 'echo >&2; echo "afgebroken." >&2; meld_stand; exit 143' TERM
+trap 'echo >&2; echo "afgebroken." >&2; meld_stand; exit 129' HUP
+
+# Vooraf ophalen wat er in elke geselecteerde deployment staat. Dat doet drie dingen die `plan` zelf
+# niet kan: het bewijst dat de sessie geldig is (--dry-run bereikt OM niet, dus een verlopen login
+# komt anders pas bij de eerste echte aanroep boven), het vangt een component dat niet bestaat
+# vóórdat de helft gemuteerd is, en het laat zien welke componenten géén regel hebben — precies de
+# componenten die stilzwijgend op de standaardcontrole blijven staan.
+#
+# Die tweede richting kijkt alleen ín de deployments die de tabel noemt. Een héle deployment zonder
+# regel valt er dus buiten; die vind je met `zadctl -p <project> deployment list`.
+declare -A AANWEZIG=()
+
+PAREN=()
+
+for r in "${SELECTIE[@]}"; do
+    IFS='|' read -r project deployment _ <<<"$r"
+    paar="$project|$deployment"
+
+    bevat "$paar" "${PAREN[@]}" || PAREN+=("$paar")
+done
+
+echo "== vooraf: wat staat er in ${#PAREN[@]} deployment(s)?"
+
+for paar in "${PAREN[@]}"; do
+    IFS='|' read -r project deployment <<<"$paar"
+
+    haal_sleutel "$project"
+
+    # `--strict` maakt van een waarschuwing een non-nul exit, zodat "gelukt maar degraded" niet als
+    # gelukt langskomt. Let op wat het NIET vangt: een taak die door een gelijktijdige uitrol
+    # overruled is, meldt `status: superseded` en is volgens `zadctl guide` een succes met exit 0 —
+    # geen waarschuwing. Daarvoor is `zadctl project pending` het instrument. Geen 2>/dev/null:
+    # niet-ingelogd of een lock bij OM zou anders als "niet gevonden" langskomen.
+    status=0
+    beschrijving="$(ZAD_API_KEY="${SLEUTELS[$project]}" \
+        zadctl --strict -p "$project" deployment describe "$deployment" -o json)" || status=$?
+
+    if [ "$status" -ne 0 ]; then
+        echo "zadctl kon deployment '$deployment' in '$project' niet beschrijven" >&2
+        duid_exitcode "$status"
+        exit "$status"
+    fi
+
+    # Gestructureerd lezen en niet greppen: een grep op `"name": "x"` hangt aan de opmaak die de CLI
+    # niet belooft, en matcht bovendien elke andere benoemde zaak in het antwoord. Bewust zónder
+    # default op `components`: een antwoord dat die sleutel niet draagt is een veranderde CLI-uitvoer,
+    # en dat mag geen "de tabel klopt niet" worden.
+    status=0
+    namen="$(printf '%s' "$beschrijving" | python3 -c "
+import json, sys
+
+print('\n'.join(c['name'] for c in json.load(sys.stdin)['components']))
+")" || status=$?
+
+    if [ "$status" -ne 0 ]; then
+        # Bewust géén duid_exitcode: die exitcode komt van python3, en de duiding daar gaat over
+        # zadctl — "platform of netwerk, kijk naar een lopende uitrol" zou hier onzin zijn.
+        echo "componentenlijst niet uit het describe-antwoord van '$deployment' te lezen" >&2
+        echo "  De uitvoer van zadctl had een andere vorm dan verwacht; kijk er zelf naar met" >&2
+        echo "  'zadctl -p $project deployment describe $deployment -o json'." >&2
+        exit 1
+    fi
+
+    [ -n "$namen" ] || {
+        echo "describe van '$project/$deployment' noemt geen enkel component." >&2
+        echo "  Controleer de CLI-uitvoer, niet de tabel — een lege lijst zou hieronder elke regel" >&2
+        echo "  ten onrechte als 'component bestaat niet' aanwijzen." >&2
+        exit 1
+    }
+
+    AANWEZIG["$paar"]="$namen"
+done
+
+# Beide richtingen verzamelen vóór er één afsluit: wie de voorbeschouwing draait wil alles zien wat
+# er mis is, niet de eerste klasse fouten en de tweede pas na een tweede ronde.
+ontbreekt=0
+
+for r in "${SELECTIE[@]}"; do
+    IFS='|' read -r project deployment component _ <<<"$r"
+
+    printf '%s\n' "${AANWEZIG["$project|$deployment"]}" | grep -qxF -- "$component" || {
+        echo "de tabel noemt '$component', maar dat component staat niet in $project/$deployment" >&2
+        ontbreekt=$((ontbreekt + 1))
+    }
+done
+
+# De andere richting: een component dat er wél staat maar geen regel heeft, houdt de blinde
+# TCP-controle. Dat is geen fout in dit script maar wel precies wat dit werk wil uitsluiten, dus het
+# hoort luid gemeld te worden in plaats van stil te blijven.
+
+for paar in "${PAREN[@]}"; do
+    IFS='|' read -r project deployment <<<"$paar"
+
+    while read -r aanwezig; do
+        [ -n "$aanwezig" ] || continue
+
+        [ -n "${GEZIEN["$project|$deployment|$aanwezig"]:-}" ] && continue
+
+        echo "LET OP: $project/$deployment draait '$aanwezig' zonder regel in dit script;" >&2
+        echo "  dat component houdt de blinde TCP-controle op zijn eerste poort." >&2
+        zonder_regel=$((zonder_regel + 1))
+    done <<<"${AANWEZIG["$paar"]}"
+done
+
+if [ "$ontbreekt" -ne 0 ]; then
+    echo "$ontbreekt regel(s) noemen een component dat niet bestaat; corrigeer de tabel in dit" >&2
+    echo "  script voor je verder gaat. Er is nog niets gewijzigd." >&2
+    exit 1
+fi
+
+echo "== ${#SELECTIE[@]} regels, $zonder_regel component(en) zonder regel"
+echo
+
+# In plan-modus is doorgaan na een fout het punt: wie de voorbeschouwing draait wil álle regels zien,
+# niet de eerste die struikelt. In apply-modus is stoppen het punt: doorgaan zou de rest muteren
+# terwijl er iets niet klopt.
+mislukt=0
+
+for r in "${SELECTIE[@]}"; do
+    IFS='|' read -r project deployment component scheme poort liveness readiness <<<"$r"
+
+    echo "== [$MODE] $project/$deployment $component -> $scheme ${poort:+:$poort}" \
+         "${liveness:-(geen paden)} ${readiness:-}"
+
+    # `--no-rollout`: elke aanroep zou anders meteen naar de cluster rollen, dus 54 uitrollen én een
+    # moment per component waarop het de dienst draagt zonder configuratie. Aan het eind rolt één
+    # `project refresh` per project alles in één keer uit.
+    #
+    # `--strict` staat op béide aanroepen, zodat een waarschuwing niet als succes langskomt — een
+    # geweigerde approval bijvoorbeeld. Bij het binden levert dat één verwachte uitzondering op:
+    # zodra de dienst op projectniveau geselecteerd is meldt `service assign` "already exists on the
+    # project" als waarschuwing, en dat is exact het idempotente geval waar dit script op leunt. Die
+    # ene melding wordt hieronder als succes geteld; elke andere non-nul blijft een fout.
+    ZAD=(zadctl --strict --no-rollout -p "$project")
+
+    INSTELLING=(--set "scheme=$scheme")
+
+    [ -n "$poort" ] && INSTELLING+=(--set "port=$poort")
+
+    if [ -n "$liveness" ]; then
+        INSTELLING+=(--set "liveness-path=$liveness" --set "readiness-path=$readiness")
+    fi
+
+    rij_mislukt=0
+
+    # De status apart opvangen en niet met `if ! ...; then status=$?`: binnen die tak is `$?` de
+    # uitkomst van het `if` zelf (0), niet die van zadctl, en dan zou een mislukte apply met een
+    # nul-exitcode eindigen.
+    # Uitvoer opvangen om de idempotente waarschuwing van een echte fout te kunnen onderscheiden, en
+    # daarna alsnog tonen: de operator hoort te zien wat er gebeurde.
+    status=0
+    bind_uitvoer="$(ZAD_API_KEY="${SLEUTELS[$project]}" \
+        "${ZAD[@]}" service assign health-check -c "$component" "${DRYRUN[@]}" 2>&1)" || status=$?
+
+    # Naar stdout, niet naar stderr: in plan-modus is dit de helft van de voorbeschouwing, en
+    # `gezondheidscontrole.sh plan > plan.txt` hoort niet de ene aanroep te tonen en de andere niet.
+    [ -z "$bind_uitvoer" ] || printf '%s\n' "$bind_uitvoer"
+
+    # Alleen exit 1 — een waarschuwing onder `--strict`. Exit 2 is platform of netwerk en boven 128
+    # een signaal; die mogen nooit door deze uitzondering glippen. De tekst zelf komt uit zadctl en
+    # staat nergens als contract vast: herformuleert de CLI hem, dan breekt elke tweede aanroep weer
+    # af, en dan hoort deze regel mee te veranderen (de testsuite draagt dezelfde constante).
+    if [ "$status" -eq 1 ]; then
+        case "$bind_uitvoer" in
+            *"already exists on the project"*)
+                # De dienst stond al op het project; het binden zelf is gelukt.
+                status=0
+                ;;
+        esac
+    fi
+
+    if [ "$status" -ne 0 ]; then
+        echo "health-check binden aan $project/$deployment $component mislukte" >&2
+        duid_exitcode "$status"
+
+        if [ "$MODE" = apply ]; then
+            meld_stand
+            exit "$status"
+        fi
+
+        rij_mislukt=1
+    else
+        half_ingesteld="$project/$deployment $component"
+    fi
+
+    # `--yes`: `service config set` schrijft het hele document en vraagt bevestiging vóór het een
+    # veld weggooit. Bij een regel die van http naar tcp gaat zou de reeks daar op stdin blijven
+    # hangen, halverwege zevenentwintig componenten.
+    status=0
+    ZAD_API_KEY="${SLEUTELS[$project]}" \
+        "${ZAD[@]}" service config set health-check -c "$component" --yes \
+        "${INSTELLING[@]}" "${DRYRUN[@]}" || status=$?
+
+    if [ "$status" -ne 0 ]; then
+        echo "health-check instellen op $project/$deployment $component mislukte" >&2
+        duid_exitcode "$status"
+
+        if [ "$MODE" = apply ]; then
+            meld_stand
+            exit "$status"
+        fi
+
+        rij_mislukt=1
+    fi
+
+    half_ingesteld=""
+
+    if [ "$rij_mislukt" -ne 0 ]; then
+        mislukt=$((mislukt + 1))
+        continue
+    fi
+
+    gedaan=$((gedaan + 1))
+done
+
+if [ "$MODE" = "plan" ]; then
+    echo
+    echo "Dit was een plan; $gedaan van ${#SELECTIE[@]} regels kwamen door, $mislukt niet."
+    echo "Alleen de voorbeschouwing hierboven heeft OM gesproken: --dry-run stuurt de aanroepen zelf"
+    echo "niet, dus wat OM van de waarden vindt blijkt pas bij apply."
+
+    [ "$zonder_regel" -eq 0 ] || echo "En $zonder_regel component(en) houden de blinde TCP-controle."
+
+    [ "$mislukt" -eq 0 ] || exit 1
+
+    exit 0
+fi
+
+# Alles staat opgeslagen maar nog niet uitgerold. Eén refresh per project laat het in één keer
+# landen, in plaats van 54 losse uitrollen op projecten waarop OM project-breed vergrendelt.
+GEPROBEERD=()
+
+for paar in "${PAREN[@]}"; do
+    IFS='|' read -r project _ <<<"$paar"
+
+    bevat "$project" "${GEPROBEERD[@]}" && continue
+
+    GEPROBEERD+=("$project")
+
+    echo "== uitrollen: $project"
+
+    # `--strict` ook hier, voor dezelfde waarschuwingen. Het zegt niets over een uitrol die door een
+    # gelijktijdige taak overruled is: die heet `superseded`, is een succes met exit 0, en is alleen
+    # zichtbaar via `zadctl project pending` — wat de slottekst hieronder aanraadt.
+    bezig_uitrollen="$project"
+
+    status=0
+    ZAD_API_KEY="${SLEUTELS[$project]}" zadctl --strict -p "$project" project refresh || status=$?
+
+    bezig_uitrollen=""
+
+    if [ "$status" -ne 0 ]; then
+        echo "uitrollen van '$project' mislukte; de instellingen staan er wel, uitgerold zijn ze niet" >&2
+        duid_exitcode "$status"
+        meld_stand
+        echo "  'zadctl -p $project project pending' toont wat nog wacht; refresh kan opnieuw." >&2
+        exit "$status"
+    fi
+
+    UITGEROLD+=("$project")
+done
+
+cat <<KLAAR
+
+Klaar: $gedaan componenten ingesteld; OM heeft de uitrol voor ${#UITGEROLD[@]} project(en)
+aangenomen. Dat een taak is aangenomen betekent nog niet dat Argo hem gesynct heeft — de
+manifestcontrole hieronder is het bewijs.
+$( [ "$zonder_regel" -eq 0 ] || echo "LET OP: $zonder_regel component(en) houden de blinde
+TCP-controle — zie de LET OP-regels van de voorbeschouwing hierboven." )
+
+Verifiëren doe je niet in de UI maar in het gerenderde manifest — dat is wat Argo synct:
+
+  gh api repos/RijksICTGilde/rig-cluster-application-test/contents/\\
+odcn-production/<project>/<deployment>/<component>-deployment.yaml --jq '.content' | base64 -d
+
+Verwacht een startupProbe, livenessProbe en readinessProbe die de gekozen vorm dragen, en bij een
+tcp- of none-regel géén achtergebleven pad. Argo heeft een sync-ronde nodig; blijft het manifest
+ongewijzigd, kijk dan eerst of er een uitrol liep.
+
+Stap 10 van verify-zad.md ernaast loopt dat na, samen met wat er daarna met de hand te controleren
+valt: readiness die meezakt zonder herstart, en de storingsknoppen die blijven werken.
+KLAAR
