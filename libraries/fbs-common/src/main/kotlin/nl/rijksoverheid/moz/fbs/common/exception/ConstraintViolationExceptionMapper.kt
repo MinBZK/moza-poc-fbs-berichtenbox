@@ -46,6 +46,7 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
             status = 400,
             title = "Bad Request",
             detail = sanitizeClientDetail(rawDetail),
+            foutcode = Foutcode.ONGELDIG_VERZOEK,
         )
     }
 
