@@ -158,18 +158,21 @@ zadctl logs fsc-logius -c logius-fscoutway | grep -i "HTTPS server"   # verwacht
 zadctl logs test -c uitvraag | grep -iE "PKIX|SSLHandshake"           # verwacht: niets
 ```
 
-**De outway logt vanaf nu elke twee seconden een TLS-fout, en dat hoort zo.** De readinessProbe
-is een `tcpSocket`-probe op 8443 met `periodSeconds: 2`; die opent een verbinding en sluit 'm
-meteen, wat een TLS-server als een afgebroken handshake ziet:
+**Zonder de `health-check`-dienst logt de outway hier elke twee seconden een TLS-fout.** De
+standaard-readinessProbe is een `tcpSocket`-probe op 8443 met `periodSeconds: 2`; die opent een
+verbinding en sluit 'm meteen, wat een TLS-server als een afgebroken handshake ziet:
 
 ```
 ERROR ... "http: TLS handshake error from 10.x.x.x:39xxx: EOF"
 ```
 
-De probe slaagt gewoon (hij toetst alleen of de poort verbindingen aanneemt) en de deployment
-blijft Healthy. Filter erop bij het lezen van deze logs, en trap er niet in als je een écht
-handshake-probleem zoekt: dat komt van het adres van de uitvraag-pod en staat aan die kant als
-`PKIX path building failed`.
+Met de probe op de monitoring-poort horen die regels er niet meer te zijn — hoofdstuk 9 van
+`demo/environment/zad-demo/README.md` beschrijft die keuze, en stap 10(d) van
+`demo/environment/zad-demo/verify-zad.md` telt ze op nul. Zie je ze tóch, dan draagt dit component
+de dienst (nog) niet.
+
+Trap er in beide gevallen niet in als je een écht handshake-probleem zoekt: dat komt van het adres
+van de uitvraag-pod en staat aan die kant als `PKIX path building failed`.
 
 Daarna de functionele smoke: een ophaal-request door de keten
 `berichtenuitvraag → logius-fscoutway → magazijna-fscinway → berichtenmagazijn`, met een verse BSN
