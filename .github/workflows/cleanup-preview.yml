@@ -7,8 +7,8 @@
 # weggericht van main (base op een feature-branch gezet en daar gemerged), dan matchte het
 # close-event het filter niet en bleef de hele preview staan. Teardown heeft dat filter niet
 # nodig zolang geen van deze jobs een required context op main is — voeg ze daar dus niet aan toe:
-# deze workflow draait alleen bij het sluiten van een PR, dus zo'n context verschijnt op een open PR
-# nooit en zou elke merge voorgoed blokkeren.
+# deze workflow draait alleen bij het sluiten van een PR of het terugzetten naar draft, dus zo'n
+# context verschijnt op een PR die ready for review is nooit en zou elke merge voorgoed blokkeren.
 #
 # WAAROM `pull_request_target` EN NIET `pull_request`: dat laatste draait niet als de PR een
 # merge-conflict heeft (GitHub voert de workflow uit op de merge-ref, en die is er dan niet) — en
@@ -37,7 +37,7 @@
 # `postgresql-database`-service, `database_cleanup` — de database van die deployment gaat mee. Voor
 # een `pr-<n>`-preview is dat de bedoeling. Vandaar de rem op de handmatige route: het nummer moet
 # een getal zijn (zodat er geen andere deployment-naam als `test` uit te construeren is) én bij een
-# PR horen die daadwerkelijk gesloten is.
+# PR horen die daadwerkelijk gesloten is of op draft staat.
 #
 # Repo-secrets (Settings → Secrets and variables → Actions):
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
@@ -51,10 +51,14 @@
 name: Cleanup ZAD preview
 
 on:
-  # GEEN `branches`-filter: zie de toelichting bovenaan. Alleen `closed` — een gesloten PR is het
-  # enige moment waarop een preview overbodig wordt (heropenen deployt opnieuw via deploy.yml).
+  # GEEN `branches`-filter: zie de toelichting bovenaan. Een preview wordt overbodig bij het sluiten
+  # van een PR en bij het terugzetten naar draft, want een draft-PR krijgt er geen (zie `changes` in
+  # deploy.yml). Heropenen en `ready_for_review` deployen opnieuw via deploy.yml.
+  #
+  # Komt een PR terug uit draft terwijl deze opruiming nog loopt, dan kan de ghcr-sweep hieronder
+  # een zojuist gepusht image van de nieuwe run meenemen. Herdraai dan de deploy.
   pull_request_target:
-    types: [closed]
+    types: [closed, converted_to_draft]
   workflow_dispatch:
     inputs:
       pr:
@@ -146,19 +150,21 @@ jobs:
 
           # Een handmatige run is de inhaalslag voor een gemiste opruiming, dus bediend door iemand
           # met haast. Een typefout zou anders drie keer "niet gevonden" opleveren: een volledig
-          # groene run die niets opruimde. Erger is een bestaand nummer van een ópen PR: dat sloopt
-          # een levende preview inclusief database. Bij een close-event zijn beide eisen per
-          # definitie al waar.
+          # groene run die niets opruimde. Erger is een bestaand nummer van een PR die ready for
+          # review is: dat sloopt een levende preview inclusief database. Bij een close- of
+          # draft-event zijn beide eisen per definitie al waar.
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             # `gh api` faalt hier op 404 én op 403/429/5xx; de melding trekt daarom geen conclusie
             # over de oorzaak. Weigeren is in alle gevallen de veilige kant.
-            if ! staat=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$nummer" --jq .state); then
+            if ! pr_stand=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$nummer" --jq '"\(.state) \(.draft)"'); then
               echo "::error::Kon niet bevestigen dat PR $nummer in $GITHUB_REPOSITORY bestaat (bestaat niet, of GitHub gaf een fout) — opruimen afgebroken."
               exit 1
             fi
 
-            if [ "$staat" != "closed" ]; then
-              echo "::error::PR $nummer is nog $staat — opruimen zou een levende preview slopen, inclusief database. Sluit de PR eerst."
+            read -r staat draft <<<"$pr_stand"
+
+            if [ "$staat" != "closed" ] && [ "$draft" != "true" ]; then
+              echo "::error::PR $nummer is nog $staat en staat niet op draft — opruimen zou een levende preview slopen, inclusief database. Sluit de PR of zet hem op draft."
               exit 1
             fi
           fi
