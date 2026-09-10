@@ -25,9 +25,9 @@ import java.util.Properties
  */
 class PaneelPadenTest {
 
-    private val paneel: String = File(PANEEL).readText()
+    private val paneel: String = PaneelBestanden.paneel()
 
-    private val script: String = File(SCRIPT).readText()
+    private val script: String = PaneelBestanden.script()
 
     /**
      * Het script zonder commentaar. De tellingen hieronder zoeken naar code-constructies, en een
@@ -324,11 +324,11 @@ class PaneelPadenTest {
 
     private companion object {
 
-        const val RESOURCES = "src/main/resources/META-INF/resources"
+        const val RESOURCES = PaneelBestanden.RESOURCES_PAD
 
-        const val PANEEL = "$RESOURCES/index.html"
+        const val PANEEL = PaneelBestanden.PANEEL_PAD
 
-        const val SCRIPT = "$RESOURCES/bediening.js"
+        const val SCRIPT = PaneelBestanden.SCRIPT_PAD
 
         const val PROPERTIES = "src/main/resources/application.properties"
 

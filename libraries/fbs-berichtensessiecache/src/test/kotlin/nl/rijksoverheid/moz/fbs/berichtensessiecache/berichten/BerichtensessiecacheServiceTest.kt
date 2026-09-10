@@ -8,6 +8,7 @@ import io.mockk.verify
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.smallrye.mutiny.Uni
+import io.vertx.core.impl.NoStackTraceThrowable
 import jakarta.ws.rs.ProcessingException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnAggregatieBulkhead
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBericht
@@ -15,6 +16,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnBerichtenR
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnCircuitBreaker
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnPaginaLezer
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazijn
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
@@ -27,6 +29,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import jakarta.ws.rs.WebApplicationException
 import java.time.Duration
 import java.time.Instant
@@ -48,7 +52,7 @@ class BerichtensessiecacheServiceTest {
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
-    private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20)
+    private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 15000L)
     private val testBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L)
     // Korte timeouts in unit-tests: outer (3s) > inner (2s) zodat de cross-check
     // groen blijft maar tests niet wachten op het volledige prod-budget.
@@ -131,7 +135,7 @@ class BerichtensessiecacheServiceTest {
     fun `lege resolver-set leidt tot OPHALEN_GEREED met totaal 0`() {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
-        every { clientFactory.getAllClients() } returns emptyMap()
+        every { clientFactory.getAllMagazijnen() } returns emptyMap()
         every { berichtenCache.store(cacheKey, emptyList()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
@@ -170,7 +174,7 @@ class BerichtensessiecacheServiceTest {
         // Hard falen ipv stil leeg-degraderen; cleanup vóór throw voorkomt lock-TTL-hang.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("ghost-magazijn"))
-        every { clientFactory.getAllClients() } returns emptyMap()
+        every { clientFactory.getAllMagazijnen() } returns emptyMap()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
         val ex = assertThrows<IllegalArgumentException> {
@@ -372,7 +376,7 @@ class BerichtensessiecacheServiceTest {
         // i.p.v. mid-stream HTTP-500. Referentie verbindt event naar cleanup-log.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
-        every { clientFactory.getAllClients() } returns emptyMap()
+        every { clientFactory.getAllMagazijnen() } returns emptyMap()
         every { berichtenCache.store(cacheKey, emptyList()) } returns
             Uni.createFrom().failure(RuntimeException("Redis store down"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -397,6 +401,73 @@ class BerichtensessiecacheServiceTest {
                 match { it.status == OphalenStatus.FOUT },
             )
         }
+    }
+
+    @Test
+    fun `een Throwable op het blocking lege-magazijn-pad wordt door de bestaande catch gevangen`() {
+        // `await().atMost(...)` verpakt een niet-RuntimeException in een CompletionException, die
+        // wél een Exception is. Daarom volstaat `catch (e: Exception)` op de blocking paden, terwijl
+        // de reactieve recovers op Throwable moeten filteren. Deze test bewaakt die aanname: valt
+        // hij ooit om, dan moeten de blocking catches mee verbreed worden.
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
+        every { clientFactory.getAllMagazijnen() } returns emptyMap()
+        every { berichtenCache.store(cacheKey, emptyList()) } returns
+            Uni.createFrom().failure(NoStackTraceThrowable("Redis waiting queue is full"))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(5))
+
+        assertInstanceOf(OphalenMisluktVoorBevraging::class.java, events.single())
+    }
+
+    @Test
+    fun `een Vert-x-fout bij het opslaan na bevraging levert OPHALEN_FOUT met referentie`() {
+        // Alle organisaties zijn bevraagd en hebben geantwoord; alleen het bewaren mislukt. De
+        // gebruiker moet horen dat het ophalen niet bewaard kon worden en dat hij opnieuw moet
+        // ophalen — niet in een afgekapte verbinding blijven hangen.
+        val client = mockk<MagazijnClient>()
+
+        stubAggregatie(client)
+        every { client.getBerichten(any(), any(), any(), any()) } returns eenPagina(testMagazijnBericht())
+        every { berichtenCache.store(cacheKey, any()) } returns
+            Uni.createFrom().failure(NoStackTraceThrowable("Redis waiting queue is full"))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(10))
+
+        val fout = assertInstanceOf(OphalenFout::class.java, events.last())
+
+        assertTrue(
+            fout.foutmelding.contains("(ref: ${fout.referentie})"),
+            "Foutmelding moet de (ref: <UUID>)-suffix dragen; was: ${fout.foutmelding}",
+        )
+        assertTrue(
+            events.filterIsInstance<OphalenGereed>().isEmpty(),
+            "een mislukte opslag mag niet als GEREED eindigen",
+        )
+    }
+
+    @Test
+    fun `een Vert-x-fout uit een magazijn-bevraging levert FOUT, niet NIET_OPGEHAALD`() {
+        // De per-magazijn recover filterde op Exception; een Throwable viel door naar het
+        // vangnet en werd daar als OVERBELAST geclassificeerd. Dat zegt "niet bevraagd" terwijl
+        // het magazijn wél bevraagd is en gefaald heeft — een onjuiste uitspraak richting de
+        // gebruiker.
+        val client = mockk<MagazijnClient>()
+
+        stubAggregatie(client)
+        every { client.getBerichten(any(), any(), any(), any()) } throws
+            NoStackTraceThrowable("Redis waiting queue is full")
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(10))
+
+        val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
+
+        assertEquals(MagazijnStatus.FOUT, voltooid.status)
     }
 
     @Test
@@ -462,8 +533,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Test magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Test magazijn A"))
         every { client.getBerichten(any(), any(), any(), any()) } throws ProcessingException(parseFout)
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -547,8 +617,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns
             Uni.createFrom().failure(RuntimeException("Redis update faalde"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -574,8 +643,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns
@@ -603,6 +671,49 @@ class BerichtensessiecacheServiceTest {
             fouten[0].foutmelding.contains("(ref: ${fouten[0].referentie})"),
             "Foutmelding moet (ref: <UUID>)-suffix dragen; was: ${fouten[0].foutmelding}",
         )
+    }
+
+    @Test
+    fun `wachtbudget korter dan de query-timeout faalt fail-fast`() {
+        // De wachtrij is voor een bevraging alsnog een zeef als haar budget verstrijkt vóórdat er
+        // ook maar één permit kán vrijkomen — een permit komt pas terug als de call die hem houdt
+        // klaar is, en die mag tot de query-timeout duren.
+        val teKrap = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 9999L)
+
+        val fout = assertThrows<IllegalArgumentException> {
+            BerichtensessiecacheService(
+                berichtenCache, clientFactory, validator, resolver,
+                innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+                paginaLezer = MagazijnPaginaLezer(paginaGrootte = 100, maxBerichtenPerMagazijn = 1000),
+                magazijnQueryTimeoutSeconds = 10L,
+                magazijnReadTimeoutMs = 12000L,
+                cacheAwaitTimeoutSeconds = 5L,
+                bulkhead = teKrap,
+                circuitBreaker = testBreaker,
+            ).valideerTimeouts()
+        }
+
+        assertTrue(
+            fout.message!!.contains("max-wachttijd-ms"),
+            "De melding moet de knop noemen die te laag staat; was: ${fout.message}",
+        )
+    }
+
+    @Test
+    fun `boundary - wachtbudget exact gelijk aan de query-timeout is toegestaan`() {
+        // Pinned off-by-one: de check is `>=`, niet `>`.
+        val exact = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 10_000L)
+
+        BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            paginaLezer = MagazijnPaginaLezer(paginaGrootte = 100, maxBerichtenPerMagazijn = 1000),
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = exact,
+            circuitBreaker = testBreaker,
+        ).valideerTimeouts()
     }
 
     @Test
@@ -682,8 +793,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { client.getBerichten(any(), any(), any(), any()) } throws NullPointerException("gegenereerde client NPE")
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -699,12 +809,15 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `vol bulkhead levert OVERBELAST-foutmelding en bezet geen extra permit`() {
-        // maxConcurrent=1, permit vooraf vastgehouden → de magazijn-call wordt afgewezen (OVERBELAST):
-        // VOLTOOID met FOUT + "systeem druk", en de afwijzing claimt zelf geen permit.
-        val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+    fun `vol bulkhead levert NIET_OPGEHAALD na het wachtbudget en bezet geen extra permit`() {
+        // maxConcurrent=1, permit vooraf vastgehouden → de bevraging wacht zijn budget vol en levert
+        // dan de eigen status NIET_OPGEHAALD (geen storing van dat magazijn), zonder zelf een permit
+        // te claimen. Budget en query-timeout allebei op één seconde: dat is de ondergrens die de
+        // kruisvalidatie toelaat, en houdt de test kort.
+        val volBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 1000L)
         val vastgehouden = volBulkhead.begrensd(
-            afgewezen = { Uni.createFrom().item("x") },
+            label = "test",
+            verlopen = { Uni.createFrom().item("x") },
             taak = { Uni.createFrom().nothing<String>() },
         ).subscribe().with({}, {})
 
@@ -712,7 +825,7 @@ class BerichtensessiecacheServiceTest {
             berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
             paginaLezer = MagazijnPaginaLezer(paginaGrootte = 100, maxBerichtenPerMagazijn = 1000),
-            magazijnQueryTimeoutSeconds = 10L,
+            magazijnQueryTimeoutSeconds = 1L,
             magazijnReadTimeoutMs = 12000L,
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = volBulkhead,
@@ -723,24 +836,42 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
 
+        val start = System.nanoTime()
         val events = serviceVolBulkhead.haalBerichtenOp(ontvanger).collect().asList()
             .await().atMost(Duration.ofSeconds(15))
+        val verstrekenMs = (System.nanoTime() - start) / 1_000_000
 
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
-        assertEquals(MagazijnStatus.FOUT, voltooid.status)
+        // Zonder deze assertie blijft de test ook groen als de bevraging weer meteen afgewezen
+        // wordt: de status en de melding zijn dan immers dezelfde. Het wachten zélf is wat deze
+        // wijziging toevoegt, dus dat hoort gepind te zijn.
         assertTrue(
-            voltooid.foutmelding.contains("systeem druk"),
-            "Foutmelding moet OVERBELAST signaleren: ${voltooid.foutmelding}",
+            verstrekenMs >= 1000L,
+            "de bevraging hoort haar wachtbudget van 1000 ms vol te maken; verstreken: $verstrekenMs ms",
+        )
+        assertEquals(MagazijnStatus.NIET_OPGEHAALD, voltooid.status)
+        assertTrue(
+            voltooid.foutmelding.contains("Nog niet opgehaald"),
+            "Foutmelding moet 'nog niet opgehaald' signaleren i.p.v. een storing: ${voltooid.foutmelding}",
         )
         // De magazijn-call is nooit gestart: de afwijzing claimt geen permit (blijft 0 = vastgehouden).
         assertEquals(0, volBulkhead.vrijePermits())
+
+        // En zo komt het bij het portaal aan: op de eigen teller, niet op die van de storingen. Wie
+        // deze twee samenvoegt, laat een samenvattende regel "1 mislukt" melden terwijl er niets
+        // stuk is en opnieuw ophalen juist helpt.
+        val slot = events.filterIsInstance<OphalenGereed>().single()
+
+        assertEquals(1, slot.nietOpgehaald)
+        assertEquals(0, slot.mislukt)
+        assertEquals(0, slot.geslaagd)
+        assertEquals(1, slot.totaalMagazijnen)
 
         // verify getBerichten nooit aangeroepen: bevestigt dat de call daadwerkelijk werd overgeslagen.
         verify(exactly = 0) { client.getBerichten(any(), any(), any(), any()) }
@@ -752,7 +883,7 @@ class BerichtensessiecacheServiceTest {
     fun `bulkhead-permit wordt vrijgegeven na een geslaagde aggregatie`() {
         // Permit-balans door de échte stream-pipeline (onTermination-release): met maxConcurrent=1
         // moet na één geslaagde ophaling de permit terug zijn, anders zou een volgende call lekken.
-        val balansBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1)
+        val balansBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 1, maxParallelPerRonde = 1, maxWachttijdMs = 15000L)
         val serviceBalans = BerichtensessiecacheService(
             berichtenCache, clientFactory, validator, resolver,
             innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
@@ -768,8 +899,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(listOf(testMagazijnBericht()))
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -781,6 +911,144 @@ class BerichtensessiecacheServiceTest {
         val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
         assertEquals(1, balansBulkhead.vrijePermits(), "permit teruggegeven na geslaagde aggregatie")
+    }
+
+    @ParameterizedTest(name = "{0} organisaties tegen een grens van 5")
+    @ValueSource(ints = [5, 6, 50])
+    fun `elke organisatie wordt bevraagd, ook boven de gelijktijdigheidsgrens`(aantalMagazijnen: Int) {
+        // Het acceptatiecriterium: de grens vertaalt zich in wachten, niet in weglaten.
+        // Drie cardinaliteiten: precies op de grens (geen wachtrij), één erboven (één wachtende) en
+        // ruim erboven (tien golven). Elke bevraging houdt zijn permit even vast, zodat de
+        // wachtenden echt op een vrijkomende permit moeten wachten.
+        val grens = 5
+        val bulkheadMetGrens = MagazijnAggregatieBulkhead(
+            maxConcurrent = grens,
+            maxParallelPerRonde = grens,
+            maxWachttijdMs = 30_000L,
+        )
+        val serviceMetGrens = BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            paginaLezer = MagazijnPaginaLezer(paginaGrootte = 100, maxBerichtenPerMagazijn = 1000),
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = bulkheadMetGrens,
+            circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+        ).also { it.valideerTimeouts() }
+
+        val magazijnIds = (1..aantalMagazijnen).map { nummer -> "magazijn-%03d".format(nummer) }
+        val magazijnen = magazijnIds.associateWith {
+            val client = mockk<MagazijnClient>()
+            val bericht = testMagazijnBericht().copy(berichtId = UUID.randomUUID())
+
+            every { client.getBerichten(any(), any(), any(), any()) } answers {
+                // Even vasthouden zodat de permits daadwerkelijk schaars zijn tijdens de ronde.
+                Thread.sleep(5)
+                // Mét de tellers, zodat de pagineerlus na deze ene pagina klaar is: dit gaat over
+                // de wachtrij, niet over doorpagineren.
+                eenPagina(bericht)
+            }
+
+            IngeschrevenMagazijn(client, "Organisatie")
+        }
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(magazijnIds.toSet())
+        every { clientFactory.getAllMagazijnen() } returns magazijnen
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = serviceMetGrens.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(60))
+
+        val gestart = events.filterIsInstance<MagazijnBevragingGestart>()
+        val geslaagd = events.filterIsInstance<MagazijnBevragingGeslaagd>()
+
+        assertEquals(magazijnIds.toSet(), gestart.map { it.magazijnId }.toSet(), "elke organisatie krijgt een GESTART-event")
+        assertEquals(magazijnIds.toSet(), geslaagd.map { it.magazijnId }.toSet(), "elke organisatie is daadwerkelijk bevraagd")
+        assertTrue(
+            events.filterIsInstance<MagazijnBevragingMislukt>().isEmpty(),
+            "geen enkele organisatie mag wegvallen: ${events.filterIsInstance<MagazijnBevragingMislukt>()}",
+        )
+
+        // De volledige lijst gaat vooruit: een wachtende organisatie is zichtbaar als "wordt nog
+        // opgehaald" en niet afwezig.
+        assertEquals(
+            aantalMagazijnen,
+            events.takeWhile { it is MagazijnBevragingGestart }.size,
+            "alle GESTART-events horen vóór de eerste uitkomst te komen",
+        )
+
+        val gereed = events.filterIsInstance<OphalenGereed>().single()
+
+        assertEquals(aantalMagazijnen, gereed.geslaagd)
+        assertEquals(0, gereed.mislukt)
+        assertEquals(0, gereed.nietOpgehaald)
+        assertEquals(aantalMagazijnen, gereed.totaalMagazijnen)
+        assertEquals(grens, bulkheadMetGrens.vrijePermits(), "alle permits terug na de ronde")
+    }
+
+    @Test
+    fun `een wachtende organisatie verbruikt geen wachtbudget - ze wordt pas op haar beurt bevraagd`() {
+        // Onderscheidt de twee lagen: de ronde biedt niet alle bevragingen tegelijk aan, maar pakt de
+        // volgende zodra er één afgerond is. Zou de merge wél in één keer op alle 50 substreams
+        // subscriben, dan stonden er 45 tegelijk op een permit te wachten en zou het krappe
+        // wachtbudget verstrijken vóórdat ze aan de beurt waren — met NIET_OPGEHAALD als gevolg.
+        // Met de per-ronde-grens is er bij elke subscription juist een permit vrijgekomen.
+        val grens = 5
+        val bulkheadKortBudget = MagazijnAggregatieBulkhead(
+            maxConcurrent = grens,
+            maxParallelPerRonde = grens,
+            maxWachttijdMs = 2000L,
+        )
+        val serviceKortBudget = BerichtensessiecacheService(
+            berichtenCache, clientFactory, validator, resolver,
+            innerTimeoutSeconds = 2L, outerAwaitSeconds = 3L,
+            paginaLezer = MagazijnPaginaLezer(paginaGrootte = 100, maxBerichtenPerMagazijn = 1000),
+            magazijnQueryTimeoutSeconds = 2L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = bulkheadKortBudget,
+            circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+        ).also { it.valideerTimeouts() }
+
+        // 100 organisaties × 200 ms bij 5 tegelijk = twintig golven van 200 ms; de hele ronde duurt
+        // dus ruim langer (~4 s) dan het wachtbudget van 2 s. De marge tot de query-timeout van
+        // 2 s is een factor tien op de calls van 200 ms, zodat een trage runner de test niet op
+        // een TIMEOUT laat omvallen.
+        val magazijnIds = (1..100).map { nummer -> "magazijn-%03d".format(nummer) }
+        val magazijnen = magazijnIds.associateWith {
+            val client = mockk<MagazijnClient>()
+            val bericht = testMagazijnBericht().copy(berichtId = UUID.randomUUID())
+
+            every { client.getBerichten(any(), any(), any(), any()) } answers {
+                Thread.sleep(200)
+                eenPagina(bericht)
+            }
+
+            IngeschrevenMagazijn(client, "Organisatie")
+        }
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(magazijnIds.toSet())
+        every { clientFactory.getAllMagazijnen() } returns magazijnen
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val events = serviceKortBudget.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(60))
+
+        val nietOpgehaald = events.filterIsInstance<MagazijnBevragingMislukt>()
+            .filter { it.status == MagazijnStatus.NIET_OPGEHAALD }
+
+        assertTrue(
+            nietOpgehaald.isEmpty(),
+            "geen organisatie hoort haar wachtbudget te verbranden terwijl ze nog in de wachtrij staat: $nietOpgehaald",
+        )
+        assertEquals(magazijnIds.size, events.filterIsInstance<MagazijnBevragingGeslaagd>().size)
     }
 
     @Test
@@ -816,8 +1084,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(listOf(geldig, ongeldig))
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -894,8 +1161,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { client.getBerichten(any(), any(), any(), any()) } throws java.net.ConnectException("connection refused")
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -916,8 +1182,7 @@ class BerichtensessiecacheServiceTest {
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
@@ -1065,6 +1330,7 @@ class BerichtensessiecacheServiceTest {
     private fun testBericht() = Bericht(
         berichtId = UUID.fromString("11111111-1111-1111-1111-111111111111"),
         afzender = "00000001234567890000",
+        afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = "Test bericht",
         inhoud = "Inhoud van het bericht",
@@ -1085,12 +1351,18 @@ class BerichtensessiecacheServiceTest {
         paginaLezer = paginaLezer,
     ).also { it.valideerTimeouts() }
 
+    /**
+     * Eén bericht als complete lijst: de tellers zeggen de pagineerlus dat er niets meer volgt, zodat
+     * hij na deze pagina stopt. Zonder die tellers blijft hij doorvragen tot zijn tijdsbudget op is.
+     */
+    private fun eenPagina(bericht: MagazijnBericht) =
+        MagazijnBerichtenResponse(listOf(bericht), totalElements = 1L, totalPages = 1)
+
     /** Lock, resolver, client-factory en cache-writes voor één magazijn dat gewoon antwoordt. */
     private fun stubAggregatie(client: MagazijnClient) {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
-        every { clientFactory.getAllClients() } returns mapOf("magazijn-a" to client)
-        every { clientFactory.getNaam("magazijn-a") } returns "Magazijn A"
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()

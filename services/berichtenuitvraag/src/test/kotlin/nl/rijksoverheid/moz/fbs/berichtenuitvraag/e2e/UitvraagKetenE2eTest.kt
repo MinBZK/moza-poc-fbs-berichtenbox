@@ -135,7 +135,8 @@ class UitvraagKetenE2eTest {
             .statusCode(200)
             .body("status", equalTo("gelezen"))
 
-        // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen.
+        // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen, maar laat het
+        // wél een spoor na: de ondernemer hoort te horen dát hij het zelf weggooide.
         magazijnA.stubFor(
             wmDelete(urlPathMatching("/api/v1/berichten/$berichtId")).willReturn(aResponse().withStatus(204)),
         )
@@ -150,7 +151,34 @@ class UitvraagKetenE2eTest {
             .header("X-Ontvanger", "BSN:$bsn")
             .`when`().get("/api/v1/berichten/$berichtId")
             .then()
+            .statusCode(410)
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
+
+        // Een bericht dat er nooit was, blijft ononderscheidbaar van dat van een ander.
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/33333333-3333-3333-3333-333333333333")
+            .then()
             .statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
+
+        // En een ánder krijgt op datzelfde berichtId exact dat antwoord: het spoor van de
+        // verwijdering is per ontvanger gesleuteld, dus verraadt het niets over andermans bericht.
+        val andereBsn = "999993653"
+        stubProfielOptIn(andereBsn, OIN_A)
+
+        given()
+            .header("X-Ontvanger", "BSN:$andereBsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$andereBsn")
+            .`when`().get("/api/v1/berichten/$berichtId")
+            .then()
+            .statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
     }
 
     @Test
@@ -178,6 +206,64 @@ class UitvraagKetenE2eTest {
             .then()
             .statusCode(200)
             .body("berichten[0].berichtId", equalTo(berichtId))
+    }
+
+    @Test
+    fun `ophaalronde levert per bericht de naam die het register voor zijn magazijn kent`() {
+        // Het andere been van de aanmeld-test: hier komen de berichten uit een échte ophaalronde
+        // langs twee magazijnen, elk met een eigen naam in het register.
+        val bsn = "999990111"
+        val berichtVanA = "44444444-4444-4444-4444-444444444444"
+        val berichtVanB = "55555555-5555-5555-5555-555555555555"
+        stubProfielOptIn(bsn, OIN_A, OIN_B)
+        stubMagazijnBericht(magazijnA, berichtVanA, bsn, "magazijn-a", OIN_A)
+        stubMagazijnBericht(magazijnB, berichtVanB, bsn, "magazijn-b", OIN_B)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body(
+                "berichten.find { it.magazijnId == '$OIN_B' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_B),
+            )
+            .body(
+                "berichten.find { it.magazijnId == '$OIN_A' }.afzenderNaam",
+                equalTo(WireMockBackendsResource.NAAM_A),
+            )
+    }
+
+    @Test
+    fun `de afzendernaam volgt het bevraagde magazijn, niet de afzender die het bericht claimt`() {
+        // Magazijn A levert een bericht dat zichzelf als magazijn B presenteert. De weergavenaam
+        // hoort die claim niet te volgen: hij komt uit het register op het magazijn dat we
+        // daadwerkelijk bevraagd hebben. Anders kan een magazijn zich als een andere organisatie
+        // voordoen in de berichtenlijst van een ondernemer.
+        val bsn = "999990123"
+        val berichtId = "66666666-6666-6666-6666-666666666666"
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, berichtId, bsn, "magazijn-a", afzender = OIN_B)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0].magazijnId", equalTo(OIN_A))
+            .body("berichten[0].afzenderNaam", equalTo(WireMockBackendsResource.NAAM_A))
     }
 
     @Test

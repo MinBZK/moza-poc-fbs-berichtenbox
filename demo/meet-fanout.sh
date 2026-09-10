@@ -119,14 +119,21 @@ compleet_gemeten = laatste.get("event") == "ophalen-gereed"
 gestart = sum(1 for _, d in regels if d.get("event") == "magazijn-bevraging-gestart")
 voltooid = [(t, d) for t, d in regels if d.get("event") == "magazijn-bevraging-voltooid"]
 geslaagd = [t for t, d in voltooid if d.get("status") == "OK"]
-mislukt = len(voltooid) - len(geslaagd)
+# Niet-opgehaald apart van mislukt: die organisaties zijn niet bevraagd omdat de uitvraag te veel
+# werk tegelijk had. Ze samenvoegen laat precies zien wat de meting moet aantonen — of de
+# gelijktijdigheidsgrens organisaties buiten beeld houdt — in een storingscijfer verdwijnen.
+niet_opgehaald = sum(1 for _, d in voltooid if d.get("status") == "NIET_OPGEHAALD")
+mislukt = len(voltooid) - len(geslaagd) - niet_opgehaald
 
 if compleet_gemeten:
     # Kruiscontrole tegen de eigen telling; loopt dat uiteen, dan mist de stroom events.
-    if laatste.get("geslaagd") != len(geslaagd) or laatste.get("mislukt") != mislukt:
+    geteld = (len(geslaagd), mislukt, niet_opgehaald)
+    gemeld = (laatste.get("geslaagd"), laatste.get("mislukt"), laatste.get("nietOpgehaald"))
+
+    if gemeld != geteld:
         print(
-            f"WAARSCHUWING: het slotevent meldt {laatste.get('geslaagd')} geslaagd en "
-            f"{laatste.get('mislukt')} mislukt, geteld zijn er {len(geslaagd)} en {mislukt}",
+            f"WAARSCHUWING: het slotevent meldt {gemeld} (geslaagd, mislukt, nietOpgehaald), "
+            f"geteld zijn er {geteld}",
             file=sys.stderr,
         )
 else:
@@ -137,11 +144,11 @@ else:
 eerste = min(geslaagd) if geslaagd else ""
 compleet = regels[-1][0] if compleet_gemeten else ""
 
-print(f"{gestart}\t{len(geslaagd)}\t{mislukt}\t{eerste}\t{compleet}")
+print(f"{gestart}\t{len(geslaagd)}\t{mislukt}\t{niet_opgehaald}\t{eerste}\t{compleet}")
 PY
 }
 
-printf 'ondernemer\tronde\torganisaties\tbevraagd\tgeslaagd\tmislukt\teerste_ms\tcompleet_ms\n' > "$UITVOER"
+printf 'ondernemer\tronde\torganisaties\tbevraagd\tgeslaagd\tmislukt\tniet_opgehaald\teerste_ms\tcompleet_ms\n' > "$UITVOER"
 
 echo "Meten over $RONDES ronde(s); uitvoer in $UITVOER, ruwe stromen in $STROMEN"
 
@@ -157,7 +164,7 @@ for regel in "${ONDERNEMERS[@]}"; do
         # mislukte ronde onopgemerkt, want dan telt alleen de exitcode van `read`.
         uitkomst="$(meet "$ontvanger" "$STROMEN/$naam-$ronde.tsv")"
 
-        IFS=$'\t' read -r bevraagd geslaagd mislukt eerste compleet <<< "$uitkomst"
+        IFS=$'\t' read -r bevraagd geslaagd mislukt niet_opgehaald eerste compleet <<< "$uitkomst"
 
         if [ "$bevraagd" -ne "$verwacht" ]; then
             echo "    WAARSCHUWING: $bevraagd organisaties bevraagd, verwacht $verwacht" >&2
@@ -165,10 +172,11 @@ for regel in "${ONDERNEMERS[@]}"; do
 
         # `organisaties` is het verwachte aantal en `bevraagd` wat er werkelijk langskwam. Ze apart
         # houden: een gedegradeerde ronde zou anders het aantal van de hele ondernemer verzetten.
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$naam" "$ronde" "$verwacht" "$bevraagd" "$geslaagd" "$mislukt" "$eerste" "$compleet" >> "$UITVOER"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$naam" "$ronde" "$verwacht" "$bevraagd" "$geslaagd" "$mislukt" "$niet_opgehaald" \
+            "$eerste" "$compleet" >> "$UITVOER"
 
-        echo "    ronde $ronde: eerste bericht na ${eerste:-—}ms, compleet na ${compleet:-—}ms ($geslaagd ok, $mislukt mislukt)"
+        echo "    ronde $ronde: eerste bericht na ${eerste:-—}ms, compleet na ${compleet:-—}ms ($geslaagd ok, $mislukt mislukt, $niet_opgehaald niet opgehaald)"
     done
 done
 
@@ -186,9 +194,9 @@ with open(sys.argv[1], encoding="utf-8") as bestand:
     next(bestand)
 
     for regel in bestand:
-        naam, _, organisaties, _, geslaagd, mislukt, eerste, compleet = regel.rstrip("\n").split("\t")
+        naam, _, organisaties, _, geslaagd, mislukt, niet_opgehaald, eerste, compleet = regel.rstrip("\n").split("\t")
         per_ondernemer[naam].append(
-            (int(organisaties), int(geslaagd), int(mislukt), eerste, compleet)
+            (int(organisaties), int(geslaagd), int(mislukt), int(niet_opgehaald), eerste, compleet)
         )
 
 
@@ -199,7 +207,10 @@ def mediaan(waardes):
     return f"{round(statistics.median(getallen))}" if getallen else "—"
 
 
-print(f"{'ondernemer':22s} {'orgs':>5s} {'ok':>4s} {'mislukt':>8s} {'eerste':>9s} {'compleet':>10s}")
+print(
+    f"{'ondernemer':22s} {'orgs':>5s} {'ok':>4s} {'mislukt':>8s} {'niet_opg':>9s} "
+    f"{'eerste':>9s} {'compleet':>10s}"
+)
 
 for naam, metingen in per_ondernemer.items():
     organisaties = metingen[0][0]
@@ -207,7 +218,8 @@ for naam, metingen in per_ondernemer.items():
         f"{naam:22s} {organisaties:5d} "
         f"{round(statistics.median(m[1] for m in metingen)):4d} "
         f"{round(statistics.median(m[2] for m in metingen)):8d} "
-        f"{mediaan([m[3] for m in metingen]):>7s}ms "
-        f"{mediaan([m[4] for m in metingen]):>8s}ms"
+        f"{round(statistics.median(m[3] for m in metingen)):9d} "
+        f"{mediaan([m[4] for m in metingen]):>7s}ms "
+        f"{mediaan([m[5] for m in metingen]):>8s}ms"
     )
 PY

@@ -285,13 +285,27 @@ jobs:
       # geen enkele preview.
       #
       # Uit compose.yaml en niet uit een eigen env-regel hier; het waarom staat bij die regel.
+      #
+      # De repo-variabele `PROEFTUIN_IMAGE` overschrijft die pin voor elke uitrol die daarna draait.
+      # Bedoeld om de demo tijdelijk op nog niet gemergd werk van de proeftuin te zetten, of op een
+      # bevroren release-tag: variabele zetten, deploy opnieuw draaien, en terugzetten door hem weg
+      # te halen. Een variabele en geen commit, want dit hoort niet in de geschiedenis van de repo
+      # thuis; hij geldt wél voor `test` én elke preview, vandaar de notice hieronder.
       - id: proeftuin
+        env:
+          PROEFTUIN_IMAGE: ${{ vars.PROEFTUIN_IMAGE }}
         run: |
           set -euo pipefail
 
           # Eerst toewijzen, dan pas schrijven: `echo "image=$(...)"` zou bij een falend script een
           # lege waarde wegschrijven en de deploy een component zonder image laten zetten.
           image=$(.github/scripts/proeftuin-image.sh)
+
+          # Zichtbaar bovenaan de run en niet alleen in het stap-log: een demo die op een andere
+          # berichtenbox draait dan de repo pint, verklaart anders gedrag dat niemand terugvindt.
+          if [ -n "${PROEFTUIN_IMAGE:-}" ]; then
+            echo "::notice title=Berichtenbox overschreven::De repo-variabele PROEFTUIN_IMAGE zet de berichtenbox op $image in plaats van de pin in compose.yaml."
+          fi
 
           echo "image=$image" >> "$GITHUB_OUTPUT"
 

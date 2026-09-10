@@ -80,10 +80,13 @@ curl -sf -N --max-time 30 "$UITVRAAG/api/v1/berichten/_ophalen" \
 
 # Een 2xx op de stream zegt niets over de afzonderlijke magazijnen: die degraderen stilletjes.
 # De uitvraag levert per magazijn een 'magazijn-bevraging-voltooid'-event met status
-# OK/FOUT/TIMEOUT en sluit af met 'ophalen-gereed' + een 'mislukt'-telling.
-if grep -Eq '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT)"' "$stream"; then
-    echo "FOUT: minstens één magazijn rapporteerde een foutstatus in de ophaal-stream:"
-    grep -E '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT)"' "$stream"
+# OK/FOUT/TIMEOUT/NIET_OPGEHAALD en sluit af met 'ophalen-gereed' + een 'mislukt'-telling.
+# NIET_OPGEHAALD is geen storing van het magazijn maar een bevraging die niet gestart is omdat de
+# gelijktijdigheidsgrens van de uitvraag vol bleef; in de smoke-keten (twee magazijnen) hoort dat
+# net zo goed niet voor te komen.
+if grep -Eq '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT|NIET_OPGEHAALD)"' "$stream"; then
+    echo "FOUT: minstens één magazijn rapporteerde geen geslaagde bevraging in de ophaal-stream:"
+    grep -E '"status"[[:space:]]*:[[:space:]]*"(FOUT|TIMEOUT|NIET_OPGEHAALD)"' "$stream"
     exit 1
 fi
 
@@ -100,13 +103,15 @@ for oin in "$AFZENDER_OIN_A" "$AFZENDER_OIN_B"; do
         || { echo "FOUT: geen geslaagde bevraging van magazijn $oin in de ophaal-stream"; exit 1; }
 done
 
-# De berichtenbox-console leest deze velden rechtstreeks uit de stroom; ze staan in geen
-# enkel API-contract, dus zonder deze controle valt een hernoeming pas op in de browser —
-# waar de console stilletjes stopt met bijwerken in plaats van een fout te tonen.
+# De berichtenbox-console leest deze velden rechtstreeks uit de stroom. De spec beschrijft ze,
+# maar dat is een belofte op papier: deze controle bewijst dat een draaiende keten ze ook
+# werkelijk stuurt. Zonder haar valt een hernoeming pas op in de browser — waar de console
+# stilletjes stopt met bijwerken in plaats van een fout te tonen.
 for veld in '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' \
     '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-voltooid"' \
     '"event"[[:space:]]*:[[:space:]]*"ophalen-gereed"' \
-    '"magazijnId"' '"naam"' '"aantalBerichten"' '"totaalBerichten"' '"totaalMagazijnen"'; do
+    '"magazijnId"' '"naam"' '"aantalBerichten"' '"totaalBerichten"' '"nietOpgehaald"' \
+    '"totaalMagazijnen"'; do
     grep -Eq "$veld" "$stream" \
         || { echo "FOUT: de ophaal-stream mist $veld, dat de berichtenbox-console wél verwacht"; exit 1; }
 done

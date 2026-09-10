@@ -32,6 +32,11 @@ class WireMockBackendsResource : QuarkusTestResourceLifecycleManager {
         const val OIN_A = "00000001003214345000"
         const val OIN_B = "00000001823288444000"
 
+        // De weergavenaam is verplicht in het register. OIN_B krijgt de zijne uit
+        // application.properties ("Belastingdienst"); OIN_A bestaat alleen in deze fixture.
+        const val NAAM_A = "Kamer van Koophandel"
+        const val NAAM_B = "Belastingdienst"
+
         // lateinit i.p.v. nullable: Quarkus roept altijd start() vóór de tests, dus de
         // call-sites hoeven niet te `!!`-en. Toegang vóór start() faalt expliciet
         // (UninitializedPropertyAccessException).
@@ -54,6 +59,7 @@ class WireMockBackendsResource : QuarkusTestResourceLifecycleManager {
         return mapOf(
             "quarkus.rest-client.profiel-service.url" to p.baseUrl(),
             "magazijnen.\"$OIN_A\".url" to a.baseUrl(),
+            "magazijnen.\"$OIN_A\".naam" to NAAM_A,
             "magazijnen.\"$OIN_B\".url" to b.baseUrl(),
         )
     }
