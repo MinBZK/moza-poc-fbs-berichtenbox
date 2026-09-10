@@ -8,6 +8,10 @@
 # listener-poort en elke netwerk-alias uit dit bestand — voeg je hier een service, een poort of
 # een alias toe, pas hem daar dan mee aan. Een nieuwe service wordt door
 # .github/workflows/fsc-harness-overlays.yml bewaakt; poorten en aliassen niet.
+#
+# Elke service krijgt `TZ: Europe/Amsterdam`, zodat logtijden overeenkomen met de klok van wie
+# meekijkt. De meeste FSC-images hebben geen tijdzonedatabase en loggen daardoor toch in UTC; de
+# regel staat er zodat een image dat er wél een krijgt, meteen goed staat.
 x-manager-image: &manager-image docker.io/federatedserviceconnectivity/manager:${IMAGE_TAG:-v2.5.2}
 x-manager-common-env: &manager-common-env
   LOG_TYPE: local
@@ -46,6 +50,7 @@ services:
   postgres:
     image: postgres:17
     environment:
+      TZ: Europe/Amsterdam
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
@@ -59,6 +64,8 @@ services:
 
   router:
     image: haproxy:2.9
+    environment:
+      TZ: Europe/Amsterdam
     # Het haproxy-image draait als non-root; podman zet, anders dan Docker Desktop,
     # net.ipv4.ip_unprivileged_port_start niet op 0 → `bind :443` faalt met Permission denied en
     # de router exit, waarna geen enkele `*.fsc-test.local`-naam meer resolvet. Per-container
@@ -90,6 +97,7 @@ services:
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       <<: *manager-common-env
+      TZ: Europe/Amsterdam
       SELF_ADDRESS: https://directory.fsc-test.local:443
       TX_LOG_API_ADDRESS: ""                 # directory-mode: geen txlog
       # Sinds OpenFSC v2.0.0 is --controller-registration-api-address verplicht; zonder deze regel
@@ -125,6 +133,8 @@ services:
 
   migrate-magazijn-a:
     image: *manager-image
+    environment:
+      TZ: Europe/Amsterdam
     command:
       - /usr/local/bin/manager
       - migrate
@@ -144,6 +154,7 @@ services:
       - serve
     environment:
       <<: *manager-common-env
+      TZ: Europe/Amsterdam
       SELF_ADDRESS: https://magazijn-a.fsc-test.local:443
       # De manager bevraagt bij token-uitgifte de eigen controller naar de dienst
       # (/v1/groups/{group}/services/{service}); zonder dit adres faalt /token met "unsupported
@@ -185,6 +196,8 @@ services:
     # Neutrale HTTP-echo die de business-app vervangt. Wordt de endpoint_url van
     # berichtenmagazijn; het échte data-pad dóór de inway is niet in scope van deze bundel.
     image: docker.io/hashicorp/http-echo:1.0
+    environment:
+      TZ: Europe/Amsterdam
     command: ["-listen=:8080", "-text=hello from magazijn-a stub-upstream"]
 
   outway-magazijn-a:
@@ -195,6 +208,7 @@ services:
       - /usr/local/bin/outway
       - serve
     environment:
+      TZ: Europe/Amsterdam
       LOG_TYPE: local
       LOG_LEVEL: debug
       GROUP_ID: moza-fbs-test
@@ -238,6 +252,7 @@ services:
       - /usr/local/bin/inway
       - serve
     environment:
+      TZ: Europe/Amsterdam
       LOG_TYPE: local
       LOG_LEVEL: debug
       GROUP_ID: moza-fbs-test
@@ -280,6 +295,8 @@ services:
     # Curl-client BINNEN het netwerk voor de mTLS-onboarding-calls (publish-service.sh).
     # Draait als host-UID zodat het de 0600-internal-key leest.
     image: docker.io/curlimages/curl:8.11.1
+    environment:
+      TZ: Europe/Amsterdam
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     entrypoint: ["sleep", "infinity"]
     volumes:
@@ -296,6 +313,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     environment:
+      TZ: Europe/Amsterdam
       LOG_TYPE: local
       LOG_LEVEL: info
       LISTEN_ADDRESS: 0.0.0.0:8080
@@ -316,6 +334,8 @@ services:
 
   migrate-controller-magazijn-a:
     image: docker.io/federatedserviceconnectivity/controller:${IMAGE_TAG:-v2.5.2}
+    environment:
+      TZ: Europe/Amsterdam
     command:
       - /usr/local/bin/controller
       - migrate
@@ -334,6 +354,7 @@ services:
     ports:
       - "127.0.0.1:8090:8080"
     environment:
+      TZ: Europe/Amsterdam
       LOG_TYPE: local
       LOG_LEVEL: info
       LISTEN_ADDRESS_UI: 0.0.0.0:8080
@@ -381,6 +402,7 @@ services:
               "postgres://postgres:postgres@postgres:5432/fsc_txlog_magazijn_a?sslmode=disable"]
     environment:
       <<: *txlog-common-env
+      TZ: Europe/Amsterdam
       POSTGRES_DATABASE: fsc_txlog_magazijn_a
       STORAGE_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/fsc_txlog_magazijn_a?sslmode=disable
     depends_on:
@@ -395,6 +417,7 @@ services:
     restart: on-failure                            # boot-race met postgres/migrate
     environment:
       <<: *txlog-common-env
+      TZ: Europe/Amsterdam
       POSTGRES_DATABASE: fsc_txlog_magazijn_a
       STORAGE_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/fsc_txlog_magazijn_a?sslmode=disable
       TLS_ROOT_CERT: /pki/internal/magazijn-a/ca/root.pem
