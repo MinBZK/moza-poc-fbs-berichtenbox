@@ -200,8 +200,8 @@ run groen en blijft de preview staan):**
 `toxiproxy-profiel`, `toxiproxy-notificatie`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Een draft-PR krijgt geen preview; die rolt uit zodra de PR ready for review is. Previews worden
-opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR of het terugzetten naar draft; een
-gemiste opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
+opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste
+opruiming haal je in met `gh workflow run cleanup-preview.yml -f pr=<n>`.
 
 `democonsole` is het bedieningspaneel van de demo. Het staat in `mpfm-w3h` en niet in een eigen
 deployment omdat `postgresql-database` deployment-gebonden is: alleen een component ín dezelfde

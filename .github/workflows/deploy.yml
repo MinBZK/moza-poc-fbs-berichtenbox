@@ -88,8 +88,8 @@ on:
     # `action != 'closed'`-clausule, en de run zelf zou een lege, volledig overgeslagen run zijn.
     #
     # Wel `ready_for_review`: een draft-PR rolt niet uit (zie `changes`), dus het moment dat hij uit
-    # draft komt moet de uitrol aftrappen, ook zonder nieuwe commit. `converted_to_draft` hoort hier
-    # om dezelfde reden als `closed` niet: het opruimen staat in cleanup-preview.yml.
+    # draft komt moet de uitrol aftrappen, ook zonder nieuwe commit. Geen `converted_to_draft`: een
+    # preview die er al staat, mag blijven tot de PR sluit.
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
@@ -321,6 +321,7 @@ jobs:
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         env:
           EVENT: ${{ github.event_name }}
+          ACTIE: ${{ github.event.action }}
           PR: ${{ github.event.number }}
           # Op een pull_request-event is GITHUB_SHA de (efemere) merge-commit; de head-sha is
           # wat in de PR-tijdlijn staat en waar een reviewer op kan matchen.
@@ -335,6 +336,13 @@ jobs:
             # dus een eigen tag. Poging 1 (het normale geval) blijft kaal en leesbaar.
             if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
               tag="${tag}-r${GITHUB_RUN_ATTEMPT}"
+            fi
+
+            # Hetzelfde bij `ready_for_review`: een PR die al een preview had, naar draft ging en
+            # zonder nieuwe commit terugkomt, bouwt tegen een nieuwere main onder dezelfde head-sha.
+            # Die preview blijft op draft staan, dus zonder eigen tag rolt er niets uit.
+            if [ "$ACTIE" = "ready_for_review" ]; then
+              tag="${tag}-k${GITHUB_RUN_NUMBER}"
             fi
 
             echo "tag=$tag" >> "$GITHUB_OUTPUT"
