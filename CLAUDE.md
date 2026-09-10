@@ -207,7 +207,7 @@ deployment omdat `postgresql-database` deployment-gebonden is: alleen een compon
 deployment als de magazijnen erft hun database-secret, en dat secret is wat de legen-knop mogelijk
 maakt. De eenmalige creatie staat in `demo/environment/zad-demo/README.md`.
 
-Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf geverifieerd in
+Zes ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle zes geverifieerd in
 `RijksICTGilde/RIG-Cluster`:
 
 - De inhoud van een **attachment** wordt ongewijzigd gemount (geen `$DEPLOYMENT_NAME`-substitutie,
@@ -220,6 +220,13 @@ Vijf ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle vijf
   cluster-intern verkeer naar een ánder project volgt geen preview, tenzij de regel per deployment
   wordt bijgeschreven
   (`PATCH /api/v2/projects/{p}/services/cross-domain-access/config/deployment/{d}/{inbound,outbound}`).
+- Zo'n regel wordt **opgelost op het moment dat OM de deployment rendert**: noemt hij een
+  peer-deployment die dan nog niet bestaat, dan slaat OM hem stil over en rendert hem niet opnieuw
+  zodra die peer er wél is (`cross_domain_access/resolve.py`). Met `rollout=false` (API) of
+  `--no-rollout` (`zadctl`) sla je een wijziging alleen op; de resolver leest het projectbestand, dus
+  zo'n deployment telt al als bestaand. `.github/scripts/preview-klaarzetten.sh` zet zo een nieuwe
+  preview klaar vóór zijn eerste uitrol. Een uitgestelde wijziging telt in OM als "wacht op uitrol"
+  tot een refresh van het héle project, ook nadat een deploy hem uitrolde (`core/task_rollout.py`).
 - Een component **draagt meer dan één poort** (`ports: [...]`), maar publiceert er één: elke poort
   ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`
   (`service.yaml.jinja`, `project_manager.py`). Zo blijft een beheerpoort cluster-intern terwijl de
