@@ -5,7 +5,6 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtMetVerwijderdOp
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
@@ -13,6 +12,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
@@ -77,20 +78,28 @@ class BerichtBeheerServiceTest {
         val id = UUID.randomUUID()
         every { berichtRepository.findIncludingDeleted(id) } returns null
 
-        assertThrows<NotFoundException> {
+        val fout = assertThrows<FbsFoutException> {
             service.wijzigStatus(id, ontvanger, BerichtStatusPatch(true, null))
         }
+
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test
-    fun `wijzigStatus gooit NotFound op eigen soft-deleted bericht`() {
+    fun `wijzigStatus gooit Gone op eigen soft-deleted bericht`() {
+        // De eigenaar-check is op dit punt geslaagd, dus 410 onthult niets: de aanroeper
+        // wist al dat dit bericht van hem was.
         val b = bericht()
         every { berichtRepository.findIncludingDeleted(b.berichtId) } returns
             BerichtMetVerwijderdOp(b, Instant.parse("2026-05-13T11:00:00Z"))
 
-        assertThrows<NotFoundException> {
+        val fout = assertThrows<FbsFoutException> {
             service.wijzigStatus(b.berichtId, ontvanger, BerichtStatusPatch(true, null))
         }
+
+        assertEquals(410, fout.response.status)
+        assertEquals(Foutcode.BERICHT_VERWIJDERD, fout.foutcode)
     }
 
     @Test
@@ -188,6 +197,6 @@ class BerichtBeheerServiceTest {
         val id = UUID.randomUUID()
         every { berichtRepository.findIncludingDeleted(id) } returns null
 
-        assertThrows<NotFoundException> { service.verwijder(id, ontvanger) }
+        assertThrows<FbsFoutException> { service.verwijder(id, ontvanger) }
     }
 }

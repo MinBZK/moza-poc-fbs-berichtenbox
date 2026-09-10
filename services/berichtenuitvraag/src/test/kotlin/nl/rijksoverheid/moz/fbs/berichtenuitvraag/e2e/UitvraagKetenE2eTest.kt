@@ -135,7 +135,8 @@ class UitvraagKetenE2eTest {
             .statusCode(200)
             .body("status", equalTo("gelezen"))
 
-        // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen.
+        // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen, maar laat het
+        // wél een spoor na: de ondernemer hoort te horen dát hij het zelf weggooide.
         magazijnA.stubFor(
             wmDelete(urlPathMatching("/api/v1/berichten/$berichtId")).willReturn(aResponse().withStatus(204)),
         )
@@ -150,7 +151,34 @@ class UitvraagKetenE2eTest {
             .header("X-Ontvanger", "BSN:$bsn")
             .`when`().get("/api/v1/berichten/$berichtId")
             .then()
+            .statusCode(410)
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
+
+        // Een bericht dat er nooit was, blijft ononderscheidbaar van dat van een ander.
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/33333333-3333-3333-3333-333333333333")
+            .then()
             .statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
+
+        // En een ánder krijgt op datzelfde berichtId exact dat antwoord: het spoor van de
+        // verwijdering is per ontvanger gesleuteld, dus verraadt het niets over andermans bericht.
+        val andereBsn = "999993653"
+        stubProfielOptIn(andereBsn, OIN_A)
+
+        given()
+            .header("X-Ontvanger", "BSN:$andereBsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$andereBsn")
+            .`when`().get("/api/v1/berichten/$berichtId")
+            .then()
+            .statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
     }
 
     @Test
