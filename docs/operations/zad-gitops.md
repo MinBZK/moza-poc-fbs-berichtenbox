@@ -100,12 +100,12 @@ anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
 | `zadctl project pending` / `refresh` | Wat is opgeslagen maar nog niet uitgerold, en alles alsnog uitrollen |
 | `zadctl guide [--section <naam>]` | Volledige uitleg, zonder credentials; `--output json` voor agent-gebruik |
 
-**Niet elke log staat in dezelfde tijdzone.** Onze eigen images (de diensten, de demo-onderdelen en
-de WireMock-stubs) draaien in `Europe/Amsterdam`, dus hun tijdstempels lopen gelijk met je klok.
-Componenten uit een extern image — `redis`, `proeftuin`, de FSC-componenten — loggen in UTC, tenzij
-hun project-spec `TZ` zet. Redis en de meeste FSC-images hebben bovendien geen tijdzonedatabase, dus
-daar blijft het UTC, ook mét `TZ`. Leg zo'n tijdstempel dus niet rechtstreeks naast een lokale
-klok. `--since 1h` is relatief en heeft er nergens last van.
+**Niet elke log staat in dezelfde tijdzone.** Onze eigen diensten en demo-onderdelen draaien in
+`Europe/Amsterdam` en zetten de offset in elke logregel (`2026-09-10 11:15:30,123+02:00`), dus hun
+tijdstip is eenduidig. Componenten uit een extern image — `redis`, `proeftuin`, de FSC-componenten —
+loggen in UTC, en de WireMock-stubs in Nederlandse tijd; geen van drieën zet er een offset bij. Leg
+zo'n tijdstempel dus niet zomaar naast een regel van onze diensten of naast je klok. `--since 1h` is
+relatief en heeft er nergens last van.
 
 Voor scripts en agents: `-o json` op elk commando (data naar stdout, diagnostiek naar
 stderr), `--dry-run` toont de request zonder te sturen, `--yes` beantwoordt de

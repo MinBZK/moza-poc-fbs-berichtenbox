@@ -40,7 +40,12 @@ een CloudEvent, dat nu `+02:00` draagt in plaats van `Z` — beide geldig RFC 33
    - de WireMock-images (`externe-stubs`, `demo-profiel`): `ENV TZ`;
    - het contract-bootstrap-image (alpine): `ENV TZ` plus `tzdata`, want kaal alpine heeft geen
      tijdzonedatabase en valt dan zonder melding terug op UTC.
-3. **Compose**: `TZ` op elke service in `compose.yaml` en in de twee FSC-harness-basisbestanden. De
+3. **Offset in de logregel** van de vijf Quarkus-diensten: `quarkus.log.console.format` met
+   `%d{yyyy-MM-dd HH:mm:ss,SSSXXX}`, verder het Quarkus-standaardformaat. Een tijdzone alleen is
+   niet genoeg: rond de wintertijdovergang komt hetzelfde wandkloktijdstip twee keer voor, en naast
+   een UTC-log van een extern component moet je zien welke van de twee je leest. De WireMock-stubs
+   hebben een eigen, niet instelbaar logformaat en blijven zonder offset.
+4. **Compose**: `TZ` op elke service in `compose.yaml` en in de twee FSC-harness-basisbestanden. De
    overlays erven dat — geen van hen reset `environment`.
 4. **Docs**: de UTC-waarschuwing in `docs/operations/zad-gitops.md` en de `zad-debug`-skill bijwerken.
 
