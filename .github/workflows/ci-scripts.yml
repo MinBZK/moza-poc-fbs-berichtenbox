@@ -24,7 +24,7 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
+    paths: ['.github/scripts/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
 
 permissions:
   contents: read
@@ -96,14 +96,17 @@ jobs:
           # `find` in plaats van een glob: een script in een toekomstige submap zou anders
           # stilzwijgend ongecontroleerd blijven. -x volgt `source`-directives, zodat een test
           # zijn script meegecontroleerd krijgt.
-          scripts=$(find .github/scripts -name '*.sh' | wc -l)
+          #
+          # .claude/hooks/ hoort erbij: die scripts draaien op elke machine van het team, en een
+          # fout erin blokkeert of verstomt een guard zonder dat iemand het merkt.
+          scripts=$(find .github/scripts .claude/hooks -name '*.sh' | wc -l)
 
           # `xargs -r` draait shellcheck niet bij een lege lijst; zonder deze guard zou die stilte
           # dan als geslaagd tellen in plaats van als "niets gemeten".
           if [ "$scripts" -eq 0 ]; then
-            echo "FOUT: geen enkel script onder .github/scripts/ — deze stap meet niets."
+            echo "FOUT: geen enkel script onder .github/scripts/ of .claude/hooks/ — deze stap meet niets."
             fail=1
-          elif ! find .github/scripts -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
+          elif ! find .github/scripts .claude/hooks -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
             fail=1
           fi
 

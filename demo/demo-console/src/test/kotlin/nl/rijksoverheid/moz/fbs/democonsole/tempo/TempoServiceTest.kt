@@ -6,6 +6,7 @@ import io.mockk.verify
 import jakarta.ws.rs.BadRequestException
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.Faalreden
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
@@ -87,7 +88,7 @@ class TempoServiceTest {
     private val service = TempoService(klok, aanleverService, generator, testKlok)
 
     init {
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 1, 0, emptyList())
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 1, 0, 0, emptyList())
     }
 
     @ParameterizedTest
@@ -117,6 +118,34 @@ class TempoServiceTest {
 
         verify(exactly = 3) { aanleverService.leverAan(any()) }
         assertEquals(3, service.status().geleverd)
+    }
+
+    @Test
+    fun `een magazijn dat niets aanneemt laat de teller stilstaan`() {
+        // De chip meldt "N geleverd". Telde die de tikken, dan liep hij tijdens een demo vrolijk door
+        // terwijl er geen enkel bericht aankwam — en dan is er niets dat de storing verraadt.
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 0, 0, 0, listOf(Faalreden.onbereikbaar("00000000000000100000")))
+
+        service.start(5)
+
+        klok.tik(3)
+
+        verify(exactly = 3) { aanleverService.leverAan(any()) }
+        assertEquals(0, service.status().geleverd)
+    }
+
+    @Test
+    fun `de stroom stopt op het aantal pogingen, ook als er niets aankomt`() {
+        // Zou de bovengrens aan de afleveringen hangen, dan bleef de stroom bij een uitstaand magazijn
+        // een uur doortikken in plaats van na MAX_BERICHTEN te stoppen.
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 0, 0, 0, listOf(Faalreden.onbereikbaar("00000000000000100000")))
+
+        service.start(1)
+
+        klok.tik(TempoService.MAX_BERICHTEN + 1)
+
+        verify(exactly = TempoService.MAX_BERICHTEN) { aanleverService.leverAan(any()) }
+        assertFalse(service.status().loopt)
     }
 
     @Test

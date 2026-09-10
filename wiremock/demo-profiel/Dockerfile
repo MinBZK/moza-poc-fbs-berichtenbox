@@ -10,6 +10,8 @@
 #
 # Bouwen vanuit `wiremock/` als context, niet vanuit deze map: de gedeelde mappings liggen ernaast.
 FROM wiremock/wiremock:3.13.2@sha256:fd27e46090916e85326229e5102ee169ae729059f3374549615bd20a35fee1f2
+# Nederlandse tijd, zodat logtijden overeenkomen met de klok van wie meekijkt.
+ENV TZ=Europe/Amsterdam
 COPY externe-stubs/mappings /home/wiremock/mappings
 # Als subdir, want WireMock leest recursief en de persona-mappings winnen op priority, niet op
 # bestandsvolgorde. Zo blijft zichtbaar wat gedeeld is en wat bij de demo hoort.
