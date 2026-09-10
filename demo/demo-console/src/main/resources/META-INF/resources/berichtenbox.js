@@ -166,6 +166,37 @@ function slotregelAfkap(afgekapteMagazijnen) {
   return ` Niet alles opgehaald bij: ${[...afgekapteMagazijnen].join(', ')}.`;
 }
 
+// Organisaties die niet bevraagd zijn omdat de uitvraag te veel werk tegelijk had. Ze horen niet
+// bij "mislukt": er is niets stuk en opnieuw ophalen helpt hier wél. Zonder deze eigen zin leest de
+// ondernemer een storing waar er geen is.
+function slotregelNietOpgehaald(aantal) {
+  if (!aantal) return '';
+
+  return ` ${aantal} organisatie${aantal === 1 ? '' : 's'} nog niet opgehaald — probeer het opnieuw.`;
+}
+
+// Wat een uitkomst betekent voor de ondernemer. Een status die we niet kennen is per contract
+// "niet geleverd, opnieuw proberen kan helpen" — nooit stilzwijgend als geslaagd behandelen, want
+// dan verdwijnt een latere toevoeging ongemerkt uit beeld.
+function uitkomstRegel(gebeurtenis) {
+  const melding = gebeurtenis.foutmelding || '';
+
+  switch (gebeurtenis.status) {
+    case 'OK':
+      return `${gebeurtenis.aantalBerichten} berichten${afkapMelding(gebeurtenis)}`;
+
+    case 'NIET_OPGEHAALD':
+      return `nog niet opgehaald — ${melding || 'probeer het opnieuw'}`;
+
+    case 'FOUT':
+    case 'TIMEOUT':
+      return `mislukt — ${melding}`;
+
+    default:
+      return `niet geleverd — ${melding || 'onbekende uitkomst; probeer het opnieuw'}`;
+  }
+}
+
 // Werkt de voortgangsregels bij; geeft true terug bij een terminaal event. `afgekapteMagazijnen`
 // verzamelt over de stream heen welke organisaties niet alles leverden, voor de slotregel.
 function verwerkOphaalEvent(gebeurtenis, regels, afgekapteMagazijnen) {
@@ -179,17 +210,13 @@ function verwerkOphaalEvent(gebeurtenis, regels, afgekapteMagazijnen) {
         afgekapteMagazijnen.add(gebeurtenis.naam || gebeurtenis.magazijnId);
       }
 
-      regels.push(
-        `${gebeurtenis.naam || gebeurtenis.magazijnId}: ${gebeurtenis.status}` +
-          (gebeurtenis.status === 'OK'
-            ? ` (${gebeurtenis.aantalBerichten} berichten${afkapMelding(gebeurtenis)})`
-            : ` — ${gebeurtenis.foutmelding || ''}`),
-      );
+      regels.push(`${gebeurtenis.naam || gebeurtenis.magazijnId}: ${uitkomstRegel(gebeurtenis)}`);
       break;
 
     case 'ophalen-gereed':
       regels.push(
         `Klaar: ${gebeurtenis.totaalBerichten} berichten uit ${gebeurtenis.totaalMagazijnen} magazijnen (${gebeurtenis.mislukt || 0} mislukt).` +
+          slotregelNietOpgehaald(gebeurtenis.nietOpgehaald) +
           slotregelAfkap(afgekapteMagazijnen),
       );
 
@@ -555,6 +582,12 @@ el('volgende-pagina').addEventListener('click', () => {
   herteken();
 });
 
+// De keten haalt control- en format-tekens uit de bestandsnaam voordat die in
+// `Content-Disposition` gaat. Deze download zet de naam zelf (zie hieronder), dus doen we
+// hetzelfde met de naam uit de berichtdetails: zonder dit toont `salaris<U+202E>fdp.exe` in
+// de downloadlijst als `salarisexe.pdf`.
+const zonderOnzichtbareTekens = (naam) => naam.replace(/[\p{Cc}\p{Cf}]/gu, '');
+
 // Download via fetch (geen <a href>: dat stuurt de X-Ontvanger-header niet mee). De
 // respons is binair; we maken er een blob-URL van en triggeren de download programmatisch.
 async function downloadBijlage(berichtId, bijlageId, naam) {
@@ -571,7 +604,7 @@ async function downloadBijlage(berichtId, bijlageId, naam) {
   const anker = document.createElement('a');
 
   anker.href = url;
-  anker.download = naam;
+  anker.download = zonderOnzichtbareTekens(naam);
   document.body.appendChild(anker);
   anker.click();
   anker.remove();

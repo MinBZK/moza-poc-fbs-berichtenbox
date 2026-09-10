@@ -44,26 +44,11 @@ data class Organisatie(val oin: String, val naam: String, val sjablonen: List<Sj
 }
 
 /**
- * Vaste demo-ontvanger. `id` is de sleutel waarmee de bediener er één aanwijst; `type` is
- * BSN/KVK/RSIN en `waarde` het (geldige) nummer. `magazijnen` zijn de organisatie-OIN's waar deze
- * persona berichten van ontvangt — dit moet één-op-één sporen met de profielservice-voorkeuren,
- * anders weigert het magazijn de aanlevering (403).
- */
-data class Persona(
-    val id: String,
-    val naam: String,
-    val type: String,
-    val waarde: String,
-    val magazijnen: List<String>,
-)
-
-/**
- * Een persona zoals het bedieningspaneel hem aanwijst. Bewust niet de `PersonaDto` van de
- * personadienst: dat is het contract met een berichtenbox en draagt onder meer het
- * identificatienummer, dat het paneel niet nodig heeft — zo kan het ook niet in de query belanden.
+ * Een persona zoals het bedieningspaneel hem aanwijst: alleen waarmee je hem kiest en wat je van
+ * hem ziet. Geen demo-identiteit, maar een projectie daarvan — het identificatienummer dat de
+ * identiteit draagt blijft zo uit de keuzelijst en kan niet in een query belanden.
  *
- * Wie dit type uit [DemoBerichtGenerator.doelgroep] krijgt, krijgt niet-lege velden: die controle
- * staat in het init-blok van de generator, want alleen daar valt hij bij het opstarten. Het type
- * zelf dwingt het niet af.
+ * Dit type dwingt niets af. Wat [DemoBerichtGenerator.doelgroep] oplevert heeft niet-lege velden
+ * omdat `DemoPersona` een lege id en een leeg label weigert.
  */
 data class Doelpersona(val id: String, val label: String)

@@ -117,14 +117,14 @@ grep_fail_safe() {
 }
 
 # Alles aan: geen PR-bestandenlijst om tegen af te zetten (push naar main, workflow_dispatch), of
-# een lijst die niet op te halen of leeg is. $1 = 'true' voor een bot-PR; dan valt alléén het
-# uitrollen af.
+# een lijst die niet op te halen of leeg is. $1 = 'true' voor een PR zonder uitrol (bot of draft);
+# dan valt alléén het uitrollen af.
 alles_aan() {
-  local bot_pr=${1:-false}
+  local zonder_uitrol=${1:-false}
 
   echo "run=true"
 
-  if [ "$bot_pr" = "true" ]; then
+  if [ "$zonder_uitrol" = "true" ]; then
     echo "deploy=false"
   else
     echo "deploy=true"
@@ -134,17 +134,17 @@ alles_aan() {
   echo "fuzz=true"
 }
 
-# $2 = 'true' voor een PR van een bot: dan valt alléén het uitrollen af.
+# $2 = 'true' voor een PR zonder uitrol (bot of draft): dan valt alléén het uitrollen af.
 classificeer() {
   local bestanden=$1
-  local bot_pr=${2:-false}
+  local zonder_uitrol=${2:-false}
 
   # Leeg betekent "niets vastgesteld", niet "niets te doen". De uitsluitingsfilters vallen daar
   # vanzelf op draaien, de allowlist voor fuzz juist niet — vandaar deze expliciete tak, zodat
   # alle vier de uitkomsten dezelfde kant op vallen.
   if [ -z "$bestanden" ]; then
     echo "::warning::Lege bestandenlijst — niets vastgesteld, alles draait fail-safe." >&2
-    alles_aan "$bot_pr"
+    alles_aan "$zonder_uitrol"
 
     return 0
   fi
@@ -161,7 +161,7 @@ classificeer() {
 
   local deploy=false
 
-  if [ "$bot_pr" = "true" ]; then
+  if [ "$zonder_uitrol" = "true" ]; then
     echo "deploy=false"
   elif grep_fail_safe "$bestanden" -vE "$NIET_DEPLOYBAAR"; then
     deploy=true
@@ -203,7 +203,7 @@ main() {
     return 0
   fi
 
-  local bot_pr=false
+  local zonder_uitrol=false
 
   # Het type komt van GitHub zelf (enum), niet uit door de indiener bepaalde tekst.
   if [ "${PR_AUTHOR_TYPE:-}" = "Bot" ]; then
@@ -214,13 +214,25 @@ main() {
     # wél: een dependency-bump hoort getoetst te worden, en welke checks nodig zijn volgt uit
     # dezelfde bestandsanalyse als bij een gewone PR.
     echo "::notice::PR van een bot — zad-actions deployt die niet, dus bouwen we ook niet." >&2
-    bot_pr=true
+    zonder_uitrol=true
+  fi
+
+  # Een draft-PR krijgt geen preview: bij veel gelijktijdige PR's bekijkt niemand ze allemaal, en elke
+  # preview kost drie deployments aan clustercapaciteit. `ready_for_review` start een nieuwe run op
+  # dezelfde commit, en die rolt alsnog uit. Alleen de letterlijke `true` schakelt uit, zodat een
+  # ontbrekende of onverwachte waarde op uitrollen valt.
+  #
+  # De overgeslagen previewchecks tellen op de draft als succes. Dat laat geen ongetoetste merge
+  # door: GitHub merget geen draft, en de run van `ready_for_review` vervangt die checks.
+  if [ "${PR_DRAFT:-}" = "true" ]; then
+    echo "::notice::Draft-PR — geen preview; die volgt zodra de PR ready for review is." >&2
+    zonder_uitrol=true
   fi
 
   local bestanden
   if ! bestanden=$(gh api --paginate "repos/${REPO:-}/pulls/${PR:-}/files" --jq '.[].filename'); then
     echo "::warning::Kon gewijzigde bestanden niet ophalen — alles draait fail-safe." >&2
-    alles_aan "$bot_pr"
+    alles_aan "$zonder_uitrol"
 
     return 0
   fi
@@ -228,7 +240,7 @@ main() {
   echo "Gewijzigde bestanden:" >&2
   printf '%s\n' "$bestanden" >&2
 
-  classificeer "$bestanden" "$bot_pr"
+  classificeer "$bestanden" "$zonder_uitrol"
 }
 
 # Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.

@@ -9,6 +9,9 @@ import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.MagazijnClients
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.AanmeldWebhookClient
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingResultaat
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
@@ -28,7 +31,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
-import java.io.File
 import java.net.URI
 import java.net.URL
 import java.net.http.HttpClient
@@ -72,14 +74,15 @@ class PaneelContractTest {
     @TestHTTPResource("/")
     lateinit var basis: URL
 
-    // Onvoorwaardelijk en niet in de testbody: het dubbel vervangt AanleverService voor élke
+    // Onvoorwaardelijk en niet in de testbody: de dubbels vervangen hun service voor élke
     // @QuarkusTest van deze module, dus de eerste test die een ander vulpad aanroept zou anders
-    // stil in deze lijst bijschrijven en een ándere test rood maken.
+    // stil in deze lijsten bijschrijven en een ándere test rood maken.
     @BeforeEach
     @AfterEach
-    fun leegDeOpdrachten() {
+    fun leegDeOpnames() {
         VasteAanleverService.opdrachten.clear()
         VasteAanleverService.faalreden = null
+        VasteOntdubbelingService.nummers.clear()
     }
 
     private fun haal(url: URL): HttpResponse<String> =
@@ -314,14 +317,14 @@ class PaneelContractTest {
     }
 
     @Test
-    fun `het antwoord draagt de vier tellers die het paneel samenvat`() {
+    fun `het antwoord draagt de vijf tellers die het paneel samenvat`() {
         // `bediening.js` leest ze bij naam in zijn `vulling`-samenvatter, zonder te toetsen of ze er
         // zijn: een hernoemd veld levert een groene melding "undefined van 3 berichten aangeleverd",
         // want `vullingTekst` gooit niet en `vullingSoort` valt dan terug op "goed".
         val body = ObjectMapper().readTree(plaatsBericht("?persona=pietersen&aantal=3").body())
 
         assertEquals(
-            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt"),
+            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt", "zonderBerichtId"),
             body.fieldNames().asSequence().toSet(),
         )
         assertEquals(3, body.path("aangeboden").asInt())
@@ -334,6 +337,147 @@ class PaneelContractTest {
         HttpResponse.BodyHandlers.ofString(),
     )
 
+    /**
+     * De knop wijst de persona op zijn id aan; het identificatienummer blijft aan deze kant. Dat
+     * de opzoeking het juiste nummer oplevert is uit het antwoord niet af te lezen — daar staan
+     * alleen het event-id en twee statussen in — dus dit pint wat de service binnenkreeg.
+     */
+    @Test
+    fun `de ontdubbeling zoekt het nummer bij de gekozen persona zelf op`() {
+        assertEquals(200, speelOntdubbeling("?persona=pietersen").statusCode())
+        assertEquals(listOf(PIETERSEN_BSN), VasteOntdubbelingService.nummers)
+    }
+
+    /**
+     * Een lege of witruimte-waarde hoort er hetzelfde uit te zien als een ontbrekende parameter:
+     * voor de bediener is het dezelfde vergissing. Zonder eigen afhandeling is het ontbrekende geval
+     * een HTTP 500 en zijn de twee andere een 404 — drie manieren om dezelfde vergissing te tonen.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["", "?persona=", "?persona=%20"])
+    fun `een ontdubbeling zonder bruikbare persona geeft 400 en geen 500`(query: String) {
+        val respons = speelOntdubbeling(query)
+
+        assertEquals(400, respons.statusCode(), "query '$query'")
+        assertTrue(respons.body().contains("personas"), "de melding hoort de weg terug te wijzen")
+        assertFalse(
+            respons.body().contains("onbekende persona"),
+            "geen keuze is iets anders dan een keuze die niet bestaat; die twee horen niet dezelfde melding te delen",
+        )
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "valideren hoort vóór het aanmelden te gaan")
+    }
+
+    /**
+     * De cijfers uit het antwoord gefilterd en niet de tekst vergeleken: `999-993-653` draagt
+     * hetzelfde nummer, en juist die schrijfwijze glipt langs een toets op de aaneengesloten reeks.
+     */
+    @ParameterizedTest
+    @MethodSource("schrijfwijzenVanEenNummer")
+    fun `geen enkele schrijfwijze van een nummer komt terug in de melding`(waarde: String) {
+        val respons = speelOntdubbeling("?persona=$waarde")
+
+        assertEquals(400, respons.statusCode(), "persona '$waarde'")
+        assertFalse(
+            respons.body().filter(Char::isDigit).contains(PIETERSEN_BSN),
+            "de melding hoort het aangeboden nummer niet te dragen (persona '$waarde')",
+        )
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een nummer hoort niets aan te melden")
+    }
+
+    /** Hetzelfde adres dat de knop *Bericht plaatsen* aanroept; het draagt dezelfde parameter. */
+    @ParameterizedTest
+    @MethodSource("schrijfwijzenVanEenNummer")
+    fun `ook een gericht bericht herhaalt het aangeboden nummer niet`(waarde: String) {
+        val respons = plaatsBericht("?persona=$waarde")
+
+        assertEquals(400, respons.statusCode(), "persona '$waarde'")
+        assertFalse(
+            respons.body().filter(Char::isDigit).contains(PIETERSEN_BSN),
+            "de melding hoort het aangeboden nummer niet te dragen (persona '$waarde')",
+        )
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een nummer hoort niets aan te leveren")
+    }
+
+    /**
+     * Bewust geen normalisatie: witruimte eromheen of een afwijkende hoofdletter is geen andere
+     * persona, maar ook geen bestaande. Aannemen wat er bedoeld werd verbergt een verkeerd
+     * ingerichte keuzelijst.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["%20pietersen", "pietersen%20", "Pietersen"])
+    fun `een persona met een afwijkende schrijfwijze wordt niet alsnog aangenomen`(waarde: String) {
+        assertEquals(404, speelOntdubbeling("?persona=$waarde").statusCode(), "persona '$waarde'")
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een niet-gevonden persona hoort niets aan te melden")
+    }
+
+    /**
+     * Het paneel filtert op de tekst `BSN:` in `ontvanger`, de resource kijkt naar `type`. Die regel
+     * staat hier nagebouwd, dus dit pint de resource-kant: elke persona die het paneel doorlaat
+     * hoort geaccepteerd te worden, elke andere geweigerd. Dat het script diezelfde regel houdt is
+     * hiermee niet bewezen — een filter dat verschuift laat deze test groen.
+     *
+     * De weigering is een 400 en geen 404: zo'n persona bestáát, en een 404 stuurt de bediener
+     * zoeken naar iets dat gewoon in de lijst staat.
+     */
+    @Test
+    fun `elke persona die het paneel voor de ontdubbeling aanbiedt wordt geaccepteerd`() {
+        val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").toList()
+        val (metBsn, zonderBsn) = personas.partition { it.path("ontvanger").asText().startsWith("BSN:") }
+
+        // Met één persona zou dit "geeft de enige terug" niet van "zoekt per id op" onderscheiden.
+        assertTrue(metBsn.size >= 2, "minder dan twee BSN-persona's ingericht; dan toetst dit niets")
+        assertTrue(zonderBsn.isNotEmpty(), "zonder een persona zonder BSN blijft de andere helft ongetoetst")
+
+        metBsn.forEach { persona ->
+            VasteOntdubbelingService.nummers.clear()
+
+            val id = persona.path("id").asText()
+
+            // Zonder id zou de blank-check hieronder slagen op de verkeerde grond.
+            assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
+            assertEquals(200, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
+            assertEquals(
+                listOf(persona.path("ontvanger").asText().removePrefix("BSN:")),
+                VasteOntdubbelingService.nummers,
+                "persona '$id' hoort zijn eigen nummer op te leveren",
+            )
+        }
+
+        VasteOntdubbelingService.nummers.clear()
+
+        zonderBsn.forEach { persona ->
+            val id = persona.path("id").asText()
+            val ontvanger = persona.path("ontvanger").asText()
+            val respons = speelOntdubbeling("?persona=$id")
+
+            assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
+            assertEquals(400, respons.statusCode(), "persona '$id'")
+
+            // Uit dezelfde bron als de persona zelf: een hardgecodeerd "KVK" laat deze test bij een
+            // andere personaset falen op het type in plaats van op wat er werkelijk mis is. Wel
+            // eerst de vorm toetsen — zonder dubbele punt geeft `substringBefore` de héle waarde
+            // terug, en dan zou deze assertie het nummer in de melding juist gaan eisen.
+            assertTrue(ontvanger.contains(':'), "ontvanger '$ontvanger' heeft niet de vorm <TYPE>:<WAARDE>")
+            assertTrue(
+                respons.body().contains(ontvanger.substringBefore(':')),
+                "de melding hoort te zeggen wat persona '$id' wél heeft",
+            )
+        }
+
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een persona zonder BSN hoort niets aan te melden")
+    }
+
+    @Test
+    fun `een ontdubbeling voor een onbekende persona geeft 404 en niet een lege 500`() {
+        val respons = speelOntdubbeling("?persona=bestaat-niet")
+
+        assertEquals(404, respons.statusCode())
+        assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
+        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een onbekende persona hoort niets aan te melden")
+    }
+
+    private fun speelOntdubbeling(query: String): HttpResponse<String> =
+        post("/api/demo/ontdubbeling", query)
     private fun plaatsBericht(query: String): HttpResponse<String> = post("/api/demo/bericht", query)
 
     private fun voerRandomOp(query: String): HttpResponse<String> = post("/api/demo/random", query)
@@ -476,7 +620,7 @@ class PaneelContractTest {
     @Test
     fun `elk pad achter een knop komt uit op een route van deze applicatie`() {
         val paden = Regex("""data-pad="([^"]+)"""")
-            .findAll(File("src/main/resources/META-INF/resources/index.html").readText())
+            .findAll(PaneelBestanden.paneel())
             .map { it.groupValues[1].substringBefore('?').replace(Regex("""\{[^}]+}"""), "1") }
             .toSet()
 
@@ -505,6 +649,24 @@ class PaneelContractTest {
 
         /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
         const val PIETERSEN_BSN = "999993653"
+
+        /**
+         * Hoe een bediener het nummer in de parameter kan krijgen: kaal, met witruimte of een punt
+         * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel uit `ontvanger`, met een
+         * voorloopnul, en met scheidingstekens ertussen. Alle acht afgeleid van de constante, zodat
+         * er geen tweede nummer in dit bestand staat.
+         */
+        @JvmStatic
+        fun schrijfwijzenVanEenNummer() = listOf(
+            PIETERSEN_BSN,
+            "%20$PIETERSEN_BSN",
+            "$PIETERSEN_BSN%20",
+            "$PIETERSEN_BSN.",
+            "BSN%3A$PIETERSEN_BSN",
+            "0$PIETERSEN_BSN",
+            PIETERSEN_BSN.chunked(3).joinToString("-"),
+            PIETERSEN_BSN.chunked(3).joinToString("_"),
+        )
 
         // Afgeleid van de constante en niet overgeschreven: wie de grens verzet, verzet anders wel
         // het buiten-bereik-geval en laat de bovengrens zelf als binnenwaarde achter.
@@ -584,6 +746,7 @@ class VasteAanleverService(clients: MagazijnClients) : AanleverService(clients) 
             aangeboden = opdrachten.size,
             geslaagd = if (reden == null) opdrachten.size else 0,
             markeringMislukt = 0,
+            zonderBerichtId = 0,
             redenen = if (reden == null) emptyList() else List(opdrachten.size) { reden },
         )
     }
@@ -595,5 +758,28 @@ class VasteAanleverService(clients: MagazijnClients) : AanleverService(clients) 
         /** Laat een ronde mislukken met deze reden; null houdt de vulling geslaagd. */
         @Volatile
         var faalreden: String? = null
+    }
+}
+
+/**
+ * Vaste demonstratie in plaats van hetzelfde CloudEvent tweemaal naar de uitvraag, die hier niet
+ * draait. Neemt op met welk nummer de resource hem aanroept: dat is wat de persona-opzoeking moet
+ * opleveren, en het staat niet in het antwoord. Thread-veilig en per test geleegd, om dezelfde
+ * reden als bij [VasteAanleverService].
+ */
+@Mock
+@Singleton
+class VasteOntdubbelingService(@RestClient client: AanmeldWebhookClient) :
+    OntdubbelingService(client, ObjectMapper()) {
+
+    override fun demonstreer(ontvangerBsn: String): OntdubbelingResultaat {
+        nummers += ontvangerBsn
+
+        return OntdubbelingResultaat(eventId = "vast-event-id", eersteStatus = 202, tweedeStatus = 202)
+    }
+
+    companion object {
+
+        val nummers: MutableList<String> = CopyOnWriteArrayList()
     }
 }

@@ -348,6 +348,7 @@ jobs:
                  demo/environment/federatie/contracts/*.sh \
                  demo/environment/*/deploy/local/*.sh \
                  demo/environment/*/pki/*.sh \
+                 demo/environment/zad-demo/*.sh \
                  demo/*.sh \
                  .github/scripts/merge-guard.sh; then
             fail=1

@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
-import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.PROBLEM_JSON
@@ -18,10 +17,18 @@ import java.util.UUID
 internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.simulator.bijlage.mimeType"
 
 /**
- * Zet de `Content-Type` van een bijlage-download op het opgeslagen MIME-type, en forceert
- * `Content-Disposition: attachment` zodat een browser de inhoud nooit inline rendert. Dat laatste
- * dicht een stored-XSS-pad: een aangeleverde `text/html`- of `image/svg+xml`-bijlage zou anders bij
- * het openen onder onze origin kunnen draaien.
+ * Request-property met de naam van de bijlage, voor de `filename`-parameters in de
+ * `Content-Disposition`. Optioneel: zonder naam gaat de response uit met alleen de dispositie. De
+ * waarde gaat onbewerkt mee — saneren en coderen gebeurt in [BijlageContentDisposition].
+ */
+internal const val BIJLAGE_NAAM_PROPERTY = "fbs.simulator.bijlage.naam"
+
+/**
+ * Zet de `Content-Type` van een bijlage-download op het opgeslagen MIME-type, en de bijbehorende
+ * `Content-Disposition`: `attachment` zodat een browser een aangeleverde `text/html`- of
+ * `image/svg+xml`-bijlage nooit inline rendert en onder onze origin laat draaien, `inline` voor de
+ * typen waarvoor dat pad niet bestaat. Die afweging staat in [BijlageContentDisposition] en volgt
+ * het echte magazijn.
  *
  * De spec laat dit endpoint elk mediatype produceren, dus het type is niet vooraf bekend en moet
  * uit de response komen. Een `@NameBinding` om dit filter tot dat ene endpoint te beperken werkt niet:
@@ -30,9 +37,15 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.simulator.bijlage.mimeType"
  * draaien veilig.
  *
  * Het MIME-type wordt hier opnieuw geparsed, ook al deed de resource dat al: een waarde die
- * ongeparseerd in een header belandt, laat header-splitting via `\r\n` toe. Bij een onbruikbare
- * waarde gaan de bytes niet de deur uit maar volgt een 500 met correlatie-id — een bijlage met een
- * `Content-Type` dat niet klopt is erger dan geen bijlage.
+ * ongeparseerd in een header belandt, laat header-splitting via `\r\n` toe. Dat parsen weigert ook
+ * een waarde mét control-tekens: die parseert wél, maar laat de HTTP-laag pas bij het schrijven van
+ * de response klappen. Bij een onbruikbare waarde gaan de bytes niet de deur uit maar volgt een 500
+ * met correlatie-id — een bijlage met een `Content-Type` dat niet klopt is erger dan geen bijlage.
+ *
+ * **Alleen op een geslaagde response**, net als het echte magazijn. De property beschrijft het
+ * request en niet de afloop: hij blijft staan als er ná de resource-methode nog een fout ontstaat.
+ * Zonder die grens zou een foutbody de deur uit gaan vermomd als bijlage, en zou de 500 hierboven
+ * bovenop een bestaande fout komen — met een ander correlatie-id dan de oorspronkelijke storing.
  */
 @Provider
 class BijlageContentTypeFilter : ContainerResponseFilter {
@@ -40,18 +53,14 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         val mimeType = requestContext.getProperty(BIJLAGE_MIME_TYPE_PROPERTY) as? String ?: return
 
-        // Vóór het parsen, zodat geen enkele weg langs deze header heen loopt; gaat het parsen mis,
-        // dan haalt die tak hem hieronder weer weg omdat er dan een problem+json uitgaat en geen
-        // bijlage. Geen filename: de naam staat al in de detail-response, en een filename in deze
-        // header vraagt om RFC 5987-encoding en sanering die hier niets toevoegt.
-        responseContext.headers.putSingle("Content-Disposition", "attachment")
+        if (responseContext.status !in GESLAAGD) return
 
-        val geparsed = try {
-            MediaType.valueOf(mimeType)
-        } catch (ex: IllegalArgumentException) {
+        val geparsed = bijlageMediaType(mimeType)
+
+        if (geparsed == null) {
             val foutId = UUID.randomUUID()
 
-            log.errorf(ex, "Ongeldig MIME-type op de request-property (foutId=%s)", foutId)
+            log.errorf("Ongeldig MIME-type op de request-property (foutId=%s)", foutId)
 
             // Niet doorlaten met de standaard-`Content-Type`: dan gaan de bytes alsnog de deur uit,
             // met een type dat niet klopt. De resource heeft de waarde al geparsed, dus hier komen
@@ -59,15 +68,21 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
             responseContext.status = Response.Status.INTERNAL_SERVER_ERROR.statusCode
             responseContext.entity = onverwachteFoutProblem(foutId)
             responseContext.headers.putSingle("Content-Type", PROBLEM_JSON.toString())
-            responseContext.headers.remove("Content-Disposition")
 
             return
         }
 
+        val naam = requestContext.getProperty(BIJLAGE_NAAM_PROPERTY) as? String
+
         responseContext.headers.putSingle("Content-Type", geparsed.toString())
+        responseContext.headers.putSingle("Content-Disposition", BijlageContentDisposition.waarde(geparsed, naam))
     }
 
     private companion object {
         private val log: Logger = Logger.getLogger(BijlageContentTypeFilter::class.java)
+
+        /** Een range en geen `== 200`: response-filters dragen geen `@Priority`, dus de
+         *  volgorde t.o.v. een filter dat de status nog verzet ligt niet vast. */
+        private val GESLAAGD = 200..299
     }
 }
