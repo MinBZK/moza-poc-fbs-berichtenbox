@@ -36,6 +36,10 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val foutId = UUID.randomUUID()
 
+        // Een throw-site die de situatie kent geeft zijn eigen kenmerk mee; de rest krijgt de
+        // terugval op de status.
+        val foutcode = (exception as? SimulatorFout)?.foutcode ?: Foutcode.voorStatus(status)
+
         if (status >= SERVERFOUT_VANAF) {
             // De melding blijft uit de log: bij een exception van elders kan die gebruikersinvoer
             // dragen. Het exception-object levert de stack, en het correlatie-id koppelt log en
@@ -44,7 +48,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
             // Bij een 5xx gaat de melding niet naar de client: die kan interne details dragen, en er
             // is hier niets dat dat nog kan onderscheiden.
-            return problemResponse(status = status, title = title, foutId = foutId)
+            return problemResponse(status = status, title = title, foutId = foutId, foutcode = foutcode)
         }
 
         // Ook een clientfout krijgt een regel, op INFO. Het antwoord draagt een correlatie-id, en een
@@ -52,7 +56,13 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         // eruit om dezelfde reden als hierboven: die kan invoer dragen.
         log.infof("Clientfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
 
-        return problemResponse(status = status, title = title, detail = veiligDetail(exception.message), foutId = foutId)
+        return problemResponse(
+            status = status,
+            title = title,
+            detail = veiligDetail(exception.message),
+            foutId = foutId,
+            foutcode = foutcode,
+        )
     }
 
     /**

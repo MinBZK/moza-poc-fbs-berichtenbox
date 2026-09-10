@@ -1,14 +1,10 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
-import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
-import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.inject.Inject
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
-import java.net.URI
 import java.util.logging.Logger
 
 /**
@@ -26,34 +22,52 @@ import java.util.logging.Logger
  * De twee sluiten elkaar uit, zodat het paneel per bericht één cijfer noemt: een aflevering zonder
  * berichtId telt alleen als `zonderBerichtId`, ook wanneer om gelezen was gevraagd. Anders leest één
  * bericht als twee problemen.
+ *
+ * `letOp` draagt de reden uit [Faalreden], en is null zolang er niets in de *aflevering* mislukte —
+ * de twee tellers hierboven krijgen geen reden, want die berichten kwamen wél aan. Alleen via [van]
+ * te maken, en `copy()` erft die zichtbaarheid: `mislukt` en `letOp` komen zo aantoonbaar uit
+ * dezelfde lijst en kunnen elkaar niet tegenspreken.
  */
-data class AanleverResultaat(
+@ConsistentCopyVisibility
+data class AanleverResultaat private constructor(
     val aangeboden: Int,
     val geslaagd: Int,
     val mislukt: Int,
     val markeringMislukt: Int,
     val zonderBerichtId: Int,
-)
+    val letOp: String?,
+) {
 
-/**
- * Levert opdrachten aan bij het juiste magazijn. De magazijn-URL's komen uit config
- * (`demo.magazijnen."<OIN>".url`); per URL wordt één REST-client gebouwd en hergebruikt.
- */
+    internal companion object {
+
+        fun van(
+            aangeboden: Int,
+            geslaagd: Int,
+            markeringMislukt: Int,
+            zonderBerichtId: Int,
+            redenen: List<String>,
+        ) = AanleverResultaat(
+            aangeboden = aangeboden,
+            geslaagd = geslaagd,
+            mislukt = redenen.size,
+            markeringMislukt = markeringMislukt,
+            zonderBerichtId = zonderBerichtId,
+            letOp = Faalreden.samenvatting(redenen),
+        )
+    }
+}
+
+/** Levert opdrachten aan bij het juiste magazijn. */
 @ApplicationScoped
-class AanleverService internal constructor(private val clients: Map<String, MagazijnAanleverClient>) {
-
-    // CDI bouwt de clients uit config; de map-constructor is de ingang voor tests met een eigen
-    // magazijn. Zonder deze @Inject weet ArC niet welke van de twee het moet zijn.
-    @Inject
-    constructor(config: DemoConfig) : this(bouwClients(config))
+class AanleverService(private val clients: MagazijnClients) {
 
     private val log = Logger.getLogger(AanleverService::class.java.name)
 
     fun leverAan(opdrachten: List<AanleverOpdracht>): AanleverResultaat {
         var geslaagd = 0
-        var mislukt = 0
         var markeringMislukt = 0
         var zonderBerichtId = 0
+        val redenen = mutableListOf<String>()
 
         opdrachten.forEach { opdracht ->
             val client = clients[opdracht.magazijnOin]
@@ -62,13 +76,13 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
                 // Geen storing maar een inrichtingsfout: deze OIN staat niet in demo.magazijnen,
                 // en dat herstelt zichzelf niet en raakt elk bericht voor dat magazijn.
                 meld("geen magazijn-URL voor OIN ${opdracht.magazijnOin} — opdracht overgeslagen", storing = false)
-                mislukt++
+                redenen += Faalreden.geenMagazijn(opdracht.magazijnOin)
 
                 return@forEach
             }
 
             when (val uitkomst = lever(opdracht, client)) {
-                LeverUitkomst.Mislukt -> mislukt++
+                is LeverUitkomst.Mislukt -> redenen += uitkomst.reden
 
                 LeverUitkomst.AfgeleverdZonderId -> {
                     geslaagd++
@@ -83,7 +97,13 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
             }
         }
 
-        return AanleverResultaat(opdrachten.size, geslaagd, mislukt, markeringMislukt, zonderBerichtId)
+        return AanleverResultaat.van(
+            aangeboden = opdrachten.size,
+            geslaagd = geslaagd,
+            markeringMislukt = markeringMislukt,
+            zonderBerichtId = zonderBerichtId,
+            redenen = redenen,
+        )
     }
 
     private sealed interface LeverUitkomst {
@@ -94,11 +114,13 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         /**
          * Afgeleverd — de Aanlever-API belooft bij een 201 dat het bericht is opgeslagen — maar het
          * antwoord droeg geen bruikbaar berichtId, dus de console kan het bericht niet meer
-         * aanwijzen en het dus ook niet op gelezen zetten.
+         * aanwijzen en het dus ook niet op gelezen zetten. Geen reden erbij: een zin die zegt dat het
+         * bericht niet aankwam, nodigt uit tot opnieuw drukken, en dan staat het er twee keer.
          */
         data object AfgeleverdZonderId : LeverUitkomst
 
-        data object Mislukt : LeverUitkomst
+        /** Niet afgeleverd, met de zin die het paneel over dit bericht toont. */
+        data class Mislukt(val reden: String) : LeverUitkomst
     }
 
     private fun lever(opdracht: AanleverOpdracht, client: MagazijnAanleverClient): LeverUitkomst {
@@ -114,7 +136,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         } catch (fout: Exception) {
             meld("aanleveren bij magazijn ${opdracht.magazijnOin} mislukte", isStoring(fout), fout)
 
-            return LeverUitkomst.Mislukt
+            return LeverUitkomst.Mislukt(redenBijAanroep(opdracht.magazijnOin, fout))
         }
 
         return try {
@@ -125,12 +147,20 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
     }
 
     /**
+     * Alleen een `ProcessingException` krijgt de zin die de bediener naar de storingsknop stuurt: dat
+     * type wikkelt alles wat er op de lijn naar het magazijn misgaat. Een ander type komt uit de
+     * console zelf, en daar helpt die knop niet.
+     */
+    private fun redenBijAanroep(magazijnOin: String, fout: Exception): String =
+        if (fout is ProcessingException) Faalreden.onbereikbaar(magazijnOin) else Faalreden.onverwacht(magazijnOin, fout)
+
+    /**
      * Leest uit het antwoord wat er van de aanlevering terechtkwam. Een blanco berichtId telt als
      * afwezig: dat zou een PATCH op `/berichten/` opleveren, een aanroep die alleen een tweede fout
      * geeft.
      */
     private fun uitkomstVan(response: Response, opdracht: AanleverOpdracht): LeverUitkomst {
-        if (response.status != 201) {
+        if (response.status != AANGELEVERD) {
             // Alleen het type van de ontvanger, nooit de waarde: een BSN hoort niet in
             // applicatielogs. De magazijn-OIN is publiek en wijst de fout net zo goed aan.
             //
@@ -142,7 +172,9 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
                 storing = isStoring(response.status),
             )
 
-            return LeverUitkomst.Mislukt
+            val detail = detailVan(response, opdracht.magazijnOin)
+
+            return LeverUitkomst.Mislukt(Faalreden.vanStatus(opdracht.magazijnOin, response.status, detail))
         }
 
         val berichtId = try {
@@ -154,6 +186,30 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         if (berichtId.isNullOrBlank()) return onleesbaar(opdracht, null)
 
         return LeverUitkomst.Afgeleverd(berichtId)
+    }
+
+    /**
+     * De reden die het magazijn zelf gaf. Mislukt het lezen — een lege body, een foutpagina in
+     * plaats van problem+json — dan valt [Faalreden.vanStatus] terug op zijn eigen zin; dat een
+     * afwijzing niet uit te lezen was, mag die afwijzing niet verbergen.
+     *
+     * Alleen waar die reden ook gebruikt wordt. Bij een 5xx negeert [Faalreden.vanStatus] hem, en
+     * dan zou een storing tijdens een ronde van honderd berichten honderd waarschuwingen opleveren
+     * over een body die niemand had willen lezen.
+     */
+    private fun detailVan(response: Response, magazijnOin: String): String? = try {
+        if (Faalreden.heeftEigenReden(response.status) && response.hasEntity()) {
+            response.readEntity(Problem::class.java)?.detail
+        } else {
+            null
+        }
+    } catch (fout: Exception) {
+        // Op waarschuwingsniveau, want dit faalt systemisch of niet: gaat één afwijzing hierop
+        // stuk, dan gaan ze allemaal stuk en toont het paneel de rest van de demo een algemene zin
+        // terwijl het magazijn een preciezere gaf.
+        meld("antwoord van magazijn $magazijnOin droeg geen leesbare problem+json", storing = true, fout)
+
+        null
     }
 
     private fun onleesbaar(opdracht: AanleverOpdracht, fout: Throwable?): LeverUitkomst {
@@ -185,7 +241,7 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
         }
 
         return try {
-            val gelukt = response.status == 200
+            val gelukt = response.status == GEMARKEERD
 
             if (!gelukt) {
                 meld(
@@ -220,10 +276,10 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
 
     /**
      * Schrijft een onderdrukte fout weg. `storing` scheidt wat het magazijn of de lijn ernaartoe
-     * aangaat van wat uit de console zelf komt: het paneel telt allebei hooguit als één cijfer en
-     * noemt de oorzaak nooit, dus de log is het enige dat een bediener bij de goede kant brengt — en
-     * dan hoort een fout aan onze kant erbovenuit te komen. Die treft namelijk elk bericht van de
-     * ronde, terwijl een storing bij het volgende bericht alweer voorbij kan zijn.
+     * aangaat van wat uit de console zelf komt: het paneel telt allebei hooguit als één cijfer, dus
+     * de log is het enige dat een bediener bij de goede kant brengt — en dan hoort een fout aan onze
+     * kant erbovenuit te komen. Die treft namelijk elk bericht van de ronde, terwijl een storing bij
+     * het volgende bericht alweer voorbij kan zijn.
      */
     private fun meld(melding: String, storing: Boolean, fout: Throwable? = null) {
         val oorzaak = fout?.let { ": ${oorzaakketen(it)}" }.orEmpty()
@@ -288,17 +344,14 @@ class AanleverService internal constructor(private val clients: Map<String, Maga
 
     private companion object {
 
+        /** Het magazijn bevestigt een aanlevering met 201 en een geslaagde status-patch met 200. */
+        const val AANGELEVERD = 201
+        const val GEMARKEERD = 200
+
         /** Hoe diep de oorzaakketen de log in gaat; genoeg voor wrapper-om-wrapper. */
         const val MAX_OORZAKEN = 5
 
         /** Statuscodes die zeggen "later nog eens proberen"; die komen van de overkant. */
         val WACHTCODES = setOf(408, 429)
-
-        fun bouwClients(config: DemoConfig): Map<String, MagazijnAanleverClient> =
-            config.magazijnen().mapValues { (_, magazijn) ->
-                QuarkusRestClientBuilder.newBuilder()
-                    .baseUri(URI.create(magazijn.url()))
-                    .build(MagazijnAanleverClient::class.java)
-            }
     }
 }

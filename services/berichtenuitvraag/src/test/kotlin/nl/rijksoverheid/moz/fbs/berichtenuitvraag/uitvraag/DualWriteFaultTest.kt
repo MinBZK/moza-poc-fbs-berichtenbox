@@ -44,6 +44,7 @@ class DualWriteFaultTest {
         sessiecache.berichten[id] = Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "X",
             inhoud = "Inhoud",
@@ -132,6 +133,57 @@ class DualWriteFaultTest {
             .statusCode(502)
 
         assertEquals(0, sessiecache.werkBijAanroepen)
+    }
+
+    @Test
+    fun `PATCH magazijn-410 propageert met het kenmerk bericht-verwijderd`() {
+        // Het magazijn stelt de verwijdering vast, niet de cache; het kenmerk hoort die hop te
+        // overleven. De REST-client levert een kale exception, dus zonder hertaling zou hier
+        // "ongeldig verzoek" of "niet gevonden" bij de client landen.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(410)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(410)
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+            // De REST-client-message noemt de aangeroepen client-methode voluit; die hoort niet in
+            // een antwoord dat naar buiten gaat.
+            .body("detail", org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("MagazijnClient")))
+
+        assertEquals(0, sessiecache.werkBijAanroepen)
+    }
+
+    @Test
+    fun `PATCH magazijn-404 draagt hetzelfde kenmerk als een cache-misser`() {
+        // Eén endpoint hoort één kenmerk per situatie te geven, ongeacht welke laag de misser
+        // opmerkte. Zonder hertaling zegt dit pad `niet-gevonden` en het cache-pad
+        // `bericht-onbekend` voor exact dezelfde vraag.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(404)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(404)
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-onbekend"))
     }
 
     @Test

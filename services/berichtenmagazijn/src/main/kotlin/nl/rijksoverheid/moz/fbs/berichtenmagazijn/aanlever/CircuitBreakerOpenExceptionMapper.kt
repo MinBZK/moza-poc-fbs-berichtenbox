@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
 import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException
@@ -26,6 +27,7 @@ class CircuitBreakerOpenExceptionMapper : ExceptionMapper<CircuitBreakerOpenExce
         log.warnf("Circuit breaker open (errorId=%s): %s", errorId, exception.message)
 
         val problem = Problem(
+            type = Foutcode.TIJDELIJK_NIET_BESCHIKBAAR.uri,
             title = "Service Unavailable",
             status = 503,
             detail = "Magazijn tijdelijk niet beschikbaar. Probeer het later opnieuw.",

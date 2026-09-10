@@ -109,7 +109,9 @@ wacht_op_taak() {
   local api_url=$1 api_key=$2 taak=$3
   local status antwoord
 
-  for _ in $(seq 60); do
+  # Elke seconde, niet elke twee: de taak zelf duurt tientallen seconden en zit op het kritieke pad
+  # van de preview-uitrol, dus de halve wachttijd na afloop telt en één extra GET niet.
+  for _ in $(seq 120); do
     if ! antwoord=$("$CURL" -sf -H "X-API-Key: $api_key" "$api_url/tasks/$taak"); then
       fout "Taak $taak niet op te vragen; de uitkomst van de netwerkregel is onbekend."
     fi
@@ -125,7 +127,7 @@ wacht_op_taak() {
         ;;
     esac
 
-    sleep 2
+    sleep 1
   done
 
   fout "Taak $taak was na twee minuten nog niet klaar; de netwerkregel staat mogelijk niet."

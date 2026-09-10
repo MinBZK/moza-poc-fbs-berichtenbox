@@ -62,7 +62,7 @@ class ProfielMagazijnResolverTest {
     private val resolver = ProfielMagazijnResolver(profielClient, factory, innerTimeoutSeconds = 2L, cacheTtlSeconds = 0L, cacheMaxSize = 100L)
 
     private fun stubRegister(vararg oins: String): Magazijnregister {
-        val inschrijvingen = oins.map { Magazijninschrijving(Oin(it), URI.create("http://test-$it"), naam = null) }
+        val inschrijvingen = oins.map { Magazijninschrijving(Oin(it), URI.create("http://test-$it"), naam = "Magazijn A") }
 
         return object : Magazijnregister {
             override fun alle(): Collection<Magazijninschrijving> = inschrijvingen

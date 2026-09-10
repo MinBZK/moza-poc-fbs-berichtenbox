@@ -6,10 +6,12 @@ import io.mockk.verify
 import jakarta.ws.rs.BadRequestException
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.aanlever.Faalreden
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Organisatie
-import nl.rijksoverheid.moz.fbs.democonsole.generator.Persona
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Sjabloon
+import nl.rijksoverheid.moz.fbs.demopersonas.DemoPersona
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -63,10 +65,20 @@ class TempoServiceTest {
         rvo to Organisatie(rvo, "RVO", listOf(Sjabloon("Subsidie", "Uw subsidie is toegekend."))),
     )
 
-    private val personas = listOf(Persona("pietersen", "J. Pietersen", "BSN", "999993653", listOf(rvo)))
+    private val personas = listOf(
+        DemoPersona(
+            id = "pietersen",
+            label = "J. Pietersen",
+            type = "BSN",
+            waarde = "999993653",
+            magazijnen = listOf(rvo),
+            bron = PersonaBron.KETEN,
+        ),
+    )
 
-    // Een echte generator en geen mock: hij is met drie regels testdata op te tuigen en levert
-    // echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's te pinnen.
+    // Een echte generator en geen mock: hij is met één persona en één organisatie op te tuigen en
+    // levert echte opdrachten, waar een mock elke aanroep zou moeten stubben zonder iets extra's
+    // te pinnen.
     private val generator = DemoBerichtGenerator(
         personas,
         organisaties,
@@ -76,7 +88,7 @@ class TempoServiceTest {
     private val service = TempoService(klok, aanleverService, generator, testKlok)
 
     init {
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(1, 1, 0, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 1, 0, 0, emptyList())
     }
 
     @ParameterizedTest
@@ -112,7 +124,7 @@ class TempoServiceTest {
     fun `een magazijn dat niets aanneemt laat de teller stilstaan`() {
         // De chip meldt "N geleverd". Telde die de tikken, dan liep hij tijdens een demo vrolijk door
         // terwijl er geen enkel bericht aankwam — en dan is er niets dat de storing verraadt.
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(1, 0, 1, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 0, 0, 0, listOf(Faalreden.onbereikbaar("00000000000000100000")))
 
         service.start(5)
 
@@ -126,7 +138,7 @@ class TempoServiceTest {
     fun `de stroom stopt op het aantal pogingen, ook als er niets aankomt`() {
         // Zou de bovengrens aan de afleveringen hangen, dan bleef de stroom bij een uitstaand magazijn
         // een uur doortikken in plaats van na MAX_BERICHTEN te stoppen.
-        every { aanleverService.leverAan(any()) } returns AanleverResultaat(1, 0, 1, 0, 0)
+        every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(1, 0, 0, 0, listOf(Faalreden.onbereikbaar("00000000000000100000")))
 
         service.start(1)
 

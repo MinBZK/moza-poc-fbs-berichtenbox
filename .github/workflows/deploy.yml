@@ -285,13 +285,27 @@ jobs:
       # geen enkele preview.
       #
       # Uit compose.yaml en niet uit een eigen env-regel hier; het waarom staat bij die regel.
+      #
+      # De repo-variabele `PROEFTUIN_IMAGE` overschrijft die pin voor elke uitrol die daarna draait.
+      # Bedoeld om de demo tijdelijk op nog niet gemergd werk van de proeftuin te zetten, of op een
+      # bevroren release-tag: variabele zetten, deploy opnieuw draaien, en terugzetten door hem weg
+      # te halen. Een variabele en geen commit, want dit hoort niet in de geschiedenis van de repo
+      # thuis; hij geldt wél voor `test` én elke preview, vandaar de notice hieronder.
       - id: proeftuin
+        env:
+          PROEFTUIN_IMAGE: ${{ vars.PROEFTUIN_IMAGE }}
         run: |
           set -euo pipefail
 
           # Eerst toewijzen, dan pas schrijven: `echo "image=$(...)"` zou bij een falend script een
           # lege waarde wegschrijven en de deploy een component zonder image laten zetten.
           image=$(.github/scripts/proeftuin-image.sh)
+
+          # Zichtbaar bovenaan de run en niet alleen in het stap-log: een demo die op een andere
+          # berichtenbox draait dan de repo pint, verklaart anders gedrag dat niemand terugvindt.
+          if [ -n "${PROEFTUIN_IMAGE:-}" ]; then
+            echo "::notice title=Berichtenbox overschreven::De repo-variabele PROEFTUIN_IMAGE zet de berichtenbox op $image in plaats van de pin in compose.yaml."
+          fi
 
           echo "image=$image" >> "$GITHUB_OUTPUT"
 
@@ -838,16 +852,10 @@ jobs:
       && needs.build-externe-stubs.result == 'success'
       && needs.gate.result == 'success'
       && needs.build-demo-images.result == 'success'
-      && needs.deploy-preview-uitvraag.result == 'success'
-      && needs.deploy-preview-externe-stubs.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
-    # Ná de twee andere preview-deploys, en niet er parallel aan. Dit project draagt de
-    # outbound-kant van álle regels, en elke regel noemt een peer-deployment in een ánder project.
-    # Bestaat die peer nog niet op het moment van genereren, dan slaat de resolver de regel over —
-    # met een regel in een log en verder niets (`resolve.py`: "a missing deployment/component in a
-    # project that IS known ... is logged with the rule name and skipped"). De preview meldt dan
-    # groen met dode storingsknoppen. Kost wat doorlooptijd; die twee jobs zijn kort.
+    # Parallel aan de twee andere preview-deploys. Wat wél op alle drie moet wachten is het zetten
+    # van de netwerkregels; dat staat daarom in `preview-afronding` en niet hier.
     needs:
       - meta
       - build
@@ -855,8 +863,6 @@ jobs:
       - build-demo-images
       - gate
       - changes
-      - deploy-preview-uitvraag
-      - deploy-preview-externe-stubs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -864,15 +870,11 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      # Voor de preview-comment onderaan deze job.
-      pull-requests: write
+    # Naar `preview-afronding`, dat de comment samenstelt uit de URL's van deze deploy en die van
+    # de uitvraag.
+    outputs:
+      urls: ${{ steps.deploy.outputs.urls }}
     steps:
-      # De deploy-stap hieronder heeft de repo niet nodig, de netwerkregel-stap erna wel: die
-      # draait een script uit .github/scripts/.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: Deploy magazijnen-project
         id: deploy
         uses: RijksICTGilde/zad-actions/deploy@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
@@ -893,9 +895,54 @@ jobs:
               {"name": "proeftuin", "image": "${{ needs.meta.outputs.proeftuin_image }}"}
             ]
 
+  # De staart van de preview-uitrol: wat pas kan als alle drie de deployments bestaan. Eerder
+  # wachtte de hele magazijnen-deploy daarop, en legde die zijn ruim twee minuten boven op de twee
+  # andere; nu wacht alleen deze korte job.
+  #
+  # De job draagt geen `deploy-preview-`-voorvoegsel: `uitrol-poort` telt op dat voorvoegsel de
+  # uitrol-jobs per as, en dit is er geen. De poort beoordeelt hem apart.
+  preview-afronding:
+    # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
+    # het transitief overgeslagen `checks-fuzz` onder `gate`.
+    if: >-
+      !cancelled()
+      && needs.deploy-preview-uitvraag.result == 'success'
+      && needs.deploy-preview-externe-stubs.result == 'success'
+      && needs.deploy-preview-magazijnen.result == 'success'
+      && github.event_name == 'pull_request'
+      && needs.changes.outputs.deploy == 'true'
+    needs:
+      - changes
+      - deploy-preview-uitvraag
+      - deploy-preview-externe-stubs
+      - deploy-preview-magazijnen
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Dezelfde groep als de magazijnen-deploy en als de cleanup van dit project: Operations Manager
+    # vergrendelt op project, dus twee taken tegelijk in mpfm-w3h laten er één als `superseded`
+    # eindigen — met een exitcode 0 en zonder resultaat.
+    concurrency:
+      group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      # Voor de preview-comment onderaan deze job.
+      pull-requests: write
+    steps:
+      # Voor de twee scripts uit .github/scripts/ hieronder.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       # De tegenhanger van de inbound-regels in de twee andere projecten: de ontvanger beslist, dus
-      # één kant alleen zet niets open. De console is overal de aanroepende kant, dus dit project
-      # draagt de outbound-kant van álle regels.
+      # één kant alleen zet niets open. De console is overal de aanroepende kant, dus het
+      # magazijnen-project draagt de outbound-kant van álle regels.
+      #
+      # Hier en niet in de magazijnen-deploy, omdat elke regel een peer-deployment in een ánder
+      # project noemt. Bestaat die peer nog niet op het moment van genereren, dan slaat de resolver
+      # de regel over — met een regel in een log en verder niets (`resolve.py`: "a missing
+      # deployment/component in a project that IS known ... is logged with the rule name and
+      # skipped"). De preview meldt dan groen met dode storingsknoppen.
       - name: De console van deze preview bij de sessiecache en de storingen laten
         env:
           ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
@@ -904,33 +951,33 @@ jobs:
           "${{ env.PROJECT_MAGAZIJNEN }}" "pr-${{ github.event.pull_request.number }}"
           outbound ${{ env.CROSS_DOMAIN_REGELS_MAGAZIJNEN }}
 
-      # De comment met de preview-URL's, hier en niet bij de uitvraag-deploy: dit project draagt de
-      # demo — de bedieningsconsole, de berichtenbox en de magazijnen — en dat is voor een lezer van
-      # de PR de ingang, dus staat die sectie ook vooraan. Deze job is de laatste van de drie, dus
-      # pas hier zijn de URL's van beide kanten bekend.
+      # De comment met de preview-URL's staat met de demo vooraan: dit project draagt de
+      # bedieningsconsole, de berichtenbox en de magazijnen, en dat is voor een lezer van de PR de
+      # ingang. Deze job draait ná alle drie de deploys, dus pas hier zijn de URL's van beide
+      # kanten bekend.
       #
       # Het derde project (profiel, notificatie en hun twee Toxiproxy's) blijft eruit: daar zit geen
       # scherm dat je opent, alleen stubs waar de demo doorheen praat. De grens loopt per project en
       # niet per component — binnen een project gaat de hele `urls`-map mee.
       #
       # Zonder `!cancelled()` blijft de comment weg zodra de netwerkregel-stap hierboven faalt,
-      # terwijl de preview dan wél draait; de storingsknoppen in de console werken alleen niet.
-      # De deploy zelf is wél een voorwaarde: mislukt die, dan zijn er geen URL's voor de demo en
-      # zou de comment een halve preview aankondigen als een hele.
+      # terwijl de preview dan wél draait; de storingsknoppen in de console werken alleen niet. Dat
+      # de deploys geslaagd zijn, staat al in de `if` van de job: zonder URL's zou de comment een
+      # halve preview aankondigen als een hele.
       #
-      # Twee gevolgen van het samenstellen ná de laatste deploy, allebei aanvaard. Faalt een van de
-      # twee andere preview-jobs, dan wordt deze job overgeslagen en komt er géén comment, ook niet
-      # met de URL's die er wél zijn — maar dan is de preview zelf incompleet en is de run rood. En
-      # faalt deze stap, dan is de job rood en blokkeert `uitrol-poort` de merge terwijl de preview
+      # Twee gevolgen van het samenstellen in een eigen job, allebei aanvaard. Faalt een van de drie
+      # preview-deploys, dan wordt deze job overgeslagen en komt er géén comment, ook niet met de
+      # URL's die er wél zijn — maar dan is de preview zelf incompleet en is de run rood. En faalt
+      # deze stap, dan is de job rood en blokkeert `uitrol-poort` de merge terwijl de preview
       # draait; dat is de bedoelde prijs voor "een uitgebleven comment mag niet stil zijn".
       - name: Plaats de preview-URL's op de PR
-        if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           COMMENT_HEADER: ${{ env.COMMENT_HEADER }}
           PR_NUMMER: ${{ github.event.pull_request.number }}
-          URLS_DEMO: ${{ steps.deploy.outputs.urls }}
+          URLS_DEMO: ${{ needs.deploy-preview-magazijnen.outputs.urls }}
           URLS_UITVRAAG: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
         run: >-
           .github/scripts/preview-comment.sh "$PR_NUMMER"
@@ -1118,6 +1165,7 @@ jobs:
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen
+      - preview-afronding
       - deploy-test-uitvraag
       - deploy-test-externe-stubs
       - deploy-test-magazijnen

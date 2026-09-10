@@ -56,6 +56,12 @@ De Aanlever-API belooft bij een 201 dat het bericht is opgeslagen (`berichtenmag
 paneel dat bericht als `mislukt`, dan leest de bediener "1 mislukt", drukt opnieuw, en krijgt precies
 de dubbele berichten waar de issue over gaat. `geslaagd` is de eerlijke telling: het bericht is er.
 
+Bij het samenvoegen met de aanleverreden (`2026-09-04-aanleverreden-in-het-paneel.md`) botste dit:
+die telde een onleesbaar antwoord na een 201 als mislukt, met de reden "brak onverwacht af". Deze
+keuze houdt stand. Zo'n bericht telt als geslaagd en krijgt geen reden in `letOp` — een zin die zegt
+dat het bericht niet aankwam, stuurt de bediener naar dezelfde tweede druk op de knop. Het brede
+vangnet om de hele aanlevering (`leverBehoedzaam`) is daarmee overbodig: elke stap heeft er al een.
+
 ## Ontwerpkeuze 2: een eigen teller `zonderBerichtId`
 
 Wat we wél kwijt zijn, is het `berichtId`. Dat hebben we nodig om het bericht op *gelezen* te zetten,
@@ -154,13 +160,16 @@ Een breed vangnet kost wel iets, en dat wordt apart teruggegeven:
 valt geen haperend magazijn tegen te zetten zonder Quarkus-runtime, Docker of een echte socket — en
 `demo-console` heeft bewust geen van drieën in zijn testsuite.
 
-Daarom een tweede, `internal` constructor die de kant-en-klare map met clients aanneemt; de
-`@Inject`-constructor bouwt hem uit de config. Geen gedragsverandering in productie. Bewust géén
-test-subklasse van de bean: ArC vlagt anonieme subklassen van CDI-beans als eigen bean.
+Eerst kwam daarvoor een tweede, `internal` constructor die een kant-en-klare map met clients
+aannam. De aanleverreden kreeg op main intussen `MagazijnClients` met precies dat doel, en die
+vervangt bij het samenvoegen de tweede constructor. De tests zetten een MockK-mock van
+`MagazijnClients` voor een map met magazijnen. Geen gedragsverandering in productie.
 
 ## Tests
 
-Alle in `demo/demo-console/src/test/.../aanlever/AanleverServiceTest.kt`, pure JVM. Zowel het
+Alle in `demo/demo-console/src/test/.../aanlever/AanleverServiceHaperingTest.kt`, pure JVM. De
+redenen in `letOp` staan in `AanleverServiceTest`, dat bij de aanleverreden hoort; de hapering-tests
+asserteren daarom de vijf tellers en laten de reden daar. Zowel het
 magazijn als zijn `jakarta.ws.rs.core.Response` zijn MockK-mocks — alleen zo valt een `readEntity`
 die gooit of `null` geeft na te bootsen zonder een echte, half afgekapte HTTP-stream. Het magazijn
 mag bewust géén eigen klasse zijn die `MagazijnAanleverClient` implementeert: die interface draagt
@@ -189,8 +198,8 @@ zes in `PaneelTellersTest` en twee in `TempoServiceTest`. Wat ze dekken:
   markeer-paden; een falende `close()` die de ronde niet raakt maar wel een logregel oplevert, zowel
   bij een transportfout als bij een stream die al dicht was.
 - **de logregels** — geen enkele draagt een identificatienummer (melding, throwable én parameters),
-  en dat scenario raakt élke plek waar een fout wordt onderdrukt: negen regels in één ronde, waarvan
-  één op de luide tak mét throwable. Elke regel wijst zijn magazijn, ontvanger-type, statuscode of
+  en dat scenario raakt élke plek waar een fout wordt onderdrukt: elf regels in één ronde, waarvan
+  één op de luide tak mét throwable en één over een problem+json-reden die niet te lezen was. Elke regel wijst zijn magazijn, ontvanger-type, statuscode of
   berichtId aan; de oorzaakketen loopt drie diep door; een fout die
   zichzelf als oorzaak noemt levert één naam op; een fout zonder eenvoudige naam wordt alsnog
   benoemd; en de luide tak wijst naar het frame waar de fout ontstond.
@@ -199,7 +208,8 @@ zes in `PaneelTellersTest` en twee in `TempoServiceTest`. Wat ze dekken:
   twee `@ParameterizedTest`en over de statuscodes: 408/429/500/503/599 klinken als storing,
   200/302/400/409/425/499 als een fout van onze kant.
 - **het paneel** — `PaneelContractTest` pint de vijf veldnamen in het antwoord; `PaneelTellersTest`
-  pint dat `vullingTekst` elke teller noemt, `vullingSoort` elke foutteller meeweegt en een rode
+  leest daarvan alleen de getallen (`letOp` is een zin, geen teller) en pint dat `vullingTekst` elke
+  teller noemt, `vullingSoort` elke foutteller meeweegt en een rode
   uitkomst kán geven, dat elke uitkomstsoort naar het juiste merkteken wijst, dat dat merkteken op
   de soort van de samenvatting wordt opgezocht, en dat een onbekende soort niet op het
   geslaagd-teken terugvalt.
@@ -210,7 +220,9 @@ zes in `PaneelTellersTest` en twee in `TempoServiceTest`. Wat ze dekken:
 
 Er staat geen mutatietest-plugin in de build, dus met de hand: mutant erin, de betrokken testklassen
 draaien, noteren wélke tests omvallen, mutant eruit. Tegen de eindstand zijn **vijfenzeventig mutanten**
-gedraaid en alle vijfenzeventig worden gedood.
+gedraaid en alle vijfenzeventig worden gedood. Dat was vóór het samenvoegen met de aanleverreden:
+het uitlezen van de reden van het magazijn (`detailVan`) kwam daarbij binnen en is niet met
+mutanten beproefd.
 
 Dat is een gerichte steekproef en geen volledige mutatiedekking: de mutanten zijn met de hand
 gekozen op de plekken waar het gedrag van deze wijziging zit. De lijst staat in het scriptje dat hem
@@ -233,8 +245,9 @@ Het verschil zat in de diagnose, en die is nu getoetst.
 
 ## Verificatie
 
-- `./mvnw clean verify -pl demo/demo-console -am` groen: 327 tests in de module (waarvan 53 in
-  `AanleverServiceTest`), detekt 0 bevindingen.
+- `./mvnw clean verify -pl demo/demo-console -am` groen: na het samenvoegen met main 464 tests
+  in de module (waarvan 53 in `AanleverServiceHaperingTest` en 24 in `AanleverServiceTest`), detekt 0
+  bevindingen.
 - Mutatietest: 75 met de hand gekozen mutanten tegen de eindstand, alle 75 gedood. Een gerichte
   steekproef, geen volledige mutatiedekking.
 - Geen nieuwe build-warnings. De `WARN Proxy … niet uit te lezen`- en `gesimuleerde magazijnen niet
@@ -249,8 +262,6 @@ Losse defecten met hun eigen afweging; ze horen niet bij deze wijziging thuis:
 - Een `ProcessingException` op de aanroep zelf telt onvoorwaardelijk als `mislukt`, ook als het
   magazijn het bericht wél opsloeg en alleen het antwoord wegviel (read-timeout). Onderscheid maken
   vergt classificatie van de oorzaak en een eigen "onzeker"-teller in het paneel.
-- De `application/problem+json`-body van een niet-201 wordt niet gelezen, dus "40× HTTP 400" zegt de
-  bediener niet wát er mis was, terwijl het magazijn `title`/`detail`/`instance` meestuurt.
 - `FoutieveAanleverService` heeft een ongeschermde `readEntity` — daar is het één actie en geen
   ronde, dus de uitwerking is kleiner, maar het is dezelfde valkuil.
 - Het oordeel "een `ProcessingException` is de overkant" leunt op het wikkelgedrag van de

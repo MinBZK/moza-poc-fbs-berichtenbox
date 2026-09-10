@@ -4,8 +4,9 @@ import io.quarkus.rest.client.reactive.QuarkusRestClientBuilder
 import io.quarkus.tls.TlsConfiguration
 import io.quarkus.tls.TlsConfigurationRegistry
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.fsc.OutwayTls
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
@@ -76,19 +77,23 @@ class MagazijnRouter(
         } catch (ex: IllegalArgumentException) {
             log.errorf(ex, "Magazijn-routering: magazijnId=%s is geen geldige OIN", id)
 
-            throw WebApplicationException(
+            // Configuratie-kenmerk en niet `keten-fout`: opnieuw proberen lost dit nooit op, en de
+            // uitleg bij `keten-fout` nodigt daar wel toe uit.
+            throw FbsFoutException(
+                Foutcode.CONFIGURATIE_MISMATCH,
+                Response.Status.BAD_GATEWAY,
                 "ongeldige magazijnId '$id'; magazijn-ids zijn afzender-OINs uit het magazijnregister",
                 ex,
-                Response.Status.BAD_GATEWAY,
             )
         }
 
         return register.voorOin(oin) ?: run {
             log.errorf("Magazijn-routering: onbekend magazijnId=%s, bekende ids=%s", id, register.alle().map { it.oin.waarde })
 
-            throw WebApplicationException(
-                "onbekende magazijnId '$id'; controleer de magazijnen-config van het magazijnregister",
+            throw FbsFoutException(
+                Foutcode.CONFIGURATIE_MISMATCH,
                 Response.Status.BAD_GATEWAY,
+                "onbekende magazijnId '$id'; controleer de magazijnen-config van het magazijnregister",
             )
         }
     }

@@ -36,7 +36,10 @@ class PaneelTellersTest {
         .map { it.substringBefore("//") }
         .joinToString("\n")
 
-    private val tellers: List<String> = AanleverResultaat::class.memberProperties.map { it.name }
+    /** Alleen de getallen: `letOp` is een zin en geen telling, en het script leest die via `letOp(body)`. */
+    private val tellers: List<String> = AanleverResultaat::class.memberProperties
+        .filter { it.returnType.classifier == Int::class }
+        .map { it.name }
 
     /** De tellers die iets zeggen over wat er misging; `aangeboden` en `geslaagd` doen dat niet. */
     private val fouttellers: List<String> = tellers - setOf("aangeboden", "geslaagd")
