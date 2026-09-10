@@ -34,13 +34,19 @@ needs_json() {
 
 # Drie previews, drie test-deploys en vier bouw-jobs uit telkens drie resp. vier resultaten. `-`
 # staat voor een leeg resultaat, zodat woordsplitsing die waarde niet opslokt.
+#
+# De afrondingsjob volgt standaard de eerste preview: hij draait als de previews draaien en blijft
+# stil als zij stilblijven. $4 zet hem los daarvan, voor de tests die juist dat verschil uitoefenen.
 fixture() {
   local -a p t b
   read -r -a p <<<"$1"
   read -r -a t <<<"$2"
   read -r -a b <<<"${3:-success success success success}"
 
+  local afronding=${4:-${p[0]}}
+
   local -a namen=(
+    "preview-afronding=$afronding"
     "deploy-preview-uitvraag=${p[0]}" "deploy-preview-externe-stubs=${p[1]}" "deploy-preview-magazijnen=${p[2]}"
     "deploy-test-uitvraag=${t[0]}" "deploy-test-externe-stubs=${t[1]}" "deploy-test-magazijnen=${t[2]}"
     "build=${b[0]}" "build-externe-stubs=${b[1]}" "build-contract-bootstrap=${b[2]}" "build-demo-images=${b[3]}"
@@ -176,6 +182,29 @@ done
 verwacht_poort "een verdrongen build staat in de melding" 1 "bouw: build=cancelled" \
   pull_request "$PR_REF" false success true success \
   "$(fixture "$DRIE_UIT" "$DRIE_UIT" "cancelled success success success")"
+
+# --- F2. de afronding van een preview -------------------------------------------------------------
+# De netwerkregels en de preview-comment staan in een eigen job zonder `deploy-preview-`-voorvoegsel.
+# Die valt buiten de as-telling en is geen required check, dus alleen deze controle houdt tegen dat
+# een preview met dode storingsknoppen een merge draagt.
+for resultaat in failure cancelled skipped ''; do
+  verwacht_poort "afronding '$resultaat' bij een verwachte preview blokkeert" 1 "preview-afronding" \
+    pull_request "$PR_REF" false success true success \
+    "$(fixture "$DRIE_OK" "$DRIE_UIT" '' "${resultaat:--}")"
+done
+
+# Ontbreekt de job in de needs van de poort, dan leest zijn resultaat als leeg en zou een
+# stilzwijgend verdwenen job groen doorgaan.
+verwacht_poort "afronding niet in needs blokkeert" 1 "ontbreekt" \
+  pull_request "$PR_REF" false success true success \
+  "$(fixture "$DRIE_OK" "$DRIE_UIT" | grep -v '^preview-afronding=')"
+
+# De andere kant op: een test-deployment krijgt zijn regels op projectniveau, dus daar hoort de
+# afronding stil te blijven. Draait ze tóch, dan matcht haar `if` breder dan bedoeld.
+verwacht_poort "een draaiende afronding op een push blokkeert" 1 "preview-afronding" \
+  push "$MAIN" false success true success "$(fixture "$DRIE_UIT" "$DRIE_OK" '' success)"
+verwacht_poort "een draaiende afronding zonder uitrol blokkeert" 1 "preview-afronding" \
+  pull_request "$PR_REF" false success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT" '' success)"
 
 # --- G. kardinaliteit, op beide assen -------------------------------------------------------------
 BOUW='build=success
@@ -425,7 +454,7 @@ done
 
 # `changes` en `gate` leveren het oordeel, de bouw-jobs de diagnose; ontbreekt er één, dan leest
 # zijn resultaat als leeg.
-for job in changes gate build build-externe-stubs build-contract-bootstrap build-demo-images; do
+for job in changes gate build build-externe-stubs build-contract-bootstrap build-demo-images preview-afronding; do
   bevat_regel "$poort_needs" "$job" \
     || mislukt "uitrol-poort heeft $job niet in zijn needs; het resultaat is dan altijd leeg"
 done
