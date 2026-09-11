@@ -72,7 +72,9 @@ handtekening-controle.
 OM vergrendelt op project, niet op deployment. Draait er een tweede taak in hetzelfde project, dan
 verliest de wachtstap van een lopende deploy: het resultaat is `superseded`, draagt geen `urls`, en
 de job faalt op "Could not extract URLs from result" — een melding die de oorzaak niet noemt. De
-uitrol zelf is dan geslaagd.
+wijziging is opgeslagen en `superseded_by` noemt de taak die hem overneemt, maar de jobs die op die
+deploy wachten worden overgeslagen. Opnieuw draaien helpt pas als het project stil is. De
+structurele fix hoort in de action (RijksICTGilde/zad-actions#59).
 
 De concurrency-groepen in `deploy.yml` staan per project **en** PR, dus die race sluiten ze niet
 uit. Vlag een wijziging die de kans daarop vergroot, en vlag een nieuwe stap die de foutmelding als

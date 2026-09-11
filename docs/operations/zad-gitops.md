@@ -152,13 +152,18 @@ Handig (v2, read-only tenzij anders): `GET /projects/{p}/deployments` (lijst),
 image-pull-uitschakeling op, zie de valkuilen hieronder).
 
 **OM vergrendelt op project, niet op deployment.** Draait er een tweede taak in hetzelfde project,
-dan wordt de wachtstap van een lopende deploy overruled: `zadctl` eindigt met 0 en `zad-actions`
-meldt "Deployment successful", maar het `superseded`-resultaat draagt geen `urls` en de job faalt
-alsnog op `Could not extract URLs from result` — een melding die de oorzaak niet noemt. De uitrol
-zelf is dan geslaagd; opnieuw draaien volstaat. Doe daarom **geen handmatig OM-werk terwijl er een
-deploy loopt** (`gh run list --workflow "Deploy ZAD"` toont dat), en verwacht hetzelfde wanneer twee
-PR's tegelijk naar hetzelfde project uitrollen — de concurrency-groepen in `deploy.yml` staan per
-project **en** PR, dus die race sluiten ze niet uit.
+dan wordt de wachtstap van een lopende deploy overruled: de taak eindigt als `superseded`, met in
+`superseded_by` de taak die het werk overneemt. `zadctl` eindigt met 0 en `zad-actions` meldt
+"Deployment successful", maar dat resultaat draagt geen `urls` en de job faalt alsnog op
+`Could not extract URLs from result` — de JSON eronder noemt de oorzaak, de melding zelf niet. De
+jobs die op die deploy wachten worden overgeslagen (bij een preview de magazijnen-deploy en de
+comment), dus de preview is dan niet compleet. De wijziging zelf is opgeslagen; of de overnemende
+taak hem ook uitrolt, laat alleen het gerenderde manifest zien. Opnieuw draaien helpt pas als het
+project stil is — bij drukte wordt ook de herhaling overruled — dus kijk eerst met
+`gh run list --workflow "Deploy ZAD"` of er nog iets loopt. De structurele fix hoort in de action
+(RijksICTGilde/zad-actions#59). Tot die er is: **geen handmatig OM-werk terwijl er een deploy
+loopt**, en verwacht hetzelfde wanneer twee PR's tegelijk naar hetzelfde project uitrollen — de
+concurrency-groepen in `deploy.yml` staan per project **en** PR, dus die race sluiten ze niet uit.
 
 **Valkuilen bij debuggen (geleerd uit een ImagePullBackOff-melding):**
 - De UI-melding **"uitgeschakeld: image ontbreekt"** + logs **"No resources found in
