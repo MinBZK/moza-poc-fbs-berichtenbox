@@ -88,4 +88,38 @@ class BerichtTest {
         val b = bericht(tijdstipOntvangst = nu, publicatietijdstip = nu.minusSeconds(60))
         assertEquals(nu.minusSeconds(60), b.publicatietijdstip)
     }
+
+    @Test
+    fun `BerichtKop weigert een leeg onderwerp`() {
+        // De kop-invarianten staan op één plek (valideerKopgegevens) en gelden voor beide typen.
+        // Zonder deze test kan die gedeelde stap uit BerichtKop verdwijnen zonder dat iets faalt.
+        val ex = assertThrows(IllegalArgumentException::class.java) {
+            BerichtKop(
+                berichtId = UUID.randomUUID(),
+                afzender = Oin("00000001003214345000"),
+                ontvanger = Bsn("999993653"),
+                onderwerp = "  ",
+                tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
+                publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
+            )
+        }
+
+        assertEquals("Onderwerp mag niet leeg zijn", ex.message)
+    }
+
+    @Test
+    fun `BerichtKop weigert afzender gelijk aan ontvanger`() {
+        val zelfdeNummer = Oin("00000001003214345000")
+
+        assertThrows(IllegalArgumentException::class.java) {
+            BerichtKop(
+                berichtId = UUID.randomUUID(),
+                afzender = zelfdeNummer,
+                ontvanger = zelfdeNummer,
+                onderwerp = "Aanslag",
+                tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
+                publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
+            )
+        }
+    }
 }

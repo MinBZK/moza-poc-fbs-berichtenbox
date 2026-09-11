@@ -30,6 +30,11 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val errorId = UUID.randomUUID()
 
+        // Een throw-site die de situatie kent, geeft zijn eigen kenmerk mee; de rest krijgt de
+        // terugval van [Foutcode.voorStatus].
+        val eigenFoutcode = (exception as? FbsFoutException)?.foutcode
+        val foutcode = eigenFoutcode ?: Foutcode.voorStatus(status)
+
         return if (status >= 500) {
             // Log met correlation-id; `exception.message` blijft eruit (saneer dekt geen
             // niet-numerieke PII zoals namen/e-mail). Het exception-object geeft de stack
@@ -42,7 +47,22 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
-            metRetryAfter(exception, maskedServerErrorProblem(errorId = errorId, status = status, title = title))
+            // Draagt de fout een eigen kenmerk, dan hoort daar de vaste uitleg van dat kenmerk bij
+            // in plaats van het generieke masker. Anders zegt een `503 ophalen-mislukt` in zijn
+            // `type` "haal opnieuw op" en in zijn `detail` "onverwachte interne fout, bel support".
+            // De uitleg komt uit de code, niet uit de exception, dus de maskering blijft intact.
+            val detail = eigenFoutcode?.uitleg
+
+            metRetryAfter(
+                exception,
+                maskedServerErrorProblem(
+                    errorId = errorId,
+                    status = status,
+                    title = title,
+                    foutcode = foutcode,
+                    detail = detail ?: Foutcode.INTERNE_FOUT.uitleg,
+                ),
+            )
         } else {
             // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de
             // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
@@ -59,6 +79,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 status = status,
                 title = title,
                 detail = sanitizeClientDetail(exception.message),
+                foutcode = foutcode,
                 instance = URI.create("urn:uuid:$errorId"),
             )
         }

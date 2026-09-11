@@ -2,7 +2,9 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.e2e
 
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.delete as wmDelete
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
@@ -47,7 +49,9 @@ class UitvraagKetenE2eTest {
             """{ "partij": { "identificatieType": "OIN", "identificatieNummer": "$it" } }"""
         }
         profiel.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/$bsn")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"$bsn"}"""),
+            ).willReturn(
                 aResponse().withStatus(200)
                     .withHeader("Content-Type", "application/json")
                     .withBody("""{"voorkeuren": [ { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true", "scopes": [ $scopes ] } ]}"""),
@@ -67,7 +71,6 @@ class UitvraagKetenE2eTest {
                           "afzender": "$afzender",
                           "ontvanger": { "type": "BSN", "waarde": "$bsn" },
                           "onderwerp": "Bericht van $label",
-                          "inhoud": "Inhoud van $label",
                           "publicatietijdstip": "2026-03-10T10:00:00Z",
                           "aantalBijlagen": 0
                         }
@@ -75,6 +78,15 @@ class UitvraagKetenE2eTest {
                     }
                     """.trimIndent(),
                 ),
+            ),
+        )
+
+        // De berichttekst zit niet in het lijstantwoord: het detailpad haalt hem op bij
+        // het bronmagazijn op het moment dat de ontvanger het bericht opent.
+        server.stubFor(
+            get(urlEqualTo("/api/v1/berichten/$berichtId")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "Inhoud van $label"}"""),
             ),
         )
     }
@@ -135,7 +147,8 @@ class UitvraagKetenE2eTest {
             .statusCode(200)
             .body("status", equalTo("gelezen"))
 
-        // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen.
+        // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen, maar laat het
+        // wél een spoor na: de ondernemer hoort te horen dát hij het zelf weggooide.
         magazijnA.stubFor(
             wmDelete(urlPathMatching("/api/v1/berichten/$berichtId")).willReturn(aResponse().withStatus(204)),
         )
@@ -150,7 +163,34 @@ class UitvraagKetenE2eTest {
             .header("X-Ontvanger", "BSN:$bsn")
             .`when`().get("/api/v1/berichten/$berichtId")
             .then()
+            .statusCode(410)
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
+
+        // Een bericht dat er nooit was, blijft ononderscheidbaar van dat van een ander.
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/33333333-3333-3333-3333-333333333333")
+            .then()
             .statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
+
+        // En een ánder krijgt op datzelfde berichtId exact dat antwoord: het spoor van de
+        // verwijdering is per ontvanger gesleuteld, dus verraadt het niets over andermans bericht.
+        val andereBsn = "999993653"
+        stubProfielOptIn(andereBsn, OIN_A)
+
+        given()
+            .header("X-Ontvanger", "BSN:$andereBsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$andereBsn")
+            .`when`().get("/api/v1/berichten/$berichtId")
+            .then()
+            .statusCode(404)
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
     }
 
     @Test
@@ -241,7 +281,7 @@ class UitvraagKetenE2eTest {
     @Test
     fun `profiel-500 geeft 503 met Retry-After vóór de stream`() {
         profiel.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999991401")).willReturn(aResponse().withStatus(500)),
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(aResponse().withStatus(500)),
         )
 
         given()

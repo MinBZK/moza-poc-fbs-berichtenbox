@@ -46,7 +46,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Belastingdienst",
             ontvanger = ontvanger,
             onderwerp = "Eerste bericht over belastingaangifte",
-            inhoud = "Inhoud eerste bericht",
             publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 0,
@@ -58,7 +57,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Rijksdienst voor Ondernemend Nederland",
             ontvanger = ontvanger,
             onderwerp = "Tweede bericht over subsidie",
-            inhoud = "Inhoud tweede bericht",
             publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 2,
@@ -70,7 +68,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Kamer van Koophandel",
             ontvanger = ontvanger,
             onderwerp = "Derde bericht over vergunning",
-            inhoud = "Inhoud derde bericht",
             publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
             aantalBijlagen = 1,
@@ -370,6 +367,109 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `delete laat een tombstone achter voor de ontvanger zelf`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `de tombstone geldt alleen voor de ontvanger die verwijderde`() {
+        // Anders zou het antwoord op andermans berichtId verraden dát het bestaat.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        val andereOntvanger = Oin(System.nanoTime().toString().padStart(20, '9').takeLast(20))
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertFalse(berichtenCache.isVerwijderdVoor(target.berichtId, andereOntvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een nooit verwijderd bericht heeft geen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        assertFalse(berichtenCache.isVerwijderdVoor(berichten[0].berichtId, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(UUID.randomUUID(), ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `elk verwijderd bericht krijgt zijn eigen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        berichtenCache.delete(berichten[0].berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(berichten[1].berichtId, ontvanger).await().indefinitely()
+
+        assertTrue(berichtenCache.isVerwijderdVoor(berichten[0].berichtId, ontvanger).await().indefinitely())
+        assertTrue(berichtenCache.isVerwijderdVoor(berichten[1].berichtId, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(berichten[2].berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een tweede delete laat de bestaande tombstone intact`() {
+        // De tweede DELETE vindt geen hash meer en schrijft dus geen tombstone; de eerste moet
+        // blijven staan, anders verliest een client die na een netwerkfout opnieuw probeert
+        // precies het kenmerk waar deze wijziging om draait.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een nieuwe ophaalronde laat een eerder verwijderd bericht weer zien`() {
+        // Het realistische terugkeerpad is `store` (een verse ophaalronde), niet `createBericht`.
+        // De tombstone wordt daarbij niet opgeruimd, dus de correctheid hangt aan de
+        // lookup-volgorde: het bericht bestaat weer en wint.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        assertNotNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `een opnieuw aangeleverd bericht wint van zijn eigen tombstone`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        berichtenCache.createBericht(target, ontvanger).await().indefinitely()
+
+        // De tombstone blijft staan maar wordt nooit geraadpleegd zolang het bericht er is;
+        // de lookup-volgorde in de facade is wat dit afdekt.
+        assertNotNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely())
+    }
+
+    @Test
+    fun `de tombstone duikt niet op als zoekresultaat`() {
+        // Onder de RediSearch-prefix zou een tombstone als bericht geïndexeerd worden.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+
+        val treffers = berichtenCache.search(ontvanger, "bericht", 0, 50, null, null).await().indefinitely()
+        assertTrue(treffers.berichten.none { it.berichtId == target.berichtId })
+    }
+
+    @Test
     fun `delete onbestaand bericht is no-op`() {
         // Geen exceptie en geen kerneffect — er is simpelweg niets om te verwijderen.
         berichtenCache.delete(UUID.randomUUID(), ontvanger).await().indefinitely()
@@ -392,7 +492,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Concurrent toegevoegd",
-            inhoud = "Tijdens delete",
             publicatietijdstip = Instant.parse("2026-03-10T15:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 0,
@@ -426,6 +525,23 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `delete-prune verwijdert alle list-entries die naar hetzelfde berichtId matchen`() {
+        // berichtId is uniek per aanlevering, dus normaal staat een berichtId maar één keer in de
+        // list — maar de prune-batch moet ook een dubbele match volledig opruimen, anders blijft
+        // een duplicaat na delete zichtbaar in `GET /berichten`.
+        val bericht = testBerichten().take(1)[0]
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
+
+        val duplicaatJson = objectMapper.writeValueAsString(bericht.copy(onderwerp = "Duplicaat"))
+        redis.list(String::class.java).rpush(listKey(), duplicaatJson).await().indefinitely()
+
+        berichtenCache.delete(bericht.berichtId, ontvanger).await().indefinitely()
+
+        val entries = redis.list(String::class.java).lrange(listKey(), 0, -1).await().indefinitely()
+        assertTrue(entries.isEmpty(), "beide list-entries voor het doelbericht moeten verwijderd zijn; over: $entries")
+    }
+
+    @Test
     fun `roundtrip bewaart bijlagen-lijst correct`() {
         val bijlageId = UUID.randomUUID()
         val bericht = Bericht(
@@ -434,7 +550,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Bericht met bijlage",
-            inhoud = "Met bijlage",
             publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 1,
@@ -483,7 +598,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Nieuw bericht",
-            inhoud = "Inhoud nieuw bericht",
             publicatietijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
             aantalBijlagen = 3,
@@ -567,9 +681,9 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `RediSearch lijst-pad levert samenvatting zonder de zware inhoud-projectie`() {
+    fun `RediSearch lijst-pad levert samenvatting zonder de zware bijlagen-projectie`() {
         // FT.SEARCH op het filter-pad gebruikt een RETURN-lijst beperkt tot de
-        // samenvatting-velden. `inhoud` en `bijlagen` zitten niet in [BerichtSamenvatting];
+        // samenvatting-velden. `bijlagen` zit niet in [BerichtSamenvatting];
         // de samenvatting-velden moeten wél kloppen.
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
@@ -586,7 +700,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `RediSearch zoek-pad levert samenvatting zonder de zware inhoud-projectie`() {
+    fun `RediSearch zoek-pad levert samenvatting zonder de zware bijlagen-projectie`() {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -636,17 +750,15 @@ class RedisBerichtenCacheIntegrationTest {
         afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = onderwerp,
-        inhoud = "inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = magazijnId,
         aantalBijlagen = 0,
     )
 
     @Test
-    fun `samenvatting-velden bevatten precies de mapper-velden zonder inhoud of bijlagen`() {
-        // Bewaakt dat de RETURN-projectie niet stilletjes `inhoud`/`bijlagen` opneemt
-        // (de twee velden die de samenvatting-mapper weggooit).
-        assertFalse(RedisBerichtenCache.SAMENVATTING_VELDEN.contains("inhoud"))
+    fun `samenvatting-velden bevatten precies de mapper-velden zonder bijlagen`() {
+        // Bewaakt dat de RETURN-projectie niet stilletjes `bijlagen` opneemt (het veld
+        // dat de samenvatting-mapper weggooit).
         assertFalse(RedisBerichtenCache.SAMENVATTING_VELDEN.contains("bijlagen"))
         assertTrue(RedisBerichtenCache.SAMENVATTING_VELDEN.containsAll(
             listOf(
@@ -654,6 +766,22 @@ class RedisBerichtenCacheIntegrationTest {
                 "publicatietijdstip", "magazijnId", "aantalBijlagen", "map", "status",
             ),
         ))
+    }
+
+    @Test
+    fun `de tombstone verdwijnt met zijn TTL`() {
+        // Zonder TTL zou de key voorgoed blijven staan: onbegrensde groei in Redis, en een 410
+        // die de sessie overleeft waar de API-beschrijving het tegendeel belooft.
+        val berichten = testBerichten().take(1)
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+
+        // TTL is 2s in RealRedisTestProfile, wacht 3s
+        Thread.sleep(3_000)
+
+        assertFalse(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -765,6 +893,38 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `opgeslagen hash draagt geen berichttekst`() {
+        // De tekst hoort in het bronmagazijn te blijven. Zou hij hier tóch in Redis landen,
+        // dan is de belofte van gegevensminimalisatie gebroken zonder dat iets faalt.
+        val bericht = testBerichten().first()
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
+
+        val velden = redis.hash(String::class.java)
+            .hgetall(BerichtenCache.berichtKey(bericht.berichtId))
+            .await().indefinitely()
+
+        assertFalse(velden.containsKey("inhoud"), "Was: ${velden.keys}")
+    }
+
+    @Test
+    fun `sliding TTL - getById verlengt ook de list-key`() {
+        // getById verlengt naast de berichthash ook de sessie-keys (list + status), zodat een
+        // detailweergave alléén de pagina-navigatie niet alsnog laat verlopen. TTL is 2s; 3 reads
+        // met 1s ertussen tonen dat de list-key blijft leven zolang er gelezen wordt.
+        val berichten = testBerichten().take(1)
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val berichtId = berichten[0].berichtId
+
+        repeat(3) {
+            Thread.sleep(1_000)
+            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+        }
+
+        val listTtl = redis.key().ttl(listKey()).await().indefinitely()
+        assertTrue(listTtl > 0, "list-key is vroegtijdig verlopen ondanks herhaalde getById-reads; was: $listTtl")
+    }
+
+    @Test
     fun `getById werpt CacheCorruptedException bij ontbrekend verplicht veld`() {
         // Schema-drift / corruptie: hash bestaat maar mist een verplicht veld.
         // hashToBericht MOET CacheCorruptedException werpen (niet RuntimeException of upcast),
@@ -778,7 +938,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             // `magazijnId` ontbreekt opzettelijk
             "aantalBijlagen" to "0",
@@ -809,7 +968,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "corrupt zoekdocument",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "geen-geldig-tijdstip",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -849,7 +1007,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -876,7 +1033,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "niet-een-iso-instant",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -905,7 +1061,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to "123456789",
             "ontvangerType" to "BSN",
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -931,7 +1086,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to "ONBEKEND",
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",

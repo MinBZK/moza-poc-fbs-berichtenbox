@@ -3,7 +3,9 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 import io.quarkus.hibernate.orm.panache.kotlin.PanacheRepositoryBase
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.persistence.Tuple
-import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.requireValid
 import java.time.Instant
 import java.util.UUID
@@ -111,7 +113,7 @@ class BerichtStatusRepository(
         tijdstip: Instant,
     ): BerichtStatus {
         val berichtDbId = berichtRepository.findDbIdByBerichtId(berichtId)
-            ?: throw NotFoundException("Bericht niet gevonden")
+            ?: throw FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
 
         val em = getEntityManager()
         em.createNativeQuery(

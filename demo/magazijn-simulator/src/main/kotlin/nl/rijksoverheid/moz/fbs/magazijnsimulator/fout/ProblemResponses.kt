@@ -25,7 +25,7 @@ internal const val ONVERWACHTE_FOUT_DETAIL =
  * ontdekt dat het antwoord niet klopt.
  */
 internal fun onverwachteFoutProblem(foutId: UUID): Problem =
-    Problem(URI.create("about:blank"), "Internal Server Error", Response.Status.INTERNAL_SERVER_ERROR.statusCode)
+    Problem(Foutcode.INTERNE_FOUT.uri, "Internal Server Error", Response.Status.INTERNAL_SERVER_ERROR.statusCode)
         .apply {
             this.detail = ONVERWACHTE_FOUT_DETAIL
             this.instance = "urn:uuid:$foutId"
@@ -45,16 +45,21 @@ internal fun onverwachteFoutProblem(foutId: UUID): Problem =
  * niets toevoegt aan de titel is ruis. Een `null` belandt niet als veld in de JSON — dat regelt
  * `quarkus.jackson.serialization-inclusion=non-null`, en zónder dat zou het schema van de spec
  * geschonden worden.
+ *
+ * [foutcode] wordt het `type`. De default leidt hem af uit de status, wat voor de aanroepers hier
+ * het juiste antwoord geeft: die weten alleen de status. Waar de situatie fijner ligt dan de
+ * status — een bericht dat de ontvanger zélf verwijderde — draagt [SimulatorFout] de code mee.
  */
 fun problemResponse(
     status: Int,
     title: String,
     detail: String? = null,
     foutId: UUID = UUID.randomUUID(),
+    foutcode: Foutcode = Foutcode.voorStatus(status),
 ): Response = Response.status(status)
     .type(PROBLEM_JSON)
     .entity(
-        Problem(URI.create("about:blank"), title, status).apply {
+        Problem(foutcode.uri, title, status).apply {
             this.detail = detail?.take(MAX_DETAIL_LENGTE)?.ifBlank { null }
             this.instance = "urn:uuid:$foutId"
         },

@@ -51,8 +51,14 @@ interface Sessiecache {
     ): BerichtenPagina
 
     /**
-     * Volledig bericht (inclusief inhoud en bijlage-metadata), of `null` als het
-     * niet bestaat of niet van [ontvanger] is. Vereist een afgeronde ophaling.
+     * Alle gecachete gegevens van één bericht (kopgegevens en bijlage-handles), of
+     * `null` als het niet bestaat of niet van [ontvanger] is. Vereist een afgeronde
+     * ophaling. De berichttekst zit hier niet bij; zie [Bericht].
+     *
+     * Gooit [SessiecacheException.BerichtVerwijderd] wanneer [ontvanger] dit bericht binnen deze
+     * sessie zélf verwijderde. Het bericht van een ánder levert `null`, gelijk aan een onbekend
+     * bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
+     * hier niet zichtbaar te worden.
      */
     fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht?
 

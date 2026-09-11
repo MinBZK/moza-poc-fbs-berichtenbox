@@ -21,7 +21,6 @@ class BerichtTest {
         afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999993653"),
         onderwerp = "Test bericht",
-        inhoud = "Inhoud van het bericht",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,
@@ -76,14 +75,6 @@ class BerichtTest {
             geldigBericht.copy(aantalBijlagen = -1)
         }
         assertEquals("aantalBijlagen mag niet negatief zijn", ex.message)
-    }
-
-    @Test
-    fun `lege inhoud is toegestaan op het domeintype`() {
-        // Niet elk magazijn levert een inhoudssamenvatting op de lijst-respons; het cache-domein
-        // accepteert daarom een lege string. De OpenAPI-spec dwingt `inhoud` wél af op de wire.
-        val bericht = geldigBericht.copy(inhoud = "")
-        assertEquals("", bericht.inhoud)
     }
 
     @Test

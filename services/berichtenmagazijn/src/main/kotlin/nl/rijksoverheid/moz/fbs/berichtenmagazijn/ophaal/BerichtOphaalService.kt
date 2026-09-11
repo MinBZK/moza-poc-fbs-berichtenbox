@@ -2,13 +2,15 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
-import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtAutorisatie
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.PagedBerichten
 import java.util.UUID
@@ -55,7 +57,7 @@ class BerichtOphaalService(
     @Transactional
     fun haalBerichtOp(berichtId: UUID, ontvanger: Identificatienummer): Bericht {
         val bericht = berichtRepository.findByBerichtId(berichtId)
-            ?: throw NotFoundException("Bericht niet gevonden")
+            ?: throw FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
         BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
         return bericht.copy(
             bijlagen = bijlageRepository.metadataVoorBericht(berichtId),
@@ -69,9 +71,9 @@ class BerichtOphaalService(
         // bericht is een bijlage onbereikbaar — anders zou een geraden bijlage-UUID
         // tot data-disclosure leiden.
         val bericht = berichtRepository.findByBerichtId(berichtId)
-            ?: throw NotFoundException("Bericht niet gevonden")
+            ?: throw FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
         BerichtAutorisatie.vereisOntvanger(bericht, ontvanger)
         return bijlageRepository.findByBerichtIdEnBijlageId(berichtId, bijlageId)
-            ?: throw NotFoundException("Bijlage niet gevonden")
+            ?: throw FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bijlage niet gevonden")
     }
 }

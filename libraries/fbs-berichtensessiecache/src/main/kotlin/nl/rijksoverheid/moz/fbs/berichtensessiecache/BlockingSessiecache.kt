@@ -78,7 +78,15 @@ internal class BlockingSessiecache(
     override fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht? {
         requireGereedStatus(ontvanger)
 
-        return awaitOrServiceUnavailable { service.getBerichtById(berichtId, ontvanger) }
+        val bericht = awaitOrServiceUnavailable { service.getBerichtById(berichtId, ontvanger) }
+
+        if (bericht != null) return bericht
+
+        val zelfVerwijderd = awaitOrServiceUnavailable { service.isBerichtVerwijderd(berichtId, ontvanger) }
+
+        if (zelfVerwijderd) throw SessiecacheException.BerichtVerwijderd("Bericht is door de ontvanger verwijderd")
+
+        return null
     }
 
     override fun werkBerichtBij(
@@ -187,8 +195,8 @@ internal class BlockingSessiecache(
         // niet "Redis onbereikbaar". Onleesbaar zonder de verkeerde infrastructuur-diagnose.
         is com.fasterxml.jackson.core.JsonProcessingException -> {
             // Log de fout-soort, NIET de exception: Jackson's message bevat bij
-            // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment met BSN/RSIN +
-            // inhoud. PII mag nooit in de log.
+            // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment met BSN/RSIN.
+            // PII mag nooit in de log.
             log.errorf("Cache-data niet deserialiseerbaar (corruptie of schema-drift); fout=%s", e.javaClass.name)
             SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }

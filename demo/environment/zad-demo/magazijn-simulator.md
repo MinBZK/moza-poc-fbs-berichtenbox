@@ -117,6 +117,9 @@ zadctl service config set health-check -c magazijnsimulator \
 Liveness op `/q/health/live` en niet op `/q/health/ready`: dat laatste zakt mee met de database, en
 dan herstart Kubernetes een pod die alleen maar wacht.
 
+Hoofdstuk 9 van `README.md` hiernaast draagt dezelfde keuze voor elk ander component; het script
+daar zet ze opnieuw wanneer een component herschapen is.
+
 ```bash
 zadctl env add -c magazijnsimulator \
   DB_SCHEMA=magazijnsimulator \
@@ -200,14 +203,15 @@ zadctl -p mpfb-8wh alias add -c uitvraag \
   'MAGAZIJN_SIMULATOR_URL=https://magazijnsimulator-$DEPLOYMENT_NAME-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl'
 
 zadctl env set -c uitvraag \
-  SMALLRYE_CONFIG_LOCATIONS=/config/magazijnen-register.properties \
-  BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT=120
+  SMALLRYE_CONFIG_LOCATIONS=/config/magazijnen-register.properties
 ```
 
-Die laatste is de knop uit de meting: bij de standaardwaarde van twintig krijgt een ondernemer met
-honderd organisaties er twintig te zien en tachtig afwijzingen. Wat er in het echt hoort te gebeuren
-staat als MinBZK/MijnOverheidZakelijk#1038 op de backlog; tot die tijd zet de demo de grens boven de
-grootste fan-out.
+De gelijktijdigheidsgrens hoort hier niet meer bij te staan: de uitvraag bevraagt per ronde vijftig
+organisaties tegelijk en zet de rest in de wachtrij, dus ook de ondernemer met honderd organisaties
+krijgt ze allemaal. Draagt het component nog een
+`BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT` uit de tijd dat die knop nodig was, haal hem
+dan weg (`zadctl env unset -c uitvraag BERICHTENSESSIECACHE_MAGAZIJN_BULKHEAD_MAX_CONCURRENT`) —
+anders draait de demo op een instelling die de standaardsituatie niet meer weerspiegelt.
 
 `env set` en niet `env add`: die laatste ziet een bestaande sleutel als een conflict en breekt af.
 Draagt het component al een `SMALLRYE_CONFIG_LOCATIONS`, zet dan de samengevoegde lijst — de waarde

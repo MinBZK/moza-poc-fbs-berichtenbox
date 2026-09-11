@@ -78,7 +78,6 @@ class AanmeldResourceTest {
             "afzender": "$afzenderOin",
             "ontvanger": { "type": "$ontvangerType", "waarde": "$ontvangerWaarde" },
             "onderwerp": "Onderwerp",
-            "inhoud": "Inhoud",
             "tijdstipOntvangst": "2026-06-04T09:59:00Z",
             "publicatietijdstip": "2026-06-04T10:00:00Z"
           }
@@ -235,7 +234,6 @@ class AanmeldResourceTest {
                 "afzender": "$afzender",
                 "ontvanger": { "type": "BSN", "waarde": "999990019" },
                 "onderwerp": "Onderwerp",
-                "inhoud": "Inhoud",
                 "publicatietijdstip": "2026-06-04T10:00:00Z"
               }
             }

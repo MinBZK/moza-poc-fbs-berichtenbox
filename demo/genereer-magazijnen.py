@@ -206,7 +206,14 @@ def profiel(volgnummer: int, soort: str, nummer: str, fanout: int) -> dict:
     """
     return {
         "priority": 1,
-        "request": {"method": "GET", "urlPathPattern": f"/api/profielservice/v1/{soort}/{nummer}"},
+        "request": {
+            "method": "POST",
+            "url": "/api/profielservice/v1/partij",
+            "bodyPatterns": [
+                {"matchesJsonPath": f"$[?(@.identificatieType == '{soort}')]"},
+                {"matchesJsonPath": f"$[?(@.identificatieNummer == '{nummer}')]"},
+            ],
+        },
         "response": {
             "status": 200,
             "headers": {"Content-Type": "application/json"},

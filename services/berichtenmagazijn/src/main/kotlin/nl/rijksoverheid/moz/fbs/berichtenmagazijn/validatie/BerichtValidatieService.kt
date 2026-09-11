@@ -6,6 +6,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielVoorkeuren
 import nl.rijksoverheid.moz.fbs.common.profiel.ToestemmingGeweigerdException
@@ -61,7 +62,7 @@ class BerichtValidatieService(
         }
 
         val partij = try {
-            profielServiceClient.getPartij(ontvangerType, bericht.ontvanger.waarde)
+            profielServiceClient.getPartij(PartijRequest(ontvangerType, bericht.ontvanger.waarde))
         } catch (ex: WebApplicationException) {
             // Quarkus REST Reactive werpt `ClientWebApplicationException` voor élke
             // 4xx — niet de typespecifieke `NotFoundException`. We filteren expliciet
@@ -73,8 +74,8 @@ class BerichtValidatieService(
             // catch en openen het circuit wél.
             //
             // PII-veilig: de doorgegooide WAE belandt bij ProblemExceptionMapper, die de
-            // 4xx-detail saneert — de upstream-URL (met BSN/RSIN/KVK in het pad) komt niet in
-            // Problem.detail terecht. De Quarkus-client-message zelf bevat geen URL.
+            // 4xx-detail saneert. Het identificatienummer zit in de request-body en niet in
+            // de upstream-URL, dus ook een ongesaneerde message zou het niet dragen.
             if (ex.response?.status != 404) throw ex
             // Onbekende ontvanger → fail-closed: behandel als geen toestemming.
             // Log op WARN zodat een configuratiefout (verkeerd base-path → 404 op

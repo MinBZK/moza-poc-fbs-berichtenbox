@@ -71,7 +71,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(listOf(opdracht(), opdracht()))
 
-        assertEquals(AanleverResultaat.van(2, 2, 0, emptyList()), resultaat)
+        assertEquals(AanleverResultaat.van(2, 2, 0, 0, emptyList()), resultaat)
         assertNull(resultaat.letOp, "een ronde zonder mislukkingen hoort geen let-op-regel te tonen")
     }
 
@@ -153,7 +153,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(listOf(opdracht(ONBEKEND)))
 
-        assertEquals(AanleverResultaat.van(1, 0, 0, listOf(Faalreden.geenMagazijn(ONBEKEND))), resultaat)
+        assertEquals(AanleverResultaat.van(1, 0, 0, 0, listOf(Faalreden.geenMagazijn(ONBEKEND))), resultaat)
         assertTrue(resultaat.letOp!!.contains(ONBEKEND), "de melding hoort de organisatie te noemen")
     }
 
@@ -202,7 +202,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(List(3) { opdracht(RVO) } + opdracht(BELASTINGDIENST))
 
-        val verwacht = AanleverResultaat.van(4, 3, 0, listOf(Faalreden.vanStatus(BELASTINGDIENST, 403)))
+        val verwacht = AanleverResultaat.van(4, 3, 0, 0, listOf(Faalreden.vanStatus(BELASTINGDIENST, 403)))
 
         assertEquals(verwacht, resultaat)
     }
@@ -256,7 +256,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(listOf(opdracht(gelezen = true)))
 
-        assertEquals(AanleverResultaat.van(1, 1, markeringMislukt = 1, redenen = emptyList()), resultaat)
+        assertEquals(AanleverResultaat.van(1, 1, markeringMislukt = 1, zonderBerichtId = 0, redenen = emptyList()), resultaat)
         assertNull(resultaat.letOp)
     }
 
@@ -269,7 +269,7 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(List(2) { opdracht(gelezen = true) })
 
-        assertEquals(AanleverResultaat.van(2, 2, markeringMislukt = 2, redenen = emptyList()), resultaat)
+        assertEquals(AanleverResultaat.van(2, 2, markeringMislukt = 2, zonderBerichtId = 0, redenen = emptyList()), resultaat)
     }
 
     @Test
@@ -282,21 +282,18 @@ class AanleverServiceTest {
 
         val resultaat = service.leverAan(List(2) { opdracht() } + opdracht(gelezen = true))
 
-        assertEquals(AanleverResultaat.van(3, 3, markeringMislukt = 1, redenen = emptyList()), resultaat)
+        assertEquals(AanleverResultaat.van(3, 3, markeringMislukt = 1, zonderBerichtId = 0, redenen = emptyList()), resultaat)
     }
 
     @Test
     fun `een onverwachte fout in één opdracht laat de rest van de ronde staan`() {
         // Zonder deze grens meldt de console niets over wat al wél is afgeleverd, en levert een
-        // tweede poging dubbele berichten op. Een 201 zonder berichtId is zo'n geval.
+        // tweede poging dubbele berichten op. Een fout in de console zelf, zoals een blocking aanroep
+        // op de event-loop, is zo'n geval.
         every { clients[RVO] } returns client
         every { clients[BELASTINGDIENST] } returns tweedeClient
         every { client.leverAan(any()) } returns respons(201, "b-1")
-        every { tweedeClient.leverAan(any()) } returns mockk<Response>().also {
-            every { it.status } returns 201
-            every { it.close() } just Runs
-            every { it.readEntity(AanleverRespons::class.java) } throws IllegalStateException("geen berichtId")
-        }
+        every { tweedeClient.leverAan(any()) } throws IllegalStateException("blocking niet toegestaan")
 
         val resultaat = service.leverAan(listOf(opdracht(BELASTINGDIENST)) + List(2) { opdracht(RVO) })
 
@@ -305,6 +302,23 @@ class AanleverServiceTest {
         // De faalmodus erbij: elke reden noemt het magazijn, dus alleen daarop asserteren zou niet
         // onderscheiden of dit als onbereikbaar, geweigerd of onverwacht gemeld werd.
         assertEquals("Reden: ${Faalreden.onverwacht(BELASTINGDIENST, IllegalStateException())}.", resultaat.letOp)
+    }
+
+    @Test
+    fun `een 201 zonder berichtId draagt geen reden`() {
+        // Het bericht staat in het magazijn, dus het telt als geslaagd. Een reden die zegt dat het
+        // niet aankwam, laat de bediener opnieuw drukken — en dan staat het er twee keer.
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns mockk<Response>().also {
+            every { it.status } returns 201
+            every { it.close() } just Runs
+            every { it.readEntity(AanleverRespons::class.java) } throws ProcessingException("Unexpected end-of-input")
+        }
+
+        val resultaat = service.leverAan(listOf(opdracht()))
+
+        assertEquals(AanleverResultaat.van(1, 1, 0, zonderBerichtId = 1, redenen = emptyList()), resultaat)
+        assertNull(resultaat.letOp)
     }
 
     @Test

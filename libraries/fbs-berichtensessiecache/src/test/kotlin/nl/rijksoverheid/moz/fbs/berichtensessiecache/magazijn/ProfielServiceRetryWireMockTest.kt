@@ -1,8 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import com.github.tomakehurst.wiremock.http.Fault
 import com.github.tomakehurst.wiremock.stubbing.Scenario
@@ -49,7 +49,7 @@ class ProfielServiceRetryWireMockTest {
     fun `ProcessingException wordt geretryd en levert eventueel succes op`() {
         // Eerste aanroep: verbinding verbroken → ProcessingException → @Retry
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .inScenario("retry-na-tcp-reset")
                 .whenScenarioStateIs(Scenario.STARTED)
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER))
@@ -58,7 +58,7 @@ class ProfielServiceRetryWireMockTest {
 
         // Tweede aanroep (retry): succesvolle respons met lege voorkeuren.
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .inScenario("retry-na-tcp-reset")
                 .whenScenarioStateIs("recovered")
                 .willReturn(
@@ -79,7 +79,7 @@ class ProfielServiceRetryWireMockTest {
         // Regressie-vangnet voor @Retry(maxRetries = 2): zonder count-assert kan een
         // herconfiguratie naar maxRetries=5 of een retry-storm ongezien doorgaan.
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
         )
 
@@ -88,7 +88,7 @@ class ProfielServiceRetryWireMockTest {
         }
 
         // 1 originele call + maxRetries=2 retries = 3 upstream-calls totaal.
-        wireMock.verify(3, getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653")))
+        wireMock.verify(3, postRequestedFor(urlEqualTo("/api/profielservice/v1/partij")))
     }
 
     // ── E: abortOn JsonProcessingException — malformed JSON 1 upstream call ──
@@ -97,7 +97,7 @@ class ProfielServiceRetryWireMockTest {
     fun `malformed JSON wordt niet geretryd (abortOn JsonProcessingException)`() {
         // Parse-fout is deterministisch; retry = upstream verspillen + retry-storm-risico.
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(
                     aResponse()
                         .withStatus(200)
@@ -110,7 +110,7 @@ class ProfielServiceRetryWireMockTest {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(20))
         }
 
-        wireMock.verify(1, getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653")))
+        wireMock.verify(1, postRequestedFor(urlEqualTo("/api/profielservice/v1/partij")))
     }
 
     // ── D: 5xx wordt niet geretryd — exactly 1 upstream call ─────────────
@@ -118,7 +118,7 @@ class ProfielServiceRetryWireMockTest {
     @Test
     fun `5xx wordt niet geretryd (geen retry-storm)`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(500)),
         )
 
@@ -127,6 +127,6 @@ class ProfielServiceRetryWireMockTest {
         }
 
         // Precies 1 upstream-aanroep; geen retry bij deterministisch 5xx-antwoord.
-        wireMock.verify(1, getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653")))
+        wireMock.verify(1, postRequestedFor(urlEqualTo("/api/profielservice/v1/partij")))
     }
 }

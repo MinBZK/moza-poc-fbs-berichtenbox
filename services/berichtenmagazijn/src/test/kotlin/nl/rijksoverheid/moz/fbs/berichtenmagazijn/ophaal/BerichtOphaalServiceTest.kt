@@ -4,14 +4,16 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.ForbiddenException
-import jakarta.ws.rs.NotFoundException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtKop
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
@@ -43,6 +45,16 @@ class BerichtOphaalServiceTest {
         publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
     )
 
+    /** Het lijstpad levert kopgegevens; de tekst wordt daar niet gelezen. */
+    private fun kop(ontvangerOp: Identificatienummer = ontvanger): BerichtKop = BerichtKop(
+        berichtId = UUID.randomUUID(),
+        afzender = Oin("00000001003214345000"),
+        ontvanger = ontvangerOp,
+        onderwerp = "Voorlopige aanslag 2026",
+        tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
+    )
+
     @Test
     fun `haalBerichtOp verrijkt het bericht met bijlagen-metadata en status`() {
         val b = bericht()
@@ -63,7 +75,12 @@ class BerichtOphaalServiceTest {
         val id = UUID.randomUUID()
         every { berichtRepository.findByBerichtId(id) } returns null
 
-        assertThrows<NotFoundException> { service.haalBerichtOp(id, ontvanger) }
+        val fout = assertThrows<FbsFoutException> { service.haalBerichtOp(id, ontvanger) }
+
+        assertEquals(404, fout.response.status)
+        // Hetzelfde kenmerk als op de beheer-paden: dit gaat over een bericht, niet over een
+        // pad dat niet bestaat.
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test
@@ -91,7 +108,10 @@ class BerichtOphaalServiceTest {
         every { berichtRepository.findByBerichtId(b.berichtId) } returns b
         every { bijlageRepository.findByBerichtIdEnBijlageId(b.berichtId, bijlageId) } returns null
 
-        assertThrows<NotFoundException> { service.haalBijlageOp(b.berichtId, bijlageId, ontvanger) }
+        val fout = assertThrows<FbsFoutException> { service.haalBijlageOp(b.berichtId, bijlageId, ontvanger) }
+
+        assertEquals(404, fout.response.status)
+        assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
     }
 
     @Test
@@ -115,8 +135,8 @@ class BerichtOphaalServiceTest {
 
     @Test
     fun `lijst voegt per bericht de status toe`() {
-        val b1 = bericht()
-        val b2 = bericht()
+        val b1 = kop()
+        val b2 = kop()
         val pagina = PagedBerichten(berichten = listOf(b1, b2), page = 0, pageSize = 20, totalElements = 2L)
         val status1 = BerichtStatus(gelezen = true, map = null, gewijzigdOp = Instant.now())
         every { berichtRepository.lijstVoorOntvanger(ontvanger, null, 0, 20) } returns pagina

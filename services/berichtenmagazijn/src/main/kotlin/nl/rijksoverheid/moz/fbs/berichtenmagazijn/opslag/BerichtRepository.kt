@@ -6,6 +6,8 @@ import io.quarkus.panache.common.Sort
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention.HardDeleteKandidaat
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import java.time.Instant
 import java.util.UUID
 
@@ -104,7 +106,14 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
             )
         }
         val totaal = query.count()
-        val items = query.page(Page.of(page, pageSize)).list().map { it.toDomain() }
+        // `project` beperkt de SELECT tot de kopkolommen. Zonder dat leest Hibernate ook de
+        // `inhoud`-TEXT van elke rij op de pagina in — tot 1 MiB per bericht — terwijl het
+        // lijstantwoord die tekst niet draagt.
+        val items = query.project(BerichtKopProjectie::class.java)
+            .page(Page.of(page, pageSize))
+            .list()
+            .map { it.toDomain() }
+
         return PagedBerichten(
             berichten = items,
             page = page,
@@ -209,7 +218,7 @@ data class BerichtMetVerwijderdOp(
  * service nodig heeft; de Resource bouwt hierop HAL-pagina-links op.
  */
 data class PagedBerichten(
-    val berichten: List<Bericht>,
+    val berichten: List<BerichtKop>,
     val page: Int,
     val pageSize: Int,
     val totalElements: Long,
@@ -221,4 +230,39 @@ data class PagedBerichten(
     }
 
     val totalPages: Int = ((totalElements + pageSize - 1) / pageSize).toInt()
+}
+
+/**
+ * Vlakke vorm van de kopkolommen zoals Hibernate ze projecteert: losse velden, want een
+ * JPQL-projectie kan de value classes van het domein niet zelf construeren. De veldnamen
+ * moeten die van [BerichtEntity] volgen — Panache bindt de projectie op naam.
+ *
+ * [toDomain] loopt via [uitDbRij], zodat een niet-conforme rij op het lijstpad dezelfde
+ * serverfout geeft als op het detailpad in plaats van een misleidende 400.
+ */
+internal data class BerichtKopProjectie(
+    val berichtId: UUID,
+    val afzender: String,
+    val ontvangerType: IdentificatienummerType,
+    val ontvangerWaarde: String,
+    val onderwerp: String,
+    val tijdstipOntvangst: Instant,
+    val publicatietijdstip: Instant,
+) {
+    fun toDomain(): BerichtKop = uitDbRij(
+        berichtId,
+        diagnose = {
+            "afzender.length=${afzender.length} ontvangerType=$ontvangerType " +
+                "ontvangerWaarde.length=${ontvangerWaarde.length}"
+        },
+    ) {
+        BerichtKop(
+            berichtId = berichtId,
+            afzender = Oin(afzender),
+            ontvanger = Identificatienummer.of(ontvangerType, ontvangerWaarde),
+            onderwerp = onderwerp,
+            tijdstipOntvangst = tijdstipOntvangst,
+            publicatietijdstip = publicatietijdstip,
+        )
+    }
 }

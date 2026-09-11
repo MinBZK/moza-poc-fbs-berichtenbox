@@ -64,12 +64,9 @@ object BerichtDtoMapper {
         }
 
     /**
-     * De samenvatting draagt wél de volledige `inhoud` en een lichte bijlage-lijst (alleen id en
-     * naam). Dat is wat het schema `BerichtSamenvatting` voorschrijft; de beschrijving bij de
-     * operatie beweert het tegendeel, maar het schema is leidend en het echte magazijn volgt het
-     * schema. Hier afwijken zou de simulator herkenbaar maken.
-     *
-     * TODO(#1053): zodra de spec één lezing heeft, deze alinea vervangen door de gekozen regel.
+     * De samenvatting draagt kopgegevens en een lichte bijlage-lijst (alleen id en naam),
+     * geen berichttekst — precies zoals het echte magazijn. Hier afwijken zou de simulator
+     * herkenbaar maken.
      */
     private fun naarSamenvatting(bericht: Bericht, basis: UriBuilder): BerichtSamenvatting =
         BerichtSamenvatting().apply {
@@ -77,7 +74,6 @@ object BerichtDtoMapper {
             afzender = bericht.afzender.waarde
             ontvanger = naarIdentificatienummer(bericht.ontvanger)
             onderwerp = bericht.onderwerp
-            inhoud = bericht.inhoud
             tijdstipOntvangst = bericht.tijdstipOntvangst
             publicatietijdstip = bericht.publicatietijdstip
             aantalBijlagen = bericht.bijlagen.size

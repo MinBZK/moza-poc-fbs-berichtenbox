@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.common.profiel
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
 import org.jboss.logging.Logger
@@ -27,6 +28,7 @@ class ToestemmingGeweigerdExceptionMapper : ExceptionMapper<ToestemmingGeweigerd
         log.infof("Toestemming geweigerd (reden=%s)", exception.reden)
 
         val problem = Problem(
+            type = Foutcode.GEEN_TOEGANG.uri,
             title = "Forbidden",
             status = 403,
             detail = when (exception.reden) {

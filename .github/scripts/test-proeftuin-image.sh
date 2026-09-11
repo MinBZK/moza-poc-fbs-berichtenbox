@@ -30,9 +30,17 @@ compose_met() {
 
 # `|| STATUS=$?` en niet `set +e`: een onverwachte fout in de rest van de suite moet nog steeds
 # afbreken.
+#
+# PROEFTUIN_IMAGE expliciet leeg: staat die variabele toevallig in de omgeving van wie de suite
+# draait, dan zou elke assertie hieronder zijn waarde meten in plaats van de fixture.
 draai() {
   STATUS=0
-  UITVOER=$(COMPOSE="$1" "$GUARD" 2>&1) || STATUS=$?
+  UITVOER=$(COMPOSE="$1" PROEFTUIN_IMAGE="" "$GUARD" 2>&1) || STATUS=$?
+}
+
+draai_met_override() {
+  STATUS=0
+  UITVOER=$(COMPOSE="$1" PROEFTUIN_IMAGE="$2" "$GUARD" 2>&1) || STATUS=$?
 }
 
 verwacht_image() {
@@ -141,6 +149,57 @@ if [ "$STATUS" -eq 0 ] && [[ "$UITVOER" == ghcr.io/minbzk/moza-poc* ]]; then
   ok "de compose.yaml van deze repo levert een referentie op"
 else
   fout "de compose.yaml van deze repo levert een referentie op — exit $STATUS, uitvoer: $UITVOER"
+fi
+
+# --- de override ---
+
+geldig=$(compose_met "    image: \"ghcr.io/minbzk/moza-poc:latest@sha256:$(printf 'a%.0s' {1..64})\"")
+
+draai_met_override "$geldig" "ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a"
+
+if [ "$STATUS" -eq 0 ] && [[ "$UITVOER" == *"ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a"* ]]; then
+  ok "PROEFTUIN_IMAGE wint van de pin in compose"
+else
+  fout "PROEFTUIN_IMAGE wint van de pin in compose — exit $STATUS, uitvoer: $UITVOER"
+fi
+
+# De melding hoort naar stderr te gaan en niet in de referentie te belanden: wat hier op stdout komt
+# wordt ongewijzigd het image van een ZAD-component.
+STATUS=0
+ALLEEN_STDOUT=$(COMPOSE="$geldig" PROEFTUIN_IMAGE="ghcr.io/minbzk/moza-poc:vast" "$GUARD" 2>/dev/null) || STATUS=$?
+
+if [ "$STATUS" -eq 0 ] && [ "$ALLEEN_STDOUT" = "ghcr.io/minbzk/moza-poc:vast" ]; then
+  ok "de waarschuwing over de override gaat naar stderr, niet naar stdout"
+else
+  fout "de waarschuwing over de override gaat naar stderr — exit $STATUS, stdout: $ALLEEN_STDOUT"
+fi
+
+draai_met_override "$geldig" "kapot"
+
+if [ "$STATUS" -ne 0 ] && [[ "$UITVOER" == *"ziet er niet uit als een image met een tag of digest"* ]]; then
+  ok "een override zonder tag of digest wordt geweigerd"
+else
+  fout "een override zonder tag of digest wordt geweigerd — exit $STATUS, uitvoer: $UITVOER"
+fi
+
+# Een override is er juist om een demo te draaien zonder de repo aan te passen; dan mag een
+# compose-bestand dat deze draai niet gebruikt wordt, hem niet blokkeren.
+draai_met_override "$WERKMAP/bestaat-niet.yaml" "ghcr.io/minbzk/moza-poc:vast"
+
+if [ "$STATUS" -eq 0 ] && [[ "$UITVOER" == *"ghcr.io/minbzk/moza-poc:vast"* ]]; then
+  ok "een override werkt ook zonder leesbare compose.yaml"
+else
+  fout "een override werkt ook zonder leesbare compose.yaml — exit $STATUS, uitvoer: $UITVOER"
+fi
+
+# Leeg is "niet gezet": anders zou een workflow die de variabele altijd meegeeft, met een lege
+# waarde de pin stilzwijgend uitschakelen en een component zonder image achterlaten.
+draai_met_override "$geldig" ""
+
+if [ "$STATUS" -eq 0 ] && [[ "$UITVOER" == ghcr.io/minbzk/moza-poc:latest@sha256:* ]]; then
+  ok "een lege PROEFTUIN_IMAGE valt terug op de pin"
+else
+  fout "een lege PROEFTUIN_IMAGE valt terug op de pin — exit $STATUS, uitvoer: $UITVOER"
 fi
 
 if [ "$fails" -eq 0 ]; then

@@ -23,7 +23,6 @@ class MagazijnResultTest {
         afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999993653"),
         onderwerp = "test",
-        inhoud = "inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,
@@ -98,7 +97,6 @@ class MagazijnResultTest {
                     afzender = "00000001234567890000",
                     ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", "999993653"),
                     onderwerp = "test",
-                    inhoud = "inhoud",
                     publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
                 ),
             ),
@@ -106,5 +104,18 @@ class MagazijnResultTest {
 
         assertEquals(1, response.berichten.size)
         assertNotNull(response.toString())
+    }
+
+    /**
+     * De twee assen zijn afzonderlijk exhaustief, maar hun samenhang bewaakt niemand: een call die
+     * het magazijn niet bereikte kan onmogelijk een storing van dát magazijn zijn. Een nieuwe fault
+     * die beide op de verkeerde manier krijgt, zou circuits openen op grond van onze eigen
+     * saturatie — en dat compileert gewoon.
+     */
+    @Test
+    fun `een fault die het magazijn niet bereikte telt nooit als storing`() {
+        val tegenstrijdig = MagazijnFault.entries.filter { !it.magazijnBereikt && it.teltAlsStoring }
+
+        assertEquals(emptyList<MagazijnFault>(), tegenstrijdig)
     }
 }

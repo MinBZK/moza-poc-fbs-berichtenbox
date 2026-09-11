@@ -2,8 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalTo
-import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.matching
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import io.quarkus.test.common.QuarkusTestResource
@@ -11,6 +11,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.BeforeEach
@@ -40,7 +41,7 @@ class ProfielFscOutwayHeadersWireMockTest {
     @Test
     fun `met grant-hash draagt de Profiel-call Fsc-Grant-Hash en een v7 Fsc-Transaction-Id`() {
         wireMock.stubFor(
-            get(urlEqualTo(PROFIEL_PAD)).willReturn(
+            post(urlEqualTo(PROFIEL_PAD)).willReturn(
                 aResponse()
                     .withStatus(200)
                     .withHeader("Content-Type", "application/json")
@@ -48,17 +49,17 @@ class ProfielFscOutwayHeadersWireMockTest {
             )
         )
 
-        client.getPartij("BSN", "999993653")
+        client.getPartij(PartijRequest("BSN", "999993653"))
 
         wireMock.verify(
-            getRequestedFor(urlEqualTo(PROFIEL_PAD))
+            postRequestedFor(urlEqualTo(PROFIEL_PAD))
                 .withHeader("Fsc-Grant-Hash", equalTo(ProfielFscGrantHashTestProfile.GRANT_HASH))
                 .withHeader("Fsc-Transaction-Id", matching(UUID_V7_REGEX))
         )
     }
 
     companion object {
-        const val PROFIEL_PAD = "/api/profielservice/v1/BSN/999993653"
+        const val PROFIEL_PAD = "/api/profielservice/v1/partij"
 
         // De version-nibble "7" wordt expliciet gepind: de outway wijst v4 af, dus een
         // test die alleen "is een UUID" controleert vangt precies die fout niet.

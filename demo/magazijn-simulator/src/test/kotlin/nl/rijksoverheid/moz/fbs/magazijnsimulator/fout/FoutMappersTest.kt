@@ -181,6 +181,44 @@ class FoutMappersTest {
         }
     }
 
+    /**
+     * Om dezelfde reden als het correlatie-id: het echte magazijn zet op élk foutantwoord een
+     * `urn:fbs:fout:`-kenmerk, en de afnemer leest `about:blank` als "dit antwoord komt niet van
+     * de keten". Een simulator die dat teruggeeft, spreekt de instructie tegen die hij hoort te
+     * demonstreren.
+     */
+    @Test
+    fun `elk foutantwoord draagt een ketenkenmerk in type`() {
+        val antwoorden = listOf(
+            ProblemExceptionMapper().toResponse(NotFoundException()),
+            ProblemExceptionMapper().toResponse(
+                SimulatorFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE, "weg"),
+            ),
+            UncaughtExceptionMapper().toResponse(IllegalStateException()),
+            ConstraintViolationExceptionMapper().toResponse(schendingen("xOntvanger" to "moet aan het patroon voldoen")),
+            problemResponse(status = 404, title = "Not Found"),
+        )
+
+        antwoorden.forEach { antwoord ->
+            val type = (antwoord.entity as Problem).type
+
+            assertTrue(
+                type.toString().startsWith("urn:fbs:fout:"),
+                "verwacht een keten-kenmerk, was: $type",
+            )
+        }
+    }
+
+    @Test
+    fun `een throw-site met een eigen kenmerk houdt dat kenmerk`() {
+        val fout = SimulatorFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE, "weg")
+
+        val problem = ProblemExceptionMapper().toResponse(fout).entity as Problem
+
+        assertEquals(Foutcode.BERICHT_VERWIJDERD.uri, problem.type)
+        assertEquals(410, problem.status)
+    }
+
     @Test
     fun `twee foutantwoorden delen hun correlatie-id niet`() {
         val eerste = (problemResponse(404, "Not Found").entity as Problem).instance

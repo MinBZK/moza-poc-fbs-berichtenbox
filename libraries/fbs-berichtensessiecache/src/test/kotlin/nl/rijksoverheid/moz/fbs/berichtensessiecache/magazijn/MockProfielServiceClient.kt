@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 import io.quarkus.test.Mock
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ScopeResponse
@@ -21,7 +22,7 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 @ApplicationScoped
 @RegisterRestClient(configKey = "profiel-service")
 open class MockProfielServiceClient : ProfielServiceClient {
-    override fun getPartij(identificatieType: String, identificatieNummer: String): PartijResponse =
+    override fun getPartij(partijRequest: PartijRequest): PartijResponse =
         PartijResponse(
             voorkeuren = listOf(
                 VoorkeurResponse(
