@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 import io.quarkus.test.Mock
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ScopeResponse
@@ -34,8 +35,8 @@ class MockProfielServiceClient : ProfielServiceClient {
         defaultPartij(afzenderOin = "00000001003214345000")
     }
 
-    override fun getPartij(identificatieType: String, identificatieNummer: String): PartijResponse =
-        antwoordSupplier(identificatieType, identificatieNummer)
+    override fun getPartij(partijRequest: PartijRequest): PartijResponse =
+        antwoordSupplier(partijRequest.identificatieType, partijRequest.identificatieNummer)
 
     companion object {
         fun defaultPartij(afzenderOin: String): PartijResponse = PartijResponse(

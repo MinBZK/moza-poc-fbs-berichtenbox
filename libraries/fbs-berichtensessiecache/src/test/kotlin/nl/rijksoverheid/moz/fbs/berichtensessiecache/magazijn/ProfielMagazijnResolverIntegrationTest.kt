@@ -1,8 +1,9 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
+import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -36,7 +37,7 @@ class ProfielMagazijnResolverIntegrationTest {
     @Test
     fun `200 met opted-in voorkeur retourneert het magazijn van die OIN`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
                     """
                     {
@@ -57,7 +58,7 @@ class ProfielMagazijnResolverIntegrationTest {
     @Test
     fun `404 retourneert lege set`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(404)),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
@@ -67,7 +68,7 @@ class ProfielMagazijnResolverIntegrationTest {
     @Test
     fun `500 werpt ProfielServiceFoutException`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(500)),
         )
         assertThrows(ProfielServiceFoutException::class.java) {
@@ -78,7 +79,7 @@ class ProfielMagazijnResolverIntegrationTest {
     @Test
     fun `malformed JSON werpt ProfielServiceFoutException`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("{this is not json")),
         )
         assertThrows(ProfielServiceFoutException::class.java) {
@@ -90,7 +91,7 @@ class ProfielMagazijnResolverIntegrationTest {
     fun `200 met lege body retourneert lege voorkeurenset`() {
         // Profiel-service stuurt geldig JSON-object zonder voorkeuren-veld → default emptyList.
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("{}")),
         )
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
@@ -98,12 +99,15 @@ class ProfielMagazijnResolverIntegrationTest {
     }
 
     @Test
-    fun `RSIN-pad gebruikt URL-template per type (200 met opt-in retourneert het magazijn van die OIN)`() {
-        // naarProfielType-mapping is alleen unit-getest via MockK; deze test pinned dat
-        // het echte URL-pad `/RSIN/...` wordt geraakt op de upstream-stub (geen drift
-        // tussen interne enum-naam en extern contract-pad).
+    fun `RSIN-aanvraag draagt het RSIN-type in de body (200 met opt-in retourneert het magazijn van die OIN)`() {
+        // naarProfielType-mapping is alleen unit-getest via MockK; deze test pinned dat het
+        // externe type-label `RSIN` de stub daadwerkelijk raakt (geen drift tussen interne
+        // enum-naam en extern contract). De body-match is de assert: een afwijkend label
+        // matcht de stub niet en levert een 404 in plaats van dit magazijn.
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/RSIN/002564440")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).withRequestBody(
+                equalToJson("""{"identificatieType":"RSIN","identificatieNummer":"002564440"}"""),
+            ).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
                     """
                     {
@@ -124,9 +128,11 @@ class ProfielMagazijnResolverIntegrationTest {
     }
 
     @Test
-    fun `KVK-pad gebruikt URL-template per type (200 met opt-in retourneert het magazijn van die OIN)`() {
+    fun `KVK-aanvraag draagt het KVK-type in de body (200 met opt-in retourneert het magazijn van die OIN)`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/KVK/12345678")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).withRequestBody(
+                equalToJson("""{"identificatieType":"KVK","identificatieNummer":"12345678"}"""),
+            ).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
                     """
                     {
@@ -154,7 +160,7 @@ class ProfielMagazijnResolverIntegrationTest {
         // ProfielServiceFoutException.malformed, niet stilzwijgend tot een lege set
         // worden gedegradeerd.
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("""{"voorkeuren": null}""")),
         )
         assertThrows(ProfielServiceFoutException::class.java) {
@@ -165,7 +171,7 @@ class ProfielMagazijnResolverIntegrationTest {
     @Test
     fun `zonder grant-hash draagt de Profiel-call geen FSC-outway-headers`() {
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
                 aResponse()
                     .withStatus(200)
                     .withHeader("Content-Type", "application/json")
@@ -176,7 +182,7 @@ class ProfielMagazijnResolverIntegrationTest {
         resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
 
         wireMock.verify(
-            getRequestedFor(urlEqualTo("/api/profielservice/v1/BSN/999993653"))
+            postRequestedFor(urlEqualTo("/api/profielservice/v1/partij"))
                 .withoutHeader("Fsc-Grant-Hash")
                 .withoutHeader("Fsc-Transaction-Id")
         )

@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -38,7 +38,7 @@ class ProfielMagazijnResolverInnerTimeoutTest {
         // inner-timeout=1s (zie InnerTimeoutTestProfile), WireMock-delay=3s.
         // Resolver-interne ifNoItem-timer slaat aan vóór read-timeout (5s default).
         wireMock.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999993653")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
                 aResponse()
                     .withFixedDelay(3000)
                     .withStatus(200)

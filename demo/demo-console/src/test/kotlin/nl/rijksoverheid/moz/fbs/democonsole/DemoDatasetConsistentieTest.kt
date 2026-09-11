@@ -192,11 +192,19 @@ class DemoDatasetConsistentieTest {
         }
     }
 
-    /** Uit `urlPathPattern` (…/v1/BSN/999993653) het paar (type, waarde) halen. */
+    /**
+     * Uit de `bodyPatterns` van de stub het paar (type, waarde) halen: de identificatie zit in
+     * de request-body, niet meer in het pad.
+     */
     private fun sleutelVan(stub: JsonNode): Pair<String, String>? {
-        val pad = stub.path("request").path("urlPathPattern").asText("").split("/")
+        val paden = stub.path("request").path("bodyPatterns")
+            .mapNotNull { BODY_MATCH.find(it.path("matchesJsonPath").asText("")) }
+            .associate { it.groupValues[1] to it.groupValues[2] }
 
-        return if (pad.size < 2) null else (pad[pad.size - 2] to pad.last()).takeIf { it.first in TYPEN }
+        val type = paden["identificatieType"] ?: return null
+        val nummer = paden["identificatieNummer"] ?: return null
+
+        return (type to nummer).takeIf { it.first in TYPEN }
     }
 
     private fun oinsVan(stub: JsonNode): Set<String> =
@@ -225,6 +233,9 @@ class DemoDatasetConsistentieTest {
         const val STUB_MAP = "../../wiremock/demo-profiel/mappings"
 
         val TYPEN = setOf("BSN", "KVK", "RSIN")
+
+        // `$[?(@.identificatieType == 'BSN')]` → veldnaam + waarde.
+        val BODY_MATCH = Regex("""@\.(\w+)\s*==\s*'([^']+)'""")
 
         val SLEUTEL = Regex("""demo\.magazijnen\."(\d+)"\.url""")
     }

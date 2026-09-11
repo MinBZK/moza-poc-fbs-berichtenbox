@@ -2,7 +2,9 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.e2e
 
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.delete as wmDelete
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
@@ -47,7 +49,9 @@ class UitvraagKetenE2eTest {
             """{ "partij": { "identificatieType": "OIN", "identificatieNummer": "$it" } }"""
         }
         profiel.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/$bsn")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"$bsn"}"""),
+            ).willReturn(
                 aResponse().withStatus(200)
                     .withHeader("Content-Type", "application/json")
                     .withBody("""{"voorkeuren": [ { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true", "scopes": [ $scopes ] } ]}"""),
@@ -277,7 +281,7 @@ class UitvraagKetenE2eTest {
     @Test
     fun `profiel-500 geeft 503 met Retry-After vóór de stream`() {
         profiel.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999991401")).willReturn(aResponse().withStatus(500)),
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(aResponse().withStatus(500)),
         )
 
         given()
