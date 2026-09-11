@@ -242,8 +242,8 @@ gelijk "zonder ZAD_API_KEY stopt het script" 1 "$RC"
 
 # --- entrypoint --------------------------------------------------------------------------------------
 # De workflow roept het script zonder `bash` ervoor aan, en het script roept cross-domain-preview.sh
-# op dezelfde manier aan.
-for uitvoerbaar in preview-klaarzetten.sh cross-domain-preview.sh; do
+# en zad-deployment-bestaat.sh op dezelfde manier aan.
+for uitvoerbaar in preview-klaarzetten.sh cross-domain-preview.sh zad-deployment-bestaat.sh; do
   if [ -x "$REPO_ROOT/.github/scripts/$uitvoerbaar" ]; then
     ok "$uitvoerbaar is uitvoerbaar"
   else
@@ -279,7 +279,7 @@ def meld(goed, tekst):
 
 def legs(job):
     include = (((job or {}).get("strategy") or {}).get("matrix") or {}).get("include") or []
-    return sorted(tuple(leg.get(veld) for veld in ("naam", "project", "key", "richting", "regelsleutel")) for leg in include)
+    return sorted(tuple(leg.get(veld) for veld in ("naam", "project", "key")) for leg in include)
 
 
 deploy, cleanup = jobs(sys.argv[1]), jobs(sys.argv[2])
@@ -287,8 +287,8 @@ klaar = deploy.get("preview-klaarzetten") or {}
 klaar_legs = legs(klaar)
 
 meld(len(klaar_legs) == 3, "de klaarzet-matrix in deploy.yml heeft drie legs")
-# Zet de een een regel die de ander niet opruimt, dan blijft die na elke gesloten PR achter.
-meld(klaar_legs == legs(cleanup.get("cleanup-preview-zad")), "de klaarzet-matrix heeft dezelfde legs als de opruim-matrix")
+# Een project dat alleen hier staat, laat na elke gesloten PR een preview achter.
+meld(klaar_legs == legs(cleanup.get("cleanup-preview-zad")), "de klaarzet-matrix kent dezelfde projecten als de opruim-matrix")
 
 aanroepen = [stap for stap in klaar.get("steps") or [] if "preview-klaarzetten.sh" in str(stap.get("run", ""))]
 meld(len(aanroepen) == 1, "preview-klaarzetten roept het script aan")

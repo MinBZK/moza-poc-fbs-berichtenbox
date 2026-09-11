@@ -249,8 +249,9 @@ De cache-verval-knop wist de sessies in Redis, en Redis staat in `mpfb-8wh` terw
 open, dan slaat Operations Manager hem bij het genereren over.
 
 Daarom: de regel zelf één keer op projectniveau **zonder** peer-deployment, en per deployment een
-patch die hem invult. Voor `test` doe je dat hier met de hand; voor previews doen `deploy.yml` en
-`cleanup-preview.yml` het met `.github/scripts/cross-domain-preview.sh`.
+patch die hem invult. Voor `test` doe je dat hier met de hand; voor previews doet `deploy.yml` het
+met `.github/scripts/cross-domain-preview.sh`, via `preview-klaarzetten.sh`. Opruimen hoeft niet
+apart: de ingevulde regels staan in de projectspec onder de deployment, en verdwijnen met hem.
 
 De ontvanger beslist, dus beide projecten dragen een regel — één kant alleen zet niets open.
 
