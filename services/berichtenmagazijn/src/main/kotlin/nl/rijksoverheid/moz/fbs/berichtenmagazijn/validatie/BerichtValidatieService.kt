@@ -68,7 +68,7 @@ class BerichtValidatieService(
             // Quarkus REST Reactive werpt `ClientWebApplicationException` voor élke
             // 4xx — niet de typespecifieke `NotFoundException`. We filteren expliciet
             // op statuscode 404 en behandelen dat als fail-closed; elke andere status
-            // (400 op een geweigerd aanvraag-lichaam, 401/403 op auth-misser, 5xx) propageert wél, zodat de
+            // (400 op een geweigerde request-body, 401/403 op auth-misser, 5xx) propageert wél, zodat de
             // aanleveraar een fout ziet in plaats van een stille afwijzing. Ze tellen
             // niet mee voor het circuit: een HTTP-antwoord betekent dat de upstream
             // leeft. Netwerk-fouten zijn geen `WebApplicationException`, passeren deze
@@ -87,7 +87,7 @@ class BerichtValidatieService(
 
             if (duiding is Profiel404Duiding.Storing) {
                 // Errorf, niet warnf: dit is geen policy-besluit maar een defect. Alleen de
-                // duiding de log in, nooit het rauwe lichaam — een upstream mag daar het
+                // duiding de log in, nooit de rauwe body — een upstream mag daar het
                 // identificatienummer in echoën.
                 log.errorf(
                     ex,

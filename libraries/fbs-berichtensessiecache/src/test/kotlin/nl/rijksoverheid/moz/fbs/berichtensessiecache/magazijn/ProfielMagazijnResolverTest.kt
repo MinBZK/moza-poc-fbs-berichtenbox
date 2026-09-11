@@ -248,7 +248,7 @@ class ProfielMagazijnResolverTest {
     fun `404 zonder herkenbaar antwoord telt als storing en niet als opt-out`() {
         // Een kale 404 komt van een verkeerd pad of een tussenliggende voorziening. Als opt-out
         // gelezen zou die de berichtenbox stil leegmaken; daarom de veilige kant: storing.
-        stub404(lichaam = null)
+        stub404(body = null)
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -271,8 +271,8 @@ class ProfielMagazijnResolverTest {
     }
 
     @ParameterizedTest
-    @MethodSource("onleesbareLichamen")
-    fun `404 waarvan het lichaam niet te lezen is telt als storing`(leesfout: RuntimeException) {
+    @MethodSource("onleesbareBodies")
+    fun `404 waarvan de body niet te lezen is telt als storing`(leesfout: RuntimeException) {
         // Een al geconsumeerde respons gooit IllegalStateException; een onbekende charset in
         // de Content-Type levert een IllegalArgumentException uit de body-reader. Beide zijn
         // "niet herkenbaar" en mogen géén opt-out worden — en ook geen ONVERWACHT, want dan
@@ -289,11 +289,11 @@ class ProfielMagazijnResolverTest {
 
     @ParameterizedTest
     @ValueSource(ints = [401, 403, 500, 503])
-    fun `het opt-out-lichaam op een andere status blijft een storing`(status: Int) {
-        // Regressie-guard op de volgorde van de foutafhandeling: zou de lichaam-herkenning
+    fun `de opt-out-body op een andere status blijft een storing`(status: Int) {
+        // Regressie-guard op de volgorde van de foutafhandeling: zou de body-herkenning
         // ooit vóór de statuscontrole komen, dan maakte een auth-misser of een upstream-crash
-        // met dit lichaam stilletjes een lege berichtenbox.
-        stubFout(status, lichaam = """{"type":"about:blank","title":"Partij niet gevonden","status":404}""")
+        // met deze body stilletjes een lege berichtenbox.
+        stubFout(status, body = """{"type":"about:blank","title":"Partij niet gevonden","status":404}""")
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
@@ -303,14 +303,14 @@ class ProfielMagazijnResolverTest {
         assertEquals(status, ex.httpStatus)
     }
 
-    /** 404-respons met [lichaam] als problem+json-body; `null` = een respons zonder lichaam. */
-    private fun stub404(lichaam: String?) = stubFout(status = 404, lichaam = lichaam)
+    /** 404-respons met [body] als problem+json; `null` = een respons zonder body. */
+    private fun stub404(body: String?) = stubFout(status = 404, body = body)
 
     /**
-     * Foutrespons met [status]. Levert [lichaam] bij het uitlezen, of werpt [leesfout] wanneer
-     * die gegeven is — zo dekt één helper zowel "lichaam aanwezig/afwezig" als "onleesbaar".
+     * Foutrespons met [status]. Levert [body] bij het uitlezen, of werpt [leesfout] wanneer
+     * die gegeven is — zo dekt één helper zowel "body aanwezig/afwezig" als "onleesbaar".
      */
-    private fun stubFout(status: Int, lichaam: String? = null, leesfout: RuntimeException? = null) {
+    private fun stubFout(status: Int, body: String? = null, leesfout: RuntimeException? = null) {
         val response = mockk<Response>()
 
         every { response.status } returns status
@@ -320,7 +320,7 @@ class ProfielMagazijnResolverTest {
         if (leesfout != null) {
             every { response.readEntity(String::class.java) } throws leesfout
         } else {
-            every { response.readEntity(String::class.java) } returns lichaam
+            every { response.readEntity(String::class.java) } returns body
         }
 
         every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(response)
@@ -329,7 +329,7 @@ class ProfielMagazijnResolverTest {
     companion object {
 
         @JvmStatic
-        fun onleesbareLichamen() = listOf(
+        fun onleesbareBodies() = listOf(
             IllegalStateException("entity al gelezen"),
             IllegalArgumentException("onbekende charset in Content-Type"),
             ProcessingException("body-reader faalde"),

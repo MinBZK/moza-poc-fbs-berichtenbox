@@ -335,7 +335,7 @@ class BerichtValidatieServiceTest {
         // Een verschoven pad of een gateway ertussen geeft een kale 404. Als weigering
         // gelezen krijgt de aanleveraar een definitief klinkend toestemmingsoordeel op wat
         // een storing is — en die weigering wordt niet opnieuw geprobeerd.
-        every { profielServiceClient.getPartij(any()) } throws profiel404(lichaam = null)
+        every { profielServiceClient.getPartij(any()) } throws profiel404(body = null)
 
         val ex = assertThrows(ProfielServiceFoutException::class.java) {
             service.valideer(maakBericht(), listOf(pdfBijlage()))
@@ -355,14 +355,14 @@ class BerichtValidatieServiceTest {
         }
     }
 
-    /** 404-respons van de Profiel-service met [lichaam] als problem+json-body. */
-    private fun profiel404(lichaam: String?): WebApplicationException {
+    /** 404-respons van de Profiel-service met [body] als problem+json. */
+    private fun profiel404(body: String?): WebApplicationException {
         val response = mockk<Response>()
 
         every { response.status } returns 404
         // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
         every { response.statusInfo } returns Response.Status.NOT_FOUND
-        every { response.readEntity(String::class.java) } returns lichaam
+        every { response.readEntity(String::class.java) } returns body
 
         return WebApplicationException(response)
     }

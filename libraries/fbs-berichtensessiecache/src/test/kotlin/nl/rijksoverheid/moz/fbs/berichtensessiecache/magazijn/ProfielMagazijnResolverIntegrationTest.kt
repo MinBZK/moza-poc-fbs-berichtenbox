@@ -57,9 +57,9 @@ class ProfielMagazijnResolverIntegrationTest {
 
     @Test
     fun `404 met het partij-niet-gevonden-antwoord retourneert lege set`() {
-        // Over echte HTTP heen: pint dat het problem-lichaam van een foutrespons door de
+        // Over echte HTTP heen: pint dat de problem-body van een foutrespons door de
         // REST-client heen überhaupt uitleesbaar is. De unit-test mockt die respons en zou
-        // een client die het lichaam weggooit niet betrappen.
+        // een client die de body weggooit niet betrappen.
         wireMock.stubFor(
             post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
                 aResponse().withStatus(404)

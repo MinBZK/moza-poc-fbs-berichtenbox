@@ -28,7 +28,7 @@ sealed interface Profiel404Duiding {
  * tussenliggende voorziening komen, en die mag niet als "geen voorkeuren" doorgaan: dan
  * levert een storing een misleidend lege berichtenbox op.
  *
- * De aanknoping is de `title` uit het `application/problem+json`-lichaam. Niet `type`: de
+ * De aanknoping is de `title` uit de `application/problem+json`-body. Niet `type`: de
  * Profiel-service laat dat op `about:blank` staan, waarmee het geen enkel 404-geval van een
  * ander onderscheidt.
  *
@@ -46,21 +46,21 @@ object ProfielNietGevonden {
     private const val TITEL_PARTIJ_NIET_GEVONDEN = "Partij niet gevonden"
 
     /**
-     * Bovengrens op het lichaam dat we parsen. Ruim boven een problem+json met een handvol
+     * Bovengrens op de body die we parsen. Ruim boven een problem+json met een handvol
      * velden, en het houdt een defecte upstream die een foutpagina van megabytes teruggeeft
      * van de heap. Te groot telt als storing — het is per definitie niet het antwoord dat we
      * zoeken.
      */
-    const val MAX_LICHAAM_TEKENS: Int = 64 * 1024
+    const val MAX_BODY_TEKENS: Int = 64 * 1024
 
     // Eén instantie: dit pad wordt per 404 geraakt en een ObjectMapper is duur om te bouwen.
     // Alleen readTree wordt gebruikt; de leesgrenzen zijn een tweede vangnet naast
-    // MAX_LICHAAM_TEKENS, tegen diep geneste of extreem lange invoer.
+    // MAX_BODY_TEKENS, tegen diep geneste of extreem lange invoer.
     private val mapper = ObjectMapper().apply {
         factory.setStreamReadConstraints(
             StreamReadConstraints.builder()
                 .maxNestingDepth(MAX_NESTING)
-                .maxStringLength(MAX_LICHAAM_TEKENS)
+                .maxStringLength(MAX_BODY_TEKENS)
                 .build(),
         )
     }
@@ -76,11 +76,11 @@ object ProfielNietGevonden {
     private val CONTROL_CHARS = Regex("[\\u0000-\\u001f\\u007f\\u2028\\u2029]")
 
     /**
-     * Duidt een 404-respons: leest het lichaam uit en classificeert het.
+     * Duidt een 404-respons: leest de body uit en classificeert die.
      *
      * Een respons die niet meer uit te lezen valt krijgt een eigen omschrijving — dat wijst
      * op onze eigen client en niet op een verschoven adres, en stuurt beheer dus een andere
-     * kant op dan een 404 zónder lichaam.
+     * kant op dan een 404 zónder body.
      *
      * Vangt `RuntimeException` en niet enkel de verwachte types: welke uitzondering een
      * body-reader werpt hangt af van wat de upstream meestuurt — een onbekende charset in de
@@ -89,27 +89,27 @@ object ProfielNietGevonden {
      * `Error`-types passeren wél.
      */
     fun duidRespons(response: Response?): Profiel404Duiding {
-        val lichaam = try {
+        val body = try {
             response?.readEntity(String::class.java)
         } catch (ex: RuntimeException) {
-            return Profiel404Duiding.Storing("lichaam onleesbaar (cause=${ex.javaClass.simpleName})")
+            return Profiel404Duiding.Storing("body onleesbaar (cause=${ex.javaClass.simpleName})")
         }
 
-        return duid(lichaam)
+        return duid(body)
     }
 
     /**
-     * Duidt het lichaam van een 404-respons. [problemBody] is `null` wanneer de respons geen
-     * lichaam had. Gebruik [duidRespons] wanneer je de respons zelf hebt; die kent ook het
-     * geval waarin het lichaam niet uit te lezen valt.
+     * Duidt de body van een 404-respons. [problemBody] is `null` wanneer de respons geen
+     * body had. Gebruik [duidRespons] wanneer je de respons zelf hebt; die kent ook het
+     * geval waarin de body niet uit te lezen valt.
      */
     fun duid(problemBody: String?): Profiel404Duiding {
-        if (problemBody == null) return Profiel404Duiding.Storing("zonder lichaam")
+        if (problemBody == null) return Profiel404Duiding.Storing("zonder body")
 
-        if (problemBody.isBlank()) return Profiel404Duiding.Storing("leeg lichaam")
+        if (problemBody.isBlank()) return Profiel404Duiding.Storing("lege body")
 
-        if (problemBody.length > MAX_LICHAAM_TEKENS) {
-            return Profiel404Duiding.Storing("lichaam te groot (${problemBody.length} tekens)")
+        if (problemBody.length > MAX_BODY_TEKENS) {
+            return Profiel404Duiding.Storing("body te groot (${problemBody.length} tekens)")
         }
 
         val titel = leesTitel(problemBody)
@@ -123,8 +123,8 @@ object ProfielNietGevonden {
     }
 
     /**
-     * De `title` uit een problem+json-lichaam, of `null` als het lichaam er geen draagt.
-     * Een niet te parsen of niet-object lichaam is precies wat een routing- of infra-404
+     * De `title` uit een problem+json-body, of `null` als de body er geen draagt.
+     * Een niet te parsen of niet-object body is precies wat een routing- of infra-404
      * oplevert en levert daarom `null` in plaats van een uitzondering.
      *
      * De `status`-controle is een extra bevestiging: een antwoord dat zichzélf niet als 404

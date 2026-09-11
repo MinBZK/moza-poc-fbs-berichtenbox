@@ -80,11 +80,11 @@ class ProfielNietGevondenTest {
     }
 
     @Test
-    fun `een lichaam boven de bovengrens telt als storing en wordt niet geparsed`() {
+    fun `een body boven de bovengrens telt als storing en wordt niet geparsed`() {
         // Een defecte upstream die een foutpagina van megabytes teruggeeft mag niet als
         // JSON-boom op de heap belanden.
         val teGroot = "{\"title\":\"Partij niet gevonden\",\"vulling\":\"" +
-            "x".repeat(ProfielNietGevonden.MAX_LICHAAM_TEKENS) + "\"}"
+            "x".repeat(ProfielNietGevonden.MAX_BODY_TEKENS) + "\"}"
 
         val duiding = assertStoring(teGroot)
 

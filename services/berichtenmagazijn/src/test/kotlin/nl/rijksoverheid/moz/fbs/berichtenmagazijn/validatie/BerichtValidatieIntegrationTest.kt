@@ -201,7 +201,7 @@ class BerichtValidatieIntegrationTest {
         // een storing zien — die probeert hij opnieuw — en geen toestemmingsoordeel, dat
         // definitief is en hem naar de voorkeuren van de ontvanger laat zoeken.
         (profielServiceClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
-            throw profiel404(lichaam = null)
+            throw profiel404(body = null)
         }
         val payload = Base64.getEncoder().encodeToString("pdf".toByteArray())
 
@@ -228,14 +228,14 @@ class BerichtValidatieIntegrationTest {
             .header("Retry-After", "30")
     }
 
-    /** 404-respons van de Profiel-service met [lichaam] als problem+json-body. */
-    private fun profiel404(lichaam: String?): WebApplicationException {
+    /** 404-respons van de Profiel-service met [body] als problem+json. */
+    private fun profiel404(body: String?): WebApplicationException {
         val response = mockk<Response>()
 
         every { response.status } returns 404
         // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
         every { response.statusInfo } returns Response.Status.NOT_FOUND
-        every { response.readEntity(String::class.java) } returns lichaam
+        every { response.readEntity(String::class.java) } returns body
 
         return WebApplicationException(response)
     }

@@ -7,11 +7,11 @@ MOZA Profiel Service te bevragen (`ProfielMagazijnResolver`). Die dienst antwoor
 **404** in twee volstrekt verschillende situaties:
 
 1. **Deze partij heeft nog geen profiel.** Het antwoord draagt een
-   `application/problem+json`-lichaam met `title: "Partij niet gevonden"`. Dit is normaal
+   `application/problem+json`-body met `title: "Partij niet gevonden"`. Dit is normaal
    gedrag voor wie nog niets heeft vastgelegd.
 2. **Een storing of een verkeerd ingestelde koppeling** — een verschoven adres, een
-   tussenliggende voorziening die de aanvraag niet kwijt kan. Zo'n 404 draagt dat lichaam
-   niet, of een lichaam van een ander niet-gevonden-geval.
+   tussenliggende voorziening die de aanvraag niet kwijt kan. Zo'n 404 draagt die body
+   niet, of een body van een ander niet-gevonden-geval.
 
 De resolver scheidt die twee: alleen (1) mapt naar een lege magazijn-set (succes-pad,
 `OPHALEN_GEREED` met 0 berichten). Alles wat niet ondubbelzinnig als (1) te lezen is, geldt
@@ -36,16 +36,16 @@ Het normale geval staat bewust op `DEBUG`: het treedt op bij elke ophaalactie va
 gebruiker zonder voorkeuren, en zou op een hoger niveau echte storingen laten ondersneeuwen.
 
 Geen ontvanger-waarde in beide regels (PII). `<duiding>` benoemt wát er niet klopte en is
-begrensd en gesaniteerd; het rauwe antwoordlichaam gaat de log niet in, want een upstream
+begrensd en gesaniteerd; de rauwe response-body gaat de log niet in, want een upstream
 mag daar het identificatienummer in echoën. De duidingen en wat ze betekenen:
 
 | Duiding | Waarschijnlijke oorzaak |
 |---------|--------------------------|
-| `zonder lichaam` | Een 404 van een tussenliggende voorziening of een verkeerd pad — de dienst zelf antwoordt altijd mét problem+json. |
+| `zonder body` | Een 404 van een tussenliggende voorziening of een verkeerd pad — de dienst zelf antwoordt altijd mét problem+json. |
 | `geen problem+json met een title` | Er zit iets tussen dat een eigen foutpagina teruggeeft (HTML, platte tekst). |
 | `title='…'` | De dienst is bereikt, maar antwoordde met een ánder niet-gevonden-geval. |
-| `lichaam onleesbaar (cause=…)` | Niet de upstream maar onze eigen client: elke opt-out wordt dan een valse storing. |
-| `lichaam te groot (… tekens)` | Een defecte upstream of een foutpagina van formaat. |
+| `body onleesbaar (cause=…)` | Niet de upstream maar onze eigen client: elke opt-out wordt dan een valse storing. |
+| `body te groot (… tekens)` | Een defecte upstream of een foutpagina van formaat. |
 
 De `type=`-dimensie onderscheidt één type dat faalt van álle types samen.
 
@@ -59,11 +59,11 @@ Configureer in de log-aggregator (Loki/CloudWatch) een alert op het storings-sig
   al als storing behandelt.
 - **Ernst:** waarschuwing. De aanlevering blijft werken; het ophalen faalt zichtbaar, dus
   gebruikers en beheer merken het los van deze alert ook.
-- **Runbook:** lees eerst de duiding uit de tabel hierboven. Bij `zonder lichaam` of `geen
+- **Runbook:** lees eerst de duiding uit de tabel hierboven. Bij `zonder body` of `geen
   problem+json`: controleer `quarkus.rest-client.profiel-service.url` en het pad
   (`POST /api/profielservice/v1/partij`), vergelijk met `PROFIEL_SERVICE_URL` per omgeving,
   en controleer of er een outway of gateway tussen zit die wel de oude `GET`-route kent maar
-  deze `POST` niet routeert. Bij `lichaam onleesbaar`: kijk naar onze eigen client, niet naar
+  deze `POST` niet routeert. Bij `body onleesbaar`: kijk naar onze eigen client, niet naar
   het adres.
 
 Een alert op het `DEBUG`-signaal is niet nodig voor het individuele geval. Let wel: een

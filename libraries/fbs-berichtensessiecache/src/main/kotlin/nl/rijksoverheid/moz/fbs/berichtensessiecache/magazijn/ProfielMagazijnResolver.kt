@@ -109,8 +109,8 @@ internal class ProfielMagazijnResolver(
                 when {
                     status == 404 -> verwerk404(webEx, profielType)
                     status != null && status in 400..499 -> {
-                        // Niet-404 4xx = eigen contract-/auth-bug (400 op een aanvraag-lichaam
-                        // dat upstream weigert, 401/403 auth-misser, 405 method-mismatch,
+                        // Niet-404 4xx = eigen contract-/auth-bug (400 op een request-body
+                        // die upstream weigert, 401/403 auth-misser, 405 method-mismatch,
                         // 415 verkeerde Content-Type). Errorf zodat dit
                         // niet als gewone "Profiel-service tijdelijk niet beschikbaar"
                         // wegfiltert in upstream-503-incidenten.
@@ -177,7 +177,7 @@ internal class ProfielMagazijnResolver(
 
         // Errorf: dit is de melding waaraan beheer een verschoven adres of een kapotte
         // koppeling herkent, dus moet ze de gevallen uit elkaar houden. De omschrijving komt
-        // uit de duiding en is daar al begrensd en gesaniteerd; het rauwe lichaam gaat de log
+        // uit de duiding en is daar al begrensd en gesaniteerd; de rauwe body gaat de log
         // niet in, want een upstream mag daar het identificatienummer in echoën.
         log.errorf(
             webEx,
