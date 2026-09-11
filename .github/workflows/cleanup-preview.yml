@@ -76,23 +76,6 @@ env:
   # preview-comment.sh, dat hem plaatst en zelf dezelfde default draagt. Houd die drie gelijk —
   # drift laat de comment stil achter op een gesloten PR. test-preview-comment.sh bewaakt dat.
   COMMENT_HEADER: "## 🚀 Preview Deployment"
-  # Dezelfde namen als de CROSS_DOMAIN_REGELS_*-lijsten in deploy.yml, die ze bij het aanmaken van
-  # een preview zet. Drift laat een regel achter op een deployment die niet meer bestaat: de
-  # resolver slaat zo'n regel over en logt dat, dus hij faalt stil en stapelt op.
-  # test-cross-domain-preview.sh vergelijkt de twee workflows per project.
-  CROSS_DOMAIN_REGELS_UITVRAAG: >-
-    democonsole-naar-redis
-    democonsole-naar-toxiproxy-aanmeld
-    democonsole-naar-toxiproxy-redis
-  CROSS_DOMAIN_REGELS_EXTERNE_STUBS: >-
-    democonsole-naar-toxiproxy-profiel
-    democonsole-naar-toxiproxy-notificatie
-  CROSS_DOMAIN_REGELS_MAGAZIJNEN: >-
-    democonsole-naar-redis
-    democonsole-naar-toxiproxy-aanmeld
-    democonsole-naar-toxiproxy-redis
-    democonsole-naar-toxiproxy-profiel
-    democonsole-naar-toxiproxy-notificatie
 
 jobs:
   # Eén plek waar het PR-nummer vandaan komt en gevalideerd wordt.
@@ -186,25 +169,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `richting` zegt welke kant van de cross-domain-regels in dít project staat: de
-          # aangeroepen kant bij de uitvraag en de externe stubs (inbound), de aanroepende console
-          # bij de magazijnen (outbound). `regels` noemt welke regels dat zijn — een leg zonder
-          # regels slaat die stap over.
           - naam: uitvraag
             project: mpfb-8wh
             key: ZAD_API_KEY_UITVRAAG
-            richting: inbound
-            regelsleutel: CROSS_DOMAIN_REGELS_UITVRAAG
           - naam: externe-stubs
             project: mpfpsm-lcl
             key: ZAD_API_KEY_PROFIEL
-            richting: inbound
-            regelsleutel: CROSS_DOMAIN_REGELS_EXTERNE_STUBS
           - naam: magazijnen
             project: mpfm-w3h
             key: ZAD_API_KEY_MAGAZIJNEN
-            richting: outbound
-            regelsleutel: CROSS_DOMAIN_REGELS_MAGAZIJNEN
     # Zelfde groepsnaam als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
     # lopende deploy niet onder handen wegtrekken. Concurrency-groepen zijn repo-breed, dus de
     # verhuizing naar een eigen workflow verandert daar niets aan — de namen moeten wél gelijk
@@ -213,30 +186,47 @@ jobs:
       group: zad-${{ matrix.naam }}-pr-${{ needs.doel.outputs.pr }}
       cancel-in-progress: false
     steps:
-      # Vóór de teardown, niet erna: de patch noemt een deployment, en die moet nog bestaan. Een
-      # `pull_request_target`-checkout pakt de basisbranch, niet de PR-code — dat is precies wat
-      # hier hoort, want dit script draait met de projectsleutels.
+      # Voor zad-deployment-bestaat.sh. Een `pull_request_target`-checkout pakt de basisbranch, niet
+      # de PR-code — dat is precies wat hier hoort, want het script draait met de projectsleutels.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Haal de cross-domain-regels van deze preview weg
+      # Een PR die nooit een preview had, heeft hier niets op te ruimen. Een delete zou dan toch een
+      # taak in Operations Manager worden, en die vergrendelt het project: zo'n taak liet de uitrol
+      # van een andere PR in hetzelfde project al stranden op `superseded`
+      # (MinBZK/MijnOverheidZakelijk#1075).
+      #
+      # Alleen een aantoonbare afwezigheid slaat de delete over. Is de lijst niet te lezen, dan
+      # verwijdert de stap hieronder gewoon, en beslist de nameting erna.
+      - name: Bepaal of er een preview is
+        id: bestaat
         env:
           ZAD_API_KEY: ${{ secrets[matrix.key] }}
-          REGELS: ${{ env[matrix.regelsleutel] }}
+          ZAD_API_URL: ${{ env.OM_API }}
+          PROJECT: ${{ matrix.project }}
+          DEPLOYMENT: pr-${{ needs.doel.outputs.pr }}
         run: |
-          # Bewust ongequote: REGELS draagt meerdere regelnamen, gescheiden door spaties, en die
-          # moeten als losse argumenten aankomen. De waarde komt uit het env-blok hierboven en is
-          # daarmee een vaste, spatie-vrije lijst.
-          # shellcheck disable=SC2086
-          .github/scripts/cross-domain-preview.sh verwijder \
-            "${{ matrix.project }}" "pr-${{ needs.doel.outputs.pr }}" \
-            "${{ matrix.richting }}" $REGELS
+          rc=0
+          .github/scripts/zad-deployment-bestaat.sh "$PROJECT" "$DEPLOYMENT" || rc=$?
 
+          case "$rc" in
+            0) echo "bestaat=true" >> "$GITHUB_OUTPUT" ;;
+            1)
+              echo "::notice::$DEPLOYMENT bestaat niet in $PROJECT; er is niets op te ruimen."
+              echo "bestaat=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *) echo "bestaat=onbekend" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # Geen aparte stap voor de cross-domain-regels: die staan in de projectspec ónder de deployment
+      # (`deployments[].services`), en de delete haalt dat hele blok weg. Ze eerst leegmaken liet
+      # Operations Manager het héle project opnieuw verwerken en op elke deployment wachten — minuten
+      # werk in een vergrendeld project, voor regels die een stap later toch verdwijnen.
       - name: Verwijder de ZAD-deployment
-        # Ook draaien als de stap hierboven faalde: een regel die blijft staan mag geen hele
-        # preview laten staan. De rode job wijst de achtergebleven regel wél aan.
-        if: ${{ !cancelled() }}
+        # `!= 'false'` en niet `== 'true'`: valt de stap hierboven om, dan is de output leeg, en dan
+        # hoort er gewoon verwijderd te worden.
+        if: ${{ !cancelled() && steps.bestaat.outputs.bestaat != 'false' }}
         uses: RijksICTGilde/zad-actions/cleanup@b844c76eba3502b40a19be868cdf0586e322f4b8 # v4
         with:
           api-key: ${{ secrets[matrix.key] }}
@@ -256,55 +246,23 @@ jobs:
         # Ook draaien als de stap hierboven faalde: dan is juist de vraag wat er is blijven staan.
         if: ${{ !cancelled() }}
         env:
-          API_KEY: ${{ secrets[matrix.key] }}
+          ZAD_API_KEY: ${{ secrets[matrix.key] }}
+          ZAD_API_URL: ${{ env.OM_API }}
           PROJECT: ${{ matrix.project }}
           DEPLOYMENT: pr-${{ needs.doel.outputs.pr }}
         run: |
-          set -euo pipefail
+          rc=0
+          .github/scripts/zad-deployment-bestaat.sh "$PROJECT" "$DEPLOYMENT" || rc=$?
 
-          # `--max-time` zodat een stille TCP-stall niet tot de job-timeout doorloopt (dan is de
-          # uitkomst 'cancelled' en meet niemand meer iets); `--retry` zodat een 5xx-hik geen
-          # valse rode run oplevert. `|| code=000` vangt een transportfout op, zodat die als
-          # annotatie in de `*`-tak landt in plaats van als kale curl-regel in het steplog.
-          antwoord=$(curl -sS --max-time 30 --retry 3 --retry-connrefused \
-            -H "X-API-Key: $API_KEY" -H 'Accept: application/json' \
-            -w '\n%{http_code}' "$OM_API/v2/projects/$PROJECT/deployments") || antwoord=$'\n000'
-
-          code=${antwoord##*$'\n'}
-          lijst=${antwoord%$'\n'*}
-
-          if [ "$code" != "200" ]; then
-            echo "::error::Kon de deploymentlijst van $PROJECT niet lezen (HTTP $code) — de teardown van $DEPLOYMENT is NIET geverifieerd."
-            exit 1
-          fi
-
-          # `jq -r` met drie expliciete takken i.p.v. `jq -e` in een `if`: die laatste maakt een
-          # parsefout niet te onderscheiden van 'false', dus een HTTP 200 met een niet-JSON body
-          # (proxy-pagina, afgekapt antwoord) zou als "deployment weg" lezen.
-          #
-          # De vorm van het antwoord wordt afgedwongen in plaats van aangenomen: `null | .x` is in
-          # jq geen fout maar `null`, dus een `200 null` of een `deployments` die geen array is zou
-          # anders als "weg" lezen. Elk OM-project houdt permanent de baseline-deployment `test`
-          # (push naar main rolt die uit), dus een lijst zonder `test` is geen leeg project maar een
-          # kapotte meting — dezelfde canary-gedachte als de lege-lijst-guard bij de omgevingen.
-          #
-          # `|| aanwezig=onleesbaar` zodat een jq-fout in de `*`-tak landt met een leesbare
-          # annotatie, in plaats van de stap via `set -e` af te breken op jq's eigen stderr.
-          aanwezig=$(printf '%s' "$lijst" | jq -r --arg d "$DEPLOYMENT" '
-            if type != "object" then error("antwoord is geen object")
-            elif (.deployments | type) != "array" then error("deployments ontbreekt of is geen array")
-            elif ([.deployments[].name] | index("test")) == null then error("baseline test ontbreekt")
-            else (.deployments | any(.name == $d)) end') || aanwezig=onleesbaar
-
-          case "$aanwezig" in
-            true)
+          case "$rc" in
+            1) echo "$DEPLOYMENT staat niet meer in de deploymentlijst van $PROJECT." ;;
+            0)
               # De DELETE zit bij OM bewust op het korte pad, zónder `/deployments/`.
-              echo "::error::$DEPLOYMENT bestaat nog in $PROJECT. Herdraai deze workflow via workflow_dispatch; blijft hij staan, verwijder hem dan met DELETE $OM_API/v2/projects/$PROJECT/$DEPLOYMENT."
+              echo "::error::$DEPLOYMENT bestaat nog in $PROJECT. Herdraai deze workflow via workflow_dispatch; blijft hij staan, verwijder hem dan met DELETE $ZAD_API_URL/v2/projects/$PROJECT/$DEPLOYMENT."
               exit 1
               ;;
-            false) echo "$DEPLOYMENT staat niet meer in de deploymentlijst van $PROJECT." ;;
             *)
-              echo "::error::Onleesbaar antwoord van $PROJECT — de teardown van $DEPLOYMENT is NIET geverifieerd."
+              echo "::error::De deploymentlijst van $PROJECT is niet te lezen — de teardown van $DEPLOYMENT is NIET geverifieerd."
               exit 1
               ;;
           esac
