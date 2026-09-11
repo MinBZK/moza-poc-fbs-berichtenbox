@@ -71,7 +71,6 @@ class UitvraagKetenE2eTest {
                           "afzender": "$afzender",
                           "ontvanger": { "type": "BSN", "waarde": "$bsn" },
                           "onderwerp": "Bericht van $label",
-                          "inhoud": "Inhoud van $label",
                           "publicatietijdstip": "2026-03-10T10:00:00Z",
                           "aantalBijlagen": 0
                         }
@@ -79,6 +78,15 @@ class UitvraagKetenE2eTest {
                     }
                     """.trimIndent(),
                 ),
+            ),
+        )
+
+        // De berichttekst zit niet in het lijstantwoord: het detailpad haalt hem op bij
+        // het bronmagazijn op het moment dat de ontvanger het bericht opent.
+        server.stubFor(
+            get(urlEqualTo("/api/v1/berichten/$berichtId")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "Inhoud van $label"}"""),
             ),
         )
     }

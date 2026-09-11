@@ -58,30 +58,6 @@ upsert_body() {
     end' <<<"$componenten" 2>/dev/null
 }
 
-# 0 = de deployment bestaat, 1 = hij bestaat niet, 2 = dat is niet vast te stellen.
-#
-# De lijst en niet het item: een 404 op een item-URL betekent ook "verkeerd project" of "verkeerd
-# pad". En de kloonbron moet in die lijst staan, anders is het antwoord geen bruikbare meting — een
-# lege lijst zou dan als "bestaat niet" lezen, en het aanmaken zou daarna toch falen.
-deployment_bestaat() {
-  local api_url=$1 api_key=$2 project=$3 deployment=$4 bron=$5 lijst uitkomst
-
-  lijst=$("$CURL" -sf -H "X-API-Key: $api_key" "$api_url/v2/projects/$project/deployments") || return 2
-
-  uitkomst=$(jq -r --arg d "$deployment" --arg b "$bron" '
-    if (.deployments | type) != "array" then "onleesbaar"
-    elif ([.deployments[].name] | index($b)) == null then "onleesbaar"
-    elif any(.deployments[]; .name == $d) then "ja"
-    else "nee"
-    end' <<<"$lijst" 2>/dev/null) || return 2
-
-  case "$uitkomst" in
-    ja) return 0 ;;
-    nee) return 1 ;;
-    *) return 2 ;;
-  esac
-}
-
 # Wacht op de taak en eist dat hij níet heeft uitgerold. Rolt Operations Manager toch uit — een
 # API die de vlag negeert of een pad dat hem niet kent — dan staat de preview weer vóór zijn regels
 # in het cluster, en eindigt de deploy na 300 s op precies de time-out die dit script voorkomt.
@@ -140,8 +116,10 @@ main() {
   body=$(upsert_body "$deployment" "$bron" "$componenten") \
     || fout "De componentenlijst is geen niet-lege JSON-lijst met een name en image per component."
 
+  # De kloonbron als canary: een lijst zonder kloonbron is geen bruikbare meting, en het aanmaken zou
+  # daarna toch falen.
   local rc=0
-  deployment_bestaat "$api_url" "$api_key" "$project" "$deployment" "$bron" || rc=$?
+  "$HERE/zad-deployment-bestaat.sh" "$project" "$deployment" "$bron" >/dev/null || rc=$?
 
   case "$rc" in
     0)

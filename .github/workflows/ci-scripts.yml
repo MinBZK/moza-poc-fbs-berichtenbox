@@ -120,8 +120,9 @@ jobs:
             [.github/scripts/test-wijzigingsfilter.sh]=107
             [.github/scripts/test-uitrol-poort.sh]=86
             [.github/scripts/test-demo-grens.sh]=62
-            [.github/scripts/test-cross-domain-preview.sh]=62
-            [.github/scripts/test-preview-klaarzetten.sh]=53
+            [.github/scripts/test-cross-domain-preview.sh]=51
+            [.github/scripts/test-preview-klaarzetten.sh]=54
+            [.github/scripts/test-zad-deployment-bestaat.sh]=29
             [.github/scripts/test-preview-comment.sh]=121
             [.github/scripts/test-jdk-handtekening.sh]=22
             [.github/scripts/test-fuzz-basis-modules.sh]=16

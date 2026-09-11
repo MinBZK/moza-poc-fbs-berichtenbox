@@ -51,7 +51,6 @@ class OntdubbelingService(
                 afzender = AFZENDER_OIN,
                 ontvanger = Ontvanger(type = "BSN", waarde = ontvangerBsn),
                 onderwerp = "Demo: ontdubbeling",
-                inhoud = "Ditzelfde CloudEvent wordt tweemaal afgeleverd; er hoort één bericht te ontstaan.",
                 tijdstipOntvangst = nu,
                 publicatietijdstip = nu,
             ),

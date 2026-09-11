@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.DELETE
 import jakarta.ws.rs.GET
@@ -55,6 +57,22 @@ interface MagazijnClient {
         @PathParam("berichtId") berichtId: UUID,
     )
 
+    /**
+     * Haalt de berichttekst op bij het openen van een bericht; de sessiecache draagt hem niet,
+     * dus dit is het enige pad waarlangs de uitvraag eraan komt.
+     *
+     * Een eigen, smalle DTO als returntype: uitvraags eigen `Bericht`-model hergebruiken kan
+     * niet, want het magazijn modelleert `status` als object waar uitvraag een enum-string
+     * gebruikt en Jackson die twee vormen niet op één type deserialiseert (dezelfde botsing
+     * als bij [patchBericht]). De overige velden komen uit de sessiecache.
+     */
+    @GET
+    @Path("/{berichtId}")
+    fun bericht(
+        @HeaderParam("X-Ontvanger") xOntvanger: String,
+        @PathParam("berichtId") berichtId: UUID,
+    ): MagazijnBerichtInhoud
+
     @GET
     @Path("/{berichtId}/bijlagen/{bijlageId}")
     fun bijlage(
@@ -63,3 +81,9 @@ interface MagazijnClient {
         @PathParam("bijlageId") bijlageId: UUID,
     ): Response
 }
+
+/** Het deel van het magazijn-detailantwoord dat de uitvraag nodig heeft: de berichttekst. */
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class MagazijnBerichtInhoud(
+    @param:JsonProperty("inhoud") val inhoud: String,
+)

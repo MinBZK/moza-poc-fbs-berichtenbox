@@ -142,6 +142,27 @@ class BerichtRepositoryIntegrationTest {
     }
 
     @Test
+    fun `lijstVoorOntvanger met corrupte DB-rij gooit InternalServerErrorException, geen DomainValidationException`() {
+        // Tegenhanger van de detail-variant hieronder. Een residu-rij mag op het lijstpad niet als
+        // clientfout eindigen: de aanroeper zou een 400 met de domeinmelding erin krijgen, terwijl
+        // hij aan zijn verzoek niets kan veranderen. Bovendien valt de hele pagina om.
+        val berichtId = UUID.randomUUID()
+        insertCorruptEntity(berichtId)
+
+        val ex = assertThrows(InternalServerErrorException::class.java) {
+            lijstInTransaction()
+        }
+        assertTrue(
+            ex.message!!.contains(berichtId.toString()),
+            "foutboodschap bevat berichtId voor diagnose",
+        )
+    }
+
+    @Transactional
+    fun lijstInTransaction(): PagedBerichten =
+        repository.lijstVoorOntvanger(Bsn("999993653"), null, 0, 20)
+
+    @Test
     fun `toDomain met corrupte DB-rij gooit InternalServerErrorException, geen DomainValidationException`() {
         // Simuleer dataresidu uit een vorige schemaversie of handmatige DB-edit:
         // een ongeldige afzender (te kort, geen geldige OIN) wordt direct als entity

@@ -8,12 +8,9 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
-import jakarta.ws.rs.InternalServerErrorException
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import org.jboss.logging.Logger
 import java.time.Instant
 import java.util.UUID
 
@@ -72,7 +69,13 @@ internal class BerichtEntity {
     @Column(name = "verwijderd_op")
     var verwijderdOp: Instant? = null
 
-    fun toDomain(): Bericht = try {
+    fun toDomain(): Bericht = uitDbRij(
+        berichtId,
+        diagnose = {
+            "id=$id afzender.length=${afzender.length} ontvangerType=$ontvangerType " +
+                "ontvangerWaarde.length=${ontvangerWaarde.length}"
+        },
+    ) {
         Bericht(
             berichtId = berichtId,
             afzender = Oin(afzender),
@@ -82,27 +85,9 @@ internal class BerichtEntity {
             tijdstipOntvangst = tijdstipOntvangst,
             publicatietijdstip = publicatietijdstip,
         )
-    } catch (ex: DomainValidationException) {
-        // Invarianten zijn vóór persist al door fromDomain geverifieerd; een DVE hier
-        // betekent een niet-conforme DB-rij (handmatige edit, oude schemaversie). Dat is een
-        // serverfout → 500 zodat ProblemExceptionMapper maskeert i.p.v. een 400 te exposen.
-        log.errorf(
-            ex,
-            "DB-rij corrupt of niet-conform: id=%d berichtId=%s afzender.length=%d ontvangerType=%s ontvangerWaarde.length=%d",
-            id,
-            berichtId,
-            afzender.length,
-            ontvangerType,
-            ontvangerWaarde.length,
-        )
-        throw InternalServerErrorException(
-            "DB-rij berichtId=$berichtId voldoet niet aan domein-invarianten",
-            ex,
-        )
     }
 
     companion object {
-        private val log = Logger.getLogger(BerichtEntity::class.java)
         private val PLACEHOLDER_UUID: UUID = UUID(0L, 0L)
 
         internal fun fromDomain(bericht: Bericht): BerichtEntity = BerichtEntity().apply {

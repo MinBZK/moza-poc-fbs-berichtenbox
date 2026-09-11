@@ -34,7 +34,7 @@ import java.time.Instant
  * [MagazijnBericht]/[MagazijnBerichtenResponse] gooien. Voorkomt een
  * regressie waarbij sessiecache NPE't op een veld dat magazijn's spec
  * wél als required markeert maar wat in een DTO non-null staat zonder
- * default. Eerdere whack-a-mole-fixes (inhoud, bijlagen, publicatietijdstip)
+ * default. Eerdere whack-a-mole-fixes (bijlagen, publicatietijdstip)
  * zijn hier vastgeklikt.
  *
  * De stub-body bevat ALLEEN de required-velden uit `BerichtSamenvatting`
@@ -71,7 +71,7 @@ class MagazijnContractIntegrationTest {
     @Test
     fun `minimale spec-conforme BerichtSamenvatting body deserialiseert zonder NPE`() {
         // Bevat exact alle required velden van magazijn-`BerichtSamenvatting`:
-        // berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst,
+        // berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst,
         // publicatietijdstip, aantalBijlagen, bijlagen, _links. Status is bewust
         // weggelaten (optioneel) zodat we ook de nullable-tak testen.
         val json = """
@@ -82,7 +82,6 @@ class MagazijnContractIntegrationTest {
                         "afzender": "00000001234567890000",
                         "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                         "onderwerp": "Minimaal bericht",
-                        "inhoud": "Korte inhoud",
                         "tijdstipOntvangst": "2026-03-10T14:30:05Z",
                         "publicatietijdstip": "2026-03-10T14:30:00Z",
                         "aantalBijlagen": 0,
@@ -106,11 +105,36 @@ class MagazijnContractIntegrationTest {
         assertEquals("BSN", bericht.ontvanger.type)
         assertEquals(ontvangerWaarde, bericht.ontvanger.waarde)
         assertEquals("Minimaal bericht", bericht.onderwerp)
-        assertEquals("Korte inhoud", bericht.inhoud)
         assertEquals(Instant.parse("2026-03-10T14:30:00Z"), bericht.publicatietijdstip)
         assertEquals(0, bericht.aantalBijlagen)
         assertTrue(bericht.bijlagen.isEmpty())
         assertEquals(null, bericht.status)
+    }
+
+    @Test
+    fun `berichttekst in een lijstantwoord belandt niet in het cache-domein`() {
+        // Een magazijn dat de tekst tóch meestuurt (oude versie, eigen implementatie) mag
+        // daarmee niet alsnog de centrale opslag vullen.
+        val json = """
+            {
+                "berichtId": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+                "afzender": "00000001234567890000",
+                "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
+                "onderwerp": "Met tekst",
+                "inhoud": "Deze tekst hoort nergens terecht te komen",
+                "tijdstipOntvangst": "2026-03-10T14:30:05Z",
+                "publicatietijdstip": "2026-03-10T14:30:00Z",
+                "aantalBijlagen": 0,
+                "bijlagen": [],
+                "_links": { "self": { "href": "/api/v1/berichten/c3d4e5f6-a7b8-9012-cdef-123456789012" } }
+            }
+        """.trimIndent()
+
+        val bericht = objectMapper.readValue(json, MagazijnBericht::class.java).toBericht("magazijn-a", "Magazijn A")
+
+        assertFalse(
+            objectMapper.writeValueAsString(bericht).contains("Deze tekst hoort nergens terecht te komen"),
+        )
     }
 
     @Test
@@ -126,7 +150,6 @@ class MagazijnContractIntegrationTest {
                         "afzender": "00000005555555550000",
                         "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                         "onderwerp": "Met bijlage",
-                        "inhoud": "Tekst",
                         "tijdstipOntvangst": "2026-03-09T09:15:02Z",
                         "publicatietijdstip": "2026-03-09T09:15:00Z",
                         "aantalBijlagen": 1,
@@ -258,7 +281,6 @@ class MagazijnContractIntegrationTest {
                                         "afzender": "00000001234567890000",
                                         "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                                         "onderwerp": "Minimaal",
-                                        "inhoud": "x",
                                         "tijdstipOntvangst": "2026-03-10T14:30:05Z",
                                         "publicatietijdstip": "2026-03-10T14:30:00Z",
                                         "aantalBijlagen": 0,

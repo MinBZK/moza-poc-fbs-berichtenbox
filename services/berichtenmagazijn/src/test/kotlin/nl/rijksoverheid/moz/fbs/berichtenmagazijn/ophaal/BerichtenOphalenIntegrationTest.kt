@@ -90,14 +90,14 @@ class BerichtenOphalenIntegrationTest {
             .then()
             .statusCode(200)
             .contentType("application/json")
-            .header("API-Version", `is`("0.2.0"))
+            .header("API-Version", `is`("0.3.0"))
             .body("totalElements", `is`(2))
             .body("berichten", hasSize<Any>(2))
             .body("berichten[0].onderwerp", notNullValue())
-            // BerichtSamenvatting bevat nu de tekstuele inhoud en een lichte
-            // bijlagen-lijst (bijlageId + naam), zodat de sessiecache na één
-            // lijst-call een complete cache-state kan opbouwen.
-            .body("berichten[0].inhoud", containsString("Inhoud van"))
+            // De samenvatting draagt een lichte bijlagen-lijst (bijlageId + naam) maar geen
+            // berichttekst: die gaat pas over de lijn bij `GET /berichten/{berichtId}`, als
+            // de ontvanger het bericht opent (data-minimalisatie, AVG art. 5(1)(c)).
+            .body("berichten[0].inhoud", nullValue())
             .body("berichten[0].aantalBijlagen", `is`(0))
             .body("berichten[0].bijlagen", hasSize<Any>(0))
             .body("berichten[0]._links.self.href", containsString("/api/v1/berichten/"))

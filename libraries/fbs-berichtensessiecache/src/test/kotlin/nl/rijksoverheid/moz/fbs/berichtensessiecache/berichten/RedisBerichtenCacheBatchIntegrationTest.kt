@@ -39,7 +39,6 @@ class RedisBerichtenCacheBatchIntegrationTest {
         afzenderNaam = "Testmagazijn",
         ontvanger = ontvanger,
         onderwerp = "Bericht $index",
-        inhoud = "Inhoud van bericht $index",
         publicatietijdstip = Instant.parse("2026-01-01T00:00:00Z").plusSeconds(index.toLong()),
         magazijnId = "00000001800866472000",
         aantalBijlagen = 0,

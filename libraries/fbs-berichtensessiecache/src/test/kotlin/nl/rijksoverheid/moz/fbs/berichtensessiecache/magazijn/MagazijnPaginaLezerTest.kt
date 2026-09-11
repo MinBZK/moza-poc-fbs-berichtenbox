@@ -388,7 +388,6 @@ class MagazijnPaginaLezerTest {
             afzender = "00000001234567890000",
             ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", "999993653"),
             onderwerp = "Bericht $volgnummer",
-            inhoud = "Inhoud $volgnummer",
             publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         )
     }

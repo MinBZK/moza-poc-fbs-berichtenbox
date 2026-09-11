@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -25,7 +26,6 @@ class BerichtJsonRoundTripTest {
         afzenderNaam = "Magazijn A",
         ontvanger = Rsin("999993653"),
         onderwerp = "Test",
-        inhoud = "Inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,
@@ -35,6 +35,15 @@ class BerichtJsonRoundTripTest {
     fun `ontvanger serialiseert als canonieke TYPE-waarde string in de blob`() {
         val json = mapper.writeValueAsString(bericht)
         assertTrue(json.contains("\"RSIN:999993653\""), "Was: $json")
+    }
+
+    @Test
+    fun `de blob draagt geen berichttekst`() {
+        // De tekst hoort in het bronmagazijn te blijven. Belandt hij toch in de blob, dan is
+        // de belofte van gegevensminimalisatie stilletjes gebroken zonder dat iets faalt.
+        val json = mapper.writeValueAsString(bericht.copy(onderwerp = "Onderwerp"))
+
+        assertFalse(json.contains("inhoud"), "Was: $json")
     }
 
     @Test

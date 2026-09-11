@@ -145,8 +145,8 @@ env:
   # De cross-domain-regels die de demo-console bij de sessiecache en bij de vier Toxiproxy-admin-API's
   # laten. Elke regel staat op projectniveau zónder peer-deployment; die vult elke deployment zelf
   # in, want een regel waarvan de peer-deployment open blijft wordt bij het genereren overgeslagen.
-  # Dezelfde namen staan in cleanup-preview.yml — lopen die twee uit elkaar, dan blijft een regel
-  # achter op een deployment die niet meer bestaat.
+  # Opruimen hoeft niet: die ingevulde regels staan in de projectspec onder de deployment en
+  # verdwijnen met hem.
   #
   # Eén regel opent één poort op één component bij één peer, dus elke hop is een eigen regel. De
   # console is altijd de aanroepende kant, dus het magazijnen-project draagt de outbound-kant van
@@ -777,7 +777,7 @@ jobs:
   # waarvan de peer-deployment bij het renderen nog niet bestaat stil over en rendert hem daarna niet
   # opnieuw, en de console van de magazijnen haalt zonder zijn regels de sync-wacht niet.
   #
-  # Dezelfde legs als de opruim-matrix in cleanup-preview.yml: die ruimt op wat deze klaarzet.
+  # Dezelfde projecten als de opruim-matrix in cleanup-preview.yml: die ruimt op wat deze klaarzet.
   # test-preview-klaarzetten.sh bewaakt dat de twee gelijk blijven.
   #
   # Geen `deploy-preview-`-voorvoegsel: `uitrol-poort` telt op dat voorvoegsel de uitrol-jobs per

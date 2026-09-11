@@ -65,13 +65,17 @@ internal interface BerichtenCache {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v2:${HEX.formatHex(digest)}"
+            return "berichtensessiecache:v3:${HEX.formatHex(digest)}"
         }
-        // v2: sinds berichten een verplichte `afzenderNaam` dragen. Een v1-entry mist dat veld
-        // en zou als corrupt gelezen worden; een eigen prefix laat de oude entries via hun TTL
-        // verlopen in plaats van leesfouten te geven.
+        // v3: twee schemawijzigingen tegelijk. Berichten dragen sinds kort een verplichte
+        // `afzenderNaam`, en de berichttekst is uit hash én blob verdwenen. Een pod van een
+        // vorige versie die zo'n entry leest mist een veld dat hij verplicht acht en geeft een
+        // 500 op de berichtenlijst; aan dat gedrag valt niets te veranderen, dus moeten de
+        // sleutels disjunct zijn. Beide wijzigingen kwamen los van elkaar op v2 uit — vandaar
+        // v3, want één versienummer voor twee vormen brengt precies de botsing terug die de
+        // bump moest voorkomen.
         fun berichtKey(berichtId: UUID) = "$BERICHT_PREFIX$berichtId"
-        const val BERICHT_PREFIX = "bericht:v2:"
+        const val BERICHT_PREFIX = "bericht:v3:"
 
         /**
          * Key van de tombstone die een zelf-verwijderd bericht achterlaat, onder de sessie-key van
@@ -85,12 +89,12 @@ internal interface BerichtenCache {
 
         // De index-naam draagt dezelfde versie als de prefix waarop hij filtert, en dat is geen
         // cosmetica: de bootstrap laat een bestaande index bewust ongemoeid, dus een index die op
-        // `bericht:v1:` is aangemaakt zou blijven staan terwijl alle nieuwe hashes onder
-        // `bericht:v2:` landen. Filter- en zoekqueries geven dan stil nul resultaten — een
-        // index op de verkeerde prefix is functioneel identiek aan géén index, maar valt buiten
-        // de fail-fast hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index
-        // aan en blijven oude pods tijdens een rolling deploy op de oude werken.
-        const val SEARCH_INDEX = "berichten-idx-v2"
+        // een oudere prefix is aangemaakt zou blijven staan terwijl alle nieuwe hashes elders
+        // landen. Filter- en zoekqueries geven dan stil nul resultaten — een index op de
+        // verkeerde prefix is functioneel identiek aan géén index, maar valt buiten de fail-fast
+        // hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index aan en
+        // blijven oude pods tijdens een rolling deploy op de oude werken.
+        const val SEARCH_INDEX = "berichten-idx-v3"
     }
 }
 
@@ -319,8 +323,8 @@ internal class RedisBerichtenCache(
                 if (total == 0L && jsonList.isEmpty()) {
                     null
                 } else {
-                    // De ongefilterde list-cache bewaart de volledige `Bericht`-JSON-blob (incl. inhoud
-                    // en bijlagen), zodat ook `update` deze in-place kan herschrijven. Voor de
+                    // De ongefilterde list-cache bewaart de volledige `Bericht`-JSON-blob (incl.
+                    // bijlage-handles), zodat ook `update` deze in-place kan herschrijven. Voor de
                     // publieke lijst-respons projecteren we naar samenvatting; zo behoudt de
                     // BerichtenPagina één uniform element-type met het RediSearch-pad.
                     // try/catch op JsonProcessingException: cache-data niet deserialiseerbaar duidt
@@ -332,7 +336,7 @@ internal class RedisBerichtenCache(
                     } catch (ex: com.fasterxml.jackson.core.JsonProcessingException) {
                         // Log de fout-soort, NIET de exception zelf: Jackson zet bij
                         // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment in de
-                        // message — dat bevat BSN/RSIN + inhoud. PII mag nooit in de log; key +
+                        // message — dat bevat BSN/RSIN. PII mag nooit in de log; key +
                         // exception-klasse volstaan voor diagnose (corruptie/schema-drift).
                         log.errorf("Cache-bericht niet deserialiseerbaar voor key=%s (corruptie of schema-drift); fout=%s", key, ex.javaClass.name)
                         throw ex
@@ -423,10 +427,10 @@ internal class RedisBerichtenCache(
             }
     }
 
-    // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons heeft
-    // `inhoud`/`bijlagen` niet nodig, dus het is verspilling om die — potentieel grote —
-    // velden over de wire op te halen. `documentToSamenvatting` mapt naar het lichte
-    // [BerichtSamenvatting]-type. De detail-lookup (`getById`) gebruikt de hash en blijft volledig.
+    // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons draagt
+    // `bijlagen` niet, dus dat veld hoeft niet over de wire. `documentToSamenvatting` mapt naar
+    // het lichte [BerichtSamenvatting]-type; de detail-lookup (`getById`) gebruikt de hash en
+    // blijft volledig.
     private fun samenvattingQueryArgs(): QueryArgs {
         val args = QueryArgs()
         SAMENVATTING_VELDEN.forEach { args.returnAttribute(it) }
@@ -513,7 +517,6 @@ internal class RedisBerichtenCache(
         put("ontvanger", bericht.ontvanger.waarde)
         put("ontvangerType", bericht.ontvanger.type.name)
         put("onderwerp", bericht.onderwerp)
-        put("inhoud", bericht.inhoud)
         put("publicatietijdstip", bericht.publicatietijdstip.toString())
         put("magazijnId", bericht.magazijnId)
         put("aantalBijlagen", bericht.aantalBijlagen.toString())
@@ -564,7 +567,6 @@ internal class RedisBerichtenCache(
             afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
-            inhoud = required("inhoud"),
             publicatietijdstip = try {
                 Instant.parse(required("publicatietijdstip"))
             } catch (ex: java.time.format.DateTimeParseException) {
@@ -596,7 +598,7 @@ internal class RedisBerichtenCache(
 
     /**
      * Maakt een [BerichtSamenvatting] uit een FT.SEARCH-document. Bevat alleen de samenvatting-
-     * velden uit [SAMENVATTING_VELDEN]; `inhoud` en `bijlagen` worden bewust niet geprojecteerd.
+     * velden uit [SAMENVATTING_VELDEN]; `bijlagen` wordt bewust niet geprojecteerd.
      * Ontbrekende samenvatting-kernvelden duiden op corruptie — geen fallback-defaults.
      */
     private fun documentToSamenvatting(doc: io.quarkus.redis.datasource.search.Document): BerichtSamenvatting {
@@ -965,8 +967,8 @@ internal class RedisBerichtenCache(
         // TypeReference voor Jackson-deserialisatie van de `bijlagen`-hash-field (JSON-array).
         private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}
 
-        // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst
-        // zodat list/zoek de zware `inhoud`/`bijlagen`-velden niet ophaalt.
+        // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst.
+        // `bijlagen` blijft eruit omdat de samenvatting het niet draagt, niet omdat het groot is.
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",
             "afzender",
