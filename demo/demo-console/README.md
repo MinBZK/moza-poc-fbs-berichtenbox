@@ -21,8 +21,30 @@ mee, en trekt `docker compose --profile demo up -d` daar niet in. Bouw je ook de
 opnieuw, volg dan `../../docs/demo-runbook.md`; die beschrijft de volledige stack inclusief Podman,
 stub-generatie en de scenario's.
 
-Vul altijd een lege omgeving: het magazijn kent eigen bericht-ID's toe, dus twee keer vullen zonder
-legen levert het dubbele aantal berichten op.
+Na het opstarten staat de basisvulling er al: de console zet hem zelf in elk echt magazijn zonder
+berichten (zie [Vullen bij het opstarten](#vullen-bij-het-opstarten)). Vul daarna alleen een lege
+omgeving: het magazijn kent eigen bericht-ID's toe, dus twee keer vullen zonder legen levert het
+dubbele aantal berichten op.
+
+## Vullen bij het opstarten
+
+Een verse omgeving — een nieuwe preview, of een deployment waarvan de database opnieuw is aangemaakt —
+begint met lege magazijnen, en een lege berichtenbox is tijdens een demo niet van een kapotte keten te
+onderscheiden. De console telt daarom na het opstarten per echt magazijn de berichten, en zet in elk
+magazijn dat er geen heeft zijn deel van `basis.json`. Een magazijn met berichten blijft ongemoeid. De
+gesimuleerde magazijnen doen hetzelfde bij hun eigen start.
+
+- **Wachten op het magazijn.** Op een verse omgeving starten de componenten tegelijk. Heeft de database
+  van een magazijn nog geen tabellen, of komt het eerste bericht niet aan, dan probeert de console het
+  na `OPSTARTVULLING_INTERVAL` opnieuw — tot `OPSTARTVULLING_OPGEVEN_NA` na de start. Daarna meldt de
+  log met een `WARN` welk magazijn is opgegeven; *Herstel demo* zet ze dan alsnog op de basisvulling.
+- **Eén beoordeling per start.** Een magazijn dat gevuld of al gevuld is aangetroffen, bekijkt de
+  console niet opnieuw. Legen tijdens een demo blijft dus leeg — tot de console herstart, want dan
+  staat de post er weer.
+- **Geen tweede poging na een halve vulling.** Kwam een deel van de berichten niet aan, dan blijft het
+  daarbij, met een `WARN` in de log: opnieuw vullen zou het deel dat wél aankwam dubbel zetten.
+
+In de log staat elke stap onder `Opstartvulling`.
 
 ## Op ZAD
 
@@ -75,7 +97,7 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 |---|---|---|
 | Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee en krijgen daarna hun standaardvulling terug; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
-| Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo* |
+| Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo*. Een lege omgeving krijgt deze dataset al na het opstarten; in een gevulde zet de knop alles dubbel |
 | Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen |
 | Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten, 1 tot 500 |
 | Demo | Bericht plaatsen | *n* berichten (1 tot 100) voor de persona uit de keuzelijst; het magazijn is een willekeurige van de magazijnen waar die persona berichten van ontvangt. De keuzelijst komt uit `berichtPersonas` van `GET /api/demo/omgeving` en bevat alleen persona's mét magazijn |
@@ -113,6 +135,9 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `MAGAZIJN_A_URL`, `MAGAZIJN_B_URL` | `http://localhost:8090`, `:8091` | Aanleveren |
 | `MAGAZIJN_A_DB_URL`, `MAGAZIJN_B_DB_URL` | localhost:5432, :5433 | Legen |
 | `MAGAZIJN_A_DB_SCHEMA`, `MAGAZIJN_B_DB_SCHEMA` | `public` | Schema per magazijn; op ZAD delen beide dezelfde database |
+| `OPSTARTVULLING_ACTIEF` | `true`, onder test `false` | Zet na het opstarten de basisvulling in elk echt magazijn zonder berichten; zie [Vullen bij het opstarten](#vullen-bij-het-opstarten) |
+| `OPSTARTVULLING_INTERVAL` | `20s` | Na hoeveel tijd een magazijn dat nog niet klaar was opnieuw geprobeerd wordt |
+| `OPSTARTVULLING_OPGEVEN_NA` | `30m` | Hoe lang na de start de console blijft wachten op een magazijn dat nog niet klaar is |
 | `TOXIPROXY_ADMIN_URL` | `http://localhost:8474` | Alle Toxiproxy-instanties tegelijk |
 | `TOXIPROXY_<PROXY>_URL` | de waarde hierboven | Eén instantie apart; op ZAD staat elke stroom op een eigen adres. Leeg zetten schakelt die proxy uit — het paneel verbergt dan zelf de bijbehorende knop (bv. `TOXIPROXY_MAGAZIJN_A_URL=` op ZAD) |
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |

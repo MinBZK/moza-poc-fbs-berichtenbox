@@ -51,6 +51,12 @@ class MagazijnDatabase(
 
     fun aantallen(): Map<String, Int> = bronnen.mapValues { (_, bron) -> telBerichten(bron) }
 
+    /**
+     * Het aantal berichten in het magazijn achter deze afzender-OIN. Gooit zolang de database of de
+     * tabel er niet is: op een verse omgeving maakt het magazijn die pas bij zijn eigen start aan.
+     */
+    fun aantalVoor(magazijnOin: String): Int = telBerichten(bronnen.getValue(MAGAZIJN_PER_OIN.getValue(magazijnOin)))
+
     // Het logboek staat in %prod ín het magazijn-schema. Blijft het staan, dan toont het LDV na een
     // herstel nog de verwerkingen van de vorige demo terwijl de berichten weg zijn — en juist dat
     // logboek is wat we in een demo laten zien.
@@ -79,4 +85,17 @@ class MagazijnDatabase(
         }
 
     private fun eersteInt(rs: ResultSet): Int = if (rs.next()) rs.getInt(1) else 0
+
+    companion object {
+
+        /**
+         * Welke database bij welke afzender-OIN hoort: dezelfde paren als `demo.magazijnen` en de
+         * datasources in `application.properties`, bewaakt door `DemoDatasetConsistentieTest`. Een
+         * verwisseling telt het ene magazijn en vult het andere.
+         */
+        val MAGAZIJN_PER_OIN: Map<String, String> = mapOf(
+            "00000000000000100000" to "magazijn-a",
+            "00000001823288444000" to "magazijn-b",
+        )
+    }
 }

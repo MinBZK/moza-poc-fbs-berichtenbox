@@ -6,6 +6,7 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.GeneratorProducer
+import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.demopersonas.Identificatiecheck
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaBron
@@ -142,6 +143,32 @@ class DemoDatasetConsistentieTest {
         )
     }
 
+    /**
+     * De opstartvulling telt per database en vult per afzender-OIN. Loopt die koppeling uiteen, dan
+     * vult hij een magazijn op grond van de telling van het andere: dubbel, of nooit. Op letter en
+     * niet alleen op aanwezigheid, want een verwisseling van A en B laat beide kanten compleet.
+     */
+    @Test
+    fun `de opstartvulling koppelt elke OIN aan de database van hetzelfde magazijn`() {
+        val koppeling = MagazijnDatabase.MAGAZIJN_PER_OIN
+        val eigenschappen = applicationProperties()
+
+        assertEquals(magazijnenUitConfig(), koppeling.keys)
+        assertEquals(koppeling.keys, Basisdataset(mapper).laad().map { it.magazijnOin }.toSet())
+
+        koppeling.forEach { (oin, magazijn) ->
+            val letter = magazijn.removePrefix("magazijn-").uppercase()
+            val url = eigenschappen.getProperty("demo.magazijnen.\"$oin\".url").orEmpty()
+            val database = eigenschappen.getProperty("quarkus.datasource.$magazijn-db.jdbc.url").orEmpty()
+
+            assertTrue(url.startsWith("\${MAGAZIJN_${letter}_URL:"), "OIN $oin hoort bij $magazijn maar zijn URL is $url")
+            assertTrue(
+                database.startsWith("\${MAGAZIJN_${letter}_DB_URL:"),
+                "$magazijn-db hoort bij OIN $oin maar wijst naar $database",
+            )
+        }
+    }
+
     @Test
     fun `elke persona in de profiel-stubs heeft een geldig identificatienummer`() {
         val stubs = profielStubs()
@@ -216,14 +243,17 @@ class DemoDatasetConsistentieTest {
             .toSet()
 
     /** De OIN's waarvoor `application.properties` een aanlever-URL kent (`demo.magazijnen."<OIN>".url`). */
-    private fun magazijnenUitConfig(): Set<String> {
+    private fun magazijnenUitConfig(): Set<String> =
+        applicationProperties().stringPropertyNames()
+            .mapNotNull { SLEUTEL.matchEntire(it)?.groupValues?.get(1) }
+            .toSet()
+
+    private fun applicationProperties(): Properties {
         val eigenschappen = Properties()
 
         javaClass.classLoader.getResourceAsStream("application.properties").use { eigenschappen.load(it) }
 
-        return eigenschappen.stringPropertyNames()
-            .mapNotNull { SLEUTEL.matchEntire(it)?.groupValues?.get(1) }
-            .toSet()
+        return eigenschappen
     }
 
     private companion object {
