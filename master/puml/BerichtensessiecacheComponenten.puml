@@ -134,9 +134,9 @@ rectangle "Berichtensessiecache\n<size:10>[Container: Quarkus / Kotlin — gedee
   rectangle "==MagazijnClient\n<size:10>[Component: REST Client (internal)]</size>\n\nREST client naar berichtenmagazijnen (per magazijn opgebouwd via MagazijnClientFactory)" <<BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient>> as BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient
 }
 
-BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichtenlijst met kopgegevens op (zonder berichtinhoud)\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnClient .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst met kopgegevens op (zonder berichtinhoud)\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.Sessiecachefacade .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService : "<color:#707070>Gebruikt\n<color:#707070><size:8>[CDI]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.MagazijnResolver : "<color:#707070>Vraagt op welke magazijnen bevraagd moeten worden\n<color:#707070><size:8>[CDI]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache.BerichtensessiecacheService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache.PseudoniemService : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[CDI]</size>"

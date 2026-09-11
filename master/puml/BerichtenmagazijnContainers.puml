@@ -108,7 +108,7 @@ rectangle "Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>" <<
   rectangle "==Retentie Service\n<size:10>[Container: Quarkus / Kotlin (Scheduler)]</size>\n\nGeplande hard-delete-job: ruimt soft-deleted berichten op na de retentietermijn en logt de verwijdering naar het LDV-logboek. Cross-pod-veilig via SELECT ... FOR UPDATE SKIP LOCKED." <<BerichtenmagazijnBBOgehost.RetentieService>> as BerichtenmagazijnBBOgehost.RetentieService
 }
 
-BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt berichtenlijst, incl. berichtinhoud en attributen, of bijlagen op\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt berichtenlijst met kopgegevens op, en berichtinhoud of bijlagen per geopend bericht\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
 OrganisatieB .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
