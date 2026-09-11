@@ -195,8 +195,8 @@ internal class BlockingSessiecache(
         // niet "Redis onbereikbaar". Onleesbaar zonder de verkeerde infrastructuur-diagnose.
         is com.fasterxml.jackson.core.JsonProcessingException -> {
             // Log de fout-soort, NIET de exception: Jackson's message bevat bij
-            // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment met BSN/RSIN +
-            // inhoud. PII mag nooit in de log.
+            // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment met BSN/RSIN.
+            // PII mag nooit in de log.
             log.errorf("Cache-data niet deserialiseerbaar (corruptie of schema-drift); fout=%s", e.javaClass.name)
             SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }

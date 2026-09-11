@@ -13,9 +13,15 @@
 # Wil je de demo aan iemand anders tonen, zet 'm dan bewust open met `DEMO_BIND=0.0.0.0`, in plaats
 # van dat het de default is. `demo-console` doet hier NIET aan mee en
 # blijft altijd op loopback; zie de toelichting daar.
+#
+# Elke service krijgt `TZ: Europe/Amsterdam`, zodat logtijden overeenkomen met de klok van wie
+# meekijkt; zet hem ook op een nieuwe service. In een image zonder tijdzonedatabase (Redis,
+# Toxiproxy) heeft hij geen effect en blijft het UTC.
 services:
   redis:
     image: docker.io/redis/redis-stack-server:7.4.0-v3
+    environment:
+      TZ: Europe/Amsterdam
     ports:
       - "${DEMO_BIND:-127.0.0.1}:6379:6379"
     healthcheck:
@@ -31,6 +37,8 @@ services:
   # inschrijving draagt iets, ook al wordt de URL nooit gebeld.
   magazijn-a:
     image: docker.io/wiremock/wiremock:3.13.2
+    environment:
+      TZ: Europe/Amsterdam
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8081:8080"
     volumes:
@@ -40,6 +48,8 @@ services:
 
   magazijn-b:
     image: docker.io/wiremock/wiremock:3.13.2
+    environment:
+      TZ: Europe/Amsterdam
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8082:8080"
     volumes:
@@ -54,6 +64,8 @@ services:
   # 111222333 die een partij zonder voorkeuren teruggeeft.
   profiel-service:
     image: docker.io/wiremock/wiremock:3.13.2
+    environment:
+      TZ: Europe/Amsterdam
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8089:8080"
     volumes:
@@ -76,6 +88,8 @@ services:
   # Tests gebruiken een embedded JDK HttpServer en hebben deze containers niet nodig.
   aanmeld-stub:
     image: docker.io/wiremock/wiremock:3.13.2
+    environment:
+      TZ: Europe/Amsterdam
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8083:8080"
     volumes:
@@ -84,6 +98,8 @@ services:
 
   notificatie-stub:
     image: docker.io/wiremock/wiremock:3.13.2
+    environment:
+      TZ: Europe/Amsterdam
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8084:8080"
     volumes:
@@ -97,6 +113,7 @@ services:
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5434:5432"
     environment:
+      TZ: Europe/Amsterdam
       POSTGRES_USER: ldv
       POSTGRES_PASSWORD: ldv
       POSTGRES_DB: ldv_logging
@@ -113,6 +130,7 @@ services:
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5432:5432"
     environment:
+      TZ: Europe/Amsterdam
       POSTGRES_USER: berichtenmagazijn
       POSTGRES_PASSWORD: berichtenmagazijn
       POSTGRES_DB: berichtenmagazijn
@@ -133,6 +151,7 @@ services:
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5433:5432"
     environment:
+      TZ: Europe/Amsterdam
       POSTGRES_USER: berichtenmagazijn
       POSTGRES_PASSWORD: berichtenmagazijn
       POSTGRES_DB: berichtenmagazijn
@@ -170,6 +189,7 @@ services:
       toxiproxy:
         condition: service_started
     environment:
+      TZ: Europe/Amsterdam
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
       DB_JDBC_URL: jdbc:postgresql://postgres-a:5432/berichtenmagazijn
@@ -203,6 +223,7 @@ services:
       toxiproxy:
         condition: service_started
     environment:
+      TZ: Europe/Amsterdam
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
       DB_JDBC_URL: jdbc:postgresql://postgres-b:5432/berichtenmagazijn
@@ -220,6 +241,8 @@ services:
   # /proxies.json; de demo-console voegt runtime toxics toe via de admin-API (:8474).
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.12.0
+    environment:
+      TZ: Europe/Amsterdam
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8474:8474"
@@ -242,6 +265,7 @@ services:
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5435:5432"
     environment:
+      TZ: Europe/Amsterdam
       POSTGRES_USER: magazijnsimulator
       POSTGRES_PASSWORD: magazijnsimulator
       POSTGRES_DB: magazijnsimulator
@@ -272,6 +296,7 @@ services:
       postgres-simulator:
         condition: service_healthy
     environment:
+      TZ: Europe/Amsterdam
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
       DB_JDBC_URL: jdbc:postgresql://postgres-simulator:5432/magazijnsimulator
@@ -302,6 +327,7 @@ services:
       magazijn-simulator:
         condition: service_started
     environment:
+      TZ: Europe/Amsterdam
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
       # Onder dev eist Quarkus dat de Host-header naar localhost wijst. De demo komt binnen via de
@@ -357,6 +383,7 @@ services:
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8098:8098"
     environment:
+      TZ: Europe/Amsterdam
       # Binnen de eigen netns; de ports-regel hierboven bepaalt wat er van buiten bij kan. In de
       # gedeelde-netns-modus zet de overlay dit op loopback, want daar is 0.0.0.0 de hele machine.
       QUARKUS_HTTP_HOST: 0.0.0.0
@@ -387,6 +414,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      TZ: Europe/Amsterdam
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
       TOXIPROXY_ADMIN_URL: http://toxiproxy:8474
@@ -431,6 +459,7 @@ services:
       berichtenuitvraag:
         condition: service_started
     environment:
+      TZ: Europe/Amsterdam
       # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
       # demo-proxy onderschept die /api/ al vóór het de container bereikt.
       #
@@ -482,6 +511,7 @@ services:
       berichtenuitvraag:
         condition: service_started
     environment:
+      TZ: Europe/Amsterdam
       # Binnen het containernetwerk; wat er van buiten bereikbaar is bepaalt de ports-regel.
       PROXY_BIND: "0.0.0.0"
       PROXY_PORT: "8080"

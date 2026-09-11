@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonValue
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.annotation.JsonSerialize
@@ -28,6 +29,20 @@ enum class Leesstatus(@get:JsonValue val wire: String) {
     }
 }
 
+/**
+ * Een bericht zoals de sessiecache het bewaart: kopgegevens en bijlage-handles.
+ *
+ * `ignoreUnknown`: de list-cache bewaart dit type als JSON-blob, en tijdens een uitrol staan er
+ * blobs van de vorige versie in Redis. Een veld dat wij niet meer kennen mag het teruglezen niet
+ * laten stranden — zonder deze annotatie hangt dat aan een Jackson-default die nergens is
+ * vastgelegd, en een andere default maakt van elke lijst-read een 500.
+ *
+ * De berichttekst hoort hier bewust niet bij. Die blijft in het bronmagazijn en wordt
+ * opgehaald op het moment dat de ontvanger het bericht opent; vooruit kopiëren zou van
+ * elk bericht de tekst in de centrale opslag zetten, ook van berichten die niemand leest
+ * (data-minimalisatie, AVG art. 5(1)(c)).
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
 data class Bericht(
     val berichtId: UUID,
     val afzender: String,
@@ -43,7 +58,6 @@ data class Bericht(
     @get:JsonSerialize(using = IdentificatienummerCanonicalSerializer::class)
     val ontvanger: Identificatienummer,
     val onderwerp: String,
-    val inhoud: String,
     val publicatietijdstip: Instant,
     val magazijnId: String,
     val aantalBijlagen: Int,
@@ -55,9 +69,6 @@ data class Bericht(
         require(afzender.isNotBlank()) { "afzender mag niet leeg zijn" }
         require(afzenderNaam.isNotBlank()) { "afzenderNaam mag niet leeg zijn" }
         require(onderwerp.isNotBlank()) { "onderwerp mag niet leeg zijn" }
-        // `inhoud` mag leeg zijn: niet elk magazijn levert een inhoudssamenvatting op de lijst-respons
-        // (zie MagazijnBericht). Voor consumers blijft `inhoud` in de OpenAPI-spec required zodat de
-        // veld-aanwezigheid stabiel is — alleen de waarde kan leeg-string zijn.
         require(magazijnId.isNotBlank()) { "magazijnId mag niet leeg zijn" }
         require(aantalBijlagen >= 0) { "aantalBijlagen mag niet negatief zijn" }
         map?.let {
@@ -90,10 +101,10 @@ fun Bericht.toSamenvatting(): BerichtSamenvatting = BerichtSamenvatting(
 /**
  * Lichtgewicht cache-domeintype voor lijst- en zoek-projecties uit RediSearch.
  *
- * `inhoud` en `bijlagen` ontbreken bewust: de samenvatting wordt geprojecteerd uit een
- * subset van hash-velden (zie [BerichtenCache.SAMENVATTING_VELDEN]) zodat lijst-respons
- * de — potentieel grote — `inhoud`/`bijlagen` niet over de wire haalt. De volledige
- * representatie ([Bericht]) blijft beschikbaar via `getById` (HGETALL op de hash).
+ * `bijlagen` ontbreekt bewust: de samenvatting wordt geprojecteerd uit een subset van
+ * hash-velden (zie [BerichtenCache.SAMENVATTING_VELDEN]), zodat lijst en detail elk één
+ * vaste vorm houden. De volledige representatie ([Bericht]) blijft beschikbaar via
+ * `getById` (HGETALL op de hash).
  */
 data class BerichtSamenvatting(
     val berichtId: UUID,

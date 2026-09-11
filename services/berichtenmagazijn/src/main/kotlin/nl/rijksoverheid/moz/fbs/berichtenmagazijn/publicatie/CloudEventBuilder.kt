@@ -43,7 +43,6 @@ class CloudEventBuilder(
                 afzender = bericht.afzender.waarde,
                 ontvanger = OntvangerData.van(bericht.ontvanger),
                 onderwerp = bericht.onderwerp,
-                inhoud = bericht.inhoud,
                 tijdstipOntvangst = bericht.tijdstipOntvangst,
                 publicatietijdstip = bericht.publicatietijdstip,
             ),
@@ -102,12 +101,17 @@ data class CloudEvent(
     val data: BerichtData,
 )
 
+/**
+ * Payload van het gepubliceerd-bericht-event: de kopgegevens waarmee een ontvanger weet
+ * dát er een bericht is. De tekst hoort er niet bij — die blijft in dit magazijn tot de
+ * ontvanger het bericht opent, zodat een aanmelding of notificatie geen berichtteksten
+ * over het stelsel verspreidt (data-minimalisatie, AVG art. 5(1)(c)).
+ */
 data class BerichtData(
     val berichtId: UUID,
     val afzender: String,
     val ontvanger: OntvangerData,
     val onderwerp: String,
-    val inhoud: String,
     val tijdstipOntvangst: Instant,
     val publicatietijdstip: Instant,
 )

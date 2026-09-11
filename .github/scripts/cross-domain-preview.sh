@@ -1,26 +1,24 @@
 #!/usr/bin/env bash
-# Vult de peer-deployment van een cross-domain-access-regel in voor één deployment, of haalt hem
-# er weer uit.
+# Vult de peer-deployment van een cross-domain-access-regel in voor één deployment.
 #
 # Waarom dit bestaat: een cross-domain-regel noemt altijd één concrete peer-deployment. Blijft die
 # open, dan slaat Operations Manager de regel bij het genereren over — er is geen vorm die
 # "dezelfde deployment als de mijne" betekent. De regel zelf staat daarom één keer op
 # projectniveau, zonder peer-deployment, en elke deployment krijgt een patch die hem invult. Voor
-# `test` doe je dat één keer met de hand; voor een preview hoort het bij het aanmaken en het
-# opruimen, en dat is wat dit script doet.
+# `test` doe je dat één keer met de hand; voor een preview doet preview-klaarzetten.sh het.
+#
+# Opruimen hoeft niet: de ingevulde regels staan in de projectspec ónder de deployment
+# (`deployments[].services`), en het verwijderen van de deployment haalt dat hele blok weg.
 #
 # Welk veld ingevuld wordt volgt uit de richting: in een inbound-regel is de tegenpartij `from`,
 # in een outbound-regel is dat `to`. De regel-naam is de sleutel — een patch met dezelfde naam
 # past de projectregel aan, een andere naam maakt een eigen regel voor die deployment.
 #
 # Gebruik:
-#   ZAD_API_KEY=... cross-domain-preview.sh zet       <project> <deployment> inbound|outbound <regel>...
-#   ZAD_API_KEY=... cross-domain-preview.sh verwijder <project> <deployment> inbound|outbound <regel>...
+#   ZAD_API_KEY=... cross-domain-preview.sh zet <project> <deployment> inbound|outbound <regel>...
 #
 # Meerdere regelnamen gaan in één patch. De API neemt een lijst, en een deployment die vier regels
 # nodig heeft zou anders vier keer de projectcontrole doen en vier keer op een taak wachten.
-#
-# `verwijder` op een regel die er niet is, is een no-op aan de API-kant; twee keer opruimen mag dus.
 #
 # Met ZAD_ROLLOUT=false slaat Operations Manager de patch alleen op in het projectbestand en rolt
 # hij niets uit; preview-klaarzetten.sh zet zo de regels van een nieuwe preview vóór zijn eerste
@@ -48,34 +46,21 @@ patch_body() {
   local actie=$1 deployment=$2 richting=$3
   shift 3
 
-  local regel items=""
+  [ "$actie" = zet ] || fout "Actie moet zet zijn, was '$actie'."
 
-  case "$actie" in
-    verwijder)
-      for regel in "$@"; do
-        items="${items:+$items,}$(printf '"%s"' "$regel")"
-      done
+  local regel zijde items=""
 
-      printf '{"remove":[%s]}' "$items"
-      ;;
-    zet)
-      local zijde
-      case "$richting" in
-        inbound) zijde=from ;;
-        outbound) zijde=to ;;
-        *) fout "Richting moet inbound of outbound zijn, was '$richting'." ;;
-      esac
-
-      for regel in "$@"; do
-        items="${items:+$items,}$(printf '{"name":"%s","%s":{"deployment":"%s"}}' "$regel" "$zijde" "$deployment")"
-      done
-
-      printf '{"add":[%s]}' "$items"
-      ;;
-    *)
-      fout "Actie moet zet of verwijder zijn, was '$actie'."
-      ;;
+  case "$richting" in
+    inbound) zijde=from ;;
+    outbound) zijde=to ;;
+    *) fout "Richting moet inbound of outbound zijn, was '$richting'." ;;
   esac
+
+  for regel in "$@"; do
+    items="${items:+$items,}$(printf '{"name":"%s","%s":{"deployment":"%s"}}' "$regel" "$zijde" "$deployment")"
+  done
+
+  printf '{"add":[%s]}' "$items"
 }
 
 # De projectregel moet bestaan vóór een deployment hem invult. Operations Manager laat het
@@ -169,10 +154,7 @@ main() {
   local actie=${1:-} project=${2:-} deployment=${3:-} richting=${4:-}
   [ "$#" -ge 4 ] && shift 4 || shift "$#"
 
-  case "$actie" in
-    zet | verwijder) ;;
-    *) fout "Gebruik: $0 zet|verwijder <project> <deployment> inbound|outbound <regel>..." ;;
-  esac
+  [ "$actie" = zet ] || fout "Gebruik: $0 zet <project> <deployment> inbound|outbound <regel>..."
 
   case "$richting" in
     inbound | outbound) ;;
@@ -200,27 +182,24 @@ main() {
   local api_key=${ZAD_API_KEY:-}
   [ -n "$api_key" ] || fout "ZAD_API_KEY ontbreekt; zonder sleutel valt er niets te zetten."
 
-  local api_url=${ZAD_API_URL:-$STANDAARD_API_URL}
-  if [ "$actie" = zet ]; then
-    local config
+  local api_url=${ZAD_API_URL:-$STANDAARD_API_URL} config
 
-    # Eén keer ophalen voor beide controles: de configuratie van een project is er één.
-    if ! config=$("$CURL" -sf -H "X-API-Key: $api_key" \
-      "$api_url/v2/projects/$project/services/cross-domain-access/config"); then
-      fout "Cross-domain-configuratie van $project niet op te vragen; kan de projectregels niet controleren."
-    fi
+  # Eén keer ophalen voor beide controles: de configuratie van een project is er één.
+  if ! config=$("$CURL" -sf -H "X-API-Key: $api_key" \
+    "$api_url/v2/projects/$project/services/cross-domain-access/config"); then
+    fout "Cross-domain-configuratie van $project niet op te vragen; kan de projectregels niet controleren."
+  fi
 
-    vereis_projectregel "$config" "$project" "$richting" "$@"
+  vereis_projectregel "$config" "$project" "$richting" "$@"
 
-    if al_gezet "$config" "$deployment" "$richting" "$@"; then
-      echo "zet: $richting-regels ($*) op $project/$deployment stonden al; geen patch."
+  if al_gezet "$config" "$deployment" "$richting" "$@"; then
+    echo "zet: $richting-regels ($*) op $project/$deployment stonden al; geen patch."
 
-      return 0
-    fi
+    return 0
   fi
 
   local body antwoord taak
-  body=$(patch_body "$actie" "$deployment" "$richting" "$@")
+  body=$(patch_body zet "$deployment" "$richting" "$@")
 
   if ! antwoord=$("$CURL" -sf -X PATCH \
     -H "X-API-Key: $api_key" -H 'Content-Type: application/json' \
@@ -237,7 +216,7 @@ main() {
 
   wacht_op_taak "$api_url" "$api_key" "$taak"
 
-  echo "$actie: $richting-regels ($*) op $project/$deployment (taak $taak)${query:+, zonder uitrol}"
+  echo "zet: $richting-regels ($*) op $project/$deployment (taak $taak)${query:+, zonder uitrol}"
 }
 
 # Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.

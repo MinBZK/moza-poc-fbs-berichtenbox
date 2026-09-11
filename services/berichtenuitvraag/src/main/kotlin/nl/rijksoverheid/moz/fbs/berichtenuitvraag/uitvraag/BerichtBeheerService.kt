@@ -89,7 +89,11 @@ class BerichtBeheerService(
             )
         }
 
-        return UitvraagDtoMapper.toApiBericht(bijgewerkt, afzendernamen.naamVoor(bijgewerkt))
+        return UitvraagDtoMapper.toApiBericht(
+            bijgewerkt,
+            afzenderNaam = afzendernamen.naamVoor(bijgewerkt),
+            inhoud = null,
+        )
     }
 
     fun verwijder(ontvanger: String, berichtId: UUID, magazijnId: String) {

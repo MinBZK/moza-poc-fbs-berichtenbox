@@ -297,7 +297,6 @@ class MagazijnClientWireMockTest {
                     "afzender": "00000001234567890000",
                     "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                     "onderwerp": "Bericht op pagina $pagina",
-                    "inhoud": "Inhoud",
                     "publicatietijdstip": "2026-03-10T10:00:00Z",
                     "aantalBijlagen": 0
                 }
@@ -331,7 +330,6 @@ class MagazijnClientWireMockTest {
                                         "afzender": "00000001234567890000",
                                         "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                                         "onderwerp": "Test bericht van $magazijnId",
-                                        "inhoud": "Inhoud van $magazijnId",
                                         "publicatietijdstip": "2026-03-10T10:00:00Z",
                                         "magazijnId": "$magazijnId",
                                         "aantalBijlagen": 0
@@ -363,7 +361,6 @@ class MagazijnClientWireMockTest {
                                         "afzender": "00000001234567890000",
                                         "ontvanger": { "type": "BSN", "waarde": "$ontvangerWaarde" },
                                         "onderwerp": "Test bericht van $magazijnId",
-                                        "inhoud": "Inhoud van $magazijnId",
                                         "publicatietijdstip": "2026-03-10T10:00:00Z",
                                         "magazijnId": "$magazijnId",
                                         "aantalBijlagen": 0

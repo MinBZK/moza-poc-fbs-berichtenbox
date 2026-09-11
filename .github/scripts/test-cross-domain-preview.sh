@@ -130,16 +130,6 @@ gelijk "outbound vult de to-kant in" \
   '{"add":[{"name":"r","to":{"deployment":"pr-7"}}]}' \
   "$(patch_body zet pr-7 outbound r)"
 
-gelijk "verwijderen noemt alleen de regelnaam" \
-  '{"remove":["r"]}' \
-  "$(patch_body verwijder pr-7 inbound r)"
-
-# Opruimen mag de richting niet nodig hebben: cleanup-preview.yml kent alleen de regelnaam, en een
-# body die per richting verschilt zou daar een extra parameter afdwingen die niets toevoegt.
-gelijk "verwijderen is gelijk voor beide richtingen" \
-  "$(patch_body verwijder pr-7 inbound r)" \
-  "$(patch_body verwijder pr-7 outbound r)"
-
 # --- meerdere regels in één patch ---------------------------------------------------------------
 # Een deployment draagt tot vijf regels. Per regel een eigen aanroep zou per regel de
 # projectcontrole doen en per regel op een taak wachten; de API neemt een lijst.
@@ -148,12 +138,8 @@ gelijk "twee regels leveren twee add-items" \
   '{"add":[{"name":"een","from":{"deployment":"pr-7"}},{"name":"twee","from":{"deployment":"pr-7"}}]}' \
   "$(patch_body zet pr-7 inbound een twee)"
 
-gelijk "twee regels leveren twee remove-namen" \
-  '{"remove":["een","twee"]}' \
-  "$(patch_body verwijder pr-7 inbound een twee)"
-
 # Eén regel moet exact leveren wat hij vóór de uitbreiding leverde: de bestaande regel op ZAD is
-# met die vorm gezet en de patch is een add/remove per naam.
+# met die vorm gezet en de patch is een add per naam.
 gelijk "een enkele regel houdt zijn oude vorm" \
   '{"add":[{"name":"r","to":{"deployment":"pr-7"}}]}' \
   "$(patch_body zet pr-7 outbound r)"
@@ -280,11 +266,6 @@ gelijk "een regel die al staat is geen fout" 0 "$RC"
 gelijk "en krijgt geen patch" 0 "$(grep -c PATCH "$werkmap/aanroepen" || true)"
 bevat "de uitvoer zegt dat hij al stond" 'stonden al' "$UITVOER"
 
-# Het omgekeerde van het geval hierboven: opruimen moet altijd patchen, ook wat al staat.
-rm -f "$werkmap/aanroepen"
-draai "$werkmap" verwijder mpfm-w3h pr-7 outbound democonsole-naar-redis
-gelijk "opruimen patcht ook een regel die staat" 1 "$(grep -c PATCH "$werkmap/aanroepen" || true)"
-
 geval_patcht() {
   local wat=$1 configs=$2
   shift 2
@@ -336,24 +317,20 @@ draai "$werkmap" zet mpfm-w3h pr-7 outbound democonsole-naar-redis
 gelijk "een ontbrekende projectregel stopt het script" 1 "$RC"
 bevat "en zegt dat de regel op projectniveau ontbreekt" 'op projectniveau' "$UITVOER"
 
-# Opruimen mag daar niet op stuklopen: is de projectregel al weg, dan moet de deployment-patch er
-# júist nog af kunnen.
+# `verwijder` bestaat niet meer: de regels van een preview verdwijnen met zijn deployment. Een
+# aanroep ervan mag niet stil als iets anders doorgaan.
 rm -f "$werkmap/aanroepen"
 draai "$werkmap" verwijder mpfm-w3h pr-7 outbound democonsole-naar-redis
-gelijk "opruimen vraagt niet om een projectregel" 0 "$RC"
-case "$(tr '\n' ' ' <"$werkmap/aanroepen")" in
-  *'cross-domain-access/config '*) fout "opruimen vroeg de projectconfiguratie tóch op" ;;
-  *) ok "opruimen vraagt de projectconfiguratie niet op" ;;
+gelijk "verwijder is geen actie meer" 1 "$RC"
+case "$(cat "$werkmap/aanroepen" 2>/dev/null || true)" in
+  *PATCH*) fout "verwijder stuurde tóch een patch" ;;
+  *) ok "en stuurt dan niets" ;;
 esac
 
 maak_stub "$werkmap" '{"task_id":"t-1"}' completed
-# --- de regelnamen in de workflows ----------------------------------------------------------------
-# deploy.yml zet de regels en cleanup-preview.yml haalt ze weg, elk met hun eigen kopie van de
-# lijst. Lopen die uit elkaar, dan blijft een regel achter op een deployment die niet meer bestaat —
-# en dat faalt stil: de resolver slaat zo'n regel over, logt dat, en niemand leest die log.
-#
-# De lijsten staan als gevouwen blok (`>-`) in het env-blok van beide workflows; de regelnamen zijn
-# de vier spaties ingesprongen vervolgregels.
+# --- de regelnamen in deploy.yml ------------------------------------------------------------------
+# De lijsten staan als gevouwen blok (`>-`) in het env-blok van deploy.yml; de regelnamen zijn de
+# vier spaties ingesprongen vervolgregels.
 regelset() {
   awk -v sleutel="  $2: >-" '
     $0 == sleutel { bezig = 1; next }
@@ -363,16 +340,11 @@ regelset() {
 }
 
 for sleutel in CROSS_DOMAIN_REGELS_UITVRAAG CROSS_DOMAIN_REGELS_EXTERNE_STUBS CROSS_DOMAIN_REGELS_MAGAZIJNEN; do
-  zet_set=$(regelset deploy.yml "$sleutel")
-  weg_set=$(regelset cleanup-preview.yml "$sleutel")
-
-  if [ -z "$zet_set" ]; then
+  if [ -z "$(regelset deploy.yml "$sleutel")" ]; then
     fout "deploy.yml draagt geen $sleutel — deze controle meet niets"
   else
     ok "deploy.yml noemt regels onder $sleutel"
   fi
-
-  gelijk "deploy.yml en cleanup-preview.yml noemen dezelfde regels voor $sleutel" "$zet_set" "$weg_set"
 done
 
 # De console is bij elke hop de aanroepende kant, dus het magazijnen-project draagt de
@@ -388,32 +360,20 @@ beide_kanten=$(
 gelijk "de magazijnen dragen de tegenhanger van elke inbound-regel" \
   "$beide_kanten" "$(regelset deploy.yml CROSS_DOMAIN_REGELS_MAGAZIJNEN)"
 
-# Elke leg van de klaarzet- en de opruim-matrix moet een regelsleutel dragen die ook echt in het
-# env-blok van zijn workflow staat; een typfout daarin levert een lege lijst op, en dan zet of ruimt
-# die leg stilzwijgend niets.
-for wf in deploy.yml cleanup-preview.yml; do
-  sleutels=$(sed -n 's/^ *regelsleutel: *//p' "$REPO_ROOT/.github/workflows/$wf" | sort -u)
+# Elke leg van de klaarzet-matrix moet een regelsleutel dragen die ook echt in het env-blok staat;
+# een typfout daarin levert een lege lijst op, en dan zet die leg stilzwijgend niets.
+sleutels=$(sed -n 's/^ *regelsleutel: *//p' "$REPO_ROOT/.github/workflows/deploy.yml" | sort -u)
 
-  if [ -z "$sleutels" ]; then
-    fout "$wf draagt geen matrix met regelsleutels — deze controle meet niets"
-    continue
-  fi
-
+if [ -z "$sleutels" ]; then
+  fout "deploy.yml draagt geen matrix met regelsleutels — deze controle meet niets"
+else
   while read -r sleutel; do
-    if [ -n "$(regelset "$wf" "$sleutel")" ]; then
-      ok "de matrix-sleutel $sleutel bestaat in het env-blok van $wf"
+    if [ -n "$(regelset deploy.yml "$sleutel")" ]; then
+      ok "de matrix-sleutel $sleutel bestaat in het env-blok van deploy.yml"
     else
-      fout "de matrix in $wf noemt $sleutel, maar het env-blok kent die niet"
+      fout "de matrix in deploy.yml noemt $sleutel, maar het env-blok kent die niet"
     fi
   done <<<"$sleutels"
-done
-
-# En de andere kant: een regel die gezet wordt zonder tegenhanger die hem opruimt, laat na elke
-# gesloten PR een regel achter. deploy.yml zet de regels via preview-klaarzetten.sh.
-if grep -q 'cross-domain-preview\.sh' "$REPO_ROOT/.github/workflows/cleanup-preview.yml"; then
-  ok "cleanup-preview.yml roept cross-domain-preview.sh aan"
-else
-  fout "cleanup-preview.yml roept cross-domain-preview.sh niet meer aan"
 fi
 
 if grep -q 'preview-klaarzetten\.sh' "$REPO_ROOT/.github/workflows/deploy.yml" \

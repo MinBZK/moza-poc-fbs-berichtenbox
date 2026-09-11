@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FBS Berichtenmagazijn API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     API van het decentrale berichtenmagazijn binnen het Federatief Berichtenstelsel (FBS).
 
@@ -125,10 +125,12 @@ paths:
         Geeft een gepagineerde lijst van bericht-**samenvattingen** terug voor de
         ontvanger uit de `X-Ontvanger` header. Verwijderde berichten zijn uitgesloten.
         Een samenvatting bevat de header-velden (afzender, ontvanger, onderwerp,
-        tijdstipOntvangst, status, aantalBijlagen) maar geen tekstuele inhoud en geen
-        bijlagen-metadata; haal die op via `GET /berichten/{berichtId}`. Dit voorkomt
-        dat een lijst-response onnodig groot wordt (data-minimalisatie AVG art. 5(1)(c)
-        en bandbreedte-efficiëntie).
+        tijdstipOntvangst, publicatietijdstip, status, aantalBijlagen) plus per bijlage
+        een download-handle (`bijlageId` + `naam`). De tekstuele inhoud zit er **niet**
+        in; haal die op via `GET /berichten/{berichtId}`. Een afnemer die een lijst toont
+        heeft de tekst niet nodig, dus versturen we die pas als de ontvanger het bericht
+        daadwerkelijk opent (data-minimalisatie AVG art. 5(1)(c) en
+        bandbreedte-efficiëntie).
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: afzender
@@ -338,7 +340,7 @@ components:
       description: Versie van de API
       schema:
         type: string
-        example: "0.2.0"
+        example: "0.3.0"
 
   parameters:
     OntvangerHeader:
@@ -512,8 +514,9 @@ components:
         Volledig bericht inclusief tekstuele inhoud en metadata van eventuele bijlagen.
         Bijlage-bytes worden separaat opgehaald via
         `GET /berichten/{berichtId}/bijlagen/{bijlageId}`. Dit schema wordt gebruikt
-        door `GET /berichten` (lijst), `GET /berichten/{berichtId}` en
-        `PATCH /berichten/{berichtId}` zodat consumers één representatie kennen.
+        door `GET /berichten/{berichtId}` en `PATCH /berichten/{berichtId}` zodat consumers
+        één representatie van een volledig bericht kennen. De lijst levert
+        `BerichtSamenvatting`.
       required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, publicatietijdstip, bijlagen, _links]
       properties:
         berichtId:
@@ -630,13 +633,14 @@ components:
     BerichtSamenvatting:
       type: object
       description: |
-        Lichte representatie van een bericht voor lijstweergaves: bevat de
-        `inhoud` en bijlage-identifiers (`bijlagen[]` met `bijlageId` + `naam`),
-        zodat consumers (zoals de sessiecache) hun cache na één lijst-call
-        kunnen vullen zonder vervolg-detail-call per bericht. Bijlage-bytes
-        worden separaat opgehaald via
+        Lichte representatie van een bericht voor lijstweergaves: kopgegevens plus
+        bijlage-identifiers (`bijlagen[]` met `bijlageId` + `naam`), zodat een
+        afnemer een lijst kan tonen zonder vervolg-call per bericht. De tekstuele
+        `inhoud` zit er bewust niet in — die komt uit
+        `GET /berichten/{berichtId}` op het moment dat de ontvanger het bericht
+        opent. Bijlage-bytes worden separaat opgehaald via
         `GET /berichten/{berichtId}/bijlagen/{bijlageId}`.
-      required: [berichtId, afzender, ontvanger, onderwerp, inhoud, tijdstipOntvangst, publicatietijdstip, aantalBijlagen, bijlagen, _links]
+      required: [berichtId, afzender, ontvanger, onderwerp, tijdstipOntvangst, publicatietijdstip, aantalBijlagen, bijlagen, _links]
       properties:
         berichtId:
           type: string
@@ -648,9 +652,6 @@ components:
           $ref: '#/components/schemas/Identificatienummer'
         onderwerp:
           type: string
-        inhoud:
-          type: string
-          description: Tekstuele inhoud van het bericht
         tijdstipOntvangst:
           type: string
           format: date-time

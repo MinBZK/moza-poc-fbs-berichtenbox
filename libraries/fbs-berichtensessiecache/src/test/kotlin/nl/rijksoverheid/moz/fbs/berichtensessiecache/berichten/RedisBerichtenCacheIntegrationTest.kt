@@ -46,7 +46,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Belastingdienst",
             ontvanger = ontvanger,
             onderwerp = "Eerste bericht over belastingaangifte",
-            inhoud = "Inhoud eerste bericht",
             publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 0,
@@ -58,7 +57,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Rijksdienst voor Ondernemend Nederland",
             ontvanger = ontvanger,
             onderwerp = "Tweede bericht over subsidie",
-            inhoud = "Inhoud tweede bericht",
             publicatietijdstip = Instant.parse("2026-03-10T12:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 2,
@@ -70,7 +68,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Kamer van Koophandel",
             ontvanger = ontvanger,
             onderwerp = "Derde bericht over vergunning",
-            inhoud = "Inhoud derde bericht",
             publicatietijdstip = Instant.parse("2026-03-10T11:00:00Z"),
             magazijnId = "magazijn-b",
             aantalBijlagen = 1,
@@ -495,7 +492,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Concurrent toegevoegd",
-            inhoud = "Tijdens delete",
             publicatietijdstip = Instant.parse("2026-03-10T15:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 0,
@@ -554,7 +550,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Bericht met bijlage",
-            inhoud = "Met bijlage",
             publicatietijdstip = Instant.parse("2026-03-10T13:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 1,
@@ -603,7 +598,6 @@ class RedisBerichtenCacheIntegrationTest {
             afzenderNaam = "Magazijn A",
             ontvanger = ontvanger,
             onderwerp = "Nieuw bericht",
-            inhoud = "Inhoud nieuw bericht",
             publicatietijdstip = Instant.parse("2026-03-10T14:00:00Z"),
             magazijnId = "magazijn-c",
             aantalBijlagen = 3,
@@ -687,9 +681,9 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `RediSearch lijst-pad levert samenvatting zonder de zware inhoud-projectie`() {
+    fun `RediSearch lijst-pad levert samenvatting zonder de zware bijlagen-projectie`() {
         // FT.SEARCH op het filter-pad gebruikt een RETURN-lijst beperkt tot de
-        // samenvatting-velden. `inhoud` en `bijlagen` zitten niet in [BerichtSamenvatting];
+        // samenvatting-velden. `bijlagen` zit niet in [BerichtSamenvatting];
         // de samenvatting-velden moeten wél kloppen.
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
@@ -706,7 +700,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `RediSearch zoek-pad levert samenvatting zonder de zware inhoud-projectie`() {
+    fun `RediSearch zoek-pad levert samenvatting zonder de zware bijlagen-projectie`() {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -756,17 +750,15 @@ class RedisBerichtenCacheIntegrationTest {
         afzenderNaam = "Magazijn A",
         ontvanger = ontvanger,
         onderwerp = onderwerp,
-        inhoud = "inhoud",
         publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
         magazijnId = magazijnId,
         aantalBijlagen = 0,
     )
 
     @Test
-    fun `samenvatting-velden bevatten precies de mapper-velden zonder inhoud of bijlagen`() {
-        // Bewaakt dat de RETURN-projectie niet stilletjes `inhoud`/`bijlagen` opneemt
-        // (de twee velden die de samenvatting-mapper weggooit).
-        assertFalse(RedisBerichtenCache.SAMENVATTING_VELDEN.contains("inhoud"))
+    fun `samenvatting-velden bevatten precies de mapper-velden zonder bijlagen`() {
+        // Bewaakt dat de RETURN-projectie niet stilletjes `bijlagen` opneemt (het veld
+        // dat de samenvatting-mapper weggooit).
         assertFalse(RedisBerichtenCache.SAMENVATTING_VELDEN.contains("bijlagen"))
         assertTrue(RedisBerichtenCache.SAMENVATTING_VELDEN.containsAll(
             listOf(
@@ -901,6 +893,20 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `opgeslagen hash draagt geen berichttekst`() {
+        // De tekst hoort in het bronmagazijn te blijven. Zou hij hier tóch in Redis landen,
+        // dan is de belofte van gegevensminimalisatie gebroken zonder dat iets faalt.
+        val bericht = testBerichten().first()
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
+
+        val velden = redis.hash(String::class.java)
+            .hgetall(BerichtenCache.berichtKey(bericht.berichtId))
+            .await().indefinitely()
+
+        assertFalse(velden.containsKey("inhoud"), "Was: ${velden.keys}")
+    }
+
+    @Test
     fun `sliding TTL - getById verlengt ook de list-key`() {
         // getById verlengt naast de berichthash ook de sessie-keys (list + status), zodat een
         // detailweergave alléén de pagina-navigatie niet alsnog laat verlopen. TTL is 2s; 3 reads
@@ -932,7 +938,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             // `magazijnId` ontbreekt opzettelijk
             "aantalBijlagen" to "0",
@@ -963,7 +968,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "corrupt zoekdocument",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "geen-geldig-tijdstip",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -1003,7 +1007,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -1030,7 +1033,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to ontvanger.type.name,
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "niet-een-iso-instant",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -1059,7 +1061,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to "123456789",
             "ontvangerType" to "BSN",
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",
@@ -1085,7 +1086,6 @@ class RedisBerichtenCacheIntegrationTest {
             "ontvanger" to ontvanger.waarde,
             "ontvangerType" to "ONBEKEND",
             "onderwerp" to "test",
-            "inhoud" to "inhoud",
             "publicatietijdstip" to "2026-03-10T10:00:00Z",
             "magazijnId" to "magazijn-a",
             "aantalBijlagen" to "0",

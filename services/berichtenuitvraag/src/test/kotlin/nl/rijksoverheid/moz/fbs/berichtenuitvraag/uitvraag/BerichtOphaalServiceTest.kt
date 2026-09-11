@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
@@ -41,7 +42,6 @@ class BerichtOphaalServiceTest {
         afzenderNaam = "Magazijn A",
         ontvanger = Bsn("999990019"),
         onderwerp = "X",
-        inhoud = "Inhoud",
         publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z"),
         magazijnId = magazijnId,
         aantalBijlagen = bijlagen.size,
@@ -67,16 +67,33 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
     }
 
+    private fun stubInhoud(berichtId: UUID, inhoud: String = "Inhoud") {
+        every { magazijn.bericht("BSN:999990019", berichtId) } returns MagazijnBerichtInhoud(inhoud)
+    }
+
     @Test
-    fun `haalBericht mapt het domein-bericht naar het api-model`() {
+    fun `haalBericht mapt het domein-bericht naar het api-model en haalt de tekst bij het magazijn`() {
         val id = UUID.randomUUID()
-        every { sessiecache.bericht(ontvangerId, id) } returns domeinBericht(id)
+        stubBerichtLookup(id)
+        stubInhoud(id, "Tekst uit het magazijn")
 
         val result = service.haalBericht("BSN:999990019", id)
 
         assertEquals(id, result.berichtId)
         assertEquals("magazijn-a", result.magazijnId)
+        assertEquals("Tekst uit het magazijn", result.inhoud)
         assertEquals("/api/v1/berichten/$id", result.links.self.href)
+    }
+
+    @Test
+    fun `haalBericht routeert op het magazijn uit de cache, niet op iets uit het verzoek`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id, magazijnId = "magazijn-b")
+        stubInhoud(id)
+
+        service.haalBericht("BSN:999990019", id)
+
+        verify { router.forMagazijn("magazijn-b") }
     }
 
     @Test
@@ -90,6 +107,51 @@ class BerichtOphaalServiceTest {
 
         assertEquals(404, fout.response.status)
         assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
+        // Kent de cache het bericht niet, dan hoort het magazijn niet bevraagd te worden: dat is
+        // nutteloos verkeer, en het antwoord zou verklappen of het bericht van iemand anders is.
+        verify(exactly = 0) { magazijn.bericht(any(), any()) }
+    }
+
+    @Test
+    fun `haalBericht propageert een 404 van het magazijn`() {
+        // Het bericht is bij de bron verdwenen tussen het vullen van de cache en het openen:
+        // dat is niet-gevonden, geen storing.
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id)
+        every { magazijn.bericht("BSN:999990019", id) } throws NotFoundException("weg bij de bron")
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBericht("BSN:999990019", id)
+        }
+
+        assertEquals(404, ex.response.status)
+    }
+
+    @Test
+    fun `haalBericht mapt een magazijn-5xx naar 502`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id)
+        every { magazijn.bericht("BSN:999990019", id) } throws
+            WebApplicationException("magazijn stuk", Response.Status.INTERNAL_SERVER_ERROR)
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBericht("BSN:999990019", id)
+        }
+
+        assertEquals(502, ex.response.status)
+    }
+
+    @Test
+    fun `haalBericht mapt een transport-fout naar 502`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id)
+        every { magazijn.bericht("BSN:999990019", id) } throws ProcessingException("magazijn onbereikbaar")
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBericht("BSN:999990019", id)
+        }
+
+        assertEquals(502, ex.response.status)
     }
 
     @Test

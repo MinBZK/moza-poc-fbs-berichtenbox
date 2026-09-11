@@ -1,8 +1,9 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
-import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
+import com.github.tomakehurst.wiremock.client.WireMock.post
+import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -45,10 +46,10 @@ class ProfielMagazijnResolverCacheTest {
 
     @Test
     fun `tweede call binnen TTL doet 0 extra Profiel-calls (cache-hit)`() {
-        val urlPath = "/api/profielservice/v1/BSN/999993653"
+        val urlPath = "/api/profielservice/v1/partij"
 
         wireMock.stubFor(
-            get(urlEqualTo(urlPath)).willReturn(
+            post(urlEqualTo(urlPath)).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
                     """{"partijId":1,"voorkeuren":[]}""",
                 ),
@@ -59,17 +60,17 @@ class ProfielMagazijnResolverCacheTest {
         val second = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
 
         assertEquals(first, second)
-        wireMock.verify(1, getRequestedFor(urlEqualTo(urlPath)))
+        wireMock.verify(1, postRequestedFor(urlEqualTo(urlPath)))
     }
 
     @Test
     fun `fout-response wordt NIET gecacht (volgende call triggert nieuwe Profiel-call)`() {
         // Cruciaal: hand-rolled cache vult alleen bij succes. Anders zou tijdelijke
         // Profiel-storing de ontvanger TTL-lang in een 503-loop houden.
-        val urlPath = "/api/profielservice/v1/BSN/999991772"
+        val urlPath = "/api/profielservice/v1/partij"
 
         wireMock.stubFor(
-            get(urlEqualTo(urlPath))
+            post(urlEqualTo(urlPath))
                 .willReturn(aResponse().withStatus(500)),
         )
 
@@ -81,16 +82,108 @@ class ProfielMagazijnResolverCacheTest {
         }
 
         // 500 = WebApplicationException, niet ProcessingException → @Retry niet getriggerd
-        // → 1 GET per resolve-call. Belangrijk: 2 resolve-calls → 2 GETs (niet 1).
-        wireMock.verify(2, getRequestedFor(urlEqualTo(urlPath)))
+        // → 1 POST per resolve-call. Belangrijk: 2 resolve-calls → 2 POSTs (niet 1).
+        wireMock.verify(2, postRequestedFor(urlEqualTo(urlPath)))
+    }
+
+    @Test
+    fun `een 404 zonder herkenbaar antwoord wordt NIET gecacht`() {
+        // Een storing mag niet TTL-lang blijven hangen: zodra de koppeling hersteld is moet de
+        // eerstvolgende ophaalactie de dienst weer bereiken. De opt-out-404 hieronder wordt wél
+        // gecacht — dat onderscheid is precies wat deze twee tests naast elkaar vastleggen.
+        val urlPath = "/api/profielservice/v1/partij"
+
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).willReturn(aResponse().withStatus(404)),
+        )
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999990044")).await().atMost(Duration.ofSeconds(20))
+        }
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999990044")).await().atMost(Duration.ofSeconds(20))
+        }
+
+        wireMock.verify(2, postRequestedFor(urlEqualTo(urlPath)))
+    }
+
+    @Test
+    fun `een 404 met het partij-niet-gevonden-antwoord wordt wel gecacht`() {
+        val urlPath = "/api/profielservice/v1/partij"
+
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).willReturn(
+                aResponse().withStatus(404)
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody("""{"type":"about:blank","title":"Partij niet gevonden","status":404}"""),
+            ),
+        )
+
+        val eerste = resolver.resolve(Bsn("999990020")).await().atMost(Duration.ofSeconds(5))
+        val tweede = resolver.resolve(Bsn("999990020")).await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(emptySet<String>(), eerste)
+        assertEquals(eerste, tweede)
+        wireMock.verify(1, postRequestedFor(urlEqualTo(urlPath)))
+    }
+
+    @Test
+    fun `de storing van de ene ontvanger raakt de opt-out van de andere niet`() {
+        // Twee ontvangers naast elkaar: met één ontvanger zou een cache die alles onder
+        // dezelfde sleutel legt er net zo goed uitzien. Hier moet de opt-out van de één
+        // gecacht blijven terwijl de storing van de ander elke keer opnieuw uitgaat.
+        val urlPath = "/api/profielservice/v1/partij"
+        val optOut = Bsn("999990056")
+        val storing = Bsn("999990068")
+
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${optOut.waarde}"}"""),
+            ).willReturn(
+                aResponse().withStatus(404)
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody("""{"type":"about:blank","title":"Partij niet gevonden","status":404}"""),
+            ),
+        )
+        wireMock.stubFor(
+            post(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${storing.waarde}"}"""),
+            ).willReturn(aResponse().withStatus(404)),
+        )
+
+        assertEquals(emptySet<String>(), resolver.resolve(optOut).await().atMost(Duration.ofSeconds(5)))
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(storing).await().atMost(Duration.ofSeconds(20))
+        }
+
+        assertEquals(emptySet<String>(), resolver.resolve(optOut).await().atMost(Duration.ofSeconds(5)))
+
+        assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(storing).await().atMost(Duration.ofSeconds(20))
+        }
+
+        // Opt-out: 1 call (tweede kwam uit de cache). Storing: 2 calls (nooit gecacht).
+        wireMock.verify(
+            1,
+            postRequestedFor(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${optOut.waarde}"}"""),
+            ),
+        )
+        wireMock.verify(
+            2,
+            postRequestedFor(urlEqualTo(urlPath)).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"${storing.waarde}"}"""),
+            ),
+        )
     }
 
     @Test
     fun `call na TTL-expiry triggert nieuwe Profiel-call (cache miss)`() {
-        val urlPath = "/api/profielservice/v1/BSN/999996915"
+        val urlPath = "/api/profielservice/v1/partij"
 
         wireMock.stubFor(
-            get(urlEqualTo(urlPath)).willReturn(
+            post(urlEqualTo(urlPath)).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
                     """{"partijId":1,"voorkeuren":[]}""",
                 ),
@@ -102,7 +195,7 @@ class ProfielMagazijnResolverCacheTest {
         Thread.sleep(1500)
         resolver.resolve(Bsn("999996915")).await().atMost(Duration.ofSeconds(5))
 
-        wireMock.verify(2, getRequestedFor(urlEqualTo(urlPath)))
+        wireMock.verify(2, postRequestedFor(urlEqualTo(urlPath)))
     }
 }
 

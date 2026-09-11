@@ -2,13 +2,15 @@ package nl.rijksoverheid.moz.fbs.common.profiel
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.core.JsonProcessingException
-import jakarta.ws.rs.GET
+import jakarta.ws.rs.Consumes
+import jakarta.ws.rs.POST
 import jakarta.ws.rs.Path
-import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.MediaType
 import nl.rijksoverheid.moz.fbs.common.fsc.ProfielFscOutwayHeadersFilter
+import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import org.eclipse.microprofile.faulttolerance.Retry
 import org.eclipse.microprofile.rest.client.annotation.RegisterProvider
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
@@ -19,9 +21,9 @@ import java.net.UnknownHostException
  * Gedeelde dependency voor berichtenmagazijn (validatie-flow) en berichtensessiecache
  * (MagazijnResolver-flow); één Profiel-upstream betekent één client-definitie.
  *
- * De profiel-service zet identificatie in pad-parameters — afwijkend van onze interne
- * PII-richtlijn ("BSN nooit in URL"). We zijn hier gebonden aan het externe contract;
- * binnen onze services zelf gaat BSN niet in URL.
+ * Het identificatienummer gaat in de request-body, niet in het pad: een webadres wordt
+ * onderweg breder vastgelegd (toegangslogs, tussenliggende voorzieningen, foutrapportages)
+ * dan de body, en voor een burger is dat nummer het BSN.
  *
  * DTO's zijn een minimale subset van de upstream-schema's; `@JsonIgnoreProperties`
  * negeert velden die we niet gebruiken (createdAt, lastUpdated, contactgegevens, etc.)
@@ -54,8 +56,9 @@ interface ProfielServiceClient {
      *   ontbrekende DNS-record); retry herhaalt dezelfde DNS-lookup en vertraagt
      *   de 503-response zonder zinvolle herstel-kans.
      */
-    @GET
-    @Path("/api/profielservice/v1/{identificatieType}/{identificatieNummer}")
+    @POST
+    @Path("/api/profielservice/v1/partij")
+    @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     // TODO(test): regressie-test voor UnknownHostException-abort vereist DNS-niveau
     // mock (WireMock kan UHE niet gooien — WireMock zelf IS bereikbaar). Mogelijk via
@@ -66,10 +69,46 @@ interface ProfielServiceClient {
         retryOn = [ProcessingException::class],
         abortOn = [JsonProcessingException::class, UnknownHostException::class],
     )
-    fun getPartij(
-        @PathParam("identificatieType") identificatieType: String,
-        @PathParam("identificatieNummer") identificatieNummer: String,
-    ): PartijResponse
+    fun getPartij(partijRequest: PartijRequest): PartijResponse
+}
+
+/**
+ * Aanvraag-body voor het ophalen van een profiel. `dienstverlener`/`dienstNaam` uit het
+ * upstream-contract laten we weg: dat filtert de voorkeuren aan de bron op scope, terwijl
+ * [ProfielVoorkeuren] die filtering al doet op de volledige respons — één plek waar de
+ * opt-in-regel leeft, in plaats van twee die uit elkaar kunnen lopen.
+ *
+ * Bouw hem via [van]: twee losse strings zijn onderling verwisselbaar zonder dat de compiler
+ * mokt, en de vertaling naar de contract-labels hoort op één plek te staan.
+ */
+data class PartijRequest(
+    val identificatieType: String,
+    val identificatieNummer: String,
+) {
+
+    /**
+     * Zonder deze override drukt de gegenereerde `toString()` het identificatienummer voluit
+     * af — voor een burger het BSN — zodra dit object in een logregel, foutmelding of
+     * assertie belandt. [nl.rijksoverheid.moz.fbs.common.identificatie.Bsn] maskeert om
+     * dezelfde reden.
+     */
+    override fun toString(): String = "PartijRequest(identificatieType=$identificatieType)"
+
+    companion object {
+
+        /**
+         * Vertaalt een ontvanger naar de aanvraag-body. Expliciete `when` en geen `.name`:
+         * een hernoeming van de interne enum mag het externe contract niet stilletjes breken.
+         * OIN hoort door de aanroeper afgevangen te zijn — de Profiel-service kent dat type
+         * niet.
+         */
+        fun van(ontvanger: Identificatienummer): PartijRequest = when (ontvanger.type) {
+            IdentificatienummerType.BSN -> PartijRequest("BSN", ontvanger.waarde)
+            IdentificatienummerType.RSIN -> PartijRequest("RSIN", ontvanger.waarde)
+            IdentificatienummerType.KVK -> PartijRequest("KVK", ontvanger.waarde)
+            IdentificatienummerType.OIN -> error("OIN-ontvanger moet vóór de Profiel-call afgevangen worden")
+        }
+    }
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)
