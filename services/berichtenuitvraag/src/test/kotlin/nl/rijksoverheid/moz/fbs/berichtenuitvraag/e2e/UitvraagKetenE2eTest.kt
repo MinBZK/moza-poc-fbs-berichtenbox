@@ -2,7 +2,9 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.e2e
 
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.delete as wmDelete
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
@@ -13,7 +15,9 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.WireMockBackendsResource
+import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
+import org.hamcrest.CoreMatchers.nullValue
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -47,7 +51,9 @@ class UitvraagKetenE2eTest {
             """{ "partij": { "identificatieType": "OIN", "identificatieNummer": "$it" } }"""
         }
         profiel.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/$bsn")).willReturn(
+            post(urlEqualTo("/api/profielservice/v1/partij")).withRequestBody(
+                equalToJson("""{"identificatieType":"BSN","identificatieNummer":"$bsn"}"""),
+            ).willReturn(
                 aResponse().withStatus(200)
                     .withHeader("Content-Type", "application/json")
                     .withBody("""{"voorkeuren": [ { "voorkeurType": "OntvangViaBerichtenbox", "waarde": "true", "scopes": [ $scopes ] } ]}"""),
@@ -275,9 +281,75 @@ class UitvraagKetenE2eTest {
     }
 
     @Test
+    fun `een 404 zonder herkenbaar antwoord meldt de storing in plaats van een lege berichtenbox`() {
+        val bsn = "999990032"
+        val berichtId = "33333333-3333-3333-3333-333333333333"
+
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, berichtId, bsn, "magazijn-a", OIN_A)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .body(containsString("\"totaalBerichten\":1"))
+
+        // De koppeling naar de voorkeurenbron valt weg: een kale 404 in plaats van het
+        // herkenbare "partij niet gevonden"-antwoord.
+        profiel.resetAll()
+        profiel.stubFor(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(aResponse().withStatus(404)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(503)
+            .header("Retry-After", "30")
+
+        // De leesweg meldt de mislukte ophaling; nergens een geslaagde lege lijst.
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(503)
+            .body("berichten", nullValue())
+    }
+
+    @Test
+    fun `een 404 met het partij-niet-gevonden-antwoord geeft een gewone lege berichtenbox`() {
+        val bsn = "999990044"
+
+        profiel.stubFor(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
+                aResponse().withStatus(404)
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody("""{"type":"about:blank","title":"Partij niet gevonden","status":404}"""),
+            ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .body(containsString("\"event\":\"ophalen-gereed\""))
+            .body(containsString("\"totaalBerichten\":0"))
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten.size()", equalTo(0))
+    }
+
+    @Test
     fun `profiel-500 geeft 503 met Retry-After vóór de stream`() {
         profiel.stubFor(
-            get(urlEqualTo("/api/profielservice/v1/BSN/999991401")).willReturn(aResponse().withStatus(500)),
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(aResponse().withStatus(500)),
         )
 
         given()

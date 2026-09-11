@@ -1,8 +1,16 @@
 {
   "priority": 1,
   "request": {
-    "method": "GET",
-    "urlPathPattern": "/api/profielservice/v1/KVK/90000012"
+    "method": "POST",
+    "url": "/api/profielservice/v1/partij",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$[?(@.identificatieType == 'KVK')]"
+      },
+      {
+        "matchesJsonPath": "$[?(@.identificatieNummer == '90000012')]"
+      }
+    ]
   },
   "response": {
     "status": 200,

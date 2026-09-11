@@ -11,7 +11,10 @@ import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
+import nl.rijksoverheid.moz.fbs.common.profiel.Profiel404Duiding
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielNietGevonden
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielVoorkeuren
@@ -44,11 +47,12 @@ internal class ProfielMagazijnResolver(
      * tijdelijke Profiel-storing TTL-lang een 503-loop zou veroorzaken. Hier cachen we
      * uitsluitend bij succesvolle emissie (`onItem().invoke { ... cache.put(...) }`).
      *
-     * Een 404 wordt door deze resolver gemapt naar `emptySet()` (succes-pad) en dus
-     * wél gecacht; system-wide 404-rate-alert via Loki blijft het mechanisme om
-     * een config-misser te onderscheiden van "ontvanger heeft geen profiel".
+     * Van de 404-antwoorden wordt alleen het herkenbare "partij niet gevonden" gemapt naar
+     * `emptySet()` (succes-pad) en dus gecacht; elk ander 404-antwoord is een storing en
+     * belandt op het fout-pad, dat niet gecacht wordt.
      *
-     * Cache-key = `Identificatienummer` (value-class equals/hashCode op `waarde`).
+     * Cache-key = `Identificatienummer`; elk type is een eigen value class, dus een BSN en
+     * een RSIN met dezelfde cijfers zijn verschillende keys.
      * BSN/RSIN-waarde leeft daarmee voor de TTL-duur in JVM-heap; consistent met
      * de bestaande 60s sessiecache-window. Geen Redis: privacy-vlak blijft per-pod.
      * `maximumSize` capt heap-gebruik bij hoge unieke-ontvanger-rate.
@@ -82,7 +86,8 @@ internal class ProfielMagazijnResolver(
             return Uni.createFrom().item(clientFactory.getAllClients().keys)
         }
 
-        val profielType = naarProfielType(ontvanger.type)
+        val aanvraag = PartijRequest.van(ontvanger)
+        val profielType = aanvraag.identificatieType
 
         // Inner-timeout dekt de hele `getPartij`-call inclusief het `@Retry`-budget (max 3
         // pogingen × read-timeout + 2× `delay`-tussenpauze). Configureerbaar via
@@ -90,7 +95,7 @@ internal class ProfielMagazijnResolver(
         // MOET groter zijn — startup-validatie in `valideerTimeouts()` borgt dit — anders
         // verliest de caller de juiste foutclassificatie (Mutiny-TimeoutException vs
         // j.u.c.TimeoutException).
-        return Uni.createFrom().item { profielClient.getPartij(profielType, ontvanger.waarde) }
+        return Uni.createFrom().item { profielClient.getPartij(aanvraag) }
             .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
             .ifNoItem().after(Duration.ofSeconds(innerTimeoutSeconds)).fail()
             .map { partij -> bepaalMagazijnen(partij) }
@@ -102,27 +107,11 @@ internal class ProfielMagazijnResolver(
                 val status = webEx.response?.status
 
                 when {
-                    status == 404 -> {
-                        // warnf i.p.v. debugf: een 404 op alle ontvangers is meestal een
-                        // configuratiefout (base-path drift) en moet zichtbaar zijn in
-                        // standaard log-niveau, niet alleen onder DEBUG. Geen ontvanger-
-                        // waarde in de log (PII).
-                        //
-                        // LET OP: de Profiel-service gebruikt 404 óók voor de normale
-                        // "burger zonder profiel"-situatie (partij-record bestaat pas na een
-                        // eerste voorkeur). Daarom mappen we 404 naar emptySet() (succes-pad);
-                        // dit resultaat wordt door resolve() gecacht (cacheTtlSeconds) en kan
-                        // in de service een bestaande cache met een lege lijst overschrijven.
-                        // Een transient/infra-404 of base-path-drift is daardoor niet te
-                        // onderscheiden van een echte opt-out. De structurele oplossing is een
-                        // upstream contract-wijziging (200 + lege voorkeuren voor "geen profiel",
-                        // 404 alleen bij echte fout) — afgestemd met het Profiel-team.
-                        log.warnf("Profiel-service 404 voor type=%s; geen voorkeuren bekend (mogelijk config-misser)", profielType)
-                        Uni.createFrom().item(emptySet<String>())
-                    }
+                    status == 404 -> verwerk404(webEx, profielType)
                     status != null && status in 400..499 -> {
-                        // Niet-404 4xx = eigen contract-/auth-bug (400 invalide path,
-                        // 401/403 auth-misser, 405 method-mismatch). Errorf zodat dit
+                        // Niet-404 4xx = eigen contract-/auth-bug (400 op een request-body
+                        // die upstream weigert, 401/403 auth-misser, 405 method-mismatch,
+                        // 415 verkeerde Content-Type). Errorf zodat dit
                         // niet als gewone "Profiel-service tijdelijk niet beschikbaar"
                         // wegfiltert in upstream-503-incidenten.
                         log.errorf(error, "Profiel-service 4xx %d voor type=%s — eigen contract-/auth-fout", status, profielType)
@@ -164,6 +153,40 @@ internal class ProfielMagazijnResolver(
                 )
                 Uni.createFrom().failure(ProfielServiceFoutException.onverwacht(error))
             }
+    }
+
+    /**
+     * Scheidt de twee betekenissen van een 404: "deze ontvanger heeft nog geen voorkeuren"
+     * (opt-out, succes-pad) en alles wat daar niet ondubbelzinnig als te lezen is (storing).
+     *
+     * De opt-out mapt naar `emptySet()` en wordt door [resolve] gecacht; een storing wordt een
+     * fout, zodat de aggregatie een bestaande cache níét met een lege lijst overschrijft en de
+     * gebruiker een zichtbare melding krijgt in plaats van "0 berichten".
+     */
+    private fun verwerk404(webEx: WebApplicationException, profielType: String): Uni<Set<String>> {
+        val duiding = ProfielNietGevonden.duidRespons(webEx.response)
+
+        if (duiding is Profiel404Duiding.PartijZonderProfiel) {
+            // Normaal gedrag voor wie nog niets heeft vastgelegd, dus geen WARN: op INFO of
+            // hoger zou elke zulke ophaalactie een regel opleveren en echte storingen
+            // ondersneeuwen. Geen ontvanger-waarde in de log (PII).
+            log.debugf("Profiel-service meldt geen profiel voor type=%s; ontvanger heeft nog geen voorkeuren", profielType)
+
+            return Uni.createFrom().item(emptySet())
+        }
+
+        // Errorf: dit is de melding waaraan beheer een verschoven adres of een kapotte
+        // koppeling herkent, dus moet ze de gevallen uit elkaar houden. De omschrijving komt
+        // uit de duiding en is daar al begrensd en gesaniteerd; de rauwe body gaat de log
+        // niet in, want een upstream mag daar het identificatienummer in echoën.
+        log.errorf(
+            webEx,
+            "Profiel-service 404 die geen 'partij niet gevonden' is voor type=%s (%s) — behandeld als storing",
+            profielType,
+            (duiding as Profiel404Duiding.Storing).omschrijving,
+        )
+
+        return Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(404, webEx))
     }
 
     private fun bepaalMagazijnen(partij: PartijResponse): Set<String> {
@@ -226,10 +249,10 @@ internal class ProfielMagazijnResolver(
 
         // Geen enkele opt-in-voorkeur in de respons. Normaal voor opt-out/nieuwe
         // ontvangers, maar een structurele schema-drift (hernoemde voorkeurType of
-        // verplaatste scope-OIN) zou dit pad voor iederéén raken. debugf geeft het
-        // signaal on-demand zonder INFO-ruis op de hot-path; structurele drift-detectie
-        // in productie hangt aan de Profiel-404-rate-alert (zie docs/operations).
-        // Geen PII: enkel het feit, geen ontvanger-waarde.
+        // verplaatste scope-OIN) zou dit pad voor iederéén raken en dan als een geslaagde
+        // lege berichtenbox doorgaan. debugf geeft het signaal on-demand zonder INFO-ruis op
+        // de hot-path; er is geen alert die deze vorm van drift opmerkt — dat is de open
+        // kant van dit pad. Geen PII: enkel het feit, geen ontvanger-waarde.
         if (totaal == 0) {
             log.debugf("Profiel-respons zonder opt-in-voorkeuren (0 afzender-OINs)")
         }
@@ -255,19 +278,6 @@ internal class ProfielMagazijnResolver(
         }
 
         return result
-    }
-
-    /**
-     * Mapping naar het externe profiel-contract. Expliciete `when`-vorm (geen
-     * `.name`) zodat een hernoeming in de interne enum het externe contract
-     * niet stilletjes breekt. OIN wordt al door de caller afgevangen voordat
-     * deze functie geraakt wordt.
-     */
-    private fun naarProfielType(type: IdentificatienummerType): String = when (type) {
-        IdentificatienummerType.BSN -> "BSN"
-        IdentificatienummerType.RSIN -> "RSIN"
-        IdentificatienummerType.KVK -> "KVK"
-        IdentificatienummerType.OIN -> error("OIN-ontvanger moet vóór Profiel-call afgevangen worden")
     }
 
     internal companion object {

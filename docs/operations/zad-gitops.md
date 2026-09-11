@@ -48,6 +48,11 @@ Zes ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle zes g
   zo'n deployment telt al als bestaand. `.github/scripts/preview-klaarzetten.sh` zet zo een nieuwe
   preview klaar vóór zijn eerste uitrol. Een uitgestelde wijziging telt in OM als "wacht op uitrol"
   tot een refresh van het héle project, ook nadat een deploy hem uitrolde (`core/task_rollout.py`).
+  De per deployment ingevulde regels staan in de projectspec ónder die deployment
+  (`deployments[].services`) en verdwijnen met hem; ze apart weghalen hoeft dus niet. Een patch mét
+  uitrol op één deployment laat OM wel het héle project herverwerken en op elke deployment wachten,
+  en een patch op een deployment die niet bestaat wordt een mislukte taak die het project toch
+  vergrendelt.
 - Een component **draagt meer dan één poort** (`ports: [...]`), maar publiceert er één: elke poort
   ná de eerste wordt een extra Service-poort en de Ingress pakt alleen `ports[0]`
   (`service.yaml.jinja`, `project_manager.py`). Zo blijft een beheerpoort cluster-intern terwijl de

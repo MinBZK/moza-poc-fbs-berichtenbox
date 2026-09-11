@@ -54,6 +54,10 @@ class GesimuleerdeMagazijnen(
      * de configuratie-validatie — af tijdens boot, en het brengt de tabel in overeenstemming vóór
      * het eerste verkeer. Zou dit lui bij de eerste request gebeuren, dan zou een fout in de
      * configuratie zich als een 404 op één magazijn voordoen in plaats van als een boot die faalt.
+     *
+     * Draait op de standaardprioriteit van een observer, en de opstartvulling hangt daarvan af: die
+     * heeft een hogere prioriteit gezet om ná deze rijen te komen. Zet hier dus geen `@Priority`
+     * bij zonder die kant mee te nemen — dan vult hij een set magazijnen die nog niet bestaat.
      */
     fun bijOpstart(@Observes startup: StartupEvent) {
         herlaad()

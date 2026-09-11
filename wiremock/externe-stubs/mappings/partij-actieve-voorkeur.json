@@ -1,8 +1,16 @@
 {
   "priority": 100,
   "request": {
-    "method": "GET",
-    "urlPathPattern": "/api/profielservice/v1/(BSN|KVK|RSIN)/[0-9]+"
+    "method": "POST",
+    "url": "/api/profielservice/v1/partij",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$[?(@.identificatieType =~ /^(BSN|KVK|RSIN)$/)]"
+      },
+      {
+        "matchesJsonPath": "$[?(@.identificatieNummer =~ /^[0-9]+$/)]"
+      }
+    ]
   },
   "response": {
     "status": 200,

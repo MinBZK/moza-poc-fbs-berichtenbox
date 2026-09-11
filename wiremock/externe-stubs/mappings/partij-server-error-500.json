@@ -1,0 +1,19 @@
+{
+  "priority": 10,
+  "request": {
+    "method": "POST",
+    "url": "/api/profielservice/v1/partij",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$[?(@.identificatieType == 'BSN')]"
+      },
+      {
+        "matchesJsonPath": "$[?(@.identificatieNummer == '999991401')]"
+      }
+    ]
+  },
+  "response": {
+    "status": 500,
+    "body": "internal server error"
+  }
+}

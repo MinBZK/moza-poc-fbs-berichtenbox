@@ -1,11 +1,14 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie
 
+import io.mockk.every
+import io.mockk.mockk
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
-import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
@@ -166,7 +169,7 @@ class BerichtValidatieIntegrationTest {
     @Test
     fun `aanlever voor onbekende ontvanger (404 profielservice) retourneert 403`() {
         (profielServiceClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
-            throw NotFoundException()
+            throw profiel404("""{"type":"about:blank","title":"Partij niet gevonden","status":404}""")
         }
         val payload = Base64.getEncoder().encodeToString("pdf".toByteArray())
 
@@ -190,6 +193,51 @@ class BerichtValidatieIntegrationTest {
             .statusCode(403)
             .contentType("application/problem+json")
             .body("status", `is`(403))
+    }
+
+    @Test
+    fun `aanlever bij een 404 zonder herkenbaar antwoord retourneert 503 en geen 403`() {
+        // Een verschoven pad of een gateway ertussen geeft een kale 404. De aanleveraar moet
+        // een storing zien — die probeert hij opnieuw — en geen toestemmingsoordeel, dat
+        // definitief is en hem naar de voorkeuren van de ontvanger laat zoeken.
+        (profielServiceClient as MockProfielServiceClient).antwoordSupplier = { _, _ ->
+            throw profiel404(body = null)
+        }
+        val payload = Base64.getEncoder().encodeToString("pdf".toByteArray())
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "$testAfzender",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Test",
+                  "inhoud": "Inhoud",
+                  "bijlagen": [
+                    {"naam": "doc.pdf", "mimeType": "application/pdf", "inhoud": "$payload"}
+                  ]
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/aanleveringen")
+            .then()
+            .statusCode(503)
+            .contentType("application/problem+json")
+            .body("status", `is`(503))
+            .header("Retry-After", "30")
+    }
+
+    /** 404-respons van de Profiel-service met [body] als problem+json. */
+    private fun profiel404(body: String?): WebApplicationException {
+        val response = mockk<Response>()
+
+        every { response.status } returns 404
+        // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
+        every { response.statusInfo } returns Response.Status.NOT_FOUND
+        every { response.readEntity(String::class.java) } returns body
+
+        return WebApplicationException(response)
     }
 
     @Test

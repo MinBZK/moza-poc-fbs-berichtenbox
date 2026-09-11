@@ -45,9 +45,9 @@ object FscOutwayHeaders {
 
         // Zonder deze transaction-id in de app-log is een call niet terug te vinden in de
         // outway-/inway-logs, die 'm ongewijzigd doorgeven. Log alleen de host, nooit het
-        // volledige URI: sommige callers (Profiel-service) dragen een BSN in het pad, en
-        // deze regel logt bij DEBUG — dus een pad of query hier zou dat BSN naar de
-        // applicatielog schrijven. De host identificeert de outway afdoende.
+        // volledige URI: deze filter draait voor élke uitgaande FSC-call, dus wat er in het
+        // pad of de query staat is hier niet te overzien — en een identificatienummer daarin
+        // zou zo in de applicatielog belanden. De host identificeert de outway afdoende.
         log.debugf(
             "FSC-outway-call naar %s: Fsc-Transaction-Id=%s",
             requestContext.uri.host,
