@@ -53,6 +53,30 @@ In de demo komt dat bestand uit `demo/genereer-magazijnen.py` en gaat het via
 die geen OIN is, een lege naam of een lege set blokkeert de boot — anders komt de fout pas bij het
 eerste verkeer boven, midden in een demo, bij één van de honderd magazijnen.
 
+## Hij vult zichzelf bij het opstarten
+
+Staat een magazijn zonder post, dan zet de simulator die er bij het starten zelf in:
+
+```properties
+magazijnsimulator.opstartvulling.ontvangers=BSN:999993653,KVK:90000014
+magazijnsimulator.opstartvulling.berichten-per-magazijn=27   # weglaten = 20
+magazijnsimulator.opstartvulling.bijlage-elke=4              # weglaten = 4, 0 = geen bijlagen
+```
+
+Zonder `ontvangers` gebeurt er niets — een testrun of een laptop met eigen gegevens merkt er dus
+niets van, en de simulator verzint nooit zelf wie er meespeelt. Die lijst komt uit hetzelfde
+generatiescript als de magazijnenset, zodat de magazijnen en de ondernemers die er post hebben niet
+uit elkaar kunnen lopen. Een onbruikbare waarde blokkeert de boot, met de configuratiesleutel in de
+melding.
+
+Per magazijn en niet over de hele opslag: een vulronde die halverwege afbreekt laat magazijnen
+zonder post achter, en de volgende start werkt die bij. Magazijnen die al post hebben blijven
+ongemoeid, ook als daar minder in staat dan de vulling zou zetten. Wie tijdens een demo bewust leegt,
+krijgt bij een herstart dus weer post — daar zijn de storingsknoppen voor.
+
+Zonder deze vulling staat een verse omgeving met alle magazijnen op nul berichten terwijl elk
+magazijn keurig antwoordt, en dat is van een kapotte keten niet te onderscheiden.
+
 ## Wat de ondernemer doet, blijft staan
 
 Elk gesimuleerd magazijn heeft echte opslag: PostgreSQL onder alle magazijnen samen, met

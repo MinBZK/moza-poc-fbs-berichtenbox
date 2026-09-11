@@ -43,6 +43,49 @@ class OndernemersConsistentieTest {
     }
 
     /**
+     * De simulator vult zichzelf bij het opstarten voor de ontvangers uit zijn gegenereerde
+     * configuratie. Die lijst hoort uit dezelfde ONDERNEMERS te komen als de vul-knop.
+     *
+     * Faalscenario zonder deze test: iemand zet daar een eigen lijst neer. Een verse omgeving vult
+     * zich dan voor iemand die geen persona is, en de demo toont lege magazijnen die wél netjes
+     * antwoorden — precies het beeld dat de opstartvulling moest wegnemen.
+     *
+     * Getoetst wordt de herkomst, niet de uitkomst: het gegenereerde bestand staat niet in de
+     * repository (het is git-ignored en ontstaat pas als iemand het script draait), dus wat hier te
+     * meten valt is dat de geschreven regel een uit ONDERNEMERS afgeleide variabele interpoleert.
+     */
+    @Test
+    fun `de opstartvulling van de simulator gebruikt dezelfde ondernemers`() {
+        val script = File(ROOT, "demo/genereer-magazijnen.py").readText()
+        val geschreven = Regex("""magazijnsimulator\.opstartvulling\.ontvangers=\{([^}]*)}""").find(script)
+
+        assertTrue(geschreven != null, "geen regel voor magazijnsimulator.opstartvulling.ontvangers in het script")
+
+        val variabele = geschreven!!.groupValues[1]
+        val toewijzing = Regex("""^\s*$variabele\s*=\s*(.+)$""", RegexOption.MULTILINE).find(script)
+
+        assertTrue(toewijzing != null, "de regel interpoleert '$variabele', maar dat wordt nergens toegewezen")
+        assertTrue(
+            "ONDERNEMERS" in toewijzing!!.groupValues[1],
+            "'$variabele' hoort uit ONDERNEMERS te komen, maar werd toegewezen als: ${toewijzing.groupValues[1]}",
+        )
+    }
+
+    /**
+     * De opstartvulling zet evenveel post neer als de vul-knop. Anders staat een verse omgeving op
+     * twintig berichten — precies de paginagrens — en is het doorpagineren niet te tonen zonder
+     * eerst handmatig bij te vullen, terwijl de runbook zegt dat dat niet meer hoeft.
+     */
+    @Test
+    fun `de opstartvulling zet evenveel berichten neer als de vul-knop`() {
+        val script = File(ROOT, "demo/genereer-magazijnen.py").readText()
+        val aantal = Regex("""^BERICHTEN_PER_MAGAZIJN\s*=\s*(\d+)""", RegexOption.MULTILINE).find(script)
+
+        assertTrue(aantal != null, "geen BERICHTEN_PER_MAGAZIJN gevonden in het generatiescript")
+        assertEquals(SimulatorService.STANDAARD_PER_MAGAZIJN, aantal!!.groupValues[1].toInt())
+    }
+
+    /**
      * De rookproef bevraagt dezelfde vier ondernemers en controleert bij hoeveel organisaties ze
      * uitkomen. Hij staat buiten de reactor, dus niets houdt hem bij het generatiescript.
      *
