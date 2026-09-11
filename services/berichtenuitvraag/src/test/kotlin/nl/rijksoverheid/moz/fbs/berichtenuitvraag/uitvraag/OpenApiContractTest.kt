@@ -16,9 +16,12 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import java.time.Instant
 import java.util.UUID
 
@@ -62,17 +65,21 @@ class OpenApiContractTest {
         WireMockBackendsResource.magazijnA.resetAll()
     }
 
-    private fun seedBericht(berichtId: UUID, magazijnId: String = WireMockBackendsResource.OIN_A): Bericht {
+    private fun seedBericht(
+        berichtId: UUID,
+        magazijnId: String = WireMockBackendsResource.OIN_A,
+        bijlagen: List<BijlageSamenvatting> = emptyList(),
+    ): Bericht {
         val bericht = Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
             afzenderNaam = "Magazijn A",
             ontvanger = Bsn("999990019"),
             onderwerp = "Test",
-            inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = magazijnId,
-            aantalBijlagen = 0,
+            aantalBijlagen = bijlagen.size,
+            bijlagen = bijlagen,
         )
         sessiecache.berichten[berichtId] = bericht
 
@@ -111,6 +118,13 @@ class OpenApiContractTest {
     fun `GET bericht by id levert valide Bericht`() {
         val id = UUID.randomUUID()
         seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "Tekst uit het magazijn"}"""),
+            ),
+        )
 
         given()
             .filter(validator)
@@ -163,8 +177,9 @@ class OpenApiContractTest {
     fun `GET bijlage streamt bytes met juist Content-Type`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        // De service haalt eerst het bericht op om de magazijnId te bepalen.
-        seedBericht(berichtId)
+        // De service haalt eerst het bericht op om de magazijnId te bepalen, en haalt
+        // de bestandsnaam uit datzelfde detail.
+        seedBericht(berichtId, bijlagen = listOf(BijlageSamenvatting(bijlageId, "aanslag 2026.pdf")))
         WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
@@ -183,7 +198,7 @@ class OpenApiContractTest {
             .then()
             .statusCode(200)
             .header("Content-Type", "application/pdf")
-            .header("Content-Disposition", "attachment")
+            .header("Content-Disposition", "inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf")
     }
 
     // --- Foutresponses tegen het Problem-schema (RFC 9457), via de validator ---
@@ -237,6 +252,71 @@ class OpenApiContractTest {
             .then()
             .statusCode(409)
             .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET bericht by id - zelf verwijderd levert valide Problem-410 met kenmerk`() {
+        val id = UUID.randomUUID()
+        sessiecache.berichtFout =
+            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.BerichtVerwijderd("weg")
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(410)
+            .contentType("application/problem+json")
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+    }
+
+    @Test
+    fun `GET bericht by id - onbekend bericht levert 404 met het kenmerk bericht-onbekend`() {
+        // Ononderscheidbaar van het bericht van een andere ondernemer: de cache is per
+        // ontvanger gesleuteld, dus beide gevallen komen hier als dezelfde misser binnen.
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/${UUID.randomUUID()}")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-onbekend"))
+    }
+
+    @Test
+    fun `GET bijlage - zelf verwijderd bericht levert een antwoord dat de spec kent`() {
+        // De bijlage-download begint met dezelfde cache-opzoeking als het bericht zelf, dus de
+        // tombstone slaat hier net zo goed toe — vóór het magazijn ooit gebeld wordt. Zonder
+        // gedeclareerde 410 op dit pad zou dat een spec-schending zijn.
+        sessiecache.berichtFout =
+            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.BerichtVerwijderd("weg")
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}")
+            .then()
+            .statusCode(410)
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+    }
+
+    /**
+     * De belofte van dit kenmerk is dat élk foutantwoord het draagt, ook de statussen die het
+     * framework zelf produceert zonder onze mapper te raadplegen. Dat is precies wat een
+     * unit-test op de mapper niet kan aantonen: die bewijst dat de mapper het goed doet, niet
+     * dat hij aan bod komt. Geen validator-filter — deze requests schenden de spec met opzet.
+     */
+    @ParameterizedTest
+    @MethodSource("kromRequests")
+    fun `elk foutantwoord van de service draagt een ketenkenmerk`(krom: KromRequest) {
+        krom.stuur()
+            .then()
+            .contentType("application/problem+json")
+            .body("type", org.hamcrest.Matchers.startsWith("urn:fbs:fout:"))
     }
 
     @Test
@@ -356,5 +436,33 @@ class OpenApiContractTest {
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
+    }
+
+    /** Eén spec-schendend request plus de naam die in de testuitvoer leesbaar is. */
+    class KromRequest(private val naam: String, val stuur: () -> io.restassured.response.Response) {
+        override fun toString() = naam
+    }
+
+    companion object {
+        private const val ONTVANGER_HEADER = "BSN:999990019"
+
+        @JvmStatic
+        fun kromRequests(): List<KromRequest> = listOf(
+            KromRequest("405 verkeerde methode") {
+                given().header("X-Ontvanger", ONTVANGER_HEADER)
+                    .`when`().post("/api/v1/berichten/${UUID.randomUUID()}")
+            },
+            KromRequest("415 niet-ondersteund request-mediatype") {
+                given().header("X-Ontvanger", ONTVANGER_HEADER)
+                    .contentType("text/plain")
+                    .body("geen merge-patch")
+                    .queryParam("magazijnId", "00000001003214345000")
+                    .`when`().patch("/api/v1/berichten/${UUID.randomUUID()}")
+            },
+            KromRequest("404 onbekend pad") {
+                given().header("X-Ontvanger", ONTVANGER_HEADER)
+                    .`when`().get("/api/v1/bestaat-niet")
+            },
+        )
     }
 }

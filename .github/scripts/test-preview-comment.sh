@@ -571,21 +571,30 @@ gelijk "de demo staat vooraan in de aanroep" \
 # Niet alleen de namen maar de bedrading: waar de twee URL-mappen vandaan komen. Valt het
 # `outputs`-blok of de step-id weg, dan komt de env leeg binnen — dat faalt luid, maar pas tijdens
 # de deploy van de volgende PR.
-bestand_bevat "de uitvraag-job publiceert zijn URL's als job-output" \
-  '^      urls: \$\{\{ steps\.deploy\.outputs\.urls \}\}$' "$DEPLOY_YML"
-bestand_bevat "de comment-stap leest die job-output" \
+bestand_bevat "de comment-stap leest de job-output van de uitvraag" \
   '^          URLS_UITVRAAG: \$\{\{ needs\.deploy-preview-uitvraag\.outputs\.urls \}\}$' "$DEPLOY_YML"
-bestand_bevat "de comment-stap leest de URL's van de magazijnen-deploy" \
-  '^          URLS_DEMO: \$\{\{ steps\.deploy\.outputs\.urls \}\}$' "$DEPLOY_YML"
+bestand_bevat "de comment-stap leest de job-output van de magazijnen" \
+  '^          URLS_DEMO: \$\{\{ needs\.deploy-preview-magazijnen\.outputs\.urls \}\}$' "$DEPLOY_YML"
 
-# Het blok van de job die de comment plaatst, zodat de drie eisen eronder niet ergens anders in het
+# Beide deploy-jobs moeten hun URL's als job-output publiceren; de comment staat in een derde job
+# en kan niet bij hun steps. Valt zo'n `outputs`-blok of step-id weg, dan komt de env leeg binnen —
+# dat faalt luid, maar pas tijdens de deploy van de volgende PR.
+for job in deploy-preview-uitvraag deploy-preview-magazijnen; do
+  BLOK=$(awk -v job="  $job:" '$0 == job { in_job = 1; next } in_job && /^  [a-z]/ { exit } in_job { print }' "$DEPLOY_YML")
+
+  niet_leeg "de job $job is in deploy.yml te vinden" "$BLOK"
+  bevat "$job publiceert zijn URL's als job-output" 'urls: ${{ steps.deploy.outputs.urls }}' "$BLOK"
+  bevat "en zijn deploy-stap draagt de id waar die output naar kijkt" 'id: deploy' "$BLOK"
+done
+
+# Het blok van de job die de comment plaatst, zodat de eisen eronder niet ergens anders in het
 # bestand hun bevestiging vinden.
-MAGAZIJNEN_JOB=$(awk '/^  deploy-preview-magazijnen:$/ { in_job = 1; next } in_job && /^  [a-z]/ { exit } in_job { print }' "$DEPLOY_YML")
+AFRONDING_JOB=$(awk '/^  preview-afronding:$/ { in_job = 1; next } in_job && /^  [a-z]/ { exit } in_job { print }' "$DEPLOY_YML")
 
-niet_leeg "de magazijnen-job is in deploy.yml te vinden" "$MAGAZIJNEN_JOB"
-bevat "die job wacht op de uitvraag-deploy" '- deploy-preview-uitvraag' "$MAGAZIJNEN_JOB"
-bevat "die job mag op de PR schrijven" 'pull-requests: write' "$MAGAZIJNEN_JOB"
-bevat "en zijn deploy-stap draagt de id waar de comment-stap naar kijkt" 'id: deploy' "$MAGAZIJNEN_JOB"
+niet_leeg "de afrondingsjob is in deploy.yml te vinden" "$AFRONDING_JOB"
+bevat "die job wacht op de uitvraag-deploy" '- deploy-preview-uitvraag' "$AFRONDING_JOB"
+bevat "die job wacht op de magazijnen-deploy" '- deploy-preview-magazijnen' "$AFRONDING_JOB"
+bevat "die job mag op de PR schrijven" 'pull-requests: write' "$AFRONDING_JOB"
 
 # Het opruimen moet de comment vinden zoals hij geplaatst is: dezelfde `startswith`, en pagineren
 # omdat hij op een drukke PR buiten de eerste pagina valt.

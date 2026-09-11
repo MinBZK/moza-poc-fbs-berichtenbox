@@ -17,6 +17,7 @@ import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
@@ -86,6 +87,7 @@ class ServiceCoverageTest {
     fun `bericht-detail bereikt BerichtOphaalService_haalBericht`() {
         val id = UUID.randomUUID()
         seedBericht(id)
+        stubMagazijnDetail(id, "Tekst uit het magazijn")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -94,6 +96,73 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
             .body("berichtId", equalTo(id.toString()))
+            .body("inhoud", equalTo("Tekst uit het magazijn"))
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het bronmagazijn de tekst niet levert`() {
+        // De tekst staat niet in de cache: valt het bronmagazijn uit, dan is dit ene bericht
+        // niet te openen. De lijst blijft wél werken — dat is de degradatie-eigenschap, en die
+        // wordt hieronder meegetoetst.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het magazijn een antwoord zonder tekst levert`() {
+        // Een 200 met een body die niet op het contract past is een upstream-storing. Zonder
+        // eigen afhandeling landt de Jackson-fout op de 400-mapper en leest de gebruiker dat
+        // zíjn verzoek fout is, terwijl de fout volledig bovenstrooms zit.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{}"""),
+            ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het magazijn een lege berichttekst levert`() {
+        // Een leeg scherm is voor de ontvanger niet te onderscheiden van een leeg bericht;
+        // luid falen is hier het bruikbare signaal. Het contract eist een niet-lege tekst.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        stubMagazijnDetail(id, "")
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
     }
 
     @Test
@@ -125,6 +194,15 @@ class ServiceCoverageTest {
     fun `bericht-detail draagt de afzendernaam die het register voor het magazijn kent`() {
         val id = UUID.randomUUID()
         seedBericht(id, magazijnId = WireMockBackendsResource.OIN_B)
+        // Het detailpad haalt de berichttekst bij het bronmagazijn; zonder deze stub strandt het
+        // op een onbereikbaar magazijn voordat het aan de naam toekomt.
+        WireMockBackendsResource.magazijnB.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "Tekst uit magazijn B"}"""),
+            ),
+        )
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -247,15 +325,15 @@ class ServiceCoverageTest {
     @Test
     fun `bijlage met gevaarlijk text-html Content-Type wordt geforceerd tot attachment-download`() {
         // End-to-end-bewijs van de stored-XSS-bescherming via de echte HTTP-stack:
-        // resource zet BIJLAGE_MIME_TYPE_PROPERTY → BijlageContentTypeFilter forceert
+        // resource zet BIJLAGE_MIME_TYPE_PROPERTY → BijlageContentTypeFilter zet
         // Content-Disposition: attachment. Een magazijn dat `text/html` (renderbaar
         // in de browser) levert, mag NOOIT inline gerenderd worden; de attachment-
         // header dwingt af dat de browser dít als download behandelt i.p.v. uit te
         // voeren. text/html is een parsebaar MIME-type, dus de Content-Type passeert
-        // hier 1-op-1 — de attachment-forcering is in dit geval de XSS-mitigatie.
+        // hier 1-op-1 — de dispositie is in dit geval de XSS-mitigatie.
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        seedBericht(berichtId)
+        seedBericht(berichtId, bijlagen = listOf(BijlageSamenvatting(bijlageId, "kwaad.html")))
         WireMockBackendsResource.magazijnA.stubFor(
             get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
                 .willReturn(
@@ -272,7 +350,58 @@ class ServiceCoverageTest {
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
             .then()
             .statusCode(200)
-            .header("Content-Disposition", "attachment")
+            .header("Content-Disposition", "attachment; filename=\"kwaad.html\"; filename*=UTF-8''kwaad.html")
+    }
+
+    @Test
+    fun `bijlage met een veilig te tonen type mag inline, met de naam uit de sessiecache`() {
+        // Tegenhanger van de test hierboven: een PDF voert niets uit in de browser, dus
+        // mag een afnemer hem tonen in plaats van wegschrijven. De naam komt uit het
+        // bericht-detail in de cache, niet uit de magazijn-response.
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        seedBericht(berichtId, bijlagen = listOf(BijlageSamenvatting(bijlageId, "aanslag 2026.pdf")))
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/pdf")
+                        .withBody(byteArrayOf(37, 80, 68, 70)),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+            .header("Content-Disposition", "inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf")
+    }
+
+    @Test
+    fun `bijlage die de sessiecache niet kent gaat zonder naam de deur uit`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        seedBericht(berichtId)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$bijlageId"))
+                .willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/pdf")
+                        .withBody(byteArrayOf(37, 80, 68, 70)),
+                ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .then()
+            .statusCode(200)
+            .header("Content-Disposition", "inline")
     }
 
     @Test
@@ -535,6 +664,7 @@ class ServiceCoverageTest {
         berichtId: UUID,
         magazijnId: String = WireMockBackendsResource.OIN_A,
         afzenderNaam: String = WireMockBackendsResource.NAAM_A,
+        bijlagen: List<BijlageSamenvatting> = emptyList(),
     ) {
         sessiecache.berichten[berichtId] = Bericht(
             berichtId = berichtId,
@@ -542,10 +672,20 @@ class ServiceCoverageTest {
             afzenderNaam = afzenderNaam,
             ontvanger = Bsn("999990019"),
             onderwerp = "X",
-            inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = magazijnId,
-            aantalBijlagen = 0,
+            aantalBijlagen = bijlagen.size,
+            bijlagen = bijlagen,
+        )
+    }
+
+    private fun stubMagazijnDetail(id: UUID, inhoud: String) {
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "$inhoud"}"""),
+            ),
         )
     }
 

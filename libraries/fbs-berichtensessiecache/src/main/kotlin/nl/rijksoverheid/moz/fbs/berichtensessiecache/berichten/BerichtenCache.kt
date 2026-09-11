@@ -45,6 +45,13 @@ internal interface BerichtenCache {
     fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
     fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void>
 
+    /**
+     * Of [ontvanger] dit bericht binnen deze sessie zélf verwijderde. Alleen te vertrouwen als
+     * antwoord op een misser: staat het bericht er nog, dan is dat de waarheid en zegt de
+     * tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
+     */
+    fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean>
+
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
@@ -58,22 +65,36 @@ internal interface BerichtenCache {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v2:${HEX.formatHex(digest)}"
+            return "berichtensessiecache:v3:${HEX.formatHex(digest)}"
         }
-        // v2: sinds berichten een verplichte `afzenderNaam` dragen. Een v1-entry mist dat veld
-        // en zou als corrupt gelezen worden; een eigen prefix laat de oude entries via hun TTL
-        // verlopen in plaats van leesfouten te geven.
+        // v3: twee schemawijzigingen tegelijk. Berichten dragen sinds kort een verplichte
+        // `afzenderNaam`, en de berichttekst is uit hash én blob verdwenen. Een pod van een
+        // vorige versie die zo'n entry leest mist een veld dat hij verplicht acht en geeft een
+        // 500 op de berichtenlijst; aan dat gedrag valt niets te veranderen, dus moeten de
+        // sleutels disjunct zijn. Beide wijzigingen kwamen los van elkaar op v2 uit — vandaar
+        // v3, want één versienummer voor twee vormen brengt precies de botsing terug die de
+        // bump moest voorkomen.
         fun berichtKey(berichtId: UUID) = "$BERICHT_PREFIX$berichtId"
-        const val BERICHT_PREFIX = "bericht:v2:"
+        const val BERICHT_PREFIX = "bericht:v3:"
+
+        /**
+         * Key van de tombstone die een zelf-verwijderd bericht achterlaat, onder de sessie-key van
+         * de ontvanger. Twee redenen voor die vorm. De eigenaar zit in de key en niet in de waarde,
+         * dus is de tombstone eigenaar-gescopeerd zonder dat er een identificatienummer in Redis
+         * belandt — [cacheKey] is een SHA-256. En de key valt buiten [BERICHT_PREFIX], het
+         * indexeerpatroon van [SEARCH_INDEX], zodat een tombstone niet als zoekresultaat terugkomt.
+         */
+        fun verwijderdKey(ontvanger: Identificatienummer, berichtId: UUID) =
+            "${cacheKey(ontvanger)}:verwijderd:$berichtId"
 
         // De index-naam draagt dezelfde versie als de prefix waarop hij filtert, en dat is geen
         // cosmetica: de bootstrap laat een bestaande index bewust ongemoeid, dus een index die op
-        // `bericht:v1:` is aangemaakt zou blijven staan terwijl alle nieuwe hashes onder
-        // `bericht:v2:` landen. Filter- en zoekqueries geven dan stil nul resultaten — een
-        // index op de verkeerde prefix is functioneel identiek aan géén index, maar valt buiten
-        // de fail-fast hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index
-        // aan en blijven oude pods tijdens een rolling deploy op de oude werken.
-        const val SEARCH_INDEX = "berichten-idx-v2"
+        // een oudere prefix is aangemaakt zou blijven staan terwijl alle nieuwe hashes elders
+        // landen. Filter- en zoekqueries geven dan stil nul resultaten — een index op de
+        // verkeerde prefix is functioneel identiek aan géén index, maar valt buiten de fail-fast
+        // hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index aan en
+        // blijven oude pods tijdens een rolling deploy op de oude werken.
+        const val SEARCH_INDEX = "berichten-idx-v3"
     }
 }
 
@@ -95,6 +116,20 @@ internal class RedisBerichtenCache(
     // dezelfde 5s-ondergrens als de overige cache-awaits. Overschrijden → fail-fast bij startup.
     @param:ConfigProperty(name = "berichtensessiecache.startup-redisearch-timeout-seconds", defaultValue = "5")
     private val startupRedisearchTimeoutSeconds: Long,
+    // Begrenst het aantal Redis-commando's dat tegelijk in de connection-wachtrij staat
+    // (`quarkus.redis.max-waiting-handlers`, default 2048). Zonder deze grens groeit een
+    // store-transactie mee met het aantal organisaties van de ontvanger en loopt die wachtrij
+    // vol — de ophaalronde faalt dan pas in de laatste stap, ná alle bevragingen. Elk bericht
+    // kost twee commando's (HSET + EXPIRE), maar die zijn per bericht met `.chain` geregen, dus
+    // de piek per batch is deze waarde zelf, niet het dubbele.
+    @param:ConfigProperty(name = "berichtensessiecache.redis-batchgrootte", defaultValue = "256")
+    private val redisBatchgrootte: Int,
+    // Los binnengehaald i.p.v. hardgecodeerd, zodat `init()` de invariant met redisBatchgrootte
+    // kan bewaken ook wanneer een operator alleen de sessiecache-sleutel aanpast. De sleutel
+    // hoort bij de Redis-client-extensie, niet bij deze library — vandaar dat hij hier via
+    // `@ConfigProperty` binnenkomt in plaats van een eigen sessiecache-configuratienaam te krijgen.
+    @param:ConfigProperty(name = "quarkus.redis.max-waiting-handlers", defaultValue = "2048")
+    private val maxWaitingHandlers: Int,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
@@ -106,6 +141,22 @@ internal class RedisBerichtenCache(
         require(startupRedisearchTimeoutSeconds > 0) {
             "berichtensessiecache.startup-redisearch-timeout-seconds " +
                 "($startupRedisearchTimeoutSeconds) moet groter zijn dan 0"
+        }
+
+        // Moet > 0: 0 laat `chunked` pas bij de eerste store werpen, midden in een ophaalronde,
+        // met een melding die de configuratiesleutel niet noemt.
+        require(redisBatchgrootte > 0) {
+            "berichtensessiecache.redis-batchgrootte ($redisBatchgrootte) moet groter zijn dan 0"
+        }
+
+        // Moet < maxWaitingHandlers: de piek per batch is redisBatchgrootte (HSET en EXPIRE zijn
+        // per bericht met `.chain` geregen, dus staan nooit tegelijk in de wachtrij). Zonder deze
+        // guard kan een operator de batchgrootte via de omgeving optrekken zonder dat er iets
+        // waarschuwt, en faalt een store pas in de laatste stap van een ophaalronde — ná alle
+        // bevragingen — met een melding die geen van beide configuratiesleutels noemt.
+        require(redisBatchgrootte < maxWaitingHandlers) {
+            "berichtensessiecache.redis-batchgrootte ($redisBatchgrootte) moet kleiner zijn dan " +
+                "quarkus.redis.max-waiting-handlers ($maxWaitingHandlers)"
         }
 
         val startupTimeout = Duration.ofSeconds(startupRedisearchTimeoutSeconds)
@@ -173,14 +224,14 @@ internal class RedisBerichtenCache(
                 .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
                 .chain { _ -> txKey.expire(listKey, ttl) }
                 .chain { _ ->
-                    val stores = sorted.map { bericht ->
+                    RedisBatching.inBatches(sorted, redisBatchgrootte) { bericht ->
                         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
                         val fields = berichtToHash(bericht)
+
                         txHash.hset(berichtKey, fields)
                             .chain { _ -> txKey.expire(berichtKey, ttl) }
                             .replaceWithVoid()
                     }
-                    Uni.join().all(stores).andFailFast().replaceWithVoid()
                 }
         }.replaceWithVoid()
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache", berichten.size) }
@@ -272,8 +323,8 @@ internal class RedisBerichtenCache(
                 if (total == 0L && jsonList.isEmpty()) {
                     null
                 } else {
-                    // De ongefilterde list-cache bewaart de volledige `Bericht`-JSON-blob (incl. inhoud
-                    // en bijlagen), zodat ook `update` deze in-place kan herschrijven. Voor de
+                    // De ongefilterde list-cache bewaart de volledige `Bericht`-JSON-blob (incl.
+                    // bijlage-handles), zodat ook `update` deze in-place kan herschrijven. Voor de
                     // publieke lijst-respons projecteren we naar samenvatting; zo behoudt de
                     // BerichtenPagina één uniform element-type met het RediSearch-pad.
                     // try/catch op JsonProcessingException: cache-data niet deserialiseerbaar duidt
@@ -285,7 +336,7 @@ internal class RedisBerichtenCache(
                     } catch (ex: com.fasterxml.jackson.core.JsonProcessingException) {
                         // Log de fout-soort, NIET de exception zelf: Jackson zet bij
                         // INCLUDE_SOURCE_IN_LOCATION (default aan) het ruwe JSON-fragment in de
-                        // message — dat bevat BSN/RSIN + inhoud. PII mag nooit in de log; key +
+                        // message — dat bevat BSN/RSIN. PII mag nooit in de log; key +
                         // exception-klasse volstaan voor diagnose (corruptie/schema-drift).
                         log.errorf("Cache-bericht niet deserialiseerbaar voor key=%s (corruptie of schema-drift); fout=%s", key, ex.javaClass.name)
                         throw ex
@@ -376,10 +427,10 @@ internal class RedisBerichtenCache(
             }
     }
 
-    // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons heeft
-    // `inhoud`/`bijlagen` niet nodig, dus het is verspilling om die — potentieel grote —
-    // velden over de wire op te halen. `documentToSamenvatting` mapt naar het lichte
-    // [BerichtSamenvatting]-type. De detail-lookup (`getById`) gebruikt de hash en blijft volledig.
+    // Beperk de FT.SEARCH-projectie tot de samenvatting-velden: de lijst-/zoek-respons draagt
+    // `bijlagen` niet, dus dat veld hoeft niet over de wire. `documentToSamenvatting` mapt naar
+    // het lichte [BerichtSamenvatting]-type; de detail-lookup (`getById`) gebruikt de hash en
+    // blijft volledig.
     private fun samenvattingQueryArgs(): QueryArgs {
         val args = QueryArgs()
         SAMENVATTING_VELDEN.forEach { args.returnAttribute(it) }
@@ -439,20 +490,21 @@ internal class RedisBerichtenCache(
 
     /**
      * MULTI/EXEC pipeline-batch: alle EXPIRE-commands (2 sessie-keys + N bericht-hashes) in één
-     * round-trip i.p.v. losse calls. Op pageSize=100 scheelt dit 100+ RTT's.
+     * transactie, in batches aangeboden zodat een grote pagina de connection-wachtrij niet vult.
      * Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing in de batch
      * ongezien blijven; de read zelf is al gelukt.
      */
     private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
         val listKey = listKey(cacheKey)
         val statusKey = statusKey(cacheKey)
+
         return redis.withTransaction { tx ->
             val txKey = tx.key()
-            val expires = mutableListOf<Uni<Void>>()
-            expires.add(txKey.expire(listKey, ttl))
-            expires.add(txKey.expire(statusKey, ttl))
-            ids.forEach { id -> expires.add(txKey.expire(BerichtenCache.berichtKey(id), ttl)) }
-            Uni.join().all(expires).andFailFast().replaceWithVoid()
+            val sleutels = listOf(listKey, statusKey) + ids.map { BerichtenCache.berichtKey(it) }
+
+            RedisBatching.inBatches(sleutels, redisBatchgrootte) { sleutel ->
+                txKey.expire(sleutel, ttl).replaceWithVoid()
+            }
         }.replaceWithVoid()
             .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
             .onFailure().recoverWithNull().replaceWithVoid()
@@ -465,7 +517,6 @@ internal class RedisBerichtenCache(
         put("ontvanger", bericht.ontvanger.waarde)
         put("ontvangerType", bericht.ontvanger.type.name)
         put("onderwerp", bericht.onderwerp)
-        put("inhoud", bericht.inhoud)
         put("publicatietijdstip", bericht.publicatietijdstip.toString())
         put("magazijnId", bericht.magazijnId)
         put("aantalBijlagen", bericht.aantalBijlagen.toString())
@@ -516,7 +567,6 @@ internal class RedisBerichtenCache(
             afzenderNaam = required("afzenderNaam"),
             ontvanger = reconstrueerOntvanger(required("ontvanger"), required("ontvangerType")),
             onderwerp = required("onderwerp"),
-            inhoud = required("inhoud"),
             publicatietijdstip = try {
                 Instant.parse(required("publicatietijdstip"))
             } catch (ex: java.time.format.DateTimeParseException) {
@@ -548,7 +598,7 @@ internal class RedisBerichtenCache(
 
     /**
      * Maakt een [BerichtSamenvatting] uit een FT.SEARCH-document. Bevat alleen de samenvatting-
-     * velden uit [SAMENVATTING_VELDEN]; `inhoud` en `bijlagen` worden bewust niet geprojecteerd.
+     * velden uit [SAMENVATTING_VELDEN]; `bijlagen` wordt bewust niet geprojecteerd.
      * Ontbrekende samenvatting-kernvelden duiden op corruptie — geen fallback-defaults.
      */
     private fun documentToSamenvatting(doc: io.quarkus.redis.datasource.search.Document): BerichtSamenvatting {
@@ -821,30 +871,71 @@ internal class RedisBerichtenCache(
                     fields["ontvanger"] != ontvanger.waarde ||
                     fields["ontvangerType"] != ontvanger.type.name
                 ) {
+                    // Twee gevallen tegelijk: er is geen hash (tweede DELETE, of de TTL liep af),
+                    // of de hash is van een ándere ontvanger. In het eerste geval valt de eigenaar
+                    // niet meer vast te stellen, in het tweede is de aanroeper niet de eigenaar —
+                    // in geen van beide hoort hier een tombstone te ontstaan. Een tombstone van een
+                    // eerdere DELETE blijft staan; die wordt hier niet aangeraakt.
                     Uni.createFrom().voidItem()
                 } else {
                     pruneListEnDelHash(listKey, berichtKey, berichtId)
+                        .chain { _ -> schrijfTombstone(berichtId, ontvanger) }
                 }
             }
             .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
     }
 
+    override fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
+        redis.key().exists(BerichtenCache.verwijderdKey(ontvanger, berichtId))
+            // Degradeert naar "niet bekend als verwijderd": de tombstone verrijkt een misser, hij
+            // is er geen voorwaarde voor. Zonder deze terugval maakt een Redis-hik op déze lookup
+            // van een doodgewone 404 een 503 met `Retry-After`, en gaat de client wachten op een
+            // bericht dat nooit bestond.
+            .onFailure().invoke { e -> log.warnf(e, "Tombstone-lookup mislukt; misser blijft onbekend. berichtId=%s", berichtId) }
+            .onFailure().recoverWithItem(false)
+
+    /**
+     * Laat achter dat déze ontvanger dit bericht verwijderde, zodat een volgende lookup het
+     * verschil kan maken tussen "nooit gezien" en "zelf weggegooid".
+     *
+     * `SET … EX` in één commando, net als de aggregatie-lock hierboven: bij een losse SET gevolgd
+     * door EXPIRE blijft de key voorgoed staan zodra die tweede stap faalt. De waarde is een
+     * plaatshouder — de eigenaar zit in de key (zie [BerichtenCache.verwijderdKey]).
+     *
+     * De TTL loopt vanaf het verwijderen en schuift níét mee met leesverkeer, anders dan de
+     * sessie-keys en de berichthashes. Een tombstone hoort bij één handeling in het verleden, niet
+     * bij de activiteit van de sessie; het gevolg is wel dat het antwoord in een lang doorlopende
+     * sessie van 410 terugvalt naar 404 zodra de TTL verstrijkt.
+     */
+    private fun schrijfTombstone(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> =
+        redis.value(String::class.java)
+            .set(BerichtenCache.verwijderdKey(ontvanger, berichtId), "1", SetArgs().ex(ttl.seconds))
+            // Best-effort, net als de TTL-verlenging: de delete zelf is dan al onherroepelijk
+            // uitgevoerd, en die alsnog laten omvallen levert een 502 op een geslaagde verwijdering
+            // plus een compensatie-invalidate die niets meer te invalideren heeft. Wat verloren
+            // gaat is het kenmerk: de rest van de sessie meldt "onbekend" waar "verwijderd" hoorde.
+            // Eigen alert-anker, want de generieke delete-logregel zou beweren dat de delete faalde.
+            .onFailure().invoke { e ->
+                log.errorf(
+                    e,
+                    "%s tombstone-schrijf faalde ná geslaagde cache-delete; een volgende lookup meldt onbekend i.p.v. verwijderd. berichtId=%s",
+                    ALERT_TOMBSTONE_VERLOREN,
+                    berichtId,
+                )
+            }
+            .onFailure().recoverWithNull()
+            .replaceWithVoid()
+
     private fun pruneListEnDelHash(listKey: String, berichtKey: String, berichtId: UUID): Uni<Void> =
         redis.list(String::class.java).lrange(listKey, 0, -1)
             .chain { entries ->
                 val matching = entries.filter { json -> blobMatchtBerichtId(json, berichtId) }
-                val lremAll = if (matching.isEmpty()) {
-                    Uni.createFrom().voidItem()
-                } else {
-                    // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek).
-                    // count=0: verwijder alle exact-matchende voorkomens.
-                    val lremUnis = matching.map { blob ->
-                        redis.list(String::class.java).lrem(listKey, 0, blob)
-                    }
-                    Uni.join().all(lremUnis).andFailFast().replaceWithVoid()
-                }
 
-                lremAll.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
+                // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek). count=0:
+                // verwijder alle exact-matchende voorkomens.
+                RedisBatching.inBatches(matching, redisBatchgrootte) { blob ->
+                    redis.list(String::class.java).lrem(listKey, 0, blob).replaceWithVoid()
+                }.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
             }
 
     private fun blobMatchtBerichtId(json: String, berichtId: UUID): Boolean =
@@ -864,6 +955,11 @@ internal class RedisBerichtenCache(
         // gebruikt LREM en heeft geen retry-loop nodig.)
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
+        // Stabiel alert-anker (los van vertaalbare proza) voor de Loki-rule die moet alarmeren
+        // wanneer het verwijderd-kenmerk stil wegvalt. Wijzig de waarde niet zonder de
+        // bijbehorende alert-rule mee te verhuizen.
+        private const val ALERT_TOMBSTONE_VERLOREN = "FBS_ALERT[tombstone_verloren]"
+
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"
         private fun lockKey(key: String) = "$key:lock"
@@ -871,8 +967,8 @@ internal class RedisBerichtenCache(
         // TypeReference voor Jackson-deserialisatie van de `bijlagen`-hash-field (JSON-array).
         private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}
 
-        // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst
-        // zodat list/zoek de zware `inhoud`/`bijlagen`-velden niet ophaalt.
+        // Hash-velden die [BerichtSamenvatting] nodig heeft; gebruikt als FT.SEARCH RETURN-lijst.
+        // `bijlagen` blijft eruit omdat de samenvatting het niet draagt, niet omdat het groot is.
         internal val SAMENVATTING_VELDEN = listOf(
             "berichtId",
             "afzender",
@@ -899,17 +995,29 @@ internal class RedisBerichtenCache(
     }
 }
 
+/**
+ * De uitkomst van een ophaalronde zoals die de sessie overleeft. [nietOpgehaald] telt de
+ * organisaties die door de gelijktijdigheidsgrens van de uitvraag niet bevraagd zijn; die horen
+ * niet bij [mislukt], want er is geen uitspraak over dat magazijn gedaan.
+ *
+ * Een status die vóór dit veld in de cache is geschreven leest terug met `nietOpgehaald = 0` — de
+ * default hierboven. Dat klopt inhoudelijk: zo'n ronde kende de categorie nog niet.
+ */
 internal data class AggregationStatus(
     val status: OphalenStatus = OphalenStatus.GEREED,
     val totaalMagazijnen: Int = 0,
     val geslaagd: Int = 0,
     val mislukt: Int = 0,
+    val nietOpgehaald: Int = 0,
 ) {
     init {
         require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn" }
         require(geslaagd >= 0) { "geslaagd mag niet negatief zijn" }
         require(mislukt >= 0) { "mislukt mag niet negatief zijn" }
-        require(geslaagd + mislukt <= totaalMagazijnen) { "geslaagd + mislukt mag niet groter zijn dan totaalMagazijnen" }
+        require(nietOpgehaald >= 0) { "nietOpgehaald mag niet negatief zijn" }
+        require(geslaagd + mislukt + nietOpgehaald <= totaalMagazijnen) {
+            "geslaagd + mislukt + nietOpgehaald mag niet groter zijn dan totaalMagazijnen"
+        }
     }
 }
 

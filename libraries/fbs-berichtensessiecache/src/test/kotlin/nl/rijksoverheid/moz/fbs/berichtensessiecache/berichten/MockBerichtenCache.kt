@@ -28,6 +28,7 @@ internal class MockBerichtenCache : BerichtenCache {
     private val statuses = ConcurrentHashMap<String, AggregationStatus>()
     private val locks = ConcurrentHashMap.newKeySet<String>()
     private val byId = ConcurrentHashMap<UUID, Bericht>()
+    private val tombstones = ConcurrentHashMap<UUID, Identificatienummer>()
 
     companion object {
         // Modelleert de optimistic-lock-exhaustie van RedisBerichtenCache: bij `true`
@@ -125,12 +126,16 @@ internal class MockBerichtenCache : BerichtenCache {
         val existing = byId[berichtId]
         if (existing != null && existing.ontvanger == ontvanger) {
             byId.remove(berichtId)
+            tombstones[berichtId] = ontvanger
             val key = BerichtenCache.cacheKey(ontvanger)
             val listKey = "$key:list"
             lists[listKey]?.let { lists[listKey] = it.filter { b -> b.berichtId != berichtId } }
         }
         return Uni.createFrom().voidItem()
     }
+
+    override fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
+        Uni.createFrom().item(tombstones[berichtId] == ontvanger)
 
     override fun getPage(key: String, page: Int, pageSize: Int, afzender: String?, ontvanger: Identificatienummer?, map: String?): Uni<BerichtenPagina?> {
         val allBerichten = lists["$key:list"] ?: return Uni.createFrom().nullItem()

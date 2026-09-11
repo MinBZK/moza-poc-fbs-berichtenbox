@@ -46,11 +46,12 @@ class OphalenSseTest {
         sessiecache.reset()
     }
 
-    private fun gereedEvent(geslaagd: Int = 1, mislukt: Int = 0) = OphalenGereed(
+    private fun gereedEvent(geslaagd: Int = 1, mislukt: Int = 0, nietOpgehaald: Int = 0) = OphalenGereed(
         totaalBerichten = geslaagd,
         geslaagd = geslaagd,
         mislukt = mislukt,
-        totaalMagazijnen = geslaagd + mislukt,
+        nietOpgehaald = nietOpgehaald,
+        totaalMagazijnen = geslaagd + mislukt + nietOpgehaald,
     )
 
     companion object {
@@ -104,8 +105,8 @@ class OphalenSseTest {
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"TIMEOUT","foutmelding":"Magazijn reageerde niet binnen de timeout"}""",
             ),
             Arguments.of(
-                OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, totaalMagazijnen = 2),
-                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":2,"mislukt":0,"totaalMagazijnen":2}""",
+                OphalenGereed(totaalBerichten = 5, geslaagd = 2, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 2),
+                """{"event":"ophalen-gereed","totaalBerichten":5,"geslaagd":2,"mislukt":0,"nietOpgehaald":0,"totaalMagazijnen":2}""",
             ),
             Arguments.of(
                 OphalenMisluktVoorBevraging(foutmelding = "Interne fout (ref: abc)", referentie = "abc"),
@@ -116,10 +117,11 @@ class OphalenSseTest {
                     foutmelding = "Resultaten konden niet worden opgeslagen (ref: abc)",
                     geslaagd = 1,
                     mislukt = 1,
-                    totaalMagazijnen = 2,
+                    nietOpgehaald = 1,
+                    totaalMagazijnen = 3,
                     referentie = "abc",
                 ),
-                """{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen (ref: abc)","geslaagd":1,"mislukt":1,"totaalMagazijnen":2,"referentie":"abc"}""",
+                """{"event":"ophalen-fout","foutmelding":"Resultaten konden niet worden opgeslagen (ref: abc)","geslaagd":1,"mislukt":1,"nietOpgehaald":1,"totaalMagazijnen":3,"referentie":"abc"}""",
             ),
         )
     }
@@ -241,6 +243,7 @@ class OphalenSseTest {
                 foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: test)",
                 geslaagd = 0,
                 mislukt = 1,
+                nietOpgehaald = 0,
                 totaalMagazijnen = 1,
                 referentie = "test",
             ),

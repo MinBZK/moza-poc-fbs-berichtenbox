@@ -82,7 +82,6 @@ class AanmeldService(
             afzenderNaam = event.afzenderNaam,
             ontvanger = event.ontvanger,
             onderwerp = event.onderwerp,
-            inhoud = event.inhoud,
             publicatietijdstip = event.publicatietijdstip,
             magazijnId = event.magazijnId,
             aantalBijlagen = 0,
@@ -124,7 +123,6 @@ class AanmeldService(
         vereis(!data.afzender.isNullOrBlank(), "data.afzender ontbreekt.")
         val ontvangerDto = data.ontvanger ?: throw badRequest("data.ontvanger ontbreekt.")
         vereis(!data.onderwerp.isNullOrBlank(), "data.onderwerp ontbreekt.")
-        vereis(!data.inhoud.isNullOrBlank(), "data.inhoud ontbreekt.")
         val publicatietijdstip = data.publicatietijdstip ?: throw badRequest("data.publicatietijdstip ontbreekt.")
 
         val afzender = parseAfzender(data.afzender!!)
@@ -149,7 +147,6 @@ class AanmeldService(
             magazijnId = bron.oin.waarde,
             afzenderNaam = bron.naam,
             onderwerp = data.onderwerp!!,
-            inhoud = data.inhoud!!,
             publicatietijdstip = publicatietijdstip,
         )
     }

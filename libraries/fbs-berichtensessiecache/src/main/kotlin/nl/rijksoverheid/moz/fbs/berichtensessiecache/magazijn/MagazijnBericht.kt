@@ -18,9 +18,10 @@ import java.util.UUID
  *
  * Bestaat naast cache-[Bericht] zodat Jackson-deserialisatie matcht met de
  * magazijn-spec (`{type, waarde}`) zonder dat die wire-vorm het cache-domein
- * raakt. `inhoud`, `bijlagen`, `status.map` en de leesstatus (`status.gelezen`
- * → [Leesstatus]) worden uit de magazijn-respons overgenomen; `gewijzigdOp` en
- * bijlage-`mimeType`/`_links` blijven bewust buiten de cache (alleen-magazijn-gegevens).
+ * raakt. `bijlagen`, `status.map` en de leesstatus (`status.gelezen` → [Leesstatus])
+ * worden uit de magazijn-respons overgenomen; `gewijzigdOp` en bijlage-`mimeType`/`_links`
+ * blijven bewust buiten de cache (alleen-magazijn-gegevens). De berichttekst staat niet in
+ * het lijstantwoord van het magazijn en komt dus ook niet in de cache terecht.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 internal data class MagazijnBericht(
@@ -28,7 +29,6 @@ internal data class MagazijnBericht(
     @param:JsonProperty("afzender") val afzender: String,
     @param:JsonProperty("ontvanger") val ontvanger: MagazijnOntvanger,
     @param:JsonProperty("onderwerp") val onderwerp: String,
-    @param:JsonProperty("inhoud") val inhoud: String,
     @param:JsonProperty("publicatietijdstip") val publicatietijdstip: Instant,
     @param:JsonProperty("aantalBijlagen") val aantalBijlagen: Int = 0,
     @param:JsonProperty("bijlagen") val bijlagen: List<MagazijnBijlage> = emptyList(),
@@ -45,7 +45,6 @@ internal data class MagazijnBericht(
         // hier hard i.p.v. ongemerkt het cache-domein in te stromen.
         ontvanger = Identificatienummer.of(IdentificatienummerType.valueOf(ontvanger.type), ontvanger.waarde),
         onderwerp = onderwerp,
-        inhoud = inhoud,
         publicatietijdstip = publicatietijdstip,
         magazijnId = magazijnId,
         // Voorkeur voor expliciet `aantalBijlagen` uit het magazijn; als dat ontbreekt
