@@ -8,10 +8,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 
 /**
  * Borgt dat het Profiel-Service-endpoint in productie-achtige profielen TLS
- * (https://) gebruikt. De client zet BSN/RSIN/KVK in het URL-pad (extern
- * contract); onversleuteld verkeer zou de waarde lekken naar netwerk en
- * intermediaire proxy-toegangslogs (BIO 13.2.1 / AVG art. 32). In `dev` en
- * `test` mag http:// voor lokale containers en WireMock.
+ * (https://) gebruikt. De client stuurt BSN/RSIN/KVK mee in de request-body;
+ * onversleuteld verkeer legt die waarde open op het netwerk (BIO 13.2.1 / AVG
+ * art. 32). In `dev` en `test` mag http:// voor lokale containers en WireMock.
  *
  * Delegeert naar [OutboundTlsValidator]; deze klasse bestaat alleen om de
  * config-keys vast te leggen en als `@ApplicationScoped`-bean een startup-

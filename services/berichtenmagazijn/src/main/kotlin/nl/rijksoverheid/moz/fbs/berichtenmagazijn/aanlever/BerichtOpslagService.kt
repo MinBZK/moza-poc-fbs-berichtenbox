@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieOutbox
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
+import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import nl.rijksoverheid.moz.fbs.common.profiel.ToestemmingGeweigerdException
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker
@@ -62,6 +63,9 @@ class BerichtOpslagService(
      *    5xx komt meteen terug, dus hij geeft geen latency-amplificatie — en dát is wat
      *    de breaker hier moet wegnemen. Een 5xx is daarmee geen gezond antwoord, maar
      *    wel een goedkoop antwoord.
+     *  - [ProfielServiceFoutException]: de validatie werpt die voor een 404 die geen
+     *    "partij niet gevonden" is. Dat is óók een HTTP-antwoord dat meteen terugkomt, dus
+     *    om dezelfde reden geen kandidaat voor de breaker.
      *
      * Wat wél meetelt is `jakarta.ws.rs.ProcessingException`, het JAX-RS-type voor alles
      * waar geen bruikbaar HTTP-antwoord uit kwam: connection refused, reset,
@@ -80,6 +84,7 @@ class BerichtOpslagService(
             DomainValidationException::class,
             ToestemmingGeweigerdException::class,
             WebApplicationException::class,
+            ProfielServiceFoutException::class,
         ],
     )
     fun valideerAanlevering(

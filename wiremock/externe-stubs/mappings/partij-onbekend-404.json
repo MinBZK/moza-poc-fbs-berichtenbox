@@ -13,6 +13,15 @@
     ]
   },
   "response": {
-    "status": 404
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/problem+json"
+    },
+    "jsonBody": {
+      "type": "about:blank",
+      "title": "Partij niet gevonden",
+      "status": 404,
+      "detail": "Geen partij gevonden voor het opgegeven identificatienummer."
+    }
   }
 }

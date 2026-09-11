@@ -170,6 +170,56 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `een storing bij de voorkeurenbron laat de gecachte berichten ongemoeid`() {
+        // Tegen een échte (in-memory) cache in plaats van een mock: de belofte is dat de
+        // gecachte berichten er ná de storing nog staan, niet dat een bepaalde methode niet is
+        // aangeroepen. Een toekomstig foutpad dat de berichten via een ánder mechanisme
+        // kwijtraakt, valt hier wél door de mand.
+        val cache = MockBerichtenCache()
+        val storendeResolver = mockk<MagazijnResolver>()
+        val dienst = BerichtensessiecacheService(
+            cache,
+            clientFactory,
+            validator,
+            storendeResolver,
+            innerTimeoutSeconds = 2L,
+            outerAwaitSeconds = 3L,
+            paginaLezer = MagazijnPaginaLezer(paginaGrootte = 100, maxBerichtenPerMagazijn = 1000),
+            magazijnQueryTimeoutSeconds = 10L,
+            magazijnReadTimeoutMs = 12000L,
+            cacheAwaitTimeoutSeconds = 5L,
+            bulkhead = testBulkhead,
+            circuitBreaker = testBreaker,
+        ).also { it.valideerTimeouts() }
+
+        val eerderBericht = Bericht(
+            berichtId = UUID.randomUUID(),
+            afzender = "00000001003214345000",
+            afzenderNaam = "Belastingdienst",
+            ontvanger = ontvanger,
+            onderwerp = "Eerder opgehaald bericht",
+            publicatietijdstip = Instant.parse("2026-03-10T10:00:00Z"),
+            magazijnId = "00000001003214345000",
+            aantalBijlagen = 0,
+        )
+
+        cache.store(cacheKey, listOf(eerderBericht)).await().indefinitely()
+        cache.storeAggregationStatus(cacheKey, AggregationStatus(status = OphalenStatus.GEREED)).await().indefinitely()
+
+        every { storendeResolver.resolve(ontvanger) } returns
+            Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(404))
+
+        assertThrows<ProfielServiceFoutException> {
+            dienst.haalBerichtenOp(ontvanger)
+        }
+
+        val pagina = cache.getPage(cacheKey, page = 0, pageSize = 20).await().indefinitely()
+
+        assertEquals(1, pagina?.berichten?.size, "het eerder opgehaalde bericht moet er nog staan")
+        assertEquals(eerderBericht.berichtId, pagina?.berichten?.first()?.berichtId)
+    }
+
+    @Test
     fun `resolver levert onbekende magazijn-ID werpt IllegalArgumentException en zet FOUT-status`() {
         // Hard falen ipv stil leeg-degraderen; cleanup vóór throw voorkomt lock-TTL-hang.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)

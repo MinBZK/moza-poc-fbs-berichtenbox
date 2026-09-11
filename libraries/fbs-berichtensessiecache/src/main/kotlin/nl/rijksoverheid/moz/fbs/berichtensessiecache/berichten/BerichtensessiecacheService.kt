@@ -506,11 +506,9 @@ internal class BerichtensessiecacheService(
      * sessies niet zichtbaar blijft via GET-endpoints) + GEREED-status, gevolgd door één
      * OPHALEN_GEREED-event. Bij een store-fout een OPHALEN_FOUT-event i.p.v. mid-stream HTTP-500.
      *
-     * LET OP (bekende beperking): een lege resolver-set kan ook ontstaan uit een transient
-     * Profiel-404 of base-path-drift (zie ProfielMagazijnResolver 404-tak). In dat geval
-     * overschrijft dit pad geldige eerder-gecachte berichten met een lege lijst — niet te
-     * onderscheiden van een echte opt-out tot de upstream-404-semantiek is aangescherpt;
-     * detectie loopt tot dan via de Profiel-404-rate-alert (docs/operations/profiel-404-alert.md).
+     * Dit pad wordt alleen bereikt bij een geslaagde uitvraag zonder magazijnen. Een storing bij
+     * de voorkeurenbron levert een fout op en komt hier dus niet langs: die mag de eerder
+     * opgehaalde berichten niet met een lege lijst overschrijven.
      */
     private fun legeResultaten(cacheKey: String): Multi<MagazijnEvent> {
         try {

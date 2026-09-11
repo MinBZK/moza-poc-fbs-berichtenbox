@@ -56,13 +56,65 @@ class ProfielMagazijnResolverIntegrationTest {
     }
 
     @Test
-    fun `404 retourneert lege set`() {
+    fun `404 met het partij-niet-gevonden-antwoord retourneert lege set`() {
+        // Over echte HTTP heen: pint dat de problem-body van een foutrespons door de
+        // REST-client heen überhaupt uitleesbaar is. De unit-test mockt die respons en zou
+        // een client die de body weggooit niet betrappen.
+        wireMock.stubFor(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
+                aResponse().withStatus(404)
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody(
+                        """
+                        {
+                          "type": "about:blank",
+                          "title": "Partij niet gevonden",
+                          "status": 404,
+                          "detail": "Geen partij gevonden voor het opgegeven identificatienummer."
+                        }
+                        """.trimIndent(),
+                    ),
+            ),
+        )
+
+        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(emptySet<String>(), result)
+    }
+
+    @Test
+    fun `404 zonder herkenbaar antwoord werpt UPSTREAM_ERROR (geen misleidend lege set)`() {
         wireMock.stubFor(
             post(urlEqualTo("/api/profielservice/v1/partij"))
                 .willReturn(aResponse().withStatus(404)),
         )
-        val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
-        assertEquals(emptySet<String>(), result)
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    @Test
+    fun `404 met het problem-antwoord van een ander 404-geval werpt UPSTREAM_ERROR`() {
+        // Dezelfde dienst gebruikt problem+json óók voor andere niet-gevonden-gevallen;
+        // alleen het partij-antwoord mag als opt-out gelden.
+        wireMock.stubFor(
+            post(urlEqualTo("/api/profielservice/v1/partij")).willReturn(
+                aResponse().withStatus(404)
+                    .withHeader("Content-Type", "application/problem+json")
+                    .withBody("""{"type":"about:blank","title":"Voorkeur niet gevonden","status":404}"""),
+            ),
+        )
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(5))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
     }
 
     @Test

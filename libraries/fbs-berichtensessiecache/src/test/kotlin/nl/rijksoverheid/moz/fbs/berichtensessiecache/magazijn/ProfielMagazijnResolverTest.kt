@@ -24,6 +24,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockedDependenciesProfile
@@ -224,10 +227,113 @@ class ProfielMagazijnResolverTest {
     }
 
     @Test
-    fun `404 van Profiel levert lege set zonder fout`() {
-        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(Response.status(404).build())
+    fun `404 met het partij-niet-gevonden-antwoord levert lege set zonder fout`() {
+        stub404(
+            """
+            {
+              "type": "about:blank",
+              "title": "Partij niet gevonden",
+              "status": 404,
+              "detail": "Geen partij gevonden voor het opgegeven identificatienummer."
+            }
+            """.trimIndent(),
+        )
+
         val result = resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+
         assertEquals(emptySet<String>(), result)
+    }
+
+    @Test
+    fun `404 zonder herkenbaar antwoord telt als storing en niet als opt-out`() {
+        // Een kale 404 komt van een verkeerd pad of een tussenliggende voorziening. Als opt-out
+        // gelezen zou die de berichtenbox stil leegmaken; daarom de veilige kant: storing.
+        stub404(body = null)
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    @Test
+    fun `404 met een ander problem-antwoord telt als storing`() {
+        stub404("""{"type":"about:blank","title":"Contactgegeven niet gevonden","status":404}""")
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    @ParameterizedTest
+    @MethodSource("onleesbareBodies")
+    fun `404 waarvan de body niet te lezen is telt als storing`(leesfout: RuntimeException) {
+        // Een al geconsumeerde respons gooit IllegalStateException; een onbekende charset in
+        // de Content-Type levert een IllegalArgumentException uit de body-reader. Beide zijn
+        // "niet herkenbaar" en mogen géén opt-out worden — en ook geen ONVERWACHT, want dan
+        // zou een upstream-defect als onze eigen bug gealarmeerd worden.
+        stubFout(status = 404, leesfout = leesfout)
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(404, ex.httpStatus)
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [401, 403, 500, 503])
+    fun `de opt-out-body op een andere status blijft een storing`(status: Int) {
+        // Regressie-guard op de volgorde van de foutafhandeling: zou de body-herkenning
+        // ooit vóór de statuscontrole komen, dan maakte een auth-misser of een upstream-crash
+        // met deze body stilletjes een lege berichtenbox.
+        stubFout(status, body = """{"type":"about:blank","title":"Partij niet gevonden","status":404}""")
+
+        val ex = assertThrows(ProfielServiceFoutException::class.java) {
+            resolver.resolve(Bsn("999993653")).await().atMost(Duration.ofSeconds(2))
+        }
+
+        assertEquals(ProfielServiceFoutException.Categorie.UPSTREAM_ERROR, ex.categorie)
+        assertEquals(status, ex.httpStatus)
+    }
+
+    /** 404-respons met [body] als problem+json; `null` = een respons zonder body. */
+    private fun stub404(body: String?) = stubFout(status = 404, body = body)
+
+    /**
+     * Foutrespons met [status]. Levert [body] bij het uitlezen, of werpt [leesfout] wanneer
+     * die gegeven is — zo dekt één helper zowel "body aanwezig/afwezig" als "onleesbaar".
+     */
+    private fun stubFout(status: Int, body: String? = null, leesfout: RuntimeException? = null) {
+        val response = mockk<Response>()
+
+        every { response.status } returns status
+        // WebApplicationException leest statusInfo bij het opbouwen van zijn message.
+        every { response.statusInfo } returns Response.Status.fromStatusCode(status)
+
+        if (leesfout != null) {
+            every { response.readEntity(String::class.java) } throws leesfout
+        } else {
+            every { response.readEntity(String::class.java) } returns body
+        }
+
+        every { profielClient.getPartij(PartijRequest("BSN", "999993653")) } throws WebApplicationException(response)
+    }
+
+    companion object {
+
+        @JvmStatic
+        fun onleesbareBodies() = listOf(
+            IllegalStateException("entity al gelezen"),
+            IllegalArgumentException("onbekende charset in Content-Type"),
+            ProcessingException("body-reader faalde"),
+        )
     }
 
     @Test

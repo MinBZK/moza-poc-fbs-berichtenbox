@@ -5,6 +5,7 @@ import com.github.tomakehurst.wiremock.client.WireMock.any
 import com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.anyUrl
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.containing
 import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
@@ -27,11 +28,10 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * Contracttest van [ProfielServiceClient] tegen een WireMock-stub. CLAUDE.md
- * "Testlagen → spec-driven aan de randen" eist deze laag voor uitgaande clients:
- * andere tests vervangen de client via een `@Mock` CDI-bean en valideren daarmee
- * niet de échte JSON-serialisatie van de aanvraag, de deserialisatie van het antwoord
- * of de HTTP-foutmapping.
+ * Contracttest van [ProfielServiceClient] tegen een WireMock-stub. Een uitgaande client
+ * hoort zo'n laag te hebben: andere tests vervangen de client via een `@Mock` CDI-bean en
+ * valideren daarmee niet de échte JSON-serialisatie van de aanvraag, de deserialisatie van
+ * het antwoord of de HTTP-foutmapping.
  *
  * `WireMockProfielServiceTestProfile` sluit `MockProfielServiceClient` uit met
  * `quarkus.arc.exclude-types`, zodat de échte REST-client wordt geïnjecteerd.
@@ -244,6 +244,9 @@ class ProfielServiceClientWireMockTest {
 
         wireMock.verify(
             postRequestedFor(urlEqualTo("/api/profielservice/v1/partij"))
+                // equalToJson matcht ongeacht de header; zonder deze assert zou het wegvallen
+                // van @Consumes de suite groen laten terwijl de echte dienst met 415 antwoordt.
+                .withHeader("Content-Type", containing("application/json"))
                 .withRequestBody(
                     equalToJson("""{"identificatieType":"BSN","identificatieNummer":"999993653"}"""),
                 ),

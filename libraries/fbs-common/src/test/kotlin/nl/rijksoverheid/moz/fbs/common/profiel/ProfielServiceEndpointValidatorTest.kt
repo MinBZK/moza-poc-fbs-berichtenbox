@@ -7,9 +7,9 @@ import org.junit.jupiter.api.assertThrows
 
 /**
  * Borgt fail-closed gedrag van de TLS-eis op de Profiel-Service-URL. Regressies
- * hier zouden BSN/RSIN/KVK over `http://` lekken in prod/staging/acceptatie (de
- * externe Profiel Service zet de identificatie in het URL-pad, dus zonder TLS
- * eindigt PII in netwerk- en proxy-toegangslogs — BIO 13.2.1).
+ * hier zouden BSN/RSIN/KVK over `http://` lekken in prod/staging/acceptatie: de
+ * identificatie reist in de request-body, dus zonder TLS ligt ze open op het
+ * netwerk (BIO 13.2.1).
  *
  * Spiegelt [nl.rijksoverheid.moz.fbs.common.LdvEndpointValidatorTest]; bewust
  * gespiegeld zodat een wijziging in één validator het andere niet stilzwijgend

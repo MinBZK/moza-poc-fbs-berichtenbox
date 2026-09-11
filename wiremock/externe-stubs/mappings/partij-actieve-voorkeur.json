@@ -5,7 +5,10 @@
     "url": "/api/profielservice/v1/partij",
     "bodyPatterns": [
       {
-        "matchesJsonPath": "$[?(@.identificatieType =~ /BSN|KVK|RSIN/)]"
+        "matchesJsonPath": "$[?(@.identificatieType =~ /^(BSN|KVK|RSIN)$/)]"
+      },
+      {
+        "matchesJsonPath": "$[?(@.identificatieNummer =~ /^[0-9]+$/)]"
       }
     ]
   },

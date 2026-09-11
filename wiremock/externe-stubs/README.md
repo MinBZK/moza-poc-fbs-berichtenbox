@@ -1,6 +1,6 @@
 # externe-stubs
 
-WireMock-stubs voor externe diensten in ZAD-deploys: de Profiel-service (GET partij) en de
+WireMock-stubs voor externe diensten in ZAD-deploys: de Profiel-service (`POST partij`) en de
 Notificatie-dienst (CloudEvents-webhook `POST /events`). Eén image, als twee losse componenten
 gedeployd (profiel + notificatie); elk component serveert op zijn eigen subdomein alleen zijn
 eigen verkeer. De mappings worden in het image gebakken (een compose bind-mount kan niet in ZAD).
