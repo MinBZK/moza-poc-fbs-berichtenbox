@@ -26,7 +26,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
  * eigen app-niveau-token. Het verwerkt alleen het verwachte event-type en raakt
  * uitsluitend de cache van de in het event genoemde ontvanger.
  *
- * De `data`-payload bevat persoonsgegevens (ontvanger-BSN/RSIN, berichtinhoud); de
+ * De `data`-payload bevat persoonsgegevens (ontvanger-BSN/RSIN, onderwerp); de
  * context-attributen niet (`subject` = berichtId). Vertrouwelijkheid leunt op de
  * directe, wederzijds-geauthenticeerde FSC-verbinding (TLS) tussen Publicatie Stream
  * en deze webhook — er zitten geen niet-vertrouwde intermediairs tussen. Komt die

@@ -87,6 +87,7 @@ class ServiceCoverageTest {
     fun `bericht-detail bereikt BerichtOphaalService_haalBericht`() {
         val id = UUID.randomUUID()
         seedBericht(id)
+        stubMagazijnDetail(id, "Tekst uit het magazijn")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -95,6 +96,73 @@ class ServiceCoverageTest {
             .then()
             .statusCode(200)
             .body("berichtId", equalTo(id.toString()))
+            .body("inhoud", equalTo("Tekst uit het magazijn"))
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het bronmagazijn de tekst niet levert`() {
+        // De tekst staat niet in de cache: valt het bronmagazijn uit, dan is dit ene bericht
+        // niet te openen. De lijst blijft wél werken — dat is de degradatie-eigenschap, en die
+        // wordt hieronder meegetoetst.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(500)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het magazijn een antwoord zonder tekst levert`() {
+        // Een 200 met een body die niet op het contract past is een upstream-storing. Zonder
+        // eigen afhandeling landt de Jackson-fout op de 400-mapper en leest de gebruiker dat
+        // zíjn verzoek fout is, terwijl de fout volledig bovenstrooms zit.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{}"""),
+            ),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
+    }
+
+    @Test
+    fun `bericht-detail geeft 502 als het magazijn een lege berichttekst levert`() {
+        // Een leeg scherm is voor de ontvanger niet te onderscheiden van een leeg bericht;
+        // luid falen is hier het bruikbare signaal. Het contract eist een niet-lege tekst.
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        stubMagazijnDetail(id, "")
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(502)
     }
 
     @Test
@@ -126,6 +194,15 @@ class ServiceCoverageTest {
     fun `bericht-detail draagt de afzendernaam die het register voor het magazijn kent`() {
         val id = UUID.randomUUID()
         seedBericht(id, magazijnId = WireMockBackendsResource.OIN_B)
+        // Het detailpad haalt de berichttekst bij het bronmagazijn; zonder deze stub strandt het
+        // op een onbereikbaar magazijn voordat het aan de naam toekomt.
+        WireMockBackendsResource.magazijnB.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "Tekst uit magazijn B"}"""),
+            ),
+        )
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
@@ -595,11 +672,20 @@ class ServiceCoverageTest {
             afzenderNaam = afzenderNaam,
             ontvanger = Bsn("999990019"),
             onderwerp = "X",
-            inhoud = "Inhoud",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = magazijnId,
             aantalBijlagen = bijlagen.size,
             bijlagen = bijlagen,
+        )
+    }
+
+    private fun stubMagazijnDetail(id: UUID, inhoud: String) {
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "$inhoud"}"""),
+            ),
         )
     }
 

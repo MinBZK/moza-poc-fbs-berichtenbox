@@ -5,6 +5,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.ForbiddenException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtKop
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
@@ -40,6 +41,16 @@ class BerichtOphaalServiceTest {
         ontvanger = ontvangerOp,
         onderwerp = "Voorlopige aanslag 2026",
         inhoud = "Inhoud",
+        tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
+        publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
+    )
+
+    /** Het lijstpad levert kopgegevens; de tekst wordt daar niet gelezen. */
+    private fun kop(ontvangerOp: Identificatienummer = ontvanger): BerichtKop = BerichtKop(
+        berichtId = UUID.randomUUID(),
+        afzender = Oin("00000001003214345000"),
+        ontvanger = ontvangerOp,
+        onderwerp = "Voorlopige aanslag 2026",
         tijdstipOntvangst = Instant.parse("2026-05-13T10:00:00Z"),
         publicatietijdstip = Instant.parse("2026-05-13T10:00:00Z"),
     )
@@ -124,8 +135,8 @@ class BerichtOphaalServiceTest {
 
     @Test
     fun `lijst voegt per bericht de status toe`() {
-        val b1 = bericht()
-        val b2 = bericht()
+        val b1 = kop()
+        val b2 = kop()
         val pagina = PagedBerichten(berichten = listOf(b1, b2), page = 0, pageSize = 20, totalElements = 2L)
         val status1 = BerichtStatus(gelezen = true, map = null, gewijzigdOp = Instant.now())
         every { berichtRepository.lijstVoorOntvanger(ontvanger, null, 0, 20) } returns pagina

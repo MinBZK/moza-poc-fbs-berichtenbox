@@ -79,7 +79,6 @@ class DownstreamClientTest {
             afzender = "00000001003214345000",
             ontvanger = OntvangerData("BSN", "999993653"),
             onderwerp = "Test",
-            inhoud = "Inhoud",
             tijdstipOntvangst = Instant.parse("2026-05-12T10:00:00Z"),
             publicatietijdstip = Instant.parse("2026-05-12T10:00:00Z"),
         ),
