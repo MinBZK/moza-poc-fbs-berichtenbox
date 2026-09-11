@@ -335,6 +335,8 @@ vragen om bevestiging in het paneel; de vraag noemt wat er precies gebeurt.
 - *Berichtenbox verversen* — herlaadt het frame. Bewust een knop: verversen zet de berichtenbox
   terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
+  Een verse stack heeft die al: de console zet hem na het opstarten zelf in elk echt magazijn zonder
+  berichten. In een gevulde omgeving zet deze knop alles dubbel.
 - *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases. Twee keer vullen zonder legen
   geeft dubbele berichten.
 - *Random berichten opvoeren* — N random berichten; tegelijk scenario 5.
@@ -367,7 +369,13 @@ De console draait ook als component `democonsole` in de deployment `test` van he
 Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de authorization-wall,
 niet een kapot component.
 
-De gesimuleerde magazijnen hoef je daar niet als eerste handeling te vullen: de simulator zet bij het
+De magazijnen hoef je daar niet als eerste handeling te vullen, ook niet op een verse preview. De
+console zet na het opstarten de basisvulling in elk van de twee echte magazijnen waar nog geen bericht
+staat, en wacht daarvoor tot het magazijn en de profielservice antwoorden; wat hij deed staat in zijn
+log onder `Opstartvulling`, en `demo/demo-console/README.md` legt de regels uit. Een magazijn dat hij
+eenmaal beoordeeld heeft, bekijkt hij tot de volgende herstart niet opnieuw.
+
+Voor de gesimuleerde magazijnen doet de simulator hetzelfde: hij zet bij het
 opstarten zelf post klaar in elk magazijn dat er geen heeft, voor de ondernemers uit zijn
 gegenereerde configuratie. Dat geldt ook voor een verse preview en voor een deployment waarvan de
 database opnieuw is aangemaakt. Magazijnen die al post hebben blijven ongemoeid — ook wat je zelf met
@@ -421,7 +429,7 @@ volgen in fase 7.
 
 | # | Scenario | Zo speel je het |
 |---|---|---|
-| 1 | Berichten succesvol opgehaald | Basisvulling → persona Pietersen → **Ophalen** |
+| 1 | Berichten succesvol opgehaald | Persona Pietersen → **Ophalen**; de basisvulling staat er sinds het opstarten (na legen: *Herstel demo*) |
 | 2 | Trager dan normaal (>5 s) | Storingen → *Magazijn A* of *B* → *Traag* → Ophalen; magazijn meldt pas na ~6 s "voltooid" |
 | 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit*. Veel: persona Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → Ophalen → n−2 FOUT + partiële lijst |
 | 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → Ophalen |
