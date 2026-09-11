@@ -46,6 +46,13 @@ REGISTER_VAN_DE_UITVRAAG = "services/berichtenuitvraag/src/main/resources/applic
 # De identificatienummers volgen de bestaande demo-persona's; alleen de grootste is nieuw. Lopen er
 # elders standaard-persona's (proeftuin), dan zijn die leidend en hoeft hier alleen de koppeling te
 # verschuiven — de groottes zijn wat telt, niet de namen.
+# Hoeveel post elke ondernemer per magazijn krijgt wanneer de simulator zichzelf vult. Gelijk aan
+# wat de vul-knop van het bedieningspaneel zet (SimulatorService.STANDAARD_PER_MAGAZIJN), en bewust
+# boven de twintig die een magazijn zonder `pageSize` per pagina teruggeeft: anders staat een verse
+# omgeving precies op de paginagrens en is het doorpagineren niet te demonstreren zonder eerst
+# handmatig bij te vullen. OndernemersConsistentieTest bewaakt dat de twee gelijk blijven.
+BERICHTEN_PER_MAGAZIJN = 27
+
 ONDERNEMERS = [
     ("kleine-eenmanszaak", "BSN", "999993653", 3),
     ("klein-bedrijf", "KVK", "90000014", 15),
@@ -167,6 +174,15 @@ def simulator_regels(n: int) -> list:
     for i in range(1, n + 1):
         regels.append(f'magazijnsimulator.magazijnen."{oin(i)}".naam={naam(i)}')
         regels.append(f'magazijnsimulator.magazijnen."{oin(i)}".index={i}')
+
+    # Voor wie de simulator zichzelf vult zodra een magazijn zonder post staat. Uit ONDERNEMERS en
+    # niet met de hand: een verse omgeving die zich voor iemand anders vult dan de personas in de
+    # keuzelijst, toont lege magazijnen die wél netjes antwoorden -- en dat is van een kapotte keten
+    # niet te onderscheiden.
+    ontvangers = ",".join(f"{soort}:{nummer}" for _, soort, nummer, _ in ONDERNEMERS)
+
+    regels.append(f'magazijnsimulator.opstartvulling.ontvangers={ontvangers}')
+    regels.append(f'magazijnsimulator.opstartvulling.berichten-per-magazijn={BERICHTEN_PER_MAGAZIJN}')
 
     return regels
 
