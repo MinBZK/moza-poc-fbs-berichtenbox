@@ -234,6 +234,7 @@ services:
       MAGAZIJN_A_DB_URL: jdbc:postgresql://127.0.0.1:5432/berichtenmagazijn
       MAGAZIJN_B_DB_URL: jdbc:postgresql://127.0.0.1:5433/berichtenmagazijn
       MAGAZIJN_SIMULATOR_URL: http://127.0.0.1:8092
+      BEREIKBAARHEID_PERSONADIENST_URL: http://127.0.0.1:8098
       # De console maakt de proxies zelf aan en zet ze elke reconcile-ronde terug (ProxyBootstrap).
       # Zonder deze zes paren overschrijft ze in een gedeelde netns de definities uit
       # demo/generated/proxies-host.json met de container-DNS-namen uit haar eigen defaults — namen

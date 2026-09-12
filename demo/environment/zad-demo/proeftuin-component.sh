@@ -228,6 +228,11 @@ alias_zet proeftuin \
 # dus leeg zonder dat iets dat meldt.
 alias_zet democonsole "BERICHTENBOX_URL=https://${PROEFTUIN_HOST}/moza/berichtenbox/"
 
+# Cluster-intern adres, want dit is het enige component waarvoor de console geen adres heeft dat ze
+# ergens anders al voor gebruikt: de persona's leest ze in-process uit dezelfde jar. Zonder deze
+# alias staat de personadienst in het paneel op onbereikbaar terwijl hij draait.
+alias_zet democonsole "BEREIKBAARHEID_PERSONADIENST_URL=http://\$DEPLOYMENT_NAME-demopersonas:8098"
+
 if [ "$MODE" = "plan" ]; then
     echo
     echo "Dit was een plan; niets gewijzigd. Draai 'apply' om het door te zetten."
