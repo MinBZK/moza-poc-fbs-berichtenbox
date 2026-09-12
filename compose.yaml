@@ -429,6 +429,9 @@ services:
       # De console vraagt het aantal magazijnen aan de simulator zelf; er is hier bewust geen tweede
       # getal dat daarmee uit de pas kan lopen.
       MAGAZIJN_SIMULATOR_URL: http://magazijn-simulator:8092
+      # Alleen voor de chip "componenten": het paneel leest de persona's in-process en roept deze
+      # dienst verder nergens aan.
+      BEREIKBAARHEID_PERSONADIENST_URL: http://demo-personas:8098
 
   # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
   # of Eleventy op de machine vraagt. Zijn nginx zet het API-verkeer server-side door, dus de
