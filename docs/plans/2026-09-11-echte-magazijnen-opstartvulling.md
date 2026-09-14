@@ -23,10 +23,12 @@ knop.
 echte magazijnen hebben dat pad niet en horen het niet te krijgen. Gedeeld is het gedrag: per magazijn,
 alleen als het leeg is, en een magazijn met berichten blijft ongemoeid.
 
-**"Leeg" per magazijn.** `SELECT count(*) FROM berichten` per datasource. De koppeling
-afzender-OIN ↔ datasource staat in `MagazijnDatabase.MAGAZIJN_PER_OIN`; `DemoDatasetConsistentieTest`
-toetst hem tegen `demo.magazijnen` en de datasources in `application.properties`, op letter, zodat een
-verwisseling van A en B opvalt.
+**"Leeg" per magazijn.** `SELECT count(*) FROM berichten` per datasource. Welke database bij
+welke afzender-OIN hoort, staat in de configuratie naast het aanlever-adres:
+`demo.magazijnen."<OIN>".database`. `MagazijnDatabase` toetst die koppeling bij de start (bekende
+database, hooguit één OIN per database); `DemoDatasetConsistentieTest` toetst in `application.properties`
+op letter dat adres en database van hetzelfde magazijn zijn, zodat een verwisseling van A en B opvalt.
+De datasource-namen zelf blijven in de code: Quarkus legt benoemde datasources bij het bouwen vast.
 
 **Een herhaalde ronde, geen opstart-observer.** Op een verse omgeving starten alle componenten
 tegelijk: de database van een magazijn heeft dan nog geen tabellen (Flyway draait in het magazijn), of

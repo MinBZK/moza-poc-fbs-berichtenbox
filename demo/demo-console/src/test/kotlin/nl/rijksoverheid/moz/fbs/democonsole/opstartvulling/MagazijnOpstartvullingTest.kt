@@ -64,6 +64,7 @@ class MagazijnOpstartvullingTest {
         every { config.interval() } returns Duration.ofSeconds(20)
         every { config.opgevenNa() } returns OPGEVEN_NA
         every { basisdataset.laad() } answers { dataset.toList() }
+        every { database.magazijnOins() } returns setOf(RVO, BELASTINGDIENST)
 
         every { database.aantalVoor(any()) } answers {
             aantallen[firstArg<String>()] ?: throw SQLException("relation \"berichten\" does not exist")
@@ -235,8 +236,8 @@ class MagazijnOpstartvullingTest {
 
     private companion object {
 
-        val RVO = MagazijnDatabase.MAGAZIJN_PER_OIN.entries.first { it.value == "magazijn-a" }.key
-        val BELASTINGDIENST = MagazijnDatabase.MAGAZIJN_PER_OIN.entries.first { it.value == "magazijn-b" }.key
+        const val RVO = "00000000000000100000"
+        const val BELASTINGDIENST = "00000001823288444000"
 
         val OPGEVEN_NA: Duration = Duration.ofMinutes(30)
     }

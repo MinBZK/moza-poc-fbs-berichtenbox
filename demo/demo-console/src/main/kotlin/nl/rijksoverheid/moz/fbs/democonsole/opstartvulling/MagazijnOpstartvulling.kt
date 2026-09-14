@@ -91,7 +91,7 @@ class MagazijnOpstartvulling(
             return mutableSetOf()
         }
 
-        return MagazijnDatabase.MAGAZIJN_PER_OIN.keys.toMutableSet()
+        return magazijnDatabase.magazijnOins().toMutableSet()
     }
 
     private fun beoordeel(oin: String): Uitkomst {

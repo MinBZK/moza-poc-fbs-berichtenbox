@@ -2,7 +2,9 @@ package nl.rijksoverheid.moz.fbs.democonsole.legen
 
 import io.agroal.api.AgroalDataSource
 import io.quarkus.agroal.DataSource
+import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.democonsole.DemoConfig
 import java.sql.ResultSet
 import javax.sql.DataSource as JavaxDataSource
 
@@ -27,17 +29,26 @@ internal object LegenSql {
  * Directe DB-toegang op de magazijn-databases voor het legen. Bewust "vieze" kennis van
  * het magazijn-schema in de wegwerp-console i.p.v. een reset-endpoint in productiecode.
  * TRUNCATE ... RESTART IDENTITY CASCADE geeft een schone lei inclusief child-tabellen.
+ *
+ * De datasources zelf staan hier bij naam: Quarkus legt benoemde datasources bij het bouwen vast.
+ * Welk magazijn in welke database staat, komt uit `demo.magazijnen."<OIN>".database`. `@Startup`,
+ * zodat een fout in die koppeling de start stopt en niet pas een ronde van de opstartvulling.
  */
+@Startup
 @ApplicationScoped
 class MagazijnDatabase(
     @param:DataSource("magazijn-a-db") private val magazijnA: AgroalDataSource,
     @param:DataSource("magazijn-b-db") private val magazijnB: AgroalDataSource,
+    config: DemoConfig,
 ) {
 
     private val bronnen: Map<String, JavaxDataSource> = mapOf(
         "magazijn-a" to magazijnA,
         "magazijn-b" to magazijnB,
     )
+
+    private val databasePerOin: Map<String, String> =
+        koppeling(config.magazijnen().mapValues { (_, magazijn) -> magazijn.database().orElse(null) }, bronnen.keys)
 
     fun leegAlles(): Map<String, Int> =
         bronnen.mapValues { (_, bron) ->
@@ -51,11 +62,14 @@ class MagazijnDatabase(
 
     fun aantallen(): Map<String, Int> = bronnen.mapValues { (_, bron) -> telBerichten(bron) }
 
+    /** De afzender-OIN's waarvan de console de database kent. */
+    fun magazijnOins(): Set<String> = databasePerOin.keys
+
     /**
      * Het aantal berichten in het magazijn achter deze afzender-OIN. Gooit zolang de database of de
      * tabel er niet is: op een verse omgeving maakt het magazijn die pas bij zijn eigen start aan.
      */
-    fun aantalVoor(magazijnOin: String): Int = telBerichten(bronnen.getValue(MAGAZIJN_PER_OIN.getValue(magazijnOin)))
+    fun aantalVoor(magazijnOin: String): Int = telBerichten(bronnen.getValue(databasePerOin.getValue(magazijnOin)))
 
     // Het logboek staat in %prod ín het magazijn-schema. Blijft het staan, dan toont het LDV na een
     // herstel nog de verwerkingen van de vorige demo terwijl de berichten weg zijn — en juist dat
@@ -86,16 +100,31 @@ class MagazijnDatabase(
 
     private fun eersteInt(rs: ResultSet): Int = if (rs.next()) rs.getInt(1) else 0
 
-    companion object {
+    internal companion object {
 
         /**
-         * Welke database bij welke afzender-OIN hoort: dezelfde paren als `demo.magazijnen` en de
-         * datasources in `application.properties`, bewaakt door `DemoDatasetConsistentieTest`. Een
-         * verwisseling telt het ene magazijn en vult het andere.
+         * Toetst de koppeling afzender-OIN → database en geeft alleen de gekoppelde OIN's terug.
+         *
+         * Elke database hoort bij hooguit één OIN: deelden twee magazijnen er één, dan houdt de
+         * telling van het ene de opstartvulling van het andere tegen. `check` en niet `require`: dit
+         * is een fout in de configuratie, en de melding noemt daarom de sleutel.
          */
-        val MAGAZIJN_PER_OIN: Map<String, String> = mapOf(
-            "00000000000000100000" to "magazijn-a",
-            "00000001823288444000" to "magazijn-b",
-        )
+        fun koppeling(databasePerOin: Map<String, String?>, bekend: Set<String>): Map<String, String> {
+            val gekoppeld = databasePerOin.filterValues { it != null }.mapValues { (_, database) -> database!! }
+
+            gekoppeld.forEach { (oin, database) ->
+                check(database in bekend) {
+                    "demo.magazijnen.\"$oin\".database is '$database'; kies uit ${bekend.sorted().joinToString(", ")}"
+                }
+            }
+
+            gekoppeld.entries.groupBy({ it.value }, { it.key }).forEach { (database, oins) ->
+                check(oins.size == 1) {
+                    "database '$database' staat bij meer dan één magazijn: ${oins.sorted().joinToString(", ")}"
+                }
+            }
+
+            return gekoppeld
+        }
     }
 }

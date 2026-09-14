@@ -146,15 +146,22 @@ class DemoDatasetConsistentieTest {
     /**
      * De opstartvulling telt per database en vult per afzender-OIN. Loopt die koppeling uiteen, dan
      * vult hij een magazijn op grond van de telling van het andere: dubbel, of nooit. Op letter en
-     * niet alleen op aanwezigheid, want een verwisseling van A en B laat beide kanten compleet.
+     * niet alleen op aanwezigheid, want een verwisseling van A en B laat beide kanten compleet — en
+     * die slaagt ook voor de toets die `MagazijnDatabase` bij de start doet.
      */
     @Test
-    fun `de opstartvulling koppelt elke OIN aan de database van hetzelfde magazijn`() {
-        val koppeling = MagazijnDatabase.MAGAZIJN_PER_OIN
+    fun `de configuratie koppelt elke OIN aan de database van hetzelfde magazijn`() {
         val eigenschappen = applicationProperties()
+        val koppeling = MagazijnDatabase.koppeling(
+            magazijnenUitConfig().associateWith { eigenschappen.getProperty("demo.magazijnen.\"$it\".database") },
+            setOf("magazijn-a", "magazijn-b"),
+        )
 
-        assertEquals(magazijnenUitConfig(), koppeling.keys)
-        assertEquals(koppeling.keys, Basisdataset(mapper).laad().map { it.magazijnOin }.toSet())
+        assertEquals(magazijnenUitConfig(), koppeling.keys, "elk magazijn hoort een database te hebben")
+        assertTrue(
+            koppeling.keys.containsAll(Basisdataset(mapper).laad().map { it.magazijnOin }),
+            "de basisdataset noemt een magazijn zonder database",
+        )
 
         koppeling.forEach { (oin, magazijn) ->
             val letter = magazijn.removePrefix("magazijn-").uppercase()
