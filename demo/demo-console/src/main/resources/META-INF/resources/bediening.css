@@ -542,6 +542,153 @@ body.ingeklapt #paneel {
     color: var(--bediening-color-accent-default);
 }
 
+/* Een kleur op een waarde zegt nooit iets dat de tekst zelf niet al zegt. */
+.infoblok {
+    margin: 0 0 var(--bediening-space-lg);
+}
+
+.infoblok__kop {
+    align-items: baseline;
+    display: flex;
+    gap: var(--bediening-space-sm);
+    margin-bottom: var(--bediening-space-xs);
+}
+
+.infoblok__titel {
+    flex: 1;
+    font-weight: 400;
+    margin: 0;
+}
+
+.infoblok__tijd {
+    color: var(--bediening-color-text-subtle);
+    font-size: var(--bediening-font-size-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+.infoblok__tijd[data-soort="let-op"] {
+    color: var(--bediening-color-feedback-warning-emphasis);
+}
+
+.infoknop {
+    background: transparent;
+    border: var(--bediening-border-width-xs) solid transparent;
+    border-radius: var(--bediening-border-radius-sm);
+    color: var(--bediening-color-text-subtle);
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--bediening-font-size-md);
+    line-height: 1;
+    padding: var(--bediening-space-2xs) var(--bediening-space-xs);
+}
+
+.infoknop:hover {
+    border-color: var(--bediening-color-accent-default);
+    color: var(--bediening-color-text-default);
+}
+
+/* Het teken draait en niet de knop: een draaiende knop neemt zijn focusring mee. */
+.infoknop__teken {
+    display: inline-block;
+}
+
+.infoknop[data-bezig="ja"] .infoknop__teken {
+    animation: bediening-draai 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .infoknop[data-bezig="ja"] .infoknop__teken {
+        animation: none;
+        opacity: 0.5;
+    }
+}
+
+.infolijst {
+    display: grid;
+    gap: var(--bediening-space-2xs) var(--bediening-space-md);
+    grid-template-columns: max-content 1fr;
+    margin: 0;
+}
+
+.infolijst dt {
+    color: var(--bediening-color-text-subtle);
+}
+
+.infolijst dd {
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.infolijst dd[data-soort="let-op"] {
+    color: var(--bediening-color-feedback-warning-emphasis);
+}
+
+.infolijst dd[data-soort="fout"] {
+    color: var(--bediening-color-feedback-error-emphasis);
+}
+
+.infoblok__details {
+    color: var(--bediening-color-text-subtle);
+    font-size: var(--bediening-font-size-sm);
+    margin-top: var(--bediening-space-sm);
+}
+
+.infoblok__details summary {
+    cursor: pointer;
+}
+
+/* Honderd rijen passen niet in deze kolom; de tabel schuift zelf, met de kop erboven vast. */
+.infotabel {
+    margin-top: var(--bediening-space-xs);
+    max-height: 20rem;
+    overflow: auto;
+}
+
+.infotabel table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.infotabel th,
+.infotabel td {
+    border-bottom: var(--bediening-border-width-xs) solid var(--bediening-color-border-subtle);
+    padding: var(--bediening-space-2xs) var(--bediening-space-xs);
+    text-align: left;
+    vertical-align: top;
+}
+
+.infotabel th {
+    background: var(--bediening-color-background-default);
+    font-weight: 400;
+    position: sticky;
+    top: 0;
+}
+
+.infotabel td {
+    color: var(--bediening-color-text-default);
+}
+
+.infotabel td:nth-child(2) {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.infotabel tr[data-soort="let-op"] td:last-child {
+    color: var(--bediening-color-feedback-warning-emphasis);
+}
+
+/* Vaste breedte, zodat "ja" en "nee" onder elkaar beginnen ongeacht welk teken ervoor staat. */
+.infoteken {
+    display: inline-block;
+    width: 1.2em;
+}
+
+.infoteken[data-soort="goed"] {
+    color: var(--bediening-color-feedback-success-emphasis);
+}
+
 /* Eén zichtbare focusstijl voor alles wat focus kan krijgen; de gele ring haalt op elke
    achtergrond in dit paneel ruim het vereiste contrast. */
 :focus-visible {

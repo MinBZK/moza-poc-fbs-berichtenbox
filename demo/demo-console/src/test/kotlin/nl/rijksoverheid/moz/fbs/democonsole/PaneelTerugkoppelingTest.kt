@@ -698,9 +698,10 @@ class PaneelTerugkoppelingTest {
     }
 
     /**
-     * "Berichtenbox verversen" en "Nu bijwerken" roepen geen adres aan en krijgen dus geen merkteken
-     * — dat hangt alleen aan `button[data-pad]`. De meldingsbalk is voor hen het enige kanaal, ook in
-     * de gevallen waarin ze niets te doen hebben: een verborgen berichtenbox, of een actie die loopt.
+     * "Berichtenbox verversen" en de ↻ bij berichten, stroom en storingen roepen geen adres aan en krijgen
+     * dus geen merkteken — dat hangt alleen aan `button[data-pad]`. Naast het draaiende teken van ↻ is de
+     * meldingsbalk voor hen het kanaal, ook in de gevallen waarin ze niets te doen hebben: een verborgen
+     * berichtenbox, of een actie die loopt.
      */
     @Test
     fun `ook een knop zonder adres antwoordt als hij niets te doen heeft`() {

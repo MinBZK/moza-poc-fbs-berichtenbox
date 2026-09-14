@@ -55,20 +55,125 @@
       </div>
 
       <div class="tabs" role="tablist" aria-label="Bediening">
+        <button type="button" class="tab" role="tab" id="tab-info"
+                aria-controls="blad-info" aria-selected="true">Info</button>
         <button type="button" class="tab" role="tab" id="tab-demo"
-                aria-controls="blad-demo" aria-selected="true">Demo</button>
+                aria-controls="blad-demo" aria-selected="false" tabindex="-1">Demo</button>
         <button type="button" class="tab" role="tab" id="tab-storingen"
                 aria-controls="blad-storingen" aria-selected="false" tabindex="-1">Storingen</button>
         <button type="button" class="tab" role="tab" id="tab-scenarios"
                 aria-controls="blad-scenarios" aria-selected="false" tabindex="-1">Scenario&rsquo;s</button>
-        <button type="button" class="tab" role="tab" id="tab-info"
-                aria-controls="blad-info" aria-selected="false" tabindex="-1">Info</button>
       </div>
     </div>
 
     <div class="tabinhoud">
 
-      <section role="tabpanel" id="blad-demo" aria-labelledby="tab-demo" tabindex="0">
+      <!-- Elk blok draagt zijn sleutel uit INFO_BLOKKEN in bediening.js; de id's eronder volgen die
+           sleutel. De vier toestand-blokken delen hun uitlezing met de balk bovenaan, dus hun ↻ werkt
+           ze alle vier tegelijk bij; omgeving en persona's komen samen uit het inrichten. -->
+      <section role="tabpanel" id="blad-info" aria-labelledby="tab-info" tabindex="0">
+        <div class="infoblok" data-info="berichten">
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Berichten per magazijn</h2>
+            <span class="infoblok__tijd" id="info-berichten-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="ververs-toestand"
+                    aria-label="Berichten, stroom, storingen en componenten nu bijwerken"
+                    title="Berichten, stroom, storingen en componenten nu bijwerken"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-berichten-inhoud"></div>
+        </div>
+
+        <div class="infoblok" data-info="stroom">
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Stroom</h2>
+            <span class="infoblok__tijd" id="info-stroom-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="ververs-toestand"
+                    aria-label="Berichten, stroom, storingen en componenten nu bijwerken"
+                    title="Berichten, stroom, storingen en componenten nu bijwerken"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-stroom-inhoud"></div>
+        </div>
+
+        <div class="infoblok" data-info="storingen">
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Storingen</h2>
+            <span class="infoblok__tijd" id="info-storingen-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="ververs-toestand"
+                    aria-label="Berichten, stroom, storingen en componenten nu bijwerken"
+                    title="Berichten, stroom, storingen en componenten nu bijwerken"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-storingen-inhoud"></div>
+        </div>
+
+        <div class="infoblok" data-info="componenten">
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Componenten</h2>
+            <span class="infoblok__tijd" id="info-componenten-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="ververs-toestand"
+                    aria-label="Berichten, stroom, storingen en componenten nu bijwerken"
+                    title="Berichten, stroom, storingen en componenten nu bijwerken"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-componenten-inhoud"></div>
+        </div>
+
+        <div class="infoblok" data-info="simulator" data-simulator>
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Gesimuleerde magazijnen</h2>
+            <span class="infoblok__tijd" id="info-simulator-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="ververs-simulator"
+                    aria-label="Gesimuleerde magazijnen nu bijwerken"
+                    title="Gesimuleerde magazijnen nu bijwerken"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-simulator-inhoud"></div>
+          <details class="infoblok__details" id="info-simulator-details" hidden>
+            <summary id="info-simulator-samenvatting">Alle magazijnen</summary>
+            <div class="infotabel">
+              <table>
+                <thead>
+                  <tr><th scope="col">Naam</th><th scope="col">OIN</th><th scope="col">Gedrag</th></tr>
+                </thead>
+                <tbody id="info-simulator-rijen"></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+
+        <div class="infoblok" data-info="omgeving">
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Knoppen in deze omgeving</h2>
+            <span class="infoblok__tijd" id="info-omgeving-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="omgeving-opnieuw"
+                    aria-label="Omgeving en persona&rsquo;s opnieuw lezen"
+                    title="Omgeving en persona&rsquo;s opnieuw lezen"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-omgeving-inhoud"></div>
+        </div>
+
+        <div class="infoblok" data-info="personas">
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Persona&rsquo;s</h2>
+            <span class="infoblok__tijd" id="info-personas-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="omgeving-opnieuw"
+                    aria-label="Omgeving en persona&rsquo;s opnieuw lezen"
+                    title="Omgeving en persona&rsquo;s opnieuw lezen"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-personas-inhoud"></div>
+        </div>
+
+        <p class="uitleg">Berichten, stroom, storingen en componenten werken zich elke vijf seconden bij,
+          net als de balk bovenaan. De gesimuleerde magazijnen volgen elke halve minuut en na elke actie,
+          zolang dit tabblad open staat; knoppen en persona&rsquo;s bij het laden en met &#8635;. Na een
+          refresh staat de laatste stand er meteen weer.</p>
+      </section>
+
+      <section role="tabpanel" id="blad-demo" aria-labelledby="tab-demo" tabindex="0" hidden>
         <div class="groep">
           <p class="groep__kop">Begin en einde</p>
           <div class="knoppen">
@@ -262,39 +367,6 @@
             kleinere sets zitten volledig in de grotere, zodat het verschil in wachttijd puur door
             het aantal komt. Het ingerichte aantal ligt vast bij genereren en opstarten
             (<code>DEMO_MAGAZIJNEN</code>) en de simulator vertelt zelf hoeveel het er zijn.</p>
-        </div>
-      </section>
-
-      <section role="tabpanel" id="blad-info" aria-labelledby="tab-info" tabindex="0" hidden>
-        <div class="groep">
-          <p class="groep__kop">Uitlezen</p>
-          <div class="knoppen">
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/status"
-                    data-samenvatting="berichten">Berichten per magazijn</button>
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/tempo"
-                    data-samenvatting="tempo">Stroom</button>
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/storing"
-                    data-samenvatting="storingen">Storingen</button>
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
-                    data-samenvatting="omgeving">Omgeving</button>
-            <!-- Uit /api/demo/omgeving en niet uit /api/demo/personas: dat adres hoort bij de
-                 personadienst, en deze module beantwoordt het met 404. -->
-            <button type="button" class="knop" data-methode="GET" data-pad="/api/demo/omgeving"
-                    data-samenvatting="personas">Persona&rsquo;s</button>
-            <button type="button" class="knop" data-simulator data-methode="GET"
-                    data-pad="/api/demo/simulator/magazijnen"
-                    data-samenvatting="simulator-magazijnen">Gesimuleerde magazijnen</button>
-          </div>
-          <p class="uitleg">De volledige JSON staat onder <em>Antwoord van de console</em> in de
-            melding bovenaan.</p>
-        </div>
-
-        <div class="groep">
-          <p class="groep__kop">Toestandsbalk</p>
-          <div class="knoppen">
-            <button type="button" class="knop knop--subtiel" data-actie="ververs-toestand">Nu bijwerken</button>
-          </div>
-          <p class="uitleg">De balk bovenaan werkt zichzelf elke vijf seconden bij en na elke actie.</p>
         </div>
       </section>
 

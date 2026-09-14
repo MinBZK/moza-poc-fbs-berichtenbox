@@ -329,6 +329,14 @@ Daaronder verschijnt de uitkomst van je laatste actie, samengevat in één regel
 JSON uitklapbaar eronder. De knop die je indrukte houdt zelf een ✓ of ✗ vast. Destructieve knoppen
 vragen om bevestiging in het paneel; de vraag noemt wat er precies gebeurt.
 
+**Tabblad Info** — staat voorop en toont de toestand zonder dat je erom vraagt: berichten per
+magazijn, de stroom, de storingen, of elk component zelf antwoordt, de gesimuleerde magazijnen
+(telling per gedrag, de volledige lijst uitklapbaar), welke knopgroepen deze omgeving draagt (en
+waarom er een ontbreekt), en de persona's met per persona of er een echt magazijn voor is — alleen
+die staan in *Bericht plaatsen*. Elk blok zegt wanneer het bijgewerkt is en heeft
+een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand staan en zegt dat.
+Na een refresh staat die stand er direct weer.
+
 **Tabblad Demo**
 - *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg en
   laadt de basisvulling opnieuw; in één klik terug naar de begintoestand.
@@ -355,9 +363,6 @@ de simulator.
 409 tot je opnieuw ophaalt), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
-
-**Tabblad Info** — de losse uitlezingen (berichten, stroom, storingen, omgeving, persona's) voor als
-je de ruwe JSON wilt zien.
 
 ### Hetzelfde paneel op ZAD
 
