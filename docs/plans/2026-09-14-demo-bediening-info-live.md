@@ -18,10 +18,10 @@ las diezelfde gegevens al elke vijf seconden, maar toonde ze alleen als korte ch
 |---|---|---|
 | Echte magazijnen | `/api/demo/status` | mee met de poll van de toestandsbalk (5 s) |
 | Gesimuleerde magazijnen | `/api/demo/simulator/magazijnen` (met berichten per magazijn uit het beheerpad van de simulator) | elke 30 s en na elke actie, alleen terwijl het blad in beeld is |
+| Persona's | `/api/demo/omgeving` | bij het inrichten, ↻ leest opnieuw via `richtIn(true)`; tabel met per persona of er een echt magazijn voor is |
 | Stroom | `/api/demo/tempo` | mee met de poll van de toestandsbalk (5 s) |
 | Storingen | `/api/demo/storing` | idem |
 | Componenten | `/api/demo/bereikbaarheid` | idem |
-| Persona's | `/api/demo/omgeving` | bij het inrichten, ↻ leest opnieuw via `richtIn(true)`; tabel met per persona of er een echt magazijn voor is |
 
 - De uitlees-knoppen en hun samenvatters (`berichten`, `storingen`, `omgeving`, `personas`,
   `simulator-magazijnen`) zijn weg; geen andere knop gebruikte ze.
@@ -41,8 +41,10 @@ las diezelfde gegevens al elke vijf seconden, maar toonde ze alleen als korte ch
 - **De simulatortabel staat statisch in de opmaak**; alleen de rijen worden vervangen, zodat een
   uitgeklapte lijst bij een verversing open blijft.
 - **Geen blok over ontbrekende knoppen.** Een tussenversie toonde welke knopgroepen deze omgeving
-  draagt en waarom er een ontbreekt. Die uitleg hoort bij de knop zelf: knoppen die hier niet kunnen
-  worden in een eigen wijziging zichtbaar uitgeschakeld met hun reden, in plaats van verborgen.
+  draagt en waarom er een ontbreekt. Dat voegde te weinig toe: met MinBZK/MijnOverheidZakelijk#1029
+  werken de storings- en cache-verval-knoppen ook op ZAD, en valt de reden om ze te verbergen weg.
+- **Persona's direct onder de magazijnen.** Wie een persona kiest, wil zien bij welke magazijnen die
+  berichten kan hebben; stroom, storingen en componenten zijn toestand van de keten en staan eronder.
 
 ## Verificatie
 

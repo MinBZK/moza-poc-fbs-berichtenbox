@@ -1555,10 +1555,10 @@ const MODUS_VOLGORDE = ['NORMAAL', 'TRAAG', 'HAPERT', 'WEIGERT', 'MALFORMED', 'S
 const INFO_BLOKKEN = {
     berichten: { teken: tekenBerichten },
     simulator: { teken: tekenSimulator },
+    personas: { teken: tekenPersonas, bewaarbaar: personaInfo },
     stroom: { teken: tekenStroom },
     storingen: { teken: tekenStoringen },
     componenten: { teken: tekenComponenten },
-    personas: { teken: tekenPersonas, bewaarbaar: personaInfo },
 };
 
 /* `null` is een mislukte uitlezing: de vorige inhoud blijft dan staan en alleen het tijdlabel zegt

@@ -55,12 +55,13 @@ class PaneelInfoTest {
     @Test
     fun `elk info-blok heeft inhoud, een tijdlabel en een ververs-knop in de opmaak`() {
         assertEquals(
-            listOf("berichten", "simulator", "stroom", "storingen", "componenten", "personas"),
+            listOf("berichten", "simulator", "personas", "stroom", "storingen", "componenten"),
             blokken,
             "INFO_BLOKKEN is veranderd; klopt deze test nog?",
         )
 
-        // Dezelfde volgorde in de opmaak: de echte en de gesimuleerde magazijnen horen onder elkaar.
+        // Dezelfde volgorde in de opmaak: de echte en de gesimuleerde magazijnen onder elkaar, met de
+        // persona's die ervan ontvangen er direct onder.
         assertEquals(
             blokken,
             Regex("""data-info="(\w+)"""").findAll(paneel).map { it.groupValues[1] }.toList(),
