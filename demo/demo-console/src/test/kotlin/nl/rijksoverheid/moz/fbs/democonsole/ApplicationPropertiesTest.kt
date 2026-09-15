@@ -6,7 +6,7 @@ import java.io.File
 import java.util.Properties
 
 /**
- * Pint vier eigenschappen van `application.properties` die alleen buiten een testomgeving stuk
+ * Pint vijf eigenschappen van `application.properties` die alleen buiten een testomgeving stuk
  * kunnen gaan.
  *
  * De eerste: de scheduler start geforceerd. `SchedulerTempoKlok` plant zijn tik-taak uitsluitend
@@ -47,6 +47,14 @@ class ApplicationPropertiesTest {
         // de storingsknoppen, de foutieve aanlevering — worden dan onbereikbaar, en een 503 van een
         // magazijn komt als exception binnen in plaats van als antwoord.
         assertEquals("true", properties.getProperty("microprofile.rest.client.disable.default.mapper"))
+    }
+
+    @Test
+    fun `de opstartvulling staat alleen onder test uit`() {
+        // De datasource- en magazijn-defaults wijzen naar dezelfde poorten als een lokaal draaiende
+        // demo-stack; een @QuarkusTest met deze vulling aan zet daar berichten neer.
+        assertEquals("\${OPSTARTVULLING_ACTIEF:true}", properties.getProperty("opstartvulling.actief"))
+        assertEquals("false", properties.getProperty("%test.opstartvulling.actief"))
     }
 
     @Test

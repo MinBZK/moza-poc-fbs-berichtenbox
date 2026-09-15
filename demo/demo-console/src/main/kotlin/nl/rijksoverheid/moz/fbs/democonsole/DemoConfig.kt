@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import io.smallrye.config.ConfigMapping
+import java.util.Optional
 
 /**
  * Alles wat onder de prefix `demo` staat. Elke `demo.*`-property moet op een member van een
@@ -12,12 +13,18 @@ import io.smallrye.config.ConfigMapping
 @ConfigMapping(prefix = "demo")
 interface DemoConfig {
 
-    /** Magazijn-aanlever-URL's, gesleuteld op afzender-OIN: `demo.magazijnen."<OIN>".url`. */
+    /** De echte magazijnen, gesleuteld op afzender-OIN: `demo.magazijnen."<OIN>".{url,database}`. */
     fun magazijnen(): Map<String, Magazijn>
 
     interface Magazijn {
 
         fun url(): String
+
+        /**
+         * De database van dit magazijn, bij de naam die de console ervoor gebruikt (`magazijn-a`).
+         * Afwezig: de console kan dit magazijn niet tellen en vult het niet bij het opstarten.
+         */
+        fun database(): Optional<String>
     }
 
 }
