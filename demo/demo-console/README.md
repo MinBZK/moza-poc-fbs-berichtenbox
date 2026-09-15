@@ -67,10 +67,10 @@ heeft zijn eigen database.
 
 ## De knoppen
 
-Vier tabbladen. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom, storingen,
-componenten en gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand hoeft te
-vragen, en een melding met de uitkomst van je laatste actie. De knop die je indrukte houdt zelf even
-een ✓ of ✗ vast.
+Vier tabbladen, met Info voorop. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom,
+storingen, componenten en gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand
+hoeft te vragen, en een melding met de uitkomst van je laatste actie. De knop die je indrukte houdt
+zelf even een ✓ of ✗ vast.
 
 *Storingen* en *componenten* zeggen elk iets anders. *Storingen* toont wat Toxiproxy op de lijn naar
 een component aanzet; *componenten* vraagt elk component zelf om zijn readiness en wordt rood met de
@@ -79,6 +79,7 @@ staat — of dat op een gedeelde omgeving geen proxy heeft — zie je alleen in 
 
 | Tabblad | Knop | Wat het doet |
 |---|---|---|
+| Info | ↻ per blok | Toont zonder te vragen de berichten in de echte magazijnen, daaronder de gesimuleerde magazijnen (berichten in totaal, telling per gedrag, en uitklapbaar per magazijn met zijn berichten), de persona's met per persona of er een echt magazijn voor is, de stroom, de storingen en de componenten. Berichten, stroom, storingen en componenten lezen mee met de toestandsbalk; de gesimuleerde magazijnen volgen elke 30 seconden en na elke actie, zolang het tabblad open staat; persona's bij het laden. ↻ werkt een blok meteen bij. Elk blok zegt wanneer het bijgewerkt is, en een mislukte uitlezing laat de vorige stand staan met die melding erbij |
 | Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee en krijgen daarna hun standaardvulling terug; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo* |
@@ -90,8 +91,6 @@ staat — of dat op een gedeelde omgeving geen proxy heeft — zie je alleen in 
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
 | Scenario's | Gesimuleerde magazijnen | Zet *k* van de *n* zonder storing, zet berichten klaar, en leegt alles inclusief het gedrag; *n* vraagt de console aan de simulator zelf |
-| Info | Gesimuleerde magazijnen | Toont hoe elk gesimuleerd magazijn zich gedraagt |
-| Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
 
 Elke knop die iets aanroept levert een antwoord op. Een leeg of ongeldig invoerveld geeft een
 melding die het veld bij naam noemt (uit `data-veldnaam` in de opmaak) plus een ✗ op de knop, in

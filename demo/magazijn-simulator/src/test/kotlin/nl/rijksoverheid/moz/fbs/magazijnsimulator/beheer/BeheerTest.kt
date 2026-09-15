@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.everyItem
 import org.hamcrest.Matchers.greaterThan
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasSize
@@ -44,6 +45,42 @@ class BeheerTest : MagazijnTestBasis() {
             .statusCode(200)
             .body("oin", hasItem(MAGAZIJN))
             .body("findAll { it.oin == '$MAGAZIJN' }.modus", hasItem("NORMAAL"))
+    }
+
+    /**
+     * Per magazijn en niet als één getal voor de hele set: een extra aanlevering bij het eerste
+     * magazijn hoort alleen dáár mee te tellen. Vóór het vullen staat elk magazijn op nul — in het
+     * overzicht, en niet weggelaten omdat de telling voor dat magazijn geen rij oplevert.
+     */
+    @Test
+    fun `het overzicht telt de berichten per magazijn`() {
+        given().`when`().get("/beheer/magazijnen")
+            .then().statusCode(200)
+            .body("berichten", everyItem(equalTo(0)))
+
+        seed(aantal = 3, ontvangers = listOf(ONTVANGER, TWEEDE_ONTVANGER))
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(
+                """
+                {
+                  "afzender": "$MAGAZIJN",
+                  "ontvanger": {"type": "KVK", "waarde": "90000001"},
+                  "onderwerp": "Eén extra",
+                  "inhoud": "Alleen voor het eerste magazijn."
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/magazijn/$MAGAZIJN/api/v1/aanleveringen")
+            .then()
+            .statusCode(201)
+
+        given().`when`().get("/beheer/magazijnen")
+            .then().statusCode(200)
+            .body("find { it.oin == '$MAGAZIJN' }.berichten", equalTo(7))
+            .body("findAll { it.oin != '$MAGAZIJN' }.berichten", hasSize<Int>(greaterThan(0)))
+            .body("findAll { it.oin != '$MAGAZIJN' }.berichten", everyItem(equalTo(6)))
     }
 
     @Test

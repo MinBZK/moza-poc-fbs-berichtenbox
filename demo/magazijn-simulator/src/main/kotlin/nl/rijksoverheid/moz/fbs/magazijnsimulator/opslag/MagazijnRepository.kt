@@ -84,6 +84,21 @@ class MagazijnRepository : PanacheRepositoryBase<MagazijnEntity, Long> {
     }
 
     /**
+     * Het aantal berichten per magazijn-OIN, in één query voor de hele set: het paneel leest dit elke
+     * halve minuut, en honderd losse tellingen zijn honderd rondjes naar de database. Gegroepeerd op
+     * magazijn, dus zonder dat het ene magazijn in de telling van het andere lekt. Een magazijn zonder
+     * berichten staat er niet in.
+     *
+     * Verwijderde berichten tellen mee, net als in de telling van de echte magazijnen in de console:
+     * het gaat om wat er in de opslag staat, zodat de twee blokken in het paneel vergelijkbaar zijn.
+     */
+    fun berichtenPerMagazijn(): Map<String, Int> =
+        getEntityManager()
+            .createQuery("select b.magazijn.oin, count(b) from BerichtEntity b group by b.magazijn.oin", Array<Any>::class.java)
+            .resultList
+            .associate { rij -> rij[0] as String to (rij[1] as Long).toInt() }
+
+    /**
      * De entity-referentie voor een FK, zonder de rij te laden. `getReference` levert een proxy —
      * genoeg om een `magazijn_db_id` te zetten, en het scheelt een select per aanlevering.
      */
