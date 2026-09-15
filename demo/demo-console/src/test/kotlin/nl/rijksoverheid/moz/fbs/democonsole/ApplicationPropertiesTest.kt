@@ -1,13 +1,17 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import java.io.File
 import java.util.Properties
 
 /**
- * Pint vier eigenschappen van `application.properties` die alleen buiten een testomgeving stuk
- * kunnen gaan.
+ * Pint eigenschappen van `application.properties` die alleen buiten een testomgeving stuk kunnen
+ * gaan.
  *
  * De eerste: de scheduler start geforceerd. `SchedulerTempoKlok` plant zijn tik-taak uitsluitend
  * programmatisch (`Scheduler.newJob(...)`), en zonder een gestarte scheduler gooit `newJob()` een
@@ -55,5 +59,61 @@ class ApplicationPropertiesTest {
         // een mapping-member vallen, anders faalt het booten met SRCFG00050. Deze waarde hoort bij
         // geen enkele mapping, dus hij staat er bewust naast.
         assertEquals("\${TOXIPROXY_RECONCILE_INTERVAL:30s}", properties.getProperty("toxiproxy.reconcile-interval"))
+    }
+
+    /**
+     * De bereikbaarheid controleert standaard hetzelfde adres dat de console al voor dat component
+     * gebruikt. Afgeleid en niet overgeschreven: een omgeving die alleen `MAGAZIJN_A_URL` verzet,
+     * hoort niet een ánder magazijn gezond te zien dan het magazijn waar ze aan levert.
+     */
+    @ParameterizedTest
+    @MethodSource("bereikbaarheidsbronnen")
+    fun `de bereikbaarheid valt terug op het adres dat de console al gebruikt`(
+        component: String,
+        variabele: String,
+        bron: String,
+    ) {
+        val adres = properties.getProperty(bron)
+
+        assertNotNull(adres, "bron $bron ontbreekt in application.properties")
+        assertEquals("\${$variabele:$adres}", properties.getProperty("demo.bereikbaarheid.\"$component\".url"))
+    }
+
+    @Test
+    fun `de personadienst wordt standaard op zijn eigen poort gecontroleerd`() {
+        // Uit de module zelf gelezen: verzet iemand die poort, dan staat de chip anders lokaal
+        // blijvend op onbereikbaar terwijl de dienst gewoon draait.
+        // In microprofile-config.properties: demo-personas is ook een jar die deze console inleest, en
+        // een application.properties in die jar zou de configuratie van de console overschaduwen.
+        val personas = Properties().apply {
+            File("../demo-personas/src/main/resources/META-INF/microprofile-config.properties").inputStream()
+                .use { load(it) }
+        }
+        val poort = personas.getProperty("quarkus.http.port")
+
+        assertNotNull(poort, "demo-personas noemt geen quarkus.http.port")
+        assertEquals(
+            "\${BEREIKBAARHEID_PERSONADIENST_URL:http://localhost:$poort}",
+            properties.getProperty("demo.bereikbaarheid.\"personadienst\".url"),
+        )
+    }
+
+    @Test
+    fun `de achtergrondcontrole staat buiten de demo-prefix en onder test uit`() {
+        // Buiten `demo.*` om de reden die bij de reconcile-interval staat. Onder test draait geen
+        // component, dus elke ronde zou alleen waarschuwingen in de testuitvoer zetten.
+        assertEquals("\${BEREIKBAARHEID_INTERVAL:30s}", properties.getProperty("bereikbaarheid.controle-interval"))
+        assertEquals("off", properties.getProperty("%test.bereikbaarheid.controle-interval"))
+    }
+
+    private companion object {
+
+        @JvmStatic
+        fun bereikbaarheidsbronnen() = listOf(
+            Arguments.of("magazijn-a", "BEREIKBAARHEID_MAGAZIJN_A_URL", "demo.magazijnen.\"00000000000000100000\".url"),
+            Arguments.of("magazijn-b", "BEREIKBAARHEID_MAGAZIJN_B_URL", "demo.magazijnen.\"00000001823288444000\".url"),
+            Arguments.of("uitvraag", "BEREIKBAARHEID_UITVRAAG_URL", "quarkus.rest-client.uitvraag.url"),
+            Arguments.of("simulator", "BEREIKBAARHEID_SIMULATOR_URL", "quarkus.rest-client.magazijnsimulator.url"),
+        )
     }
 }
