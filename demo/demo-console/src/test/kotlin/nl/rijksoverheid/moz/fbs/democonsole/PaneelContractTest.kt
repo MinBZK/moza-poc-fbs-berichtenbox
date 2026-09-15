@@ -8,6 +8,9 @@ import jakarta.inject.Singleton
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.MagazijnClients
+import nl.rijksoverheid.moz.fbs.democonsole.bereikbaarheid.Bereikbaarheid
+import nl.rijksoverheid.moz.fbs.democonsole.bereikbaarheid.BereikbaarheidConfig
+import nl.rijksoverheid.moz.fbs.democonsole.bereikbaarheid.BereikbaarheidService
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.AanmeldWebhookClient
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingResultaat
@@ -58,6 +61,9 @@ class PaneelContractTest {
 
     @TestHTTPResource("/api/demo/simulator")
     lateinit var simulatorUrl: URL
+
+    @TestHTTPResource("/api/demo/bereikbaarheid")
+    lateinit var bereikbaarheidUrl: URL
 
     @TestHTTPResource("/api/demo/omgeving")
     lateinit var omgevingUrl: URL
@@ -148,6 +154,16 @@ class PaneelContractTest {
         assertEquals(
             """{"magazijn-a":"normaal","magazijn-b":"traag","redis":"uit","profiel":"onbekend"}""",
             haalJson(storingUrl),
+        )
+    }
+
+    @Test
+    fun `de bereikbaarheid komt per component in kleine letters over de lijn`() {
+        // Het paneel filtert op de letterlijke tekst `bereikbaar`; in hoofdletters leest élk
+        // component als onbereikbaar en staat de chip de hele demo op rood.
+        assertEquals(
+            """{"magazijn-a":"bereikbaar","magazijn-b":"niet-gereed","uitvraag":"onbereikbaar"}""",
+            haalJson(bereikbaarheidUrl),
         )
     }
 
@@ -711,6 +727,19 @@ class VasteStoringService(register: ToxiproxyRegister) : StoringService(register
         "magazijn-b" to Storingstoestand.TRAAG,
         "redis" to Storingstoestand.UIT,
         "profiel" to Storingstoestand.ONBEKEND,
+    )
+}
+
+/** Vaste bereikbaarheid in plaats van echte controles; alle drie de toestanden komen langs. */
+@Mock
+@Singleton
+class VasteBereikbaarheidService(config: BereikbaarheidConfig, omgeving: OmgevingConfig) :
+    BereikbaarheidService(config, omgeving) {
+
+    override fun status(): Map<String, Bereikbaarheid> = linkedMapOf(
+        "magazijn-a" to Bereikbaarheid.BEREIKBAAR,
+        "magazijn-b" to Bereikbaarheid.NIET_GEREED,
+        "uitvraag" to Bereikbaarheid.ONBEREIKBAAR,
     )
 }
 

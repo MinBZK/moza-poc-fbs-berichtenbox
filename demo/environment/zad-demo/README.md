@@ -127,8 +127,13 @@ MAGAZIJN_B_DB_USER: $DATABASE_SERVER_USER
 MAGAZIJN_B_DB_PASSWORD: $DATABASE_PASSWORD
 UITVRAAG_BASIS: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1
 UITVRAAG_URL: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
+BEREIKBAARHEID_PERSONADIENST_URL: http://$DEPLOYMENT_NAME-demopersonas:8098
 '
 ```
+
+`BEREIKBAARHEID_PERSONADIENST_URL` is alleen voor de chip *componenten*: de console roept de
+personadienst verder nergens aan en heeft dus geen adres om op terug te vallen. Zonder deze regel
+staat de personadienst in het paneel op onbereikbaar, ook als hij draait.
 
 Kies een tag die echt bestaat: `deploy.yml` pusht `main-<sha7>` en `pr-<n>-<sha7>`, nooit een kale
 `:main`. De eerstvolgende merge naar main werkt hem alsnog bij.

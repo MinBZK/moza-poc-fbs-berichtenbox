@@ -934,6 +934,29 @@ function toonMagazijnen(veel) {
     markeerTab('tab-scenarios', beperkt);
 }
 
+/* Of de componenten zelf antwoorden. Los van de storingen-chip: die zegt wat Toxiproxy op de lijn
+ * aanzet, deze wat er aan de overkant draait. Op een gedeelde omgeving hebben de magazijnen geen
+ * proxy, en is dit de enige plek waar een plat magazijn zichtbaar wordt. */
+function toonBereikbaarheid(bereikbaarheid) {
+    if (!bereikbaarheid) return zetChip('chip-bereikbaarheid', 'onbekend', 'let-op');
+
+    const componenten = Object.entries(bereikbaarheid);
+
+    // Nul componenten is iets anders dan alles bereikbaar: er wordt dan niets bewaakt, en groen is
+    // daar een geruststelling die nergens op slaat.
+    if (!componenten.length) return zetChip('chip-bereikbaarheid', 'niet ingericht', null);
+
+    const afwijkend = componenten.filter(([, toestand]) => toestand !== 'bereikbaar');
+
+    if (!afwijkend.length) return zetChip('chip-bereikbaarheid', 'alle bereikbaar', 'goed');
+
+    zetChip(
+        'chip-bereikbaarheid',
+        afwijkend.map(([component, toestand]) => naam(component) + ' ' + toestand.replace('-', ' ')).join(' · '),
+        'fout',
+    );
+}
+
 /* Elke uitlezing valt apart terug: een endpoint dat niet antwoordt maakt alleen zijn eigen chip
  * onbekend, want juist bij een storing wil je de overige tellingen nog zien. */
 async function verversToestand(metHand) {
@@ -947,10 +970,11 @@ async function verversToestand(metHand) {
 
     const beurt = ++ververslus;
 
-    const [status, tempo, storingen, veel] = await Promise.all([
+    const [status, tempo, storingen, bereikbaarheid, veel] = await Promise.all([
         lees('/api/demo/status'),
         lees('/api/demo/tempo'),
         lees('/api/demo/storing'),
+        lees('/api/demo/bereikbaarheid'),
         // Niet vragen naar wat deze omgeving niet heeft: dat levert elke vijf seconden een fout in
         // het log op, zonder dat er iets te tonen valt.
         heeftSimulator === false ? null : lees('/api/demo/simulator'),
@@ -968,13 +992,14 @@ async function verversToestand(metHand) {
     toonBerichten(status);
     toonStroom(tempo);
     toonStoringen(storingen);
+    toonBereikbaarheid(bereikbaarheid);
     toonMagazijnen(veel);
 
     if (!metHand) return;
 
     // Anders is een druk op de knop alleen te zien wanneer er toevallig iets veranderde — en groen
     // terwijl elke chip op "onbekend" staat is het verkeerde signaal.
-    const onleesbaar = [status, tempo, storingen].filter((antwoord) => antwoord === null).length;
+    const onleesbaar = [status, tempo, storingen, bereikbaarheid].filter((antwoord) => antwoord === null).length;
 
     if (onleesbaar === 0) toonMelding('Toestand bijgewerkt', 'goed', null);
     else toonMelding('Toestand bijgewerkt, maar ' + onleesbaar + ' uitlezing(en) kwamen niet door', 'let-op', null);
