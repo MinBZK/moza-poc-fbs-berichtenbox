@@ -55,7 +55,7 @@ class PaneelInfoTest {
     @Test
     fun `elk info-blok heeft inhoud, een tijdlabel en een ververs-knop in de opmaak`() {
         assertEquals(
-            listOf("berichten", "simulator", "stroom", "storingen", "componenten", "omgeving", "personas"),
+            listOf("berichten", "simulator", "stroom", "storingen", "componenten", "personas"),
             blokken,
             "INFO_BLOKKEN is veranderd; klopt deze test nog?",
         )
@@ -158,7 +158,7 @@ class PaneelInfoTest {
      * uitlezing krijgt, kan een ander getal tonen dan de balk erboven.
      */
     @Test
-    fun `de toestand-blokken lezen mee met de toestandsbalk en de omgeving met het inrichten`() {
+    fun `de toestand-blokken lezen mee met de toestandsbalk en de persona's met het inrichten`() {
         val toestand = functie("verversToestand")
 
         listOf(
@@ -170,7 +170,6 @@ class PaneelInfoTest {
             assertTrue("werkInfoBij('$sleutel', $antwoord);" in toestand, "info-blok $sleutel leest niet mee met de toestandsbalk")
         }
 
-        assertTrue("werkInfoBij('omgeving', omgeving);" in functie("pasOmgevingToe"), "het omgevingsblok leest niet mee met het inrichten")
         assertTrue("werkInfoBij('personas', omgeving);" in functie("pasOmgevingToe"), "het persona-blok leest niet mee met het inrichten")
         assertTrue(
             "werkInfoBij('simulator', bruikbaar ? magazijnen : null);" in functie("verversSimulator"),
@@ -203,32 +202,22 @@ class PaneelInfoTest {
      */
     @Test
     fun `de cache bewaart geen identificatienummer van een persona`() {
-        listOf("omgeving" to "omgevingInfo", "personas" to "personaInfo").forEach { (sleutel, snoeier) ->
-            val snoeien = functie(snoeier)
+        val snoeien = functie("personaInfo")
 
-            assertTrue(
-                Regex("""$sleutel: \{[^}]*bewaarbaar: $snoeier""").containsMatchIn(script),
-                "het blok $sleutel snoeit zijn antwoord niet vóór het bewaard wordt",
-            )
-            assertFalse("ontvanger" in snoeien, "$snoeier neemt de ontvanger van een persona over")
-            assertFalse(Regex("""\.\.\.\s*(omgeving|persona)""").containsMatchIn(snoeien), "$snoeier kopieert een heel antwoord")
-        }
+        assertTrue(
+            Regex("""personas: \{[^}]*bewaarbaar: personaInfo""").containsMatchIn(script),
+            "het persona-blok snoeit zijn antwoord niet vóór het bewaard wordt",
+        )
+        assertFalse("ontvanger" in snoeien, "personaInfo neemt de ontvanger van een persona over")
+        assertFalse(Regex("""\.\.\.\s*(omgeving|persona)""").containsMatchIn(snoeien), "personaInfo kopieert een heel antwoord")
 
         val bijwerken = functie("werkInfoBij")
 
         assertTrue("blok.bewaarbaar(antwoord)" in bijwerken, "werkInfoBij past bewaarbaar niet toe")
         assertTrue("stand.inhoud = nieuw;" in bijwerken, "werkInfoBij bewaart iets anders dan het gesnoeide antwoord")
 
-        // Een vaste set: een veld dat erbij komt, hoort hier bewust te worden goedgekeurd.
-        val velden = Regex("""^ {8}(\w+):""", RegexOption.MULTILINE)
-            .findAll(functie("omgevingInfo").substringAfterLast("return {"))
-            .map { it.groupValues[1] }
-            .toSet()
-
-        assertEquals(setOf("storingen", "simulator", "sessiecache"), velden, "omgevingInfo bewaart andere velden dan het blok toont")
-
         // Per persona precies het label en de vlag. De id koppelt de twee lijsten, maar gaat niet mee.
-        val perPersona = Regex("""\(\{([^}]*)}\)""").findAll(functie("personaInfo")).map { it.groupValues[1] }.toList()
+        val perPersona = Regex("""\(\{([^}]*)}\)""").findAll(snoeien).map { it.groupValues[1] }.toList()
 
         assertEquals(1, perPersona.size, "personaInfo bouwt een persona niet op precies één plek op")
         assertEquals(

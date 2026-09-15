@@ -1037,7 +1037,6 @@ async function pasOmgevingToe() {
 
     heeftSimulator = omgeving ? omgeving.simulator : true;
 
-    werkInfoBij('omgeving', omgeving);
     werkInfoBij('personas', omgeving);
 
     // Het adres van de berichtenbox komt uit ditzelfde antwoord. Is de console onbereikbaar, dan
@@ -1559,7 +1558,6 @@ const INFO_BLOKKEN = {
     stroom: { teken: tekenStroom },
     storingen: { teken: tekenStoringen },
     componenten: { teken: tekenComponenten },
-    omgeving: { teken: tekenOmgeving, bewaarbaar: omgevingInfo },
     personas: { teken: tekenPersonas, bewaarbaar: personaInfo },
 };
 
@@ -1648,7 +1646,7 @@ function geleden(tijd) {
     return 'om ' + new Date(tijd).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 }
 
-/* Alleen tijd en inhoud; de omgeving is daarin al door `omgevingInfo` ontdaan van persona-nummers.
+/* Alleen tijd en inhoud; de persona's zijn daarin al door `personaInfo` ontdaan van hun nummers.
  * Storage kan gooien wanneer site-data geblokkeerd is; het blad werkt dan zonder geheugen. */
 function bewaarInfo() {
     const bewaard = {};
@@ -1914,43 +1912,6 @@ function simulatorRij(magazijn) {
 
 function modusNaam(modus) {
     return String(modus).toLowerCase();
-}
-
-/* Welke knopgroepen deze omgeving draagt. Een groep die ontbreekt is hier niet stuk maar niet
- * ingericht, en de regel zegt waarom — anders zoekt de bediener een storing die er niet is. */
-function tekenOmgeving(doel, omgeving) {
-    vereisObject(omgeving);
-
-    doel.replaceChildren(infoLijst([
-        [
-            'Storingen',
-            omgeving.storingen.length
-                ? omgeving.storingen.map(onderdeelNaam).join(', ')
-                : 'geen knoppen: hier staat geen Toxiproxy tussen de componenten',
-        ],
-        [
-            'Cache verlopen',
-            omgeving.sessiecache === false
-                ? 'geen knop: de console kan hier niet bij de sessiecache van de uitvraag'
-                : 'knop beschikbaar',
-        ],
-        [
-            'Gesimuleerde magazijnen',
-            omgeving.simulator === false ? 'niet ingericht' : 'ingericht',
-        ],
-    ]));
-}
-
-/* Alleen wat het blok toont; de persona's hebben hun eigen blok. Geen object: `null`, en dan meldt
- * `tekenInfo` een onverwachte vorm. */
-function omgevingInfo(omgeving) {
-    if (!omgeving || typeof omgeving !== 'object') return null;
-
-    return {
-        storingen: Array.isArray(omgeving.storingen) ? omgeving.storingen : [],
-        simulator: omgeving.simulator,
-        sessiecache: omgeving.sessiecache,
-    };
 }
 
 /* Een tabel en geen opsomming: de tweede kolom beantwoordt waarom *Bericht plaatsen* een persona niet

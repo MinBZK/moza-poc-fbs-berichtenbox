@@ -70,7 +70,7 @@
 
       <!-- Elk blok draagt zijn sleutel uit INFO_BLOKKEN in bediening.js; de id's eronder volgen die
            sleutel. De vier toestand-blokken delen hun uitlezing met de balk bovenaan, dus hun ↻ werkt
-           ze alle vier tegelijk bij; omgeving en persona's komen samen uit het inrichten. -->
+           ze alle vier tegelijk bij; de persona's komen uit het inrichten. -->
       <section role="tabpanel" id="blad-info" aria-labelledby="tab-info" tabindex="0">
         <div class="infoblok" data-info="berichten">
           <div class="infoblok__kop">
@@ -143,25 +143,13 @@
           <div class="infoblok__inhoud" id="info-componenten-inhoud"></div>
         </div>
 
-        <div class="infoblok" data-info="omgeving">
-          <div class="infoblok__kop">
-            <h2 class="groep__kop infoblok__titel">Knoppen in deze omgeving</h2>
-            <span class="infoblok__tijd" id="info-omgeving-tijd">nog niet gelezen</span>
-            <button type="button" class="infoknop" data-actie="omgeving-opnieuw"
-                    aria-label="Omgeving en persona&rsquo;s opnieuw lezen"
-                    title="Omgeving en persona&rsquo;s opnieuw lezen"><span class="infoknop__teken"
-                    aria-hidden="true">&#8635;</span></button>
-          </div>
-          <div class="infoblok__inhoud" id="info-omgeving-inhoud"></div>
-        </div>
-
         <div class="infoblok" data-info="personas">
           <div class="infoblok__kop">
             <h2 class="groep__kop infoblok__titel">Persona&rsquo;s</h2>
             <span class="infoblok__tijd" id="info-personas-tijd">nog niet gelezen</span>
             <button type="button" class="infoknop" data-actie="omgeving-opnieuw"
-                    aria-label="Omgeving en persona&rsquo;s opnieuw lezen"
-                    title="Omgeving en persona&rsquo;s opnieuw lezen"><span class="infoknop__teken"
+                    aria-label="Persona&rsquo;s opnieuw lezen"
+                    title="Persona&rsquo;s opnieuw lezen"><span class="infoknop__teken"
                     aria-hidden="true">&#8635;</span></button>
           </div>
           <div class="infoblok__inhoud" id="info-personas-inhoud"></div>
@@ -169,7 +157,7 @@
 
         <p class="uitleg">Berichten, stroom, storingen en componenten werken zich elke vijf seconden bij,
           net als de balk bovenaan. De gesimuleerde magazijnen volgen elke halve minuut en na elke actie,
-          zolang dit tabblad open staat; knoppen en persona&rsquo;s bij het laden en met &#8635;. Na een
+          zolang dit tabblad open staat; persona&rsquo;s bij het laden en met &#8635;. Na een
           refresh staat de laatste stand er meteen weer.</p>
       </section>
 

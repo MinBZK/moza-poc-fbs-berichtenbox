@@ -21,8 +21,7 @@ las diezelfde gegevens al elke vijf seconden, maar toonde ze alleen als korte ch
 | Stroom | `/api/demo/tempo` | mee met de poll van de toestandsbalk (5 s) |
 | Storingen | `/api/demo/storing` | idem |
 | Componenten | `/api/demo/bereikbaarheid` | idem |
-| Knoppen in deze omgeving | `/api/demo/omgeving` | bij het inrichten; ↻ leest opnieuw via `richtIn(true)` |
-| Persona's | `/api/demo/omgeving` | idem; tabel met per persona of er een echt magazijn voor is |
+| Persona's | `/api/demo/omgeving` | bij het inrichten, ↻ leest opnieuw via `richtIn(true)`; tabel met per persona of er een echt magazijn voor is |
 
 - De uitlees-knoppen en hun samenvatters (`berichten`, `storingen`, `omgeving`, `personas`,
   `simulator-magazijnen`) zijn weg; geen andere knop gebruikte ze.
@@ -34,13 +33,16 @@ las diezelfde gegevens al elke vijf seconden, maar toonde ze alleen als korte ch
 - **Cache in `sessionStorage`**, zoals de rest van de paneelstand: overleeft een refresh, niet het
   sluiten van het tabblad. Eén schrijfplek (`bewaarInfo`), en alleen inhoud die door `bewaarbaar` ging.
 - **Persona's alleen als label in de cache.** Het omgevingsantwoord draagt per persona een BSN of
-  KVK-nummer; `omgevingInfo` neemt alleen de labels over.
+  KVK-nummer; `personaInfo` neemt per persona alleen het label en de vlag "echt magazijn" over.
 - **Een mislukte uitlezing wist niets.** Het blok houdt de laatste stand en het tijdlabel zegt dat de
   laatste poging mislukte — tijdens een storing is die stand juist nodig.
 - **Tekenen alleen bij een ander antwoord**, zodat een schermlezer niet elke vijf seconden bovenaan de
   lijst begint. Het tijdlabel draagt geen `aria-live`.
 - **De simulatortabel staat statisch in de opmaak**; alleen de rijen worden vervangen, zodat een
   uitgeklapte lijst bij een verversing open blijft.
+- **Geen blok over ontbrekende knoppen.** Een tussenversie toonde welke knopgroepen deze omgeving
+  draagt en waarom er een ontbreekt. Die uitleg hoort bij de knop zelf: knoppen die hier niet kunnen
+  worden in een eigen wijziging zichtbaar uitgeschakeld met hun reden, in plaats van verborgen.
 
 ## Verificatie
 

@@ -332,8 +332,7 @@ vragen om bevestiging in het paneel; de vraag noemt wat er precies gebeurt.
 **Tabblad Info** — staat voorop en toont de toestand zonder dat je erom vraagt: de berichten in de
 echte magazijnen, daaronder de gesimuleerde magazijnen (berichten in totaal, telling per gedrag, de
 volledige lijst met berichten per magazijn uitklapbaar), de stroom, de storingen, of elk component
-zelf antwoordt, welke knopgroepen deze omgeving draagt (en
-waarom er een ontbreekt), en de persona's met per persona of er een echt magazijn voor is — alleen
+zelf antwoordt, en de persona's met per persona of er een echt magazijn voor is — alleen
 die staan in *Bericht plaatsen*. Elk blok zegt wanneer het bijgewerkt is en heeft
 een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand staan en zegt dat.
 Na een refresh staat die stand er direct weer.
