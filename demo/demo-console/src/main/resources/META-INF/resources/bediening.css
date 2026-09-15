@@ -670,12 +670,18 @@ body.ingeklapt #paneel {
     color: var(--bediening-color-text-default);
 }
 
-.infotabel td:nth-child(2) {
+.infotabel--magazijnen td:nth-child(2),
+.infotabel--magazijnen td:nth-child(4) {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
-.infotabel tr[data-soort="let-op"] td:last-child {
+.infotabel--magazijnen th:nth-child(4),
+.infotabel--magazijnen td:nth-child(4) {
+    text-align: right;
+}
+
+.infotabel--magazijnen tr[data-soort="let-op"] td:nth-child(3) {
     color: var(--bediening-color-feedback-warning-emphasis);
 }
 

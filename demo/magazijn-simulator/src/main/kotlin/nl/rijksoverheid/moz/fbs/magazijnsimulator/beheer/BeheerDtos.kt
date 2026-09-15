@@ -117,4 +117,6 @@ data class MagazijnOverzicht(
     val latencyP95Ms: Int,
     val foutkans: Double,
     val foutStatus: Int,
+    /** Hoeveel berichten er in dit magazijn staan, verwijderde meegeteld. */
+    val berichten: Int,
 )

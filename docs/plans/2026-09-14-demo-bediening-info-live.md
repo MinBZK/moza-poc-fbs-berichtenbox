@@ -16,11 +16,11 @@ las diezelfde gegevens al elke vijf seconden, maar toonde ze alleen als korte ch
 
 | Blok | Bron | Bijwerken |
 |---|---|---|
-| Berichten per magazijn | `/api/demo/status` | mee met de poll van de toestandsbalk (5 s) |
-| Stroom | `/api/demo/tempo` | idem |
+| Echte magazijnen | `/api/demo/status` | mee met de poll van de toestandsbalk (5 s) |
+| Gesimuleerde magazijnen | `/api/demo/simulator/magazijnen` (met berichten per magazijn uit het beheerpad van de simulator) | elke 30 s en na elke actie, alleen terwijl het blad in beeld is |
+| Stroom | `/api/demo/tempo` | mee met de poll van de toestandsbalk (5 s) |
 | Storingen | `/api/demo/storing` | idem |
 | Componenten | `/api/demo/bereikbaarheid` | idem |
-| Gesimuleerde magazijnen | `/api/demo/simulator/magazijnen` | elke 30 s en na elke actie, alleen terwijl het blad in beeld is |
 | Knoppen in deze omgeving | `/api/demo/omgeving` | bij het inrichten; ↻ leest opnieuw via `richtIn(true)` |
 | Persona's | `/api/demo/omgeving` | idem; tabel met per persona of er een echt magazijn voor is |
 

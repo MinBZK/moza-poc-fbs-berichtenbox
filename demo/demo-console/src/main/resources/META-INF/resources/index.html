@@ -74,7 +74,7 @@
       <section role="tabpanel" id="blad-info" aria-labelledby="tab-info" tabindex="0">
         <div class="infoblok" data-info="berichten">
           <div class="infoblok__kop">
-            <h2 class="groep__kop infoblok__titel">Berichten per magazijn</h2>
+            <h2 class="groep__kop infoblok__titel">Echte magazijnen</h2>
             <span class="infoblok__tijd" id="info-berichten-tijd">nog niet gelezen</span>
             <button type="button" class="infoknop" data-actie="ververs-toestand"
                     aria-label="Berichten, stroom, storingen en componenten nu bijwerken"
@@ -82,6 +82,29 @@
                     aria-hidden="true">&#8635;</span></button>
           </div>
           <div class="infoblok__inhoud" id="info-berichten-inhoud"></div>
+        </div>
+
+        <div class="infoblok" data-info="simulator" data-simulator>
+          <div class="infoblok__kop">
+            <h2 class="groep__kop infoblok__titel">Gesimuleerde magazijnen</h2>
+            <span class="infoblok__tijd" id="info-simulator-tijd">nog niet gelezen</span>
+            <button type="button" class="infoknop" data-actie="ververs-simulator"
+                    aria-label="Gesimuleerde magazijnen nu bijwerken"
+                    title="Gesimuleerde magazijnen nu bijwerken"><span class="infoknop__teken"
+                    aria-hidden="true">&#8635;</span></button>
+          </div>
+          <div class="infoblok__inhoud" id="info-simulator-inhoud"></div>
+          <details class="infoblok__details" id="info-simulator-details" hidden>
+            <summary id="info-simulator-samenvatting">Alle magazijnen</summary>
+            <div class="infotabel infotabel--magazijnen">
+              <table>
+                <thead>
+                  <tr><th scope="col">Naam</th><th scope="col">OIN</th><th scope="col">Gedrag</th><th scope="col">Berichten</th></tr>
+                </thead>
+                <tbody id="info-simulator-rijen"></tbody>
+              </table>
+            </div>
+          </details>
         </div>
 
         <div class="infoblok" data-info="stroom">
@@ -118,29 +141,6 @@
                     aria-hidden="true">&#8635;</span></button>
           </div>
           <div class="infoblok__inhoud" id="info-componenten-inhoud"></div>
-        </div>
-
-        <div class="infoblok" data-info="simulator" data-simulator>
-          <div class="infoblok__kop">
-            <h2 class="groep__kop infoblok__titel">Gesimuleerde magazijnen</h2>
-            <span class="infoblok__tijd" id="info-simulator-tijd">nog niet gelezen</span>
-            <button type="button" class="infoknop" data-actie="ververs-simulator"
-                    aria-label="Gesimuleerde magazijnen nu bijwerken"
-                    title="Gesimuleerde magazijnen nu bijwerken"><span class="infoknop__teken"
-                    aria-hidden="true">&#8635;</span></button>
-          </div>
-          <div class="infoblok__inhoud" id="info-simulator-inhoud"></div>
-          <details class="infoblok__details" id="info-simulator-details" hidden>
-            <summary id="info-simulator-samenvatting">Alle magazijnen</summary>
-            <div class="infotabel">
-              <table>
-                <thead>
-                  <tr><th scope="col">Naam</th><th scope="col">OIN</th><th scope="col">Gedrag</th></tr>
-                </thead>
-                <tbody id="info-simulator-rijen"></tbody>
-              </table>
-            </div>
-          </details>
         </div>
 
         <div class="infoblok" data-info="omgeving">

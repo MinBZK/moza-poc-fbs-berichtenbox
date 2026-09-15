@@ -11,8 +11,11 @@ import org.eclipse.microprofile.rest.client.annotation.RegisterClientHeaders
 import org.eclipse.microprofile.rest.client.annotation.RegisterProvider
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
 
-/** Eén gesimuleerd magazijn zoals het beheerpad het teruggeeft. */
-data class SimulatorMagazijn(val oin: String, val naam: String, val modus: String)
+/**
+ * Eén gesimuleerd magazijn zoals het beheerpad het teruggeeft. [berichten] is nullable: een simulator
+ * van vóór die telling laat het veld weg, en dan hoort het paneel "onbekend" te tonen en geen nul.
+ */
+data class SimulatorMagazijn(val oin: String, val naam: String, val modus: String, val berichten: Int? = null)
 
 /** Het gedrag van één magazijn, zoals het beheerpad het aanneemt. */
 data class GedragAanpassing(val oin: String, val modus: String)

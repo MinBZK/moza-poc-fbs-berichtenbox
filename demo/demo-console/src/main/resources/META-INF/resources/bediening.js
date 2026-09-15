@@ -1555,10 +1555,10 @@ const MODUS_VOLGORDE = ['NORMAAL', 'TRAAG', 'HAPERT', 'WEIGERT', 'MALFORMED', 'S
  * in sessionStorage belandt; een blok zonder die functie bewaart het antwoord zoals het binnenkwam. */
 const INFO_BLOKKEN = {
     berichten: { teken: tekenBerichten },
+    simulator: { teken: tekenSimulator },
     stroom: { teken: tekenStroom },
     storingen: { teken: tekenStoringen },
     componenten: { teken: tekenComponenten },
-    simulator: { teken: tekenSimulator },
     omgeving: { teken: tekenOmgeving, bewaarbaar: omgevingInfo },
     personas: { teken: tekenPersonas, bewaarbaar: personaInfo },
 };
@@ -1796,8 +1796,14 @@ function tekenBerichten(doel, status) {
     const totaal = aantallen.reduce((som, [, aantal]) => som + aantal, 0);
 
     doel.replaceChildren(infoLijst(
-        aantallen.map(([sleutel, aantal]) => [naam(sleutel), String(aantal)]).concat([['Totaal', String(totaal)]]),
+        aantallen.map(([sleutel, aantal]) => [naam(sleutel), getal(aantal)]).concat([['Totaal', getal(totaal)]]),
     ));
+}
+
+/* Met punt als duizendtal-scheiding: bij honderd gesimuleerde magazijnen loopt een totaal al snel in
+ * de duizenden, en 2646 leest dan als een jaartal. */
+function getal(aantal) {
+    return Number(aantal).toLocaleString('nl-NL');
 }
 
 function tekenStroom(doel, tempo) {
@@ -1869,8 +1875,19 @@ function tekenSimulator(doel, magazijnen) {
         .sort((een, ander) => Number(een.modus === 'NORMAAL') - Number(ander.modus === 'NORMAAL'))
         .map(simulatorRij);
 
+    // Alleen een totaal als elk magazijn zijn aantal meegeeft: een som over een half getelde lijst
+    // leest als een echte telling.
+    const aantallen = magazijnen.map((magazijn) => magazijn.berichten);
+    const totaal = aantallen.every((aantal) => typeof aantal === 'number')
+        ? [['Berichten', getal(aantallen.reduce((som, aantal) => som + aantal, 0))]]
+        : [];
+
     doel.replaceChildren(magazijnen.length
-        ? infoLijst(modi.map((modus) => [modusNaam(modus), String(telling[modus]), modus === 'NORMAAL' ? null : 'let-op']))
+        ? infoLijst(totaal.concat(modi.map((modus) => [
+            modusNaam(modus),
+            getal(telling[modus]) + (telling[modus] === 1 ? ' magazijn' : ' magazijnen'),
+            modus === 'NORMAAL' ? null : 'let-op',
+        ])))
         : infoAlinea('De simulator stelt geen magazijnen voor'));
 
     samenvatting.textContent = 'Alle ' + magazijnen.length + ' magazijnen';
@@ -1881,7 +1898,9 @@ function tekenSimulator(doel, magazijnen) {
 function simulatorRij(magazijn) {
     const rij = document.createElement('tr');
 
-    [magazijn.naam, magazijn.oin, modusNaam(magazijn.modus)].forEach((waarde) => {
+    const berichten = typeof magazijn.berichten === 'number' ? getal(magazijn.berichten) : 'onbekend';
+
+    [magazijn.naam, magazijn.oin, modusNaam(magazijn.modus), berichten].forEach((waarde) => {
         const cel = document.createElement('td');
 
         cel.textContent = waarde;
