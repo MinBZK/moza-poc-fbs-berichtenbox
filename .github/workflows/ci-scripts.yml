@@ -128,6 +128,7 @@ jobs:
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=59
             [.github/scripts/test-proeftuin-image.sh]=20
+            [.github/scripts/test-proeftuin-pin-pr.sh]=87
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt

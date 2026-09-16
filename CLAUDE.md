@@ -234,7 +234,8 @@ Wat je hoe dan ook moet weten:
 | `.github/scripts/wijzigingsfilter.sh`  | Bepaalt per PR wat er moet draaien (code-checks, deploy, test-scope, fuzz); deploy.yml, test.yml, detekt.yml en cflite_pr.yml delen dit script. Unittests ernaast in `test-wijzigingsfilter.sh`, gedraaid door `ci-scripts.yml` |
 | `.github/scripts/uitrol-poort.sh`      | Oordeelt ná een deploy-run of er terecht wél of niet is uitgerold — een overgeslagen gate mag geen groene, lege run opleveren |
 | `.github/scripts/merge-guard.sh`       | Controleert één gerenderde compose-merge van een FSC-peer-harness op de eisen die in een gedeelde netns gelden |
-| `.github/scripts/proeftuin-pin.sh`     | Vangnet naast Dependabot: vergelijkt de gepinde berichtenbox-digest in `compose.yaml` met de laatste main-commit van `MinBZK/moza-poc` |
+| `.github/scripts/proeftuin-pin.sh`     | Vergelijkt de gepinde berichtenbox-digest in `compose.yaml` met de laatste main-commit van `MinBZK/moza-poc` en rapporteert een status; `pin-consistency.yml` en `proeftuin-pin.yml` delen hem |
+| `.github/scripts/proeftuin-pin-pr.sh`  | Biedt een achterlopende berichtenbox-pin als PR aan en sluit die PR zodra de pin bij is. Vervangt Dependabot voor dít image: die houdt de gesloten PR #271 vast als "bestaat al" voor versie `latest`, en elke bump heet weer `latest`. Fixture-suite ernaast in `test-proeftuin-pin-pr.sh` |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
 
 ## Omgevingsvariabelen

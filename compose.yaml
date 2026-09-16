@@ -441,10 +441,12 @@ services:
   # leesbare aanduiding van wat het is — hun main — en wordt nergens geverifieerd. Alleen die tag
   # zou stil onder een lopende demo door verschuiven.
   #
-  # Deze vorm is bovendien de enige die Dependabot voor dit image kan bijhouden: hij bumpt de digest
-  # zodra hun main verder gaat, waar hij een `sha-<commit>`-tag niet kan ordenen en een
-  # `${VAR:-...}` niet kan lezen. Daarom staat hier geen variabele meer; een andere versie draaien
-  # gaat via compose.proeftuin-versie.yaml.
+  # Bijwerken doet de workflow Proeftuin-pin: die vergelijkt deze digest dagelijks met hun main en
+  # biedt een achterlopende pin als PR aan. Dependabot doet dit image niet meer — hij houdt een
+  # gesloten PR vast als "bestaat al" voor versie `latest`, en elke volgende bump heet weer `latest`
+  # — en `.github/dependabot.yml` negeert het daarom expliciet. Zet hier dus geen variabele terug:
+  # dat script leest één letterlijke referentie. Een andere versie draaien gaat via
+  # compose.proeftuin-versie.yaml.
   #
   # Deze regel is de enige vindplaats: alles wat wil weten welke berichtenbox draait — de deploy en
   # het ZAD-creatiescript — leest hem via .github/scripts/proeftuin-image.sh, zodat een bump hier

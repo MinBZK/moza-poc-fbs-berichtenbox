@@ -1,0 +1,85 @@
+# Houdt de berichtenbox van de proeftuin (MinBZK/moza-poc) bij: loopt de pin in compose.yaml achter
+# op hun main, dan biedt deze workflow die bump als pull request aan.
+#
+# Dit werk lag bij Dependabot en kan daar niet meer liggen. Zijn docker_compose-updater houdt de
+# gesloten, niet-gemergde PR #271 vast als bestaande PR voor `minbzk/moza-poc` op versie `latest`;
+# elke volgende bump van dat image heet opnieuw `latest`, dus die vastlegging matcht altijd en de
+# joblog eindigt op `Pull request #271 already exists`. `@dependabot recreate` en een handmatige run
+# vanaf de Dependency graph lopen op hetzelfde vast, en de vastlegging is niet op te ruimen zolang
+# die PR bestaat. `.github/dependabot.yml` negeert dit image daarom expliciet: één pad, en geen
+# ecosysteem dat stilzwijgend niets doet.
+#
+# De controle zelf staat in pin-consistency.yml en blijft daar: die job blokkeert een PR bij een pin
+# die niet te trekken is. Deze workflow deelt het oordeel — beide draaien proeftuin-pin.sh — en
+# handelt er alleen naar.
+name: Proeftuin-pin
+
+on:
+  # Dagelijks, want hun main loopt door en de bump hoort niet op PR-verkeer te wachten. Het tijdstip
+  # ligt na hun gebruikelijke werkdagstart, zodat een merge van die ochtend dezelfde dag nog wordt
+  # aangeboden.
+  schedule:
+    - cron: '23 14 * * 1-5'
+  workflow_dispatch:
+
+# De job muteert gedeelde toestand: één branch en één pull request. Twee runs tegelijk zouden
+# allebei "geen open PR" zien, waarna de tweede stukloopt op een bestaande PR. Serialiseren dus, en
+# niet annuleren: het script pusht eerst de branch en opent daarna pas de PR, dus een afbreking
+# daartussen laat een pin-branch zonder PR achter en geen enkel pad ruimt die op.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pin:
+    # Een fork erft dit schema en heeft de secret niet; zonder deze voorwaarde faalt daar elke dag
+    # een run op werk dat er niet thuishoort.
+    if: github.repository == 'MinBZK/moza-poc-fbs-berichtenbox'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # PROEFTUIN_PIN_TOKEN is een fine-grained PAT op deze repo met alleen `Contents: write` en
+    # `Pull requests: write`. Bewust niet GITHUB_TOKEN: GitHub start geen workflows op events die
+    # dát token veroorzaakt, dus een PR van GITHUB_TOKEN krijgt nooit zijn verplichte checks en is
+    # met strict main niet te mergen. Het werk gaat daarmee volledig langs GITHUB_TOKEN heen,
+    # vandaar de lege `permissions:`.
+    permissions: {}
+    steps:
+      # Vóór de checkout, want die draait zélf op dit token: zonder deze stap faalt een ontbrekende
+      # secret als een kale git-authenticatiefout, en die noemt de oorzaak niet.
+      - name: Is PROEFTUIN_PIN_TOKEN gezet
+        env:
+          GH_TOKEN: ${{ secrets.PROEFTUIN_PIN_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::PROEFTUIN_PIN_TOKEN ontbreekt — zonder die secret faalt de checkout hieronder als een kale git-authenticatiefout."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # Bewust ZONDER `persist-credentials: false`: de `git push` in het script leunt op de
+        # extraheader die checkout in .git/config achterlaat. GH_TOKEN dekt alleen de gh-aanroepen.
+        with:
+          token: ${{ secrets.PROEFTUIN_PIN_TOKEN }}
+
+      - name: Lees de stand van de pin
+        id: pin
+        env:
+          # Alleen om de anonieme API-limiet (60 per uur per IP, gedeeld met elke andere runner op
+          # dat IP) te ontlopen; het gaat om een publiek repo. Een scopeloze GITHUB_TOKEN volstaat
+          # daarvoor.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/proeftuin-pin.sh
+
+      - name: Bied de pin als PR aan
+        env:
+          GH_TOKEN: ${{ secrets.PROEFTUIN_PIN_TOKEN }}
+          STATUS: ${{ steps.pin.outputs.status }}
+          REGEL: ${{ steps.pin.outputs.verwachte_regel }}
+          TAG: ${{ steps.pin.outputs.verwachte_tag }}
+          HUIDIG: ${{ steps.pin.outputs.huidige_referentie }}
+        run: .github/scripts/proeftuin-pin-pr.sh
