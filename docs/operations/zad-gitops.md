@@ -226,3 +226,49 @@ concurrency-groepen in `deploy.yml` staan per project **en** PR, dus die race sl
   geverifieerd). Projecten zónder DB (externe-stubs `mpfpsm-lcl`: enkel wiremock-stubs,
   ephemeral) verliezen niets.
 
+## De database-rol van een deployment: twintig verbindingen
+
+Elke deployment krijgt van OM één PostgreSQL-rol `<project>_<deployment>`, aangemaakt met een
+hardgecodeerde `CONNECTION LIMIT 20` (`RijksICTGilde/RIG-Cluster`,
+`operations-manager/python/opi/connectors/postgres.py`). Die limiet zit op de rol en niet op de
+database: in `mpfm-w3h` delen `magazijna`, `magazijnb` (met hun logboek), `democonsole` en
+`magazijnsimulator` samen die twintig. Een nieuwe preview krijgt een verse rol, dus opnieuw twintig.
+Een `ALTER ROLE ... CONNECTION LIMIT` met de hand overleeft de eerstvolgende heraanmaak van die
+gebruiker niet.
+
+**Hoe het zich meldt.** In de log van het component `FATAL: too many connections for role "<rol>"` en
+reeksen `Retrying establishment of connection`, terwijl zijn pool-regel gezond oogt — een geweigerde
+poging telt niet mee in de tellers van de pool. Aan de aanroepende kant zie je alleen time-outs: op
+2026-09-15 brak de uitvraag in één ophaalronde ruim veertig gesimuleerde magazijnen af op
+`timeout period of 12000ms`, terwijl de berichten gewoon in de database stonden. Wie dan naar de
+vulling kijkt, zoekt op de verkeerde plek.
+
+**De enige knop aan onze kant** is elk component binnen dat budget laten passen; ZAD werkt aan een
+instelbare limiet (`RIG-Cluster`, `plans/de-connectielimiet-wordt-instelbaar.md`, veld
+`connection-limit`, 1–100). Zolang previews blijven haperen, is dat het signaal om te kijken of die
+er al is.
+
+### Env per component en per deployment
+
+`zadctl env` kent twee lagen, en dat is precies wat een preview van `test` laat verschillen:
+
+```bash
+zadctl env add -c <component> KEY=waarde                      # geldt voor elke deployment
+zadctl env add -c <component> --deployment test KEY=waarde    # alleen voor test, wint van de regel erboven
+```
+
+- **Uitlezen kan alleen componentbreed:** `zadctl env list` kent geen `--deployment`, en de API geeft
+  waarden niet terug (`(set, not returned by the API)`). De laag lees je af uit de projectspec:
+  componentbreed staat onder `components[<c>].user-env-vars`, een override onder
+  `deployments[<d>].components[<c>].user-env-vars`.
+- **Een override op `test` reist niet mee naar een preview.** `ProjectManager.upsert_deployment`
+  kopieert bij `cloneFrom` alles van de bron behalve `["name", "components", "backup", …]`, en bouwt
+  de componenten van de nieuwe deployment uitsluitend uit de `{reference, image}`-paren die de
+  workflow meestuurt. Diensten op deploymentniveau (cross-domain-access, postgresql-database) worden
+  wél gekopieerd — dat was de oorzaak van de preview-netwerkregels die naar `test` bleven wijzen.
+- **Een env-wijziging rolt direct uit:** OM rendert opnieuw en de pods herstarten binnen een minuut
+  (gemeten 2026-09-16), ondanks dat de waarden via `envFrom` uit een secret komen zonder
+  checksum-annotatie.
+- **Meet nooit de eerste ophaalronde ná zo'n herstart.** Die viel op een preview op 93 van de 98
+  gesimuleerde magazijnen in een time-out; twee minuten later waren het er twee. Een demo direct na
+  een uitrol oogt daardoor kapot terwijl er niets stuk is.
