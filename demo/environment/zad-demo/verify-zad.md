@@ -73,7 +73,13 @@ omgevingsvariabele** uit stap 3 nog op het component staat: die wint van de alia
 
 ## 2. Vullen
 
-Open `$CONSOLE/` en druk op **Herstel demo**. Dat stopt de stroom, reset de storingen, leegt de
+Kijk eerst of de console de magazijnen na zijn start zelf gevuld heeft: `$CONSOLE/api/demo/status`
+hoort binnen enkele minuten na de uitrol per magazijn een aantal groter dan nul te tonen. Staat een
+magazijn na een halfuur nog op nul, zoek dan in `zadctl logs <deployment> -c democonsole` naar
+`Opstartvulling`: de regels noemen per magazijn of de database nog niet te lezen was of het eerste
+bericht niet aankwam, en de opgeef-regel noemt welk magazijn het bleef.
+
+Open daarna `$CONSOLE/` en druk op **Herstel demo**. Dat stopt de stroom, reset de storingen, leegt de
 magazijnen en laadt de basisvulling — in die volgorde.
 
 Verwacht: een antwoord zonder fout, en daarna onder **Berichten per magazijn** (tabblad Info) een

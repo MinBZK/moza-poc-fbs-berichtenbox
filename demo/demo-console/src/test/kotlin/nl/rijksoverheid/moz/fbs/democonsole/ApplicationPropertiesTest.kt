@@ -54,6 +54,14 @@ class ApplicationPropertiesTest {
     }
 
     @Test
+    fun `de opstartvulling staat alleen onder test uit`() {
+        // De datasource- en magazijn-defaults wijzen naar dezelfde poorten als een lokaal draaiende
+        // demo-stack; een @QuarkusTest met deze vulling aan zet daar berichten neer.
+        assertEquals("\${OPSTARTVULLING_ACTIEF:true}", properties.getProperty("opstartvulling.actief"))
+        assertEquals("false", properties.getProperty("%test.opstartvulling.actief"))
+    }
+
+    @Test
     fun `de reconcile-interval staat buiten de demo-prefix`() {
         // `demo.*` is geclaimd door @ConfigMapping(prefix="demo"): elke property daaronder moet op
         // een mapping-member vallen, anders faalt het booten met SRCFG00050. Deze waarde hoort bij
