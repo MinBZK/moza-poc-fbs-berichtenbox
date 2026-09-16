@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkBericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkOpslag
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.MagazijnRepository
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.vereis
 import org.jboss.logging.Logger
 import java.time.Clock
@@ -16,25 +17,31 @@ import java.time.Clock
 @ApplicationScoped
 class BeheerService(
     private val magazijnen: GesimuleerdeMagazijnen,
+    private val magazijnRijen: MagazijnRepository,
     private val bulk: BulkOpslag,
     private val klok: Clock,
 ) {
 
     private val log = Logger.getLogger(BeheerService::class.java)
 
-    fun overzicht(): List<MagazijnOverzicht> = magazijnen.alle()
-        .sortedBy { it.oin }
-        .map { magazijn ->
-            MagazijnOverzicht(
-                oin = magazijn.oin,
-                naam = magazijn.naam,
-                modus = magazijn.gedrag.modus,
-                latencyP50Ms = magazijn.gedrag.latencyP50Ms,
-                latencyP95Ms = magazijn.gedrag.latencyP95Ms,
-                foutkans = magazijn.gedrag.foutkans,
-                foutStatus = magazijn.gedrag.foutStatus,
-            )
-        }
+    fun overzicht(): List<MagazijnOverzicht> {
+        val berichten = magazijnRijen.berichtenPerMagazijn()
+
+        return magazijnen.alle()
+            .sortedBy { it.oin }
+            .map { magazijn ->
+                MagazijnOverzicht(
+                    oin = magazijn.oin,
+                    naam = magazijn.naam,
+                    modus = magazijn.gedrag.modus,
+                    latencyP50Ms = magazijn.gedrag.latencyP50Ms,
+                    latencyP95Ms = magazijn.gedrag.latencyP95Ms,
+                    foutkans = magazijn.gedrag.foutkans,
+                    foutStatus = magazijn.gedrag.foutStatus,
+                    berichten = berichten[magazijn.oin] ?: 0,
+                )
+            }
+    }
 
     /**
      * Stelt het gedrag bij. Wat het verzoek weglaat, komt uit de standaardwaardes van de gevraagde

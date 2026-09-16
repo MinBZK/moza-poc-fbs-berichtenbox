@@ -89,12 +89,19 @@ heeft zijn eigen database.
 
 ## De knoppen
 
-Vier tabbladen. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom, storingen en
-gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand hoeft te vragen, en een melding met de
-uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ of ✗ vast.
+Vier tabbladen, met Info voorop. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom,
+storingen, componenten en gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand
+hoeft te vragen, en een melding met de uitkomst van je laatste actie. De knop die je indrukte houdt
+zelf even een ✓ of ✗ vast.
+
+*Storingen* en *componenten* zeggen elk iets anders. *Storingen* toont wat Toxiproxy op de lijn naar
+een component aanzet; *componenten* vraagt elk component zelf om zijn readiness en wordt rood met de
+naam van wat onbereikbaar of niet gereed is. Een magazijn dat plat ligt terwijl zijn proxy op normaal
+staat — of dat op een gedeelde omgeving geen proxy heeft — zie je alleen in de tweede.
 
 | Tabblad | Knop | Wat het doet |
 |---|---|---|
+| Info | ↻ per blok | Toont zonder te vragen de berichten in de echte magazijnen, daaronder de gesimuleerde magazijnen (berichten in totaal, telling per gedrag, en uitklapbaar per magazijn met zijn berichten), de persona's met per persona of er een echt magazijn voor is, de stroom, de storingen en de componenten. Berichten, stroom, storingen en componenten lezen mee met de toestandsbalk; de gesimuleerde magazijnen volgen elke 30 seconden en na elke actie, zolang het tabblad open staat; persona's bij het laden. ↻ werkt een blok meteen bij. Elk blok zegt wanneer het bijgewerkt is, en een mislukte uitlezing laat de vorige stand staan met die melding erbij |
 | Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee en krijgen daarna hun standaardvulling terug; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo*. Een lege omgeving krijgt deze dataset al na het opstarten; in een gevulde zet de knop alles dubbel |
@@ -106,8 +113,6 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
 | Scenario's | Gesimuleerde magazijnen | Zet *k* van de *n* zonder storing, zet berichten klaar, en leegt alles inclusief het gedrag; *n* vraagt de console aan de simulator zelf |
-| Info | Gesimuleerde magazijnen | Toont hoe elk gesimuleerd magazijn zich gedraagt |
-| Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
 
 Elke knop die iets aanroept levert een antwoord op. Een leeg of ongeldig invoerveld geeft een
 melding die het veld bij naam noemt (uit `data-veldnaam` in de opmaak) plus een ✗ op de knop, in
@@ -151,3 +156,6 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `MAGAZIJN_SIMULATOR_URL` | `http://localhost:8092` | Beheerpad van de magazijn-simulator: vullen, legen en gedrag bijstellen |
 | `MAGAZIJN_SIMULATOR_BEHEER_TOKEN` | leeg | Token voor dat beheerpad. Leeg lokaal — dan blijft de header helemaal weg; op een gedeelde omgeving verplicht, anders geeft elke knop een 401 |
 | `SIMULATOR_BEREIKBAAR` | `true` | Op `false` laat het paneel de knoppen en de chip voor de gesimuleerde magazijnen weg |
+| `BEREIKBAARHEID_MAGAZIJN_A_URL`, `BEREIKBAARHEID_MAGAZIJN_B_URL`, `BEREIKBAARHEID_UITVRAAG_URL`, `BEREIKBAARHEID_SIMULATOR_URL` | het adres dat de console al voor dat component gebruikt | Waar de chip *componenten* `/q/health/ready` opvraagt. Alleen nodig waar dat adres niet het component zelf is, zoals een FSC-outway vóór het magazijn. Leeg zetten schakelt de controle van dat component uit; de simulator telt alleen mee bij `SIMULATOR_BEREIKBAAR=true` |
+| `BEREIKBAARHEID_PERSONADIENST_URL` | `http://localhost:8098` | Idem voor de personadienst. De console gebruikt die dienst verder nergens (de persona's komen in-process), dus hier is er geen adres om op terug te vallen: op een gedeelde omgeving altijd zetten, anders staat hij op onbereikbaar |
+| `BEREIKBAARHEID_INTERVAL` | `30s` | Hoe vaak de console de componenten ook zonder open paneel controleert. Elke uitval en elk herstel staat daardoor met tijdstip in het log, ook als niemand keek |
