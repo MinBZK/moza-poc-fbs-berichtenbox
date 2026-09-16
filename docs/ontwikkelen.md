@@ -107,8 +107,8 @@ bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat in `comp
 digest: `latest` alleen zou stil onder een lopende demo door verschuiven. Die ene regel is ook wat
 `deploy.yml` en `proeftuin-component.sh` lezen (via `.github/scripts/proeftuin-image.sh`), dus een
 demo op de eigen machine en een demo op ZAD tonen dezelfde berichtenbox. Bijwerken doet de workflow
-`proeftuin-pin.yml`: die vergelijkt de pin dagelijks met hun main en zet een achterlopende pin als
-PR klaar, die zichzelf weer sluit zodra de pin bij is. Mergen blijft een oordeel — hun main draagt
+`proeftuin-pin.yml`: die vergelijkt de pin op werkdagen met hun main en zet een achterlopende pin
+als PR klaar, die zichzelf weer sluit zodra de pin bij is. Mergen blijft een oordeel — hun main draagt
 ook werk dat halfaf kan zijn. `pin-consistency.yml` blokkeert daarnaast een PR zodra de gepinde
 digest niet meer te trekken is. Een andere versie draaien zonder de pin aan te raken kan met de
 overlay; die neemt een hele referentie, want hun nog niet gemergde werk staat in een ander

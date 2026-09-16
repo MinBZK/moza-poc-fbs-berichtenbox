@@ -47,9 +47,22 @@ pin_is_actueel() {
 # gehouden moet worden. De vervangkant is bewust níét ge-escaped; dat mag alleen omdat
 # `digest_is_welgevormd` de tekenset al tot een pad plus hex beperkt.
 vervang_pin() {
-  local digest=$1 pad_regex aantal
+  local digest=$1 pad_regex aantal status=0
   pad_regex=$(printf '%s' "${digest%@*}" | sed 's/[].[^$*\/]/\\&/g')
-  aantal=$(grep -cE "^FROM +${pad_regex}@sha256:[a-f0-9]{64}$" "$DOCKERFILE" || true)
+
+  # `grep -c` kent drie uitkomsten: 0 = gevonden, 1 = niets gevonden, 2 = kon niet zoeken
+  # (onleesbaar bestand, ongeldige ERE). Met `|| true` erachter zou die derde als een lege telling
+  # doorgaan, en dan faalt de `-ne 1`-toets hieronder open: hij slaat de tak over die juist bewaakt
+  # dat er precies één regel geraakt wordt, op het moment dat er niets gemeten is.
+  aantal=$(grep -cE "^FROM +${pad_regex}@sha256:[a-f0-9]{64}$" "$DOCKERFILE") || status=$?
+
+  case $status in
+    0|1) ;;
+    *)
+      echo "::error::kon $DOCKERFILE niet doorzoeken (grep gaf $status)."
+      return 1
+      ;;
+  esac
 
   # Precies één: bij nul wijst de FROM-regel ergens anders heen of is hij van vorm veranderd, bij
   # meer dan één (een multi-stage Dockerfile) zou de sed ze allemaal raken behalve die met een
@@ -74,7 +87,9 @@ EOM
 }
 
 main() {
-  pin_pr_vereis_token FUZZ_PIN_TOKEN || return 1
+  # Kaal, zonder `|| return 1`: dat zou `errexit` in de hele functie uitzetten, en dan zou een fout
+  # in een zwaardere controle die hier ooit bij komt stilzwijgend doorlopen.
+  pin_pr_vereis_token FUZZ_PIN_TOKEN
 
   if ! digest_is_welgevormd "${DIGEST:-}"; then
     echo "::error::de bouw leverde geen bruikbare digest ('${DIGEST:-}') — de pin is niet te bepalen."
@@ -98,9 +113,13 @@ main() {
   if pin_is_actueel "$DIGEST"; then
     echo "De pin hoort al bij dit image."
 
+    # Ook zónder open PR opruimen: een vorige run die tussen het sluiten en het verwijderen afbrak
+    # laat een branch achter die anders nooit meer wordt aangeraakt, en die de eerstvolgende bump
+    # dan met een vreemde historie zou dragen.
+    pin_pr_ruim_op "$open_pr" "$BRANCH" \
+      "De pin in \`$DOCKERFILE\` hoort inmiddels bij het huidige basis-image; deze PR heeft geen wijziging meer te brengen."
+
     if [ -n "$open_pr" ]; then
-      pin_pr_ruim_op "$open_pr" "$BRANCH" \
-        "De pin in \`$DOCKERFILE\` hoort inmiddels bij het huidige basis-image; deze PR heeft geen wijziging meer te brengen."
       echo "Openstaande pin-PR #$open_pr gesloten."
     fi
 

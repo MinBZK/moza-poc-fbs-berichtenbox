@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Gedeeld testharnas voor de twee pin-suites: test-fuzz-basis-pin.sh en test-proeftuin-pin-pr.sh.
+# Gedeelde harness voor de twee pin-suites: test-fuzz-basis-pin.sh en test-proeftuin-pin-pr.sh.
 #
 # Beide scripts muteren dezelfde soort gedeelde toestand — een branch, een PR en één regel in één
 # bestand — en hebben daardoor dezelfde stubs nodig: een `gh` en een `git` die elke aanroep
@@ -50,6 +50,20 @@ if [ "${GH_FAALT:-}" = "${1:-} ${2:-}" ]; then
 fi
 
 if [ "${1:-}" = "pr" ] && [ "${2:-}" = "list" ]; then
+  # De echte `gh pr list` levert zónder deze twee vlaggen een heel andere verzameling: elke open PR
+  # in het repo in plaats van die op onze branch, en bij een weggevallen `--state open` ook gesloten
+  # PR's — waarna het script een gesloten PR zou proberen bij te werken of te sluiten. Een stub die
+  # de vlaggen negeert, laat dat stilzwijgend slagen.
+  case " $* " in
+    *" --head "*) ;;
+    *) echo "stub: gh pr list zonder --head" >&2; exit 64 ;;
+  esac
+
+  case " $* " in
+    *" --state open "*) ;;
+    *) echo "stub: gh pr list zonder --state open" >&2; exit 64 ;;
+  esac
+
   filter=""
   vorige=""
 
@@ -74,6 +88,9 @@ case "${1:-}" in
   diff)      cmp -s "$MOMENTOPNAME" "$DOELBESTAND" ;;
   ls-remote) exit "${LS_REMOTE_CODE:-0}" ;;
   push)      [ "${GIT_PUSH_FAALT:-0}" = 0 ] ;;
+  # `git commit` eindigt niet-nul als er niets te committen valt — een reële uitkomst zodra de pin
+  # tussen twee stappen door al goed blijkt te staan.
+  commit)    [ "${GIT_COMMIT_FAALT:-0}" = 0 ] ;;
   *)         true ;;
 esac
 STUB

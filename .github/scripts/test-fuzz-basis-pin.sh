@@ -56,6 +56,12 @@ bevat "verouderde pin zonder open PR opent een PR" "gh pr create"
 bevat "verouderde pin zonder open PR pusht de branch" "git push -f origin chore/fuzz-basis-pin"
 bevat "de nieuwe PR draagt de pom-hash van deze bouw" "$POMS"
 regel "de FROM-regel draagt de nieuwe digest" "FROM $NIEUW"
+# De volledige aanroepen, niet alleen het commando: een `commit -a` of een weggevallen pathspec zou
+# stilzwijgend andere wijzigingen uit de checkout meedragen in een PR die één regel belooft, en een
+# verdwenen identiteit laat de commit op de runner-default staan.
+bevat "de commit is tot het Dockerfile begrensd" "git commit -m chore(ci): pin het fuzz-basis-image op de huidige pom-set -- $DOCKERFILE"
+bevat "de commit draagt de bot-identiteit" "git config user.email 41898282+github-actions[bot]@users.noreply.github.com"
+bevat "de PR gaat naar main met de eigen branch als head" "gh pr create --base main --head chore/fuzz-basis-pin"
 
 # --- 2. Pin verouderd, open PR: verversen, geen tweede PR ---
 nieuw_geval met-pr
@@ -78,15 +84,27 @@ gelijk "actuele pin met open PR eindigt groen" "$CODE" 0
 bevat "actuele pin sluit de overbodige PR" "gh pr close 42"
 bevat "actuele pin ruimt de branch op" "git push origin --delete chore/fuzz-basis-pin"
 
-# --- 4. Pin al goed, geen open PR: niets doen ---
+# --- 4. Pin al goed, geen open PR en geen branch: niets doen ---
 nieuw_geval al-goed-zonder-pr
 schrijf_dockerfile "$NIEUW"
 vastleggen
-PR_LIJST='[]' DIGEST=$NIEUW uitvoeren
+PR_LIJST='[]' DIGEST=$NIEUW LS_REMOTE_CODE=2 uitvoeren
 gelijk "actuele pin zonder open PR eindigt groen" "$CODE" 0
 bevat_niet "actuele pin zonder open PR sluit niets" "gh pr close"
 bevat_niet "actuele pin zonder open PR opent niets" "gh pr create"
 bevat_niet "actuele pin zonder open PR pusht niets" "git push"
+
+# --- 4b. Pin al goed, geen open PR, branch nog aanwezig ---
+# Zo ziet de remote eruit na een run die tussen het sluiten van de PR en het verwijderen van de
+# branch afbrak. Hing het opruimen aan een ópen PR, dan bleef die branch voorgoed staan en droeg de
+# eerstvolgende bump de historie van een vorige cyclus.
+nieuw_geval al-goed-verweesde-branch
+schrijf_dockerfile "$NIEUW"
+vastleggen
+PR_LIJST='[]' DIGEST=$NIEUW uitvoeren
+gelijk "een verweesde pin-branch zonder PR eindigt groen" "$CODE" 0
+bevat "een verweesde pin-branch wordt alsnog verwijderd" "git push origin --delete chore/fuzz-basis-pin"
+bevat_niet "een verweesde pin-branch levert geen PR-sluiting op" "gh pr close"
 
 # --- 5. Branch al opgeruimd (ls-remote 2): sluiten blijft groen ---
 nieuw_geval branch-weg
@@ -124,6 +142,17 @@ niet_nul "een afgekapte digest faalt hard" "$CODE"
 meldt "een afgekapte digest noemt de oorzaak" "geen bruikbare digest"
 bevat_niet "een afgekapte digest sluit de openstaande PR niet" "gh pr close"
 regel "een afgekapte digest laat het Dockerfile ongemoeid" "FROM $OUD"
+
+# --- 8b. Meerregelige digest: de vormcontrole mag niet op de tweede regel slagen ---
+# Precies waarvoor `digest_is_welgevormd` `[[ =~ ]]` gebruikt in plaats van een per-regel ankerende
+# grep. Een waarde uit GITHUB_OUTPUT kan meerregelig zijn.
+nieuw_geval digest-met-newline
+schrijf_dockerfile "$OUD"
+vastleggen
+PR_LIJST='[]' DIGEST="$(printf 'rommel\n%s' "$NIEUW")" uitvoeren
+niet_nul "een meerregelige digest faalt hard" "$CODE"
+bevat_niet "een meerregelige digest opent geen PR" "gh pr create"
+regel "een meerregelige digest laat het Dockerfile ongemoeid" "FROM $OUD"
 
 # --- 9. Digest staat alleen in een commentaarregel: de echte FROM-regel telt ---
 nieuw_geval digest-in-commentaar
@@ -188,6 +217,31 @@ schrijf_dockerfile "$OUD"
 vastleggen
 PR_LIJST='[]' DIGEST=$NIEUW GH_FAALT="pr create" uitvoeren
 niet_nul "een mislukte PR-aanmaak maakt de run rood" "$CODE"
+
+# De twee muterende aanroepen die een halve toestand achterlaten: een PR die niet sluit terwijl de
+# branch wél verdwijnt, en een body die niet meeschuift met de digest die zojuist gepusht is.
+nieuw_geval pr-close-stuk
+schrijf_dockerfile "$NIEUW"
+vastleggen
+PR_LIJST=$EIGEN_PR DIGEST=$NIEUW GH_FAALT="pr close" uitvoeren
+niet_nul "een mislukte PR-sluiting maakt de run rood" "$CODE"
+bevat_niet "een mislukte PR-sluiting verwijdert de branch niet" "git push origin --delete"
+
+nieuw_geval pr-edit-stuk
+schrijf_dockerfile "$OUD"
+vastleggen
+PR_LIJST=$EIGEN_PR DIGEST=$NIEUW GH_FAALT="pr edit" uitvoeren
+niet_nul "een mislukte body-verversing maakt de run rood" "$CODE"
+
+# `git commit` eindigt niet-nul als er niets te committen valt. Zonder deze dekking zou een script
+# dat die uitkomst slikt een branch pushen zonder de wijziging erop.
+nieuw_geval commit-stuk
+schrijf_dockerfile "$OUD"
+vastleggen
+PR_LIJST='[]' DIGEST=$NIEUW GIT_COMMIT_FAALT=1 uitvoeren
+niet_nul "een mislukte commit maakt de run rood" "$CODE"
+bevat_niet "een mislukte commit pusht niets" "git push -f"
+bevat_niet "een mislukte commit opent geen PR" "gh pr create"
 
 nieuw_geval push-stuk
 schrijf_dockerfile "$OUD"

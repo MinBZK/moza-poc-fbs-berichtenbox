@@ -48,10 +48,17 @@ pin_pr_publiceer_branch() {
 
 # Sluiten en de branch opruimen in twee stappen: `gh pr close --delete-branch` wil ook de lokale
 # branch weg en die bestaat in dit pad niet.
+#
+# Een leeg PR-nummer is geen fout maar een normale toestand: de PR kan al gesloten zijn doordat een
+# vorige run tussen het sluiten en het verwijderen afbrak. Die run was rood, maar de volgende zou de
+# branch nooit meer aanraken als het opruimen aan een ópen PR hing — en dan draagt de eerstvolgende
+# bump een branch met de historie van een vorige cyclus.
 pin_pr_ruim_op() {
   local nummer=$1 branch=$2 reden=$3 status=0
 
-  gh pr close "$nummer" --comment "$reden"
+  if [ -n "$nummer" ]; then
+    gh pr close "$nummer" --comment "$reden"
+  fi
 
   git ls-remote --exit-code --heads origin "$branch" >/dev/null || status=$?
 

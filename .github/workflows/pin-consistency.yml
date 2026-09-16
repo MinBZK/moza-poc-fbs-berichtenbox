@@ -94,8 +94,8 @@ jobs:
           exit "$fail"
 
   # De berichtenbox van de proeftuin (MinBZK/moza-poc) staat in compose.yaml op digest gepind. Deze
-  # job stelt vast wat de stand van die pin is; proeftuin-pin.yml draait hetzelfde script dagelijks
-  # en biedt een achterlopende pin als PR aan.
+  # job stelt vast wat de stand van die pin is; proeftuin-pin.yml draait hetzelfde script op
+  # werkdagen en biedt een achterlopende pin als PR aan.
   #
   # Achterlopen is hier dus geen bevinding meer om te melden: die bump ligt als PR klaar. Deze job
   # blokkeert alleen wat een PR niet oplost — een pin die niet te trekken is, of een controle die
@@ -133,7 +133,7 @@ jobs:
               echo "De berichtenbox staat op de huidige main van MinBZK/moza-poc ($TAG)."
               ;;
             verouderd)
-              # Geen bevinding op de PR: de workflow Proeftuin-pin biedt deze bump dagelijks als
+              # Geen bevinding op de PR: de workflow Proeftuin-pin biedt deze bump op werkdagen als
               # eigen PR aan, en die draagt de regel die hier anders in een melding zou staan.
               echo "::warning::De berichtenbox loopt achter ($HUIDIG); hun main is $TAG. De workflow Proeftuin-pin biedt dit aan als PR; met de hand zetten kan met: $REGEL"
               ;;

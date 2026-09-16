@@ -1,13 +1,8 @@
 # Houdt de berichtenbox van de proeftuin (MinBZK/moza-poc) bij: loopt de pin in compose.yaml achter
 # op hun main, dan biedt deze workflow die bump als pull request aan.
 #
-# Dit werk lag bij Dependabot en kan daar niet meer liggen. Zijn docker_compose-updater houdt de
-# gesloten, niet-gemergde PR #271 vast als bestaande PR voor `minbzk/moza-poc` op versie `latest`;
-# elke volgende bump van dat image heet opnieuw `latest`, dus die vastlegging matcht altijd en de
-# joblog eindigt op `Pull request #271 already exists`. `@dependabot recreate` en een handmatige run
-# vanaf de Dependency graph lopen op hetzelfde vast, en de vastlegging is niet op te ruimen zolang
-# die PR bestaat. `.github/dependabot.yml` negeert dit image daarom expliciet: één pad, en geen
-# ecosysteem dat stilzwijgend niets doet.
+# Dit werk lag bij Dependabot en kan daar niet meer liggen; de reden staat bij de `ignore`-regel in
+# `.github/dependabot.yml`, waar de vraag "waarom doet dat ecosysteem hier niets" thuishoort.
 #
 # De controle zelf staat in pin-consistency.yml en blijft daar: die job blokkeert een PR bij een pin
 # die niet te trekken is. Deze workflow deelt het oordeel — beide draaien proeftuin-pin.sh — en
@@ -15,9 +10,8 @@
 name: Proeftuin-pin
 
 on:
-  # Dagelijks, want hun main loopt door en de bump hoort niet op PR-verkeer te wachten. Het tijdstip
-  # ligt na hun gebruikelijke werkdagstart, zodat een merge van die ochtend dezelfde dag nog wordt
-  # aangeboden.
+  # Op werkdagen, want hun main loopt door en de bump hoort niet op PR-verkeer te wachten. Het
+  # tijdstip ligt in de middag, zodat werk van die ochtend dezelfde dag nog wordt aangeboden.
   schedule:
     - cron: '23 14 * * 1-5'
   workflow_dispatch:
@@ -35,9 +29,14 @@ permissions:
 
 jobs:
   pin:
-    # Een fork erft dit schema en heeft de secret niet; zonder deze voorwaarde faalt daar elke dag
-    # een run op werk dat er niet thuishoort.
-    if: github.repository == 'MinBZK/moza-poc-fbs-berichtenbox'
+    # Een fork erft dit schema en heeft de secret niet; zonder de eerste voorwaarde faalt daar elke
+    # werkdag een run op werk dat er niet thuishoort.
+    #
+    # Alleen op main. Bij een `workflow_dispatch` vanaf een feature branch zou de force-push de
+    # volledige inhoud van die branch op de gedeelde pin-branch zetten, en zou de PR die dat
+    # aanbiedt die hele branch naar main dragen in plaats van één image-regel — én een legitiem
+    # openstaande pin-PR overschrijven.
+    if: github.repository == 'MinBZK/moza-poc-fbs-berichtenbox' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # FUZZ_PIN_TOKEN is een fine-grained PAT op deze repo met alleen `Contents: write` en

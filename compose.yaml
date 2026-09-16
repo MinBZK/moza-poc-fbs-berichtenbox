@@ -441,11 +441,10 @@ services:
   # leesbare aanduiding van wat het is — hun main — en wordt nergens geverifieerd. Alleen die tag
   # zou stil onder een lopende demo door verschuiven.
   #
-  # Bijwerken doet de workflow Proeftuin-pin: die vergelijkt deze digest dagelijks met hun main en
-  # biedt een achterlopende pin als PR aan. Dependabot doet dit image niet meer — hij houdt een
-  # gesloten PR vast als "bestaat al" voor versie `latest`, en elke volgende bump heet weer `latest`
-  # — en `.github/dependabot.yml` negeert het daarom expliciet. Zet hier dus geen variabele terug:
-  # dat script leest één letterlijke referentie. Een andere versie draaien gaat via
+  # Bijwerken doet de workflow Proeftuin-pin: die vergelijkt deze digest op werkdagen met hun main
+  # en biedt een achterlopende pin als PR aan. Dependabot doet dit image niet meer; de reden staat
+  # bij de `ignore`-regel in .github/dependabot.yml. Zet hier dus geen variabele terug: dat script
+  # leest en vervangt één letterlijke referentie. Een andere versie draaien gaat via
   # compose.proeftuin-versie.yaml.
   #
   # Deze regel is de enige vindplaats: alles wat wil weten welke berichtenbox draait — de deploy en
