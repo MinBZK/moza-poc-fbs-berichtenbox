@@ -40,23 +40,27 @@ jobs:
     if: github.repository == 'MinBZK/moza-poc-fbs-berichtenbox'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # PROEFTUIN_PIN_TOKEN is een fine-grained PAT op deze repo met alleen `Contents: write` en
+    # FUZZ_PIN_TOKEN is een fine-grained PAT op deze repo met alleen `Contents: write` en
     # `Pull requests: write`. Bewust niet GITHUB_TOKEN: GitHub start geen workflows op events die
     # dát token veroorzaakt, dus een PR van GITHUB_TOKEN krijgt nooit zijn verplichte checks en is
     # met strict main niet te mergen. Het werk gaat daarmee volledig langs GITHUB_TOKEN heen,
     # vandaar de lege `permissions:`.
+    #
+    # Gedeeld met fuzz-base-image.yml, dat precies dezelfde rechten nodig heeft. De naam dekt die
+    # bredere rol niet meer; een eigen secret vraagt een aanvraag bij MinBZK en dat weegt niet op
+    # tegen één duidelijkere naam. Let op bij een rotatie: die raakt beide workflows.
     permissions: {}
     steps:
       # Vóór de checkout, want die draait zélf op dit token: zonder deze stap faalt een ontbrekende
       # secret als een kale git-authenticatiefout, en die noemt de oorzaak niet.
-      - name: Is PROEFTUIN_PIN_TOKEN gezet
+      - name: Is FUZZ_PIN_TOKEN gezet
         env:
-          GH_TOKEN: ${{ secrets.PROEFTUIN_PIN_TOKEN }}
+          GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
         run: |
           set -euo pipefail
 
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::PROEFTUIN_PIN_TOKEN ontbreekt — zonder die secret faalt de checkout hieronder als een kale git-authenticatiefout."
+            echo "::error::FUZZ_PIN_TOKEN ontbreekt — zonder die secret faalt de checkout hieronder als een kale git-authenticatiefout."
             exit 1
           fi
 
@@ -64,7 +68,7 @@ jobs:
         # Bewust ZONDER `persist-credentials: false`: de `git push` in het script leunt op de
         # extraheader die checkout in .git/config achterlaat. GH_TOKEN dekt alleen de gh-aanroepen.
         with:
-          token: ${{ secrets.PROEFTUIN_PIN_TOKEN }}
+          token: ${{ secrets.FUZZ_PIN_TOKEN }}
 
       - name: Lees de stand van de pin
         id: pin
@@ -77,7 +81,7 @@ jobs:
 
       - name: Bied de pin als PR aan
         env:
-          GH_TOKEN: ${{ secrets.PROEFTUIN_PIN_TOKEN }}
+          GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
           STATUS: ${{ steps.pin.outputs.status }}
           REGEL: ${{ steps.pin.outputs.verwachte_regel }}
           TAG: ${{ steps.pin.outputs.verwachte_tag }}

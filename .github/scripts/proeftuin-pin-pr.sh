@@ -17,15 +17,16 @@
 #   REGEL    — de complete compose-regel die gezet moet worden (alleen bij `verouderd`)
 #   TAG      — de sha-tag van hun main-commit, voor de PR-tekst
 #   HUIDIG   — de referentie die er nu staat, voor de PR-tekst
-#   GH_TOKEN — PAT met Contents: write en Pull requests: write; dekt alleen de gh-aanroepen, de
-#              git push leunt op de credentials die de checkout in .git/config achterlaat
+#   GH_TOKEN — PAT met Contents: write en Pull requests: write (FUZZ_PIN_TOKEN, gedeeld met
+#              fuzz-base-image.yml); dekt alleen de gh-aanroepen, de git push leunt op de
+#              credentials die de checkout in .git/config achterlaat
 #   COMPOSE / BRANCH — te wijzigen bestand en de branch waarop de pin wordt aangeboden; alleen de
 #              suite zet deze
 set -euo pipefail
 
 COMPOSE=${COMPOSE:-compose.yaml}
 BRANCH=${BRANCH:-chore/proeftuin-pin}
-SECRET=PROEFTUIN_PIN_TOKEN
+SECRET=FUZZ_PIN_TOKEN
 
 # De vorm toetsen vóór hij in compose.yaml belandt. `proeftuin-pin.sh` stelt de regel zelf samen, maar
 # een lege of afgekapte waarde (een uitgebleven digest-lookup, een gewijzigd outputformaat) zou hier

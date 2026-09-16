@@ -59,11 +59,12 @@ commit bovenop main, en is de PR een momentopname van de huidige stand.
 **Merge blijft een oordeel.** De PR draagt geen automerge. Hun main draagt ook halfaf werk; de
 PR-body vraagt om de demo door te klikken vóór de merge. Achterlopen is geen kapotte build.
 
-**Een eigen PAT (`PROEFTUIN_PIN_TOKEN`), geen `GITHUB_TOKEN`.** GitHub start geen workflows op events
-die `GITHUB_TOKEN` veroorzaakt, dus een PR van dat token krijgt zijn verplichte checks nooit en is
-met strict main niet te mergen. Fine-grained, alleen deze repo, `Contents: write` en
-`Pull requests: write`. Dezelfde afweging als bij `FUZZ_PIN_TOKEN`; bewust een aparte secret, zodat
-een rotatie of intrekking van de ene niet stilzwijgend de andere workflow meeneemt.
+**`FUZZ_PIN_TOKEN`, geen `GITHUB_TOKEN`.** GitHub start geen workflows op events die `GITHUB_TOKEN`
+veroorzaakt, dus een PR van dat token krijgt zijn verplichte checks nooit en is met strict main niet
+te mergen. Er is dus een PAT nodig: fine-grained, alleen deze repo, `Contents: write` en
+`Pull requests: write` — precies wat `FUZZ_PIN_TOKEN` al draagt. Een eigen secret zou zuiverder
+heten, maar vraagt een aanvraag bij MinBZK en levert verder niets op. De naam dekt de bredere rol
+daarmee niet meer, en een rotatie raakt voortaan twee workflows; dat staat bij beide genoteerd.
 
 **`verouderd` blokkeert nergens, drie statussen wél.** Een verdwenen image (`pin-onvindbaar`) laat de
 eerstvolgende herstart van het component vastlopen op `ImagePullBackOff`; een verdwenen bron-repo of
@@ -85,8 +86,9 @@ bepaalt zelf niets over de stand van de pin, het handelt er alleen naar.
 
 ## Nog te doen na de merge
 
-1. De secret `PROEFTUIN_PIN_TOKEN` aanmaken. Tot die tijd faalt de dagelijkse run met een melding
-   die precies dat zegt.
-2. De eerste run met de hand starten (`workflow_dispatch`) en controleren dat de PR verschijnt.
-3. De achtergebleven `<!-- proeftuin-pin -->`-meldingen op openstaande PR's opruimen; die verdwijnen
+1. De eerste run met de hand starten (`workflow_dispatch`) en controleren dat de PR verschijnt.
+   `FUZZ_PIN_TOKEN` staat er al, dus er hoeft geen secret bij.
+2. De achtergebleven `<!-- proeftuin-pin -->`-meldingen op openstaande PR's opruimen; die verdwijnen
    niet vanzelf, omdat de stap die ze wiste met deze wijziging verdwijnt.
+3. Overwegen wat er van dit script en `fuzz-basis-pin.sh` gedeeld kan worden: hun PR-onderhoud
+   (openzoeken, branch publiceren, opruimen) en vooral hun teststubs lopen grotendeels gelijk op.

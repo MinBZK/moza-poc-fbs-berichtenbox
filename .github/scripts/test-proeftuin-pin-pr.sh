@@ -332,7 +332,7 @@ schrijf_compose "$OUDE_REGEL"
 vastleggen
 PR_LIJST='[]' STATUS=verouderd REGEL="$NIEUWE_REGEL" GH_TOKEN="" uitvoeren
 niet_nul "een ontbrekend token faalt hard" "$CODE"
-meldt "een ontbrekend token noemt de secret" "PROEFTUIN_PIN_TOKEN ontbreekt"
+meldt "een ontbrekend token noemt de secret" "FUZZ_PIN_TOKEN ontbreekt"
 bevat_niet "een ontbrekend token raakt de PR-lijst niet" "gh pr list"
 
 # --- 18. Onleesbare compose.yaml: benoemde fout in plaats van een kale tool-melding ---
