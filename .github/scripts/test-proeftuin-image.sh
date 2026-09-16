@@ -71,7 +71,7 @@ DIGEST="sha256:3e2974ac9e9692b509dee4f5b9c5a63fccbf94f413c65b03916115ee8f850875"
 
 # --- de vormen die in compose.yaml kunnen staan ---
 
-verwacht_image "digest bij een tag (de vorm die Dependabot bijhoudt)" \
+verwacht_image "digest bij een tag (de vorm die proeftuin-pin-pr.sh zet)" \
   "$(compose_met "  proeftuin:" "    image: ghcr.io/minbzk/moza-poc:latest@$DIGEST")" \
   "ghcr.io/minbzk/moza-poc:latest@$DIGEST"
 

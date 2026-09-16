@@ -3,11 +3,10 @@
 # Vergelijkt de image-referentie van de berichtenbox in compose.yaml met de laatste main-commit van
 # MinBZK/moza-poc.
 #
-# Dit is een vangnet naast Dependabot, geen vervanger. Dependabot bumpt de digest zodra hun `latest`
-# verschuift, en dat is het normale pad — mét PR, CI en review. Maar die bump hangt aan een keten
-# die stil kan vallen (hun `latest` blijft staan, zijn docker-compose-parser struikelt over een
-# volgende wijziging in dat bestand) en dan valt er niets op: geen PR is precies hoe "alles bij"
-# eruitziet. Deze controle zegt actief wat de stand is.
+# Stelt alleen vast wat de stand is; de aanroeper beslist wat hij ermee doet. pin-consistency.yml
+# blokkeert een PR bij een pin die niet te trekken is, en proeftuin-pin.yml biedt een achterlopende
+# pin als PR aan. Dependabot doet dit image niet meer — de reden staat bij de `ignore`-regel in
+# .github/dependabot.yml — dus dit is geen vangnet naast dat pad, maar het pad zelf.
 #
 # Eindigt ALTIJD met 0 en schrijft `status` naar GITHUB_OUTPUT; de aanroeper beslist wat elke
 # status betekent. Statussen:
@@ -152,6 +151,15 @@ if ! kop=$(curl -fsS "${gh_auth[@]}" \
   meld oncontroleerbaar "" "" "$image"
 fi
 
+# `jq -er` grijpt alleen op `null` en `false`, dus een antwoord met een lege of afgekapte `.sha`
+# passeert. Dat zou hieronder een tag als `sha-` opleveren, die in het register een 404 geeft en
+# daarmee als `ontbreekt` langskomt — een status die "hun bouw loopt nog" betekent en de aanroeper
+# rustig laat wachten op iets wat nooit komt.
+if ! [[ $kop =~ ^[0-9a-f]{40}$ ]]; then
+  echo "GitHub gaf geen bruikbare commit-sha ('$kop') voor ${BRON_REPO}" >&2
+  meld oncontroleerbaar "" "" "$image"
+fi
+
 # Hun bouw tagt op de korte sha van zeven tekens. Die tag is af te leiden uit de commit, waar de
 # tag-lijst van het register ongesorteerd terugkomt en "de nieuwste" er dus niet uit te lezen valt.
 # Via de commit weten we bovendien wélke wijzigingen een bump zou meenemen.
@@ -167,10 +175,10 @@ if [ "$huidige_digest" = "$verwachte_digest" ]; then
 fi
 
 # De hele regel meegeven en niet alleen de digest: het image-pad staat dan op één plek in dit repo
-# in plaats van ook nog eens in de tekst van een melding, die bij een verhuizing stil achterblijft.
-# `latest` als leesbare aanduiding hoort bij de digest die dáár nu op staat, dus die zoeken we op —
-# de digest van de sha-tag hoeft die van `latest` niet te zijn, en juist in het geval waarvoor deze
-# melding bestaat lopen ze uiteen.
+# in plaats van ook nog eens in de tekst van de aangeboden regel, die bij een verhuizing stil
+# achterblijft. `latest` als leesbare aanduiding hoort bij de digest die dáár nu op staat, dus die
+# zoeken we op — de digest van de sha-tag hoeft die van `latest` niet te zijn, en juist in het geval
+# waarvoor deze regel wordt aangeboden lopen ze uiteen.
 latest_digest=$(digest_van "$MAIN_PAD" latest "$token" || true)
 
 if [ "$latest_digest" = "$verwachte_digest" ]; then

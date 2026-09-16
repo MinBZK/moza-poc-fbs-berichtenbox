@@ -441,10 +441,11 @@ services:
   # leesbare aanduiding van wat het is — hun main — en wordt nergens geverifieerd. Alleen die tag
   # zou stil onder een lopende demo door verschuiven.
   #
-  # Deze vorm is bovendien de enige die Dependabot voor dit image kan bijhouden: hij bumpt de digest
-  # zodra hun main verder gaat, waar hij een `sha-<commit>`-tag niet kan ordenen en een
-  # `${VAR:-...}` niet kan lezen. Daarom staat hier geen variabele meer; een andere versie draaien
-  # gaat via compose.proeftuin-versie.yaml.
+  # Bijwerken doet de workflow Proeftuin-pin: die vergelijkt deze digest op werkdagen met hun main
+  # en biedt een achterlopende pin als PR aan. Dependabot doet dit image niet meer; de reden staat
+  # bij de `ignore`-regel in .github/dependabot.yml. Zet hier dus geen variabele terug: dat script
+  # leest en vervangt één letterlijke referentie. Een andere versie draaien gaat via
+  # compose.proeftuin-versie.yaml.
   #
   # Deze regel is de enige vindplaats: alles wat wil weten welke berichtenbox draait — de deploy en
   # het ZAD-creatiescript — leest hem via .github/scripts/proeftuin-image.sh, zodat een bump hier

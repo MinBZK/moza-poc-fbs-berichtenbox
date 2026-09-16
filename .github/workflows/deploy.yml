@@ -687,11 +687,10 @@ jobs:
 
   checks-pins:
     uses: ./.github/workflows/pin-consistency.yml
-    # pull-requests: write voor de pin-meldingen op de PR; een
-    # aangeroepen workflow kan nooit meer krijgen dan de aanroeper-job toekent.
+    # Alleen lezen: deze checks oordelen over de pins en schrijven niets terug. Een achterlopende
+    # berichtenbox-pin komt als eigen PR langs (proeftuin-pin.yml), niet als melding op déze PR.
     permissions:
       contents: read
-      pull-requests: write
 
   # ClusterFuzzLite fuzzt alleen PR's: op een push naar main is er geen basis om code-change-fuzzing
   # tegen af te zetten. Deze job wordt daar dus overgeslagen, en de gate telt dat als OK.

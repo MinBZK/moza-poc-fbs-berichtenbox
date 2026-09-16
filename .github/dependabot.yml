@@ -27,14 +27,20 @@ updates:
   # images uit compose.yaml (die via pin-consistency.yml ook de ZAD-runtime-pins
   # sturen) is deze version-update-ronde het enige signaal dat er een nieuwe versie is.
   #
-  # Hier hangt ook de berichtenbox van de proeftuin aan. Die staat op digest gepind, want
-  # dat is voor dát image de enige vorm die hij kan bijhouden — de reden staat bij die
-  # regel in compose.yaml. Zet daar dus geen variabele in terug: dan valt de enige
-  # automatische bump van de demo weg.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
       interval: "daily"
+    ignore:
+      # De berichtenbox van de proeftuin. Dependabot kán deze bump niet meer aanbieden: hij
+      # houdt de gesloten, niet-gemergde PR #271 vast als bestaande PR voor dit image op
+      # versie `latest`, en elke volgende bump heet opnieuw `latest` — dus die vastlegging
+      # matcht altijd. Zijn joblog eindigt dan op `Pull request #271 already exists for
+      # minbzk/moza-poc with latest version latest`; `@dependabot recreate` en een handmatige
+      # run vanaf de Dependency graph lopen op hetzelfde vast, en de vastlegging is niet op te
+      # ruimen zolang die PR bestaat. De workflow Proeftuin-pin doet dit image nu. Expliciet
+      # negeren, zodat er geen ecosysteem-regel staat die stilzwijgend niets doet.
+      - dependency-name: "minbzk/moza-poc"
   # Dagelijks: alerts komen er alleen voor semver-referenties, en alle `uses:` in dit
   # repo zijn op commit-SHA gepind (supply-chain-eis). Ook hier is de version-update
   # dus het enige kanaal; de groepering hieronder houdt het bij hooguit twee PR's.

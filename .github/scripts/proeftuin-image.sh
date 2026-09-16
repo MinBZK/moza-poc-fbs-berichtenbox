@@ -2,15 +2,15 @@
 #
 # Print de image-referentie van de berichtenbox (de proeftuin, MinBZK/moza-poc) uit compose.yaml.
 #
-# Compose is de bron omdat Dependabot alléén daar kijkt: hij bumpt de digest zodra hun `latest`
-# verschuift, en dat werkt alleen op een letterlijke referentie in een bestand dat hij kent. Alles
-# wat wil weten welke berichtenbox er draait, leest die regel via dit script — anders zou elke
-# Dependabot-PR met de hand nagelopen moeten worden.
+# Compose is de bron omdat de pin daar staat: één letterlijke referentie, die proeftuin-pin-pr.sh
+# leest en vervangt wanneer hij een bump aanbiedt. Alles wat wil weten welke berichtenbox er draait,
+# leest die regel via dit script — anders zou elke bump op meerdere plekken met de hand nagelopen
+# moeten worden.
 #
 # `PROEFTUIN_IMAGE` overschrijft die regel voor één draai. Bedoeld om nog niet gemergd werk van hun
 # kant te beproeven, of een demo op een bevroren release-tag te zetten. Bewust een omgevingsvariabele
-# en geen tweede regel in compose.yaml: zo blijft er één gepinde waarde die Dependabot bijhoudt, en
-# is de afwijking zichtbaar op de plek waar hij gezet wordt in plaats van in de repo te blijven staan.
+# en geen tweede regel in compose.yaml: zo blijft er één gepinde waarde die bijgehouden wordt, en is
+# de afwijking zichtbaar op de plek waar hij gezet wordt in plaats van in de repo te blijven staan.
 set -euo pipefail
 
 REPO_ROOT=${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}

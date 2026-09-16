@@ -653,7 +653,7 @@ onschuldig: staat een component er wel en noemt de workflow het nog niet, dan dr
 De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
 onze eigen images. Welke versie dat is, staat op één plek: de `proeftuin`-regel in `compose.yaml`,
 gepind op digest. `deploy.yml` leest die regel en zet hem per deployment, en het script hieronder
-leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal een Dependabot-PR)
+leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal de PR van `proeftuin-pin.yml`)
 werkt de demo op de eigen machine én die op ZAD bij. Om nog niet gemergd werk van hun kant te
 beproeven kan daar een preview-referentie staan (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`),
 maar alleen tijdelijk: hun opruiming verwijdert alle `pr-<n>-*`-versies zodra die PR sluit, en dan
