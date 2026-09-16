@@ -11,77 +11,24 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/proeftuin-pin-pr.sh"
-
-fails=0
-geslaagd=0
-ok()   { geslaagd=$((geslaagd + 1)); echo "OK: $1"; }
-fout() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
+TESTBRANCH=chore/proeftuin-pin
+# Het gemeten script leest het te wijzigen bestand als COMPOSE; het harnas zet die naam per geval.
+DOELVAR=COMPOSE
 
 WERKMAP=$(mktemp -d)
 trap 'rm -rf "$WERKMAP"' EXIT
+
+# De stubs, de asserties en de opzet per geval zijn gedeeld met test-fuzz-basis-pin.sh: beide suites
+# meten een script dat een branch, een PR en één regel in één bestand muteert.
+# shellcheck source=.github/scripts/pin-pr-teststubs.sh
+source "$HERE/pin-pr-teststubs.sh"
+pin_pr_stubs_opzetten
 
 IMAGE=ghcr.io/minbzk/moza-poc
 OUD_DIGEST=sha256:bd4a32fe0a52616509a8dcee6f3cdcd198463f9cc4a2c0e0486a6d30a231f571
 NIEUW_DIGEST=sha256:03b37173b801a479450006d32ae74509da67bdf98215a2622f66f549ccdc94e9
 OUDE_REGEL="    image: $IMAGE:latest@$OUD_DIGEST"
 NIEUWE_REGEL="    image: $IMAGE:latest@$NIEUW_DIGEST"
-
-# De stubs leggen elke aanroep vast en bootsen alleen na wat het script echt uitleest: de PR-lijst
-# (met de jq-filter die het script zelf meegeeft, zodat de fork-filter écht getoetst wordt), of
-# compose.yaml gewijzigd is, en of de branch nog bestaat.
-#
-# Ze kunnen ook falen. Zonder die schakelaars overleeft elke `|| true` achter een gh-aanroep de
-# suite, en juist die maakt een mislukte PR-actie stil.
-mkdir -p "$WERKMAP/bin"
-
-cat > "$WERKMAP/bin/gh" <<'STUB'
-#!/usr/bin/env bash
-printf 'gh %s\n' "$*" >> "$AANROEPEN"
-
-# De body gaat naar een eigen bestand: hij loopt over meerdere regels en zou het aanroepenlogboek
-# onleesbaar maken, terwijl de inhoud wél getoetst moet worden.
-vorige=""
-for arg in "$@"; do
-  [ "$vorige" = "--body" ] && printf '%s' "$arg" >> "$BODYS"
-  vorige=$arg
-done
-
-if [ "${GH_FAALT:-}" = "${1:-} ${2:-}" ]; then
-  echo "error connecting to api.github.com" >&2
-  exit 1
-fi
-
-if [ "${1:-}" = "pr" ] && [ "${2:-}" = "list" ]; then
-  filter=""
-  vorige=""
-
-  for arg in "$@"; do
-    [ "$vorige" = "--jq" ] && filter=$arg
-    vorige=$arg
-  done
-
-  printf '%s' "${PR_LIJST:-[]}" | jq -r "$filter"
-fi
-
-exit 0
-STUB
-
-cat > "$WERKMAP/bin/git" <<'STUB'
-#!/usr/bin/env bash
-printf 'git %s\n' "$*" >> "$AANROEPEN"
-
-case "${1:-}" in
-  # `git diff --quiet -- <bestand>`: 0 als er niets gewijzigd is. De momentopname is de staat van
-  # vóór de aanroep, dus dit is een getrouwe simulatie en geen aanname.
-  diff)      cmp -s "$MOMENTOPNAME" "$COMPOSE" ;;
-  ls-remote) exit "${LS_REMOTE_CODE:-0}" ;;
-  push)      [ "${GIT_PUSH_FAALT:-0}" = 0 ] ;;
-  *)         true ;;
-esac
-STUB
-
-chmod +x "$WERKMAP/bin/gh" "$WERKMAP/bin/git"
-export PATH="$WERKMAP/bin:$PATH"
 
 # $1 = de image-regel, rest = extra regels erboven (commentaar of een tweede image-regel).
 schrijf_compose() {
@@ -96,41 +43,6 @@ schrijf_compose() {
     echo "    profiles: [demo]"
   } > "$COMPOSE"
 }
-
-# Zet een verse werkmap klaar voor één geval: eigen compose.yaml, momentopname, aanroepenlogboek en
-# bodybestand. Het draaien zelf doet `uitvoeren`.
-nieuw_geval() {
-  local map="$WERKMAP/$1"
-
-  mkdir -p "$map"
-  export COMPOSE="$map/compose.yaml"
-  export MOMENTOPNAME="$map/compose.yaml.voor"
-  export AANROEPEN="$map/aanroepen"
-  export BODYS="$map/bodys"
-  : > "$AANROEPEN"
-  : > "$BODYS"
-}
-
-vastleggen() { cp "$COMPOSE" "$MOMENTOPNAME"; }
-
-# `set +e` omdat een deel van de gevallen juist een niet-nul exitcode verwacht en deze suite zelf
-# onder `set -e` draait. BRANCH expliciet, zodat de aanroep-asserties niet meeschuiven als de default
-# in het script wijzigt.
-uitvoeren() {
-  set +e
-  UITVOER=$(BRANCH=chore/proeftuin-pin bash "$SCRIPT" 2>&1)
-  CODE=$?
-  set -e
-}
-
-bevat()      { grep -qF "$2" "$AANROEPEN" && ok "$1" || fout "$1 (aanroepen: $(tr '\n' '|' < "$AANROEPEN"))"; }
-bevat_niet() { grep -qF "$2" "$AANROEPEN" && fout "$1 (aanroepen: $(tr '\n' '|' < "$AANROEPEN"))" || ok "$1"; }
-body()       { grep -qF "$2" "$BODYS" && ok "$1" || fout "$1 (body: $(tr '\n' '|' < "$BODYS"))"; }
-gelijk()     { [ "$2" = "$3" ] && ok "$1" || fout "$1 (verwacht '$3', kreeg '$2')"; }
-niet_nul()   { [ "$2" -ne 0 ] && ok "$1" || fout "$1 (exitcode 0, uitvoer: $UITVOER)"; }
-meldt()      { grep -qF "$2" <<<"$UITVOER" && ok "$1" || fout "$1 (uitvoer: $UITVOER)"; }
-regel()      { grep -qxF "$2" "$COMPOSE" && ok "$1" || fout "$1 (bestand: $(tr '\n' '|' < "$COMPOSE"))"; }
-regel_niet() { grep -qxF "$2" "$COMPOSE" && fout "$1 (bestand: $(tr '\n' '|' < "$COMPOSE"))" || ok "$1"; }
 
 export GH_TOKEN=stub-token
 export TAG=sha-7f1455f
@@ -353,12 +265,6 @@ gelijk "sourcen eindigt groen" "$CODE" 0
 meldt "sourcen laadt het script" "geladen"
 bevat_niet "sourcen roept geen enkele gh-aanroep aan" "gh "
 
-echo
-if [ "$fails" -gt 0 ]; then
-  echo "$fails test(s) gefaald." >&2
-  echo "ASSERTIES=$geslaagd"
-  exit 1
-fi
-
-echo "Alle tests geslaagd."
-echo "ASSERTIES=$geslaagd"
+# Print de uitkomst plus de ASSERTIES-regel die ci-scripts.yml leest: een suite die stilletjes
+# minder toetst, valt daar door de mand.
+pin_pr_uitkomst

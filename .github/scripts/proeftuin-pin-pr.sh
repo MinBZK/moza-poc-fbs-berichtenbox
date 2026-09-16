@@ -28,6 +28,12 @@ COMPOSE=${COMPOSE:-compose.yaml}
 BRANCH=${BRANCH:-chore/proeftuin-pin}
 SECRET=FUZZ_PIN_TOKEN
 
+# Het PR-onderhoud zelf is gedeeld met fuzz-basis-pin.sh: token eisen, de eigen PR vinden, de branch
+# publiceren en de PR opruimen. Wat hieronder staat is het deel dat van dít pad is.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=.github/scripts/pin-pr-lib.sh
+source "$HERE/pin-pr-lib.sh"
+
 # De vorm toetsen vóór hij in compose.yaml belandt. `proeftuin-pin.sh` stelt de regel zelf samen, maar
 # een lege of afgekapte waarde (een uitgebleven digest-lookup, een gewijzigd outputformaat) zou hier
 # anders stilzwijgend een onbruikbare image-regel opleveren: de diff is dan niet leeg, de PR ziet er
@@ -42,13 +48,6 @@ pad_uit_regel() {
   local zonder_prefix=${1#*image: }
 
   printf '%s' "${zonder_prefix%%[:@]*}"
-}
-
-# `isCrossRepository` eruit: `--head` matcht op branchnaam, dus een fork-PR met dezelfde naam zou
-# hier als onze pin-PR gelden — en dan sluiten of overschrijven we andermans PR.
-open_pin_pr() {
-  gh pr list --head "$BRANCH" --state open --json number,isCrossRepository \
-    --jq '[.[] | select(.isCrossRepository | not)] | .[0].number // empty'
 }
 
 vervang_pin() {
@@ -99,41 +98,6 @@ gemergd werk van hun kant — gaat via \`compose.proeftuin-versie.yaml\`, niet v
 EOM
 }
 
-# Sluiten en de branch opruimen in twee stappen: `gh pr close --delete-branch` wil ook de lokale
-# branch weg en die bestaat in dit pad niet.
-ruim_pin_pr_op() {
-  local nummer=$1 status=0
-
-  gh pr close "$nummer" \
-    --comment "De pin in \`$COMPOSE\` hoort inmiddels bij de huidige main van de proeftuin; deze PR heeft geen wijziging meer te brengen."
-
-  git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null || status=$?
-
-  # Alleen 2 betekent "die branch is er niet" — een vorige run die na de close afbrak, of iemand die
-  # hem met de hand verwijderde. Elke andere code (128 bij een auth- of netwerkfout) zegt dat we het
-  # niet weten, en dan is stil overslaan het slechtste antwoord: een ingetrokken `Contents: write`
-  # zou zo elke run de opruiming overslaan terwijl de log meldt dat er opgeruimd is.
-  case $status in
-    0) git push origin --delete "$BRANCH" ;;
-    2) echo "Branch $BRANCH bestond al niet meer." ;;
-    *)
-      echo "::error::kon niet vaststellen of $BRANCH nog bestaat (git ls-remote gaf $status)."
-      return 1
-      ;;
-  esac
-}
-
-# Eén commit bovenop main, geen doorgroeiende branch: `switch -C` plus force-push zetten de
-# pin-branch elke run opnieuw neer. Wat iemand er zelf op zette gaat daarmee weg — bedoeld, want deze
-# PR hoort precies één image-regel te dragen. De commit is op compose.yaml begrensd.
-publiceer_branch() {
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  git switch -C "$BRANCH"
-  git commit -m "chore(demo): zet de berichtenbox op de huidige main van de proeftuin" -- "$COMPOSE"
-  git push -f origin "$BRANCH"
-}
-
 bied_pin_aan() {
   local open_pr=$1 body
 
@@ -151,7 +115,8 @@ bied_pin_aan() {
     return 1
   fi
 
-  publiceer_branch
+  pin_pr_publiceer_branch "$BRANCH" "$COMPOSE" \
+    "chore(demo): zet de berichtenbox op de huidige main van de proeftuin"
   body=$(pr_body)
 
   # Ook de body verversen: hij noemt de stand van déze run.
@@ -167,10 +132,7 @@ bied_pin_aan() {
 }
 
 main() {
-  if [ -z "${GH_TOKEN:-}" ]; then
-    echo "::error::$SECRET ontbreekt — de pin-PR kan niet aangemaakt worden. Zet de repo-secret (fine-grained PAT met Contents: write en Pull requests: write)."
-    return 1
-  fi
+  pin_pr_vereis_token "$SECRET" || return 1
 
   if [ ! -r "$COMPOSE" ]; then
     echo "::error::$COMPOSE is niet te lezen — de pin is niet aan te bieden."
@@ -178,7 +140,7 @@ main() {
   fi
 
   local open_pr
-  open_pr=$(open_pin_pr)
+  open_pr=$(pin_pr_open_pr "$BRANCH")
 
   case "${STATUS:-}" in
     verouderd)
@@ -191,7 +153,8 @@ main() {
       echo "De pin staat op de huidige main van de proeftuin."
 
       if [ -n "$open_pr" ]; then
-        ruim_pin_pr_op "$open_pr"
+        pin_pr_ruim_op "$open_pr" "$BRANCH" \
+          "De pin in \`$COMPOSE\` hoort inmiddels bij de huidige main van de proeftuin; deze PR heeft geen wijziging meer te brengen."
         echo "Openstaande pin-PR #$open_pr gesloten."
       fi
       ;;

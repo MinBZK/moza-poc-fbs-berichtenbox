@@ -236,6 +236,8 @@ Wat je hoe dan ook moet weten:
 | `.github/scripts/merge-guard.sh`       | Controleert één gerenderde compose-merge van een FSC-peer-harness op de eisen die in een gedeelde netns gelden |
 | `.github/scripts/proeftuin-pin.sh`     | Vergelijkt de gepinde berichtenbox-digest in `compose.yaml` met de laatste main-commit van `MinBZK/moza-poc` en rapporteert een status; `pin-consistency.yml` en `proeftuin-pin.yml` delen hem |
 | `.github/scripts/proeftuin-pin-pr.sh`  | Biedt een achterlopende berichtenbox-pin als PR aan en sluit die PR zodra de pin bij is. Vervangt Dependabot voor dít image: die houdt de gesloten PR #271 vast als "bestaat al" voor versie `latest`, en elke bump heet weer `latest`. Fixture-suite ernaast in `test-proeftuin-pin-pr.sh` |
+| `.github/scripts/pin-pr-lib.sh`        | Gedeeld PR-onderhoud van de twee pin-scripts (`fuzz-basis-pin.sh` en `proeftuin-pin-pr.sh`): token eisen, de eigen PR vinden zonder fork-PR's te raken, de branch publiceren, de PR opruimen. Wordt gesourcet; het oordeel over "verouderd" blijft per pad |
+| `.github/scripts/pin-pr-teststubs.sh`  | Gedeeld testharnas van de twee pin-suites (`gh`/`git`-stubs met faal-schakelaars, asserties, opzet per geval). Bewust niet `test-*.sh`: `ci-scripts.yml` draait elk `test-*.sh` als suite |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
 
 ## Omgevingsvariabelen

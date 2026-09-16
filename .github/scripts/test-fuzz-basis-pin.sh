@@ -10,67 +10,22 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/fuzz-basis-pin.sh"
-
-fails=0
-geslaagd=0
-ok()   { geslaagd=$((geslaagd + 1)); echo "OK: $1"; }
-fout() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
+TESTBRANCH=chore/fuzz-basis-pin
+# Het gemeten script leest het te wijzigen bestand als DOCKERFILE; het harnas zet die naam per geval.
+DOELVAR=DOCKERFILE
 
 WERKMAP=$(mktemp -d)
 trap 'rm -rf "$WERKMAP"' EXIT
 
+# De stubs, de asserties en de opzet per geval zijn gedeeld met test-proeftuin-pin-pr.sh: beide
+# suites meten een script dat een branch, een PR en één regel in één bestand muteert.
+# shellcheck source=.github/scripts/pin-pr-teststubs.sh
+source "$HERE/pin-pr-teststubs.sh"
+pin_pr_stubs_opzetten
+
 IMAGE=ghcr.io/minbzk/fbs-fuzz-base
 OUD=$IMAGE@sha256:283ebfd78ce10ac2d9e023d37f6f9eb60fbe7a72a23018d844a4ddbb9530ac95
 NIEUW=$IMAGE@sha256:a34281d2286452925dff21dc375122b503c0813c6979f7168d5f84928cf556bb
-
-# De stubs leggen elke aanroep vast en bootsen alleen na wat het script echt uitleest: de PR-lijst
-# (met de jq-filter die het script zelf meegeeft, zodat de fork-filter écht getoetst wordt), of het
-# Dockerfile is gewijzigd, en of de branch nog bestaat.
-#
-# Ze kunnen ook falen. Zonder die schakelaars overleeft elke `|| true` achter een gh-aanroep de
-# suite, en juist die maakt een mislukte PR-actie stil.
-mkdir -p "$WERKMAP/bin"
-
-cat > "$WERKMAP/bin/gh" <<'STUB'
-#!/usr/bin/env bash
-printf 'gh %s\n' "$*" >> "$AANROEPEN"
-
-if [ "${GH_FAALT:-}" = "${1:-} ${2:-}" ]; then
-  echo "error connecting to api.github.com" >&2
-  exit 1
-fi
-
-if [ "${1:-}" = "pr" ] && [ "${2:-}" = "list" ]; then
-  filter=""
-  vorige=""
-
-  for arg in "$@"; do
-    [ "$vorige" = "--jq" ] && filter=$arg
-    vorige=$arg
-  done
-
-  printf '%s' "${PR_LIJST:-[]}" | jq -r "$filter"
-fi
-
-exit 0
-STUB
-
-cat > "$WERKMAP/bin/git" <<'STUB'
-#!/usr/bin/env bash
-printf 'git %s\n' "$*" >> "$AANROEPEN"
-
-case "${1:-}" in
-  # `git diff --quiet -- <bestand>`: 0 als er niets gewijzigd is. De momentopname is de staat van
-  # vóór de aanroep, dus dit is een getrouwe simulatie en geen aanname.
-  diff)      cmp -s "$MOMENTOPNAME" "$DOCKERFILE" ;;
-  ls-remote) exit "${LS_REMOTE_CODE:-0}" ;;
-  push)      [ "${GIT_PUSH_FAALT:-0}" = 0 ] ;;
-  *)         true ;;
-esac
-STUB
-
-chmod +x "$WERKMAP/bin/gh" "$WERKMAP/bin/git"
-export PATH="$WERKMAP/bin:$PATH"
 
 # $1 = FROM-regel, rest = extra regels erboven (commentaar of een tweede FROM).
 schrijf_dockerfile() {
@@ -82,37 +37,6 @@ schrijf_dockerfile() {
   printf 'FROM %s\n' "$from" >> "$DOCKERFILE"
   printf 'COPY . /src\n' >> "$DOCKERFILE"
 }
-
-# Zet een verse werkmap klaar voor één geval: eigen Dockerfile, momentopname en aanroepenlogboek.
-# Het draaien zelf doet `uitvoeren`.
-nieuw_geval() {
-  local map="$WERKMAP/$1"
-
-  mkdir -p "$map"
-  export DOCKERFILE="$map/Dockerfile"
-  export MOMENTOPNAME="$map/Dockerfile.voor"
-  export AANROEPEN="$map/aanroepen"
-  : > "$AANROEPEN"
-}
-
-vastleggen() { cp "$DOCKERFILE" "$MOMENTOPNAME"; }
-
-# `set +e` omdat een deel van de gevallen juist een niet-nul exitcode verwacht en deze suite zelf
-# onder `set -e` draait. BRANCH expliciet, zodat de aanroep-asserties niet meeschuiven als de default
-# in het script wijzigt.
-uitvoeren() {
-  set +e
-  UITVOER=$(BRANCH=chore/fuzz-basis-pin bash "$SCRIPT" 2>&1)
-  CODE=$?
-  set -e
-}
-
-bevat()      { grep -qF "$2" "$AANROEPEN" && ok "$1" || fout "$1 (aanroepen: $(tr '\n' '|' < "$AANROEPEN"))"; }
-bevat_niet() { grep -qF "$2" "$AANROEPEN" && fout "$1 (aanroepen: $(tr '\n' '|' < "$AANROEPEN"))" || ok "$1"; }
-gelijk()     { [ "$2" = "$3" ] && ok "$1" || fout "$1 (verwacht '$3', kreeg '$2')"; }
-niet_nul()   { [ "$2" -ne 0 ] && ok "$1" || fout "$1 (exitcode 0, uitvoer: $UITVOER)"; }
-meldt()      { grep -qF "$2" <<<"$UITVOER" && ok "$1" || fout "$1 (uitvoer: $UITVOER)"; }
-regel()      { grep -qxF "$2" "$DOCKERFILE" && ok "$1" || fout "$1 (bestand: $(tr '\n' '|' < "$DOCKERFILE"))"; }
 
 export GH_TOKEN=stub-token
 export POMS=784a07194fe785b210158bc95025a0b483eef565edb44623b62af64b553a6db2
@@ -299,13 +223,6 @@ gelijk "sourcen eindigt groen" "$CODE" 0
 meldt "sourcen laadt het script" "geladen"
 bevat_niet "sourcen roept geen enkele gh-aanroep aan" "gh "
 
-echo
-# Door ci-scripts.yml gelezen: een suite die stilletjes minder toetst, valt daar door de mand.
-echo "ASSERTIES=$geslaagd"
-
-if [ "$fails" -gt 0 ]; then
-  echo "$fails test(s) gefaald." >&2
-  exit 1
-fi
-
-echo "Alle tests geslaagd."
+# Print de uitkomst plus de ASSERTIES-regel die ci-scripts.yml leest: een suite die stilletjes
+# minder toetst, valt daar door de mand.
+pin_pr_uitkomst

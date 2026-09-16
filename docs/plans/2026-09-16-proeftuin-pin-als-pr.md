@@ -74,6 +74,15 @@ dagelijkse run rood.
 **Het oordeel staat op één plek.** Beide workflows draaien `proeftuin-pin.sh`; het nieuwe script
 bepaalt zelf niets over de stand van de pin, het handelt er alleen naar.
 
+**Het PR-onderhoud is gedeeld met het fuzz-pad.** `fuzz-basis-pin.sh` deed hetzelfde werk al: token
+eisen, de eigen PR vinden zonder een fork-PR te raken, de branch als één commit bovenop main
+neerzetten, en de PR opruimen zodra hij niets meer verandert. Gemeten kwamen 41 niet-commentaarregels
+in beide scripts letterlijk voor, en 99 in de twee suites. Die twee delen staan nu in
+`pin-pr-lib.sh` en `pin-pr-teststubs.sh`; wat "verouderd" betekent en welke regelvorm vervangen wordt
+blijft per pad. Dat is het eerste gesourcete bestand onder `.github/scripts/` — `shellcheck -x` in
+`ci-scripts.yml` volgt `source`, dus de dekking blijft. Het harnas heet bewust niet `test-*.sh`:
+`ci-scripts.yml` draait elk bestand met die naam als suite en eist er een `ASSERTIES=`-regel van.
+
 ## Verificatie
 
 - `bash .github/scripts/test-proeftuin-pin-pr.sh` → `Alle tests geslaagd. ASSERTIES=87`. De suite
@@ -90,5 +99,5 @@ bepaalt zelf niets over de stand van de pin, het handelt er alleen naar.
    `FUZZ_PIN_TOKEN` staat er al, dus er hoeft geen secret bij.
 2. De achtergebleven `<!-- proeftuin-pin -->`-meldingen op openstaande PR's opruimen; die verdwijnen
    niet vanzelf, omdat de stap die ze wiste met deze wijziging verdwijnt.
-3. Overwegen wat er van dit script en `fuzz-basis-pin.sh` gedeeld kan worden: hun PR-onderhoud
-   (openzoeken, branch publiceren, opruimen) en vooral hun teststubs lopen grotendeels gelijk op.
+De gelijkenis met `fuzz-basis-pin.sh` is in deze wijziging zelf opgelost; zie de ontwerpkeuzes
+hierboven.
