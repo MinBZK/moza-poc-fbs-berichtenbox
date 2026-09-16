@@ -201,3 +201,86 @@ Voor de huidige PoC: **nog niet implementeren**, maar wel de architectuur voorbe
 - [NL-Wallet (EDI-wallet) open source repository](https://github.com/MinBZK/nl-wallet)
 - [EDI-wallet informatie (edi.pleio.nl)](https://edi.pleio.nl)
 - [SD-JWT VC specificatie (IETF draft)](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/)
+
+---
+
+## Appendix: Berichten cachen en doorzoeken in de client (Proton Mail-model)
+
+### Aanleiding
+
+In het blauwe-knop-model ligt de aggregatie bij de burger-app en niet bij een uitvraagsysteem. Daarmee verschuift ook de vraag waar opgehaalde berichten blijven staan en hoe je erin zoekt. Browseropslag leek daarvoor eerder te krap — zeker in Safari, waar de opslag bovendien tijdelijk bleek.
+
+Proton Mail doet het wel. Hun server kan de berichten niet lezen (client-side encryptie), dus zoeken op inhoud kán alleen lokaal. Dat maakt hun ontwerp interessant als referentie: het is een werkend voorbeeld van een aggregaat dat volledig in de client leeft.
+
+### Hoe Proton het oplost
+
+De index is een **versleutelde forward index in IndexedDB** — geen inverted index.
+
+1. Bericht van de server halen en lokaal OpenPGP-decrypten
+2. HTML-markup strippen tot platte tekst (scheelt fors in volume)
+3. Opnieuw versleutelen met **AES-GCM** via de Web Crypto API
+4. Wegschrijven in IndexedDB, met het message-ID als key
+
+De symmetrische indexsleutel is zelf versleuteld onder de sleutel van de gebruiker. De index verlaat de browser nooit en moet per browser per apparaat opnieuw worden opgebouwd.
+
+**Zoeken is een lineaire scan**: alle berichten worden in het geheugen ontsleuteld en op substring gematcht, met resultaten die incrementeel binnenkomen. Geen tokenisatie, geen postings-lijsten.
+
+Proton motiveert die keuze met eenvoud en met exacte frase-matching, die in een inverted index extra structuur vereist. Veelzeggend is dat hun losse bibliotheek `ProtonMail/encrypted-search` — een getokeniseerde inverted index mét `AND`/`OR`/`PHRASE`/`PROXIMITY`/`WILDCARD` — in november 2021 is gearchiveerd. Dat is de weg die ze niet zijn ingeslagen.
+
+### De opslaggrens wordt niet opgelost, maar toegegeven
+
+Proton omzeilt de beperking niet; ze degraderen zichtbaar:
+
+> "In rare cases, the contents of a large inbox may require more storage capacity than your browser offers."
+
+Past de mailbox niet, dan indexeren ze **partieel en nieuwste-eerst**, en toont de UI een datum die aangeeft hoe ver terug het zoeken op inhoud reikt. Die datum schuift mee als er nieuwe berichten binnenkomen. In private/incognito-modus werkt de functie niet. Raakt de index corrupt, dan is het advies: browserdata wissen en opnieuw opbouwen.
+
+De index is bij hen dus een **wegwerpbare cache** die altijd herbouwbaar is uit de server — nooit een bron van waarheid.
+
+### Wat er sinds de eerdere analyse veranderd is (Safari)
+
+| Aspect | Stand van zaken |
+|--------|-----------------|
+| **Quota per origin** | WebKit staat een origin tot **60% van de totale schijfruimte** toe (browser-apps), met 80% als totaal over alle origins. Voor niet-browser-apps is dat 15%/20%. Ruimte is daarmee niet meer de knellende factor. |
+| **Eviction** | De ITP-regel blijft: een origin zonder user-interaction binnen zeven dagen browsergebruik verliest **alle** script-writable storage — in één keer, niet gedeeltelijk. |
+| **Ontsnapping** | Safari 17+ ondersteunt de Storage API volledig. `navigator.storage.persist()` kan persistent mode geven, maar WebKit kent die toe op heuristiek; het genoemde voorbeeld is een site die als Home Screen Web App is geopend. Als gewoon tabblad is het geen garantie. |
+
+De conclusie verschuift daarmee van "er is te weinig ruimte" naar "de ruimte is er, maar de bewaartermijn is niet gegarandeerd".
+
+### Waarom het model niet zomaar overdraagbaar is
+
+De drijfveer verschilt fundamenteel, en dat bepaalt de kosten van een verloren cache.
+
+| | Proton Mail | Blauwe knop / VoRijk | FBS (deze PoC) |
+|--|-------------|----------------------|----------------|
+| **Waarom in de client?** | Cryptografisch — de server *kan* niet lezen | Architectonisch — er *mag* geen intermediair een kopie houden | Niet in de client; sessiecache in Redis, server-side |
+| **Herstel na verlies** | Eén server opnieuw bevragen | Fan-out naar álle bronorganisaties, mét sessie-opzet per organisatie | Opnieuw ophalen bij de magazijnen via de uitvraag |
+| **Kosten van eviction** | Laag | Hoog | N.v.t. — TTL-gestuurd en bedoeld |
+
+Voor Proton is een weggegooide index een vervelende, maar goedkope her-synchronisatie. Bij blauwe knop is opnieuw opbouwen precies de dure operatie: een fan-out over alle bronorganisaties, waarbij elke organisatie een eigen challenge/response en credential-presentatie vereist. Eviction na zeven dagen betekent dan dat de hele keten wekelijks opnieuw wordt aangeslingerd.
+
+Daar staat tegenover dat **VoRijk een native mobiele app is, geen browser**. Dan gelden er geen IndexedDB-quota en geen ITP: je hebt gewone bestandsopslag plus Keychain/Keystore voor de sleutels. Het Safari-vraagstuk is in dat geval een browser-probleem, geen blauwe-knop-probleem. Het speelt alleen als je blauwe knop óók in een webcontext wil aanbieden — en dan is een PWA op het beginscherm de enige route naar opslag die blijft staan.
+
+### Wat wél overneembaar is
+
+1. **Behandel de client-cache als wegwerpbaar.** De cache is een prestatie-optimalisatie, nooit de bron van waarheid. Dat is dezelfde keuze als bij de FBS-sessiecache, die met een sliding TTL in Redis staat en altijd opnieuw gevuld kan worden uit de magazijnen.
+
+2. **Partiële index, nieuwste-eerst, met een expliciete grens in de UI.** Een zichtbare melding "zoeken in inhoud vanaf &lt;datum&gt;" is eerlijker dan stilzwijgend onvolledige resultaten tonen. Dit patroon is bruikbaar ongeacht welke opslagstrategie verder gekozen wordt.
+
+3. **Lineaire scan volstaat ruimschoots.** Proton doet dit over mailboxen met tienduizenden berichten. Hier zijn berichten enkele kilobytes groot — `Bericht.MAX_INHOUD_BYTES` (1 MiB) is een validatieplafond, geen werkpunt. Een inverted index bouwen zou over-engineering zijn; neem hun conclusie over, niet hun gearchiveerde bibliotheek.
+
+4. **Versleutel de lokale opslag alsnog.** Ook als de inhoud onderweg niet end-to-end versleuteld is, beschermt een AES-GCM-laag over de lokale index tegen een aanvaller met toegang tot het apparaat of het browserprofiel.
+
+### Open punten
+
+- De exacte opslaglimiet die Proton in de client hanteert is niet uit de openbare bronnen te halen; ze noemen wel het gedrag bij overschrijding, niet de drempel.
+- Hoe hun **native** clients (iOS/Android) dit doen is niet gedocumenteerd in de engineering-post — die gaat uitsluitend over de webclient. Juist dat is voor een app-gebaseerd blauwe-knop-model de relevantere vraag.
+- Of `navigator.storage.persist()` in Safari buiten de Home Screen Web App betrouwbaar wordt toegekend, is niet gespecificeerd; WebKit noemt alleen "heuristics".
+
+### Bronnen
+
+- [Behind the scenes of Proton Mail's message content search](https://proton.me/blog/engineering-message-content-search)
+- [Search message content in Proton Mail (support)](https://proton.me/support/search-message-content)
+- [ProtonMail/encrypted-search (gearchiveerd, MIT)](https://github.com/ProtonMail/encrypted-search)
+- [Updates to Storage Policy — WebKit](https://webkit.org/blog/14403/updates-to-storage-policy/)
+- [Storage quotas and eviction criteria — MDN](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria)
