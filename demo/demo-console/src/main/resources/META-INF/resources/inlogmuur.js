@@ -30,6 +30,12 @@ const MUUR_DEMPING_MS = 30000;
  * in het geheugen is bij terugkomst juist weg, precies wanneer de lus zou beginnen. */
 const MUUR_SLEUTEL = 'fbs-demo-inlogmuur:laatste-poging';
 
+/* Dat er hersteld ís. Het herstel navigeert weg, dus de melding die daarbij hoort flitst voorbij en
+ * is na terugkomst nergens meer te zien: wie even niet keek, kan een geslaagd herstel niet van een
+ * rustige ochtend onderscheiden — en bij het beproeven van deze afhandeling is dat juist wat je
+ * wilt weten. Ook in sessionStorage, om dezelfde reden als de demping. */
+const MUUR_SPOOR = 'fbs-demo-inlogmuur:hersteld';
+
 /* Of de navigatie naar het inlogpad al is ingezet. De poll en een druk op een knop kunnen elkaar
  * overlappen, en twee navigaties tegelijk laten de browser de eerste afbreken. */
 let muurHerstelLoopt = false;
@@ -65,6 +71,7 @@ function herstelInlogsessie() {
 
     muurHerstelLoopt = true;
     onthoudHerstelpoging();
+    laatSpoorAchter();
 
     window.location.assign(MUUR_START_PAD + '?rd=' + encodeURIComponent(location.pathname + location.search));
 
@@ -77,6 +84,39 @@ function muurMelding() {
     return herstelInlogsessie()
         ? 'Je was uitgelogd bij de omgeving; je wordt opnieuw ingelogd…'
         : 'Je bent uitgelogd bij de omgeving. Ververs de pagina om opnieuw in te loggen.';
+}
+
+/* De melding voor wie terugkomt uit een herstel, of `null` wanneer er niets aan voorafging. Net als
+ * `muurMelding()` één ingang: de tekst en de toets erop horen niet uit elkaar te lopen. */
+function muurHerstelMelding() {
+    return netHersteld() ? 'Je was uitgelogd bij de omgeving en bent opnieuw ingelogd.' : null;
+}
+
+/* Of er op deze pagina zojuist een herstel aan voorafging. Wist het spoor meteen: de melding hoort
+ * bij die ene terugkomst, en zou anders bij elke volgende verversing opnieuw verschijnen en de
+ * bediener laten denken dat hij er steeds uit vliegt. */
+function netHersteld() {
+    try {
+        const spoor = window.sessionStorage.getItem(MUUR_SPOOR);
+
+        if (!spoor) return false;
+
+        window.sessionStorage.removeItem(MUUR_SPOOR);
+
+        return true;
+    } catch (fout) {
+        console.error('[inlogmuur] spoor niet te lezen', fout);
+
+        return false;
+    }
+}
+
+function laatSpoorAchter() {
+    try {
+        window.sessionStorage.setItem(MUUR_SPOOR, String(Date.now()));
+    } catch (fout) {
+        console.error('[inlogmuur] spoor niet te bewaren', fout);
+    }
 }
 
 /* Storage kan gooien wanneer site-data geblokkeerd is. Dan liever herstellen zonder demping dan

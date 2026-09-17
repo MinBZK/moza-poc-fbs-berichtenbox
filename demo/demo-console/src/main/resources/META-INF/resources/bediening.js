@@ -2093,6 +2093,13 @@ richtIn(false);
 
 verversToestand();
 
+// Ná `verversToestand()`: die zet bij een geslaagde ronde zelf niets in de balk, dus deze melding
+// blijft staan. Zonder dit is een geslaagd herstel niet te onderscheiden van een demo waarin niets
+// gebeurde — het herstel navigeert immers weg, en de melding van vóór die navigatie is dan weg.
+const herstelmelding = muurHerstelMelding();
+
+if (herstelmelding) toonMelding(herstelmelding, 'let-op', null);
+
 // Alleen pollen terwijl er iemand kijkt: een demo-console blijft dagen in een tab openstaan.
 setInterval(() => {
     if (!document.hidden) verversToestand();

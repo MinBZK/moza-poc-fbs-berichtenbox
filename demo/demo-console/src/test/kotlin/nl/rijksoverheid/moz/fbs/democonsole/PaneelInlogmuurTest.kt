@@ -117,6 +117,38 @@ class PaneelInlogmuurTest {
     }
 
     @Test
+    fun `het herstel laat een spoor achter dat de navigatie overleeft`() {
+        // Zonder spoor is een geslaagd herstel niet waarneembaar: de melding van vóór de navigatie
+        // is na terugkomst weg, en wie even niet keek kan het niet van een rustige ochtend
+        // onderscheiden. Dat maakt ook het beproeven van deze afhandeling onmogelijk.
+        val code = zonderCommentaar(inlogmuur)
+
+        assertTrue(code.contains("MUUR_SPOOR"), "er is geen spoor van een herstel")
+        assertTrue(functieBody(inlogmuur, "herstelInlogsessie").contains("laatSpoorAchter()"), "het herstel laat geen spoor achter")
+        assertTrue(code.contains("sessionStorage.setItem(MUUR_SPOOR"), "het spoor overleeft de navigatie naar de proxy niet")
+    }
+
+    @Test
+    fun `het spoor verdwijnt zodra het gelezen is`() {
+        // Anders verschijnt de melding bij elke volgende verversing opnieuw, en denkt de bediener
+        // dat hij er steeds uit vliegt.
+        assertTrue(
+            functieBody(inlogmuur, "netHersteld").contains("sessionStorage.removeItem(MUUR_SPOOR)"),
+            "het spoor blijft staan na het lezen",
+        )
+    }
+
+    @Test
+    fun `het paneel meldt bij het opstarten dat het hersteld is`() {
+        // Buiten elke functie, tussen de bedrading onderaan: hier hoort het één keer per laadbeurt
+        // te gebeuren en niet in een pad dat de bediener zelf moet aanraken.
+        assertTrue(
+            zonderCommentaar(script).contains("const herstelmelding = muurHerstelMelding()"),
+            "het paneel leest het spoor niet bij het opstarten",
+        )
+    }
+
+    @Test
     fun `de melding over uitloggen staat alleen bij de herstelpoging`() {
         // Eén ingang voor melden en herstellen: een aanroeper die de tekst zelf opschrijft, meldt
         // wel dat je uitgelogd bent maar doet er niets aan — en dat is de toestand van vóór dit
