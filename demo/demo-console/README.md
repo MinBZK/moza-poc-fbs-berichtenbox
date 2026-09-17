@@ -56,6 +56,11 @@ magazijnen-project `mpfm-w3h`, en rolt mee naar elke preview.
 rijksaccount. Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de
 authorization-wall, niet een kapot component.
 
+Elke uitrol logt je daar uit — het geheim waarmee de muur zijn sessies ondertekent rouleert bij
+iedere rendering. `inlogmuur.js` vangt dat op: het herkent de 403 van de muur aan `/oauth2/auth` en
+stuurt je langs de aanmelding terug naar de pagina waar je stond. Zonder dat meldt elke knop iets
+over een onleesbaar antwoord en blijft elke chip op "onbekend" staan.
+
 Elke preview draagt zijn eigen console op `democonsole-pr-<n>-mpfm-w3h…`, met de tag van díe PR.
 Een wijziging aan de demo is daar dus te beoordelen vóór hij samengevoegd wordt, inclusief de
 Berichtenbox-weergave: de uitvraag laat elke console-origin van dit project toe.

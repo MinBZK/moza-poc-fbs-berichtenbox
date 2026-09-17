@@ -7,7 +7,16 @@
 let BASIS = `http://${window.location.hostname}:8086/api/v1`;
 
 const omgevingGeladen = fetch('/api/demo/omgeving')
-  .then((respons) => (respons.ok ? respons.json() : null))
+  .then(async (respons) => {
+    if (respons.ok) return respons.json();
+
+    // Deze pagina komt van de console en staat op een gedeelde omgeving dus achter dezelfde
+    // inlogmuur. Zonder dit valt ze stilletjes terug op de dev-poort hieronder en meldt elke knop
+    // daarna een onbereikbare uitvraag, terwijl alleen de sessie verlopen is.
+    if (await inlogsessieVerlopen(respons.status)) herstelInlogsessie();
+
+    return null;
+  })
   .then((omgeving) => {
     if (omgeving && omgeving.uitvraagBasis) BASIS = omgeving.uitvraagBasis;
 
