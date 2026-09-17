@@ -997,6 +997,18 @@ site de browser van een ingelogd teamlid laat posten: die aanvraag draagt de ses
 proxy gewoon mee. Daarom staat `CSRF_PROTECTION_ENABLED=true` in de controller-env van beide
 `upsert-peer.sh`-scripts.
 
+Die scripts zetten `env_vars` alleen bij component-creatie, dus op een controller die er al staat
+komt de waarde langs een andere laag binnen — en die laag heeft dat component níet opnieuw nodig,
+zodat de cert-bijlagen blijven staan:
+
+```bash
+zadctl -p mpfb-8wh env set CSRF_PROTECTION_ENABLED=true -c logius-fscctl
+zadctl -p mpfm-w3h env set CSRF_PROTECTION_ENABLED=true -c magazijna-fscctl
+```
+
+`set` wijzigt een waarde die er al is; meldt hij dat de sleutel op deze laag ontbreekt, gebruik dan
+`env add` met dezelfde toekenning.
+
 Controleer na het uitrollen één schrijfactie in de UI — een dienst publiceren is de kortste. De
 router termineert de TLS en stuurt platte HTTP naar de pod, dus als OpenFSC zijn CSRF-oordeel op het
 schema van de aanvraag baseert, is dit de plek waar dat blijkt. Weigert de UI zijn eigen formulier,
