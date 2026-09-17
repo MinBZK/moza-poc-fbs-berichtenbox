@@ -164,13 +164,20 @@ MGZMGR_ENV="$(printf '%s\n' \
 # pod :8443); INTERNE edges op de cluster-Service-DNS + interne-PKI-poort (9443/9444, txlog 8443).
 MGZMGR_ALIASES=""
 
+# De beheer-UI luistert op ports[0] en staat daarmee op de publieke ingress, terwijl AUTHN_TYPE=none
+# iedereen die het adres kent meteen als beheerder binnenlaat. De toegangscontrole hangt daarom aan de
+# ZAD-dienst `authorization-wall`: een oauth2-proxy vóór het component die om een rijksaccount vraagt.
+# Die binding is componentconfiguratie bij OM en staat niet in deze API-body — hoofdstuk 10 van
+# demo/environment/zad-demo/README.md zet hem, beheertoegang.sh ernaast toetst hem.
+# CSRF_PROTECTION_ENABLED hoort daarbij aan te staan: de muur houdt een onbekende bezoeker tegen, maar
+# niet een formulier op een andere site dat de browser van een ingelogd teamlid laat posten.
 MGZCTL_ENV="$(printf '%s\n' \
   "LOG_TYPE=live" "LOG_LEVEL=info" "AUDITLOG_TYPE=stdout" \
   "GROUP_ID=moza-fbs-test" \
   "DIRECTORY_PEER_ID=00000000000000000010" \
   "AUTHN_TYPE=none" \
   "AUTHZ_TYPE=rbac" \
-  "CSRF_PROTECTION_ENABLED=false" \
+  "CSRF_PROTECTION_ENABLED=true" \
   "LISTEN_ADDRESS_UI=0.0.0.0:8080" \
   "LISTEN_ADDRESS_REGISTRATION_API=0.0.0.0:9443" \
   "LISTEN_ADDRESS_ADMINISTRATION_API=0.0.0.0:9444" \

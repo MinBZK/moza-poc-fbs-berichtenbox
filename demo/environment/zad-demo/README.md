@@ -928,6 +928,111 @@ gaat naar een eigen laag bij OM (`PUT /v2/projects/{p}/services/health-check/con
 `profiel` ging van een `tcpSocket`-probe naar `httpGet /__admin/health` zonder dat er iets
 herschapen werd.
 
+## 10. De beheer-UI's van de FSC-peers achter de muur
+
+De controller van een FSC-peer draait met `AUTHN_TYPE=none`. Die instelling komt uit de lokale
+harness, waar alles op loopback luistert, en is met de peers meegereisd naar ZAD. Daar is het iets
+anders: de beheer-UI staat op `ports[0]` en dus op de publieke ingress, en wie hem opent is meteen
+beheerder. Het menu voert naar diensten publiceren, contracten intrekken, peers toevoegen en de
+audit- en transactielogs. De adressen zijn af te leiden uit deze repository.
+
+De afscherming zit daarom niet in het component maar ervóór, in dezelfde `authorization-wall` die
+hoofdstuk 1 voor het paneel beschrijft. Dat is een keuze mét een grens: OpenFSC kent een eigen
+OIDC-modus, en die zou de controller een échte identiteit geven in zijn RBAC en zijn auditlog. De
+muur doet dat niet — achter de proxy blijft elke bezoeker `admin` voor de controller zelf. Wat de
+muur wél doet is de deur sluiten, en dat is wat er nu ontbreekt.
+
+Twee bindingen per controller-component, en de tweede is degene die vergeten wordt:
+
+```bash
+zadctl -p mpfb-8wh service add keycloak
+zadctl -p mpfb-8wh service add authorization-wall
+zadctl -p mpfb-8wh service assign authorization-wall -c logius-fscctl
+zadctl -p mpfb-8wh service assign keycloak -c logius-fscctl
+zadctl -p mpfb-8wh deployment refresh fsc-logius
+```
+
+en hetzelfde voor de andere peer:
+
+```bash
+zadctl -p mpfm-w3h service assign authorization-wall -c magazijna-fscctl
+zadctl -p mpfm-w3h service assign keycloak -c magazijna-fscctl
+zadctl -p mpfm-w3h deployment refresh fsc-magazijna
+```
+
+`service assign` selecteert de dienst meteen op projectniveau, dus de twee `service add`-regels zijn
+er voor de leesbaarheid. De API-key is per project: draai deze reeksen vanuit een map waar
+`zadctl project use <project>` het juiste project heeft gezet, anders komt de tweede reeks terug als
+`401 Invalid API key`.
+
+### Wie er binnenkomt is een projectbrede keuze
+
+`authorization-wall` eist `keycloak` én een `restrict-access`-blok op die Keycloak, en de
+configuratie van `keycloak` kent maar één laag: `project` (`zadctl service describe keycloak`). Er is
+dus geen instelling die voor het ene component in een project een rol eist en voor het andere niet.
+
+Dat valt per project anders uit:
+
+- **`mpfb-8wh`** draagt geen ander component achter de muur, dus daar kan de toegang op een rol:
+
+  ```bash
+  zadctl -p mpfb-8wh service config set keycloak \
+    --set 'restrict-access.enabled=true' \
+    --set 'restrict-access.realm-role=<rol>'
+  ```
+
+  De rol deel je in Keycloak uit aan de teamleden die de koppeling beheren.
+
+- **`mpfm-w3h`** draagt ook het demo-paneel, en dat staat er bewust met
+  `restrict-access.enabled=false`: stakeholders moeten de demo zelf kunnen openen met hun
+  rijksaccount. Een rol aanzetten sluit dus óók hen buiten. Tot het team daarover beslist is
+  `magazijna-fscctl` daar afgeschermd op "ingelogd met een rijksaccount" en niet op een beheerrol.
+  Wil je beide, dan moet de peer naar een eigen project met een eigen realm — dat is een verhuizing
+  van de certificaten en de adressen, geen instelling.
+
+### CSRF hoort erbij
+
+De muur houdt een onbekende bezoeker tegen. Hij houdt niet tegen dat een formulier op een andere
+site de browser van een ingelogd teamlid laat posten: die aanvraag draagt de sessiecookie van de
+proxy gewoon mee. Daarom staat `CSRF_PROTECTION_ENABLED=true` in de controller-env van beide
+`upsert-peer.sh`-scripts.
+
+Controleer na het uitrollen één schrijfactie in de UI — een dienst publiceren is de kortste. De
+router termineert de TLS en stuurt platte HTTP naar de pod, dus als OpenFSC zijn CSRF-oordeel op het
+schema van de aanvraag baseert, is dit de plek waar dat blijkt. Weigert de UI zijn eigen formulier,
+zet de instelling dan terug op `false` en noteer het in issue 1090: dan is de muur de enige
+maatregel en verdient de OIDC-modus voorrang.
+
+### De outway hoort niet op het web
+
+`logius-fscoutway` is een egress-proxy: de weg naar buiten voor de berichtenuitvraag, niet een
+ingang. Hij draagt toch een ingress, met een antwoord dat verraadt hoe die tot stand komt — de
+router termineert de TLS en de pod (`LISTEN_HTTPS=true`) antwoordt `Client sent an HTTP request to an
+HTTPS server`. Er komt daardoor geen verkeer doorheen, maar de publicatie zelf hoort er niet:
+
+```bash
+zadctl -p mpfb-8wh service unassign publish-on-web -c logius-fscoutway
+zadctl -p mpfb-8wh deployment refresh fsc-logius
+```
+
+De manager en de inway houden hun publicatie wél: die staan in modus 2 (SNI-passthrough) en dragen
+de mesh, waar een peer zich met een clientcertificaat meldt.
+
+### Controleren, en blijven controleren
+
+Deze bindingen zijn componentconfiguratie bij OM. Ze staan in geen enkel bestand in deze repo, dus
+een hercreatie van een component brengt de oude toestand terug zonder dat er een controle daalt.
+`beheertoegang.sh` ernaast kijkt daarom van buitenaf, zonder sessie en zonder key, precies zoals een
+buitenstaander kijkt:
+
+```bash
+demo/environment/zad-demo/beheertoegang.sh
+```
+
+De tabel in dat script is de bron: elk FSC-component staat erin met wat het aan een bezoeker zonder
+account hoort te tonen. Komt er een peer bij, dan hoort zijn controller daar als `muur` bij — anders
+staat zijn beheer-UI open zonder dat iemand het merkt.
+
 ## Wat er bewust niet meekomt
 
 **De magazijn-storingen.** De twee `TOXIPROXY_MAGAZIJN_*_URL` blijven leeg en het paneel laat die
