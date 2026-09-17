@@ -3,7 +3,7 @@
 # zien. De beheer-UI van een controller draait met AUTHN_TYPE=none: wie de pagina opent is meteen
 # beheerder, en de adressen zijn af te leiden uit de publieke repository. De afscherming zit daarom
 # niet in het component maar ervóór, in de ZAD-dienst `authorization-wall`. Die binding is
-# componentconfiguratie bij OM en hoort bij geen enkel bestand in deze repo — zonder een controle
+# componentconfiguratie bij OM en staat in geen enkel bestand van deze repo — zonder een controle
 # als deze merkt niemand het wanneer hij bij een nieuwe peer of na een hercreatie ontbreekt.
 #
 # Het script heeft geen ZAD-sessie en geen API-key nodig: het kijkt precies zoals een buitenstaander
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 BASIS_DOMEIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
-WACHTTIJD="${ZAD_HTTP_TIMEOUT:-15}"
+TIMEOUT="${ZAD_HTTP_TIMEOUT:-15}"
 
 FILTER="${1:-alle}"
 
@@ -91,19 +91,19 @@ TESTNET=(
 
 REGELS=("${PEER_LOGIUS[@]}" "${PEER_MAGAZIJNA[@]}" "${TESTNET[@]}")
 
-LICHAAM="$(mktemp)"
-trap 'rm -f "$LICHAAM"' EXIT
+BODY_BESTAND="$(mktemp)"
+trap 'rm -f "$BODY_BESTAND"' EXIT
 
 # Eén aanroep, drie uitkomsten: de HTTP-code (000 als er geen antwoord kwam), de exitcode van curl
-# en het antwoord zelf in $LICHAAM. `-k` staat erop omdat een certificaatfout hier geen oordeel is:
+# en het antwoord zelf in $BODY_BESTAND. `-k` staat erop omdat een certificaatfout hier geen oordeel is:
 # op de mesh-poorten hoort de handshake juist te mislukken, en het onderscheid dat dit script maakt
 # is "kwam er een HTTP-antwoord" en niet "was het certificaat geldig".
 haal() {  # $1=url; zet $code en $curl_status
-    code="$(curl -sSk -m "$WACHTTIJD" -o "$LICHAAM" -w '%{http_code}' "$1" 2>/dev/null)" && curl_status=0 || curl_status=$?
+    code="$(curl -sSk -m "$TIMEOUT" -o "$BODY_BESTAND" -w '%{http_code}' "$1" 2>/dev/null)" && curl_status=0 || curl_status=$?
 }
 
 router_foutpagina() {
-    grep -q 'Applicatie niet gevonden' "$LICHAAM"
+    grep -q 'Applicatie niet gevonden' "$BODY_BESTAND"
 }
 
 echo "== beheertoegang op ${BASIS_DOMEIN}"
@@ -209,7 +209,7 @@ fi
 
 echo "${afwijkingen} van ${gecontroleerd} component(en) wijken af." >&2
 
-# Aanhalingstekens om het slotwoord: de namen van de ZAD-diensten staan hieronder tussen backticks,
+# Aanhalingstekens om het heredoc-einde: de namen van de ZAD-diensten staan hieronder tussen backticks,
 # en zonder die aanhalingstekens voert de shell ze uit in plaats van ze te tonen.
 cat >&2 <<'AFWIJKEND'
 

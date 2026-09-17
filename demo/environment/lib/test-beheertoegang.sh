@@ -7,7 +7,7 @@
 # te draaien — daarvoor zou de muur op ZAD echt weggehaald moeten worden. De fixtures zetten de
 # antwoorden die het script van buiten hoort te krijgen, zodat elk oordeel afdwingbaar is.
 #
-# Er draait geen netwerk: een `curl` vooraan op PATH beantwoordt elke URL uit een env-var.
+# Er draait geen netwerk: een curl-stub vooraan op PATH beantwoordt elke URL uit een env-var.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -27,13 +27,13 @@ fout() {
 WERKMAP="$(mktemp -d)"
 trap 'rm -rf "$WERKMAP"' EXIT
 
-NEPMAP="${WERKMAP}/nep"
-mkdir -p "$NEPMAP"
+STUBMAP="${WERKMAP}/stub"
+mkdir -p "$STUBMAP"
 
-# De nep-curl leest dezelfde vlaggen als het script ze zet: `-o <bestand>` en de URL als laatste
+# De curl-stub leest dezelfde vlaggen als het script ze zet: `-o <bestand>` en de URL als laatste
 # argument. Een URL die niet in de tabel staat levert bewust een onherkenbaar antwoord op, zodat een
 # vergeten fixture opvalt als een falende test in plaats van als een toevallig goed oordeel.
-cat > "${NEPMAP}/curl" <<'NEPCURL'
+cat > "${STUBMAP}/curl" <<'STUBCURL'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -49,7 +49,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-regel="$(printf '%s\n' "${NEP_ANTWOORDEN}" | grep -F "${url}|" | head -n 1 || true)"
+regel="$(printf '%s\n' "${STUB_ANTWOORDEN}" | grep -F "${url}|" | head -n 1 || true)"
 
 if [ -z "$regel" ]; then
     [ -z "$uitvoerbestand" ] || printf 'FIXTURE ONTBREEKT voor %s\n' "$url" > "$uitvoerbestand"
@@ -57,14 +57,14 @@ if [ -z "$regel" ]; then
     exit 7
 fi
 
-IFS='|' read -r _ code status lichaam <<<"$regel"
+IFS='|' read -r _ code status body <<<"$regel"
 
-[ -z "$uitvoerbestand" ] || printf '%s\n' "$lichaam" > "$uitvoerbestand"
+[ -z "$uitvoerbestand" ] || printf '%s\n' "$body" > "$uitvoerbestand"
 
 printf '%s' "$code"
 exit "$status"
-NEPCURL
-chmod +x "${NEPMAP}/curl"
+STUBCURL
+chmod +x "${STUBMAP}/curl"
 
 BASIS=voorbeeld.test
 
@@ -108,8 +108,8 @@ draai() {
     shift
 
     status=0
-    uitvoer="$(PATH="${NEPMAP}:${PATH}" ZAD_BASE_DOMAIN="$BASIS" \
-        NEP_ANTWOORDEN="$antwoorden" bash "$SCRIPT" "$@" 2>&1)" || status=$?
+    uitvoer="$(PATH="${STUBMAP}:${PATH}" ZAD_BASE_DOMAIN="$BASIS" \
+        STUB_ANTWOORDEN="$antwoorden" bash "$SCRIPT" "$@" 2>&1)" || status=$?
 }
 
 GOED="$(goede_antwoorden)"
@@ -275,7 +275,7 @@ sed 's#"mft-tp9|test|dirui|catalogus"#"mft-tp9|test|dirui"#' "$SCRIPT" > "$KOPIE
 
 if ! cmp -s "$SCRIPT" "$KOPIE"; then
     status=0
-    uitvoer="$(PATH="${NEPMAP}:${PATH}" ZAD_BASE_DOMAIN="$BASIS" NEP_ANTWOORDEN="$GOED" \
+    uitvoer="$(PATH="${STUBMAP}:${PATH}" ZAD_BASE_DOMAIN="$BASIS" STUB_ANTWOORDEN="$GOED" \
         bash "$KOPIE" 2>&1)" || status=$?
 
     if [ "$status" -ne 0 ] && printf '%s\n' "$uitvoer" | grep -q "niet precies 4 velden"; then
@@ -292,7 +292,7 @@ sed 's#"mft-tp9|test|dirui|catalogus"#"mft-tp9|test|dirui|open-graag"#' "$SCRIPT
 
 if ! cmp -s "$SCRIPT" "$KOPIE_VERWACHTING"; then
     status=0
-    uitvoer="$(PATH="${NEPMAP}:${PATH}" ZAD_BASE_DOMAIN="$BASIS" NEP_ANTWOORDEN="$GOED" \
+    uitvoer="$(PATH="${STUBMAP}:${PATH}" ZAD_BASE_DOMAIN="$BASIS" STUB_ANTWOORDEN="$GOED" \
         bash "$KOPIE_VERWACHTING" 2>&1)" || status=$?
 
     if [ "$status" -ne 0 ] && printf '%s\n' "$uitvoer" | grep -q "onbekende verwachting"; then

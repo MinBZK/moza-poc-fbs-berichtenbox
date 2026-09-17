@@ -1000,7 +1000,7 @@ proxy gewoon mee. Daarom staat `CSRF_PROTECTION_ENABLED=true` in de controller-e
 Controleer na het uitrollen één schrijfactie in de UI — een dienst publiceren is de kortste. De
 router termineert de TLS en stuurt platte HTTP naar de pod, dus als OpenFSC zijn CSRF-oordeel op het
 schema van de aanvraag baseert, is dit de plek waar dat blijkt. Weigert de UI zijn eigen formulier,
-zet de instelling dan terug op `false` en noteer het in issue 1090: dan is de muur de enige
+zet de instelling dan terug op `false` en noteer het in issue [#1090](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1090): dan is de muur de enige
 maatregel en verdient de OIDC-modus voorrang.
 
 ### De outway hoort niet op het web
