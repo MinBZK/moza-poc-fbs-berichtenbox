@@ -373,6 +373,14 @@ De console draait ook als component `democonsole` in de deployment `test` van he
 Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de authorization-wall,
 niet een kapot component.
 
+Elke uitrol van die deployment logt je daar uit: het geheim waarmee de muur zijn sessies ondertekent
+wordt bij iedere rendering opnieuw gegenereerd, dus alle lopende sessies vervallen zodra de pod
+herstart (upstream bekend als [RIG-Cluster#153](https://github.com/RijksICTGilde/RIG-Cluster/issues/153),
+punt B). Het paneel merkt dat zelf en stuurt je langs de aanmelding terug naar de pagina waar je was;
+ben je bij de SSO nog ingelogd — het gewone geval — dan zie je hooguit een korte onderbreking. Blijft
+het paneel wél melden dat je uitgelogd bent, ververs dan zelf: dat is de demping die voorkomt dat een
+weigerende muur je heen en weer stuurt.
+
 De magazijnen hoef je daar niet als eerste handeling te vullen, ook niet op een verse preview. De
 console zet na het opstarten de basisvulling in elk van de twee echte magazijnen waar nog geen bericht
 staat, en wacht daarvoor tot het magazijn en de profielservice antwoorden; wat hij deed staat in zijn

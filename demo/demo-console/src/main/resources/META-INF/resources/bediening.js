@@ -495,6 +495,13 @@ async function roep(pad, methode) {
         return { gelukt: false, tekst: 'Antwoord afgebroken (HTTP ' + respons.status + '): ' + fout, ruw: null };
     }
 
+    // Vóór het ontleden: de muur antwoordt met een inlogpagina in HTML, en die levert hieronder een
+    // "onleesbaar antwoord" op — een melding die de bediener naar de keten laat zoeken terwijl er
+    // alleen opnieuw ingelogd moet worden.
+    if (!respons.ok && await inlogsessieVerlopen(respons.status)) {
+        return { gelukt: false, tekst: muurMelding(), ruw: null };
+    }
+
     let body;
 
     try {
@@ -842,6 +849,15 @@ async function lees(pad) {
         status = respons.status;
 
         if (respons.ok) return await respons.json();
+
+        // De poll is het eerste dat een verlopen sessie tegenkomt, want die draait zodra de
+        // bediener weer naar het tabblad kijkt. Hier herstellen betekent dus dat het paneel zichzelf
+        // terugbrengt vóór de eerste druk op een knop.
+        if (await inlogsessieVerlopen(status)) {
+            toonMelding(muurMelding(), 'let-op', null);
+
+            return null;
+        }
 
         console.error('toestand niet te lezen:', pad, status, await respons.text());
     } catch (fout) {
