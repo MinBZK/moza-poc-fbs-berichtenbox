@@ -1017,17 +1017,29 @@ site de browser van een ingelogd teamlid laat posten: die aanvraag draagt de ses
 proxy gewoon mee. Daarom staat `CSRF_PROTECTION_ENABLED=true` in de controller-env van beide
 `upsert-peer.sh`-scripts.
 
-Die scripts zetten `env_vars` alleen bij component-creatie, dus op een controller die er al staat
-komt de waarde langs een andere laag binnen — en die laag heeft dat component níet opnieuw nodig,
-zodat de cert-bijlagen blijven staan:
+**De vlag komt nooit alleen.** Zonder sleutel erbij weigert de controller te starten, en niet met een
+waarschuwing maar fataal:
+
+```
+csrf-auth-key is required when csrf-protection-enabled is set to true
+```
+
+Dat kost de beheer-UI en de Registration-API tegelijk: de pod komt niet meer up, de ingress antwoordt
+503 en de inway van dezelfde peer verliest de kant waar hij zich registreert. Zet de twee dus in één
+adem. De sleutel ondertekent het CSRF-token, is 32 tekens en hoort nergens in deze repo:
 
 ```bash
-zadctl -p mpfb-8wh env set CSRF_PROTECTION_ENABLED=true -c logius-fscctl
+zadctl -p mpfm-w3h env add "CSRF_AUTH_KEY=$(openssl rand -hex 16)" -c magazijna-fscctl
 zadctl -p mpfm-w3h env set CSRF_PROTECTION_ENABLED=true -c magazijna-fscctl
 ```
 
-`set` wijzigt een waarde die er al is; meldt hij dat de sleutel op deze laag ontbreekt, gebruik dan
-`env add` met dezelfde toekenning.
+en hetzelfde met `-p mpfb-8wh -c logius-fscctl`. Beide scripts eisen hem bij `apply` als
+`ZAD_CSRF_AUTH_KEY`, net als het Postgres-wachtwoord.
+
+`env add` voegt een sleutel toe die er nog niet is, `env set` wijzigt een bestaande; ze kijken allebei
+alleen naar de laag die je aanspreekt. Deze laag heeft het component níet opnieuw nodig — de
+`env_vars` uit `upsert-peer.sh` gelden alleen bij component-creatie, maar hier blijven de
+cert-bijlagen gewoon staan.
 
 Controleer na het uitrollen één schrijfactie in de UI — een dienst publiceren is de kortste. De
 router termineert de TLS en stuurt platte HTTP naar de pod, dus als OpenFSC zijn CSRF-oordeel op het
