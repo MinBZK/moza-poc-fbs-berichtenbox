@@ -965,6 +965,26 @@ er voor de leesbaarheid. De API-key is per project: draai deze reeksen vanuit ee
 `zadctl project use <project>` het juiste project heeft gezet, anders komt de tweede reeks terug als
 `401 Invalid API key`.
 
+**Controleer de bindingen, ga er niet van uit.** Bij `magazijna-fscctl` trok `service assign
+authorization-wall` de `keycloak`-binding op het component wél mee; bij de creatie van `democonsole`
+deed hij dat niet. Wat er staat lees je zo:
+
+```bash
+zadctl -p mpfm-w3h -o json component list | jq -r '.[] | select(.component=="magazijna-fscctl") | .services'
+```
+
+Verwacht `keycloak` én `authorization-wall` in die lijst. Ontbreekt de eerste, dan rendert OM geen
+oauth2-proxy-sidecar en staat de beheer-UI open, ook al draagt het component de muur-dienst.
+
+Een project zonder eerdere muur-consument heeft nog geen `restrict-access`-blok, en
+`authorization-wall` eist dat. `mpfb-8wh` was zo'n project:
+
+```bash
+zadctl -p mpfb-8wh service config set keycloak --set 'restrict-access.enabled=false' --yes
+```
+
+Zet die waarde vóór de bindingen; zie de volgende paragraaf voor de keuze die eronder ligt.
+
 ### Wie er binnenkomt is een projectbrede keuze
 
 `authorization-wall` eist `keycloak` én een `restrict-access`-blok op die Keycloak, en de
@@ -1023,12 +1043,25 @@ router termineert de TLS en de pod (`LISTEN_HTTPS=true`) antwoordt `Client sent 
 HTTPS server`. Er komt daardoor geen verkeer doorheen, maar de publicatie zelf hoort er niet:
 
 ```bash
-zadctl -p mpfb-8wh service unassign publish-on-web -c logius-fscoutway
+zadctl -p mpfb-8wh service unassign publish-on-web -c logius-fscoutway --yes
 zadctl -p mpfb-8wh deployment refresh fsc-logius
 ```
 
+`--yes` hoort erbij: `unassign` vraagt anders om bevestiging op stdin en breekt in een reeks af met
+`Aborted.`
+
 De manager en de inway houden hun publicatie wél: die staan in modus 2 (SNI-passthrough) en dragen
 de mesh, waar een peer zich met een clientcertificaat meldt.
+
+### Uitrollen per deployment, niet per project
+
+Zet `--no-rollout` op elke mutatie hierboven en rol daarna één keer uit met
+`deployment refresh <deployment>`. **Niet** met `project refresh`: beide projecten droegen bij deze
+ingreep al tientallen wachtende wijzigingen van dagen oud (`zadctl -p <project> project pending`), en
+een projectbrede refresh rolt die allemaal mee uit. Een deployment-refresh raakt alleen de peer.
+
+Dat scheelt ook de demo: `fsc-magazijna` staat los van `test`, dus het paneel en de magazijnen rollen
+niet mee en niemand wordt er uitgelogd.
 
 ### Controleren, en blijven controleren
 
