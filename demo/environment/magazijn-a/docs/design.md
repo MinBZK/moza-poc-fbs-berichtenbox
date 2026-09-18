@@ -106,7 +106,7 @@ de eenmalige componentcreatie en voor debugging.
 | Component | ZAD-ref | Rol |
 |-----------|---------|-----|
 | manager | `magazijna-fscmgr` | announce bij de directory + ServicePublicationGrant; `manager-migrate`-wrapper migreert de peer-DB bij boot |
-| controller | `magazijna-fscctl` | dienst `berichtenmagazijn` aanmaken (Administration-API, `AUTHN_TYPE=none`) + beheer-UI + inway-registratie (Registration-API); `controller-migrate`-wrapper migreert bij boot |
+| controller | `magazijna-fscctl` | dienst `berichtenmagazijn` aanmaken (Administration-API, `AUTHN_TYPE=none` — op ZAD afgeschermd door de `authorization-wall` vóór het component, zie hoofdstuk 10 van `demo/environment/zad-demo/README.md`) + beheer-UI + inway-registratie (Registration-API); `controller-migrate`-wrapper migreert bij boot |
 | inway | `magazijna-fscinway` | ingress vóór de `magazijna`-app-component; registreert bij de controller |
 | txlog | `magazijna-fsctxlog` | transactielog-API (internal-PKI mTLS); manager en inway wijzen ernaar |
 | DB | `magazijna-fscpg` (self-hosted Postgres, één DB, geïsoleerde migratie-tellers) | system-of-record manager + controller + txlog |

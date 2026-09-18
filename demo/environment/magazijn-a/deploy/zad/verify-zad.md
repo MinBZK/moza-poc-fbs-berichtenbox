@@ -37,12 +37,16 @@ maakt de dienst + het servicePublication-contract aan en laat de manager het ond
 interne-PKI op `fsc-magazijna-magazijna-fscmgr:9443` — geen mesh-omweg meer nodig.
 
 - **UI (aanbevolen — werkt nu end-to-end)**: via de extern gepubliceerde magazijna-fscctl-beheer-UI
-  (`LISTEN_ADDRESS_UI`, extern op `https://magazijna-fscctl-<deployment>-mpfm-w3h.<base-domain>:443`,
-  `AUTHN_TYPE=none`) een dienst aanmaken met naam `berichtenmagazijn`, `endpoint_url` = de waarde
+  (`LISTEN_ADDRESS_UI`, extern op `https://magazijna-fscctl-<deployment>-mpfm-w3h.<base-domain>:443`)
+  een dienst aanmaken met naam `berichtenmagazijn`, `endpoint_url` = de waarde
   uit `upsert-peer.sh`'s `MAGAZIJNA_UPSTREAM_URL` (de ingress-URL van de app cross-deployment, bv.
   `https://magazijna-test-mpfm-w3h.<base-domain>`) en `inway_address` = de geregistreerde magazijna-fscinway
   `SELF_ADDRESS`. De controller praat achter de schermen intern met de manager (`:9443`) die het
   contract ondertekent.
+
+  Log eerst in: de `authorization-wall` vóór dit component antwoordt een sessieloze aanvraag met
+  HTTP 403 en de inlogpagina in de body. De controller zelf draait met `AUTHN_TYPE=none`, dus wie
+  door de muur komt is daar beheerder.
 - **Script (alleen vanuit de cluster)**: `deploy/local/publish-service.sh` POST naar de magazijna-fscctl
   Administration-API (`:9444`) en de manager-internal (`:9443`) — beide zijn nu cluster-interne
   Services (`fsc-magazijna-magazijna-fscctl:9444`, `fsc-magazijna-magazijna-fscmgr:9443`) met de **internal-PKI**, dus dit kan alleen
