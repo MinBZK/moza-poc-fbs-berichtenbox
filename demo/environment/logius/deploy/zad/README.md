@@ -68,6 +68,11 @@ De peer staat daarom in een eigen deployment `fsc-logius`: **wat niet in `test` 
    de `health-check`-dienst op de zeven componenten van déze deployment. Het projectargument
    (`apply mpfb-8wh`) zou ook `uitvraag`, `redis` en de twee Toxiproxy's meenemen; dat mag, maar dan
    loop je de hele keten mee.
+10. **Beheertoegang** — de beheer-UI van `logius-fscctl` staat op de publieke ingress en laat met
+    `AUTHN_TYPE=none` iedere bezoeker als beheerder binnen. Hoofdstuk 10 van
+    `demo/environment/zad-demo/README.md` bindt `keycloak` + `authorization-wall` aan het component
+    en haalt de publicatie van de outway af; `beheertoegang.sh fsc-logius` ernaast toont wat elk
+    component van deze deployment aan een bezoeker zonder account laat zien.
 
 ## De gezondheidscontrole staat op de monitoring-poort
 
