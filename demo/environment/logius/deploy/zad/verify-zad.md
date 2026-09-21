@@ -48,7 +48,9 @@
   (verkeerde group/internal-cert verwisseld, zie `cert-manifest.md`) en geen handshake-fout tegen
   `fsc-logius-logius-fscctl:9443` of `fsc-logius-logius-fscmgr:9444`.
 - **Registratie bij logius-fscctl zichtbaar** — de controller-UI (of de Registration-API) toont de inway
-  als geregistreerde inway voor deze peer.
+  als geregistreerde inway voor deze peer. De UI staat achter de `authorization-wall`: een aanvraag
+  zonder sessie krijgt HTTP 403 met de inlogpagina, dus doe dit in een browser waarin je bent
+  ingelogd.
 
 ## (a) Announce — consumer-OIN vindbaar in de directory
 

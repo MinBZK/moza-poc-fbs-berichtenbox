@@ -58,7 +58,11 @@ CLONE_FROM="${ZAD_PEER_CLONE_FROM:-}"            # leeg = geen clone; klonen van
 # landt in public. Zo botsen de tellers niet (anders skipt een migratie -> 42P01 op controller.services).
 PG_USER="${ZAD_PG_USER:-fsc}"
 PG_DB="${ZAD_PG_DB:-fsc}"
-PG_PASSWORD="${ZAD_PG_PASSWORD:-__SET_ZAD_PG_PASSWORD__}"   # concreet bij apply (verplicht, zie check onder); nooit committen
+PG_PASSWORD="${ZAD_PG_PASSWORD:-__SET_ZAD_PG_PASSWORD__}"
+# De controller weigert te starten met `csrf-protection-enabled` aan en geen sleutel erbij:
+# "csrf-auth-key is required when csrf-protection-enabled is set to true", en dat is een fatale
+# afbreking, geen waarschuwing. De sleutel ondertekent het CSRF-token; 32 tekens.
+CSRF_AUTH_KEY="${ZAD_CSRF_AUTH_KEY:-__SET_ZAD_CSRF_AUTH_KEY__}"   # bv. `openssl rand -hex 16`; nooit committen   # concreet bij apply (verplicht, zie check onder); nooit committen
 # search_path per component. `-` i.p.v. `:-` zodat ZAD_*_SCHEMA="" écht leeg blijft (dan geen search_path
 # in de DSN -> component gebruikt public). manager + txlog moeten sporen met postgres-init.sql (dat die
 # twee schema's aanmaakt). De CONTROLLER is de UITZONDERING: die maakt z'n eigen `controller`-schema aan
@@ -76,6 +80,7 @@ case "${CONTROLLER_TAG}" in ""|*[!A-Za-z0-9._-]*) echo "ongeldige ZAD_CONTROLLER
 case "${TXLOG_TAG}" in ""|*[!A-Za-z0-9._-]*) echo "ongeldige ZAD_TXLOG_TAG: '${TXLOG_TAG}'"; exit 1 ;; esac
 [ "${MODE}" = apply ] && : "${ZAD_API_KEY:?zet ZAD_API_KEY in je env}"
 [ "${MODE}" = apply ] && : "${ZAD_PG_PASSWORD:?zet ZAD_PG_PASSWORD in je env (wachtwoord voor de self-hosted logius-fscpg-Postgres)}"
+[ "${MODE}" = apply ] && : "${ZAD_CSRF_AUTH_KEY:?zet ZAD_CSRF_AUTH_KEY in je env (ondertekent het CSRF-token van de controller; genereer hem met openssl rand -hex 16)}"
 
 # manager/controller/txlog draaien een migrate-WRAPPER (`migrate up && serve`) i.p.v. het OpenFSC
 # stock-image: ZAD kent geen init-containers/args, dus de migratie moet in het image zelf zitten. De
@@ -162,13 +167,21 @@ LOGMGR_ENV="$(printf '%s\n' \
 # pod :8443); INTERNE edges op de cluster-Service-DNS + interne-PKI-poort (9443/9444, txlog 8443).
 LOGMGR_ALIASES=""
 
+# De beheer-UI luistert op ports[0] en staat daarmee op de publieke ingress, terwijl AUTHN_TYPE=none
+# iedereen die het adres kent meteen als beheerder binnenlaat. De toegangscontrole hangt daarom aan de
+# ZAD-dienst `authorization-wall`: een oauth2-proxy vóór het component die om een rijksaccount vraagt.
+# Die binding is componentconfiguratie bij OM en staat niet in deze API-body — hoofdstuk 10 van
+# demo/environment/zad-demo/README.md zet hem, beheertoegang.sh ernaast toetst hem.
+# CSRF_PROTECTION_ENABLED hoort daarbij aan te staan: de muur houdt een onbekende bezoeker tegen, maar
+# niet een formulier op een andere site dat de browser van een ingelogd teamlid laat posten.
 LOGCTL_ENV="$(printf '%s\n' \
   "LOG_TYPE=live" "LOG_LEVEL=info" "AUDITLOG_TYPE=stdout" \
   "GROUP_ID=moza-fbs-test" \
   "DIRECTORY_PEER_ID=00000000000000000010" \
   "AUTHN_TYPE=none" \
   "AUTHZ_TYPE=rbac" \
-  "CSRF_PROTECTION_ENABLED=false" \
+  "CSRF_PROTECTION_ENABLED=true" \
+  "CSRF_AUTH_KEY=${CSRF_AUTH_KEY}" \
   "LISTEN_ADDRESS_UI=0.0.0.0:8080" \
   "LISTEN_ADDRESS_REGISTRATION_API=0.0.0.0:9443" \
   "LISTEN_ADDRESS_ADMINISTRATION_API=0.0.0.0:9444" \
