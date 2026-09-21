@@ -10,10 +10,17 @@
 name: Proeftuin-pin
 
 on:
-  # Op werkdagen, want hun main loopt door en de bump hoort niet op PR-verkeer te wachten. Het
-  # tijdstip ligt in de middag, zodat werk van die ochtend dezelfde dag nog wordt aangeboden.
+  # Op werkdagen vroeg in de ochtend, want hun main loopt door en de bump hoort niet op PR-verkeer
+  # te wachten. Het tijdstip ligt vóór de werkdag, zodat de PR er al ligt wanneer iemand begint.
+  #
+  # Niet dezelfde dag proberen te halen: hun merges vallen grotendeels tussen 12:00 en 16:00 UTC, en
+  # met één run per dag verschuift dat werk hoe dan ook naar de volgende ochtend. Een middagrun zou
+  # die vertraging niet wegnemen, maar de PR wél midden in de werkdag laten verschijnen.
+  #
+  # Geen heel uur: dat is het drukste moment op de planner van GitHub, en een geplande run schuift
+  # dan op. Het valt ook vóór de twee maandagochtendjobs (codeql 06:00, pin-consistency 06:17).
   schedule:
-    - cron: '23 14 * * 1-5'
+    - cron: '37 5 * * 1-5'
   workflow_dispatch:
 
 # De job muteert gedeelde toestand: één branch en één pull request. Twee runs tegelijk zouden
