@@ -12,6 +12,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheCorruptedExc
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
@@ -27,6 +29,7 @@ import java.util.UUID
 @ApplicationScoped
 internal class BlockingSessiecache(
     private val service: BerichtensessiecacheService,
+    private val volger: SessieVolger,
     // Begrenzing op de blocking-await van de facade over élk lees-/schrijfpad van het
     // Sessiecache-contract (de paden raken een lokale/naast-de-pod Redis, geen remote
     // magazijn-RTT — vandaar dezelfde 5s-ondergrens als cache-await-timeout-seconds).
@@ -128,12 +131,35 @@ internal class BlockingSessiecache(
                 "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
             )
 
-        return try {
+        val geschreven = try {
             awaitOrServiceUnavailable { service.createBericht(bericht, ontvanger) }
         } catch (e: IllegalArgumentException) {
             // Defensieve limiet overschreden (BerichtValidator): invoerfout van de
             // aanleverende caller, geen infrastructuurfout.
             throw SessiecacheException.OngeldigeInvoer(e.message ?: "Ongeldig bericht.", e)
+        }
+
+        meldAanGevolgdeSessies(ontvanger, geschreven)
+
+        return geschreven
+    }
+
+    override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+        requireGereedStatus(ontvanger)
+
+        return volger.volg(ontvanger)
+    }
+
+    /**
+     * Best-effort: het bericht staat al in de cache, en de aanmelding afwijzen zou de
+     * aanleveraar laten herafleveren wat niets meer toevoegt. Een open berichtenbox mist het dan
+     * tot hij opnieuw verbindt of de lijst ververst.
+     */
+    private fun meldAanGevolgdeSessies(ontvanger: Identificatienummer, bericht: Bericht) {
+        try {
+            volger.meldAan(ontvanger, bericht.berichtId).await().atMost(timeout)
+        } catch (e: Exception) {
+            log.warnf(e, "Nieuw bericht niet doorgegeven aan gevolgde sessies; open berichtenboxen zien het later")
         }
     }
 

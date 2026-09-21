@@ -101,7 +101,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                     }
 
                     sessiecacheApp = container "Berichtensessiecache" "Afgeschermde in-process module: aggregeert berichten uit alle aangesloten magazijnen en cachet ze per pseudoniem. Geen losse service meer — enige ingang is de Sessiecache-facade; de interne werking (Redis-cache, magazijn-aggregatie) is niet zichtbaar voor consumenten." "Quarkus / Kotlin — gedeelde library (in-process)" "Interne Module" {
-                        sessiecacheFacade = component "Sessiecache-facade" "De enige publieke ingang: lijst, zoeken, bericht, status bijwerken, verwijderen, ophalen-stream en aanmeld-write. De implementatie erachter is Kotlin `internal` — compile-afgedwongen onzichtbaar voor consumenten." "CDI Facade"
+                        sessiecacheFacade = component "Sessiecache-facade" "De enige publieke ingang: lijst, zoeken, bericht, status bijwerken, verwijderen, ophalen-stream, aanmeld-write en volg-stream. De implementatie erachter is Kotlin `internal` — compile-afgedwongen onzichtbaar voor consumenten." "CDI Facade"
                         magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean (internal)"
                         pseudoniemService = component "PseudoniemService" "Transformeert PP naar EP per magazijn via BSNk" "CDI Bean (internal)"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean (internal)"
@@ -109,7 +109,10 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         sessiecacheBulkhead = component "MagazijnAggregatieBulkhead" "Semafoor-bulkhead die het aantal gelijktijdige blokkerende magazijn-aggregatie-calls begrenst, zodat één trage leverancier de gedeelde worker-pool niet laat vollopen en overige endpoints responsief blijven" "CDI Bean (internal)"
                         sessiecacheCircuitBreaker = component "MagazijnCircuitBreaker" "Per-magazijn circuit breaker: opent na opeenvolgende fouten/timeouts zodat een onbereikbaar magazijn de aggregatie niet blijft ophouden" "CDI Bean (internal)"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen (per magazijn opgebouwd via MagazijnClientFactory)" "REST Client (internal)"
+                        sessieVolger = component "SessieVolger" "Houdt een open berichtenbox bij: geeft elk aangemeld bericht door, ook als de aanmelding op een andere pod binnenkwam, en verlengt de sessie op een hartslag" "CDI Bean (internal)"
                         sessiecacheFacade -> sessiecacheService "Gebruikt" "CDI"
+                        sessiecacheFacade -> sessieVolger "Volgt een sessie en meldt aanmeldingen" "CDI"
+                        sessieVolger -> sessiecacheCache "Verdeelt aanmeldingen tussen pods en verlengt de sessie" "Redis pub/sub"
                         sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden" "CDI"
                         sessiecacheService -> pseudoniemService "Transformeert PP naar EP per magazijn" "CDI"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache" "Redis"
@@ -119,7 +122,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                     }
 
                     uitvraagApi = container "Berichten Uitvraag Service" "Service voor burgers en ondernemers - berichten inzien en beheren" "Quarkus / Kotlin" "Service" {
-                        uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenlijst, ophalen, beheer en verwijderen" "JAX-RS Resource"
+                        uitvraagResource = component "Berichten Uitvraag API" "REST endpoints voor berichtenlijst, ophalen, volgen, beheer en verwijderen" "JAX-RS Resource"
                         tokenValidatie = component "Token Validatie" "Valideert JWT bearer tokens (handtekening, iss, aud, exp, jti, acr) en stelt de gebruikersidentiteit en het betrouwbaarheidsniveau vast" "CDI Bean"
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst" "CDI Bean"
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haalt berichten en bijlagen op uit cache en berichtenmagazijn" "CDI Bean"

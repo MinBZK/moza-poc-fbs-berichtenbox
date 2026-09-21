@@ -1,0 +1,21 @@
+meta {
+  name: 9. Nieuwe berichten volgen (SSE, blijft open)
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrlUitvraag}}/berichten/_volgen
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  Accept: text/event-stream
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+docs {
+  Eerst request 1 (ophalen) laten afronden, anders 409. Houd deze open en meld daarna met
+  aanmeld/8 een bericht aan: dat verschijnt hier als `bericht-bijgekomen`.
+}

@@ -52,6 +52,14 @@ internal interface BerichtenCache {
      */
     fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean>
 
+    /**
+     * Houdt een gevolgde sessie in leven zonder dat er gelezen wordt. `false` als er geen sessie
+     * (meer) is. Verlengt alleen een afgeronde ophaling, en pas wanneer de helft van de
+     * bewaartermijn verstreken is: dan gaan ook alle berichthashes mee, en dat is een lees over de
+     * hele lijst die niet op elke hartslag hoeft. Een lopende ophaling houdt haar korte vangnet-TTL.
+     */
+    fun verlengSessie(key: String): Uni<Boolean>
+
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
@@ -510,6 +518,34 @@ internal class RedisBerichtenCache(
             .onFailure().recoverWithNull().replaceWithVoid()
     }
 
+    override fun verlengSessie(key: String): Uni<Boolean> =
+        getAggregationStatus(key).chain { aggregatie ->
+            when {
+                aggregatie == null -> Uni.createFrom().item(false)
+                aggregatie.status != OphalenStatus.GEREED -> Uni.createFrom().item(true)
+                else -> redis.key().pttl(statusKey(key)).chain { resterend ->
+                    when {
+                        // Net tussen de twee reads verlopen.
+                        resterend == SLEUTEL_ONTBREEKT -> Uni.createFrom().item(false)
+                        resterend > ttl.toMillis() / 2 -> Uni.createFrom().item(true)
+                        else -> verlengHeleSessie(key).replaceWith(true)
+                    }
+                }
+            }
+        }
+
+    private fun verlengHeleSessie(key: String): Uni<Void> =
+        redis.list(String::class.java).lrange(listKey(key), 0, -1)
+            .chain { jsonList ->
+                // Alleen het id is nodig; een onleesbare entry slaat alleen die ene hash over.
+                // Het leespad meldt de corruptie al, met de juiste status.
+                val ids = jsonList.mapNotNull { json ->
+                    runCatching { UUID.fromString(objectMapper.readTree(json).path("berichtId").asText()) }.getOrNull()
+                }
+
+                renewBerichtTtls(key, ids)
+            }
+
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
         put("berichtId", bericht.berichtId.toString())
         put("afzender", bericht.afzender)
@@ -959,6 +995,9 @@ internal class RedisBerichtenCache(
         // wanneer het verwijderd-kenmerk stil wegvalt. Wijzig de waarde niet zonder de
         // bijbehorende alert-rule mee te verhuizen.
         private const val ALERT_TOMBSTONE_VERLOREN = "FBS_ALERT[tombstone_verloren]"
+
+        // PTTL-antwoord voor een sleutel die niet (meer) bestaat.
+        private const val SLEUTEL_ONTBREEKT = -2L
 
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"

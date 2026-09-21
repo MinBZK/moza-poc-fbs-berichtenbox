@@ -255,6 +255,41 @@ class OpenApiContractTest {
     }
 
     @Test
+    fun `GET berichten-volgen - cache nog niet gevuld levert valide Problem-409`() {
+        // De SSE-body van een 200 kan de validator niet lezen, een fout vóór de stream wel.
+        sessiecache.volgFout =
+            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("Accept", "text/event-stream")
+            .`when`()
+            .get("/api/v1/berichten/_volgen")
+            .then()
+            .statusCode(409)
+            .contentType("application/problem+json")
+            .header("API-Version", org.hamcrest.Matchers.notNullValue())
+    }
+
+    @Test
+    fun `GET berichten-volgen - opslag onbereikbaar levert valide Problem-503 met Retry-After`() {
+        sessiecache.volgFout =
+            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("Accept", "text/event-stream")
+            .`when`()
+            .get("/api/v1/berichten/_volgen")
+            .then()
+            .statusCode(503)
+            .contentType("application/problem+json")
+            .header("Retry-After", "30")
+    }
+
+    @Test
     fun `GET bericht by id - zelf verwijderd levert valide Problem-410 met kenmerk`() {
         val id = UUID.randomUUID()
         sessiecache.berichtFout =

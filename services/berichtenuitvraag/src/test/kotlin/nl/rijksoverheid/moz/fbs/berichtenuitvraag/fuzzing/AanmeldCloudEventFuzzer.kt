@@ -9,6 +9,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldDeduplicatie
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldService
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldBerichtData
@@ -104,6 +105,9 @@ object AanmeldCloudEventFuzzer {
                 throw UnsupportedOperationException()
 
             override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht = bericht
+
+            override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> =
+                throw UnsupportedOperationException()
         }
 
         val dedup = object : AanmeldDeduplicatie {

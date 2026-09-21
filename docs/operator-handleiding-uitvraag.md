@@ -225,8 +225,32 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 |---|---|---|
 | `berichtensessiecache.ttl` | `PT12H` | Sliding TTL: elke succesvolle read verlengt hem. Dekt een halve werkdag zonder herhaalde ophaal-flow; verlagen bij geheugendruk op Redis |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de cache-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger 12 uur te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
+| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Verlengt de sessie van een open berichtenbox en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.ttl` blijven, anders start de pod niet |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
+
+## Open berichtenboxen (`_volgen`)
+
+Elke open berichtenbox houdt één SSE-verbinding open. Een aanmelding die op de ene pod binnenkomt,
+bereikt een berichtenbox op een andere pod via Redis pub/sub (kanaal
+`berichtensessiecache:v3:aanmeldingen`); elke pod heeft daar precies één abonnement op, dus één
+extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de sessiesleutel en
+het `berichtId`. Die sleutel is een SHA-256 zonder geheim over het identificatienummer en dus een
+pseudoniem van de ontvanger, geen anonimisering: het kanaal hoort dezelfde bescherming te krijgen
+als de rest van Redis (TLS en authenticatie).
+
+| Property | Env-var | Default | Wanneer aanpassen |
+|---|---|---|---|
+| `berichtenuitvraag.volgen.max-connections` | `VOLGEN_MAX_CONNECTIONS` | `2000` | Plafond op open verbindingen per pod. Daarboven krijgt een berichtenbox een 503 met `Retry-After`; de lijst blijft bruikbaar, alleen het vanzelf binnenkomen valt weg. Verhogen of een replica bijzetten wanneer `Plafond van … gevolgde sessies op deze pod bereikt` in de log verschijnt |
+| `berichtenuitvraag.volgen.max-connections-per-ontvanger` | `VOLGEN_MAX_CONNECTIONS_PER_ONTVANGER` | `5` | Plafond per ontvanger, zodat één aanroeper het pod-plafond niet voor iedereen opmaakt. Genoeg voor een paar tabbladen en apparaten tegelijk |
+| `berichtensessiecache.volg-max-duur` | — | `PT1H` | Maximale duur van één stream; daarna verbindt de berichtenbox opnieuw. Voorkomt dat een vergeten tabblad de sessie en de berichten erin onbeperkt vasthoudt |
+
+- **`No handler waiting for message: [subscribe, …]` van `RedisStandaloneConnection` is te
+  verwachten.** De Vert.x-client meldt de abonnementsbevestiging soms zo; het abonnement werkt wél.
+  De pod bewijst dat zelf met een probe over het kanaal voordat een berichtenbox gaat volgen. Pas
+  `Abonneren op aanmeldingen mislukt` is een echte storing.
+- **Een proxy vóór de uitvraag mag `_volgen` niet bufferen** (nginx: `proxy_buffering off`), anders
+  komen de berichten pas bij het sluiten van de verbinding aan.
 
 ## Aandachtspunten in bedrijf
 

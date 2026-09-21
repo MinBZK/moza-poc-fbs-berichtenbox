@@ -5,6 +5,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 
@@ -19,8 +20,8 @@ import java.util.UUID
  * een nieuw foutscenario dwingt daar een bouwfout af. Zie [SessiecacheException] voor de
  * afzonderlijke foutgevallen.
  *
- * Het streaming [ophalen] heeft een eigen asynchroon foutkanaal (`Multi`-failure) en
- * valt buiten deze hiërarchie.
+ * De streams [ophalen] en [volg] hebben een eigen asynchroon foutkanaal (`Multi`-failure) voor
+ * wat er ná het openen misgaat, en vallen daarvoor buiten deze hiërarchie.
  */
 interface Sessiecache {
 
@@ -95,4 +96,15 @@ interface Sessiecache {
      * geen actieve sessie is voor deze ontvanger.
      */
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
+
+    /**
+     * Volgt de sessie van [ontvanger] terwijl de berichtenbox openstaat: elk bericht dat via
+     * [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
+     * periodieke hartslag houdt de sessie in leven. Zie [SessieGebeurtenis] voor het verloop.
+     *
+     * Vereist net als [lijst] een afgeronde ophaling en gooit dezelfde [SessiecacheException]s,
+     * synchroon en vóór de stream. Een storing daarna beëindigt de stream met een fout; de
+     * afnemer verbindt dan opnieuw.
+     */
+    fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis>
 }
