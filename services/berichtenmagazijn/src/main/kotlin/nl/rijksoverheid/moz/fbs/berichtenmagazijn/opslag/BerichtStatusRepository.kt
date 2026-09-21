@@ -96,15 +96,14 @@ class BerichtStatusRepository(
     /**
      * Maakt een status-rij aan of werkt een bestaande bij. Alleen niet-`null`
      * velden in [patch] vervangen de huidige waarde — zie de kdoc van
-     * [BerichtStatusPatch] voor de semantiek en de bewuste keuze om een
-     * gezette `map` niet via deze endpoint te kunnen wissen.
+     * [BerichtStatusPatch] voor de semantiek en het wissen van een map via `""`.
      *
      * Implementatie: Postgres `INSERT … ON CONFLICT (bericht_db_id) DO UPDATE`
      * met `COALESCE`. Eén atomaire write voorkomt de race waarin twee
      * gelijktijdige PATCHes op hetzelfde bericht beide de `find` missen, beide
      * een nieuwe rij proberen te persisten, en de tweede faalt op het unieke-
      * key. `COALESCE` bewaart bestaande waardes als de patch een veld op `null`
-     * laat. Een separate SELECT leest de persisted state terug binnen dezelfde
+     * laat; voor `map` gaat het wissen daar nog vóór. Een separate SELECT leest de persisted state terug binnen dezelfde
      * transactie (Hibernate's native `RETURNING` mapt onbetrouwbaar).
      */
     fun upsert(
