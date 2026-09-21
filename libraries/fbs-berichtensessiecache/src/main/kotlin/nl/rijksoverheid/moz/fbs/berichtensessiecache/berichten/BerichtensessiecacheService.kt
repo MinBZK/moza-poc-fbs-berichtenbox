@@ -729,6 +729,7 @@ internal class BerichtensessiecacheService(
                 aantalBerichten = result.berichten.size,
                 afgekapt = result.afgekapt,
                 totaalBeschikbaar = result.totaalBeschikbaar,
+                mappen = MapTelling.van(result.berichten),
             )
         }
         is MagazijnResult.Failure -> {

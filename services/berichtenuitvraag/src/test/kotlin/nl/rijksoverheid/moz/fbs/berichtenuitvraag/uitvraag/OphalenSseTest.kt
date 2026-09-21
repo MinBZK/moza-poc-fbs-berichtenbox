@@ -11,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MapTelling
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktVoorBevraging
@@ -73,7 +74,7 @@ class OphalenSseTest {
             Arguments.of(
                 MagazijnBevragingGeslaagd(magazijnId = OIN, naam = "Magazijn A", aantalBerichten = 3),
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
-                    """"aantalBerichten":3,"afgekapt":false}""",
+                    """"aantalBerichten":3,"afgekapt":false,"mappen":[]}""",
             ),
             Arguments.of(
                 MagazijnBevragingGeslaagd(
@@ -84,7 +85,18 @@ class OphalenSseTest {
                     totaalBeschikbaar = 1340L,
                 ),
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
-                    """"aantalBerichten":500,"afgekapt":true,"totaalBeschikbaar":1340}""",
+                    """"aantalBerichten":500,"afgekapt":true,"totaalBeschikbaar":1340,"mappen":[]}""",
+            ),
+            Arguments.of(
+                MagazijnBevragingGeslaagd(
+                    magazijnId = OIN,
+                    naam = "Magazijn A",
+                    aantalBerichten = 5,
+                    mappen = listOf(MapTelling("Archief", 1), MapTelling("Belasting", 3)),
+                ),
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
+                    """"aantalBerichten":5,"afgekapt":false,"mappen":[{"naam":"Archief","aantalBerichten":1},""" +
+                    """{"naam":"Belasting","aantalBerichten":3}]}""",
             ),
             Arguments.of(
                 MagazijnBevragingMislukt(

@@ -142,6 +142,12 @@ paths:
         anders lijkt een afgekapte lijst een volledige lijst en kan de ontvanger niet
         weten wat hij mist.
 
+        Een map bestaat alleen als eigenschap van een bericht, en de berichtenlijst is pas
+        na `ophalen-gereed` op te vragen. Daarom draagt elk `magazijn-bevraging-voltooid`-event
+        met status `OK` in `mappen` de mappen die in de berichten van die organisatie
+        voorkomen, met hun aantal. Tel die per organisatie op om het mappenoverzicht mee te
+        laten groeien; zolang niet elke organisatie `OK` meldde, kan er een map ontbreken.
+
         Een organisatie die niet bevraagd is omdat de uitvraag te veel werk tegelijk
         had, krijgt status `NIET_OPGEHAALD`. Dat is geen storing bij die organisatie:
         opnieuw ophalen helpt hier wél. Het afsluitende `ophalen-gereed`-event telt
@@ -663,8 +669,8 @@ components:
       description: |
         De bevraging van deze organisatie is afgerond; `status` zegt hoe.
 
-        Bij `OK` staan `aantalBerichten` en `afgekapt` erbij, en `totaalBeschikbaar` wanneer de
-        organisatie een bruikbaar totaal meldde. Bij elke andere status staat er in plaats daarvan
+        Bij `OK` staan `aantalBerichten`, `afgekapt` en `mappen` erbij, en `totaalBeschikbaar`
+        wanneer de organisatie een bruikbaar totaal meldde. Bij elke andere status staat er in plaats daarvan
         een `foutmelding` die aan de ontvanger getoond mag worden.
       required: [event, magazijnId, status]
       properties:
@@ -685,9 +691,29 @@ components:
           type: integer
           format: int64
           description: Wat de organisatie zelf als totaal meldde. Ontbreekt als ze geen bruikbaar totaal gaf.
+        mappen:
+          type: array
+          description: |
+            De mappen in de berichten die deze organisatie in deze ronde leverde, gesorteerd op
+            naam. Alleen bij `OK`, en dan altijd — een lege lijst betekent dat geen van haar
+            berichten in een map staat. Berichten zonder map (Postvak IN) tellen niet mee: dat
+            aantal is `aantalBerichten` min de som van deze tellingen. Is de organisatie
+            `afgekapt`, dan dekken de tellingen alleen de opgehaalde berichten.
+          items: { $ref: '#/components/schemas/MapTelling' }
         foutmelding:
           type: string
           description: Aan de ontvanger toonbare uitleg. Staat er bij elke status behalve `OK`.
+
+    MapTelling:
+      type: object
+      description: |
+        Eén map met het aantal berichten van één organisatie erin. De naam staat er woordelijk,
+        zoals de ontvanger hem gaf: hoofdletters tellen, dus "Belasting" en "belasting" zijn twee
+        mappen.
+      required: [naam, aantalBerichten]
+      properties:
+        naam: { type: string, minLength: 1, maxLength: 128 }
+        aantalBerichten: { type: integer, minimum: 1 }
 
     OphalenGereed:
       type: object

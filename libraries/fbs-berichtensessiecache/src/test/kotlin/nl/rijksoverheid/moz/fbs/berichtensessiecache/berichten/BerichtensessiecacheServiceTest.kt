@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import jakarta.ws.rs.WebApplicationException
 import java.time.Duration
@@ -73,6 +75,25 @@ class BerichtensessiecacheServiceTest {
 
     private val ontvanger = Bsn("999993653")
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)
+
+    companion object {
+        @JvmStatic
+        fun mappenPerLevering(): List<Arguments> = listOf(
+            Arguments.of("niets geleverd", emptyList<String?>(), emptyList<MapTelling>()),
+            Arguments.of("alleen Postvak IN", listOf(null, null), emptyList<MapTelling>()),
+            Arguments.of("een map", listOf("Belasting"), listOf(MapTelling("Belasting", 1))),
+            Arguments.of(
+                "duplicaten, hoofdletters en Postvak IN door elkaar",
+                listOf("Zaken", null, "Belasting", "Zaken", "belasting", "Archief"),
+                listOf(
+                    MapTelling("Archief", 1),
+                    MapTelling("Belasting", 1),
+                    MapTelling("Zaken", 2),
+                    MapTelling("belasting", 1),
+                ),
+            ),
+        )
+    }
 
     @Test
     fun `getBerichten retourneert lege pagina bij null cache-result`() {
@@ -961,6 +982,39 @@ class BerichtensessiecacheServiceTest {
         val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
         assertEquals(1, balansBulkhead.vrijePermits(), "permit teruggegeven na geslaagde aggregatie")
+    }
+
+    /**
+     * Het portaal bouwt tijdens de ronde zijn mappenoverzicht uit deze tellingen. De gevallen lokken
+     * elk een eigen fout uit: niets geleverd, alleen Postvak IN (null mag geen map "null" worden),
+     * één map, en een mix waarin duplicaten opgeteld, hoofdletters onderscheiden en de volgorde van
+     * levering losgelaten moet worden.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("mappenPerLevering")
+    fun `een geslaagde bevraging telt de mappen in de geleverde berichten`(
+        geval: String,
+        mapPerBericht: List<String?>,
+        verwacht: List<MapTelling>,
+    ) {
+        val client = mockk<MagazijnClient>()
+        val berichten = mapPerBericht.mapIndexed { index, map ->
+            testMagazijnBericht().copy(
+                berichtId = UUID.fromString("00000000-0000-0000-0000-%012d".format(index + 1)),
+                status = MagazijnBericht.MagazijnBerichtStatus(map = map),
+            )
+        }
+
+        stubAggregatie(client)
+        every { client.getBerichten(any(), any(), any(), any()) } returns
+            MagazijnBerichtenResponse(berichten, totalElements = berichten.size.toLong(), totalPages = 1)
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(15))
+        val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
+
+        assertEquals(mapPerBericht.size, voltooid.aantalBerichten)
+        assertEquals(verwacht, voltooid.mappen, geval)
     }
 
     @ParameterizedTest(name = "{0} organisaties tegen een grens van 5")
