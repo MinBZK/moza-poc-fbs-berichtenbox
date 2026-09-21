@@ -301,7 +301,8 @@ jobs:
       # Bedoeld om de demo tijdelijk op nog niet gemergd werk van de proeftuin te zetten, of op een
       # bevroren release-tag: variabele zetten, deploy opnieuw draaien, en terugzetten door hem weg
       # te halen. Een variabele en geen commit, want dit hoort niet in de geschiedenis van de repo
-      # thuis; hij geldt wél voor `test` én elke preview, vandaar de notice hieronder.
+      # thuis; hij geldt wél voor `test` én elke preview, vandaar de notice hieronder. Voor één
+      # preview: dezelfde variabele op de environment `pr-<n>`, zie `deploy-preview-magazijnen`.
       - id: proeftuin
         env:
           PROEFTUIN_IMAGE: ${{ vars.PROEFTUIN_IMAGE }}
@@ -983,11 +984,55 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+    # Alleen om de variabelen van de GitHub-environment van déze PR te kunnen lezen (zie de stap
+    # `berichtenbox`). `deployment: false`: de environment en zijn deployment-record horen bij de
+    # uitvraag-deploy, en een tweede record zou de preview-URL in de PR overschrijven.
+    environment:
+      name: pr-${{ github.event.pull_request.number }}
+      deployment: false
     # Naar `preview-afronding`, dat de comment samenstelt uit de URL's van deze deploy en die van
     # de uitvraag.
     outputs:
       urls: ${{ steps.deploy.outputs.urls }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # `PROEFTUIN_IMAGE` als variabele op de environment `pr-<n>` zet de berichtenbox van alléén
+      # deze preview op een andere versie — bedoeld om een PR van de proeftuin aan een PR van ons te
+      # koppelen. In deze job wint een environment-variabele van de repo-variabele met dezelfde
+      # naam; `meta` draait zonder environment en ziet alleen die laatste. Daarom hier opnieuw
+      # bepalen, met dezelfde vormcontrole, en alleen het proeftuin-component vervangen. De
+      # cleanup-workflow ruimt de environment op als de PR sluit, en de override verdwijnt mee.
+      - name: Berichtenbox van deze preview bepalen
+        id: berichtenbox
+        env:
+          PROEFTUIN_IMAGE: ${{ vars.PROEFTUIN_IMAGE }}
+          UIT_META: ${{ needs.meta.outputs.proeftuin_image }}
+          COMPONENTEN: ${{ needs.meta.outputs.componenten-magazijnen }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          image=$(.github/scripts/proeftuin-image.sh)
+
+          if [ "$image" != "$UIT_META" ]; then
+            echo "::notice title=Berichtenbox van deze preview overschreven::De variabele PROEFTUIN_IMAGE van de environment pr-${PR} zet de berichtenbox op $image in plaats van $UIT_META."
+          fi
+
+          # Precies één proeftuin-component eisen: nul betekent dat de lijst in `meta` veranderd is,
+          # en dan zou de override stil niets doen.
+          aantal=$(jq '[.[] | select(.name == "proeftuin")] | length' <<<"$COMPONENTEN")
+
+          if [ "$aantal" != 1 ]; then
+            echo "::error::Verwacht precies één proeftuin-component in de magazijnen-lijst, gevonden: $aantal"
+            exit 1
+          fi
+
+          bijgewerkt=$(jq -c --arg image "$image" 'map(if .name == "proeftuin" then .image = $image else . end)' <<<"$COMPONENTEN")
+          echo "componenten=$bijgewerkt" >> "$GITHUB_OUTPUT"
+
       - name: Deploy magazijnen-project
         id: deploy
         uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
@@ -998,7 +1043,7 @@ jobs:
           clone-from: test
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
-          components: ${{ needs.meta.outputs.componenten-magazijnen }}
+          components: ${{ steps.berichtenbox.outputs.componenten }}
 
   # De comment met de preview-URL's, in een eigen job omdat hij de URL's van twee deploys nodig
   # heeft.

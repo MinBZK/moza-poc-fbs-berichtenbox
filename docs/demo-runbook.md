@@ -260,6 +260,24 @@ projecten voedt. Een uitrol die hem gebruikt, zet er een `notice` over bovenaan 
 demo die zich anders gedraagt dan de repo pint terug te vinden is. `.github/scripts/proeftuin-image.sh`
 weigert een waarde zonder tag of digest, dus een typfout hangt geen component in ImagePullBackOff.
 
+**Alleen voor één preview.** Om een PR van de proeftuin aan een PR van ons te koppelen, zet je
+dezelfde variabele op de GitHub-environment van die preview. Die wint daar van de repo-variabele en
+de pin, en `test` en de andere previews merken er niets van:
+
+```bash
+gh variable set PROEFTUIN_IMAGE --env pr-336 --body ghcr.io/minbzk/moza-poc/preview:pr-164-42aabac
+gh run rerun <run-id> --job <job-id>    # alleen `deploy-preview-magazijnen` van de laatste run
+gh variable delete PROEFTUIN_IMAGE --env pr-336
+```
+
+Alleen die ene job opnieuw draaien volstaat: hij leest de variabele opnieuw en hergebruikt de rest
+van de run, terwijl een volledige rerun alle images opnieuw bouwt en alle drie de projecten
+uitrolt. De job-id vind je met `gh run view <run-id> --json jobs`.
+
+De environment `pr-<n>` bestaat vanaf de eerste uitrol van de PR en verdwijnt bij het opruimen van
+de preview, en de variabele met hem. Een nieuwe push aan de kant van de proeftuin levert een nieuwe
+tag op; die zet je opnieuw, want de variabele volgt hun PR niet vanzelf.
+
 Wil je een draaiend component *nu* verzetten zonder een deploy af te wachten, dan kan dat met
 `zadctl deployment update-image` — maar de eerstvolgende uitrol zet het terug naar wat de variabele
 of de pin zegt. Voor iets dat langer dan een demonstratie moet blijven staan, is de variabele de
