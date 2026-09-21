@@ -416,7 +416,7 @@ function vullingTekst(vulling) {
 
     if (vulling.mislukt) tekst += ', ' + vulling.mislukt + ' mislukt';
 
-    if (vulling.markeringMislukt) tekst += ', ' + vulling.markeringMislukt + ' niet op gelezen gezet';
+    if (vulling.markeringMislukt) tekst += ', ' + vulling.markeringMislukt + ' niet op gelezen of in hun map gezet';
 
     /* Het bericht staat in het magazijn, maar het magazijn bevestigde het zonder berichtnummer.
      * Zonder deze regel leest zo'n ronde als volledig geslaagd terwijl het magazijn haperde. */

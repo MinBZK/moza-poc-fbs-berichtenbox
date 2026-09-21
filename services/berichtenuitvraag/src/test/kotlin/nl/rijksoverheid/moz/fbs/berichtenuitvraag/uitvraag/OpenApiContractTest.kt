@@ -30,6 +30,13 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import java.time.Instant
 import java.util.UUID
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
+import org.hamcrest.Matchers.equalTo
+import com.github.tomakehurst.wiremock.client.WireMock.patchRequestedFor
+import com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo as wmEqualTo
+import org.junit.jupiter.params.provider.ValueSource
 
 /**
  * Contract-tests: response-shapes per endpoint conform berichtenuitvraag-api.yaml.
@@ -109,18 +116,22 @@ class OpenApiContractTest {
     }
 
     /** Elke status die een niet-geleverde organisatie kan dragen, moet door de schema-validatie komen. */
-    @Test
-    fun `GET berichten met niet-geleverde organisaties levert valide BerichtenLijst`() {
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["/api/v1/berichten", "/api/v1/berichten/_zoeken?q=rente"])
+    fun `lijst en zoeken met niet-geleverde organisaties leveren valide BerichtenLijst`(pad: String) {
         sessiecache.lijstResultaat = BerichtenPagina(
             berichten = emptyList(),
             page = 0,
             pageSize = 20,
             totalElements = 0L,
             totalPages = 0,
-            nietGeleverd = listOf(
-                NietGeleverd(WireMockBackendsResource.OIN_A, "Organisatie A", MagazijnStatus.FOUT),
-                NietGeleverd(WireMockBackendsResource.OIN_B, "Organisatie B", MagazijnStatus.TIMEOUT),
-                NietGeleverd("00000001003214345000", "Organisatie C", MagazijnStatus.NIET_OPGEHAALD),
+            volledigheid = Volledigheid(
+                aantalNietGeleverd = 4,
+                nietGeleverd = listOf(
+                    NietGeleverd(WireMockBackendsResource.OIN_A, "Organisatie A", MagazijnFoutStatus.FOUT),
+                    NietGeleverd(WireMockBackendsResource.OIN_B, "Organisatie B", MagazijnFoutStatus.TIMEOUT),
+                    NietGeleverd("00000001003214345000", "Organisatie C", MagazijnFoutStatus.NIET_OPGEHAALD),
+                ),
             ),
         )
 
@@ -128,9 +139,10 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten")
+            .get(pad)
             .then()
             .statusCode(200)
+            .body("aantalNietGeleverd", equalTo(4))
             .body("nietGeleverd.status", contains("FOUT", "TIMEOUT", "NIET_OPGEHAALD"))
     }
 
@@ -207,6 +219,34 @@ class OpenApiContractTest {
             .then()
             .statusCode(200)
             .body("\$", not(hasKey("map")))
+
+        // De lege string moet bij het magazijn aankomen: valt hij onderweg weg (bv. door een
+        // NON_EMPTY-serialisatie), dan krijgt het magazijn een lege patch en wist er niets.
+        WireMockBackendsResource.magazijnA.verify(
+            patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id"))
+                .withRequestBody(matchingJsonPath("\$.map", wmEqualTo(""))),
+        )
+    }
+
+    /** Witruimte is geen wis-waarde; de 400 hoort een geldige problem+json te zijn en het magazijn niet te raken. */
+    @ParameterizedTest(name = "map=\"{0}\"")
+    @ValueSource(strings = [" ", "   ", "\t", "\n "])
+    fun `PATCH met een mapnaam van alleen witruimte levert valide Problem-400 zonder magazijn-write`(map: String) {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("Content-Type", "application/merge-patch+json")
+            .body(mapOf("map" to map))
+            .`when`()
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+
+        WireMockBackendsResource.magazijnA.verify(0, patchRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
 
     @Test

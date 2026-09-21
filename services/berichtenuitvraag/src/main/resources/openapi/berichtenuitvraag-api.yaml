@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -146,7 +146,8 @@ paths:
         na `ophalen-gereed` op te vragen. Daarom draagt elk `magazijn-bevraging-voltooid`-event
         met status `OK` in `mappen` de mappen die in de berichten van die organisatie
         voorkomen, met hun aantal. Tel die per organisatie op om het mappenoverzicht mee te
-        laten groeien; zolang niet elke organisatie `OK` meldde, kan er een map ontbreken.
+        laten groeien; zolang niet elke organisatie `OK` meldde, of een organisatie
+        `afgekapt` was, kan er een map ontbreken.
 
         Een organisatie die niet bevraagd is omdat de uitvraag te veel werk tegelijk
         had, krijgt status `NIET_OPGEHAALD`. Dat is geen storing bij die organisatie:
@@ -496,20 +497,27 @@ components:
         Paginatie via HAL `_links.next`/`prev`. Aantallen (totalElements,
         totalPages) bewust niet opgenomen — frontend navigeert via links zonder
         absolute paginavoortgang.
-      required: [berichten, nietGeleverd]
+      required: [berichten, aantalNietGeleverd, nietGeleverd]
       properties:
         berichten:
           type: array
           items: { $ref: '#/components/schemas/BerichtSamenvatting' }
+        aantalNietGeleverd:
+          type: integer
+          minimum: 0
+          description: |
+            Hoeveel organisaties in de laatste ophaalronde niet leverden. Hun berichten
+            ontbreken in deze lijst, en daarmee ook de mappen waar die in staan: een
+            mappenoverzicht dat uit deze lijst is afgeleid, is pas volledig bij `0`. Geldt
+            voor de hele lijst en staat daarom op elke pagina, ook na verversen of bladeren —
+            het voortgangsbericht van het ophalen is dan al lang weg.
         nietGeleverd:
           type: array
           description: |
-            De organisaties die in de laatste ophaalronde niet leverden, gesorteerd op naam.
-            Hun berichten ontbreken in deze lijst, en daarmee ook de mappen waar die in staan:
-            een mappenoverzicht dat uit deze lijst is afgeleid, kan dan onvolledig zijn. Leeg
-            als elke organisatie leverde. Geldt voor de hele lijst en staat daarom op elke
-            pagina, ook na verversen of bladeren — het voortgangsbericht van het ophalen is
-            dan al lang weg.
+            Welke organisaties dat waren, gesorteerd op naam. Meestal zijn dat er precies
+            `aantalNietGeleverd`, maar het kunnen er minder zijn als niet van elke organisatie
+            bekend is welke het was. Lees volledigheid dus af aan `aantalNietGeleverd`, niet
+            aan een lege lijst.
           items: { $ref: '#/components/schemas/NietGeleverdeOrganisatie' }
         _links:
           $ref: '#/components/schemas/PaginaLinks'

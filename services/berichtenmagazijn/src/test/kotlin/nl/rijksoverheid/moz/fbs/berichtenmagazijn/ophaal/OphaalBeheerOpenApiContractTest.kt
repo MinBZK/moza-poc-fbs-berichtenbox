@@ -240,4 +240,32 @@ class OphaalBeheerOpenApiContractTest {
             .then()
             .statusCode(400)
     }
+
+    @Test
+    fun `400 Problem response op een mapnaam van alleen witruimte respecteert spec`() {
+        val id = insertBericht()
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .contentType("application/merge-patch+json")
+            .body("""{"map": "   "}""")
+            .`when`().patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    /** De respons heeft `status.map` met `minLength: 1`: na wissen hoort het veld te ontbreken, niet leeg te zijn. */
+    @Test
+    fun `PATCH met lege map levert een Bericht dat de spec respecteert`() {
+        val id = insertBericht()
+        given()
+            .filter(validationFilter)
+            .header("X-Ontvanger", "BSN:999993653")
+            .contentType("application/merge-patch+json")
+            .body("""{"map": ""}""")
+            .`when`().patch("/api/v1/berichten/$id")
+            .then()
+            .statusCode(200)
+    }
 }

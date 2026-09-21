@@ -35,6 +35,8 @@ interface Sessiecache {
     /**
      * Berichtenlijst voor [ontvanger], gepagineerd, optioneel gefilterd op
      * [afzender] en/of [map]. Vereist een afgeronde ophaling (zie foutsemantiek).
+     * De pagina draagt altijd [BerichtenPagina.volledigheid] van de laatste ronde,
+     * ook bij [zoek].
      * `pagina` default 0; `paginaGrootte` default 20, gecapt op 100.
      */
     fun lijst(

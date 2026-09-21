@@ -737,7 +737,7 @@ internal class BerichtensessiecacheService(
             val fout = magazijnFoutStatusVoor(result.fault)
 
             tellers.tel(fout)
-            tellers.nietGeleverd.add(NietGeleverd(result.magazijnId, result.naam, fout.wire))
+            tellers.nietGeleverd.add(NietGeleverd(result.magazijnId, result.naam, fout))
 
             MagazijnBevragingMislukt(
                 magazijnId = result.magazijnId,
@@ -832,7 +832,7 @@ internal class BerichtensessiecacheService(
                     geslaagd = tellers.geslaagd.get(),
                     mislukt = tellers.mislukt.get(),
                     nietOpgehaald = tellers.nietOpgehaald.get(),
-                    nietGeleverd = tellers.nietGeleverd.sortedBy { it.naam },
+                    nietGeleverd = tellers.nietGeleverd.sortedWith(compareBy({ it.naam }, { it.magazijnId })),
                 )
 
                 // Parallel: store(berichten) en storeAggregationStatus(GEREED) hebben

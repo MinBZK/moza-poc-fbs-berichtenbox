@@ -321,6 +321,25 @@ class RedisBerichtenCacheIntegrationTest {
         )
     }
 
+    /** Eén patch die zet én wist: HSET en HDEL in dezelfde transactie. */
+    @Test
+    fun `update zet de leesstatus en wist de map in één keer`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        val updated = berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, "gelezen", Sessiecache.MAP_WISSEN)
+            .await().indefinitely()
+
+        assertEquals(Leesstatus.GELEZEN, updated!!.status)
+        assertNull(updated.map)
+
+        val gelezen = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
+
+        assertEquals(Leesstatus.GELEZEN, gelezen!!.status)
+        assertNull(gelezen.map)
+    }
+
     @Test
     fun `update herschrijft de ongefilterde list-entry zodat GET berichten niet stale is`() {
         // Regressie (H1): de sessie-`list` bevat volledige JSON-blobs die het ongefilterde
@@ -682,9 +701,9 @@ class RedisBerichtenCacheIntegrationTest {
     @Test
     fun `de niet-geleverde organisaties overleven de roundtrip door Redis`() {
         val nietGeleverd = listOf(
-            NietGeleverd("magazijn-a", "Belasting", MagazijnStatus.FOUT),
-            NietGeleverd("magazijn-b", "Noord", MagazijnStatus.TIMEOUT),
-            NietGeleverd("magazijn-c", "Zuid", MagazijnStatus.NIET_OPGEHAALD),
+            NietGeleverd("magazijn-a", "Belasting", MagazijnFoutStatus.FOUT),
+            NietGeleverd("magazijn-b", "Noord", MagazijnFoutStatus.TIMEOUT),
+            NietGeleverd("magazijn-c", "Zuid", MagazijnFoutStatus.NIET_OPGEHAALD),
         )
         val status = AggregationStatus(
             status = OphalenStatus.GEREED,

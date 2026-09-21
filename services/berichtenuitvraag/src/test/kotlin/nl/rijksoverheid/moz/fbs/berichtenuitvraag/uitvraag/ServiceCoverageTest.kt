@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
  * Vult coverage-gaten in de services aan: pure unit-tests (MockK) tellen niet
@@ -526,6 +527,7 @@ class ServiceCoverageTest {
             pageSize = 50,
             totalElements = 150,
             totalPages = 3,
+            volledigheid = Volledigheid.VOLLEDIG,
         )
 
         given()

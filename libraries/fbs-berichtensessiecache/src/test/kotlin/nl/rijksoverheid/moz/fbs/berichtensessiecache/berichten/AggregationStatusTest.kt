@@ -120,11 +120,12 @@ class AggregationStatusTest {
                 totaalMagazijnen = 2,
                 mislukt = 1,
                 nietGeleverd = listOf(
-                    NietGeleverd("magazijn-a", "A", MagazijnStatus.FOUT),
-                    NietGeleverd("magazijn-b", "B", MagazijnStatus.TIMEOUT),
+                    NietGeleverd("magazijn-a", "A", MagazijnFoutStatus.FOUT),
+                    NietGeleverd("magazijn-b", "B", MagazijnFoutStatus.TIMEOUT),
                 ),
             )
         }
+
         assertEquals("nietGeleverd mag niet meer organisaties noemen dan mislukt + nietOpgehaald", ex.message)
     }
 
@@ -137,7 +138,33 @@ class AggregationStatusTest {
     }
 
     @Test
-    fun `een organisatie die OK leverde, kan niet als niet-geleverd gelden`() {
-        assertThrows<IllegalArgumentException> { NietGeleverd("magazijn-a", "A", MagazijnStatus.OK) }
+    fun `een organisatie die dubbel als niet-geleverd staat wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            AggregationStatus(
+                totaalMagazijnen = 2,
+                mislukt = 2,
+                nietGeleverd = List(2) { NietGeleverd("magazijn-a", "A", MagazijnFoutStatus.FOUT) },
+            )
+        }
+
+        assertEquals("nietGeleverd noemt een organisatie dubbel", ex.message)
+    }
+
+    /**
+     * Volledig is `aantalNietGeleverd == 0`, niet een lege lijst: een status zonder namen (van vóór
+     * dat ze bewaard werden) mag niet als volledig lezen.
+     */
+    @ParameterizedTest(name = "mislukt={0}, nietOpgehaald={1}, namen={2}")
+    @CsvSource("0, 0, 0", "1, 0, 0", "1, 1, 1", "1, 1, 2")
+    fun `de volledigheid telt wie niet leverde, ook zonder namen`(mislukt: Int, nietOpgehaald: Int, namen: Int) {
+        val nietGeleverd = (0 until namen).map { NietGeleverd("magazijn-$it", "Organisatie $it", MagazijnFoutStatus.FOUT) }
+        val status = AggregationStatus(
+            totaalMagazijnen = 3,
+            mislukt = mislukt,
+            nietOpgehaald = nietOpgehaald,
+            nietGeleverd = nietGeleverd,
+        )
+
+        assertEquals(Volledigheid(mislukt + nietOpgehaald, nietGeleverd), status.volledigheid())
     }
 }

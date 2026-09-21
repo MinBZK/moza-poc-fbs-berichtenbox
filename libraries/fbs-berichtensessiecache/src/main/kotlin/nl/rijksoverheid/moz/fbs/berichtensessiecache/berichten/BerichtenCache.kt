@@ -740,10 +740,12 @@ internal class RedisBerichtenCache(
             status = status ?: bericht.status,
             map = if (wistMap) null else map ?: bericht.map,
         )
+
         val hashVelden = buildMap {
             status?.let { put("status", it.wire) }
             map?.takeUnless { wistMap }?.let { put("map", it) }
         }
+
         val gewisteVelden = if (wistMap) listOf("map") else emptyList()
         val updatedJson = objectMapper.writeValueAsString(updated)
 
@@ -1040,11 +1042,20 @@ internal data class AggregationStatus(
         require(geslaagd + mislukt + nietOpgehaald <= totaalMagazijnen) {
             "geslaagd + mislukt + nietOpgehaald mag niet groter zijn dan totaalMagazijnen"
         }
+
         // Kleiner mag: een status die vóór dit veld bestond, draagt de tellers maar niet de lijst.
+        // [volledigheid] geeft dat verschil door, zodat het portaal het als onbekend kan tonen.
         require(nietGeleverd.size <= mislukt + nietOpgehaald) {
             "nietGeleverd mag niet meer organisaties noemen dan mislukt + nietOpgehaald"
         }
+
+        require(nietGeleverd.distinctBy { it.magazijnId }.size == nietGeleverd.size) {
+            "nietGeleverd noemt een organisatie dubbel"
+        }
     }
+
+    /** Wat de lijst van deze ronde over zijn eigen volledigheid moet zeggen. Een functie, zodat hij niet in Redis belandt. */
+    fun volledigheid(): Volledigheid = Volledigheid(mislukt + nietOpgehaald, nietGeleverd)
 }
 
 internal enum class OphalenStatus {

@@ -51,7 +51,7 @@ object UitvraagDtoMapper {
         NietGeleverdeOrganisatie().apply {
             magazijnId = nietGeleverd.magazijnId
             naam = nietGeleverd.naam
-            status = ApiMagazijnStatus.fromValue(nietGeleverd.status.value)
+            status = ApiMagazijnStatus.fromValue(nietGeleverd.status.wire.value)
         }
 
     fun toLeesstatus(status: BerichtStatus?): Leesstatus? = when (status) {

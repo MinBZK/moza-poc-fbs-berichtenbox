@@ -9,7 +9,6 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
@@ -24,6 +23,8 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
 
 class BerichtenlijstServiceTest {
 
@@ -48,7 +49,7 @@ class BerichtenlijstServiceTest {
         page: Int = 0,
         pageSize: Int = 20,
         totalPages: Int = if (berichten.isEmpty()) 0 else 1,
-    ) = BerichtenPagina(berichten, page, pageSize, berichten.size.toLong(), totalPages)
+    ) = BerichtenPagina(berichten, page, pageSize, berichten.size.toLong(), totalPages, Volledigheid.VOLLEDIG)
 
     private fun samenvatting(
         id: UUID = UUID.randomUUID(),
@@ -73,18 +74,38 @@ class BerichtenlijstServiceTest {
     @ParameterizedTest(name = "{0} niet geleverd")
     @ValueSource(ints = [0, 1, 3])
     fun `lijst en zoek geven de niet-geleverde organisaties door`(aantal: Int) {
-        val statussen = listOf(MagazijnStatus.FOUT, MagazijnStatus.TIMEOUT, MagazijnStatus.NIET_OPGEHAALD)
+        val statussen = listOf(MagazijnFoutStatus.FOUT, MagazijnFoutStatus.TIMEOUT, MagazijnFoutStatus.NIET_OPGEHAALD)
         val nietGeleverd = (0 until aantal).map { i -> NietGeleverd("magazijn-$i", "Organisatie $i", statussen[i]) }
-        val metNietGeleverd = pagina().copy(nietGeleverd = nietGeleverd)
+        val metNietGeleverd = pagina().copy(volledigheid = Volledigheid(aantal, nietGeleverd))
 
         every { sessiecache.lijst(ontvanger, null, null) } returns metNietGeleverd
         every { sessiecache.zoek(ontvanger, "factuur") } returns metNietGeleverd
 
-        val verwacht = nietGeleverd.map { Triple(it.magazijnId, it.naam, it.status.value) }
+        val verwacht = nietGeleverd.map { Triple(it.magazijnId, it.naam, it.status.wire.value) }
 
         for (lijst in listOf(service.lijst("BSN:999990019", null, null), service.zoek("BSN:999990019", "factuur"))) {
+            assertEquals(aantal, lijst.aantalNietGeleverd)
             assertEquals(verwacht, lijst.nietGeleverd.map { Triple(it.magazijnId, it.naam, it.status.toString()) })
         }
+    }
+
+    /** Twee niet geleverd, geen naam bekend: het aantal moet doorkomen, anders leest de lijst als volledig. */
+    @Test
+    fun `een aantal zonder namen komt door als onvolledig`() {
+        every { sessiecache.lijst(ontvanger, null, null) } returns pagina().copy(volledigheid = Volledigheid(2, emptyList()))
+
+        val lijst = service.lijst("BSN:999990019", null, null)
+
+        assertEquals(2, lijst.aantalNietGeleverd)
+        assertEquals(emptyList<Any>(), lijst.nietGeleverd)
+    }
+
+    /** Een pagina zonder volledigheid is een fout in de facade; stil `0` teruggeven zou volledigheid claimen. */
+    @Test
+    fun `een pagina zonder volledigheid faalt in plaats van volledig te lezen`() {
+        every { sessiecache.lijst(ontvanger, null, null) } returns pagina().copy(volledigheid = null)
+
+        assertThrows<IllegalStateException> { service.lijst("BSN:999990019", null, null) }
     }
 
     @Test

@@ -6,14 +6,33 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
  * lijst later opvraagt — na verversen, bladeren of terugkomen — zou zonder deze vermelding een
  * onvolledige lijst voor een volledige houden.
  *
- * [status] is de uitkomst zoals ze op de lijn ging, en dus nooit [MagazijnStatus.OK].
+ * [status] is een [MagazijnFoutStatus], zodat een organisatie die `OK` leverde hier per type niet
+ * in kan staan.
  */
 data class NietGeleverd(
     val magazijnId: String,
     val naam: String,
-    val status: MagazijnStatus,
+    val status: MagazijnFoutStatus,
+)
+
+/**
+ * Hoe volledig de lijst is die bij de laatste ophaalronde hoort. Volledig betekent
+ * [aantalNietGeleverd] `== 0`, níet een lege [nietGeleverd]: een ronde van vóórdat de namen
+ * bewaard werden, telt wel wie niet leverde maar weet niet wie. Dan is [nietGeleverd] korter dan
+ * [aantalNietGeleverd], en moet het portaal "mogelijk onvolledig" tonen zonder namen.
+ */
+data class Volledigheid(
+    val aantalNietGeleverd: Int,
+    val nietGeleverd: List<NietGeleverd>,
 ) {
     init {
-        require(status != MagazijnStatus.OK) { "een organisatie die OK leverde, is geleverd" }
+        require(aantalNietGeleverd >= 0) { "aantalNietGeleverd mag niet negatief zijn" }
+        require(nietGeleverd.size <= aantalNietGeleverd) {
+            "nietGeleverd mag niet meer organisaties noemen dan aantalNietGeleverd"
+        }
+    }
+
+    companion object {
+        val VOLLEDIG = Volledigheid(0, emptyList())
     }
 }

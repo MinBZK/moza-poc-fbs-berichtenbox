@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FBS Berichtenmagazijn API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     API van het decentrale berichtenmagazijn binnen het Federatief Berichtenstelsel (FBS).
 

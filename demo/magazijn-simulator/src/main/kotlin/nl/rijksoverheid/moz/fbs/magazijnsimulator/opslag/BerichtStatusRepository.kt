@@ -41,8 +41,9 @@ class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Long>
      *
      * De `COALESCE` draagt de merge-patch-semantiek van de spec: een veld dat `null` is blijft
      * ongewijzigd — of het nu ontbrak in de JSON of expliciet op `null` stond. Wissen gaat daarom
-     * via de lege string ([BerichtStatusWijziging.wistMap]), net als in het echte magazijn. Bij een nieuwe rij valt `gelezen` terug op `false` en niet op
-     * de patch-waarde: wie alleen een map zet, heeft het bericht nog niet gelezen.
+     * via de lege string ([BerichtStatusWijziging.wistMap]), net als in het echte magazijn. Bij een
+     * nieuwe rij valt `gelezen` terug op `false` en niet op de patch-waarde: wie alleen een map zet,
+     * heeft het bericht nog niet gelezen.
      *
      * De casts zijn nodig omdat PostgreSQL het type van een parameter die `null` kan zijn niet uit
      * de context kan afleiden.

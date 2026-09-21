@@ -552,6 +552,7 @@ class BerichtensessiecacheServiceTest {
     fun `de bewaarde aggregatiestatus noemt wie niet leverde, gesorteerd op naam`(aantalMislukt: Int) {
         val organisaties = listOf("magazijn-a" to "Zuid", "magazijn-b" to "Belasting", "magazijn-c" to "Noord")
         val mislukt = organisaties.take(aantalMislukt).map { it.first }.toSet()
+
         val magazijnen = organisaties.associate { (id, naam) ->
             val client = mockk<MagazijnClient>()
 
@@ -565,6 +566,7 @@ class BerichtensessiecacheServiceTest {
 
             id to IngeschrevenMagazijn(client, naam)
         }
+
         val bewaard = slot<AggregationStatus>()
 
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
@@ -577,7 +579,7 @@ class BerichtensessiecacheServiceTest {
         service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
 
         val verwacht = organisaties.filter { it.first in mislukt }
-            .map { (id, naam) -> NietGeleverd(id, naam, MagazijnStatus.FOUT) }
+            .map { (id, naam) -> NietGeleverd(id, naam, MagazijnFoutStatus.FOUT) }
             .sortedBy { it.naam }
 
         assertEquals(verwacht, bewaard.captured.nietGeleverd)
@@ -953,7 +955,10 @@ class BerichtensessiecacheServiceTest {
         every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
-        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val bewaard = slot<AggregationStatus>()
+
+        every { berichtenCache.storeAggregationStatus(cacheKey, capture(bewaard)) } returns Uni.createFrom().voidItem()
 
         val start = System.nanoTime()
         val events = serviceVolBulkhead.haalBerichtenOp(ontvanger).collect().asList()
@@ -976,6 +981,11 @@ class BerichtensessiecacheServiceTest {
         )
         // De magazijn-call is nooit gestart: de afwijzing claimt geen permit (blijft 0 = vastgehouden).
         assertEquals(0, volBulkhead.vrijePermits())
+        // Niet opgehaald is ook niet geleverd: na verversen moet de lijst dat nog weten.
+        assertEquals(
+            listOf(NietGeleverd("magazijn-a", "Magazijn A", MagazijnFoutStatus.NIET_OPGEHAALD)),
+            bewaard.captured.nietGeleverd,
+        )
 
         // En zo komt het bij het portaal aan: op de eigen teller, niet op die van de storingen. Wie
         // deze twee samenvoegt, laat een samenvattende regel "1 mislukt" melden terwijl er niets
@@ -1041,6 +1051,7 @@ class BerichtensessiecacheServiceTest {
         verwacht: List<MapTelling>,
     ) {
         val client = mockk<MagazijnClient>()
+
         val berichten = mapPerBericht.mapIndexed { index, map ->
             testMagazijnBericht().copy(
                 berichtId = UUID.fromString("00000000-0000-0000-0000-%012d".format(index + 1)),

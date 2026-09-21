@@ -32,6 +32,12 @@ data class AanleverOpdracht(
     val gelezen: Boolean = false,
     val map: String? = null,
 ) {
+    init {
+        // Een lege of witte naam zou na aanlevering een wis-patch of een 400 opleveren, en die
+        // telt dan stil als mislukte markering in plaats van als fout in de dataset.
+        require(map == null || map.isNotBlank()) { "een demo-map heeft een naam" }
+    }
+
     /** Of er na aanlevering nog een status-patch nodig is. */
     val vraagtStatus: Boolean get() = gelezen || map != null
 }

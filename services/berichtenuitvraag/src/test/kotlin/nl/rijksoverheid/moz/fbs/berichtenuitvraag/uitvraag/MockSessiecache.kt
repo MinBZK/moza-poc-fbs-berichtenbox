@@ -14,6 +14,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
  * In-memory [Sessiecache]-facade voor de uitvraag-testsuite: seedbare berichten,
@@ -162,6 +163,7 @@ class MockSessiecache : Sessiecache {
             pageSize = grootte,
             totalElements = alle.size.toLong(),
             totalPages = if (alle.isEmpty()) 0 else ((alle.size + grootte - 1) / grootte),
+            volledigheid = Volledigheid.VOLLEDIG,
         )
     }
 }

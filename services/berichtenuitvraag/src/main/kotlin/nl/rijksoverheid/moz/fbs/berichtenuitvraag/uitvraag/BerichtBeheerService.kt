@@ -47,8 +47,8 @@ class BerichtBeheerService(
             )
         }
 
-        // Witruimte leest als leeg maar zou als mapnaam worden opgeslagen; alleen de lege string
-        // wist. Hier afwijzen, vóór de magazijn-write, om dezelfde reden als de lege patch.
+        // Alleen de lege string wist; witruimte is een ongeldige naam. Magazijn en cache weigeren
+        // hem ook, maar hier krijgt de aanroeper de hint naar `""` zonder magazijn-round-trip.
         val map = patch.map
 
         if (map != null && map != Sessiecache.MAP_WISSEN && map.isBlank()) {

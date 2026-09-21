@@ -67,6 +67,8 @@ class BasisdatasetTest {
             "niet elke organisatie heeft een eigen map",
         )
         assertTrue(berichtenPerMap.values.any { it == 1 }, "geen map met precies één bericht")
+        // Het magazijn weigert een langere naam; dat zou stil als mislukte markering tellen.
+        assertTrue(metMap.all { it.map!!.length <= 128 }, "een mapnaam is langer dan het magazijn toestaat")
     }
 
     @Test

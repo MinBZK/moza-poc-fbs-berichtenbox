@@ -39,25 +39,32 @@ hij die markering nooit mist.
 
 ### 2. `"map": ""` haalt een bericht uit zijn map
 
-De lege string is de wis-waarde, in uitvraag, magazijn en simulator gelijk (`Sessiecache.MAP_WISSEN`).
-Het magazijn-contract noemde die sentinel al als voorziene uitbreiding.
+De wis-waarde is overal de lege string; in de sessiecache heet hij `Sessiecache.MAP_WISSEN`. Het
+magazijn-contract noemde die sentinel al als voorziene uitbreiding.
 
 - Verworpen: `null` als wissen (RFC 7396). Jackson onderscheidt "afwezig" en "`null`" niet zonder
-  tri-state-typen in de gegenereerde modellen, en `null` betekent in dit contract al jaren "niet
+  tri-state-typen in de gegenereerde modellen, en `null` betekent in dit contract al "niet
   wijzigen" — ook voor `status`.
-- Een naam van alleen witruimte blijft ongeldig (400); de uitvraag weigert hem vóór de
-  magazijn-write.
+- Een naam van alleen witruimte blijft ongeldig (400). Uitvraag, sessiecache-facade, magazijn en
+  simulator weigeren hem elk; de uitvraag al vóór de magazijn-write.
+- Een magazijn van een andere leverancier moet `""` ook als wissen gaan lezen; een magazijn op het
+  oude contract (`minLength: 1`) antwoordt met een 400. Daarom gaat de magazijn-spec naar 0.4.0.
 - In de sessiecache wordt het hash-veld verwijderd (HDEL), niet leeg gezet: anders leest de cache
   een lege mapnaam terug en ziet de TAG-index een lege map.
 
-### 3. `nietGeleverd` op `GET /berichten` en `_zoeken`
+### 3. `aantalNietGeleverd` en `nietGeleverd` op `GET /berichten` en `_zoeken`
 
 De aggregatiestatus in Redis bewaart per niet-leverende organisatie `magazijnId`, `naam` en de
-uitkomst (`FOUT`/`TIMEOUT`/`NIET_OPGEHAALD`). De facade geeft die mee met elke pagina; de uitvraag
-zet hem als `nietGeleverd` op `BerichtenLijst`. Het geldt voor de hele lijst en staat op elke
-pagina.
+uitkomst (`FOUT`/`TIMEOUT`/`NIET_OPGEHAALD`). De facade geeft die als `Volledigheid` mee met elke
+pagina; de uitvraag zet hem als `aantalNietGeleverd` en `nietGeleverd` op `BerichtenLijst`. Het
+geldt voor de hele lijst en staat op elke pagina.
 
-- Een status van vóór dit veld leest als een lege lijst; de invariant staat daarom `≤` toe, niet `=`.
+- Volledig is `aantalNietGeleverd == 0`, niet een lege `nietGeleverd`. Het aantal komt uit de
+  tellers, de namen uit de lijst. Een status van vóór dit veld heeft de tellers maar niet de namen:
+  dan is de lijst korter dan het aantal, en toont de box "mogelijk onvolledig" zonder namen. Een
+  lege lijst die als "iedereen leverde" leest, kan zo niet ontstaan.
+- `BerichtenPagina.volledigheid` is `null` zolang de facade hem niet vulde; de uitvraag faalt dan
+  hard in plaats van stil volledigheid te claimen.
 - Hetzelfde mechanisme past voor `afgekapt` (#1072), maar dat heeft eigen criteria en blijft buiten
   deze wijziging.
 
@@ -70,6 +77,11 @@ pagina.
 - Drie scenario's (M1–M3) in `docs/demo-runbook.md`.
 - Niet-technische toelichting in `docs/mappen-bij-het-bericht.md`: waarom zo, gevolgen, het
   alternatief (mappen apart vastleggen) en wat dat kost.
+
+## Spec-versies
+
+Uitvraag 0.2.0 → 0.3.0 (nieuwe velden, `""` als wis-waarde); magazijn 0.3.0 → 0.4.0 (`""` wist,
+waar het eerst een 400 gaf).
 
 ## Verificatie
 

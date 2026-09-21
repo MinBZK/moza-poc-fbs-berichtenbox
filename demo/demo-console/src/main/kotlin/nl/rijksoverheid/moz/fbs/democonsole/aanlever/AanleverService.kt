@@ -17,11 +17,11 @@ import java.util.logging.Logger
  *   en mislukt.
  * - `zonderBerichtId`: het magazijn bevestigde de ontvangst met een antwoord waar geen bruikbaar
  *   berichtId uit te halen was — en zonder dat valt er ook niets te markeren. Dat telt los van
- *   `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener te zien dát het magazijn
- *   haperde in plaats van een volledig groene melding.
+ *   `gelezen` en `map`: ook wanneer er niets te markeren viel, hoort de bediener te zien dát het
+ *   magazijn haperde in plaats van een volledig groene melding.
  *
  * De twee sluiten elkaar uit, zodat het paneel per bericht één cijfer noemt: een aflevering zonder
- * berichtId telt alleen als `zonderBerichtId`, ook wanneer om gelezen was gevraagd. Anders leest één
+ * berichtId telt alleen als `zonderBerichtId`, ook wanneer om een status-patch was gevraagd. Anders leest één
  * bericht als twee problemen.
  *
  * `letOp` draagt de reden uit [Faalreden], en is null zolang er niets in de *aflevering* mislukte —

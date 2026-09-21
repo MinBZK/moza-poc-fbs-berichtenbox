@@ -464,6 +464,10 @@ Een map is een eigenschap van een bericht en staat bij de organisatie die het ve
 geen centrale mappenlijst. Deze drie scenario's maken de gevolgen zichtbaar. Waarom het zo werkt
 en wat het alternatief kost, staat in [Mappen horen bij het bericht](mappen-bij-het-bericht.md).
 
+> **Speel ze in de berichtenbox van de proeftuin** (§5b), en alleen met een versie die de velden
+> hieronder gebruikt. De keten levert ze; of de gepinde versie ze al toont, bepaalt die box. De
+> gearchiveerde box van de demo-console (:8095) toont ze niet.
+
 Persona **J. Pietersen** heeft er mappen voor klaarstaan (basisvulling, of *Herstel demo* na
 legen):
 
@@ -480,9 +484,9 @@ legen):
 | M2 | Een map verdwijnt met zijn laatste bericht | Pietersen → **Ophalen** → open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
 | M3 | Een organisatie levert niet | Storingen → *Magazijn B* → *Uit* → Pietersen → **Ophalen**. *Belasting* en *Te bespreken met adviseur* ontbreken, *Boekhouding 2026* telt 1, en de Berichtenbox meldt dat de Belastingdienst niet leverde — ook na verversen of doorbladeren |
 
-De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`), de
-niet-leverende organisaties uit de lijst (`nietGeleverd`), en haalt een bericht uit zijn map met
-`"map": ""`.
+De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`),
+uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`), en
+haalt een bericht uit zijn map met `"map": ""`.
 
 Na een storingsscenario altijd *Alles normaal* (tabblad Storingen) en voor de gesimuleerde
 magazijnen *Legen en gedrag terugzetten* (tabblad Scenario's). De toestandsbalk bovenaan het paneel zegt of dat gelukt is:

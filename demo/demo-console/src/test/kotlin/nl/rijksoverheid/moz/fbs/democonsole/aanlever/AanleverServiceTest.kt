@@ -297,15 +297,15 @@ class AanleverServiceTest {
      * moet ontbreken: `gelezen = false` meesturen zou een eerder gelezen bericht terugzetten.
      */
     @ParameterizedTest(name = "gelezen={0}, map={1}")
-    @CsvSource(value = ["false, Belasting", "true, Belasting", "true, NULL"], nullValues = ["NULL"])
-    fun `de status-patch draagt precies de gevraagde vlaggen`(gelezen: Boolean, map: String?) {
+    @CsvSource(value = ["false, Belasting, NULL", "true, Belasting, true", "true, NULL, true"], nullValues = ["NULL"])
+    fun `de status-patch draagt precies de gevraagde vlaggen`(gelezen: Boolean, map: String?, verwachtGelezen: Boolean?) {
         every { clients[RVO] } returns client
         every { client.leverAan(any()) } returns respons(201, "b-1")
         every { client.markeer(any(), any(), any()) } returns respons(200)
 
         service.leverAan(listOf(opdracht(gelezen = gelezen, map = map)))
 
-        verify(exactly = 1) { client.markeer("b-1", "BSN:$ONTVANGER", StatusPatch(gelezen = true.takeIf { gelezen }, map = map)) }
+        verify(exactly = 1) { client.markeer("b-1", "BSN:$ONTVANGER", StatusPatch(gelezen = verwachtGelezen, map = map)) }
     }
 
     @Test
