@@ -53,11 +53,11 @@ internal class BlockingSessiecache(
         afzender: String?,
         map: String?,
     ): BerichtenPagina {
-        requireGereedStatus(ontvanger)
+        val aggregatie = requireGereedStatus(ontvanger)
 
         return awaitOrServiceUnavailable {
             service.getBerichten(pagina ?: 0, effectieveGrootte(paginaGrootte), ontvanger, afzender, map)
-        }
+        }.copy(nietGeleverd = aggregatie.nietGeleverd)
     }
 
     override fun zoek(
@@ -68,11 +68,11 @@ internal class BlockingSessiecache(
         afzender: String?,
         map: String?,
     ): BerichtenPagina {
-        requireGereedStatus(ontvanger)
+        val aggregatie = requireGereedStatus(ontvanger)
 
         return awaitOrServiceUnavailable {
             service.zoekBerichten(q, pagina ?: 0, effectieveGrootte(paginaGrootte), ontvanger, afzender, map)
-        }
+        }.copy(nietGeleverd = aggregatie.nietGeleverd)
     }
 
     override fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht? {

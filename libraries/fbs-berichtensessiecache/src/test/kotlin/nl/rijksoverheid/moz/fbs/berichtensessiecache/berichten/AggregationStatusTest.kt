@@ -112,4 +112,32 @@ class AggregationStatusTest {
         assertEquals(OphalenStatus.GEREED, status.status)
         assertEquals(0, status.totaalMagazijnen)
     }
+
+    @Test
+    fun `meer niet-geleverde organisaties dan mislukt plus nietOpgehaald wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            AggregationStatus(
+                totaalMagazijnen = 2,
+                mislukt = 1,
+                nietGeleverd = listOf(
+                    NietGeleverd("magazijn-a", "A", MagazijnStatus.FOUT),
+                    NietGeleverd("magazijn-b", "B", MagazijnStatus.TIMEOUT),
+                ),
+            )
+        }
+        assertEquals("nietGeleverd mag niet meer organisaties noemen dan mislukt + nietOpgehaald", ex.message)
+    }
+
+    /** Een status uit Redis van vóór dit veld draagt de tellers maar niet de lijst; die moet leesbaar blijven. */
+    @Test
+    fun `minder niet-geleverde organisaties dan de tellers is toegestaan`() {
+        val status = AggregationStatus(totaalMagazijnen = 2, mislukt = 1, nietOpgehaald = 1)
+
+        assertEquals(emptyList<NietGeleverd>(), status.nietGeleverd)
+    }
+
+    @Test
+    fun `een organisatie die OK leverde, kan niet als niet-geleverd gelden`() {
+        assertThrows<IllegalArgumentException> { NietGeleverd("magazijn-a", "A", MagazijnStatus.OK) }
+    }
 }

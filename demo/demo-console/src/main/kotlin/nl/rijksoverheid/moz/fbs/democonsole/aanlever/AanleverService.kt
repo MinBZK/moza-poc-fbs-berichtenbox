@@ -13,7 +13,8 @@ import java.util.logging.Logger
  * hier ook terecht. De twee tellers daarna tellen berichten die wél in het magazijn staan — en dus
  * ook als geslaagd tellen — maar waar naast de aflevering iets misging:
  *
- * - `markeringMislukt`: de PATCH die het bericht op gelezen zet, is geprobeerd en mislukt.
+ * - `markeringMislukt`: de PATCH die het bericht op gelezen en/of in zijn map zet, is geprobeerd
+ *   en mislukt.
  * - `zonderBerichtId`: het magazijn bevestigde de ontvangst met een antwoord waar geen bruikbaar
  *   berichtId uit te halen was — en zonder dat valt er ook niets te markeren. Dat telt los van
  *   `gelezen`: ook wanneer er niets te markeren viel, hoort de bediener te zien dát het magazijn
@@ -92,7 +93,7 @@ class AanleverService(private val clients: MagazijnClients) {
                 is LeverUitkomst.Afgeleverd -> {
                     geslaagd++
 
-                    if (opdracht.gelezen && !markeerGelezen(client, opdracht, uitkomst.berichtId)) markeringMislukt++
+                    if (opdracht.vraagtStatus && !zetStatus(client, opdracht, uitkomst.berichtId)) markeringMislukt++
                 }
             }
         }
@@ -225,14 +226,15 @@ class AanleverService(private val clients: MagazijnClients) {
         return LeverUitkomst.AfgeleverdZonderId
     }
 
-    private fun markeerGelezen(client: MagazijnAanleverClient, opdracht: AanleverOpdracht, berichtId: String): Boolean {
+    private fun zetStatus(client: MagazijnAanleverClient, opdracht: AanleverOpdracht, berichtId: String): Boolean {
         val ontvanger = opdracht.verzoek.ontvanger
+        val patch = StatusPatch(gelezen = true.takeIf { opdracht.gelezen }, map = opdracht.map)
 
         val response = try {
-            client.markeer(berichtId, "${ontvanger.type}:${ontvanger.waarde}", StatusPatch(gelezen = true))
+            client.markeer(berichtId, "${ontvanger.type}:${ontvanger.waarde}", patch)
         } catch (fout: Exception) {
             meld(
-                "markeren-gelezen van bericht $berichtId bij magazijn ${opdracht.magazijnOin} mislukte",
+                "status zetten van bericht $berichtId bij magazijn ${opdracht.magazijnOin} mislukte",
                 isStoring(fout),
                 fout,
             )
@@ -245,7 +247,7 @@ class AanleverService(private val clients: MagazijnClients) {
 
             if (!gelukt) {
                 meld(
-                    "markeren-gelezen gaf HTTP ${response.status} voor bericht $berichtId " +
+                    "status zetten gaf HTTP ${response.status} voor bericht $berichtId " +
                         "bij magazijn ${opdracht.magazijnOin}",
                     // Een 404 hoort er ook bij: het magazijn is dan het bericht kwijt dat het één
                     // aanroep eerder zelf met een 201 bevestigde — de overkant, niet de console. (Een

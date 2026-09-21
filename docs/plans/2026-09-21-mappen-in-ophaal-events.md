@@ -1,53 +1,78 @@
-# Mappen per organisatie in de ophaal-events
+# Mappen horen bij het bericht: zichtbaar maken in keten en demo
 
 **Status:** Uitgevoerd
 
-Hoort bij [MinBZK/MijnOverheidZakelijk#941](https://github.com/MinBZK/MijnOverheidZakelijk/issues/941)
-(eerste acceptatiecriterium: het mappenoverzicht groeit zichtbaar mee terwijl de berichten binnenkomen).
+Hoort bij [MinBZK/MijnOverheidZakelijk#941](https://github.com/MinBZK/MijnOverheidZakelijk/issues/941).
+De berichtenbox van de proeftuin is een eigen repository; dit plan dekt de keten en de demo-engine,
+zodat die box de vier criteria kan tonen.
 
 ## Context
 
 Een map bestaat alleen als eigenschap van een bericht (`map` op de status van het bericht in het
-magazijn). Een berichtenbox leidt zijn mappenoverzicht dus af uit de berichten die hij kent. Tijdens een
-ophaalronde kan hij die berichten nog niet opvragen: `GET /berichten` geeft `409` zolang de ronde
-loopt, omdat een halve lijst anders als een volledige leest. De SSE-events van `_ophalen` droegen per
-organisatie alleen tellers. Een mappenoverzicht dat meegroeit was daarmee niet te bouwen, welke
-berichtenbox je ook gebruikt.
+magazijn). Een berichtenbox leidt zijn mappenoverzicht dus af uit de berichten die hij kent. Vier
+dingen stonden dat in de weg:
 
-## Keuze
+1. Tijdens een ophaalronde zijn de berichten niet op te vragen: `GET /berichten` geeft `409` zolang
+   de ronde loopt, omdat een halve lijst anders als een volledige leest. De SSE-events droegen per
+   organisatie alleen tellers.
+2. Een bericht uit zijn map halen kon niet: in de merge-patch betekent `null` "niet wijzigen", en
+   `map` had `minLength: 1`. Een map kon dus nooit meer leeg raken.
+3. Wie niet leverde, stond alleen in de SSE-events. Na verversen of bladeren oogde een onvolledige
+   lijst weer volledig.
+4. De demo had geen berichten in mappen en geen scenario's of uitleg.
 
-Het `magazijn-bevraging-voltooid`-event met status `OK` draagt een veld `mappen`: per map die in de
-geleverde berichten van die organisatie voorkomt de naam en het aantal berichten. De box telt die
-per organisatie op en heeft zo tijdens de ronde een groeiend overzicht.
+## Keuzes
 
-Verworpen alternatief: `GET /berichten` tijdens een lopende ronde toestaan met een
-onvolledig-markering. Dat tornt aan de bewuste guard dat een lijst pas leesbaar is als de ronde af
-is, en vraagt van elke afnemer dat hij die markering nooit mist.
+### 1. Mappen per organisatie in `magazijn-bevraging-voltooid`
 
-## Ontwerpkeuzes
+Status `OK` draagt `mappen`: per map in de geleverde berichten de naam en het aantal. De box telt
+die per organisatie op en heeft zo tijdens de ronde een groeiend overzicht.
 
-- **Altijd aanwezig bij `OK`, ook leeg.** `[]` zegt "deze organisatie leverde geen berichten in een
-  map" — dat is informatie, geen ontbrekende waarde.
-- **Postvak IN telt niet mee.** Berichten zonder map staan in Postvak IN; dat aantal is
-  `aantalBerichten` min de som van `mappen`.
-- **Geen speciale behandeling van namen.** De naam gaat woordelijk mee zoals het magazijn hem levert
-  ("Archief" is gewoon een map). Hoofdletters tellen: "Belasting" en "belasting" zijn twee mappen —
-  dat is ook hoe ze in de lijst staan.
-- **Gesorteerd op naam.** Deterministisch voor afnemers en tests.
-- **Afgekapt = afgekapt.** De tellingen dekken de opgehaalde berichten, net als `aantalBerichten`; het
-  bestaande `afgekapt`-signaal zegt al dat er meer is.
-- **Niet verplicht in het schema.** `MagazijnBevragingVoltooid` dekt ook de mislukte uitkomsten, die
-  het veld niet dragen — zelfde regime als `aantalBerichten`.
+- Altijd aanwezig bij `OK`, ook leeg; mislukte uitkomsten dragen het veld niet.
+- Postvak IN telt niet mee: dat is `aantalBerichten` min de som.
+- Namen woordelijk, hoofdletters onderscheiden; gesorteerd op naam.
+- Bij `afgekapt` dekken de tellingen alleen de opgehaalde berichten.
 
-## Stappen
+Verworpen: `GET /berichten` tijdens een lopende ronde toestaan met een onvolledig-markering. Dat
+tornt aan de guard dat een lijst pas leesbaar is als de ronde af is, en vraagt van elke afnemer dat
+hij die markering nooit mist.
 
-1. `MapTelling` + `mappen` op `MagazijnBevragingGeslaagd`; tellen in `naarVoltooidEvent`.
-2. Spec: `mappen` op `MagazijnBevragingVoltooid`, schema `MapTelling`, toelichting bij `_ophalen`.
-3. Tests: wire-contract (library en SSE-transport), `SseContractTest`, tellen per cardinaliteit in de
-   service.
+### 2. `"map": ""` haalt een bericht uit zijn map
+
+De lege string is de wis-waarde, in uitvraag, magazijn en simulator gelijk (`Sessiecache.MAP_WISSEN`).
+Het magazijn-contract noemde die sentinel al als voorziene uitbreiding.
+
+- Verworpen: `null` als wissen (RFC 7396). Jackson onderscheidt "afwezig" en "`null`" niet zonder
+  tri-state-typen in de gegenereerde modellen, en `null` betekent in dit contract al jaren "niet
+  wijzigen" — ook voor `status`.
+- Een naam van alleen witruimte blijft ongeldig (400); de uitvraag weigert hem vóór de
+  magazijn-write.
+- In de sessiecache wordt het hash-veld verwijderd (HDEL), niet leeg gezet: anders leest de cache
+  een lege mapnaam terug en ziet de TAG-index een lege map.
+
+### 3. `nietGeleverd` op `GET /berichten` en `_zoeken`
+
+De aggregatiestatus in Redis bewaart per niet-leverende organisatie `magazijnId`, `naam` en de
+uitkomst (`FOUT`/`TIMEOUT`/`NIET_OPGEHAALD`). De facade geeft die mee met elke pagina; de uitvraag
+zet hem als `nietGeleverd` op `BerichtenLijst`. Het geldt voor de hele lijst en staat op elke
+pagina.
+
+- Een status van vóór dit veld leest als een lege lijst; de invariant staat daarom `≤` toe, niet `=`.
+- Hetzelfde mechanisme past voor `afgekapt` (#1072), maar dat heeft eigen criteria en blijft buiten
+  deze wijziging.
+
+### 4. Demo
+
+- De basisdataset zet voor persona Pietersen vier mappen: één per organisatie, één over beide heen,
+  en één met één bericht. `AanleverOpdracht.map` is een demo-vlag; de console zet hem na aanlevering
+  via dezelfde status-patch als `gelezen`. Een test bewaakt die vorm, want de runbook-scenario's
+  leunen erop.
+- Drie scenario's (M1–M3) in `docs/demo-runbook.md`.
+- Niet-technische toelichting in `docs/mappen-bij-het-bericht.md`: waarom zo, gevolgen, het
+  alternatief (mappen apart vastleggen) en wat dat kost.
 
 ## Verificatie
 
-- `./mvnw clean test -pl libraries/fbs-berichtensessiecache -am`
-- `./mvnw clean test -pl services/berichtenuitvraag -am`
-- Spectral op `berichtenuitvraag-api.yaml`
+- `./mvnw clean verify -pl libraries/fbs-berichtensessiecache,services/berichtenuitvraag,services/berichtenmagazijn,demo/magazijn-simulator -am`
+- `./mvnw clean test -pl demo/demo-console -am`
+- Spectral op beide specs

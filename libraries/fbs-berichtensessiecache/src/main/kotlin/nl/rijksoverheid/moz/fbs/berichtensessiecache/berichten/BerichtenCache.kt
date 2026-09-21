@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
@@ -651,10 +652,12 @@ internal class RedisBerichtenCache(
         // zonder write, zodat we geen onnodige TTL-renew of list-rewrite forceren.
         data class Ongewijzigd(val bericht: Bericht) : UpdatePlan
 
-        // Te schrijven hash-velden + de herbouwde list met het vervangen blob op `berichtId`.
+        // Te schrijven en te wissen hash-velden + de herbouwde list met het vervangen blob op
+        // `berichtId`. Wissen is een HDEL: een leeg veld zou de TAG-index een lege map laten zien.
         data class Wijzig(
             val updated: Bericht,
             val hashVelden: Map<String, String>,
+            val gewisteVelden: List<String>,
             val nieuweLijst: List<String>,
         ) : UpdatePlan
     }
@@ -732,18 +735,22 @@ internal class RedisBerichtenCache(
         status: Leesstatus?,
         map: String?,
     ): Uni<UpdatePlan> {
+        val wistMap = map == Sessiecache.MAP_WISSEN
         val updated = bericht.copy(
             status = status ?: bericht.status,
-            map = map ?: bericht.map,
+            map = if (wistMap) null else map ?: bericht.map,
         )
         val hashVelden = buildMap {
             status?.let { put("status", it.wire) }
-            map?.let { put("map", it) }
+            map?.takeUnless { wistMap }?.let { put("map", it) }
         }
+        val gewisteVelden = if (wistMap) listOf("map") else emptyList()
         val updatedJson = objectMapper.writeValueAsString(updated)
 
         return reads.list(String::class.java).lrange(listKey, 0, -1)
-            .map { entries -> UpdatePlan.Wijzig(updated, hashVelden, herbouwLijst(entries, berichtId, updatedJson)) }
+            .map { entries ->
+                UpdatePlan.Wijzig(updated, hashVelden, gewisteVelden, herbouwLijst(entries, berichtId, updatedJson))
+            }
     }
 
     /** Vervangt het blob met `berichtId` in de sessie-list door [updatedJson]; overige entries blijven. */
@@ -786,7 +793,21 @@ internal class RedisBerichtenCache(
                     Uni.createFrom().voidItem()
                 }
 
-                txHash.hset(berichtKey, plan.hashVelden)
+                // HSET weigert een lege veldenset; die ontstaat als de patch alleen een map wist.
+                val zetVelden = if (plan.hashVelden.isNotEmpty()) {
+                    txHash.hset(berichtKey, plan.hashVelden).replaceWithVoid()
+                } else {
+                    Uni.createFrom().voidItem()
+                }
+
+                val wisVelden = if (plan.gewisteVelden.isNotEmpty()) {
+                    txHash.hdel(berichtKey, *plan.gewisteVelden.toTypedArray()).replaceWithVoid()
+                } else {
+                    Uni.createFrom().voidItem()
+                }
+
+                zetVelden
+                    .chain { _ -> wisVelden }
                     .chain { _ -> txKey.expire(berichtKey, ttl) }
                     .chain { _ -> rebuildList }
                     .replaceWithVoid()
@@ -1009,6 +1030,7 @@ internal data class AggregationStatus(
     val geslaagd: Int = 0,
     val mislukt: Int = 0,
     val nietOpgehaald: Int = 0,
+    val nietGeleverd: List<NietGeleverd> = emptyList(),
 ) {
     init {
         require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn" }
@@ -1017,6 +1039,10 @@ internal data class AggregationStatus(
         require(nietOpgehaald >= 0) { "nietOpgehaald mag niet negatief zijn" }
         require(geslaagd + mislukt + nietOpgehaald <= totaalMagazijnen) {
             "geslaagd + mislukt + nietOpgehaald mag niet groter zijn dan totaalMagazijnen"
+        }
+        // Kleiner mag: een status die vóór dit veld bestond, draagt de tellers maar niet de lijst.
+        require(nietGeleverd.size <= mislukt + nietOpgehaald) {
+            "nietGeleverd mag niet meer organisaties noemen dan mislukt + nietOpgehaald"
         }
     }
 }

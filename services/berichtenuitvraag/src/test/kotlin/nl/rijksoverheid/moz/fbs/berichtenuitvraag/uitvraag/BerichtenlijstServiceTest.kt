@@ -9,6 +9,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
@@ -17,6 +19,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
@@ -61,6 +65,27 @@ class BerichtenlijstServiceTest {
         map = "werk",
         status = Leesstatus.ONGELEZEN,
     )
+
+    /**
+     * Leeg, één en meer: de lijst moet elke organisatie woordelijk doorgeven, met haar eigen status,
+     * en dat op lijst én zoek — anders verdwijnt het signaal zodra de ondernemer gaat zoeken.
+     */
+    @ParameterizedTest(name = "{0} niet geleverd")
+    @ValueSource(ints = [0, 1, 3])
+    fun `lijst en zoek geven de niet-geleverde organisaties door`(aantal: Int) {
+        val statussen = listOf(MagazijnStatus.FOUT, MagazijnStatus.TIMEOUT, MagazijnStatus.NIET_OPGEHAALD)
+        val nietGeleverd = (0 until aantal).map { i -> NietGeleverd("magazijn-$i", "Organisatie $i", statussen[i]) }
+        val metNietGeleverd = pagina().copy(nietGeleverd = nietGeleverd)
+
+        every { sessiecache.lijst(ontvanger, null, null) } returns metNietGeleverd
+        every { sessiecache.zoek(ontvanger, "factuur") } returns metNietGeleverd
+
+        val verwacht = nietGeleverd.map { Triple(it.magazijnId, it.naam, it.status.value) }
+
+        for (lijst in listOf(service.lijst("BSN:999990019", null, null), service.zoek("BSN:999990019", "factuur"))) {
+            assertEquals(verwacht, lijst.nietGeleverd.map { Triple(it.magazijnId, it.naam, it.status.toString()) })
+        }
+    }
 
     @Test
     fun `lijst delegeert ontvanger en paginering naar de facade`() {

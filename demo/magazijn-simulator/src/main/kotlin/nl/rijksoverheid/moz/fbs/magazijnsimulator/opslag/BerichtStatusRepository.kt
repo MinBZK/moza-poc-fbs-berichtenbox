@@ -40,9 +40,8 @@ class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Long>
      * geeft. `ON CONFLICT DO UPDATE` maakt er één atomaire stap van.
      *
      * De `COALESCE` draagt de merge-patch-semantiek van de spec: een veld dat `null` is blijft
-     * ongewijzigd — of het nu ontbrak in de JSON of expliciet op `null` stond. Een map is daarmee te
-     * overschrijven maar niet te wissen; dat is dezelfde beperking die het echte magazijn heeft, en
-     * de simulator hoort hem te delen. Bij een nieuwe rij valt `gelezen` terug op `false` en niet op
+     * ongewijzigd — of het nu ontbrak in de JSON of expliciet op `null` stond. Wissen gaat daarom
+     * via de lege string ([BerichtStatusWijziging.wistMap]), net als in het echte magazijn. Bij een nieuwe rij valt `gelezen` terug op `false` en niet op
      * de patch-waarde: wie alleen een map zet, heeft het bericht nog niet gelezen.
      *
      * De casts zijn nodig omdat PostgreSQL het type van een parameter die `null` kan zijn niet uit
@@ -60,13 +59,15 @@ class BerichtStatusRepository : PanacheRepositoryBase<BerichtStatusEntity, Long>
                 VALUES (:berichtDbId, COALESCE(CAST(:gelezen AS BOOLEAN), FALSE), CAST(:map AS VARCHAR), :tijdstip)
                 ON CONFLICT (bericht_db_id) DO UPDATE
                 SET gelezen      = COALESCE(CAST(:gelezen AS BOOLEAN), bericht_status.gelezen),
-                    map          = COALESCE(CAST(:map AS VARCHAR), bericht_status.map),
+                    map          = CASE WHEN CAST(:wisMap AS BOOLEAN) THEN NULL
+                                        ELSE COALESCE(CAST(:map AS VARCHAR), bericht_status.map) END,
                     gewijzigd_op = :tijdstip
                 """.trimIndent(),
             )
             .setParameter("berichtDbId", berichtDbId)
             .setParameter("gelezen", wijziging.gelezen)
-            .setParameter("map", wijziging.map)
+            .setParameter("map", wijziging.nieuweMap)
+            .setParameter("wisMap", wijziging.wistMap)
             .setParameter("tijdstip", tijdstip)
             .executeUpdate()
 

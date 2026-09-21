@@ -241,6 +241,7 @@ paths:
       summary: Bericht-status bijwerken / verplaatsen
       description: |
         Werk status (`gelezen`/`ongelezen`) en/of `map` van een bericht bij. Idempotent.
+        `"map": ""` haalt het bericht uit zijn map, terug naar Postvak IN.
       operationId: updateBerichtMetadata
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -495,13 +496,34 @@ components:
         Paginatie via HAL `_links.next`/`prev`. Aantallen (totalElements,
         totalPages) bewust niet opgenomen — frontend navigeert via links zonder
         absolute paginavoortgang.
-      required: [berichten]
+      required: [berichten, nietGeleverd]
       properties:
         berichten:
           type: array
           items: { $ref: '#/components/schemas/BerichtSamenvatting' }
+        nietGeleverd:
+          type: array
+          description: |
+            De organisaties die in de laatste ophaalronde niet leverden, gesorteerd op naam.
+            Hun berichten ontbreken in deze lijst, en daarmee ook de mappen waar die in staan:
+            een mappenoverzicht dat uit deze lijst is afgeleid, kan dan onvolledig zijn. Leeg
+            als elke organisatie leverde. Geldt voor de hele lijst en staat daarom op elke
+            pagina, ook na verversen of bladeren — het voortgangsbericht van het ophalen is
+            dan al lang weg.
+          items: { $ref: '#/components/schemas/NietGeleverdeOrganisatie' }
         _links:
           $ref: '#/components/schemas/PaginaLinks'
+
+    NietGeleverdeOrganisatie:
+      type: object
+      description: |
+        Een organisatie die in de laatste ophaalronde niet leverde. `status` is dezelfde
+        uitkomst als in haar `magazijn-bevraging-voltooid`-event, en dus nooit `OK`.
+      required: [magazijnId, naam, status]
+      properties:
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        naam: { $ref: '#/components/schemas/MagazijnNaam' }
+        status: { $ref: '#/components/schemas/MagazijnStatus' }
 
     BerichtSamenvatting:
       type: object
@@ -581,9 +603,19 @@ components:
         JSON Merge Patch (RFC 7396). Beide velden optioneel; minimaal één veld
         vereist. `status` wijzigt leesstatus; `map` verplaatst het bericht.
         Ontbrekend veld én `null` worden beide behandeld als "niet wijzigen".
+        Een map wissen gaat daarom met de lege string: `"map": ""` haalt het
+        bericht uit zijn map, terug naar Postvak IN. Een map bestaat alleen als
+        eigenschap van een bericht, dus zodra het laatste bericht eruit is, is
+        de map weg.
       properties:
         status: { $ref: '#/components/schemas/BerichtStatus' }
-        map: { type: string, minLength: 1, maxLength: 128 }
+        map:
+          type: string
+          minLength: 0
+          maxLength: 128
+          description: |
+            Doelmap. `""` haalt het bericht uit zijn map (terug naar Postvak IN);
+            een naam van alleen witruimte is ongeldig.
       minProperties: 1
 
     BerichtStatus:

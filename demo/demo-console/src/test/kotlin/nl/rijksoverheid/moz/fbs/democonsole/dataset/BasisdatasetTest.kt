@@ -43,6 +43,32 @@ class BasisdatasetTest {
         bakken.forEach { (bak, inhoud) -> assertTrue(inhoud.size >= 4, "bak $bak is te klein om te variëren: ${inhoud.size}") }
     }
 
+    /**
+     * De mappen-scenario's in het demo-runbook leunen op deze vorm: één persona met een map bij
+     * elke organisatie apart (die verdwijnt als die organisatie niet levert), een map die over twee
+     * organisaties loopt (die groeit mee terwijl ze leveren) en een map met één bericht (die
+     * verdwijnt zodra dat bericht eruit gaat). Wie de dataset herschikt, breekt anders stil een
+     * scenario dat pas tijdens een demo opvalt.
+     */
+    @Test
+    fun `de mappen dragen de scenario's uit het runbook`() {
+        val metMap = opdrachten.filter { it.map != null }
+        val organisatiesPerMap = metMap.groupBy({ it.map!! }, { it.magazijnOin }).mapValues { it.value.toSet() }
+        val berichtenPerMap = metMap.groupingBy { it.map!! }.eachCount()
+
+        assertEquals(
+            1,
+            metMap.map { "${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }.toSet().size,
+            "de mappen horen bij één persona, anders staan de scenario's verspreid",
+        )
+        assertTrue(organisatiesPerMap.values.any { it.size >= 2 }, "geen map die over twee organisaties loopt")
+        assertTrue(
+            organisatiesPerMap.values.filter { it.size == 1 }.map { it.single() }.toSet().size >= 2,
+            "niet elke organisatie heeft een eigen map",
+        )
+        assertTrue(berichtenPerMap.values.any { it == 1 }, "geen map met precies één bericht")
+    }
+
     @Test
     fun `elke bak heeft zowel gelezen als ongelezen berichten`() {
         perBak().forEach { (bak, inhoud) ->

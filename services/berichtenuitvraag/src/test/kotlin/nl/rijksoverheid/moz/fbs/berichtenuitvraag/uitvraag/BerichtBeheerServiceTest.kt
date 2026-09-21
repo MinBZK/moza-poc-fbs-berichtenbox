@@ -20,6 +20,8 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
 import java.util.UUID
 
@@ -98,6 +100,31 @@ class BerichtBeheerServiceTest {
         // magazijn raakt.
         val ex = assertThrows(WebApplicationException::class.java) {
             service.patch(ontvanger, id, magazijnId, BerichtPatch())
+        }
+
+        assertEquals(400, ex.response.status)
+        verify(exactly = 0) { magazijn.patchBericht(any(), any(), any()) }
+    }
+
+    /** De lege string wist de map; hij moet ongewijzigd bij magazijn én cache aankomen. */
+    @Test
+    fun `patch met lege map haalt het bericht uit zijn map bij magazijn en cache`() {
+        every { magazijn.patchBericht(any(), any(), any()) } returns Unit
+        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+
+        service.patch(ontvanger, id, magazijnId, BerichtPatch().apply { map = "" })
+
+        verifyOrder {
+            magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = null, map = ""))
+            sessiecache.werkBerichtBij(ontvangerId, id, null, Sessiecache.MAP_WISSEN)
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = [" ", "   ", "\t", "\n "])
+    fun `patch met een mapnaam van alleen witruimte geeft 400 zonder magazijn-write`(map: String) {
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.patch(ontvanger, id, magazijnId, BerichtPatch().apply { this.map = map })
         }
 
         assertEquals(400, ex.response.status)

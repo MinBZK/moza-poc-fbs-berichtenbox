@@ -130,13 +130,17 @@ data class BijlageSamenvatting(
     }
 }
 
-/** Eén pagina lijst-/zoekresultaten; element-type is altijd de lichte samenvatting. */
+/**
+ * Eén pagina lijst-/zoekresultaten; element-type is altijd de lichte samenvatting.
+ * [nietGeleverd] geldt voor de hele lijst, niet voor deze pagina: het staat op elke pagina.
+ */
 data class BerichtenPagina(
     val berichten: List<BerichtSamenvatting>,
     val page: Int,
     val pageSize: Int,
     val totalElements: Long,
     val totalPages: Int,
+    val nietGeleverd: List<NietGeleverd> = emptyList(),
 ) {
     init {
         require(page >= 0) { "page mag niet negatief zijn" }

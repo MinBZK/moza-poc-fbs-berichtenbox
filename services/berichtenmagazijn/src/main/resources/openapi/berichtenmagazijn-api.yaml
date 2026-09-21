@@ -612,22 +612,22 @@ components:
         Patch-body voor `PATCH /berichten/{berichtId}`. Stuur alleen de velden die
         je wilt wijzigen.
 
-        **Bewuste keuze**: een ontbrekend veld én een veld dat expliciet op `null`
-        staat worden beide behandeld als "niet wijzigen". Daardoor kan een eenmaal
-        gezette map niet via deze endpoint gewist worden — wel overschreven met
-        een nieuwe map-waarde. Wissen vergt een aparte sentinel-waarde in een
-        toekomstige API-versie (bv. expliciet `""` of een `verwijderMap=true`
-        flag); dat is bewust uitgesteld om JSON-merge-patch semantiek voorspelbaar
-        te houden zolang er nog geen duidelijke use-case voor wissen is.
+        Een ontbrekend veld én een veld dat expliciet op `null` staat worden beide
+        behandeld als "niet wijzigen". Een map wissen gaat daarom met de lege string:
+        `"map": ""` haalt het bericht uit zijn map, terug naar Postvak IN. Een map
+        bestaat alleen als eigenschap van een bericht; zonder dit pad raakt een map
+        nooit meer leeg.
       properties:
         gelezen:
           type: boolean
           description: Markeer het bericht als gelezen (`true`) of ongelezen (`false`)
         map:
           type: string
-          minLength: 1
+          minLength: 0
           maxLength: 128
-          description: Verplaats naar deze map
+          description: |
+            Verplaats naar deze map. `""` haalt het bericht uit zijn map (terug naar
+            Postvak IN); een naam van alleen witruimte is ongeldig.
           example: archief
 
     BerichtSamenvatting:

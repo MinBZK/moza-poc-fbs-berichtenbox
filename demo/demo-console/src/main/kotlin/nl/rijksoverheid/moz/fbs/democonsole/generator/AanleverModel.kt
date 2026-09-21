@@ -21,10 +21,20 @@ data class AanleverVerzoek(
 
 /**
  * Eén aanlever-opdracht: het verzoek plus het magazijn (OIN) waar het naartoe moet. `gelezen`
- * is een demo-vlag (niet onderdeel van de aanlever-body): is die true, dan zet de console het
- * bericht ná aanlevering op gelezen, zodat de basisvulling een realistische lees-mix toont.
+ * en `map` zijn demo-vlaggen (niet onderdeel van de aanlever-body): de console zet het bericht
+ * ná aanlevering op gelezen en/of in die map. Een map is een keuze van de ontvanger en geen
+ * eigenschap die de afzender meestuurt; zonder deze vlag begint elke persona met alles in
+ * Postvak IN en valt er over mappen niets te laten zien.
  */
-data class AanleverOpdracht(val magazijnOin: String, val verzoek: AanleverVerzoek, val gelezen: Boolean = false)
+data class AanleverOpdracht(
+    val magazijnOin: String,
+    val verzoek: AanleverVerzoek,
+    val gelezen: Boolean = false,
+    val map: String? = null,
+) {
+    /** Of er na aanlevering nog een status-patch nodig is. */
+    val vraagtStatus: Boolean get() = gelezen || map != null
+}
 
 /** Realistisch bericht-sjabloon: een onderwerp met bijpassende inhoud. */
 data class Sjabloon(val onderwerp: String, val inhoud: String)

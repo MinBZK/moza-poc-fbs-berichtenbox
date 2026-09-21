@@ -125,7 +125,8 @@ class MockSessiecache : Sessiecache {
         laatsteWerkBijMap = map
 
         val bestaand = berichten[berichtId] ?: return null
-        val bijgewerkt = bestaand.copy(status = status ?: bestaand.status, map = map ?: bestaand.map)
+        val nieuweMap = if (map == Sessiecache.MAP_WISSEN) null else map ?: bestaand.map
+        val bijgewerkt = bestaand.copy(status = status ?: bestaand.status, map = nieuweMap)
         berichten[berichtId] = bijgewerkt
 
         return bijgewerkt

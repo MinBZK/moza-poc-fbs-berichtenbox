@@ -24,6 +24,14 @@ import java.util.UUID
  */
 interface Sessiecache {
 
+    companion object {
+        /**
+         * Mapwaarde die een bericht uit zijn map haalt. `null` betekent in een merge-patch al "niet
+         * wijzigen", dus wissen heeft een eigen waarde nodig; het magazijn gebruikt dezelfde.
+         */
+        const val MAP_WISSEN = ""
+    }
+
     /**
      * Berichtenlijst voor [ontvanger], gepagineerd, optioneel gefilterd op
      * [afzender] en/of [map]. Vereist een afgeronde ophaling (zie foutsemantiek).
@@ -64,7 +72,8 @@ interface Sessiecache {
 
     /**
      * Merge-PATCH op leesstatus en/of map. Minimaal één van beide moet gezet zijn
-     * (anders 400). Retourneert het bijgewerkte bericht, of `null` als het bericht
+     * (anders 400). `map` = [MAP_WISSEN] haalt het bericht uit zijn map, terug naar
+     * Postvak IN. Retourneert het bijgewerkte bericht, of `null` als het bericht
      * niet bestaat of niet van [ontvanger] is.
      */
     fun werkBerichtBij(

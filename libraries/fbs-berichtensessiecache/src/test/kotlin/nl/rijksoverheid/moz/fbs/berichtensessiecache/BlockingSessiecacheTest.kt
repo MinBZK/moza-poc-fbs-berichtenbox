@@ -17,6 +17,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -88,12 +90,12 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.lijst(ontvanger))
+        assertEquals(legePagina, facade.lijst(ontvanger))
 
         // paginaGrootte boven het plafond wordt op 100 gecapt
         every { service.getBerichten(3, 100, ontvanger, "afz", "werk") } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.lijst(ontvanger, pagina = 3, paginaGrootte = 500, afzender = "afz", map = "werk"))
+        assertEquals(legePagina, facade.lijst(ontvanger, pagina = 3, paginaGrootte = 500, afzender = "afz", map = "werk"))
     }
 
     @Test
@@ -105,7 +107,23 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.zoek(ontvanger, "factuur"))
+        assertEquals(legePagina, facade.zoek(ontvanger, "factuur"))
+    }
+
+    /**
+     * Wie in de laatste ronde niet leverde, staat in de aggregatiestatus en niet in de berichten.
+     * Lijst én zoek moeten het meegeven, anders verdwijnt het signaal zodra de ondernemer zoekt.
+     */
+    @Test
+    fun `lijst en zoek dragen de niet-geleverde organisaties uit de aggregatiestatus`() {
+        val nietGeleverd = listOf(NietGeleverd("magazijn-b", "Belasting", MagazijnStatus.TIMEOUT))
+
+        stubStatus(AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 2, geslaagd = 1, mislukt = 1, nietGeleverd = nietGeleverd))
+        every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+        every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+
+        assertEquals(nietGeleverd, facade.lijst(ontvanger).nietGeleverd)
+        assertEquals(nietGeleverd, facade.zoek(ontvanger, "factuur").nietGeleverd)
     }
 
     @Test

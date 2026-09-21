@@ -47,6 +47,17 @@ class BerichtBeheerService(
             )
         }
 
+        // Witruimte leest als leeg maar zou als mapnaam worden opgeslagen; alleen de lege string
+        // wist. Hier afwijzen, vóór de magazijn-write, om dezelfde reden als de lege patch.
+        val map = patch.map
+
+        if (map != null && map != Sessiecache.MAP_WISSEN && map.isBlank()) {
+            throw WebApplicationException(
+                "Een mapnaam mag niet uit alleen witruimte bestaan; gebruik \"\" om een bericht uit zijn map te halen.",
+                Response.Status.BAD_REQUEST,
+            )
+        }
+
         val magazijn = magazijnRouter.forMagazijn(magazijnId)
 
         mapUpstreamFout(log, "magazijn-PATCH") {

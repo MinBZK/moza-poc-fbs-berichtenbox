@@ -35,6 +35,7 @@ import java.time.Duration
 import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 @ApplicationScoped
@@ -736,6 +737,7 @@ internal class BerichtensessiecacheService(
             val fout = magazijnFoutStatusVoor(result.fault)
 
             tellers.tel(fout)
+            tellers.nietGeleverd.add(NietGeleverd(result.magazijnId, result.naam, fout.wire))
 
             MagazijnBevragingMislukt(
                 magazijnId = result.magazijnId,
@@ -830,6 +832,7 @@ internal class BerichtensessiecacheService(
                     geslaagd = tellers.geslaagd.get(),
                     mislukt = tellers.mislukt.get(),
                     nietOpgehaald = tellers.nietOpgehaald.get(),
+                    nietGeleverd = tellers.nietGeleverd.sortedBy { it.naam },
                 )
 
                 // Parallel: store(berichten) en storeAggregationStatus(GEREED) hebben
@@ -1172,6 +1175,9 @@ internal class RondeTellers {
     val geslaagd = AtomicInteger(0)
     val mislukt = AtomicInteger(0)
     val nietOpgehaald = AtomicInteger(0)
+
+    /** De bevragingen lopen parallel af, dus een thread-veilige verzameling. */
+    val nietGeleverd = ConcurrentLinkedQueue<NietGeleverd>()
 
     /** Boekt één mislukte uitkomst op de teller die bij zijn status hoort. */
     fun tel(fout: MagazijnFoutStatus) {

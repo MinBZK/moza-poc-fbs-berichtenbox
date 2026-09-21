@@ -458,6 +458,32 @@ volgen in fase 7.
 
 **Rode vlag (markeren als belangrijk):** nog te bouwen (fase 7 — productiecode door de hele keten).
 
+### Mappen horen bij het bericht
+
+Een map is een eigenschap van een bericht en staat bij de organisatie die het verstuurde; er is
+geen centrale mappenlijst. Deze drie scenario's maken de gevolgen zichtbaar. Waarom het zo werkt
+en wat het alternatief kost, staat in [Mappen horen bij het bericht](mappen-bij-het-bericht.md).
+
+Persona **J. Pietersen** heeft er mappen voor klaarstaan (basisvulling, of *Herstel demo* na
+legen):
+
+| Map | Organisatie | Berichten |
+|---|---|---|
+| Subsidies | RVO (magazijn A) | 3 |
+| Belasting | Belastingdienst (magazijn B) | 3 |
+| Boekhouding 2026 | RVO én Belastingdienst | 1 + 1 |
+| Te bespreken met adviseur | Belastingdienst | 1 |
+
+| # | Scenario | Zo speel je het |
+|---|---|---|
+| M1 | Het mappenoverzicht groeit mee | Storingen → *Magazijn B* → *Traag* → Pietersen → **Ophalen**. Eerst verschijnen *Subsidies* en *Boekhouding 2026* (1); na ~6 s komen *Belasting* en *Te bespreken met adviseur* erbij en telt *Boekhouding 2026* er 2 |
+| M2 | Een map verdwijnt met zijn laatste bericht | Pietersen → **Ophalen** → open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
+| M3 | Een organisatie levert niet | Storingen → *Magazijn B* → *Uit* → Pietersen → **Ophalen**. *Belasting* en *Te bespreken met adviseur* ontbreken, *Boekhouding 2026* telt 1, en de Berichtenbox meldt dat de Belastingdienst niet leverde — ook na verversen of doorbladeren |
+
+De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`), de
+niet-leverende organisaties uit de lijst (`nietGeleverd`), en haalt een bericht uit zijn map met
+`"map": ""`.
+
 Na een storingsscenario altijd *Alles normaal* (tabblad Storingen) en voor de gesimuleerde
 magazijnen *Legen en gedrag terugzetten* (tabblad Scenario's). De toestandsbalk bovenaan het paneel zegt of dat gelukt is:
 zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een stip.

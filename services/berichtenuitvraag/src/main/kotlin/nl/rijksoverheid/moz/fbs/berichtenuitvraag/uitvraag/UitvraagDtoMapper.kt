@@ -9,9 +9,12 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.NietGeleverdeOrganisatie
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht as DomeinBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting as DomeinSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting as DomeinBijlage
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd as DomeinNietGeleverd
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.MagazijnStatus as ApiMagazijnStatus
 
 /**
  * Mapt tussen de uitvraag-API-modellen, het sessiecache-domein en het
@@ -43,6 +46,13 @@ object UitvraagDtoMapper {
             },
             map = patch.map,
         )
+
+    fun toApiNietGeleverd(nietGeleverd: DomeinNietGeleverd): NietGeleverdeOrganisatie =
+        NietGeleverdeOrganisatie().apply {
+            magazijnId = nietGeleverd.magazijnId
+            naam = nietGeleverd.naam
+            status = ApiMagazijnStatus.fromValue(nietGeleverd.status.value)
+        }
 
     fun toLeesstatus(status: BerichtStatus?): Leesstatus? = when (status) {
         BerichtStatus.GELEZEN -> Leesstatus.GELEZEN

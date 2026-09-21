@@ -122,13 +122,14 @@ class BerichtStatusRepository(
             VALUES (:berichtDbId, COALESCE(:gelezen, false), :map, :tijdstip)
             ON CONFLICT (bericht_db_id) DO UPDATE
             SET gelezen      = COALESCE(:gelezen, bericht_status.gelezen),
-                map          = COALESCE(:map, bericht_status.map),
+                map          = CASE WHEN :wisMap THEN NULL ELSE COALESCE(:map, bericht_status.map) END,
                 gewijzigd_op = :tijdstip
             """.trimIndent(),
         )
             .setParameter("berichtDbId", berichtDbId)
             .setParameter("gelezen", patch.gelezen)
-            .setParameter("map", patch.map)
+            .setParameter("map", patch.nieuweMap)
+            .setParameter("wisMap", patch.wistMap)
             .setParameter("tijdstip", tijdstip)
             .executeUpdate()
         em.flush()
@@ -153,11 +154,13 @@ private fun BerichtStatusEntity.toDomain(): BerichtStatus = BerichtStatus(
  * In-memory representatie van een PATCH-body. `null` betekent "veld niet
  * aanwezig in de body, niet wijzigen". Het verschil tussen "afwezig" en
  * "expliciet `null`" wordt bewust niet bewaard: Jackson kan dat zonder
- * tri-state typemachinerie niet onderscheiden, en zolang er geen duidelijke
- * use-case is voor het wissen van een map kiezen we voor de eenvoudige
- * semantiek. Een eenmaal gezette map kan via deze endpoint dus alleen worden
- * overschreven met een nieuwe waarde; wissen vergt een toekomstige
- * sentinel-waarde of aparte endpoint.
+ * tri-state typemachinerie niet onderscheiden.
+ *
+ * Een map wissen gaat daarom met de lege string: `map = ""` haalt het bericht
+ * uit zijn map, terug naar Postvak IN. Een map bestaat alleen als eigenschap
+ * van een bericht, dus zonder dit pad zou een map nooit meer leeg kunnen
+ * raken. Een naam van alleen witruimte blijft ongeldig: die leest als leeg,
+ * maar zou als map worden opgeslagen.
  *
  * Een patch waar alle velden `null` zijn is een no-op die anders stil de
  * `gewijzigdOp`-timestamp zou bumpen zonder semantische wijziging; dat
@@ -167,9 +170,18 @@ data class BerichtStatusPatch(
     val gelezen: Boolean?,
     val map: String?,
 ) {
+    val wistMap: Boolean get() = map == ""
+
+    /** De map om te zetten; `null` bij "niet wijzigen" én bij wissen. */
+    val nieuweMap: String? get() = map?.takeUnless { wistMap }
+
     init {
         requireValid(gelezen != null || map != null) {
             "Patch moet minstens één van 'gelezen' of 'map' bevatten"
+        }
+
+        if (map != null && !wistMap) {
+            requireValid(map.isNotBlank()) { "Mapnaam mag niet uit alleen witruimte bestaan" }
         }
     }
 }

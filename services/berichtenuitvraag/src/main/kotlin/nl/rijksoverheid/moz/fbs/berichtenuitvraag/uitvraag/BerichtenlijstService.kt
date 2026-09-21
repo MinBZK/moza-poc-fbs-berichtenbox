@@ -45,6 +45,7 @@ class BerichtenlijstService(
         // self-link. De facade levert de eerste pagina (default-grootte).
         return BerichtenLijst().apply {
             berichten = resultaat.berichten.map { toApiSamenvatting(it) }
+            nietGeleverd = resultaat.nietGeleverd.map { UitvraagDtoMapper.toApiNietGeleverd(it) }
             links = PaginaLinks().apply {
                 self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/_zoeken?q=$encodedQ" }
             }
@@ -54,6 +55,7 @@ class BerichtenlijstService(
     private fun toBerichtenLijst(pagina: BerichtenPagina, maakHref: (Int) -> String): BerichtenLijst =
         BerichtenLijst().apply {
             berichten = pagina.berichten.map { toApiSamenvatting(it) }
+            nietGeleverd = pagina.nietGeleverd.map { UitvraagDtoMapper.toApiNietGeleverd(it) }
             links = paginaLinks(pagina, maakHref)
         }
 

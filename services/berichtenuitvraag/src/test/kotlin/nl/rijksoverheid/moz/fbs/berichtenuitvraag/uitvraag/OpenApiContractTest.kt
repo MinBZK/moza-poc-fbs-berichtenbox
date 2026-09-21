@@ -16,8 +16,14 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import org.hamcrest.Matchers.contains
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -102,6 +108,32 @@ class OpenApiContractTest {
             .statusCode(200)
     }
 
+    /** Elke status die een niet-geleverde organisatie kan dragen, moet door de schema-validatie komen. */
+    @Test
+    fun `GET berichten met niet-geleverde organisaties levert valide BerichtenLijst`() {
+        sessiecache.lijstResultaat = BerichtenPagina(
+            berichten = emptyList(),
+            page = 0,
+            pageSize = 20,
+            totalElements = 0L,
+            totalPages = 0,
+            nietGeleverd = listOf(
+                NietGeleverd(WireMockBackendsResource.OIN_A, "Organisatie A", MagazijnStatus.FOUT),
+                NietGeleverd(WireMockBackendsResource.OIN_B, "Organisatie B", MagazijnStatus.TIMEOUT),
+                NietGeleverd("00000001003214345000", "Organisatie C", MagazijnStatus.NIET_OPGEHAALD),
+            ),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("nietGeleverd.status", contains("FOUT", "TIMEOUT", "NIET_OPGEHAALD"))
+    }
+
     @Test
     fun `GET berichten-zoeken levert valide BerichtenLijst`() {
         given()
@@ -153,6 +185,28 @@ class OpenApiContractTest {
             .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
+    }
+
+    /** De lege string is een geldige waarde voor `map` (terug naar Postvak IN); de respons draagt dan geen map. */
+    @Test
+    fun `PATCH met lege map levert valide Bericht zonder map`() {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            patch(urlPathMatching("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(204)),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"map":""}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(200)
+            .body("\$", not(hasKey("map")))
     }
 
     @Test

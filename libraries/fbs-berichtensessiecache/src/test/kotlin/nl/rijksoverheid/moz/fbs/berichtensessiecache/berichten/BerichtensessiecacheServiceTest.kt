@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonParseException
 import com.fasterxml.jackson.core.JsonProcessingException
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
@@ -539,6 +540,48 @@ class BerichtensessiecacheServiceTest {
         val voltooid = events.filterIsInstance<MagazijnBevragingMislukt>().single()
 
         assertEquals(MagazijnStatus.FOUT, voltooid.status)
+    }
+
+    /**
+     * Wie niet leverde, moet na de stroom nog terug te vinden zijn: de lijst draagt het verder
+     * naar verversen en bladeren. Drie cardinaliteiten, en de namen staan zo dat sorteren op
+     * magazijnId of op volgorde van afloop een andere uitkomst geeft dan sorteren op naam.
+     */
+    @ParameterizedTest(name = "{0} van 3 mislukt")
+    @ValueSource(ints = [0, 1, 2])
+    fun `de bewaarde aggregatiestatus noemt wie niet leverde, gesorteerd op naam`(aantalMislukt: Int) {
+        val organisaties = listOf("magazijn-a" to "Zuid", "magazijn-b" to "Belasting", "magazijn-c" to "Noord")
+        val mislukt = organisaties.take(aantalMislukt).map { it.first }.toSet()
+        val magazijnen = organisaties.associate { (id, naam) ->
+            val client = mockk<MagazijnClient>()
+
+            if (id in mislukt) {
+                every { client.getBerichten(any(), any(), any(), any()) } throws
+                    NoStackTraceThrowable("magazijn stuk")
+            } else {
+                every { client.getBerichten(any(), any(), any(), any()) } returns
+                    MagazijnBerichtenResponse(emptyList(), totalElements = 0L, totalPages = 0)
+            }
+
+            id to IngeschrevenMagazijn(client, naam)
+        }
+        val bewaard = slot<AggregationStatus>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(magazijnen.keys)
+        every { clientFactory.getAllMagazijnen() } returns magazijnen
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, capture(bewaard)) } returns Uni.createFrom().voidItem()
+
+        service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        val verwacht = organisaties.filter { it.first in mislukt }
+            .map { (id, naam) -> NietGeleverd(id, naam, MagazijnStatus.FOUT) }
+            .sortedBy { it.naam }
+
+        assertEquals(verwacht, bewaard.captured.nietGeleverd)
+        assertEquals(aantalMislukt, bewaard.captured.mislukt)
     }
 
     @Test
