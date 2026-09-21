@@ -96,6 +96,13 @@ zadctl service config set keycloak --set 'restrict-access.enabled=false'
 Wil je het wél beperken, zet dan `restrict-access.enabled=true` met een `restrict-access.realm-role`
 en deel die rol uit in Keycloak.
 
+Let op dat elke uitrol van de deployment iedereen uitlogt: OM genereert het cookie-geheim van de
+proxy (`<deployment>-<component>-oauth2-cookie`) bij iedere rendering opnieuw, waarna de herstarte
+proxy geen enkele bestaande sessiecookie meer kan lezen. Dat staat upstream open als
+[RIG-Cluster#153](https://github.com/RijksICTGilde/RIG-Cluster/issues/153) punt B; de dienst zelf
+kent maar één instelling (`banner`), dus tot die tijd valt er hier niets aan te draaien. De pagina's
+van de console vangen het op — zie `inlogmuur.js` — en sturen de bezoeker langs de aanmelding terug.
+
 ## 2. Het component aanmaken
 
 De aliassen hieronder gebruiken `$DEPLOYMENT_NAME` en de platformvariabelen van de
