@@ -1,0 +1,77 @@
+@startuml
+set separator none
+title Berichtenmagazijn (BBO-gehost) - Berichtenmagazijn Aanlever API - Components
+
+top to bottom direction
+skinparam ranksep 60
+skinparam nodesep 30
+
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
+}
+
+hide stereotype
+
+skinparam rectangle<<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.AanleverRESTAPI>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.BerichtOpslagService>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<BerichtenmagazijnBBOgehost.BerichtValidatieService>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.CircuitBreaker>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam database<<BerichtenmagazijnBBOgehost.Dataopslag>> {
+  BackgroundColor #b3b3b3
+  FontColor #000000
+  BorderColor #2d8a4e
+  shadowing false
+}
+skinparam rectangle<<BerichtenmagazijnBBOgehost.PublicatieStream>> {
+  BackgroundColor #3ba55d
+  FontColor #ffffff
+  BorderColor #2d8a4e
+  roundCorner 20
+  shadowing false
+}
+skinparam rectangle<<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI>> {
+  BorderColor #2d8a4e
+  FontColor #2d8a4e
+  shadowing false
+}
+
+database "==Dataopslag\n<size:10>[Container: PostgreSQL 18 + Hibernate ORM Panache (Flyway-migraties)]</size>\n\nBerichtstatus, inhoud en bijlagen (0 berichtverlies)" <<BerichtenmagazijnBBOgehost.Dataopslag>> as BerichtenmagazijnBBOgehost.Dataopslag
+rectangle "==Bericht Validatie Service\n<size:10>[Container: Quarkus / Kotlin (in-process CDI)]</size>\n\nValideert berichten op technische eisen en controleert toestemming via Profiel Service. In-process CDI binnen het berichtenmagazijn, geen losse REST-service." <<BerichtenmagazijnBBOgehost.BerichtValidatieService>> as BerichtenmagazijnBBOgehost.BerichtValidatieService
+rectangle "==Publicatie Stream\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWacht met aanmelden van een bericht tot de publicatiedatum is verstreken (outbox-patroon voor gegarandeerde bezorging)" <<BerichtenmagazijnBBOgehost.PublicatieStream>> as BerichtenmagazijnBBOgehost.PublicatieStream
+
+rectangle "Berichtenmagazijn Aanlever API\n<size:10>[Container: Quarkus / Kotlin]</size>" <<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI>> {
+  rectangle "==Aanlever REST API\n<size:10>[Component: JAX-RS Resource]</size>\n\nREST endpoints voor het aanleveren van berichten en bijlagen" <<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.AanleverRESTAPI>> as BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.AanleverRESTAPI
+  rectangle "==CircuitBreaker\n<size:10>[Component: MicroProfile Fault Tolerance]</size>\n\nWeigert schrijfoperaties wanneer RPO=0 niet gegarandeerd kan worden (dataopslag onbeschikbaar)" <<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.CircuitBreaker>> as BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.CircuitBreaker
+  rectangle "==Bericht Opslag Service\n<size:10>[Component: CDI Bean]</size>\n\nBerichtlevenscyclus: valideren, opslaan en aanmelden" <<BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.BerichtOpslagService>> as BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.BerichtOpslagService
+}
+
+BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.AanleverRESTAPI .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.CircuitBreaker : "<color:#707070>Schrijfoperaties via\n<color:#707070><size:8>[CDI]</size>"
+BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.CircuitBreaker .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.BerichtOpslagService : "<color:#707070>Delegeert naar (als circuit closed)\n<color:#707070><size:8>[CDI]</size>"
+BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen\n<color:#707070><size:8>[SQL/JDBC]</size>"
+BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtValidatieService : "<color:#707070>Stuurt bericht ter validatie\n<color:#707070><size:8>[CDI]</size>"
+BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI.BerichtOpslagService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.PublicatieStream : "<color:#707070>Stuurt gevalideerd bericht door\n<color:#707070><size:8>[CDI]</size>"
+@enduml
