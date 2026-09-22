@@ -26,6 +26,10 @@ class SessieVolgerTest {
     private val aanmeldingen = MockAanmeldingen()
     private val volger = SessieVolger(cache, aanmeldingen, HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
 
+    // Alleen voor de tests die de hartslag zelf toetsen. Elders zou een tik tussen twee stappen van
+    // een test vallen en de telling van de items verstoren.
+    private val snel = SessieVolger(cache, aanmeldingen, SNELLE_HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
+
     private val ontvanger = Bsn("999993653")
     private val ander = Bsn("999990019")
 
@@ -35,7 +39,7 @@ class SessieVolgerTest {
 
         val volgend = volg(ontvanger)
 
-        volgend.awaitItems(1)
+        volgend.wachtTot { it.isNotEmpty() }
         assertEquals(SessieGebeurtenis.VolgenGestart, volgend.items.first())
     }
 
@@ -51,7 +55,7 @@ class SessieVolgerTest {
     @ValueSource(ints = [0, 1, 3])
     fun `stuurt elk aangemeld bericht van de eigen sessie door`(aantal: Int) {
         startSessie(ontvanger)
-        val volgend = volg(ontvanger).also { it.awaitItems(1) }
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
 
         val berichten = List(aantal) { bericht(ontvanger) }
         berichten.forEach { meldAan(it) }
@@ -64,7 +68,7 @@ class SessieVolgerTest {
     fun `een bericht voor een andere ontvanger komt niet door`() {
         startSessie(ontvanger)
         startSessie(ander)
-        val volgend = volg(ontvanger).also { it.awaitItems(1) }
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
 
         meldAan(bericht(ander))
 
@@ -74,8 +78,8 @@ class SessieVolgerTest {
     @Test
     fun `twee open berichtenboxen van dezelfde ontvanger krijgen allebei het bericht`() {
         startSessie(ontvanger)
-        val eerste = volg(ontvanger).also { it.awaitItems(1) }
-        val tweede = volg(ontvanger).also { it.awaitItems(1) }
+        val eerste = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
+        val tweede = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
 
         val nieuw = bericht(ontvanger)
         meldAan(nieuw)
@@ -88,7 +92,7 @@ class SessieVolgerTest {
     @Test
     fun `een melding waarvan het bericht al weg is, wordt overgeslagen`() {
         startSessie(ontvanger)
-        val volgend = volg(ontvanger).also { it.awaitItems(1) }
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
 
         aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), UUID.randomUUID()).await().indefinitely()
 
@@ -99,16 +103,16 @@ class SessieVolgerTest {
     fun `de hartslag meldt zich zolang de sessie loopt`() {
         startSessie(ontvanger)
 
-        val volgend = volg(ontvanger)
+        val volgend = snel.volg(ontvanger).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
 
-        volgend.awaitItems(3, Duration.ofSeconds(5))
+        volgend.wachtTot { it.size >= 3 }
         assertEquals(listOf(SessieGebeurtenis.Hartslag, SessieGebeurtenis.Hartslag), volgend.items.drop(1).take(2))
     }
 
     @Test
     fun `verloopt de sessie tussendoor, dan volgt SessieVerlopen en eindigt de stream`() {
         startSessie(ontvanger)
-        val volgend = volg(ontvanger).also { it.awaitItems(1) }
+        val volgend = snel.volg(ontvanger).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE)).also { it.wachtTot { items -> items.isNotEmpty() } }
 
         cache.clear()
 
@@ -119,7 +123,7 @@ class SessieVolgerTest {
     @Test
     fun `valt het doorgeven weg, dan eindigt de stream met die fout`() {
         startSessie(ontvanger)
-        val volgend = volg(ontvanger).also { it.awaitItems(1) }
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
         val fout = IllegalStateException("abonnement weg")
 
         aanmeldingen.valWeg(fout)
@@ -138,7 +142,7 @@ class SessieVolgerTest {
         val volgerMetFout = SessieVolger(falendeCache, aanmeldingen, HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
         startSessie(ontvanger)
         val volgend = volgerMetFout.volg(ontvanger).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
-        volgend.awaitItems(1)
+        volgend.wachtTot { it.isNotEmpty() }
 
         aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), UUID.randomUUID()).await().indefinitely()
 
@@ -148,7 +152,7 @@ class SessieVolgerTest {
     @Test
     fun `een gesloten berichtenbox luistert niet meer mee`() {
         startSessie(ontvanger)
-        val volgend = volg(ontvanger).also { it.awaitItems(1) }
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         assertEquals(1, aanmeldingen.aantalLuisteraars(cacheKey))
 
@@ -179,7 +183,7 @@ class SessieVolgerTest {
     @Test
     fun `na de maximale duur eindigt de stream zonder SessieVerlopen, zodat de afnemer opnieuw verbindt`() {
         startSessie(ontvanger)
-        val kort = SessieVolger(cache, aanmeldingen, HARTSLAG, Duration.ofMillis(700), Duration.ofMinutes(2))
+        val kort = SessieVolger(cache, aanmeldingen, SNELLE_HARTSLAG, Duration.ofMillis(700), Duration.ofMinutes(2))
 
         val volgend = kort.volg(ontvanger).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
 
@@ -189,7 +193,7 @@ class SessieVolgerTest {
     }
 
     @ParameterizedTest(name = "max-duur {0}")
-    @ValueSource(strings = ["PT0.2S", "PT0.1S"])
+    @ValueSource(strings = ["PT30S", "PT1S"])
     fun `een maximale duur die niet boven de hartslag ligt, weigert te starten`(maxDuur: String) {
         val fout = assertThrows<IllegalArgumentException> {
             SessieVolger(cache, aanmeldingen, HARTSLAG, Duration.parse(maxDuur), Duration.ofMinutes(2))
@@ -201,8 +205,20 @@ class SessieVolgerTest {
     private fun volg(wie: Identificatienummer): AssertSubscriber<SessieGebeurtenis> =
         volger.volg(wie).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
 
-    // De hartslag tikt op 200 ms en kan dus tussen elke twee stappen van een test vallen.
     private fun AssertSubscriber<SessieGebeurtenis>.zonderHartslag() = items.filterNot { it == SessieGebeurtenis.Hartslag }
+
+    /**
+     * `awaitItems(n)` faalt zodra er méér dan `n` items zijn, en op een trage runner kan er al een
+     * volgend item binnen zijn. Hier telt alleen of de voorwaarde op enig moment waar wordt.
+     */
+    private fun AssertSubscriber<SessieGebeurtenis>.wachtTot(voorwaarde: (List<SessieGebeurtenis>) -> Boolean) {
+        val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+
+        while (!voorwaarde(items)) {
+            check(System.nanoTime() < deadline) { "voorwaarde niet gehaald binnen 5 s; items: $items" }
+            Thread.sleep(10)
+        }
+    }
 
     private fun startSessie(wie: Identificatienummer) {
         val key = BerichtenCache.cacheKey(wie)
@@ -228,7 +244,8 @@ class SessieVolgerTest {
     )
 
     private companion object {
-        val HARTSLAG: Duration = Duration.ofMillis(200)
+        val HARTSLAG: Duration = Duration.ofSeconds(30)
+        val SNELLE_HARTSLAG: Duration = Duration.ofMillis(200)
         val MAX_DUUR: Duration = Duration.ofMinutes(1)
     }
 }
