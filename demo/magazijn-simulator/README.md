@@ -282,6 +282,19 @@ slaagden er 55 en vielen er vijf om met een 500. De pool-regel stond op dat mome
 opgezet 20` — hij had de grens van de database bereikt en probeerde het daarboven tevergeefs. Zie je
 dit, dan is `DB_POOL_MAX` te hoog voor die database, niet te laag.
 
+Op een gedeelde omgeving is de grens niet die van de database maar die van de **rol** waarmee de
+deployment verbindt, en dan luidt de melding anders:
+
+```
+INFO  [io.agroal.pool] Datasource '<default>': Retrying establishment of connection after ...
+WARN  [org.hibernate.orm.jdbc.error] FATAL: too many connections for role "<project>_<deployment>"
+```
+
+Die rol is gedeeld met de andere componenten van dezelfde deployment, dus de pool van deze service
+kan hem niet alleen opmaken. Herhaalde `Retrying establishment`-regels zonder één geslaagde
+verbinding betekenen dat het budget op is; `docs/operations/zad-gitops.md` beschrijft de grens en de
+twee env-lagen waarmee de pool per omgeving wordt bijgesteld.
+
 De tellers van de regel per interval komen uit Agroal en vragen
 `quarkus.datasource.jdbc.metrics.enabled` (staat aan). Zonder die vlag geeft elke teller nul terug —
 een pool die nooit iets doet.

@@ -76,6 +76,13 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
     zet de `health-check`-dienst op de zes componenten van déze deployment. Het projectargument
     (`apply mpfm-w3h`) zou ook de magazijnen, het paneel, de simulator, de personadienst en de
     proeftuin meenemen; dat mag, maar dan loop je de hele demo mee.
+11. **Beheertoegang** — de beheer-UI van `magazijna-fscctl` staat op de publieke ingress en laat met
+    `AUTHN_TYPE=none` iedere bezoeker als beheerder binnen. Hoofdstuk 10 van
+    `demo/environment/zad-demo/README.md` bindt `keycloak` + `authorization-wall` aan het component;
+    `beheertoegang.sh fsc-magazijna` ernaast toont wat elk component van deze deployment aan een
+    bezoeker zonder account laat zien. Let op de projectbrede grens die daar staat: `mpfm-w3h`
+    draagt ook het demo-paneel, dus de toegang kan hier niet op een beheerrol zonder dat paneel mee
+    af te sluiten.
 
 ## De gezondheidscontrole staat op de monitoring-poort
 

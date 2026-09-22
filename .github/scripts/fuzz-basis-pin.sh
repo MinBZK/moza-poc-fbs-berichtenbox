@@ -19,6 +19,12 @@ set -euo pipefail
 DOCKERFILE=${DOCKERFILE:-.clusterfuzzlite/Dockerfile}
 BRANCH=${BRANCH:-chore/fuzz-basis-pin}
 
+# Het PR-onderhoud zelf is gedeeld met proeftuin-pin-pr.sh: token eisen, de eigen PR vinden, de
+# branch publiceren en de PR opruimen. Wat hieronder staat is het deel dat van dít pad is.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=.github/scripts/pin-pr-lib.sh
+source "$HERE/pin-pr-lib.sh"
+
 # De digest komt uit `docker buildx imagetools inspect --format`. Dat commando eindigt ook met 0 als
 # het template niets oplevert, en dan draagt DIGEST alleen nog het image-pad. `vervang_pin` zet die
 # afgekapte waarde daarna gewoon in de FROM-regel: de sed raakt wél iets, de diff is niet leeg, en de
@@ -41,9 +47,22 @@ pin_is_actueel() {
 # gehouden moet worden. De vervangkant is bewust níét ge-escaped; dat mag alleen omdat
 # `digest_is_welgevormd` de tekenset al tot een pad plus hex beperkt.
 vervang_pin() {
-  local digest=$1 pad_regex aantal
+  local digest=$1 pad_regex aantal status=0
   pad_regex=$(printf '%s' "${digest%@*}" | sed 's/[].[^$*\/]/\\&/g')
-  aantal=$(grep -cE "^FROM +${pad_regex}@sha256:[a-f0-9]{64}$" "$DOCKERFILE" || true)
+
+  # `grep -c` kent drie uitkomsten: 0 = gevonden, 1 = niets gevonden, 2 = kon niet zoeken
+  # (onleesbaar bestand, ongeldige ERE). Met `|| true` erachter zou die derde als een lege telling
+  # doorgaan, en dan faalt de `-ne 1`-toets hieronder open: hij slaat de tak over die juist bewaakt
+  # dat er precies één regel geraakt wordt, op het moment dat er niets gemeten is.
+  aantal=$(grep -cE "^FROM +${pad_regex}@sha256:[a-f0-9]{64}$" "$DOCKERFILE") || status=$?
+
+  case $status in
+    0|1) ;;
+    *)
+      echo "::error::kon $DOCKERFILE niet doorzoeken (grep gaf $status)."
+      return 1
+      ;;
+  esac
 
   # Precies één: bij nul wijst de FROM-regel ergens anders heen of is hij van vorm veranderd, bij
   # meer dan één (een multi-stage Dockerfile) zou de sed ze allemaal raken behalve die met een
@@ -54,13 +73,6 @@ vervang_pin() {
   fi
 
   sed -i -E "s|^FROM +${pad_regex}@sha256:[a-f0-9]{64}\$|FROM ${digest}|" "$DOCKERFILE"
-}
-
-# `isCrossRepository` eruit: `--head` matcht op branchnaam, dus een fork-PR met dezelfde naam zou hier
-# als "onze" pin-PR gelden — en dan sluiten we andermans PR.
-open_pin_pr() {
-  gh pr list --head "$BRANCH" --state open --json number,isCrossRepository \
-    --jq '[.[] | select(.isCrossRepository | not)] | .[0].number // empty'
 }
 
 pr_body() {
@@ -74,47 +86,10 @@ Wijzigen de dependency-declaraties vóór de merge, dan ververst een volgende bo
 EOM
 }
 
-# Sluiten en de branch opruimen in twee stappen: `gh pr close --delete-branch` wil ook de lokale
-# branch weg en die bestaat in dit pad niet.
-ruim_pin_pr_op() {
-  local nummer=$1 status=0
-
-  gh pr close "$nummer" \
-    --comment "De pin in \`$DOCKERFILE\` hoort inmiddels bij het huidige basis-image; deze PR heeft geen wijziging meer te brengen."
-
-  git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null || status=$?
-
-  # Alleen 2 betekent "die branch is er niet" — een vorige run die na de close afbrak, of iemand die
-  # hem met de hand verwijderde. Elke andere code (128 bij een auth- of netwerkfout) zegt dat we het
-  # niet weten, en dan is stil overslaan het slechtste antwoord: een ingetrokken `Contents: write`
-  # zou zo elke run de opruiming overslaan terwijl de log meldt dat er opgeruimd is.
-  case $status in
-    0) git push origin --delete "$BRANCH" ;;
-    2) echo "Branch $BRANCH bestond al niet meer." ;;
-    *)
-      echo "::error::kon niet vaststellen of $BRANCH nog bestaat (git ls-remote gaf $status)."
-      return 1
-      ;;
-  esac
-}
-
-# Eén commit bovenop main, geen doorgroeiende branch: `switch -C` plus force-push zetten de pin-branch
-# elke bouw opnieuw neer. Wat iemand er zelf op zette gaat daarmee weg — bedoeld, want deze PR hoort
-# precies één FROM-regel te dragen. De commit is op het Dockerfile begrensd, net als de guard die
-# ervoor bepaalt of er iets te committen valt.
-publiceer_branch() {
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-  git switch -C "$BRANCH"
-  git commit -m "chore(ci): pin het fuzz-basis-image op de huidige pom-set" -- "$DOCKERFILE"
-  git push -f origin "$BRANCH"
-}
-
 main() {
-  if [ -z "${GH_TOKEN:-}" ]; then
-    echo "::error::FUZZ_PIN_TOKEN ontbreekt — de pin-PR kan niet aangemaakt worden. Zet de repo-secret (fine-grained PAT met Contents: write en Pull requests: write)."
-    return 1
-  fi
+  # Kaal, zonder `|| return 1`: dat zou `errexit` in de hele functie uitzetten, en dan zou een fout
+  # in een zwaardere controle die hier ooit bij komt stilzwijgend doorlopen.
+  pin_pr_vereis_token FUZZ_PIN_TOKEN
 
   if ! digest_is_welgevormd "${DIGEST:-}"; then
     echo "::error::de bouw leverde geen bruikbare digest ('${DIGEST:-}') — de pin is niet te bepalen."
@@ -130,7 +105,7 @@ main() {
   fi
 
   local open_pr body
-  open_pr=$(open_pin_pr)
+  open_pr=$(pin_pr_open_pr "$BRANCH")
 
   # De pin kan ook buiten deze PR om goed komen: iemand werkt hem met de hand bij, of de bouw levert
   # bij uitzondering dezelfde digest. Blijft de PR dan openstaan, dan draagt hij een diff die niets
@@ -138,8 +113,13 @@ main() {
   if pin_is_actueel "$DIGEST"; then
     echo "De pin hoort al bij dit image."
 
+    # Ook zónder open PR opruimen: een vorige run die tussen het sluiten en het verwijderen afbrak
+    # laat een branch achter die anders nooit meer wordt aangeraakt, en die de eerstvolgende bump
+    # dan met een vreemde historie zou dragen.
+    pin_pr_ruim_op "$open_pr" "$BRANCH" \
+      "De pin in \`$DOCKERFILE\` hoort inmiddels bij het huidige basis-image; deze PR heeft geen wijziging meer te brengen."
+
     if [ -n "$open_pr" ]; then
-      ruim_pin_pr_op "$open_pr"
       echo "Openstaande pin-PR #$open_pr gesloten."
     fi
 
@@ -155,7 +135,8 @@ main() {
     return 1
   fi
 
-  publiceer_branch
+  pin_pr_publiceer_branch "$BRANCH" "$DOCKERFILE" \
+    "chore(ci): pin het fuzz-basis-image op de huidige pom-set"
   body=$(pr_body "${POMS:-onbekend}")
 
   # Ook de body verversen: hij draagt de pom-hash van déze bouw.

@@ -1,0 +1,95 @@
+# Houdt de berichtenbox van de proeftuin (MinBZK/moza-poc) bij: loopt de pin in compose.yaml achter
+# op hun main, dan biedt deze workflow die bump als pull request aan.
+#
+# Dit werk lag bij Dependabot en kan daar niet meer liggen; de reden staat bij de `ignore`-regel in
+# `.github/dependabot.yml`, waar de vraag "waarom doet dat ecosysteem hier niets" thuishoort.
+#
+# De controle zelf staat in pin-consistency.yml en blijft daar: die job blokkeert een PR bij een pin
+# die niet te trekken is. Deze workflow deelt het oordeel — beide draaien proeftuin-pin.sh — en
+# handelt er alleen naar.
+name: Proeftuin-pin
+
+on:
+  # Op werkdagen vroeg in de ochtend, want hun main loopt door en de bump hoort niet op PR-verkeer
+  # te wachten. Het tijdstip ligt vóór de werkdag, zodat de PR er al ligt wanneer iemand begint.
+  #
+  # Niet dezelfde dag proberen te halen: hun merges vallen grotendeels tussen 12:00 en 16:00 UTC, en
+  # met één run per dag verschuift dat werk hoe dan ook naar de volgende ochtend. Een middagrun zou
+  # die vertraging niet wegnemen, maar de PR wél midden in de werkdag laten verschijnen.
+  #
+  # Geen heel uur: dat is het drukste moment op de planner van GitHub, en een geplande run schuift
+  # dan op. Het valt ook vóór de twee maandagochtendjobs (codeql 06:00, pin-consistency 06:17).
+  schedule:
+    - cron: '37 5 * * 1-5'
+  workflow_dispatch:
+
+# De job muteert gedeelde toestand: één branch en één pull request. Twee runs tegelijk zouden
+# allebei "geen open PR" zien, waarna de tweede stukloopt op een bestaande PR. Serialiseren dus, en
+# niet annuleren: het script pusht eerst de branch en opent daarna pas de PR, dus een afbreking
+# daartussen laat een pin-branch zonder PR achter en geen enkel pad ruimt die op.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pin:
+    # Een fork erft dit schema en heeft de secret niet; zonder de eerste voorwaarde faalt daar elke
+    # werkdag een run op werk dat er niet thuishoort.
+    #
+    # Alleen op main. Bij een `workflow_dispatch` vanaf een feature branch zou de force-push de
+    # volledige inhoud van die branch op de gedeelde pin-branch zetten, en zou de PR die dat
+    # aanbiedt die hele branch naar main dragen in plaats van één image-regel — én een legitiem
+    # openstaande pin-PR overschrijven.
+    if: github.repository == 'MinBZK/moza-poc-fbs-berichtenbox' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # FUZZ_PIN_TOKEN is een fine-grained PAT op deze repo met alleen `Contents: write` en
+    # `Pull requests: write`. Bewust niet GITHUB_TOKEN: GitHub start geen workflows op events die
+    # dát token veroorzaakt, dus een PR van GITHUB_TOKEN krijgt nooit zijn verplichte checks en is
+    # met strict main niet te mergen. Het werk gaat daarmee volledig langs GITHUB_TOKEN heen,
+    # vandaar de lege `permissions:`.
+    #
+    # Gedeeld met fuzz-base-image.yml, dat precies dezelfde rechten nodig heeft. De naam dekt die
+    # bredere rol niet meer; een eigen secret vraagt een aanvraag bij MinBZK en dat weegt niet op
+    # tegen één duidelijkere naam. Let op bij een rotatie: die raakt beide workflows.
+    permissions: {}
+    steps:
+      # Vóór de checkout, want die draait zélf op dit token: zonder deze stap faalt een ontbrekende
+      # secret als een kale git-authenticatiefout, en die noemt de oorzaak niet.
+      - name: Is FUZZ_PIN_TOKEN gezet
+        env:
+          GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::FUZZ_PIN_TOKEN ontbreekt — zonder die secret faalt de checkout hieronder als een kale git-authenticatiefout."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        # Bewust ZONDER `persist-credentials: false`: de `git push` in het script leunt op de
+        # extraheader die checkout in .git/config achterlaat. GH_TOKEN dekt alleen de gh-aanroepen.
+        with:
+          token: ${{ secrets.FUZZ_PIN_TOKEN }}
+
+      - name: Lees de stand van de pin
+        id: pin
+        env:
+          # Alleen om de anonieme API-limiet (60 per uur per IP, gedeeld met elke andere runner op
+          # dat IP) te ontlopen; het gaat om een publiek repo. Een scopeloze GITHUB_TOKEN volstaat
+          # daarvoor.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/proeftuin-pin.sh
+
+      - name: Bied de pin als PR aan
+        env:
+          GH_TOKEN: ${{ secrets.FUZZ_PIN_TOKEN }}
+          STATUS: ${{ steps.pin.outputs.status }}
+          REGEL: ${{ steps.pin.outputs.verwachte_regel }}
+          TAG: ${{ steps.pin.outputs.verwachte_tag }}
+          HUIDIG: ${{ steps.pin.outputs.huidige_referentie }}
+        run: .github/scripts/proeftuin-pin-pr.sh

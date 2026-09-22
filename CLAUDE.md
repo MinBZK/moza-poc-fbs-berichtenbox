@@ -234,7 +234,10 @@ Wat je hoe dan ook moet weten:
 | `.github/scripts/wijzigingsfilter.sh`  | Bepaalt per PR wat er moet draaien (code-checks, deploy, test-scope, fuzz); deploy.yml, test.yml, detekt.yml en cflite_pr.yml delen dit script. Unittests ernaast in `test-wijzigingsfilter.sh`, gedraaid door `ci-scripts.yml` |
 | `.github/scripts/uitrol-poort.sh`      | Oordeelt ná een deploy-run of er terecht wél of niet is uitgerold — een overgeslagen gate mag geen groene, lege run opleveren |
 | `.github/scripts/merge-guard.sh`       | Controleert één gerenderde compose-merge van een FSC-peer-harness op de eisen die in een gedeelde netns gelden |
-| `.github/scripts/proeftuin-pin.sh`     | Vangnet naast Dependabot: vergelijkt de gepinde berichtenbox-digest in `compose.yaml` met de laatste main-commit van `MinBZK/moza-poc` |
+| `.github/scripts/proeftuin-pin.sh`     | Vergelijkt de gepinde berichtenbox-digest in `compose.yaml` met de laatste main-commit van `MinBZK/moza-poc` en rapporteert een status; `pin-consistency.yml` en `proeftuin-pin.yml` delen hem |
+| `.github/scripts/proeftuin-pin-pr.sh`  | Biedt een achterlopende berichtenbox-pin als PR aan en sluit die PR zodra de pin bij is; vervangt Dependabot voor dít image (reden bij de `ignore`-regel in `.github/dependabot.yml`). Fixture-suite ernaast in `test-proeftuin-pin-pr.sh` |
+| `.github/scripts/pin-pr-lib.sh`        | Gedeeld PR-onderhoud van de twee pin-scripts (`fuzz-basis-pin.sh` en `proeftuin-pin-pr.sh`): token eisen, de eigen PR vinden zonder fork-PR's te raken, de branch publiceren, de PR opruimen. Wordt gesourcet; het oordeel over "verouderd" blijft per pad |
+| `.github/scripts/pin-pr-teststubs.sh`  | Gedeelde harness van de twee pin-suites (`gh`/`git`-stubs met faal-schakelaars, asserties, opzet per geval). Bewust niet `test-*.sh`: `ci-scripts.yml` draait elk `test-*.sh` als suite. Zelftest ernaast in `test-pin-pr-teststubs.sh` — zonder die suite zou één regel in de harness beide pin-suites betekenisloos maken zonder dat een telling daalt |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
 
 ## Omgevingsvariabelen

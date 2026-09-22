@@ -96,6 +96,13 @@ zadctl service config set keycloak --set 'restrict-access.enabled=false'
 Wil je het wél beperken, zet dan `restrict-access.enabled=true` met een `restrict-access.realm-role`
 en deel die rol uit in Keycloak.
 
+Let op dat elke uitrol van de deployment iedereen uitlogt: OM genereert het cookie-geheim van de
+proxy (`<deployment>-<component>-oauth2-cookie`) bij iedere rendering opnieuw, waarna de herstarte
+proxy geen enkele bestaande sessiecookie meer kan lezen. Dat staat upstream open als
+[RIG-Cluster#153](https://github.com/RijksICTGilde/RIG-Cluster/issues/153) punt B; de dienst zelf
+kent maar één instelling (`banner`), dus tot die tijd valt er hier niets aan te draaien. De pagina's
+van de console vangen het op — zie `inlogmuur.js` — en sturen de bezoeker langs de aanmelding terug.
+
 ## 2. Het component aanmaken
 
 De aliassen hieronder gebruiken `$DEPLOYMENT_NAME` en de platformvariabelen van de
@@ -127,8 +134,13 @@ MAGAZIJN_B_DB_USER: $DATABASE_SERVER_USER
 MAGAZIJN_B_DB_PASSWORD: $DATABASE_PASSWORD
 UITVRAAG_BASIS: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1
 UITVRAAG_URL: https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl
+BEREIKBAARHEID_PERSONADIENST_URL: http://$DEPLOYMENT_NAME-demopersonas:8098
 '
 ```
+
+`BEREIKBAARHEID_PERSONADIENST_URL` is alleen voor de chip *componenten*: de console roept de
+personadienst verder nergens aan en heeft dus geen adres om op terug te vallen. Zonder deze regel
+staat de personadienst in het paneel op onbereikbaar, ook als hij draait.
 
 Kies een tag die echt bestaat: `deploy.yml` pusht `main-<sha7>` en `pr-<n>-<sha7>`, nooit een kale
 `:main`. De eerstvolgende merge naar main werkt hem alsnog bij.
@@ -648,7 +660,7 @@ onschuldig: staat een component er wel en noemt de workflow het nog niet, dan dr
 De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
 onze eigen images. Welke versie dat is, staat op één plek: de `proeftuin`-regel in `compose.yaml`,
 gepind op digest. `deploy.yml` leest die regel en zet hem per deployment, en het script hieronder
-leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal een Dependabot-PR)
+leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal de PR van `proeftuin-pin.yml`)
 werkt de demo op de eigen machine én die op ZAD bij. Om nog niet gemergd werk van hun kant te
 beproeven kan daar een preview-referentie staan (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`),
 maar alleen tijdelijk: hun opruiming verwijdert alle `pr-<n>-*`-versies zodra die PR sluit, en dan
@@ -915,6 +927,168 @@ er al stond. Poorten en aliassen gelden alleen bij component-creatie, maar de di
 gaat naar een eigen laag bij OM (`PUT /v2/projects/{p}/services/health-check/config/component/{c}`).
 `profiel` ging van een `tcpSocket`-probe naar `httpGet /__admin/health` zonder dat er iets
 herschapen werd.
+
+## 10. De beheer-UI's van de FSC-peers achter de muur
+
+De controller van een FSC-peer draait met `AUTHN_TYPE=none`. Die instelling komt uit de lokale
+harness, waar alles op loopback luistert, en is met de peers meegereisd naar ZAD. Daar is het iets
+anders: de beheer-UI staat op `ports[0]` en dus op de publieke ingress, en wie hem opent is meteen
+beheerder. Het menu voert naar diensten publiceren, contracten intrekken, peers toevoegen en de
+audit- en transactielogs. De adressen zijn af te leiden uit deze repository.
+
+De afscherming zit daarom niet in het component maar ervóór, in dezelfde `authorization-wall` die
+hoofdstuk 1 voor het paneel beschrijft. Dat is een keuze mét een grens: OpenFSC kent een eigen
+OIDC-modus, en die zou de controller een échte identiteit geven in zijn RBAC en zijn auditlog. De
+muur doet dat niet — achter de proxy blijft elke bezoeker `admin` voor de controller zelf. Wat de
+muur wél doet is de deur sluiten, en dat is wat er nu ontbreekt.
+
+Twee bindingen per controller-component, en de tweede is degene die vergeten wordt:
+
+```bash
+zadctl -p mpfb-8wh service add keycloak
+zadctl -p mpfb-8wh service add authorization-wall
+zadctl -p mpfb-8wh service assign authorization-wall -c logius-fscctl
+zadctl -p mpfb-8wh service assign keycloak -c logius-fscctl
+zadctl -p mpfb-8wh deployment refresh fsc-logius
+```
+
+en hetzelfde voor de andere peer:
+
+```bash
+zadctl -p mpfm-w3h service assign authorization-wall -c magazijna-fscctl
+zadctl -p mpfm-w3h service assign keycloak -c magazijna-fscctl
+zadctl -p mpfm-w3h deployment refresh fsc-magazijna
+```
+
+`service assign` selecteert de dienst meteen op projectniveau, dus de twee `service add`-regels zijn
+er voor de leesbaarheid. De API-key is per project: draai deze reeksen vanuit een map waar
+`zadctl project use <project>` het juiste project heeft gezet, anders komt de tweede reeks terug als
+`401 Invalid API key`.
+
+**Controleer de bindingen, ga er niet van uit.** Bij `magazijna-fscctl` trok `service assign
+authorization-wall` de `keycloak`-binding op het component wél mee; bij de creatie van `democonsole`
+deed hij dat niet. Wat er staat lees je zo:
+
+```bash
+zadctl -p mpfm-w3h -o json component list | jq -r '.[] | select(.component=="magazijna-fscctl") | .services'
+```
+
+Verwacht `keycloak` én `authorization-wall` in die lijst. Ontbreekt de eerste, dan rendert OM geen
+oauth2-proxy-sidecar en staat de beheer-UI open, ook al draagt het component de muur-dienst.
+
+Een project zonder eerdere muur-consument heeft nog geen `restrict-access`-blok, en
+`authorization-wall` eist dat. `mpfb-8wh` was zo'n project:
+
+```bash
+zadctl -p mpfb-8wh service config set keycloak --set 'restrict-access.enabled=false' --yes
+```
+
+Zet die waarde vóór de bindingen; zie de volgende paragraaf voor de keuze die eronder ligt.
+
+### Wie er binnenkomt is een projectbrede keuze
+
+`authorization-wall` eist `keycloak` én een `restrict-access`-blok op die Keycloak, en de
+configuratie van `keycloak` kent maar één laag: `project` (`zadctl service describe keycloak`). Er is
+dus geen instelling die voor het ene component in een project een rol eist en voor het andere niet.
+
+Dat valt per project anders uit:
+
+- **`mpfb-8wh`** draagt geen ander component achter de muur, dus daar kan de toegang op een rol:
+
+  ```bash
+  zadctl -p mpfb-8wh service config set keycloak \
+    --set 'restrict-access.enabled=true' \
+    --set 'restrict-access.realm-role=<rol>'
+  ```
+
+  De rol deel je in Keycloak uit aan de teamleden die de koppeling beheren.
+
+- **`mpfm-w3h`** draagt ook het demo-paneel, en dat staat er bewust met
+  `restrict-access.enabled=false`: stakeholders moeten de demo zelf kunnen openen met hun
+  rijksaccount. Een rol aanzetten sluit dus óók hen buiten. Tot het team daarover beslist is
+  `magazijna-fscctl` daar afgeschermd op "ingelogd met een rijksaccount" en niet op een beheerrol.
+  Wil je beide, dan moet de peer naar een eigen project met een eigen realm — dat is een verhuizing
+  van de certificaten en de adressen, geen instelling.
+
+### CSRF hoort erbij
+
+De muur houdt een onbekende bezoeker tegen. Hij houdt niet tegen dat een formulier op een andere
+site de browser van een ingelogd teamlid laat posten: die aanvraag draagt de sessiecookie van de
+proxy gewoon mee. Daarom staat `CSRF_PROTECTION_ENABLED=true` in de controller-env van beide
+`upsert-peer.sh`-scripts.
+
+**De vlag komt nooit alleen.** Zonder sleutel erbij weigert de controller te starten, en niet met een
+waarschuwing maar fataal:
+
+```
+csrf-auth-key is required when csrf-protection-enabled is set to true
+```
+
+Dat kost de beheer-UI en de Registration-API tegelijk: de pod komt niet meer up, de ingress antwoordt
+503 en de inway van dezelfde peer verliest de kant waar hij zich registreert. Zet de twee dus in één
+adem. De sleutel ondertekent het CSRF-token, is 32 tekens en hoort nergens in deze repo:
+
+```bash
+zadctl -p mpfm-w3h env add "CSRF_AUTH_KEY=$(openssl rand -hex 16)" -c magazijna-fscctl
+zadctl -p mpfm-w3h env set CSRF_PROTECTION_ENABLED=true -c magazijna-fscctl
+```
+
+en hetzelfde met `-p mpfb-8wh -c logius-fscctl`. Beide scripts eisen hem bij `apply` als
+`ZAD_CSRF_AUTH_KEY`, net als het Postgres-wachtwoord.
+
+`env add` voegt een sleutel toe die er nog niet is, `env set` wijzigt een bestaande; ze kijken allebei
+alleen naar de laag die je aanspreekt. Deze laag heeft het component níet opnieuw nodig — de
+`env_vars` uit `upsert-peer.sh` gelden alleen bij component-creatie, maar hier blijven de
+cert-bijlagen gewoon staan.
+
+Controleer na het uitrollen één schrijfactie in de UI — een dienst publiceren is de kortste. De
+router termineert de TLS en stuurt platte HTTP naar de pod, dus als OpenFSC zijn CSRF-oordeel op het
+schema van de aanvraag baseert, is dit de plek waar dat blijkt. Weigert de UI zijn eigen formulier,
+zet de instelling dan terug op `false` en noteer het in issue [#1090](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1090): dan is de muur de enige
+maatregel en verdient de OIDC-modus voorrang.
+
+### De outway hoort niet op het web
+
+`logius-fscoutway` is een egress-proxy: de weg naar buiten voor de berichtenuitvraag, niet een
+ingang. Hij draagt toch een ingress, met een antwoord dat verraadt hoe die tot stand komt — de
+router termineert de TLS en de pod (`LISTEN_HTTPS=true`) antwoordt `Client sent an HTTP request to an
+HTTPS server`. Er komt daardoor geen verkeer doorheen, maar de publicatie zelf hoort er niet:
+
+```bash
+zadctl -p mpfb-8wh service unassign publish-on-web -c logius-fscoutway --yes
+zadctl -p mpfb-8wh deployment refresh fsc-logius
+```
+
+`--yes` hoort erbij: `unassign` vraagt anders om bevestiging op stdin en breekt in een reeks af met
+`Aborted.`
+
+De manager en de inway houden hun publicatie wél: die staan in modus 2 (SNI-passthrough) en dragen
+de mesh, waar een peer zich met een clientcertificaat meldt.
+
+### Uitrollen per deployment, niet per project
+
+Zet `--no-rollout` op elke mutatie hierboven en rol daarna één keer uit met
+`deployment refresh <deployment>`. **Niet** met `project refresh`: beide projecten droegen bij deze
+ingreep al tientallen wachtende wijzigingen van dagen oud (`zadctl -p <project> project pending`), en
+een projectbrede refresh rolt die allemaal mee uit. Een deployment-refresh raakt alleen de peer.
+
+Dat scheelt ook de demo: `fsc-magazijna` staat los van `test`, dus het paneel en de magazijnen rollen
+niet mee en niemand wordt er uitgelogd.
+
+### Controleren, en blijven controleren
+
+Deze bindingen zijn componentconfiguratie bij OM. Ze staan in geen enkel bestand in deze repo, dus
+een hercreatie van een component brengt de oude toestand terug zonder dat er een controle daalt.
+`beheertoegang.sh` ernaast kijkt daarom van buitenaf, zonder sessie en zonder key, precies zoals een
+buitenstaander kijkt:
+
+```bash
+demo/environment/zad-demo/beheertoegang.sh
+```
+
+De tabel in dat script is de bron: elk FSC-component staat erin met wat het aan een bezoeker zonder
+account hoort te tonen. Komt er een peer bij, dan hoort zijn controller daar als `muur` bij — anders
+staat zijn beheer-UI open zonder dat iemand het merkt.
 
 ## Wat er bewust niet meekomt
 

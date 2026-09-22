@@ -29,6 +29,18 @@ const LEES_TIMEOUT_MS = 4000;
 /* Wachttijden tussen twee pogingen om de omgeving te lezen; de laatste geldt voor alles daarna. */
 const INRICHT_WACHT = [2000, 5000, 15000, 30000];
 
+/* De lijst van gesimuleerde magazijnen is het zwaarste antwoord en verandert alleen door een actie;
+ * die hoeft niet in het ritme van de toestandsbalk mee. */
+const SIMULATOR_INFO_MS = 30000;
+
+/* Hoe vaak het Info-blad zijn tijdlabels en de planning van de simulatorlijst naloopt. */
+const TIK_MS = 1000;
+
+/* De laatste stand van elk blok op het Info-blad, zodat een refresh meteen iets toont in plaats van
+ * een leeg blad tot de eerste uitlezing terug is. Een eigen sleutel naast de stand: deze wordt elke
+ * vijf seconden herschreven, de stand alleen bij een klik. */
+const INFO_SLEUTEL = 'fbs-demo-bediening:info';
+
 /* Sleutels zoals de API ze gebruikt, namen zoals ze in de demo genoemd worden. Alleen hier: de
  * knoppen en de statusbalk mogen niet ieder hun eigen vertaling verzinnen. */
 /* Zoals de lijsten in de demo heten; `watOpenstaat` zet ze in een melding, en daar hoort geen
@@ -41,6 +53,20 @@ const LIJSTNAMEN = {
 const MAGAZIJN_NAMEN = {
     'magazijn-a': 'RVO',
     'magazijn-b': 'Bel.dienst',
+};
+
+/* Voluit, voor het Info-blad: daar is de ruimte die een chip niet heeft. Dezelfde namen als op de
+ * knoppen van het tabblad Storingen, zodat een blok en een knop hetzelfde onderdeel ook zo noemen. */
+const ONDERDEEL_NAMEN = {
+    'magazijn-a': 'Magazijn A (RVO)',
+    'magazijn-b': 'Magazijn B (Belastingdienst)',
+    uitvraag: 'Uitvraag',
+    aanmeld: 'Uitvraag/aanmeld',
+    personadienst: 'Personadienst',
+    simulator: 'Magazijn-simulator',
+    profiel: 'Profielservice',
+    notificatie: 'Notificatie',
+    redis: 'Redis',
 };
 
 /* Hoeveel acties er lopen; zolang dat er meer dan nul zijn slaat de poll over, want de statusbalk
@@ -58,6 +84,16 @@ let ververslus = 0;
  * niet te onderscheiden van "niet kunnen lezen", en verdwijnt de chip juist wanneer er iets stuk
  * is. */
 let heeftSimulator = null;
+
+/* Per blok op het Info-blad: de laatst gelezen inhoud, wanneer die binnenkwam, en of de poging daarna
+ * mislukte. */
+const infoStand = {};
+
+/* De simulatorlijst loopt niet mee in de ronde van de toestandsbalk en heeft dus een eigen
+ * volgnummer. `simulatorVerlopen` zet een actie aan: die kan het gedrag net veranderd hebben. */
+let simulatorBeurt = 0;
+let laatsteSimulatorPoging = 0;
+let simulatorVerlopen = false;
 
 /* Hoeveel automatische pogingen om de omgeving te lezen er al mislukt zijn, en de timer van de
  * volgende. Nul zodra het gelukt is: een omgeving die later opnieuw wegvalt begint weer met de korte
@@ -322,9 +358,6 @@ function naam(sleutel) {
  * bereikbaar onder de melding; wat hier ontbreekt valt terug op die JSON in plaats van op een
  * verzonnen zin. */
 const SAMENVATTINGEN = {
-    berichten: (body) =>
-        'Berichten — ' + Object.entries(body).map(([sleutel, aantal]) => naam(sleutel) + ' ' + aantal).join(', '),
-
     vulling: (body) => vullingTekst(body),
 
     /* Apart van `berichten`, dat "wat er nu staat" toont: hier gaat het om wat er wég is. Dezelfde
@@ -354,8 +387,6 @@ const SAMENVATTINGEN = {
             ? 'Stroom loopt: elke ' + body.intervalSeconden + ' s, ' + body.geleverd + ' geleverd'
             : 'Stroom staat uit',
 
-    storingen: (body) => storingenTekst(body),
-
     simulator: (body) => body.actief + ' van ' + body.totaal + ' gesimuleerde magazijnen zonder storing',
 
     'simulator-vullen': (body) =>
@@ -366,14 +397,6 @@ const SAMENVATTINGEN = {
     'simulator-legen': (body) =>
         body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
 
-    'simulator-magazijnen': (body) =>
-        body.length + ' gesimuleerde magazijnen: ' +
-        Object.entries(body.reduce((telling, magazijn) => {
-            telling[magazijn.modus] = (telling[magazijn.modus] || 0) + 1;
-
-            return telling;
-        }, {})).map(([modus, aantal]) => aantal + '× ' + modus.toLowerCase()).join(', '),
-
     sessie: (body) => body.gewisteKeys + ' sessie-key(s) gewist; de volgende uitvraag geeft 409',
 
     'foutieve-aanlevering': (body) => 'Het magazijn wees de aanlevering af met HTTP ' + body.status,
@@ -381,15 +404,6 @@ const SAMENVATTINGEN = {
     ontdubbeling: (body) =>
         'Event ' + body.eventId + ' tweemaal aangeboden: HTTP ' + body.eersteStatus +
         ' en HTTP ' + body.tweedeStatus,
-
-    omgeving: (body) =>
-        'Uitvraag: ' + (body.uitvraagBasis || 'afgeleid uit de browser') +
-        '. Storingsknoppen: ' + (body.storingen.join(', ') || 'geen'),
-
-    // Uit /api/demo/omgeving: het adres /api/demo/personas hoort bij de personadienst en wordt door
-    // deze module bewust met 404 beantwoord.
-    personas: (body) =>
-        body.personas.length + " persona's: " + body.personas.map((persona) => persona.label).join(', '),
 };
 
 /* De uitkomstsoorten van een samenvatting vertaald naar het merkteken naast de knop. Zonder
@@ -411,14 +425,6 @@ function vullingTekst(vulling) {
     }
 
     return tekst;
-}
-
-function storingenTekst(storingen) {
-    const afwijkend = Object.entries(storingen).filter(([, toestand]) => toestand !== 'normaal');
-
-    if (!afwijkend.length) return 'Geen storingen: alles staat normaal';
-
-    return 'Storing: ' + afwijkend.map(([proxy, toestand]) => naam(proxy) + ' ' + toestand).join(', ');
 }
 
 function samenvatting(soort, body) {
@@ -487,6 +493,13 @@ async function roep(pad, methode) {
         tekst = await respons.text();
     } catch (fout) {
         return { gelukt: false, tekst: 'Antwoord afgebroken (HTTP ' + respons.status + '): ' + fout, ruw: null };
+    }
+
+    // Vóór het ontleden: de muur antwoordt met een inlogpagina in HTML, en die levert hieronder een
+    // "onleesbaar antwoord" op — een melding die de bediener naar de keten laat zoeken terwijl er
+    // alleen opnieuw ingelogd moet worden.
+    if (!respons.ok && await inlogsessieVerlopen(respons.status)) {
+        return { gelukt: false, tekst: muurMelding(), ruw: null };
     }
 
     let body;
@@ -663,6 +676,8 @@ async function voerUit(knop) {
 
         bezig -= 1;
 
+        simulatorVerlopen = true;
+
         verversToestand();
     }
 }
@@ -763,6 +778,10 @@ function kiesTab(gekozen) {
 
     sluitBevestiging(null);
     bewaarStand({ tab: gekozen.id });
+
+    // Meteen en niet pas bij de volgende tik: een simulatorlijst die na een actie verlopen is, begint
+    // dan nu, en de tijdlabels tonen geen seconde een oude stand.
+    if (gekozen.id === 'tab-info') tikInfo();
 }
 
 function tabToets(gebeurtenis) {
@@ -830,6 +849,15 @@ async function lees(pad) {
         status = respons.status;
 
         if (respons.ok) return await respons.json();
+
+        // De poll is het eerste dat een verlopen sessie tegenkomt, want die draait zodra de
+        // bediener weer naar het tabblad kijkt. Hier herstellen betekent dus dat het paneel zichzelf
+        // terugbrengt vóór de eerste druk op een knop.
+        if (await inlogsessieVerlopen(status)) {
+            toonMelding(muurMelding(), 'let-op', null);
+
+            return null;
+        }
 
         console.error('toestand niet te lezen:', pad, status, await respons.text());
     } catch (fout) {
@@ -934,6 +962,29 @@ function toonMagazijnen(veel) {
     markeerTab('tab-scenarios', beperkt);
 }
 
+/* Of de componenten zelf antwoorden. Los van de storingen-chip: die zegt wat Toxiproxy op de lijn
+ * aanzet, deze wat er aan de overkant draait. Op een gedeelde omgeving hebben de magazijnen geen
+ * proxy, en is dit de enige plek waar een plat magazijn zichtbaar wordt. */
+function toonBereikbaarheid(bereikbaarheid) {
+    if (!bereikbaarheid) return zetChip('chip-bereikbaarheid', 'onbekend', 'let-op');
+
+    const componenten = Object.entries(bereikbaarheid);
+
+    // Nul componenten is iets anders dan alles bereikbaar: er wordt dan niets bewaakt, en groen is
+    // daar een geruststelling die nergens op slaat.
+    if (!componenten.length) return zetChip('chip-bereikbaarheid', 'niet ingericht', null);
+
+    const afwijkend = componenten.filter(([, toestand]) => toestand !== 'bereikbaar');
+
+    if (!afwijkend.length) return zetChip('chip-bereikbaarheid', 'alle bereikbaar', 'goed');
+
+    zetChip(
+        'chip-bereikbaarheid',
+        afwijkend.map(([component, toestand]) => naam(component) + ' ' + toestand.replace('-', ' ')).join(' · '),
+        'fout',
+    );
+}
+
 /* Elke uitlezing valt apart terug: een endpoint dat niet antwoordt maakt alleen zijn eigen chip
  * onbekend, want juist bij een storing wil je de overige tellingen nog zien. */
 async function verversToestand(metHand) {
@@ -947,10 +998,11 @@ async function verversToestand(metHand) {
 
     const beurt = ++ververslus;
 
-    const [status, tempo, storingen, veel] = await Promise.all([
+    const [status, tempo, storingen, bereikbaarheid, veel] = await Promise.all([
         lees('/api/demo/status'),
         lees('/api/demo/tempo'),
         lees('/api/demo/storing'),
+        lees('/api/demo/bereikbaarheid'),
         // Niet vragen naar wat deze omgeving niet heeft: dat levert elke vijf seconden een fout in
         // het log op, zonder dat er iets te tonen valt.
         heeftSimulator === false ? null : lees('/api/demo/simulator'),
@@ -968,13 +1020,19 @@ async function verversToestand(metHand) {
     toonBerichten(status);
     toonStroom(tempo);
     toonStoringen(storingen);
+    toonBereikbaarheid(bereikbaarheid);
     toonMagazijnen(veel);
+
+    werkInfoBij('berichten', status);
+    werkInfoBij('stroom', tempo);
+    werkInfoBij('storingen', storingen);
+    werkInfoBij('componenten', bereikbaarheid);
 
     if (!metHand) return;
 
     // Anders is een druk op de knop alleen te zien wanneer er toevallig iets veranderde — en groen
     // terwijl elke chip op "onbekend" staat is het verkeerde signaal.
-    const onleesbaar = [status, tempo, storingen].filter((antwoord) => antwoord === null).length;
+    const onleesbaar = [status, tempo, storingen, bereikbaarheid].filter((antwoord) => antwoord === null).length;
 
     if (onleesbaar === 0) toonMelding('Toestand bijgewerkt', 'goed', null);
     else toonMelding('Toestand bijgewerkt, maar ' + onleesbaar + ' uitlezing(en) kwamen niet door', 'let-op', null);
@@ -994,6 +1052,8 @@ async function pasOmgevingToe() {
     onbruikbareLijsten.clear();
 
     heeftSimulator = omgeving ? omgeving.simulator : true;
+
+    werkInfoBij('personas', omgeving);
 
     // Het adres van de berichtenbox komt uit ditzelfde antwoord. Is de console onbereikbaar, dan
     // blijft het eigen pad over — lokaal is dat het juiste adres.
@@ -1022,13 +1082,12 @@ async function pasOmgevingToe() {
         document.getElementById('groep-sessie').hidden = omgeving.sessiecache === false;
 
         // Zonder simulator faalt elke knop in die groep gegarandeerd; een knop die alleen een fout
-        // oplevert kost tijdens een demo uitleg die niets toevoegt. Los daarvan de uitlees-knop op
-        // het info-blad: die deelt zijn groep met knoppen die er wél altijd zijn, dus hij hangt aan
-        // zijn eigen markering in plaats van aan de groep.
+        // oplevert kost tijdens een demo uitleg die niets toevoegt. Los daarvan het simulatorblok op
+        // het info-blad: dat staat buiten die groep, dus het hangt aan zijn eigen markering.
         document.getElementById('groep-simulator').hidden = omgeving.simulator === false;
 
-        document.querySelectorAll('button[data-simulator]').forEach((knop) => {
-            knop.hidden = omgeving.simulator === false;
+        document.querySelectorAll('[data-simulator]').forEach((element) => {
+            element.hidden = omgeving.simulator === false;
         });
     }
 
@@ -1501,12 +1560,451 @@ function vulKeuze(keuze, knop, opties, leegTekst, keuzeId) {
     }
 }
 
+// ---------------------------------------------------------------- info-blad
+
+/* Van gezond naar kapot, zodat de telling bij elke uitlezing dezelfde vorm heeft. Een modus die hier
+ * ontbreekt valt niet weg maar komt achteraan. */
+const MODUS_VOLGORDE = ['NORMAAL', 'TRAAG', 'HAPERT', 'WEIGERT', 'MALFORMED', 'STUK', 'UIT'];
+
+/* Wat elk blok op het Info-blad tekent. `bewaarbaar` snoeit een antwoord vóór het in het geheugen en
+ * in sessionStorage belandt; een blok zonder die functie bewaart het antwoord zoals het binnenkwam. */
+const INFO_BLOKKEN = {
+    berichten: { teken: tekenBerichten },
+    simulator: { teken: tekenSimulator },
+    personas: { teken: tekenPersonas, bewaarbaar: personaInfo },
+    stroom: { teken: tekenStroom },
+    storingen: { teken: tekenStoringen },
+    componenten: { teken: tekenComponenten },
+};
+
+/* `null` is een mislukte uitlezing: de vorige inhoud blijft dan staan en alleen het tijdlabel zegt
+ * dat hij verouderd is. Juist tijdens een storing wil je de laatste bekende stand nog zien. */
+function werkInfoBij(sleutel, antwoord) {
+    const stand = infoStand[sleutel] || (infoStand[sleutel] = {});
+
+    if (antwoord === null) {
+        stand.mislukt = true;
+    } else {
+        const blok = INFO_BLOKKEN[sleutel];
+        const nieuw = blok.bewaarbaar ? blok.bewaarbaar(antwoord) : antwoord;
+
+        // Hetzelfde antwoord elke vijf seconden opnieuw tekenen laat een schermlezer die door de lijst
+        // loopt telkens bovenaan beginnen.
+        const veranderd = JSON.stringify(nieuw) !== JSON.stringify(stand.inhoud);
+
+        stand.inhoud = nieuw;
+        stand.tijd = Date.now();
+        stand.mislukt = false;
+
+        if (veranderd) tekenInfo(sleutel);
+
+        bewaarInfo();
+    }
+
+    toonInfoTijd(sleutel);
+}
+
+function tekenInfo(sleutel) {
+    const doel = document.getElementById('info-' + sleutel + '-inhoud');
+
+    if (!doel) {
+        meldOpmaakfout('het info-blok ' + sleutel, true);
+
+        return;
+    }
+
+    try {
+        INFO_BLOKKEN[sleutel].teken(doel, infoStand[sleutel].inhoud);
+    } catch (fout) {
+        // In het blok zelf en niet alleen in de console: een lege of half bijgewerkte lijst leest
+        // anders als een echte stand.
+        console.error('[bediening] info-blok ' + sleutel + ' niet te tekenen', fout);
+        doel.replaceChildren(infoAlinea('Het antwoord had een onverwachte vorm; zie de browserconsole'));
+    }
+}
+
+/* Zonder `aria-live`: dit label verandert elke seconde, en een schermlezer die dat voorleest laat de
+ * melding van een actie er niet meer tussen. */
+function toonInfoTijd(sleutel) {
+    const label = document.getElementById('info-' + sleutel + '-tijd');
+
+    if (!label) {
+        meldOpmaakfout('het tijdlabel van info-blok ' + sleutel, true);
+
+        return;
+    }
+
+    const stand = infoStand[sleutel] || {};
+
+    let tekst = 'nog niet gelezen';
+
+    if (stand.tijd && stand.mislukt) {
+        tekst = 'laatste poging mislukt · bijgewerkt ' + geleden(stand.tijd);
+    } else if (stand.tijd) {
+        tekst = 'bijgewerkt ' + geleden(stand.tijd);
+    } else if (stand.mislukt) {
+        tekst = 'niet te lezen';
+    }
+
+    label.textContent = tekst;
+    label.dataset.soort = stand.mislukt ? 'let-op' : '';
+}
+
+function geleden(tijd) {
+    const seconden = Math.max(0, Math.round((Date.now() - tijd) / 1000));
+
+    if (seconden < 10) return 'zojuist';
+
+    if (seconden < 60) return seconden + ' s geleden';
+
+    if (seconden < 3600) return Math.floor(seconden / 60) + ' min geleden';
+
+    return 'om ' + new Date(tijd).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+}
+
+/* Alleen tijd en inhoud; de persona's zijn daarin al door `personaInfo` ontdaan van hun nummers.
+ * Storage kan gooien wanneer site-data geblokkeerd is; het blad werkt dan zonder geheugen. */
+function bewaarInfo() {
+    const bewaard = {};
+
+    Object.entries(infoStand).forEach(([sleutel, stand]) => {
+        if (stand.tijd) bewaard[sleutel] = { tijd: stand.tijd, inhoud: stand.inhoud };
+    });
+
+    try {
+        sessionStorage.setItem(INFO_SLEUTEL, JSON.stringify(bewaard));
+    } catch (fout) {
+        return;
+    }
+}
+
+/* Een onleesbare bewaarde stand begint gewoon leeg; een bewaard blok dat INFO_BLOKKEN niet meer kent, valt weg.
+ * Een bewaarde inhoud in een vorm die de huidige tekenaar niet begrijpt, meldt `tekenInfo` zelf. */
+function herstelInfo() {
+    let bewaard;
+
+    try {
+        bewaard = JSON.parse(sessionStorage.getItem(INFO_SLEUTEL)) || {};
+    } catch (fout) {
+        bewaard = {};
+    }
+
+    Object.keys(INFO_BLOKKEN).forEach((sleutel) => {
+        const stand = bewaard[sleutel];
+
+        if (stand && typeof stand.tijd === 'number') {
+            infoStand[sleutel] = { inhoud: stand.inhoud, tijd: stand.tijd, mislukt: false };
+            tekenInfo(sleutel);
+        }
+
+        toonInfoTijd(sleutel);
+    });
+}
+
+function infoInBeeld() {
+    const blad = document.getElementById('blad-info');
+
+    return Boolean(blad) && !blad.hidden && !document.body.classList.contains('ingeklapt');
+}
+
+/* Loopt elke seconde, maar doet alleen iets terwijl iemand naar het Info-blad kijkt: daarbuiten leest
+ * niemand "… geleden", en de simulatorlijst wacht dan tot het blad weer open gaat. */
+function tikInfo() {
+    if (document.hidden || !infoInBeeld()) return;
+
+    Object.keys(INFO_BLOKKEN).forEach(toonInfoTijd);
+
+    const teOud = Date.now() - laatsteSimulatorPoging >= SIMULATOR_INFO_MS;
+
+    // `true` en niet alleen niet-`false`: zolang het inrichten niet terug is, is onbekend of er een
+    // simulator is. En niet midden in een actie, om dezelfde reden als bij de toestandsbalk.
+    if (heeftSimulator === true && bezig === 0 && (simulatorVerlopen || teOud)) verversSimulator(false);
+}
+
+async function verversSimulator(metHand) {
+    if (bezig > 0) {
+        if (metHand) toonMelding('Er loopt nog een actie; de lijst komt daarna vanzelf bij', null, null);
+
+        return;
+    }
+
+    const beurt = ++simulatorBeurt;
+
+    laatsteSimulatorPoging = Date.now();
+    simulatorVerlopen = false;
+
+    const magazijnen = await lees('/api/demo/simulator/magazijnen');
+
+    // Een nieuwere poging — een klik, of de planning na een actie — gaat voor.
+    if (beurt !== simulatorBeurt) return;
+
+    const bruikbaar = Array.isArray(magazijnen);
+
+    if (magazijnen !== null && !bruikbaar) console.error('[bediening] simulatorlijst is geen lijst maar ' + typeof magazijnen);
+
+    werkInfoBij('simulator', bruikbaar ? magazijnen : null);
+
+    if (metHand && !bruikbaar) {
+        toonMelding('De gesimuleerde magazijnen waren niet te lezen; de vorige stand blijft staan', 'let-op', null);
+    }
+}
+
+/* Een ↻ die een uitlezing start, draait tot die terug is. Zonder dat is een druk erop niet te
+ * onderscheiden van een klik die niets deed: het tijdlabel verspringt pas als het antwoord er is. */
+function draaiTot(knop, loopt) {
+    knop.dataset.bezig = 'ja';
+
+    loopt.finally(() => {
+        delete knop.dataset.bezig;
+    });
+}
+
+/* Een antwoord zonder de vorm die een blok tekent, gooit hier; `tekenInfo` meldt dat dan in het blok
+ * in plaats van een half getekende stand te tonen. */
+function vereisObject(waarde) {
+    if (!waarde || typeof waarde !== 'object' || Array.isArray(waarde)) {
+        throw new TypeError('geen object maar ' + (Array.isArray(waarde) ? 'een lijst' : typeof waarde));
+    }
+}
+
+function infoLijst(rijen) {
+    const lijst = document.createElement('dl');
+
+    lijst.className = 'infolijst';
+
+    rijen.forEach(([term, waarde, soort]) => {
+        const dt = document.createElement('dt');
+        const dd = document.createElement('dd');
+
+        dt.textContent = term;
+        dd.textContent = waarde;
+
+        if (soort) dd.dataset.soort = soort;
+
+        lijst.append(dt, dd);
+    });
+
+    return lijst;
+}
+
+function infoAlinea(tekst) {
+    const alinea = document.createElement('p');
+
+    alinea.className = 'uitleg';
+    alinea.textContent = tekst;
+
+    return alinea;
+}
+
+function tekenBerichten(doel, status) {
+    vereisObject(status);
+
+    const aantallen = Object.entries(status);
+
+    if (!aantallen.length) {
+        doel.replaceChildren(infoAlinea('Geen magazijnen ingericht'));
+
+        return;
+    }
+
+    const totaal = aantallen.reduce((som, [, aantal]) => som + aantal, 0);
+
+    doel.replaceChildren(infoLijst(
+        aantallen.map(([sleutel, aantal]) => [naam(sleutel), getal(aantal)]).concat([['Totaal', getal(totaal)]]),
+    ));
+}
+
+/* Met punt als duizendtal-scheiding: bij honderd gesimuleerde magazijnen loopt een totaal al snel in
+ * de duizenden, en 2646 leest dan als een jaartal. */
+function getal(aantal) {
+    return Number(aantal).toLocaleString('nl-NL');
+}
+
+function tekenStroom(doel, tempo) {
+    vereisObject(tempo);
+
+    doel.replaceChildren(infoLijst(tempo.loopt
+        ? [['Stroom', 'loopt', 'let-op'], ['Interval', 'elke ' + tempo.intervalSeconden + ' s'], ['Geleverd', String(tempo.geleverd)]]
+        : [['Stroom', 'uit']]));
+}
+
+function tekenStoringen(doel, storingen) {
+    vereisObject(storingen);
+
+    const proxies = Object.entries(storingen);
+
+    doel.replaceChildren(proxies.length
+        ? infoLijst(proxies.map(([proxy, toestand]) => [onderdeelNaam(proxy), String(toestand), toestand === 'normaal' ? null : 'fout']))
+        : infoAlinea('Deze omgeving heeft geen storingsproxies'));
+}
+
+/* Of het component zelf antwoordt, naast de storingen hierboven: die zeggen wat Toxiproxy op de lijn
+ * zet. Een magazijn zonder proxy dat plat ligt, is alleen hier te zien. */
+function tekenComponenten(doel, bereikbaarheid) {
+    vereisObject(bereikbaarheid);
+
+    const componenten = Object.entries(bereikbaarheid);
+
+    doel.replaceChildren(componenten.length
+        ? infoLijst(componenten.map(([component, toestand]) => [
+            onderdeelNaam(component),
+            String(toestand).replace('-', ' '),
+            toestand === 'bereikbaar' ? null : 'fout',
+        ]))
+        : infoAlinea('Deze omgeving controleert geen componenten'));
+}
+
+function onderdeelNaam(sleutel) {
+    return ONDERDEEL_NAMEN[sleutel] || naam(sleutel);
+}
+
+/* Eerst alles uitrekenen en pas daarna de pagina raken: een element dat geen object is, gooit dan
+ * vóór er een telling staat die niet bij de tabel eronder hoort. */
+function tekenSimulator(doel, magazijnen) {
+    if (!Array.isArray(magazijnen)) throw new TypeError('geen lijst maar ' + typeof magazijnen);
+
+    const details = document.getElementById('info-simulator-details');
+    const samenvatting = document.getElementById('info-simulator-samenvatting');
+    const rijen = document.getElementById('info-simulator-rijen');
+
+    if (!details || !samenvatting || !rijen) {
+        meldOpmaakfout('de tabel van gesimuleerde magazijnen', true);
+
+        return;
+    }
+
+    const telling = {};
+
+    magazijnen.forEach((magazijn) => {
+        telling[magazijn.modus] = (telling[magazijn.modus] || 0) + 1;
+    });
+
+    const modi = MODUS_VOLGORDE.filter((modus) => telling[modus])
+        .concat(Object.keys(telling).filter((modus) => !MODUS_VOLGORDE.includes(modus)));
+
+    // Afwijkend eerst: dat zijn de regels waar je in een demo naar zoekt. `sort` is stabiel, dus binnen
+    // beide groepen blijft de OIN-volgorde van de console staan.
+    const tabelrijen = magazijnen
+        .slice()
+        .sort((een, ander) => Number(een.modus === 'NORMAAL') - Number(ander.modus === 'NORMAAL'))
+        .map(simulatorRij);
+
+    // Alleen een totaal als elk magazijn zijn aantal meegeeft: een som over een half getelde lijst
+    // leest als een echte telling.
+    const aantallen = magazijnen.map((magazijn) => magazijn.berichten);
+    const totaal = aantallen.every((aantal) => typeof aantal === 'number')
+        ? [['Berichten', getal(aantallen.reduce((som, aantal) => som + aantal, 0))]]
+        : [];
+
+    doel.replaceChildren(magazijnen.length
+        ? infoLijst(totaal.concat(modi.map((modus) => [
+            modusNaam(modus),
+            getal(telling[modus]) + (telling[modus] === 1 ? ' magazijn' : ' magazijnen'),
+            modus === 'NORMAAL' ? null : 'let-op',
+        ])))
+        : infoAlinea('De simulator stelt geen magazijnen voor'));
+
+    samenvatting.textContent = 'Alle ' + magazijnen.length + ' magazijnen';
+    rijen.replaceChildren(...tabelrijen);
+    details.hidden = magazijnen.length === 0;
+}
+
+function simulatorRij(magazijn) {
+    const rij = document.createElement('tr');
+
+    const berichten = typeof magazijn.berichten === 'number' ? getal(magazijn.berichten) : 'onbekend';
+
+    [magazijn.naam, magazijn.oin, modusNaam(magazijn.modus), berichten].forEach((waarde) => {
+        const cel = document.createElement('td');
+
+        cel.textContent = waarde;
+        rij.append(cel);
+    });
+
+    if (magazijn.modus !== 'NORMAAL') rij.dataset.soort = 'let-op';
+
+    return rij;
+}
+
+function modusNaam(modus) {
+    return String(modus).toLowerCase();
+}
+
+/* Een tabel en geen opsomming: de tweede kolom beantwoordt waarom *Bericht plaatsen* een persona niet
+ * aanbiedt. Het teken staat nooit alleen; de tekst ernaast zegt hetzelfde. */
+function tekenPersonas(doel, personas) {
+    if (!Array.isArray(personas)) throw new TypeError('geen lijst maar ' + typeof personas);
+
+    if (!personas.length) {
+        doel.replaceChildren(infoAlinea("Geen persona's ingericht"));
+
+        return;
+    }
+
+    const rijen = personas.map((persona) => {
+        const rij = document.createElement('tr');
+        const naamcel = document.createElement('td');
+        const magazijncel = document.createElement('td');
+        const teken = document.createElement('span');
+
+        naamcel.textContent = persona.label;
+        teken.className = 'infoteken';
+        teken.setAttribute('aria-hidden', 'true');
+        teken.textContent = persona.metMagazijn ? '✓' : '—';
+        teken.dataset.soort = persona.metMagazijn ? 'goed' : '';
+        magazijncel.append(teken, persona.metMagazijn ? 'ja' : 'nee, alleen gesimuleerde');
+        rij.append(naamcel, magazijncel);
+
+        return rij;
+    });
+
+    const tabel = document.createElement('table');
+    const kop = document.createElement('thead');
+    const kopregel = document.createElement('tr');
+    const romp = document.createElement('tbody');
+    const omhulsel = document.createElement('div');
+
+    ['Persona', 'Echt magazijn'].forEach((titel) => {
+        const cel = document.createElement('th');
+
+        cel.scope = 'col';
+        cel.textContent = titel;
+        kopregel.append(cel);
+    });
+
+    kop.append(kopregel);
+    romp.append(...rijen);
+    tabel.append(kop, romp);
+    omhulsel.className = 'infotabel';
+    omhulsel.append(tabel);
+
+    doel.replaceChildren(
+        omhulsel,
+        infoAlinea("Alleen persona's met een echt magazijn staan in de keuzelijst van Bericht plaatsen."),
+    );
+}
+
+/* Per persona alleen het label en of er een echt magazijn voor is. Nooit de persona zelf: die draagt
+ * ook zijn BSN of KVK-nummer, en dit belandt in sessionStorage. De id koppelt de twee lijsten en gaat
+ * niet mee. */
+function personaInfo(omgeving) {
+    if (!omgeving || typeof omgeving !== 'object' || !Array.isArray(omgeving.personas)) return null;
+
+    const metMagazijn = new Set((Array.isArray(omgeving.berichtPersonas) ? omgeving.berichtPersonas : [])
+        .map((persona) => persona && persona.id));
+
+    return omgeving.personas
+        .filter((persona) => persona && persona.label)
+        .map((persona) => ({ label: persona.label, metMagazijn: metMagazijn.has(persona.id) }));
+}
+
 // ---------------------------------------------------------------- bedrading
 
 const LOSSE_ACTIES = {
     klap: klap,
     'ververs-box': verversBox,
     'ververs-toestand': () => verversToestand(true),
+    'ververs-simulator': () => verversSimulator(true),
     'omgeving-opnieuw': () => richtIn(true),
 };
 
@@ -1535,7 +2033,9 @@ document.addEventListener('click', (gebeurtenis) => {
             return;
         }
 
-        LOSSE_ACTIES[knop.dataset.actie]();
+        const loopt = LOSSE_ACTIES[knop.dataset.actie]();
+
+        if (loopt instanceof Promise) draaiTot(knop, loopt);
     } else if (knop.dataset.bevestig) {
         vraagBevestiging(knop);
     } else {
@@ -1573,6 +2073,10 @@ document.querySelectorAll('button[data-pad]').forEach((knop) => {
     knop.append(merk);
 });
 
+// Vóór het herstellen van het tabblad en het inrichten: die tekenen hun eerste uitkomst over deze
+// bewaarde stand heen, en niet andersom.
+herstelInfo();
+
 // In een eigen try: `kiesTab` raakt een tabblad uit de bewaarde stand, en een hernoemd blad zou hier
 // het hele script stoppen — vóór het inrichten, de poll en de knop die dat opnieuw kan proberen.
 try {
@@ -1589,7 +2093,16 @@ richtIn(false);
 
 verversToestand();
 
+// Ná `verversToestand()`: die zet bij een geslaagde ronde zelf niets in de balk, dus deze melding
+// blijft staan. Zonder dit is een geslaagd herstel niet te onderscheiden van een demo waarin niets
+// gebeurde — het herstel navigeert immers weg, en de melding van vóór die navigatie is dan weg.
+const herstelmelding = muurHerstelMelding();
+
+if (herstelmelding) toonMelding(herstelmelding, 'let-op', null);
+
 // Alleen pollen terwijl er iemand kijkt: een demo-console blijft dagen in een tab openstaan.
 setInterval(() => {
     if (!document.hidden) verversToestand();
 }, POLL_MS);
+
+setInterval(tikInfo, TIK_MS);

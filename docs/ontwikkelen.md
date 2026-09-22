@@ -106,11 +106,11 @@ Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> —
 bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat in `compose.yaml`, gepind op
 digest: `latest` alleen zou stil onder een lopende demo door verschuiven. Die ene regel is ook wat
 `deploy.yml` en `proeftuin-component.sh` lezen (via `.github/scripts/proeftuin-image.sh`), dus een
-demo op de eigen machine en een demo op ZAD tonen dezelfde berichtenbox. Bijwerken doet Dependabot:
-digest-pins houdt hij bij, en dat is precies waarom er geen variabele meer in die regel staat.
-Blijft die bump uit terwijl hun main doorloopt, dan meldt `pin-consistency.yml` de stand op de
-eerstvolgende PR — en wekelijks in een eigen run, zodat een onvindbaar geworden pin niet op
-PR-verkeer hoeft te wachten. Een andere versie draaien zonder de pin aan te raken kan met de
+demo op de eigen machine en een demo op ZAD tonen dezelfde berichtenbox. Bijwerken doet de workflow
+`proeftuin-pin.yml`: die vergelijkt de pin op werkdagen met hun main en zet een achterlopende pin
+als PR klaar, die zichzelf weer sluit zodra de pin bij is. Mergen blijft een oordeel — hun main draagt
+ook werk dat halfaf kan zijn. `pin-consistency.yml` blokkeert daarnaast een PR zodra de gepinde
+digest niet meer te trekken is. Een andere versie draaien zonder de pin aan te raken kan met de
 overlay; die neemt een hele referentie, want hun nog niet gemergde werk staat in een ander
 ghcr-repository:
 

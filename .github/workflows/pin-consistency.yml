@@ -1,7 +1,8 @@
 # Twee pin-controles: `infra-image-pins` houdt de pins van de zelf-gedeployde infra-images uniform
-# over alle vindplaatsen en blokkeert onvoorwaardelijk; `proeftuin-pin` bewaakt of een pin nog
-# actueel is en waarschuwt daarover, maar blokkeert bij een pin die niet te trekken is en bij een
-# controle die zijn eigen bron kwijt is. De motivatie per job staat erboven.
+# over alle vindplaatsen en blokkeert onvoorwaardelijk; `proeftuin-pin` waarschuwt over een pin die
+# achterloopt — de bijbehorende bump biedt proeftuin-pin.yml als PR aan — en blokkeert bij een pin
+# die niet te trekken is en bij een controle die zijn eigen bron kwijt is. De motivatie per job
+# staat erboven.
 #
 # Over `infra-image-pins`:
 #
@@ -92,24 +93,19 @@ jobs:
           done
           exit "$fail"
 
-  # De berichtenbox van de proeftuin (MinBZK/moza-poc) staat in compose.yaml op digest gepind, en
-  # Dependabot bumpt die digest zodra hun main verder gaat. Dit is het vangnet naast dat pad: geen
-  # PR is precies hoe "alles bij" eruitziet, dus een stilgevallen bump — hun `latest` blijft staan,
-  # zijn parser struikelt over een volgende wijziging in dat bestand — valt zonder deze job niemand
-  # op. Hier staat actief wat de stand is.
+  # De berichtenbox van de proeftuin (MinBZK/moza-poc) staat in compose.yaml op digest gepind. Deze
+  # job stelt vast wat de stand van die pin is; proeftuin-pin.yml draait hetzelfde script op
+  # werkdagen en biedt een achterlopende pin als PR aan.
   #
-  # Achterlopen waarschuwt en blokkeert niet: een oudere berichtenbox is een oudere demo, geen
-  # kapotte build, en meebewegen vraagt een oordeel omdat hun main ook halfaf werk draagt. Wat wél
-  # blokkeert is een pin die niet te trekken is of een guard die zijn eigen bron kwijt is: daar
-  # levert doorgaan een kapot component op, of een controle die niets meer meet.
+  # Achterlopen is hier dus geen bevinding meer om te melden: die bump ligt als PR klaar. Deze job
+  # blokkeert alleen wat een PR niet oplost — een pin die niet te trekken is, of een controle die
+  # zijn eigen bron kwijt is. Daar levert doorgaan een kapot component op, of een guard die niets
+  # meer meet.
   proeftuin-pin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # pull-requests: write voor de melding hieronder; deze job blijft bij een verouderde pin groen,
-    # dus een annotatie alleen zou niemand openen.
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -124,7 +120,6 @@ jobs:
         run: .github/scripts/proeftuin-pin.sh
 
       - name: Beoordeel de uitkomst
-        id: oordeel
         env:
           STATUS: ${{ steps.pin.outputs.status }}
           TAG: ${{ steps.pin.outputs.verwachte_tag }}
@@ -133,46 +128,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Eén opbouw voor de twee gevallen die om een oordeel van een mens vragen.
-          melding() {
-            {
-              echo "melding<<EOM"
-              printf '%s\n' "$@"
-              echo "EOM"
-            } >> "$GITHUB_OUTPUT"
-          }
-
           case "$STATUS" in
             ok)
               echo "De berichtenbox staat op de huidige main van MinBZK/moza-poc ($TAG)."
               ;;
             verouderd)
-              echo "::warning::De berichtenbox loopt achter; hun main is $TAG."
-              melding \
-                "De demo draait \`$HUIDIG\`, terwijl \`MinBZK/moza-poc\` op \`$TAG\` staat." \
-                "" \
-                "**Blokkeert niets** en is geen opdracht: hun main draagt ook werk dat halfaf kan zijn." \
-                "" \
-                "Normaal komt deze bump vanzelf langs als Dependabot-PR, want de pin staat op digest." \
-                "Blijft die uit terwijl deze melding staat, dan is er iets mis met dat pad en is dit" \
-                "de regel om met de hand te zetten in \`compose.yaml\`:" \
-                "" \
-                '```yaml' \
-                "$REGEL" \
-                '```'
+              # Geen bevinding op de PR: de workflow Proeftuin-pin biedt deze bump op werkdagen als
+              # eigen PR aan, en die draagt de regel die hier anders in een melding zou staan.
+              echo "::warning::De berichtenbox loopt achter ($HUIDIG); hun main is $TAG. De workflow Proeftuin-pin biedt dit aan als PR; met de hand zetten kan met: $REGEL"
               ;;
             preview)
-              echo "::warning::De berichtenbox staat op een preview van hun kant: $HUIDIG"
-              melding \
-                "De demo draait \`$HUIDIG\` — nog niet gemergd werk uit hun preview-repository." \
-                "" \
-                "Dat mag tijdelijk, om hun werk vóór hun merge te beproeven. Maar die tag verdwijnt uit" \
-                "ghcr zodra hun PR sluit, en dan trekt de eerstvolgende herstart een image dat er niet" \
-                "meer is. Zwaai vóór het mergen van déze PR terug naar een digest uit hun main."
+              echo "::warning::De berichtenbox staat op een preview van hun kant ($HUIDIG). Dat mag tijdelijk, maar die tag verdwijnt uit ghcr zodra hun PR sluit; zwaai vóór het mergen terug naar een digest uit hun main."
               ;;
             ontbreekt)
-              # Hun bouw loopt nog, of viel. Beide keren valt er niets te kiezen, dus geen melding
-              # op de PR: die zou bij de volgende run vanzelf weer verdwijnen.
+              # Hun bouw loopt nog, of viel. Beide keren valt er niets te kiezen: de volgende run
+              # stelt vanzelf vast wat het werd.
               echo "::warning::Voor de huidige main-commit van de proeftuin ($TAG) staat nog geen image in ghcr."
               ;;
             oncontroleerbaar)
@@ -197,42 +167,3 @@ jobs:
               exit 1
               ;;
           esac
-
-      # Op een fork is GITHUB_TOKEN read-only, en een gemiste melding mag nooit zwaarder wegen dan
-      # de wijziging zelf; vandaar de eigen-repo-voorwaarde plus continue-on-error.
-      - name: Meld de stand van de pin op de PR
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          STATUS: ${{ steps.pin.outputs.status }}
-          MELDING: ${{ steps.oordeel.outputs.melding }}
-          MARKER: '<!-- proeftuin-pin -->'
-        run: |
-          set -euo pipefail
-
-          bestaand=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-            --jq "[.[] | select(.body | contains(\"$MARKER\"))] | first | .id // empty" | head -1)
-
-          if [ -z "$MELDING" ]; then
-            # Alleen wissen bij een positief vastgestelde stand. Een run die niets kón vaststellen —
-            # of die op hun bouw wacht — zou anders een eerder wél vastgestelde bevinding van de PR
-            # halen, met "Pin is weer bij" in het logboek. De PR ziet er dan schoon uit terwijl er
-            # niets gecontroleerd is.
-            if [ -n "$bestaand" ] && [ "$STATUS" = ok ]; then
-              gh api -X DELETE "repos/$REPO/issues/comments/$bestaand"
-              echo "Pin is weer bij; melding verwijderd."
-            fi
-
-            exit 0
-          fi
-
-          body=$(printf '%s\n### De berichtenbox van de proeftuin vraagt aandacht\n\n%s\n' "$MARKER" "$MELDING")
-
-          if [ -n "$bestaand" ]; then
-            gh api -X PATCH "repos/$REPO/issues/comments/$bestaand" -f body="$body" --jq .html_url
-          else
-            gh api "repos/$REPO/issues/$PR/comments" -f body="$body" --jq .html_url
-          fi

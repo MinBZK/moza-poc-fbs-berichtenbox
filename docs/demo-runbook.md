@@ -329,12 +329,21 @@ Daaronder verschijnt de uitkomst van je laatste actie, samengevat in één regel
 JSON uitklapbaar eronder. De knop die je indrukte houdt zelf een ✓ of ✗ vast. Destructieve knoppen
 vragen om bevestiging in het paneel; de vraag noemt wat er precies gebeurt.
 
+**Tabblad Info** — staat voorop en toont de toestand zonder dat je erom vraagt: de berichten in de
+echte magazijnen, daaronder de gesimuleerde magazijnen (berichten in totaal, telling per gedrag, de
+volledige lijst met berichten per magazijn uitklapbaar), de persona's met per persona of er een echt magazijn voor is (alleen die staan
+in *Bericht plaatsen*), de stroom, de storingen en of elk component zelf antwoordt. Elk blok zegt wanneer het bijgewerkt is en heeft
+een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand staan en zegt dat.
+Na een refresh staat die stand er direct weer.
+
 **Tabblad Demo**
 - *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg en
   laadt de basisvulling opnieuw; in één klik terug naar de begintoestand.
 - *Berichtenbox verversen* — herlaadt het frame. Bewust een knop: verversen zet de berichtenbox
   terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
+  Een verse stack heeft die al: de console zet hem na het opstarten zelf in elk echt magazijn zonder
+  berichten. In een gevulde omgeving zet deze knop alles dubbel.
 - *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases. Twee keer vullen zonder legen
   geeft dubbele berichten.
 - *Random berichten opvoeren* — N random berichten; tegelijk scenario 5.
@@ -356,9 +365,6 @@ de simulator.
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
 
-**Tabblad Info** — de losse uitlezingen (berichten, stroom, storingen, omgeving, persona's) voor als
-je de ruwe JSON wilt zien.
-
 ### Hetzelfde paneel op ZAD
 
 De console draait ook als component `democonsole` in de deployment `test` van het magazijnen-project
@@ -367,7 +373,21 @@ De console draait ook als component `democonsole` in de deployment `test` van he
 Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de authorization-wall,
 niet een kapot component.
 
-De gesimuleerde magazijnen hoef je daar niet als eerste handeling te vullen: de simulator zet bij het
+Elke uitrol van die deployment logt je daar uit: het geheim waarmee de muur zijn sessies ondertekent
+wordt bij iedere rendering opnieuw gegenereerd, dus alle lopende sessies vervallen zodra de pod
+herstart (upstream bekend als [RIG-Cluster#153](https://github.com/RijksICTGilde/RIG-Cluster/issues/153),
+punt B). Het paneel merkt dat zelf en stuurt je langs de aanmelding terug naar de pagina waar je was;
+ben je bij de SSO nog ingelogd — het gewone geval — dan zie je hooguit een korte onderbreking. Blijft
+het paneel wél melden dat je uitgelogd bent, ververs dan zelf: dat is de demping die voorkomt dat een
+weigerende muur je heen en weer stuurt.
+
+De magazijnen hoef je daar niet als eerste handeling te vullen, ook niet op een verse preview. De
+console zet na het opstarten de basisvulling in elk van de twee echte magazijnen waar nog geen bericht
+staat, en wacht daarvoor tot het magazijn en de profielservice antwoorden; wat hij deed staat in zijn
+log onder `Opstartvulling`, en `demo/demo-console/README.md` legt de regels uit. Een magazijn dat hij
+eenmaal beoordeeld heeft, bekijkt hij tot de volgende herstart niet opnieuw.
+
+Voor de gesimuleerde magazijnen doet de simulator hetzelfde: hij zet bij het
 opstarten zelf post klaar in elk magazijn dat er geen heeft, voor de ondernemers uit zijn
 gegenereerde configuratie. Dat geldt ook voor een verse preview en voor een deployment waarvan de
 database opnieuw is aangemaakt. Magazijnen die al post hebben blijven ongemoeid — ook wat je zelf met
@@ -421,7 +441,7 @@ volgen in fase 7.
 
 | # | Scenario | Zo speel je het |
 |---|---|---|
-| 1 | Berichten succesvol opgehaald | Basisvulling → persona Pietersen → **Ophalen** |
+| 1 | Berichten succesvol opgehaald | Persona Pietersen → **Ophalen**; de basisvulling staat er sinds het opstarten (na legen: *Herstel demo*) |
 | 2 | Trager dan normaal (>5 s) | Storingen → *Magazijn A* of *B* → *Traag* → Ophalen; magazijn meldt pas na ~6 s "voltooid" |
 | 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit*. Veel: persona Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → Ophalen → n−2 FOUT + partiële lijst |
 | 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → Ophalen |

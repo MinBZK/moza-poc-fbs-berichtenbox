@@ -10,67 +10,22 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/fuzz-basis-pin.sh"
-
-fails=0
-geslaagd=0
-ok()   { geslaagd=$((geslaagd + 1)); echo "OK: $1"; }
-fout() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
+TESTBRANCH=chore/fuzz-basis-pin
+# Het gemeten script leest het te wijzigen bestand als DOCKERFILE; het harnas zet die naam per geval.
+DOELVAR=DOCKERFILE
 
 WERKMAP=$(mktemp -d)
 trap 'rm -rf "$WERKMAP"' EXIT
 
+# De stubs, de asserties en de opzet per geval zijn gedeeld met test-proeftuin-pin-pr.sh: beide
+# suites meten een script dat een branch, een PR en één regel in één bestand muteert.
+# shellcheck source=.github/scripts/pin-pr-teststubs.sh
+source "$HERE/pin-pr-teststubs.sh"
+pin_pr_stubs_opzetten
+
 IMAGE=ghcr.io/minbzk/fbs-fuzz-base
 OUD=$IMAGE@sha256:283ebfd78ce10ac2d9e023d37f6f9eb60fbe7a72a23018d844a4ddbb9530ac95
 NIEUW=$IMAGE@sha256:a34281d2286452925dff21dc375122b503c0813c6979f7168d5f84928cf556bb
-
-# De stubs leggen elke aanroep vast en bootsen alleen na wat het script echt uitleest: de PR-lijst
-# (met de jq-filter die het script zelf meegeeft, zodat de fork-filter écht getoetst wordt), of het
-# Dockerfile is gewijzigd, en of de branch nog bestaat.
-#
-# Ze kunnen ook falen. Zonder die schakelaars overleeft elke `|| true` achter een gh-aanroep de
-# suite, en juist die maakt een mislukte PR-actie stil.
-mkdir -p "$WERKMAP/bin"
-
-cat > "$WERKMAP/bin/gh" <<'STUB'
-#!/usr/bin/env bash
-printf 'gh %s\n' "$*" >> "$AANROEPEN"
-
-if [ "${GH_FAALT:-}" = "${1:-} ${2:-}" ]; then
-  echo "error connecting to api.github.com" >&2
-  exit 1
-fi
-
-if [ "${1:-}" = "pr" ] && [ "${2:-}" = "list" ]; then
-  filter=""
-  vorige=""
-
-  for arg in "$@"; do
-    [ "$vorige" = "--jq" ] && filter=$arg
-    vorige=$arg
-  done
-
-  printf '%s' "${PR_LIJST:-[]}" | jq -r "$filter"
-fi
-
-exit 0
-STUB
-
-cat > "$WERKMAP/bin/git" <<'STUB'
-#!/usr/bin/env bash
-printf 'git %s\n' "$*" >> "$AANROEPEN"
-
-case "${1:-}" in
-  # `git diff --quiet -- <bestand>`: 0 als er niets gewijzigd is. De momentopname is de staat van
-  # vóór de aanroep, dus dit is een getrouwe simulatie en geen aanname.
-  diff)      cmp -s "$MOMENTOPNAME" "$DOCKERFILE" ;;
-  ls-remote) exit "${LS_REMOTE_CODE:-0}" ;;
-  push)      [ "${GIT_PUSH_FAALT:-0}" = 0 ] ;;
-  *)         true ;;
-esac
-STUB
-
-chmod +x "$WERKMAP/bin/gh" "$WERKMAP/bin/git"
-export PATH="$WERKMAP/bin:$PATH"
 
 # $1 = FROM-regel, rest = extra regels erboven (commentaar of een tweede FROM).
 schrijf_dockerfile() {
@@ -82,37 +37,6 @@ schrijf_dockerfile() {
   printf 'FROM %s\n' "$from" >> "$DOCKERFILE"
   printf 'COPY . /src\n' >> "$DOCKERFILE"
 }
-
-# Zet een verse werkmap klaar voor één geval: eigen Dockerfile, momentopname en aanroepenlogboek.
-# Het draaien zelf doet `uitvoeren`.
-nieuw_geval() {
-  local map="$WERKMAP/$1"
-
-  mkdir -p "$map"
-  export DOCKERFILE="$map/Dockerfile"
-  export MOMENTOPNAME="$map/Dockerfile.voor"
-  export AANROEPEN="$map/aanroepen"
-  : > "$AANROEPEN"
-}
-
-vastleggen() { cp "$DOCKERFILE" "$MOMENTOPNAME"; }
-
-# `set +e` omdat een deel van de gevallen juist een niet-nul exitcode verwacht en deze suite zelf
-# onder `set -e` draait. BRANCH expliciet, zodat de aanroep-asserties niet meeschuiven als de default
-# in het script wijzigt.
-uitvoeren() {
-  set +e
-  UITVOER=$(BRANCH=chore/fuzz-basis-pin bash "$SCRIPT" 2>&1)
-  CODE=$?
-  set -e
-}
-
-bevat()      { grep -qF "$2" "$AANROEPEN" && ok "$1" || fout "$1 (aanroepen: $(tr '\n' '|' < "$AANROEPEN"))"; }
-bevat_niet() { grep -qF "$2" "$AANROEPEN" && fout "$1 (aanroepen: $(tr '\n' '|' < "$AANROEPEN"))" || ok "$1"; }
-gelijk()     { [ "$2" = "$3" ] && ok "$1" || fout "$1 (verwacht '$3', kreeg '$2')"; }
-niet_nul()   { [ "$2" -ne 0 ] && ok "$1" || fout "$1 (exitcode 0, uitvoer: $UITVOER)"; }
-meldt()      { grep -qF "$2" <<<"$UITVOER" && ok "$1" || fout "$1 (uitvoer: $UITVOER)"; }
-regel()      { grep -qxF "$2" "$DOCKERFILE" && ok "$1" || fout "$1 (bestand: $(tr '\n' '|' < "$DOCKERFILE"))"; }
 
 export GH_TOKEN=stub-token
 export POMS=784a07194fe785b210158bc95025a0b483eef565edb44623b62af64b553a6db2
@@ -132,6 +56,12 @@ bevat "verouderde pin zonder open PR opent een PR" "gh pr create"
 bevat "verouderde pin zonder open PR pusht de branch" "git push -f origin chore/fuzz-basis-pin"
 bevat "de nieuwe PR draagt de pom-hash van deze bouw" "$POMS"
 regel "de FROM-regel draagt de nieuwe digest" "FROM $NIEUW"
+# De volledige aanroepen, niet alleen het commando: een `commit -a` of een weggevallen pathspec zou
+# stilzwijgend andere wijzigingen uit de checkout meedragen in een PR die één regel belooft, en een
+# verdwenen identiteit laat de commit op de runner-default staan.
+bevat "de commit is tot het Dockerfile begrensd" "git commit -m chore(ci): pin het fuzz-basis-image op de huidige pom-set -- $DOCKERFILE"
+bevat "de commit draagt de bot-identiteit" "git config user.email 41898282+github-actions[bot]@users.noreply.github.com"
+bevat "de PR gaat naar main met de eigen branch als head" "gh pr create --base main --head chore/fuzz-basis-pin"
 
 # --- 2. Pin verouderd, open PR: verversen, geen tweede PR ---
 nieuw_geval met-pr
@@ -154,15 +84,27 @@ gelijk "actuele pin met open PR eindigt groen" "$CODE" 0
 bevat "actuele pin sluit de overbodige PR" "gh pr close 42"
 bevat "actuele pin ruimt de branch op" "git push origin --delete chore/fuzz-basis-pin"
 
-# --- 4. Pin al goed, geen open PR: niets doen ---
+# --- 4. Pin al goed, geen open PR en geen branch: niets doen ---
 nieuw_geval al-goed-zonder-pr
 schrijf_dockerfile "$NIEUW"
 vastleggen
-PR_LIJST='[]' DIGEST=$NIEUW uitvoeren
+PR_LIJST='[]' DIGEST=$NIEUW LS_REMOTE_CODE=2 uitvoeren
 gelijk "actuele pin zonder open PR eindigt groen" "$CODE" 0
 bevat_niet "actuele pin zonder open PR sluit niets" "gh pr close"
 bevat_niet "actuele pin zonder open PR opent niets" "gh pr create"
 bevat_niet "actuele pin zonder open PR pusht niets" "git push"
+
+# --- 4b. Pin al goed, geen open PR, branch nog aanwezig ---
+# Zo ziet de remote eruit na een run die tussen het sluiten van de PR en het verwijderen van de
+# branch afbrak. Hing het opruimen aan een ópen PR, dan bleef die branch voorgoed staan en droeg de
+# eerstvolgende bump de historie van een vorige cyclus.
+nieuw_geval al-goed-verweesde-branch
+schrijf_dockerfile "$NIEUW"
+vastleggen
+PR_LIJST='[]' DIGEST=$NIEUW uitvoeren
+gelijk "een verweesde pin-branch zonder PR eindigt groen" "$CODE" 0
+bevat "een verweesde pin-branch wordt alsnog verwijderd" "git push origin --delete chore/fuzz-basis-pin"
+bevat_niet "een verweesde pin-branch levert geen PR-sluiting op" "gh pr close"
 
 # --- 5. Branch al opgeruimd (ls-remote 2): sluiten blijft groen ---
 nieuw_geval branch-weg
@@ -200,6 +142,17 @@ niet_nul "een afgekapte digest faalt hard" "$CODE"
 meldt "een afgekapte digest noemt de oorzaak" "geen bruikbare digest"
 bevat_niet "een afgekapte digest sluit de openstaande PR niet" "gh pr close"
 regel "een afgekapte digest laat het Dockerfile ongemoeid" "FROM $OUD"
+
+# --- 8b. Meerregelige digest: de vormcontrole mag niet op de tweede regel slagen ---
+# Precies waarvoor `digest_is_welgevormd` `[[ =~ ]]` gebruikt in plaats van een per-regel ankerende
+# grep. Een waarde uit GITHUB_OUTPUT kan meerregelig zijn.
+nieuw_geval digest-met-newline
+schrijf_dockerfile "$OUD"
+vastleggen
+PR_LIJST='[]' DIGEST="$(printf 'rommel\n%s' "$NIEUW")" uitvoeren
+niet_nul "een meerregelige digest faalt hard" "$CODE"
+bevat_niet "een meerregelige digest opent geen PR" "gh pr create"
+regel "een meerregelige digest laat het Dockerfile ongemoeid" "FROM $OUD"
 
 # --- 9. Digest staat alleen in een commentaarregel: de echte FROM-regel telt ---
 nieuw_geval digest-in-commentaar
@@ -265,6 +218,31 @@ vastleggen
 PR_LIJST='[]' DIGEST=$NIEUW GH_FAALT="pr create" uitvoeren
 niet_nul "een mislukte PR-aanmaak maakt de run rood" "$CODE"
 
+# De twee muterende aanroepen die een halve toestand achterlaten: een PR die niet sluit terwijl de
+# branch wél verdwijnt, en een body die niet meeschuift met de digest die zojuist gepusht is.
+nieuw_geval pr-close-stuk
+schrijf_dockerfile "$NIEUW"
+vastleggen
+PR_LIJST=$EIGEN_PR DIGEST=$NIEUW GH_FAALT="pr close" uitvoeren
+niet_nul "een mislukte PR-sluiting maakt de run rood" "$CODE"
+bevat_niet "een mislukte PR-sluiting verwijdert de branch niet" "git push origin --delete"
+
+nieuw_geval pr-edit-stuk
+schrijf_dockerfile "$OUD"
+vastleggen
+PR_LIJST=$EIGEN_PR DIGEST=$NIEUW GH_FAALT="pr edit" uitvoeren
+niet_nul "een mislukte body-verversing maakt de run rood" "$CODE"
+
+# `git commit` eindigt niet-nul als er niets te committen valt. Zonder deze dekking zou een script
+# dat die uitkomst slikt een branch pushen zonder de wijziging erop.
+nieuw_geval commit-stuk
+schrijf_dockerfile "$OUD"
+vastleggen
+PR_LIJST='[]' DIGEST=$NIEUW GIT_COMMIT_FAALT=1 uitvoeren
+niet_nul "een mislukte commit maakt de run rood" "$CODE"
+bevat_niet "een mislukte commit pusht niets" "git push -f"
+bevat_niet "een mislukte commit opent geen PR" "gh pr create"
+
 nieuw_geval push-stuk
 schrijf_dockerfile "$OUD"
 vastleggen
@@ -299,13 +277,6 @@ gelijk "sourcen eindigt groen" "$CODE" 0
 meldt "sourcen laadt het script" "geladen"
 bevat_niet "sourcen roept geen enkele gh-aanroep aan" "gh "
 
-echo
-# Door ci-scripts.yml gelezen: een suite die stilletjes minder toetst, valt daar door de mand.
-echo "ASSERTIES=$geslaagd"
-
-if [ "$fails" -gt 0 ]; then
-  echo "$fails test(s) gefaald." >&2
-  exit 1
-fi
-
-echo "Alle tests geslaagd."
+# Print de uitkomst plus de ASSERTIES-regel die ci-scripts.yml leest: een suite die stilletjes
+# minder toetst, valt daar door de mand.
+pin_pr_uitkomst

@@ -21,8 +21,30 @@ mee, en trekt `docker compose --profile demo up -d` daar niet in. Bouw je ook de
 opnieuw, volg dan `../../docs/demo-runbook.md`; die beschrijft de volledige stack inclusief Podman,
 stub-generatie en de scenario's.
 
-Vul altijd een lege omgeving: het magazijn kent eigen bericht-ID's toe, dus twee keer vullen zonder
-legen levert het dubbele aantal berichten op.
+Na het opstarten staat de basisvulling er al: de console zet hem zelf in elk echt magazijn zonder
+berichten (zie [Vullen bij het opstarten](#vullen-bij-het-opstarten)). Vul daarna alleen een lege
+omgeving: het magazijn kent eigen bericht-ID's toe, dus twee keer vullen zonder legen levert het
+dubbele aantal berichten op.
+
+## Vullen bij het opstarten
+
+Een verse omgeving — een nieuwe preview, of een deployment waarvan de database opnieuw is aangemaakt —
+begint met lege magazijnen, en een lege berichtenbox is tijdens een demo niet van een kapotte keten te
+onderscheiden. De console telt daarom na het opstarten per echt magazijn de berichten, en zet in elk
+magazijn dat er geen heeft zijn deel van `basis.json`. Een magazijn met berichten blijft ongemoeid. De
+gesimuleerde magazijnen doen hetzelfde bij hun eigen start.
+
+- **Wachten op het magazijn.** Op een verse omgeving starten de componenten tegelijk. Heeft de database
+  van een magazijn nog geen tabellen, of komt het eerste bericht niet aan, dan probeert de console het
+  na `OPSTARTVULLING_INTERVAL` opnieuw — tot `OPSTARTVULLING_OPGEVEN_NA` na de start. Daarna meldt de
+  log met een `WARN` welk magazijn is opgegeven; *Herstel demo* zet ze dan alsnog op de basisvulling.
+- **Eén beoordeling per start.** Een magazijn dat gevuld of al gevuld is aangetroffen, bekijkt de
+  console niet opnieuw. Legen tijdens een demo blijft dus leeg — tot de console herstart, want dan
+  staat de post er weer.
+- **Geen tweede poging na een halve vulling.** Kwam een deel van de berichten niet aan, dan blijft het
+  daarbij, met een `WARN` in de log: opnieuw vullen zou het deel dat wél aankwam dubbel zetten.
+
+In de log staat elke stap onder `Opstartvulling`.
 
 ## Op ZAD
 
@@ -33,6 +55,11 @@ magazijnen-project `mpfm-w3h`, en rolt mee naar elke preview.
 <https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl> — inloggen met je
 rijksaccount. Een aanvraag zonder sessie krijgt HTTP 403 met de inlogpagina terug; dat is de
 authorization-wall, niet een kapot component.
+
+Elke uitrol logt je daar uit — het geheim waarmee de muur zijn sessies ondertekent rouleert bij
+iedere rendering. `inlogmuur.js` vangt dat op: het herkent de 403 van de muur aan `/oauth2/auth` en
+stuurt je langs de aanmelding terug naar de pagina waar je stond. Zonder dat meldt elke knop iets
+over een onleesbaar antwoord en blijft elke chip op "onbekend" staan.
 
 Elke preview draagt zijn eigen console op `democonsole-pr-<n>-mpfm-w3h…`, met de tag van díe PR.
 Een wijziging aan de demo is daar dus te beoordelen vóór hij samengevoegd wordt, inclusief de
@@ -67,15 +94,22 @@ heeft zijn eigen database.
 
 ## De knoppen
 
-Vier tabbladen. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom, storingen en
-gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand hoeft te vragen, en een melding met de
-uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ of ✗ vast.
+Vier tabbladen, met Info voorop. Bovenaan een toestandsbalk die zichzelf bijwerkt — berichten, stroom,
+storingen, componenten en gesimuleerde magazijnen zonder storing — zodat je niet naar de toestand
+hoeft te vragen, en een melding met de uitkomst van je laatste actie. De knop die je indrukte houdt
+zelf even een ✓ of ✗ vast.
+
+*Storingen* en *componenten* zeggen elk iets anders. *Storingen* toont wat Toxiproxy op de lijn naar
+een component aanzet; *componenten* vraagt elk component zelf om zijn readiness en wordt rood met de
+naam van wat onbereikbaar of niet gereed is. Een magazijn dat plat ligt terwijl zijn proxy op normaal
+staat — of dat op een gedeelde omgeving geen proxy heeft — zie je alleen in de tweede.
 
 | Tabblad | Knop | Wat het doet |
 |---|---|---|
+| Info | ↻ per blok | Toont zonder te vragen de berichten in de echte magazijnen, daaronder de gesimuleerde magazijnen (berichten in totaal, telling per gedrag, en uitklapbaar per magazijn met zijn berichten), de persona's met per persona of er een echt magazijn voor is, de stroom, de storingen en de componenten. Berichten, stroom, storingen en componenten lezen mee met de toestandsbalk; de gesimuleerde magazijnen volgen elke 30 seconden en na elke actie, zolang het tabblad open staat; persona's bij het laden. ↻ werkt een blok meteen bij. Elk blok zegt wanneer het bijgewerkt is, en een mislukte uitlezing laat de vorige stand staan met die melding erbij |
 | Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee en krijgen daarna hun standaardvulling terug; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken |
 | Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
-| Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo* |
+| Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo*. Een lege omgeving krijgt deze dataset al na het opstarten; in een gevulde zet de knop alles dubbel |
 | Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen |
 | Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten, 1 tot 500 |
 | Demo | Bericht plaatsen | *n* berichten (1 tot 100) voor de persona uit de keuzelijst; het magazijn is een willekeurige van de magazijnen waar die persona berichten van ontvangt. De keuzelijst komt uit `berichtPersonas` van `GET /api/demo/omgeving` en bevat alleen persona's mét magazijn |
@@ -84,8 +118,6 @@ uitkomst van je laatste actie. De knop die je indrukte houdt zelf even een ✓ o
 | Scenario's | Cache verlopen | Wist de sessiecache in Redis |
 | Scenario's | Ongeldig bericht aanbieden, Tweemaal hetzelfde event sturen | Losse scenario's; zie het runbook |
 | Scenario's | Gesimuleerde magazijnen | Zet *k* van de *n* zonder storing, zet berichten klaar, en leegt alles inclusief het gedrag; *n* vraagt de console aan de simulator zelf |
-| Info | Gesimuleerde magazijnen | Toont hoe elk gesimuleerd magazijn zich gedraagt |
-| Info | Uitlezen | De losse `GET`-endpoints, met de ruwe JSON eronder |
 
 Elke knop die iets aanroept levert een antwoord op. Een leeg of ongeldig invoerveld geeft een
 melding die het veld bij naam noemt (uit `data-veldnaam` in de opmaak) plus een ✗ op de knop, in
@@ -113,6 +145,9 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `MAGAZIJN_A_URL`, `MAGAZIJN_B_URL` | `http://localhost:8090`, `:8091` | Aanleveren |
 | `MAGAZIJN_A_DB_URL`, `MAGAZIJN_B_DB_URL` | localhost:5432, :5433 | Legen |
 | `MAGAZIJN_A_DB_SCHEMA`, `MAGAZIJN_B_DB_SCHEMA` | `public` | Schema per magazijn; op ZAD delen beide dezelfde database |
+| `OPSTARTVULLING_ACTIEF` | `true`, onder test `false` | Zet na het opstarten de basisvulling in elk echt magazijn zonder berichten; zie [Vullen bij het opstarten](#vullen-bij-het-opstarten) |
+| `OPSTARTVULLING_INTERVAL` | `20s` | Na hoeveel tijd een magazijn dat nog niet klaar was opnieuw geprobeerd wordt |
+| `OPSTARTVULLING_OPGEVEN_NA` | `30m` | Hoe lang na de start de console blijft wachten op een magazijn dat nog niet klaar is |
 | `TOXIPROXY_ADMIN_URL` | `http://localhost:8474` | Alle Toxiproxy-instanties tegelijk |
 | `TOXIPROXY_<PROXY>_URL` | de waarde hierboven | Eén instantie apart; op ZAD staat elke stroom op een eigen adres. Leeg zetten schakelt die proxy uit — het paneel verbergt dan zelf de bijbehorende knop (bv. `TOXIPROXY_MAGAZIJN_A_URL=` op ZAD) |
 | `UITVRAAG_BASIS` | leeg | Browser-zichtbaar adres van de uitvraag-API, **inclusief** het `/api/v1`-pad (bv. `https://uitvraag.example/api/v1`); leeg = afleiden uit de browser-locatie. `berichtenbox.js` gebruikt de waarde ongewijzigd als request-basis en de paginering strípt `/api/v1` uit de HAL-links op die aanname — zonder het pad faalt elke call zichtbaar voor de gebruiker (foutmelding in het paneel of een `alert`) |
@@ -126,3 +161,6 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `MAGAZIJN_SIMULATOR_URL` | `http://localhost:8092` | Beheerpad van de magazijn-simulator: vullen, legen en gedrag bijstellen |
 | `MAGAZIJN_SIMULATOR_BEHEER_TOKEN` | leeg | Token voor dat beheerpad. Leeg lokaal — dan blijft de header helemaal weg; op een gedeelde omgeving verplicht, anders geeft elke knop een 401 |
 | `SIMULATOR_BEREIKBAAR` | `true` | Op `false` laat het paneel de knoppen en de chip voor de gesimuleerde magazijnen weg |
+| `BEREIKBAARHEID_MAGAZIJN_A_URL`, `BEREIKBAARHEID_MAGAZIJN_B_URL`, `BEREIKBAARHEID_UITVRAAG_URL`, `BEREIKBAARHEID_SIMULATOR_URL` | het adres dat de console al voor dat component gebruikt | Waar de chip *componenten* `/q/health/ready` opvraagt. Alleen nodig waar dat adres niet het component zelf is, zoals een FSC-outway vóór het magazijn. Leeg zetten schakelt de controle van dat component uit; de simulator telt alleen mee bij `SIMULATOR_BEREIKBAAR=true` |
+| `BEREIKBAARHEID_PERSONADIENST_URL` | `http://localhost:8098` | Idem voor de personadienst. De console gebruikt die dienst verder nergens (de persona's komen in-process), dus hier is er geen adres om op terug te vallen: op een gedeelde omgeving altijd zetten, anders staat hij op onbereikbaar |
+| `BEREIKBAARHEID_INTERVAL` | `30s` | Hoe vaak de console de componenten ook zonder open paneel controleert. Elke uitval en elk herstel staat daardoor met tijdstip in het log, ook als niemand keek |

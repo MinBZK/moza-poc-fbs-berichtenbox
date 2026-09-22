@@ -429,6 +429,9 @@ services:
       # De console vraagt het aantal magazijnen aan de simulator zelf; er is hier bewust geen tweede
       # getal dat daarmee uit de pas kan lopen.
       MAGAZIJN_SIMULATOR_URL: http://magazijn-simulator:8092
+      # Alleen voor de chip "componenten": het paneel leest de persona's in-process en roept deze
+      # dienst verder nergens aan.
+      BEREIKBAARHEID_PERSONADIENST_URL: http://demo-personas:8098
 
   # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
   # of Eleventy op de machine vraagt. Zijn nginx zet het API-verkeer server-side door, dus de
@@ -438,10 +441,11 @@ services:
   # leesbare aanduiding van wat het is — hun main — en wordt nergens geverifieerd. Alleen die tag
   # zou stil onder een lopende demo door verschuiven.
   #
-  # Deze vorm is bovendien de enige die Dependabot voor dit image kan bijhouden: hij bumpt de digest
-  # zodra hun main verder gaat, waar hij een `sha-<commit>`-tag niet kan ordenen en een
-  # `${VAR:-...}` niet kan lezen. Daarom staat hier geen variabele meer; een andere versie draaien
-  # gaat via compose.proeftuin-versie.yaml.
+  # Bijwerken doet de workflow Proeftuin-pin: die vergelijkt deze digest op werkdagen met hun main
+  # en biedt een achterlopende pin als PR aan. Dependabot doet dit image niet meer; de reden staat
+  # bij de `ignore`-regel in .github/dependabot.yml. Zet hier dus geen variabele terug: dat script
+  # leest en vervangt één letterlijke referentie. Een andere versie draaien gaat via
+  # compose.proeftuin-versie.yaml.
   #
   # Deze regel is de enige vindplaats: alles wat wil weten welke berichtenbox draait — de deploy en
   # het ZAD-creatiescript — leest hem via .github/scripts/proeftuin-image.sh, zodat een bump hier
@@ -451,7 +455,7 @@ services:
   # hier. Op een oudere valt dat weg en loopt alleen het leespad, want /api/demo/personas valt daar
   # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
   proeftuin:
-    image: ghcr.io/minbzk/moza-poc:latest@sha256:bd4a32fe0a52616509a8dcee6f3cdcd198463f9cc4a2c0e0486a6d30a231f571
+    image: ghcr.io/minbzk/moza-poc:latest@sha256:832ab5a474995f309450f4ee20c644a68cc57cc07a2876f8a2ece796beb75003
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8096:8080"
