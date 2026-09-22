@@ -6,10 +6,11 @@
 
 Het ECP-symposium [*De European Business Wallet: op naar eenvoudigere overheidsdienstverlening aan bedrijven*](https://ecp.nl/agenda/symposiumde-european-business-wallet-op-naar-eenvoudigere-overheidsdienstverlening-aan-bedrijven/) (22 september 2026) noemt in zijn begrippenlijst de **elektronische geregistreerde bezorgdienst (ERDS)**: de digitale tegenhanger van aangetekende post, met bewijs van verzending en ontvangst. Het bijbehorende document geeft als voorbeeld de verzending van gerechtelijke stukken binnen de rechtspraak, waar volgens dat document gekwalificeerde bezorgdiensten inmiddels verplicht zijn.
 
-Dit document beantwoordt twee vragen:
+Dit document beantwoordt drie vragen:
 
 1. Kan ERDS de basis zijn voor FBS, gegeven de huidige opzet?
 2. Als je de huidige opzet loslaat: is een model met ERDS, de European Business Wallet (EBW) en een vault voor het bedrijf een betere oplossing?
+3. Kan de EUDI-wallet, met een bevoegdheid uit de business wallet, dienen om namens een bedrijf in te loggen en als identiteit in de keten?
 
 ## Begrippen
 
@@ -105,12 +106,56 @@ De kernkeuze daarbij is **kopie of verwijzing**:
 - **Kopie**: het bericht staat echt in de vault van het bedrijf, maar het is een duplicaat met alle gevolgen voor correctie en bewaring.
 - **Verwijzing**: één bron, maar de ondernemer blijft afhankelijk van de beschikbaarheid van die bron, en het bewijs van ontvangst dekt dan alleen de verwijzing.
 
+## Deel 3 — Inloggen namens een bedrijf met de EUDI-wallet
+
+Op het symposium werd gedemonstreerd hoe iemand met zijn **persoonlijke** wallet namens een bedrijf zaken doet, met een attestatie die gekoppeld is aan de **business wallet**. De vraag voor FBS: kan dat dienen om in te loggen op het portaal en als identiteit in de keten, zodat een afnemer weet wie er ingelogd is?
+
+### Hoe het werkt
+
+1. De business wallet bevat de **EBWOID** (*European Business Wallet Owner Identification Data*, voorheen LPID): de geverifieerde identiteit van het bedrijf, met onder meer de EUID of het KVK-nummer.
+2. Het bedrijf geeft een medewerker of vertegenwoordiger een **bevoegdheidsattestatie** (EAA). Die komt in diens persoonlijke EUDI-wallet en is aan die persoon gebonden, zodat alleen de houder hem kan tonen.
+3. Bij een dienst toont de persoon zijn persoonsgegevens (PID) én die attestatie. De dienst ziet dan: *persoon X handelt namens bedrijf Y, met bevoegdheid Z*.
+
+Het voorstel kent daarnaast een tweede route: gebruikers die de business wallet zelf bedienen. De route via de persoonlijke wallet past beter bij inloggen.
+
+Nog open is **wie de bevoegdheid mag uitgeven**. Wettelijke vertegenwoordiging hoort bij het handelsregister, maar bevoegdheden aan medewerkers geeft het bedrijf zelf. Een dienst moet per handeling bepalen welke uitgever hij vertrouwt. Ketenmachtigingen, waarbij een intermediair namens een klant handelt, zijn in het wallet-model nog het minst uitgewerkt.
+
+### Toepassing in FBS
+
+Dit sluit aan op de wallet als derde inlogkanaal naast DigiD en eHerkenning, zoals beschreven in de OpenID4VP-appendix van [de VoRijk-vergelijking](vergelijking-fbs-vorijk.md), en op het token met KvK/RSIN en machtigingsclaims dat `workspace.dsl` de Interactielaag voor ondernemers laat uitgeven.
+
+```
+Persoonlijke EUDI-wallet
+  └─ OpenID4VP: PID + bevoegdheidsattestatie ──► Interactielaag (verifier)
+                                                   ├─ controleert handtekening, intrekking, bevoegdheid
+                                                   └─ geeft eigen signed JWT uit
+                                                        ├─ onderneming (KVK/RSIN/EUID)
+                                                        ├─ handelende persoon (pseudoniem)
+                                                        └─ bevoegdheid (scope)
+                                                             ▼
+                                               uitvraag → magazijnen (afnemers)
+```
+
+De Interactielaag vertaalt de wallet-presentatie naar hetzelfde soort token als bij eHerkenning, dus uitvraag en magazijnen veranderen nauwelijks. Een afnemer weet dan welk bedrijf en welke persoon er handelen; dat laatste is met eHerkenning nu lastig door de keten te krijgen.
+
+### Wat geregeld moet worden
+
+1. **De wallet-presentatie gaat niet door de keten.** Die bevat persoonsgegevens en is bedoeld voor één ontvanger. De keten krijgt een eigen token met alleen wat nodig is, en een pseudoniem voor de persoon in plaats van een BSN.
+2. **Identificatienummers vertalen.** FBS kent BSN, RSIN, KVK en OIN (`Identificatienummer` in `fbs-common`). De EBWOID levert vooral de EUID, voor Nederland `NLNHR.<kvk-nummer>`. Een buitenlands bedrijf zonder RSIN of KVK-nummer vraagt een eigen type; [het plan voor getypeerde identificatienummers](plans/2026-04-22-identificatienummer-type-tagging.md) heeft `EidasId` om die reden uitgesteld.
+3. **Intrekking controleren bij het inloggen**, via de statuslijst van de attestatie, zodat een ingetrokken bevoegdheid (een vertrokken medewerker) direct geen toegang meer geeft.
+4. **Betrouwbaarheidsniveau vastleggen**: welk niveau van PID plus attestatie staat gelijk aan welk eHerkenning-niveau? Dat bepaalt welke berichten zichtbaar zijn.
+5. **Eenmanszaken** hebben geen business wallet, alleen de persoonlijke EUDI-wallet. Het portaal moet een persoon dus ook als ondernemer kunnen herkennen.
+6. **eHerkenning blijft nodig.** Het gebruik van de EBW is voor bedrijven vrijwillig; de wallet komt ernaast.
+
+Dit hoort bij de keten-brede authenticatie en autorisatie die nog op een oplossingsrichting wacht (MinBZK/MijnOverheidZakelijk#552).
+
 ## Open punten
 
 - Of de EBW via QERDS alleen volledige documenten bezorgt, of ook een verzegelde verwijzing naar een bron toestaat. Dat bepaalt of de hybride met verwijzingen juridisch houdbaar is.
 - Of de QERDS-functie in de wallet zelf zit of bij losse QTSP's blijft, en hoe een overheidsorganisatie dan als afzender aansluit: per organisatie een eigen QTSP-contract, of één gedeelde voorziening.
 - Welk moment als ontvangst geldt — beschikbaar stellen in de vault of openen — en hoe eIDAS en de Awb zich daarin tot elkaar verhouden.
 - Hoe de uitzondering voor kleine gemeenten die het Parlement voorstelt uitpakt, en wat dat betekent voor een stelsel waarin elke afzender een magazijn heeft.
+- Welke uitgever een afnemer vertrouwt voor een bevoegdheidsattestatie (handelsregister of het bedrijf zelf), en hoe ketenmachtigingen in het wallet-model worden uitgedrukt.
 - De bewering over verplicht gekwalificeerd bezorgen binnen de rechtspraak komt uit het symposiumdocument en is hier niet zelfstandig nagegaan.
 
 ## Bronnen
@@ -120,4 +165,7 @@ De kernkeuze daarbij is **kopie of verwijzing**:
 - [European business wallets — Legislative Train Schedule, Europees Parlement](https://www.europarl.europa.eu/legislative-train/theme-a-new-plan-for-europe-s-sustainable-prosperity-and-competitiveness/file-european-business-wallet)
 - [European business wallets — EPRS-briefing](https://www.europarl.europa.eu/RegData/etudes/BRIE/2025/774703/EPRS_BRI(2025)774703_EN.pdf)
 - [Verordening (EU) 910/2014 (eIDAS), art. 3(36), 43 en 44 — EUR-Lex](https://eur-lex.europa.eu/legal-content/NL/TXT/?uri=CELEX:32014R0910)
+- [European Business Wallet Owner ID (EBWOID) — iGrant.io](https://docs.igrant.io/docs/european-business-wallet-owner-id/)
+- [European Business Wallet Glossary 2026 — Spherity](https://www.spherity.com/post/european-business-wallet-glossary-2026-terminology-regulation-and-architecture)
+- [The European Business Wallet: eIDAS for companies, not just citizens — Yivi](https://yivi.app/en/blog/european-business-wallet/)
 - ETSI EN 319 522 (Electronic Registered Delivery Services) en ETSI EN 319 532 (Registered Electronic Mail)
