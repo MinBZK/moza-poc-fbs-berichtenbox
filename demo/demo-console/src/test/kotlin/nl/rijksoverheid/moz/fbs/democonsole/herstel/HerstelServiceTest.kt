@@ -64,9 +64,10 @@ class HerstelServiceTest {
     @Test
     fun `herstel doorloopt de stappen in de juiste volgorde`() {
         // De volgorde draagt betekenis: een lopende stroom zou tijdens het legen blijven vullen,
-        // en storingen zouden de basisvulling laten mislukken. De gesimuleerde magazijnen komen als
-        // laatste, want zij houden de twee echte magazijnen nergens voor tegen — andersom liet een
-        // onbereikbare simulator ze ongemoeid en bleef de omgeving halverwege staan.
+        // en storingen zouden de basisvulling laten mislukken. De gesimuleerde magazijnen komen na
+        // de echte, want zij houden die twee nergens voor tegen — andersom liet een onbereikbare
+        // simulator ze ongemoeid en bleef de omgeving halverwege staan. De sessies gaan als laatste:
+        // een berichtenbox die eerder opnieuw ophaalt, blijft staan met een halve set.
         alleStappenSlagen()
 
         service.herstel()
@@ -76,9 +77,9 @@ class HerstelServiceTest {
             storingService.reset()
             magazijnDatabase.leegAlles()
             aanleverService.leverAan(any())
-            sessieService.laatSessiesVerlopenZoMogelijk()
             simulatorService.herstelZoMogelijk()
             simulatorService.vulStandaard()
+            sessieService.laatSessiesVerlopenZoMogelijk()
         }
     }
 
@@ -182,6 +183,26 @@ class HerstelServiceTest {
     }
 
     @Test
+    fun `een mislukt wissen staat positief op de lijn, zodat het paneel niet groen kleurt`() {
+        // `non-null` laat een `null` voor sessiesGewist van de lijn vallen; zonder dit veld is
+        // "niet gelukt" daar niet te onderscheiden van "niet gevraagd".
+        alleStappenSlagen()
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns null
+
+        val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.herstel()))
+
+        assertTrue(json.path("sessiesNietGewist").booleanValue(), "$json")
+    }
+
+    @Test
+    fun `ook zonder simulator worden de sessies gewist`() {
+        alleStappenSlagen()
+        every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(overgeslagen = "geen simulator")
+
+        assertEquals(6, service.herstel().sessiesGewist)
+    }
+
+    @Test
     fun `een vulling die niet aankwam draagt haar reden mee naar het paneel`() {
         alleStappenSlagen()
 
@@ -218,5 +239,6 @@ class HerstelServiceTest {
         verify { magazijnDatabase.leegAlles() }
         verify(exactly = 0) { simulatorService.herstelZoMogelijk() }
         verify(exactly = 0) { simulatorService.vulStandaard() }
+        verify(exactly = 0) { sessieService.laatSessiesVerlopenZoMogelijk() }
     }
 }

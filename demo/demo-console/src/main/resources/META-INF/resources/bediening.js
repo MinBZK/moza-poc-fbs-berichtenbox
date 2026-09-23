@@ -467,6 +467,9 @@ function vullingSoort(body) {
     // te zijn: er is iets niet gebeurd waar de bediener op rekende.
     if (body && body.gesimuleerd && body.gesimuleerd.overgeslagen) return 'let-op';
 
+    // Zonder gewiste sessies tonen open berichtenboxen nog berichten die nergens meer staan.
+    if (body && body.sessiesNietGewist) return 'let-op';
+
     const vulling = body && body.vulling ? body.vulling : body;
 
     if (!vulling || typeof vulling.aangeboden !== 'number') return 'goed';

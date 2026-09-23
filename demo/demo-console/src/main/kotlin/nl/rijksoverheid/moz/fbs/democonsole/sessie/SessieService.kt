@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.democonsole.sessie
 
 import io.quarkus.redis.datasource.RedisDataSource
 import jakarta.enterprise.context.ApplicationScoped
+import java.util.logging.Level
 import java.util.logging.Logger
 
 /**
@@ -29,7 +30,7 @@ class SessieService(private val redis: RedisDataSource) {
      */
     fun laatSessiesVerlopenZoMogelijk(): Int? =
         runCatching { laatSessiesVerlopen() }.getOrElse { fout ->
-            log.warning("sessiecache niet gewist: $fout")
+            log.log(Level.WARNING, "sessiecache niet gewist", fout)
 
             null
         }

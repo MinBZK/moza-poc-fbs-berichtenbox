@@ -24,6 +24,9 @@ data class HerstelResultaat(
     val gesimuleerdGevuld: Int = 0,
 ) {
 
+    /** Positief op de lijn: een `null` in [sessiesGewist] valt er door `non-null` af. */
+    val sessiesNietGewist: Boolean = sessiesGewist == null
+
     /**
      * Het paneel toont één let-op-regel per antwoord; deze knop heeft er meer te melden. De reden
      * van een mislukte basisvulling voorop — daar valt iets aan te doen, aan het overslaan-venster
@@ -58,12 +61,13 @@ class HerstelService(
 
         val geleegd = magazijnDatabase.leegAlles()
         val vulling = aanleverService.leverAan(basisdataset.laad())
+        val (gesimuleerd, gevuld) = herstelGesimuleerde()
 
-        // Ná de vulling: een berichtenbox die daarna opnieuw ophaalt, krijgt meteen de hele nieuwe
-        // set, in plaats van een lege lijst die zich pas via de wachtrij van het magazijn vult.
+        // Als laatste: een berichtenbox die daarna opnieuw ophaalt, krijgt meteen de hele nieuwe set,
+        // ook uit de gesimuleerde magazijnen, en niet een halve die zich pas later aanvult.
         val sessies = sessieService.laatSessiesVerlopenZoMogelijk()
 
-        return metGesimuleerde(geleegd, vulling, sessies)
+        return HerstelResultaat(geleegd, vulling, gesimuleerd, sessies, gevuld)
     }
 
     /**
@@ -76,25 +80,18 @@ class HerstelService(
      * de weg; hem eerst aanroepen liet die twee ongemoeid en de omgeving halverwege staan, met de
      * berichten van de vorige demo er nog in.
      */
-    private fun metGesimuleerde(geleegd: Map<String, Int>, vulling: AanleverResultaat, sessies: Int?): HerstelResultaat {
+    private fun herstelGesimuleerde(): Pair<GesimuleerdHerstel, Int> {
         val gesimuleerd = simulatorService.herstelZoMogelijk()
 
-        if (gesimuleerd.overgeslagen != null) return HerstelResultaat(geleegd, vulling, gesimuleerd, sessies)
+        if (gesimuleerd.overgeslagen != null) return gesimuleerd to 0
 
         // Het vullen apart vangen: het legen is dan al gelukt, en dat terugdraaien kan niet. Zonder
         // deze melding stond de fan-out-demo op nul berichten terwijl de knop groen werd.
-        val gevuld = runCatching { simulatorService.vulStandaard().berichten }.getOrElse { fout ->
+        return runCatching { gesimuleerd to simulatorService.vulStandaard().berichten }.getOrElse { fout ->
             log.warning("gesimuleerde magazijnen niet gevuld: $fout")
 
-            return HerstelResultaat(
-                geleegd,
-                vulling,
-                gesimuleerd.copy(overgeslagen = "wel geleegd, niet gevuld: ${reden(fout)}"),
-                sessies,
-            )
+            gesimuleerd.copy(overgeslagen = "wel geleegd, niet gevuld: ${reden(fout)}") to 0
         }
-
-        return HerstelResultaat(geleegd, vulling, gesimuleerd, sessies, gevuld)
     }
 
     private fun reden(fout: Throwable): String = fout.message ?: fout::class.simpleName.orEmpty()

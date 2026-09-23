@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -83,6 +84,18 @@ class AanleverServiceTest {
         magazijnAntwoordt(403)
 
         assertFalse(service.leverAan(listOf(opdracht())).letOp!!.contains("publicatie-wachtrij"))
+    }
+
+    @Test
+    fun `op de lijn staat letOp, maar de losse reden niet`() {
+        // `reden` is voor het herstel, dat de wachtrij-melding weglaat; als eigen veld zou het paneel
+        // dezelfde reden twee keer kunnen tonen.
+        magazijnAntwoordt(403)
+
+        val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.leverAan(listOf(opdracht(), opdracht()))))
+
+        assertTrue(json.path("letOp").isTextual, "$json")
+        assertFalse(json.has("reden"), "$json")
     }
 
     @Test

@@ -21,8 +21,8 @@ import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import kotlin.random.Random
 
 /**
- * Wat het legen weghaalde. Twee benoemde velden en niet één platte map: de echte magazijnen tellen
- * per magazijn wat er stónd, de simulator telt zijn totalen. Samengevoegd las de melding als
+ * Wat het legen weghaalde. De echte magazijnen en de simulator in eigen velden en niet in één
+ * platte map: de echte magazijnen tellen per magazijn wat er stónd, de simulator telt zijn totalen. Samengevoegd las de melding als
  * "RVO 240, Bel.dienst 180, berichten 7840, magazijnen 98" — waarin "berichten 7840" eruitziet als
  * een magazijn dat nog vol staat, precies het tegenovergestelde van wat de knop deed.
  */
@@ -33,6 +33,9 @@ data class LeegAntwoord(
     val sessiesGewist: Int?,
 ) {
     val letOp: String = sessieMelding(sessiesGewist)
+
+    /** Positief op de lijn: een `null` in [sessiesGewist] valt er door `non-null` af. */
+    val sessiesNietGewist: Boolean = sessiesGewist == null
 }
 
 @Path("/api/demo")

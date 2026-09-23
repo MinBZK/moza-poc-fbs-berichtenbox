@@ -29,8 +29,8 @@ import java.util.logging.Logger
  * aangeleverd bericht in de publicatie-wachtrij van het magazijn belandt en dus niet meteen in de
  * Berichtenbox staat; `null` als er niets te melden is. De twee tellers hierboven krijgen geen
  * reden, want die berichten kwamen wél aan. Alleen via [van] te maken, en `copy()` erft die
- * zichtbaarheid: `mislukt` en `letOp` komen zo aantoonbaar uit dezelfde lijst en kunnen elkaar
- * niet tegenspreken.
+ * zichtbaarheid: `mislukt` en `reden` komen zo aantoonbaar uit dezelfde lijst, en `letOp` volgt uit
+ * `reden`, zodat ze elkaar niet kunnen tegenspreken.
  */
 @ConsistentCopyVisibility
 data class AanleverResultaat private constructor(
@@ -39,12 +39,15 @@ data class AanleverResultaat private constructor(
     val mislukt: Int,
     val markeringMislukt: Int,
     val zonderBerichtId: Int,
-    val letOp: String?,
-    // Alleen de faalreden, zonder de wachtrij-melding: een herstel vult ook aan, maar daar is die
-    // melding onwaar — de berichtenboxen halen na het wissen van de sessies zelf opnieuw op.
+    // Alleen de faalreden: een herstel vult ook aan, maar daar is de wachtrij-melding onwaar.
     @get:JsonIgnore
     val reden: String?,
 ) {
+
+    // Bij een ronde waarin niets aankwam, zou de wachtrij-melding de aandacht weghalen bij de reden
+    // dat het misging.
+    val letOp: String?
+        get() = listOfNotNull(reden, PUBLICATIEWACHTRIJ_MELDING.takeIf { geslaagd > 0 }).joinToString(" ").ifEmpty { null }
 
     internal companion object {
 
@@ -60,12 +63,6 @@ data class AanleverResultaat private constructor(
             mislukt = redenen.size,
             markeringMislukt = markeringMislukt,
             zonderBerichtId = zonderBerichtId,
-            // Bij een ronde waarin niets aankwam, zou de wachtrij-melding de aandacht weghalen bij
-            // de reden dat het misging.
-            letOp = listOfNotNull(
-                Faalreden.samenvatting(redenen),
-                PUBLICATIEWACHTRIJ_MELDING.takeIf { geslaagd > 0 },
-            ).joinToString(" ").ifEmpty { null },
             reden = Faalreden.samenvatting(redenen),
         )
     }

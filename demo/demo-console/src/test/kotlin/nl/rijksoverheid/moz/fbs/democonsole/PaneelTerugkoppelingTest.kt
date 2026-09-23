@@ -876,6 +876,12 @@ class PaneelTerugkoppelingTest {
     }
 
     /** De body van een functie op het hoogste niveau van `bediening.js`. */
+    @Test
+    fun `een mislukt wissen van de sessies kleurt de uitkomst let-op`() {
+        // Herstel en legen melden het in hun tekst, maar tekst alleen laat de knop groen.
+        assertTrue("body.sessiesNietGewist" in functie("vullingSoort"), "vullingSoort kijkt niet naar sessiesNietGewist")
+    }
+
     private fun functie(naam: String): String {
         val body = Regex("""^(?:async )?function $naam\([^)]*\) \{${'$'}(.*?)^}${'$'}""", setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL))
             .find(script)

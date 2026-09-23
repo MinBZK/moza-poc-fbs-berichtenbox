@@ -8,9 +8,9 @@ package nl.rijksoverheid.moz.fbs.democonsole
  * twee zit dus tijd, en in die tijd lijkt een geslaagde aanlevering op een knop die niets deed.
  *
  * Bewust zonder getal en zonder "kort": hoe vaak die wachtrij wordt verwerkt is een instelling van
- * het magazijn — met de huidige waarde duurt het gemiddeld een halve minuut, en een paneel dat
- * snelheid suggereert laat de bediener zoeken naar een fout die er niet is. Een getal zou boven-
- * dien gaan afwijken zodra een operator die instelling bijstelt.
+ * het magazijn, die per omgeving verschilt. Een paneel dat snelheid suggereert laat de bediener
+ * zoeken naar een fout die er niet is, en een getal gaat afwijken zodra een operator die instelling
+ * bijstelt.
  */
 const val PUBLICATIEWACHTRIJ_MELDING: String =
     "Aangeleverde berichten staan in de publicatie-wachtrij van het magazijn. Ze verschijnen in de " +
