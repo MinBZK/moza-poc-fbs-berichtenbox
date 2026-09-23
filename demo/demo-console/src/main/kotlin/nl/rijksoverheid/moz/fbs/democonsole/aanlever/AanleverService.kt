@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
@@ -39,6 +40,10 @@ data class AanleverResultaat private constructor(
     val markeringMislukt: Int,
     val zonderBerichtId: Int,
     val letOp: String?,
+    // Alleen de faalreden, zonder de wachtrij-melding: een herstel vult ook aan, maar daar is die
+    // melding onwaar — de berichtenboxen halen na het wissen van de sessies zelf opnieuw op.
+    @get:JsonIgnore
+    val reden: String?,
 ) {
 
     internal companion object {
@@ -61,6 +66,7 @@ data class AanleverResultaat private constructor(
                 Faalreden.samenvatting(redenen),
                 PUBLICATIEWACHTRIJ_MELDING.takeIf { geslaagd > 0 },
             ).joinToString(" ").ifEmpty { null },
+            reden = Faalreden.samenvatting(redenen),
         )
     }
 }

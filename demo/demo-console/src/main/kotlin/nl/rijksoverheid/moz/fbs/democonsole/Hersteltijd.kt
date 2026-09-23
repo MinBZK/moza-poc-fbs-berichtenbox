@@ -17,3 +17,18 @@ const val HERSTELTIJD_MELDING: String =
         "beschikbaar' verschijnen: de uitvraag slaat een organisatie na drie storingen een halve " +
         "minuut over voordat hij het opnieuw probeert. Wachten volstaat — daarna gaat ophalen vanzelf " +
         "weer goed."
+
+/**
+ * Na het leeggooien van de magazijnen zijn ook de sessies gewist. Een open berichtenbox krijgt bij
+ * zijn volgende hartslag te horen dat zijn sessie weg is en haalt dan zelf opnieuw op — de
+ * bediener hoeft niet te verversen, maar ziet de lijst wel even leeg of opnieuw laden.
+ */
+const val SESSIES_GEWIST_MELDING: String =
+    "De sessies zijn gewist: een open berichtenbox haalt zijn berichten vanzelf opnieuw op."
+
+/** Lukte het wissen niet, dan tonen berichtenboxen nog berichten die in geen magazijn meer staan. */
+const val SESSIES_NIET_GEWIST_MELDING: String =
+    "De sessies konden niet gewist worden; open berichtenboxen tonen nog de berichten van hiervoor. " +
+        "Gebruik 'Cache verlopen' om dat recht te zetten."
+
+internal fun sessieMelding(gewist: Int?): String = if (gewist == null) SESSIES_NIET_GEWIST_MELDING else SESSIES_GEWIST_MELDING

@@ -9,17 +9,21 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.PUBLICATIEWACHTRIJ_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.SESSIES_GEWIST_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.SESSIES_NIET_GEWIST_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.Faalreden
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessieService
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoStatus
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -33,6 +37,7 @@ class HerstelServiceTest {
     private val basisdataset = mockk<Basisdataset>()
     private val aanleverService = mockk<AanleverService>()
     private val simulatorService = mockk<SimulatorService>()
+    private val sessieService = mockk<SessieService>()
 
     private val service = HerstelService(
         tempoService,
@@ -41,6 +46,7 @@ class HerstelServiceTest {
         basisdataset,
         aanleverService,
         simulatorService,
+        sessieService,
     )
 
     private fun alleStappenSlagen() {
@@ -49,6 +55,7 @@ class HerstelServiceTest {
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
         every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(40, 40, 0, 0, emptyList())
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns 6
         every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(berichten = 2000, magazijnen = 98)
         every { simulatorService.vulStandaard() } returns
             nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 10584, 2646, 0, 500)
@@ -69,6 +76,7 @@ class HerstelServiceTest {
             storingService.reset()
             magazijnDatabase.leegAlles()
             aanleverService.leverAan(any())
+            sessieService.laatSessiesVerlopenZoMogelijk()
             simulatorService.herstelZoMogelijk()
             simulatorService.vulStandaard()
         }
@@ -150,10 +158,27 @@ class HerstelServiceTest {
     }
 
     @Test
-    fun `een herstel zonder mislukkingen meldt de publicatie-wachtrij en de hersteltijd`() {
+    fun `een herstel zonder mislukkingen meldt het wissen van de sessies en de hersteltijd`() {
+        // Niet de wachtrij-melding van de vulling: na het wissen halen de berichtenboxen zelf
+        // opnieuw op, rechtstreeks uit de magazijnen en niet via die wachtrij.
         alleStappenSlagen()
 
-        assertEquals("$PUBLICATIEWACHTRIJ_MELDING $HERSTELTIJD_MELDING", service.herstel().letOp)
+        val letOp = service.herstel().letOp
+
+        assertEquals("$SESSIES_GEWIST_MELDING $HERSTELTIJD_MELDING", letOp)
+        assertFalse(letOp.contains(PUBLICATIEWACHTRIJ_MELDING))
+    }
+
+    @Test
+    fun `lukt het wissen van de sessies niet, dan zegt het herstel dat en gaat het verder`() {
+        alleStappenSlagen()
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns null
+
+        val resultaat = service.herstel()
+
+        assertNull(resultaat.sessiesGewist)
+        assertTrue(resultaat.letOp.startsWith(SESSIES_NIET_GEWIST_MELDING), resultaat.letOp)
+        verify { simulatorService.vulStandaard() }
     }
 
     @Test
@@ -165,7 +190,7 @@ class HerstelServiceTest {
         every { aanleverService.leverAan(any()) } returns mislukt
 
         // De volledige regel, want juist de naad tussen de twee zinnen is wat hier kan misgaan.
-        assertEquals("${mislukt.letOp} $HERSTELTIJD_MELDING", service.herstel().letOp)
+        assertEquals("${mislukt.reden} $SESSIES_GEWIST_MELDING $HERSTELTIJD_MELDING", service.herstel().letOp)
     }
 
     @Test
@@ -177,7 +202,7 @@ class HerstelServiceTest {
         val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.herstel()))
 
         assertTrue(json.path("letOp").isTextual, "veld letOp ontbreekt of is geen tekst: $json")
-        assertEquals("$PUBLICATIEWACHTRIJ_MELDING $HERSTELTIJD_MELDING", json.path("letOp").asText())
+        assertEquals("$SESSIES_GEWIST_MELDING $HERSTELTIJD_MELDING", json.path("letOp").asText())
     }
 
     @Test
