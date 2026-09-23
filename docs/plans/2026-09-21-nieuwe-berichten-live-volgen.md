@@ -72,6 +72,15 @@ van Quarkus blijft dan hangen terwijl de berichten wél binnenkomen. Gemeten in 
 wisselend per run. De pod publiceert daarom een eigen probe op het kanaal en noemt het abonnement
 pas actief als die terugkomt — precies de garantie waarop `volgen-gestart` leunt.
 
+Daarna herhaalt de pod die probe periodiek (`berichtensessiecache.aanmeldingen-controle`), want een
+connection kan ook stil wegvallen. Pas na twee gemiste probes op rij geldt het abonnement als weg:
+één trage Redis-reactie zou anders alle streams van de pod tegelijk laten herverbinden. Elke poging
+om te abonneren houdt zijn eigen subscriber en controle bij, zodat een poging die te laat
+binnenkomt of opgegeven is een latere niet kan overschrijven of afmelden.
+
+Een pod die stopt, sluit zijn streams zonder fout en zonder `sessie-verlopen`: voor de afnemer
+hetzelfde als het einde na de maximale duur, dus gewoon opnieuw verbinden.
+
 ### Sessie in leven houden
 
 Het aanmeld-pad schrijft alleen in een actieve sessie, en de lijst verlengt de sessie alleen bij
@@ -126,7 +135,10 @@ de foutantwoorden vóór de stream houden hem via het filter.
 - Library: `SessieVolgerTest` (volgorde, filteren per ontvanger, meerdere luisteraars, hartslag,
   verlopen sessie, wegvallend abonnement, leesfout, afmelden, hartslag-validatie),
   `RedisAanmeldingenIntegrationTest` (tussen twee "pods" tegen echte Redis, onleesbare
-  kanaalberichten, afmelden, `verlengSessie` voor en na de helft van de TTL),
+  kanaalberichten, afmelden, registreren tijdens afmelden, een stil vastgelopen en een even
+  haperend abonnement, stoppen tijdens het abonneren, `verlengSessie` voor en na de helft van de
+  TTL), `RedisBerichtenCacheIntegrationTest` (een aangemeld bericht dat de sessie al kent, ook
+  gelijktijdig, en het herstel van een verlopen hash),
   `BlockingSessiecacheTest` (gating vóór de stream, aanmelden best-effort).
 - Uitvraag: `VolgenSseTest` (wire-vorm per gebeurtenis, foutstatussen vóór de stream, ongeldige
   `X-Ontvanger`, afgebroken stroom), `VolgSseContractTest` (spec ↔ code, beide richtingen),
