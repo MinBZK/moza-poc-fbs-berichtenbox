@@ -144,19 +144,18 @@ class PaneelPadenTest {
     }
 
     /**
-     * Elke uitleg achter een vraagteken moet te openen zijn én bij zijn optie horen. Een
-     * `popovertarget` naar een id zonder `popover` doet niets bij een klik; een uitleg zonder
-     * `aria-describedby` vanuit de optie is voor een schermlezer een losse tekst ergens op de pagina.
+     * Een omschrijving bij een optie hoort er via `aria-describedby` aan vast te zitten, anders is
+     * hij voor een schermlezer een losse tekst ergens in de groep. En hij moet bestaan: een
+     * verwijzing naar een id dat er niet is, leest de schermlezer als niets.
      */
     @Test
-    fun `elke uitleg achter een vraagteken is te openen en hoort bij zijn optie`() {
-        val doelen = uitPaneel("""popovertarget="([^"]+)"""").toSet()
-        val popovers = uitPaneel("""<div id="([^"]+)"[^>]*\spopover""").toSet()
-        val beschreven = uitPaneel("""aria-describedby="([^"]+)"""").toSet()
+    fun `elke omschrijving bij een optie bestaat en hoort bij die optie`() {
+        val verwijzingen = uitPaneel("""aria-describedby="([^"]+)"""").toSet()
+        val omschrijvingen = uitPaneel("""<p id="([^"]+)" class="veld__omschrijving"""").toSet()
 
-        assertTrue(doelen.isNotEmpty(), "geen enkel vraagteken gevonden in $PANEEL")
-        assertEquals(emptySet<String>(), doelen - popovers, "vraagteken wijst naar iets dat geen popover is")
-        assertEquals(emptySet<String>(), doelen - beschreven, "uitleg die door geen enkele optie beschreven wordt")
+        assertTrue(omschrijvingen.isNotEmpty(), "geen enkele omschrijving bij een optie gevonden in $PANEEL")
+        assertEquals(emptySet<String>(), verwijzingen - uitPaneel("""id="([^"]+)"""").toSet(), "aria-describedby naar een id dat niet bestaat")
+        assertEquals(emptySet<String>(), omschrijvingen - verwijzingen, "omschrijving die door geen enkele optie beschreven wordt")
     }
 
     /**
