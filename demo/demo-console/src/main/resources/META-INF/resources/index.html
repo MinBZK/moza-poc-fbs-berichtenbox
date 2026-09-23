@@ -211,20 +211,28 @@
             <input id="berichtAantal" type="number" value="1" min="1" max="100" required
                    data-veldnaam="het aantal berichten voor deze persona">
           </label>
-          <label class="veld veld--vinkje">
-            <input id="berichtWillekeurigTijdstip" type="checkbox"
-                   data-veldnaam="het vinkje voor willekeurige tijdstippen">
-            Willekeurige tijdstippen
-          </label>
+          <div class="veld veld--vinkje">
+            <label>
+              <input id="berichtWillekeurigTijdstip" type="checkbox"
+                     data-veldnaam="het vinkje voor willekeurige tijdstippen"
+                     aria-describedby="uitlegWillekeurigTijdstip">
+              Willekeurige tijdstippen
+            </label>
+            <button type="button" class="uitlegknop" popovertarget="uitlegWillekeurigTijdstip"
+                    aria-label="Uitleg bij willekeurige tijdstippen">?</button>
+            <div id="uitlegWillekeurigTijdstip" class="uitleg-popover" popover>
+              Zonder vinkje krijgt het bericht het tijdstip van nu en staat het bovenaan de
+              berichtenbox. Aangevinkt krijgt het een willekeurig moment uit de afgelopen drie
+              maanden, zoals de basisvulling.
+            </div>
+          </div>
           <div class="knoppen">
             <button type="button" class="knop" id="berichtKnop" data-methode="POST" disabled
                     data-wacht-op-lijst="ja"
                     data-pad="/api/demo/bericht?persona={berichtPersona}&amp;aantal={berichtAantal}&amp;willekeurigTijdstip={berichtWillekeurigTijdstip}"
                     data-samenvatting="vulling">Bericht plaatsen</button>
           </div>
-          <p class="uitleg">Zonder vinkje krijgt het bericht het tijdstip van nu en staat het
-            bovenaan de berichtenbox; aangevinkt krijgt het een willekeurig moment uit de afgelopen
-            drie maanden, zoals de basisvulling. Levert aan bij een van de magazijnen waar deze persona berichten van
+          <p class="uitleg">Levert aan bij een van de magazijnen waar deze persona berichten van
             ontvangt; welke van die magazijnen het wordt blijft toeval. Persona&rsquo;s zonder magazijn
             staan er niet bij &mdash; voor hen is hier geen magazijn ingericht om aan te leveren; hun
             berichten komen van de magazijn-simulator.</p>

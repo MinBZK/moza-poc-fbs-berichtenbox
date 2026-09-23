@@ -144,6 +144,22 @@ class PaneelPadenTest {
     }
 
     /**
+     * Elke uitleg achter een vraagteken moet te openen zijn én bij zijn optie horen. Een
+     * `popovertarget` naar een id zonder `popover` doet niets bij een klik; een uitleg zonder
+     * `aria-describedby` vanuit de optie is voor een schermlezer een losse tekst ergens op de pagina.
+     */
+    @Test
+    fun `elke uitleg achter een vraagteken is te openen en hoort bij zijn optie`() {
+        val doelen = uitPaneel("""popovertarget="([^"]+)"""").toSet()
+        val popovers = uitPaneel("""<div id="([^"]+)"[^>]*\spopover""").toSet()
+        val beschreven = uitPaneel("""aria-describedby="([^"]+)"""").toSet()
+
+        assertTrue(doelen.isNotEmpty(), "geen enkel vraagteken gevonden in $PANEEL")
+        assertEquals(emptySet<String>(), doelen - popovers, "vraagteken wijst naar iets dat geen popover is")
+        assertEquals(emptySet<String>(), doelen - beschreven, "uitleg die door geen enkele optie beschreven wordt")
+    }
+
+    /**
      * Een `data-samenvatting` die `bediening.js` niet kent, valt terug op een kaal groen "Gelukt":
      * de knop meldt succes zonder de samenvatting die zegt wát er gebeurde.
      *

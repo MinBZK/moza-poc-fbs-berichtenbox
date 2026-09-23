@@ -542,6 +542,43 @@ body.ingeklapt #paneel {
     padding: 0;
 }
 
+.veld--vinkje label {
+    align-items: center;
+    display: flex;
+    gap: var(--bediening-space-xs);
+}
+
+/* Klein en stil: de uitleg is er voor wie hem zoekt, niet voor wie aan het demonstreren is. */
+.uitlegknop {
+    background: none;
+    block-size: 1.25rem;
+    border: var(--bediening-border-width-xs) solid var(--bediening-color-border-default);
+    border-radius: 50%;
+    color: var(--bediening-color-text-subtle);
+    cursor: help;
+    font: inherit;
+    font-size: 0.75rem;
+    inline-size: 1.25rem;
+    line-height: 1;
+    padding: 0;
+}
+
+.uitlegknop:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+
+/* De popover staat in de bovenste laag en duwt daardoor niets opzij; de groep verspringt niet. */
+.uitleg-popover {
+    background: var(--bediening-color-background-subtle);
+    border: var(--bediening-border-width-xs) solid var(--bediening-color-border-default);
+    border-radius: var(--bediening-border-radius-sm);
+    color: var(--bediening-color-text-default);
+    font-size: var(--bediening-font-size-md);
+    max-inline-size: 22rem;
+    padding: var(--bediening-space-xs);
+}
+
 .uitleg {
     color: var(--bediening-color-text-subtle);
     font-size: var(--bediening-font-size-sm);
