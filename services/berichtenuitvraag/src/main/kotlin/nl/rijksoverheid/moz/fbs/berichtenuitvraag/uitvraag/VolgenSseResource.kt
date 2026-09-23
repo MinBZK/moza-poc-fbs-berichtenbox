@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
 import com.fasterxml.jackson.annotation.JsonValue
+import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
 import jakarta.enterprise.context.ApplicationScoped
@@ -29,6 +30,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.ResponseHeader
 import org.jboss.resteasy.reactive.RestStreamElementType
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -105,17 +107,30 @@ class VolgenSseResource(
 
         return stream
             .map { naarVolgGebeurtenis(it) }
-            .onFailure().invoke { fout ->
-                // Ná het openen is de status al 200; zonder deze regel verdwijnt de oorzaak. De
-                // cause-keten kan een URL met ontvanger bevatten, dus alleen de klassen.
-                log.warnf(
-                    "Gevolgde sessie afgebroken (ontvanger.type=%s, fout=%s, oorzaak=%s)",
-                    ontvanger.type,
-                    fout.javaClass.simpleName,
-                    fout.cause?.javaClass?.simpleName ?: "geen",
-                )
-            }
+            .onFailure().invoke { fout -> meldAfgebroken(fout, ontvanger) }
             .onTermination().invoke { -> geefVrij(ontvanger) }
+    }
+
+    /**
+     * Ná het openen is de status al 200, dus zonder deze regel verdwijnt de oorzaak — uit de log én
+     * uit het logboek, dat de verwerking anders als geslaagd vastlegt. Zelfde vorm als bij
+     * `_ophalen`: een `errorId` om de regel aan een melding te koppelen, en alleen klassenamen,
+     * want de cause-keten kan een URL met de ontvanger bevatten.
+     *
+     * Op `warn` en niet op `error` zoals daar: valt het abonnement van een pod weg, dan breken al
+     * zijn streams tegelijk af, en die oorzaak logt de sessiecache al één keer per pod. Per stream
+     * een error-regel zou één incident als honderden laten lezen.
+     */
+    private fun meldAfgebroken(fout: Throwable, ontvanger: Identificatienummer) {
+        logboekContext.status = StatusCode.ERROR
+
+        log.warnf(
+            "(errorId=%s) Gevolgde sessie afgebroken (ontvanger.type=%s, fout=%s, oorzaak=%s)",
+            UUID.randomUUID(),
+            ontvanger.type,
+            fout.javaClass.simpleName,
+            fout.cause?.javaClass?.simpleName ?: "geen",
+        )
     }
 
     private fun reserveer(ontvanger: Identificatienummer) {
@@ -143,7 +158,7 @@ class VolgenSseResource(
     }
 
     private fun teVeel(melding: String) = FbsFoutException(
-        Foutcode.TIJDELIJK_NIET_BESCHIKBAAR,
+        Foutcode.TE_VEEL_OPEN_BERICHTENBOXEN,
         Response.Status.SERVICE_UNAVAILABLE,
         melding,
         retryAfterSeconden = RETRY_AFTER_SECONDEN,

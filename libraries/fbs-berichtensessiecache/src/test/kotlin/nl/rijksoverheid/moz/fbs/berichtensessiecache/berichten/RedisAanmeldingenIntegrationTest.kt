@@ -16,6 +16,7 @@ import java.util.UUID
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Het doorgeven van aanmeldingen tussen pods en het verlengen van een gevolgde sessie, tegen een
@@ -35,7 +36,7 @@ class RedisAanmeldingenIntegrationTest {
     @Inject
     internal lateinit var berichtenCache: BerichtenCache
 
-    private val anderePod by lazy { RedisAanmeldingen(redis) }
+    private val anderePod by lazy { RedisAanmeldingen(redis, STANDAARD_CONTROLE) }
 
     // Uniek per test: de Redis-container wordt gedeeld tussen testklassen met dit profiel.
     private val ontvanger = Oin(System.nanoTime().toString().padStart(20, '0').takeLast(20))
@@ -107,7 +108,7 @@ class RedisAanmeldingenIntegrationTest {
         // Het venster: één tabblad sluit terwijl een ander voor dezelfde ontvanger opent. De
         // afmelding haalt de set weg zodra hij leeg is; een registratie die op die set had gerekend
         // viel vroeger in het niets. Herhaald, omdat een race zich niet op commando laat zien.
-        val pod = RedisAanmeldingen(redis)
+        val pod = RedisAanmeldingen(redis, STANDAARD_CONTROLE)
 
         repeat(HERHALINGEN) { ronde ->
             val sleutel = "$cacheKey-$ronde"
@@ -130,6 +131,80 @@ class RedisAanmeldingenIntegrationTest {
             assertEquals(berichtId, ontvangen.poll(), "ronde $ronde: de nieuwe luisteraar kreeg de aanmelding niet")
             nieuw.afmelden()
         }
+    }
+
+    @Test
+    fun `een luisteraar die gooit, houdt het bericht niet weg bij de andere`() {
+        val pod = RedisAanmeldingen(redis, STANDAARD_CONTROLE)
+        val ontvangen = LinkedBlockingQueue<UUID>()
+        pod.registreer(cacheKey, { throw IllegalStateException("tabblad kapot") }, {})
+        pod.registreer(cacheKey, { ontvangen += it }, {})
+        val berichtId = UUID.randomUUID()
+
+        pod.verdeel("$cacheKey $berichtId")
+
+        assertEquals(berichtId, ontvangen.poll())
+    }
+
+    @Test
+    fun `een stoppende pod laat elke gevolgde sessie weten dat hij opnieuw moet verbinden`() {
+        val pod = RedisAanmeldingen(redis, STANDAARD_CONTROLE)
+        val storingen = LinkedBlockingQueue<Throwable>()
+        pod.registreer(cacheKey, {}, { storingen += it })
+        pod.registreer("${cacheKey}x", {}, { storingen += it })
+
+        pod.stop()
+
+        assertEquals(2, storingen.size, "elke luisteraar hoort het te horen, op elke sleutel")
+    }
+
+    @Test
+    fun `een gezond abonnement doorstaat zijn controles zonder vals alarm`() {
+        val pod = RedisAanmeldingen(redis, SNELLE_CONTROLE)
+        val storingen = LinkedBlockingQueue<Throwable>()
+        val ontvangen = LinkedBlockingQueue<UUID>()
+        pod.registreer(cacheKey, { ontvangen += it }, { storingen += it })
+        pod.actief().await().atMost(WACHTTIJD)
+
+        // Ruim meer dan een handvol controles laten verstrijken.
+        Thread.sleep(SNELLE_CONTROLE.toMillis() * 8)
+
+        assertTrue(storingen.isEmpty(), "een gezond abonnement mag geen storing melden: $storingen")
+
+        val berichtId = UUID.randomUUID()
+        aanmeldingen.meld(cacheKey, berichtId).await().atMost(WACHTTIJD)
+
+        assertEquals(berichtId, ontvangen.poll(5, TimeUnit.SECONDS))
+        pod.stop()
+    }
+
+    @Test
+    fun `een abonnement dat stil vastloopt, wordt opgemerkt en daarna herbouwd`() {
+        // CLIENT PAUSE WRITE laat Redis elke PUBLISH vasthouden: de verbinding blijft open en er
+        // komt geen fout, maar er komt ook niets meer door. Precies de stille storing waar de
+        // periodieke probe voor is.
+        val pod = RedisAanmeldingen(redis, SNELLE_CONTROLE)
+        val storingen = LinkedBlockingQueue<Throwable>()
+        pod.registreer(cacheKey, {}, { storingen += it })
+        pod.actief().await().atMost(WACHTTIJD)
+
+        redis.execute("CLIENT", "PAUSE", PAUZE.toMillis().toString(), "WRITE").await().atMost(WACHTTIJD)
+
+        val storing = storingen.poll(PAUZE.toSeconds(), TimeUnit.SECONDS)
+
+        assertTrue(storing is TimeoutException, "verwacht een verlopen probe, kreeg: $storing")
+
+        // Na de pauze bouwt de volgende activering een nieuw abonnement dat weer doorgeeft.
+        Thread.sleep(PAUZE.toMillis())
+        val ontvangen = LinkedBlockingQueue<UUID>()
+        pod.registreer(cacheKey, { ontvangen += it }, {})
+        pod.actief().await().atMost(WACHTTIJD)
+        val berichtId = UUID.randomUUID()
+
+        aanmeldingen.meld(cacheKey, berichtId).await().atMost(WACHTTIJD)
+
+        assertEquals(berichtId, ontvangen.poll(5, TimeUnit.SECONDS))
+        pod.stop()
     }
 
     @Test
@@ -185,5 +260,10 @@ class RedisAanmeldingenIntegrationTest {
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
         const val HERHALINGEN = 2_000
+        val STANDAARD_CONTROLE: Duration = Duration.ofSeconds(30)
+        val SNELLE_CONTROLE: Duration = Duration.ofMillis(200)
+
+        // Langer dan het probevenster van 5 s, zodat een probe gegarandeerd verloopt.
+        val PAUZE: Duration = Duration.ofSeconds(8)
     }
 }

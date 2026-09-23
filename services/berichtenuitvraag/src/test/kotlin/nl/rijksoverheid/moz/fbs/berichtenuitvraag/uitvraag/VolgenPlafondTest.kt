@@ -89,6 +89,12 @@ class VolgenPlafondTest {
             assertEquals(503, connection.responseCode)
             assertEquals("30", connection.getHeaderField("Retry-After"))
             assertTrue(connection.contentType.startsWith("application/problem+json"))
+            // Een eigen kenmerk, niet dat van een storing: anders verbindt een afnemer steeds opnieuw
+            // en neemt hij zelf een plek in van hetzelfde plafond.
+            assertTrue(
+                connection.errorStream.bufferedReader().readText().contains("urn:fbs:fout:te-veel-open-berichtenboxen"),
+                "verwacht het kenmerk te-veel-open-berichtenboxen",
+            )
         } finally {
             connection.disconnect()
         }

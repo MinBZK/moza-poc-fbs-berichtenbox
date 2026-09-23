@@ -1031,6 +1031,15 @@ jobs:
           fi
 
           bijgewerkt=$(jq -c --arg image "$image" 'map(if .name == "proeftuin" then .image = $image else . end)' <<<"$COMPONENTEN")
+
+          # Alleen het image van de proeftuin mag hier veranderen. Valt er een component weg, dan
+          # upsert de deploy een kortere lijst dan `preview-klaarzetten` aanmaakte, en blijft het
+          # weggevallen component stil op zijn oude image hangen — met een groene run.
+          if [ "$(jq -cS 'map(.name)' <<<"$COMPONENTEN")" != "$(jq -cS 'map(.name)' <<<"$bijgewerkt")" ]; then
+            echo "::error::De componentenlijst veranderde van samenstelling; alleen het proeftuin-image mag hier wijzigen."
+            exit 1
+          fi
+
           echo "componenten=$bijgewerkt" >> "$GITHUB_OUTPUT"
 
       - name: Deploy magazijnen-project

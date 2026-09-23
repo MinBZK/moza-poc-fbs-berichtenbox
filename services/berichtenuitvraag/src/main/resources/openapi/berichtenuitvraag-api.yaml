@@ -26,7 +26,8 @@ info:
     | `urn:fbs:fout:nog-niet-opgehaald` | 409 | Er is nog geen ophaalronde geweest | Start `GET /berichten/_ophalen` en probeer daarna opnieuw |
     | `urn:fbs:fout:ophalen-bezig` | 409 | Er loopt een ophaalronde | "Een moment" — wachten, dit is geen fout |
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
-    | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar, of er staan te veel berichtenboxen tegelijk open (`_volgen`) | "Probeer het straks nog eens", na `Retry-After` |
+    | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
+    | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open, voor deze ontvanger of op deze dienst (`_volgen`). Geen storing | "Sluit een ander venster"; niet meteen opnieuw verbinden, maar na `Retry-After` |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
@@ -210,8 +211,9 @@ paths:
         Foutsemantiek, allemaal vóór de stream: een ongeldige `X-Ontvanger` geeft `400`.
         Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
         (`nog-niet-opgehaald` of `ophalen-bezig`), na een mislukte een `503`. Staan er te
-        veel berichtenboxen tegelijk open, op deze dienst of voor deze ontvanger, of ontvangt
-        de dienst tijdelijk geen aanmeldingen, dan komt er ook een `503` met `Retry-After`.
+        veel berichtenboxen tegelijk open, op deze dienst of voor deze ontvanger, dan komt er
+        een `503` met `te-veel-open-berichtenboxen`; ontvangt de dienst tijdelijk geen
+        aanmeldingen, dan een `503` met `tijdelijk-niet-beschikbaar`. Beide met `Retry-After`.
 
         Een stream heeft een maximale duur (standaard een uur, per omgeving instelbaar) en
         eindigt dan zonder `sessie-verlopen`; verbind dan gewoon opnieuw. Komt de verbinding niet tot stand, dan blijft de lijst gewoon
@@ -519,10 +521,10 @@ components:
     ServiceUnavailable:
       description: |
         Tijdelijk niet beschikbaar; opnieuw proberen is zinvol, na de periode uit
-        `Retry-After`. Drie oorzaken vallen hieronder: de tijdelijke berichtenopslag was
-        niet bereikbaar, de vorige ophaalronde is gestrand — bij dat laatste is
-        `_ophalen` opnieuw aanroepen de weg vooruit — of er staan te veel berichtenboxen
-        tegelijk open (`_volgen`).
+        `Retry-After`. Drie oorzaken vallen hieronder, elk met een eigen `type`: de
+        tijdelijke berichtenopslag was niet bereikbaar, de vorige ophaalronde is gestrand —
+        bij dat laatste is `_ophalen` opnieuw aanroepen de weg vooruit — of er staan te veel
+        berichtenboxen tegelijk open (`_volgen`).
       headers:
         Retry-After:
           description: Aantal seconden waarna opnieuw proberen zinvol is.

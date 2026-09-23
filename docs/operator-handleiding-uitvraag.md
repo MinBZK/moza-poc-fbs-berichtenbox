@@ -244,11 +244,13 @@ als de rest van Redis (TLS en authenticatie).
 | `berichtenuitvraag.volgen.max-connections` | `VOLGEN_MAX_CONNECTIONS` | `2000` | Plafond op open verbindingen per pod. Daarboven krijgt een berichtenbox een 503 met `Retry-After`; de lijst blijft bruikbaar, alleen het vanzelf binnenkomen valt weg. Verhogen of een replica bijzetten wanneer `Plafond van … gevolgde sessies op deze pod bereikt` in de log verschijnt |
 | `berichtenuitvraag.volgen.max-connections-per-ontvanger` | `VOLGEN_MAX_CONNECTIONS_PER_ONTVANGER` | `5` | Plafond per ontvanger, zodat één aanroeper het pod-plafond niet voor iedereen opmaakt. Genoeg voor een paar tabbladen en apparaten tegelijk |
 | `berichtensessiecache.volg-max-duur` | — | `PT1H` | Maximale duur van één stream; daarna verbindt de berichtenbox opnieuw. Voorkomt dat een vergeten tabblad de sessie en de berichten erin onbeperkt vasthoudt |
+| `berichtensessiecache.aanmeldingen-controle` | — | `PT30S` | Hoe vaak het abonnement op aanmeldingen zich opnieuw bewijst. Komt een probe niet terug, dan verbinden alle open berichtenboxen op die pod opnieuw en bouwt de pod een nieuw abonnement. Korter = sneller herstel na een stil weggevallen verbinding, ten koste van een extra `PUBLISH` per pod per tussenpoos |
 
 - **`No handler waiting for message: [subscribe, …]` van `RedisStandaloneConnection` is te
   verwachten.** De Vert.x-client meldt de abonnementsbevestiging soms zo; het abonnement werkt wél.
-  De pod bewijst dat zelf met een probe over het kanaal voordat een berichtenbox gaat volgen. Pas
-  `Abonneren op aanmeldingen mislukt` is een echte storing.
+  De pod bewijst dat zelf met een probe over het kanaal voordat een berichtenbox gaat volgen, en
+  daarna periodiek. Pas `Abonneren op aanmeldingen mislukt` of `Abonnement op aanmeldingen
+  weggevallen` is een echte storing.
 - **Een proxy vóór de uitvraag mag `_volgen` niet bufferen** (nginx: `proxy_buffering off`), anders
   komen de berichten pas bij het sluiten van de verbinding aan.
 
