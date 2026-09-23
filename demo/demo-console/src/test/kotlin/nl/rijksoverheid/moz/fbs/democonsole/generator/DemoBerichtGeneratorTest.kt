@@ -12,6 +12,7 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 import kotlin.random.Random
 
 class DemoBerichtGeneratorTest {
@@ -111,6 +112,28 @@ class DemoBerichtGeneratorTest {
 
         assertTrue(opdrachten.all { it.verzoek.publicatietijdstip.endsWith("Z") })
         assertTrue(opdrachten.all { Instant.parse(it.verzoek.publicatietijdstip).isBefore(nu) })
+    }
+
+    @ParameterizedTest(name = "{0} berichten")
+    @ValueSource(ints = [1, 5])
+    fun `genereerVoor geeft standaard het moment zelf, zodat het bericht bovenaan komt`(aantal: Int) {
+        val opdrachten = generator().genereerVoor("bakkerij", aantal, Random(21))!!
+
+        assertEquals(
+            List(aantal) { "2026-07-01T12:00:00Z" },
+            opdrachten.map { it.verzoek.publicatietijdstip },
+        )
+    }
+
+    @Test
+    fun `genereerVoor spreidt de tijdstippen wel als daarom gevraagd wordt`() {
+        val nu = Instant.parse("2026-07-01T12:00:00Z")
+        val opdrachten = generator().genereerVoor("bakkerij", 50, Random(22), spreidTijdstip = true)!!
+        val tijdstippen = opdrachten.map { Instant.parse(it.verzoek.publicatietijdstip) }
+
+        assertTrue(tijdstippen.all { it.isBefore(nu) }, "een gespreid tijdstip hoort in het verleden te liggen")
+        assertTrue(tijdstippen.all { it.isAfter(nu.minus(91, ChronoUnit.DAYS)) }, "en binnen drie maanden te blijven")
+        assertTrue(tijdstippen.distinct().size > 1, "tijdstippen moeten spreiden")
     }
 
     @Test

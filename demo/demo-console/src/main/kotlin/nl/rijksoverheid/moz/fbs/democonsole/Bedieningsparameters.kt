@@ -50,6 +50,23 @@ internal fun heelGetal(
 }
 
 /**
+ * Een ja/nee-parameter van het paneel: leeg is [standaard], en verder alleen `true` of `false`.
+ *
+ * Een onbekende waarde wordt geweigerd en niet stil als `false` gelezen: een aangevinkt vakje dat
+ * door een typefout in het pad niets doet, is tijdens een demonstratie niet te zien — het bericht
+ * komt gewoon, alleen met het verkeerde tijdstip.
+ */
+internal fun jaNee(naam: String, waarde: String, standaard: Boolean): Boolean {
+    if (waarde.isBlank()) return standaard
+
+    return when (waarde) {
+        "true" -> true
+        "false" -> false
+        else -> throw BadRequestException("$naam moet 'true' of 'false' zijn, was: '${echo(waarde)}'")
+    }
+}
+
+/**
  * De afgewezen waarde zoals hij herhaald mag worden. [DemoFoutMapper] logt elke weigering, dus wat
  * hier doorheen komt belandt in de applicatielog: een regeleinde zou daar een tweede regel
  * schrijven die als een echte gebeurtenis leest, en een onbegrensde waarde zou de log van een

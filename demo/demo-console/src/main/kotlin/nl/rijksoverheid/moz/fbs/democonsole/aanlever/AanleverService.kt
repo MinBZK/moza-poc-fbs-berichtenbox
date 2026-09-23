@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.democonsole.PUBLICATIEWACHTRIJ_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import java.util.logging.Logger
 
@@ -23,8 +24,9 @@ import java.util.logging.Logger
  * berichtId telt alleen als `zonderBerichtId`, ook wanneer om gelezen was gevraagd. Anders leest één
  * bericht als twee problemen.
  *
- * `letOp` draagt de reden uit [Faalreden], en is null zolang er niets in de *aflevering* mislukte —
- * de twee tellers hierboven krijgen geen reden, want die berichten kwamen wél aan. Alleen via [van]
+ * `letOp` draagt de reden uit [Faalreden], plus — zodra er iets aankwam — de melding dat een
+ * aangeleverd bericht in de publicatie-wachtrij van het magazijn belandt en dus niet meteen in de
+ * Berichtenbox staat. De twee tellers hierboven krijgen geen reden, want die berichten kwamen wél aan. Alleen via [van]
  * te maken, en `copy()` erft die zichtbaarheid: `mislukt` en `letOp` komen zo aantoonbaar uit
  * dezelfde lijst en kunnen elkaar niet tegenspreken.
  */
@@ -52,7 +54,12 @@ data class AanleverResultaat private constructor(
             mislukt = redenen.size,
             markeringMislukt = markeringMislukt,
             zonderBerichtId = zonderBerichtId,
-            letOp = Faalreden.samenvatting(redenen),
+            // Alleen wanneer er iets is aangeleverd: bij een ronde waarin niets aankwam, zou de
+            // wachtrij-melding de aandacht weghalen bij de reden dat het misging.
+            letOp = listOfNotNull(
+                Faalreden.samenvatting(redenen),
+                PUBLICATIEWACHTRIJ_MELDING.takeIf { geslaagd > 0 },
+            ).joinToString(" ").ifEmpty { null },
         )
     }
 }

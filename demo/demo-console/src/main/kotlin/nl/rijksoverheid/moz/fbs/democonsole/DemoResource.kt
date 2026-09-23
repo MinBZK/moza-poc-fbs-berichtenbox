@@ -81,6 +81,9 @@ class DemoResource(
      * willekeur ze bij de ondernemer legt die op het scherm staat. Op de persona-`id` en niet op
      * zijn identificatienummer: een BSN hoort niet in een URL, ook niet in een demo.
      *
+     * `willekeurigTijdstip` is standaard `false`: het bericht krijgt dan het moment zelf en staat
+     * bovenaan de berichtenbox, waar de bediener het aanwijst.
+     *
      * Elke bedieningsfout wordt hier afgevangen en niet met `require()`, om de reden die bij
      * [heelGetal] staat: [DemoFoutMapper] zou een `require()` als HTTP 500 tonen.
      *
@@ -93,12 +96,14 @@ class DemoResource(
     fun bericht(
         @QueryParam("persona") @DefaultValue("") persona: String,
         @QueryParam("aantal") @DefaultValue("") aantal: String,
+        @QueryParam("willekeurigTijdstip") @DefaultValue("") willekeurigTijdstip: String,
     ): AanleverResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
 
         val gevraagd = heelGetal("aantal", aantal, STANDAARD_GERICHT, 1..MAX_GERICHTE_BERICHTEN)
+        val spreid = jaNee("willekeurigTijdstip", willekeurigTijdstip, standaard = false)
 
-        val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default)
+        val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default, spreid)
             ?: throw onbekendePersona(persona, KIES_EEN_PERSONA)
 
         return aanleverService.leverAan(opdrachten)

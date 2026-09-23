@@ -532,6 +532,16 @@ body.ingeklapt #paneel {
     max-width: 100%;
 }
 
+/* Een vakje hoort niet de invoerveld-opmaak te krijgen: dat maakt er een breed grijs blok van.
+   De eigen breedte en de opmaak van de browser volstaan. */
+.veld--vinkje input[type="checkbox"] {
+    background: none;
+    border: 0;
+    inline-size: auto;
+    margin: 0;
+    padding: 0;
+}
+
 .uitleg {
     color: var(--bediening-color-text-subtle);
     font-size: var(--bediening-font-size-sm);

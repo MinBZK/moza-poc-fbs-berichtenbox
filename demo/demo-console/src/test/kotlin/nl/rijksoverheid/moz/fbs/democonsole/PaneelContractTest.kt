@@ -39,6 +39,7 @@ import java.net.URL
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -140,13 +141,24 @@ class PaneelContractTest {
     }
 
     @Test
-    fun `een vulling zonder mislukkingen laat het veld weg in plaats van null te sturen`() {
-        // `bediening.js` filtert op het type; een expliciete null zou de regel leeg tonen in plaats
-        // van te verbergen. Dat hangt aan quarkus.jackson.serialization-inclusion.
-        assertTrue(
-            !ObjectMapper().readTree(stuurJson(basisvullingUrl)).has("letOp"),
-            "veld letOp hoort te ontbreken als er niets mislukte",
-        )
+    fun `een geslaagde vulling meldt dat de berichten in de publicatie-wachtrij staan`() {
+        // Zonder deze regel lijkt een geslaagde aanlevering een knop die niets deed: het magazijn
+        // meldt het bericht pas bij de volgende ronde aan, en tot die tijd blijft de berichtenbox
+        // hetzelfde tonen.
+        val letOp = ObjectMapper().readTree(stuurJson(basisvullingUrl)).path("letOp")
+
+        assertTrue(letOp.isTextual, "veld letOp ontbreekt of is geen tekst in de vulling-respons")
+        assertTrue(letOp.asText().contains("publicatie-wachtrij"), letOp.asText())
+    }
+
+    @Test
+    fun `de vulling stuurt geen enkel veld als null over de lijn`() {
+        // `bediening.js` filtert op het type: een expliciete null zou een lege regel tonen in plaats
+        // van hem te verbergen. Dat hangt aan quarkus.jackson.serialization-inclusion, en die
+        // instelling geldt voor élk optioneel veld in dit antwoord — niet alleen voor `letOp`.
+        val ruw = stuurJson(basisvullingUrl)
+
+        assertFalse(ruw.contains(":null"), "een weggelaten veld hoort te ontbreken, niet null te zijn: $ruw")
     }
 
     @Test
@@ -277,6 +289,40 @@ class PaneelContractTest {
         assertEquals(aantal, VasteAanleverService.opdrachten.size)
     }
 
+    @Test
+    fun `een bericht krijgt standaard het moment zelf als publicatietijdstip`() {
+        // Het vinkje 'willekeurige tijdstippen' staat uit: dan hoort het bericht bovenaan de
+        // berichtenbox te komen, en niet ergens tussen de basisvulling van de afgelopen maanden.
+        val voor = Instant.now().minusSeconds(60)
+
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=1").statusCode())
+
+        val tijdstip = Instant.parse(VasteAanleverService.opdrachten.single().verzoek.publicatietijdstip)
+
+        assertTrue(tijdstip.isAfter(voor), "verwacht een tijdstip van nu, was: $tijdstip")
+    }
+
+    @Test
+    fun `met willekeurigTijdstip ligt het publicatietijdstip in het verleden`() {
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=1&willekeurigTijdstip=true").statusCode())
+
+        val tijdstip = Instant.parse(VasteAanleverService.opdrachten.single().verzoek.publicatietijdstip)
+
+        assertTrue(tijdstip.isBefore(Instant.now()), "verwacht een tijdstip in het verleden, was: $tijdstip")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["on", "ja", "1", "TRUE"])
+    fun `een onbekende waarde voor willekeurigTijdstip geeft 400 en levert niets aan`(waarde: String) {
+        // Stil als 'false' lezen zou een aangevinkt vakje laten lijken te werken: het bericht komt
+        // wél, alleen met het verkeerde tijdstip — en dat valt tijdens een demonstratie niet op.
+        val respons = plaatsBericht("?persona=pietersen&aantal=1&willekeurigTijdstip=$waarde")
+
+        assertEquals(400, respons.statusCode(), "waarde '$waarde'")
+        assertTrue(respons.body().contains("willekeurigTijdstip"), "de melding hoort het veld aan te wijzen")
+        assertTrue(VasteAanleverService.opdrachten.isEmpty(), "een ongeldige waarde hoort niets aan te leveren")
+    }
+
     /**
      * Zou de resource het aantal als `Int` laten injecteren, dan handelt JAX-RS een mislukte
      * omzetting af vóór de eerste regel van de methode — met een 404, dezelfde status die dit
@@ -340,7 +386,7 @@ class PaneelContractTest {
         val body = ObjectMapper().readTree(plaatsBericht("?persona=pietersen&aantal=3").body())
 
         assertEquals(
-            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt", "zonderBerichtId"),
+            setOf("aangeboden", "geslaagd", "mislukt", "markeringMislukt", "zonderBerichtId", "letOp"),
             body.fieldNames().asSequence().toSet(),
         )
         assertEquals(3, body.path("aangeboden").asInt())

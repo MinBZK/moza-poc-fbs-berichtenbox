@@ -8,6 +8,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.PUBLICATIEWACHTRIJ_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.Faalreden
@@ -149,10 +150,10 @@ class HerstelServiceTest {
     }
 
     @Test
-    fun `een herstel zonder mislukkingen meldt alleen de hersteltijd`() {
+    fun `een herstel zonder mislukkingen meldt de publicatie-wachtrij en de hersteltijd`() {
         alleStappenSlagen()
 
-        assertEquals(HERSTELTIJD_MELDING, service.herstel().letOp)
+        assertEquals("$PUBLICATIEWACHTRIJ_MELDING $HERSTELTIJD_MELDING", service.herstel().letOp)
     }
 
     @Test
@@ -176,7 +177,7 @@ class HerstelServiceTest {
         val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.herstel()))
 
         assertTrue(json.path("letOp").isTextual, "veld letOp ontbreekt of is geen tekst: $json")
-        assertEquals(HERSTELTIJD_MELDING, json.path("letOp").asText())
+        assertEquals("$PUBLICATIEWACHTRIJ_MELDING $HERSTELTIJD_MELDING", json.path("letOp").asText())
     }
 
     @Test

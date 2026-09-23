@@ -117,6 +117,35 @@ class PaneelPadenTest {
     }
 
     /**
+     * Een vakje in een knop-adres vraagt om een eigen tak in het script: `value` is bij een checkbox
+     * altijd `'on'`, ongeacht de stand. Zonder die tak zou een uitgevinkt vakje `willekeurigTijdstip=on`
+     * sturen — de server weigert dat met een 400, maar alleen omdát hij onbekende waarden weigert.
+     * Deze test bewaakt de drie plekken waar de stand langskomt: het invullen van het adres, het
+     * bewaren en het herstellen.
+     */
+    @Test
+    fun `een vakje in een knop-adres wordt als aangevinkt-of-niet doorgegeven, bewaard en hersteld`() {
+        val velden = uitPaneel("""\{(\w+)}""").toSet()
+        val vakjes = uitPaneel("""<input id="([^"]+)" type="checkbox""").toSet()
+
+        assertTrue(vakjes.isNotEmpty(), "geen enkel vakje gevonden in $PANEEL")
+        assertTrue(vakjes.any { it in velden }, "geen vakje dat een knop-adres invult")
+
+        assertTrue(
+            script.contains("veld.checked ? 'true' : 'false'"),
+            "$SCRIPT vult de stand van een vakje niet in het adres in",
+        )
+        assertTrue(
+            script.contains("veld.type === 'checkbox' ? veld.checked : veld.value"),
+            "$SCRIPT bewaart de stand van een vakje niet",
+        )
+        assertTrue(
+            script.contains("if (typeof velden[id] === 'boolean') veld.checked = velden[id];"),
+            "$SCRIPT herstelt de stand van een vakje niet",
+        )
+    }
+
+    /**
      * Een `data-samenvatting` die `bediening.js` niet kent, valt terug op een kaal groen "Gelukt":
      * de knop meldt succes zonder de samenvatting die zegt wát er gebeurde.
      *
@@ -340,7 +369,7 @@ class PaneelPadenTest {
          * partij aanwijst hoort een id te zijn; wie hier een naam bijschrijft, kiest daar bewust
          * voor.
          */
-        val TOEGESTANE_PARAMETERS = setOf("persona", "aantal", "interval")
+        val TOEGESTANE_PARAMETERS = setOf("persona", "aantal", "interval", "willekeurigTijdstip")
 
         val PARAMETERNAAM = Regex("""[?&]([^=&]+)=""")
 
