@@ -37,7 +37,12 @@ internal class MockAanmeldingen : Aanmeldingen {
         return Aanmeldingen.Afmelding { luisteraars[cacheKey]?.remove(luisteraar) }
     }
 
-    override fun actief(): Uni<Void> = Uni.createFrom().voidItem()
+    /** Laat de activering falen, zoals een pod die zijn abonnement niet rond krijgt. */
+    @Volatile
+    var actiefFout: Throwable? = null
+
+    override fun actief(): Uni<Void> =
+        actiefFout?.let { Uni.createFrom().failure(it) } ?: Uni.createFrom().voidItem()
 
     /** Laat het doorgeven wegvallen, zoals een verbroken Redis-abonnement. */
     fun valWeg(fout: Throwable) {

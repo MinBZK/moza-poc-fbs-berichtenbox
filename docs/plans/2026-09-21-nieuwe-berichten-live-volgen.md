@@ -30,11 +30,16 @@ nieuw bericht verschijnt pas bij de volgende ronde.
 ### Stroom
 
 ```
-volgen-gestart → (bericht-bijgekomen | hartslag)* → sessie-verlopen
+volgen-gestart → (bericht-bijgekomen | hartslag)* → (sessie-verlopen | einde na de maximale duur)
 ```
 
+Blijkt de sessie bij het verbinden al weg, dan komt alleen `sessie-verlopen`. Een
+`bericht-bijgekomen` kan `volgen-gestart` ook voorafgaan, omdat de luisteraar er al staat voordat de
+sessie gecontroleerd is; de afnemer ontdubbelt toch.
+
 - **`volgen-gestart`** komt pas als de luisteraar geregistreerd is én deze pod aanmeldingen
-  ontvangt. De afnemer leest dan de lijst; alles daarna krijgt hij als `bericht-bijgekomen`. Een
+  ontvangt. Dat laatste controleert de facade al vóór de stream: lukt het niet, dan krijgt de
+  afnemer een 503 in plaats van een lege, sluitende 200. De afnemer leest dan de lijst; alles daarna krijgt hij als `bericht-bijgekomen`. Een
   bericht op het grensvlak kan in beide zitten, daarom ontdubbelt de afnemer op `berichtId`.
   Opnieuw verbinden na een haperende verbinding is daardoor dezelfde handeling als de eerste keer:
   de lijst is daarna compleet, zonder dubbelen.

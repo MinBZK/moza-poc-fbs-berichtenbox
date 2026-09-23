@@ -121,6 +121,26 @@ class SessieVolgerTest {
     }
 
     @Test
+    fun `mislukt het verlengen op een hartslag, dan breekt de stream af in plaats van een hartslag te melden`() {
+        // Een hartslag die doorgaat terwijl verlengen mislukt, toont een levende sessie die intussen
+        // afloopt. Afbreken laat de afnemer opnieuw verbinden, en die krijgt dan een eerlijke 503.
+        val fout = IllegalStateException("MULTI geweigerd")
+        var verlengingen = 0
+        val haperendeCache = object : BerichtenCache by cache {
+            override fun verlengSessie(key: String): Uni<Boolean> =
+                if (verlengingen++ == 0) Uni.createFrom().item(true) else Uni.createFrom().failure(fout)
+        }
+
+        val haperend = SessieVolger(haperendeCache, aanmeldingen, SNELLE_HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
+        startSessie(ontvanger)
+        val volgend = haperend.volg(ontvanger).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
+
+        volgend.awaitFailure(Duration.ofSeconds(5))
+        assertEquals(fout, volgend.failure)
+        assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.items, "geen hartslag na een mislukte verlenging")
+    }
+
+    @Test
     fun `valt het doorgeven weg, dan eindigt de stream met die fout`() {
         startSessie(ontvanger)
         val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
@@ -130,6 +150,23 @@ class SessieVolgerTest {
 
         volgend.awaitFailure()
         assertEquals(fout, volgend.failure)
+    }
+
+    @Test
+    fun `lukt de activering niet, dan breekt de stream af zonder VolgenGestart`() {
+        // VolgenGestart zegt tegen de afnemer "lees nu de lijst, vanaf hier krijg je alles". Komt het
+        // toch zonder werkend abonnement, dan wacht hij daarna tot de maximale duur op berichten
+        // die nooit komen.
+        startSessie(ontvanger)
+        val fout = IllegalStateException("abonnement niet rond")
+        aanmeldingen.actiefFout = fout
+
+        val volgend = volg(ontvanger)
+
+        volgend.awaitFailure()
+        assertEquals(fout, volgend.failure)
+        assertEquals(emptyList<SessieGebeurtenis>(), volgend.items)
+        assertEquals(0, aanmeldingen.aantalLuisteraars(BerichtenCache.cacheKey(ontvanger)), "de luisteraar hoort afgemeld te zijn")
     }
 
     @Test
@@ -171,13 +208,33 @@ class SessieVolgerTest {
     }
 
     @ParameterizedTest(name = "hartslag {0}")
-    @ValueSource(strings = ["PT0S", "PT-1S", "PT1M", "PT2M"])
-    fun `een hartslag die niet ruim binnen de sessieduur past, weigert te starten`(hartslag: String) {
+    @ValueSource(strings = ["PT0S", "PT-1S"])
+    fun `een hartslag van nul of minder weigert te starten`(hartslag: String) {
         val fout = assertThrows<IllegalArgumentException> {
             SessieVolger(cache, aanmeldingen, Duration.parse(hartslag), MAX_DUUR, Duration.ofMinutes(2))
         }
 
-        assertTrue(fout.message!!.contains("berichtensessiecache.volg-hartslag"))
+        assertTrue(fout.message!!.contains("moet groter zijn dan 0"), fout.message)
+    }
+
+    /**
+     * De grens zelf (precies de helft) en een waarde erboven. Een ruime maximale duur, zodat niet
+     * de controle daarop eerst omvalt: dan zou deze test slagen zonder de regel te toetsen die hij
+     * noemt.
+     */
+    @ParameterizedTest(name = "hartslag {0} bij een sessieduur van 2 minuten")
+    @ValueSource(strings = ["PT1M", "PT90S"])
+    fun `een hartslag vanaf de helft van de sessieduur weigert te starten`(hartslag: String) {
+        val fout = assertThrows<IllegalArgumentException> {
+            SessieVolger(cache, aanmeldingen, Duration.parse(hartslag), Duration.ofHours(1), Duration.ofMinutes(2))
+        }
+
+        assertTrue(fout.message!!.contains("moet kleiner zijn dan 1/2 van berichtensessiecache.ttl"), fout.message)
+    }
+
+    @Test
+    fun `een hartslag net onder de helft van de sessieduur start wel`() {
+        SessieVolger(cache, aanmeldingen, Duration.ofSeconds(59), Duration.ofHours(1), Duration.ofMinutes(2))
     }
 
     @Test

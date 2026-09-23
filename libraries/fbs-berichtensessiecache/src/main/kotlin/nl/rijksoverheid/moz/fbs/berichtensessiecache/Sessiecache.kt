@@ -103,8 +103,12 @@ interface Sessiecache {
      * periodieke hartslag houdt de sessie in leven. Zie [SessieGebeurtenis] voor het verloop.
      *
      * Vereist net als [lijst] een afgeronde ophaling en gooit dezelfde [SessiecacheException]s,
-     * synchroon en vóór de stream. Een storing daarna beëindigt de stream met een fout; de
-     * afnemer verbindt dan opnieuw.
+     * synchroon en vóór de stream. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór de
+     * stream een [SessiecacheException.Onbereikbaar]. Een storing daarna beëindigt de stream met een
+     * fout; de afnemer verbindt dan opnieuw.
+     *
+     * De stream eindigt ook uit zichzelf na `berichtensessiecache.volg-max-duur`, zonder
+     * [SessieGebeurtenis.SessieVerlopen]: de sessie loopt dan nog, en de afnemer verbindt opnieuw.
      */
     fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis>
 }

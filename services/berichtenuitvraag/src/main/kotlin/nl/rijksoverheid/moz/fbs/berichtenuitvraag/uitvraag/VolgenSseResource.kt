@@ -37,7 +37,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * dat tijdens de sessie binnenkomt. Buiten codegen om dezelfde reden als `_ophalen` (de
  * generator kent geen `Multi<>`); het pad staat wél in de spec als contractbron.
  *
- * Eén connection per open berichtenbox, en die blijft open zolang de pagina openstaat. Twee
+ * Eén connection per open berichtenbox, en die blijft open tot de berichtenbox sluit of de
+ * maximale duur (`berichtensessiecache.volg-max-duur`) verstrijkt. Twee
  * plafonds begrenzen wat dat kost aan geheugen en luisteraars: één per pod, en een klein plafond
  * per ontvanger zodat één aanroeper de pod niet voor iedereen kan vullen. Wie erboven valt, krijgt
  * een 503 met `Retry-After` en houdt een bruikbare, alleen niet vanzelf verversende lijst.
@@ -125,9 +126,10 @@ class VolgenSseResource(
             throw teVeel("Te veel open berichtenboxen tegelijk. Probeer het straks opnieuw.")
         }
 
-        val eigen = openPerOntvanger.merge(ontvanger, 1, Int::plus)
+        // `merge` is in Java nullable, maar met een waarde en een optelling komt er nooit null uit.
+        val eigen = checkNotNull(openPerOntvanger.merge(ontvanger, 1, Int::plus))
 
-        if (eigen != null && eigen > maxConnectionsPerOntvanger) {
+        if (eigen > maxConnectionsPerOntvanger) {
             geefVrij(ontvanger)
             log.infof("Plafond van %d open berichtenboxen per ontvanger bereikt (ontvanger.type=%s)", maxConnectionsPerOntvanger, ontvanger.type)
 
@@ -148,11 +150,10 @@ class VolgenSseResource(
     )
 
     private fun naarVolgGebeurtenis(gebeurtenis: SessieGebeurtenis): VolgGebeurtenis = when (gebeurtenis) {
-        SessieGebeurtenis.VolgenGestart -> VolgGebeurtenis(VolgEventType.VOLGEN_GESTART)
-        SessieGebeurtenis.Hartslag -> VolgGebeurtenis(VolgEventType.HARTSLAG)
-        SessieGebeurtenis.SessieVerlopen -> VolgGebeurtenis(VolgEventType.SESSIE_VERLOPEN)
-        is SessieGebeurtenis.BerichtBijgekomen -> VolgGebeurtenis(
-            VolgEventType.BERICHT_BIJGEKOMEN,
+        SessieGebeurtenis.VolgenGestart -> VolgGebeurtenis.gestart()
+        SessieGebeurtenis.Hartslag -> VolgGebeurtenis.hartslag()
+        SessieGebeurtenis.SessieVerlopen -> VolgGebeurtenis.verlopen()
+        is SessieGebeurtenis.BerichtBijgekomen -> VolgGebeurtenis.bijgekomen(
             UitvraagDtoMapper.toApiSamenvatting(
                 gebeurtenis.bericht.toSamenvatting(),
                 afzendernamen.naamVoor(gebeurtenis.bericht),
@@ -175,12 +176,27 @@ enum class VolgEventType(@get:JsonValue val value: String) {
 }
 
 /**
- * Wire-vorm van één volg-bericht. `NON_NULL` op de klasse zelf: alleen `bericht-bijgekomen`
- * draagt een `bericht`, en de overige soorten horen dat veld niet als `null` te tonen.
+ * Wire-vorm van één volg-bericht. Alleen `bericht-bijgekomen` draagt een `bericht`, en dat is hier
+ * afgedwongen en niet alleen beschreven: de constructor is privé, en de fabrieken laten geen soort
+ * zonder bericht toe waar de spec er een eist, of mét een waar hij er geen kent. `NON_NULL` zorgt
+ * dat het ontbrekende veld wegblijft in plaats van als `null` op de lijn te komen.
+ *
+ * Geen `data class`: die geeft een publieke `copy()`, en daarmee zou precies die combinatie weer te
+ * bouwen zijn.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "bericht")
-data class VolgGebeurtenis(
+class VolgGebeurtenis private constructor(
     val event: VolgEventType,
-    val bericht: BerichtSamenvatting? = null,
-)
+    val bericht: BerichtSamenvatting?,
+) {
+    companion object {
+        fun gestart() = VolgGebeurtenis(VolgEventType.VOLGEN_GESTART, null)
+
+        fun bijgekomen(bericht: BerichtSamenvatting) = VolgGebeurtenis(VolgEventType.BERICHT_BIJGEKOMEN, bericht)
+
+        fun hartslag() = VolgGebeurtenis(VolgEventType.HARTSLAG, null)
+
+        fun verlopen() = VolgGebeurtenis(VolgEventType.SESSIE_VERLOPEN, null)
+    }
+}

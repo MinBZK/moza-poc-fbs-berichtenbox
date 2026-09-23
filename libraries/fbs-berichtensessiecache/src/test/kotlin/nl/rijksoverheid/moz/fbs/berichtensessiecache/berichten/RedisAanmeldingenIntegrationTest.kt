@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -36,7 +37,7 @@ class RedisAanmeldingenIntegrationTest {
 
     private val anderePod by lazy { RedisAanmeldingen(redis) }
 
-    // Uniek per run: de Redis-container wordt gedeeld tussen testklassen met dit profiel.
+    // Uniek per test: de Redis-container wordt gedeeld tussen testklassen met dit profiel.
     private val ontvanger = Oin(System.nanoTime().toString().padStart(20, '0').takeLast(20))
     private val cacheKey get() = BerichtenCache.cacheKey(ontvanger)
 
@@ -102,6 +103,36 @@ class RedisAanmeldingenIntegrationTest {
     }
 
     @Test
+    fun `wie registreert terwijl een ander afmeldt, blijft bereikbaar`() {
+        // Het venster: één tabblad sluit terwijl een ander voor dezelfde ontvanger opent. De
+        // afmelding haalt de set weg zodra hij leeg is; een registratie die op die set had gerekend
+        // viel vroeger in het niets. Herhaald, omdat een race zich niet op commando laat zien.
+        val pod = RedisAanmeldingen(redis)
+
+        repeat(HERHALINGEN) { ronde ->
+            val sleutel = "$cacheKey-$ronde"
+            val vertrekkend = pod.registreer(sleutel, {}, {})
+            val start = CyclicBarrier(2)
+            val ontvangen = LinkedBlockingQueue<UUID>()
+
+            val sluiter = Thread {
+                start.await()
+                vertrekkend.afmelden()
+            }.apply { start() }
+
+            start.await()
+            val nieuw = pod.registreer(sleutel, { ontvangen += it }, {})
+            sluiter.join()
+
+            val berichtId = UUID.randomUUID()
+            pod.verdeel("$sleutel $berichtId")
+
+            assertEquals(berichtId, ontvangen.poll(), "ronde $ronde: de nieuwe luisteraar kreeg de aanmelding niet")
+            nieuw.afmelden()
+        }
+    }
+
+    @Test
     fun `verlengSessie zonder sessie is false`() {
         assertFalse(berichtenCache.verlengSessie(cacheKey).await().atMost(WACHTTIJD))
     }
@@ -153,5 +184,6 @@ class RedisAanmeldingenIntegrationTest {
 
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
+        const val HERHALINGEN = 2_000
     }
 }

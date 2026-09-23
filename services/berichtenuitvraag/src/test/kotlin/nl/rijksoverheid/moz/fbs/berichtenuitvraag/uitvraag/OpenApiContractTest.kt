@@ -15,9 +15,13 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.notNullValue
+import org.hamcrest.Matchers.startsWith
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -242,7 +246,7 @@ class OpenApiContractTest {
         // gedeclareerde Problem-409 valideren tegen de spec.
         val id = UUID.randomUUID()
         sessiecache.berichtFout =
-            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
+            SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 
         given()
             .filter(validator)
@@ -258,7 +262,7 @@ class OpenApiContractTest {
     fun `GET berichten-volgen - cache nog niet gevuld levert valide Problem-409`() {
         // De SSE-body van een 200 kan de validator niet lezen, een fout vóór de stream wel.
         sessiecache.volgFout =
-            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
+            SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 
         given()
             .filter(validator)
@@ -269,13 +273,13 @@ class OpenApiContractTest {
             .then()
             .statusCode(409)
             .contentType("application/problem+json")
-            .header("API-Version", org.hamcrest.Matchers.notNullValue())
+            .header("API-Version", notNullValue())
     }
 
     @Test
     fun `GET berichten-volgen - opslag onbereikbaar levert valide Problem-503 met Retry-After`() {
         sessiecache.volgFout =
-            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
+            SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
         given()
             .filter(validator)
@@ -293,7 +297,7 @@ class OpenApiContractTest {
     fun `GET bericht by id - zelf verwijderd levert valide Problem-410 met kenmerk`() {
         val id = UUID.randomUUID()
         sessiecache.berichtFout =
-            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.BerichtVerwijderd("weg")
+            SessiecacheException.BerichtVerwijderd("weg")
 
         given()
             .filter(validator)
@@ -303,7 +307,7 @@ class OpenApiContractTest {
             .then()
             .statusCode(410)
             .contentType("application/problem+json")
-            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
     }
 
     @Test
@@ -318,7 +322,7 @@ class OpenApiContractTest {
             .then()
             .statusCode(404)
             .contentType("application/problem+json")
-            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-onbekend"))
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
     }
 
     @Test
@@ -327,7 +331,7 @@ class OpenApiContractTest {
         // tombstone slaat hier net zo goed toe — vóór het magazijn ooit gebeld wordt. Zonder
         // gedeclareerde 410 op dit pad zou dat een spec-schending zijn.
         sessiecache.berichtFout =
-            nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.BerichtVerwijderd("weg")
+            SessiecacheException.BerichtVerwijderd("weg")
 
         given()
             .filter(validator)
@@ -336,7 +340,7 @@ class OpenApiContractTest {
             .get("/api/v1/berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}")
             .then()
             .statusCode(410)
-            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:bericht-verwijderd"))
+            .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
     }
 
     /**
@@ -351,12 +355,12 @@ class OpenApiContractTest {
         krom.stuur()
             .then()
             .contentType("application/problem+json")
-            .body("type", org.hamcrest.Matchers.startsWith("urn:fbs:fout:"))
+            .body("type", startsWith("urn:fbs:fout:"))
     }
 
     @Test
     fun `GET berichten - cache nog niet gevuld levert valide Problem-409`() {
-        sessiecache.lijstFout = nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
+        sessiecache.lijstFout = SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
 
         given()
             .filter(validator)

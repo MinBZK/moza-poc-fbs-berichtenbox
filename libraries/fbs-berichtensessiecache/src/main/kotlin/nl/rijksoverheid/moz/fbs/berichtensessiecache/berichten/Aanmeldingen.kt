@@ -11,6 +11,7 @@ import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -80,7 +81,11 @@ internal class RedisAanmeldingen(
         opStoring: (Throwable) -> Unit,
     ): Aanmeldingen.Afmelding {
         val luisteraar = Luisteraar(opBericht, opStoring)
-        luisteraars.computeIfAbsent(cacheKey) { ConcurrentHashMap.newKeySet() }.add(luisteraar)
+
+        // Toevoegen binnen `compute`, niet op wat `computeIfAbsent` teruggeeft: dan kan het afmelden
+        // van de laatste andere luisteraar de set er net tussenuit halen, en belandt deze in een set
+        // die nergens meer aan hangt — een stream die nooit meer een aanmelding krijgt.
+        luisteraars.compute(cacheKey) { _, set -> (set ?: ConcurrentHashMap.newKeySet()).apply { add(luisteraar) } }
 
         return Aanmeldingen.Afmelding {
             luisteraars.computeIfPresent(cacheKey) { _, set ->
@@ -105,17 +110,31 @@ internal class RedisAanmeldingen(
     @PreDestroy
     fun stop() {
         abonnement.set(null)
-        subscriber.getAndSet(null)?.unsubscribe()?.subscribe()?.with({}, {})
+        subscriber.getAndSet(null)?.let(::meldAf)
     }
 
     private fun abonneer(poging: AtomicReference<Uni<Void>>): Uni<Void> {
         val probe = UUID.randomUUID()
         val teruggezien = CompletableFuture<Void>()
+        val opgegeven = AtomicBoolean(false)
         probes[probe] = teruggezien
 
         redis.pubsub(String::class.java)
             .subscribe(KANAAL, ::verdeel, { wegGevallen(poging.get(), null) }, { fout -> wegGevallen(poging.get(), fout) })
-            .subscribe().with({ subscriber.set(it) }, { teruggezien.completeExceptionally(it) })
+            .subscribe().with(
+                { nieuw ->
+                    subscriber.set(nieuw)
+
+                    // De poging kan al opgegeven zijn: de activering liep af voordat de client het
+                    // abonnement opleverde. Dan hoort dit abonnement bij niemand meer en zou het een
+                    // connection openhouden tot de pod stopt.
+                    if (opgegeven.get() && subscriber.compareAndSet(nieuw, null)) {
+                        log.warn("Abonnement op aanmeldingen kwam binnen na het opgeven van de poging; meteen afgemeld")
+                        meldAf(nieuw)
+                    }
+                },
+                { teruggezien.completeExceptionally(it) },
+            )
 
         val zender = Multi.createFrom().ticks().every(PROBE_INTERVAL)
             .onOverflow().drop()
@@ -130,15 +149,26 @@ internal class RedisAanmeldingen(
             }
             .onFailure().invoke { fout ->
                 log.warnf(fout, "Abonneren op aanmeldingen mislukt; volgende poging bij de volgende verbinding")
+                opgegeven.set(true)
                 abonnement.compareAndSet(poging.get(), null)
-                subscriber.getAndSet(null)?.unsubscribe()?.subscribe()?.with({}, {})
+                subscriber.getAndSet(null)?.let(::meldAf)
             }
+    }
+
+    /** Best-effort, maar niet stil: een afmelding die mislukt laat een connection open staan. */
+    private fun meldAf(oud: ReactiveRedisSubscriber) {
+        oud.unsubscribe().subscribe().with(
+            {},
+            { fout -> log.warnf(fout, "Afmelden van het aanmeldkanaal mislukt; de connection kan open blijven staan") },
+        )
     }
 
     private fun publiceer(sleutel: String, id: UUID): Uni<Void> =
         redis.pubsub(String::class.java).publish(KANAAL, "$sleutel$SCHEIDING$id")
 
-    private fun verdeel(bericht: String) {
+    // `internal` zodat een test de verdeling onder gelijktijdig registreren en afmelden kan toetsen
+    // zonder een Redis-bericht te hoeven afwachten.
+    internal fun verdeel(bericht: String) {
         val scheiding = bericht.lastIndexOf(SCHEIDING)
         val id = runCatching { UUID.fromString(bericht.substring(scheiding + 1)) }.getOrNull()
 

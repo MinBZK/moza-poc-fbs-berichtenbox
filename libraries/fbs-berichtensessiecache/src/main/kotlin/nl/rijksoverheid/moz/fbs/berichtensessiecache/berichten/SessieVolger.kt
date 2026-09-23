@@ -36,8 +36,7 @@ internal class SessieVolger(
     @param:ConfigProperty(name = "berichtensessiecache.volg-hartslag", defaultValue = "PT20S")
     private val hartslag: Duration,
     // Een open stream verlengt de sessie zolang hij loopt. Deze grens dwingt periodiek een nieuwe
-    // aanvraag af, zodat een vergeten tabblad de sessie niet eindeloos vasthoudt en de toegang bij
-    // elke nieuwe connection opnieuw gecontroleerd wordt.
+    // aanvraag af, zodat een vergeten tabblad de sessie niet eindeloos vasthoudt.
     @param:ConfigProperty(name = "berichtensessiecache.volg-max-duur", defaultValue = "PT1H")
     private val maxDuur: Duration,
     @ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT12H")
@@ -54,16 +53,23 @@ internal class SessieVolger(
             "berichtensessiecache.volg-max-duur ($maxDuur) moet groter zijn dan berichtensessiecache.volg-hartslag ($hartslag)"
         }
 
-        // De cache verlengt pas als de helft van de sessieduur verstreken is; een tragere hartslag
-        // laat een gevolgde sessie tussen twee slagen in verlopen.
-        require(hartslag < ttl.dividedBy(2)) {
-            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan de helft van " +
-                "berichtensessiecache.ttl ($ttl)"
+        // De cache verlengt pas als er minder dan dit deel van de sessieduur rest; een tragere
+        // hartslag laat een gevolgde sessie tussen twee slagen in verlopen.
+        require(hartslag < ttl.dividedBy(BerichtenCache.VERLENG_DEEL)) {
+            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan " +
+                "1/${BerichtenCache.VERLENG_DEEL} van berichtensessiecache.ttl ($ttl)"
         }
     }
 
     fun meldAan(ontvanger: Identificatienummer, berichtId: UUID): Uni<Void> =
         aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), berichtId)
+
+    /**
+     * Slaagt zodra deze pod aanmeldingen ontvangt. De facade wacht hierop vóórdat hij de stream
+     * teruggeeft: een mislukking daarna valt op een al geopende stream en kan de afnemer alleen nog
+     * als een lege, sluitende verbinding zien, niet als een storing met een reden.
+     */
+    fun actief(): Uni<Void> = aanmeldingen.actief()
 
     fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
@@ -118,10 +124,21 @@ internal class SessieVolger(
      * geen berichtgegeven over pub/sub, en controleert [BerichtenCache.getById] meteen dat het
      * van deze ontvanger is. Een leesfout breekt de stream af; de afnemer verbindt opnieuw en
      * leest de lijst, zodat het bericht alsnog verschijnt.
+     *
+     * Geeft de cache niets terug, dan staat het bericht er niet (meer): de aanmelding wordt
+     * overgeslagen en de lijst blijft de waarheid.
      */
     private fun stuurDoor(berichtId: UUID, ontvanger: Identificatienummer, emitter: MultiEmitter<in SessieGebeurtenis>) {
         berichtenCache.getById(berichtId, ontvanger).subscribe().with(
-            { bericht -> bericht?.let { emitter.emit(SessieGebeurtenis.BerichtBijgekomen(it)) } },
+            { bericht ->
+                if (bericht == null) {
+                    // Het berichtId is geen persoonsgegeven; dit spoor verbindt een gemist bericht
+                    // op het scherm met een hash die eerder verliep dan zijn lijst-entry.
+                    log.debugf("Aangemeld bericht %s niet in de cache; overgeslagen", berichtId)
+                } else {
+                    emitter.emit(SessieGebeurtenis.BerichtBijgekomen(bericht))
+                }
+            },
             { fout ->
                 log.warnf(fout, "Aangemeld bericht niet te lezen; gevolgde sessie afgebroken")
                 emitter.fail(fout)

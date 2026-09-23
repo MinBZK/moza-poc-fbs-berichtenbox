@@ -146,6 +146,7 @@ internal class BlockingSessiecache(
 
     override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
         requireGereedStatus(ontvanger)
+        awaitOrServiceUnavailable { volger.actief() }
 
         return volger.volg(ontvanger)
     }

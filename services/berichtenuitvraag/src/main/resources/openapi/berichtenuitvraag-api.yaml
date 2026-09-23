@@ -189,12 +189,16 @@ paths:
         meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
         hoeft na te vragen. Zolang de verbinding openstaat, blijft de sessie in leven.
 
-        Volgorde en volledigheid: de stroom begint met precies één `volgen-gestart`.
-        Lees op dat moment de lijst (`GET /berichten`) en voeg daarna elk
+        Volgorde en volledigheid: de stroom bevat precies één `volgen-gestart`, meestal als
+        eerste. Lees op dat moment de lijst (`GET /berichten`) en voeg elk
         `bericht-bijgekomen` toe, ontdubbeld op `berichtId`. Wat vóór `volgen-gestart`
         binnenkwam staat in de lijst, wat erna komt krijg je hier; een bericht dat op het
-        grensvlak valt kan in beide zitten. Zo is de lijst ook na een verbroken
-        verbinding weer compleet: verbind opnieuw en doe hetzelfde.
+        grensvlak valt kan in beide zitten, en een `bericht-bijgekomen` kan zelfs vóór
+        `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
+        compleet: verbind opnieuw en doe hetzelfde.
+
+        Blijkt de sessie bij het verbinden al verlopen, dan is `sessie-verlopen` het enige
+        dat komt; `volgen-gestart` blijft dan uit.
 
         Een `hartslag` komt periodiek, ook als er niets gebeurt. Blijft hij twee keer uit,
         dan is de verbinding stuk zonder dat de client dat merkt: sluit haar en verbind
@@ -206,11 +210,11 @@ paths:
         Foutsemantiek, allemaal vóór de stream: een ongeldige `X-Ontvanger` geeft `400`.
         Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
         (`nog-niet-opgehaald` of `ophalen-bezig`), na een mislukte een `503`. Staan er te
-        veel berichtenboxen tegelijk open, op deze dienst of voor deze ontvanger, dan komt er
-        ook een `503` met `Retry-After`.
+        veel berichtenboxen tegelijk open, op deze dienst of voor deze ontvanger, of ontvangt
+        de dienst tijdelijk geen aanmeldingen, dan komt er ook een `503` met `Retry-After`.
 
-        Een stream duurt hoogstens een uur en eindigt dan zonder `sessie-verlopen`; verbind
-        dan gewoon opnieuw. Komt de verbinding niet tot stand, dan blijft de lijst gewoon
+        Een stream heeft een maximale duur (standaard een uur, per omgeving instelbaar) en
+        eindigt dan zonder `sessie-verlopen`; verbind dan gewoon opnieuw. Komt de verbinding niet tot stand, dan blijft de lijst gewoon
         bruikbaar; alleen het vanzelf binnenkomen valt weg.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -800,7 +804,10 @@ components:
 
     VolgenGestart:
       type: object
-      description: Het volgen is actief. Lees nu de lijst; alles wat hierna binnenkomt, volgt hier.
+      description: |
+        Het volgen is actief. Lees nu de lijst; alles wat hierna binnenkomt, volgt hier. Komt
+        precies één keer per stroom, meestal als eerste — maar niet als de sessie bij het
+        verbinden al verlopen blijkt.
       required: [event]
       properties:
         event: { type: string, enum: [volgen-gestart] }

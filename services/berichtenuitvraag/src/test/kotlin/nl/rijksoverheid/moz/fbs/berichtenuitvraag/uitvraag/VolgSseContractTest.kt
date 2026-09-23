@@ -37,11 +37,16 @@ class VolgSseContractTest {
             requireNotNull(discriminatorMapping()[type.value]) { "De mapping kent '${type.value}' niet" }
                 .substringAfterLast('/')
 
-        /** Elk soort zoals de resource het bouwt: alleen `bericht-bijgekomen` draagt een bericht. */
-        private fun voorbeeld(type: VolgEventType) = VolgGebeurtenis(
-            type,
-            if (type == VolgEventType.BERICHT_BIJGEKOMEN) samenvatting() else null,
-        )
+        /**
+         * Elk soort via de fabriek die de resource ook gebruikt. Een eigen kopie van de regel "alleen
+         * `bericht-bijgekomen` draagt een bericht" zou groen blijven als de productiecode hem brak.
+         */
+        private fun voorbeeld(type: VolgEventType): VolgGebeurtenis = when (type) {
+            VolgEventType.VOLGEN_GESTART -> VolgGebeurtenis.gestart()
+            VolgEventType.BERICHT_BIJGEKOMEN -> VolgGebeurtenis.bijgekomen(samenvatting())
+            VolgEventType.HARTSLAG -> VolgGebeurtenis.hartslag()
+            VolgEventType.SESSIE_VERLOPEN -> VolgGebeurtenis.verlopen()
+        }
 
         private fun samenvatting() = BerichtSamenvatting().apply {
             berichtId = UUID.randomUUID()
@@ -68,6 +73,7 @@ class VolgSseContractTest {
         val gestuurd = velden(voorbeeld(type))
 
         assertEquals(schema.properties.keys, gestuurd, "${schema.name ?: type.value} loopt uit de pas met de code")
+        assertEquals(type, voorbeeld(type).event, "de fabriek levert een ander soort dan zijn naam zegt")
         assertTrue(gestuurd.containsAll(schema.required.orEmpty()))
     }
 

@@ -287,9 +287,21 @@ class BlockingSessiecacheTest {
     fun `volg geeft de stream van de volger door bij een afgeronde ophaling`() {
         stubStatus(gereed)
         val stream = Multi.createFrom().item<SessieGebeurtenis>(SessieGebeurtenis.VolgenGestart)
+        every { volger.actief() } returns Uni.createFrom().voidItem()
         every { volger.volg(ontvanger) } returns stream
 
         assertSame(stream, facade.volg(ontvanger))
+    }
+
+    @Test
+    fun `volg zonder werkend abonnement is Onbereikbaar, vóór de stream`() {
+        // Anders valt de mislukking pas op een geopende stream: de afnemer ziet een lege, sluitende
+        // 200 in plaats van een storing waarop hij kan wachten.
+        stubStatus(gereed)
+        every { volger.actief() } returns Uni.createFrom().failure(IllegalStateException("probe kwam niet terug"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger) }
     }
 
     @Test

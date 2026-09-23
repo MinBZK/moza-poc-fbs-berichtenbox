@@ -5,6 +5,7 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured
 import io.restassured.RestAssured.given
 import io.smallrye.mutiny.Multi
+import io.smallrye.mutiny.Uni
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
@@ -20,8 +21,10 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
@@ -146,10 +149,16 @@ class VolgenSseTest {
     }
 
     @Test
-    fun `een afgebroken stream levert hooguit de al verstuurde frames`() {
+    fun `een afgebroken stream levert de al verstuurde frames en sluit dan`() {
+        // De fout pas ná een pauze: dan is het eerste frame zeker verstuurd, en toetst deze test dat
+        // het ook aankomt — niet alleen dat er niet méér komt. Een test die ook bij nul frames
+        // slaagt, blijft groen als het endpoint nooit iets levert.
         sessiecache.volgGebeurtenissen = Multi.createBy().concatenating().streams(
             Multi.createFrom().item(SessieGebeurtenis.VolgenGestart),
-            Multi.createFrom().failure(IllegalStateException("abonnement weg")),
+            Uni.createFrom().nullItem<SessieGebeurtenis>()
+                .onItem().delayIt().by(Duration.ofMillis(300))
+                .onItem().failWith { _ -> IllegalStateException("abonnement weg") }
+                .toMulti(),
         )
 
         val connection = open()
@@ -157,9 +166,17 @@ class VolgenSseTest {
         try {
             assertEquals(200, connection.responseCode)
 
-            val body = runCatching { connection.inputStream.bufferedReader().readText() }.getOrNull().orEmpty()
+            // Regel voor regel, en de afbraak apart vangen: `readText()` gooit bij een verbroken
+            // verbinding alles weg wat er al binnen was.
+            val regels = buildList {
+                try {
+                    connection.inputStream.bufferedReader().forEachLine { add(it) }
+                } catch (_: IOException) {
+                    // De verbroken verbinding is precies wat deze test uitlokt.
+                }
+            }
 
-            assertTrue(frames(body).size <= 1, "verwacht hooguit het ene geleverde frame, body: $body")
+            assertEquals(listOf("""{"event":"volgen-gestart"}"""), frames(regels.joinToString("\n")))
         } finally {
             connection.disconnect()
         }

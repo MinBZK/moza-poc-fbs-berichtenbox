@@ -54,9 +54,10 @@ internal interface BerichtenCache {
 
     /**
      * Houdt een gevolgde sessie in leven zonder dat er gelezen wordt. `false` als er geen sessie
-     * (meer) is. Verlengt alleen een afgeronde ophaling, en pas wanneer de helft van de
-     * bewaartermijn verstreken is: dan gaan ook alle berichthashes mee, en dat is een lees over de
-     * hele lijst die niet op elke hartslag hoeft. Een lopende ophaling houdt haar korte vangnet-TTL.
+     * (meer) is; een mislukte verlenging is een gefaalde `Uni`, geen `true`. Verlengt alleen een
+     * afgeronde ophaling, en pas wanneer minder dan `ttl / VERLENG_DEEL` resteert: dan gaan ook
+     * alle berichthashes mee, en dat is een lees over de hele lijst die niet op elke hartslag hoeft.
+     * Een lopende ophaling houdt haar korte vangnet-TTL.
      */
     fun verlengSessie(key: String): Uni<Boolean>
 
@@ -103,6 +104,13 @@ internal interface BerichtenCache {
         // hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index aan en
         // blijven oude pods tijdens een rolling deploy op de oude werken.
         const val SEARCH_INDEX = "berichten-idx-v3"
+
+        /**
+         * [verlengSessie] verlengt pas wanneer nog minder dan `ttl / VERLENG_DEEL` van de
+         * bewaartermijn rest. Wie een gevolgde sessie in leven houdt, moet dus vaker dan dat
+         * aankloppen; [SessieVolger] toetst zijn hartslag hiertegen.
+         */
+        const val VERLENG_DEEL = 2L
     }
 }
 
@@ -502,7 +510,12 @@ internal class RedisBerichtenCache(
      * Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing in de batch
      * ongezien blijven; de read zelf is al gelukt.
      */
-    private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
+    private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> =
+        verlengTtls(cacheKey, ids)
+            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
+            .onFailure().recoverWithNull().replaceWithVoid()
+
+    private fun verlengTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
         val listKey = listKey(cacheKey)
         val statusKey = statusKey(cacheKey)
 
@@ -514,8 +527,6 @@ internal class RedisBerichtenCache(
                 txKey.expire(sleutel, ttl).replaceWithVoid()
             }
         }.replaceWithVoid()
-            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
-            .onFailure().recoverWithNull().replaceWithVoid()
     }
 
     override fun verlengSessie(key: String): Uni<Boolean> =
@@ -527,7 +538,7 @@ internal class RedisBerichtenCache(
                     when {
                         // Net tussen de twee reads verlopen.
                         resterend == SLEUTEL_ONTBREEKT -> Uni.createFrom().item(false)
-                        resterend > ttl.toMillis() / 2 -> Uni.createFrom().item(true)
+                        resterend > ttl.toMillis() / BerichtenCache.VERLENG_DEEL -> Uni.createFrom().item(true)
                         else -> verlengHeleSessie(key).replaceWith(true)
                     }
                 }
@@ -543,7 +554,10 @@ internal class RedisBerichtenCache(
                     runCatching { UUID.fromString(objectMapper.readTree(json).path("berichtId").asText()) }.getOrNull()
                 }
 
-                renewBerichtTtls(key, ids)
+                // Niet best-effort zoals op het leespad: daar is de lees al gelukt en is de TTL
+                // bijzaak, hier ís verlengen de opdracht. Een mislukking hoort de hartslag te
+                // bereiken, anders meldt die een levende sessie die intussen afloopt.
+                verlengTtls(key, ids)
             }
 
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {

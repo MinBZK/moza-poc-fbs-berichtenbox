@@ -4,10 +4,15 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
  * Wat een gevolgde sessie meldt terwijl de berichtenbox openstaat (zie
  * [nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache.volg]).
  *
- * De stream begint met precies één [VolgenGestart]. Alles wat daarna in de sessie wordt
- * aangemeld, komt als [BerichtBijgekomen] door; wat ervóór binnenkwam, staat al in de lijst.
- * Een afnemer die bij elke [VolgenGestart] de lijst opnieuw leest en op `berichtId` ontdubbelt,
- * mist dus niets — ook niet na een verbroken connection.
+ * Een stream bevat precies één [VolgenGestart]. Alles wat daarna in de sessie wordt aangemeld,
+ * komt als [BerichtBijgekomen] door; wat ervóór binnenkwam, staat al in de lijst. Een
+ * [BerichtBijgekomen] kan [VolgenGestart] ook vóórgaan: de luisteraar staat er al vóórdat de
+ * sessie gecontroleerd is. Een afnemer die bij [VolgenGestart] de lijst leest en op `berichtId`
+ * ontdubbelt, mist dus niets — ook niet na een verbroken connection.
+ *
+ * Twee uitzonderingen op dat verloop. Blijkt de sessie bij het starten al weg, dan is
+ * [SessieVerlopen] het enige item. En na `berichtensessiecache.volg-max-duur` eindigt de stream
+ * zonder afsluitend item: de sessie loopt dan nog, en de afnemer verbindt opnieuw.
  */
 sealed interface SessieGebeurtenis {
 
