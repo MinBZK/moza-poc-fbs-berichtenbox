@@ -468,8 +468,9 @@ en wat het alternatief kost, staat in [Mappen horen bij het bericht](mappen-bij-
 > hieronder gebruikt. De keten levert ze; of de gepinde versie ze al toont, bepaalt die box. De
 > gearchiveerde box van de demo-console (:8095) toont ze niet.
 
-Persona **J. Pietersen** heeft er mappen voor klaarstaan (basisvulling, of *Herstel demo* na
-legen):
+Persona **Demo-onderneming 3** (KVK `90000013`) heeft er mappen voor klaarstaan (basisvulling, of
+*Herstel demo* na legen). Een KVK-persona en niet Pietersen: de berichtenbox van de proeftuin neemt
+geen BSN-identiteiten over, dus daar zijn de scenario's op een BSN-persona niet te spelen.
 
 | Map | Organisatie | Berichten |
 |---|---|---|
@@ -480,9 +481,9 @@ legen):
 
 | # | Scenario | Zo speel je het |
 |---|---|---|
-| M1 | Het mappenoverzicht groeit mee | Storingen → *Magazijn B* → *Traag* → Pietersen → **Ophalen**. Eerst verschijnen *Subsidies* en *Boekhouding 2026* (1); na ~6 s komen *Belasting* en *Te bespreken met adviseur* erbij en telt *Boekhouding 2026* er 2 |
-| M2 | Een map verdwijnt met zijn laatste bericht | Pietersen → **Ophalen** → open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
-| M3 | Een organisatie levert niet | Storingen → *Magazijn B* → *Uit* → Pietersen → **Ophalen**. *Belasting* en *Te bespreken met adviseur* ontbreken, *Boekhouding 2026* telt 1, en de Berichtenbox meldt dat de Belastingdienst niet leverde — ook na verversen of doorbladeren |
+| M1 | Het mappenoverzicht groeit mee | Storingen → *Magazijn B* → *Traag* → Demo-onderneming 3 → **Ophalen**. Eerst verschijnen *Subsidies* en *Boekhouding 2026* (1); na ~6 s komen *Belasting* en *Te bespreken met adviseur* erbij en telt *Boekhouding 2026* er 2 |
+| M2 | Een map verdwijnt met zijn laatste bericht | Demo-onderneming 3 → **Ophalen** → open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
+| M3 | Een organisatie levert niet | Storingen → *Magazijn B* → *Uit* → Demo-onderneming 3 → **Ophalen**. *Belasting* en *Te bespreken met adviseur* ontbreken, *Boekhouding 2026* telt 1, en de Berichtenbox meldt dat de Belastingdienst niet leverde — ook na verversen of doorbladeren |
 
 De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`),
 uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`), en

@@ -70,8 +70,10 @@ geldt voor de hele lijst en staat op elke pagina.
 
 ### 4. Demo
 
-- De basisdataset zet voor persona Pietersen vier mappen: één per organisatie, één over beide heen,
-  en één met één bericht. `AanleverOpdracht.map` is een demo-vlag; de console zet hem na aanlevering
+- De basisdataset zet voor persona Demo-onderneming 3 (KVK `90000013`) vier mappen: één per
+  organisatie, één over beide heen, en één met één bericht. Een KVK-persona en geen BSN: de
+  berichtenbox van de proeftuin neemt BSN-identiteiten niet over, dus daar zijn de scenario's
+  anders niet te spelen. `AanleverOpdracht.map` is een demo-vlag; de console zet hem na aanlevering
   via dezelfde status-patch als `gelezen`. Een test bewaakt die vorm, want de runbook-scenario's
   leunen erop.
 - Drie scenario's (M1–M3) in `docs/demo-runbook.md`.

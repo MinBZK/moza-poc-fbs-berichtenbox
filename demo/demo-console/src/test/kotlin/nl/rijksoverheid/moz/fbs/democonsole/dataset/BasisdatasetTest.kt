@@ -49,6 +49,9 @@ class BasisdatasetTest {
      * organisaties loopt (die groeit mee terwijl ze leveren) en een map met één bericht (die
      * verdwijnt zodra dat bericht eruit gaat). Wie de dataset herschikt, breekt anders stil een
      * scenario dat pas tijdens een demo opvalt.
+     *
+     * Het moet bovendien een KVK-persona zijn: de berichtenbox van de proeftuin neemt geen
+     * BSN-identiteiten over, dus op een BSN-persona zijn de scenario's daar niet te spelen.
      */
     @Test
     fun `de mappen dragen de scenario's uit het runbook`() {
@@ -57,9 +60,9 @@ class BasisdatasetTest {
         val berichtenPerMap = metMap.groupingBy { it.map!! }.eachCount()
 
         assertEquals(
-            1,
-            metMap.map { "${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }.toSet().size,
-            "de mappen horen bij één persona, anders staan de scenario's verspreid",
+            setOf("KVK:90000013"),
+            metMap.map { "${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }.toSet(),
+            "de mappen horen bij één KVK-persona, anders zijn de scenario's in de proeftuin niet te spelen",
         )
         assertTrue(organisatiesPerMap.values.any { it.size >= 2 }, "geen map die over twee organisaties loopt")
         assertTrue(
