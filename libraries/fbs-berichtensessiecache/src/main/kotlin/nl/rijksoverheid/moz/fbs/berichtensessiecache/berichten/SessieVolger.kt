@@ -67,7 +67,7 @@ internal class SessieVolger(
     /**
      * Slaagt zodra deze pod aanmeldingen ontvangt. De facade wacht hierop vóórdat hij de stream
      * teruggeeft: een mislukking daarna valt op een al geopende stream en kan de afnemer alleen nog
-     * als een lege, sluitende verbinding zien, niet als een storing met een reden.
+     * als een lege, sluitende connection zien, niet als een storing met een reden.
      */
     fun actief(): Uni<Void> = aanmeldingen.actief()
 
@@ -76,13 +76,14 @@ internal class SessieVolger(
 
         return Multi.createFrom().emitter { emitter ->
             val hartslagen = AtomicReference<Cancellable?>(null)
-            // Eindigt zonder SessieVerlopen: de sessie loopt nog, de afnemer verbindt gewoon opnieuw.
             val einde = Uni.createFrom().voidItem().onItem().delayIt().by(maxDuur)
                 .subscribe().with { emitter.complete() }
             val afmelding = aanmeldingen.registreer(
                 cacheKey,
                 opBericht = { berichtId -> stuurDoor(berichtId, ontvanger, emitter) },
                 opStoring = emitter::fail,
+                // Een stoppende pod is geen storing: zelfde einde als na de maximale duur.
+                opEinde = emitter::complete,
             )
 
             emitter.onTermination {
@@ -116,7 +117,10 @@ internal class SessieVolger(
             .onItem().transformToUniAndConcatenate { _ -> berichtenCache.verlengSessie(cacheKey) }
             .subscribe().with(
                 { loopt -> if (loopt) emitter.emit(SessieGebeurtenis.Hartslag) else beeindig(emitter) },
-                emitter::fail,
+                { fout ->
+                    log.warnf(fout, "Hartslag van een gevolgde sessie mislukt; stream afgebroken")
+                    emitter.fail(fout)
+                },
             )
 
     /**

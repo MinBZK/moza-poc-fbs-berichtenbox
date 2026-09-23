@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.annotation.JsonPropertyOrder
 import com.fasterxml.jackson.annotation.JsonValue
-import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
 import jakarta.enterprise.context.ApplicationScoped
@@ -112,18 +111,17 @@ class VolgenSseResource(
     }
 
     /**
-     * Ná het openen is de status al 200, dus zonder deze regel verdwijnt de oorzaak — uit de log én
-     * uit het logboek, dat de verwerking anders als geslaagd vastlegt. Zelfde vorm als bij
-     * `_ophalen`: een `errorId` om de regel aan een melding te koppelen, en alleen klassenamen,
-     * want de cause-keten kan een URL met de ontvanger bevatten.
+     * Ná het openen is de status al 200, dus zonder deze regel verdwijnt de oorzaak uit de log. Het
+     * logboek ziet hem evenmin: dat sluit zijn registratie af zodra de stream is teruggegeven (zie
+     * het open punt over LDV bij lange streams in het ontwerp). Zelfde vorm als bij `_ophalen`: een
+     * `errorId` om de regel aan een melding te koppelen, en alleen klassenamen, want de cause-keten
+     * kan een URL met de ontvanger bevatten.
      *
      * Op `warn` en niet op `error` zoals daar: valt het abonnement van een pod weg, dan breken al
      * zijn streams tegelijk af, en die oorzaak logt de sessiecache al één keer per pod. Per stream
      * een error-regel zou één incident als honderden laten lezen.
      */
     private fun meldAfgebroken(fout: Throwable, ontvanger: Identificatienummer) {
-        logboekContext.status = StatusCode.ERROR
-
         log.warnf(
             "(errorId=%s) Gevolgde sessie afgebroken (ontvanger.type=%s, fout=%s, oorzaak=%s)",
             UUID.randomUUID(),

@@ -479,9 +479,9 @@ class RedisBerichtenCacheIntegrationTest {
     fun `delete behoudt een concurrent toegevoegd bericht (geen lost-update)`() {
         // Kernbelofte van het optimistic-locking-delete: een createBericht dat gelijktijdig
         // met de delete-rewrite plaatsvindt mag niet door de rewrite worden overschreven.
-        // createBericht doet een ongewatchte MULTI/EXEC (altijd toegepast); delete WATCHt de
-        // list-key en retryt bij conflict. Het concurrent toegevoegde bericht hoort dus
-        // hoe dan ook te overleven, en het doelbericht hoort verwijderd te zijn.
+        // createBericht WATCHt de list-key en herhaalt bij conflict; delete prunet met LREM op de
+        // exacte blob. Het concurrent toegevoegde bericht hoort dus hoe dan ook te overleven, en
+        // het doelbericht hoort verwijderd te zijn.
         val berichten = testBerichten().take(2)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
@@ -643,6 +643,61 @@ class RedisBerichtenCacheIntegrationTest {
         val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!
 
         assertEquals(2L, page.totalElements)
+    }
+
+    @Test
+    fun `createBericht zonder lijst begint er een met alleen dat bericht`() {
+        val nieuw = testBerichten()[0]
+
+        berichtenCache.createBericht(nieuw, ontvanger).await().indefinitely()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!
+
+        assertEquals(listOf(nieuw.berichtId), page.berichten.map { it.berichtId })
+    }
+
+    @Test
+    fun `gelijktijdige aanmeldingen van hetzelfde bericht leveren één entry op`() {
+        // Twee pods, of een dubbele aanmelding uit de wachtrij van het magazijn: zonder WATCH zien
+        // ze allebei een lijst zonder het bericht en voegen ze het allebei toe.
+        berichtenCache.store(cacheKey(), testBerichten().take(1)).await().indefinitely()
+        val nieuw = testBerichten()[1].copy(berichtId = UUID.randomUUID())
+
+        val aanmeldingen = List(GELIJKTIJDIG) { berichtenCache.createBericht(nieuw, ontvanger).subscribeAsCompletionStage().toCompletableFuture() }
+        CompletableFuture.allOf(*aanmeldingen.toTypedArray()).join()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()!!
+
+        assertEquals(1, page.berichten.count { it.berichtId == nieuw.berichtId })
+    }
+
+    @Test
+    fun `een aanmelding herstelt een verlopen hash uit de lijst, met de gewijzigde status`() {
+        // De lijst kent het bericht nog, de hash niet meer: dan staat het in de lijst maar is het
+        // niet te openen. Het herstel komt uit de lijst-entry, niet uit de aanmelding, zodat een
+        // al gelezen bericht niet weer ongelezen wordt.
+        val bericht = testBerichten()[0]
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, Leesstatus.GELEZEN.wire, null).await().indefinitely()
+        redis.key().del(BerichtenCache.berichtKey(bericht.berichtId)).await().indefinitely()
+
+        berichtenCache.createBericht(bericht, ontvanger).await().indefinitely()
+
+        val hersteld = berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()
+
+        assertEquals(Leesstatus.GELEZEN, hersteld?.status)
+        assertEquals(1L, berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!.totalElements)
+    }
+
+    @Test
+    fun `een aanmelding van een bekend bericht laat een gewijzigde status staan`() {
+        val bericht = testBerichten()[0]
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, Leesstatus.GELEZEN.wire, null).await().indefinitely()
+
+        berichtenCache.createBericht(bericht, ontvanger).await().indefinitely()
+
+        assertEquals(Leesstatus.GELEZEN, berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()?.status)
     }
 
     @Test
@@ -1195,5 +1250,9 @@ class RedisBerichtenCacheIntegrationTest {
             .await().indefinitely()
         assertTrue(naTweedeInit.berichten.isNotEmpty(), "Search moet werken na tweede init — index mag niet gedropt zijn")
         assertEquals(voorTweedeInit.berichten.size, naTweedeInit.berichten.size)
+    }
+
+    private companion object {
+        const val GELIJKTIJDIG = 10
     }
 }

@@ -7,6 +7,7 @@ import io.smallrye.mutiny.helpers.test.AssertSubscriber
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -150,6 +151,19 @@ class SessieVolgerTest {
 
         volgend.awaitFailure()
         assertEquals(fout, volgend.failure)
+    }
+
+    @Test
+    fun `stopt de pod, dan eindigt de stream zonder fout en zonder SessieVerlopen`() {
+        // Een rolling update is geen storing: de afnemer verbindt opnieuw, net als na de maximale duur.
+        startSessie(ontvanger)
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
+
+        aanmeldingen.stop()
+
+        volgend.awaitCompletion()
+        assertEquals(SessieGebeurtenis.VolgenGestart, volgend.items.first())
+        assertFalse(SessieGebeurtenis.SessieVerlopen in volgend.items, "de sessie loopt nog: ${volgend.items}")
     }
 
     @Test

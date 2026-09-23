@@ -15,6 +15,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -30,9 +31,15 @@ internal interface Aanmeldingen {
     /**
      * Registreert een luisteraar voor de sessie onder [cacheKey], direct en synchroon. Berichten
      * komen pas door zodra [actief] geslaagd is. [opStoring] valt wanneer het doorgeven zelf
-     * wegvalt; wat daarna wordt aangemeld komt niet meer door.
+     * wegvalt; [opEinde] wanneer deze pod stopt. In beide gevallen komt wat daarna wordt aangemeld
+     * hier niet meer door.
      */
-    fun registreer(cacheKey: String, opBericht: (UUID) -> Unit, opStoring: (Throwable) -> Unit): Afmelding
+    fun registreer(
+        cacheKey: String,
+        opBericht: (UUID) -> Unit,
+        opStoring: (Throwable) -> Unit,
+        opEinde: () -> Unit,
+    ): Afmelding
 
     /** Slaagt zodra deze pod aanmeldingen ontvangt; bouwt het abonnement zo nodig op. */
     fun actief(): Uni<Void>
@@ -56,7 +63,7 @@ internal interface Aanmeldingen {
  * client: die komt niet altijd aan (Vert.x meldt dan `No handler waiting for message: [subscribe,
  * …]`), terwijl de berichten wél binnenkomen. Een probe die terugkomt, is precies de garantie die
  * [Aanmeldingen.actief] belooft. Daarna herhaalt de pod die probe elke
- * `berichtensessiecache.aanmeldingen-controle`, want een verbinding kan ook stil wegvallen.
+ * `berichtensessiecache.aanmeldingen-controle`, want een connection kan ook stil wegvallen.
  *
  * Valt het abonnement weg, dan krijgen alle luisteraars [Aanmeldingen.registreer]'s `opStoring`
  * en vergeet deze pod het abonnement; de volgende [actief] bouwt een nieuw. Opnieuw verbinden is
@@ -65,7 +72,7 @@ internal interface Aanmeldingen {
 @ApplicationScoped
 internal class RedisAanmeldingen(
     private val redis: ReactiveRedisDataSource,
-    // Hoe vaak een staand abonnement zich opnieuw bewijst. Een verbinding die stil wegvalt, zonder
+    // Hoe vaak een staand abonnement zich opnieuw bewijst. Een connection die stil wegvalt, zonder
     // dat de client het merkt, levert anders een stream op die hartslagen blijft geven maar geen
     // enkel bericht meer. Eén PUBLISH per pod per tussenpoos.
     @param:ConfigProperty(name = "berichtensessiecache.aanmeldingen-controle", defaultValue = "PT30S")
@@ -76,13 +83,9 @@ internal class RedisAanmeldingen(
 
     private val luisteraars = ConcurrentHashMap<String, MutableSet<Luisteraar>>()
 
-    private val abonnement = AtomicReference<Uni<Void>?>(null)
-
-    private val subscriber = AtomicReference<ReactiveRedisSubscriber?>(null)
+    private val huidig = AtomicReference<Abonnement?>(null)
 
     private val probes = ConcurrentHashMap<UUID, CompletableFuture<Void>>()
-
-    private val controle = AtomicReference<Cancellable?>(null)
 
     init {
         require(controleInterval.isPositive) {
@@ -96,8 +99,9 @@ internal class RedisAanmeldingen(
         cacheKey: String,
         opBericht: (UUID) -> Unit,
         opStoring: (Throwable) -> Unit,
+        opEinde: () -> Unit,
     ): Aanmeldingen.Afmelding {
-        val luisteraar = Luisteraar(opBericht, opStoring)
+        val luisteraar = Luisteraar(opBericht, opStoring, opEinde)
 
         // Toevoegen binnen `compute`, niet op wat `computeIfAbsent` teruggeeft: dan kan het afmelden
         // van de laatste andere luisteraar de set er net tussenuit halen, en belandt deze in een set
@@ -113,15 +117,13 @@ internal class RedisAanmeldingen(
     }
 
     override fun actief(): Uni<Void> {
-        abonnement.get()?.let { return it }
-
-        val nieuw = AtomicReference<Uni<Void>>()
-        val poging = Uni.createFrom().deferred { abonneer(nieuw) }.memoize().indefinitely()
-        nieuw.set(poging)
+        huidig.get()?.let { return it.gereed }
 
         // Twee gelijktijdige eerste connections: de verliezer gebruikt het abonnement van de
-        // winnaar en abonneert zelf nooit, want `poging` is lui.
-        return if (abonnement.compareAndSet(null, poging)) poging else abonnement.get() ?: poging
+        // winnaar en abonneert zelf nooit, want `gereed` is lui.
+        val nieuw = Abonnement()
+
+        return if (huidig.compareAndSet(null, nieuw)) nieuw.gereed else huidig.get()?.gereed ?: nieuw.gereed
     }
 
     /**
@@ -132,53 +134,20 @@ internal class RedisAanmeldingen(
      */
     @PreDestroy
     fun stop() {
-        abonnement.set(null)
-        controle.getAndSet(null)?.cancel()
-        waarschuwLuisteraars(IllegalStateException("Deze pod stopt; verbind opnieuw"))
-        subscriber.getAndSet(null)?.let(::meldAf)
-    }
+        huidig.getAndSet(null)?.sluit()
 
-    private fun abonneer(poging: AtomicReference<Uni<Void>>): Uni<Void> {
-        val probe = UUID.randomUUID()
-        val teruggezien = CompletableFuture<Void>()
-        val opgegeven = AtomicBoolean(false)
-        probes[probe] = teruggezien
+        val aantal = luisteraars.values.sumOf { it.size }
 
-        redis.pubsub(String::class.java)
-            .subscribe(KANAAL, ::verdeel, { wegGevallen(poging.get(), null) }, { fout -> wegGevallen(poging.get(), fout) })
-            .subscribe().with(
-                { nieuw ->
-                    subscriber.set(nieuw)
+        // Een gewone uitrol: één regel voor de hele pod, geen storing per stream.
+        if (aantal > 0) log.infof("Pod stopt; %d gevolgde sessies verbinden opnieuw", aantal)
 
-                    // De poging kan al opgegeven zijn: de activering liep af voordat de client het
-                    // abonnement opleverde. Dan hoort dit abonnement bij niemand meer en zou het een
-                    // connection openhouden tot de pod stopt.
-                    if (opgegeven.get() && subscriber.compareAndSet(nieuw, null)) {
-                        log.warn("Abonnement op aanmeldingen kwam binnen na het opgeven van de poging; meteen afgemeld")
-                        meldAf(nieuw)
-                    }
-                },
-                { teruggezien.completeExceptionally(it) },
-            )
-
-        val zender = Multi.createFrom().ticks().every(PROBE_INTERVAL)
-            .onOverflow().drop()
-            .onItem().transformToUniAndConcatenate { _ -> publiceer(PROBE, probe) }
-            .subscribe().with({}, { fout -> teruggezien.completeExceptionally(fout) })
-
-        return Uni.createFrom().completionStage(teruggezien)
-            .ifNoItem().after(ACTIVERING_TIMEOUT).fail()
-            .onTermination().invoke { ->
-                zender.cancel()
-                probes.remove(probe)
+        luisteraars.values.flatten().forEach { luisteraar ->
+            try {
+                luisteraar.opEinde()
+            } catch (fout: RuntimeException) {
+                log.warnf(fout, "Een gevolgde sessie kon niet over het stoppen ingelicht worden")
             }
-            .onItem().invoke { _ -> startControle(poging) }
-            .onFailure().invoke { fout ->
-                log.warnf(fout, "Abonneren op aanmeldingen mislukt; volgende poging bij de volgende verbinding")
-                opgegeven.set(true)
-                abonnement.compareAndSet(poging.get(), null)
-                subscriber.getAndSet(null)?.let(::meldAf)
-            }
+        }
     }
 
     /** Best-effort, maar niet stil: een afmelding die mislukt laat een connection open staan. */
@@ -226,26 +195,6 @@ internal class RedisAanmeldingen(
         }
     }
 
-    /**
-     * Laat een staand abonnement zich periodiek bewijzen. De Redis-client meldt het wegvallen van een
-     * verbinding niet altijd; een probe die niet terugkomt wel.
-     */
-    private fun startControle(poging: AtomicReference<Uni<Void>>) {
-        val nieuw = Multi.createFrom().ticks().startingAfter(controleInterval).every(controleInterval)
-            .onOverflow().drop()
-            .onItem().transformToUniAndConcatenate { _ -> bewijs() }
-            .subscribe().with(
-                {},
-                { fout ->
-                    // Een verbinding die zelf niets meldde, staat mogelijk nog half open.
-                    wegGevallen(poging.get(), fout)
-                    subscriber.getAndSet(null)?.let(::meldAf)
-                },
-            )
-
-        controle.getAndSet(nieuw)?.cancel()
-    }
-
     /** Eén probe heen en terug over het kanaal. */
     private fun bewijs(): Uni<Void> {
         val probe = UUID.randomUUID()
@@ -254,33 +203,124 @@ internal class RedisAanmeldingen(
 
         return publiceer(PROBE, probe)
             .chain { _ -> Uni.createFrom().completionStage(terug) }
-            .ifNoItem().after(ACTIVERING_TIMEOUT)
-            .failWith { TimeoutException("probe op het aanmeldkanaal kwam niet terug binnen $ACTIVERING_TIMEOUT") }
+            .ifNoItem().after(PROBE_TIMEOUT)
+            .failWith { TimeoutException("probe op het aanmeldkanaal kwam niet terug binnen $PROBE_TIMEOUT") }
             .onTermination().invoke { -> probes.remove(probe) }
     }
 
-    private fun wegGevallen(van: Uni<Void>?, fout: Throwable?) {
-        if (van == null || !abonnement.compareAndSet(van, null)) return
+    private fun wegGevallen(abonnement: Abonnement, fout: Throwable?) {
+        val wasHuidig = huidig.compareAndSet(abonnement, null)
 
-        controle.getAndSet(null)?.cancel()
+        // Alleen wie het abonnement zelf sluit, en alleen als het nog het huidige was, licht de
+        // luisteraars in; een opgegeven of vervangen poging heeft geen luisteraars meer.
+        if (!abonnement.sluit() || !wasHuidig) return
 
         val oorzaak = fout ?: IllegalStateException("Abonnement op aanmeldingen beëindigd")
         log.warnf(oorzaak, "Abonnement op aanmeldingen weggevallen; %d gevolgde sessies moeten opnieuw verbinden", luisteraars.size)
 
-        waarschuwLuisteraars(oorzaak)
-    }
-
-    private fun waarschuwLuisteraars(oorzaak: Throwable) {
         luisteraars.values.flatten().forEach { luisteraar ->
             try {
                 luisteraar.opStoring(oorzaak)
-            } catch (fout: RuntimeException) {
-                log.warnf(fout, "Een gevolgde sessie kon niet over de storing ingelicht worden")
+            } catch (ingelicht: RuntimeException) {
+                log.warnf(ingelicht, "Een gevolgde sessie kon niet over de storing ingelicht worden")
             }
         }
     }
 
-    private class Luisteraar(val opBericht: (UUID) -> Unit, val opStoring: (Throwable) -> Unit)
+    /**
+     * Eén poging om te abonneren, met alles wat daarbij hoort. Per poging en niet in velden van de
+     * pod: een subscriber of controle die laat binnenkomt, hoort bij de poging die hem startte. Zo
+     * kan een opgegeven poging het abonnement van een latere niet overschrijven of afmelden.
+     *
+     * Na [sluit] ruimt de poging alles op wat nog binnenkomt.
+     */
+    private inner class Abonnement {
+
+        val gereed: Uni<Void> = Uni.createFrom().deferred { activeer() }.memoize().indefinitely()
+
+        private val subscriber = AtomicReference<ReactiveRedisSubscriber?>(null)
+
+        private val controle = AtomicReference<Cancellable?>(null)
+
+        private val gesloten = AtomicBoolean(false)
+
+        /** Idempotent; geeft `true` aan de aanroeper die daadwerkelijk sloot. */
+        fun sluit(): Boolean {
+            if (!gesloten.compareAndSet(false, true)) return false
+
+            controle.getAndSet(null)?.cancel()
+            subscriber.getAndSet(null)?.let(::meldAf)
+
+            return true
+        }
+
+        private fun activeer(): Uni<Void> {
+            val probe = UUID.randomUUID()
+            val teruggezien = CompletableFuture<Void>()
+            probes[probe] = teruggezien
+
+            redis.pubsub(String::class.java)
+                .subscribe(KANAAL, ::verdeel, { wegGevallen(this, null) }, { fout -> wegGevallen(this, fout) })
+                .subscribe().with(::opgeleverd) { teruggezien.completeExceptionally(it) }
+
+            val zender = Multi.createFrom().ticks().every(PROBE_INTERVAL)
+                .onOverflow().drop()
+                .onItem().transformToUniAndConcatenate { _ -> publiceer(PROBE, probe) }
+                .subscribe().with({}, { fout -> teruggezien.completeExceptionally(fout) })
+
+            return Uni.createFrom().completionStage(teruggezien)
+                .ifNoItem().after(PROBE_TIMEOUT).fail()
+                .onTermination().invoke { ->
+                    zender.cancel()
+                    probes.remove(probe)
+                }
+                .onItem().invoke { _ -> startControle() }
+                .onFailure().invoke { fout ->
+                    log.warnf(fout, "Abonneren op aanmeldingen mislukt; volgende poging bij de volgende connection")
+                    huidig.compareAndSet(this, null)
+                    sluit()
+                }
+        }
+
+        private fun opgeleverd(nieuw: ReactiveRedisSubscriber) {
+            subscriber.set(nieuw)
+
+            // De poging kan al gesloten zijn: de activering liep af, of de pod stopte, voordat de
+            // client het abonnement opleverde. Dan zou het een connection openhouden tot de pod stopt.
+            if (gesloten.get() && subscriber.compareAndSet(nieuw, null)) {
+                log.info("Abonnement op aanmeldingen kwam binnen na het sluiten van de poging; meteen afgemeld")
+                meldAf(nieuw)
+            }
+        }
+
+        /**
+         * Laat een staand abonnement zich periodiek bewijzen. De Redis-client meldt het wegvallen van
+         * een connection niet altijd; een probe die niet terugkomt wel. Pas na [MAX_GEMISTE_PROBES]
+         * op rij geldt het abonnement als weg: één trage Redis-reactie zou anders elke open stream
+         * van deze pod tegelijk afbreken.
+         */
+        private fun startControle() {
+            val gemist = AtomicInteger(0)
+            val nieuw = Multi.createFrom().ticks().startingAfter(controleInterval).every(controleInterval)
+                .onOverflow().drop()
+                .onItem().transformToUniAndConcatenate { _ ->
+                    bewijs()
+                        .onItem().invoke { _ -> gemist.set(0) }
+                        .onFailure { gemist.incrementAndGet() < MAX_GEMISTE_PROBES }.recoverWithUni { fout ->
+                            log.infof("Probe op het aanmeldkanaal gemist (%s); het abonnement krijgt nog een kans", fout.message)
+                            Uni.createFrom().voidItem()
+                        }
+                }
+                .subscribe().with({}, { fout -> wegGevallen(this, fout) })
+
+            controle.set(nieuw)
+
+            // Gesloten terwijl de activering nog liep: sluit() zag deze controle nog niet.
+            if (gesloten.get()) controle.getAndSet(null)?.cancel()
+        }
+    }
+
+    private class Luisteraar(val opBericht: (UUID) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 
     companion object {
         // Zelfde versie als de sessie-keys: de cacheKey in het bericht heeft die vorm.
@@ -290,6 +330,7 @@ internal class RedisAanmeldingen(
         // Kan nooit een cacheKey zijn: die begint met `berichtensessiecache:`.
         private const val PROBE = "probe"
         private val PROBE_INTERVAL: Duration = Duration.ofMillis(200)
-        private val ACTIVERING_TIMEOUT: Duration = Duration.ofSeconds(5)
+        private val PROBE_TIMEOUT: Duration = Duration.ofSeconds(5)
+        private const val MAX_GEMISTE_PROBES = 2
     }
 }

@@ -27,7 +27,7 @@ info:
     | `urn:fbs:fout:ophalen-bezig` | 409 | Er loopt een ophaalronde | "Een moment" — wachten, dit is geen fout |
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
-    | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open, voor deze ontvanger of op deze dienst (`_volgen`). Geen storing | "Sluit een ander venster"; niet meteen opnieuw verbinden, maar na `Retry-After` |
+    | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open: voor deze ontvanger, of op deze dienst als geheel (`_volgen`). Geen storing | Niet meteen opnieuw verbinden, maar na `Retry-After`. Staat de berichtenbox van deze ondernemer al in andere vensters open, dan helpt er één sluiten |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
@@ -190,7 +190,7 @@ paths:
         meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
         hoeft na te vragen. Zolang de verbinding openstaat, blijft de sessie in leven.
 
-        Volgorde en volledigheid: de stroom bevat precies één `volgen-gestart`, meestal als
+        Volgorde en volledigheid: de stroom bevat hoogstens één `volgen-gestart`, meestal als
         eerste. Lees op dat moment de lijst (`GET /berichten`) en voeg elk
         `bericht-bijgekomen` toe, ontdubbeld op `berichtId`. Wat vóór `volgen-gestart`
         binnenkwam staat in de lijst, wat erna komt krijg je hier; een bericht dat op het

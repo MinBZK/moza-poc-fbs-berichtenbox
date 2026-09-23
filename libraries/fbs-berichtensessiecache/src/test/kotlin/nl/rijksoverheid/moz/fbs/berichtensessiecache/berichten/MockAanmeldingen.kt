@@ -15,13 +15,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 @ApplicationScoped
 internal class MockAanmeldingen : Aanmeldingen {
 
-    private val luisteraars = ConcurrentHashMap<String, CopyOnWriteArrayList<Pair<(UUID) -> Unit, (Throwable) -> Unit>>>()
+    private class Luisteraar(val opBericht: (UUID) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
+
+    private val luisteraars = ConcurrentHashMap<String, CopyOnWriteArrayList<Luisteraar>>()
 
     val meldingen = CopyOnWriteArrayList<Pair<String, UUID>>()
 
     override fun meld(cacheKey: String, berichtId: UUID): Uni<Void> {
         meldingen += cacheKey to berichtId
-        luisteraars[cacheKey]?.forEach { (opBericht, _) -> opBericht(berichtId) }
+        luisteraars[cacheKey]?.forEach { it.opBericht(berichtId) }
 
         return Uni.createFrom().voidItem()
     }
@@ -30,8 +32,9 @@ internal class MockAanmeldingen : Aanmeldingen {
         cacheKey: String,
         opBericht: (UUID) -> Unit,
         opStoring: (Throwable) -> Unit,
+        opEinde: () -> Unit,
     ): Aanmeldingen.Afmelding {
-        val luisteraar = opBericht to opStoring
+        val luisteraar = Luisteraar(opBericht, opStoring, opEinde)
         luisteraars.computeIfAbsent(cacheKey) { CopyOnWriteArrayList() } += luisteraar
 
         return Aanmeldingen.Afmelding { luisteraars[cacheKey]?.remove(luisteraar) }
@@ -46,7 +49,12 @@ internal class MockAanmeldingen : Aanmeldingen {
 
     /** Laat het doorgeven wegvallen, zoals een verbroken Redis-abonnement. */
     fun valWeg(fout: Throwable) {
-        luisteraars.values.flatten().forEach { (_, opStoring) -> opStoring(fout) }
+        luisteraars.values.flatten().forEach { it.opStoring(fout) }
+    }
+
+    /** Laat de pod stoppen, zoals bij een rolling update. */
+    fun stop() {
+        luisteraars.values.flatten().forEach { it.opEinde() }
     }
 
     fun aantalLuisteraars(cacheKey: String): Int = luisteraars[cacheKey]?.size ?: 0
