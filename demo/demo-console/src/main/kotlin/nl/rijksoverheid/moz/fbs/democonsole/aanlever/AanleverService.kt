@@ -26,9 +26,10 @@ import java.util.logging.Logger
  *
  * `letOp` draagt de reden uit [Faalreden], plus — zodra er iets aankwam — de melding dat een
  * aangeleverd bericht in de publicatie-wachtrij van het magazijn belandt en dus niet meteen in de
- * Berichtenbox staat. De twee tellers hierboven krijgen geen reden, want die berichten kwamen wél aan. Alleen via [van]
- * te maken, en `copy()` erft die zichtbaarheid: `mislukt` en `letOp` komen zo aantoonbaar uit
- * dezelfde lijst en kunnen elkaar niet tegenspreken.
+ * Berichtenbox staat; `null` als er niets te melden is. De twee tellers hierboven krijgen geen
+ * reden, want die berichten kwamen wél aan. Alleen via [van] te maken, en `copy()` erft die
+ * zichtbaarheid: `mislukt` en `letOp` komen zo aantoonbaar uit dezelfde lijst en kunnen elkaar
+ * niet tegenspreken.
  */
 @ConsistentCopyVisibility
 data class AanleverResultaat private constructor(
@@ -54,8 +55,8 @@ data class AanleverResultaat private constructor(
             mislukt = redenen.size,
             markeringMislukt = markeringMislukt,
             zonderBerichtId = zonderBerichtId,
-            // Alleen wanneer er iets is aangeleverd: bij een ronde waarin niets aankwam, zou de
-            // wachtrij-melding de aandacht weghalen bij de reden dat het misging.
+            // Bij een ronde waarin niets aankwam, zou de wachtrij-melding de aandacht weghalen bij
+            // de reden dat het misging.
             letOp = listOfNotNull(
                 Faalreden.samenvatting(redenen),
                 PUBLICATIEWACHTRIJ_MELDING.takeIf { geslaagd > 0 },

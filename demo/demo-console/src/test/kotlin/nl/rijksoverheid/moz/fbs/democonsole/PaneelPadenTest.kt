@@ -120,8 +120,6 @@ class PaneelPadenTest {
      * Een vakje in een knop-adres vraagt om een eigen tak in het script: `value` is bij een checkbox
      * altijd `'on'`, ongeacht de stand. Zonder die tak zou een uitgevinkt vakje `willekeurigTijdstip=on`
      * sturen — de server weigert dat met een 400, maar alleen omdát hij onbekende waarden weigert.
-     * Deze test bewaakt de drie plekken waar de stand langskomt: het invullen van het adres, het
-     * bewaren en het herstellen.
      */
     @Test
     fun `een vakje in een knop-adres wordt als aangevinkt-of-niet doorgegeven, bewaard en hersteld`() {

@@ -75,7 +75,7 @@ class DemoBerichtGenerator(
         val sjabloon = organisatie.sjablonen[random.nextInt(organisatie.sjablonen.size)]
 
         // Gespreid: een willekeurig moment in de afgelopen drie maanden, zodat sorteren op datum
-        // betekenis heeft en een vulling niet als één partij tegelijk binnengekomen oogt. Anders
+        // betekenis heeft en een vulling niet als één batch tegelijk binnengekomen oogt. Anders
         // het moment zelf, en dan staat het bericht bovenaan waar de bediener het verwacht.
         val minutenTerug = if (spreidTijdstip) random.nextInt(1, MAX_SPREIDING_MINUTEN).toLong() else 0L
 
@@ -92,7 +92,7 @@ class DemoBerichtGenerator(
 
     private companion object {
 
-        /** Drie maanden; genoeg spreiding om te sorteren en te filteren zonder de lijst leeg te laten ogen. */
+        /** Drie maanden: genoeg spreiding om op datum te sorteren en te filteren. */
         const val MAX_SPREIDING_MINUTEN = 90 * 24 * 60
     }
 }

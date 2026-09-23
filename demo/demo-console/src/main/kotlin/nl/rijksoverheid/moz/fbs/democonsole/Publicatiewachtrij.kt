@@ -7,10 +7,11 @@ package nl.rijksoverheid.moz.fbs.democonsole
  * publicatie-wachtrij; het aanmelden bij de uitvraag gebeurt daarna, in een eigen ronde. Tussen die
  * twee zit dus tijd, en in die tijd lijkt een geslaagde aanlevering op een knop die niets deed.
  *
- * Bewust zonder getal: hoe vaak die wachtrij wordt verwerkt is een instelling van het magazijn, en
- * een getal in dit paneel zou gaan afwijken zodra een operator hem bijstelt.
+ * Bewust zonder getal en zonder "kort": hoe vaak die wachtrij wordt verwerkt is een instelling van
+ * het magazijn — met de huidige waarde duurt het gemiddeld een halve minuut, en een paneel dat
+ * snelheid suggereert laat de bediener zoeken naar een fout die er niet is. Een getal zou boven-
+ * dien gaan afwijken zodra een operator die instelling bijstelt.
  */
 const val PUBLICATIEWACHTRIJ_MELDING: String =
     "Aangeleverde berichten staan in de publicatie-wachtrij van het magazijn. Ze verschijnen in de " +
-        "Berichtenbox zodra het magazijn die wachtrij verwerkt; dat gebeurt kort na het aanleveren, " +
-        "niet op hetzelfde moment."
+        "Berichtenbox zodra het magazijn die wachtrij verwerkt."

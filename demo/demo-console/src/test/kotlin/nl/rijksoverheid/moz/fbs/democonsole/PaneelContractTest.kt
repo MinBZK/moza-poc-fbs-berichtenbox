@@ -289,13 +289,19 @@ class PaneelContractTest {
         assertEquals(aantal, VasteAanleverService.opdrachten.size)
     }
 
-    @Test
-    fun `een bericht krijgt standaard het moment zelf als publicatietijdstip`() {
+    /**
+     * Zonder parameter, leeg, en `false` — dat laatste stuurt het paneel bij élk uitgevinkt vakje.
+     * Beeldde `jaNee` dat per ongeluk op `true` af, dan zakte elk bericht weg tussen de
+     * basisvulling, zonder dat iets faalde.
+     */
+    @ParameterizedTest(name = "willekeurigTijdstip ''{0}''")
+    @ValueSource(strings = ["", "&willekeurigTijdstip=", "&willekeurigTijdstip=false"])
+    fun `een bericht krijgt standaard het moment zelf als publicatietijdstip`(parameter: String) {
         // Het vinkje 'willekeurige tijdstippen' staat uit: dan hoort het bericht bovenaan de
         // berichtenbox te komen, en niet ergens tussen de basisvulling van de afgelopen maanden.
         val voor = Instant.now().minusSeconds(60)
 
-        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=1").statusCode())
+        assertEquals(200, plaatsBericht("?persona=pietersen&aantal=1$parameter").statusCode())
 
         val tijdstip = Instant.parse(VasteAanleverService.opdrachten.single().verzoek.publicatietijdstip)
 
