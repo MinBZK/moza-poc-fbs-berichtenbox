@@ -618,6 +618,34 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
+    fun `createBericht voegt een bericht dat de sessie al kent niet opnieuw toe`() {
+        // Het magazijn meldt aan uit zijn wachtrij, en een ophaalronde die intussen liep had het
+        // bericht al. Eerste, middelste en laatste positie, zodat de controle niet toevallig
+        // alleen de kop of de staart bekijkt.
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        berichten.forEach { berichtenCache.createBericht(it, ontvanger).await().indefinitely() }
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!
+
+        assertEquals(berichten.size.toLong(), page.totalElements)
+        assertEquals(berichten.map { it.berichtId }.toSet(), page.berichten.map { it.berichtId }.toSet())
+    }
+
+    @Test
+    fun `een nieuw bericht dat twee keer wordt aangemeld, staat er één keer in`() {
+        berichtenCache.store(cacheKey(), testBerichten().take(1)).await().indefinitely()
+        val nieuw = testBerichten()[1].copy(berichtId = UUID.randomUUID())
+
+        repeat(2) { berichtenCache.createBericht(nieuw, ontvanger).await().indefinitely() }
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!
+
+        assertEquals(2L, page.totalElements)
+    }
+
+    @Test
     fun `store met lege lijst verwijdert key`() {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()

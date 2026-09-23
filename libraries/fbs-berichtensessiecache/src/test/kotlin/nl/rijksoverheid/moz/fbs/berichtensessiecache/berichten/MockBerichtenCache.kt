@@ -117,6 +117,10 @@ internal class MockBerichtenCache : BerichtenCache {
         val key = BerichtenCache.cacheKey(ontvanger)
         val listKey = "$key:list"
         val existing = lists[listKey] ?: emptyList()
+
+        // Zoals de echte cache: een bericht dat de sessie al kent, komt er niet nog eens bij.
+        if (existing.any { it.berichtId == bericht.berichtId }) return Uni.createFrom().voidItem()
+
         lists[listKey] = (existing + bericht).sortedByDescending { it.publicatietijdstip }
         byId[bericht.berichtId] = bericht
         return Uni.createFrom().voidItem()

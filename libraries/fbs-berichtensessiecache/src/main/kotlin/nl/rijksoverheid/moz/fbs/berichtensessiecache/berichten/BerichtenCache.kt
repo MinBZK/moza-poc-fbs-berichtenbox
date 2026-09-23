@@ -550,9 +550,7 @@ internal class RedisBerichtenCache(
             .chain { jsonList ->
                 // Alleen het id is nodig; een onleesbare entry slaat alleen die ene hash over.
                 // Het leespad meldt de corruptie al, met de juiste status.
-                val ids = jsonList.mapNotNull { json ->
-                    runCatching { UUID.fromString(objectMapper.readTree(json).path("berichtId").asText()) }.getOrNull()
-                }
+                val ids = jsonList.mapNotNull(::idVan)
 
                 // Niet best-effort zoals op het leespad: daar is de lees al gelukt en is de TTL
                 // bijzaak, hier ís verlengen de opdracht. Een mislukking hoort de hartslag te
@@ -876,7 +874,31 @@ internal class RedisBerichtenCache(
         }
     }
 
+    /**
+     * Voegt niets toe als het bericht al in de lijst van deze sessie staat. Dat gebeurt gewoon: het
+     * magazijn meldt een bericht aan uit zijn wachtrij, en een ophaalronde die intussen liep, heeft
+     * het rechtstreeks uit het magazijn al meegenomen. Zonder deze controle staat het er daarna
+     * twee keer in.
+     */
     override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
+        val listKey = listKey(BerichtenCache.cacheKey(ontvanger))
+
+        return redis.list(String::class.java).lrange(listKey, 0, -1).chain { bestaand ->
+            if (bestaand.any { idVan(it) == bericht.berichtId }) {
+                log.debugf("Bericht %s staat al in de sessie; niet opnieuw toegevoegd", bericht.berichtId)
+
+                Uni.createFrom().voidItem()
+            } else {
+                voegToe(bericht, ontvanger)
+            }
+        }
+    }
+
+    /** Alleen het id; een onleesbare entry telt niet als treffer, het leespad meldt hem al. */
+    private fun idVan(json: String): UUID? =
+        runCatching { UUID.fromString(objectMapper.readTree(json).path("berichtId").asText()) }.getOrNull()
+
+    private fun voegToe(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
