@@ -87,6 +87,8 @@ internal class RedisAanmeldingen(
 
     private val probes = ConcurrentHashMap<UUID, CompletableFuture<Void>>()
 
+    private val gestopt = AtomicBoolean(false)
+
     init {
         require(controleInterval.isPositive) {
             "berichtensessiecache.aanmeldingen-controle ($controleInterval) moet groter zijn dan 0"
@@ -108,6 +110,9 @@ internal class RedisAanmeldingen(
         // die nergens meer aan hangt — een stream die nooit meer een aanmelding krijgt.
         luisteraars.compute(cacheKey) { _, set -> (set ?: ConcurrentHashMap.newKeySet()).apply { add(luisteraar) } }
 
+        // Een stream die tijdens het stoppen nog opent, heeft [stop] net gemist.
+        if (gestopt.get()) luisteraar.opEinde()
+
         return Aanmeldingen.Afmelding {
             luisteraars.computeIfPresent(cacheKey) { _, set ->
                 set.remove(luisteraar)
@@ -117,6 +122,8 @@ internal class RedisAanmeldingen(
     }
 
     override fun actief(): Uni<Void> {
+        if (gestopt.get()) return Uni.createFrom().failure(IllegalStateException("Deze pod stopt"))
+
         huidig.get()?.let { return it.gereed }
 
         // Twee gelijktijdige eerste connections: de verliezer gebruikt het abonnement van de
@@ -127,19 +134,23 @@ internal class RedisAanmeldingen(
     }
 
     /**
-     * Eerst de luisteraars, dan pas afmelden. Een open stream is voor de server een lopend verzoek,
-     * dus tijdens een rolling update blijft hij bestaan tot de afsluit-termijn verstrijkt — met een
-     * kanaal dat al dood is. Zo verbinden de berichtenboxen meteen opnieuw, bij een pod die nog
+     * Sluit elke open stream meteen af. Een open stream is voor de server een lopend verzoek, dus
+     * tijdens een rolling update blijft hij anders bestaan tot de afsluit-termijn verstrijkt — met
+     * een kanaal dat al dood is. Zo verbinden de berichtenboxen meteen opnieuw, bij een pod die nog
      * leeft, in plaats van in dat venster aanmeldingen te missen.
+     *
+     * Het abonnement gaat eerst uit [huidig]: het afmelden ervan eindigt dan niet in [wegGevallen]
+     * als storing, en de luisteraars krijgen alleen [Luisteraar.opEinde].
      */
     @PreDestroy
     fun stop() {
+        gestopt.set(true)
         huidig.getAndSet(null)?.sluit()
 
-        val aantal = luisteraars.values.sumOf { it.size }
+        val aantal = openStreams()
 
         // Een gewone uitrol: één regel voor de hele pod, geen storing per stream.
-        if (aantal > 0) log.infof("Pod stopt; %d gevolgde sessies verbinden opnieuw", aantal)
+        if (aantal > 0) log.infof("Pod stopt; %d open streams verbinden opnieuw", aantal)
 
         luisteraars.values.flatten().forEach { luisteraar ->
             try {
@@ -149,6 +160,8 @@ internal class RedisAanmeldingen(
             }
         }
     }
+
+    private fun openStreams(): Int = luisteraars.values.sumOf { it.size }
 
     /** Best-effort, maar niet stil: een afmelding die mislukt laat een connection open staan. */
     private fun meldAf(oud: ReactiveRedisSubscriber) {
@@ -216,7 +229,7 @@ internal class RedisAanmeldingen(
         if (!abonnement.sluit() || !wasHuidig) return
 
         val oorzaak = fout ?: IllegalStateException("Abonnement op aanmeldingen beëindigd")
-        log.warnf(oorzaak, "Abonnement op aanmeldingen weggevallen; %d gevolgde sessies moeten opnieuw verbinden", luisteraars.size)
+        log.warnf(oorzaak, "Abonnement op aanmeldingen weggevallen; %d open streams moeten opnieuw verbinden", openStreams())
 
         luisteraars.values.flatten().forEach { luisteraar ->
             try {
@@ -255,6 +268,9 @@ internal class RedisAanmeldingen(
         }
 
         private fun activeer(): Uni<Void> {
+            // Gesloten vóór iemand op [gereed] wachtte: niet alsnog abonneren.
+            if (gesloten.get()) return Uni.createFrom().failure(IllegalStateException("Abonnement al gesloten"))
+
             val probe = UUID.randomUUID()
             val teruggezien = CompletableFuture<Void>()
             probes[probe] = teruggezien
@@ -274,9 +290,19 @@ internal class RedisAanmeldingen(
                     zender.cancel()
                     probes.remove(probe)
                 }
-                .onItem().invoke { _ -> startControle() }
+                .onItem().transformToUni { _ ->
+                    // Gesloten terwijl de probe onderweg was: dit abonnement is niet meer actief.
+                    if (gesloten.get()) {
+                        Uni.createFrom().failure(IllegalStateException("Abonnement gesloten tijdens het activeren"))
+                    } else {
+                        startControle()
+                        Uni.createFrom().voidItem()
+                    }
+                }
                 .onFailure().invoke { fout ->
-                    log.warnf(fout, "Abonneren op aanmeldingen mislukt; volgende poging bij de volgende connection")
+                    // Een poging die al gesloten was, is geen storing: de pod stopte of verving haar.
+                    if (!gesloten.get()) log.warnf(fout, "Abonneren op aanmeldingen mislukt; volgende poging bij de volgende connection")
+
                     huidig.compareAndSet(this, null)
                     sluit()
                 }
@@ -315,7 +341,7 @@ internal class RedisAanmeldingen(
 
             controle.set(nieuw)
 
-            // Gesloten terwijl de activering nog liep: sluit() zag deze controle nog niet.
+            // Gesloten tussen de controle hierboven en dit moment: sluit() zag deze controle nog niet.
             if (gesloten.get()) controle.getAndSet(null)?.cancel()
         }
     }
@@ -330,7 +356,8 @@ internal class RedisAanmeldingen(
         // Kan nooit een cacheKey zijn: die begint met `berichtensessiecache:`.
         private const val PROBE = "probe"
         private val PROBE_INTERVAL: Duration = Duration.ofMillis(200)
-        private val PROBE_TIMEOUT: Duration = Duration.ofSeconds(5)
-        private const val MAX_GEMISTE_PROBES = 2
+        // `internal` zodat de tests hun pauzes hiervan afleiden en niet stil ophouden iets te bewijzen.
+        internal val PROBE_TIMEOUT: Duration = Duration.ofSeconds(5)
+        internal const val MAX_GEMISTE_PROBES = 2
     }
 }

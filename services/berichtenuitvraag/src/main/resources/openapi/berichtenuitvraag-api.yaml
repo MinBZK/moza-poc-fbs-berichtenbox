@@ -216,7 +216,8 @@ paths:
         aanmeldingen, dan een `503` met `tijdelijk-niet-beschikbaar`. Beide met `Retry-After`.
 
         Een stream heeft een maximale duur (standaard een uur, per omgeving instelbaar) en
-        eindigt dan zonder `sessie-verlopen`; verbind dan gewoon opnieuw. Komt de verbinding niet tot stand, dan blijft de lijst gewoon
+        eindigt dan zonder `sessie-verlopen`, net als bij een herstart van de dienst; verbind
+        dan gewoon opnieuw. Komt de verbinding niet tot stand, dan blijft de lijst gewoon
         bruikbaar; alleen het vanzelf binnenkomen valt weg.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'

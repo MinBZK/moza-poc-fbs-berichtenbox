@@ -44,8 +44,14 @@ internal class MockAanmeldingen : Aanmeldingen {
     @Volatile
     var actiefFout: Throwable? = null
 
-    override fun actief(): Uni<Void> =
-        actiefFout?.let { Uni.createFrom().failure(it) } ?: Uni.createFrom().voidItem()
+    /** Laat de activering nooit afronden, zoals een abonnement dat nog onderweg is. */
+    @Volatile
+    var actiefHangt = false
+
+    override fun actief(): Uni<Void> = when {
+        actiefHangt -> Uni.createFrom().nothing()
+        else -> actiefFout?.let { Uni.createFrom().failure(it) } ?: Uni.createFrom().voidItem()
+    }
 
     /** Laat het doorgeven wegvallen, zoals een verbroken Redis-abonnement. */
     fun valWeg(fout: Throwable) {

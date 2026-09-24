@@ -167,6 +167,19 @@ class SessieVolgerTest {
     }
 
     @Test
+    fun `stopt de pod nog vóór VolgenGestart, dan eindigt de stream leeg en zonder fout`() {
+        // "Hoogstens één VolgenGestart": dit is het geval met nul. De afnemer verbindt opnieuw.
+        startSessie(ontvanger)
+        aanmeldingen.actiefHangt = true
+        val volgend = volg(ontvanger)
+
+        aanmeldingen.stop()
+
+        volgend.awaitCompletion()
+        assertEquals(emptyList<SessieGebeurtenis>(), volgend.items)
+    }
+
+    @Test
     fun `lukt de activering niet, dan breekt de stream af zonder VolgenGestart`() {
         // VolgenGestart zegt tegen de afnemer "lees nu de lijst, vanaf hier krijg je alles". Komt het
         // toch zonder werkend abonnement, dan wacht hij daarna tot de maximale duur op berichten

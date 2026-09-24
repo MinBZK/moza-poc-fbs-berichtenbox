@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -159,11 +160,26 @@ class RedisAanmeldingenIntegrationTest {
         val storingen = LinkedBlockingQueue<Throwable>()
         pod.registreer(cacheKey, {}, { storingen += it }, { beeindigd += "eigen" })
         pod.registreer("${cacheKey}x", {}, { storingen += it }, { beeindigd += "ander" })
+        pod.actief().await().atMost(WACHTTIJD)
 
         pod.stop()
 
         assertEquals(setOf("eigen", "ander"), beeindigd.toSet(), "elke luisteraar hoort het te horen, op elke sleutel")
-        assertTrue(storingen.isEmpty(), "een uitrol is geen storing: $storingen")
+
+        // Het afmelden van het abonnement eindigt asynchroon; ook dat mag geen storing worden.
+        assertEquals(null, storingen.poll(AFWIKKELING.toMillis(), TimeUnit.MILLISECONDS), "een uitrol is geen storing")
+    }
+
+    @Test
+    fun `een stream die opent terwijl de pod stopt, eindigt meteen en abonneert niet opnieuw`() {
+        val pod = RedisAanmeldingen(redis, STANDAARD_CONTROLE)
+        pod.stop()
+        val beeindigd = LinkedBlockingQueue<Unit>()
+
+        pod.registreer(cacheKey, {}, {}, { beeindigd += Unit })
+
+        assertEquals(1, beeindigd.size)
+        assertThrows<IllegalStateException> { pod.actief().await().atMost(WACHTTIJD) }
     }
 
     @Test
@@ -171,13 +187,22 @@ class RedisAanmeldingenIntegrationTest {
         // Het abonnement komt pas na het stoppen binnen. Het hoort dan bij niemand meer en zou een
         // connection openhouden, met een controle die daarna nog doorloopt.
         val pod = RedisAanmeldingen(redis, SNELLE_CONTROLE)
-        val voor = abonnees()
+        val voor = stabieleAbonnees()
 
         pod.actief().subscribe().with({}, {})
         pod.stop()
+
+        // Het abonnement mag even bestaan: het komt pas na het stoppen binnen en wordt dan afgemeld.
+        // Daarna hoort de telling terug te zijn, en te blijven.
+        val einde = System.nanoTime() + AFWIKKELING.toNanos()
+
+        while (abonnees() > voor && System.nanoTime() < einde) Thread.sleep(PEILING.toMillis())
+
+        assertEquals(voor, abonnees(), "abonnement achtergebleven na stop")
+
         Thread.sleep(AFWIKKELING.toMillis())
 
-        assertEquals(voor, abonnees())
+        assertEquals(voor, abonnees(), "abonnement na stop alsnog opnieuw opgebouwd")
     }
 
     @Test
@@ -224,7 +249,8 @@ class RedisAanmeldingenIntegrationTest {
             val verstreken = Duration.ofNanos(System.nanoTime() - start)
 
             assertTrue(storing is TimeoutException, "verwacht een verlopen probe, kreeg: $storing")
-            assertTrue(verstreken >= PROBE_TIMEOUT.multipliedBy(2), "al na één gemiste probe opgegeven ($verstreken)")
+            // Met marge: de eerste probe kan net vóór de pauze zijn verstuurd.
+            assertTrue(verstreken >= TWEE_PROBES_ONDERGRENS, "al na één gemiste probe opgegeven ($verstreken)")
 
             // Na de pauze bouwt de volgende activering een nieuw abonnement dat weer doorgeeft.
             hervat()
@@ -295,6 +321,20 @@ class RedisAanmeldingenIntegrationTest {
     private fun abonnees(): Long =
         redis.execute("PUBSUB", "NUMSUB", RedisAanmeldingen.KANAAL).await().atMost(WACHTTIJD).get(1).toLong()
 
+    // Een vorige test kan nog aan het afmelden zijn; wacht tot twee metingen na elkaar gelijk zijn.
+    private fun stabieleAbonnees(): Long {
+        var vorige = abonnees()
+
+        while (true) {
+            Thread.sleep(PEILING.toMillis())
+            val nu = abonnees()
+
+            if (nu == vorige) return nu
+
+            vorige = nu
+        }
+    }
+
     private fun pauzeer(duur: Duration) {
         redis.execute("CLIENT", "PAUSE", duur.toMillis().toString(), "WRITE").await().atMost(WACHTTIJD)
     }
@@ -312,14 +352,17 @@ class RedisAanmeldingenIntegrationTest {
         val SNELLE_CONTROLE: Duration = Duration.ofMillis(200)
         val AFWIKKELING: Duration = Duration.ofSeconds(2)
 
-        // Gelijk aan de probe-timeout in RedisAanmeldingen.
-        val PROBE_TIMEOUT: Duration = Duration.ofSeconds(5)
-        val TWEE_PROBES: Duration = PROBE_TIMEOUT.multipliedBy(2).plus(SNELLE_CONTROLE.multipliedBy(4))
+        val PEILING: Duration = Duration.ofMillis(100)
+
+        val PROBE_TIMEOUT: Duration = RedisAanmeldingen.PROBE_TIMEOUT
+        val TOT_OPGEVEN: Duration = PROBE_TIMEOUT.multipliedBy(RedisAanmeldingen.MAX_GEMISTE_PROBES.toLong())
+        val TWEE_PROBES: Duration = TOT_OPGEVEN.plus(SNELLE_CONTROLE.multipliedBy(4))
+        val TWEE_PROBES_ONDERGRENS: Duration = TOT_OPGEVEN.minusMillis(500)
 
         // Langer dan één probe, korter dan twee.
-        val HAPERING: Duration = Duration.ofSeconds(7)
+        val HAPERING: Duration = PROBE_TIMEOUT.plusSeconds(2)
 
         // Langer dan twee probes na elkaar, zodat het abonnement gegarandeerd opgegeven wordt.
-        val PAUZE: Duration = Duration.ofSeconds(14)
+        val PAUZE: Duration = TOT_OPGEVEN.plusSeconds(4)
     }
 }

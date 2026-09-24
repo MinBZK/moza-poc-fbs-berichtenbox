@@ -849,7 +849,7 @@ internal class RedisBerichtenCache(
         map: String?,
         poging: Int,
     ): Uni<Bericht?> {
-        if (result.discarded() && poging < MAX_WATCH_POGINGEN) {
+        if (result.discarded() && poging < MAX_UPDATE_METADATA_POGINGEN) {
             return probeerUpdateMetadata(berichtId, ontvanger, status, map, poging + 1)
         }
 
@@ -874,97 +874,34 @@ internal class RedisBerichtenCache(
         }
     }
 
-    // Plan dat de read-fase (onder WATCH) van createBericht doorgeeft aan de write-fase.
-    private sealed interface AanmeldPlan {
-        data object Toevoegen : AanmeldPlan
-
-        data object AlAanwezig : AanmeldPlan
-
-        // De lijst kent het bericht, maar de hash is verlopen: zonder hash is het bericht wel in de
-        // lijst te zien, maar niet te openen of te vinden. Hersteld uit de lijst-entry, want die
-        // draagt een eventueel gewijzigde status of map; het aangemelde bericht niet.
-        data class HashHerstellen(val bericht: Bericht) : AanmeldPlan
-    }
-
     /**
      * Voegt niets toe als het bericht al in de lijst van deze sessie staat. Dat gebeurt gewoon: het
      * magazijn meldt een bericht aan uit zijn wachtrij, en een ophaalronde die intussen liep, heeft
      * het rechtstreeks uit het magazijn al meegenomen. Zonder deze controle staat het er daarna
      * twee keer in.
      *
-     * Onder WATCH op de lijst, zoals [updateBerichtMetadata]: twee gelijktijdige aanmeldingen van
-     * hetzelfde bericht zien anders allebei een lijst zonder, en voegen het allebei toe.
+     * Controleren en toevoegen in één Lua-script, dus atomair zonder WATCH. Een WATCH op de lijst
+     * zou afbreken op elke EXPIRE die een open berichtenbox bij het lezen doet — precies wat er
+     * gebeurt als een reeks aanmeldingen binnenkomt terwijl die ontvanger volgt.
      */
-    override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> =
-        probeerCreateBericht(bericht, ontvanger, 1)
-            .onFailure().invoke { e ->
-                if (e !is CacheContentieException) log.errorf(e, "Redis createBericht mislukt voor berichtId=%s", bericht.berichtId)
-            }
-
-    private fun probeerCreateBericht(bericht: Bericht, ontvanger: Identificatienummer, poging: Int): Uni<Void> {
+    override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
         val listKey = listKey(BerichtenCache.cacheKey(ontvanger))
         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
-
-        return redis.withTransaction<AanmeldPlan>(
-            { reads -> bepaalAanmeldPlan(reads, listKey, berichtKey, bericht.berichtId) },
-            { plan, tx -> voerAanmeldPlanUit(plan, tx, bericht, listKey, berichtKey) },
+        val velden = berichtToHash(bericht).flatMap { (veld, waarde) -> listOf(veld, waarde) }
+        val argumenten = listOf(
+            AANMELD_SCRIPT,
+            "2",
             listKey,
             berichtKey,
-        ).chain { result ->
-            when {
-                !result.discarded() -> {
-                    log.debugf("Aangemeld bericht %s verwerkt: %s", bericht.berichtId, result.preTransactionResult)
+            bericht.berichtId.toString(),
+            objectMapper.writeValueAsString(bericht),
+            ttl.toMillis().toString(),
+        ) + velden
 
-                    Uni.createFrom().voidItem()
-                }
-
-                poging < MAX_WATCH_POGINGEN -> probeerCreateBericht(bericht, ontvanger, poging + 1)
-
-                else -> {
-                    log.warnf("Aanmelding na %d pogingen afgebroken door concurrente wijziging. berichtId=%s", poging, bericht.berichtId)
-
-                    Uni.createFrom().failure(CacheContentieException(bericht.berichtId))
-                }
-            }
-        }
-    }
-
-    private fun bepaalAanmeldPlan(reads: ReactiveRedisDataSource, listKey: String, berichtKey: String, berichtId: UUID): Uni<AanmeldPlan> =
-        reads.list(String::class.java).lrange(listKey, 0, -1).chain { bestaand ->
-            val entry = bestaand.firstOrNull { idVan(it) == berichtId }
-
-            if (entry == null) {
-                Uni.createFrom().item(AanmeldPlan.Toevoegen)
-            } else {
-                reads.key().exists(berichtKey).map { hashBestaat ->
-                    if (hashBestaat) AanmeldPlan.AlAanwezig else AanmeldPlan.HashHerstellen(objectMapper.readValue(entry, Bericht::class.java))
-                }
-            }
-        }
-
-    private fun voerAanmeldPlanUit(
-        plan: AanmeldPlan,
-        tx: ReactiveTransactionalRedisDataSource,
-        bericht: Bericht,
-        listKey: String,
-        berichtKey: String,
-    ): Uni<Void> {
-        val txKey = tx.key()
-
-        fun schrijfHash(van: Bericht): Uni<Void> =
-            tx.hash(String::class.java).hset(berichtKey, berichtToHash(van))
-                .chain { _ -> txKey.expire(berichtKey, ttl) }
-                .replaceWithVoid()
-
-        return when (plan) {
-            AanmeldPlan.AlAanwezig -> Uni.createFrom().voidItem()
-
-            is AanmeldPlan.HashHerstellen -> schrijfHash(plan.bericht)
-
-            AanmeldPlan.Toevoegen -> tx.list(String::class.java).rpush(listKey, objectMapper.writeValueAsString(bericht))
-                .chain { _ -> txKey.expire(listKey, ttl) }
-                .chain { _ -> schrijfHash(bericht) }
-        }
+        return redis.execute("EVAL", *argumenten.toTypedArray())
+            .invoke { uitkomst -> log.debugf("Aangemeld bericht %s: %s", bericht.berichtId, uitkomst) }
+            .replaceWithVoid()
+            .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
 
     /** Alleen het id; een onleesbare entry telt niet als treffer, het leespad meldt hem al. */
@@ -1072,11 +1009,63 @@ internal class RedisBerichtenCache(
             .getOrNull() == berichtId.toString()
 
     companion object {
-        // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` en `createBericht` voordat ze
-        // worden opgegeven; concurrente wijziging op één sessie-list is zeldzaam, dus een klein
+        // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de invalidate
+        // wordt opgegeven; concurrente wijziging op één sessie-list is zeldzaam, dus een klein
         // plafond volstaat en voorkomt ongebonden retry onder pathologische contentie. (Delete
         // gebruikt LREM en heeft geen retry-loop nodig.)
-        private const val MAX_WATCH_POGINGEN = 5
+        private const val MAX_UPDATE_METADATA_POGINGEN = 5
+
+        /**
+         * KEYS: sessie-lijst, berichthash. ARGV: berichtId, JSON voor de lijst, TTL in ms, daarna
+         * de hash-velden als veld/waarde-paren.
+         *
+         * Kent de lijst het bericht maar is de hash verlopen, dan komt de hash terug met status en
+         * map uit de lijst-entry: alleen die twee wijzigen na het aanmelden, en de aanmelding zelf
+         * zou een al gelezen bericht weer ongelezen maken. Een onleesbare entry telt niet als
+         * treffer, net als in het leespad.
+         */
+        private val AANMELD_SCRIPT = """
+            local gevonden = nil
+            for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
+                local leesbaar, bericht = pcall(cjson.decode, entry)
+                if leesbaar and type(bericht) == 'table' and bericht.berichtId == ARGV[1] then
+                    gevonden = bericht
+                    break
+                end
+            end
+
+            local ttl = tonumber(ARGV[3])
+
+            if gevonden == nil then
+                redis.call('RPUSH', KEYS[1], ARGV[2])
+                redis.call('PEXPIRE', KEYS[1], ttl)
+                redis.call('HSET', KEYS[2], unpack(ARGV, 4))
+                redis.call('PEXPIRE', KEYS[2], ttl)
+                return 'toegevoegd'
+            end
+
+            if redis.call('EXISTS', KEYS[2]) == 1 then
+                return 'al aanwezig'
+            end
+
+            local velden = {}
+            for i = 4, #ARGV, 2 do
+                if ARGV[i] ~= 'status' and ARGV[i] ~= 'map' then
+                    table.insert(velden, ARGV[i])
+                    table.insert(velden, ARGV[i + 1])
+                end
+            end
+            for _, veld in ipairs({ 'status', 'map' }) do
+                if type(gevonden[veld]) == 'string' then
+                    table.insert(velden, veld)
+                    table.insert(velden, gevonden[veld])
+                end
+            end
+
+            redis.call('HSET', KEYS[2], unpack(velden))
+            redis.call('PEXPIRE', KEYS[2], ttl)
+            return 'hash hersteld'
+        """.trimIndent()
 
         // Stabiel alert-anker (los van vertaalbare proza) voor de Loki-rule die moet alarmeren
         // wanneer het verwijderd-kenmerk stil wegvalt. Wijzig de waarde niet zonder de

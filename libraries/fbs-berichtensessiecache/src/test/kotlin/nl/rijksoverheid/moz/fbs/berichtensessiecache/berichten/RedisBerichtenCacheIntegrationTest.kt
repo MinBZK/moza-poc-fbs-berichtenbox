@@ -479,8 +479,8 @@ class RedisBerichtenCacheIntegrationTest {
     fun `delete behoudt een concurrent toegevoegd bericht (geen lost-update)`() {
         // Kernbelofte van het optimistic-locking-delete: een createBericht dat gelijktijdig
         // met de delete-rewrite plaatsvindt mag niet door de rewrite worden overschreven.
-        // createBericht WATCHt de list-key en herhaalt bij conflict; delete prunet met LREM op de
-        // exacte blob. Het concurrent toegevoegde bericht hoort dus hoe dan ook te overleven, en
+        // createBericht voegt atomair toe in één Lua-script; delete prunet met LREM op de exacte
+        // blob. Het concurrent toegevoegde bericht hoort dus hoe dan ook te overleven, en
         // het doelbericht hoort verwijderd te zijn.
         val berichten = testBerichten().take(2)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
@@ -646,7 +646,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `createBericht zonder lijst begint er een met alleen dat bericht`() {
+    fun `createBericht zonder lijst begint er een met alleen dat bericht, met de sessie-TTL`() {
         val nieuw = testBerichten()[0]
 
         berichtenCache.createBericht(nieuw, ontvanger).await().indefinitely()
@@ -654,6 +654,32 @@ class RedisBerichtenCacheIntegrationTest {
         val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!
 
         assertEquals(listOf(nieuw.berichtId), page.berichten.map { it.berichtId })
+
+        // Zonder TTL blijft een hash met gegevens van de ontvanger voor altijd in Redis staan.
+        listOf(listKey(), BerichtenCache.berichtKey(nieuw.berichtId)).forEach { sleutel ->
+            assertTrue(pttl(sleutel) in 1..SESSIE_TTL_MS, "$sleutel zonder sessie-TTL: ${pttl(sleutel)}")
+        }
+    }
+
+    @Test
+    fun `een reeks aanmeldingen terwijl de berichtenbox leest, komt er helemaal in`() {
+        // Een open berichtenbox verlengt bij elk gelezen bericht de TTL van de lijst. Een
+        // aanmelding die op die lijst wachtte tot er niets aan veranderde, liep daar op stuk.
+        berichtenCache.store(cacheKey(), testBerichten().take(1)).await().indefinitely()
+        val gelezen = testBerichten()[0]
+        val nieuw = List(GELIJKTIJDIG * 5) { testBerichten()[1].copy(berichtId = UUID.randomUUID()) }
+        val lezer = Thread {
+            repeat(GELIJKTIJDIG * 5) { berichtenCache.verlengSessie(cacheKey()).await().indefinitely() }
+        }.apply { start() }
+
+        val aanmeldingen = nieuw.map { berichtenCache.createBericht(it, ontvanger).subscribeAsCompletionStage().toCompletableFuture() }
+        CompletableFuture.allOf(*aanmeldingen.toTypedArray()).join()
+        lezer.join()
+
+        val page = berichtenCache.getPage(cacheKey(), 0, 100, null, null).await().indefinitely()!!
+
+        assertTrue(page.berichten.map { it.berichtId }.containsAll(nieuw.map { it.berichtId }))
+        assertEquals(nieuw.size + 1L, page.totalElements, "gelezen bericht ${gelezen.berichtId} plus de aanmeldingen")
     }
 
     @Test
@@ -686,7 +712,26 @@ class RedisBerichtenCacheIntegrationTest {
         val hersteld = berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()
 
         assertEquals(Leesstatus.GELEZEN, hersteld?.status)
+        assertEquals(bericht.map, hersteld?.map)
         assertEquals(1L, berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!.totalElements)
+        assertTrue(pttl(BerichtenCache.berichtKey(bericht.berichtId)) in 1..SESSIE_TTL_MS)
+    }
+
+    @Test
+    fun `een lijst-entry die maar half te lezen is, blokkeert de aanmelding niet`() {
+        // Het id is te lezen, de rest past niet (meer) op een Bericht, zoals na een wijziging van het
+        // opslagformaat. De aanmelding herstelt de hash dan uit wat ze zelf meebrengt.
+        val bericht = testBerichten()[0]
+        val halfLeesbaar = """{"berichtId":"${bericht.berichtId}","publicatietijdstip":"geen tijdstip","status":"gelezen"}"""
+        redis.list(String::class.java).rpush(listKey(), halfLeesbaar).await().indefinitely()
+
+        berichtenCache.createBericht(bericht, ontvanger).await().indefinitely()
+
+        val hersteld = berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()
+
+        assertEquals(bericht.onderwerp, hersteld?.onderwerp)
+        assertEquals(Leesstatus.GELEZEN, hersteld?.status)
+        assertEquals(listOf(halfLeesbaar), redis.list(String::class.java).lrange(listKey(), 0, -1).await().indefinitely())
     }
 
     @Test
@@ -1252,7 +1297,12 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(voorTweedeInit.berichten.size, naTweedeInit.berichten.size)
     }
 
+    private fun pttl(sleutel: String): Long = redis.key().pttl(sleutel).await().indefinitely()
+
     private companion object {
         const val GELIJKTIJDIG = 10
+
+        // Gelijk aan berichtensessiecache.ttl in RealRedisTestProfile.
+        const val SESSIE_TTL_MS = 2_000L
     }
 }

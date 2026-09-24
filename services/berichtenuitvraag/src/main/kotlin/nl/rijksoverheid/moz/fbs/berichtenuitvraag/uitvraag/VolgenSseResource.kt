@@ -117,9 +117,9 @@ class VolgenSseResource(
      * `errorId` om de regel aan een melding te koppelen, en alleen klassenamen, want de cause-keten
      * kan een URL met de ontvanger bevatten.
      *
-     * Op `warn` en niet op `error` zoals daar: valt het abonnement van een pod weg, dan breken al
-     * zijn streams tegelijk af, en die oorzaak logt de sessiecache al één keer per pod. Per stream
-     * een error-regel zou één incident als honderden laten lezen.
+     * Op `warn` en niet op `error` zoals daar: valt Redis of het abonnement van een pod weg, dan
+     * breken al zijn streams tegelijk af, en de oorzaak staat dan al met stack in de log van de
+     * sessiecache. Per stream een error-regel zou één incident als honderden laten lezen.
      */
     private fun meldAfgebroken(fout: Throwable, ontvanger: Identificatienummer) {
         log.warnf(
