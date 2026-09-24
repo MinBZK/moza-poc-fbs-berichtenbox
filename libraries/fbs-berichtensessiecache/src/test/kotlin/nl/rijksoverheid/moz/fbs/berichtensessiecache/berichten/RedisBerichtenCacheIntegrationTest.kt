@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
@@ -284,6 +285,59 @@ class RedisBerichtenCacheIntegrationTest {
         assertNotNull(updated)
         assertEquals(Leesstatus.GELEZEN, updated!!.status)
         assertEquals("archief", updated.map)
+    }
+
+    /**
+     * Wissen raakt drie plekken die elk los kunnen achterblijven: het hash-veld (anders leest de
+     * cache een lege mapnaam terug), de list-entry (anders toont de ongefilterde lijst de oude map)
+     * en de TAG-index (anders vindt een filter op de oude map het bericht nog). Alleen de map
+     * wissen laat bovendien niets over om te HSET-en; dat pad mag niet stuklopen op een lege set.
+     */
+    @Test
+    fun `update met lege map haalt het bericht uit zijn map in hash, lijst en index`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+        val oudeMap = requireNotNull(target.map) { "fixture-bericht hoort in een map te zitten" }
+
+        berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, "gelezen", null).await().indefinitely()
+
+        val updated = berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, null, Sessiecache.MAP_WISSEN)
+            .await().indefinitely()
+
+        assertNotNull(updated)
+        assertNull(updated!!.map)
+        assertEquals(Leesstatus.GELEZEN, updated.status, "wissen van de map mag de leesstatus niet raken")
+
+        assertNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()?.map)
+
+        val ongefilterd = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
+        assertNull(ongefilterd!!.berichten.single { it.berichtId == target.berichtId }.map, "list-entry toont de oude map")
+
+        val inOudeMap = berichtenCache.getPage(cacheKey(), 0, 50, ontvanger = ontvanger, map = oudeMap).await().indefinitely()
+        assertTrue(
+            inOudeMap?.berichten.orEmpty().none { it.berichtId == target.berichtId },
+            "filter op de oude map vindt het bericht nog",
+        )
+    }
+
+    /** Eén patch die zet én wist: HSET en HDEL in dezelfde transactie. */
+    @Test
+    fun `update zet de leesstatus en wist de map in één keer`() {
+        val berichten = testBerichten()
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+        val target = berichten[0]
+
+        val updated = berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, "gelezen", Sessiecache.MAP_WISSEN)
+            .await().indefinitely()
+
+        assertEquals(Leesstatus.GELEZEN, updated!!.status)
+        assertNull(updated.map)
+
+        val gelezen = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
+
+        assertEquals(Leesstatus.GELEZEN, gelezen!!.status)
+        assertNull(gelezen.map)
     }
 
     @Test
@@ -641,6 +695,39 @@ class RedisBerichtenCacheIntegrationTest {
         assertNotNull(retrieved)
         assertEquals(OphalenStatus.GEREED, retrieved!!.status)
         assertEquals(2, retrieved.geslaagd)
+    }
+
+    /** Elke niet-OK-status moet als hetzelfde woord terugkomen; een verkeerde enum-mapping leest anders een andere uitkomst. */
+    @Test
+    fun `de niet-geleverde organisaties overleven de roundtrip door Redis`() {
+        val nietGeleverd = listOf(
+            NietGeleverd("magazijn-a", "Belasting", MagazijnFoutStatus.FOUT),
+            NietGeleverd("magazijn-b", "Noord", MagazijnFoutStatus.TIMEOUT),
+            NietGeleverd("magazijn-c", "Zuid", MagazijnFoutStatus.NIET_OPGEHAALD),
+        )
+        val status = AggregationStatus(
+            status = OphalenStatus.GEREED,
+            totaalMagazijnen = 4,
+            geslaagd = 1,
+            mislukt = 2,
+            nietOpgehaald = 1,
+            nietGeleverd = nietGeleverd,
+        )
+        berichtenCache.storeAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertEquals(status, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+    }
+
+    /** Een sessie die tijdens een uitrol loopt, heeft een status van vóór dit veld; die blijft leesbaar. */
+    @Test
+    fun `een aggregatiestatus zonder nietGeleverd leest als een lege lijst`() {
+        val oudFormaat = """{"status":"GEREED","totaalMagazijnen":2,"geslaagd":1,"mislukt":1,"nietOpgehaald":0}"""
+        redis.value(String::class.java).setex("${cacheKey()}:status", 60, oudFormaat).await().indefinitely()
+
+        val gelezen = berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely()
+
+        assertEquals(1, gelezen!!.mislukt)
+        assertEquals(emptyList<NietGeleverd>(), gelezen.nietGeleverd)
     }
 
     @Test

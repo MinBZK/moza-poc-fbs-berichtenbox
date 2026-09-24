@@ -23,6 +23,14 @@
       }
     },
     {
+      "id": "proeftuin-vier",
+      "bedrijf": {
+        "handelsnaam": "Demo-onderneming 4",
+        "kvkNummer": "90000015"
+      },
+      "ophaaltAlleen": true
+    },
+    {
       "id": "grootbedrijf",
       "bedrijf": {
         "handelsnaam": "Grootbedrijf B.V.",

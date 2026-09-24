@@ -43,6 +43,15 @@ class BasisdatasetTest {
         bakken.forEach { (bak, inhoud) -> assertTrue(inhoud.size >= 4, "bak $bak is te klein om te variëren: ${inhoud.size}") }
     }
 
+    /**
+     * Of vrije mappen er komen is nog niet besloten. Tot dan draagt alleen de mappen-demo mappen, en
+     * die komen van de simulator; een map hier zou elke demo van deze persona's ermee confronteren.
+     */
+    @Test
+    fun `de basisdataset zet geen mappen`() {
+        assertEquals(emptyList<AanleverOpdracht>(), opdrachten.filter { it.map != null })
+    }
+
     @Test
     fun `elke bak heeft zowel gelezen als ongelezen berichten`() {
         perBak().forEach { (bak, inhoud) ->

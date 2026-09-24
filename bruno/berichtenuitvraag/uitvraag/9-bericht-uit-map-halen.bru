@@ -1,0 +1,27 @@
+meta {
+  name: 9. Bericht uit zijn map halen (PATCH map "")
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}?magazijnId={{magazijnId}}
+  body: json
+  auth: none
+}
+
+params:query {
+  magazijnId: {{magazijnId}}
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  Content-Type: application/merge-patch+json
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "map": ""
+  }
+}

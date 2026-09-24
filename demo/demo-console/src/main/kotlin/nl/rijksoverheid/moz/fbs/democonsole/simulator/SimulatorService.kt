@@ -132,7 +132,7 @@ class SimulatorService(
          * generatiescript. Lopen ze uiteen, dan zet de vul-knop berichten klaar voor een ontvanger
          * die geen persona meer is, en toont de demo lege magazijnen zonder dat iets rood wordt.
          */
-        val ONDERNEMERS = listOf("BSN:999993653", "KVK:90000014", "KVK:90000001", "KVK:90000003")
+        val ONDERNEMERS = listOf("BSN:999993653", "KVK:90000014", "KVK:90000001", "KVK:90000003", "KVK:90000015")
 
         /**
          * Bewust bóven de twintig die een magazijn zonder `pageSize` per pagina teruggeeft: het

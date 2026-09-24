@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonParseException
 import com.fasterxml.jackson.core.JsonProcessingException
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
@@ -30,6 +31,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import jakarta.ws.rs.WebApplicationException
 import java.time.Duration
@@ -73,6 +76,25 @@ class BerichtensessiecacheServiceTest {
 
     private val ontvanger = Bsn("999993653")
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)
+
+    companion object {
+        @JvmStatic
+        fun mappenPerLevering(): List<Arguments> = listOf(
+            Arguments.of("niets geleverd", emptyList<String?>(), emptyList<MapTelling>()),
+            Arguments.of("alleen Postvak IN", listOf(null, null), emptyList<MapTelling>()),
+            Arguments.of("een map", listOf("Belasting"), listOf(MapTelling("Belasting", 1))),
+            Arguments.of(
+                "duplicaten, hoofdletters en Postvak IN door elkaar",
+                listOf("Zaken", null, "Belasting", "Zaken", "belasting", "Archief"),
+                listOf(
+                    MapTelling("Archief", 1),
+                    MapTelling("Belasting", 1),
+                    MapTelling("Zaken", 2),
+                    MapTelling("belasting", 1),
+                ),
+            ),
+        )
+    }
 
     @Test
     fun `getBerichten retourneert lege pagina bij null cache-result`() {
@@ -520,6 +542,50 @@ class BerichtensessiecacheServiceTest {
         assertEquals(MagazijnStatus.FOUT, voltooid.status)
     }
 
+    /**
+     * Wie niet leverde, moet na de stroom nog terug te vinden zijn: de lijst draagt het verder
+     * naar verversen en bladeren. Drie cardinaliteiten, en de namen staan zo dat sorteren op
+     * magazijnId of op volgorde van afloop een andere uitkomst geeft dan sorteren op naam.
+     */
+    @ParameterizedTest(name = "{0} van 3 mislukt")
+    @ValueSource(ints = [0, 1, 2])
+    fun `de bewaarde aggregatiestatus noemt wie niet leverde, gesorteerd op naam`(aantalMislukt: Int) {
+        val organisaties = listOf("magazijn-a" to "Zuid", "magazijn-b" to "Belasting", "magazijn-c" to "Noord")
+        val mislukt = organisaties.take(aantalMislukt).map { it.first }.toSet()
+
+        val magazijnen = organisaties.associate { (id, naam) ->
+            val client = mockk<MagazijnClient>()
+
+            if (id in mislukt) {
+                every { client.getBerichten(any(), any(), any(), any()) } throws
+                    NoStackTraceThrowable("magazijn stuk")
+            } else {
+                every { client.getBerichten(any(), any(), any(), any()) } returns
+                    MagazijnBerichtenResponse(emptyList(), totalElements = 0L, totalPages = 0)
+            }
+
+            id to IngeschrevenMagazijn(client, naam)
+        }
+
+        val bewaard = slot<AggregationStatus>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(magazijnen.keys)
+        every { clientFactory.getAllMagazijnen() } returns magazijnen
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, capture(bewaard)) } returns Uni.createFrom().voidItem()
+
+        service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        val verwacht = organisaties.filter { it.first in mislukt }
+            .map { (id, naam) -> NietGeleverd(id, naam, MagazijnFoutStatus.FOUT) }
+            .sortedBy { it.naam }
+
+        assertEquals(verwacht, bewaard.captured.nietGeleverd)
+        assertEquals(aantalMislukt, bewaard.captured.mislukt)
+    }
+
     @Test
     fun `lock-acquire-fout (Redis I-O onbereikbaar) levert 503 en doet best-effort cleanup`() {
         // Cause-walking detecteert IOException ook als Mutiny 'm wrapt.
@@ -889,7 +955,10 @@ class BerichtensessiecacheServiceTest {
         every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
-        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+
+        val bewaard = slot<AggregationStatus>()
+
+        every { berichtenCache.storeAggregationStatus(cacheKey, capture(bewaard)) } returns Uni.createFrom().voidItem()
 
         val start = System.nanoTime()
         val events = serviceVolBulkhead.haalBerichtenOp(ontvanger).collect().asList()
@@ -912,6 +981,11 @@ class BerichtensessiecacheServiceTest {
         )
         // De magazijn-call is nooit gestart: de afwijzing claimt geen permit (blijft 0 = vastgehouden).
         assertEquals(0, volBulkhead.vrijePermits())
+        // Niet opgehaald is ook niet geleverd: na verversen moet de lijst dat nog weten.
+        assertEquals(
+            listOf(NietGeleverd("magazijn-a", "Magazijn A", MagazijnFoutStatus.NIET_OPGEHAALD)),
+            bewaard.captured.nietGeleverd,
+        )
 
         // En zo komt het bij het portaal aan: op de eigen teller, niet op die van de storingen. Wie
         // deze twee samenvoegt, laat een samenvattende regel "1 mislukt" melden terwijl er niets
@@ -961,6 +1035,40 @@ class BerichtensessiecacheServiceTest {
         val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
 
         assertEquals(1, balansBulkhead.vrijePermits(), "permit teruggegeven na geslaagde aggregatie")
+    }
+
+    /**
+     * Het portaal bouwt tijdens de ronde zijn mappenoverzicht uit deze tellingen. De gevallen lokken
+     * elk een eigen fout uit: niets geleverd, alleen Postvak IN (null mag geen map "null" worden),
+     * één map, en een mix waarin duplicaten opgeteld, hoofdletters onderscheiden en de volgorde van
+     * levering losgelaten moet worden.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("mappenPerLevering")
+    fun `een geslaagde bevraging telt de mappen in de geleverde berichten`(
+        geval: String,
+        mapPerBericht: List<String?>,
+        verwacht: List<MapTelling>,
+    ) {
+        val client = mockk<MagazijnClient>()
+
+        val berichten = mapPerBericht.mapIndexed { index, map ->
+            testMagazijnBericht().copy(
+                berichtId = UUID.fromString("00000000-0000-0000-0000-%012d".format(index + 1)),
+                status = MagazijnBericht.MagazijnBerichtStatus(map = map),
+            )
+        }
+
+        stubAggregatie(client)
+        every { client.getBerichten(any(), any(), any(), any()) } returns
+            MagazijnBerichtenResponse(berichten, totalElements = berichten.size.toLong(), totalPages = 1)
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList()
+            .await().atMost(Duration.ofSeconds(15))
+        val voltooid = events.filterIsInstance<MagazijnBevragingGeslaagd>().single()
+
+        assertEquals(mapPerBericht.size, voltooid.aantalBerichten)
+        assertEquals(verwacht, voltooid.mappen, geval)
     }
 
     @ParameterizedTest(name = "{0} organisaties tegen een grens van 5")

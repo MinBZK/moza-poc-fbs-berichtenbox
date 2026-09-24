@@ -90,7 +90,7 @@ class BerichtenOphalenIntegrationTest {
             .then()
             .statusCode(200)
             .contentType("application/json")
-            .header("API-Version", `is`("0.3.0"))
+            .header("API-Version", `is`("0.4.0"))
             .body("totalElements", `is`(2))
             .body("berichten", hasSize<Any>(2))
             .body("berichten[0].onderwerp", notNullValue())

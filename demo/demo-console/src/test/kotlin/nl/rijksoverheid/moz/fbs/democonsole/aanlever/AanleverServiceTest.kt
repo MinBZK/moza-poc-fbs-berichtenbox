@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -43,7 +44,12 @@ class AanleverServiceTest {
         if (berichtId != null) every { it.readEntity(AanleverRespons::class.java) } returns AanleverRespons(berichtId)
     }
 
-    private fun opdracht(magazijnOin: String = RVO, gelezen: Boolean = false, type: String = "BSN") = AanleverOpdracht(
+    private fun opdracht(
+        magazijnOin: String = RVO,
+        gelezen: Boolean = false,
+        type: String = "BSN",
+        map: String? = null,
+    ) = AanleverOpdracht(
         magazijnOin,
         AanleverVerzoek(
             afzender = magazijnOin,
@@ -53,6 +59,7 @@ class AanleverServiceTest {
             publicatietijdstip = "2026-09-04T10:00:00Z",
         ),
         gelezen,
+        map,
     )
 
     private fun magazijnAntwoordt(status: Int, berichtId: String? = null, detail: String? = null) {
@@ -283,6 +290,43 @@ class AanleverServiceTest {
         val resultaat = service.leverAan(List(2) { opdracht() } + opdracht(gelezen = true))
 
         assertEquals(AanleverResultaat.van(3, 3, markeringMislukt = 1, zonderBerichtId = 0, redenen = emptyList()), resultaat)
+    }
+
+    /**
+     * Welke velden de status-patch draagt, hangt af van de vlaggen. Een veld dat niet gevraagd is,
+     * moet ontbreken: `gelezen = false` meesturen zou een eerder gelezen bericht terugzetten.
+     */
+    @ParameterizedTest(name = "gelezen={0}, map={1}")
+    @CsvSource(value = ["false, Belasting, NULL", "true, Belasting, true", "true, NULL, true"], nullValues = ["NULL"])
+    fun `de status-patch draagt precies de gevraagde vlaggen`(gelezen: Boolean, map: String?, verwachtGelezen: Boolean?) {
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons(201, "b-1")
+        every { client.markeer(any(), any(), any()) } returns respons(200)
+
+        service.leverAan(listOf(opdracht(gelezen = gelezen, map = map)))
+
+        verify(exactly = 1) { client.markeer("b-1", "BSN:$ONTVANGER", StatusPatch(gelezen = verwachtGelezen, map = map)) }
+    }
+
+    @Test
+    fun `zonder gelezen en zonder map volgt er geen status-patch`() {
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons(201, "b-1")
+
+        service.leverAan(listOf(opdracht()))
+
+        verify(exactly = 0) { client.markeer(any(), any(), any()) }
+    }
+
+    @Test
+    fun `een bericht dat niet in zijn map kwam, telt als markering en niet als mislukt`() {
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons(201, "b-1")
+        every { client.markeer(any(), any(), any()) } returns respons(500)
+
+        val resultaat = service.leverAan(listOf(opdracht(map = "Belasting")))
+
+        assertEquals(AanleverResultaat.van(1, 1, markeringMislukt = 1, zonderBerichtId = 0, redenen = emptyList()), resultaat)
     }
 
     @Test

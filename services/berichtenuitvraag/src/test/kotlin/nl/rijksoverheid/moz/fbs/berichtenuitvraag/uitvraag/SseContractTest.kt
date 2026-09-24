@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingMislukt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MapTelling
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
@@ -61,6 +62,7 @@ class SseContractTest {
                 aantalBerichten = 3,
                 afgekapt = true,
                 totaalBeschikbaar = 12L,
+                mappen = listOf(MapTelling("Belasting", 2)),
             ),
             MagazijnBevragingMislukt(
                 magazijnId = OIN,
@@ -146,6 +148,21 @@ class SseContractTest {
         val beloofdMaarAfwezig = verplichtVan(schemaNaam) - gestuurd
 
         assertTrue(beloofdMaarAfwezig.isEmpty()) { "$schemaNaam eist ${beloofdMaarAfwezig.sorted()}, maar geen enkel event stuurt dat" }
+    }
+
+    /**
+     * De toetsen hierboven kijken alleen naar het hoogste niveau van een event. Een map-telling zit
+     * een niveau dieper en zou anders ongemerkt van de spec kunnen afdrijven.
+     */
+    @Test
+    fun `een map-telling stuurt precies de velden van zijn spec-schema`() {
+        val verwijzing = spec.components.schemas["MagazijnBevragingVoltooid"]?.properties?.get("mappen")?.items?.`$ref`
+        val gestuurd = mapper.readTree(mapper.writeValueAsString(MapTelling("Belasting", 2)))
+            .fieldNames().asSequence().toSet()
+
+        assertEquals("#/components/schemas/MapTelling", verwijzing)
+        assertEquals(eigenschappenVan("MapTelling"), gestuurd)
+        assertEquals(verplichtVan("MapTelling"), gestuurd)
     }
 
     @Test

@@ -212,6 +212,7 @@ class BeheerService(
                     aantal = verzoek.berichtenPerMagazijn,
                     bijlageElke = verzoek.bijlageElke,
                     nu = nu,
+                    gedrag = magazijn.gedrag.modus,
                 )
             }
 

@@ -53,11 +53,11 @@ internal class BlockingSessiecache(
         afzender: String?,
         map: String?,
     ): BerichtenPagina {
-        requireGereedStatus(ontvanger)
+        val aggregatie = requireGereedStatus(ontvanger)
 
         return awaitOrServiceUnavailable {
             service.getBerichten(pagina ?: 0, effectieveGrootte(paginaGrootte), ontvanger, afzender, map)
-        }
+        }.copy(volledigheid = aggregatie.volledigheid())
     }
 
     override fun zoek(
@@ -68,11 +68,11 @@ internal class BlockingSessiecache(
         afzender: String?,
         map: String?,
     ): BerichtenPagina {
-        requireGereedStatus(ontvanger)
+        val aggregatie = requireGereedStatus(ontvanger)
 
         return awaitOrServiceUnavailable {
             service.zoekBerichten(q, pagina ?: 0, effectieveGrootte(paginaGrootte), ontvanger, afzender, map)
-        }
+        }.copy(volledigheid = aggregatie.volledigheid())
     }
 
     override fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht? {
@@ -100,6 +100,14 @@ internal class BlockingSessiecache(
         if (status == null && map == null) {
             throw SessiecacheException.OngeldigeInvoer(
                 "Minimaal één van 'status' of 'map' is vereist (geen geldige waarde meegegeven).",
+            )
+        }
+
+        // De facade bewaakt zijn eigen contract: zonder deze check strandt een ongeldige naam pas
+        // diep in de cache, als een 500 met een log die naar Redis wijst.
+        if (map != null && map != Sessiecache.MAP_WISSEN && (map.isBlank() || map.length > Bericht.MAX_MAPNAAM_LENGTE)) {
+            throw SessiecacheException.OngeldigeInvoer(
+                "Een mapnaam is niet leeg van alleen witruimte en hooguit ${Bericht.MAX_MAPNAAM_LENGTE} tekens; \"\" haalt een bericht uit zijn map.",
             )
         }
 

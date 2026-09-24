@@ -99,6 +99,56 @@ class BerichtenBeheerIntegrationTest {
             .body("status.map", `is`("werk"))
     }
 
+    /**
+     * Een map bestaat alleen als eigenschap van een bericht: zonder wis-pad kan een map nooit meer
+     * leeg raken. De leesstatus moet daarbij blijven staan, anders wist het ene veld het andere.
+     */
+    @Test
+    fun `PATCH met lege map haalt het bericht uit zijn map en laat gelezen staan`() {
+        val b = insertBericht()
+
+        patchStatus(b.berichtId, """{"gelezen": true, "map": "werk"}""").statusCode(200)
+
+        patchStatus(b.berichtId, """{"map": ""}""")
+            .statusCode(200)
+            .body("status.gelezen", `is`(true))
+            .body("status", org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasKey("map")))
+    }
+
+    @Test
+    fun `PATCH met lege map op een bericht zonder status zet alleen de status aan`() {
+        val b = insertBericht()
+
+        patchStatus(b.berichtId, """{"map": ""}""")
+            .statusCode(200)
+            .body("status.gelezen", `is`(false))
+            .body("status", org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasKey("map")))
+    }
+
+    /** Witruimte leest als leeg maar zou als map worden opgeslagen; alleen `""` wist. */
+    @Test
+    fun `PATCH met een mapnaam van alleen witruimte geeft 400 en laat de map staan`() {
+        val b = insertBericht()
+
+        patchStatus(b.berichtId, """{"map": "werk"}""").statusCode(200)
+        patchStatus(b.berichtId, """{"map": "   "}""").statusCode(400)
+
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .`when`().get("/api/v1/berichten/${b.berichtId}")
+            .then()
+            .statusCode(200)
+            .body("status.map", `is`("werk"))
+    }
+
+    private fun patchStatus(berichtId: UUID, body: String) =
+        given()
+            .header("X-Ontvanger", ontvangerHeader)
+            .contentType("application/merge-patch+json")
+            .body(body)
+            .`when`().patch("/api/v1/berichten/$berichtId")
+            .then()
+
     @Test
     fun `PATCH met lege body geeft 400 (geen no-op accepteren)`() {
         val b = insertBericht()

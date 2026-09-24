@@ -21,6 +21,10 @@ import org.hamcrest.CoreMatchers.nullValue
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.hamcrest.Matchers.contains
+import org.hamcrest.Matchers.empty
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
 
 /**
  * Volledige keten door de échte bedrading (CLAUDE.md testlaag 4): HTTP-request →
@@ -126,6 +130,8 @@ class UitvraagKetenE2eTest {
             .statusCode(200)
             .body("berichten[0].berichtId", equalTo(berichtId))
             .body("berichten[0].magazijnId", equalTo(OIN_A))
+            .body("aantalNietGeleverd", equalTo(0))
+            .body("nietGeleverd", empty<Any>())
 
         // Detail inclusief inhoud.
         given()
@@ -148,6 +154,34 @@ class UitvraagKetenE2eTest {
             .then()
             .statusCode(200)
             .body("status", equalTo("gelezen"))
+
+        // Map zetten en weer wissen tegen de échte cache: daarna staat het bericht in Postvak IN,
+        // ook in de lijst, en de leesstatus is gebleven.
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"map":"werk"}""")
+            .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+            .then()
+            .statusCode(200)
+            .body("map", equalTo("werk"))
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"map":""}""")
+            .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+            .then()
+            .statusCode(200)
+            .body("\$", not(hasKey("map")))
+            .body("status", equalTo("gelezen"))
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0]", not(hasKey("map")))
 
         // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen, maar laat het
         // wél een spoor na: de ondernemer hoort te horen dát hij het zelf weggooide.
@@ -220,6 +254,10 @@ class UitvraagKetenE2eTest {
             .then()
             .statusCode(200)
             .body("berichten[0].berichtId", equalTo(berichtId))
+            // Wie niet leverde, overleeft de stroom: via Redis terug op de lijst.
+            .body("aantalNietGeleverd", equalTo(1))
+            .body("nietGeleverd.magazijnId", contains(OIN_B))
+            .body("nietGeleverd[0].status", equalTo("FOUT"))
     }
 
     @Test
