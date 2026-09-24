@@ -53,6 +53,12 @@ internal interface Aanmeldingen {
 }
 
 /**
+ * Waarmee [Aanmeldingen.actief] faalt als het abonnement dicht ging omdat de pod stopt of omdat het
+ * wegviel; dat laatste is op dat moment al gelogd. Geen nieuwe storing, dus geen error per stream.
+ */
+internal class AbonnementGesloten(melding: String) : IllegalStateException(melding)
+
+/**
  * Redis pub/sub met één abonnement per pod en de verdeling naar luisteraars in het geheugen.
  * Een abonnement per open berichtenbox zou er één Redis-connection per bezoeker kosten: de
  * Quarkus-client opent voor elke `subscribe` een eigen, langlevende connection.
@@ -129,11 +135,12 @@ internal class RedisAanmeldingen(
 
         huidig.get()?.let { return it.gereed }
 
-        // Twee gelijktijdige eerste connections: de verliezer gebruikt het abonnement van de
-        // winnaar en abonneert zelf nooit, want `gereed` is lui.
+        // `gereed` is lui: een poging die de CAS hieronder verliest, abonneert nooit.
         val nieuw = Abonnement()
 
-        if (!huidig.compareAndSet(null, nieuw)) return huidig.get()?.gereed ?: nieuw.gereed
+        // Verloren van een gelijktijdige eerste aanroep: die van de winnaar gebruiken. Is die intussen
+        // al weer weg, dan opnieuw beginnen, en niet een eigen poging starten die niemand bijhoudt.
+        if (!huidig.compareAndSet(null, nieuw)) return huidig.get()?.gereed ?: actief()
 
         // [stop] kan tussen de controle bovenaan en de CAS hebben gelopen; dan zag hij dit
         // abonnement niet. Gesloten faalt `gereed` zelf, zonder te abonneren.
@@ -358,12 +365,6 @@ internal class RedisAanmeldingen(
             if (gesloten.get()) controle.getAndSet(null)?.cancel()
         }
     }
-
-    /**
-     * Het abonnement ging dicht omdat de pod stopt of omdat het wegviel; dat laatste is op dat
-     * moment al gelogd. Geen nieuwe storing, dus geen error per stream.
-     */
-    internal class AbonnementGesloten(melding: String) : IllegalStateException(melding)
 
     private class Luisteraar(val opBericht: (UUID) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 

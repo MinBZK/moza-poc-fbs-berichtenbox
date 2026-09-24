@@ -12,7 +12,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheCorruptedExc
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisAanmeldingen
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
@@ -236,7 +236,7 @@ internal class BlockingSessiecache(
             SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }
         // De pod stopt, of het abonnement viel weg en is al gelogd: per stream geen error erbij.
-        is RedisAanmeldingen.AbonnementGesloten -> {
+        is AbonnementGesloten -> {
             log.debugf("Volgen niet gestart: %s", e.message)
             SessiecacheException.Onbereikbaar("Nieuwe berichten volgen kan nu niet. Probeer het straks opnieuw.", e)
         }

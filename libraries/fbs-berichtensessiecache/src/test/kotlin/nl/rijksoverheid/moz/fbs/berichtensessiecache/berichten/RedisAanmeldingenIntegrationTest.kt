@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.fail
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -179,7 +180,12 @@ class RedisAanmeldingenIntegrationTest {
         pod.registreer(cacheKey, {}, {}, { beeindigd += Unit })
 
         assertEquals(1, beeindigd.size)
-        assertThrows<RedisAanmeldingen.AbonnementGesloten> { pod.actief().await().atMost(WACHTTIJD) }
+
+        // Een luisteraar die bij dat inlichten gooit, laat registreren toch slagen: anders krijgt de
+        // aanroeper geen afmelding en blijft de luisteraar staan.
+        pod.registreer(cacheKey, {}, {}, { throw IllegalStateException("stream al dicht") }).afmelden()
+
+        assertThrows<AbonnementGesloten> { pod.actief().await().atMost(WACHTTIJD) }
     }
 
     @Test
@@ -322,13 +328,16 @@ class RedisAanmeldingenIntegrationTest {
     private fun abonnees(): Long =
         redis.execute("PUBSUB", "NUMSUB", RedisAanmeldingen.KANAAL).await().atMost(WACHTTIJD).get(1).toLong()
 
-    // Een vorige test kan nog aan het afmelden zijn; wacht tot de telling een poos niet meer daalt.
+    // Een vorige test kan nog aan het afmelden zijn; wacht tot de telling een poos gelijk blijft.
     private fun stabieleAbonnees(): Long {
         val einde = System.nanoTime() + WACHTTIJD.toNanos()
         var vorige = abonnees()
         var gelijk = 0
 
-        while (gelijk < RUSTIGE_METINGEN && System.nanoTime() < einde) {
+        while (gelijk < RUSTIGE_METINGEN) {
+            // Een nulmeting die niet tot rust komt, zou een lek kunnen maskeren.
+            if (System.nanoTime() > einde) fail("het aantal abonnees kwam niet tot rust")
+
             Thread.sleep(PEILING.toMillis())
             val nu = abonnees()
             gelijk = if (nu == vorige) gelijk + 1 else 0

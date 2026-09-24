@@ -1,7 +1,5 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
-import io.quarkus.test.junit.QuarkusTest
-import io.quarkus.test.junit.TestProfile
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.helpers.test.AssertSubscriber
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
@@ -17,10 +15,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-// @QuarkusTest zodat de coverage in jacoco-quarkus.exec terechtkomt; de volger zelf is met
-// in-memory buren opgebouwd zodat elke test zijn eigen hartslag en sessiestaat heeft.
-@QuarkusTest
-@TestProfile(MockedDependenciesProfile::class)
+// Met in-memory buren opgebouwd, zodat elke test zijn eigen hartslag en sessiestaat heeft.
 class SessieVolgerTest {
 
     private val cache = MockBerichtenCache()

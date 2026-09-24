@@ -51,7 +51,7 @@ internal class MockAanmeldingen : Aanmeldingen {
     var actiefHangt = false
 
     override fun actief(): Uni<Void> = when {
-        gestopt -> Uni.createFrom().failure(RedisAanmeldingen.AbonnementGesloten("Deze pod stopt"))
+        gestopt -> Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
         actiefHangt -> Uni.createFrom().nothing()
         else -> actiefFout?.let { Uni.createFrom().failure(it) } ?: Uni.createFrom().voidItem()
     }
@@ -73,6 +73,7 @@ internal class MockAanmeldingen : Aanmeldingen {
     fun aantalLuisteraars(cacheKey: String): Int = luisteraars[cacheKey]?.size ?: 0
 
     fun clear() {
+        gestopt = false
         luisteraars.clear()
         meldingen.clear()
     }

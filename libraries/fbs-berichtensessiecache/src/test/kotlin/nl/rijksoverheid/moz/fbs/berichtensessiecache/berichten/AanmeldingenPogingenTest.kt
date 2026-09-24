@@ -4,8 +4,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
-import io.quarkus.test.junit.QuarkusTest
-import io.quarkus.test.junit.TestProfile
 import io.quarkus.redis.datasource.pubsub.ReactivePubSubCommands
 import io.quarkus.redis.datasource.pubsub.ReactivePubSubCommands.ReactiveRedisSubscriber
 import io.smallrye.mutiny.Uni
@@ -24,9 +22,6 @@ import java.util.function.Consumer
  * poging die gesloten wordt terwijl ze onderweg is — zijn tegen een echte Redis niet op commando
  * te openen.
  */
-// @QuarkusTest zodat de coverage in jacoco-quarkus.exec terechtkomt; de pod zelf is los gebouwd.
-@QuarkusTest
-@TestProfile(MockedDependenciesProfile::class)
 class AanmeldingenPogingenTest {
 
     private val pubsub = mockk<ReactivePubSubCommands<String>>()
@@ -95,6 +90,10 @@ class AanmeldingenPogingenTest {
         verify(exactly = 1) { tweedeSubscriber.unsubscribe() }
     }
 
+    // Deze twee borgen gedrag dat al bestond plus het eigen exceptietype. De controle ná de CAS in
+    // `actief()`, voor een `stop()` die precies daartussen valt, is via de publieke API niet
+    // deterministisch te raken.
+
     @Test
     fun `een poging die sluit voordat iemand erop wacht, abonneert niet alsnog`() {
         // `actief()` geeft een luie poging terug; stopt de pod voor die gestart wordt, dan hoort er
@@ -103,7 +102,7 @@ class AanmeldingenPogingenTest {
 
         pod.stop()
 
-        assertThrows<RedisAanmeldingen.AbonnementGesloten> { gereed.await().atMost(WACHTTIJD) }
+        assertThrows<AbonnementGesloten> { gereed.await().atMost(WACHTTIJD) }
         verify(exactly = 0) { pubsub.subscribe(any<String>(), any<Consumer<String>>(), any<Runnable>(), any<Consumer<Throwable>>()) }
     }
 
@@ -116,7 +115,7 @@ class AanmeldingenPogingenTest {
         publicerenLukt = true
         stopBijProbe = true
 
-        assertThrows<RedisAanmeldingen.AbonnementGesloten> { pod.actief().await().atMost(WACHTTIJD) }
+        assertThrows<AbonnementGesloten> { pod.actief().await().atMost(WACHTTIJD) }
         verify(exactly = 1) { eersteSubscriber.unsubscribe() }
     }
 

@@ -1013,7 +1013,7 @@ internal class RedisBerichtenCache(
         // retriable contentie-fout geeft. Een klein plafond voorkomt ongebonden retry onder
         // pathologische contentie. Ook een EXPIRE van een lezende berichtenbox breekt de WATCH af.
         // (Delete gebruikt LREM en heeft geen retry-loop nodig.)
-        // TODO(#1166): atomair zonder WATCH, zoals createBericht, zodat meelezen niet meer botst.
+        // TODO(MinBZK/MijnOverheidZakelijk#1166): atomair zonder WATCH, zoals createBericht, zodat meelezen niet meer botst.
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         /**

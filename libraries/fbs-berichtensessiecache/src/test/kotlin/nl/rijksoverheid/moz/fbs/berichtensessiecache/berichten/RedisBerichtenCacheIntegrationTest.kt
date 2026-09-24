@@ -19,7 +19,10 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 @QuarkusTest
@@ -678,23 +681,33 @@ class RedisBerichtenCacheIntegrationTest {
         val nieuw = List(REEKS) { testBerichten()[1].copy(berichtId = UUID.randomUUID()) }
         val klaar = AtomicBoolean(false)
         val lezerFout = AtomicReference<Throwable?>(null)
+        val gelezenTijdensAanmelden = AtomicInteger(0)
+        val lezerLoopt = CountDownLatch(1)
 
         val lezer = Thread {
             try {
-                while (!klaar.get()) berichtenCache.getById(gelezen.berichtId, ontvanger).await().indefinitely()
+                while (!klaar.get()) {
+                    berichtenCache.getById(gelezen.berichtId, ontvanger).await().indefinitely()
+                    gelezenTijdensAanmelden.incrementAndGet()
+                    lezerLoopt.countDown()
+                }
             } catch (fout: RuntimeException) {
                 lezerFout.set(fout)
+                lezerLoopt.countDown()
             }
         }.apply { start() }
 
         try {
+            assertTrue(lezerLoopt.await(WACHTTIJD_S, TimeUnit.SECONDS), "de lezer kwam niet op gang")
             nieuw.forEach { berichtenCache.createBericht(it, ontvanger).await().indefinitely() }
         } finally {
             klaar.set(true)
-            lezer.join()
+            lezer.join(WACHTTIJD_S * 1_000)
         }
 
+        assertFalse(lezer.isAlive, "de lezer hing")
         assertNull(lezerFout.get(), "de lezer faalde: ${lezerFout.get()}")
+        assertTrue(gelezenTijdensAanmelden.get() > 1, "de lezer liep niet mee met de aanmeldingen")
 
         val page = berichtenCache.getPage(cacheKey(), 0, 100, null, null).await().indefinitely()!!
 
@@ -1341,5 +1354,6 @@ class RedisBerichtenCacheIntegrationTest {
     private companion object {
         const val GELIJKTIJDIG = 10
         const val REEKS = 50
+        const val WACHTTIJD_S = 10L
     }
 }

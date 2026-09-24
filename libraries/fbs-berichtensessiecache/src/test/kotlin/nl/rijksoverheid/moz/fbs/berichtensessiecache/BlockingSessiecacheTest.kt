@@ -18,7 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisAanmeldingen
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
@@ -310,11 +310,14 @@ class BlockingSessiecacheTest {
         // Een gewone uitrol: de afnemer krijgt een 503 en verbindt bij een andere pod. De facade
         // logt dit niet als error per stream; dat de pod stopt, meldt hij zelf één keer.
         stubStatus(gereed)
-        every { volger.actief() } returns Uni.createFrom().failure(RedisAanmeldingen.AbonnementGesloten("Deze pod stopt"))
+        every { volger.actief() } returns Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
 
         val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
 
-        assertTrue(fout.cause is RedisAanmeldingen.AbonnementGesloten)
+        assertTrue(fout.cause is AbonnementGesloten)
+        // Eigen melding, en daarmee aantoonbaar een eigen tak: het vangnet voor onbekende fouten
+        // geeft ook Onbereikbaar, maar logt er een error met stack bij.
+        assertEquals("Nieuwe berichten volgen kan nu niet. Probeer het straks opnieuw.", fout.message)
         verify(exactly = 0) { volger.volg(ontvanger) }
     }
 
