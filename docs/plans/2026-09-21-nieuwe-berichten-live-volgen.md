@@ -81,6 +81,15 @@ binnenkomt of opgegeven is een latere niet kan overschrijven of afmelden.
 Een pod die stopt, sluit zijn streams zonder fout en zonder `sessie-verlopen`: voor de afnemer
 hetzelfde als het einde na de maximale duur, dus gewoon opnieuw verbinden.
 
+### Aanmelden zonder dubbelen
+
+Een bericht dat al in de sessie staat, komt er bij aanmelden niet nog eens bij: het magazijn meldt
+aan uit zijn wachtrij, en een ophaalronde die intussen liep, had het bericht al. Controleren en
+toevoegen gebeurt in één Lua-script, niet onder `WATCH`: elke open berichtenbox verlengt bij het
+lezen de TTL van de lijst, en voor Redis maakt die `EXPIRE` een `WATCH` ongeldig. Een reeks
+aanmeldingen voor een ontvanger die volgt, liep daar anders op stuk. Kent de lijst het bericht maar
+is de hash verlopen, dan zet het script de hash terug met status en map uit de lijst-entry.
+
 ### Sessie in leven houden
 
 Het aanmeld-pad schrijft alleen in een actieve sessie, en de lijst verlengt de sessie alleen bij

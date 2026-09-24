@@ -251,7 +251,7 @@ als de rest van Redis (TLS en authenticatie).
   De pod bewijst dat zelf met een probe over het kanaal voordat een berichtenbox gaat volgen, en
   daarna periodiek. Pas `Abonneren op aanmeldingen mislukt` of `Abonnement op aanmeldingen
   weggevallen` is een echte storing.
-- **Een pod die stopt, logt `Pod stopt; N gevolgde sessies verbinden opnieuw`** op INFO en sluit
+- **Een pod die stopt, logt `Pod stopt; N open streams verbinden opnieuw`** op INFO en sluit
   de streams zonder foutmelding. Bij een rolling update is dat het verwachte beeld, geen storing.
 - **Een proxy vóór de uitvraag mag `_volgen` niet bufferen** (nginx: `proxy_buffering off`), anders
   komen de berichten pas bij het sluiten van de verbinding aan.
