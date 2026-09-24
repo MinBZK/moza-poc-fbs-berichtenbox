@@ -70,12 +70,21 @@ geldt voor de hele lijst en staat op elke pagina.
 
 ### 4. Demo
 
-- De basisdataset zet voor persona Demo-onderneming 3 (KVK `90000013`) vier mappen: één per
-  organisatie, één over beide heen, en één met één bericht. Een KVK-persona en geen BSN: de
-  berichtenbox van de proeftuin neemt BSN-identiteiten niet over, dus daar zijn de scenario's
-  anders niet te spelen. `AanleverOpdracht.map` is een demo-vlag; de console zet hem na aanlevering
-  via dezelfde status-patch als `gelezen`. Een test bewaakt die vorm, want de runbook-scenario's
-  leunen erop.
+- Een eigen persona, **Demo-onderneming 4** (KVK `90000015`): of vrije mappen er komen is nog niet
+  besloten, dus de andere persona's houden hun demo zonder mappen. KVK en geen BSN, want de
+  berichtenbox van de proeftuin neemt BSN-identiteiten niet over. Hij bevraagt dezelfde honderd
+  organisaties als Landelijk Concern.
+- De mappen komen van de simulator (`DemoMappen`), naar het gedrag van het gesimuleerde magazijn:
+  een map bij elke organisatie die levert (groeit mee), een map alleen bij de trage (verschijnt
+  laat), een map alleen bij wie niet levert (verschijnt nooit) en een map met één bericht (verdwijnt
+  als het eruit gaat). Zo zijn M1–M3 in één ophaalronde te zien, zonder storingsknop — ook op ZAD,
+  waar de echte magazijnen niet achter Toxiproxy staan en binnen milliseconden antwoorden.
+- Eerst stonden de mappen via de basisdataset op Demo-onderneming 3. Verworpen: twee echte
+  magazijnen leveren te snel om het overzicht te zien groeien, en die persona wordt ook voor andere
+  demo's gebruikt. `AanleverOpdracht.map` blijft bestaan; een test bewaakt dat de basisdataset hem
+  niet gebruikt.
+- De proeftuin moet de persona in zijn eigen lijst opnemen; tot dan staat hij bij ons in
+  `ALLEEN_BIJ_ONS` van `ProeftuinPersonaTest`.
 - Drie scenario's (M1–M3) in `docs/demo-runbook.md`.
 - Niet-technische toelichting in `docs/mappen-bij-het-bericht.md`: waarom zo, gevolgen, het
   alternatief (mappen apart vastleggen) en wat dat kost.

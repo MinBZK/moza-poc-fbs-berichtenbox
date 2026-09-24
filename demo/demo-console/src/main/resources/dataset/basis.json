@@ -699,8 +699,7 @@
       "onderwerp": "Gecombineerde opgave verwerkt",
       "inhoud": "Beste Demo-onderneming 3,\n\nUw gecombineerde opgave is verwerkt. Controleer in Mijn RVO of alle percelen correct zijn geregistreerd.\n\nMet vriendelijke groet,\nRVO",
       "publicatietijdstip": "2026-01-09T11:05:00Z"
-    },
-    "map": "Subsidies"
+    }
   },
   {
     "magazijnOin": "00000000000000100000",
@@ -726,8 +725,7 @@
       "onderwerp": "Subsidieaanvraag ontvangen",
       "inhoud": "Beste Demo-onderneming 3,\n\nWe hebben uw aanvraag voor de SDE++-subsidie ontvangen. U hoort binnen acht weken of de subsidie wordt toegekend. U hoeft nu niets te doen.\n\nMet vriendelijke groet,\nRVO",
       "publicatietijdstip": "2026-01-23T11:05:00Z"
-    },
-    "map": "Subsidies"
+    }
   },
   {
     "magazijnOin": "00000000000000100000",
@@ -740,8 +738,7 @@
       "onderwerp": "Beschikking SDE++",
       "inhoud": "Beste Demo-onderneming 3,\n\nUw aanvraag voor de SDE++-subsidie is toegekend. De beschikking met de uitbetalingsvoorwaarden vindt u in de bijlage.\n\nMet vriendelijke groet,\nRVO",
       "publicatietijdstip": "2026-01-28T11:05:00Z"
-    },
-    "map": "Subsidies"
+    }
   },
   {
     "magazijnOin": "00000000000000100000",
@@ -754,8 +751,7 @@
       "onderwerp": "Controle mestboekhouding",
       "inhoud": "Beste Demo-onderneming 3,\n\nIn het kader van de gecombineerde opgave voeren wij een controle uit op uw mestboekhouding. Houd uw administratie van de afgelopen twee jaar beschikbaar.\n\nMet vriendelijke groet,\nRVO",
       "publicatietijdstip": "2026-02-03T11:05:00Z"
-    },
-    "map": "Boekhouding 2026"
+    }
   },
   {
     "magazijnOin": "00000001823288444000",
@@ -768,8 +764,7 @@
       "onderwerp": "Teruggaaf inkomstenbelasting",
       "inhoud": "Beste Demo-onderneming 3,\n\nU ontvangt een teruggaaf inkomstenbelasting. Het bedrag wordt binnen zes weken op uw bekende rekeningnummer bijgeschreven.\n\nMet vriendelijke groet,\nBelastingdienst",
       "publicatietijdstip": "2026-01-03T12:50:00Z"
-    },
-    "map": "Te bespreken met adviseur"
+    }
   },
   {
     "magazijnOin": "00000001823288444000",
@@ -782,8 +777,7 @@
       "onderwerp": "Betalingsherinnering",
       "inhoud": "Beste Demo-onderneming 3,\n\nWij hebben uw betaling voor de openstaande aanslag nog niet ontvangen. Betaal het bedrag vóór de vervaldatum om invorderingskosten te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
       "publicatietijdstip": "2026-01-09T12:50:00Z"
-    },
-    "map": "Boekhouding 2026"
+    }
   },
   {
     "magazijnOin": "00000001823288444000",
@@ -809,8 +803,7 @@
       "onderwerp": "Voorlopige aanslag 2026",
       "inhoud": "Beste Demo-onderneming 3,\n\nUw voorlopige aanslag inkomstenbelasting 2026 staat klaar. Het te betalen bedrag en de termijnen vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
       "publicatietijdstip": "2026-01-23T12:50:00Z"
-    },
-    "map": "Belasting"
+    }
   },
   {
     "magazijnOin": "00000001823288444000",
@@ -823,8 +816,7 @@
       "onderwerp": "Definitieve aanslag 2025",
       "inhoud": "Beste Demo-onderneming 3,\n\nDe definitieve aanslag over 2025 is vastgesteld. Er is een verschil met uw voorlopige aanslag; de toelichting vindt u in de bijlage.\n\nMet vriendelijke groet,\nBelastingdienst",
       "publicatietijdstip": "2026-01-28T12:50:00Z"
-    },
-    "map": "Belasting"
+    }
   },
   {
     "magazijnOin": "00000001823288444000",
@@ -837,8 +829,7 @@
       "onderwerp": "Herinnering aangifte omzetbelasting",
       "inhoud": "Beste Demo-onderneming 3,\n\nU heeft de aangifte omzetbelasting over het tweede kwartaal nog niet ingediend. Dien deze uiterlijk 31 juli in om een boete te voorkomen.\n\nMet vriendelijke groet,\nBelastingdienst",
       "publicatietijdstip": "2026-02-03T12:50:00Z"
-    },
-    "map": "Belasting"
+    }
   },
   {
     "magazijnOin": "00000000000000100000",

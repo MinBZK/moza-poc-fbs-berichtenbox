@@ -307,6 +307,7 @@ in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 | Garage Van Dijk B.V. | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
 | Grootbedrijf B.V. | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
 | Landelijk Concern N.V. | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
+| Demo-onderneming 4 | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
 
 Welke magazijnen een persona bevraagt, bepaalt de profiel-stub (opt-in per afzender-OIN). Kies een
 persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (leest alleen de cache).
@@ -458,6 +459,10 @@ volgen in fase 7.
 
 **Rode vlag (markeren als belangrijk):** nog te bouwen (fase 7 — productiecode door de hele keten).
 
+Na een storingsscenario altijd *Alles normaal* (tabblad Storingen) en voor de gesimuleerde
+magazijnen *Legen en gedrag terugzetten* (tabblad Scenario's). De toestandsbalk bovenaan het paneel zegt of dat gelukt is:
+zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een stip.
+
 ### Mappen horen bij het bericht
 
 Een map is een eigenschap van een bericht en staat bij de organisatie die het verstuurde; er is
@@ -468,30 +473,37 @@ en wat het alternatief kost, staat in [Mappen horen bij het bericht](mappen-bij-
 > hieronder gebruikt. De keten levert ze; of de gepinde versie ze al toont, bepaalt die box. De
 > gearchiveerde box van de demo-console (:8095) toont ze niet.
 
-Persona **Demo-onderneming 3** (KVK `90000013`) heeft er mappen voor klaarstaan (basisvulling, of
-*Herstel demo* na legen). Een KVK-persona en niet Pietersen: de berichtenbox van de proeftuin neemt
-geen BSN-identiteiten over, dus daar zijn de scenario's op een BSN-persona niet te spelen.
+Ze draaien op een eigen persona, **Demo-onderneming 4** (KVK `90000015`): of vrije mappen er komen
+is nog niet besloten, dus de andere persona's hebben geen mappen. Hij bevraagt dezelfde honderd
+organisaties als Landelijk Concern, waarvan er vijftien traag zijn en een paar niet leveren. Een
+ophaalronde duurt daardoor lang genoeg om het overzicht te zien aangroeien — zonder storingsknop, dus
+ook op ZAD. Een KVK-persona en geen BSN: de berichtenbox van de proeftuin neemt geen BSN-identiteiten
+over.
 
-| Map | Organisatie | Berichten |
-|---|---|---|
-| Subsidies | RVO (magazijn A) | 3 |
-| Belasting | Belastingdienst (magazijn B) | 3 |
-| Boekhouding 2026 | RVO én Belastingdienst | 1 + 1 |
-| Te bespreken met adviseur | Belastingdienst | 1 |
+Zijn berichten komen van de simulator, die ze bij het vullen in een map zet naar het gedrag van de
+organisatie:
+
+| Map | Waar | Berichten | Wat je ziet |
+|---|---|---|---|
+| Vergunningen | elke organisatie die gewoon of traag antwoordt | 87 | groeit mee terwijl de organisaties leveren |
+| Subsidies | alleen de vijftien trage organisaties | 15 | verschijnt pas na een paar seconden |
+| Handhaving | alleen organisaties die niet leveren (o.a. Gemeente Almere en Gemeente Arnhem) | 5 | verschijnt nooit |
+| Te bespreken met adviseur | Centraal Justitieel Incassobureau | 1 | verdwijnt met zijn enige bericht |
 
 | # | Scenario | Zo speel je het |
 |---|---|---|
-| M1 | Het mappenoverzicht groeit mee | Storingen → *Magazijn B* → *Traag* → Demo-onderneming 3 → **Ophalen**. Eerst verschijnen *Subsidies* en *Boekhouding 2026* (1); na ~6 s komen *Belasting* en *Te bespreken met adviseur* erbij en telt *Boekhouding 2026* er 2 |
-| M2 | Een map verdwijnt met zijn laatste bericht | Demo-onderneming 3 → **Ophalen** → open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
-| M3 | Een organisatie levert niet | Storingen → *Magazijn B* → *Uit* → Demo-onderneming 3 → **Ophalen**. *Belasting* en *Te bespreken met adviseur* ontbreken, *Boekhouding 2026* telt 1, en de Berichtenbox meldt dat de Belastingdienst niet leverde — ook na verversen of doorbladeren |
+| M1 | Het mappenoverzicht groeit mee | Demo-onderneming 4 → **Ophalen**. Terwijl de balk loopt, telt *Vergunningen* op; *Subsidies* komt er pas bij als de trage organisaties leveren |
+| M2 | Een map verdwijnt met zijn laatste bericht | Open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
+| M3 | Een organisatie levert niet | Na de ronde staat *Handhaving* er niet, en meldt de Berichtenbox welke organisaties niet leverden — ook na verversen of doorbladeren |
+
+Staan de mappen er niet, dan heeft de simulator nog geen post voor deze persona: hij vult zichzelf
+alleen bij het opstarten en alleen in lege magazijnen. Tabblad Scenario's → **Berichten klaarzetten**
+vult hem bij, zonder bestaande post te raken. Is M2 al gespeeld, dan zet *Legen en gedrag
+terugzetten* gevolgd door **Berichten klaarzetten** de uitgangssituatie terug.
 
 De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`),
 uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`), en
 haalt een bericht uit zijn map met `"map": ""`.
-
-Na een storingsscenario altijd *Alles normaal* (tabblad Storingen) en voor de gesimuleerde
-magazijnen *Legen en gedrag terugzetten* (tabblad Scenario's). De toestandsbalk bovenaan het paneel zegt of dat gelukt is:
-zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een stip.
 
 ---
 

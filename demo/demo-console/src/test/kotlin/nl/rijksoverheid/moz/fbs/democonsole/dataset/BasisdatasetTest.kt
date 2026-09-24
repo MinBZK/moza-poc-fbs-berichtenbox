@@ -44,34 +44,12 @@ class BasisdatasetTest {
     }
 
     /**
-     * De mappen-scenario's in het demo-runbook leunen op deze vorm: één persona met een map bij
-     * elke organisatie apart (die verdwijnt als die organisatie niet levert), een map die over twee
-     * organisaties loopt (die groeit mee terwijl ze leveren) en een map met één bericht (die
-     * verdwijnt zodra dat bericht eruit gaat). Wie de dataset herschikt, breekt anders stil een
-     * scenario dat pas tijdens een demo opvalt.
-     *
-     * Het moet bovendien een KVK-persona zijn: de berichtenbox van de proeftuin neemt geen
-     * BSN-identiteiten over, dus op een BSN-persona zijn de scenario's daar niet te spelen.
+     * Of vrije mappen er komen is nog niet besloten. Tot dan draagt alleen de mappen-demo mappen, en
+     * die komen van de simulator; een map hier zou elke demo van deze persona's ermee confronteren.
      */
     @Test
-    fun `de mappen dragen de scenario's uit het runbook`() {
-        val metMap = opdrachten.filter { it.map != null }
-        val organisatiesPerMap = metMap.groupBy({ it.map!! }, { it.magazijnOin }).mapValues { it.value.toSet() }
-        val berichtenPerMap = metMap.groupingBy { it.map!! }.eachCount()
-
-        assertEquals(
-            setOf("KVK:90000013"),
-            metMap.map { "${it.verzoek.ontvanger.type}:${it.verzoek.ontvanger.waarde}" }.toSet(),
-            "de mappen horen bij één KVK-persona, anders zijn de scenario's in de proeftuin niet te spelen",
-        )
-        assertTrue(organisatiesPerMap.values.any { it.size >= 2 }, "geen map die over twee organisaties loopt")
-        assertTrue(
-            organisatiesPerMap.values.filter { it.size == 1 }.map { it.single() }.toSet().size >= 2,
-            "niet elke organisatie heeft een eigen map",
-        )
-        assertTrue(berichtenPerMap.values.any { it == 1 }, "geen map met precies één bericht")
-        // Het magazijn weigert een langere naam; dat zou stil als mislukte markering tellen.
-        assertTrue(metMap.all { it.map!!.length <= 128 }, "een mapnaam is langer dan het magazijn toestaat")
+    fun `de basisdataset zet geen mappen`() {
+        assertEquals(emptyList<AanleverOpdracht>(), opdrachten.filter { it.map != null })
     }
 
     @Test

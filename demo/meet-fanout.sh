@@ -36,7 +36,8 @@ UITVOER="${UITVOER:-/tmp/fanout-meting.tsv}"
 # die ruwe stromen zijn nodig om een conclusie later nog na te kunnen rekenen.
 STROMEN="$(mktemp -d -t fanout-XXXXXX)"
 
-# De vier ondernemers uit demo/genereer-magazijnen.py, met hun verwachte aantal organisaties.
+# De ondernemers uit demo/genereer-magazijnen.py, met hun verwachte aantal organisaties. De mappen-demo
+# ontbreekt bewust: die heeft dezelfde fan-out als landelijk concern en zou de meting alleen verdubbelen.
 ONDERNEMERS=(
     "kleine-eenmanszaak|BSN:999993653|3"
     "klein-bedrijf|KVK:90000014|15"

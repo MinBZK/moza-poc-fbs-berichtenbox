@@ -505,7 +505,7 @@ jobs:
           # Eén job, want het demo-image layert op de mappings van het gedeelde image: los
           # bouwen zou ze uit elkaar kunnen laten lopen zonder dat iets dat merkt.
           #
-          # De vier ondernemers met hun volledige fan-out komen uit het generatiescript. Lokaal
+          # De ondernemers met hun volledige fan-out komen uit het generatiescript. Lokaal
           # bind-mount compose die map; hier moeten ze het image in, anders kent elke persona op de
           # gedeelde omgeving alleen de twee echte magazijnen. Geen SIMULATOR_URL: de
           # ondernemer-stubs dragen alleen OIN's, geen adressen. Ook geen eigen aantal — de default
