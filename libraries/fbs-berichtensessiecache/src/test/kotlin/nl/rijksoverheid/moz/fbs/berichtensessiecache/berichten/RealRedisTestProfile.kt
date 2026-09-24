@@ -13,5 +13,7 @@ class RealRedisTestProfile : QuarkusTestProfile {
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
         "berichtensessiecache.ttl" to "PT2S",
         "berichtensessiecache.aggregation-lock-ttl" to "PT2S",
+        // Onder de helft van de ttl hierboven, anders weigert SessieVolger te starten.
+        "berichtensessiecache.volg-hartslag" to "PT0.5S",
     )
 }

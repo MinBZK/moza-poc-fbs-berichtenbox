@@ -167,7 +167,7 @@
           <div class="knoppen">
             <button type="button" class="knop knop--primair" data-methode="POST" data-pad="/api/demo/herstel"
                     data-samenvatting="herstel"
-                    data-bevestig="Stopt de stroom, zet alle storingen uit, leegt beide magazijnen en alle gesimuleerde, en laadt de basisvulling opnieuw.">Herstel
+                    data-bevestig="Stopt de stroom, zet alle storingen uit, leegt beide magazijnen en alle gesimuleerde, laadt de basisvulling opnieuw en wist de sessies, zodat open berichtenboxen opnieuw ophalen.">Herstel
               demo</button>
             <button type="button" class="knop knop--subtiel" data-actie="ververs-box">Berichtenbox verversen</button>
           </div>
@@ -182,7 +182,7 @@
                     data-samenvatting="vulling">Basisvulling laden</button>
             <button type="button" class="knop knop--gevaar" data-methode="POST" data-pad="/api/demo/legen"
                     data-samenvatting="legen"
-                    data-bevestig="Leegt beide magazijn-databases volledig — berichten, bijlagen, status en logboek — en daarbij alle gesimuleerde magazijnen.">Magazijnen
+                    data-bevestig="Leegt beide magazijn-databases volledig — berichten, bijlagen, status en logboek — en daarbij alle gesimuleerde magazijnen. Wist ook de sessies, zodat open berichtenboxen geen verdwenen berichten blijven tonen.">Magazijnen
               legen</button>
           </div>
           <p class="uitleg">Twee keer vullen zonder legen geeft dubbele berichten.</p>
@@ -211,10 +211,20 @@
             <input id="berichtAantal" type="number" value="1" min="1" max="100" required
                    data-veldnaam="het aantal berichten voor deze persona">
           </label>
+          <div class="veld veld--vinkje">
+            <label>
+              <input id="berichtWillekeurigTijdstip" type="checkbox"
+                     data-veldnaam="het vinkje voor willekeurige tijdstippen"
+                     aria-describedby="uitlegWillekeurigTijdstip">
+              Willekeurige tijdstippen
+            </label>
+            <p id="uitlegWillekeurigTijdstip" class="veld__omschrijving">Uit: tijdstip van nu, bovenaan
+              de berichtenbox. Aan: verspreid over drie maanden.</p>
+          </div>
           <div class="knoppen">
             <button type="button" class="knop" id="berichtKnop" data-methode="POST" disabled
                     data-wacht-op-lijst="ja"
-                    data-pad="/api/demo/bericht?persona={berichtPersona}&amp;aantal={berichtAantal}"
+                    data-pad="/api/demo/bericht?persona={berichtPersona}&amp;aantal={berichtAantal}&amp;willekeurigTijdstip={berichtWillekeurigTijdstip}"
                     data-samenvatting="vulling">Bericht plaatsen</button>
           </div>
           <p class="uitleg">Levert aan bij een van de magazijnen waar deze persona berichten van

@@ -52,6 +52,15 @@ internal interface BerichtenCache {
      */
     fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean>
 
+    /**
+     * Houdt een gevolgde sessie in leven zonder dat er gelezen wordt. `false` als er geen sessie
+     * (meer) is; een mislukte verlenging is een gefaalde `Uni`, geen `true`. Verlengt alleen een
+     * afgeronde ophaling, en pas wanneer minder dan `ttl / VERLENG_DEEL` resteert: dan gaan ook
+     * alle berichthashes mee, en dat is een lees over de hele lijst die niet op elke hartslag hoeft.
+     * Een lopende ophaling houdt haar korte vangnet-TTL.
+     */
+    fun verlengSessie(key: String): Uni<Boolean>
+
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
@@ -95,6 +104,13 @@ internal interface BerichtenCache {
         // hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index aan en
         // blijven oude pods tijdens een rolling deploy op de oude werken.
         const val SEARCH_INDEX = "berichten-idx-v3"
+
+        /**
+         * [verlengSessie] verlengt pas wanneer nog minder dan `ttl / VERLENG_DEEL` van de
+         * bewaartermijn rest. Wie een gevolgde sessie in leven houdt, moet dus vaker dan dat
+         * aankloppen; [SessieVolger] toetst zijn hartslag hiertegen.
+         */
+        const val VERLENG_DEEL = 2L
     }
 }
 
@@ -494,7 +510,12 @@ internal class RedisBerichtenCache(
      * Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing in de batch
      * ongezien blijven; de read zelf is al gelukt.
      */
-    private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
+    private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> =
+        verlengTtls(cacheKey, ids)
+            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
+            .onFailure().recoverWithNull().replaceWithVoid()
+
+    private fun verlengTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
         val listKey = listKey(cacheKey)
         val statusKey = statusKey(cacheKey)
 
@@ -506,9 +527,36 @@ internal class RedisBerichtenCache(
                 txKey.expire(sleutel, ttl).replaceWithVoid()
             }
         }.replaceWithVoid()
-            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
-            .onFailure().recoverWithNull().replaceWithVoid()
     }
+
+    override fun verlengSessie(key: String): Uni<Boolean> =
+        getAggregationStatus(key).chain { aggregatie ->
+            when {
+                aggregatie == null -> Uni.createFrom().item(false)
+                aggregatie.status != OphalenStatus.GEREED -> Uni.createFrom().item(true)
+                else -> redis.key().pttl(statusKey(key)).chain { resterend ->
+                    when {
+                        // Net tussen de twee reads verlopen.
+                        resterend == SLEUTEL_ONTBREEKT -> Uni.createFrom().item(false)
+                        resterend > ttl.toMillis() / BerichtenCache.VERLENG_DEEL -> Uni.createFrom().item(true)
+                        else -> verlengHeleSessie(key).replaceWith(true)
+                    }
+                }
+            }
+        }
+
+    private fun verlengHeleSessie(key: String): Uni<Void> =
+        redis.list(String::class.java).lrange(listKey(key), 0, -1)
+            .chain { jsonList ->
+                // Alleen het id is nodig; een onleesbare entry slaat alleen die ene hash over.
+                // Het leespad meldt de corruptie al, met de juiste status.
+                val ids = jsonList.mapNotNull(::idVan)
+
+                // Niet best-effort zoals op het leespad: daar is de lees al gelukt en is de TTL
+                // bijzaak, hier ís verlengen de opdracht. Een mislukking hoort de hartslag te
+                // bereiken, anders meldt die een levende sessie die intussen afloopt.
+                verlengTtls(key, ids)
+            }
 
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
         put("berichtId", bericht.berichtId.toString())
@@ -826,27 +874,39 @@ internal class RedisBerichtenCache(
         }
     }
 
+    /**
+     * Voegt niets toe als het bericht al in de lijst van deze sessie staat. Dat gebeurt gewoon: het
+     * magazijn meldt een bericht aan uit zijn wachtrij, en een ophaalronde die intussen liep, heeft
+     * het rechtstreeks uit het magazijn al meegenomen. Zonder deze controle staat het er daarna
+     * twee keer in.
+     *
+     * Controleren en toevoegen in één Lua-script, dus atomair zonder WATCH. Een WATCH op de lijst
+     * zou afbreken op elke EXPIRE die een open berichtenbox bij het lezen doet — precies wat er
+     * gebeurt als een reeks aanmeldingen binnenkomt terwijl die ontvanger volgt.
+     */
     override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
-        val listKey = listKey(cacheKey)
+        val listKey = listKey(BerichtenCache.cacheKey(ontvanger))
         val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
-        val json = objectMapper.writeValueAsString(bericht)
-        val fields = berichtToHash(bericht)
+        val velden = berichtToHash(bericht).flatMap { (veld, waarde) -> listOf(veld, waarde) }
+        val argumenten = listOf(
+            AANMELD_SCRIPT,
+            "2",
+            listKey,
+            berichtKey,
+            bericht.berichtId.toString(),
+            objectMapper.writeValueAsString(bericht),
+            ttl.toMillis().toString(),
+        ) + velden
 
-        return redis.withTransaction { tx ->
-            val txList = tx.list(String::class.java)
-            val txHash = tx.hash(String::class.java)
-            val txKey = tx.key()
-
-            txList.rpush(listKey, json)
-                .chain { _ -> txKey.expire(listKey, ttl) }
-                .chain { _ -> txHash.hset(berichtKey, fields) }
-                .chain { _ -> txKey.expire(berichtKey, ttl) }
-                .replaceWithVoid()
-        }.replaceWithVoid()
-            .invoke { _ -> log.debugf("Bericht %s toegevoegd aan cache", bericht.berichtId) }
+        return redis.execute("EVAL", *argumenten.toTypedArray())
+            .invoke { uitkomst -> log.debugf("Aangemeld bericht %s: %s", bericht.berichtId, uitkomst) }
+            .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor berichtId=%s", bericht.berichtId) }
     }
+
+    /** Alleen het id; een onleesbare entry telt niet als treffer, het leespad meldt hem al. */
+    private fun idVan(json: String): UUID? =
+        runCatching { UUID.fromString(objectMapper.readTree(json).path("berichtId").asText()) }.getOrNull()
 
     override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
         // Idempotent cache-invalidate. De sessie-`list` bevat JSON-blobs (gevuld via
@@ -949,16 +1009,77 @@ internal class RedisBerichtenCache(
             .getOrNull() == berichtId.toString()
 
     companion object {
-        // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de invalidate
-        // wordt opgegeven; concurrente wijziging op één sessie-list is zeldzaam, dus een klein
-        // plafond volstaat en voorkomt ongebonden retry onder pathologische contentie. (Delete
-        // gebruikt LREM en heeft geen retry-loop nodig.)
+        // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de update een
+        // retriable contentie-fout geeft. Een klein plafond voorkomt ongebonden retry onder
+        // pathologische contentie. Ook een EXPIRE van een lezende berichtenbox breekt de WATCH af.
+        // (Delete gebruikt LREM en heeft geen retry-loop nodig.)
+        // TODO(MinBZK/MijnOverheidZakelijk#1166): atomair zonder WATCH, zoals createBericht, zodat meelezen niet meer botst.
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
+
+        /**
+         * KEYS: sessie-lijst, berichthash. ARGV: berichtId, JSON voor de lijst, TTL in ms, daarna
+         * de hash-velden als veld/waarde-paren.
+         *
+         * Kent de lijst het bericht maar is de hash verlopen, dan komt de hash terug met status en
+         * map uit de lijst-entry: alleen die twee wijzigen na het aanmelden, en de aanmelding zelf
+         * zou een al gelezen bericht weer ongelezen maken. Een onleesbare entry telt niet als
+         * treffer, net als in het leespad.
+         *
+         * Redis voert een script uit zonder iets anders te doen, dus de lus moet goedkoop blijven:
+         * alleen een entry waar het id letterlijk in staat, wordt als JSON gelezen.
+         */
+        private val AANMELD_SCRIPT = """
+            local gevonden = nil
+            for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
+                if string.find(entry, ARGV[1], 1, true) then
+                    local leesbaar, bericht = pcall(cjson.decode, entry)
+                    if leesbaar and type(bericht) == 'table' and bericht.berichtId == ARGV[1] then
+                        gevonden = bericht
+                        break
+                    end
+                end
+            end
+
+            local ttl = tonumber(ARGV[3])
+
+            if gevonden == nil then
+                redis.call('RPUSH', KEYS[1], ARGV[2])
+                redis.call('PEXPIRE', KEYS[1], ttl)
+                redis.call('HSET', KEYS[2], unpack(ARGV, 4))
+                redis.call('PEXPIRE', KEYS[2], ttl)
+                return 'toegevoegd'
+            end
+
+            if redis.call('EXISTS', KEYS[2]) == 1 then
+                return 'al aanwezig'
+            end
+
+            local velden = {}
+            for i = 4, #ARGV, 2 do
+                if ARGV[i] ~= 'status' and ARGV[i] ~= 'map' then
+                    table.insert(velden, ARGV[i])
+                    table.insert(velden, ARGV[i + 1])
+                end
+            end
+            for _, veld in ipairs({ 'status', 'map' }) do
+                if type(gevonden[veld]) == 'string' then
+                    table.insert(velden, veld)
+                    table.insert(velden, gevonden[veld])
+                end
+            end
+
+            redis.call('HSET', KEYS[2], unpack(velden))
+            redis.call('PEXPIRE', KEYS[2], ttl)
+            return 'hash hersteld'
+        """.trimIndent()
 
         // Stabiel alert-anker (los van vertaalbare proza) voor de Loki-rule die moet alarmeren
         // wanneer het verwijderd-kenmerk stil wegvalt. Wijzig de waarde niet zonder de
         // bijbehorende alert-rule mee te verhuizen.
         private const val ALERT_TOMBSTONE_VERLOREN = "FBS_ALERT[tombstone_verloren]"
+
+        // PTTL-antwoord voor een sleutel die niet (meer) bestaat.
+        private const val SLEUTEL_ONTBREEKT = -2L
 
         private fun listKey(key: String) = "$key:list"
         private fun statusKey(key: String) = "$key:status"

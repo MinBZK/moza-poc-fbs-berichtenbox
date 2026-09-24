@@ -57,6 +57,17 @@ enum class Foutcode(val code: String, val uitleg: String) {
     /** Tijdelijke storing waarop opnieuw proberen zin heeft; `Retry-After` staat erbij. */
     TIJDELIJK_NIET_BESCHIKBAAR("tijdelijk-niet-beschikbaar", "Tijdelijk niet beschikbaar. Probeer het straks opnieuw."),
 
+    /**
+     * Er staan te veel berichtenboxen tegelijk open, voor deze ontvanger of op deze dienst. Geen
+     * storing: een afnemer die dit als storing leest, verbindt steeds opnieuw en neemt daarmee zelf
+     * een plek in van hetzelfde plafond. `Retry-After` staat erbij; een ander venster sluiten helpt
+     * alleen bij het plafond per ontvanger.
+     */
+    TE_VEEL_OPEN_BERICHTENBOXEN(
+        "te-veel-open-berichtenboxen",
+        "Er staan te veel berichtenboxen tegelijk open. Probeer het straks opnieuw.",
+    ),
+
     /** Geen actieve sessie voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
     GEEN_ACTIEVE_SESSIE("geen-actieve-sessie", "Er is geen actieve sessie voor deze ontvanger."),
 

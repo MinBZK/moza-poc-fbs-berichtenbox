@@ -46,6 +46,18 @@ class DemoFoutMapper : ExceptionMapper<Exception> {
             .build()
     }
 
+    private fun melding(fout: Exception): String {
+        val aanvullingen = fout.suppressed.filterIsInstance<Aanvulling>().mapNotNull { it.message }
+
+        if (aanvullingen.isEmpty()) return hoofdmelding(fout)
+
+        // Een exception-melding eindigt zelden op een punt; zonder punt loopt de aanvulling er als
+        // één zin achteraan.
+        val hoofd = hoofdmelding(fout).trimEnd().let { if (it.endsWith('.')) it else "$it." }
+
+        return (listOf(hoofd) + aanvullingen).joinToString(" ")
+    }
+
     /**
      * Vult alleen aan waar het framework de melding schreef. JAX-RS geeft een zelfgemaakte
      * weigering — een queryparameter die niet naar zijn type om te zetten is, bijvoorbeeld — de
@@ -55,7 +67,7 @@ class DemoFoutMapper : ExceptionMapper<Exception> {
      * Alleen het type van de cause en niet zijn melding: die draagt bij een mislukte omzetting de
      * ingevoerde waarde, en wat een bediener intypt hoort niet in een applicatielog.
      */
-    private fun melding(fout: Exception): String {
+    private fun hoofdmelding(fout: Exception): String {
         val eigen = fout.message?.takeIf { it.isNotBlank() } ?: fout::class.simpleName.orEmpty()
         val oorzaak = fout.cause ?: return eigen
 
@@ -68,3 +80,10 @@ class DemoFoutMapper : ExceptionMapper<Exception> {
         const val FRAMEWORK_MELDING = "HTTP "
     }
 }
+
+/**
+ * Een tweede melding bij een fout: iets dat in dezelfde handeling óók misging en dat de bediener
+ * anders mist, omdat alleen de eerste fout doorkomt. Hangt als suppressed exception aan die fout;
+ * de mapper zet de tekst erachter. Alleen eigen, vaste teksten — geen invoer van de bediener.
+ */
+class Aanvulling(melding: String) : RuntimeException(melding)

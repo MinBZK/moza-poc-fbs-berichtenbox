@@ -260,6 +260,24 @@ projecten voedt. Een uitrol die hem gebruikt, zet er een `notice` over bovenaan 
 demo die zich anders gedraagt dan de repo pint terug te vinden is. `.github/scripts/proeftuin-image.sh`
 weigert een waarde zonder tag of digest, dus een typfout hangt geen component in ImagePullBackOff.
 
+**Alleen voor één preview.** Om een PR van de proeftuin aan een PR van ons te koppelen, zet je
+dezelfde variabele op de GitHub-environment van die preview. Die wint daar van de repo-variabele en
+de pin, en `test` en de andere previews merken er niets van:
+
+```bash
+gh variable set PROEFTUIN_IMAGE --env pr-336 --body ghcr.io/minbzk/moza-poc/preview:pr-164-42aabac
+gh run rerun <run-id> --job <job-id>    # alleen `deploy-preview-magazijnen` van de laatste run
+gh variable delete PROEFTUIN_IMAGE --env pr-336
+```
+
+Alleen die ene job opnieuw draaien volstaat: hij leest de variabele opnieuw en hergebruikt de rest
+van de run, terwijl een volledige rerun alle images opnieuw bouwt en alle drie de projecten
+uitrolt. De job-id vind je met `gh run view <run-id> --json jobs`.
+
+De environment `pr-<n>` bestaat vanaf de eerste uitrol van de PR en verdwijnt bij het opruimen van
+de preview, en de variabele met hem. Een nieuwe push aan de kant van de proeftuin levert een nieuwe
+tag op; die zet je opnieuw, want de variabele volgt hun PR niet vanzelf.
+
 Wil je een draaiend component *nu* verzetten zonder een deploy af te wachten, dan kan dat met
 `zadctl deployment update-image` — maar de eerstvolgende uitrol zet het terug naar wat de variabele
 of de pin zegt. Voor iets dat langer dan een demonstratie moet blijven staan, is de variabele de
@@ -337,15 +355,18 @@ een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand
 Na een refresh staat die stand er direct weer.
 
 **Tabblad Demo**
-- *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg en
-  laadt de basisvulling opnieuw; in één klik terug naar de begintoestand.
+- *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg,
+  laadt de basisvulling opnieuw en wist als laatste de sessies; in één klik terug naar de
+  begintoestand. Een open berichtenbox krijgt bij zijn volgende hartslag `sessie-verlopen` en haalt
+  zelf opnieuw op.
 - *Berichtenbox verversen* — herlaadt het frame. Bewust een knop: verversen zet de berichtenbox
   terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
   Een verse stack heeft die al: de console zet hem na het opstarten zelf in elk echt magazijn zonder
   berichten. In een gevulde omgeving zet deze knop alles dubbel.
-- *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases. Twee keer vullen zonder legen
-  geeft dubbele berichten.
+- *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases, en daarna de sessies wissen,
+  anders tonen open berichtenboxen nog de oude berichten. Twee keer vullen zonder legen geeft
+  dubbele berichten.
 - *Random berichten opvoeren* — N random berichten; tegelijk scenario 5.
 - *Bericht plaatsen* — N berichten voor de persona die je in de keuzelijst aanwijst, zodat je
   niet hoeft af te wachten of de willekeur ze bij de ondernemer op het scherm legt. Welk van
@@ -360,8 +381,8 @@ uit) en de omliggende diensten (Redis, profielservice, notificatie, uitvraag/aan
 een proxy die deze omgeving niet heeft, staan er niet: op ZAD krijgen de magazijnen hun gedrag uit
 de simulator.
 
-**Tabblad Scenario's** — *Cache verlopen* (wist alle sessie-keys; de volgende `GET /berichten` geeft
-409 tot je opnieuw ophaalt), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
+**Tabblad Scenario's** — *Cache verlopen* (wist alle sessie-keys; een open berichtenbox haalt
+zelf opnieuw op, een losse `GET /berichten` geeft 409 tot je opnieuw ophaalt), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
 
@@ -446,7 +467,7 @@ volgen in fase 7.
 | 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit*. Veel: persona Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → Ophalen → n−2 FOUT + partiële lijst |
 | 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → Ophalen |
 | 5 | Nieuwe berichten tijdens de sessie | Persona haalt op → *Random berichten opvoeren* → **Vernieuw** toont de nieuwe berichten |
-| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen*, of ~2 min niets doen (demo-TTL is `PT2M`) → volgende actie geeft 409 |
+| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → de open berichtenbox krijgt `sessie-verlopen` en haalt zelf opnieuw op. Wachten (demo-TTL is `PT2M`) werkt alleen zonder open berichtenbox: de hartslag houdt de sessie in leven. Daarna geeft de volgende actie 409 |
 | 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open een RVO-bericht (uit de cache) → bijlage-download faalt |
 | 8 | Foutieve aanlevering | Scenario's → *Ongeldig bericht aanbieden* → 400 RFC 9457 problem+json in de melding |
 | 9 | Profielservice weg | *Profielservice uit* → Ophalen kan de magazijnenlijst niet resolven |
@@ -487,8 +508,9 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
   de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
   en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).
   Dat staat op DEBUG en de demo draait onder het dev-profiel, dus het staat al aan.
-- **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de
-  sessie verlopen (409). Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
+- **Demo-cache-TTL is 2 minuten.** Staat er geen berichtenbox open en pauzeer je langer tussen
+  Ophalen en een vervolgactie, dan is de sessie verlopen (409); een open berichtenbox houdt hem met
+  zijn hartslag in leven. Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.

@@ -15,17 +15,29 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.herstel.HerstelResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.herstel.HerstelService
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessieService
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import kotlin.random.Random
 
 /**
- * Wat het legen weghaalde. Twee benoemde velden en niet één platte map: de echte magazijnen tellen
- * per magazijn wat er stónd, de simulator telt zijn totalen. Samengevoegd las de melding als
- * "RVO 240, Bel.dienst 180, berichten 7840, magazijnen 98" — waarin "berichten 7840" eruitziet als
- * een magazijn dat nog vol staat, precies het tegenovergestelde van wat de knop deed.
+ * Wat het legen weghaalde. De echte magazijnen en de simulator in eigen velden en niet in één
+ * platte map: de echte magazijnen tellen per magazijn wat er stónd, de simulator telt zijn
+ * totalen. Samengevoegd las de melding als "RVO 240, Bel.dienst 180, berichten 7840, magazijnen
+ * 98" — waarin "berichten 7840" eruitziet als een magazijn dat nog vol staat, precies het
+ * tegenovergestelde van wat de knop deed.
  */
-data class LeegAntwoord(val magazijnen: Map<String, Int>, val gesimuleerd: GesimuleerdHerstel)
+data class LeegAntwoord(
+    val magazijnen: Map<String, Int>,
+    val gesimuleerd: GesimuleerdHerstel,
+    /** Hoeveel sessie-keys er gewist zijn; `null` als dat niet lukte. */
+    val sessiesGewist: Int?,
+) {
+    val letOp: String = sessieMelding(sessiesGewist)
+
+    /** Positief op de lijn: een `null` in [sessiesGewist] valt er door `non-null` af. */
+    val sessiesNietGewist: Boolean = sessiesGewist == null
+}
 
 @Path("/api/demo")
 @Produces(MediaType.APPLICATION_JSON)
@@ -36,6 +48,7 @@ class DemoResource(
     private val magazijnDatabase: MagazijnDatabase,
     private val herstelService: HerstelService,
     private val simulatorService: SimulatorService,
+    private val sessieService: SessieService,
 ) {
 
     /**
@@ -48,7 +61,13 @@ class DemoResource(
      */
     @POST
     @Path("/legen")
-    fun legen(): LeegAntwoord = LeegAntwoord(magazijnDatabase.leegAlles(), simulatorService.herstelZoMogelijk())
+    fun legen(): LeegAntwoord {
+        val magazijnen = magazijnDatabase.leegAlles()
+        val gesimuleerd = simulatorService.herstelZoMogelijk()
+
+        // Anders tonen open berichtenboxen nog berichten die in geen magazijn meer staan.
+        return LeegAntwoord(magazijnen, gesimuleerd, sessieService.laatSessiesVerlopenZoMogelijk())
+    }
 
     @POST
     @Path("/herstel")
@@ -93,12 +112,14 @@ class DemoResource(
     fun bericht(
         @QueryParam("persona") @DefaultValue("") persona: String,
         @QueryParam("aantal") @DefaultValue("") aantal: String,
+        @QueryParam("willekeurigTijdstip") @DefaultValue("") willekeurigTijdstip: String,
     ): AanleverResultaat {
         if (persona.isBlank()) throw BadRequestException(KIES_EEN_PERSONA)
 
         val gevraagd = heelGetal("aantal", aantal, STANDAARD_GERICHT, 1..MAX_GERICHTE_BERICHTEN)
+        val spreid = jaNee("willekeurigTijdstip", willekeurigTijdstip, standaard = false)
 
-        val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default)
+        val opdrachten = generator.genereerVoor(persona, gevraagd, Random.Default, spreid)
             ?: throw onbekendePersona(persona, KIES_EEN_PERSONA)
 
         return aanleverService.leverAan(opdrachten)

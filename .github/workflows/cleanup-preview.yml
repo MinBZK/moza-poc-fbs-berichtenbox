@@ -291,6 +291,10 @@ jobs:
     timeout-minutes: 15
     # De omgeving hoort bij de uitvraag-deploy (die draagt `environment: pr-<n>`), dus dezelfde
     # groep als die deploy: hem weghalen tijdens een lopende deploy zou die deploy onderuit halen.
+    # De magazijnen-deploy leest de omgeving ook (`deployment: false`, voor zijn variabelen) maar
+    # draait onder een andere groep. Sluit de PR precies tussen de uitvraag- en de magazijnen-deploy,
+    # dan kan die laatste `pr-<n>` na dit opruimen opnieuw aanmaken; in datzelfde venster komt ook
+    # de ZAD-deployment van het magazijnen-project terug, dus het venster is niet nieuw.
     concurrency:
       group: zad-uitvraag-pr-${{ needs.doel.outputs.pr }}
       cancel-in-progress: false

@@ -8,6 +8,7 @@ class MockedDependenciesProfile : QuarkusTestProfile {
         MockBerichtenCache::class.java,
         MockMagazijnClientFactory::class.java,
         MockMagazijnResolver::class.java,
+        MockAanmeldingen::class.java,
     )
 
     override fun getConfigOverrides(): Map<String, String> = mapOf(

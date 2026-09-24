@@ -1,9 +1,11 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.democonsole.PUBLICATIEWACHTRIJ_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import java.util.logging.Logger
 
@@ -23,10 +25,12 @@ import java.util.logging.Logger
  * berichtId telt alleen als `zonderBerichtId`, ook wanneer om gelezen was gevraagd. Anders leest één
  * bericht als twee problemen.
  *
- * `letOp` draagt de reden uit [Faalreden], en is null zolang er niets in de *aflevering* mislukte —
- * de twee tellers hierboven krijgen geen reden, want die berichten kwamen wél aan. Alleen via [van]
- * te maken, en `copy()` erft die zichtbaarheid: `mislukt` en `letOp` komen zo aantoonbaar uit
- * dezelfde lijst en kunnen elkaar niet tegenspreken.
+ * `letOp` draagt de reden uit [Faalreden], plus — zodra er iets aankwam — de melding dat een
+ * aangeleverd bericht in de publicatie-wachtrij van het magazijn belandt en dus niet meteen in de
+ * Berichtenbox staat; `null` als er niets te melden is. De twee tellers hierboven krijgen geen
+ * reden, want die berichten kwamen wél aan. Alleen via [van] te maken, en `copy()` erft die
+ * zichtbaarheid: `mislukt` en `reden` komen zo aantoonbaar uit dezelfde lijst, en `letOp` volgt uit
+ * `reden`, zodat ze elkaar niet kunnen tegenspreken.
  */
 @ConsistentCopyVisibility
 data class AanleverResultaat private constructor(
@@ -35,8 +39,15 @@ data class AanleverResultaat private constructor(
     val mislukt: Int,
     val markeringMislukt: Int,
     val zonderBerichtId: Int,
-    val letOp: String?,
+    // Alleen de faalreden: een herstel vult ook aan, maar daar is de wachtrij-melding onwaar.
+    @get:JsonIgnore
+    val reden: String?,
 ) {
+
+    // Bij een ronde waarin niets aankwam, zou de wachtrij-melding de aandacht weghalen bij de reden
+    // dat het misging.
+    val letOp: String?
+        get() = listOfNotNull(reden, PUBLICATIEWACHTRIJ_MELDING.takeIf { geslaagd > 0 }).joinToString(" ").ifEmpty { null }
 
     internal companion object {
 
@@ -52,7 +63,7 @@ data class AanleverResultaat private constructor(
             mislukt = redenen.size,
             markeringMislukt = markeringMislukt,
             zonderBerichtId = zonderBerichtId,
-            letOp = Faalreden.samenvatting(redenen),
+            reden = Faalreden.samenvatting(redenen),
         )
     }
 }

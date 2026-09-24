@@ -27,6 +27,7 @@ info:
     | `urn:fbs:fout:ophalen-bezig` | 409 | Er loopt een ophaalronde | "Een moment" — wachten, dit is geen fout |
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
+    | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open: voor deze ontvanger, of op deze dienst als geheel (`_volgen`). Geen storing | Niet meteen opnieuw verbinden, maar na `Retry-After`. Staat de berichtenbox van deze ondernemer al in andere vensters open, dan helpt er één sluiten |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
@@ -82,6 +83,10 @@ tags:
     description: Berichten-uitvraag voor het portaal
   - name: Ophalen
     description: SSE-endpoint voor cache-warming; wordt buiten codegen afgehandeld
+  - name: Volgen
+    description: |
+      SSE-endpoint waarop een geopende berichtenbox nieuw binnengekomen berichten
+      doorkrijgt; wordt buiten codegen afgehandeld.
   - name: Aanmeld
     description: |
       CloudEvents-webhook waarop de Publicatie Stream van een magazijn een nieuw
@@ -169,6 +174,61 @@ paths:
           content:
             text/event-stream:
               schema: { $ref: '#/components/schemas/OphaalEvent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /berichten/_volgen:
+    get:
+      tags: [Volgen]
+      summary: Nieuwe berichten volgen terwijl de berichtenbox openstaat (Server-Sent Events)
+      operationId: volgenBerichten
+      description: |
+        Houdt een verbinding open waarover elk bericht dat tijdens de sessie binnenkomt
+        meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
+        hoeft na te vragen. Zolang de verbinding openstaat, blijft de sessie in leven.
+
+        Volgorde en volledigheid: de stroom bevat hoogstens één `volgen-gestart`, meestal als
+        eerste. Lees op dat moment de lijst (`GET /berichten`) en voeg elk
+        `bericht-bijgekomen` toe, ontdubbeld op `berichtId`. Wat vóór `volgen-gestart`
+        binnenkwam staat in de lijst, wat erna komt krijg je hier; een bericht dat op het
+        grensvlak valt kan in beide zitten, en een `bericht-bijgekomen` kan zelfs vóór
+        `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
+        compleet: verbind opnieuw en doe hetzelfde.
+
+        Blijkt de sessie bij het verbinden al verlopen, dan is `sessie-verlopen` het enige
+        dat komt; `volgen-gestart` blijft dan uit.
+
+        Een `hartslag` komt periodiek, ook als er niets gebeurt. Blijft hij twee keer uit,
+        dan is de verbinding stuk zonder dat de client dat merkt: sluit haar en verbind
+        opnieuw. Na `sessie-verlopen` eindigt de stroom; start dan eerst een nieuwe
+        ophaalronde. Eindigt de stroom zonder `sessie-verlopen`, verbind dan opnieuw.
+
+        Uitbreidbaarheid: negeer een `event` dat je niet kent.
+
+        Foutsemantiek, allemaal vóór de stream: een ongeldige `X-Ontvanger` geeft `400`.
+        Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
+        (`nog-niet-opgehaald` of `ophalen-bezig`), na een mislukte een `503`. Staan er te
+        veel berichtenboxen tegelijk open, op deze dienst of voor deze ontvanger, dan komt er
+        een `503` met `te-veel-open-berichtenboxen`; ontvangt de dienst tijdelijk geen
+        aanmeldingen, dan een `503` met `tijdelijk-niet-beschikbaar`. Beide met `Retry-After`.
+
+        Een stream heeft een maximale duur (standaard een uur, per omgeving instelbaar) en
+        eindigt dan zonder `sessie-verlopen`, net als bij een herstart van de dienst; verbind
+        dan gewoon opnieuw. Komt de verbinding niet tot stand, dan blijft de lijst gewoon
+        bruikbaar; alleen het vanzelf binnenkomen valt weg.
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: SSE-stream
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/VolgEvent' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -462,9 +522,10 @@ components:
     ServiceUnavailable:
       description: |
         Tijdelijk niet beschikbaar; opnieuw proberen is zinvol, na de periode uit
-        `Retry-After`. Twee oorzaken vallen hieronder: de tijdelijke berichtenopslag was
-        niet bereikbaar, of de vorige ophaalronde is gestrand — bij dat laatste is
-        `_ophalen` opnieuw aanroepen de weg vooruit.
+        `Retry-After`. Drie oorzaken vallen hieronder, elk met een eigen `type`: de
+        tijdelijke berichtenopslag was niet bereikbaar, de vorige ophaalronde is gestrand —
+        bij dat laatste is `_ophalen` opnieuw aanroepen de weg vooruit — of er staan te veel
+        berichtenboxen tegelijk open (`_volgen`).
       headers:
         Retry-After:
           description: Aantal seconden waarna opnieuw proberen zinvol is.
@@ -725,6 +786,58 @@ components:
         nietOpgehaald: { $ref: '#/components/schemas/AantalNietOpgehaald' }
         totaalMagazijnen: { $ref: '#/components/schemas/AantalMagazijnen' }
         referentie: { type: string, description: Support-anker; noem dit bij een melding aan de beheerder. }
+
+    VolgEvent:
+      description: |
+        Eén bericht uit de SSE-stroom van `GET /berichten/_volgen`. Elke SSE-regel draagt in
+        zijn `data`-veld één van deze objecten als JSON; `event` zegt om welk soort bericht het
+        gaat. Een soort die je niet kent, mag je negeren.
+      oneOf:
+        - $ref: '#/components/schemas/VolgenGestart'
+        - $ref: '#/components/schemas/BerichtBijgekomen'
+        - $ref: '#/components/schemas/Hartslag'
+        - $ref: '#/components/schemas/SessieVerlopen'
+      discriminator:
+        propertyName: event
+        mapping:
+          volgen-gestart: '#/components/schemas/VolgenGestart'
+          bericht-bijgekomen: '#/components/schemas/BerichtBijgekomen'
+          hartslag: '#/components/schemas/Hartslag'
+          sessie-verlopen: '#/components/schemas/SessieVerlopen'
+
+    VolgenGestart:
+      type: object
+      description: |
+        Het volgen is actief. Lees nu de lijst; alles wat hierna binnenkomt, volgt hier. Komt
+        precies één keer per stroom, meestal als eerste — maar niet als de sessie bij het
+        verbinden al verlopen blijkt.
+      required: [event]
+      properties:
+        event: { type: string, enum: [volgen-gestart] }
+
+    BerichtBijgekomen:
+      type: object
+      description: |
+        Er is een bericht binnengekomen en het staat nu ook in de lijst. De samenvatting heeft
+        dezelfde vorm als een element van `GET /berichten`.
+      required: [event, bericht]
+      properties:
+        event: { type: string, enum: [bericht-bijgekomen] }
+        bericht: { $ref: '#/components/schemas/BerichtSamenvatting' }
+
+    Hartslag:
+      type: object
+      description: De verbinding en de sessie leven nog.
+      required: [event]
+      properties:
+        event: { type: string, enum: [hartslag] }
+
+    SessieVerlopen:
+      type: object
+      description: De sessie bestaat niet meer; de stroom eindigt. Start een nieuwe ophaalronde.
+      required: [event]
+      properties:
+        event: { type: string, enum: [sessie-verlopen] }
 
     MagazijnId:
       type: string

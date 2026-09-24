@@ -48,27 +48,36 @@ class DemoBerichtGenerator(
     fun doelgroep(): List<Doelpersona> = personas.map { Doelpersona(id = it.id, label = it.label) }
 
     fun genereer(aantal: Int, random: Random): List<AanleverOpdracht> =
-        (0 until aantal).map { opdracht(personas[random.nextInt(personas.size)], random) }
+        (0 until aantal).map { opdracht(personas[random.nextInt(personas.size)], random, spreidTijdstip = true) }
 
     /**
      * Berichten voor één aangewezen persona. Magazijn en sjabloon blijven willekeurig binnen wat
      * die persona ontvangt — de bediener wilde een bericht voor déze ondernemer, niet een tweede
      * keuzelijst. `null` bij een onbekende id, zodat de aanroeper er een 404 van kan maken in
      * plaats van een 500 met een stacktrace.
+     *
+     * [spreidTijdstip] staat hier standaard uit: wie één bericht opvoert wil het bovenaan de
+     * berichtenbox zien, en met een gespreid tijdstip zakt het ergens tussen de rest weg.
      */
-    fun genereerVoor(personaId: String, aantal: Int, random: Random): List<AanleverOpdracht>? {
+    fun genereerVoor(
+        personaId: String,
+        aantal: Int,
+        random: Random,
+        spreidTijdstip: Boolean = false,
+    ): List<AanleverOpdracht>? {
         val persona = personas.firstOrNull { it.id == personaId } ?: return null
 
-        return (0 until aantal).map { opdracht(persona, random) }
+        return (0 until aantal).map { opdracht(persona, random, spreidTijdstip) }
     }
 
-    private fun opdracht(persona: DemoPersona, random: Random): AanleverOpdracht {
+    private fun opdracht(persona: DemoPersona, random: Random, spreidTijdstip: Boolean): AanleverOpdracht {
         val organisatie = organisaties.getValue(persona.magazijnen[random.nextInt(persona.magazijnen.size)])
         val sjabloon = organisatie.sjablonen[random.nextInt(organisatie.sjablonen.size)]
 
-        // Gespreid tijdstip: willekeurige dag én tijd binnen kantooruren, zodat sorteren op
-        // datum betekenis heeft en berichten niet allemaal op hetzelfde moment lijken binnen te komen.
-        val minutenTerug = random.nextInt(1, 90 * 24 * 60).toLong()
+        // Gespreid: een willekeurig moment in de afgelopen drie maanden, zodat sorteren op datum
+        // betekenis heeft en een vulling niet als één batch tegelijk binnengekomen oogt. Anders
+        // het moment zelf, en dan staat het bericht bovenaan waar de bediener het verwacht.
+        val minutenTerug = if (spreidTijdstip) random.nextInt(1, MAX_SPREIDING_MINUTEN).toLong() else 0L
 
         val verzoek = AanleverVerzoek(
             afzender = organisatie.oin,
@@ -79,5 +88,11 @@ class DemoBerichtGenerator(
         )
 
         return AanleverOpdracht(organisatie.oin, verzoek)
+    }
+
+    private companion object {
+
+        /** Drie maanden: genoeg spreiding om op datum te sorteren en te filteren. */
+        const val MAX_SPREIDING_MINUTEN = 90 * 24 * 60
     }
 }
