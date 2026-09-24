@@ -28,7 +28,7 @@ const val SESSIES_GEWIST_MELDING: String =
 
 /** Lukte het wissen niet, dan tonen berichtenboxen nog berichten die in geen magazijn meer staan. */
 const val SESSIES_NIET_GEWIST_MELDING: String =
-    "De sessies konden niet gewist worden; open berichtenboxen tonen nog de berichten van hiervoor " +
-        "tot hun sessie verloopt. Probeer het opnieuw."
+    "De sessies konden niet gewist worden; open berichtenboxen tonen nog de berichten van hiervoor. " +
+        "Probeer het opnieuw, of gebruik 'Cache verlopen' op het tabblad Scenario's."
 
 internal fun sessieMelding(gewist: Int?): String = if (gewist == null) SESSIES_NIET_GEWIST_MELDING else SESSIES_GEWIST_MELDING

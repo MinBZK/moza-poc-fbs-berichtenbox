@@ -60,7 +60,11 @@ class HerstelService(
         storingService.reset()
 
         val geleegd = magazijnDatabase.leegAlles()
-        val vulling = aanleverService.leverAan(basisdataset.laad())
+
+        // Vanaf hier kloppen de sessies niet meer met de magazijnen, ook als het vullen mislukt.
+        val vulling = runCatching { aanleverService.leverAan(basisdataset.laad()) }
+            .onFailure { sessieService.laatSessiesVerlopenZoMogelijk() }
+            .getOrThrow()
         val (gesimuleerd, gevuld) = herstelGesimuleerde()
 
         // Als laatste: een berichtenbox die daarna opnieuw ophaalt, krijgt meteen de hele nieuwe set,

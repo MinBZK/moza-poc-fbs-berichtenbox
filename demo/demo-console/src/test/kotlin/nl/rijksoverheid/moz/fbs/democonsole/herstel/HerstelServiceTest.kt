@@ -141,6 +141,14 @@ class HerstelServiceTest {
         assertEquals("wel geleegd, niet gevuld: seed afgebroken", resultaat.gesimuleerd.overgeslagen)
         assertEquals(2000, resultaat.gesimuleerd.berichten)
         assertEquals(0, resultaat.gesimuleerdGevuld)
+
+        // Het wissen blijft de laatste stap, ook als de simulator halverwege struikelt.
+        assertEquals(6, resultaat.sessiesGewist)
+
+        verifyOrder {
+            simulatorService.vulStandaard()
+            sessieService.laatSessiesVerlopenZoMogelijk()
+        }
     }
 
     @Test
@@ -230,7 +238,8 @@ class HerstelServiceTest {
     fun `een mislukte basisvulling breekt af nadat de magazijnen al geleegd zijn`() {
         // Vastgelegd omdat het niet vanzelf spreekt: hier is het legen onomkeerbaar gebeurd en gaat
         // de rest niet door. De simulator wordt dan bewust niet meer aangeraakt — die opnieuw
-        // vullen tegen lege echte magazijnen maakt de tussenstand alleen verwarrender.
+        // vullen tegen lege echte magazijnen maakt de tussenstand alleen verwarrender. De sessies
+        // gaan wel weg: anders tonen open berichtenboxen berichten die nergens meer staan.
         alleStappenSlagen()
         every { aanleverService.leverAan(any()) } throws IllegalStateException("magazijn weigert")
 
@@ -239,6 +248,6 @@ class HerstelServiceTest {
         verify { magazijnDatabase.leegAlles() }
         verify(exactly = 0) { simulatorService.herstelZoMogelijk() }
         verify(exactly = 0) { simulatorService.vulStandaard() }
-        verify(exactly = 0) { sessieService.laatSessiesVerlopenZoMogelijk() }
+        verify(exactly = 1) { sessieService.laatSessiesVerlopenZoMogelijk() }
     }
 }
