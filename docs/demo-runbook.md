@@ -487,12 +487,12 @@ organisatie:
 |---|---|---|---|
 | Vergunningen | elke organisatie die gewoon of traag antwoordt | 87 | groeit mee terwijl de organisaties leveren |
 | Subsidies | alleen de vijftien trage organisaties | 15 | verschijnt pas na een paar seconden |
-| Handhaving | alleen organisaties die niet leveren (o.a. Gemeente Almere en Gemeente Arnhem) | 5 | verschijnt nooit |
+| Handhaving | alleen organisaties die niet leveren (o.a. Gemeente Almere en Gemeente Arnhem) | 5 | verschijnt nooit — twee andere niet-leverende organisaties hebben hem niet |
 | Te bespreken met adviseur | Centraal Justitieel Incassobureau | 1 | verdwijnt met zijn enige bericht |
 
 | # | Scenario | Zo speel je het |
 |---|---|---|
-| M1 | Het mappenoverzicht groeit mee | Demo-onderneming 4 → **Ophalen**. Terwijl de balk loopt, telt *Vergunningen* op; *Subsidies* komt er pas bij als de trage organisaties leveren |
+| M1 | Het mappenoverzicht groeit mee | Demo-onderneming 4 → **Ophalen**. Het groeien zit in de eerste drie à vier seconden: *Vergunningen* telt op van ~12 naar 87, *Subsidies* komt pas na de trage organisaties op 15. De ronde loopt daarna nog tot ~12 s door op organisaties die niet leveren (gemeten op ZAD) |
 | M2 | Een map verdwijnt met zijn laatste bericht | Open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
 | M3 | Een organisatie levert niet | Na de ronde staat *Handhaving* er niet, en meldt de Berichtenbox welke organisaties niet leverden — ook na verversen of doorbladeren |
 
