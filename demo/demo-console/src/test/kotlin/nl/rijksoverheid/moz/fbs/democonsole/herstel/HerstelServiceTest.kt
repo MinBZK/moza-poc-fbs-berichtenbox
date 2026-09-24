@@ -253,6 +253,17 @@ class HerstelServiceTest {
     }
 
     @Test
+    fun `lukt het wissen wel, dan draagt een mislukte vulling geen sessiemelding`() {
+        // Anders zou het paneel "sessies niet gewist" melden terwijl dat wel lukte.
+        alleStappenSlagen()
+        every { aanleverService.leverAan(any()) } throws IllegalStateException("magazijn weigert")
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.herstel() }
+
+        assertTrue(fout.suppressed.none { it is Aanvulling })
+    }
+
+    @Test
     fun `mislukken vulling en wissen allebei, dan draagt de fout ook de sessiemelding`() {
         // Anders ziet de bediener alleen de vulfout en niet dat open berichtenboxen oude berichten
         // blijven tonen.

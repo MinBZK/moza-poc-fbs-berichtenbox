@@ -117,6 +117,6 @@ class DemoFoutMapperTest {
             addSuppressed(IllegalArgumentException("vreemde tekst"))
         }
 
-        assertEquals("magazijn weigert De sessies konden niet gewist worden.", body(fout)["fout"])
+        assertEquals("magazijn weigert. De sessies konden niet gewist worden.", body(fout)["fout"])
     }
 }
