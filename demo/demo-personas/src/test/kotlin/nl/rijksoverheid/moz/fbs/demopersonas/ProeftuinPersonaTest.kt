@@ -100,10 +100,7 @@ class ProeftuinPersonaTest {
          * niet in hun `_data/personas.json`, dus in de berichtenbox is hij niet te kiezen — daar is
          * gevraagd hem toe te voegen. Haal hem hier weg zodra dat gebeurd is; dan bewaakt deze test
          * dat het zo blijft.
-         *
-         * `proeftuin-vier` (Demo-onderneming 4, KVK 90000015) is de persona van de mappen-demo, met
-         * dezelfde honderd organisaties. Gevraagd bij het proeftuin-team; weg zodra zij hem aanbieden.
          */
-        val ALLEEN_BIJ_ONS = setOf("concern", "proeftuin-vier")
+        val ALLEEN_BIJ_ONS = setOf("concern")
     }
 }

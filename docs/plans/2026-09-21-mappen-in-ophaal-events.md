@@ -83,8 +83,8 @@ geldt voor de hele lijst en staat op elke pagina.
   magazijnen leveren te snel om het overzicht te zien groeien, en die persona wordt ook voor andere
   demo's gebruikt. `AanleverOpdracht.map` blijft bestaan; een test bewaakt dat de basisdataset hem
   niet gebruikt.
-- De proeftuin moet de persona in zijn eigen lijst opnemen; tot dan staat hij bij ons in
-  `ALLEEN_BIJ_ONS` van `ProeftuinPersonaTest`.
+- De proeftuin neemt de persona op in zijn eigen lijst (MinBZK/moza-poc#165), onder dezelfde id,
+  naam en nummer; `ProeftuinPersonaTest` houdt onze kopie daarmee gelijk.
 - Drie scenario's (M1–M3) in `docs/demo-runbook.md`.
 - Niet-technische toelichting in `docs/mappen-bij-het-bericht.md`: waarom zo, gevolgen, het
   alternatief (mappen apart vastleggen) en wat dat kost.
