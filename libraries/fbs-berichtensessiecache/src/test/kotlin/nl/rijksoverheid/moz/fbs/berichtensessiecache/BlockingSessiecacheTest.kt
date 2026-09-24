@@ -18,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisAanmeldingen
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
@@ -301,6 +302,19 @@ class BlockingSessiecacheTest {
         every { volger.actief() } returns Uni.createFrom().failure(IllegalStateException("probe kwam niet terug"))
 
         assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger) }
+    }
+
+    @Test
+    fun `volg op een stoppende pod is ook Onbereikbaar, vóór de stream`() {
+        // Een gewone uitrol: de afnemer krijgt een 503 en verbindt bij een andere pod. De facade
+        // logt dit niet als error per stream; dat de pod stopt, meldt hij zelf één keer.
+        stubStatus(gereed)
+        every { volger.actief() } returns Uni.createFrom().failure(RedisAanmeldingen.AbonnementGesloten("Deze pod stopt"))
+
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+
+        assertTrue(fout.cause is RedisAanmeldingen.AbonnementGesloten)
         verify(exactly = 0) { volger.volg(ontvanger) }
     }
 

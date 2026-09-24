@@ -32,7 +32,7 @@ internal interface Aanmeldingen {
      * Registreert een luisteraar voor de sessie onder [cacheKey], direct en synchroon. Berichten
      * komen pas door zodra [actief] geslaagd is. [opStoring] valt wanneer het doorgeven zelf
      * wegvalt; [opEinde] wanneer deze pod stopt. In beide gevallen komt wat daarna wordt aangemeld
-     * hier niet meer door.
+     * hier niet meer door. Is de pod al gestopt, dan valt [opEinde] meteen, binnen deze aanroep.
      */
     fun registreer(
         cacheKey: String,
@@ -41,7 +41,10 @@ internal interface Aanmeldingen {
         opEinde: () -> Unit,
     ): Afmelding
 
-    /** Slaagt zodra deze pod aanmeldingen ontvangt; bouwt het abonnement zo nodig op. */
+    /**
+     * Slaagt zodra deze pod aanmeldingen ontvangt; bouwt het abonnement zo nodig op. Faalt met
+     * [AbonnementGesloten] als de pod stopt of de poging onderweg gesloten werd.
+     */
     fun actief(): Uni<Void>
 
     fun interface Afmelding {
@@ -111,7 +114,7 @@ internal class RedisAanmeldingen(
         luisteraars.compute(cacheKey) { _, set -> (set ?: ConcurrentHashMap.newKeySet()).apply { add(luisteraar) } }
 
         // Een stream die tijdens het stoppen nog opent, heeft [stop] net gemist.
-        if (gestopt.get()) luisteraar.opEinde()
+        if (gestopt.get()) beeindig(luisteraar)
 
         return Aanmeldingen.Afmelding {
             luisteraars.computeIfPresent(cacheKey) { _, set ->
@@ -122,7 +125,7 @@ internal class RedisAanmeldingen(
     }
 
     override fun actief(): Uni<Void> {
-        if (gestopt.get()) return Uni.createFrom().failure(IllegalStateException("Deze pod stopt"))
+        if (gestopt.get()) return Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
 
         huidig.get()?.let { return it.gereed }
 
@@ -130,7 +133,13 @@ internal class RedisAanmeldingen(
         // winnaar en abonneert zelf nooit, want `gereed` is lui.
         val nieuw = Abonnement()
 
-        return if (huidig.compareAndSet(null, nieuw)) nieuw.gereed else huidig.get()?.gereed ?: nieuw.gereed
+        if (!huidig.compareAndSet(null, nieuw)) return huidig.get()?.gereed ?: nieuw.gereed
+
+        // [stop] kan tussen de controle bovenaan en de CAS hebben gelopen; dan zag hij dit
+        // abonnement niet. Gesloten faalt `gereed` zelf, zonder te abonneren.
+        if (gestopt.get() && huidig.compareAndSet(nieuw, null)) nieuw.sluit()
+
+        return nieuw.gereed
     }
 
     /**
@@ -139,8 +148,10 @@ internal class RedisAanmeldingen(
      * een kanaal dat al dood is. Zo verbinden de berichtenboxen meteen opnieuw, bij een pod die nog
      * leeft, in plaats van in dat venster aanmeldingen te missen.
      *
-     * Het abonnement gaat eerst uit [huidig]: het afmelden ervan eindigt dan niet in [wegGevallen]
-     * als storing, en de luisteraars krijgen alleen [Luisteraar.opEinde].
+     * Het afmelden van het abonnement komt via zijn eigen callback nog in [wegGevallen] terecht,
+     * maar geeft daar geen storing: alleen wie een abonnement daadwerkelijk sluit, licht de
+     * luisteraars in, en dat heeft deze methode dan al gedaan. De luisteraars krijgen dus alleen
+     * [Luisteraar.opEinde].
      */
     @PreDestroy
     fun stop() {
@@ -152,12 +163,14 @@ internal class RedisAanmeldingen(
         // Een gewone uitrol: één regel voor de hele pod, geen storing per stream.
         if (aantal > 0) log.infof("Pod stopt; %d open streams verbinden opnieuw", aantal)
 
-        luisteraars.values.flatten().forEach { luisteraar ->
-            try {
-                luisteraar.opEinde()
-            } catch (fout: RuntimeException) {
-                log.warnf(fout, "Een gevolgde sessie kon niet over het stoppen ingelicht worden")
-            }
+        luisteraars.values.flatten().forEach(::beeindig)
+    }
+
+    private fun beeindig(luisteraar: Luisteraar) {
+        try {
+            luisteraar.opEinde()
+        } catch (fout: RuntimeException) {
+            log.warnf(fout, "Een gevolgde sessie kon niet over het stoppen ingelicht worden")
         }
     }
 
@@ -269,7 +282,7 @@ internal class RedisAanmeldingen(
 
         private fun activeer(): Uni<Void> {
             // Gesloten vóór iemand op [gereed] wachtte: niet alsnog abonneren.
-            if (gesloten.get()) return Uni.createFrom().failure(IllegalStateException("Abonnement al gesloten"))
+            if (gesloten.get()) return Uni.createFrom().failure(AbonnementGesloten("Abonnement al gesloten"))
 
             val probe = UUID.randomUUID()
             val teruggezien = CompletableFuture<Void>()
@@ -293,7 +306,7 @@ internal class RedisAanmeldingen(
                 .onItem().transformToUni { _ ->
                     // Gesloten terwijl de probe onderweg was: dit abonnement is niet meer actief.
                     if (gesloten.get()) {
-                        Uni.createFrom().failure(IllegalStateException("Abonnement gesloten tijdens het activeren"))
+                        Uni.createFrom().failure(AbonnementGesloten("Abonnement gesloten tijdens het activeren"))
                     } else {
                         startControle()
                         Uni.createFrom().voidItem()
@@ -341,10 +354,16 @@ internal class RedisAanmeldingen(
 
             controle.set(nieuw)
 
-            // Gesloten tussen de controle hierboven en dit moment: sluit() zag deze controle nog niet.
+            // Gesloten na de gesloten-check in `activeer`: sluit() zag deze controle nog niet.
             if (gesloten.get()) controle.getAndSet(null)?.cancel()
         }
     }
+
+    /**
+     * Het abonnement ging dicht omdat de pod stopt of omdat het wegviel; dat laatste is op dat
+     * moment al gelogd. Geen nieuwe storing, dus geen error per stream.
+     */
+    internal class AbonnementGesloten(melding: String) : IllegalStateException(melding)
 
     private class Luisteraar(val opBericht: (UUID) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 

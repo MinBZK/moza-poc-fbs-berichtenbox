@@ -37,6 +37,8 @@ internal class MockAanmeldingen : Aanmeldingen {
         val luisteraar = Luisteraar(opBericht, opStoring, opEinde)
         luisteraars.computeIfAbsent(cacheKey) { CopyOnWriteArrayList() } += luisteraar
 
+        if (gestopt) opEinde()
+
         return Aanmeldingen.Afmelding { luisteraars[cacheKey]?.remove(luisteraar) }
     }
 
@@ -49,6 +51,7 @@ internal class MockAanmeldingen : Aanmeldingen {
     var actiefHangt = false
 
     override fun actief(): Uni<Void> = when {
+        gestopt -> Uni.createFrom().failure(RedisAanmeldingen.AbonnementGesloten("Deze pod stopt"))
         actiefHangt -> Uni.createFrom().nothing()
         else -> actiefFout?.let { Uni.createFrom().failure(it) } ?: Uni.createFrom().voidItem()
     }
@@ -58,8 +61,12 @@ internal class MockAanmeldingen : Aanmeldingen {
         luisteraars.values.flatten().forEach { it.opStoring(fout) }
     }
 
-    /** Laat de pod stoppen, zoals bij een rolling update. */
+    @Volatile
+    private var gestopt = false
+
+    /** Laat de pod stoppen, zoals bij een rolling update; daarna gedraagt hij zich als de echte. */
     fun stop() {
+        gestopt = true
         luisteraars.values.flatten().forEach { it.opEinde() }
     }
 

@@ -1009,10 +1009,11 @@ internal class RedisBerichtenCache(
             .getOrNull() == berichtId.toString()
 
     companion object {
-        // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de invalidate
-        // wordt opgegeven; concurrente wijziging op één sessie-list is zeldzaam, dus een klein
-        // plafond volstaat en voorkomt ongebonden retry onder pathologische contentie. (Delete
-        // gebruikt LREM en heeft geen retry-loop nodig.)
+        // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de update een
+        // retriable contentie-fout geeft. Een klein plafond voorkomt ongebonden retry onder
+        // pathologische contentie. Ook een EXPIRE van een lezende berichtenbox breekt de WATCH af.
+        // (Delete gebruikt LREM en heeft geen retry-loop nodig.)
+        // TODO(#1166): atomair zonder WATCH, zoals createBericht, zodat meelezen niet meer botst.
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         /**
@@ -1023,14 +1024,19 @@ internal class RedisBerichtenCache(
          * map uit de lijst-entry: alleen die twee wijzigen na het aanmelden, en de aanmelding zelf
          * zou een al gelezen bericht weer ongelezen maken. Een onleesbare entry telt niet als
          * treffer, net als in het leespad.
+         *
+         * Redis voert een script uit zonder iets anders te doen, dus de lus moet goedkoop blijven:
+         * alleen een entry waar het id letterlijk in staat, wordt als JSON gelezen.
          */
         private val AANMELD_SCRIPT = """
             local gevonden = nil
             for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
-                local leesbaar, bericht = pcall(cjson.decode, entry)
-                if leesbaar and type(bericht) == 'table' and bericht.berichtId == ARGV[1] then
-                    gevonden = bericht
-                    break
+                if string.find(entry, ARGV[1], 1, true) then
+                    local leesbaar, bericht = pcall(cjson.decode, entry)
+                    if leesbaar and type(bericht) == 'table' and bericht.berichtId == ARGV[1] then
+                        gevonden = bericht
+                        break
+                    end
                 end
             end
 

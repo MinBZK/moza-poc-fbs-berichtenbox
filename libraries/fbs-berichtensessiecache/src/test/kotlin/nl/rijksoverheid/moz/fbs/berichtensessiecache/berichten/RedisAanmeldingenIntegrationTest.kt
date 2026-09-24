@@ -179,7 +179,7 @@ class RedisAanmeldingenIntegrationTest {
         pod.registreer(cacheKey, {}, {}, { beeindigd += Unit })
 
         assertEquals(1, beeindigd.size)
-        assertThrows<IllegalStateException> { pod.actief().await().atMost(WACHTTIJD) }
+        assertThrows<RedisAanmeldingen.AbonnementGesloten> { pod.actief().await().atMost(WACHTTIJD) }
     }
 
     @Test
@@ -198,11 +198,12 @@ class RedisAanmeldingenIntegrationTest {
 
         while (abonnees() > voor && System.nanoTime() < einde) Thread.sleep(PEILING.toMillis())
 
-        assertEquals(voor, abonnees(), "abonnement achtergebleven na stop")
+        // Hooguit gelijk: een abonnement van een andere pod in dezelfde Redis mag intussen weg zijn.
+        assertTrue(abonnees() <= voor, "abonnement achtergebleven na stop")
 
         Thread.sleep(AFWIKKELING.toMillis())
 
-        assertEquals(voor, abonnees(), "abonnement na stop alsnog opnieuw opgebouwd")
+        assertTrue(abonnees() <= voor, "abonnement na stop alsnog opnieuw opgebouwd")
     }
 
     @Test
@@ -321,18 +322,20 @@ class RedisAanmeldingenIntegrationTest {
     private fun abonnees(): Long =
         redis.execute("PUBSUB", "NUMSUB", RedisAanmeldingen.KANAAL).await().atMost(WACHTTIJD).get(1).toLong()
 
-    // Een vorige test kan nog aan het afmelden zijn; wacht tot twee metingen na elkaar gelijk zijn.
+    // Een vorige test kan nog aan het afmelden zijn; wacht tot de telling een poos niet meer daalt.
     private fun stabieleAbonnees(): Long {
+        val einde = System.nanoTime() + WACHTTIJD.toNanos()
         var vorige = abonnees()
+        var gelijk = 0
 
-        while (true) {
+        while (gelijk < RUSTIGE_METINGEN && System.nanoTime() < einde) {
             Thread.sleep(PEILING.toMillis())
             val nu = abonnees()
-
-            if (nu == vorige) return nu
-
+            gelijk = if (nu == vorige) gelijk + 1 else 0
             vorige = nu
         }
+
+        return vorige
     }
 
     private fun pauzeer(duur: Duration) {
@@ -353,6 +356,7 @@ class RedisAanmeldingenIntegrationTest {
         val AFWIKKELING: Duration = Duration.ofSeconds(2)
 
         val PEILING: Duration = Duration.ofMillis(100)
+        const val RUSTIGE_METINGEN = 3
 
         val PROBE_TIMEOUT: Duration = RedisAanmeldingen.PROBE_TIMEOUT
         val TOT_OPGEVEN: Duration = PROBE_TIMEOUT.multipliedBy(RedisAanmeldingen.MAX_GEMISTE_PROBES.toLong())
