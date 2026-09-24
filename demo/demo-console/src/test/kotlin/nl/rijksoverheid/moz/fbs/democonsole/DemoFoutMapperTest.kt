@@ -107,4 +107,16 @@ class DemoFoutMapperTest {
 
         return gevangen
     }
+
+    @Test
+    fun `een aanvulling komt achter de melding, een andere suppressed exception niet`() {
+        // Alleen eigen, vaste teksten: wat try-with-resources of een bibliotheek eraan hangt, kan
+        // invoer of een adres bevatten.
+        val fout = IllegalStateException("magazijn weigert").apply {
+            addSuppressed(Aanvulling("De sessies konden niet gewist worden."))
+            addSuppressed(IllegalArgumentException("vreemde tekst"))
+        }
+
+        assertEquals("magazijn weigert De sessies konden niet gewist worden.", body(fout)["fout"])
+    }
 }

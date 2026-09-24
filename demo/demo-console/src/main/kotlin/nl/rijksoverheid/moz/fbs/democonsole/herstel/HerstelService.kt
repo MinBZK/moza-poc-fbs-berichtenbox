@@ -3,7 +3,9 @@ package nl.rijksoverheid.moz.fbs.democonsole.herstel
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.Aanvulling
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.SESSIES_NIET_GEWIST_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.sessieMelding
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
@@ -63,7 +65,11 @@ class HerstelService(
 
         // Vanaf hier kloppen de sessies niet meer met de magazijnen, ook als het vullen mislukt.
         val vulling = runCatching { aanleverService.leverAan(basisdataset.laad()) }
-            .onFailure { sessieService.laatSessiesVerlopenZoMogelijk() }
+            .onFailure { fout ->
+                // Alleen de vulfout komt in het paneel; dat de berichtenboxen oude berichten blijven
+                // tonen, hoort er dan bij te staan.
+                if (sessieService.laatSessiesVerlopenZoMogelijk() == null) fout.addSuppressed(Aanvulling(SESSIES_NIET_GEWIST_MELDING))
+            }
             .getOrThrow()
         val (gesimuleerd, gevuld) = herstelGesimuleerde()
 

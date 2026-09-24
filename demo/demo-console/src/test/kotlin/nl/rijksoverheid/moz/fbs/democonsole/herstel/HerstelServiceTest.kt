@@ -7,6 +7,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import nl.rijksoverheid.moz.fbs.democonsole.Aanvulling
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.PUBLICATIEWACHTRIJ_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.SESSIES_GEWIST_MELDING
@@ -249,5 +250,19 @@ class HerstelServiceTest {
         verify(exactly = 0) { simulatorService.herstelZoMogelijk() }
         verify(exactly = 0) { simulatorService.vulStandaard() }
         verify(exactly = 1) { sessieService.laatSessiesVerlopenZoMogelijk() }
+    }
+
+    @Test
+    fun `mislukken vulling en wissen allebei, dan draagt de fout ook de sessiemelding`() {
+        // Anders ziet de bediener alleen de vulfout en niet dat open berichtenboxen oude berichten
+        // blijven tonen.
+        alleStappenSlagen()
+        every { aanleverService.leverAan(any()) } throws IllegalStateException("magazijn weigert")
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns null
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.herstel() }
+
+        assertEquals("magazijn weigert", fout.message)
+        assertEquals(listOf(SESSIES_NIET_GEWIST_MELDING), fout.suppressed.filterIsInstance<Aanvulling>().map { it.message })
     }
 }
