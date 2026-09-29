@@ -102,8 +102,11 @@ Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-vo
 > **Waarom CORS geen build-flag is:** CORS is een runtime-property en staat uitsluitend als env-var
 > in het demo-profiel van `compose.yaml`; de `application.properties` van `berichtenuitvraag` bevat
 > geen CORS-config. Enabled zónder `origins` laat alleen same-origin door, en de UI op `:8095`
-> roept de API op `:8086` aan — vandaar de allowlist ernaast in compose. Het prod-profiel zet CORS
-> niet aan, dus de ZAD-images blijven CORS-loos zonder dat de build iets hoeft te weten.
+> roept de API op `:8086` aan — vandaar de allowlist ernaast in compose. De proeftuin (`:8096`) en
+> de demo-proxy (`:8097`) staan er ook op: hun nginx proxyt de API wel, maar geeft de `Origin` van
+> een schrijf-request door, en zonder allowlist geeft "uit map halen" dan een 403. Het prod-profiel
+> zet CORS niet aan; op ZAD staat hij als env op de uitvraag (`demo/environment/zad-demo/README.md`
+> §4).
 
 ### Podman in plaats van Docker
 
