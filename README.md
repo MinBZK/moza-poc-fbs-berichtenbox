@@ -124,6 +124,7 @@ Verder lezen:
 - [Operator-handleiding uitvraag](docs/operator-handleiding-uitvraag.md) — sessiecache-TLS, timeout-invarianten, cache-TTL's
 - [`docs/operations/`](docs/operations/) — runbooks per operationele procedure (alerts, schema-bumps)
 - [Vergelijking VoRijk (Blauwe Knop) vs. het Federatief Berichtenstelsel](docs/vergelijking-fbs-vorijk.md)
+- [Vergelijking ERDS en European Business Wallet vs. het Federatief Berichtenstelsel](docs/vergelijking-fbs-erds-ebw.md)
 - [Analyse: architectuur voor uniforme bronontsluiting](docs/analyse-architectuur-uniforme-bronontsluiting.md)
 - [`docs/plans/`](docs/plans/) — implementatieplannen met de gemaakte ontwerpkeuzes
 
