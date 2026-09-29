@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # `Analyze (kotlin)` is een required check; zonder deze trigger blijft hij in de merge queue
+  # 'expected' en merget er niets. De queue-analyse is ook de enige over de gecombineerde snapshot.
+  merge_group:
+    types: [checks_requested]
   schedule:
     - cron: "0 6 * * 1"
 

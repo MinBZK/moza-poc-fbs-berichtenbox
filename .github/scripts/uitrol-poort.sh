@@ -132,6 +132,35 @@ beoordeel() {
       as=deploy-preview-
       stille_as=deploy-test-
       ;;
+    merge_group)
+      [[ $REF == refs/heads/gh-readonly-queue/main/* ]] \
+        || fout "Merge queue op '$REF' terwijl alleen de queue van main hoort te draaien."
+
+      # De detectie geeft in de queue vast deploy=false: de preview is op de PR zelf bewezen. Een
+      # `true` betekent dat ze is omgevallen en op alles-aan terugviel.
+      [ "$DEPLOY" = false ] \
+        || fout "In de merge queue hoort de detectie deploy=false te geven, niet '$DEPLOY' — detectie omgevallen."
+
+      # Ook de bouw-jobs horen stil te zijn: hun tag `main-<sha>` blijft bij een entry die uit de
+      # rij valt als image achter dat niets opruimt.
+      local bouw naam resultaat
+
+      bouw=$(resultaten build) \
+        || fout "NEEDS is geen bruikbare toJSON(needs)-uitvoer — het oordeel is onbepaald."
+
+      [ "$(telling "$bouw")" -eq 4 ] \
+        || fout "$(telling "$bouw") bouw-jobs gevonden in plaats van 4 — de needs van de poort lopen uit de pas met deploy.yml."
+
+      while IFS='=' read -r naam resultaat; do
+        [ "$resultaat" = skipped ] \
+          || fout "Bouw-job '$naam' eindigde in de merge queue als '$resultaat' terwijl daar niets gebouwd hoort te worden."
+      done <<<"$bouw"
+
+      # Beide assen horen stil te zijn. De test-as als de stille as, de preview-as via de
+      # niets-verwacht-tak hieronder.
+      as=deploy-preview-
+      stille_as=deploy-test-
+      ;;
     *)
       fout "Onbekend event '$EVENT' — de poort kan niet bepalen welke uitrol-jobs hoorden te draaien."
       ;;

@@ -51,8 +51,8 @@
 #
 # OPRUIMEN STAAT IN cleanup-preview.yml: het `branches`-filter hieronder mag niet op teardown
 # drukken (rationale daar). De omgekeerde beweging — GitHub's automatische retarget náár main bij
-# het mergen van de parent — is veilig: de checks zijn dan afwezig i.p.v. groen, en `strict: true`
-# op main dwingt sowieso een verse run af.
+# het mergen van de parent — is veilig: de checks zijn dan afwezig i.p.v. groen, en de merge queue
+# toetst de PR sowieso opnieuw bovenop de actuele main.
 #
 # TIMEOUT-MINUTES OP ELKE JOB: GitHub's default is 360 minuten. Een job die hangt (netwerkstall,
 # vastgelopen Testcontainer, een herintroduceerde wachtlus) houdt dan zes uur een runner bezet
@@ -93,6 +93,11 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
+  # De merge queue toetst de PR opnieuw bovenop de actuele main. Alle required checks komen uit
+  # deze workflow, dus zonder deze trigger blijven ze in de queue 'expected' en merget er niets.
+  # Wat er daar draait bepaalt de wijzigingsdetectie: de volle toetsing, geen preview.
+  merge_group:
+    types: [checks_requested]
 
 # Least-privilege default voor GITHUB_TOKEN: read-only op workflow-niveau; elke job die schrijft
 # declareert zijn eigen scopes.
@@ -563,7 +568,12 @@ jobs:
   # verkeer binnen hetzelfde deployment toe. Eén image, twee rollen — welke, leest het entrypoint
   # uit FSC_ROL in de component-env.
   build-contract-bootstrap:
-    if: github.event_name == 'push' || needs.changes.outputs.run == 'true'
+    # Niet in de merge queue: een entry die uit de rij valt of faalt, liet hier `main-<sha>`-images
+    # achter die niets opruimt. De build is op de PR zelf al bewezen; uitrol-poort bewaakt dat hij in
+    # de queue stil blijft.
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'pull_request' && needs.changes.outputs.run == 'true')
     needs: [meta, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -601,7 +611,12 @@ jobs:
   # Eén job en één Maven-aanroep voor alle drie: ze delen hun afhankelijkheden, dus een tweede runner
   # zou vooral dezelfde boom nog een keer ophalen.
   build-demo-images:
-    if: github.event_name == 'push' || needs.changes.outputs.run == 'true'
+    # Niet in de merge queue: een entry die uit de rij valt of faalt, liet hier `main-<sha>`-images
+    # achter die niets opruimt. De build is op de PR zelf al bewezen; uitrol-poort bewaakt dat hij in
+    # de queue stil blijft.
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'pull_request' && needs.changes.outputs.run == 'true')
     needs: [meta, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -694,11 +709,16 @@ jobs:
 
   # ClusterFuzzLite fuzzt alleen PR's: op een push naar main is er geen basis om code-change-fuzzing
   # tegen af te zetten. Deze job wordt daar dus overgeslagen, en de gate telt dat als OK.
+  #
+  # In de merge queue wél aanroepen, met `fuzz=false` uit de detectie: de fuzz-job slaat zichzelf
+  # dan over en rapporteert als `checks-fuzz / PR`. Slaat deze aanroep zelf over, dan verschijnt
+  # alleen `checks-fuzz` en blijft de required check `checks-fuzz / PR` eeuwig 'expected' — de
+  # queue loopt dan vast.
   checks-fuzz:
     needs: changes
     if: >-
       !cancelled()
-      && github.event_name == 'pull_request'
+      && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     uses: ./.github/workflows/cflite_pr.yml
     with:
       fuzz-relevant: ${{ needs.changes.outputs.fuzz }}

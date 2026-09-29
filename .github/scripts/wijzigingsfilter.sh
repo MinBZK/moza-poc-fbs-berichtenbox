@@ -197,6 +197,20 @@ classificeer() {
 }
 
 main() {
+  # De merge queue toetst de PR opnieuw, nu bovenop de actuele main en de PR's die vóór hem in de
+  # rij staan — dus altijd de volle code-checks, ongeacht welke bestanden de PR zelf raakt. Wat al
+  # op de PR bewezen is en aan die PR vastzit, valt af: de preview (er is geen PR-nummer om een
+  # `pr-<n>` aan te hangen) en de fuzz-ronde (`code-change`-modus fuzzt de diff van de PR, die
+  # hier niet bestaat). Er staat geen PR-lijst om af te wegen, dus ook geen `gh`-aanroep.
+  if [ "${EVENT:-}" = "merge_group" ]; then
+    echo "run=true"
+    echo "deploy=false"
+    echo "demo-only=false"
+    echo "fuzz=false"
+
+    return 0
+  fi
+
   if [ "${EVENT:-}" != "pull_request" ]; then
     alles_aan
 

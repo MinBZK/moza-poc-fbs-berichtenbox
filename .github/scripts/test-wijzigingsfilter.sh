@@ -364,6 +364,23 @@ verwacht_main "push raadpleegt de PR-lijst niet" \
 verwacht_main "workflow_dispatch raadpleegt de PR-lijst niet" \
   'gh() { echo README.md; }' workflow_dispatch '' "$ALLES_AAN"
 
+# De merge queue: volle toetsing, geen preview en geen fuzz. Draait de toetsing daar niet, dan
+# merget de queue een combinatie die niemand getest heeft — en de overgeslagen checks tellen als
+# geslaagd. Een bot- of draft-vlag en de PR-lijst mogen daar niets aan veranderen.
+QUEUE='run=true
+deploy=false
+demo-only=false
+fuzz=false'
+
+verwacht_main "merge queue — volle toetsing, geen uitrol of fuzz" \
+  'gh() { echo "nooit aanroepen" >&2; return 9; }' merge_group '' "$QUEUE"
+
+verwacht_main "merge queue raadpleegt de PR-lijst niet" \
+  'gh() { echo README.md; }' merge_group '' "$QUEUE"
+
+verwacht_main "merge queue negeert bot- en draft-vlag" \
+  'gh() { echo "nooit aanroepen" >&2; return 9; }' merge_group Bot "$QUEUE" true
+
 # --- entrypoint --------------------------------------------------------------------------------
 # De workflows draaien `.github/scripts/wijzigingsfilter.sh` zonder `bash` ervoor. Een verloren
 # uitvoerbaar-bit of een kapotte `BASH_SOURCE`-guard degradeert stil naar "alles draait, elke PR

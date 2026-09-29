@@ -22,6 +22,9 @@ name: CI-scripts
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  # Required check, dus ook in de merge queue; zonder pad-filter om dezelfde reden als hierboven.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths: ['.github/scripts/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
@@ -117,8 +120,8 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=107
-            [.github/scripts/test-uitrol-poort.sh]=86
+            [.github/scripts/test-wijzigingsfilter.sh]=111
+            [.github/scripts/test-uitrol-poort.sh]=94
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=51
             [.github/scripts/test-preview-klaarzetten.sh]=54
