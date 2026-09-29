@@ -141,6 +141,24 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
   (`aanslag-de-vries.pdf`). De keten logt hem nergens, maar response-header-logging op een
   ingress of outway zou hem alsnog in een log zetten: laat die uit staan voor dit endpoint.
 
+### Uitkomst van een verwerking in het logboek
+
+Aanleveren en publiceren schrijven hun logregel vóór de verwerking (fail-closed), met status
+`UNSET`. Mislukt de opslag of de levering daarna, dan krijgt die logregel een ERROR-child met
+dezelfde naam, betrokkene en verwerkingsactiviteit en het attribuut `moza.ldv.uitkomst=mislukt`.
+**Leesregel: een logregel zonder ERROR-child is geslaagd.** Dit is een afspraak binnen MOZa;
+de standaard kent deze leesregel nog niet (Logius-standaarden/logboek-dataverwerkingen#314).
+
+* Elke leverpoging heeft een eigen logregel met `publicatie.poging` (1, 2, …); een poging
+  die niet aankwam heeft een ERROR-child. Meerdere regels voor hetzelfde
+  `publicatie.bericht_id` + `publicatie.doel` zijn dus pogingen, geen dubbele verstrekkingen.
+* `exception.message` op de ERROR-child draagt alleen de soort fout (het fouttype, of bij
+  publiceren `HttpFout 503`, `Timeout`, …), nooit de foutmelding zelf: die rijen gaan bij een
+  inzageverzoek naar buiten. Het volledige foutbeeld staat in de applicatielog.
+* **`LDV_UITKOMST_ONTBREEKT`** (ERROR, met de `trace_id:span_id` van de betrokken logregels):
+  de ERROR-child kon niet worden opgeslagen. De verwerking is mislukt, maar het logboek toont
+  haar als geslaagd. Dat is onder-rapportage en vraagt om een alert; herstel is handmatig.
+
 ### W3C Trace Context (outbound)
 * Alleen `traceparent` wordt naar downstream gestuurd; `tracestate`
   (vendor-data) wordt expliciet gefilterd om vendor-data-leak

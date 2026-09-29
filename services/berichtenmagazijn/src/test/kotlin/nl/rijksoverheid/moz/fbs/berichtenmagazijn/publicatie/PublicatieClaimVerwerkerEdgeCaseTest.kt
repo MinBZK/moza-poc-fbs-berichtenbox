@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
+import io.opentelemetry.api.trace.SpanContext
 import io.mockk.Called
 import io.mockk.every
 import io.mockk.justRun
@@ -18,6 +20,11 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.provider.ValueSource
+import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.assertThrows
 import java.time.Clock
 import java.time.Duration
@@ -33,8 +40,10 @@ import java.util.UUID
  *     dezelfde UUIDv5-id (downstream dedupliceert).
  *  2. **Logregel-vóór-levering-volgorde**: de LDV-schrijfactie wordt bevestigd
  *     vóórdat het CloudEvent de deur uitgaat. Faalt de schrijfactie, dan mag er
- *     niet geleverd worden; faalt de levering, dan blijft de al bevestigde
- *     logregel onaangeroerd (die zit niet in de JTA-transactie).
+ *     niet geleverd worden.
+ *  3. **Uitkomst achteraf**: komt de levering niet aan, dan krijgt de al bevestigde
+ *     logregel een ERROR-child; een geslaagde levering schrijft niets extra. Zonder
+ *     dat child leest de logregel als geslaagde verstrekking.
  */
 class PublicatieClaimVerwerkerEdgeCaseTest {
 
@@ -54,6 +63,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
     private val downstreamClient = mockk<DownstreamClient>()
     private val config = mockk<PublicatieConfig>()
     private val processingHandler = mockk<ProcessingHandler>()
+    private val logregels = listOf(Logregel(SpanContext.getInvalid(), "logregel", null, null))
     private val span = mockk<Span>(relaxed = true)
     private val clock: Clock = Clock.fixed(Instant.parse("2026-05-12T10:00:00Z"), ZoneOffset.UTC)
 
@@ -110,7 +120,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         // De logregel is dan al bevestigd (die gaat vóór de levering) — deze late
         // faalroute raakt het logboek niet meer, alleen de claim-status.
         stubClaimMetBericht()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Geslaagd
         every { claimer.markeerGeslaagd(claim.claimId, any()) } throws
@@ -134,7 +144,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         every { config.downstreams() } returns emptyMap()
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
             DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
@@ -168,7 +178,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         justRun { claimer.markeerMislukt(any(), any(), any()) }
 
         val ldvContextSlot = slot<LogboekContext>()
-        justRun { processingHandler.addLogboekContextToSpan(span, capture(ldvContextSlot), any()) }
+        every { processingHandler.addLogboekContextToSpan(span, capture(ldvContextSlot), any()) } returns logregels
 
         verwerker.verwerkEenClaim()
 
@@ -190,10 +200,11 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         )
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
             DownstreamResultaat.NetwerkFout("transient")
+        every { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) } returns emptyList()
         justRun { claimer.markeerMislukt(any(), any(), any()) }
 
         verwerker.verwerkEenClaim()
@@ -207,7 +218,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         // Bevestigen na de levering zou betekenen dat een rollback op een LDV-fout een
         // al verstuurd CloudEvent opnieuw laat versturen.
         stubClaimMetBericht()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Geslaagd
         justRun { claimer.markeerGeslaagd(claim.claimId, any()) }
@@ -225,7 +236,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
     @Test
     fun `een LDV-schrijffout verhindert de levering`() {
         stubClaimMetBericht()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         every {
             processingHandler.enforceWriteAcknowledgement(any())
         } throws LogboekWriteException("Logregel kon niet in het Logboek worden opgeslagen")
@@ -254,5 +265,125 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         // volgende claim op dezelfde thread de schrijffout. `false` omdat er al een fout
         // propageert die niet gemaskeerd mag worden.
         verify { processingHandler.enforceWriteAcknowledgement(false) }
+    }
+
+    @ParameterizedTest
+    @MethodSource("mislukteLeveringen")
+    fun `een mislukte levering krijgt een ERROR-child zonder de reden van de afnemer`(
+        resultaat: DownstreamResultaat.Mislukt,
+        verwachteBeschrijving: String,
+    ) {
+        stubClaimMetBericht()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { downstreamClient.lever(claim.doel, event) } returns resultaat
+        justRun { claimer.markeerMislukt(any(), any(), any()) }
+        val fout = slot<Throwable>()
+        every { processingHandler.recordFailedOutcome(logregels, capture(fout)) } returns emptyList()
+
+        verwerker.verwerkEenClaim()
+
+        assertEquals(verwachteBeschrijving, fout.captured.message)
+        assertFalse(
+            fout.captured.message.orEmpty().contains("999993653"),
+            "de reden kan tekst van de afnemer bevatten en hoort niet op een rij met de betrokkene",
+        )
+
+        verifyOrder {
+            downstreamClient.lever(claim.doel, event)
+            processingHandler.recordFailedOutcome(logregels, any())
+            claimer.markeerMislukt(claim.claimId, any(), any())
+        }
+    }
+
+    @Test
+    fun `een geslaagde levering schrijft geen uitkomst-logregel`() {
+        stubClaimMetBericht()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Geslaagd
+        justRun { claimer.markeerGeslaagd(claim.claimId, any()) }
+
+        verwerker.verwerkEenClaim()
+
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    @Test
+    fun `een onbekend doel krijgt geen ERROR-child, de logregel zelf staat al op ERROR`() {
+        every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim)
+        every { berichten.findByBerichtId(claim.berichtId) } returns bericht
+        every { processingHandler.startSpan(any<String>(), any()) } returns span
+        every { config.downstreams() } returns emptyMap()
+        every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
+        every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { downstreamClient.lever(claim.doel, event) } returns
+            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+        justRun { claimer.markeerMislukt(any(), any(), any()) }
+
+        verwerker.verwerkEenClaim()
+
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    @Test
+    fun `een fout voor de levering krijgt een ERROR-child met alleen het type en propageert`() {
+        stubClaimMetBericht()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } throws
+            IllegalStateException("inhoud voor 999993653 niet te serialiseren")
+        val fout = slot<Throwable>()
+        every { processingHandler.recordFailedOutcome(logregels, capture(fout)) } returns emptyList()
+
+        val ex = assertThrows<IllegalStateException> { verwerker.verwerkEenClaim() }
+
+        assertEquals("inhoud voor 999993653 niet te serialiseren", ex.message)
+        assertEquals(IllegalStateException::class.java.name, fout.captured.message)
+        verify { downstreamClient wasNot Called }
+    }
+
+    @Test
+    fun `een verloren uitkomst-logregel laat de claim-afhandeling ongemoeid`() {
+        // De uitkomst ging verloren (onder-rapportage); dat meldt MislukteUitkomst, maar
+        // de claim moet gewoon MISLUKT worden zodat de retry doorgaat.
+        stubClaimMetBericht()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Timeout("traag")
+        every { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) } returns logregels
+        justRun { claimer.markeerMislukt(any(), any(), any()) }
+
+        verwerker.verwerkEenClaim()
+
+        verify { claimer.markeerMislukt(claim.claimId, any(), any()) }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 4])
+    fun `elke poging draagt haar volgnummer, zodat pogingen voor een verstrekking herkenbaar zijn`(eerderePogingen: Int) {
+        stubClaimMetBericht()
+        every { claimer.claimNuVerwerkbaar(maxBatch = 1) } returns listOf(claim.copy(pogingen = eerderePogingen))
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { downstreamClient.lever(claim.doel, event) } returns DownstreamResultaat.Geslaagd
+        justRun { claimer.markeerGeslaagd(claim.claimId, any()) }
+
+        verwerker.verwerkEenClaim()
+
+        verify { span.setAttribute("publicatie.poging", eerderePogingen + 1L) }
+    }
+
+    companion object {
+        @JvmStatic
+        fun mislukteLeveringen(): List<Arguments> = listOf(
+            Arguments.of(DownstreamResultaat.HttpFout(503, null, "ontvanger 999993653 onbekend"), "HttpFout 503"),
+            Arguments.of(DownstreamResultaat.HttpFout(400, null, "ontvanger 999993653 onbekend"), "HttpFout 400"),
+            Arguments.of(DownstreamResultaat.Timeout("ontvanger 999993653"), "Timeout"),
+            Arguments.of(DownstreamResultaat.NetwerkFout("ontvanger 999993653"), "NetwerkFout"),
+            Arguments.of(DownstreamResultaat.SerialisatieFout("ontvanger 999993653"), "SerialisatieFout"),
+        )
     }
 }

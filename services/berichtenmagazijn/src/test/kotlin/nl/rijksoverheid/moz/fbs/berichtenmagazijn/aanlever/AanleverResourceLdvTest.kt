@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
+import io.opentelemetry.api.trace.SpanContext
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
@@ -23,6 +25,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -39,7 +42,9 @@ import java.util.UUID
  *  2. **Geen persoonsgegevens in de foutattributen**: de wrapper zet `exception.message`
  *     op dezelfde child-spans die `dpl.core.data_subject_id` dragen; alleen het type van
  *     een fout mag daarheen.
- *  3. **dataSubjectType correlatie-parity**: het `dpl.core.data_subject_id_type`-veld
+ *  3. **Uitkomst achteraf**: mislukt de opslag ná de bevestigde logregel, dan krijgt die
+ *     logregel een ERROR-child — anders leest hij als geslaagde aanlevering.
+ *  4. **dataSubjectType correlatie-parity**: het `dpl.core.data_subject_id_type`-veld
  *     bevat de concrete type-naam (BSN/RSIN/KVK), niet de relationele rol "ontvanger".
  *     Anders correleert het LDV-record niet met dat van [PublicatieClaimVerwerker].
  *
@@ -51,6 +56,7 @@ class AanleverResourceLdvTest {
     private val opslagService = mockk<BerichtOpslagService>()
     private val logboekContext = LogboekContext()
     private val processingHandler = mockk<ProcessingHandler>()
+    private val logregels = listOf(Logregel(SpanContext.getInvalid(), "logregel", null, null))
     private val publicatieConfig = mockk<PublicatieConfig>()
     private val span = mockk<Span>(relaxed = true)
     private val uriInfo = mockk<UriInfo>().apply {
@@ -109,7 +115,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `de logregel is bevestigd voordat het bericht wordt opgeslagen`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         resource.leverBerichtAan(request)
@@ -128,7 +134,7 @@ class AanleverResourceLdvTest {
         // aanleveraar een 500 krijgt en opnieuw aanlevert — met een nieuw berichtId, dus
         // een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         every {
             processingHandler.enforceWriteAcknowledgement(true)
         } throws LogboekWriteException("Logregel kon niet in het Logboek worden opgeslagen")
@@ -160,7 +166,7 @@ class AanleverResourceLdvTest {
         stubBaseline()
         every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
             IllegalStateException("opslag stuk")
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(false) }
 
         val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
@@ -226,7 +232,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `dataSubjectType krijgt concrete type BSN in plaats van relationele rol`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         resource.leverBerichtAan(request)
@@ -240,7 +246,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `traceparent-processor met CRLF wordt gesaneerd (geen log-injection)`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
@@ -264,7 +270,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `traceparent-processor met PII-cijferreeks wordt geredact`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
@@ -288,7 +294,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `gewone traceparent-processor wordt ongeschonden doorgelaten`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
@@ -309,7 +315,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `inbound traceparent wordt als parent geadopteerd`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         // Upstream is vertrouwd (auth aan de clusterrand): de span continueert de
         // inbound trace-context i.p.v. een nieuwe root te forceren.
@@ -329,5 +335,64 @@ class AanleverResourceLdvTest {
         // inbound `traceparent` gevuld; hier borgen we dat de resource hem adopteert i.p.v.
         // hem te negeren. (Down­stream-propagatie gebeurt bewust níét — de outbox ontkoppelt.)
         assertEquals(Context.current(), parentSlot.captured)
+    }
+
+    @Test
+    fun `een opslagfout na de bevestigde logregel krijgt een ERROR-child met alleen het type`() {
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        val opslagFout = IllegalStateException("Failing row contains (1, 999993653, Beste heer)")
+        every { opslagService.slaBerichtOp(any(), any()) } throws opslagFout
+        val fout = slot<Throwable>()
+        every { processingHandler.recordFailedOutcome(logregels, capture(fout)) } returns emptyList()
+
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        assertSame(opslagFout, ex, "de aanleveraar moet de oorspronkelijke fout krijgen")
+        assertEquals(IllegalStateException::class.java.name, fout.captured.message)
+
+        verifyOrder {
+            processingHandler.enforceWriteAcknowledgement(true)
+            opslagService.slaBerichtOp(gevalideerdBericht, any())
+            processingHandler.recordFailedOutcome(logregels, any())
+        }
+    }
+
+    @Test
+    fun `een verloren uitkomst-logregel vervangt de opslagfout niet`() {
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws IllegalStateException("opslag stuk")
+        every { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) } returns logregels
+
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        assertEquals("opslag stuk", ex.message)
+    }
+
+    @Test
+    fun `een geslaagde aanlevering schrijft geen uitkomst-logregel`() {
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        resource.leverBerichtAan(request)
+
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    @Test
+    fun `een afwijzing voor de bevestiging krijgt geen ERROR-child, de logregel zelf staat al op ERROR`() {
+        stubBaseline()
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalArgumentException("ontvanger onbekend")
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<IllegalArgumentException> { resource.leverBerichtAan(request) }
+
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
     }
 }

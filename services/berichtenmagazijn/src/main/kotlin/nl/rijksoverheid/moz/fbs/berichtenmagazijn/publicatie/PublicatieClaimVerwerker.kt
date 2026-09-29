@@ -7,10 +7,13 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
+import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
 import java.time.Clock
 import java.time.Instant
@@ -42,6 +45,7 @@ class PublicatieClaimVerwerker(
 ) {
 
     private val log = Logger.getLogger(PublicatieClaimVerwerker::class.java)
+    private val mislukteUitkomst = MislukteUitkomst(processingHandler)
 
     /**
      * Cache van per-doel gestripte downstream-URLs. URLs zijn config-stabiel (SmallRye
@@ -82,8 +86,9 @@ class PublicatieClaimVerwerker(
      *
      * De logregel legt daarmee de voorgenomen verstrekking vast, niet de uitkomst: de
      * LDV-schrijfactie loopt over een eigen JDBC-verbinding met een eigen commit, dus een
-     * rollback haalt hem niet meer weg. De uitkomst van de levering blijft in de
-     * claim-status en het applicatielog.
+     * rollback haalt hem niet meer weg. Komt de levering niet aan, dan krijgt de logregel
+     * een ERROR-child via [MislukteUitkomst]. Elke poging heeft zo zijn eigen logregel
+     * met eigen uitkomst; `publicatie.poging` maakt ze als pogingen herkenbaar.
      */
     private fun verwerkClaim(claim: PublicatieClaim) {
         val bericht = berichten.findByBerichtId(claim.berichtId)
@@ -95,14 +100,29 @@ class PublicatieClaimVerwerker(
 
         val downstreamConfig = config.downstreams()[claim.doel.key]
 
-        legVerstrekkingVast(claim, bericht, downstreamConfig)
+        val logregels = legVerstrekkingVast(claim, bericht, downstreamConfig)
+
+        // Een onbekend doel staat al op ERROR (zie legVerstrekkingVast); een ERROR-child
+        // zou daar niets aan toevoegen.
+        val legMisluktVast = { fout: Throwable ->
+            if (downstreamConfig != null) mislukteUitkomst.legVast(logregels, fout)
+        }
 
         val nu = clock.instant()
-        val event = cloudEventBuilder.bouw(bericht, claim.doel, nu)
 
-        when (val resultaat = downstreamClient.lever(claim.doel, event)) {
+        val resultaat = try {
+            downstreamClient.lever(claim.doel, cloudEventBuilder.bouw(bericht, claim.doel, nu))
+        } catch (ex: Exception) {
+            legMisluktVast(LdvFoutSamenvatting.van(ex))
+            throw ex
+        }
+
+        when (resultaat) {
             is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu)
-            is DownstreamResultaat.Mislukt -> verwerkMislukt(claim, resultaat, nu, downstreamConfig)
+            is DownstreamResultaat.Mislukt -> {
+                legMisluktVast(LeveringMislukt.van(resultaat))
+                verwerkMislukt(claim, resultaat, nu, downstreamConfig)
+            }
         }
     }
 
@@ -116,14 +136,14 @@ class PublicatieClaimVerwerker(
         claim: PublicatieClaim,
         bericht: Bericht,
         downstreamConfig: PublicatieConfig.Downstream?,
-    ) {
+    ): List<Logregel> {
         // Recorder is thread-gebonden; leeg 'm voor dit span-beheer begint.
         LogboekWriteFailureRecorder.clear()
 
         var pendingFailure: Throwable? = null
         val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
 
-        try {
+        return try {
             val ldvContext = LogboekContext().apply {
                 processingActivityId = config.verwerkingsregisterPubliceren()
             }
@@ -236,6 +256,7 @@ class PublicatieClaimVerwerker(
         span.setAttribute("dpl.core.foreign_operation.processor", downstreamUrl)
         span.setAttribute("publicatie.doel", claim.doel.key)
         span.setAttribute("publicatie.bericht_id", claim.berichtId.toString())
+        span.setAttribute("publicatie.poging", claim.pogingen + 1L)
     }
 
     private fun verwerkGeslaagd(claim: PublicatieClaim, nu: Instant) {
