@@ -58,9 +58,9 @@ enum class Foutcode(val code: String, val uitleg: String) {
     TIJDELIJK_NIET_BESCHIKBAAR("tijdelijk-niet-beschikbaar", "Tijdelijk niet beschikbaar. Probeer het straks opnieuw."),
 
     /**
-     * Er staan te veel berichtenboxen tegelijk open, voor deze ontvanger of op deze dienst. Geen
-     * storing: een afnemer die dit als storing leest, verbindt steeds opnieuw en neemt daarmee zelf
-     * een plek in van hetzelfde plafond. `Retry-After` staat erbij; een ander venster sluiten helpt
+     * Er staan te veel berichtenboxen tegelijk open, voor deze ontvanger of in totaal, op de instantie
+     * die het verzoek afhandelt. Geen storing: een afnemer die dit als storing leest, verbindt steeds
+     * opnieuw en neemt daarmee zelf een plek in van hetzelfde plafond. `Retry-After` staat erbij; een ander venster sluiten helpt
      * alleen bij het plafond per ontvanger.
      */
     TE_VEEL_OPEN_BERICHTENBOXEN(

@@ -39,10 +39,15 @@ import java.util.concurrent.atomic.AtomicInteger
  * generator kent geen `Multi<>`); het pad staat wél in de spec als contractbron.
  *
  * Eén connection per open berichtenbox, en die blijft open tot de berichtenbox sluit of de
- * maximale duur (`berichtensessiecache.volg-max-duur`) verstrijkt. Twee
- * plafonds begrenzen wat dat kost aan geheugen en luisteraars: één per pod, en een klein plafond
- * per ontvanger zodat één aanroeper de pod niet voor iedereen kan vullen. Wie erboven valt, krijgt
- * een 503 met `Retry-After` en houdt een bruikbare, alleen niet vanzelf verversende lijst.
+ * maximale duur (`berichtensessiecache.volg-max-duur`) verstrijkt. Twee plafonds begrenzen wat
+ * dat kost aan geheugen en luisteraars van deze pod: een totaal, en een klein plafond per
+ * ontvanger zodat één aanroeper de pod niet voor iedereen kan vullen. Wie erboven valt, krijgt een
+ * 503 met `Retry-After` en houdt een bruikbare, alleen niet vanzelf verversende lijst.
+ *
+ * Beide tellen alleen de streams op deze pod. Dat is bewust: het plafond beschermt het geheugen
+ * van de pod, en een teller die over pods heen gaat, kost een Redis-aanroep per verbinding en
+ * lekt plekken als een pod wegvalt. Met meerdere replica's kan één ontvanger dus meer streams
+ * open hebben dan het plafond per ontvanger, verdeeld over de pods.
  *
  * De plek wordt gereserveerd vóór de cache-lookup, zodat een geweigerde aanvraag geen Redis kost,
  * en teruggegeven als de stream niet tot stand komt of eindigt.
@@ -55,7 +60,7 @@ class VolgenSseResource(
     private val logboekContext: LogboekContext,
     @param:ConfigProperty(name = "berichtenuitvraag.volgen.max-connections", defaultValue = "2000")
     private val maxConnections: Int,
-    // Een paar tabbladen en apparaten tegelijk, geen honderden.
+    // Per pod: een paar tabbladen en apparaten tegelijk, geen honderden.
     @param:ConfigProperty(name = "berichtenuitvraag.volgen.max-connections-per-ontvanger", defaultValue = "5")
     private val maxConnectionsPerOntvanger: Int,
 ) {
@@ -144,7 +149,7 @@ class VolgenSseResource(
 
         if (eigen > maxConnectionsPerOntvanger) {
             geefVrij(ontvanger)
-            log.infof("Plafond van %d open berichtenboxen per ontvanger bereikt (ontvanger.type=%s)", maxConnectionsPerOntvanger, ontvanger.type)
+            log.infof("Plafond van %d open berichtenboxen per ontvanger op deze pod bereikt (ontvanger.type=%s)", maxConnectionsPerOntvanger, ontvanger.type)
 
             throw teVeel("Deze berichtenbox staat al te vaak tegelijk open. Sluit een ander venster of probeer het straks opnieuw.")
         }

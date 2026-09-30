@@ -242,10 +242,14 @@ als de rest van Redis (TLS en authenticatie).
 | Property | Env-var | Default | Wanneer aanpassen |
 |---|---|---|---|
 | `berichtenuitvraag.volgen.max-connections` | `VOLGEN_MAX_CONNECTIONS` | `2000` | Plafond op open verbindingen per pod. Daarboven krijgt een berichtenbox een 503 met `Retry-After`; de lijst blijft bruikbaar, alleen het vanzelf binnenkomen valt weg. Verhogen of een replica bijzetten wanneer `Plafond van … gevolgde sessies op deze pod bereikt` in de log verschijnt |
-| `berichtenuitvraag.volgen.max-connections-per-ontvanger` | `VOLGEN_MAX_CONNECTIONS_PER_ONTVANGER` | `5` | Plafond per ontvanger, zodat één aanroeper het pod-plafond niet voor iedereen opmaakt. Genoeg voor een paar tabbladen en apparaten tegelijk |
+| `berichtenuitvraag.volgen.max-connections-per-ontvanger` | `VOLGEN_MAX_CONNECTIONS_PER_ONTVANGER` | `5` | Plafond per ontvanger **per pod**, zodat één aanroeper het pod-plafond niet voor iedereen opmaakt. Genoeg voor een paar tabbladen en apparaten tegelijk. Met meerdere replica's kan één ontvanger tot dit aantal × het aantal pods streams open hebben: de teller staat in het geheugen van elke pod, niet in Redis. De logregel `Plafond van … open berichtenboxen per ontvanger op deze pod bereikt` noemt dan ook één pod |
 | `berichtensessiecache.volg-max-duur` | — | `PT1H` | Maximale duur van één stream; daarna verbindt de berichtenbox opnieuw. Voorkomt dat een vergeten tabblad de sessie en de berichten erin onbeperkt vasthoudt |
 | `berichtensessiecache.aanmeldingen-controle` | — | `PT30S` | Hoe vaak het abonnement op aanmeldingen zich opnieuw bewijst. Komen twee probes op rij niet terug, dan verbinden alle open berichtenboxen op die pod opnieuw en bouwt de pod een nieuw abonnement; één gemiste probe logt alleen `Probe op het aanmeldkanaal gemist` op INFO. Korter = sneller herstel na een stil weggevallen verbinding, ten koste van een extra `PUBLISH` per pod per tussenpoos |
 
+- **Beide plafonds op `_volgen` tellen per pod.** Het totaal beschermt het geheugen van die pod;
+  het plafond per ontvanger voorkomt dat één aanroeper die pod voor iedereen vult. Over pods heen
+  wordt niet geteld: dat zou een Redis-aanroep per verbinding kosten, en plekken van een pod die
+  wegvalt, zouden blijven staan. Schaal je op, dan groeit de ruimte per ontvanger dus mee.
 - **`No handler waiting for message: [subscribe, …]` van `RedisStandaloneConnection` is te
   verwachten.** De Vert.x-client meldt de abonnementsbevestiging soms zo; het abonnement werkt wél.
   De pod bewijst dat zelf met een probe over het kanaal voordat een berichtenbox gaat volgen, en

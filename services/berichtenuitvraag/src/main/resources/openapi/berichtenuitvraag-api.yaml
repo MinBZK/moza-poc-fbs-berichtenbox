@@ -27,7 +27,7 @@ info:
     | `urn:fbs:fout:ophalen-bezig` | 409 | Er loopt een ophaalronde | "Een moment" — wachten, dit is geen fout |
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
-    | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open: voor deze ontvanger, of op deze dienst als geheel (`_volgen`). Geen storing | Niet meteen opnieuw verbinden, maar na `Retry-After`. Staat de berichtenbox van deze ondernemer al in andere vensters open, dan helpt er één sluiten |
+    | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open (`_volgen`): voor deze ontvanger, of in totaal. De dienst telt per instantie, dus de grens is geen vast aantal voor de hele keten. Geen storing | Niet meteen opnieuw verbinden, maar na `Retry-After`. Staat de berichtenbox van deze ondernemer al in andere vensters open, dan helpt er één sluiten |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
@@ -211,8 +211,9 @@ paths:
         Foutsemantiek, allemaal vóór de stream: een ongeldige `X-Ontvanger` geeft `400`.
         Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
         (`nog-niet-opgehaald` of `ophalen-bezig`), na een mislukte een `503`. Staan er te
-        veel berichtenboxen tegelijk open, op deze dienst of voor deze ontvanger, dan komt er
-        een `503` met `te-veel-open-berichtenboxen`; ontvangt de dienst tijdelijk geen
+        veel berichtenboxen tegelijk open, voor deze ontvanger of in totaal, dan komt er een
+        `503` met `te-veel-open-berichtenboxen`. De dienst telt dat per instantie; reken dus
+        niet op een vast aantal. ontvangt de dienst tijdelijk geen
         aanmeldingen, dan een `503` met `tijdelijk-niet-beschikbaar`. Beide met `Retry-After`.
 
         Een stream heeft een maximale duur (standaard een uur, per omgeving instelbaar) en

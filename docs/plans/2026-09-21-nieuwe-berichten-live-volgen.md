@@ -101,11 +101,15 @@ niet.
 
 ### Plafonds en maximale duur
 
-- `berichtenuitvraag.volgen.max-connections` (default 2000) per pod, en
+- `berichtenuitvraag.volgen.max-connections` (default 2000) en
   `berichtenuitvraag.volgen.max-connections-per-ontvanger` (default 5), zodat één aanroeper het
   pod-plafond niet voor iedereen opmaakt. Daarboven een 503 met `Retry-After`: de lijst blijft
   bruikbaar, alleen het vanzelf binnenkomen valt weg. De plek wordt vóór de cache-lookup
   gereserveerd en teruggegeven als de stream niet tot stand komt.
+- Beide tellen **per pod**, in het geheugen. Het plafond beschermt het geheugen van de pod die de
+  streams draagt; een teller over pods heen kost een Redis-aanroep per verbinding en laat plekken
+  staan van een pod die wegvalt. Met meerdere replica's kan één ontvanger dus tot 5 × het aantal
+  pods streams open hebben.
 - `berichtensessiecache.volg-max-duur` (default 1 uur). Daarna eindigt de stream zonder
   `sessie-verlopen` en verbindt de afnemer opnieuw. Zonder die grens houdt een vergeten tabblad
   de sessie, en daarmee de berichten in Redis, onbeperkt vast; en zodra er authenticatie komt,
