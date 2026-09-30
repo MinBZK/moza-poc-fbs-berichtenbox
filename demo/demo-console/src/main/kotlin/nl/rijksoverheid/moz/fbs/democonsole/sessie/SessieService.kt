@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.democonsole.sessie
 
 import io.quarkus.redis.datasource.RedisDataSource
 import jakarta.enterprise.context.ApplicationScoped
+import java.util.logging.Level
+import java.util.logging.Logger
 
 /**
  * Laat de sessiecache "verlopen" door alle sessie-keys te wissen. Zonder de `:status`-key ziet de
@@ -12,11 +14,26 @@ import jakarta.enterprise.context.ApplicationScoped
 @ApplicationScoped
 class SessieService(private val redis: RedisDataSource) {
 
+    private val log = Logger.getLogger(SessieService::class.java.name)
+
     fun laatSessiesVerlopen(): Int {
         val keys = redis.key().keys(SESSIE_PATROON)
 
         return if (keys.isEmpty()) 0 else redis.key().del(*keys.toTypedArray())
     }
+
+    /**
+     * Voor knoppen die de magazijnen leeggooien: zonder dit tonen open berichtenboxen de berichten
+     * van vóór die knop, en vullen de aanmeldingen van een nieuwe basisvulling die oude sessies
+     * aan. Mag de knop zelf niet laten mislukken — het legen is dan al gebeurd — dus `null` bij
+     * een fout in plaats van een exception.
+     */
+    fun laatSessiesVerlopenZoMogelijk(): Int? =
+        runCatching { laatSessiesVerlopen() }.getOrElse { fout ->
+            log.log(Level.WARNING, "sessiecache niet gewist", fout)
+
+            null
+        }
 
     private companion object {
 

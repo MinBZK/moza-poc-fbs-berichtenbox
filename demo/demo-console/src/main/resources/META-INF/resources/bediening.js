@@ -17,7 +17,7 @@ let boxUrl = BOX_PAD;
  * origin, en delen ze dus dezelfde storage. */
 const STAND_SLEUTEL = 'fbs-demo-bediening:stand';
 
-const VELDEN = ['aantal', 'tempoInterval', 'actiefAantal', 'ontdubbelPersona', 'berichtPersona', 'berichtAantal'];
+const VELDEN = ['aantal', 'tempoInterval', 'actiefAantal', 'ontdubbelPersona', 'berichtPersona', 'berichtAantal', 'berichtWillekeurigTijdstip'];
 const POLL_MS = 5000;
 const UITKOMST_MS = 4000;
 
@@ -175,7 +175,9 @@ function bewaarVelden() {
     VELDEN.forEach((id) => {
         const veld = document.getElementById(id);
 
-        if (veld) velden[id] = veld.value;
+        // Een vakje draagt zijn stand in `checked`; `value` is er altijd 'on' en zou het
+        // uitgevinkte geval als aangevinkt terugzetten.
+        if (veld) velden[id] = veld.type === 'checkbox' ? veld.checked : veld.value;
     });
 
     bewaarStand({ velden: velden });
@@ -196,7 +198,17 @@ function herstelStand() {
     VELDEN.forEach((id) => {
         const veld = document.getElementById(id);
 
-        if (veld && veld.tagName !== 'SELECT' && velden[id]) veld.value = velden[id];
+        if (!veld || veld.tagName === 'SELECT') return;
+
+        if (veld.type === 'checkbox') {
+            // Expliciet op booleaan toetsen: `false` is een geldige bewaarde stand, en een
+            // waarheidstoets zou die als "niets bewaard" lezen en het vakje laten staan.
+            if (typeof velden[id] === 'boolean') veld.checked = velden[id];
+
+            return;
+        }
+
+        if (velden[id]) veld.value = velden[id];
     });
 }
 
@@ -451,13 +463,14 @@ function samenvatting(soort, body) {
 /* HTTP 200 zegt alleen dat de console het verzoek verwerkte, niet dat de berichten aankwamen. Een
  * groene melding boven "100 mislukt" is het verkeerde signaal. */
 function vullingSoort(body) {
-    // Een overgeslagen stap is geen fout — het echte werk is gelukt — maar hij hoort ook niet groen
-    // te zijn: er is iets niet gebeurd waar de bediener op rekende.
-    if (body && body.gesimuleerd && body.gesimuleerd.overgeslagen) return 'let-op';
+    // Een overgeslagen stap of sessies die bleven staan, zijn geen fout — het echte werk is gelukt —
+    // maar horen ook niet groen te zijn. Ze maken de uitkomst hooguit strenger: een vulling die
+    // helemaal mislukte, blijft rood.
+    const bijzaakMislukt = Boolean(body && ((body.gesimuleerd && body.gesimuleerd.overgeslagen) || body.sessiesNietGewist));
 
     const vulling = body && body.vulling ? body.vulling : body;
 
-    if (!vulling || typeof vulling.aangeboden !== 'number') return 'goed';
+    if (!vulling || typeof vulling.aangeboden !== 'number') return bijzaakMislukt ? 'let-op' : 'goed';
 
     // Nul aangeboden is geen fout — er ging niets mis — maar groen zou hier "gelukt" betekenen voor
     // een actie die niets deed. `/random` en `/bericht` weigeren een aantal van nul zelf; wat hier
@@ -467,7 +480,7 @@ function vullingSoort(body) {
 
     if (vulling.geslaagd === 0) return 'fout';
 
-    return vulling.mislukt || vulling.markeringMislukt || vulling.zonderBerichtId ? 'let-op' : 'goed';
+    return bijzaakMislukt || vulling.mislukt || vulling.markeringMislukt || vulling.zonderBerichtId ? 'let-op' : 'goed';
 }
 
 // ---------------------------------------------------------------- acties uitvoeren
@@ -571,6 +584,9 @@ function vulPadIn(pad) {
 
             return '';
         }
+
+        // Een vakje is nooit leeg en nooit ongeldig; zijn `value` is 'on' ongeacht de stand.
+        if (veld.type === 'checkbox') return veld.checked ? 'true' : 'false';
 
         if (veld.value === '' || !veld.checkValidity()) {
             (veld.value === '' ? leeg : ongeldig).push(veldnaam(veld));

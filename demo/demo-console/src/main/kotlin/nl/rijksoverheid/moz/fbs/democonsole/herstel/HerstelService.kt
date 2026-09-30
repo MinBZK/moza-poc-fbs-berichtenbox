@@ -3,9 +3,13 @@ package nl.rijksoverheid.moz.fbs.democonsole.herstel
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
+import nl.rijksoverheid.moz.fbs.democonsole.Aanvulling
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.SESSIES_NIET_GEWIST_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.sessieMelding
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessieService
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
@@ -16,16 +20,22 @@ data class HerstelResultaat(
     val geleegd: Map<String, Int>,
     val vulling: AanleverResultaat,
     val gesimuleerd: GesimuleerdHerstel,
+    /** Hoeveel sessie-keys er gewist zijn; `null` als dat niet lukte. */
+    val sessiesGewist: Int?,
     /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
     val gesimuleerdGevuld: Int = 0,
 ) {
 
+    /** Positief op de lijn: een `null` in [sessiesGewist] valt er door `non-null` af. */
+    val sessiesNietGewist: Boolean = sessiesGewist == null
+
     /**
-     * Het paneel toont één let-op-regel per antwoord; deze knop heeft er soms twee te melden. De
-     * reden van een mislukte basisvulling voorop — daar valt iets aan te doen, aan het
-     * overslaan-venster van de uitvraag niet.
+     * Het paneel toont één let-op-regel per antwoord; deze knop heeft er meer te melden. De reden
+     * van een mislukte basisvulling voorop — daar valt iets aan te doen, aan het overslaan-venster
+     * van de uitvraag niet. Bewust niet de wachtrij-melding van de vulling: na het wissen van de
+     * sessies halen de berichtenboxen zelf opnieuw op, en dat gaat niet via die wachtrij.
      */
-    val letOp: String = listOfNotNull(vulling.letOp, HERSTELTIJD_MELDING).joinToString(" ")
+    val letOp: String = listOfNotNull(vulling.reden, sessieMelding(sessiesGewist), HERSTELTIJD_MELDING).joinToString(" ")
 }
 
 /**
@@ -42,6 +52,7 @@ class HerstelService(
     private val basisdataset: Basisdataset,
     private val aanleverService: AanleverService,
     private val simulatorService: SimulatorService,
+    private val sessieService: SessieService,
 ) {
 
     private val log = Logger.getLogger(HerstelService::class.java.name)
@@ -51,9 +62,22 @@ class HerstelService(
         storingService.reset()
 
         val geleegd = magazijnDatabase.leegAlles()
-        val vulling = aanleverService.leverAan(basisdataset.laad())
 
-        return metGesimuleerde(geleegd, vulling)
+        // Vanaf hier kloppen de sessies niet meer met de magazijnen, ook als het vullen mislukt.
+        val vulling = runCatching { aanleverService.leverAan(basisdataset.laad()) }
+            .onFailure { fout ->
+                // Alleen de vulfout komt in het paneel; dat de berichtenboxen oude berichten blijven
+                // tonen, hoort er dan bij te staan.
+                if (sessieService.laatSessiesVerlopenZoMogelijk() == null) fout.addSuppressed(Aanvulling(SESSIES_NIET_GEWIST_MELDING))
+            }
+            .getOrThrow()
+        val (gesimuleerd, gevuld) = herstelGesimuleerde()
+
+        // Als laatste: een berichtenbox die daarna opnieuw ophaalt, krijgt meteen de hele nieuwe set,
+        // ook uit de gesimuleerde magazijnen, en niet een halve die zich pas later aanvult.
+        val sessies = sessieService.laatSessiesVerlopenZoMogelijk()
+
+        return HerstelResultaat(geleegd, vulling, gesimuleerd, sessies, gevuld)
     }
 
     /**
@@ -66,24 +90,18 @@ class HerstelService(
      * de weg; hem eerst aanroepen liet die twee ongemoeid en de omgeving halverwege staan, met de
      * berichten van de vorige demo er nog in.
      */
-    private fun metGesimuleerde(geleegd: Map<String, Int>, vulling: AanleverResultaat): HerstelResultaat {
+    private fun herstelGesimuleerde(): Pair<GesimuleerdHerstel, Int> {
         val gesimuleerd = simulatorService.herstelZoMogelijk()
 
-        if (gesimuleerd.overgeslagen != null) return HerstelResultaat(geleegd, vulling, gesimuleerd)
+        if (gesimuleerd.overgeslagen != null) return gesimuleerd to 0
 
         // Het vullen apart vangen: het legen is dan al gelukt, en dat terugdraaien kan niet. Zonder
         // deze melding stond de fan-out-demo op nul berichten terwijl de knop groen werd.
-        val gevuld = runCatching { simulatorService.vulStandaard().berichten }.getOrElse { fout ->
+        return runCatching { gesimuleerd to simulatorService.vulStandaard().berichten }.getOrElse { fout ->
             log.warning("gesimuleerde magazijnen niet gevuld: $fout")
 
-            return HerstelResultaat(
-                geleegd,
-                vulling,
-                gesimuleerd.copy(overgeslagen = "wel geleegd, niet gevuld: ${reden(fout)}"),
-            )
+            gesimuleerd.copy(overgeslagen = "wel geleegd, niet gevuld: ${reden(fout)}") to 0
         }
-
-        return HerstelResultaat(geleegd, vulling, gesimuleerd, gevuld)
     }
 
     private fun reden(fout: Throwable): String = fout.message ?: fout::class.simpleName.orEmpty()

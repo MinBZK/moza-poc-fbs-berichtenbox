@@ -263,6 +263,7 @@ while IFS= read -r regel; do
     FOUT:*) fout "${regel#FOUT:}" ;;
   esac
 done < <(python3 - "$DEPLOY_YML" "$CLEANUP_YML" <<'PY' 2>&1 || echo "FOUT:de workflowcontrole zelf viel om"
+import re
 import sys
 
 import yaml
@@ -314,8 +315,17 @@ for naam, *_ in klaar_legs:
 
     # Operations Manager neemt bij het aanmaken alleen de meegegeven componenten over: een lijst die
     # uiteenloopt, levert een preview op waarin de deploy een component zoekt die er niet is.
+    #
+    # Eén tussenstap mag: een stap in dezelfde job die de lijst uit `meta` leest en er alleen
+    # images in vervangt (de berichtenbox-override per preview). Welke componenten erin staan,
+    # verandert daar niet; de stap bewaakt zelf dat hij er precies één proeftuin in vindt.
+    bron = f"${{{{ needs.meta.outputs.componenten-{naam} }}}}"
+    tussenstap = re.fullmatch(r"\$\{\{ steps\.([a-z-]+)\.outputs\.componenten \}\}", components or "")
+    if tussenstap:
+        stap = next((s for s in job.get("steps") or [] if s.get("id") == tussenstap.group(1)), {})
+        components = (stap.get("env") or {}).get("COMPONENTEN")
     meld(
-        components == f"${{{{ needs.meta.outputs.componenten-{naam} }}}}",
+        components == bron,
         f"deploy-preview-{naam} rolt dezelfde componentenlijst uit",
     )
     meld(

@@ -31,6 +31,7 @@ class FoutcodeTest {
             Foutcode.OPHALEN_BEZIG to "ophalen-bezig",
             Foutcode.OPHALEN_MISLUKT to "ophalen-mislukt",
             Foutcode.TIJDELIJK_NIET_BESCHIKBAAR to "tijdelijk-niet-beschikbaar",
+            Foutcode.TE_VEEL_OPEN_BERICHTENBOXEN to "te-veel-open-berichtenboxen",
             Foutcode.GEEN_ACTIEVE_SESSIE to "geen-actieve-sessie",
             Foutcode.NIET_GEVONDEN to "niet-gevonden",
             Foutcode.ONGELDIG_VERZOEK to "ongeldig-verzoek",
