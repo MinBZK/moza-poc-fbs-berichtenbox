@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.e2e
 
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo as wmEqualTo
 import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
@@ -16,6 +17,7 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured
 import io.restassured.RestAssured.given
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.WireMockBackendsResource
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
@@ -99,6 +101,23 @@ class UitvraagKetenE2eTest {
                     .withBody("""{"inhoud": "Inhoud van $label"}"""),
             ),
         )
+    }
+
+    /** Levert [ids] in magazijn-pagina's van [MAGAZIJN_PAGINA], zoals een echt magazijn pagineert. */
+    private fun stubMagazijnPaginas(server: WireMockServer, ids: List<String>, bsn: String, afzender: String) {
+        ids.chunked(MAGAZIJN_PAGINA).forEachIndexed { pagina, deel ->
+            val berichten = deel.joinToString(",") { id ->
+                """{"berichtId":"$id","afzender":"$afzender","ontvanger":{"type":"BSN","waarde":"$bsn"},""" +
+                    """"onderwerp":"Bericht $id","publicatietijdstip":"2026-03-10T10:00:00Z","aantalBijlagen":0}"""
+            }
+
+            server.stubFor(
+                get(urlPathMatching("/api/v1/berichten")).withQueryParam("page", wmEqualTo(pagina.toString())).willReturn(
+                    aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichten":[$berichten],"totalElements":${ids.size}}"""),
+                ),
+            )
+        }
     }
 
     @Test
@@ -369,6 +388,40 @@ class UitvraagKetenE2eTest {
     }
 
     @Test
+    fun `wie de next-links volgt met de grootste pagina, krijgt de volledige opgehaalde set`() {
+        // Meer berichten dan één pagina van het plafond, uit meerdere magazijn-pagina's: een
+        // afnemer die zelf filtert en sorteert, moet de hele set binnenkrijgen zonder gaten of
+        // dubbelingen, en weten wanneer hij klaar is.
+        val bsn = "999990020"
+        val aantal = Sessiecache.MAX_PAGINA_GROOTTE + 50
+        val ids = (0 until aantal).map { i -> "00000000-0000-4000-8000-%012d".format(i) }
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnPaginas(magazijnA, ids, bsn, OIN_A)
+
+        given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+
+        val gelezen = mutableListOf<String>()
+        var href: String? = "/api/v1/berichten?paginaGrootte=${Sessiecache.MAX_PAGINA_GROOTTE}"
+        var paginas = 0
+
+        while (href != null) {
+            val antwoord = given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .`when`().get(href)
+                .then()
+                .statusCode(200)
+                .extract().jsonPath()
+            gelezen += antwoord.getList<String>("berichten.berichtId")
+            href = antwoord.getString("_links.next.href")
+            paginas++
+        }
+
+        assertEquals(2, paginas)
+        assertEquals(ids.toSet(), gelezen.toSet())
+        assertEquals(aantal, gelezen.size, "geen dubbelingen over de paginagrens heen")
+    }
+
+    @Test
     fun `een aanmelding verschijnt in een gevolgde sessie zonder nieuwe ophaalronde`() {
         val bsn = "999993653"
         val nieuwId = "22222222-2222-2222-2222-222222222222"
@@ -448,6 +501,9 @@ class UitvraagKetenE2eTest {
 // de stub-OIN's en de geïnjecteerde register-config gegarandeerd dezelfde waarden zijn.
 private val OIN_A = WireMockBackendsResource.OIN_A
 private val OIN_B = WireMockBackendsResource.OIN_B
+
+// Gelijk aan `berichtensessiecache.magazijn-page-size`; een grotere stub-pagina wijst de lezer af.
+private const val MAGAZIJN_PAGINA = 100
 
 /**
  * Echte facade-keten: Redis via Dev Services (Redis Stack — RediSearch is nodig

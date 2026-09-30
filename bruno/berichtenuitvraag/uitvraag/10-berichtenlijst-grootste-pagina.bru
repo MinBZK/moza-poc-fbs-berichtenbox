@@ -1,0 +1,25 @@
+meta {
+  name: 10. Berichtenlijst (grootste pagina, volg _links.next)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrlUitvraag}}/berichten?pagina=0&paginaGrootte=200
+  auth: none
+}
+
+params:query {
+  pagina: 0
+  paginaGrootte: 200
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+docs {
+  Eerst request 1 (ophalen) laten afronden, anders 409. Een berichtenbox die zelf filtert en
+  sorteert, leest zo de volledige set: volg `_links.next` tot hij ontbreekt.
+}
