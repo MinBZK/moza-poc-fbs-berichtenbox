@@ -13,7 +13,6 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
-import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
 import java.time.Clock
 import java.time.Instant
@@ -86,10 +85,12 @@ class PublicatieClaimVerwerker(
      *
      * De logregel legt daarmee de voorgenomen verstrekking vast, niet de uitkomst: de
      * LDV-schrijfactie loopt over een eigen JDBC-verbinding met een eigen commit, dus een
-     * rollback haalt hem niet meer weg. Komt de levering niet aan, dan krijgt de logregel
-     * een ERROR-child via [MislukteUitkomst]. Elke poging heeft zo zijn eigen logregel
-     * met eigen uitkomst; `publicatie.poging` maakt ze als pogingen herkenbaar.
+     * rollback haalt hem niet meer weg. Staat vast dat de afnemer het bericht niet kreeg,
+     * dan krijgt de logregel een ERROR-child via [MislukteUitkomst]. Bij een onzekere
+     * levering niet: liever een verstrekking te veel in het logboek dan een te weinig.
      */
+    // Throwable: ook een Error bij het opbouwen valt vóór de levering en verdient zijn uitkomst.
+    @Suppress("TooGenericExceptionCaught")
     private fun verwerkClaim(claim: PublicatieClaim) {
         val bericht = berichten.findByBerichtId(claim.berichtId)
 
@@ -101,26 +102,22 @@ class PublicatieClaimVerwerker(
         val downstreamConfig = config.downstreams()[claim.doel.key]
 
         val logregels = legVerstrekkingVast(claim, bericht, downstreamConfig)
-
-        // Een onbekend doel staat al op ERROR (zie legVerstrekkingVast); een ERROR-child
-        // zou daar niets aan toevoegen.
-        val legMisluktVast = { fout: Throwable ->
-            if (downstreamConfig != null) mislukteUitkomst.legVast(logregels, fout)
-        }
-
+        val kenmerken = "publiceren berichtId=${claim.berichtId} doel=${claim.doel} claimId=${claim.claimId}"
         val nu = clock.instant()
 
-        val resultaat = try {
-            downstreamClient.lever(claim.doel, cloudEventBuilder.bouw(bericht, claim.doel, nu))
-        } catch (ex: Exception) {
-            legMisluktVast(LdvFoutSamenvatting.van(ex))
+        // Het opbouwen gaat vooraf aan de levering: een fout hier betekent zeker niets verstrekt.
+        val event = try {
+            cloudEventBuilder.bouw(bericht, claim.doel, nu)
+        } catch (ex: Throwable) {
+            mislukteUitkomst.legVast(logregels, ex, kenmerken)
             throw ex
         }
 
-        when (resultaat) {
+        when (val resultaat = downstreamClient.lever(claim.doel, event)) {
             is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu)
             is DownstreamResultaat.Mislukt -> {
-                legMisluktVast(LeveringMislukt.van(resultaat))
+                if (resultaat.zekerNietVerzonden) mislukteUitkomst.legVast(logregels, resultaat, kenmerken)
+
                 verwerkMislukt(claim, resultaat, nu, downstreamConfig)
             }
         }
@@ -131,6 +128,9 @@ class PublicatieClaimVerwerker(
      * `UNSET`: het logboek registreert dat de gegevens verstrekt gaan worden, niet of de
      * downstream ze aannam. Uitzondering: een onbekend doel (config-drift) krijgt hier al
      * `ERROR`, want dan staat de onmogelijkheid al vast vóór er een downstream-call is.
+     *
+     * @return de logregels die bij een mislukte levering een ERROR-child krijgen; leeg bij
+     *         een onbekend doel, want die logregel is zelf al de mislukte uitkomst.
      */
     private fun legVerstrekkingVast(
         claim: PublicatieClaim,
@@ -149,7 +149,9 @@ class PublicatieClaimVerwerker(
             }
 
             zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
-            processingHandler.addLogboekContextToSpan(span, ldvContext)
+            val logregels = processingHandler.addLogboekContextToSpan(span, ldvContext)
+
+            if (downstreamConfig == null) emptyList() else logregels
         } catch (ex: Exception) {
             pendingFailure = ex
             throw ex

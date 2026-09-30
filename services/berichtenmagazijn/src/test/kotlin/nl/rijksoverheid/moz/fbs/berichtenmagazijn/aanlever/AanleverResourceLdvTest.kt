@@ -360,6 +360,20 @@ class AanleverResourceLdvTest {
     }
 
     @Test
+    fun `ook een Error uit de opslag krijgt een ERROR-child`() {
+        // De transactie rolt net zo goed terug; zonder uitkomst leest de logregel als geslaagd.
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws StackOverflowError()
+        every { processingHandler.recordFailedOutcome(logregels, any()) } returns emptyList()
+
+        assertThrows<StackOverflowError> { resource.leverBerichtAan(request) }
+
+        verify { processingHandler.recordFailedOutcome(logregels, any()) }
+    }
+
+    @Test
     fun `een verloren uitkomst-logregel vervangt de opslagfout niet`() {
         stubBaseline()
         every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels

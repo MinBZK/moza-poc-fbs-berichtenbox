@@ -143,21 +143,37 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
 
 ### Uitkomst van een verwerking in het logboek
 
-Aanleveren en publiceren schrijven hun logregel vóór de verwerking (fail-closed), met status
-`UNSET`. Mislukt de opslag of de levering daarna, dan krijgt die logregel een ERROR-child met
-dezelfde naam, betrokkene en verwerkingsactiviteit en het attribuut `moza.ldv.uitkomst=mislukt`.
-**Leesregel: een logregel zonder ERROR-child is geslaagd.** Dit is een afspraak binnen MOZa;
-de standaard kent deze leesregel nog niet (Logius-standaarden/logboek-dataverwerkingen#314).
+Aanleveren en publiceren schrijven hun logregel vóór de verwerking (fail-closed). Staat bij het
+schrijven al vast dat de verwerking niet doorgaat (een afgewezen aanlevering, een onbekend
+publicatiedoel), dan staat die logregel zelf op `ERROR`. Anders staat hij op `UNSET`, en mislukt
+de verwerking daarna aantoonbaar, dan krijgt hij een ERROR-child met dezelfde naam, betrokkene en
+verwerkingsactiviteit en het attribuut `moza.ldv.uitkomst=mislukt`.
 
-* Elke leverpoging heeft een eigen logregel met `publicatie.poging` (1, 2, …); een poging
-  die niet aankwam heeft een ERROR-child. Meerdere regels voor hetzelfde
-  `publicatie.bericht_id` + `publicatie.doel` zijn dus pogingen, geen dubbele verstrekkingen.
-* `exception.message` op de ERROR-child draagt alleen de soort fout (het fouttype, of bij
-  publiceren `HttpFout 503`, `Timeout`, …), nooit de foutmelding zelf: die rijen gaan bij een
-  inzageverzoek naar buiten. Het volledige foutbeeld staat in de applicatielog.
-* **`LDV_UITKOMST_ONTBREEKT`** (ERROR, met de `trace_id:span_id` van de betrokken logregels):
-  de ERROR-child kon niet worden opgeslagen. De verwerking is mislukt, maar het logboek toont
-  haar als geslaagd. Dat is onder-rapportage en vraagt om een alert; herstel is handmatig.
+**Leesregel: een logregel op `UNSET` zonder ERROR-child is geslaagd; een logregel die zelf op
+`ERROR` staat, is mislukt.** Dit is een afspraak binnen MOZa; de standaard kent deze leesregel nog
+niet (Logius-standaarden/logboek-dataverwerkingen#314).
+
+* **Liever te veel dan te weinig.** Een leverpoging krijgt alleen een ERROR-child als vaststaat
+  dat de afnemer het bericht niet kreeg: een fout bij het opbouwen van het bericht of van de
+  verbinding (geweigerd, onbekende host, connect-timeout, TLS-handshake). Bij een read-timeout,
+  een verbroken antwoord of een HTTP-foutantwoord kan de afnemer het bericht wél hebben; die
+  poging blijft als verstrekking staan.
+* **Pogingen:** elke leverpoging heeft een eigen logregel met `publicatie.poging`, en deelt
+  `publicatie.bericht_id` en `publicatie.doel` met de andere pogingen voor dezelfde verstrekking.
+  Het nummer is het aantal geregistreerde mislukte pogingen + 1; na een teruggedraaide verwerking
+  kan een nummer terugkomen. Twee regels zonder ERROR-child voor hetzelfde bericht en doel
+  betekenen dat er twee keer is verstrekt (het bekende duplicate-send-venster na een 2xx).
+* **Foutattributen:** `exception.type` op een ERROR-child is een vaste samenvattingsklasse
+  (`…common.LdvFoutSamenvatting` of `…publicatie.LeveringMislukt`), nooit het echte fouttype.
+  Filter daarom op `exception.message`: bij aanleveren de volledige klassenaam van de fout, bij
+  publiceren een categorie (`NetwerkFout`, `Timeout`, …). De foutmelding zelf staat er nooit in,
+  want die rijen gaan bij een inzageverzoek naar buiten; het foutbeeld staat, gesaneerd, in de
+  applicatielog.
+* **`LDV_UITKOMST_ONTBREEKT`** (ERROR, met soort verwerking, `berichtId`, bij publiceren ook doel
+  en `claimId`, en de `trace_id:span_id` van de betrokken logregels): de ERROR-child kon niet
+  worden opgeslagen. De verwerking is mislukt, maar het logboek toont haar als geslaagd. Dat is
+  onder-rapportage en vraagt om een alert; herstel is handmatig. Het token werkt alleen met
+  `logboekdataverwerking.span-processor=simple`, dat fail-closed toch al vereist.
 
 ### W3C Trace Context (outbound)
 * Alleen `traceparent` wordt naar downstream gestuurd; `tracestate`

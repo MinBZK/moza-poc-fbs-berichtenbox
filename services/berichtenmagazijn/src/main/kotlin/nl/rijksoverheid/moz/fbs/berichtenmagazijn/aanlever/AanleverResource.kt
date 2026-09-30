@@ -59,6 +59,8 @@ class AanleverResource(
     private val log = Logger.getLogger(AanleverResource::class.java)
     private val mislukteUitkomst = MislukteUitkomst(processingHandler)
 
+    // Throwable: ook een Error rolt de opslag terug, en zonder uitkomst leest de logregel als geslaagd.
+    @Suppress("TooGenericExceptionCaught")
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
             BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
@@ -71,8 +73,8 @@ class AanleverResource(
         // en dus een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
         try {
             opslagService.slaBerichtOp(bericht, bijlagen)
-        } catch (ex: Exception) {
-            mislukteUitkomst.legVast(logregels, LdvFoutSamenvatting.van(ex))
+        } catch (ex: Throwable) {
+            mislukteUitkomst.legVast(logregels, ex, "aanleveren berichtId=${bericht.berichtId}")
             throw ex
         }
 
@@ -162,7 +164,10 @@ class AanleverResource(
         }
     }
 
-    /** Geeft de logregels terug; alleen zonder [pendingFailure] is hun bevestiging afgedwongen. */
+    /**
+     * Geeft de bevestigde logregels terug, voor [MislukteUitkomst]. Met een [pendingFailure]
+     * gooit de aanroeper hoe dan ook en is de lijst niet van belang.
+     */
     private fun koppelLdvContextEnEindigSpan(span: Span, pendingFailure: Throwable?): List<Logregel> {
         try {
             // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor

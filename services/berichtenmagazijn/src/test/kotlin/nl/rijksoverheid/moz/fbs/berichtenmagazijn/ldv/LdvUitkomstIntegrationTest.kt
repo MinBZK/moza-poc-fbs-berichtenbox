@@ -8,6 +8,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import javax.sql.DataSource
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BerichtOpslagService
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
@@ -19,19 +20,22 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 /**
- * Borgt tegen een echte PostgreSQL dat een verwerking die mislukt ná haar bevestigde
- * logregel in het logboek herkenbaar is als mislukt: een ERROR-child onder de oorspronkelijke
- * logregel, met dezelfde betrokkene en verwerkingsactiviteit. Leesregel: een logregel
- * zonder ERROR-child is geslaagd.
+ * Borgt tegen een echte PostgreSQL hoe de uitkomst van een verwerking in het logboek landt.
+ * Een verwerking die zeker mislukt ná haar bevestigde logregel krijgt een ERROR-child onder
+ * die logregel, met dezelfde betrokkene en verwerkingsactiviteit. Leesregel: een logregel op
+ * `UNSET` zonder ERROR-child is geslaagd.
  *
  * De mock-tests borgen de volgorde van aanroepen; deze test borgt wat er daadwerkelijk in de
- * tabel komt — de parent-koppeling, het uitkomst-attribuut en dat er geen persoonsgegevens
- * in de foutattributen landen.
+ * tabel komt, en wat er gebeurt als het logboek een schrijfactie weigert.
  *
- * Elke test gebruikt een eigen ontvanger, zodat zijn rijen te onderscheiden zijn van die van
- * andere tests in dit profiel, en ruimt ze na afloop op.
+ * De test-downstream wijst naar een gesloten poort: elke leverpoging is een geweigerde
+ * verbinding, dus zeker niet verzonden. De scheduler staat in tests uit; de tests verwerken
+ * hun eigen claim stap voor stap, na de openstaande claims van andere tests te hebben
+ * afgesloten — anders bepaalt de backoff-timing welke claim een stap oppakt.
+ * Elke test gebruikt een eigen ontvanger en ruimt zijn rijen na afloop op.
  */
 @QuarkusTest
 @TestProfile(LdvPostgresIntegrationTest.LdvAanProfile::class)
@@ -46,16 +50,10 @@ class LdvUitkomstIntegrationTest {
     private var ontvanger: String? = null
 
     @AfterEach
-    fun ruimLogregelsOp() {
-        val bsn = ontvanger ?: return
-
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(
-                "DELETE FROM logboek_dataverwerkingen WHERE attributes->>'dpl.core.data_subject_id' = ?",
-            ).use { statement ->
-                statement.setString(1, bsn)
-                statement.executeUpdate()
-            }
+    fun ruimOp() {
+        voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON logboek_dataverwerkingen")
+        ontvanger?.let { bsn ->
+            voerUit("DELETE FROM logboek_dataverwerkingen WHERE attributes->>'dpl.core.data_subject_id' = '$bsn'")
         }
     }
 
@@ -91,33 +89,65 @@ class LdvUitkomstIntegrationTest {
     @Test
     fun `elke mislukte leverpoging staat met haar volgnummer en een ERROR-child in het logboek`() {
         val bsn = gebruik(ONTVANGER_PUBLICEREN)
-        leverAan(bsn).then().statusCode(201)
+        sluitAndereClaimsAf()
+        val berichtId = leverAanEnGeefBerichtId(bsn)
 
-        // De test-downstream wijst naar een gesloten poort: elke poging is een NetwerkFout.
-        // De scheduler staat in tests uit; verwerk hier de claims tot er niets meer klaarstaat.
-        var verwerkt = 0
+        // max-pogingen=3 in de testconfig: de derde poging maakt de claim definitief MISLUKT.
+        repeat(MAX_POGINGEN) { verwerkPoging() }
 
-        while (verwerker.verwerkEenClaim()) verwerkt++
-
-        assertTrue(verwerkt > 0, "de claim van deze aanlevering moet verwerkt zijn")
-
+        assertEquals("MISLUKT" to MAX_POGINGEN, claimVan(berichtId))
+        assertFalse(verwerker.verwerkEenClaim(), "na de laatste poging staat er niets meer open")
         val rijen = logregels(bsn, "publicatie-default")
         val pogingen = rijen.filter { it.uitkomst == null }
-        assertTrue(pogingen.isNotEmpty(), "er moet minstens één leverpoging gelogd zijn")
-        assertEquals(
-            (1..pogingen.size).toList(),
-            pogingen.map { it.poging }.sortedBy { it },
-            "elke poging draagt haar eigen volgnummer",
-        )
+        assertEquals((1..MAX_POGINGEN).toList(), pogingen.map { it.poging }.sortedBy { it })
 
         pogingen.forEach { poging ->
             assertEquals("UNSET", poging.status)
+            assertEquals(berichtId, poging.berichtId, "pogingen voor één verstrekking delen het bericht")
             val uitkomst = rijen.single { it.parentSpanId == poging.spanId && it.uitkomst != null }
             assertUitkomstVan(poging, uitkomst)
             assertEquals("NetwerkFout", uitkomst.foutMessage)
         }
 
-        assertEquals(pogingen.size * 2, rijen.size, "per poging precies één uitkomst — was: $rijen")
+        assertEquals(MAX_POGINGEN * 2, rijen.size, "per poging precies één uitkomst — was: $rijen")
+    }
+
+    @Test
+    fun `een geweigerde logregel houdt de levering tegen en laat de claim openstaan`() {
+        val bsn = gebruik(ONTVANGER_FAIL_CLOSED)
+        sluitAndereClaimsAf()
+        val berichtId = leverAanEnGeefBerichtId(bsn)
+
+        weigerLogregels(voorwaarde = "true")
+
+        assertThrows<LogboekWriteException> { verwerker.verwerkEenClaim() }
+
+        assertEquals("TE_PUBLICEREN" to 0, claimVan(berichtId), "zonder logregel geen poging en geen levering")
+        assertTrue(logregels(bsn, "publicatie-default").isEmpty())
+    }
+
+    @Test
+    fun `een verloren uitkomst-logregel laat de claim-afhandeling en de volgende poging ongemoeid`() {
+        val bsn = gebruik(ONTVANGER_VERLOREN_UITKOMST)
+        sluitAndereClaimsAf()
+        val berichtId = leverAanEnGeefBerichtId(bsn)
+
+        weigerLogregels(voorwaarde = "NEW.attributes->>'${ProcessingHandler.OUTCOME_ATTRIBUTE_KEY}' IS NOT NULL")
+        verwerkPoging()
+
+        assertEquals("TE_PUBLICEREN" to 1, claimVan(berichtId), "de poging telt, de retry staat gepland")
+        assertTrue(
+            logregels(bsn, "publicatie-default").all { it.uitkomst == null },
+            "de uitkomst-logregel is geweigerd",
+        )
+
+        // Blijft er een schrijffout op de thread achter, dan faalt de volgende poging fail-closed.
+        voerUit("DROP TRIGGER $WEIGER_TRIGGER ON logboek_dataverwerkingen")
+        verwerkPoging()
+
+        assertEquals("TE_PUBLICEREN" to 2, claimVan(berichtId))
+        val tweedePoging = logregels(bsn, "publicatie-default").single { it.poging == 2 }
+        assertTrue(logregels(bsn, "publicatie-default").any { it.parentSpanId == tweedePoging.spanId })
     }
 
     private fun gebruik(bsn: String): String {
@@ -149,6 +179,55 @@ class LdvUitkomstIntegrationTest {
         QuarkusMock.installMockForType(falendeOpslag, BerichtOpslagService::class.java)
     }
 
+    /** Laat het logboek elke insert weigeren die aan [voorwaarde] voldoet; [ruimOp] haalt dit weg. */
+    private fun weigerLogregels(voorwaarde: String) {
+        voerUit(
+            """
+            CREATE OR REPLACE FUNCTION $WEIGER_TRIGGER() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'Logboek weigert de schrijfactie'; END $$
+            """.trimIndent(),
+        )
+        voerUit(
+            "CREATE TRIGGER $WEIGER_TRIGGER BEFORE INSERT ON logboek_dataverwerkingen " +
+                "FOR EACH ROW WHEN ($voorwaarde) EXECUTE FUNCTION $WEIGER_TRIGGER()",
+        )
+    }
+
+    private fun sluitAndereClaimsAf() {
+        voerUit("UPDATE publicatie_deliveries SET status = 'MISLUKT' WHERE status = 'TE_PUBLICEREN'")
+    }
+
+    /** Eén poging voor de enige openstaande claim; de backoff ertussen wordt overgeslagen. */
+    private fun verwerkPoging() {
+        voerUit("UPDATE publicatie_deliveries SET volgende_poging = now() WHERE status = 'TE_PUBLICEREN'")
+
+        assertTrue(verwerker.verwerkEenClaim(), "er moet een claim klaarstaan")
+    }
+
+    private fun claimVan(berichtId: String): Pair<String, Int> = dataSource.connection.use { connection ->
+        connection.prepareStatement(
+            """
+            SELECT d.status, d.pogingen
+              FROM publicatie_deliveries d
+              JOIN berichten b ON b.id = d.bericht_db_id
+             WHERE b.bericht_id = CAST(? AS uuid)
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setString(1, berichtId)
+
+            statement.executeQuery().use { resultaat ->
+                assertTrue(resultaat.next(), "claim voor bericht $berichtId ontbreekt")
+                resultaat.getString("status") to resultaat.getInt("pogingen")
+            }
+        }
+    }
+
+    private fun voerUit(sql: String) {
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { it.execute(sql) }
+        }
+    }
+
     private fun leverAan(bsn: String) = given()
         .contentType(ContentType.JSON)
         .body(
@@ -163,6 +242,9 @@ class LdvUitkomstIntegrationTest {
         )
         .post("/api/v1/aanleveringen")
 
+    private fun leverAanEnGeefBerichtId(bsn: String): String =
+        leverAan(bsn).then().statusCode(201).extract().path("berichtId")
+
     private data class Rij(
         val traceId: String,
         val spanId: String,
@@ -173,6 +255,7 @@ class LdvUitkomstIntegrationTest {
         val uitkomst: String?,
         val foutMessage: String?,
         val poging: Int?,
+        val berichtId: String?,
     )
 
     private fun logregels(bsn: String, naam: String): List<Rij> = dataSource.connection.use { connection ->
@@ -183,7 +266,8 @@ class LdvUitkomstIntegrationTest {
                    attributes->>'dpl.core.data_subject_id_type' AS subject_type,
                    attributes->>'${ProcessingHandler.OUTCOME_ATTRIBUTE_KEY}' AS uitkomst,
                    attributes->>'exception.message' AS fout_message,
-                   attributes->>'publicatie.poging' AS poging
+                   attributes->>'publicatie.poging' AS poging,
+                   attributes->>'publicatie.bericht_id' AS bericht_id
               FROM logboek_dataverwerkingen
              WHERE attributes->>'dpl.core.data_subject_id' = ? AND name = ?
             """.trimIndent(),
@@ -205,6 +289,7 @@ class LdvUitkomstIntegrationTest {
                                 uitkomst = resultaat.getString("uitkomst"),
                                 foutMessage = resultaat.getString("fout_message"),
                                 poging = resultaat.getString("poging")?.toInt(),
+                                berichtId = resultaat.getString("bericht_id"),
                             ),
                         )
                     }
@@ -214,9 +299,14 @@ class LdvUitkomstIntegrationTest {
     }
 
     private companion object {
+        const val MAX_POGINGEN = 3
+        const val WEIGER_TRIGGER = "ldv_test_weiger"
+
         // Geldige BSN's (elfproef), alleen in deze test gebruikt.
         const val ONTVANGER_AANLEVEREN = "111222333"
         const val ONTVANGER_GESLAAGD = "123456782"
         const val ONTVANGER_PUBLICEREN = "100000009"
+        const val ONTVANGER_FAIL_CLOSED = "100000010"
+        const val ONTVANGER_VERLOREN_UITKOMST = "100000022"
     }
 }

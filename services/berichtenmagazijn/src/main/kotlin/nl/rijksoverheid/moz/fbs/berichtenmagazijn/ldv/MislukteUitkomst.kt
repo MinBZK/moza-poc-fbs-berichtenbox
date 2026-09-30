@@ -2,6 +2,9 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv
 
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.DownstreamResultaat
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.LeveringMislukt
+import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
 
 /**
@@ -11,30 +14,54 @@ import org.jboss.logging.Logger
  * verwerking zonder logregel plaatsvindt. Die logregel is daarna definitief en staat op
  * `UNSET`, wat de standaard leest als "afgerond zonder systeemfout". Een mislukte uitkomst
  * komt daarom als ERROR-child onder die logregel ([ProcessingHandler.recordFailedOutcome]).
- * Leesregel voor het logboek: een logregel zonder ERROR-child is geslaagd.
+ * Leesregel: een logregel op `UNSET` zonder ERROR-child is geslaagd.
+ *
+ * De fout wordt hier samengevat en niet door de aanroeper: de ERROR-child draagt de
+ * betrokkene en gaat bij een inzageverzoek naar buiten, dus een ruwe exceptie-message
+ * (`Failing row contains (…)`) mag er via geen enkele aanroep in komen.
+ *
+ * [kenmerken] in beide methodes identificeert de verwerking in de applicatielog wanneer de
+ * uitkomst verloren gaat; alleen gegevens zonder persoonsgegevens (`berichtId`, doel).
  */
 class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
 
     private val log = Logger.getLogger(MislukteUitkomst::class.java)
 
+    /** Voor een fout uit de verwerking zelf; alleen het type gaat het logboek in. */
+    fun legVast(logregels: List<Logregel>, oorzaak: Throwable, kenmerken: String) {
+        schrijf(logregels, LdvFoutSamenvatting.van(oorzaak), kenmerken)
+    }
+
+    /** Voor een levering die de afnemer zeker niet bereikte; alleen de categorie gaat het logboek in. */
+    fun legVast(logregels: List<Logregel>, resultaat: DownstreamResultaat.Mislukt, kenmerken: String) {
+        schrijf(logregels, LeveringMislukt.van(resultaat), kenmerken)
+    }
+
     /**
-     * Schrijft de ERROR-children voor [logregels]. Gooit niet: de fout die de verwerking
-     * liet mislukken moet de aanroeper bereiken, niet een logboekfout er overheen.
-     *
-     * [fout] komt ongefilterd in het logboek, op rijen die de betrokkene dragen en bij een
-     * inzageverzoek naar buiten gaan; geef dus een samenvatting zonder persoonsgegevens mee.
+     * Gooit niet: de fout die de verwerking liet mislukken moet de aanroeper bereiken. De
+     * wrapper belooft dat ook, maar een afwijkende wrapper-versie op het classpath zou dat
+     * contract ongemerkt breken.
      */
-    fun legVast(logregels: List<Logregel>, fout: Throwable) {
-        val zonderUitkomst = processingHandler.recordFailedOutcome(logregels, fout)
+    @Suppress("TooGenericExceptionCaught") // Elke fout hier is een verloren uitkomst; zie KDoc.
+    private fun schrijf(logregels: List<Logregel>, samenvatting: Throwable, kenmerken: String) {
+        if (logregels.isEmpty()) return
+
+        val zonderUitkomst = try {
+            processingHandler.recordFailedOutcome(logregels, samenvatting)
+        } catch (ex: Throwable) {
+            log.errorf("%s: vastleggen gaf %s", ALERT_TOKEN, ex.javaClass.name)
+            logregels
+        }
 
         if (zonderUitkomst.isEmpty()) return
 
         // Onder-rapportage: zonder ERROR-child leest de logregel als geslaagd. De wrapper
         // logt dit ook, maar zonder token waarop een alert kan routeren.
         log.errorf(
-            "%s: uitkomst van %d logregel(s) niet in het logboek vastgelegd; die lezen als geslaagd [%s]",
+            "%s: uitkomst van %d logregel(s) niet in het logboek vastgelegd; die lezen als geslaagd (%s) [%s]",
             ALERT_TOKEN,
             zonderUitkomst.size,
+            kenmerken,
             zonderUitkomst.joinToString { "${it.spanContext.traceId}:${it.spanContext.spanId}" },
         )
     }

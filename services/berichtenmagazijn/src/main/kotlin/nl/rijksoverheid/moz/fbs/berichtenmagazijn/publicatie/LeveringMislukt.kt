@@ -16,9 +16,13 @@ class LeveringMislukt private constructor(beschrijving: String) :
 
     companion object {
         fun van(resultaat: DownstreamResultaat.Mislukt): LeveringMislukt = LeveringMislukt(
+            // Geen else: een nieuw Mislukt-subtype moet hier een bewuste keuze krijgen.
             when (resultaat) {
                 is DownstreamResultaat.HttpFout -> "HttpFout ${resultaat.statusCode}"
-                else -> resultaat.javaClass.simpleName
+                is DownstreamResultaat.Timeout -> "Timeout"
+                is DownstreamResultaat.NetwerkFout -> "NetwerkFout"
+                is DownstreamResultaat.SerialisatieFout -> "SerialisatieFout"
+                is DownstreamResultaat.ConfiguratieFout -> "ConfiguratieFout"
             },
         )
     }
