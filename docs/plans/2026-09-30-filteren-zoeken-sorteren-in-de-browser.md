@@ -1,6 +1,6 @@
 # Filteren, zoeken en sorteren in de browser
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 Hoort bij [MinBZK/MijnOverheidZakelijk#940](https://github.com/MinBZK/MijnOverheidZakelijk/issues/940).
 Afgesplitst: zoeken in de berichttekst ([#1225](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1225))
@@ -107,7 +107,8 @@ kosten niets en er is geen reden ze te slopen. Ze krijgen geen uitbreiding.
 
 Buiten deze repo; hier vastgelegd zodat de afspraak compleet is:
 
-- `_links.next` volgen tot hij ontbreekt, in plaats van één pagina van 200 te halen.
+- `_links.next` volgen tot hij ontbreekt (doet `main` van de proeftuin al, in pagina's van 100;
+  naar 200 kan zodra deze wijziging in de keten draait).
 - Een afzenderfilter in de UI (de filterlogica bestaat al).
 - Datum op- én aflopend.
 - `_volgen` aansluiten: `bericht-bijgekomen` toevoegen aan de set (ontdubbeld op `berichtId`),
