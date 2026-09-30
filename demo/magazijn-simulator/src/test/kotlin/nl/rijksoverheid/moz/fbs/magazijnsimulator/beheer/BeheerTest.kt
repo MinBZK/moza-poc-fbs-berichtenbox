@@ -592,6 +592,52 @@ class BeheerTest : MagazijnTestBasis() {
         given().`when`().post("/beheer/legen").then().statusCode(200)
     }
 
+    /**
+     * De mappen-persona krijgt zijn mappen bij het vullen, naar het gedrag dat het magazijn op dát
+     * moment heeft. Een ander krijgt er geen, ook niet in hetzelfde magazijn. Teruggelezen via de
+     * gewone berichtenlijst, want daar ziet de uitvraag ze.
+     */
+    @Test
+    fun `vullen geeft alleen de mappen-persona mappen, naar het gedrag van het magazijn`() {
+        legen()
+        zetGedrag(TWEEDE_MAGAZIJN, "TRAAG")
+        seed(aantal = 3, ontvangers = listOf(MAPPEN_ONTVANGER, ONTVANGER))
+        // Terug op normaal vóór het lezen: de mappen liggen vast bij het vullen, en een traag magazijn
+        // zou elke leesaanroep hieronder seconden laten wachten.
+        magazijnen.herstelGedrag()
+
+        assertEquals(
+            mapOf(1 to null, 2 to DemoMappen.VERSPREID, 3 to DemoMappen.EEN_BERICHT),
+            mappenPerVolgnummer(MAGAZIJN, MAPPEN_ONTVANGER),
+        )
+        assertEquals(
+            mapOf(1 to DemoMappen.ALLEEN_TRAAG, 2 to DemoMappen.VERSPREID, 3 to null),
+            mappenPerVolgnummer(TWEEDE_MAGAZIJN, MAPPEN_ONTVANGER),
+        )
+        assertEquals(mapOf(1 to null, 2 to null, 3 to null), mappenPerVolgnummer(MAGAZIJN, ONTVANGER))
+    }
+
+    private fun mappenPerVolgnummer(magazijn: String, ontvanger: String): Map<Int, String?> {
+        val berichten = given()
+            .header(ONTVANGER_HEADER, ontvanger)
+            .queryParam("pageSize", 100)
+            .`when`().get("/magazijn/$magazijn/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .extract().jsonPath()
+            .getList<Map<String, Any?>>("berichten")
+
+        return berichten.associate { bericht ->
+            // Het onderwerp eindigt op het volgnummer tussen haakjes, zie DemoBerichten.
+            val volgnummer = (bericht["onderwerp"] as String).substringAfterLast('(').substringBefore(')').toInt()
+
+            @Suppress("UNCHECKED_CAST")
+            val status = bericht["status"] as Map<String, Any?>?
+
+            volgnummer to status?.get("map") as String?
+        }
+    }
+
     private fun seed(
         aantal: Int,
         ontvangers: List<String> = listOf(ONTVANGER),
@@ -638,6 +684,7 @@ class BeheerTest : MagazijnTestBasis() {
     private companion object {
         const val ONTVANGER_HEADER = "X-Ontvanger"
         const val ONTVANGER = "KVK:90000001"
+        const val MAPPEN_ONTVANGER = "KVK:90000015"
         const val TWEEDE_ONTVANGER = "KVK:90000002"
         const val DERDE_ONTVANGER = "KVK:90000003"
         const val MAGAZIJN = "00000009000000000001"

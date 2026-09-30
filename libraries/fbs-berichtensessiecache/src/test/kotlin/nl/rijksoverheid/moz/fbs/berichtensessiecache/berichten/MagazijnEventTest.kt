@@ -43,7 +43,7 @@ class MagazijnEventTest {
             Arguments.of(
                 MagazijnBevragingGeslaagd(magazijnId = OIN, naam = "Magazijn A", aantalBerichten = 3),
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
-                    """"aantalBerichten":3,"afgekapt":false}""",
+                    """"aantalBerichten":3,"afgekapt":false,"mappen":[]}""",
             ),
             Arguments.of(
                 MagazijnBevragingGeslaagd(
@@ -54,7 +54,18 @@ class MagazijnEventTest {
                     totaalBeschikbaar = 1340L,
                 ),
                 """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
-                    """"aantalBerichten":500,"afgekapt":true,"totaalBeschikbaar":1340}""",
+                    """"aantalBerichten":500,"afgekapt":true,"totaalBeschikbaar":1340,"mappen":[]}""",
+            ),
+            Arguments.of(
+                MagazijnBevragingGeslaagd(
+                    magazijnId = OIN,
+                    naam = "Magazijn A",
+                    aantalBerichten = 5,
+                    mappen = listOf(MapTelling("Archief", 1), MapTelling("Belasting", 3)),
+                ),
+                """{"event":"magazijn-bevraging-voltooid","magazijnId":"$OIN","naam":"Magazijn A","status":"OK",""" +
+                    """"aantalBerichten":5,"afgekapt":false,"mappen":[{"naam":"Archief","aantalBerichten":1},""" +
+                    """{"naam":"Belasting","aantalBerichten":3}]}""",
             ),
             Arguments.of(
                 MagazijnBevragingMislukt(

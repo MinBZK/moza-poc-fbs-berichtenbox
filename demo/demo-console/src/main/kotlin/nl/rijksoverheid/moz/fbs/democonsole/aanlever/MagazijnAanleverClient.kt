@@ -13,8 +13,11 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverVerzoek
 /** Bericht-ID dat het magazijn toekent (uit de 201-respons), nodig voor de status-PATCH. */
 data class AanleverRespons(val berichtId: String)
 
-/** Magazijn-status-patch: `{gelezen: true}` (boolean — het magazijn, niet de uitvraag-enum). */
-data class StatusPatch(val gelezen: Boolean)
+/**
+ * Magazijn-status-patch: `gelezen` is een boolean (het magazijn, niet de uitvraag-enum). Een veld
+ * dat `null` is gaat niet mee en blijft dus ongewijzigd — merge-patch.
+ */
+data class StatusPatch(val gelezen: Boolean? = null, val map: String? = null)
 
 /**
  * Het stuk RFC 9457 dat de console gebruikt: de reden die het magazijn zelf voor een afwijzing gaf.
@@ -43,8 +46,8 @@ interface MagazijnAanleverClient {
     @Consumes(MediaType.APPLICATION_JSON)
     fun leverRuwAan(payload: String): Response
 
-    // Zet de leesstatus rechtstreeks op het magazijn (geen sessiecache nodig). X-Ontvanger is
-    // TYPE:WAARDE; body is merge-patch met een boolean `gelezen`.
+    // Zet leesstatus en/of map rechtstreeks op het magazijn (geen sessiecache nodig). X-Ontvanger
+    // is TYPE:WAARDE; body is merge-patch.
     @PATCH
     @Path("/berichten/{berichtId}")
     @Consumes("application/merge-patch+json")

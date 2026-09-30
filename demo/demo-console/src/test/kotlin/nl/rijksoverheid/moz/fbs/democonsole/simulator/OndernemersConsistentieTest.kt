@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test
 import java.io.File
 
 /**
- * De vier ondernemers staan op meerdere plekken, en niets dwingt ze bij elkaar te houden.
+ * De ondernemers staan op meerdere plekken, en niets dwingt ze bij elkaar te houden.
  *
  * Faalscenario zonder deze test: iemand wijzigt een identificatienummer in het generatiescript — dat
  * script zegt zelf dat alleen de gróóttes tellen en niet de nummers, dus dat is een uitnodiging. De
@@ -86,7 +86,7 @@ class OndernemersConsistentieTest {
     }
 
     /**
-     * De rookproef bevraagt dezelfde vier ondernemers en controleert bij hoeveel organisaties ze
+     * De rookproef bevraagt dezelfde ondernemers en controleert bij hoeveel organisaties ze
      * uitkomen. Hij staat buiten de reactor, dus niets houdt hem bij het generatiescript.
      *
      * Faalscenario zonder deze test: een identificatienummer wijzigt wél in `basis.json`, de console
