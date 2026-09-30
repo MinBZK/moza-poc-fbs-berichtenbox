@@ -4,6 +4,7 @@ import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -97,6 +100,32 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(berichten[1].berichtId, page.berichten[0].berichtId) // 12:00 eerst
         assertEquals(berichten[2].berichtId, page.berichten[1].berichtId) // 11:00
         assertEquals(berichten[0].berichtId, page.berichten[2].berichtId) // 10:00
+    }
+
+    @ParameterizedTest(name = "{0} berichten")
+    @ValueSource(ints = [0, 1, 199, 200, 201, 450])
+    fun `pagina voor pagina lezen levert de volledige set, zonder gaten of dubbelingen`(aantal: Int) {
+        // Een afnemer die zelf filtert en sorteert, leest de hele set in pagina's van het
+        // plafond. Grenswaarden rond één pagina vangen een off-by-one in offset of totaal.
+        val basis = Instant.parse("2026-03-10T00:00:00Z")
+        val berichten = (0 until aantal).map { i ->
+            testBerichten()[0].copy(berichtId = UUID.randomUUID(), publicatietijdstip = basis.plusSeconds(i.toLong()))
+        }
+        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+
+        val gelezen = mutableListOf<UUID>()
+        var pagina = 0
+        var totaalPaginas: Int
+
+        do {
+            val resultaat = berichtenCache.getPage(cacheKey(), pagina, PAGINA, null, null).await().indefinitely()
+            gelezen += resultaat?.berichten.orEmpty().map { it.berichtId }
+            totaalPaginas = resultaat?.totalPages ?: 0
+            pagina++
+        } while (pagina < totaalPaginas)
+
+        assertEquals((aantal + PAGINA - 1) / PAGINA, totaalPaginas)
+        assertEquals(berichten.sortedByDescending { it.publicatietijdstip }.map { it.berichtId }, gelezen)
     }
 
     @Test
@@ -1355,5 +1384,6 @@ class RedisBerichtenCacheIntegrationTest {
         const val GELIJKTIJDIG = 10
         const val REEKS = 50
         const val WACHTTIJD_S = 10L
+        const val PAGINA = Sessiecache.MAX_PAGINA_GROOTTE
     }
 }
