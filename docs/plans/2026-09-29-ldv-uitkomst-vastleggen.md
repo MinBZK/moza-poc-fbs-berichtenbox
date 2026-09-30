@@ -35,11 +35,19 @@ de bron op `main` van vóór die versie-bump: die jar is gebouwd vóór de merge
   wrapper-versie. Een verloren uitkomst-logregel is onder-rapportage; die wordt gelogd met het
   token `LDV_UITKOMST_ONTBREEKT` en kenmerken zonder persoonsgegevens. Geen retry: een
   retry-mechanisme hoort bij een concrete aanleiding.
-- **Aanleveren:** elke `Throwable` uit `slaBerichtOp` krijgt een ERROR-child; ook een `Error`
-  rolt de opslag terug. Een afwijzing vóór de bevestiging staat al als ERROR in de logregel zelf.
-- **Publiceren:** een fout bij het opbouwen van het CloudEvent krijgt een ERROR-child, een fout
-  uit `lever` zelf niet (onbekend of er iets verstuurd is). Een onbekend doel niet: die logregel
-  staat al op ERROR. Een fout ná een 2xx (`markeerGeslaagd`) ook niet, want dan is er verstrekt.
+- **Aanleveren:** een `Throwable` uit `slaBerichtOp` krijgt een ERROR-child; ook een `Error`
+  rolt de opslag terug. Uitzondering: een commit met onzekere uitkomst (heuristisch, of een
+  verbroken verbinding, SQLState `08`) — het bericht kan dan toch zijn opgeslagen. Een afwijzing
+  vóór de bevestiging staat al als ERROR in de logregel zelf.
+- **Publiceren:** een `Mislukt`-resultaat krijgt alleen een ERROR-child bij `zekerNietVerzonden`;
+  `MislukteUitkomst` controleert dat zelf. Een fout bij het opbouwen van het CloudEvent wordt een
+  `SerialisatieFout` en maakt de claim terminaal (voorheen gooide hij door en herhaalde hij zich
+  elke pollronde). Een exceptie uit `lever` (die volgens contract niet gooit) krijgt geen
+  ERROR-child. Een onbekend doel niet: die logregel staat al op ERROR. Een fout ná een 2xx
+  (`markeerGeslaagd`) ook niet, want dan is er verstrekt.
+- **Verzendzekerheid in het type:** `Timeout` en `NetwerkFout` hebben een private constructor;
+  de factories (`bijVerbinden`/`bijLezen`, `geenVerbinding`/`onderweg`) leggen de
+  verzendzekerheid vast bij de fase waarin de fout viel.
 - **Pogingen herkenbaar:** elke poging behoudt een eigen logregel (samenvoegen kan niet in een
   insert-only logboek) en draagt `publicatie.poging`, naast `publicatie.bericht_id` en
   `publicatie.doel`. Na een teruggedraaide verwerking kan een nummer terugkomen; unieke nummers

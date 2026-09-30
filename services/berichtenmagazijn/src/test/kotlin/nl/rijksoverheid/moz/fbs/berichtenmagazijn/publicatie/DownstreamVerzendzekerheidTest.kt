@@ -12,8 +12,6 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
 import java.io.IOException
 import java.net.ConnectException
-import java.net.NoRouteToHostException
-import java.net.UnknownHostException
 import java.net.http.HttpConnectTimeoutException
 import java.net.http.HttpTimeoutException
 import java.time.Duration
@@ -26,6 +24,10 @@ import javax.net.ssl.SSLProtocolException
  * krijgen in het logboek een ERROR-child; bij een onzekere levering blijft de verstrekking
  * als geslaagd staan. Een fout aan de verkeerde kant van de grens geeft onder-rapportage:
  * het logboek zegt "niet verstrekt" terwijl de afnemer het bericht mogelijk heeft.
+ *
+ * Dit toetst de indeling per exceptietype; dat de JDK-client een onbekende host of een
+ * geweigerde verbinding ook echt als [ConnectException] aflevert, borgt [DownstreamClientTest]
+ * met een echte verzending.
  */
 class DownstreamVerzendzekerheidTest {
 
@@ -65,8 +67,6 @@ class DownstreamVerzendzekerheidTest {
         fun fouten(): List<Arguments> = listOf(
             Arguments.of(HttpConnectTimeoutException("connect timed out"), true),
             Arguments.of(ConnectException("Connection refused"), true),
-            Arguments.of(UnknownHostException("aanmeld.example"), true),
-            Arguments.of(NoRouteToHostException("No route to host"), true),
             Arguments.of(SSLHandshakeException("Unable to find valid certification path"), true),
             Arguments.of(HttpTimeoutException("request timed out"), false),
             Arguments.of(IOException("Connection reset"), false),

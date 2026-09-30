@@ -1,13 +1,13 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 /**
- * Fout-representatie van een mislukte levering voor het Logboek Dataverwerkingen: de
- * categorie en bij een HTTP-fout de statuscode, nooit de [DownstreamResultaat.Mislukt.reden].
+ * Fout-representatie van een mislukte levering voor het Logboek Dataverwerkingen: alleen de
+ * categorie, nooit de [DownstreamResultaat.Mislukt.reden].
  *
  * De wrapper zet de message als `exception.message` op een logregel die de betrokkene
- * draagt en bij een inzageverzoek naar buiten gaat. De reden kan tekst uit de response
- * van de afnemer bevatten; die hoort daar niet. Het volledige foutbeeld staat in de
- * applicatielog en de claim-status.
+ * draagt en bij een inzageverzoek naar buiten gaat. De reden bevat een exceptie-message met
+ * host of adres van de afnemer, en bij een HTTP-fout een fragment van de response; die
+ * horen daar niet. Het foutbeeld staat, gesaneerd, in de applicatielog en de claim-status.
  *
  * Geen stacktrace: die wijst alleen naar deze factory, niet naar de fout zelf.
  */
@@ -18,6 +18,7 @@ class LeveringMislukt private constructor(beschrijving: String) :
         fun van(resultaat: DownstreamResultaat.Mislukt): LeveringMislukt = LeveringMislukt(
             // Geen else: een nieuw Mislukt-subtype moet hier een bewuste keuze krijgen.
             when (resultaat) {
+                // Onbereikbaar zolang een HTTP-antwoord als onzeker telt; staat er voor de volledigheid.
                 is DownstreamResultaat.HttpFout -> "HttpFout ${resultaat.statusCode}"
                 is DownstreamResultaat.Timeout -> "Timeout"
                 is DownstreamResultaat.NetwerkFout -> "NetwerkFout"

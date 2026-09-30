@@ -32,8 +32,14 @@ class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
         schrijf(logregels, LdvFoutSamenvatting.van(oorzaak), kenmerken)
     }
 
-    /** Voor een levering die de afnemer zeker niet bereikte; alleen de categorie gaat het logboek in. */
+    /**
+     * Voor een mislukte levering; alleen de categorie gaat het logboek in. Schrijft niets als
+     * de afnemer het bericht mogelijk wél kreeg: een ERROR-child zou dan "niet verstrekt"
+     * melden, en te weinig registreren is erger dan te veel.
+     */
     fun legVast(logregels: List<Logregel>, resultaat: DownstreamResultaat.Mislukt, kenmerken: String) {
+        if (!resultaat.zekerNietVerzonden) return
+
         schrijf(logregels, LeveringMislukt.van(resultaat), kenmerken)
     }
 
@@ -49,7 +55,12 @@ class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
         val zonderUitkomst = try {
             processingHandler.recordFailedOutcome(logregels, samenvatting)
         } catch (ex: Throwable) {
-            log.errorf("%s: vastleggen gaf %s", ALERT_TOKEN, ex.javaClass.name)
+            if (ex is InterruptedException) Thread.currentThread().interrupt()
+
+            // Bij een LinkageError is de message de ontbrekende signatuur: nodig voor diagnose,
+            // en zonder persoonsgegevens. Andere messages kunnen die wel bevatten.
+            val detail = if (ex is LinkageError) " (${ex.message})" else ""
+            log.errorf("%s: vastleggen gaf %s%s (%s)", ALERT_TOKEN, ex.javaClass.name, detail, kenmerken)
             logregels
         }
 

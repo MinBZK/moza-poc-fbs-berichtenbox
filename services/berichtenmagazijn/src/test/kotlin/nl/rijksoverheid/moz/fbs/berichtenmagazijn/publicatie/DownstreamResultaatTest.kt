@@ -41,7 +41,7 @@ class DownstreamResultaatTest {
 
     @Test
     fun `Timeout altijd herstelbaar`() {
-        val r = DownstreamResultaat.Timeout("read timeout", zekerNietVerzonden = false)
+        val r = DownstreamResultaat.Timeout.bijLezen("read timeout")
         assertTrue(r.herstelbaar)
         assertNull(r.retryAfter)
         assertEquals("read timeout", r.reden)
@@ -49,7 +49,7 @@ class DownstreamResultaatTest {
 
     @Test
     fun `NetwerkFout altijd herstelbaar`() {
-        val r = DownstreamResultaat.NetwerkFout("connection reset", zekerNietVerzonden = false)
+        val r = DownstreamResultaat.NetwerkFout.onderweg("connection reset")
         assertTrue(r.herstelbaar)
     }
 

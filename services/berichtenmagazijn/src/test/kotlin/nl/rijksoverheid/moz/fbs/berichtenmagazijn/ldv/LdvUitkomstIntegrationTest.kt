@@ -7,13 +7,15 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
-import javax.sql.DataSource
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BerichtOpslagService
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.LeveringMislukt
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker
+import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
+import org.hamcrest.Matchers.greaterThanOrEqualTo
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -21,6 +23,10 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.util.logging.Handler
+import java.util.logging.LogRecord
+import java.util.logging.Logger
+import javax.sql.DataSource
 
 /**
  * Borgt tegen een echte PostgreSQL hoe de uitkomst van een verwerking in het logboek landt.
@@ -52,6 +58,7 @@ class LdvUitkomstIntegrationTest {
     @AfterEach
     fun ruimOp() {
         voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON logboek_dataverwerkingen")
+        voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON publicatie_deliveries")
         ontvanger?.let { bsn ->
             voerUit("DELETE FROM logboek_dataverwerkingen WHERE attributes->>'dpl.core.data_subject_id' = '$bsn'")
         }
@@ -72,7 +79,26 @@ class LdvUitkomstIntegrationTest {
         assertEquals("UNSET", logregel.status, "de logregel vooraf blijft staan zoals hij bevestigd is")
         assertUitkomstVan(logregel, uitkomst)
         assertEquals("java.lang.IllegalStateException", uitkomst.foutMessage)
-        assertFalse(uitkomst.foutMessage.orEmpty().contains("uitkering"), "berichtinhoud hoort niet in het logboek")
+        assertEquals(LdvFoutSamenvatting::class.java.name, uitkomst.foutType)
+        assertGeenPersoonsgegevensBuitenBetrokkene(bsn, "uitkering", "Failing row")
+    }
+
+    @Test
+    fun `een echte rollback bij de opslag staat als ERROR-child in het logboek, zonder bericht`() {
+        // Zonder QuarkusMock: de transactie, circuit breaker en exception mappers lopen mee,
+        // en de database weigert de outbox-rij pas bij de commit.
+        val bsn = gebruik(ONTVANGER_ROLLBACK)
+        weigerInserts("publicatie_deliveries", voorwaarde = "true")
+
+        leverAan(bsn).then().statusCode(greaterThanOrEqualTo(500))
+
+        assertEquals(0, aantalBerichtenVoor(bsn), "de transactie hoort teruggedraaid te zijn")
+        val rijen = logregels(bsn, "aanleveren-bericht")
+        val logregel = rijen.single { it.uitkomst == null }
+        val uitkomst = rijen.single { it.uitkomst != null }
+        assertUitkomstVan(logregel, uitkomst)
+        assertEquals(LdvFoutSamenvatting::class.java.name, uitkomst.foutType)
+        assertGeenPersoonsgegevensBuitenBetrokkene(bsn, "Logboek weigert")
     }
 
     @Test
@@ -107,7 +133,10 @@ class LdvUitkomstIntegrationTest {
             val uitkomst = rijen.single { it.parentSpanId == poging.spanId && it.uitkomst != null }
             assertUitkomstVan(poging, uitkomst)
             assertEquals("NetwerkFout", uitkomst.foutMessage)
+            assertEquals(LeveringMislukt::class.java.name, uitkomst.foutType)
         }
+
+        assertGeenPersoonsgegevensBuitenBetrokkene(bsn, "127.0.0.1", "Connection refused")
 
         assertEquals(MAX_POGINGEN * 2, rijen.size, "per poging precies één uitkomst — was: $rijen")
     }
@@ -118,7 +147,7 @@ class LdvUitkomstIntegrationTest {
         sluitAndereClaimsAf()
         val berichtId = leverAanEnGeefBerichtId(bsn)
 
-        weigerLogregels(voorwaarde = "true")
+        weigerInserts("logboek_dataverwerkingen", voorwaarde = "true")
 
         assertThrows<LogboekWriteException> { verwerker.verwerkEenClaim() }
 
@@ -132,13 +161,19 @@ class LdvUitkomstIntegrationTest {
         sluitAndereClaimsAf()
         val berichtId = leverAanEnGeefBerichtId(bsn)
 
-        weigerLogregels(voorwaarde = "NEW.attributes->>'${ProcessingHandler.OUTCOME_ATTRIBUTE_KEY}' IS NOT NULL")
-        verwerkPoging()
+        weigerInserts(
+            "logboek_dataverwerkingen",
+            voorwaarde = "NEW.attributes->>'${ProcessingHandler.OUTCOME_ATTRIBUTE_KEY}' IS NOT NULL",
+        )
+        val meldingen = vangMeldingen { verwerkPoging() }
 
         assertEquals("TE_PUBLICEREN" to 1, claimVan(berichtId), "de poging telt, de retry staat gepland")
+        val eerstePoging = logregels(bsn, "publicatie-default").single()
+        assertNull(eerstePoging.uitkomst, "de uitkomst-logregel is geweigerd")
+        // Zonder deze melding is "geweigerd" niet te onderscheiden van "nooit geprobeerd".
         assertTrue(
-            logregels(bsn, "publicatie-default").all { it.uitkomst == null },
-            "de uitkomst-logregel is geweigerd",
+            meldingen.any { it.startsWith(MislukteUitkomst.ALERT_TOKEN) && it.contains(eerstePoging.spanId) },
+            "verwacht ${MislukteUitkomst.ALERT_TOKEN} met de span_id van de poging — was: $meldingen",
         )
 
         // Blijft er een schrijffout op de thread achter, dan faalt de volgende poging fail-closed.
@@ -179,8 +214,8 @@ class LdvUitkomstIntegrationTest {
         QuarkusMock.installMockForType(falendeOpslag, BerichtOpslagService::class.java)
     }
 
-    /** Laat het logboek elke insert weigeren die aan [voorwaarde] voldoet; [ruimOp] haalt dit weg. */
-    private fun weigerLogregels(voorwaarde: String) {
+    /** Laat [tabel] elke insert weigeren die aan [voorwaarde] voldoet; [ruimOp] haalt dit weg. */
+    private fun weigerInserts(tabel: String, voorwaarde: String) {
         voerUit(
             """
             CREATE OR REPLACE FUNCTION $WEIGER_TRIGGER() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -188,7 +223,7 @@ class LdvUitkomstIntegrationTest {
             """.trimIndent(),
         )
         voerUit(
-            "CREATE TRIGGER $WEIGER_TRIGGER BEFORE INSERT ON logboek_dataverwerkingen " +
+            "CREATE TRIGGER $WEIGER_TRIGGER BEFORE INSERT ON $tabel " +
                 "FOR EACH ROW WHEN ($voorwaarde) EXECUTE FUNCTION $WEIGER_TRIGGER()",
         )
     }
@@ -199,7 +234,12 @@ class LdvUitkomstIntegrationTest {
 
     /** Eén poging voor de enige openstaande claim; de backoff ertussen wordt overgeslagen. */
     private fun verwerkPoging() {
-        voerUit("UPDATE publicatie_deliveries SET volgende_poging = now() WHERE status = 'TE_PUBLICEREN'")
+        // Een minuut terug: de claim-query vergelijkt met de JVM-klok, en een database in een
+        // VM kan voorlopen.
+        voerUit(
+            "UPDATE publicatie_deliveries SET volgende_poging = now() - interval '1 minute' " +
+                "WHERE status = 'TE_PUBLICEREN'",
+        )
 
         assertTrue(verwerker.verwerkEenClaim(), "er moet een claim klaarstaan")
     }
@@ -228,6 +268,70 @@ class LdvUitkomstIntegrationTest {
         }
     }
 
+    /**
+     * Persoonsgegevens mogen alleen in de betrokkene-velden staan. Controleert de hele
+     * attributen-JSON van elke rij van [bsn] op [verboden] fragmenten.
+     */
+    private fun assertGeenPersoonsgegevensBuitenBetrokkene(bsn: String, vararg verboden: String) {
+        val rijen = dataSource.connection.use { connection ->
+            connection.prepareStatement(
+                "SELECT (attributes - 'dpl.core.data_subject_id')::text AS attributen " +
+                    "FROM logboek_dataverwerkingen WHERE attributes->>'dpl.core.data_subject_id' = ?",
+            ).use { statement ->
+                statement.setString(1, bsn)
+
+                statement.executeQuery().use { resultaat ->
+                    buildList { while (resultaat.next()) add(resultaat.getString("attributen")) }
+                }
+            }
+        }
+
+        assertTrue(rijen.isNotEmpty(), "geen rijen voor de betrokkene gevonden")
+
+        rijen.forEach { attributen ->
+            assertFalse(attributen.contains(bsn), "BSN buiten dpl.core.data_subject_id: $attributen")
+            verboden.forEach { fragment ->
+                assertFalse(attributen.contains(fragment), "'$fragment' hoort niet in het logboek: $attributen")
+            }
+        }
+    }
+
+    private fun aantalBerichtenVoor(bsn: String): Int = dataSource.connection.use { connection ->
+        connection.prepareStatement("SELECT count(*) FROM berichten WHERE ontvanger_waarde = ?").use { statement ->
+            statement.setString(1, bsn)
+
+            statement.executeQuery().use { resultaat ->
+                resultaat.next()
+                resultaat.getInt(1)
+            }
+        }
+    }
+
+    /** De ERROR-meldingen van [MislukteUitkomst] tijdens [actie], geformatteerd. */
+    private fun vangMeldingen(actie: () -> Unit): List<String> {
+        val meldingen = mutableListOf<String>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) {
+                // In Quarkus is de message een printf-patroon; de waarden staan in de parameters.
+                meldingen.add((listOf(record.message) + record.parameters.orEmpty().map { it.toString() }).joinToString(" "))
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger(MislukteUitkomst::class.java.name)
+        logger.addHandler(handler)
+
+        try {
+            actie()
+        } finally {
+            logger.removeHandler(handler)
+        }
+
+        return meldingen
+    }
+
     private fun leverAan(bsn: String) = given()
         .contentType(ContentType.JSON)
         .body(
@@ -254,6 +358,7 @@ class LdvUitkomstIntegrationTest {
         val subjectType: String?,
         val uitkomst: String?,
         val foutMessage: String?,
+        val foutType: String?,
         val poging: Int?,
         val berichtId: String?,
     )
@@ -266,6 +371,7 @@ class LdvUitkomstIntegrationTest {
                    attributes->>'dpl.core.data_subject_id_type' AS subject_type,
                    attributes->>'${ProcessingHandler.OUTCOME_ATTRIBUTE_KEY}' AS uitkomst,
                    attributes->>'exception.message' AS fout_message,
+                   attributes->>'exception.type' AS fout_type,
                    attributes->>'publicatie.poging' AS poging,
                    attributes->>'publicatie.bericht_id' AS bericht_id
               FROM logboek_dataverwerkingen
@@ -288,6 +394,7 @@ class LdvUitkomstIntegrationTest {
                                 subjectType = resultaat.getString("subject_type"),
                                 uitkomst = resultaat.getString("uitkomst"),
                                 foutMessage = resultaat.getString("fout_message"),
+                                foutType = resultaat.getString("fout_type"),
                                 poging = resultaat.getString("poging")?.toInt(),
                                 berichtId = resultaat.getString("bericht_id"),
                             ),
@@ -308,5 +415,6 @@ class LdvUitkomstIntegrationTest {
         const val ONTVANGER_PUBLICEREN = "100000009"
         const val ONTVANGER_FAIL_CLOSED = "100000010"
         const val ONTVANGER_VERLOREN_UITKOMST = "100000022"
+        const val ONTVANGER_ROLLBACK = "100000034"
     }
 }

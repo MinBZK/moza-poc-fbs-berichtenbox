@@ -153,20 +153,24 @@ verwerkingsactiviteit en het attribuut `moza.ldv.uitkomst=mislukt`.
 `ERROR` staat, is mislukt.** Dit is een afspraak binnen MOZa; de standaard kent deze leesregel nog
 niet (Logius-standaarden/logboek-dataverwerkingen#314).
 
-* **Liever te veel dan te weinig.** Een leverpoging krijgt alleen een ERROR-child als vaststaat
-  dat de afnemer het bericht niet kreeg: een fout bij het opbouwen van het bericht of van de
-  verbinding (geweigerd, onbekende host, connect-timeout, TLS-handshake). Bij een read-timeout,
-  een verbroken antwoord of een HTTP-foutantwoord kan de afnemer het bericht wél hebben; die
-  poging blijft als verstrekking staan.
+* **Liever te veel dan te weinig.** Een ERROR-child komt er alleen als vaststaat dat de
+  verwerking niet plaatsvond. Bij publiceren: een fout bij het opbouwen van het bericht, een
+  configuratiefout (URL-validatie, grant-hash, TLS-handshake) of een fout bij het opzetten van
+  de verbinding (geweigerd, onbekende host, connect-timeout). Bij een read-timeout, een verbroken
+  antwoord of een HTTP-foutantwoord kan de afnemer het bericht wél hebben; die poging blijft als
+  verstrekking staan. Bij aanleveren blijft de ERROR-child ook weg als de database de opslag
+  mogelijk toch vastlegde (verbroken verbinding of heuristische uitkomst bij de commit).
 * **Pogingen:** elke leverpoging heeft een eigen logregel met `publicatie.poging`, en deelt
   `publicatie.bericht_id` en `publicatie.doel` met de andere pogingen voor dezelfde verstrekking.
   Het nummer is het aantal geregistreerde mislukte pogingen + 1; na een teruggedraaide verwerking
-  kan een nummer terugkomen. Twee regels zonder ERROR-child voor hetzelfde bericht en doel
-  betekenen dat er twee keer is verstrekt (het bekende duplicate-send-venster na een 2xx).
+  kan een nummer terugkomen. Meerdere regels zonder ERROR-child voor hetzelfde bericht en doel
+  betekenen dat er *mogelijk* meer dan eens is verstrekt: meestal een onzekere poging gevolgd
+  door een retry, zeldzamer het duplicate-send-venster na een 2xx. Het foutbeeld per poging
+  staat in de applicatielog en de claim-status.
 * **Foutattributen:** `exception.type` op een ERROR-child is een vaste samenvattingsklasse
   (`…common.LdvFoutSamenvatting` of `…publicatie.LeveringMislukt`), nooit het echte fouttype.
   Filter daarom op `exception.message`: bij aanleveren de volledige klassenaam van de fout, bij
-  publiceren een categorie (`NetwerkFout`, `Timeout`, …). De foutmelding zelf staat er nooit in,
+  publiceren een categorie (`NetwerkFout`, `Timeout`, `SerialisatieFout`, `ConfiguratieFout`). De foutmelding zelf staat er nooit in,
   want die rijen gaan bij een inzageverzoek naar buiten; het foutbeeld staat, gesaneerd, in de
   applicatielog.
 * **`LDV_UITKOMST_ONTBREEKT`** (ERROR, met soort verwerking, `berichtId`, bij publiceren ook doel

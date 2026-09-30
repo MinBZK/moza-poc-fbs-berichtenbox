@@ -1,7 +1,5 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
-import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
-import io.opentelemetry.api.trace.SpanContext
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
@@ -9,29 +7,41 @@ import io.mockk.slot
 import io.mockk.verify
 import io.mockk.verifyOrder
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.SpanContext
 import io.opentelemetry.context.Context
+import jakarta.transaction.HeuristicCommitException
+import jakarta.transaction.HeuristicMixedException
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MultivaluedHashMap
 import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import java.net.URI
+import java.sql.SQLException
 import java.time.Instant
 import java.util.UUID
+import java.util.logging.Handler
+import java.util.logging.Level
+import java.util.logging.LogRecord
+import java.util.logging.Logger
 
 /**
  * Borgt het logboek-gedrag van [AanleverResource]:
@@ -373,6 +383,77 @@ class AanleverResourceLdvTest {
         verify { processingHandler.recordFailedOutcome(logregels, any()) }
     }
 
+    @ParameterizedTest
+    @MethodSource("onzekereCommits")
+    fun `een commit met onzekere uitkomst krijgt geen ERROR-child`(fout: Throwable) {
+        // Het bericht kan toch zijn opgeslagen; "mislukt" zou dan te weinig registreren.
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws fout
+
+        val ex = assertThrows<Throwable> { resource.leverBerichtAan(request) }
+
+        assertSame(fout, ex)
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    @Test
+    fun `een databasefout buiten de verbinding krijgt wel een ERROR-child`() {
+        // Een constraint-violation (23xxx) rolt de transactie zeker terug.
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws
+            IllegalStateException("opslag", SQLException("duplicate key", "23505"))
+        every { processingHandler.recordFailedOutcome(logregels, any()) } returns emptyList()
+
+        assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        verify { processingHandler.recordFailedOutcome(logregels, any()) }
+    }
+
+    @Test
+    fun `een cyclische oorzaak-keten laat de commit-toets niet hangen`() {
+        val a = IllegalStateException("a")
+        val b = IllegalStateException("b", a)
+        a.initCause(b)
+
+        assertFalse(AanleverResource.commitOnzeker(a))
+    }
+
+    @Test
+    fun `een verloren uitkomst noemt het bericht, maar niet de ontvanger`() {
+        val records = mutableListOf<LogRecord>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) {
+                records.add(record)
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger(MislukteUitkomst::class.java.name)
+        logger.addHandler(handler)
+
+        try {
+            stubBaseline()
+            every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+            justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+            every { opslagService.slaBerichtOp(any(), any()) } throws IllegalStateException("opslag stuk")
+            every { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) } returns logregels
+
+            assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+        } finally {
+            logger.removeHandler(handler)
+        }
+
+        val melding = records.single { it.level == Level.SEVERE }.message
+        assertTrue(melding.contains(gevalideerdBericht.berichtId.toString()), melding)
+        assertFalse(melding.contains("999993653"), "geen BSN in de applicatielog — was: $melding")
+    }
+
     @Test
     fun `een verloren uitkomst-logregel vervangt de opslagfout niet`() {
         stubBaseline()
@@ -408,5 +489,16 @@ class AanleverResourceLdvTest {
         assertThrows<IllegalArgumentException> { resource.leverBerichtAan(request) }
 
         verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    companion object {
+        @JvmStatic
+        fun onzekereCommits(): List<Throwable> = listOf(
+            RuntimeException("commit", HeuristicMixedException("gemengd")),
+            RuntimeException("commit", HeuristicCommitException("vastgelegd")),
+            // Verbinding weg tijdens de COMMIT: de bevestiging kan zijn weggevallen.
+            IllegalStateException("commit", RuntimeException("jdbc", SQLException("I/O error", "08006"))),
+            HeuristicMixedException("direct"),
+        )
     }
 }

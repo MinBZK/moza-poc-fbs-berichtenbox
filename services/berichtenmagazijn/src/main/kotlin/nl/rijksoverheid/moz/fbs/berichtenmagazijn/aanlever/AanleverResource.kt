@@ -4,6 +4,8 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.context.Context as OtelContext
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.transaction.HeuristicCommitException
+import jakarta.transaction.HeuristicMixedException
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.UriInfo
@@ -25,6 +27,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
+import java.sql.SQLException
 
 /**
  * REST-resource voor de Aanlever API.
@@ -74,7 +77,15 @@ class AanleverResource(
         try {
             opslagService.slaBerichtOp(bericht, bijlagen)
         } catch (ex: Throwable) {
-            mislukteUitkomst.legVast(logregels, ex, "aanleveren berichtId=${bericht.berichtId}")
+            val kenmerken = "aanleveren berichtId=${bericht.berichtId}"
+
+            if (commitOnzeker(ex)) {
+                // Het bericht kan toch zijn opgeslagen; "mislukt" zou dan te weinig registreren.
+                log.warnf("Uitkomst van de opslag onzeker; geen mislukte uitkomst in het logboek (%s)", kenmerken)
+            } else {
+                mislukteUitkomst.legVast(logregels, ex, kenmerken)
+            }
+
             throw ex
         }
 
@@ -217,5 +228,24 @@ class AanleverResource(
 
             return emptyList()
         }
+    }
+
+    internal companion object {
+        /**
+         * `true` als de database de transactie mogelijk wél heeft vastgelegd: een heuristische
+         * uitkomst, of een verbroken verbinding (SQLState-klasse `08`) waarbij de bevestiging
+         * van de COMMIT kan zijn weggevallen. Een verbroken verbinding vóór de COMMIT valt hier
+         * ook onder; dan staat er één logregel te veel, wat de toegestane kant is.
+         */
+        fun commitOnzeker(fout: Throwable): Boolean = generateSequence(fout) { it.cause }
+            .take(MAX_OORZAKEN)
+            .any {
+                it is HeuristicMixedException ||
+                    it is HeuristicCommitException ||
+                    (it is SQLException && it.sqlState?.startsWith("08") == true)
+            }
+
+        /** Begrenst het aflopen van de oorzaak-keten; een cyclische keten is zeldzaam maar mogelijk. */
+        private const val MAX_OORZAKEN = 16
     }
 }

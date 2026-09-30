@@ -82,11 +82,19 @@ class MislukteUitkomstTest {
 
         mislukteUitkomst.legVast(
             logregels,
-            DownstreamResultaat.NetwerkFout("geweigerd voor 999993653", zekerNietVerzonden = true),
+            DownstreamResultaat.NetwerkFout.geenVerbinding("geweigerd voor 999993653"),
             kenmerken,
         )
 
         assertEquals("NetwerkFout", samenvatting.captured.message)
+    }
+
+    @Test
+    fun `een levering die de afnemer mogelijk bereikte schrijft niets`() {
+        // "Niet verstrekt" zou dan te weinig registreren; de check zit hier, niet bij de aanroeper.
+        mislukteUitkomst.legVast(logregels(1), DownstreamResultaat.Timeout.bijLezen("read-timeout"), kenmerken)
+
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
     }
 
     @Test
@@ -152,6 +160,31 @@ class MislukteUitkomstTest {
             logregels.all { logregel -> meldingen.any { it.contains(logregel.spanContext.spanId) } },
             "alle logregels moeten als verloren gemeld zijn — was: $meldingen",
         )
+    }
+
+    @Test
+    fun `een onderbreking in de wrapper behoudt de interrupt-flag`() {
+        val logregels = logregels(1)
+        every { processingHandler.recordFailedOutcome(logregels, any()) } throws InterruptedException()
+
+        try {
+            mislukteUitkomst.legVast(logregels, fout, kenmerken)
+        } finally {
+            assertTrue(Thread.interrupted(), "de interrupt-flag moet hersteld zijn")
+        }
+    }
+
+    @Test
+    fun `een LinkageError noemt de ontbrekende signatuur en de kenmerken`() {
+        val logregels = logregels(1)
+        every { processingHandler.recordFailedOutcome(logregels, any()) } throws
+            NoSuchMethodError("ProcessingHandler.recordFailedOutcome(Ljava/util/Collection;)")
+
+        mislukteUitkomst.legVast(logregels, fout, kenmerken)
+
+        val melding = records.first { it.level == Level.SEVERE }.message
+        assertTrue(melding.contains("recordFailedOutcome(Ljava/util/Collection;)"), melding)
+        assertTrue(melding.contains(kenmerken), melding)
     }
 
     private fun logregels(aantal: Int): List<Logregel> = (1..aantal).map { i ->

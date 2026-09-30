@@ -89,7 +89,7 @@ class PublicatieClaimVerwerker(
      * dan krijgt de logregel een ERROR-child via [MislukteUitkomst]. Bij een onzekere
      * levering niet: liever een verstrekking te veel in het logboek dan een te weinig.
      */
-    // Throwable: ook een Error bij het opbouwen valt vóór de levering en verdient zijn uitkomst.
+    // Error apart: die valt ook vóór de levering en verdient zijn uitkomst, maar hoort door te gaan.
     @Suppress("TooGenericExceptionCaught")
     private fun verwerkClaim(claim: PublicatieClaim) {
         val bericht = berichten.findByBerichtId(claim.berichtId)
@@ -105,19 +105,26 @@ class PublicatieClaimVerwerker(
         val kenmerken = "publiceren berichtId=${claim.berichtId} doel=${claim.doel} claimId=${claim.claimId}"
         val nu = clock.instant()
 
-        // Het opbouwen gaat vooraf aan de levering: een fout hier betekent zeker niets verstrekt.
+        // Een opbouwfout herhaalt zich bij elke poging. Als SerialisatieFout wordt de claim
+        // terminaal; opnieuw gooien zou de transactie terugdraaien en elke pollronde een
+        // nieuwe logregel met ERROR-child opleveren.
         val event = try {
             cloudEventBuilder.bouw(bericht, claim.doel, nu)
-        } catch (ex: Throwable) {
+        } catch (ex: Exception) {
+            log.errorf(ex, "CloudEvent niet op te bouwen: berichtId=%s doel=%s", claim.berichtId, claim.doel)
+            null
+        } catch (ex: Error) {
             mislukteUitkomst.legVast(logregels, ex, kenmerken)
             throw ex
         }
 
-        when (val resultaat = downstreamClient.lever(claim.doel, event)) {
+        val resultaat = event?.let { downstreamClient.lever(claim.doel, it) }
+            ?: DownstreamResultaat.SerialisatieFout("CloudEvent niet op te bouwen")
+
+        when (resultaat) {
             is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu)
             is DownstreamResultaat.Mislukt -> {
-                if (resultaat.zekerNietVerzonden) mislukteUitkomst.legVast(logregels, resultaat, kenmerken)
-
+                mislukteUitkomst.legVast(logregels, resultaat, kenmerken)
                 verwerkMislukt(claim, resultaat, nu, downstreamConfig)
             }
         }
@@ -129,8 +136,8 @@ class PublicatieClaimVerwerker(
      * downstream ze aannam. Uitzondering: een onbekend doel (config-drift) krijgt hier al
      * `ERROR`, want dan staat de onmogelijkheid al vast vóór er een downstream-call is.
      *
-     * @return de logregels die bij een mislukte levering een ERROR-child krijgen; leeg bij
-     *         een onbekend doel, want die logregel is zelf al de mislukte uitkomst.
+     * @return de logregels die een ERROR-child krijgen als vaststaat dat er niets verstrekt
+     *         is; leeg bij een onbekend doel, want die logregel is zelf al de mislukte uitkomst.
      */
     private fun legVerstrekkingVast(
         claim: PublicatieClaim,

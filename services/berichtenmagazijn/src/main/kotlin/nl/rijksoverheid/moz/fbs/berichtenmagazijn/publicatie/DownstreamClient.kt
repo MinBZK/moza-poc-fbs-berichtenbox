@@ -17,7 +17,6 @@ import org.jboss.logging.Logger
 import java.io.IOException
 import java.net.ConnectException
 import java.net.InetAddress
-import java.net.NoRouteToHostException
 import java.net.URI
 import java.net.UnknownHostException
 import java.net.http.HttpClient
@@ -215,7 +214,7 @@ class DownstreamClient(
             // het signaal niet verliest.
             Thread.currentThread().interrupt()
             log.warnf(ex, "Interrupted bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.NetwerkFout("Interrupted naar $doel", zekerNietVerzonden = false)
+            DownstreamResultaat.NetwerkFout.onderweg("Interrupted naar $doel")
         }
     }
 
@@ -251,16 +250,14 @@ class DownstreamClient(
     internal fun mapDeliveryException(ex: IOException, doel: Publicatiedoel): DownstreamResultaat = when (ex) {
         is HttpConnectTimeoutException -> {
             log.warnf(ex, "Connect-timeout bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.Timeout(
+            DownstreamResultaat.Timeout.bijVerbinden(
                 FoutBeschrijving.saneer("Connect-timeout naar $doel: ${ex.message}"),
-                zekerNietVerzonden = true,
             )
         }
         is HttpTimeoutException -> {
             log.warnf(ex, "Read-timeout bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.Timeout(
+            DownstreamResultaat.Timeout.bijLezen(
                 FoutBeschrijving.saneer("Read-timeout naar $doel: ${ex.message}"),
-                zekerNietVerzonden = false,
             )
         }
         is SSLHandshakeException -> {
@@ -277,18 +274,22 @@ class DownstreamClient(
             // NetwerkFout (herstelbaar), maar log als TLS-fout zodat ops het niet voor
             // een TCP-hick aanziet.
             log.warnf(ex, "TLS-laag fout (mogelijk transient) bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.NetwerkFout(
+            DownstreamResultaat.NetwerkFout.onderweg(
                 FoutBeschrijving.saneer("TLS-fout naar $doel: ${ex.javaClass.simpleName}"),
-                zekerNietVerzonden = false,
+            )
+        }
+        // De JDK-client meldt elke fout in de connect-fase (geweigerd, onbekende host, geen
+        // route) als ConnectException; de oorzaak staat in de keten, niet in het type.
+        is ConnectException -> {
+            log.warnf(ex, "Geen verbinding bij downstream-aflevering: doel=%s", doel)
+            DownstreamResultaat.NetwerkFout.geenVerbinding(
+                FoutBeschrijving.saneer("${ex.javaClass.simpleName} naar $doel: ${ex.message}"),
             )
         }
         else -> {
             log.warnf(ex, "Netwerkfout bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.NetwerkFout(
+            DownstreamResultaat.NetwerkFout.onderweg(
                 FoutBeschrijving.saneer("${ex.javaClass.simpleName} naar $doel: ${ex.message}"),
-                // Geweigerd, onbekende host of geen route: de verbinding kwam er nooit.
-                zekerNietVerzonden = ex is ConnectException || ex is UnknownHostException ||
-                    ex is NoRouteToHostException,
             )
         }
     }
@@ -579,10 +580,10 @@ sealed interface DownstreamResultaat {
             get() = null
 
         /**
-         * `true` als vaststaat dat het bericht de afnemer niet bereikte: de fout viel vóór of
+         * `true` als vaststaat dat de afnemer het bericht niet verwerkte: de fout viel vóór of
          * tijdens het opzetten van de verbinding. Bij `false` kan de afnemer het bericht wél
-         * hebben (read-timeout, verbroken antwoord, 5xx), en telt de verstrekking in het
-         * logboek als geslaagd — liever te veel dan te weinig registreren.
+         * hebben (read-timeout, verbroken antwoord, elk HTTP-foutantwoord), en telt de
+         * verstrekking in het logboek als geslaagd — liever te veel dan te weinig registreren.
          */
         val zekerNietVerzonden: Boolean
     }
@@ -597,16 +598,43 @@ sealed interface DownstreamResultaat {
         override val herstelbaar: Boolean =
             statusCode in 500..599 || statusCode == 408 || statusCode == 429
 
-        // Er kwam een antwoord, dus de afnemer heeft het verzoek ontvangen.
+        // Van wie het antwoord kwam is niet vast te stellen: een 4xx of 502 kan ook van de eigen
+        // outway of de inway komen, maar evengoed van een afnemer die het bericht al verwerkte.
         override val zekerNietVerzonden: Boolean = false
     }
 
-    data class Timeout(override val reden: String, override val zekerNietVerzonden: Boolean) : Mislukt {
+    // Constructor privé: de factories koppelen de verzendzekerheid aan de fase, zodat een
+    // read-timeout niet per ongeluk als "zeker niet verzonden" te maken is.
+    @ConsistentCopyVisibility
+    data class Timeout private constructor(
+        override val reden: String,
+        override val zekerNietVerzonden: Boolean,
+    ) : Mislukt {
         override val herstelbaar: Boolean = true
+
+        companion object {
+            /** De verbinding kwam er niet: er is niets verzonden. */
+            fun bijVerbinden(reden: String): Timeout = Timeout(reden, zekerNietVerzonden = true)
+
+            /** Het antwoord bleef uit: de afnemer kan het bericht hebben. */
+            fun bijLezen(reden: String): Timeout = Timeout(reden, zekerNietVerzonden = false)
+        }
     }
 
-    data class NetwerkFout(override val reden: String, override val zekerNietVerzonden: Boolean) : Mislukt {
+    @ConsistentCopyVisibility
+    data class NetwerkFout private constructor(
+        override val reden: String,
+        override val zekerNietVerzonden: Boolean,
+    ) : Mislukt {
         override val herstelbaar: Boolean = true
+
+        companion object {
+            /** De verbinding werd geweigerd of de host was onvindbaar: er is niets verzonden. */
+            fun geenVerbinding(reden: String): NetwerkFout = NetwerkFout(reden, zekerNietVerzonden = true)
+
+            /** De fout viel na het opzetten van de verbinding: de afnemer kan het bericht hebben. */
+            fun onderweg(reden: String): NetwerkFout = NetwerkFout(reden, zekerNietVerzonden = false)
+        }
     }
 
     data class SerialisatieFout(override val reden: String) : Mislukt {
@@ -614,7 +642,8 @@ sealed interface DownstreamResultaat {
         override val zekerNietVerzonden: Boolean = true
     }
 
-    // Ook de TLS-handshake-fout valt hieronder: die breekt af vóór er een request-byte over gaat.
+    // Ook de TLS-handshake-fout valt hieronder: zonder geslaagde handshake verwerkt de afnemer
+    // het verzoek niet, ook niet bij een heronderhandeling na de request-headers.
     data class ConfiguratieFout(override val reden: String) : Mislukt {
         override val herstelbaar: Boolean = false
         override val zekerNietVerzonden: Boolean = true
