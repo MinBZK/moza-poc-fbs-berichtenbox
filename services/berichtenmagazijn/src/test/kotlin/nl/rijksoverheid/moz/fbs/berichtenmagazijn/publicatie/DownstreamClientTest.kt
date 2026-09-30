@@ -382,6 +382,42 @@ class DownstreamClientTest {
             resultaat is DownstreamResultaat.NetwerkFout || resultaat is DownstreamResultaat.Timeout,
             "verwacht NetwerkFout of Timeout, kreeg $resultaat",
         )
+        // Er kwam geen verbinding, dus er is niets verzonden: het logboek mag "mislukt" zeggen.
+        assertTrue((resultaat as DownstreamResultaat.Mislukt).zekerNietVerzonden, "kreeg $resultaat")
+    }
+
+    @Test
+    fun `een onbekende host geldt als zeker niet verzonden`() {
+        // .invalid resolveert per RFC 6761 nooit; de fout valt dus vóór er iets verstuurd is,
+        // welke laag hem ook meldt (SSRF-toets of de verbinding zelf).
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://aanmeld.invalid/events"))
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue((resultaat as DownstreamResultaat.Mislukt).zekerNietVerzonden, "kreeg $resultaat")
+    }
+
+    @Test
+    fun `een onderbroken levering is onzeker en behoudt de interrupt-flag`() {
+        // Een server die de verbinding aanneemt maar niet antwoordt: de interrupt valt dan
+        // na het opzetten van de verbinding. Een gesloten poort zou kunnen racen met de
+        // ConnectException.
+        java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { socket ->
+            every { config.downstreams() } returns
+                mapOf("aanmeld" to DownstreamStub("http://127.0.0.1:${socket.localPort}/events"))
+            client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+            Thread.currentThread().interrupt()
+
+            val resultaat = try {
+                client.lever(Publicatiedoel("aanmeld"), event)
+            } finally {
+                assertTrue(Thread.interrupted(), "de interrupt-flag moet hersteld zijn")
+            }
+
+            assertTrue(resultaat is DownstreamResultaat.NetwerkFout, "kreeg $resultaat")
+            assertFalse((resultaat as DownstreamResultaat.Mislukt).zekerNietVerzonden)
+        }
     }
 
     @Test

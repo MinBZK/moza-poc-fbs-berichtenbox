@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
+import io.opentelemetry.api.trace.SpanContext
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
@@ -42,6 +44,7 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
     private val downstreamClient = mockk<DownstreamClient>()
     private val config = mockk<PublicatieConfig>()
     private val processingHandler = mockk<ProcessingHandler>()
+    private val logregels = listOf(Logregel(SpanContext.getInvalid(), "logregel", null, null))
     private val span = mockk<Span>(relaxed = true)
     private val clock: Clock = Clock.fixed(Instant.parse("2026-05-12T10:00:00Z"), ZoneOffset.UTC)
 
@@ -87,7 +90,7 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
             gevangenFout.set(arg<String>(1))
             gevangenVolgendePoging.set(arg<Instant?>(2))
         }
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         verwerker.verwerkEenClaim()
@@ -100,7 +103,7 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
     fun `bericht weg = markeerMislukt vóór de logregel, dan span end, dan enforceWriteAcknowledgement`() {
         stubOntbrekendBericht()
         justRun { claimer.markeerMislukt(any(), any(), any()) }
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         verwerker.verwerkEenClaim()
@@ -120,7 +123,7 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         val ldvContextSlot = slot<LogboekContext>()
-        justRun { processingHandler.addLogboekContextToSpan(span, capture(ldvContextSlot), any()) }
+        every { processingHandler.addLogboekContextToSpan(span, capture(ldvContextSlot), any()) } returns logregels
 
         verwerker.verwerkEenClaim()
 
@@ -149,7 +152,7 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
     fun `bericht weg = een LDV-schrijffout propageert`() {
         stubOntbrekendBericht()
         justRun { claimer.markeerMislukt(any(), any(), any()) }
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         every {
             processingHandler.enforceWriteAcknowledgement(any())
         } throws LogboekWriteException("Logregel kon niet in het Logboek worden opgeslagen")

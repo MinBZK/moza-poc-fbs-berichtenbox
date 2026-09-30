@@ -4,12 +4,15 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.context.Context as OtelContext
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.transaction.HeuristicCommitException
+import jakarta.transaction.HeuristicMixedException
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
@@ -17,12 +20,14 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtResponse
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
+import java.sql.SQLException
 
 /**
  * REST-resource voor de Aanlever API.
@@ -55,36 +60,52 @@ class AanleverResource(
 ) : AanleverApi {
 
     private val log = Logger.getLogger(AanleverResource::class.java)
+    private val mislukteUitkomst = MislukteUitkomst(processingHandler)
 
+    // Throwable: ook een Error rolt de opslag terug, en zonder uitkomst leest de logregel als geslaagd.
+    @Suppress("TooGenericExceptionCaught")
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
             BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
         }
-        val bericht = valideerEnLegVast(berichtAanleverenRequest, bijlagen)
+        val (bericht, logregels) = valideerEnLegVast(berichtAanleverenRequest, bijlagen)
 
         // Pas opslaan nadat de logregel bevestigd is. Andersom zou een aanlevering die
         // niet in het logboek kwam tóch een bericht én outbox-leveringen achterlaten: de
         // aanleveraar krijgt dan een 500 en levert opnieuw aan, met een nieuw berichtId
         // en dus een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
-        opslagService.slaBerichtOp(bericht, bijlagen)
+        try {
+            opslagService.slaBerichtOp(bericht, bijlagen)
+        } catch (ex: Throwable) {
+            val kenmerken = "aanleveren berichtId=${bericht.berichtId}"
+
+            if (commitOnzeker(ex)) {
+                // Het bericht kan toch zijn opgeslagen; "mislukt" zou dan te weinig registreren.
+                log.warnf("Uitkomst van de opslag onzeker; geen mislukte uitkomst in het logboek (%s)", kenmerken)
+            } else {
+                mislukteUitkomst.legVast(logregels, ex, kenmerken)
+            }
+
+            throw ex
+        }
 
         return naarBerichtResponse(bericht)
     }
+
+    private data class VastgelegdeAanlevering(val bericht: Bericht, val logregels: List<Logregel>)
 
     /**
      * Valideert de aanlevering en legt de voorgenomen verwerking vast in het logboek.
      * Keert pas terug als de logregel bevestigd is; een [LogboekWriteException] betekent
      * dat er niets opgeslagen wordt.
      *
-     * De logregel beschrijft daarmee het voornemen, niet de uitkomst: een opslagfout ná
-     * dit punt laat een logregel achter voor een aanlevering die niet plaatsvond.
-     * Over-rapporteren is hier het veiligere uiterste — TODO(#924) voor het vastleggen
-     * van de uitkomst.
+     * De logregel beschrijft daarmee het voornemen, niet de uitkomst. Mislukt de opslag
+     * daarna, dan krijgen de teruggegeven logregels een ERROR-child via [MislukteUitkomst].
      */
     private fun valideerEnLegVast(
         berichtAanleverenRequest: BerichtAanleverenRequest,
         bijlagen: List<BijlageInvoer>,
-    ): Bericht {
+    ): VastgelegdeAanlevering {
         // De recorder is thread-gebonden en deze resource doet zijn eigen span-beheer:
         // zonder legen kan een schrijffout van een eerder request op deze pooled thread
         // dit request laten falen.
@@ -93,13 +114,15 @@ class AanleverResource(
         // Span en LDV-context binnen try zodat een latere config-throw geen
         // span-leak veroorzaakt; finally end()'t altijd.
         var pendingFailure: Throwable? = null
+        var logregels: List<Logregel> = emptyList()
         val span = processingHandler.startSpan("aanleveren-bericht", OtelContext.current())
-        try {
+
+        val bericht = try {
             // processingActivityId vóór de eerste mogelijke fout zetten zodat
             // addLogboekContextToSpan in finally niet faalt. dataSubjectId/-Type krijgen
             // hieronder de gevalideerde ontvanger (tot dan: safe defaults via filter).
             logboekContext.processingActivityId = publicatieConfig.verwerkingsregisterAanleveren()
-            return span.makeCurrent().use { _ ->
+            span.makeCurrent().use { _ ->
                 val ontvangerDto = berichtAanleverenRequest.ontvanger
                 val bericht = opslagService.valideerAanlevering(
                     afzender = berichtAanleverenRequest.afzender,
@@ -124,8 +147,10 @@ class AanleverResource(
             span.setStatus(StatusCode.ERROR)
             throw ex
         } finally {
-            koppelLdvContextEnEindigSpan(span, pendingFailure)
+            logregels = koppelLdvContextEnEindigSpan(span, pendingFailure)
         }
+
+        return VastgelegdeAanlevering(bericht, logregels)
     }
 
     private fun naarBerichtResponse(bericht: Bericht): BerichtResponse {
@@ -150,7 +175,11 @@ class AanleverResource(
         }
     }
 
-    private fun koppelLdvContextEnEindigSpan(span: Span, pendingFailure: Throwable?) {
+    /**
+     * Geeft de bevestigde logregels terug, voor [MislukteUitkomst]. Met een [pendingFailure]
+     * gooit de aanroeper hoe dan ook en is de lijst niet van belang.
+     */
+    private fun koppelLdvContextEnEindigSpan(span: Span, pendingFailure: Throwable?): List<Logregel> {
         try {
             // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor
             // — alleen koppelen als upstream een traceparent stuurde.
@@ -164,7 +193,7 @@ class AanleverResource(
                 )
             }
 
-            try {
+            val logregels = try {
                 // Alleen het type van de fout gaat mee: de wrapper zet exception.message op
                 // dezelfde child-spans die dpl.core.data_subject_id dragen, en die rijen
                 // gaan bij een inzageverzoek naar buiten.
@@ -182,6 +211,8 @@ class AanleverResource(
             // het bericht uit de database. Propageert er al een functionele fout, dan mag
             // een schrijffout die niet maskeren: die fout moet de aanleveraar bereiken.
             processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
+
+            return logregels
         } catch (ex: Exception) {
             // Deze methode draait vanuit een finally-blok. Gooien terwijl er al een fout
             // propageert zou die vervángen, waardoor de aanleveraar de domeinfout niet
@@ -194,6 +225,27 @@ class AanleverResource(
                 "LDV-logregel voor aanleveren mislukt terwijl er al een fout propageert (categorie=%s)",
                 ex.javaClass.simpleName,
             )
+
+            return emptyList()
         }
+    }
+
+    internal companion object {
+        /**
+         * `true` als de database de transactie mogelijk wél heeft vastgelegd: een heuristische
+         * uitkomst, of een verbroken verbinding (SQLState-klasse `08`) waarbij de bevestiging
+         * van de COMMIT kan zijn weggevallen. Een verbroken verbinding vóór de COMMIT valt hier
+         * ook onder; dan staat er één logregel te veel, wat de toegestane kant is.
+         */
+        fun commitOnzeker(fout: Throwable): Boolean = generateSequence(fout) { it.cause }
+            .take(MAX_OORZAKEN)
+            .any {
+                it is HeuristicMixedException ||
+                    it is HeuristicCommitException ||
+                    (it is SQLException && it.sqlState?.startsWith("08") == true)
+            }
+
+        /** Begrenst het aflopen van de oorzaak-keten; een cyclische keten is zeldzaam maar mogelijk. */
+        private const val MAX_OORZAKEN = 16
     }
 }

@@ -41,7 +41,7 @@ class DownstreamResultaatTest {
 
     @Test
     fun `Timeout altijd herstelbaar`() {
-        val r = DownstreamResultaat.Timeout("read timeout")
+        val r = DownstreamResultaat.Timeout.bijLezen("read timeout")
         assertTrue(r.herstelbaar)
         assertNull(r.retryAfter)
         assertEquals("read timeout", r.reden)
@@ -49,7 +49,7 @@ class DownstreamResultaatTest {
 
     @Test
     fun `NetwerkFout altijd herstelbaar`() {
-        val r = DownstreamResultaat.NetwerkFout("connection reset")
+        val r = DownstreamResultaat.NetwerkFout.onderweg("connection reset")
         assertTrue(r.herstelbaar)
     }
 
@@ -63,5 +63,19 @@ class DownstreamResultaatTest {
     fun `ConfiguratieFout niet herstelbaar`() {
         val r = DownstreamResultaat.ConfiguratieFout("ongeldige url")
         assertFalse(r.herstelbaar)
+    }
+
+    @Test
+    fun `een ontvangen HTTP-antwoord telt nooit als zeker niet verzonden`() {
+        // Ook een 4xx of 5xx: de afnemer heeft het verzoek met de gegevens ontvangen.
+        listOf(400, 404, 500, 502, 503).forEach { status ->
+            assertFalse(DownstreamResultaat.HttpFout(status, null, "x").zekerNietVerzonden, "HTTP $status")
+        }
+    }
+
+    @Test
+    fun `een serialisatie- of configuratiefout valt voor het verzenden`() {
+        assertTrue(DownstreamResultaat.SerialisatieFout("kapotte json").zekerNietVerzonden)
+        assertTrue(DownstreamResultaat.ConfiguratieFout("ongeldige URL").zekerNietVerzonden)
     }
 }
