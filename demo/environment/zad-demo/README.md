@@ -217,6 +217,11 @@ proxy geeft die door, en voor de uitvraag is dat een vreemde origin: zonder de p
 een `403 CORS Rejected - Invalid origin` zonder body. Lezen merkt er niets van, omdat een browser bij
 een GET naar zijn eigen origin geen `Origin` stuurt.
 
+Hetzelfde geldt voor de previews van de proeftuin in hun eigen repository (`proef-pr<n>-…` in
+project `pm-5sj`): die wijzen naar de uitvraag van `test`, zodat hun werk tegen onze keten te
+bekijken is. Hun overige deployments (`poc`, `gebruikersonderzoek`, `release-…`) staan er bewust
+niet op.
+
 Elke deployment heeft een eigen origin (`democonsole-test-…`, `proeftuin-pr-<n>-…`), en previews
 komen en gaan. Eén regex dekt ze allemaal; Quarkus leest een waarde tussen schuine strepen als
 reguliere expressie. In het uitvraag-project:
@@ -224,8 +229,10 @@ reguliere expressie. In het uitvraag-project:
 ```bash
 zadctl -p mpfb-8wh env add -c uitvraag \
   QUARKUS_HTTP_CORS_ENABLED=true \
-  'QUARKUS_HTTP_CORS_ORIGINS=/https://(democonsole|proeftuin)-.+-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/'
+  'QUARKUS_HTTP_CORS_ORIGINS=/https://((democonsole|proeftuin)-.+-mpfm-w3h|proef-pr[0-9]+-pm-5sj).rig.prd1.gn2.quattro.rijksapps.nl/'
 ```
+
+Bestaat de waarde al, gebruik dan `env set` in plaats van `env add`.
 
 **Geen backslashes in die waarde.** Een geëscapete variant
 (`https:\/\/democonsole-…\.rig\.…`) laat de SOPS-stap van Operations Manager falen op
