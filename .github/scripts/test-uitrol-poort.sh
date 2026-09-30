@@ -120,10 +120,37 @@ verwacht_poort "pull_request beoordeelt de previews" 0 "Alle 3 uitrol-jobs gesla
 verwacht_poort "push buiten main blokkeert" 1 "alleen main" \
   push refs/heads/thema false success true success "$(fixture "$DRIE_UIT" "$DRIE_OK")"
 
-for event in '' workflow_dispatch schedule merge_group; do
+for event in '' workflow_dispatch schedule; do
   verwacht_poort "onbekend event '$event' blokkeert" 1 "Onbekend event" \
     "$event" "$MAIN" false success true success "$(fixture "$DRIE_OK" "$DRIE_OK")"
 done
+
+# De merge queue rolt niets uit en bouwt niets: beide assen, de hulpjobs en de bouw-jobs stil.
+QUEUE_REF=refs/heads/gh-readonly-queue/main/pr-7-0123456789abcdef0123456789abcdef01234567
+QUEUE_BOUW='skipped skipped skipped skipped'
+
+verwacht_poort "merge queue zonder uitrol is groen" 0 "geen uitrol verwacht" \
+  merge_group "$QUEUE_REF" false success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW")"
+verwacht_poort "merge queue met deploy=true blokkeert" 1 "detectie omgevallen" \
+  merge_group "$QUEUE_REF" false success true success "$(fixture "$DRIE_OK" "$DRIE_UIT" "$QUEUE_BOUW")"
+verwacht_poort "merge queue buiten main blokkeert" 1 "alleen de queue van main" \
+  merge_group refs/heads/gh-readonly-queue/thema/pr-7-abc false success false skipped \
+  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW")"
+verwacht_poort "een draaiende preview in de merge queue blokkeert" 1 "'deploy-preview-uitvraag'" \
+  merge_group "$QUEUE_REF" false success false skipped "$(fixture "success skipped skipped" "$DRIE_UIT" "$QUEUE_BOUW")"
+verwacht_poort "een draaiende test-deploy in de merge queue blokkeert" 1 "niet hoort te draaien" \
+  merge_group "$QUEUE_REF" false success false skipped "$(fixture "$DRIE_UIT" "skipped skipped success" "$QUEUE_BOUW")"
+verwacht_poort "een draaiende preview-afronding in de merge queue blokkeert" 1 "preview-afronding" \
+  merge_group "$QUEUE_REF" false success false skipped \
+  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW" success)"
+verwacht_poort "een draaiende build in de merge queue blokkeert" 1 "'build-demo-images'" \
+  merge_group "$QUEUE_REF" false success false skipped \
+  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "skipped skipped skipped success")"
+verwacht_poort "een ontbrekende build in de merge queue blokkeert" 1 "in plaats van 4" \
+  merge_group "$QUEUE_REF" false success false skipped \
+  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW" | grep -v '^build-demo-images=')"
+verwacht_poort "afgebroken run in de merge queue blokkeert" 1 "run is afgebroken" \
+  merge_group "$QUEUE_REF" true success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW")"
 
 # De as die bij dit event niet hoort te draaien moet volledig stil zijn; draait daar tóch iets,
 # dan matcht de `if` van die jobs breder dan bedoeld.
