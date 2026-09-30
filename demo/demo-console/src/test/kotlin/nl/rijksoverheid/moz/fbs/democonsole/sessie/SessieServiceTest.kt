@@ -6,6 +6,7 @@ import io.mockk.verify
 import io.quarkus.redis.datasource.RedisDataSource
 import io.quarkus.redis.datasource.keys.KeyCommands
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class SessieServiceTest {
@@ -33,5 +34,21 @@ class SessieServiceTest {
         assertEquals(0, service.laatSessiesVerlopen())
 
         verify(exactly = 0) { keyCommands.del(*anyVararg<String>()) }
+    }
+
+    @Test
+    fun `zo mogelijk wissen geeft het aantal door als het lukt`() {
+        every { keyCommands.keys(any()) } returns listOf("berichtensessiecache:v3:abc:status")
+        every { keyCommands.del("berichtensessiecache:v3:abc:status") } returns 1
+
+        assertEquals(1, service.laatSessiesVerlopenZoMogelijk())
+    }
+
+    @Test
+    fun `zo mogelijk wissen geeft null in plaats van een exception als Redis weg is`() {
+        // Het legen van de magazijnen is dan al gebeurd; die knop mag hier niet alsnog op falen.
+        every { keyCommands.keys(any()) } throws IllegalStateException("redis weg")
+
+        assertNull(service.laatSessiesVerlopenZoMogelijk())
     }
 }

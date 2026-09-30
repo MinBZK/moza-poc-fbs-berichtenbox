@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
@@ -42,6 +43,8 @@ class MockSessiecache : Sessiecache {
     // ophalen() is het streaming-pad met een eigen (WAE-)foutkanaal; bewust niet vernauwd.
     var ophalenFout: RuntimeException? = null
     var ophalenEvents: Multi<MagazijnEvent> = Multi.createFrom().empty()
+    var volgFout: SessiecacheException? = null
+    var volgGebeurtenissen: Multi<SessieGebeurtenis> = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
 
     var lijstResultaat: BerichtenPagina? = null
 
@@ -67,6 +70,8 @@ class MockSessiecache : Sessiecache {
         verwijderFouten.clear()
         ophalenFout = null
         ophalenEvents = Multi.createFrom().empty()
+        volgFout = null
+        volgGebeurtenissen = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
         lijstResultaat = null
         laatstePagina = null
         laatsteGrootte = null
@@ -149,6 +154,12 @@ class MockSessiecache : Sessiecache {
         berichten[bericht.berichtId] = bericht
 
         return bericht
+    }
+
+    override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+        volgFout?.let { throw it }
+
+        return volgGebeurtenissen
     }
 
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {

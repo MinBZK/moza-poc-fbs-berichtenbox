@@ -181,6 +181,20 @@ class OphalenSseTest {
     }
 
     @Test
+    fun `_ophalen draagt API-Version, ook op de stream`() {
+        sessiecache.ophalenEvents = Multi.createFrom().item(gereedEvent())
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("Accept", "text/event-stream")
+            .`when`()
+            .get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .header("API-Version", org.hamcrest.Matchers.equalTo(nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo.API_VERSION))
+    }
+
+    @Test
     fun `_ophalen streamt facade-events als SSE-frames`() {
         sessiecache.ophalenEvents = Multi.createFrom().items(
             MagazijnBevragingGestart(magazijnId = "magazijn-a", naam = "Magazijn A"),

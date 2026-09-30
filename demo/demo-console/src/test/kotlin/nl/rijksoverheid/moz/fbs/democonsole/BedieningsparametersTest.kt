@@ -110,4 +110,25 @@ class BedieningsparametersTest {
     fun `een standaard buiten de grenzen is een programmeerfout`() {
         assertThrows<IllegalArgumentException> { heelGetal("aantal", "", standaard = 0, grenzen = 1..500) }
     }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [true, false])
+    fun `een lege ja-nee-waarde valt terug op de standaard`(standaard: Boolean) {
+        // Beide standaarden: met alleen `false` slaagt ook een lezer die de standaard negeert.
+        assertEquals(standaard, jaNee("willekeurigTijdstip", "", standaard))
+    }
+
+    @Test
+    fun `true en false komen letterlijk door`() {
+        assertEquals(true, jaNee("willekeurigTijdstip", "true", standaard = false))
+        assertEquals(false, jaNee("willekeurigTijdstip", "false", standaard = true))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["ja", "True", "1", "on"])
+    fun `een andere ja-nee-waarde wordt geweigerd met de veldnaam`(waarde: String) {
+        val fout = assertThrows<BadRequestException> { jaNee("willekeurigTijdstip", waarde, standaard = false) }
+
+        assertTrue(fout.message!!.contains("willekeurigTijdstip"), "de melding hoort het veld te noemen: ${fout.message}")
+    }
 }

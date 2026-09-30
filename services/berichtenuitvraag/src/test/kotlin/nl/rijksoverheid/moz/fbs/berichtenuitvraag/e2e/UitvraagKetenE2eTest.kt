@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.delete as wmDelete
@@ -13,14 +14,21 @@ import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
+import io.restassured.RestAssured
 import io.restassured.RestAssured.given
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.WireMockBackendsResource
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
 import org.hamcrest.CoreMatchers.nullValue
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.fail
+import java.net.HttpURLConnection
+import java.net.URI
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Volledige keten door de échte bedrading (CLAUDE.md testlaag 4): HTTP-request →
@@ -360,6 +368,80 @@ class UitvraagKetenE2eTest {
             .header("Retry-After", "30")
     }
 
+    @Test
+    fun `een aanmelding verschijnt in een gevolgde sessie zonder nieuwe ophaalronde`() {
+        val bsn = "999993653"
+        val nieuwId = "22222222-2222-2222-2222-222222222222"
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, "33333333-3333-3333-3333-333333333333", bsn, "magazijn-a", OIN_A)
+        given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+        val lijstVerzoeken = { magazijnA.findAll(getRequestedFor(urlPathMatching("/api/v1/berichten"))).size }
+        val naOphalen = lijstVerzoeken()
+
+        val regels = LinkedBlockingQueue<String>()
+
+        val connection = (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection)
+            .apply {
+                setRequestProperty("X-Ontvanger", "BSN:$bsn")
+                setRequestProperty("Accept", "text/event-stream")
+                readTimeout = 10_000
+            }
+
+        // Eerst de status, dan pas de lezer: HttpURLConnection is niet thread-safe.
+        assertEquals(200, connection.responseCode)
+
+        val lezer = Thread { runCatching { connection.inputStream.bufferedReader().lineSequence().forEach { regels += it } } }
+            .apply { isDaemon = true; start() }
+
+        try {
+            wachtOpRegel(regels, "\"event\":\"volgen-gestart\"")
+
+            given()
+                .contentType("application/cloudevents+json")
+                .body(aanmelding(nieuwId, bsn))
+                .`when`().post("/api/v1/aanmeldingen")
+                .then()
+                .statusCode(202)
+
+            val frame = wachtOpRegel(regels, "\"event\":\"bericht-bijgekomen\"")
+
+            assertTrue(frame.contains("\"berichtId\":\"$nieuwId\""), "Verwacht het aangemelde bericht in: $frame")
+            assertEquals(naOphalen, lijstVerzoeken(), "het bericht hoort zonder nieuwe bevraging van het magazijn te komen")
+        } finally {
+            connection.disconnect()
+            lezer.join(2_000)
+        }
+    }
+
+    private fun wachtOpRegel(regels: LinkedBlockingQueue<String>, bevat: String): String {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+
+        while (System.nanoTime() < deadline) {
+            val regel = regels.poll(100, TimeUnit.MILLISECONDS) ?: continue
+
+            if (regel.contains(bevat)) return regel
+        }
+
+        fail("Geen regel met $bevat binnen 5 s")
+    }
+
+    private fun aanmelding(berichtId: String, bsn: String) = """
+        {
+          "id": "evt-$berichtId",
+          "source": "urn:nld:oin:$OIN_A:systeem:fbs-magazijn",
+          "specversion": "1.0",
+          "type": "nl.rijksoverheid.fbs.bericht.gepubliceerd",
+          "subject": "$berichtId",
+          "datacontenttype": "application/json",
+          "data": {
+            "berichtId": "$berichtId",
+            "afzender": "$OIN_A",
+            "ontvanger": { "type": "BSN", "waarde": "$bsn" },
+            "onderwerp": "Net binnen",
+            "publicatietijdstip": "2026-09-21T10:00:00Z"
+          }
+        }
+    """.trimIndent()
 }
 
 // magazijnId == afzender-OIN (register-conventie). Bron is de gedeelde fixture, zodat

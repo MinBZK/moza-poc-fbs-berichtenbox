@@ -19,9 +19,11 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenFout
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.jboss.logging.Logger
+import org.jboss.resteasy.reactive.ResponseHeader
 import org.jboss.resteasy.reactive.RestStreamElementType
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -50,6 +52,9 @@ class OphalenSseResource(
     @Blocking
     @Logboek(name = "uitvraag-ophalen-sse", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
     @Produces(MediaType.SERVER_SENT_EVENTS)
+    // De ApiVersionFilter (een ContainerResponseFilter) komt bij een streaming Multi niet aan de
+    // beurt: de headers zijn dan al verstuurd. Hier staat de waarde er vóór de eerste byte.
+    @ResponseHeader(name = "API-Version", value = [ApiInfo.API_VERSION])
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     fun ophalen(
         @HeaderParam("X-Ontvanger")

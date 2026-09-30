@@ -17,6 +17,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -39,7 +42,8 @@ import java.util.UUID
 class BlockingSessiecacheTest {
 
     private val service = mockk<BerichtensessiecacheService>(relaxed = false)
-    private val facade = BlockingSessiecache(service, facadeAwaitTimeoutSeconds = 5)
+    private val volger = mockk<SessieVolger>(relaxed = true)
+    private val facade = BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
@@ -245,6 +249,79 @@ class BlockingSessiecacheTest {
     }
 
     @Test
+    fun `schrijfBericht meldt het bericht aan bij de gevolgde sessies`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { volger.meldAan(ontvanger, bericht.berichtId) } returns Uni.createFrom().voidItem()
+
+        facade.schrijfBericht(ontvanger, bericht)
+
+        verify(exactly = 1) { volger.meldAan(ontvanger, bericht.berichtId) }
+    }
+
+    @Test
+    fun `schrijfBericht slaagt ook als het aanmelden bij gevolgde sessies mislukt`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { volger.meldAan(ontvanger, bericht.berichtId) } returns
+            Uni.createFrom().failure(IllegalStateException("redis weg"))
+
+        assertSame(bericht, facade.schrijfBericht(ontvanger, bericht))
+    }
+
+    // --- volg ---
+
+    @Test
+    fun `volg kent dezelfde gating als lijst, vóór de stream`() {
+        stubStatus(null)
+        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger) }
+
+        stubStatus(AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
+        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger) }
+
+        verify(exactly = 0) { volger.volg(ontvanger) }
+    }
+
+    @Test
+    fun `volg geeft de stream van de volger door bij een afgeronde ophaling`() {
+        stubStatus(gereed)
+        val stream = Multi.createFrom().item<SessieGebeurtenis>(SessieGebeurtenis.VolgenGestart)
+        every { volger.actief() } returns Uni.createFrom().voidItem()
+        every { volger.volg(ontvanger) } returns stream
+
+        assertSame(stream, facade.volg(ontvanger))
+    }
+
+    @Test
+    fun `volg zonder werkend abonnement is Onbereikbaar, vóór de stream`() {
+        // Anders valt de mislukking pas op een geopende stream: de afnemer ziet een lege, sluitende
+        // 200 in plaats van een storing waarop hij kan wachten.
+        stubStatus(gereed)
+        every { volger.actief() } returns Uni.createFrom().failure(IllegalStateException("probe kwam niet terug"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger) }
+    }
+
+    @Test
+    fun `volg op een stoppende pod is ook Onbereikbaar, vóór de stream`() {
+        // Een gewone uitrol: de afnemer krijgt een 503 en verbindt bij een andere pod. De facade
+        // logt dit niet als error per stream; dat de pod stopt, meldt hij zelf één keer.
+        stubStatus(gereed)
+        every { volger.actief() } returns Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
+
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+
+        assertTrue(fout.cause is AbonnementGesloten)
+        // Eigen melding, en daarmee aantoonbaar een eigen tak: het vangnet voor onbekende fouten
+        // geeft ook Onbereikbaar, maar logt er een error met stack bij.
+        assertEquals("Nieuwe berichten volgen kan nu niet. Probeer het straks opnieuw.", fout.message)
+        verify(exactly = 0) { volger.volg(ontvanger) }
+    }
+
+    @Test
     fun `schrijfBericht vertaalt validator-afwijzing naar OngeldigeInvoer`() {
         stubStatus(gereed)
         val bericht = testBericht()
@@ -304,7 +381,7 @@ class BlockingSessiecacheTest {
     @Test
     fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
         val ex = assertThrows<IllegalArgumentException> {
-            BlockingSessiecache(service, facadeAwaitTimeoutSeconds = 0)
+            BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 0)
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")
