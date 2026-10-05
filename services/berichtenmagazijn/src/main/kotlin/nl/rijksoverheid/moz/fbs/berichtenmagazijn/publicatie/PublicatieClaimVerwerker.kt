@@ -89,8 +89,6 @@ class PublicatieClaimVerwerker(
      * dan krijgt de logregel een ERROR-child via [MislukteUitkomst]. Bij een onzekere
      * levering niet: liever een verstrekking te veel in het logboek dan een te weinig.
      */
-    // Error apart: die valt ook vóór de levering en verdient zijn uitkomst, maar hoort door te gaan.
-    @Suppress("TooGenericExceptionCaught")
     private fun verwerkClaim(claim: PublicatieClaim) {
         val bericht = berichten.findByBerichtId(claim.berichtId)
 
@@ -108,6 +106,8 @@ class PublicatieClaimVerwerker(
         // Een opbouwfout herhaalt zich bij elke poging. Als SerialisatieFout wordt de claim
         // terminaal; opnieuw gooien zou de transactie terugdraaien en elke pollronde een
         // nieuwe logregel met ERROR-child opleveren.
+        //
+        // Error apart: die valt ook vóór de levering en verdient zijn uitkomst, maar hoort door te gaan.
         val event = try {
             cloudEventBuilder.bouw(bericht, claim.doel, nu)
         } catch (ex: Exception) {

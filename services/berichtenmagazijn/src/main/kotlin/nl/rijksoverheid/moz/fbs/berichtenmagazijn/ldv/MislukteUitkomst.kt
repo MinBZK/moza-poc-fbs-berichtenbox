@@ -48,7 +48,6 @@ class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
      * wrapper belooft dat ook, maar een afwijkende wrapper-versie op het classpath zou dat
      * contract ongemerkt breken.
      */
-    @Suppress("TooGenericExceptionCaught") // Elke fout hier is een verloren uitkomst; zie KDoc.
     private fun schrijf(logregels: List<Logregel>, samenvatting: Throwable, kenmerken: String) {
         if (logregels.isEmpty()) return
 
