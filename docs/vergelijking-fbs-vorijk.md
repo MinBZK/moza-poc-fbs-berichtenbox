@@ -4,7 +4,7 @@
 
 ## Wat is VoRijk?
 
-Het **Vorderingenoverzicht Rijk** is een initiatief waarbij burgers hun openstaande betalingsverplichtingen bij overheidsorganisaties (Belastingdienst, CJIB, DUO, UWV, etc.) kunnen inzien. Het is gebouwd op het **Blauwe Knop protocol** — een standaard voor directe, burger-geïnitieerde gegevensuitwisseling met overheidsorganisaties.
+Het **Vorderingenoverzicht Rijk** is een initiatief waarbij burgers hun openstaande betalingsverplichtingen bij overheidsorganisaties (Belastingdienst, CJIB, DUO, UWV, etc. — acht in april 2025) kunnen inzien. Het is gebouwd op het **Blauwe Knop protocol** — een standaard voor directe, burger-geïnitieerde gegevensuitwisseling met overheidsorganisaties.
 
 ## Fundamenteel verschil: wie initieert de communicatie?
 
@@ -13,6 +13,9 @@ Het **Vorderingenoverzicht Rijk** is een initiatief waarbij burgers hun openstaa
 | **Initiator** | Burger logt in op Interactielaag (webportaal), die namens burger bij magazijnen opvraagt | Burger gebruikt een **mobiele app** die **direct** met elke bronorganisatie communiceert |
 | **Intermediair** | Ja — de Interactielaag en Berichten Uitvraag Service als tussenstations | **Nee** — geen intermediair verwerkt de data |
 | **Vertrouwensmodel** | Decentraal systeem vertrouwt JWT van Interactielaag | Decentraal systeem verifieert burger's cryptografische bewijs **rechtstreeks** |
+| **Uitval van één bron** | De overige magazijnen leveren wel; de Berichten Uitvraag Service meldt per magazijn of het ophalen is gelukt | De overige organisaties leveren wel ("build for failure"); de app ziet zelf welke organisatie niet antwoordt |
+
+Beide stelsels zijn dus bestand tegen een bron die uitvalt. Het verschil zit in wie dat opvangt: bij FBS het uitvraagsysteem, dat daarmee zelf een onderdeel is dat beschikbaar moet zijn; bij VoRijk de app, waar geen gedeeld onderdeel tussen zit.
 
 ## Authenticatie vergeleken
 
@@ -76,7 +79,7 @@ De uitdaging is: *"Kan een decentraal systeem de authenticatie vertrouwen, maar 
 
 1. **Verifiable Credentials als machtigingsbewijs**: In plaats van machtigingsclaims als "gewone" JWT-claims door te sturen, zou de Interactielaag een **cryptografisch ondertekend machtigingsbewijs** kunnen meesturen dat het decentrale magazijn zelfstandig kan verifiëren — vergelijkbaar met hoe BK Connect Verifiable Credentials gebruikt.
 
-2. **Stelseldocument-concept**: FBS heeft al FSC-contracts en het OIN-stelsel — dit is functioneel vergelijkbaar met het stelseldocument van VoRijk. De trust-basis is er al.
+2. **Stelseldocument-concept**: FBS heeft al FSC-contracts en het OIN-stelsel — dit is functioneel vergelijkbaar met het stelseldocument van VoRijk. De trust-basis is er al. De makers van VoRijk noemen Blauwe Knop Connect zelf "een soort FSC voor burgers": FSC beveiligt het verkeer tussen organisaties, Blauwe Knop Connect dat tussen burger en organisatie. De twee vullen elkaar aan en zijn geen alternatieven voor elkaar.
 
 3. **OpenID4VP als aanvulling**: Naast het huidige JWT-bearer model zou OpenID4VP gebruikt kunnen worden om machtigingsbewijzen te presenteren aan decentrale systemen, waardoor die systemen het bewijs zelf kunnen verifiëren in plaats van de JWT-issuer te moeten vertrouwen.
 
@@ -89,6 +92,7 @@ De uitdaging is: *"Kan een decentraal systeem de authenticatie vertrouwen, maar 
 | **Machtigingen** | JWT claims | VC-gebonden claims |
 | **Intermediair** | Interactielaag + Berichten Uitvraag | Geen |
 | **Privacy** | BSNk pseudonimisering | End-to-end encryptie |
+| **Uitval van één bron** | Opgevangen in de uitvraag | Opgevangen in de app |
 | **Geschikt voor** | Webportaal, aggregatie | Mobiele app, directe toegang |
 
 De kern: VoRijk kiest voor **"de burger bewijst zelf wie hij is"** terwijl FBS kiest voor **"de Interactielaag staat garant voor de burger"**. Beide zijn valide, maar bij FBS moet het decentrale systeem de Interactielaag vertrouwen — en dat vertrouwen is geborgd via FSC-contracts, mTLS, PKIoverheid-certificaten en het OIN-stelsel.
@@ -101,6 +105,7 @@ De kern: VoRijk kiest voor **"de burger bewijst zelf wie hij is"** terwijl FBS k
 - [VoRijk Als bronorganisatie](https://vorijk.nl/docs/aan-de-slag/bronorganisatie/)
 - [Blauwe Knop Standaard](https://vorijk.nl/standaard/)
 - [Proeftuin Blauwe Knop](https://blauweknop.app/docs/protocol/)
+- [Interview met het team van Vorderingenoverzicht Rijk (developer.overheid.nl, 17 april 2025)](https://developer.overheid.nl/blog/2025/04/17/interview-vorijk)
 
 ---
 
