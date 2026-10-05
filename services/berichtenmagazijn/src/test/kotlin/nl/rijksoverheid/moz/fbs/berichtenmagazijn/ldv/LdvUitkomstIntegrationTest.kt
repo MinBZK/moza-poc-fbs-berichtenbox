@@ -23,6 +23,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.DownstreamHttpServe
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.LeveringMislukt
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimVerwerker
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieStream
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.Publicatiedoel
 import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.hamcrest.Matchers.greaterThanOrEqualTo
@@ -68,6 +69,9 @@ class LdvUitkomstIntegrationTest {
     lateinit var verwerker: PublicatieClaimVerwerker
 
     @Inject
+    lateinit var stream: PublicatieStream
+
+    @Inject
     lateinit var objectMapper: ObjectMapper
 
     private var ontvanger: String? = null
@@ -75,6 +79,8 @@ class LdvUitkomstIntegrationTest {
 
     @AfterEach
     fun ruimOp() {
+        // Een test die halverwege faalt mag geen interrupt-vlag achterlaten voor de opruiming.
+        Thread.interrupted()
         afnemer?.close()
         afnemer = null
         voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON logboek_dataverwerkingen")
@@ -284,6 +290,37 @@ class LdvUitkomstIntegrationTest {
         assertEquals("TE_PUBLICEREN" to 2, claimVan(berichtId))
         val tweedePoging = logregels(bsn, "publicatie-default").single { it.poging == 2 }
         assertTrue(logregels(bsn, "publicatie-default").any { it.parentSpanId == tweedePoging.spanId })
+    }
+
+    @Test
+    fun `een interrupt tijdens de levering laat de rest van de batch onaangeroerd`() {
+        val bsn = gebruik(ONTVANGER_INTERRUPT)
+        val stub = leverAanStub()
+        val pollThread = Thread.currentThread()
+        // De afnemer onderbreekt de poll-thread terwijl die op het eerste antwoord wacht.
+        stub.statusVoorAanroep = { aanroep ->
+            if (aanroep == 1) pollThread.interrupt()
+
+            202
+        }
+        sluitAndereClaimsAf()
+        val berichtIds = List(3) { leverAanEnGeefBerichtId(bsn) }
+
+        stream.pollronde()
+
+        // Leest de vlag en wist hem meteen: de opruiming hoort hem niet te erven.
+        val vlagBleefStaan = Thread.interrupted()
+
+        assertTrue(vlagBleefStaan, "de interrupt-vlag hoort gezet te blijven voor de scheduler")
+        assertEquals(1, stub.aantalAanroepen, "na de interrupt gaat er niets meer naar de afnemer")
+        val claims = berichtIds.map { claimVan(it) }
+        assertEquals(
+            listOf("TE_PUBLICEREN" to 0, "TE_PUBLICEREN" to 0, "TE_PUBLICEREN" to 1),
+            claims.sortedBy { it.second },
+            "alleen de onderbroken claim kost een poging",
+        )
+        val rijen = logregels(bsn, "publicatie-default")
+        assertEquals(1, rijen.size, "geen logregel voor een verstrekking die niet geprobeerd is — was: $rijen")
     }
 
     private fun gebruik(bsn: String): String {
@@ -582,5 +619,6 @@ class LdvUitkomstIntegrationTest {
         const val ONTVANGER_COMMIT_AFGEWEZEN = "100000071"
         const val ONTVANGER_FOUTANTWOORD = "100000083"
         const val ONTVANGER_OPBOUWFOUT = "100000095"
+        const val ONTVANGER_INTERRUPT = "100000101"
     }
 }
