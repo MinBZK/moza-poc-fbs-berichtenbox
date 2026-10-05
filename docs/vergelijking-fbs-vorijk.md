@@ -289,3 +289,64 @@ Daar staat tegenover dat **VoRijk een native mobiele app is, geen browser**. Dan
 - [ProtonMail/encrypted-search (gearchiveerd, MIT)](https://github.com/ProtonMail/encrypted-search)
 - [Updates to Storage Policy — WebKit](https://webkit.org/blog/14403/updates-to-storage-policy/)
 - [Storage quotas and eviction criteria — MDN](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria)
+
+---
+
+## Appendix: Het berichtenoverzicht op meerdere plekken
+
+### Aanleiding
+
+VoRijk kan aannemen dat er één instantie van het overzicht bestaat: de app op de telefoon van de burger. Het berichtenoverzicht van FBS moet op meerdere plekken getoond kunnen worden — een app, het portaal van MijnOverheid Zakelijk en mogelijk andere plekken. Dat roept twee vragen op als FBS het certificaatmodel van Blauwe Knop Connect zou volgen: hoeveel certificaten heeft één persoon dan nodig, en hoe bereikt een melding over een nieuw bericht al die plekken?
+
+### Eén certificaat per instantie, niet per persoon
+
+Het certificaat van Blauwe Knop Connect is een Verifiable Credential met daarin gegevens over de gebruiker en "een (referentie naar een) public key van de gebruiker" (sectie 1.3). De bijbehorende privésleutel blijft in de app. Het certificaat zegt dus: *deze sleutel hoort bij deze persoon*.
+
+Daaruit volgt dat elke plek waar het overzicht draait een eigen sleutelpaar en een eigen certificaat krijgt, elk na een eigen login bij de App Manager. Voor een bronorganisatie maakt het aantal niet uit: die toetst alleen of het aangeboden certificaat geldig is. De specificatie behandelt meerdere apparaten niet expliciet, maar sluit meerdere certificaten ook niet uit — een app mag er al meerdere hebben, per toepassing (sectie 4.3.2).
+
+Eén certificaat delen over meerdere plekken zou betekenen dat de privésleutel gekopieerd wordt. Dan vervalt de binding aan de beveiligde opslag van het apparaat, en trekt het intrekken na een verloren telefoon ook alle andere plekken mee.
+
+### Het portaal is het lastige geval
+
+Een browser heeft geen beveiligde sleutelopslag zoals een telefoon. Er zijn twee routes:
+
+| Route | Hoe | Gevolg |
+|-------|-----|--------|
+| **Sleutel in de browser** | Niet-exporteerbare sleutel via de Web Crypto API, certificaat per browser | Blijft het directe model, maar Safari kan de opslag na zeven dagen wissen (zie de appendix over cachen in de client): kortlevende certificaten en vaak opnieuw inloggen |
+| **Sleutel aan de serverkant van het portaal** | Het portaal houdt de sleutel en vraagt namens de gebruiker op | Het portaal is dan een intermediair; dat is het transitieve model van FBS, niet meer het directe model van VoRijk |
+
+Welke van de twee het wordt is een open ontwerpvraag, en een wezenlijker keuze dan het aantal certificaten.
+
+### Wat meerdere instanties verder betekenen
+
+- **Geen gedeelde toestand tussen instanties.** Elke plek haalt zelf op bij alle bronnen. Wat op alle plekken gelijk moet zijn, zoals de gelezen-status, moet daarom bij het magazijn liggen.
+- **Intrekken per instantie.** De specificatie eist dat de gebruiker inzage krijgt in zijn certificaten en ze kan intrekken (sectie 2.2.7); intrekken loopt via een Token Status List (sectie 4.5). Met meerdere instanties heeft de gebruiker een overzicht van zijn actieve plekken nodig.
+- **Ondernemers.** Loopt de identificatie via eHerkenning, dan draagt het certificaat de persoon, de vertegenwoordigde organisatie en de machtiging. Een bedrijf heeft dan sowieso meerdere certificaten: meerdere medewerkers, elk met meerdere plekken. Omdat een machtiging kan vervallen, is een korte geldigheid of een statuscontrole nodig.
+
+### Meldingen: de organisatie kent de apparaten niet
+
+Bij VoRijk begint de burger altijd zelf. In een berichtenstelsel begint de organisatie — mogelijk een waarmee de ontvanger nog nooit contact had. De specificatie van Blauwe Knop Connect beschrijft daarvoor geen mechanisme. Een organisatie kent de ontvanger, niet diens apparaten; de vraag is waar die koppeling dan ligt.
+
+| Route | Hoe | Bezwaar |
+|-------|-----|---------|
+| **Registratie per organisatie** | Elke instantie meldt haar push-adres aan bij elke organisatie | Elke organisatie houdt een apparatenregister bij, en een organisatie waar de instantie nooit kwam heeft geen adres: juist het eerste bericht van een nieuwe afzender komt niet aan |
+| **Centrale notificatiedienst** | De organisatie meldt alleen "nieuw bericht voor deze ontvanger", zonder inhoud; de dienst kent de instanties en kanalen van de ontvanger en geeft het signaal door, waarna de instantie het bericht zelf ophaalt met haar certificaat | Er is een intermediair, die alleen ziet dát een organisatie iets heeft voor een ontvanger |
+| **Geen push** | De instantie vraagt bij openen of periodiek alle organisaties na | Niet actueel, en telkens een rondgang langs alle bronnen |
+
+De centrale notificatiedienst ligt het meest voor de hand:
+
+1. **Het sluit aan op wat FBS al heeft.** Het magazijn stuurt bij een nieuw bericht al een signaal naar een notificatiedienst, en de voorkeuren van de ontvanger staan in de Profiel-service. Er komt alleen de registratie van instanties bij.
+2. **Rechtstreeks pushen kan een organisatie niet.** Een melding naar een telefoon loopt via Apple of Google met de sleutels van de uitgever van de app; webpush loopt via een abonnement per browser. Een doorgeefpunt is er dus in elke variant.
+3. **E-mail en sms vragen hetzelfde.** Wie het overzicht niet open heeft, moet ook een signaal kunnen krijgen. Daarvoor is al één plek met contactvoorkeuren nodig.
+
+De prijs is dat "alle verwerking vindt plaats bij de burger en bij de bron" dan alleen nog voor de inhoud van berichten geldt, niet voor het signaal dat er een bericht is.
+
+### Open punten
+
+- Krijgt het portaal een eigen sleutel in de browser, of blijft het een intermediair?
+- Onder welke identiteit staan instanties bij de notificatiedienst geregistreerd? Organisaties kennen de ontvanger elk onder een eigen pseudoniem; de dienst moet die tot dezelfde persoon kunnen herleiden. Dat raakt de keuze voor BSNk.
+- Of en hoe VoRijk zelf meldingen verstuurt is hier niet onderzocht.
+
+### Bronnen
+
+- [Blauwe Knop Connect specificatie](https://vorijk.nl/standaard/connect/draft-bk-connect-00.html) — secties 1.3, 2.2.7, 4.3.2 en 4.5
