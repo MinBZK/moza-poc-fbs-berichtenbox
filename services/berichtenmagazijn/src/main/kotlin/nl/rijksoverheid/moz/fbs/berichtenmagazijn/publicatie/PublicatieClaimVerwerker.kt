@@ -159,7 +159,7 @@ class PublicatieClaimVerwerker(
             val logregels = processingHandler.addLogboekContextToSpan(span, ldvContext)
 
             if (downstreamConfig == null) emptyList() else logregels
-        } catch (ex: Exception) {
+        } catch (ex: Throwable) {
             pendingFailure = ex
             throw ex
         } finally {
@@ -201,7 +201,7 @@ class PublicatieClaimVerwerker(
             // setStatus(status) zonder description en gooit die tekst dus weg.
             span.setAttribute("publicatie.fout", "bericht-niet-gevonden")
             processingHandler.addLogboekContextToSpan(span, ldvContext)
-        } catch (ex: Exception) {
+        } catch (ex: Throwable) {
             pendingFailure = ex
             throw ex
         } finally {
@@ -214,8 +214,8 @@ class PublicatieClaimVerwerker(
      * hand-gerold span-blok: anders blijft een schrijffout op de thread staan zodra er
      * binnen het blok iets misgaat, en erft een volgende verwerking op dezelfde thread 'm.
      *
-     * [pendingFailure] bepaalt of een schrijffout mag gooien — een propagerende
-     * functionele fout mag niet gemaskeerd worden door een LDV-fout er overheen.
+     * [pendingFailure] bepaalt of een schrijffout mag gooien — een propagerende fout, ook
+     * een Error, mag niet gemaskeerd worden door een LDV-fout er overheen.
      */
     private fun eindigSpanEnBevestig(span: Span, pendingFailure: Throwable?) {
         try {

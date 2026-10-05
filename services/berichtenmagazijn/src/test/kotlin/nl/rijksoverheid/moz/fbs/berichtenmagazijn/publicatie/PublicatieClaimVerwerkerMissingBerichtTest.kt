@@ -149,6 +149,19 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
     }
 
     @Test
+    fun `bericht weg = ook een Error wordt niet door een schrijffout gemaskeerd`() {
+        stubOntbrekendBericht()
+        every { claimer.markeerMislukt(any(), any(), any()) } throws StackOverflowError()
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<StackOverflowError> { verwerker.verwerkEenClaim() }
+
+        verify { span.end() }
+        verify { processingHandler.enforceWriteAcknowledgement(false) }
+        verify(exactly = 0) { processingHandler.enforceWriteAcknowledgement(true) }
+    }
+
+    @Test
     fun `bericht weg = een LDV-schrijffout propageert`() {
         stubOntbrekendBericht()
         justRun { claimer.markeerMislukt(any(), any(), any()) }

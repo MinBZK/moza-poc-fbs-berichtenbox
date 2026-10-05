@@ -147,7 +147,9 @@ class AanleverResource(
 
                 bericht
             }
-        } catch (ex: Exception) {
+        } catch (ex: Throwable) {
+            // Throwable: ook bij een Error moet de logregel de fout dragen, en mag een
+            // schrijffout van het logboek hem niet vervangen.
             pendingFailure = ex
             span.setStatus(StatusCode.ERROR)
             throw ex

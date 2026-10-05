@@ -322,6 +322,21 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
     }
 
     @Test
+    fun `ook een Error bij het schrijven van de logregel wordt niet door een schrijffout gemaskeerd`() {
+        stubClaimMetBericht()
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
+        } throws StackOverflowError()
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<StackOverflowError> { verwerker.verwerkEenClaim() }
+
+        verify { span.end() }
+        verify { processingHandler.enforceWriteAcknowledgement(false) }
+        verify(exactly = 0) { processingHandler.enforceWriteAcknowledgement(true) }
+    }
+
+    @Test
     fun `een fout uit de levering zelf krijgt geen ERROR-child en propageert`() {
         // Het contract zegt dat lever niet gooit; doet het dat toch, dan is onbekend of er
         // iets verstuurd is. De rollback laat de claim openstaan voor de volgende ronde.

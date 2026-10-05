@@ -190,6 +190,26 @@ class AanleverResourceLdvTest {
     }
 
     @Test
+    fun `ook een Error bij het valideren staat als fout in de logregel en wordt niet gemaskeerd`() {
+        // Zonder de fout leest de logregel als een geslaagde verwerking, en zou een
+        // schrijffout van het logboek de Error vervangen.
+        stubBaseline()
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
+            StackOverflowError()
+        val gemeld = slot<Throwable>()
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), capture(gemeld))
+        } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<StackOverflowError> { resource.leverBerichtAan(request) }
+
+        assertEquals(StackOverflowError::class.java.name, gemeld.captured.message)
+        verify { processingHandler.enforceWriteAcknowledgement(false) }
+        verify(exactly = 0) { processingHandler.enforceWriteAcknowledgement(true) }
+    }
+
+    @Test
     fun `op het foutpad mag ook addLogboekContextToSpan de domeinfout niet maskeren`() {
         // Deze code draait vanuit finally: gooien zou de domeinfout vervangen, waarna de
         // aanleveraar de échte reden van de afwijzing niet meer ziet.
