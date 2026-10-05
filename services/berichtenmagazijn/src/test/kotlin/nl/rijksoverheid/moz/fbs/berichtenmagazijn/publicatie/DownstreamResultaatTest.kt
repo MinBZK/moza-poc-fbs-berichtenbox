@@ -55,13 +55,13 @@ class DownstreamResultaatTest {
 
     @Test
     fun `SerialisatieFout niet herstelbaar`() {
-        val r = DownstreamResultaat.SerialisatieFout("kapotte json")
+        val r = DownstreamResultaat.SerialisatieFout.voorVerzending("kapotte json")
         assertFalse(r.herstelbaar)
     }
 
     @Test
     fun `ConfiguratieFout niet herstelbaar`() {
-        val r = DownstreamResultaat.ConfiguratieFout("ongeldige url")
+        val r = DownstreamResultaat.ConfiguratieFout.voorVerzending("ongeldige url")
         assertFalse(r.herstelbaar)
     }
 
@@ -75,7 +75,7 @@ class DownstreamResultaatTest {
 
     @Test
     fun `een serialisatie- of configuratiefout valt voor het verzenden`() {
-        assertTrue(DownstreamResultaat.SerialisatieFout("kapotte json").zekerNietVerzonden)
-        assertTrue(DownstreamResultaat.ConfiguratieFout("ongeldige URL").zekerNietVerzonden)
+        assertTrue(DownstreamResultaat.SerialisatieFout.voorVerzending("kapotte json").zekerNietVerzonden)
+        assertTrue(DownstreamResultaat.ConfiguratieFout.voorVerzending("ongeldige URL").zekerNietVerzonden)
     }
 }

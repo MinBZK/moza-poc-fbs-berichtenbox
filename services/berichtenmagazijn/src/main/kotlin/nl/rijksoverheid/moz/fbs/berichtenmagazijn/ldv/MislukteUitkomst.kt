@@ -27,8 +27,11 @@ class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
 
     private val log = Logger.getLogger(MislukteUitkomst::class.java)
 
-    /** Voor een fout uit de verwerking zelf; alleen het type gaat het logboek in. */
-    fun legVast(logregels: List<Logregel>, oorzaak: Throwable, kenmerken: String) {
+    /**
+     * Voor een fout uit de verwerking zelf; alleen het type gaat het logboek in. Schrijft
+     * altijd: de aanroeper moet hebben vastgesteld dat de verwerking zeker niet plaatsvond.
+     */
+    fun legZekereFoutVast(logregels: List<Logregel>, oorzaak: Throwable, kenmerken: String) {
         schrijf(logregels, LdvFoutSamenvatting.van(oorzaak), kenmerken)
     }
 
@@ -37,10 +40,10 @@ class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
      * de afnemer het bericht mogelijk wél kreeg: een ERROR-child zou dan "niet verstrekt"
      * melden, en te weinig registreren is erger dan te veel.
      */
-    fun legVast(logregels: List<Logregel>, resultaat: DownstreamResultaat.Mislukt, kenmerken: String) {
-        if (!resultaat.zekerNietVerzonden) return
+    fun legLeveringVast(logregels: List<Logregel>, resultaat: DownstreamResultaat.Mislukt, kenmerken: String) {
+        val nietVerstrekt = LeveringMislukt.van(resultaat) ?: return
 
-        schrijf(logregels, LeveringMislukt.van(resultaat), kenmerken)
+        schrijf(logregels, nietVerstrekt, kenmerken)
     }
 
     /**

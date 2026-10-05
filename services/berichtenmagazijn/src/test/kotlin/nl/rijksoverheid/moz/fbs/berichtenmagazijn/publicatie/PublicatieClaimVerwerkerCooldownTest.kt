@@ -129,7 +129,7 @@ class PublicatieClaimVerwerkerCooldownTest {
         every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
-            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+            DownstreamResultaat.ConfiguratieFout.voorVerzending("Downstream '${claim.doel.key}' niet geconfigureerd")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
     }
 

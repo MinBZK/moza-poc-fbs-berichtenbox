@@ -388,14 +388,31 @@ class DownstreamClientTest {
 
     @Test
     fun `een onbekende host geldt als zeker niet verzonden`() {
-        // .invalid resolveert per RFC 6761 nooit; de fout valt dus vóór er iets verstuurd is,
-        // welke laag hem ook meldt (SSRF-toets of de verbinding zelf).
-        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://aanmeld.invalid/events"))
+        // .invalid resolveert per RFC 6761 nooit. Met https, anders strandt de aanroep al op de
+        // TLS-eis en komt de verzending zelf niet aan bod.
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("https://aanmeld.invalid/events"))
         client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
+        assertTrue(resultaat is DownstreamResultaat.NetwerkFout, "kreeg $resultaat")
         assertTrue((resultaat as DownstreamResultaat.Mislukt).zekerNietVerzonden, "kreeg $resultaat")
+    }
+
+    @Test
+    fun `een verzoek dat niet op te bouwen is geldt als configuratiefout en wordt niet verzonden`() {
+        // Zonder dit resultaat gooit lever, rolt de claim-transactie terug en schrijft elke
+        // pollronde een nieuwe logregel voor een verstrekking die nooit vertrekt.
+        every { config.client() } returns mockk {
+            every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
+            every { requestTimeout() } returns java.time.Duration.ZERO
+        }
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout, "kreeg $resultaat")
+        assertEquals(0, server.aantalAanroepen)
     }
 
     @Test

@@ -128,7 +128,7 @@ class DownstreamClient(
      */
     fun lever(doel: Publicatiedoel, event: CloudEvent): DownstreamResultaat {
         val downstream = config.downstreams()[doel.key]
-            ?: return DownstreamResultaat.ConfiguratieFout(
+            ?: return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                 "Downstream '${doel.key}' niet geconfigureerd",
             )
 
@@ -149,11 +149,51 @@ class DownstreamClient(
             objectMapper.writeValueAsBytes(event)
         } catch (ex: JsonProcessingException) {
             log.errorf(ex, "Serialisatie van CloudEvent mislukt: doel=%s eventType=%s", doel, event.type)
-            return DownstreamResultaat.SerialisatieFout(
+            return DownstreamResultaat.SerialisatieFout.voorVerzending(
                 "Serialisatie mislukt voor doel=$doel: ${ex.javaClass.simpleName}",
             )
         }
 
+        // Alles tot aan de verzending is opbouw uit config en event. Een fout daarin herhaalt
+        // zich bij elke poging en er is niets verzonden: een resultaat, geen exceptie, zodat
+        // de claim terminaal wordt in plaats van elke pollronde opnieuw te beginnen.
+        val (request, transactionId) = try {
+            bouwVerzoek(url, payload, grantHash, doel)
+        } catch (ex: RuntimeException) {
+            log.errorf(ex, "Verzoek voor downstream niet op te bouwen: doel=%s", doel)
+            return DownstreamResultaat.ConfiguratieFout.voorVerzending(
+                "Verzoek niet op te bouwen voor doel=$doel: ${ex.javaClass.simpleName}",
+            )
+        }
+
+        return try {
+            val response = http.send(request, BodyHandlers.ofString())
+            when (val status = response.statusCode()) {
+                in 200..299 -> DownstreamResultaat.Geslaagd
+                else -> DownstreamResultaat.HttpFout(
+                    statusCode = status,
+                    retryAfter = leesRetryAfter(response.headers().firstValue("Retry-After").orElse(null)),
+                    reden = faalreden(status, doel, transactionId, response.body()),
+                )
+            }
+        } catch (ex: IOException) {
+            mapDeliveryException(ex, doel)
+        } catch (ex: InterruptedException) {
+            // Herstel interrupt-flag zodat bovenliggende code (scheduler-thread)
+            // het signaal niet verliest.
+            Thread.currentThread().interrupt()
+            log.warnf(ex, "Interrupted bij downstream-aflevering: doel=%s", doel)
+            DownstreamResultaat.NetwerkFout.onderweg("Interrupted naar $doel")
+        }
+    }
+
+    /** Het verzoek, met de FSC-transaction-id als het door de outway gaat. */
+    private fun bouwVerzoek(
+        url: String,
+        payload: ByteArray,
+        grantHash: String?,
+        doel: Publicatiedoel,
+    ): Pair<HttpRequest, String?> {
         val requestBuilder = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .timeout(config.client().requestTimeout())
@@ -197,25 +237,7 @@ class DownstreamClient(
         // reconstrueerbaar blijft (Logboek Dataverwerkingen vereiste).
         injecteerTraceparent(requestBuilder)
 
-        return try {
-            val response = http.send(requestBuilder.build(), BodyHandlers.ofString())
-            when (val status = response.statusCode()) {
-                in 200..299 -> DownstreamResultaat.Geslaagd
-                else -> DownstreamResultaat.HttpFout(
-                    statusCode = status,
-                    retryAfter = leesRetryAfter(response.headers().firstValue("Retry-After").orElse(null)),
-                    reden = faalreden(status, doel, transactionId, response.body()),
-                )
-            }
-        } catch (ex: IOException) {
-            mapDeliveryException(ex, doel)
-        } catch (ex: InterruptedException) {
-            // Herstel interrupt-flag zodat bovenliggende code (scheduler-thread)
-            // het signaal niet verliest.
-            Thread.currentThread().interrupt()
-            log.warnf(ex, "Interrupted bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.NetwerkFout.onderweg("Interrupted naar $doel")
-        }
+        return requestBuilder.build() to transactionId
     }
 
     /**
@@ -265,7 +287,7 @@ class DownstreamClient(
             // niet een nieuwe poging. ConfiguratieFout (non-herstelbaar) → direct MISLUKT
             // i.p.v. retry tot maxPogingen.
             log.errorf(ex, "TLS-handshake faalt bij downstream-aflevering: doel=%s", doel)
-            DownstreamResultaat.ConfiguratieFout(
+            DownstreamResultaat.ConfiguratieFout.voorVerzending(
                 FoutBeschrijving.saneer("TLS-handshake naar $doel: ${ex.javaClass.simpleName}"),
             )
         }
@@ -335,11 +357,11 @@ class DownstreamClient(
      */
     private fun vormfout(grantHash: String): DownstreamResultaat.ConfiguratieFout? {
         if (grantHash.isBlank()) {
-            return DownstreamResultaat.ConfiguratieFout("Grant-hash bestaat alleen uit witruimte")
+            return DownstreamResultaat.ConfiguratieFout.voorVerzending("Grant-hash bestaat alleen uit witruimte")
         }
 
         if (grantHash.any { it.code !in 0x21..0x7E }) {
-            return DownstreamResultaat.ConfiguratieFout(
+            return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                 "Grant-hash bevat een teken dat niet in een HTTP-header past",
             )
         }
@@ -361,16 +383,16 @@ class DownstreamClient(
         val parsed = try {
             URI.create(url)
         } catch (_: IllegalArgumentException) {
-            return DownstreamResultaat.ConfiguratieFout("Ongeldige URL-syntax")
+            return DownstreamResultaat.ConfiguratieFout.voorVerzending("Ongeldige URL-syntax")
         }
         val scheme = parsed.scheme?.lowercase()
         if (scheme != "https" && scheme != "http") {
-            return DownstreamResultaat.ConfiguratieFout(
+            return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                 "Alleen http/https toegestaan (kreeg scheme=$scheme)",
             )
         }
         val host = parsed.host?.lowercase()
-            ?: return DownstreamResultaat.ConfiguratieFout("URL mist host-component")
+            ?: return DownstreamResultaat.ConfiguratieFout.voorVerzending("URL mist host-component")
 
         // In dev mag http naar niet-loopback hosts en vervalt de SSRF-blocklist. Beide zijn nodig
         // en niet inwisselbaar: de demo-stack levert af op container-DNS (`http://toxiproxy:18086`),
@@ -387,7 +409,7 @@ class DownstreamClient(
         // Buiten loopback: TLS verplicht (BIO 13.2.1 — vertrouwelijkheid +
         // authenticiteit van data-in-transit naar federatieve dienstverleners).
         if (scheme == "http" && !isLoopback) {
-            return DownstreamResultaat.ConfiguratieFout(
+            return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                 "Plain http:// alleen toegestaan voor loopback — productie vereist TLS (BIO 13.2.1)",
             )
         }
@@ -422,14 +444,14 @@ class DownstreamClient(
      */
     private fun toetsOutwayBestemming(host: String): DownstreamResultaat.ConfiguratieFout? {
         val outwayHost = outwayHost()
-            ?: return DownstreamResultaat.ConfiguratieFout(
+            ?: return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                 "Downstream heeft een grant-hash maar magazijn.publicatie.outway.host ontbreekt",
             )
 
         // Alleen de verwachte host in de melding: de downstream-URL kan een pad met
         // persoonsgegevens dragen en `reden` belandt in de outbox en in de logs.
         if (host != outwayHost) {
-            return DownstreamResultaat.ConfiguratieFout(
+            return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                 "Downstream met grant-hash wijst niet naar de eigen outway ($outwayHost)",
             )
         }
@@ -458,12 +480,12 @@ class DownstreamClient(
         }
         for (adres in adressen) {
             if (adres.isAnyLocalAddress || adres.isLinkLocalAddress || adres.isSiteLocalAddress) {
-                return DownstreamResultaat.ConfiguratieFout(
+                return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                     "Host resolveert naar intern adres (SSRF-bescherming)",
                 )
             }
             if (isIpv6UniqueLocal(adres)) {
-                return DownstreamResultaat.ConfiguratieFout(
+                return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                     "Host resolveert naar IPv6 ULA-adres (SSRF-bescherming)",
                 )
             }
@@ -471,7 +493,7 @@ class DownstreamClient(
             // hieronder dekken IPv6-equivalenten en provider-specifieke literals
             // (AWS IMDS IPv6, GCP metadata-FQDN-IP).
             if (adres.hostAddress in CLOUD_METADATA_IPS) {
-                return DownstreamResultaat.ConfiguratieFout(
+                return DownstreamResultaat.ConfiguratieFout.voorVerzending(
                     "Host wijst naar cloud-metadata-endpoint (SSRF-bescherming)",
                 )
             }
@@ -637,15 +659,30 @@ sealed interface DownstreamResultaat {
         }
     }
 
-    data class SerialisatieFout(override val reden: String) : Mislukt {
+    // Constructor privé, zoals bij Timeout: de factory-naam draagt de bewering dat er niets
+    // verzonden is, zodat een fout ná verzending dit type niet per ongeluk krijgt.
+    @ConsistentCopyVisibility
+    data class SerialisatieFout private constructor(override val reden: String) : Mislukt {
         override val herstelbaar: Boolean = false
         override val zekerNietVerzonden: Boolean = true
+
+        companion object {
+            /** Het bericht was niet op te bouwen: er is niets verzonden. */
+            fun voorVerzending(reden: String): SerialisatieFout = SerialisatieFout(reden)
+        }
     }
 
-    // Ook de TLS-handshake-fout valt hieronder: zonder geslaagde handshake verwerkt de afnemer
-    // het verzoek niet, ook niet bij een heronderhandeling na de request-headers.
-    data class ConfiguratieFout(override val reden: String) : Mislukt {
+    @ConsistentCopyVisibility
+    data class ConfiguratieFout private constructor(override val reden: String) : Mislukt {
         override val herstelbaar: Boolean = false
         override val zekerNietVerzonden: Boolean = true
+
+        companion object {
+            /**
+             * De fout viel vóór het eerste request-byte. Ook een mislukte TLS-handshake valt
+             * hieronder: zonder geslaagde handshake verwerkt de afnemer het verzoek niet.
+             */
+            fun voorVerzending(reden: String): ConfiguratieFout = ConfiguratieFout(reden)
+        }
     }
 }

@@ -69,7 +69,7 @@ class MislukteUitkomstTest {
         val samenvatting = slot<Throwable>()
         every { processingHandler.recordFailedOutcome(logregels, capture(samenvatting)) } returns emptyList()
 
-        mislukteUitkomst.legVast(logregels, fout, kenmerken)
+        mislukteUitkomst.legZekereFoutVast(logregels, fout, kenmerken)
 
         assertEquals(IllegalStateException::class.java.name, samenvatting.captured.message)
     }
@@ -80,7 +80,7 @@ class MislukteUitkomstTest {
         val samenvatting = slot<Throwable>()
         every { processingHandler.recordFailedOutcome(logregels, capture(samenvatting)) } returns emptyList()
 
-        mislukteUitkomst.legVast(
+        mislukteUitkomst.legLeveringVast(
             logregels,
             DownstreamResultaat.NetwerkFout.geenVerbinding("geweigerd voor 999993653"),
             kenmerken,
@@ -92,14 +92,14 @@ class MislukteUitkomstTest {
     @Test
     fun `een levering die de afnemer mogelijk bereikte schrijft niets`() {
         // "Niet verstrekt" zou dan te weinig registreren; de check zit hier, niet bij de aanroeper.
-        mislukteUitkomst.legVast(logregels(1), DownstreamResultaat.Timeout.bijLezen("read-timeout"), kenmerken)
+        mislukteUitkomst.legLeveringVast(logregels(1), DownstreamResultaat.Timeout.bijLezen("read-timeout"), kenmerken)
 
         verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
     }
 
     @Test
     fun `zonder logregels wordt de wrapper niet aangeroepen`() {
-        mislukteUitkomst.legVast(emptyList(), fout, kenmerken)
+        mislukteUitkomst.legZekereFoutVast(emptyList(), fout, kenmerken)
 
         verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
         assertTrue(records.none { it.level == Level.SEVERE })
@@ -111,7 +111,7 @@ class MislukteUitkomstTest {
         val logregels = logregels(aantal)
         every { processingHandler.recordFailedOutcome(logregels, any()) } returns emptyList()
 
-        mislukteUitkomst.legVast(logregels, fout, kenmerken)
+        mislukteUitkomst.legZekereFoutVast(logregels, fout, kenmerken)
 
         assertTrue(records.none { it.level == Level.SEVERE }, "geen fout bij een vastgelegde uitkomst")
     }
@@ -122,7 +122,7 @@ class MislukteUitkomstTest {
         val logregels = logregels(aantal)
         every { processingHandler.recordFailedOutcome(logregels, any()) } returns logregels
 
-        mislukteUitkomst.legVast(logregels, fout, kenmerken)
+        mislukteUitkomst.legZekereFoutVast(logregels, fout, kenmerken)
 
         val melding = records.single { it.level == Level.SEVERE }.message
         assertTrue(melding.startsWith(MislukteUitkomst.ALERT_TOKEN), "token vooraan voor alert-routing — was: $melding")
@@ -139,7 +139,7 @@ class MislukteUitkomstTest {
         val logregels = logregels(3)
         every { processingHandler.recordFailedOutcome(logregels, any()) } returns listOf(logregels[1])
 
-        mislukteUitkomst.legVast(logregels, fout, kenmerken)
+        mislukteUitkomst.legZekereFoutVast(logregels, fout, kenmerken)
 
         val melding = records.single { it.level == Level.SEVERE }.message
         assertEquals(listOf(logregels[1].spanContext.spanId), logregels.map { it.spanContext.spanId }.filter(melding::contains))
@@ -152,7 +152,7 @@ class MislukteUitkomstTest {
         val logregels = logregels(2)
         every { processingHandler.recordFailedOutcome(logregels, any()) } throws NoSuchMethodError("recordFailedOutcome")
 
-        assertDoesNotThrow { mislukteUitkomst.legVast(logregels, fout, kenmerken) }
+        assertDoesNotThrow { mislukteUitkomst.legZekereFoutVast(logregels, fout, kenmerken) }
 
         val meldingen = records.filter { it.level == Level.SEVERE }.map { it.message }
         assertTrue(meldingen.all { it.startsWith(MislukteUitkomst.ALERT_TOKEN) }, "elke melding draagt het token")
@@ -168,7 +168,7 @@ class MislukteUitkomstTest {
         every { processingHandler.recordFailedOutcome(logregels, any()) } throws InterruptedException()
 
         try {
-            mislukteUitkomst.legVast(logregels, fout, kenmerken)
+            mislukteUitkomst.legZekereFoutVast(logregels, fout, kenmerken)
         } finally {
             assertTrue(Thread.interrupted(), "de interrupt-flag moet hersteld zijn")
         }
@@ -180,7 +180,7 @@ class MislukteUitkomstTest {
         every { processingHandler.recordFailedOutcome(logregels, any()) } throws
             NoSuchMethodError("ProcessingHandler.recordFailedOutcome(Ljava/util/Collection;)")
 
-        mislukteUitkomst.legVast(logregels, fout, kenmerken)
+        mislukteUitkomst.legZekereFoutVast(logregels, fout, kenmerken)
 
         val melding = records.first { it.level == Level.SEVERE }.message
         assertTrue(melding.contains("recordFailedOutcome(Ljava/util/Collection;)"), melding)

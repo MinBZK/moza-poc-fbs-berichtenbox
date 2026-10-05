@@ -11,6 +11,8 @@ import io.opentelemetry.api.trace.SpanContext
 import io.opentelemetry.context.Context
 import jakarta.transaction.HeuristicCommitException
 import jakarta.transaction.HeuristicMixedException
+import jakarta.transaction.HeuristicRollbackException
+import jakarta.transaction.RollbackException
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MultivaluedHashMap
 import jakarta.ws.rs.core.UriBuilder
@@ -42,6 +44,7 @@ import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
 import java.util.logging.Logger
+import javax.transaction.xa.XAException
 
 /**
  * Borgt het logboek-gedrag van [AanleverResource]:
@@ -398,18 +401,18 @@ class AanleverResourceLdvTest {
         verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
     }
 
-    @Test
-    fun `een databasefout buiten de verbinding krijgt wel een ERROR-child`() {
-        // Een constraint-violation (23xxx) rolt de transactie zeker terug.
+    @ParameterizedTest
+    @MethodSource("zekereFouten")
+    fun `een fout die de transactie zeker terugdraait krijgt een ERROR-child`(fout: Throwable) {
         stubBaseline()
         every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
-        every { opslagService.slaBerichtOp(any(), any()) } throws
-            IllegalStateException("opslag", SQLException("duplicate key", "23505"))
+        every { opslagService.slaBerichtOp(any(), any()) } throws fout
         every { processingHandler.recordFailedOutcome(logregels, any()) } returns emptyList()
 
-        assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+        val ex = assertThrows<Throwable> { resource.leverBerichtAan(request) }
 
+        assertSame(fout, ex)
         verify { processingHandler.recordFailedOutcome(logregels, any()) }
     }
 
@@ -496,9 +499,41 @@ class AanleverResourceLdvTest {
         fun onzekereCommits(): List<Throwable> = listOf(
             RuntimeException("commit", HeuristicMixedException("gemengd")),
             RuntimeException("commit", HeuristicCommitException("vastgelegd")),
-            // Verbinding weg tijdens de COMMIT: de bevestiging kan zijn weggevallen.
-            IllegalStateException("commit", RuntimeException("jdbc", SQLException("I/O error", "08006"))),
             HeuristicMixedException("direct"),
+            // Verbinding weg tijdens de COMMIT: de bevestiging kan zijn weggevallen.
+            commitFout(SQLException("I/O error", "08006")),
+            // De backend viel weg nadat de COMMIT verstuurd was.
+            commitFout(SQLException("terminating connection", "57P01")),
+            commitFout(SQLException("zonder SQLState")),
+            commitFout(null),
+            // Dezelfde commit-fout, door een tussenlaag als oorzaak verpakt.
+            IllegalStateException("opslag", commitFout(SQLException("I/O error", "08006"))),
         )
+
+        @JvmStatic
+        fun zekereFouten(): List<Throwable> = listOf(
+            // Vóór de COMMIT: wat er ook misging, er is niets vastgelegd.
+            IllegalStateException("opslag", SQLException("duplicate key", "23505")),
+            IllegalStateException("opslag", SQLException("I/O error", "08006")),
+            IllegalStateException("opslag", SQLException("pool uitgeput")),
+            IllegalStateException("opslag", SQLException("datetime overflow", "22008")),
+            RuntimeException("commit", HeuristicRollbackException("teruggedraaid")),
+            // Tijdens de COMMIT, maar door de database afgewezen.
+            commitFout(SQLException("deferred foreign key", "23503")),
+            commitFout(SQLException("serialization failure", "40001")),
+        )
+
+        /**
+         * De vorm waarin een mislukte `connection.commit()` de resource bereikt, zoals
+         * `LdvUitkomstIntegrationTest` hem tegen een echte database vastlegt: de pool meldt de
+         * fout als XAException, en de transactiemanager hangt die als suppressed aan een
+         * RollbackException zonder oorzaak.
+         */
+        private fun commitFout(oorzaak: SQLException?): Throwable {
+            val xaFout = XAException(XAException.XA_RBROLLBACK)
+            oorzaak?.let(xaFout::initCause)
+
+            return RollbackException("ARJUNA016053: Could not commit transaction.").apply { addSuppressed(xaFout) }
+        }
     }
 }

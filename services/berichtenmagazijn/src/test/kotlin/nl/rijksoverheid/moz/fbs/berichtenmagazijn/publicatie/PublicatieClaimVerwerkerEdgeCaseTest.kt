@@ -155,7 +155,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
-            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+            DownstreamResultaat.ConfiguratieFout.voorVerzending("Downstream '${claim.doel.key}' niet geconfigureerd")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
 
         val processorAttribuut = slot<String>()
@@ -182,7 +182,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
-            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+            DownstreamResultaat.ConfiguratieFout.voorVerzending("Downstream '${claim.doel.key}' niet geconfigureerd")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
 
         val ldvContextSlot = slot<LogboekContext>()
@@ -378,7 +378,7 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
-            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+            DownstreamResultaat.ConfiguratieFout.voorVerzending("Downstream '${claim.doel.key}' niet geconfigureerd")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
 
         verwerker.verwerkEenClaim()
@@ -397,12 +397,14 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
             IllegalStateException("inhoud voor 999993653 niet te serialiseren")
         val fout = slot<Throwable>()
         every { processingHandler.recordFailedOutcome(logregels, capture(fout)) } returns emptyList()
-        justRun { claimer.markeerMislukt(any(), any(), any()) }
+        val reden = slot<String>()
+        justRun { claimer.markeerMislukt(claim.claimId, capture(reden), null) }
 
         verwerker.verwerkEenClaim()
 
         assertEquals("SerialisatieFout", fout.captured.message)
-        verify { claimer.markeerMislukt(claim.claimId, any(), null) }
+        // De reden gaat de outbox en de applicatielog in; de message van de fout hoort daar niet.
+        assertEquals("CloudEvent niet op te bouwen", reden.captured)
         verify { downstreamClient wasNot Called }
     }
 
@@ -493,10 +495,10 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         fun nietVerzondenLeveringen(): List<Arguments> = listOf(
             Arguments.of(DownstreamResultaat.Timeout.bijVerbinden("connect ontvanger 999993653"), "Timeout"),
             Arguments.of(DownstreamResultaat.NetwerkFout.geenVerbinding("ontvanger 999993653"), "NetwerkFout"),
-            Arguments.of(DownstreamResultaat.SerialisatieFout("ontvanger 999993653"), "SerialisatieFout"),
+            Arguments.of(DownstreamResultaat.SerialisatieFout.voorVerzending("ontvanger 999993653"), "SerialisatieFout"),
             // Een geconfigureerd doel met een ongeldige URL of TLS-handshake-fout; anders dan
             // een onbekend doel staat de logregel dan nog op UNSET.
-            Arguments.of(DownstreamResultaat.ConfiguratieFout("TLS-handshake ontvanger 999993653"), "ConfiguratieFout"),
+            Arguments.of(DownstreamResultaat.ConfiguratieFout.voorVerzending("TLS-handshake ontvanger 999993653"), "ConfiguratieFout"),
         )
 
         @JvmStatic

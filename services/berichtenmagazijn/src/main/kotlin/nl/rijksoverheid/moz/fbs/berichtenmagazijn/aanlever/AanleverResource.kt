@@ -28,6 +28,7 @@ import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
 import java.sql.SQLException
+import javax.transaction.xa.XAException
 
 /**
  * REST-resource voor de Aanlever API.
@@ -81,9 +82,13 @@ class AanleverResource(
 
             if (commitOnzeker(ex)) {
                 // Het bericht kan toch zijn opgeslagen; "mislukt" zou dan te weinig registreren.
-                log.warnf("Uitkomst van de opslag onzeker; geen mislukte uitkomst in het logboek (%s)", kenmerken)
+                log.warnf(
+                    "Uitkomst van de opslag onzeker na %s; geen mislukte uitkomst in het logboek (%s)",
+                    ex.javaClass.name,
+                    kenmerken,
+                )
             } else {
-                mislukteUitkomst.legVast(logregels, ex, kenmerken)
+                mislukteUitkomst.legZekereFoutVast(logregels, ex, kenmerken)
             }
 
             throw ex
@@ -232,20 +237,52 @@ class AanleverResource(
 
     internal companion object {
         /**
-         * `true` als de database de transactie mogelijk wél heeft vastgelegd: een heuristische
-         * uitkomst, of een verbroken verbinding (SQLState-klasse `08`) waarbij de bevestiging
-         * van de COMMIT kan zijn weggevallen. Een verbroken verbinding vóór de COMMIT valt hier
-         * ook onder; dan staat er één logregel te veel, wat de toegestane kant is.
+         * `true` als de database de transactie mogelijk wél heeft vastgelegd. Dat kan alleen als
+         * de COMMIT zelf verstuurd is en de bevestiging uitbleef; een fout daarvóór, ook een
+         * verbroken verbinding, laat zeker niets achter.
+         *
+         * De pool meldt een mislukte `connection.commit()` als [XAException], en de
+         * transactiemanager maakt daar een gewone rollback van: aan het type van de buitenste
+         * fout is een onzekere commit dus niet te zien. Van een commit-fout telt alleen een
+         * integriteits- of serialisatiefout als zeker teruggedraaid.
          */
-        fun commitOnzeker(fout: Throwable): Boolean = generateSequence(fout) { it.cause }
-            .take(MAX_OORZAKEN)
-            .any {
-                it is HeuristicMixedException ||
-                    it is HeuristicCommitException ||
-                    (it is SQLException && it.sqlState?.startsWith("08") == true)
+        fun commitOnzeker(fout: Throwable): Boolean {
+            val keten = foutKeten(fout)
+
+            if (keten.any { it is HeuristicMixedException || it is HeuristicCommitException }) return true
+
+            if (keten.none { it is XAException }) return false
+
+            return keten.filterIsInstance<SQLException>().none { sqlFout ->
+                SQLSTATE_AFGEWEZEN.any { sqlFout.sqlState?.startsWith(it) == true }
+            }
+        }
+
+        /**
+         * [fout] met haar oorzaken én onderdrukte fouten. De transactiemanager hangt de
+         * commit-fout als suppressed aan een `RollbackException` zonder oorzaak; wie alleen
+         * `cause` afloopt, ziet hem niet.
+         */
+        private fun foutKeten(fout: Throwable): Set<Throwable> {
+            val gezien = LinkedHashSet<Throwable>()
+            val wachtrij = ArrayDeque(listOf(fout))
+
+            while (wachtrij.isNotEmpty() && gezien.size < MAX_FOUTEN) {
+                val huidige = wachtrij.removeFirst()
+
+                if (!gezien.add(huidige)) continue
+
+                huidige.cause?.let(wachtrij::add)
+                wachtrij.addAll(huidige.suppressed)
             }
 
-        /** Begrenst het aflopen van de oorzaak-keten; een cyclische keten is zeldzaam maar mogelijk. */
-        private const val MAX_OORZAKEN = 16
+            return gezien
+        }
+
+        /** SQLState-klassen waarmee de database een COMMIT afwijst: integriteit en transactie-rollback. */
+        private val SQLSTATE_AFGEWEZEN = listOf("23", "40")
+
+        /** Begrenst het aflopen van de fout-keten; een cyclische keten is zeldzaam maar mogelijk. */
+        private const val MAX_FOUTEN = 32
     }
 }

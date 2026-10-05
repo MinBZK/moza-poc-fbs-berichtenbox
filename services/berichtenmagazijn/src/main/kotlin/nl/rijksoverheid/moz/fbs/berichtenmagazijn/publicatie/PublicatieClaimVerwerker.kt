@@ -114,17 +114,17 @@ class PublicatieClaimVerwerker(
             log.errorf(ex, "CloudEvent niet op te bouwen: berichtId=%s doel=%s", claim.berichtId, claim.doel)
             null
         } catch (ex: Error) {
-            mislukteUitkomst.legVast(logregels, ex, kenmerken)
+            mislukteUitkomst.legZekereFoutVast(logregels, ex, kenmerken)
             throw ex
         }
 
         val resultaat = event?.let { downstreamClient.lever(claim.doel, it) }
-            ?: DownstreamResultaat.SerialisatieFout("CloudEvent niet op te bouwen")
+            ?: DownstreamResultaat.SerialisatieFout.voorVerzending("CloudEvent niet op te bouwen")
 
         when (resultaat) {
             is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu)
             is DownstreamResultaat.Mislukt -> {
-                mislukteUitkomst.legVast(logregels, resultaat, kenmerken)
+                mislukteUitkomst.legLeveringVast(logregels, resultaat, kenmerken)
                 verwerkMislukt(claim, resultaat, nu, downstreamConfig)
             }
         }

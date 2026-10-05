@@ -36,13 +36,17 @@ de bron op `main` van vóór die versie-bump: die jar is gebouwd vóór de merge
   token `LDV_UITKOMST_ONTBREEKT` en kenmerken zonder persoonsgegevens. Geen retry: een
   retry-mechanisme hoort bij een concrete aanleiding.
 - **Aanleveren:** een `Throwable` uit `slaBerichtOp` krijgt een ERROR-child; ook een `Error`
-  rolt de opslag terug. Uitzondering: een commit met onzekere uitkomst (heuristisch, of een
-  verbroken verbinding, SQLState `08`) — het bericht kan dan toch zijn opgeslagen. Een afwijzing
-  vóór de bevestiging staat al als ERROR in de logregel zelf.
+  rolt de opslag terug. Uitzondering: een commit met onzekere uitkomst — het bericht kan dan
+  toch zijn opgeslagen. Onzeker is een fout op de COMMIT zelf, tenzij de database hem afwees
+  met een integriteits- of serialisatiefout (SQLState-klasse `23` of `40`); een fout vóór de
+  COMMIT, ook een verbroken verbinding, is zeker. De fase is alleen te zien aan een
+  `XAException` die de transactiemanager als suppressed aan de `RollbackException` hangt. Een
+  afwijzing vóór de bevestiging staat al als ERROR in de logregel zelf.
 - **Publiceren:** een `Mislukt`-resultaat krijgt alleen een ERROR-child bij `zekerNietVerzonden`;
   `MislukteUitkomst` controleert dat zelf. Een fout bij het opbouwen van het CloudEvent wordt een
   `SerialisatieFout` en maakt de claim terminaal (voorheen gooide hij door en herhaalde hij zich
-  elke pollronde). Een exceptie uit `lever` (die volgens contract niet gooit) krijgt geen
+  elke pollronde). Hetzelfde geldt voor een verzoek dat niet op te bouwen is: dat wordt een
+  `ConfiguratieFout`. Een exceptie uit `lever` (die volgens contract niet gooit) krijgt geen
   ERROR-child. Een onbekend doel niet: die logregel staat al op ERROR. Een fout ná een 2xx
   (`markeerGeslaagd`) ook niet, want dan is er verstrekt.
 - **Verzendzekerheid in het type:** `Timeout` en `NetwerkFout` hebben een private constructor;
@@ -61,7 +65,10 @@ de bron op `main` van vóór die versie-bump: die jar is gebouwd vóór de merge
   token en kenmerken bij verloren uitkomst; niet gooien bij een wrapper-fout.
 - `LdvUitkomstIntegrationTest` tegen PostgreSQL (Dev Services, profiel van
   `LdvPostgresIntegrationTest`): parent-koppeling, uitkomst-attribuut en foutattributen zoals
-  ze in de tabel landen, voor een mislukte opslag en voor drie mislukte leverpogingen; een
+  ze in de tabel landen, voor een mislukte opslag en voor drie mislukte leverpogingen; de
+  echte fout-keten van een COMMIT die faalt (onzeker, en afgewezen) naast een verbroken
+  verbinding vóór de COMMIT; een foutantwoord van de afnemer zonder ERROR-child; een
+  opbouwfout die de claim terminaal maakt; een
   geweigerde logregel houdt de levering tegen (fail-closed); een geweigerde uitkomst-logregel
   laat de claim-afhandeling en de volgende poging ongemoeid.
 

@@ -155,11 +155,12 @@ niet (Logius-standaarden/logboek-dataverwerkingen#314).
 
 * **Liever te veel dan te weinig.** Een ERROR-child komt er alleen als vaststaat dat de
   verwerking niet plaatsvond. Bij publiceren: een fout bij het opbouwen van het bericht, een
-  configuratiefout (URL-validatie, grant-hash, TLS-handshake) of een fout bij het opzetten van
+  configuratiefout (URL-validatie, grant-hash, TLS-handshake, verzoek niet op te bouwen) of een fout bij het opzetten van
   de verbinding (geweigerd, onbekende host, connect-timeout). Bij een read-timeout, een verbroken
   antwoord of een HTTP-foutantwoord kan de afnemer het bericht wél hebben; die poging blijft als
   verstrekking staan. Bij aanleveren blijft de ERROR-child ook weg als de database de opslag
-  mogelijk toch vastlegde (verbroken verbinding of heuristische uitkomst bij de commit).
+  mogelijk toch vastlegde: de commit was verstuurd maar de bevestiging bleef uit. Een fout
+  vóór de commit, ook een verbroken verbinding, krijgt de ERROR-child wel.
 * **Pogingen:** elke leverpoging heeft een eigen logregel met `publicatie.poging`, en deelt
   `publicatie.bericht_id` en `publicatie.doel` met de andere pogingen voor dezelfde verstrekking.
   Het nummer is het aantal geregistreerde mislukte pogingen + 1; na een teruggedraaide verwerking
