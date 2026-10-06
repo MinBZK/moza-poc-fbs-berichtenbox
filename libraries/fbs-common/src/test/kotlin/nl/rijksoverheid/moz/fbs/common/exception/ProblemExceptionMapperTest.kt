@@ -162,6 +162,27 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
+    fun `de stacktrace in de 5xx-log draagt de types, maar geen enkele message`() {
+        val exception = InternalServerErrorException(
+            "Upstream-fout voor Jan de Vries",
+            java.io.IOException("antwoord bevatte BSN 999993653"),
+        )
+
+        mapper.toResponse(exception)
+
+        val thrown = records.single { it.level == Level.SEVERE }.thrown
+        assertNotNull(thrown, "de stack moet in LogRecord.thrown blijven staan")
+        val weergave = thrown.stackTraceToString()
+
+        listOf("Jan de Vries", "999993653").forEach { fragment ->
+            assertFalse(weergave.contains(fragment), "'$fragment' hoort niet in de applicatielog: $weergave")
+        }
+
+        assertTrue(weergave.contains("InternalServerErrorException"), weergave)
+        assertTrue(weergave.contains("java.io.IOException"), weergave)
+    }
+
+    @Test
     fun `4xx-log format-spec correct met 4 args (errorId, type, cause)`() {
         // Round 11 M1: pin het exacte log-format zodat een toekomstige `{4}`-
         // uitbreiding zichtbaar wordt in diff-review. Aggregator-parsers die

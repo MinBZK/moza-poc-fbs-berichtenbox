@@ -5,6 +5,7 @@ import jakarta.ws.rs.Priorities
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.Foutspoor
 import org.jboss.logging.Logger
 import java.util.UUID
 
@@ -26,9 +27,10 @@ class UncaughtExceptionMapper : ExceptionMapper<Exception> {
     override fun toResponse(exception: Exception): Response {
         val errorId = UUID.randomUUID()
         // Als ProblemExceptionMapper: `exception.message` blijft uit de log (saneer dekt
-        // geen niet-numerieke PII); het exception-object geeft de stack mee via errorId.
+        // geen niet-numerieke PII). De stack gaat mee als Foutspoor: de exceptie zelf zou
+        // haar message en die van elke cause alsnog in de stacktrace afdrukken.
         log.errorf(
-            exception,
+            Foutspoor.van(exception),
             "Onverwachte exception (errorId=%s, type=%s, cause=%s)",
             errorId,
             exception.javaClass.name,
