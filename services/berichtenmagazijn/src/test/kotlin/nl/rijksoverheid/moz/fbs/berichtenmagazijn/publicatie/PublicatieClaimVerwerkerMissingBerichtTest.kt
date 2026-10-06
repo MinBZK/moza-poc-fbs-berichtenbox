@@ -152,13 +152,13 @@ class PublicatieClaimVerwerkerMissingBerichtTest {
     fun `bericht weg = ook een Error wordt niet door een schrijffout gemaskeerd`() {
         stubOntbrekendBericht()
         every { claimer.markeerMislukt(any(), any(), any()) } throws StackOverflowError()
-        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(false) }
+        every { processingHandler.enforceWriteAcknowledgement(true) } throws
+            LogboekWriteException("logregel niet opgeslagen")
 
         assertThrows<StackOverflowError> { verwerker.verwerkEenClaim() }
 
         verify { span.end() }
-        verify { processingHandler.enforceWriteAcknowledgement(false) }
-        verify(exactly = 0) { processingHandler.enforceWriteAcknowledgement(true) }
     }
 
     @Test

@@ -154,13 +154,14 @@ verwerkingsactiviteit en het attribuut `moza.ldv.uitkomst=mislukt`.
 niet (Logius-standaarden/logboek-dataverwerkingen#314).
 
 * **Liever te veel dan te weinig.** Een ERROR-child komt er alleen als vaststaat dat de
-  verwerking niet plaatsvond. Bij publiceren: een fout bij het opbouwen van het bericht, een
-  configuratiefout (URL-validatie, grant-hash, TLS-handshake, verzoek niet op te bouwen) of een fout bij het opzetten van
-  de verbinding (geweigerd, onbekende host, connect-timeout). Bij een read-timeout, een verbroken
+  verwerking niet plaatsvond. Bij publiceren: een fout bij het opbouwen van het bericht of het
+  verzoek, een configuratiefout (URL-validatie, grant-hash, TLS-handshake) of een fout bij het
+  opzetten van de verbinding (geweigerd, onbekende host, connect-timeout). Bij een read-timeout, een verbroken
   antwoord of een HTTP-foutantwoord kan de afnemer het bericht wél hebben; die poging blijft als
   verstrekking staan. Bij aanleveren blijft de ERROR-child ook weg als de database de opslag
   mogelijk toch vastlegde: de commit was verstuurd maar de bevestiging bleef uit. Een fout
-  vóór de commit, ook een verbroken verbinding, krijgt de ERROR-child wel.
+  vóór de commit krijgt de ERROR-child wel, ook bij een verbroken verbinding; alleen als daarna
+  ook het terugdraaien mislukt, is dat niet meer te onderscheiden en blijft hij weg.
 * **Pogingen:** elke leverpoging heeft een eigen logregel met `publicatie.poging`, en deelt
   `publicatie.bericht_id` en `publicatie.doel` met de andere pogingen voor dezelfde verstrekking.
   Het nummer is het aantal geregistreerde mislukte pogingen + 1; na een teruggedraaide verwerking
@@ -171,7 +172,8 @@ niet (Logius-standaarden/logboek-dataverwerkingen#314).
 * **Foutattributen:** `exception.type` op een ERROR-child is een vaste samenvattingsklasse
   (`…common.LdvFoutSamenvatting` of `…publicatie.LeveringMislukt`), nooit het echte fouttype.
   Filter daarom op `exception.message`: bij aanleveren de volledige klassenaam van de fout, bij
-  publiceren een categorie (`NetwerkFout`, `Timeout`, `SerialisatieFout`, `ConfiguratieFout`). De foutmelding zelf staat er nooit in,
+  publiceren een categorie (`NetwerkFout`, `Timeout`, `SerialisatieFout`, `ConfiguratieFout`,
+  `OpbouwFout`). De foutmelding zelf staat er nooit in,
   want die rijen gaan bij een inzageverzoek naar buiten; het foutbeeld staat, gesaneerd, in de
   applicatielog.
 * **`LDV_UITKOMST_ONTBREEKT`** (ERROR, met soort verwerking, `berichtId`, bij publiceren ook doel
@@ -179,6 +181,10 @@ niet (Logius-standaarden/logboek-dataverwerkingen#314).
   worden opgeslagen. De verwerking is mislukt, maar het logboek toont haar als geslaagd. Dat is
   onder-rapportage en vraagt om een alert; herstel is handmatig. Het token werkt alleen met
   `logboekdataverwerking.span-processor=simple`, dat fail-closed toch al vereist.
+* **`LDV_OPSLAG_ONZEKER`** (WARN, met het fouttype, de SQLState en `berichtId`): bij een
+  aanlevering faalde de commit zonder dat vaststaat of de database het bericht vastlegde. De
+  aanleveraar kreeg een fout, het logboek toont de verwerking als geslaagd. Ga met het
+  `berichtId` na of het bericht er staat; staat het er niet, dan is dit over-rapportage.
 
 ### W3C Trace Context (outbound)
 * Alleen `traceparent` wordt naar downstream gestuurd; `tracestate`

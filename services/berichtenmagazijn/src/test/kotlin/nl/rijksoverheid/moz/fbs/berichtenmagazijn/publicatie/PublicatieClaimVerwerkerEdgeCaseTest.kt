@@ -327,13 +327,29 @@ class PublicatieClaimVerwerkerEdgeCaseTest {
         every {
             processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
         } throws StackOverflowError()
-        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        justRun { processingHandler.enforceWriteAcknowledgement(false) }
+        every { processingHandler.enforceWriteAcknowledgement(true) } throws
+            LogboekWriteException("logregel niet opgeslagen")
 
         assertThrows<StackOverflowError> { verwerker.verwerkEenClaim() }
 
         verify { span.end() }
+    }
+
+    @Test
+    fun `een Error bij het afsluiten van de span vervangt de propagerende fout niet`() {
+        stubClaimMetBericht()
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
+        } throws IllegalStateException("ldv stuk")
+        every { span.end() } throws StackOverflowError()
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        val ex = assertThrows<IllegalStateException> { verwerker.verwerkEenClaim() }
+
+        assertEquals("ldv stuk", ex.message)
+        assertTrue(ex.suppressed.any { it is StackOverflowError }, "de fout uit het afsluiten moet meereizen")
         verify { processingHandler.enforceWriteAcknowledgement(false) }
-        verify(exactly = 0) { processingHandler.enforceWriteAcknowledgement(true) }
     }
 
     @Test

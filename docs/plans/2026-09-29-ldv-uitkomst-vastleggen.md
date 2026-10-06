@@ -35,23 +35,30 @@ de bron op `main` van vóór die versie-bump: die jar is gebouwd vóór de merge
   wrapper-versie. Een verloren uitkomst-logregel is onder-rapportage; die wordt gelogd met het
   token `LDV_UITKOMST_ONTBREEKT` en kenmerken zonder persoonsgegevens. Geen retry: een
   retry-mechanisme hoort bij een concrete aanleiding.
-- **Aanleveren:** een `Throwable` uit `slaBerichtOp` krijgt een ERROR-child; ook een `Error`
-  rolt de opslag terug. Uitzondering: een commit met onzekere uitkomst — het bericht kan dan
+- **Aanleveren:** een `Throwable` uit `slaBerichtOp` krijgt een ERROR-child. Uitzondering: een commit met onzekere uitkomst — het bericht kan dan
   toch zijn opgeslagen. Onzeker is een fout op de COMMIT zelf, tenzij de database hem afwees
   met een integriteits- of serialisatiefout (SQLState-klasse `23` of `40`); een fout vóór de
   COMMIT, ook een verbroken verbinding, is zeker. De fase is alleen te zien aan een
-  `XAException` die de transactiemanager als suppressed aan de `RollbackException` hangt. Een
-  afwijzing vóór de bevestiging staat al als ERROR in de logregel zelf.
+  `XAException` die de transactiemanager als suppressed aan de `RollbackException` hangt.
+  Die aanpak kent drie grenzen, alle naar de kant van een logregel te veel of benoemd:
+  een rollback die zelf mislukt levert ook een `XAException` op en telt dus als onzeker;
+  een keten die langer is dan de grens telt als onzeker; en een `Error` midden in
+  `connection.commit()` draagt geen `XAException` en telt als zeker. De fase vastleggen met
+  een marker in `slaBerichtOp` zou dat laatste sluiten, maar raakt de signatuur van de
+  opslagservice; de integratietests bewaken de echte keten. Een onzekere opslag wordt gelogd
+  met het token `LDV_OPSLAG_ONZEKER`. Een afwijzing vóór de bevestiging staat al als ERROR in
+  de logregel zelf.
 - **Publiceren:** een `Mislukt`-resultaat krijgt alleen een ERROR-child bij `zekerNietVerzonden`;
-  `MislukteUitkomst` controleert dat zelf. Een fout bij het opbouwen van het CloudEvent wordt een
+  `LeveringMislukt.van` geeft anders `null`, zodat de toets niet te omzeilen is. Een fout bij het opbouwen van het CloudEvent wordt een
   `SerialisatieFout` en maakt de claim terminaal (voorheen gooide hij door en herhaalde hij zich
-  elke pollronde). Hetzelfde geldt voor een verzoek dat niet op te bouwen is: dat wordt een
-  `ConfiguratieFout`. Een exceptie uit `lever` (die volgens contract niet gooit) krijgt geen
-  ERROR-child. Een onbekend doel niet: die logregel staat al op ERROR. Een fout ná een 2xx
+  elke pollronde). Ook een fout bij het klaarzetten van het verzoek wordt een resultaat: een
+  afgekeurde waarde een terminale `ConfiguratieFout`, al het andere een herstelbare
+  `OpbouwFout`, zodat een bug niet elke openstaande claim in één ronde definitief maakt. Een
+  exceptie uit de verzending zelf krijgt geen ERROR-child. Een onbekend doel niet: die logregel staat al op ERROR. Een fout ná een 2xx
   (`markeerGeslaagd`) ook niet, want dan is er verstrekt.
-- **Verzendzekerheid in het type:** `Timeout` en `NetwerkFout` hebben een private constructor;
-  de factories (`bijVerbinden`/`bijLezen`, `geenVerbinding`/`onderweg`) leggen de
-  verzendzekerheid vast bij de fase waarin de fout viel.
+- **Verzendzekerheid in het type:** elk `Mislukt`-subtype behalve `HttpFout` heeft een private
+  constructor. De factories (`bijVerbinden`/`bijLezen`, `geenVerbinding`/`onderweg`,
+  `voorVerzending`) leggen de verzendzekerheid vast bij de fase waarin de fout viel.
 - **Pogingen herkenbaar:** elke poging behoudt een eigen logregel (samenvoegen kan niet in een
   insert-only logboek) en draagt `publicatie.poging`, naast `publicatie.bericht_id` en
   `publicatie.doel`. Na een teruggedraaide verwerking kan een nummer terugkomen; unieke nummers

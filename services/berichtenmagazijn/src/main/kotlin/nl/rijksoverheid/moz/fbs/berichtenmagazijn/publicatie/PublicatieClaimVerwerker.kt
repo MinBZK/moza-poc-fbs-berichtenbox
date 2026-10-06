@@ -220,6 +220,10 @@ class PublicatieClaimVerwerker(
     private fun eindigSpanEnBevestig(span: Span, pendingFailure: Throwable?) {
         try {
             span.end()
+        } catch (ex: Throwable) {
+            if (pendingFailure == null) throw ex
+
+            pendingFailure.addSuppressed(ex)
         } finally {
             processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
         }
