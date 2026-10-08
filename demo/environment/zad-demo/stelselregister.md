@@ -28,6 +28,9 @@ Bij het aanmaken van het project, op 2026-10-08:
 - deployment `test`, nog zonder image;
 - de repo-secret `ZAD_API_KEY_STELSELREGISTER`.
 
+Op 2026-10-09 is de inrichting hieronder (hoofdstuk 1 tot en met 5) uitgevoerd, met de keten die
+op 2026-10-08 is gemaakt. Wat nog openstaat, staat onder "De eerste uitrol".
+
 Poorten zijn alleen bij het aanmaken van een component te zetten. Health staat daarom op dezelfde
 poort als de API; een aparte beheerpoort kan niet meer zonder het component opnieuw te maken.
 
@@ -62,6 +65,9 @@ zadctl env set -c stelselregister \
   "STELSELDOCUMENT_KEYSTORE_WACHTWOORD=$(cat demo/environment/stelselregister/pki/out/wachtwoord)"
 ```
 
+`env set` wijzigt alleen namen die al bestaan; de drie keystore-namen zijn bij het aanmaken van
+het project gezet. Een nieuwe naam vraagt `env add`, zoals in hoofdstuk 3 en 4.
+
 Een attachment is na het uploaden niet meer terug te lezen en mag hooguit 64 KB zijn; de keystore
 is een paar kilobyte.
 
@@ -73,7 +79,7 @@ aan de dienst.
 ## 3. Uitgever, omgeving en TLS
 
 ```bash
-zadctl env set -c stelselregister \
+zadctl env add -c stelselregister \
   STELSELDOCUMENT_UITGEVER_OIN=00000000000000001000 \
   STELSELDOCUMENT_OMGEVING=demo \
   HTTP_TLS_TERMINATION=mesh
@@ -108,7 +114,7 @@ zadctl attachment add magazijnen-register \
   --from-file demo/generated/magazijnen-register.properties
 zadctl attachment assign magazijnen-register -c stelselregister \
   --provide-as file --mount-path /config/magazijnen-register.properties
-zadctl env set -c stelselregister \
+zadctl env add -c stelselregister \
   SMALLRYE_CONFIG_LOCATIONS=/config/magazijnen-register.properties
 ```
 
@@ -170,7 +176,7 @@ curl -sv --tlsv1.3 -o /dev/null "$U/api/v1/stelseldocument" 2>&1 | grep -i 'SSL 
 ```
 
 Het aantal organisaties hoort gelijk te zijn aan dat van de uitvraag in dezelfde deployment. De
-handtekening controleer je met de root uit hoofdstuk 1, volgens de vijf stappen in het
+handtekening controleer je met de root uit hoofdstuk 1, volgens de zes stappen in het
 toepassingsprofiel.
 
 ## Opruimen van previews

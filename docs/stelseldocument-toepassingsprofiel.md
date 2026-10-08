@@ -163,7 +163,7 @@ document, dus wie het document kan vervalsen, kan de sleutelset dat ook.
 | Omgeving | Root | SHA-256-vingerafdruk |
 |---|---|---|
 | lokaal | per ontwikkelmachine gemaakt door `maak-keten.sh` | staat in de uitvoer van het script |
-| demo (ZAD) | test-root van de demo-omgeving | staat in de operator-handleiding zodra de omgeving is ingericht |
+| demo (ZAD) | test-root van de demo-omgeving, `CN=Stelseldocument root (demo)` | `EC:C8:05:0F:E9:3C:5C:AB:28:40:F7:2F:FF:33:26:72:87:2D:67:2F:C7:CD:2C:40:D9:9D:7F:56:E4:8A:7F:58` |
 | productie | nog niet ingericht | — |
 
 Voor productie ligt een certificaat van een erkende uitgever voor de hand. Of PKIoverheid een

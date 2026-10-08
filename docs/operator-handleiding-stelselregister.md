@@ -136,12 +136,12 @@ die volgens RFC 5280 valideert.
 ### De root van de demo-omgeving
 
 De root die `maak-keten.sh` op een ontwikkelmachine maakt, is van die machine. De root van de
-demo-omgeving op ZAD wordt bij de inrichting één keer gemaakt; zijn vingerafdruk hoort daarna
-hier te staan en in het toepassingsprofiel:
+demo-omgeving op ZAD is bij de inrichting één keer gemaakt; zijn vingerafdruk staat hier en in
+het toepassingsprofiel:
 
 | Omgeving | SHA-256-vingerafdruk van de root | Gemaakt op |
 |---|---|---|
-| demo (ZAD) | nog niet ingericht | — |
+| demo (ZAD) | `EC:C8:05:0F:E9:3C:5C:AB:28:40:F7:2F:FF:33:26:72:87:2D:67:2F:C7:CD:2C:40:D9:9D:7F:56:E4:8A:7F:58` | 2026-10-08 |
 
 ## Beveiligingscontact
 
