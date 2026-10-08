@@ -357,7 +357,7 @@ tel() {
 }
 
 alle="$(tel alle)"
-som=$(( $(tel mpfb-8wh) + $(tel mpfm-w3h) + $(tel mpfpsm-lcl) ))
+som=$(( $(tel mpfb-8wh) + $(tel mpfm-w3h) + $(tel mpfpsm-lcl) + $(tel mpfs-rab) ))
 
 # De ondergrens apart: zonder deze check zou een script dat meteen afbreekt alle=0 en som=0 geven,
 # en dan is "de filters dekken samen de hele tabel" waar zonder iets te betekenen.

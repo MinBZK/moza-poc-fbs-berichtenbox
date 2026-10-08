@@ -178,6 +178,7 @@ haal_sleutel() {
 # De groepen staan op soort, want de reden hoort bij de soort. Dat is niet de volgorde waarin je ze
 # wilt uitrollen — een kale `apply` wisselt van project — dus gebruik het tweede argument om ze
 # gefaseerd te doen: eerst `mpfpsm-lcl`, dan `mpfm-w3h`, dan `mpfb-8wh`, en de FSC-deployments apart.
+# `mpfs-rab` (het stelselregister) hangt van geen ander project af en kan op elk moment.
 
 # De twee WireMock-stubs. /__admin/health hoort bij de admin-API en kan door geen stub-mapping
 # worden overgenomen. Beide paden wijzen erheen: een WireMock zonder werkende admin-API is stuk, dus
@@ -208,6 +209,7 @@ KOTLIN=(
     "mpfm-w3h|test|magazijnb|http|8090|/q/health/live|/q/health/ready"
     "mpfm-w3h|test|magazijnsimulator|http|8092|/q/health/live|/q/health/ready"
     "mpfb-8wh|test|uitvraag|http|8086|/q/health/live|/q/health/ready"
+    "mpfs-rab|test|stelselregister|http|8094|/q/health/live|/q/health/ready"
 )
 
 # Wat geen HTTP spreekt. Een TCP-connect is hier een eerlijke probe: Redis en PostgreSQL beginnen
@@ -259,7 +261,7 @@ GEEN=(
 
 REGELS=("${STUBS[@]}" "${TOXIPROXY[@]}" "${KOTLIN[@]}" "${TCP[@]}" "${FSC[@]}" "${GEEN[@]}")
 
-PROJECTEN=(mpfb-8wh mpfm-w3h mpfpsm-lcl)
+PROJECTEN=(mpfb-8wh mpfm-w3h mpfpsm-lcl mpfs-rab)
 
 bevat() {
     local naald="$1" kandidaat

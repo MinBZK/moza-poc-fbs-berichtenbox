@@ -76,7 +76,7 @@ De uitdaging is: *"Kan een decentraal systeem de authenticatie vertrouwen, maar 
 
 1. **Verifiable Credentials als machtigingsbewijs**: In plaats van machtigingsclaims als "gewone" JWT-claims door te sturen, zou de Interactielaag een **cryptografisch ondertekend machtigingsbewijs** kunnen meesturen dat het decentrale magazijn zelfstandig kan verifiëren — vergelijkbaar met hoe BK Connect Verifiable Credentials gebruikt.
 
-2. **Stelseldocument-concept**: FBS heeft al FSC-contracts en het OIN-stelsel — dit is functioneel vergelijkbaar met het stelseldocument van VoRijk. De trust-basis is er al.
+2. **Stelseldocument-concept**: FBS heeft FSC-contracts en het OIN-stelsel, en daarmee een trust-basis *tussen organisaties*. Voor een app van een ondernemer is die basis onbereikbaar: de FSC-directory vraagt mTLS onder de trust anchor van de group. FBS publiceert het magazijnregister daarom ook als stelseldocument — één document, ondertekend door de stelselbeheerder, dat een app zonder FSC-toegang ophaalt en verifieert. Het register blijft leidend; het document is de publieke afgeleide. Zie [het toepassingsprofiel](stelseldocument-toepassingsprofiel.md).
 
 3. **OpenID4VP als aanvulling**: Naast het huidige JWT-bearer model zou OpenID4VP gebruikt kunnen worden om machtigingsbewijzen te presenteren aan decentrale systemen, waardoor die systemen het bewijs zelf kunnen verifiëren in plaats van de JWT-issuer te moeten vertrouwen.
 

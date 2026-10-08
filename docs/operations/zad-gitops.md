@@ -17,7 +17,7 @@ run groen en blijft de preview staan):**
 `berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`, `toxiproxy-aanmeld`, `toxiproxy-redis`),
 `magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`, `demopersonas`,
 `magazijnsimulator`, `proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
-`toxiproxy-profiel`, `toxiproxy-notificatie`).
+`toxiproxy-profiel`, `toxiproxy-notificatie`), `stelselregister` = `mpfs-rab` (`stelselregister`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Een draft-PR krijgt geen preview; die rolt uit zodra de PR ready for review is. Previews worden
 opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste opruiming haal je in

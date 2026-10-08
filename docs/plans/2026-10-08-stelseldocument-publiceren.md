@@ -1,6 +1,6 @@
 # Deelnemende magazijnen publiceren als ondertekend stelseldocument
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 Issue: MinBZK/MijnOverheidZakelijk#1212.
 
@@ -71,8 +71,11 @@ services/stelselregister/
       Ondertekensleutel.kt               keystore laden + valideren (sleutel én keten)
       UitgegevenStelseldocument.kt       het geldende exemplaar, periodiek ververst
       StelseldocumentConfig.kt
+      Sleutelbron.kt                     keystore, of een wegwerpketen in ontwikkel- en testmodus
+      Wegwerpketen.kt                    maakt die keten met keytool
       StelseldocumentResource.kt         implementeert de gegenereerde interface
-      SleutelsetResource.kt              /.well-known/jwks.json, handgeschreven
+      WellKnownRoutes.kt                 /.well-known/jwks.json en security.txt, op de router
+      Etag.kt                            zwakke vergelijking voor If-None-Match
       StelseldocumentGezondheid.kt       readiness: er is een onverlopen document
 docs/stelseldocument-toepassingsprofiel.md
 demo/environment/stelselregister/pki/    test-root + ondertekencertificaat genereren
@@ -142,8 +145,10 @@ de delen zelf.
 1. `alg` is exact `ES256` en `typ` exact `stelseldocument+jwt`; weiger al het andere.
 2. Valideer de keten in `x5c` tot de vastgelegde root, inclusief geldigheid van elk certificaat.
 3. Controleer de handtekening met de sleutel uit het ondertekencertificaat.
-4. Weiger een document waarvan `exp` voorbij is, waarvan `iss` niet de verwachte stelselbeheerder
-   is, of waarvan `iat` ouder is dan het laatst geaccepteerde exemplaar.
+4. Controleer dat `subject.serialNumber` van het ondertekencertificaat de OIN van de verwachte
+   stelselbeheerder is, en dat `iss` dezelfde waarde heeft.
+5. Weiger een document waarvan `exp` voorbij is, of waarvan `iat` ouder is dan het laatst
+   geaccepteerde exemplaar.
 
 **Headers:**
 
@@ -153,7 +158,8 @@ de delen zelf.
 | `ETag` | zwak, uit `version` + `kid` + `iat` | zwak, uit de `kid`'s |
 | `If-None-Match` → 304 | ja | ja |
 
-CORS: `Access-Control-Allow-Origin: *` zonder credentials, methodes `GET, HEAD, OPTIONS`, ook op
+CORS: elke origin zonder credentials (Quarkus antwoordt met de origin van de aanvrager en
+`Vary: Origin`, voor een browser gelijk aan `*`), methodes `GET, HEAD, OPTIONS`, ook op
 `/openapi.json`. `Access-Control-Expose-Headers: ETag, API-Version`, en omdat `If-None-Match` een
 preflight uitlokt `Access-Control-Allow-Headers: If-None-Match` met een `Access-Control-Max-Age`.
 
@@ -197,8 +203,23 @@ Fouten zijn `application/problem+json` met `API-Version`: 404 (onbekend pad), 40
   die lezing vast. EdDSA is het alternatief zodra de libraries van afnemers het dragen.
 - **Eigen `typ`.** Zo is het document niet te verwisselen met een ander token onder dezelfde
   sleutel.
-- **`smallrye-jwt-build` voor de JWS, `quarkus-scheduler` voor het verversen.** Beide zitten in de
-  Quarkus-BOM.
+- **De JWS met de JDK zelf, `quarkus-scheduler` voor het verversen.** Het plan noemde eerst
+  `smallrye-jwt-build`; die voegt ongevraagd `jti` toe en zet zijn eigen `typ`, terwijl de header
+  hier uit precies vier velden bestaat. `SHA256withECDSAinP1363Format` levert de R‖S-vorm
+  rechtstreeks. De tests verifiëren met jose4j, een implementatie die niets met de ondertekenende
+  code deelt.
+- **De uitgever is aan het certificaat gebonden.** De OIN staat in `subject.serialNumber` van het
+  ondertekencertificaat; de dienst weigert een `iss` die daar niet mee overeenkomt en afnemers
+  controleren hetzelfde. Zonder die band kan onder een gedeelde root elke certificaathouder zich
+  als de stelselbeheerder voordoen. Deze keuze kwam uit een beveiligingsreview tijdens de bouw.
+- **Wegwerpketen via `keytool`.** De JDK kan geen X.509-certificaat uitgeven via een publieke API,
+  en een cryptobibliotheek alleen hiervoor zou ook in het productie-image belanden.
+- **`/.well-known` op de Vert.x-router.** Alle JAX-RS-resources hangen onder `/api/v1`; deze paden
+  liggen door hun RFC's vast op de root.
+- **`fbs-common` zonder logboek.** De library levert ook onderdelen voor diensten met
+  persoonsgegevens. De validators gaan eruit via `quarkus.arc.exclude-types`;
+  `LogboekContextDefaultFilter` kreeg een build-time-schakelaar (`fbs.logboek.afwezig`), omdat
+  `exclude-types` een JAX-RS-provider niet uit de registratie haalt.
 - **Register-config dupliceren, met een wachter.** De twee echte magazijnen staan in de
   `application.properties` van de uitvraag; de gesimuleerde komen uit een gegenereerd bestand dat
   per dienst gemount wordt. De basisregels worden overgenomen, en een test faalt zodra OIN's of
@@ -330,6 +351,23 @@ PGP-ondertekening op één beheerde plek: een eigen kopie zou verlopen zonder da
 Het doel is config (`stelselregister.security-txt-url`), zodat een beheerder met een eigen
 CVD-beleid alleen de waarde wijzigt. De verificatie volgt de redirect en controleert dat het
 doel een bestand met `Contact` en een `Expires` in de toekomst oplevert.
+
+## Uitkomst
+
+Stappen 1 tot en met 5 en 7 zijn uitgevoerd. Stap 6, de inrichting van `mpfs-rab`, is handwerk
+in Operations Manager en staat als runbook in `demo/environment/zad-demo/stelselregister.md`.
+Tot die gedaan is, start de uitgerolde dienst niet en is `deploy-preview-stelselregister` rood.
+
+Lokaal bevestigd: de productie-build weigert te starten zonder keystore, ook onder het
+dev-profiel; met de keystore uit `maak-keten.sh` geeft hij een document dat `openssl verify`
+tegen de root accepteert. Het geheugengebruik na de start ligt rond 200 MiB.
+
+Nog open, en pas op ZAD te beantwoorden: komt een binaire keystore ongewijzigd aan als
+attachment, en krijgt een preview de attachments van `test` mee.
+
+In de lokale demo-stack dragen de gesimuleerde magazijnen in het document een container-naam als
+adres, omdat het gegenereerde register dat adres voor de uitvraag bevat. Op ZAD is het een
+publiek adres.
 
 ## Buiten de workflow om
 
