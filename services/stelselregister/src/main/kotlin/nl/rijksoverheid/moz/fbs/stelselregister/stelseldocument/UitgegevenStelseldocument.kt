@@ -113,8 +113,8 @@ class UitgegevenStelseldocument(
             // Dat geldt niet voor een exemplaar uit de toekomst: dat heeft geen afnemer ooit
             // geaccepteerd, en vasthouden zou de dienst stilzetten tot de tijd het inhaalt.
             log.errorf(
-                "Het vorige exemplaar is uitgegeven op %s, in de toekomst: de klok stond bij die uitgifte vooruit. " +
-                    "Het wordt vervangen",
+                "Het vorige exemplaar is uitgegeven op %s, in de toekomst: de klok stond bij die uitgifte vooruit, " +
+                    "of staat nu achter. Het wordt vervangen; controleer de tijdsynchronisatie",
                 vorige.uitgegevenOp,
             )
         }

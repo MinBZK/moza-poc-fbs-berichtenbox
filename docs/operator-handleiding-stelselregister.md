@@ -26,6 +26,11 @@ Geldigheid (`stelseldocument.geldigheid`, 24 uur) en ververs-interval
 interval en mag niet boven de 24 uur uitkomen, anders start de dienst niet. Een afnemer weigert
 een document dat langer geldt.
 
+**Draai de dienst met precies één replica.** Elke instantie ondertekent op haar eigen moment, en
+een afnemer weigert een exemplaar met een oudere `iat` dan het laatste dat hij accepteerde. Met
+twee replica's krijgt een app afwisselend het nieuwere en het oudere exemplaar, en weigert hij het
+tweede terwijl beide instanties zich gereed melden.
+
 **Het register staat in de config van elke dienst die het leest.** De berichtenuitvraag en het
 stelselregister moeten dezelfde organisaties noemen. Voor de twee vaste magazijnen bewaakt een
 test dat; een registerbestand dat via `SMALLRYE_CONFIG_LOCATIONS` wordt meegegeven, moet op beide
@@ -77,8 +82,10 @@ niet met `QUARKUS_PROFILE=dev`.
   exemplaar. Zodra de klok weer klopt, telt het niet meer als geldend: de dienst geeft `503` en
   meldt zich niet gereed, tot de eerstvolgende verversing het vervangt. Die verversing logt een
   `ERROR` `Het vorige exemplaar is uitgegeven op ..., in de toekomst`. Een herstart vervangt het
-  direct. Dezelfde `503` volgt als de klok ten onrechte meer dan een minuut terugspringt; de dienst
-  kan die twee gevallen niet uit elkaar houden.
+  direct. Dezelfde `503` en dezelfde `ERROR` volgen als de klok ten onrechte meer dan een minuut
+  terugspringt; de dienst kan die twee gevallen niet uit elkaar houden. In dat geval is gereed nog
+  niet bruikbaar: het vervangende exemplaar heeft een oudere `iat`, en afnemers die het vorige al
+  accepteerden weigeren het tot de klok weer klopt.
 - **Een adres zonder TLS in het document** geeft bij de start een `WARN`
   `Het stelseldocument wijst voor ... organisatie(s) naar een adres zonder TLS`. Het register
   weigert zulke adressen, behalve onder de profielen `dev` en `test`; in een uitgerolde omgeving

@@ -607,6 +607,7 @@ AFRONDING_IF=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[
 
 bevat "de voorwaarde van die job is te lezen" 'needs.deploy-preview-uitvraag.result' "$AFRONDING_IF"
 bevat_niet "maar eist niet dat de stelselregister-deploy slaagt" 'deploy-preview-stelselregister' "$AFRONDING_IF"
+bevat_niet "ook niet via een eis op alle needs tegelijk" 'needs.*' "$AFRONDING_IF"
 bevat "die job mag op de PR schrijven" 'pull-requests: write' "$AFRONDING_JOB"
 
 # Het opruimen moet de comment vinden zoals hij geplaatst is: dezelfde `startswith`, en pagineren

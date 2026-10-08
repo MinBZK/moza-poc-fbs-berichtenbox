@@ -58,11 +58,15 @@ object Testketens {
         geldigheid: List<String> = listOf("-validity", "30", "-startdate", Wegwerpketen.GISTEREN),
     ) = Triple(Wegwerpketen.ALIAS, uitgever, sleutel + listOf("-dname", dname) + extensies + geldigheid)
 
-    private fun tussen(extensies: List<String> = Wegwerpketen.CA, dagen: Int = 365) = Triple(
+    private fun tussen(
+        extensies: List<String> = Wegwerpketen.CA,
+        dagen: Int = 365,
+        start: String = Wegwerpketen.GISTEREN,
+        dname: String = "CN=Test-tussencertificaat",
+    ) = Triple(
         TUSSEN_ALIAS,
         Wegwerpketen.ROOT_ALIAS,
-        Wegwerpketen.P256 + listOf("-dname", "CN=Test-tussencertificaat") + extensies +
-            listOf("-validity", dagen.toString(), "-startdate", Wegwerpketen.GISTEREN),
+        Wegwerpketen.P256 + listOf("-dname", dname) + extensies + listOf("-validity", dagen.toString(), "-startdate", start),
     )
 
     val geldig: Keten by lazy { Keten(Wegwerpketen.maak(map("geldig"))) }
@@ -93,6 +97,24 @@ object Testketens {
      * een houder van een willekeurig certificaat onder de root geeft er zelf een uit.
      */
     val viaNietCa: Keten by lazy { bouw("nietca", tussen(extensies = Wegwerpketen.ONDERTEKENEN), blad(uitgever = TUSSEN_ALIAS)) }
+
+    /** Het tussencertificaat gaat pas over tien dagen in; het ondertekencertificaat eronder geldt al. */
+    val metLaatTussencertificaat: Keten by lazy { bouw("laattussen", tussen(start = "+10d"), blad(uitgever = TUSSEN_ALIAS)) }
+
+    /** Het tussencertificaat is een CA, maar mag met zijn sleutel geen certificaten ondertekenen. */
+    val tussenZonderKeyCertSign: Keten by lazy {
+        bouw("geenkeycertsign", tussen(extensies = listOf("-ext", "bc:c=ca:true", "-ext", "ku:c=digitalSignature")), blad(uitgever = TUSSEN_ALIAS))
+    }
+
+    /** Het tussencertificaat draagt de naam van de root, maar is door de root uitgegeven. */
+    val tussenMetRootnaam: Keten by lazy {
+        bouw("rootnaam", tussen(dname = "CN=Wegwerp-root stelseldocument"), blad(uitgever = TUSSEN_ALIAS))
+    }
+
+    /** Het tussencertificaat mag alleen eindcertificaten uitgeven (padlengte 0). */
+    val tussenMetPadlengteNul: Keten by lazy {
+        bouw("padlengte", tussen(extensies = listOf("-ext", "bc:c=ca:true,pathlen:0", "-ext", "ku:c=keyCertSign")), blad(uitgever = TUSSEN_ALIAS))
+    }
 
     val bladIsCa: Keten by lazy { bouw("bladca", blad(extensies = Wegwerpketen.CA + listOf("-ext", "ku:c=digitalSignature,keyCertSign"))) }
 

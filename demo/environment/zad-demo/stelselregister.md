@@ -133,6 +133,10 @@ Het project is aangemaakt met een limiet van 256 MiB. Lokaal gebruikt de dienst 
 200 MiB. Laat de eerste uitrol een dag draaien en stel de limiet daarna bij op gemeten gebruik
 (`zadctl resource tune --dry-run`), zoals bij de andere componenten.
 
+Houd het component op één replica: elke instantie ondertekent op haar eigen moment, en een
+afnemer weigert een exemplaar met een oudere `iat` dan het vorige
+([operator-handleiding](../../../docs/operator-handleiding-stelselregister.md)).
+
 ## De eerste uitrol
 
 Een draft-PR bouwt geen image en krijgt geen preview. De hele keten — de jib-build van het nieuwe

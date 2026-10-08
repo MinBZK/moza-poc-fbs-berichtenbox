@@ -346,13 +346,52 @@ class OndertekensleutelTest {
 
         Ondertekensleutel.valideerKeten(schakels, "alias", nu)
 
+        val laat = Testketens.metLaatTussencertificaat
         val verlopen = geweigerd { Ondertekensleutel.valideerKeten(schakels, "alias", tussen.notAfter.toInstant()) }
         val teVroeg = geweigerd {
-            Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat, Testketens.nogNietGeldig.root), "alias", nu.minus(Duration.ofDays(2)))
+            Ondertekensleutel.valideerKeten(listOf(laat.certificaat, laat.certificaat(Testketens.TUSSEN_ALIAS)), "alias", nu)
         }
 
-        assertTrue(verlopen.contains("niet geldig op"), verlopen)
+        assertTrue(verlopen.contains("Het bovenste certificaat in de keten"), verlopen)
+        assertTrue(teVroeg.contains("Het bovenste certificaat in de keten"), teVroeg)
         assertTrue(teVroeg.contains("niet geldig op"), teVroeg)
+    }
+
+    @Test
+    fun `zonder root wordt een bovenste CA-certificaat zonder keyCertSign geweigerd`() {
+        val keten = Testketens.tussenZonderKeyCertSign
+        val melding = geweigerd {
+            Ondertekensleutel.valideerKeten(listOf(keten.certificaat, keten.certificaat(Testketens.TUSSEN_ALIAS)), "alias", nu)
+        }
+
+        assertTrue(melding.contains("mag geen certificaten uitgeven"), melding)
+    }
+
+    // Met de root erbij vangt padvalidatie een overschreden padlengte. Zonder root is het bovenste
+    // certificaat het anker, en dan moet de eigen controle het doen.
+    @Test
+    fun `zonder root telt de padlengte van het bovenste certificaat`() {
+        val kort = Testketens.tussenMetPadlengteNul
+        val bovenste = kort.certificaat(Testketens.TUSSEN_ALIAS)
+        val tussen = Testketens.metTussencertificaat.certificaat(Testketens.TUSSEN_ALIAS)
+
+        Ondertekensleutel.valideerKeten(listOf(kort.certificaat, bovenste), "alias", nu)
+
+        val melding = geweigerd { Ondertekensleutel.valideerKeten(listOf(kort.certificaat, tussen, bovenste), "alias", nu) }
+
+        assertTrue(melding.contains("niet over een keten van deze lengte"), melding)
+    }
+
+    // Een gelijke naam maakt een certificaat geen root: het is door een ander ondertekend, een
+    // afnemer heeft het nodig om de keten te sluiten, en het hoort dus in x5c te blijven.
+    @Test
+    fun `een bovenste certificaat dat alleen de naam van een root draagt blijft in de keten`() {
+        val bron = Testketens.tussenMetRootnaam
+        val tussen = bron.certificaat(Testketens.TUSSEN_ALIAS)
+        val keten = Testketens.samengesteld(sleutel = bron.sleutel, keten = listOf(bron.certificaat, tussen))
+
+        assertEquals(tussen.subjectX500Principal, tussen.issuerX500Principal)
+        assertEquals(listOf(bron.certificaat, tussen), laad(keten).keten)
     }
 
     @Test

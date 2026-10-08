@@ -267,7 +267,7 @@ class Ondertekensleutel private constructor(
             // Alleen het eindcertificaat in de keystore: er is geen uitgever om tegen te valideren.
             if (keten.size == 1) return
 
-            valideerUitgever(keten.last(), alias, nu)
+            valideerUitgever(keten.last(), tussenschakels = keten.size - 2, alias, nu)
 
             val parameters = PKIXParameters(setOf(TrustAnchor(keten.last(), null))).apply {
                 isRevocationEnabled = false
@@ -286,12 +286,15 @@ class Ondertekensleutel private constructor(
             }
         }
 
-        private fun valideerUitgever(uitgever: X509Certificate, alias: String, nu: Instant) {
+        /** [tussenschakels] is het aantal CA-certificaten tussen [uitgever] en het ondertekencertificaat. */
+        private fun valideerUitgever(uitgever: X509Certificate, tussenschakels: Int, alias: String, nu: Instant) {
             val naam = uitgever.subjectX500Principal.name
 
-            if (uitgever.basicConstraints < 0 || uitgever.keyUsage?.get(KEYUSAGE_KEY_CERT_SIGN) == false) {
+            // basicConstraints is -1 voor een eindcertificaat en anders de toegestane padlengte.
+            if (uitgever.basicConstraints < tussenschakels || uitgever.keyUsage?.get(KEYUSAGE_KEY_CERT_SIGN) == false) {
                 throw OngeldigeOndertekensleutelException(
-                    "Het bovenste certificaat in de keten onder alias '$alias' ($naam) mag geen certificaten uitgeven",
+                    "Het bovenste certificaat in de keten onder alias '$alias' ($naam) mag geen certificaten uitgeven, " +
+                        "of niet over een keten van deze lengte",
                 )
             }
 
