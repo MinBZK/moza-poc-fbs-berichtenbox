@@ -1,0 +1,16 @@
+meta {
+  name: 1. Sleutelset (JWKS)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrlStelselregister}}/.well-known/jwks.json
+  body: none
+  auth: none
+}
+
+docs {
+  De publieke sleutels van de dienst, als gemak. Geen bron van vertrouwen: een afnemer herleidt
+  de handtekening via `x5c` tot een root die hij zelf heeft vastgelegd.
+}

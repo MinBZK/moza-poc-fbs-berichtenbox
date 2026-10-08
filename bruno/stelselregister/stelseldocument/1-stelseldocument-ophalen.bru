@@ -1,0 +1,21 @@
+meta {
+  name: 1. Stelseldocument ophalen
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrlStelselregister}}/api/v1/stelseldocument
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/jose
+}
+
+docs {
+  Het antwoord is een JWS in compacte vorm: `header.payload.signature`. Plak het middelste deel in
+  een base64url-decoder om de deelnemende magazijnen te lezen. De stappen om de handtekening te
+  controleren staan in de API-beschrijving (`/openapi.json`).
+}

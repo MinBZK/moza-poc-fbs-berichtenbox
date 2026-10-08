@@ -22,6 +22,7 @@
         <module>libraries/fbs-berichtensessiecache</module>
         <module>services/berichtenmagazijn</module>
         <module>services/berichtenuitvraag</module>
+        <module>services/stelselregister</module>
         <module>demo/demo-console</module>
         <module>demo/demo-personas</module>
         <module>demo/magazijn-simulator</module>

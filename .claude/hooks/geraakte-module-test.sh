@@ -42,6 +42,7 @@ for kandidaat in \
     libraries/fbs-berichtensessiecache \
     services/berichtenuitvraag \
     services/berichtenmagazijn \
+    services/stelselregister \
     demo/demo-console \
     demo/demo-personas \
     demo/magazijn-simulator; do

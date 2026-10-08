@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>nl.rijksoverheid.moz</groupId>
+        <artifactId>moza-poc-fbs-berichtenbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>stelselregister</artifactId>
+    <name>FBS Stelselregister Service</name>
+    <description>Publiceert de deelnemende magazijnen als ondertekend stelseldocument</description>
+
+    <properties>
+        <!-- Voeden de gedeelde API-generatie (openapi-generator + ApiInfo-antrun) in de
+             parent-pluginManagement: spec-pad en de root package van deze service. -->
+        <api.spec.file>${project.basedir}/src/main/resources/openapi/stelselregister-api.yaml</api.spec.file>
+        <api.base.package>nl.rijksoverheid.moz.fbs.stelselregister</api.base.package>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-magazijnregister</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-jackson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-kotlin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-openapi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-validator</artifactId>
+        </dependency>
+        <!-- Ververst het uitgegeven stelseldocument ruim vóór het verloopt. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
+
+        <!-- Container-image: jib bouwt een OCI-image zonder Dockerfile en zonder
+             Docker-daemon. Registry/group/credentials komen uit de CI-flags
+             (-Dquarkus.container-image.*), niet uit deze POM. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-container-image-jib</artifactId>
+        </dependency>
+
+        <!-- Health: readiness meldt of er een onverlopen stelseldocument klaarstaat. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-health</artifactId>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.atlassian.oai</groupId>
+            <artifactId>openapi-request-validator-restassured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Onafhankelijke JOSE-implementatie: de tests controleren de handtekening zoals een
+             afnemer dat doet, niet met de code die hem zette. -->
+        <dependency>
+            <groupId>org.bitbucket.b_c</groupId>
+            <artifactId>jose4j</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jacoco</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-kotlin</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/kotlin</sourceDirectory>
+        <testSourceDirectory>src/test/kotlin</testSourceDirectory>
+
+        <plugins>
+            <plugin>
+                <groupId>io.quarkus</groupId>
+                <artifactId>quarkus-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>build</goal>
+                            <goal>generate-code</goal>
+                            <goal>generate-code-tests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Config (spec-pad, pakket, jaxrs-spec-opties) staat in de parent
+                 pluginManagement; gevoed via api.spec.file / api.base.package. -->
+            <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>generate</id>
+                        <configuration>
+                            <configOptions>
+                                <!-- Het stelseldocument draagt ETag en Cache-Control en kent een
+                                     304; dat vraagt een Response in plaats van een kale body. -->
+                                <returnResponse>true</returnResponse>
+                            </configOptions>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ApiInfo-generatie: config staat in de parent pluginManagement. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>nl/rijksoverheid/moz/fbs/stelselregister/api/**</exclude>
+                        <!-- fbs-common heeft eigen testsuite; uitsluiten voorkomt dubbele meting. -->
+                        <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                    </excludes>
+                    <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
+                </configuration>
+                <executions>
+                    <!--
+                      `quarkus-jacoco` instrumentaliseert alleen `@QuarkusTest`-runs. Pure
+                      unit-tests onder Surefire krijgen daardoor geen coverage-bijdrage,
+                      tenzij we hier ook de standaard jacoco-agent op de Surefire-fork
+                      hangen en in dezelfde `jacoco-quarkus.exec` laten appendend.
+                    -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <phase>initialize</phase>
+                        <goals><goal>prepare-agent</goal></goals>
+                        <configuration>
+                            <destFile>${project.build.directory}/jacoco-quarkus.exec</destFile>
+                            <append>true</append>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>test</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>nl/rijksoverheid/moz/fbs/stelselregister/api/**</exclude>
+                                <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                            </excludes>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <excludes>
+                                        <!-- `**` is nodig om ook subpackages (zoals api.model) uit te sluiten;
+                                             `*` matcht alleen het laatste segment. -->
+                                        <exclude>nl.rijksoverheid.moz.fbs.stelselregister.api.**</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.common.**</exclude>
+                                    </excludes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>java-compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Compileert alléén de OpenAPI-gegenereerde Java (de Kotlin-plugin doet
+                                 de rest). Vanaf maven-compiler-plugin 3.14 wordt de gegenereerde-sources-
+                                 map niet meer impliciet als compile-source-root toegevoegd, dus wijzen we
+                                 die nu expliciet aan met compileSourceRoots. -->
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.build.directory}/generated-sources/openapi/src/gen/java</compileSourceRoot>
+                            </compileSourceRoots>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
