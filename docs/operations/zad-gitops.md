@@ -166,10 +166,10 @@ en de melding noemt beide keren de oorzaak:
 - de wijziging is opgeslagen maar niet uitgerold — de melding noemt het aantal wachtende
   wijzigingen en `zad project refresh`, het commando dat ze alsnog uitrolt.
 
-Elke wachtstap is afzonderlijk begrensd door `task-timeout`, de keten door tien overnames. Een
-keten kan daardoor langer duren dan één `task-timeout` en tegen de `timeout-minutes` van de job
-aanlopen; de job is dan afgebroken, niet mislukt, en opnieuw draaien volstaat zodra het project
-stil is (`gh run list --workflow "Deploy ZAD"`).
+Elke wachtstap is afzonderlijk begrensd door `task-timeout`, de keten door tien overnames. De
+preview-deploys laten twee volle wachtstappen toe (`timeout-minutes: 35` bij een `task-timeout` van
+900 s). Een langere keten loopt tegen die grens aan; de job is dan afgebroken, niet mislukt, en
+opnieuw draaien volstaat zodra het project stil is (`gh run list --workflow "Deploy ZAD"`).
 
 Blijft staan: **geen handmatig OM-werk terwijl er een deploy loopt**. Een projectbrede taak neemt
 de lopende deploy over, en een handmatige taak die faalt, laat die deploy nu mee falen. De

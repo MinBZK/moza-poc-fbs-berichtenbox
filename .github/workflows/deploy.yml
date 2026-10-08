@@ -141,6 +141,10 @@ env:
   # Let op: dit is de wachttijd van de runner op de OM-task. De melding "timed out waiting for
   # application to be created" komt daarentegen van OM zelf (Argo-Application-wait) en wordt
   # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
+  #
+  # De waarde geldt per wachtstap, niet per deploy: neemt een nieuwere taak de uitrol over, dan
+  # wacht de action opnieuw zo lang op die opvolger. De `timeout-minutes` van de drie
+  # deploy-preview-jobs laat daarom twee wachtstappen toe; verhoog je deze waarde, verhoog die mee.
   PREVIEW_TASK_TIMEOUT: '900'
   # De comment wordt door .github/scripts/preview-comment.sh geplaatst en niet door de
   # deploy-action; het waarom staat in de kop van dat script. cleanup-preview.yml zoekt de comment
@@ -898,7 +902,8 @@ jobs:
       && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes, preview-klaarzetten]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
+    timeout-minutes: 35
     # De URL's gaan naar `preview-afronding`, die de PR-comment samenstelt: één comment met de demo
     # én deze uitvraag erin.
     outputs:
@@ -947,7 +952,8 @@ jobs:
       && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes, preview-klaarzetten]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
+    timeout-minutes: 35
     concurrency:
       group: zad-externe-stubs-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -998,7 +1004,8 @@ jobs:
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
+    timeout-minutes: 35
     concurrency:
       group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
