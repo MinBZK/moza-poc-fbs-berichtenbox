@@ -88,7 +88,7 @@ dan kan ondertekenen naar de beheerhandeling verhuizen zonder de publieke dienst
 |---|---|
 | `GET /api/v1/stelseldocument` | JWS compact, `application/jose` |
 | `GET /.well-known/jwks.json` | `application/jwk-set+json`, de publieke sleutels |
-| `GET /.well-known/security.txt` | RFC 9116 |
+| `GET /.well-known/security.txt` | `302` naar het centrale bestand van het NCSC (RFC 9116) |
 | `GET /openapi.json` | de spec, zonder authenticatie |
 
 `/api/v1/stelseldocument` is een singleton: er is één document, geen collectie. HAL-`_links` zijn
@@ -113,7 +113,7 @@ Geen `jku`, `jwk`, `x5u` of `crit`. De handtekening is R‖S (64 bytes), niet DE
 
 ```json
 {
-  "iss": "<OIN van de stelselbeheerder>",
+  "iss": "00000000000000001000",
   "iat": 1791460800,
   "exp": 1791547200,
   "version": "<hash van de inhoud>",
@@ -311,11 +311,25 @@ De service (1–4) en de uitrol (5–7) komen als gescheiden commits in één PR
   verifiëren, de OIN's vergelijken met het register van de uitvraag in dezelfde deployment, en
   controleren dat de route TLS 1.3 onderhandelt.
 
-## Open
+## Stelselbeheerder en beveiligingscontact
 
-- **`security.txt`:** welk contactadres, of een verwijzing naar een centraal bestand van de
-  organisatie? De repo heeft nog geen beveiligingscontact.
-- **OIN en naam van de stelselbeheerder** in `iss` voor de demo.
+**Logius is de stelselbeheerder.** `iss` draagt de OIN van Logius; de naam staat als subject in het
+ondertekencertificaat en in het toepassingsprofiel. In de demo is dat `00000000000000001000`, de
+test-OIN die de FSC-peer `logius` in `demo/environment` al voert, zodat stelseldocument en
+FSC-testnet dezelfde identiteit tonen. De waarde is config (`stelseldocument.uitgever-oin`); de
+echte OIN van Logius hoort pas in een document dat onder een echte root is ondertekend, niet onder
+de test-root.
+
+**`security.txt` verwijst door naar het NCSC.** De standaard staat op de pas-toe-of-leg-uit-lijst
+voor elk systeem dat via HTTPS publiek bereikbaar is. Het Forum Standaardisatie adviseert
+Rijksorganisaties die het centrale CVD-beleid volgen geen eigen bestand te beheren, maar door te
+verwijzen naar het centrale bestand van het NCSC; RFC 9116 staat zo'n redirect uitdrukkelijk toe.
+De dienst antwoordt daarom op `/.well-known/security.txt` met een `302` naar
+`https://www.ncsc.nl/.well-known/security.txt`. Dat houdt contact, `Expires` en de
+PGP-ondertekening op één beheerde plek: een eigen kopie zou verlopen zonder dat iemand het merkt.
+Het doel is config (`stelselregister.security-txt-url`), zodat een beheerder met een eigen
+CVD-beleid alleen de waarde wijzigt. De verificatie volgt de redirect en controleert dat het
+doel een bestand met `Contact` en een `Expires` in de toekomst oplevert.
 
 ## Buiten de workflow om
 
