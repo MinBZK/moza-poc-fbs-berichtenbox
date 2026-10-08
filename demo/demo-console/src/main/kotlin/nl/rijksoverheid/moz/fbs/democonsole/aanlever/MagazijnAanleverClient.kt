@@ -14,8 +14,9 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverVerzoek
 data class AanleverRespons(val berichtId: String)
 
 /**
- * Magazijn-status-patch: `gelezen` is een boolean (het magazijn, niet de uitvraag-enum). Een veld
- * dat `null` is gaat niet mee en blijft dus ongewijzigd — merge-patch.
+ * Body van de status-PATCH op het magazijn. Het magazijn kent `gelezen` als boolean; de
+ * uitvraag-API drukt dezelfde leesstatus uit als enum (`gelezen`/`ongelezen`). Een veld dat `null`
+ * is gaat niet mee en blijft dus ongewijzigd — merge-patch.
  */
 data class StatusPatch(val gelezen: Boolean? = null, val map: String? = null)
 
