@@ -46,8 +46,8 @@
       "name": "FBS Stelselregister — Stelseldocument API",
       "description": "Het ondertekende stelseldocument met de deelnemende organisaties en het adres van hun berichtenmagazijn (GET /api/v1/stelseldocument). Publiek, zonder authenticatie.",
       "image": "https://www.rijksoverheid.nl/img/logo-rijksoverheid.svg",
-      "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/stelseldocument-toepassingsprofiel.md",
-      "baseURL": "https://stelselregister-test-mpfs-rab.rig.prd1.gn2.quattro.rijksapps.nl/api/v1",
+      "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox",
+      "baseURL": "/api/v1",
       "tags": [
         "stelseldocument",
         "magazijnregister"
@@ -55,7 +55,7 @@
       "properties": [
         {
           "type": "X-OpenAPI",
-          "url": "https://stelselregister-test-mpfs-rab.rig.prd1.gn2.quattro.rijksapps.nl/openapi.json"
+          "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/services/stelselregister/src/main/resources/openapi/stelselregister-api.yaml"
         },
         {
           "type": "X-Repository",

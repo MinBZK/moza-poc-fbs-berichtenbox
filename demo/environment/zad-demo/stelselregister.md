@@ -135,6 +135,17 @@ Het project is aangemaakt met een limiet van 256 MiB. Lokaal gebruikt de dienst 
 
 ## De eerste uitrol
 
+Een draft-PR bouwt geen image en krijgt geen preview. De hele keten — de jib-build van het nieuwe
+image, het trekken ervan door ZAD, het klonen van `test` — draait dus voor het eerst zodra de PR
+ready for review staat. Loop dan deze punten na, en merge pas na een groene run:
+
+- **Het ghcr-pakket `fbs-stelselregister` moet publiek zijn**, net als de andere images. Een
+  nieuw pakket kan privé beginnen; dan kan ZAD het niet trekken. Zet het na de eerste build op
+  public (Package settings → Change visibility).
+- **Na de merge hangt elke PR naar main aan dit vierde project.** `uitrol-poort` is een verplichte
+  check: faalt de preview hier structureel, dan staat hij voor elke PR rood. Controleer daarom
+  direct na de merge `deploy-test-stelselregister`, vóór andere PR's opnieuw draaien.
+
 Het image komt uit de deploy-workflow: een preview per PR, `test` bij een merge naar main. De
 allereerste preview van een PR kloont `test`, en `test` heeft dan nog geen image. Controleer
 daarom bij die eerste preview twee dingen die op ZAD niet eerder zijn beproefd:

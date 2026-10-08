@@ -24,7 +24,7 @@ object Wegwerpketen {
      * De geldigheid begint een dag terug: wie het moment van "nu" vóór het aanmaken vastlegde, zou
      * anders een certificaat krijgen dat een fractie van een seconde later pas ingaat.
      */
-    private const val GISTEREN = "-1d"
+    internal const val GISTEREN = "-1d"
 
     /** De test-OIN van de stelselbeheerder in de demo-omgeving. */
     const val STANDAARD_OIN = "00000000000000001000"
@@ -37,47 +37,62 @@ object Wegwerpketen {
 
     /**
      * Schrijft `keystore.p12` in [map] met de root onder [ROOT_ALIAS] en het ondertekencertificaat
-     * onder [ALIAS], met [uitgeverOin] in het subject. [sleutelalgoritme], [geldigheidDagen] en [startdatum] bestaan voor tests die een
-     * afwijkende sleutel of een verlopen certificaat nodig hebben.
+     * onder [ALIAS], met [uitgeverOin] in het subject.
      */
-    fun maak(
-        map: Path,
-        uitgeverOin: String = STANDAARD_OIN,
-        sleutelalgoritme: List<String> = listOf("-keyalg", "EC", "-groupname", "secp256r1"),
-        geldigheidDagen: Int = 30,
-        startdatum: String = GISTEREN,
-    ): Keystorebestand {
+    fun maak(map: Path, uitgeverOin: String = STANDAARD_OIN): Keystorebestand {
         val pad = map.resolve("keystore.p12")
         val wachtwoord = nieuwWachtwoord()
-        val opslag = listOf("-keystore", pad.toString(), "-storetype", "PKCS12", "-storepass", wachtwoord)
+        val opslag = opslag(pad, wachtwoord)
 
+        keytool(ROOT + opslag)
         keytool(
-            listOf("-genkeypair", "-alias", ROOT_ALIAS, "-keyalg", "EC", "-groupname", "secp256r1") +
-                listOf("-dname", "CN=Wegwerp-root stelseldocument", "-ext", "bc:c=ca:true", "-validity", "3650") +
-                listOf("-startdate", GISTEREN) +
-                opslag,
-        )
-        keytool(
-            listOf("-genkeypair", "-alias", ALIAS, "-signer", ROOT_ALIAS) + sleutelalgoritme +
-                listOf("-dname", "CN=Wegwerp-ondertekenaar stelseldocument, SERIALNUMBER=$uitgeverOin", "-validity", geldigheidDagen.toString()) +
-                listOf("-startdate", startdatum) +
+            listOf("-genkeypair", "-alias", ALIAS, "-signer", ROOT_ALIAS) + P256 +
+                listOf("-dname", "CN=Wegwerp-ondertekenaar stelseldocument, SERIALNUMBER=$uitgeverOin") +
+                ONDERTEKENEN + listOf("-validity", "30", "-startdate", GISTEREN) +
                 opslag,
         )
 
         return Keystorebestand(pad, wachtwoord.toCharArray())
     }
 
-    private fun nieuwWachtwoord(): String =
+    internal fun opslag(pad: Path, wachtwoord: String): List<String> =
+        listOf("-keystore", pad.toString(), "-storetype", "PKCS12", "-storepass", wachtwoord)
+
+    internal val P256 = listOf("-keyalg", "EC", "-groupname", "secp256r1")
+    internal val ONDERTEKENEN = listOf("-ext", "ku:c=digitalSignature")
+    internal val CA = listOf("-ext", "bc:c=ca:true", "-ext", "ku:c=keyCertSign,cRLSign")
+
+    /** De argumenten voor de wegwerp-root, zonder de opslag. */
+    internal val ROOT: List<String> = listOf("-genkeypair", "-alias", ROOT_ALIAS) + P256 +
+        listOf("-dname", "CN=Wegwerp-root stelseldocument") + CA + listOf("-validity", "3650", "-startdate", "-1d")
+
+    internal fun nieuwWachtwoord(): String =
         Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(WACHTWOORD_BYTES).also(SecureRandom()::nextBytes))
 
-    private fun keytool(argumenten: List<String>) {
+    /**
+     * De uitvoer gaat naar een bestand en niet naar een pipe: lezen tot het einde van een pipe
+     * blokkeert zolang het proces leeft, en dan gaat de timeout nooit af.
+     */
+    internal fun keytool(argumenten: List<String>) {
         val keytool = Path.of(System.getProperty("java.home"), "bin", "keytool").toString()
-        val proces = ProcessBuilder(listOf(keytool) + argumenten).redirectErrorStream(true).start()
-        val uitvoer = proces.inputStream.bufferedReader().use { it.readText() }
+        val uitvoer = Files.createTempFile("keytool", ".log")
 
-        check(proces.waitFor(KEYTOOL_TIMEOUT_SECONDEN, TimeUnit.SECONDS)) { "keytool reageert niet" }
-        // Zonder de argumenten: daar staat het wachtwoord van de keystore in.
-        check(proces.exitValue() == 0) { "keytool ${argumenten.first()} mislukte: $uitvoer" }
+        try {
+            val proces = ProcessBuilder(listOf(keytool) + argumenten)
+                .redirectErrorStream(true)
+                .redirectOutput(uitvoer.toFile())
+                .start()
+
+            if (!proces.waitFor(KEYTOOL_TIMEOUT_SECONDEN, TimeUnit.SECONDS)) {
+                proces.destroyForcibly()
+                error("keytool ${argumenten.first()} reageerde niet binnen $KEYTOOL_TIMEOUT_SECONDEN seconden")
+            }
+
+            // Zonder de argumenten: daar staat het wachtwoord van de keystore in.
+            check(proces.exitValue() == 0) { "keytool ${argumenten.first()} mislukte: ${Files.readString(uitvoer)}" }
+        } finally {
+            Files.deleteIfExists(uitvoer)
+        }
     }
 
     /** Maakt de keten in een tijdelijke map, laadt hem langs dezelfde controles als een beheerde keystore en ruimt op. */

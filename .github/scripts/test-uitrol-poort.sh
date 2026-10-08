@@ -259,34 +259,61 @@ build-externe-stubs=success
 build-contract-bootstrap=success
 build-demo-images=success'
 
-verwacht_poort "nul previews in needs blokkeert" 1 "in plaats van 4" \
-  pull_request "$PR_REF" false success true success "$BOUW"
-verwacht_poort "één preview in needs blokkeert" 1 "in plaats van 4" \
-  pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
+# De stille as staat er in elk geval compleet bij. De poort beoordeelt die as eerst; ontbreekt hij,
+# dan keurt de poort daar al af met "0 uitrol-jobs gevonden" en bewijst de test niets over de as
+# waar het om gaat. De verwachting noemt daarom het getelde aantal, niet alleen het verwachte.
+TEST_STIL='deploy-test-uitvraag=skipped
+deploy-test-externe-stubs=skipped
+deploy-test-magazijnen=skipped
+deploy-test-stelselregister=skipped'
+PREVIEW_STIL='deploy-preview-uitvraag=skipped
+deploy-preview-externe-stubs=skipped
+deploy-preview-magazijnen=skipped
+deploy-preview-stelselregister=skipped'
+HULP='preview-klaarzetten=success
+preview-afronding=success'
+
+verwacht_poort "nul previews in needs blokkeert" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+  pull_request "$PR_REF" false success true success "$TEST_STIL
+$HULP
 $BOUW"
-verwacht_poort "twee previews in needs blokkeert" 1 "in plaats van 4" \
+verwacht_poort "één preview in needs blokkeert" 1 "1 uitrol-jobs gevonden in plaats van 4" \
+  pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
+$TEST_STIL
+$HULP
+$BOUW"
+verwacht_poort "twee previews in needs blokkeert" 1 "2 uitrol-jobs gevonden in plaats van 4" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
+$TEST_STIL
+$HULP
 $BOUW"
-verwacht_poort "drie previews in needs blokkeert" 1 "in plaats van 4" \
+# Het geval van de dag dat er een project bijkomt: drie van de vier jobs op de actieve as.
+verwacht_poort "drie previews in needs blokkeert" 1 "3 uitrol-jobs gevonden in plaats van 4" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
 deploy-preview-magazijnen=success
+$TEST_STIL
+$HULP
 $BOUW"
-verwacht_poort "vijf previews in needs blokkeert" 1 "in plaats van 4" \
+verwacht_poort "vijf previews in needs blokkeert" 1 "5 uitrol-jobs gevonden in plaats van 4" \
   pull_request "$PR_REF" false success true success "$(fixture "$VIER_OK" "$VIER_UIT")
 deploy-preview-nieuw=success"
-verwacht_poort "nul test-deploys in needs blokkeert op een push" 1 "in plaats van 4" \
-  push "$MAIN" false success true success "$BOUW"
-verwacht_poort "twee test-deploys in needs blokkeert op een push" 1 "in plaats van 4" \
+verwacht_poort "nul test-deploys in needs blokkeert op een push" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+  push "$MAIN" false success true success "$PREVIEW_STIL
+$BOUW"
+verwacht_poort "drie test-deploys in needs blokkeert op een push" 1 "3 uitrol-jobs gevonden in plaats van 4" \
   push "$MAIN" false success true success "deploy-test-uitvraag=success
 deploy-test-externe-stubs=success
+deploy-test-magazijnen=success
+$PREVIEW_STIL
 $BOUW"
-verwacht_poort "een ontbrekende stille as blokkeert ook" 1 "in plaats van 4" \
+verwacht_poort "een ontbrekende stille as blokkeert ook" 1 "0 uitrol-jobs gevonden in plaats van 4" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
 deploy-preview-magazijnen=success
 deploy-preview-stelselregister=success
+$HULP
 $BOUW"
 
 # --- H. onbruikbare invoer -------------------------------------------------------------------------

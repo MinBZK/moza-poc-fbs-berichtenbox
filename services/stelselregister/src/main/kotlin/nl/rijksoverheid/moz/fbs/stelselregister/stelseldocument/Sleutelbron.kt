@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
 
 import io.quarkus.runtime.LaunchMode
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.inject.Inject
 import org.jboss.logging.Logger
 import java.nio.file.Path
 import java.time.Clock
@@ -18,13 +19,37 @@ import java.time.Instant
  * alles groen meldt.
  */
 @ApplicationScoped
-class Sleutelbron(
+class Sleutelbron internal constructor(
     private val config: StelseldocumentConfig,
     private val clock: Clock,
+    private val launchMode: LaunchMode,
 ) {
 
+    @Inject
+    constructor(config: StelseldocumentConfig, clock: Clock) : this(config, clock, LaunchMode.current())
+
     val sleutel: Ondertekensleutel by lazy {
-        laad(config.keystore(), LaunchMode.current(), clock.instant(), config.uitgeverOin())
+        laad(config.keystore(), launchMode, clock.instant(), config.uitgeverOin())
+    }
+
+    /**
+     * Bij elke uitgifte, niet alleen bij de start: een dienst die maanden doordraait, zou anders
+     * zonder enig signaal van gezond naar niet-gereed gaan op het moment dat de keten verloopt.
+     * Niet voor een wegwerpketen: die is er per start een nieuwe, en niemand kan hem vervangen.
+     */
+    fun waarschuwBijNaderendVerloop(nu: Instant) {
+        val huidige = sleutel
+        val resterend = huidige.resterend(nu)
+
+        if (huidige.herkomst == Sleutelherkomst.KEYSTORE && moetWaarschuwen(resterend)) {
+            log.warnf(
+                "De certificaatketen van de ondertekensleutel (kid %s) verloopt over %d dagen, op %s. " +
+                    "Vervang het ondertekencertificaat vóór die datum",
+                huidige.kid,
+                resterend.toDays(),
+                huidige.geldigTot,
+            )
+        }
     }
 
     companion object {
@@ -51,8 +76,6 @@ class Sleutelbron(
                 )
             }
 
-            waarschuwBijNaderendVerloop(sleutel, nu)
-
             return sleutel
         }
 
@@ -64,17 +87,6 @@ class Sleutelbron(
             return Ondertekensleutel.uitKeystore(pad, wachtwoord.toCharArray(), keystore.alias(), nu)
         }
 
-        private fun waarschuwBijNaderendVerloop(sleutel: Ondertekensleutel, nu: Instant) {
-            val resterend = sleutel.resterend(nu)
-
-            if (resterend < WAARSCHUWEN_BINNEN) {
-                log.warnf(
-                    "Het ondertekencertificaat (kid %s) verloopt over %d dagen, op %s. Vervang het vóór die datum",
-                    sleutel.kid,
-                    resterend.toDays(),
-                    sleutel.certificaat.notAfter.toInstant(),
-                )
-            }
-        }
+        internal fun moetWaarschuwen(resterend: Duration): Boolean = resterend < WAARSCHUWEN_BINNEN
     }
 }

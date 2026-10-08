@@ -37,11 +37,12 @@ class StelseldocumentOndertekenaar(
     fun onderteken(document: Stelseldocument, sleutel: Ondertekensleutel, nu: Instant): Uitgifte {
         // Afgekapt op seconden: `iat` en `exp` zijn NumericDate, en de ETag moet bij de payload passen.
         val uitgegevenOp = Instant.ofEpochSecond(nu.epochSecond)
-        val certificaatVerloopt = Instant.ofEpochSecond(sleutel.certificaat.notAfter.toInstant().epochSecond)
+        val certificaatVerloopt = Instant.ofEpochSecond(sleutel.geldigTot.epochSecond)
 
         if (!uitgegevenOp.isBefore(certificaatVerloopt)) {
             throw OngeldigeOndertekensleutelException(
-                "Het ondertekencertificaat (kid ${sleutel.kid}) is verlopen op $certificaatVerloopt; er wordt niets uitgegeven",
+                "De certificaatketen van de ondertekensleutel (kid ${sleutel.kid}) is verlopen op " +
+                    "$certificaatVerloopt; er wordt niets uitgegeven",
             )
         }
 
@@ -55,7 +56,7 @@ class StelseldocumentOndertekenaar(
             )
         }
 
-        // Een handtekening geldt nooit langer dan het certificaat waar hij op steunt.
+        // Een handtekening geldt nooit langer dan de keten waar hij op steunt.
         val verlooptOp = minOf(uitgegevenOp.plus(geldigheid), certificaatVerloopt)
 
         val header = linkedMapOf(

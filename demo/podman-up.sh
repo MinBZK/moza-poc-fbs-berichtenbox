@@ -57,7 +57,7 @@ DEMO_IMAGES=(
 
 # --- gereedschap en podman-socket bepalen -----------------------------------------------------
 
-for gereedschap in podman curl python3; do
+for gereedschap in podman curl python3 openssl; do
     command -v "$gereedschap" >/dev/null 2>&1 || {
         echo "$gereedschap niet gevonden op PATH." >&2
         exit 1

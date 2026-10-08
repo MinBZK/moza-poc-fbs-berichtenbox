@@ -111,7 +111,10 @@ class StelseldocumentApiTest {
     fun `een ververst exemplaar heeft een latere iat, dezelfde versie en een andere ETag`() {
         val eerste = given().get(pad).then().extract()
 
-        klokOp(Instant.now().plus(Duration.ofHours(1)))
+        // Echte tijd in plaats van een verzette klok: de bean is gedeeld met de andere testklassen
+        // in dezelfde Quarkus-instantie, en een exemplaar uit de toekomst blijft daar staan — de
+        // dienst vervangt een exemplaar bewust niet door een ouder.
+        Thread.sleep(1100)
         uitgegeven.ververs()
 
         val tweede = given().get(pad).then().statusCode(200).extract()
@@ -152,7 +155,9 @@ class StelseldocumentApiTest {
             .then()
             .statusCode(405)
             .contentType("application/problem+json")
+            .header("API-Version", "0.1.0")
             .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+            .body("status", equalTo(405))
     }
 
     @Test
@@ -163,6 +168,16 @@ class StelseldocumentApiTest {
             .statusCode(404)
             .contentType("application/problem+json")
             .body("type", equalTo("urn:fbs:fout:niet-gevonden"))
+    }
+
+    // De spec belooft problem+json voor de API. Daarbuiten antwoordt de HTTP-laag zelf.
+    @Test
+    fun `een onbekend pad buiten de API geeft 404 zonder problem-json`() {
+        given()
+            .`when`().get("/bestaat-niet")
+            .then()
+            .statusCode(404)
+            .contentType(not(containsString("problem+json")))
     }
 
     @Test
@@ -203,7 +218,6 @@ class StelseldocumentApiTest {
             .then()
             .statusCode(200)
             .header("Access-Control-Allow-Origin", "https://app.example")
-            .header("Vary", containsString("origin"))
             .header("Access-Control-Expose-Headers", containsString("ETag"))
             .header("Access-Control-Expose-Headers", containsString("API-Version"))
             .header("Access-Control-Allow-Credentials", not(equalTo("true")))

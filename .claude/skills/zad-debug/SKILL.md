@@ -35,7 +35,7 @@ gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production
 ```
 
 Project-ids: `berichtenuitvraag` = `mpfb-8wh`, `magazijnen` = `mpfm-w3h`, `externe-stubs` =
-`mpfpsm-lcl`. Deployments: `test` (baseline) en `pr-<n>` (previews).
+`mpfpsm-lcl`, `stelselregister` = `mpfs-rab`. Deployments: `test` (baseline) en `pr-<n>` (previews).
 
 Wat je hier ziet, bepaalt de rest:
 

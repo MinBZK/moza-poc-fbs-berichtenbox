@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.Signature
@@ -195,7 +197,7 @@ class OndertekensleutelTest {
     @Test
     fun `een keten waarvan de schakels niet sluiten wordt geweigerd`() {
         val melding = geweigerd {
-            Ondertekensleutel.valideerSchakels(listOf(Testketens.geldig.certificaat, Testketens.ander.root), "alias")
+            Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat, Testketens.ander.root), "alias", nu)
         }
 
         assertTrue(melding.contains("sluit niet"), melding)
@@ -203,8 +205,95 @@ class OndertekensleutelTest {
 
     @Test
     fun `een sluitende keten en een keten van een schakel passeren`() {
-        Ondertekensleutel.valideerSchakels(listOf(Testketens.geldig.certificaat, Testketens.geldig.root), "alias")
-        Ondertekensleutel.valideerSchakels(listOf(Testketens.geldig.certificaat), "alias")
+        Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat, Testketens.geldig.root), "alias", nu)
+        Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat), "alias", nu)
+    }
+
+    @Test
+    fun `een keten met een tussencertificaat levert blad en tussencertificaat in die volgorde, zonder root`() {
+        val keten = Testketens.metTussencertificaat
+        val sleutel = laad(keten)
+
+        assertEquals(listOf(keten.certificaat, keten.certificaat(Testketens.TUSSEN_ALIAS)), sleutel.keten)
+        assertEquals(2, sleutel.x5c.size)
+        assertEquals(keten.certificaat, Afnemer.certificaat(sleutel.x5c[0]))
+        assertFalse(sleutel.keten.contains(keten.root))
+    }
+
+    @Test
+    fun `een tussencertificaat telt niet als overige ondertekensleutel`() {
+        assertEquals(emptyList<Any>(), laad(Testketens.metTussencertificaat).overige)
+    }
+
+    @Test
+    fun `de keten geldt tot de kortst geldende schakel, ook als dat het tussencertificaat is`() {
+        val keten = Testketens.metKortTussencertificaat
+        val tussenEinde = keten.certificaat(Testketens.TUSSEN_ALIAS).notAfter.toInstant()
+        val sleutel = laad(keten)
+
+        assertTrue(tussenEinde.isBefore(keten.certificaat.notAfter.toInstant()))
+        assertEquals(tussenEinde, sleutel.geldigTot)
+        assertEquals(Duration.ofDays(1), sleutel.resterend(tussenEinde.minus(Duration.ofDays(1))))
+    }
+
+    @Test
+    fun `een verlopen tussencertificaat blokkeert, ook als het ondertekencertificaat nog geldt`() {
+        val keten = Testketens.metKortTussencertificaat
+        val naTussen = keten.certificaat(Testketens.TUSSEN_ALIAS).notAfter.toInstant().plusSeconds(1)
+
+        val melding = geweigerd { laad(keten, moment = naTussen) }
+
+        assertTrue(melding.contains("sluit niet of is niet geldig"), melding)
+    }
+
+    // De vervalsing waar padvalidatie voor bestaat: elke handtekening in de keten klopt, maar de
+    // uitgever van het ondertekencertificaat mag helemaal geen certificaten uitgeven.
+    @Test
+    fun `een keten via een certificaat dat geen CA is wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.viaNietCa) }
+
+        assertTrue(melding.contains("sluit niet of is niet geldig"), melding)
+    }
+
+    @Test
+    fun `een ondertekencertificaat dat zelf CA is wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.bladIsCa) }
+
+        assertTrue(melding.contains("CA-certificaat"), melding)
+    }
+
+    @Test
+    fun `een ondertekencertificaat zonder digitalSignature wordt geweigerd`() {
+        listOf(Testketens.zonderSleutelgebruik, Testketens.alleenVersleutelen).forEach { keten ->
+            val melding = geweigerd { laad(keten) }
+
+            assertTrue(melding.contains("digitalSignature"), melding)
+        }
+    }
+
+    @Test
+    fun `een subject met twee serienummers of een samengestelde RDN heeft geen OIN`() {
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.tweeSerienummers.certificaat))
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.samengesteldeRdn.certificaat))
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.zonderSerienummer.certificaat))
+    }
+
+    @ParameterizedTest(name = "coördinaat {0}")
+    @ValueSource(
+        strings = [
+            "1",
+            "452312848583266388373324160190187140051835877600158453279131187530910662656",
+            "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "57896044618658097711785492504343953926634992332820282019728792003956564819968",
+            "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+        ],
+    )
+    fun `een coordinaat is altijd 32 bytes, met of zonder voorloopnullen of tekenbyte`(waarde: String) {
+        val invoer = java.math.BigInteger(waarde)
+        val bytes = java.util.Base64.getUrlDecoder().decode(Ondertekensleutel.coordinaat(invoer))
+
+        assertEquals(32, bytes.size)
+        assertEquals(invoer, java.math.BigInteger(1, bytes))
     }
 
     @Test
@@ -219,6 +308,14 @@ class OndertekensleutelTest {
         val melding = geweigerd { laad(Testketens.nogNietGeldig) }
 
         assertTrue(melding.contains("niet geldig"), melding)
+    }
+
+    @Test
+    fun `precies op de begindatum geldt het certificaat, een seconde ervoor niet`() {
+        val begin = Testketens.geldig.certificaat.notBefore.toInstant()
+
+        laad(Testketens.geldig, moment = begin)
+        geweigerd { laad(Testketens.geldig, moment = begin.minusSeconds(1)) }
     }
 
     @Test

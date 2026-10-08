@@ -2,12 +2,16 @@ package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
 
 import io.quarkus.runtime.LaunchMode
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.util.Optional
 
@@ -59,6 +63,52 @@ class SleutelbronTest {
 
         assertTrue(leeg.message.orEmpty().contains("keystore.pad ontbreekt"))
         assertTrue(afwezig.message.orEmpty().contains("keystore.pad ontbreekt"))
+    }
+
+    private fun config(pad: String?, wachtwoord: String? = null) = object : StelseldocumentConfig {
+        override fun uitgeverOin() = uitgever
+        override fun omgeving() = "test"
+        override fun geldigheid() = Duration.ofHours(24)
+        override fun verversen() = Duration.ofHours(1)
+        override fun keystore() = keystore(pad, wachtwoord)
+    }
+
+    // De bean zelf, niet alleen de losse functie: de launch mode waarmee hij gebouwd is bepaalt
+    // of de terugval bestaat, wat het profiel ook is.
+    @Test
+    fun `de bean valt in een productie-build niet terug op een wegwerpketen`() {
+        val bron = Sleutelbron(config(pad = null), Clock.systemUTC(), LaunchMode.NORMAL)
+
+        assertThrows(OngeldigeOndertekensleutelException::class.java) { bron.sleutel }
+    }
+
+    @Test
+    fun `de bean laadt de sleutel een keer en geeft daarna dezelfde terug`() {
+        val bron = Sleutelbron(config(pad = null), Clock.systemUTC(), LaunchMode.TEST)
+
+        assertSame(bron.sleutel, bron.sleutel)
+        assertEquals(Sleutelherkomst.WEGWERP, bron.sleutel.herkomst)
+    }
+
+    @Test
+    fun `onder de dertig dagen volgt een waarschuwing, erop of erboven niet`() {
+        assertTrue(Sleutelbron.moetWaarschuwen(Duration.ofDays(30).minusSeconds(1)))
+        assertTrue(Sleutelbron.moetWaarschuwen(Duration.ofDays(-1)))
+        assertFalse(Sleutelbron.moetWaarschuwen(Duration.ofDays(30)))
+        assertFalse(Sleutelbron.moetWaarschuwen(Duration.ofDays(365)))
+    }
+
+    @Test
+    fun `waarschuwen breekt niet, voor een keystore noch voor een wegwerpketen`() {
+        val keystore = Sleutelbron(
+            config(Testketens.geldig.pad.toString(), String(Testketens.geldig.wachtwoord)),
+            Clock.systemUTC(),
+            LaunchMode.NORMAL,
+        )
+
+        keystore.waarschuwBijNaderendVerloop(nu)
+        keystore.waarschuwBijNaderendVerloop(nu.minus(Duration.ofDays(400)))
+        Sleutelbron(config(pad = null), Clock.systemUTC(), LaunchMode.TEST).waarschuwBijNaderendVerloop(nu)
     }
 
     @Test

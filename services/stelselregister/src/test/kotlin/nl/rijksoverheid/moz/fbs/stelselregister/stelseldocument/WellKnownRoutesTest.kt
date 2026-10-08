@@ -9,7 +9,9 @@ import org.jose4j.jwk.JsonWebKeySet
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import io.quarkus.runtime.LaunchMode
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -36,7 +38,7 @@ class WellKnownRoutesTest {
     @Test
     fun `de sleutelset bevat de publieke sleutel waarmee het document is ondertekend, en niets privés`() {
         val ruw = given().get(sleutelset).then().extract().asString()
-        val header = Afnemer.header(given().get("/api/v1/stelseldocument").then().extract().asString())
+        val header = Afnemer.header(given().get("/api/v1/stelseldocument").then().statusCode(200).extract().asString())
 
         val sleutel = JsonWebKeySet(ruw).jsonWebKeys.single() as EllipticCurveJsonWebKey
 
@@ -59,7 +61,28 @@ class WellKnownRoutesTest {
             .then()
             .statusCode(304)
             .header("ETag", etag)
+            .header("Cache-Control", "public, max-age=3600")
             .body(equalTo(""))
+    }
+
+    @Test
+    fun `een HEAD op de sleutelset levert de headers zonder body`() {
+        given()
+            .`when`().head(sleutelset)
+            .then()
+            .statusCode(200)
+            .header("ETag", org.hamcrest.Matchers.notNullValue())
+            .body(equalTo(""))
+    }
+
+    // Een probe of een curl stuurt geen Origin. Is dat antwoord zonder Vary cacheable, dan krijgt
+    // een browser het uit een gedeelde cache — zonder CORS-headers, en weigert het.
+    @ParameterizedTest
+    @ValueSource(strings = ["/.well-known/jwks.json", "/api/v1/stelseldocument"])
+    fun `ook zonder Origin zegt het antwoord dat het per Origin verschilt`(pad: String) {
+        val vary = given().get(pad).then().statusCode(200).extract().headers().getValues("Vary")
+
+        assertTrue(vary.any { it.contains("origin", ignoreCase = true) }, "Vary was $vary")
     }
 
     @Test
@@ -84,8 +107,12 @@ class WellKnownRoutesTest {
                 override fun keystore() = error("niet gebruikt")
             },
             Clock.systemUTC(),
+            LaunchMode.TEST,
         )
 
-        assertThrows(IllegalArgumentException::class.java) { WellKnownRoutes(bron, doel) }
+        val fout = assertThrows(IllegalArgumentException::class.java) { WellKnownRoutes(bron, doel) }
+
+        assertTrue(fout.message.orEmpty().contains("absolute https-URL"), fout.message)
+        WellKnownRoutes(bron, "  https://x.example/.well-known/security.txt  ")
     }
 }

@@ -22,7 +22,11 @@ OIN="${STELSELDOCUMENT_UITGEVER_OIN:-00000000000000001000}"
 ORGANISATIE="${STELSELDOCUMENT_UITGEVER_NAAM:-Logius}"
 OMGEVING="${STELSELDOCUMENT_OMGEVING:-demo}"
 ROOT_DAGEN="${ROOT_DAGEN:-3650}"
-ONDERTEKEN_DAGEN="${ONDERTEKEN_DAGEN:-365}"
+# Kort: er is geen intrekkingslijst, dus de looptijd van het ondertekencertificaat is het venster
+# waarin een gelekte sleutel bruikbaar blijft. De dienst waarschuwt vanaf dertig dagen vóór het
+# verlopen; wissel dan met --roteer.
+ONDERTEKEN_DAGEN="${ONDERTEKEN_DAGEN:-90}"
+MINIMALE_WACHTWOORDLENGTE=32
 ALIAS="stelseldocument"
 
 roteer=0
@@ -79,6 +83,12 @@ openssl x509 -req -in "$werk/onderteken.csr" -CA ca/root.pem -CAkey ca/root.key 
 # elke gebruiker op de machine te zien. Zonder backslash, zodat het ongewijzigd door een
 # env-var op het platform komt.
 if [[ -n "${STELSELDOCUMENT_KEYSTORE_WACHTWOORD:-}" ]]; then
+    # De keystore is leesbaar voor anderen; alleen het wachtwoord beschermt de sleutel erin.
+    if (( ${#STELSELDOCUMENT_KEYSTORE_WACHTWOORD} < MINIMALE_WACHTWOORDLENGTE )); then
+        echo "STELSELDOCUMENT_KEYSTORE_WACHTWOORD is korter dan ${MINIMALE_WACHTWOORDLENGTE} tekens; laat hem weg voor een gegenereerd wachtwoord" >&2
+        exit 1
+    fi
+
     printf '%s' "$STELSELDOCUMENT_KEYSTORE_WACHTWOORD" > out/wachtwoord
 elif [[ ! -s out/wachtwoord ]]; then
     openssl rand -hex 24 | tr -d '\n' > out/wachtwoord

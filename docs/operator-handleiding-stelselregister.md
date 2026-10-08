@@ -44,8 +44,11 @@ melding in de log noemt de oorzaak:
 | `geen EC P-256-sleutel` | de sleutel is RSA of een andere curve; ES256 vraagt P-256 |
 | `is zelfondertekend` | het ondertekencertificaat is niet door een root uitgegeven |
 | `hoort niet bij de sleutel` | certificaat en sleutel zijn geen paar |
-| `is niet geldig op` | het certificaat is verlopen of nog niet ingegaan |
-| `draagt in subject.serialNumber` | de OIN in het certificaat is niet `STELSELDOCUMENT_UITGEVER_OIN` |
+| `is niet geldig op` | het ondertekencertificaat is verlopen of nog niet ingegaan |
+| `sluit niet of is niet geldig` | de keten valideert niet: een schakel is verlopen, hoort er niet bij, of een tussencertificaat is geen CA |
+| `is een CA-certificaat` | onder de alias staat een CA-certificaat in plaats van een eindcertificaat |
+| `mist het sleutelgebruik digitalSignature` | het certificaat is niet voor ondertekenen uitgegeven |
+| `draagt in subject.serialNumber` | de OIN in het certificaat is niet `STELSELDOCUMENT_UITGEVER_OIN`, of het subject heeft geen of meer dan één `serialNumber` |
 
 De terugval op een wegwerpketen hangt aan de manier waarop de applicatie gebouwd is, niet aan het
 profiel waarmee hij start. Een uitgerold image ondertekent dus nooit met een wegwerpsleutel, ook
@@ -58,11 +61,15 @@ niet met `QUARKUS_PROFILE=dev`.
 - **Bij elke uitgifte** staat er een regel `Stelseldocument uitgegeven` in de log met `kid`,
   `version`, `iat`, `exp`, het aantal organisaties en de herkomst van de sleutel
   (`KEYSTORE` of `WEGWERP`). `WEGWERP` hoort in een uitgerolde omgeving nooit voor te komen.
-- **Dertig dagen voor het verlopen** van het ondertekencertificaat waarschuwt de dienst bij elke
-  start. Koppel daar een melding aan.
-- **Mislukt het verversen** — in de praktijk: het certificaat is verlopen — dan staat er een
-  `ERROR` `Het stelseldocument is niet ververst`. Het laatste exemplaar blijft geldig tot zijn
-  `exp`; daarna geeft de dienst `503` en meldt hij zich niet meer gereed.
+- **Vanaf dertig dagen voor het verlopen** van de certificaatketen waarschuwt de dienst bij elke
+  uitgifte, dus elk uur (`De certificaatketen van de ondertekensleutel ... verloopt over`). Koppel
+  daar een melding aan. Er is geen uitloop: een document geldt nooit langer dan de keten, dus op
+  het moment van verlopen gaat de dienst direct naar `503`.
+- **Mislukt het verversen**, dan staat er een `ERROR` `Het stelseldocument is niet ververst`, met
+  erbij of er nog een geldend exemplaar is. Zonder geldend exemplaar geeft de dienst `503` en
+  meldt hij zich niet meer gereed.
+- **Loopt de klok terug**, dan blijft het bestaande exemplaar staan tot de klok het inhaalt: een
+  afnemer weigert een exemplaar met een oudere `iat` dan het laatste dat hij accepteerde.
 
 ## Sleutelbeheer
 
@@ -76,8 +83,9 @@ beide, en bundelt het ondertekencertificaat met zijn sleutel en de root tot `out
 Het script zet de OIN van de stelselbeheerder in `subject.serialNumber`.
 
 Voor productie komt het ondertekencertificaat van een erkende uitgever (PKIoverheid); de eisen
-aan het certificaat blijven dezelfde: EC P-256, de OIN in `subject.serialNumber`, sleutelgebruik
-`digitalSignature`.
+aan het certificaat blijven dezelfde, en de dienst dwingt ze bij de start af: EC P-256, precies
+één `subject.serialNumber` met de OIN, sleutelgebruik `digitalSignature`, geen CA, en een keten
+die volgens RFC 5280 valideert.
 
 ### Bewaren
 
@@ -100,10 +108,10 @@ aan het certificaat blijven dezelfde: EC P-256, de OIN in `subject.serialNumber`
 ### Noodvervanging bij een gelekte sleutel
 
 1. Maak direct een nieuw certificaat (`--roteer`) en vervang de keystore.
-2. Er is geen intrekkingslijst. Een document dat met de gelekte sleutel is ondertekend, blijft
-   voor een afnemer geldig tot het ondertekencertificaat verloopt. Houd de looptijd van dat
-   certificaat daarom kort, en overweeg bij een ernstig lek een nieuwe root — dat vraagt een
-   nieuwe build van elke app.
+2. Er is geen intrekkingslijst. Wie de gelekte sleutel heeft, kan documenten blijven
+   ondertekenen die een afnemer accepteert tot het ondertekencertificaat verloopt. Houd de
+   looptijd van dat certificaat daarom kort — `maak-keten.sh` geeft 90 dagen — en overweeg bij
+   een ernstig lek een nieuwe root; dat vraagt een nieuwe build van elke app.
 
 ### De root van de demo-omgeving
 

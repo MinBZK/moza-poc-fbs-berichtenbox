@@ -99,7 +99,7 @@ xattr -d com.apple.quarantine ~/.local/bin/zadctl 2>/dev/null || true   # zonder
 zadctl --version
 
 zadctl login                    # SSO (Keycloak); de ZAD_API_KEY_*-secrets zijn niet lokaal leesbaar
-zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl; schrijft .env.zadctl (0600, gitignored)
+zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl / mpfs-rab; schrijft .env.zadctl (0600, gitignored)
 ```
 
 **Inloggen vanuit een container** (onze dev-omgeving): `zadctl login` zet een loopback-listener

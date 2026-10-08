@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
 
 import io.mockk.every
 import io.mockk.mockk
+import io.quarkus.runtime.LaunchMode
 import io.quarkus.runtime.StartupEvent
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
@@ -58,7 +59,7 @@ class UitgegevenStelseldocumentTest {
     }
 
     private fun uitgegeven(config: StelseldocumentConfig = config()) =
-        UitgegevenStelseldocument(register, Sleutelbron(config, klok), config, klok)
+        UitgegevenStelseldocument(register, Sleutelbron(config, klok, LaunchMode.NORMAL), config, klok)
 
     private val startup = mockk<StartupEvent>()
 
@@ -115,6 +116,23 @@ class UitgegevenStelseldocumentTest {
 
         klok.moment = einde.minusSeconds(1)
         assertEquals(voorHetEinde, uitgegeven.geldend())
+    }
+
+    // Een afnemer weigert een exemplaar met een oudere iat dan het laatste dat hij accepteerde.
+    @Test
+    fun `loopt de klok terug, dan blijft het bestaande exemplaar staan tot de klok het inhaalt`() {
+        val uitgegeven = uitgegeven().apply { bijOpstart(startup) }
+        val eerste = uitgegeven.geldend()!!
+
+        klok.moment = start.minus(Duration.ofHours(1))
+        uitgegeven.ververs()
+
+        assertEquals(eerste, uitgegeven.geldend())
+
+        klok.moment = start.plus(Duration.ofMinutes(5))
+        uitgegeven.ververs()
+
+        assertTrue(uitgegeven.geldend()!!.uitgegevenOp.isAfter(eerste.uitgegevenOp))
     }
 
     @Test

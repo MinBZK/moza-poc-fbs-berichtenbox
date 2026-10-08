@@ -33,6 +33,9 @@ description:
 
       - Berichtenuitvraag
 
+      - Stelselregister, dat de deelnemende berichtenmagazijnen publiceert
+      als ondertekend stelseldocument
+
 
       Deze repository bevat de broncode van de PoC Federatief
       Berichtenstelsel. Het MOZa-project bestaat uit meerdere repositories

@@ -9,6 +9,10 @@ import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.Signature
+import java.security.cert.CertPathValidator
+import java.security.cert.CertificateFactory
+import java.security.cert.PKIXParameters
+import java.security.cert.TrustAnchor
 import java.security.cert.X509Certificate
 import java.security.interfaces.ECKey
 import java.security.interfaces.ECPrivateKey
@@ -18,6 +22,7 @@ import java.security.spec.ECParameterSpec
 import java.time.Duration
 import java.time.Instant
 import java.util.Base64
+import java.util.Date
 import javax.naming.ldap.LdapName
 import javax.security.auth.x500.X500Principal
 
@@ -67,8 +72,15 @@ class Ondertekensleutel private constructor(
         sign()
     }
 
-    /** Dagen tot het ondertekencertificaat verloopt; negatief als het al verlopen is. */
-    fun resterend(nu: Instant): Duration = Duration.between(nu, certificaat.notAfter.toInstant())
+    /**
+     * Het moment waarop het eerste certificaat in de gepubliceerde keten verloopt. Een afnemer
+     * toetst elk certificaat in `x5c`; een handtekening is dus niet langer bruikbaar dan de
+     * kortst geldende schakel, ook als dat een tussencertificaat is.
+     */
+    val geldigTot: Instant = keten.minOf { it.notAfter.toInstant() }
+
+    /** Tijd tot [geldigTot]; negatief als de keten al verlopen is. */
+    fun resterend(nu: Instant): Duration = Duration.between(nu, geldigTot)
 
     companion object {
         private const val JWS_HANDTEKENING = "SHA256withECDSAinP1363Format"
@@ -76,13 +88,15 @@ class Ondertekensleutel private constructor(
         private const val OID_SERIALNUMBER = "2.5.4.5"
         private const val SERIALNUMBER = "SERIALNUMBER"
 
+        /** Positie van digitalSignature in de keyUsage-bitreeks (RFC 5280 §4.2.1.3). */
+        private const val KEYUSAGE_DIGITAL_SIGNATURE = 0
+
         private val BASE64URL = Base64.getUrlEncoder().withoutPadding()
         private val P256: ECParameterSpec = AlgorithmParameters.getInstance("EC").run {
             init(ECGenParameterSpec("secp256r1"))
             getParameterSpec(ECParameterSpec::class.java)
         }
 
-        @Suppress("LongParameterList") // Elk argument is een eigen invoer van de keystore; een wrapper verplaatst ze alleen.
         fun uitKeystore(
             pad: Path,
             wachtwoord: CharArray,
@@ -94,7 +108,8 @@ class Ondertekensleutel private constructor(
             val privateKey = leesSleutel(keystore, alias, wachtwoord, pad)
             val volledigeKeten = keystore.getCertificateChain(alias).orEmpty().map { it as X509Certificate }
 
-            valideerKeten(volledigeKeten, privateKey, alias, nu)
+            valideerCertificaat(volledigeKeten, privateKey, alias)
+            valideerKeten(volledigeKeten, alias, nu)
 
             return Ondertekensleutel(
                 privateKey = privateKey,
@@ -104,14 +119,20 @@ class Ondertekensleutel private constructor(
             )
         }
 
-        /** Leest `subject.serialNumber` (OID 2.5.4.5), waar een organisatiecertificaat de OIN draagt. */
+        /**
+         * Leest `subject.serialNumber` (OID 2.5.4.5), waar een organisatiecertificaat de OIN draagt.
+         *
+         * Alleen als het subject precies één zo'n attribuut heeft, als eigen enkelvoudige RDN. Bij
+         * twee waarden of een samengestelde RDN kiest de ene bibliotheek de ene en de andere de
+         * andere; een certificaat waarover afnemers het oneens kunnen zijn, heeft hier geen OIN.
+         */
         fun oinUit(certificaat: X509Certificate): String? {
             val subject = certificaat.subjectX500Principal.getName(X500Principal.RFC2253, mapOf(OID_SERIALNUMBER to SERIALNUMBER))
+            val rdns = LdapName(subject).rdns
+            val dragers = rdns.filter { rdn -> rdn.toAttributes().iDs.asSequence().any { it.equals(SERIALNUMBER, ignoreCase = true) } }
+            val enige = dragers.singleOrNull()?.takeIf { it.size() == 1 }
 
-            return LdapName(subject).rdns
-                .firstOrNull { it.type.equals(SERIALNUMBER, ignoreCase = true) }
-                ?.value
-                ?.toString()
+            return enige?.value?.toString()
         }
 
         /** De publieke sleutel van [certificaat] als JWK (RFC 7517), met zijn eigen keten-loze `x5c`. */
@@ -143,7 +164,7 @@ class Ondertekensleutel private constructor(
         }
 
         /** Vaste lengte van 32 bytes: `toByteArray` laat voorloopnullen weg of zet er een tekenbyte voor. */
-        private fun coordinaat(waarde: BigInteger): String {
+        internal fun coordinaat(waarde: BigInteger): String {
             val ruw = waarde.toByteArray()
             val vast = ByteArray(COORDINAAT_BYTES)
             val lengte = minOf(ruw.size, COORDINAAT_BYTES)
@@ -192,7 +213,7 @@ class Ondertekensleutel private constructor(
             return sleutel
         }
 
-        private fun valideerKeten(keten: List<X509Certificate>, privateKey: ECPrivateKey, alias: String, nu: Instant) {
+        private fun valideerCertificaat(keten: List<X509Certificate>, privateKey: ECPrivateKey, alias: String) {
             val certificaat = keten.firstOrNull()
                 ?: throw OngeldigeOndertekensleutelException("Alias '$alias' heeft geen certificaat")
 
@@ -207,7 +228,29 @@ class Ondertekensleutel private constructor(
                 throw OngeldigeOndertekensleutelException("Het certificaat onder alias '$alias' hoort niet bij de sleutel")
             }
 
-            valideerSchakels(keten, alias)
+            if (certificaat.basicConstraints >= 0) {
+                throw OngeldigeOndertekensleutelException(
+                    "Het certificaat onder alias '$alias' is een CA-certificaat; ondertekenen hoort met een eindcertificaat",
+                )
+            }
+
+            if (certificaat.keyUsage?.get(KEYUSAGE_DIGITAL_SIGNATURE) != true) {
+                throw OngeldigeOndertekensleutelException(
+                    "Het certificaat onder alias '$alias' mist het sleutelgebruik digitalSignature",
+                )
+            }
+        }
+
+        /**
+         * Valideert de keten zoals een afnemer dat doet: padvalidatie volgens RFC 5280, op het
+         * moment [nu]. Dat dekt wat een controle per schakel mist — een tussencertificaat dat geen
+         * CA is, een overschreden padlengte, een verlopen schakel. Het bovenste certificaat uit de
+         * keystore is hier het anker; een afnemer gebruikt daarvoor zijn eigen vastgelegde root.
+         *
+         * Zonder intrekkingscontrole: de keten kent geen CRL of OCSP.
+         */
+        internal fun valideerKeten(keten: List<X509Certificate>, alias: String, nu: Instant) {
+            val certificaat = keten.first()
 
             if (nu.isBefore(certificaat.notBefore.toInstant()) || !nu.isBefore(certificaat.notAfter.toInstant())) {
                 throw OngeldigeOndertekensleutelException(
@@ -215,19 +258,24 @@ class Ondertekensleutel private constructor(
                         "(geldig van ${certificaat.notBefore.toInstant()} tot ${certificaat.notAfter.toInstant()})",
                 )
             }
-        }
 
-        internal fun valideerSchakels(keten: List<X509Certificate>, alias: String) {
-            keten.zipWithNext().forEach { (onder, boven) ->
-                try {
-                    onder.verify(boven.publicKey)
-                } catch (e: GeneralSecurityException) {
-                    throw OngeldigeOndertekensleutelException(
-                        "De certificaatketen onder alias '$alias' sluit niet: " +
-                            "'${onder.subjectX500Principal}' is niet uitgegeven door '${boven.subjectX500Principal}'",
-                        e,
-                    )
-                }
+            // Alleen het eindcertificaat in de keystore: er is geen uitgever om tegen te valideren.
+            if (keten.size == 1) return
+
+            val parameters = PKIXParameters(setOf(TrustAnchor(keten.last(), null))).apply {
+                isRevocationEnabled = false
+                date = Date.from(nu)
+            }
+
+            try {
+                val pad = CertificateFactory.getInstance("X.509").generateCertPath(keten.dropLast(1))
+
+                CertPathValidator.getInstance("PKIX").validate(pad, parameters)
+            } catch (e: GeneralSecurityException) {
+                throw OngeldigeOndertekensleutelException(
+                    "De certificaatketen onder alias '$alias' sluit niet of is niet geldig op $nu: ${e.message}",
+                    e,
+                )
             }
         }
 

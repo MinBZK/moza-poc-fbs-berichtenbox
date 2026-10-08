@@ -176,8 +176,8 @@ Fouten zijn `application/problem+json` met `API-Version`: 404 (onbekend pad), 40
   De JWKS is een gemak voor wie de sleutel wil zien, geen bron van vertrouwen: hij komt van
   dezelfde origin als het document. De root gaat buiten de dienst om naar de app (in de build),
   met zijn vingerafdruk in het toepassingsprofiel en de operator-handleiding. Nu een eigen
-  test-root; een PKIoverheid-certificaat met de OIN in `subject.serialNumber` past in dezelfde
-  vorm.
+  test-root. Of een PKIoverheid-certificaat aan de eisen voldoet (EC P-256, de OIN in
+  `subject.serialNumber`) is niet getoetst.
 - **Rotatie zonder dat apps breken.** Een nieuw ondertekencertificaat onder dezelfde root is voor
   een app onzichtbaar. De JWKS toont tijdens de overgang de oude en de nieuwe sleutel. Intrekken
   van een gelekte sleutel loopt via een kort levend ondertekencertificaat en een nieuwe uitgifte;
@@ -198,8 +198,8 @@ Fouten zijn `application/problem+json` met `API-Version`: 404 (onbekend pad), 40
   build-time launch mode en niet aan de profielnaam: een profiel is bij het starten te kiezen, en
   een uitgerolde dienst die ongemerkt met een wegwerpsleutel ondertekent, oogt gezond.
 - **JWS compact, ES256.** De standaard eist een JWS en staat P-256 toe; compact is de vorm die de
-  standaard zelf toont en die elke JOSE-library in een browser in één aanroep verifieert, via
-  WebCrypto. De payload is JSON; de vorm op de lijn is dat niet, en het toepassingsprofiel legt
+  standaard zelf toont en waarvan elke JOSE-library de handtekening verifieert. Het
+  certificaatpad valideren doet zo'n library niet; dat vraagt een X.509-bibliotheek. De payload is JSON; de vorm op de lijn is dat niet, en het toepassingsprofiel legt
   die lezing vast. EdDSA is het alternatief zodra de libraries van afnemers het dragen.
 - **Eigen `typ`.** Zo is het document niet te verwisselen met een ander token onder dezelfde
   sleutel.
@@ -349,8 +349,8 @@ De dienst antwoordt daarom op `/.well-known/security.txt` met een `302` naar
 `https://www.ncsc.nl/.well-known/security.txt`. Dat houdt contact, `Expires` en de
 PGP-ondertekening op één beheerde plek: een eigen kopie zou verlopen zonder dat iemand het merkt.
 Het doel is config (`stelselregister.security-txt-url`), zodat een beheerder met een eigen
-CVD-beleid alleen de waarde wijzigt. De verificatie volgt de redirect en controleert dat het
-doel een bestand met `Contact` en een `Expires` in de toekomst oplevert.
+CVD-beleid alleen de waarde wijzigt. De tests controleren de redirect zelf; of het doel een
+geldig bestand oplevert, is een controle na de uitrol en hangt niet aan de testsuite.
 
 ## Uitkomst
 

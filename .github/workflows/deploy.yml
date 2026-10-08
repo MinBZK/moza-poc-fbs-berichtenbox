@@ -1,6 +1,6 @@
 # Deploy naar ZAD (Operations Manager) via RijksICTGilde/zad-actions.
 #
-# DRIE losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
+# VIER losse ZAD-projecten (deployments zijn geïsoleerd; cross-project bereik je via de
 # https-ingress-URLs `<component>-<deployment>-<projectid>.rig.prd1.gn2.quattro.rijksapps.nl`):
 #
 #   uitvraag       (mpfb-8wh)     componenten: redis + uitvraag in de deployments
@@ -14,6 +14,9 @@
 #                                 txlog} (FSC-provider-peer) in de EIGEN, preview-loze
 #                                 deployment `fsc-magazijna` — zie
 #                                 demo/environment/magazijn-a/
+#   stelselregister (mpfs-rab)    component: stelselregister. Roept niets aan en wordt alleen via
+#                                 zijn publieke route bereikt; inrichting in
+#                                 demo/environment/zad-demo/stelselregister.md
 #
 # Redis (sessiecache) draait per project intern (centrale ZAD-Redis v7 mist RediSearch);
 # interne calls zijn http: redis via redis://…:6379. Het LDV-logboek draait op de
@@ -738,7 +741,7 @@ jobs:
   #
   # De poort zelf toetst niets — dat doen de checks-jobs hierboven. Hij aggregeert alleen hun
   # resultaat op één plek, zodat de "overgeslagen telt als OK"-regel één keer bestaat in plaats van
-  # als `always() && ...`-formule op elk van de zes deploy-jobs, met zes kansen op drift.
+  # als `always() && ...`-formule op elk van de acht deploy-jobs, met acht kansen op drift.
   #
   # CodeQL en architecture bewust NIET in de set: CodeQL mag traag of tijdelijk rood zijn (bv.
   # extractor-lag op een nieuwe Kotlin-versie) zonder de preview te blokkeren, en architecture
@@ -1120,7 +1123,7 @@ jobs:
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: ${{ steps.berichtenbox.outputs.componenten }}
 
-  # De comment met de preview-URL's, in een eigen job omdat hij de URL's van twee deploys nodig
+  # De comment met de preview-URL's, in een eigen job omdat hij de URL's van meerdere deploys nodig
   # heeft.
   #
   # De job draagt geen `deploy-preview-`-voorvoegsel: `uitrol-poort` telt op dat voorvoegsel de
@@ -1133,7 +1136,6 @@ jobs:
       && needs.deploy-preview-uitvraag.result == 'success'
       && needs.deploy-preview-externe-stubs.result == 'success'
       && needs.deploy-preview-magazijnen.result == 'success'
-      && needs.deploy-preview-stelselregister.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
     needs:
@@ -1156,15 +1158,15 @@ jobs:
 
       # De comment met de preview-URL's staat met de demo vooraan: dit project draagt de
       # bedieningsconsole, de berichtenbox en de magazijnen, en dat is voor een lezer van de PR de
-      # ingang. Deze job draait ná alle drie de deploys, dus pas hier zijn de URL's van beide
+      # ingang. Deze job draait ná alle deploys, dus pas hier zijn de URL's van alle
       # kanten bekend.
       #
       # Het derde project (profiel, notificatie en hun twee Toxiproxy's) blijft eruit: daar zit geen
       # scherm dat je opent, alleen stubs waar de demo doorheen praat. De grens loopt per project en
       # niet per component — binnen een project gaat de hele `urls`-map mee.
       #
-      # Twee gevolgen van het samenstellen in een eigen job, allebei aanvaard. Faalt een van de drie
-      # preview-deploys, dan wordt deze job overgeslagen en komt er géén comment, ook niet met de
+      # Twee gevolgen van het samenstellen in een eigen job, allebei aanvaard. Faalt een van de
+      # drie onderling afhankelijke preview-deploys, dan wordt deze job overgeslagen en komt er géén comment, ook niet met de
       # URL's die er wél zijn — maar dan is de preview zelf incompleet en is de run rood. En faalt
       # deze stap, dan is de job rood en blokkeert `uitrol-poort` de merge terwijl de preview
       # draait; dat is de bedoelde prijs voor "een uitgebleven comment mag niet stil zijn".
@@ -1176,12 +1178,16 @@ jobs:
           PR_NUMMER: ${{ github.event.pull_request.number }}
           URLS_DEMO: ${{ needs.deploy-preview-magazijnen.outputs.urls }}
           URLS_UITVRAAG: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
-          URLS_STELSELREGISTER: ${{ needs.deploy-preview-stelselregister.outputs.urls }}
+          # Het stelselregister hangt van geen van de andere drie af. Mislukt zijn preview, dan
+          # horen de URL's van een werkende demo niet mee te verdwijnen: de job wacht er wel op
+          # (needs), maar eist het niet (if), en de sectie vervalt als hij er niet is.
+          # `uitrol-poort` draagt de fout.
+          SECTIE_STELSELREGISTER: ${{ needs.deploy-preview-stelselregister.result == 'success' && format('Stelselregister={0}', needs.deploy-preview-stelselregister.outputs.urls) || '' }}
         run: >-
           .github/scripts/preview-comment.sh "$PR_NUMMER"
           "Demo=$URLS_DEMO"
           "Berichtenuitvraag=$URLS_UITVRAAG"
-          "Stelselregister=$URLS_STELSELREGISTER"
+          ${SECTIE_STELSELREGISTER:+"$SECTIE_STELSELREGISTER"}
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.

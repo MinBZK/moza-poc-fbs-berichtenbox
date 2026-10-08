@@ -1,6 +1,5 @@
 package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.http.HttpMethod
 import io.vertx.ext.web.Router
@@ -31,19 +30,7 @@ class WellKnownRoutes(
         }
     }.toString()
 
-    private val sleutelset: String by lazy {
-        val sleutel = sleutelbron.sleutel
-        val sleutels = (listOf(sleutel.certificaat) + sleutel.overige).map(Ondertekensleutel::jwk)
-
-        JSON.writeValueAsString(mapOf("keys" to sleutels))
-    }
-
-    private val sleutelsetEtag: String by lazy {
-        val sleutel = sleutelbron.sleutel
-        val kids = (listOf(sleutel.certificaat) + sleutel.overige).map { Ondertekensleutel.jwk(it).getValue("kid") }
-
-        "W/\"${kids.joinToString(".")}\""
-    }
+    private val sleutelset: Sleutelset by lazy { Sleutelset(sleutelbron.sleutel) }
 
     fun registreer(@Observes router: Router) {
         router.route(PAD_SLEUTELSET).method(HttpMethod.GET).method(HttpMethod.HEAD).handler(::sleutelset)
@@ -56,13 +43,17 @@ class WellKnownRoutes(
      */
     private fun sleutelset(context: RoutingContext) {
         val antwoord = context.response()
-            .putHeader(HttpHeaders.ETAG, sleutelsetEtag)
+            .putHeader(HttpHeaders.ETAG, sleutelset.etag)
             .putHeader(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL_SLEUTELSET)
 
-        if (Etag.komtOvereen(context.request().getHeader(HttpHeaders.IF_NONE_MATCH), sleutelsetEtag)) {
+        // Zie StelseldocumentResource.VARY: zonder deze header kan een gedeelde cache een antwoord
+        // zonder CORS-headers uitleveren aan een browser.
+        if (!antwoord.headers().contains(HttpHeaders.VARY)) antwoord.putHeader(HttpHeaders.VARY, StelseldocumentResource.VARY)
+
+        if (Etag.komtOvereen(context.request().getHeader(HttpHeaders.IF_NONE_MATCH), sleutelset.etag)) {
             antwoord.setStatusCode(NIET_GEWIJZIGD).end()
         } else {
-            antwoord.putHeader(HttpHeaders.CONTENT_TYPE, MEDIATYPE_SLEUTELSET).end(sleutelset)
+            antwoord.putHeader(HttpHeaders.CONTENT_TYPE, MEDIATYPE_SLEUTELSET).end(sleutelset.json)
         }
     }
 
@@ -88,6 +79,5 @@ class WellKnownRoutes(
 
         private const val GEVONDEN = 302
         private const val NIET_GEWIJZIGD = 304
-        private val JSON = ObjectMapper()
     }
 }

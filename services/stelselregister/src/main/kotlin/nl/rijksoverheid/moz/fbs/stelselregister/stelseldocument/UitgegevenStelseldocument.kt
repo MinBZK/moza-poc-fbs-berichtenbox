@@ -44,8 +44,10 @@ class UitgegevenStelseldocument(
     }
 
     /**
-     * Mislukt een latere uitgifte — in de praktijk: het certificaat is verlopen — dan blijft het
-     * vorige exemplaar staan tot het zelf verloopt. Daarna meldt de dienst zich niet meer gereed.
+     * Mislukt een latere uitgifte, dan blijft het vorige exemplaar staan tot het zelf verloopt en
+     * meldt de dienst zich daarna niet meer gereed. Is de oorzaak een verlopen keten, dan is er
+     * geen uitloop: de geldigheid van elk exemplaar eindigt uiterlijk op hetzelfde moment als de
+     * keten. De waarschuwing bij elke uitgifte is daarom het signaal om op te sturen.
      */
     @Scheduled(
         every = "{stelseldocument.verversen}",
@@ -56,7 +58,13 @@ class UitgegevenStelseldocument(
         try {
             geefUit()
         } catch (e: OngeldigeOndertekensleutelException) {
-            log.errorf(e, "Het stelseldocument is niet ververst; het vorige exemplaar geldt tot %s", huidige.get()?.verlooptOp)
+            val vorige = geldend()
+
+            if (vorige == null) {
+                log.errorf(e, "Het stelseldocument is niet ververst en er is geen geldend exemplaar meer; de dienst geeft 503")
+            } else {
+                log.errorf(e, "Het stelseldocument is niet ververst; het vorige exemplaar geldt nog tot %s", vorige.verlooptOp)
+            }
         }
     }
 
@@ -65,7 +73,24 @@ class UitgegevenStelseldocument(
 
     private fun geefUit() {
         val sleutel = sleutelbron.sleutel
-        val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register), sleutel, clock.instant())
+        val nu = clock.instant()
+
+        sleutelbron.waarschuwBijNaderendVerloop(nu)
+
+        val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register), sleutel, nu)
+        val vorige = huidige.get()
+
+        // Een afnemer weigert een exemplaar met een oudere `iat` dan het laatste dat hij accepteerde.
+        // Loopt de klok terug, dan blijft het bestaande exemplaar dus staan tot de klok het inhaalt.
+        if (vorige != null && uitgifte.uitgegevenOp.isBefore(vorige.uitgegevenOp)) {
+            log.warnf(
+                "De klok staat vóór de vorige uitgifte (%s); het exemplaar van %s blijft staan",
+                uitgifte.uitgegevenOp,
+                vorige.uitgegevenOp,
+            )
+
+            return
+        }
 
         huidige.set(uitgifte)
         log.infof(

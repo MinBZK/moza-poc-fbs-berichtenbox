@@ -30,20 +30,34 @@ info:
 
     ## Het document verifiëren
 
-    Voer deze vijf stappen uit in deze volgorde, en weiger het document zodra er één faalt:
+    Voer deze zes stappen uit in deze volgorde, en weiger het document zodra er één faalt.
 
-    1. `alg` is exact `ES256` en `typ` exact `stelseldocument+jwt`. Accepteer geen andere waarde,
-       en negeer nooit een `jku`, `jwk` of `x5u` in de header.
-    2. Valideer de certificaatketen in `x5c` tot de root die je vooraf hebt vastgelegd, inclusief
-       de geldigheidsperiode van elk certificaat. De root staat niet in `x5c` en komt niet van
-       deze dienst: je legt hem vast bij het bouwen van je app.
+    1. De header bevat uitsluitend `alg`, `typ`, `kid` en `x5c`, met `alg` exact `ES256` en `typ`
+       exact `stelseldocument+jwt`. Weiger een document met enig ander headerveld, zoals `jku`,
+       `jwk`, `x5u` of `crit`, en haal nooit een sleutel op via zo'n veld. De sleutel komt uit
+       `x5c`; `kid` en de sleutelset spelen bij de verificatie geen rol.
+    2. Valideer het certificaatpad in `x5c` tot de root die je vooraf hebt vastgelegd, volgens
+       RFC 5280 §6. Dat is meer dan controleren dat elke handtekening in de keten klopt: elk
+       certificaat na het eerste moet een CA zijn (`basicConstraints` met `CA:TRUE`, sleutelgebruik
+       `keyCertSign`) en een padlengte-beperking moet gerespecteerd worden; het eerste certificaat
+       is geen CA en heeft sleutelgebruik `digitalSignature`; elk certificaat is op dit moment
+       geldig. Gebruik hiervoor een X.509-bibliotheek. WebCrypto en de meeste JOSE-bibliotheken
+       doen deze stap niet. De root staat niet in `x5c` en komt niet van deze dienst: je legt hem
+       vast bij het bouwen van je app.
     3. Controleer de handtekening met de publieke sleutel uit het eerste certificaat in `x5c`.
-    4. Controleer dat `subject.serialNumber` van dat certificaat de OIN van de verwachte
-       stelselbeheerder is, en dat `iss` dezelfde waarde heeft. Sla deze stap niet over: onder een
-       root die ook andere certificaten uitgeeft, kan elke houder daarvan anders een document
-       ondertekenen dat zich als de stelselbeheerder voordoet.
-    5. Weiger een document waarvan `exp` voorbij is, of waarvan `iat` ouder is dan het laatste
-       exemplaar dat je accepteerde.
+       Zonder stap 2 bewijst deze stap niets: het document levert die sleutel zelf aan.
+    4. Het subject van dat certificaat bevat precies één `serialNumber` (OID 2.5.4.5), en dat is
+       de OIN van de stelselbeheerder die je verwacht; `iss` heeft dezelfde waarde. Sla deze stap
+       niet over: onder een root die ook andere certificaten uitgeeft, kan elke houder daarvan
+       anders een document ondertekenen dat zich als de stelselbeheerder voordoet.
+    5. `environment` is de omgeving waarvoor je app gebouwd is. Een document uit een demo- of
+       testomgeving kan onder dezelfde root en dezelfde OIN zijn ondertekend.
+    6. `iat` ligt niet meer dan 60 seconden in de toekomst, `exp` ligt niet meer dan 24 uur na
+       `iat`, `exp` is niet voorbij, en `iat` is niet ouder dan dat van het laatste exemplaar dat
+       je accepteerde. De grens op `iat` en op de geldigheid is geen formaliteit: wie de sleutel
+       in handen krijgt, kiest die waarden zelf.
+
+    `version` is een kenmerk van de inhoud en heeft geen rol in de verificatie.
 
     `/.well-known/jwks.json` toont de publieke sleutels van deze dienst, als gemak voor wie ze wil
     inzien. Het is geen bron van vertrouwen: het komt van hetzelfde adres als het document.
@@ -51,8 +65,13 @@ info:
     ## Verversen
 
     Een document is 24 uur geldig en wordt elk uur opnieuw uitgegeven. `version` verandert alleen
-    als de inhoud verandert; `iat` bij elke uitgifte. Gebruik `If-None-Match` met de `ETag` van je
-    laatste exemplaar om alleen een nieuw document op te halen als er één is.
+    als de inhoud verandert; `iat` bij elke uitgifte. Haal ruim vóór `exp` een nieuw exemplaar op,
+    bijvoorbeeld elk uur, en gebruik `If-None-Match` met de `ETag` van je laatste exemplaar om
+    alleen een nieuw document te krijgen als er één is.
+
+    Een wijziging in het register komt in het document zodra de stelselbeheerder de dienst opnieuw
+    heeft gestart. Een organisatie die uit het register verdwijnt, staat daarna uiterlijk 24 uur
+    nog in het exemplaar dat een app al had.
 
     ## Buiten deze API
 
@@ -63,12 +82,13 @@ info:
 
     ## Foutantwoorden herkennen
 
-    Elk foutantwoord is `application/problem+json` (RFC 9457) en draagt in `type` een kenmerk van
-    de vorm `urn:fbs:fout:<code>`. Stuur je gedrag op `type`, niet op `title` of `detail`.
+    Elk foutantwoord onder `/api/v1` is `application/problem+json` (RFC 9457) en draagt in `type`
+    een kenmerk van de vorm `urn:fbs:fout:<code>`. Stuur je gedrag op `type`, niet op `title` of
+    `detail`. Buiten `/api/v1` antwoordt de HTTP-laag zelf, zonder problem-document.
 
     | `type` | Status | Situatie |
     |---|---|---|
-    | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet |
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad onder `/api/v1` bestaat niet |
     | `urn:fbs:fout:ongeldig-verzoek` | 405, 406 | Een andere methode dan `GET`, of een `Accept` die `application/jose` uitsluit |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Er is op dit moment geen geldig document |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
@@ -121,6 +141,8 @@ paths:
               $ref: '#/components/headers/ETag'
             Cache-Control:
               $ref: '#/components/headers/Cache-Control'
+            Vary:
+              $ref: '#/components/headers/Vary'
           content:
             application/jose:
               schema:
@@ -136,6 +158,8 @@ paths:
               $ref: '#/components/headers/ETag'
             Cache-Control:
               $ref: '#/components/headers/Cache-Control'
+            Vary:
+              $ref: '#/components/headers/Vary'
         '406':
           $ref: '#/components/responses/NotAcceptable'
         '500':
@@ -160,6 +184,13 @@ components:
       schema:
         type: string
         example: public, max-age=300
+    Vary:
+      description: |
+        Altijd `Origin`: het antwoord draagt alleen CORS-headers als het verzoek een `Origin` had,
+        en een gedeelde cache moet die twee uit elkaar houden.
+      schema:
+        type: string
+        example: Origin
     Retry-After:
       description: Aantal seconden waarna opnieuw proberen zin heeft
       schema:

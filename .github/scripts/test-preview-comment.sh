@@ -561,6 +561,10 @@ niet_leeg "deploy.yml roept preview-comment.sh aan" "$AANROEP_REGELS"
 # een halve preview erin, en groene CI.
 bevat "de aanroep geeft de demo mee" 'Demo=$URLS_DEMO' "$AANROEP_REGELS"
 bevat "de aanroep geeft de uitvraag mee" 'Berichtenuitvraag=$URLS_UITVRAAG' "$AANROEP_REGELS"
+# Het stelselregister is een losse sectie: aanwezig als zijn preview slaagde, anders weg, zodat een
+# fout daar de URL's van de demo niet meeneemt.
+bevat "de aanroep geeft het stelselregister mee als die sectie er is" \
+  '${SECTIE_STELSELREGISTER:+"$SECTIE_STELSELREGISTER"}' "$AANROEP_REGELS"
 
 # De demo is de ingang voor wie de PR opent; dat staat zo in de toelichting bij de stap en hoort
 # dus ook de eerste sectie te zijn.
@@ -575,11 +579,13 @@ bestand_bevat "de comment-stap leest de job-output van de uitvraag" \
   '^          URLS_UITVRAAG: \$\{\{ needs\.deploy-preview-uitvraag\.outputs\.urls \}\}$' "$DEPLOY_YML"
 bestand_bevat "de comment-stap leest de job-output van de magazijnen" \
   '^          URLS_DEMO: \$\{\{ needs\.deploy-preview-magazijnen\.outputs\.urls \}\}$' "$DEPLOY_YML"
+bestand_bevat "de sectie van het stelselregister hangt aan het slagen van zijn eigen deploy" \
+  "^          SECTIE_STELSELREGISTER: \\$\\{\\{ needs\\.deploy-preview-stelselregister\\.result == 'success' && format\\('Stelselregister=\\{0\\}', needs\\.deploy-preview-stelselregister\\.outputs\\.urls\\) \\|\\| '' \\}\\}\$" "$DEPLOY_YML"
 
 # Beide deploy-jobs moeten hun URL's als job-output publiceren; de comment staat in een derde job
 # en kan niet bij hun steps. Valt zo'n `outputs`-blok of step-id weg, dan komt de env leeg binnen —
 # dat faalt luid, maar pas tijdens de deploy van de volgende PR.
-for job in deploy-preview-uitvraag deploy-preview-magazijnen; do
+for job in deploy-preview-uitvraag deploy-preview-magazijnen deploy-preview-stelselregister; do
   BLOK=$(awk -v job="  $job:" '$0 == job { in_job = 1; next } in_job && /^  [a-z]/ { exit } in_job { print }' "$DEPLOY_YML")
 
   niet_leeg "de job $job is in deploy.yml te vinden" "$BLOK"
@@ -594,6 +600,8 @@ AFRONDING_JOB=$(awk '/^  preview-afronding:$/ { in_job = 1; next } in_job && /^ 
 niet_leeg "de afrondingsjob is in deploy.yml te vinden" "$AFRONDING_JOB"
 bevat "die job wacht op de uitvraag-deploy" '- deploy-preview-uitvraag' "$AFRONDING_JOB"
 bevat "die job wacht op de magazijnen-deploy" '- deploy-preview-magazijnen' "$AFRONDING_JOB"
+bevat "die job wacht op de stelselregister-deploy" '- deploy-preview-stelselregister' "$AFRONDING_JOB"
+bevat_niet "maar eist niet dat die slaagt" "&& needs.deploy-preview-stelselregister.result == 'success'" "$AFRONDING_JOB"
 bevat "die job mag op de PR schrijven" 'pull-requests: write' "$AFRONDING_JOB"
 
 # Het opruimen moet de comment vinden zoals hij geplaatst is: dezelfde `startswith`, en pagineren

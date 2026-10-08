@@ -306,6 +306,35 @@ meld(
     "elk project zonder netwerkregels heeft een eigen preview-uitrol",
 )
 
+# De lijst hierboven is zelf een kopie. Wat hem aan deploy.yml bindt: de uitrol-job van elk van die
+# projecten wijst naar hetzelfde project, dezelfde key en dezelfde groep als de opruim-leg. Loopt
+# één van die uiteen, dan ruimt de opruiming een ander project op dan waar de preview ontstond.
+with open(sys.argv[1], encoding="utf-8") as bestand:
+    workflow_env = yaml.safe_load(bestand).get("env") or {}
+
+for naam, project, key in ZONDER_REGELS:
+    job = deploy.get("deploy-preview-" + naam) or {}
+    stappen = [stap for stap in job.get("steps") or [] if "zad-actions/deploy" in str(stap.get("uses", ""))]
+    invoer = (stappen[0].get("with") if stappen else None) or {}
+    env_naam = "PROJECT_" + naam.upper().replace("-", "_")
+
+    meld(workflow_env.get(env_naam) == project, f"{env_naam} in deploy.yml is het project van de opruim-leg")
+    meld(invoer.get("project-id") == "${{ env." + env_naam + " }}", f"de uitrol van {naam} leest dat project")
+    meld(invoer.get("api-key") == "${{ secrets." + key + " }}", f"de uitrol van {naam} gebruikt de key van de opruim-leg")
+    meld(
+        (job.get("concurrency") or {}).get("group") == "zad-" + naam + "-pr-${{ github.event.pull_request.number }}",
+        f"de uitrol van {naam} deelt zijn groep met de opruim-leg",
+    )
+    meld(
+        invoer.get("components") == "${{ needs.meta.outputs.componenten-" + naam + " }}",
+        f"de uitrol van {naam} rolt de componentenlijst uit meta uit",
+    )
+    meld(invoer.get("clone-from") == "test", f"de preview van {naam} ontstaat uit test")
+    meld(
+        "componenten-" + naam in ((deploy.get("meta") or {}).get("outputs") or {}),
+        f"meta publiceert de componentenlijst van {naam}",
+    )
+
 aanroepen = [stap for stap in klaar.get("steps") or [] if "preview-klaarzetten.sh" in str(stap.get("run", ""))]
 meld(len(aanroepen) == 1, "preview-klaarzetten roept het script aan")
 
