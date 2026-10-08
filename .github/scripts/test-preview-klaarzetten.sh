@@ -287,9 +287,24 @@ deploy, cleanup = jobs(sys.argv[1]), jobs(sys.argv[2])
 klaar = deploy.get("preview-klaarzetten") or {}
 klaar_legs = legs(klaar)
 
+# Projecten die wel een preview krijgen maar geen netwerkregels tussen projecten: ze roepen niets
+# aan en worden alleen via hun publieke route bereikt. Die hebben geen leg in de klaarzetting en
+# wel een in de opruiming. Benoemd in plaats van afgeleid, zodat een project dat stil uit de
+# klaarzetting verdwijnt hier opvalt.
+ZONDER_REGELS = [("stelselregister", "mpfs-rab", "ZAD_API_KEY_STELSELREGISTER")]
+
 meld(len(klaar_legs) == 3, "de klaarzet-matrix in deploy.yml heeft drie legs")
 # Een project dat alleen hier staat, laat na elke gesloten PR een preview achter.
-meld(klaar_legs == legs(cleanup.get("cleanup-preview-zad")), "de klaarzet-matrix kent dezelfde projecten als de opruim-matrix")
+meld(
+    sorted(klaar_legs + ZONDER_REGELS) == legs(cleanup.get("cleanup-preview-zad")),
+    "de opruim-matrix kent de projecten van de klaarzet-matrix plus de projecten zonder netwerkregels",
+)
+# En andersom: een project zonder regels dat wél een uitrol-job heeft, anders ruimt de opruiming
+# iets op wat nooit ontstaat en mist de lijst hierboven zijn reden.
+meld(
+    all("deploy-preview-" + naam in deploy for naam, _, _ in ZONDER_REGELS),
+    "elk project zonder netwerkregels heeft een eigen preview-uitrol",
+)
 
 aanroepen = [stap for stap in klaar.get("steps") or [] if "preview-klaarzetten.sh" in str(stap.get("run", ""))]
 meld(len(aanroepen) == 1, "preview-klaarzetten roept het script aan")

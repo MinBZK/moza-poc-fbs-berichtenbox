@@ -64,6 +64,7 @@
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
 #   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
 #   ZAD_API_KEY_MAGAZIJNEN  — API-key project mpfm-w3h
+#   ZAD_API_KEY_STELSELREGISTER — API-key project mpfs-rab
 # (GH_ADMIN_TOKEN hoort bij het opruimen en staat beschreven in cleanup-preview.yml.)
 
 name: Deploy ZAD
@@ -111,8 +112,8 @@ permissions: read-all
 # Beide eisen tegelijk kan alleen per job:
 #   * build/toetsing → eigen groep met cancel-in-progress: true (achterhaald werk stoppen);
 #   * deploy → eigen groep PER PROJECT + doel-deployment met cancel-in-progress: false
-#     (nooit halverwege afbreken; per project apart zodat de drie parallelle jobs elkaar niet
-#     blokkeren, wat met één gedeelde groep wél zou gebeuren). De drie legs van de opruim-matrix in
+#     (nooit halverwege afbreken; per project apart zodat de parallelle jobs elkaar niet
+#     blokkeren, wat met één gedeelde groep wél zou gebeuren). De legs van de opruim-matrix in
 #     cleanup-preview.yml zitten in dezelfde groepen; de opruim-job voor de GitHub-kant deelt de
 #     uitvraag-groep en draait daarom ná die matrix, zodat die twee teardowns nooit samen in de
 #     wachtrij van één groep staan (GitHub annuleert dan de eerst-wachtende).
@@ -122,6 +123,7 @@ env:
   PROJECT_UITVRAAG: mpfb-8wh
   PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
+  PROJECT_STELSELREGISTER: mpfs-rab
   # Publiek infra-image (niet door de cleanup verwijderd). Pin in sync met compose.yaml
   # (zie pin-consistency.yml).
   #
@@ -288,6 +290,7 @@ jobs:
       componenten-uitvraag: ${{ steps.componenten.outputs.uitvraag }}
       componenten-externe-stubs: ${{ steps.componenten.outputs.externe-stubs }}
       componenten-magazijnen: ${{ steps.componenten.outputs.magazijnen }}
+      componenten-stelselregister: ${{ steps.componenten.outputs.stelselregister }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -407,10 +410,15 @@ jobs:
               {name: "proeftuin", image: $berichtenbox}
             ]')
 
+          stelselregister=$(jq -nc --arg stelselregister "$(eigen fbs-stelselregister)" '[
+              {name: "stelselregister", image: $stelselregister}
+            ]')
+
           {
             echo "uitvraag=$uitvraag"
             echo "externe-stubs=$stubs"
             echo "magazijnen=$magazijnen"
+            echo "stelselregister=$stelselregister"
           } >> "$GITHUB_OUTPUT"
 
   # Bouw + push de service-images met jib (geen Dockerfile). Niet wanneer `changes` de keten heeft
@@ -433,7 +441,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        service: [berichtenuitvraag, berichtenmagazijn]
+        service: [berichtenuitvraag, berichtenmagazijn, stelselregister]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -791,14 +799,15 @@ jobs:
 
           echo "Alle verplichte checks groen — deploy vrijgegeven."
 
-  # Zet de drie preview-deployments en hun cross-domain-regels klaar in de projectbestanden, zonder
+  # Zet de preview-deployments van de drie projecten met cross-domain-regels klaar, zonder
   # uit te rollen; de deploy-jobs hieronder rollen daarna uit wat er dan staat. Waarom dat nodig is,
   # staat in .github/scripts/preview-klaarzetten.sh. Kort: Operations Manager slaat een regel
   # waarvan de peer-deployment bij het renderen nog niet bestaat stil over en rendert hem daarna niet
   # opnieuw, en de console van de magazijnen haalt zonder zijn regels de sync-wacht niet.
   #
-  # Dezelfde projecten als de opruim-matrix in cleanup-preview.yml: die ruimt op wat deze klaarzet.
-  # test-preview-klaarzetten.sh bewaakt dat de twee gelijk blijven.
+  # De opruim-matrix in cleanup-preview.yml kent dezelfde projecten, plus het stelselregister: dat
+  # heeft geen regels tussen projecten en dus geen leg hier, maar wel een preview om op te ruimen.
+  # test-preview-klaarzetten.sh bewaakt dat verband.
   #
   # Geen `deploy-preview-`-voorvoegsel: `uitrol-poort` telt op dat voorvoegsel de uitrol-jobs per
   # as, en dit is er geen. De poort beoordeelt hem apart.
@@ -968,6 +977,43 @@ jobs:
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: ${{ needs.meta.outputs.componenten-externe-stubs }}
 
+  # Het stelselregister staat in een eigen project en roept niets aan: het is alleen via zijn
+  # publieke route bereikbaar. Daarom hangt deze job niet aan `preview-klaarzetten` — er zijn geen
+  # netwerkregels tussen projecten om vooraf klaar te zetten — en maakt de uitrol de preview zelf
+  # aan vanaf `test`. Keystore, register en health-check komen mee uit die kloonbron.
+  deploy-preview-stelselregister:
+    # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
+    # het transitief overgeslagen `checks-fuzz` onder `gate`.
+    if: >-
+      !cancelled()
+      && needs.meta.result == 'success'
+      && needs.build.result == 'success'
+      && needs.gate.result == 'success'
+      && github.event_name == 'pull_request'
+      && needs.changes.outputs.deploy == 'true'
+    needs: [meta, build, gate, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      urls: ${{ steps.deploy.outputs.urls }}
+    concurrency:
+      group: zad-stelselregister-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy stelselregister-project
+        id: deploy
+        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_STELSELREGISTER }}
+          project-id: ${{ env.PROJECT_STELSELREGISTER }}
+          deployment-name: pr-${{ github.event.pull_request.number }}
+          clone-from: test
+          wait-for-ready: 'false'
+          task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
+          components: ${{ needs.meta.outputs.componenten-stelselregister }}
+
   deploy-preview-magazijnen:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
     # het transitief overgeslagen `checks-fuzz` onder `gate`.
@@ -1087,6 +1133,7 @@ jobs:
       && needs.deploy-preview-uitvraag.result == 'success'
       && needs.deploy-preview-externe-stubs.result == 'success'
       && needs.deploy-preview-magazijnen.result == 'success'
+      && needs.deploy-preview-stelselregister.result == 'success'
       && github.event_name == 'pull_request'
       && needs.changes.outputs.deploy == 'true'
     needs:
@@ -1094,6 +1141,7 @@ jobs:
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen
+      - deploy-preview-stelselregister
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -1128,10 +1176,12 @@ jobs:
           PR_NUMMER: ${{ github.event.pull_request.number }}
           URLS_DEMO: ${{ needs.deploy-preview-magazijnen.outputs.urls }}
           URLS_UITVRAAG: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
+          URLS_STELSELREGISTER: ${{ needs.deploy-preview-stelselregister.outputs.urls }}
         run: >-
           .github/scripts/preview-comment.sh "$PR_NUMMER"
           "Demo=$URLS_DEMO"
           "Berichtenuitvraag=$URLS_UITVRAAG"
+          "Stelselregister=$URLS_STELSELREGISTER"
 
   # Push naar main → per project de `test`-deployment (de baseline waarvan previews klonen;
   # env/secrets configureer je daar in Operations Manager). Per project een eigen parallelle job.
@@ -1235,6 +1285,33 @@ jobs:
               {"name": "toxiproxy-notificatie", "image": "${{ env.TOXIPROXY_IMAGE }}"}
             ]
 
+  deploy-test-stelselregister:
+    # Zelfde reden als deploy-test-uitvraag hierboven: impliciete success() over de needs-keten
+    # wordt vergiftigd door het op push altijd-geskipte `checks-fuzz`, ook al is `gate` zelf groen.
+    if: >-
+      !cancelled()
+      && needs.meta.result == 'success'
+      && needs.build.result == 'success'
+      && needs.gate.result == 'success'
+      && github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+    needs: [meta, build, gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: zad-stelselregister-test
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy stelselregister-project (test)
+        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        with:
+          api-key: ${{ secrets.ZAD_API_KEY_STELSELREGISTER }}
+          project-id: ${{ env.PROJECT_STELSELREGISTER }}
+          deployment-name: test
+          components: ${{ needs.meta.outputs.componenten-stelselregister }}
+
   deploy-test-magazijnen:
     # Zelfde reden als deploy-test-uitvraag hierboven: impliciete success() over de needs-keten
     # wordt vergiftigd door het op push altijd-geskipte `checks-fuzz`, ook al is `gate` zelf groen.
@@ -1314,11 +1391,13 @@ jobs:
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
       - deploy-preview-magazijnen
+      - deploy-preview-stelselregister
       - preview-klaarzetten
       - preview-afronding
       - deploy-test-uitvraag
       - deploy-test-externe-stubs
       - deploy-test-magazijnen
+      - deploy-test-stelselregister
     # `always()` i.p.v. de impliciete success(), die deze job zou overslaan zodra een need faalt —
     # precies wat hij moet beoordelen. Ook niet `!cancelled()`: `cancelled()` is run-breed, dus
     # bij een handmatig afgebroken run zou deze check op 'skipped' (= succes) komen te staan en
