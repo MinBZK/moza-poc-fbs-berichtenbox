@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.jboss.logging.Logger
 import java.time.Clock
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -40,6 +41,21 @@ class UitgegevenStelseldocument(
                 "(${config.verversen()}); anders verloopt elk exemplaar vóór het volgende er is"
         }
 
+        require(config.geldigheid() <= MAX_GELDIGHEID) {
+            "stelseldocument.geldigheid (${config.geldigheid()}) mag niet langer zijn dan $MAX_GELDIGHEID: " +
+                "een afnemer weigert een document dat langer geldt"
+        }
+
+        val onversleuteld = onversleuteld(Stelseldocument.uit(register))
+
+        if (onversleuteld.isNotEmpty()) {
+            log.warnf(
+                "Het stelseldocument wijst voor %d organisatie(s) naar een adres zonder TLS: %s",
+                onversleuteld.size,
+                onversleuteld,
+            )
+        }
+
         geefUit()
     }
 
@@ -68,7 +84,7 @@ class UitgegevenStelseldocument(
         }
     }
 
-    /** Het exemplaar dat nu uitgeleverd mag worden, of `null` als er geen onverlopen exemplaar is. */
+    /** Het exemplaar dat nu uitgeleverd mag worden, of `null` als er geen is dat een afnemer nu accepteert. */
     fun geldend(): Uitgifte? = huidige.get()?.takeIf { it.isGeldigOp(clock.instant()) }
 
     private fun geefUit() {
@@ -80,16 +96,27 @@ class UitgegevenStelseldocument(
         val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register), sleutel, nu)
         val vorige = huidige.get()
 
-        // Een afnemer weigert een exemplaar met een oudere `iat` dan het laatste dat hij accepteerde.
-        // Loopt de klok terug, dan blijft het bestaande exemplaar dus staan tot de klok het inhaalt.
         if (vorige != null && uitgifte.uitgegevenOp.isBefore(vorige.uitgegevenOp)) {
-            log.warnf(
-                "De klok staat vóór de vorige uitgifte (%s); het exemplaar van %s blijft staan",
-                uitgifte.uitgegevenOp,
+            // Een afnemer weigert een exemplaar met een oudere `iat` dan het laatste dat hij
+            // accepteerde. Loopt de klok een stukje terug, dan blijft het bestaande exemplaar
+            // dus staan tot de klok het inhaalt.
+            if (!vorige.isUitDeToekomst(nu)) {
+                log.warnf(
+                    "De klok staat vóór de vorige uitgifte (%s); het exemplaar van %s blijft staan",
+                    uitgifte.uitgegevenOp,
+                    vorige.uitgegevenOp,
+                )
+
+                return
+            }
+
+            // Dat geldt niet voor een exemplaar uit de toekomst: dat heeft geen afnemer ooit
+            // geaccepteerd, en vasthouden zou de dienst stilzetten tot de tijd het inhaalt.
+            log.errorf(
+                "Het vorige exemplaar is uitgegeven op %s, in de toekomst: de klok stond bij die uitgifte vooruit. " +
+                    "Het wordt vervangen",
                 vorige.uitgegevenOp,
             )
-
-            return
         }
 
         huidige.set(uitgifte)
@@ -102,5 +129,18 @@ class UitgegevenStelseldocument(
             uitgifte.aantalOrganisaties,
             sleutel.herkomst,
         )
+    }
+
+    companion object {
+        /** De langste geldigheid die een afnemer accepteert. */
+        val MAX_GELDIGHEID: Duration = Duration.ofHours(24)
+
+        /**
+         * De adressen in het document die geen `https` zijn. Het register weigert die buiten de
+         * profielen dev en test; een uitgerolde dienst onder zo'n profiel publiceert ze wel, en
+         * dan hoort dat in de log te staan.
+         */
+        internal fun onversleuteld(document: Stelseldocument): List<String> =
+            document.organisaties.map { it.magazijnUrl }.filterNot { it.startsWith("https://", ignoreCase = true) }
     }
 }

@@ -21,7 +21,18 @@ data class Uitgifte(
     /** Zwak: twee exemplaren met gelijke inhoud maar een andere `iat` zijn voor een afnemer niet uitwisselbaar. */
     val etag: String = "W/\"$versie.$kid.${uitgegevenOp.epochSecond}\""
 
-    fun isGeldigOp(moment: Instant): Boolean = moment.isBefore(verlooptOp)
+    /**
+     * Onverlopen, en niet uit de toekomst. Een exemplaar dat is uitgegeven terwijl de klok
+     * vooruit stond, weigert elke afnemer tot de tijd het inhaalt; het telt hier dus niet mee.
+     */
+    fun isGeldigOp(moment: Instant): Boolean = moment.isBefore(verlooptOp) && !isUitDeToekomst(moment)
+
+    fun isUitDeToekomst(moment: Instant): Boolean = uitgegevenOp.isAfter(moment.plus(KLOKVERSCHIL))
+
+    companion object {
+        /** De speling die een afnemer op `iat` toestaat. */
+        val KLOKVERSCHIL: Duration = Duration.ofSeconds(60)
+    }
 }
 
 /**

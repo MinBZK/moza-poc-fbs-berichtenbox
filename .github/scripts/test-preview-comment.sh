@@ -601,7 +601,12 @@ niet_leeg "de afrondingsjob is in deploy.yml te vinden" "$AFRONDING_JOB"
 bevat "die job wacht op de uitvraag-deploy" '- deploy-preview-uitvraag' "$AFRONDING_JOB"
 bevat "die job wacht op de magazijnen-deploy" '- deploy-preview-magazijnen' "$AFRONDING_JOB"
 bevat "die job wacht op de stelselregister-deploy" '- deploy-preview-stelselregister' "$AFRONDING_JOB"
-bevat_niet "maar eist niet dat die slaagt" "&& needs.deploy-preview-stelselregister.result == 'success'" "$AFRONDING_JOB"
+# Met een YAML-parser en op de hele voorwaarde: een tekstvergelijking vangt alleen de ene
+# schrijfwijze die er ooit stond, en mist dezelfde eis op een andere plek of in een andere vorm.
+AFRONDING_IF=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["jobs"]["preview-afronding"]["if"])' "$DEPLOY_YML" 2>&1)
+
+bevat "de voorwaarde van die job is te lezen" 'needs.deploy-preview-uitvraag.result' "$AFRONDING_IF"
+bevat_niet "maar eist niet dat de stelselregister-deploy slaagt" 'deploy-preview-stelselregister' "$AFRONDING_IF"
 bevat "die job mag op de PR schrijven" 'pull-requests: write' "$AFRONDING_JOB"
 
 # Het opruimen moet de comment vinden zoals hij geplaatst is: dezelfde `startswith`, en pagineren

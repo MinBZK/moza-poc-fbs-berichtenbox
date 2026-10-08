@@ -36,12 +36,15 @@ class Sleutelbron internal constructor(
      * Bij elke uitgifte, niet alleen bij de start: een dienst die maanden doordraait, zou anders
      * zonder enig signaal van gezond naar niet-gereed gaan op het moment dat de keten verloopt.
      * Niet voor een wegwerpketen: die is er per start een nieuwe, en niemand kan hem vervangen.
+     *
+     * @return of er gewaarschuwd is
      */
-    fun waarschuwBijNaderendVerloop(nu: Instant) {
+    fun waarschuwBijNaderendVerloop(nu: Instant): Boolean {
         val huidige = sleutel
         val resterend = huidige.resterend(nu)
+        val waarschuwen = huidige.herkomst == Sleutelherkomst.KEYSTORE && moetWaarschuwen(resterend)
 
-        if (huidige.herkomst == Sleutelherkomst.KEYSTORE && moetWaarschuwen(resterend)) {
+        if (waarschuwen) {
             log.warnf(
                 "De certificaatketen van de ondertekensleutel (kid %s) verloopt over %d dagen, op %s. " +
                     "Vervang het ondertekencertificaat vóór die datum",
@@ -50,6 +53,8 @@ class Sleutelbron internal constructor(
                 huidige.geldigTot,
             )
         }
+
+        return waarschuwen
     }
 
     companion object {

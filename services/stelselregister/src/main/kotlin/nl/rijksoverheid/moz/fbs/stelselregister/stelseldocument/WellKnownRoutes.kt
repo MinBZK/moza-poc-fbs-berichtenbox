@@ -46,8 +46,7 @@ class WellKnownRoutes(
             .putHeader(HttpHeaders.ETAG, sleutelset.etag)
             .putHeader(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL_SLEUTELSET)
 
-        // Zie StelseldocumentResource.VARY: zonder deze header kan een gedeelde cache een antwoord
-        // zonder CORS-headers uitleveren aan een browser.
+        // Het CORS-filter zet de header zelf als het verzoek een Origin draagt.
         if (!antwoord.headers().contains(HttpHeaders.VARY)) antwoord.putHeader(HttpHeaders.VARY, StelseldocumentResource.VARY)
 
         if (Etag.komtOvereen(context.request().getHeader(HttpHeaders.IF_NONE_MATCH), sleutelset.etag)) {

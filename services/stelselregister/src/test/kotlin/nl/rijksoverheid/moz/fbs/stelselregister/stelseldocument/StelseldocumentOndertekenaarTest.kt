@@ -159,6 +159,30 @@ class StelseldocumentOndertekenaarTest {
     }
 
     @Test
+    fun `exp loopt nooit voorbij de kortst geldende schakel, ook als dat het tussencertificaat is`() {
+        val keten = Testketens.metKortTussencertificaat
+        val metTussen = Ondertekensleutel.uitKeystore(keten.pad, keten.wachtwoord, Wegwerpketen.ALIAS, nu)
+        val eindeTussen = Instant.ofEpochSecond(keten.certificaat(Testketens.TUSSEN_ALIAS).notAfter.toInstant().epochSecond)
+
+        val uitgifte = ondertekenaar.onderteken(document, metTussen, eindeTussen.minus(Duration.ofHours(2)))
+
+        assertTrue(eindeTussen.isBefore(metTussen.certificaat.notAfter.toInstant()))
+        assertEquals(eindeTussen, uitgifte.verlooptOp)
+    }
+
+    @Test
+    fun `een exemplaar geldt van uitgifte tot verloop, en niet als het uit de toekomst komt`() {
+        val uitgifte = ondertekenaar.onderteken(document, sleutel, nu)
+        val iat = uitgifte.uitgegevenOp
+
+        assertTrue(uitgifte.isGeldigOp(iat))
+        assertTrue(uitgifte.isGeldigOp(iat.minusSeconds(60)))
+        assertFalse(uitgifte.isGeldigOp(iat.minusSeconds(61)))
+        assertTrue(uitgifte.isGeldigOp(uitgifte.verlooptOp.minusSeconds(1)))
+        assertFalse(uitgifte.isGeldigOp(uitgifte.verlooptOp))
+    }
+
+    @Test
     fun `met een verlopen certificaat wordt niets uitgegeven`() {
         val einde = sleutel.certificaat.notAfter.toInstant()
 

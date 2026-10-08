@@ -88,8 +88,9 @@ class Ondertekensleutel private constructor(
         private const val OID_SERIALNUMBER = "2.5.4.5"
         private const val SERIALNUMBER = "SERIALNUMBER"
 
-        /** Positie van digitalSignature in de keyUsage-bitreeks (RFC 5280 §4.2.1.3). */
+        /** Posities in de keyUsage-bitreeks (RFC 5280 §4.2.1.3). */
         private const val KEYUSAGE_DIGITAL_SIGNATURE = 0
+        private const val KEYUSAGE_KEY_CERT_SIGN = 5
 
         private val BASE64URL = Base64.getUrlEncoder().withoutPadding()
         private val P256: ECParameterSpec = AlgorithmParameters.getInstance("EC").run {
@@ -113,7 +114,7 @@ class Ondertekensleutel private constructor(
 
             return Ondertekensleutel(
                 privateKey = privateKey,
-                keten = volledigeKeten.filterNot(::isZelfOndertekend),
+                keten = if (isZelfOndertekend(volledigeKeten.last())) volledigeKeten.dropLast(1) else volledigeKeten,
                 overige = overigeOndertekencertificaten(keystore, volledigeKeten.first()),
                 herkomst = herkomst,
             )
@@ -247,6 +248,10 @@ class Ondertekensleutel private constructor(
          * CA is, een overschreden padlengte, een verlopen schakel. Het bovenste certificaat uit de
          * keystore is hier het anker; een afnemer gebruikt daarvoor zijn eigen vastgelegde root.
          *
+         * Padvalidatie toetst het anker zelf niet. Ontbreekt de root in de keystore, dan is het
+         * anker een certificaat dat in `x5c` komt en dat een afnemer wél toetst; het krijgt hier
+         * daarom dezelfde eisen als een uitgever.
+         *
          * Zonder intrekkingscontrole: de keten kent geen CRL of OCSP.
          */
         internal fun valideerKeten(keten: List<X509Certificate>, alias: String, nu: Instant) {
@@ -262,6 +267,8 @@ class Ondertekensleutel private constructor(
             // Alleen het eindcertificaat in de keystore: er is geen uitgever om tegen te valideren.
             if (keten.size == 1) return
 
+            valideerUitgever(keten.last(), alias, nu)
+
             val parameters = PKIXParameters(setOf(TrustAnchor(keten.last(), null))).apply {
                 isRevocationEnabled = false
                 date = Date.from(nu)
@@ -275,6 +282,22 @@ class Ondertekensleutel private constructor(
                 throw OngeldigeOndertekensleutelException(
                     "De certificaatketen onder alias '$alias' sluit niet of is niet geldig op $nu: ${e.message}",
                     e,
+                )
+            }
+        }
+
+        private fun valideerUitgever(uitgever: X509Certificate, alias: String, nu: Instant) {
+            val naam = uitgever.subjectX500Principal.name
+
+            if (uitgever.basicConstraints < 0 || uitgever.keyUsage?.get(KEYUSAGE_KEY_CERT_SIGN) == false) {
+                throw OngeldigeOndertekensleutelException(
+                    "Het bovenste certificaat in de keten onder alias '$alias' ($naam) mag geen certificaten uitgeven",
+                )
+            }
+
+            if (nu.isBefore(uitgever.notBefore.toInstant()) || !nu.isBefore(uitgever.notAfter.toInstant())) {
+                throw OngeldigeOndertekensleutelException(
+                    "Het bovenste certificaat in de keten onder alias '$alias' ($naam) is niet geldig op $nu",
                 )
             }
         }
@@ -306,8 +329,10 @@ class Ondertekensleutel private constructor(
                 .filter { (it.publicKey as? ECPublicKey)?.let(::isP256) == true }
                 .distinct()
 
+        /** Op naam én op handtekening: een gelijke naam alleen maakt een certificaat nog geen root. */
         private fun isZelfOndertekend(certificaat: X509Certificate): Boolean =
-            certificaat.subjectX500Principal == certificaat.issuerX500Principal
+            certificaat.subjectX500Principal == certificaat.issuerX500Principal &&
+                runCatching { certificaat.verify(certificaat.publicKey) }.isSuccess
 
         private fun isP256(sleutel: ECKey): Boolean =
             sleutel.params.curve == P256.curve && sleutel.params.order == P256.order

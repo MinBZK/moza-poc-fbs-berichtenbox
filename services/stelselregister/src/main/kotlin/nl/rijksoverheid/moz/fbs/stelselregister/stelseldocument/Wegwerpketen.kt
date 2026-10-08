@@ -64,7 +64,7 @@ object Wegwerpketen {
 
     /** De argumenten voor de wegwerp-root, zonder de opslag. */
     internal val ROOT: List<String> = listOf("-genkeypair", "-alias", ROOT_ALIAS) + P256 +
-        listOf("-dname", "CN=Wegwerp-root stelseldocument") + CA + listOf("-validity", "3650", "-startdate", "-1d")
+        listOf("-dname", "CN=Wegwerp-root stelseldocument") + CA + listOf("-validity", "3650", "-startdate", GISTEREN)
 
     internal fun nieuwWachtwoord(): String =
         Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(WACHTWOORD_BYTES).also(SecureRandom()::nextBytes))

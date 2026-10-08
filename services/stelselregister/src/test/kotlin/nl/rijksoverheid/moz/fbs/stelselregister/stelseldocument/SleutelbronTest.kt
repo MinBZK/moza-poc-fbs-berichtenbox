@@ -99,16 +99,17 @@ class SleutelbronTest {
     }
 
     @Test
-    fun `waarschuwen breekt niet, voor een keystore noch voor een wegwerpketen`() {
+    fun `een keystore waarschuwt binnen de termijn, een wegwerpketen nooit`() {
         val keystore = Sleutelbron(
             config(Testketens.geldig.pad.toString(), String(Testketens.geldig.wachtwoord)),
             Clock.systemUTC(),
             LaunchMode.NORMAL,
         )
 
-        keystore.waarschuwBijNaderendVerloop(nu)
-        keystore.waarschuwBijNaderendVerloop(nu.minus(Duration.ofDays(400)))
-        Sleutelbron(config(pad = null), Clock.systemUTC(), LaunchMode.TEST).waarschuwBijNaderendVerloop(nu)
+        // De testketen geldt dertig dagen: nu valt binnen de termijn, ruim daarvoor niet.
+        assertTrue(keystore.waarschuwBijNaderendVerloop(nu))
+        assertFalse(keystore.waarschuwBijNaderendVerloop(nu.minus(Duration.ofDays(400))))
+        assertFalse(Sleutelbron(config(pad = null), Clock.systemUTC(), LaunchMode.TEST).waarschuwBijNaderendVerloop(nu))
     }
 
     @Test

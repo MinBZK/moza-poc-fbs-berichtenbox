@@ -197,6 +197,7 @@ onbruikbaar maakt, ook als een andere omgeving ooit dezelfde root en OIN zou kri
 | Toegestane legalisatiemethoden en vertrouwde legalisators aanwijzen en opnemen (2.2.7, 4.1.2) | ontbreekt |
 | App Managers (toegestaan in 4.1.1.1; aanwijzen volgens 2.2.7 en 4.1.2) | het veld bestaat en is leeg |
 | Deelname-eisen stellen en handhaven, kwaliteit van diensten meten (2.2.3, 4.1.2) | organisatorisch; niet in deze dienst |
+| Endpoints gebruiken TLS 1.3 of hoger (3.5) | de dienst termineert zelf geen TLS; de versie is een eis aan de ingress van de omgeving en wordt hier niet afgedwongen |
 
 Wat de standaard wel eist van het document zelf en hier is ingevuld: JSON, publiek bereikbaar,
 ondertekend door de stelselbeheerder, met versienummering (4.1.1.2), en een JWS met ECDSA (3.1).

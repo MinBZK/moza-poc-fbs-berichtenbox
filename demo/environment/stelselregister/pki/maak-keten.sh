@@ -48,6 +48,13 @@ if [[ ! -f ca/root.key ]]; then
         exit 1
     fi
 
+    # Een keystore zonder de root waar hij onder hangt: de root is weg, niet nooit gemaakt. Wie
+    # de oude root heeft vastgelegd, weigert alles wat hierna ondertekend wordt.
+    if [[ -f out/keystore.p12 ]]; then
+        echo "LET OP: out/keystore.p12 bestaat, maar ca/root.key niet. Er komt een NIEUWE root;" >&2
+        echo "afnemers die de vorige root hebben vastgelegd, moeten de nieuwe vastleggen." >&2
+    fi
+
     openssl ecparam -name prime256v1 -genkey -noout -out ca/root.key
     openssl req -x509 -new -key ca/root.key -sha256 -days "$ROOT_DAGEN" \
         -subj "/C=NL/O=${ORGANISATIE}/CN=Stelseldocument root (${OMGEVING})" \

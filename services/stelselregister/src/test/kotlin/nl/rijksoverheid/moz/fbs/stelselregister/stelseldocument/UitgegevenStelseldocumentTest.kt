@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
 
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.spyk
+import io.mockk.verify
 import io.quarkus.runtime.LaunchMode
 import io.quarkus.runtime.StartupEvent
 import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
@@ -14,6 +16,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import java.net.URI
 import java.time.Clock
 import java.time.Duration
@@ -119,12 +123,13 @@ class UitgegevenStelseldocumentTest {
     }
 
     // Een afnemer weigert een exemplaar met een oudere iat dan het laatste dat hij accepteerde.
+    // Dit is de gewone klokcorrectie van enkele seconden.
     @Test
-    fun `loopt de klok terug, dan blijft het bestaande exemplaar staan tot de klok het inhaalt`() {
+    fun `loopt de klok een stukje terug, dan blijft het bestaande exemplaar staan tot de klok het inhaalt`() {
         val uitgegeven = uitgegeven().apply { bijOpstart(startup) }
         val eerste = uitgegeven.geldend()!!
 
-        klok.moment = start.minus(Duration.ofHours(1))
+        klok.moment = start.minusSeconds(30)
         uitgegeven.ververs()
 
         assertEquals(eerste, uitgegeven.geldend())
@@ -133,6 +138,53 @@ class UitgegevenStelseldocumentTest {
         uitgegeven.ververs()
 
         assertTrue(uitgegeven.geldend()!!.uitgegevenOp.isAfter(eerste.uitgegevenOp))
+    }
+
+    // Het omgekeerde geval: de klok stond bij een uitgifte vooruit. Dat exemplaar accepteert geen
+    // afnemer, dus het telt niet als geldend en het mag de volgende uitgifte niet tegenhouden.
+    @Test
+    fun `stond de klok vooruit, dan telt dat exemplaar niet en wordt het bij de volgende uitgifte vervangen`() {
+        klok.moment = start.plus(Duration.ofDays(3))
+        val uitgegeven = uitgegeven().apply { bijOpstart(startup) }
+        val uitDeToekomst = uitgegeven.geldend()!!
+
+        klok.moment = start
+        assertNull(uitgegeven.geldend())
+
+        uitgegeven.ververs()
+
+        val hersteld = uitgegeven.geldend()!!
+
+        assertTrue(hersteld.uitgegevenOp.isBefore(uitDeToekomst.uitgegevenOp))
+        assertEquals(start.epochSecond, hersteld.uitgegevenOp.epochSecond)
+    }
+
+    @Test
+    fun `de grens ligt op de speling van een afnemer, zestig seconden`() {
+        klok.moment = start.plusSeconds(60)
+        val binnen = uitgegeven().apply { bijOpstart(startup) }
+        val eerste = binnen.geldend()!!
+
+        klok.moment = start
+        binnen.ververs()
+        assertEquals(eerste, binnen.geldend())
+
+        klok.moment = start.plusSeconds(62)
+        val buiten = uitgegeven().apply { bijOpstart(startup) }
+
+        klok.moment = start
+        assertNull(buiten.geldend())
+    }
+
+    @Test
+    fun `elke uitgifte toetst of de keten bijna verloopt, niet alleen de eerste`() {
+        val bron = spyk(Sleutelbron(config(), klok, LaunchMode.NORMAL))
+        val uitgegeven = UitgegevenStelseldocument(register, bron, config(), klok).apply { bijOpstart(startup) }
+
+        klok.moment = start.plus(Duration.ofHours(1))
+        uitgegeven.ververs()
+
+        verify(exactly = 2) { bron.waarschuwBijNaderendVerloop(any()) }
     }
 
     @Test
@@ -154,5 +206,34 @@ class UitgegevenStelseldocumentTest {
 
         assertThrows(IllegalArgumentException::class.java) { uitgegeven(gelijk).bijOpstart(startup) }
         assertThrows(IllegalArgumentException::class.java) { uitgegeven(korter).bijOpstart(startup) }
+    }
+
+    // Een afnemer weigert een document dat langer dan 24 uur geldt; zo'n instelling levert dus
+    // een dienst die gezond oogt en niets bruikbaars uitgeeft.
+    @Test
+    fun `een geldigheid boven de 24 uur blokkeert de start, precies 24 uur niet`() {
+        val teLang = config(geldigheid = Duration.ofHours(24).plusSeconds(1))
+
+        val fout = assertThrows(IllegalArgumentException::class.java) { uitgegeven(teLang).bijOpstart(startup) }
+
+        assertTrue(fout.message.orEmpty().contains("mag niet langer zijn dan"), fout.message)
+        uitgegeven(config(geldigheid = Duration.ofHours(24))).bijOpstart(startup)
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+        "'', ''",
+        "https://a.example, ''",
+        "http://a.example, http://a.example",
+        "https://a.example|http://b.example|HTTPS://c.example|http://d.example, http://b.example|http://d.example",
+    )
+    fun `alleen adressen zonder https tellen als onversleuteld`(adressen: String, verwacht: String) {
+        fun lijst(tekst: String) = tekst.split("|").filter(String::isNotEmpty)
+
+        val document = Stelseldocument(
+            lijst(adressen).mapIndexed { index, adres -> Organisatie("0000000000000010000$index", "Organisatie $index", adres) },
+        )
+
+        assertEquals(lijst(verwacht), UitgegevenStelseldocument.onversleuteld(document))
     }
 }

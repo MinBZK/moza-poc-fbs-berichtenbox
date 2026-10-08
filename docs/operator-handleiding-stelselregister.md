@@ -23,7 +23,8 @@ geheim is de ondertekensleutel.
 
 Geldigheid (`stelseldocument.geldigheid`, 24 uur) en ververs-interval
 (`stelseldocument.verversen`, 1 uur) zijn instelbaar; de geldigheid moet langer zijn dan het
-interval, anders start de dienst niet.
+interval en mag niet boven de 24 uur uitkomen, anders start de dienst niet. Een afnemer weigert
+een document dat langer geldt.
 
 **Het register staat in de config van elke dienst die het leest.** De berichtenuitvraag en het
 stelselregister moeten dezelfde organisaties noemen. Voor de twee vaste magazijnen bewaakt een
@@ -68,8 +69,20 @@ niet met `QUARKUS_PROFILE=dev`.
 - **Mislukt het verversen**, dan staat er een `ERROR` `Het stelseldocument is niet ververst`, met
   erbij of er nog een geldend exemplaar is. Zonder geldend exemplaar geeft de dienst `503` en
   meldt hij zich niet meer gereed.
-- **Loopt de klok terug**, dan blijft het bestaande exemplaar staan tot de klok het inhaalt: een
-  afnemer weigert een exemplaar met een oudere `iat` dan het laatste dat hij accepteerde.
+- **Loopt de klok een stukje terug** (hooguit een minuut, de gewone correctie), dan blijft het
+  bestaande exemplaar staan tot de klok het inhaalt: een afnemer weigert een exemplaar met een
+  oudere `iat` dan het laatste dat hij accepteerde. Er staat dan een `WARN`
+  `De klok staat vóór de vorige uitgifte`.
+- **Stond de klok bij een uitgifte meer dan een minuut vooruit**, dan accepteert geen afnemer dat
+  exemplaar. Zodra de klok weer klopt, telt het niet meer als geldend: de dienst geeft `503` en
+  meldt zich niet gereed, tot de eerstvolgende verversing het vervangt. Die verversing logt een
+  `ERROR` `Het vorige exemplaar is uitgegeven op ..., in de toekomst`. Een herstart vervangt het
+  direct. Dezelfde `503` volgt als de klok ten onrechte meer dan een minuut terugspringt; de dienst
+  kan die twee gevallen niet uit elkaar houden.
+- **Een adres zonder TLS in het document** geeft bij de start een `WARN`
+  `Het stelseldocument wijst voor ... organisatie(s) naar een adres zonder TLS`. Het register
+  weigert zulke adressen, behalve onder de profielen `dev` en `test`; in een uitgerolde omgeving
+  hoort deze regel dus niet voor te komen.
 
 ## Sleutelbeheer
 

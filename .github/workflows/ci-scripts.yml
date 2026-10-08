@@ -126,7 +126,7 @@ jobs:
             [.github/scripts/test-cross-domain-preview.sh]=51
             [.github/scripts/test-preview-klaarzetten.sh]=62
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
-            [.github/scripts/test-preview-comment.sh]=128
+            [.github/scripts/test-preview-comment.sh]=129
             [.github/scripts/test-jdk-handtekening.sh]=22
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=74

@@ -326,6 +326,44 @@ class OndertekensleutelTest {
         geweigerd { laad(Testketens.geldig, moment = einde) }
     }
 
+    // Zonder root in de keystore is het bovenste certificaat het anker, en dat toetst padvalidatie
+    // niet. Het komt wel in x5c, waar een afnemer het weigert.
+    @Test
+    fun `zonder root wordt een bovenste certificaat dat geen CA is geweigerd`() {
+        val keten = Testketens.viaNietCa
+        val melding = geweigerd {
+            Ondertekensleutel.valideerKeten(listOf(keten.certificaat, keten.certificaat(Testketens.TUSSEN_ALIAS)), "alias", nu)
+        }
+
+        assertTrue(melding.contains("mag geen certificaten uitgeven"), melding)
+    }
+
+    @Test
+    fun `zonder root wordt een bovenste certificaat buiten zijn geldigheid geweigerd`() {
+        val keten = Testketens.metKortTussencertificaat
+        val tussen = keten.certificaat(Testketens.TUSSEN_ALIAS)
+        val schakels = listOf(keten.certificaat, tussen)
+
+        Ondertekensleutel.valideerKeten(schakels, "alias", nu)
+
+        val verlopen = geweigerd { Ondertekensleutel.valideerKeten(schakels, "alias", tussen.notAfter.toInstant()) }
+        val teVroeg = geweigerd {
+            Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat, Testketens.nogNietGeldig.root), "alias", nu.minus(Duration.ofDays(2)))
+        }
+
+        assertTrue(verlopen.contains("niet geldig op"), verlopen)
+        assertTrue(teVroeg.contains("niet geldig op"), teVroeg)
+    }
+
+    @Test
+    fun `een tussencertificaat zonder root in de keystore staat als bovenste in de keten`() {
+        val bron = Testketens.metTussencertificaat
+        val tussen = bron.certificaat(Testketens.TUSSEN_ALIAS)
+        val keten = Testketens.samengesteld(sleutel = bron.sleutel, keten = listOf(bron.certificaat, tussen))
+
+        assertEquals(listOf(bron.certificaat, tussen), laad(keten).keten)
+    }
+
     @Test
     fun `een keten zonder root in de keystore blijft bruikbaar`() {
         val keten = Testketens.samengesteld(
