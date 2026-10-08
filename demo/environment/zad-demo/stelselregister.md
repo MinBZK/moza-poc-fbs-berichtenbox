@@ -22,13 +22,13 @@ Manager vergrendelt op project.
 
 Bij het aanmaken van het project, op 2026-10-08:
 
-- project `mpfs-rab`, component `stelselregister`, poort 8094, service `publish-on-web`;
+- project `mpfs-rab`, component `stelselregister`, poort 8094;
 - de env-namen `STELSELDOCUMENT_KEYSTORE_ALIAS`, `STELSELDOCUMENT_KEYSTORE_PAD` en
   `STELSELDOCUMENT_KEYSTORE_WACHTWOORD`;
 - deployment `test`, nog zonder image;
 - de repo-secret `ZAD_API_KEY_STELSELREGISTER`.
 
-Op 2026-10-09 is de inrichting hieronder (hoofdstuk 1 tot en met 5) uitgevoerd, met de keten die
+Op 2026-10-09 is de inrichting hieronder (hoofdstuk 1 tot en met 6) uitgevoerd, met de keten die
 op 2026-10-08 is gemaakt. Wat nog openstaat, staat onder "De eerste uitrol".
 
 Poorten zijn alleen bij het aanmaken van een component te zetten. Health staat daarom op dezelfde
@@ -133,7 +133,18 @@ zadctl service config set health-check -c stelselregister \
 Readiness is `UP` zolang er een onverlopen stelseldocument klaarstaat. Dezelfde regel staat in
 `gezondheidscontrole.sh` hiernaast, dat de probes van alle componenten in één keer terugzet.
 
-## 6. Geheugen
+## 6. Publiek adres
+
+```bash
+zadctl service assign publish-on-web -c stelselregister
+```
+
+Zonder deze toewijzing draait het component wel, maar heeft het geen adres; de deploy-job faalt
+dan met `Deployment succeeded but no component has a public address`. De instelling van
+`publish-on-web` op de deployment `test` alleen is daarvoor niet genoeg. Bij de eerste uitrol op
+2026-10-08 ontbrak de toewijzing; ze is toen alsnog gedaan.
+
+## 7. Geheugen
 
 Het project is aangemaakt met een limiet van 256 MiB. Lokaal gebruikt de dienst na de start rond
 200 MiB. Laat de eerste uitrol een dag draaien en stel de limiet daarna bij op gemeten gebruik
