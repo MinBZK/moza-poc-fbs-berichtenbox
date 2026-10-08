@@ -209,18 +209,30 @@ combinatie levert zichtbare knoppen op die elk een 401 geven.
 
 ## 4. CORS op de uitvraag
 
-De Berichtenbox-pagina wordt vanaf de console geserveerd en roept de uitvraag cross-origin aan. In
-het uitvraag-project:
+De Berichtenbox-pagina wordt vanaf de console geserveerd en roept de uitvraag cross-origin aan.
 
-Elke deployment heeft een eigen console-origin (`democonsole-test-…`, `democonsole-pr-<n>-…`), en
-previews komen en gaan. Eén regex dekt ze allemaal; Quarkus leest een waarde tussen schuine strepen
-als reguliere expressie.
+De proeftuin hoort er ook op, al zet zijn nginx het API-verkeer server-side door. Een browser stuurt
+bij elke schrijf-request (PATCH, zoals een bericht uit zijn map halen) zijn eigen origin mee, de
+proxy geeft die door, en voor de uitvraag is dat een vreemde origin: zonder de proeftuin in de regex
+een `403 CORS Rejected - Invalid origin` zonder body. Lezen merkt er niets van, omdat een browser bij
+een GET naar zijn eigen origin geen `Origin` stuurt.
+
+Hetzelfde geldt voor de previews van de proeftuin in hun eigen repository (`proef-pr<n>-…` in
+project `pm-5sj`): die wijzen naar de uitvraag van `test`, zodat hun werk tegen onze keten te
+bekijken is. Hun overige deployments (`poc`, `gebruikersonderzoek`, `release-…`) staan er bewust
+niet op.
+
+Elke deployment heeft een eigen origin (`democonsole-test-…`, `proeftuin-pr-<n>-…`), en previews
+komen en gaan. Eén regex dekt ze allemaal; Quarkus leest een waarde tussen schuine strepen als
+reguliere expressie. In het uitvraag-project:
 
 ```bash
 zadctl -p mpfb-8wh env add -c uitvraag \
   QUARKUS_HTTP_CORS_ENABLED=true \
-  'QUARKUS_HTTP_CORS_ORIGINS=/https://democonsole-.+-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/'
+  'QUARKUS_HTTP_CORS_ORIGINS=/https://((democonsole|proeftuin)-.+-mpfm-w3h|proef-pr[0-9]+-pm-5sj).rig.prd1.gn2.quattro.rijksapps.nl/'
 ```
+
+Bestaat de waarde al, gebruik dan `env set` in plaats van `env add`.
 
 **Geen backslashes in die waarde.** Een geëscapete variant
 (`https:\/\/democonsole-…\.rig\.…`) laat de SOPS-stap van Operations Manager falen op
@@ -238,7 +250,7 @@ Toets daarbij eerst de HTTP-status en pas daarna de header. Zonder die eerste to
 je voor `kwaadaardig.example` wilt zien, dus een dode uitvraag leest hier als een geslaagde controle:
 
 ```bash
-for o in https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://kwaadaardig.example; do
+for o in https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://proeftuin-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://kwaadaardig.example; do
   antwoord=$(curl -sS -o /dev/null -D - -w 'STATUS=%{http_code}\n' \
     -X OPTIONS -H "Origin: $o" -H 'Access-Control-Request-Method: GET' \
     https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/berichten) || {

@@ -156,8 +156,8 @@ class BerichtenKetenTest : MagazijnTestBasis() {
 
     /**
      * Merge-patch: een veld dat ontbreekt of `null` is, blijft ongewijzigd. Dat geldt voor allebei
-     * de velden, en het is de reden dat een map wel te overschrijven maar niet te wissen is — precies
-     * zoals bij het echte magazijn.
+     * de velden, en het is de reden dat wissen via de lege string gaat — precies zoals bij het echte
+     * magazijn.
      */
     @Test
     fun `een ontbrekend veld laat de andere waarde ongemoeid`() {
@@ -191,6 +191,25 @@ class BerichtenKetenTest : MagazijnTestBasis() {
             .then()
             .statusCode(200)
             .body("status.map", equalTo("Belangrijk"))
+    }
+
+    @Test
+    fun `een lege mapnaam haalt het bericht uit zijn map en laat gelezen staan`() {
+        val berichtId = leverAan(EEN)
+
+        patch(EEN, berichtId, """{"gelezen": true, "map": "Archief"}""").then().statusCode(200)
+        patch(EEN, berichtId, """{"map": ""}""")
+            .then()
+            .statusCode(200)
+            .body("status.gelezen", equalTo(true))
+            .body("status", not(hasKey("map")))
+    }
+
+    @Test
+    fun `een mapnaam van alleen witruimte is een clientfout`() {
+        val berichtId = leverAan(EEN)
+
+        patch(EEN, berichtId, """{"map": "   "}""").then().statusCode(400)
     }
 
     @Test

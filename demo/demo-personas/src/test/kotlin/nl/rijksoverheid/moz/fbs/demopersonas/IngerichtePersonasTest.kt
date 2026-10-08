@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 
 /**
  * Over de ingerichte lijst zelf, niet over de logica die hem leest. Een opt-in van nul magazijnen
- * is een geldige inrichting — Grootbedrijf en Landelijk Concern halen op bij de gesimuleerde
+ * is een geldige inrichting — Grootbedrijf, Landelijk Concern en Demo-onderneming 4 halen op bij de gesimuleerde
  * magazijnen — dus een `magazijnen`-regel die wegvalt of verkeerd gespeld raakt, is aan het gedrag
  * niet te onderscheiden van die bedoelde nul: de boot slaagt, de generator slaat de persona over,
  * en tijdens de demo blijft één berichtenbox leeg zonder dat iets faalt.
@@ -29,7 +29,7 @@ class IngerichtePersonasTest {
     @Test
     fun `deze persona's halen alleen op, en horen dus geen opt-in te hebben`() {
         assertEquals(
-            listOf("grootbedrijf", "concern"),
+            listOf("proeftuin-vier", "grootbedrijf", "concern"),
             ingericht.alle().filter { it.magazijnen.isEmpty() }.map { it.id },
         )
     }

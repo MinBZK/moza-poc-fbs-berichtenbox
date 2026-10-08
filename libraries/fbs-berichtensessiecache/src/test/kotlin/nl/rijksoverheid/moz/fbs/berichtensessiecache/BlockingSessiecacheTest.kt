@@ -17,6 +17,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
@@ -30,6 +32,10 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.util.UUID
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
  * Pin het facade-contract van [BlockingSessiecache]: de gereed-status-gating op
@@ -59,6 +65,14 @@ class BlockingSessiecacheTest {
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,
     )
+
+    companion object {
+        @JvmStatic
+        fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
+
+        @JvmStatic
+        fun geldigeMapnamen(): List<String> = listOf(Sessiecache.MAP_WISSEN, "a", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE))
+    }
 
     private fun stubStatus(status: AggregationStatus?) {
         every { service.getAggregationStatus(ontvanger) } returns Uni.createFrom().item(status)
@@ -92,12 +106,12 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.lijst(ontvanger))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger))
 
         // paginaGrootte boven het plafond wordt op 100 gecapt
         every { service.getBerichten(3, 100, ontvanger, "afz", "werk") } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.lijst(ontvanger, pagina = 3, paginaGrootte = 500, afzender = "afz", map = "werk"))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger, pagina = 3, paginaGrootte = 500, afzender = "afz", map = "werk"))
     }
 
     @Test
@@ -109,7 +123,33 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.zoek(ontvanger, "factuur"))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.zoek(ontvanger, "factuur"))
+    }
+
+    /**
+     * Wie in de laatste ronde niet leverde, staat in de aggregatiestatus en niet in de berichten.
+     * Lijst én zoek moeten het meegeven, anders verdwijnt het signaal zodra de ondernemer zoekt.
+     */
+    @Test
+    fun `lijst en zoek dragen de niet-geleverde organisaties uit de aggregatiestatus`() {
+        val nietGeleverd = listOf(NietGeleverd("magazijn-b", "Belasting", MagazijnFoutStatus.TIMEOUT))
+
+        stubStatus(
+            AggregationStatus(
+                status = OphalenStatus.GEREED,
+                totaalMagazijnen = 3,
+                geslaagd = 1,
+                mislukt = 1,
+                nietOpgehaald = 1,
+                nietGeleverd = nietGeleverd,
+            ),
+        )
+        every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+        every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+
+        // Twee organisaties niet geleverd, één bij naam bekend: het aantal komt uit de tellers.
+        assertEquals(Volledigheid(2, nietGeleverd), facade.lijst(ontvanger).volledigheid)
+        assertEquals(Volledigheid(2, nietGeleverd), facade.zoek(ontvanger, "factuur").volledigheid)
     }
 
     @Test
@@ -169,6 +209,28 @@ class BlockingSessiecacheTest {
         assertThrows<SessiecacheException.OngeldigeInvoer> {
             facade.werkBerichtBij(ontvanger, UUID.randomUUID(), status = null, map = null)
         }
+    }
+
+    /**
+     * De facade bewaakt zijn eigen contract: een ongeldige naam hoort als [SessiecacheException.OngeldigeInvoer]
+     * terug te komen en de cache niet te raken, niet als 500 diep uit Redis.
+     */
+    @ParameterizedTest(name = "map=\"{0}\"")
+    @MethodSource("ongeldigeMapnamen")
+    fun `werkBerichtBij weigert een ongeldige mapnaam zonder de cache te raken`(map: String) {
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.werkBerichtBij(ontvanger, UUID.randomUUID(), null, map) }
+
+        verify(exactly = 0) { service.updateBerichtMetadata(any(), ontvanger, any(), any()) }
+    }
+
+    @ParameterizedTest(name = "map=\"{0}\"")
+    @MethodSource("geldigeMapnamen")
+    fun `werkBerichtBij laat de wis-waarde en een naam tot de grens door`(map: String) {
+        val bijgewerkt = testBericht()
+
+        every { service.updateBerichtMetadata(any(), ontvanger, null, map) } returns Uni.createFrom().item(bijgewerkt)
+
+        assertSame(bijgewerkt, facade.werkBerichtBij(ontvanger, bijgewerkt.berichtId, null, map))
     }
 
     @Test
