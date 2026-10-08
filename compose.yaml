@@ -461,7 +461,7 @@ services:
   # hier. Op een oudere valt dat weg en loopt alleen het leespad, want /api/demo/personas valt daar
   # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
   proeftuin:
-    image: ghcr.io/minbzk/moza-poc:latest@sha256:3689685d2e232bb55814366667f16436230d808bb0ebe2fa68b16848ee68d020
+    image: ghcr.io/minbzk/moza-poc:latest@sha256:9a5475823001a3410b96bb10c20e2c0f03a75ec58c778a6565c1356f5daf12c2
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8096:8080"
