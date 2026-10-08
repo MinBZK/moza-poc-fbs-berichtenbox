@@ -151,19 +151,30 @@ Handig (v2, read-only tenzij anders): `GET /projects/{p}/deployments` (lijst),
 (zet image per component), `POST …/deployments/{d}/:refresh` (reconcile; heft een
 image-pull-uitschakeling op, zie de valkuilen hieronder).
 
-**OM vergrendelt op project, niet op deployment.** Draait er een tweede taak in hetzelfde project,
-dan wordt de wachtstap van een lopende deploy overruled: de taak eindigt als `superseded`, met in
-`superseded_by` de taak die het werk overneemt. `zadctl` eindigt met 0 en `zad-actions` meldt
-"Deployment successful", maar dat resultaat draagt geen `urls` en de job faalt alsnog op
-`Could not extract URLs from result` — de JSON eronder noemt de oorzaak, de melding zelf niet. De
-jobs die op die deploy wachten worden overgeslagen (bij een preview de magazijnen-deploy en de
-comment), dus de preview is dan niet compleet. De wijziging zelf is opgeslagen; of de overnemende
-taak hem ook uitrolt, laat alleen het gerenderde manifest zien. Opnieuw draaien helpt pas als het
-project stil is — bij drukte wordt ook de herhaling overruled — dus kijk eerst met
-`gh run list --workflow "Deploy ZAD"` of er nog iets loopt. De structurele fix hoort in de action
-(RijksICTGilde/zad-actions#59). Tot die er is: **geen handmatig OM-werk terwijl er een deploy
-loopt**, en verwacht hetzelfde wanneer twee PR's tegelijk naar hetzelfde project uitrollen — de
-concurrency-groepen in `deploy.yml` staan per project **en** PR, dus die race sluiten ze niet uit.
+**OM vergrendelt op project, niet op deployment.** Een nieuwere taak waarvan het bereik dat van
+een lopende deploy omvat, neemt diens wachtstap over: dezelfde deployment die opnieuw wordt
+uitgerold, of een projectbrede taak (zoals `project refresh`). De wachtende taak eindigt dan als
+`superseded`, met in `superseded_by` de taak die het werk afmaakt. Uitrollen van verschillende
+deployments in één project nemen elkaar niet over.
+
+`zadctl` zelf eindigt daarbij met 0 en zonder waarschuwing. `zad-actions/deploy` volgt de overname
+(vanaf v4.3.0): de stap wacht met `zad task wait` op de overnemende taak, meldt de overname als
+`notice` in het log en schrijft pas daarna `Deployment successful`. De stap faalt in twee gevallen,
+en de melding noemt beide keren de oorzaak:
+
+- de overnemende taak eindigt `failed` of `cancelled` — de melding noemt die taak;
+- de wijziging is opgeslagen maar niet uitgerold — de melding noemt het aantal wachtende
+  wijzigingen en `zad project refresh`, het commando dat ze alsnog uitrolt.
+
+Elke wachtstap is afzonderlijk begrensd door `task-timeout`, de keten door tien overnames. Een
+keten kan daardoor langer duren dan één `task-timeout` en tegen de `timeout-minutes` van de job
+aanlopen; de job is dan afgebroken, niet mislukt, en opnieuw draaien volstaat zodra het project
+stil is (`gh run list --workflow "Deploy ZAD"`).
+
+Blijft staan: **geen handmatig OM-werk terwijl er een deploy loopt**. Een projectbrede taak neemt
+de lopende deploy over, en een handmatige taak die faalt, laat die deploy nu mee falen. De
+concurrency-groepen in `deploy.yml` staan per project **en** PR, dus die sluiten zo'n samenloop niet
+uit.
 
 **Valkuilen bij debuggen (geleerd uit een ImagePullBackOff-melding):**
 - De UI-melding **"uitgeschakeld: image ontbreekt"** + logs **"No resources found in
