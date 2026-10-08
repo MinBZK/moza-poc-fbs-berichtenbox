@@ -210,6 +210,13 @@ services:
       PROFIEL_SERVICE_URL: http://127.0.0.1:18089
       LDV_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5434/ldv_logging
 
+  stelselregister:
+    network_mode: host
+    ports: !reset []
+    environment:
+      # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
+      QUARKUS_HTTP_HOST: 127.0.0.1
+
   demo-personas:
     network_mode: host
     ports: !reset []

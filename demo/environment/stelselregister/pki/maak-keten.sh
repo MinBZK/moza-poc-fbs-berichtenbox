@@ -9,6 +9,7 @@
 #   ca/root.key, ca/root.pem          de root; root.key hoort NIET bij de dienst en niet op ZAD
 #   out/keystore.p12                  ondertekensleutel + keten, alias `stelseldocument`
 #   out/wachtwoord                    wachtwoord van de keystore (0600)
+#   out/keystore.env                  hetzelfde wachtwoord als env-bestand voor compose (0600)
 #   out/root.pem                      de root die een app vastlegt
 #
 # Een app vertrouwt de root, niet het ondertekencertificaat. `--roteer` is daarom voor apps
@@ -50,8 +51,8 @@ if [[ ! -f ca/root.key ]]; then
         -addext "keyUsage=critical,keyCertSign,cRLSign" \
         -out ca/root.pem
     echo "nieuwe root gemaakt: ca/root.pem"
-elif [[ -f out/keystore.p12 ]] && (( ! roteer )); then
-    echo "out/keystore.p12 bestaat al; gebruik --roteer voor een nieuw ondertekencertificaat" >&2
+elif [[ -f out/keystore.p12 && -f out/keystore.env ]] && (( ! roteer )); then
+    echo "out/keystore.p12 bestaat al; gebruik --roteer voor een nieuw ondertekencertificaat"
     exit 0
 fi
 
@@ -87,9 +88,15 @@ openssl pkcs12 -export -name "$ALIAS" \
     -inkey "$werk/onderteken.key" -in "$werk/onderteken.pem" -certfile ca/root.pem \
     -passout file:out/wachtwoord -out out/keystore.p12
 
+printf 'STELSELDOCUMENT_KEYSTORE_WACHTWOORD=%s\n' "$(cat out/wachtwoord)" > out/keystore.env
+
 cp ca/root.pem out/root.pem
-chmod 600 out/keystore.p12 out/wachtwoord
-chmod 644 out/root.pem
+chmod 600 out/wachtwoord out/keystore.env
+# De keystore en de map zijn leesbaar voor anderen: de container draait onder een eigen gebruiker
+# en moet het bestand via een bind-mount kunnen lezen. Het wachtwoord beschermt de sleutel erin,
+# en dat blijft samen met ca/ alleen voor de eigenaar.
+chmod 755 out
+chmod 644 out/keystore.p12 out/root.pem
 
 echo "keystore:      $(pwd)/out/keystore.p12 (alias ${ALIAS})"
 echo "wachtwoord:    $(pwd)/out/wachtwoord"

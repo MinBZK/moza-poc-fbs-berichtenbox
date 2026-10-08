@@ -52,6 +52,7 @@ DEMO_IMAGES=(
     localhost/fbs-demo/fbs-berichtenuitvraag:demo
     localhost/fbs-demo/fbs-demo-console:demo
     localhost/fbs-demo/fbs-magazijn-simulator:demo
+    localhost/fbs-demo/fbs-stelselregister:demo
 )
 
 # --- gereedschap en podman-socket bepalen -----------------------------------------------------
@@ -244,6 +245,9 @@ fi
 
 echo "[2/4] artefacten genereren"
 "$ROOT/demo/podman-prepare.sh" "$MODUS"
+# De sleutelketen van het stelselregister. Maakt alleen wat ontbreekt; een bestaande root blijft
+# staan, zodat een app die hem heeft vastgelegd na een herstart van de stack blijft werken.
+"$ROOT/demo/environment/stelselregister/pki/maak-keten.sh"
 
 # --- starten ----------------------------------------------------------------------------------
 
@@ -339,7 +343,7 @@ wacht_op() {
 INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-service
        magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
 SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
-          demo-personas proeftuin demo-proxy)
+          demo-personas stelselregister proeftuin demo-proxy)
 
 echo "[3/4] infra starten ($MODUS)"
 "${C[@]}" up -d "${INFRA[@]}"
@@ -421,6 +425,7 @@ wacht_op "berichtenmagazijn-a" berichtenmagazijn-a curl -sSf --max-time 3 http:/
 wacht_op "berichtenmagazijn-b" berichtenmagazijn-b curl -sSf --max-time 3 http://127.0.0.1:8091/q/health/ready
 wacht_op "magazijn-simulator"  magazijn-simulator  curl -sSf --max-time 3 http://127.0.0.1:8092/q/health/ready
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
+wacht_op "stelselregister"     stelselregister     curl -sSf --max-time 3 http://127.0.0.1:8094/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
 # 8080, niet 8096: de proeftuin-container kan zijn luisterpoort niet verzetten (zie de
 # toelichting in compose.podman-hostnet.yaml).
