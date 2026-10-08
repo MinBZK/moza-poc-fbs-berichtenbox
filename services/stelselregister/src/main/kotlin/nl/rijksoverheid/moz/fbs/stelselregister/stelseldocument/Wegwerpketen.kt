@@ -26,6 +26,9 @@ object Wegwerpketen {
      */
     private const val GISTEREN = "-1d"
 
+    /** De test-OIN van de stelselbeheerder in de demo-omgeving. */
+    const val STANDAARD_OIN = "00000000000000001000"
+
     private const val KEYTOOL_TIMEOUT_SECONDEN = 60L
     private const val WACHTWOORD_BYTES = 24
 
@@ -34,11 +37,12 @@ object Wegwerpketen {
 
     /**
      * Schrijft `keystore.p12` in [map] met de root onder [ROOT_ALIAS] en het ondertekencertificaat
-     * onder [ALIAS]. [sleutelalgoritme], [geldigheidDagen] en [startdatum] bestaan voor tests die een
+     * onder [ALIAS], met [uitgeverOin] in het subject. [sleutelalgoritme], [geldigheidDagen] en [startdatum] bestaan voor tests die een
      * afwijkende sleutel of een verlopen certificaat nodig hebben.
      */
     fun maak(
         map: Path,
+        uitgeverOin: String = STANDAARD_OIN,
         sleutelalgoritme: List<String> = listOf("-keyalg", "EC", "-groupname", "secp256r1"),
         geldigheidDagen: Int = 30,
         startdatum: String = GISTEREN,
@@ -55,7 +59,7 @@ object Wegwerpketen {
         )
         keytool(
             listOf("-genkeypair", "-alias", ALIAS, "-signer", ROOT_ALIAS) + sleutelalgoritme +
-                listOf("-dname", "CN=Wegwerp-ondertekenaar stelseldocument", "-validity", geldigheidDagen.toString()) +
+                listOf("-dname", "CN=Wegwerp-ondertekenaar stelseldocument, SERIALNUMBER=$uitgeverOin", "-validity", geldigheidDagen.toString()) +
                 listOf("-startdate", startdatum) +
                 opslag,
         )
@@ -77,11 +81,11 @@ object Wegwerpketen {
     }
 
     /** Maakt de keten in een tijdelijke map, laadt hem langs dezelfde controles als een beheerde keystore en ruimt op. */
-    fun alsOndertekensleutel(nu: Instant): Ondertekensleutel {
+    fun alsOndertekensleutel(nu: Instant, uitgeverOin: String): Ondertekensleutel {
         val map = Files.createTempDirectory("stelseldocument-wegwerp")
 
         try {
-            val bestand = maak(map)
+            val bestand = maak(map, uitgeverOin)
 
             return Ondertekensleutel.uitKeystore(bestand.pad, bestand.wachtwoord, ALIAS, nu, Sleutelherkomst.WEGWERP)
         } finally {

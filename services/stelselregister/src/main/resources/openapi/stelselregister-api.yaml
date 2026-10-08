@@ -30,7 +30,7 @@ info:
 
     ## Het document verifiëren
 
-    Voer deze stappen uit in deze volgorde, en weiger het document zodra er één faalt:
+    Voer deze vijf stappen uit in deze volgorde, en weiger het document zodra er één faalt:
 
     1. `alg` is exact `ES256` en `typ` exact `stelseldocument+jwt`. Accepteer geen andere waarde,
        en negeer nooit een `jku`, `jwk` of `x5u` in de header.
@@ -38,8 +38,12 @@ info:
        de geldigheidsperiode van elk certificaat. De root staat niet in `x5c` en komt niet van
        deze dienst: je legt hem vast bij het bouwen van je app.
     3. Controleer de handtekening met de publieke sleutel uit het eerste certificaat in `x5c`.
-    4. Weiger een document waarvan `exp` voorbij is, waarvan `iss` niet de OIN van de verwachte
-       stelselbeheerder is, of waarvan `iat` ouder is dan het laatste exemplaar dat je accepteerde.
+    4. Controleer dat `subject.serialNumber` van dat certificaat de OIN van de verwachte
+       stelselbeheerder is, en dat `iss` dezelfde waarde heeft. Sla deze stap niet over: onder een
+       root die ook andere certificaten uitgeeft, kan elke houder daarvan anders een document
+       ondertekenen dat zich als de stelselbeheerder voordoet.
+    5. Weiger een document waarvan `exp` voorbij is, of waarvan `iat` ouder is dan het laatste
+       exemplaar dat je accepteerde.
 
     `/.well-known/jwks.json` toont de publieke sleutels van deze dienst, als gemak voor wie ze wil
     inzien. Het is geen bron van vertrouwen: het komt van hetzelfde adres als het document.

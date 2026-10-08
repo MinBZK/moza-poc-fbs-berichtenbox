@@ -35,6 +35,17 @@ class OndertekensleutelTest {
     }
 
     @Test
+    fun `de OIN van de uitgever komt uit subject-serialNumber van het certificaat`() {
+        assertEquals(Wegwerpketen.STANDAARD_OIN, laad(Testketens.geldig).uitgeverOin)
+        assertEquals("00000000000000007777", laad(Testketens.andereUitgever).uitgeverOin)
+    }
+
+    @Test
+    fun `een certificaat zonder serialNumber heeft geen OIN`() {
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.geldig.root))
+    }
+
+    @Test
     fun `de root staat niet tussen de overige ondertekencertificaten`() {
         assertEquals(emptyList<Any>(), laad(Testketens.geldig).overige)
     }

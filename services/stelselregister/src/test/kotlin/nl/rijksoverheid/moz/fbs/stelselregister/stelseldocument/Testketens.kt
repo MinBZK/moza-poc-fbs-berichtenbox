@@ -34,6 +34,9 @@ object Testketens {
     /** Een tweede, onafhankelijke keten: andere root, andere sleutel. */
     val ander: Keten by lazy { Keten(Wegwerpketen.maak(map("ander"))) }
 
+    /** Zelfde opzet, maar het ondertekencertificaat is van een andere organisatie. */
+    val andereUitgever: Keten by lazy { Keten(Wegwerpketen.maak(map("uitgever"), uitgeverOin = "00000000000000007777")) }
+
     val rsa: Keten by lazy {
         Keten(Wegwerpketen.maak(map("rsa"), sleutelalgoritme = listOf("-keyalg", "RSA", "-keysize", "2048")))
     }

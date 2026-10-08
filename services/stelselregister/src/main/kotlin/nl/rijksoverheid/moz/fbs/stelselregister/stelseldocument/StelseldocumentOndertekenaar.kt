@@ -45,6 +45,16 @@ class StelseldocumentOndertekenaar(
             )
         }
 
+        // De uitgever in het document moet de organisatie uit het certificaat zijn. Een afnemer
+        // controleert hetzelfde; hier voorkomt het dat de dienst een document uitgeeft dat elke
+        // afnemer terecht weigert.
+        if (sleutel.uitgeverOin != uitgeverOin) {
+            throw OngeldigeOndertekensleutelException(
+                "Het ondertekencertificaat (kid ${sleutel.kid}) draagt in subject.serialNumber " +
+                    "'${sleutel.uitgeverOin ?: "geen OIN"}', maar de uitgever van het stelseldocument is '$uitgeverOin'",
+            )
+        }
+
         // Een handtekening geldt nooit langer dan het certificaat waar hij op steunt.
         val verlooptOp = minOf(uitgegevenOp.plus(geldigheid), certificaatVerloopt)
 

@@ -40,6 +40,11 @@ class Afnemer(private val root: X509Certificate, private val verwachteUitgever: 
         valideerKeten(keten, nu)
         controleerHandtekening(jws, keten.first())
 
+        // Zonder deze band volstaat élk certificaat onder de root om zich als de uitgever voor te doen.
+        if (Ondertekensleutel.oinUit(keten.first()) != verwachteUitgever) {
+            throw Geweigerd("het ondertekencertificaat is niet van de verwachte uitgever")
+        }
+
         val payload = JSON.readTree(Base64.getUrlDecoder().decode(delen[1]))
 
         if (payload.path("exp").asLong() <= nu.epochSecond) throw Geweigerd("document is verlopen")

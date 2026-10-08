@@ -18,6 +18,8 @@ import java.security.spec.ECParameterSpec
 import java.time.Duration
 import java.time.Instant
 import java.util.Base64
+import javax.naming.ldap.LdapName
+import javax.security.auth.x500.X500Principal
 
 /** De keystore levert geen sleutel op waarmee een stelseldocument ondertekend mag worden. */
 class OngeldigeOndertekensleutelException(message: String, cause: Throwable? = null) :
@@ -48,6 +50,13 @@ class Ondertekensleutel private constructor(
 
     val kid: String = thumbprint(certificaat)
 
+    /**
+     * De OIN uit `subject.serialNumber` van het ondertekencertificaat, of `null` als die ontbreekt.
+     * Dit is wat de uitgever in het document aan de sleutel bindt: zonder die band kan elk
+     * certificaat onder dezelfde root een document ondertekenen dat zich als een ander voordoet.
+     */
+    val uitgeverOin: String? = oinUit(certificaat)
+
     /** De keten als `x5c`: DER in standaard base64, zoals RFC 7515 §4.1.6 voorschrijft. */
     val x5c: List<String> = keten.map(::alsX5c)
 
@@ -64,6 +73,8 @@ class Ondertekensleutel private constructor(
     companion object {
         private const val JWS_HANDTEKENING = "SHA256withECDSAinP1363Format"
         private const val COORDINAAT_BYTES = 32
+        private const val OID_SERIALNUMBER = "2.5.4.5"
+        private const val SERIALNUMBER = "SERIALNUMBER"
 
         private val BASE64URL = Base64.getUrlEncoder().withoutPadding()
         private val P256: ECParameterSpec = AlgorithmParameters.getInstance("EC").run {
@@ -91,6 +102,16 @@ class Ondertekensleutel private constructor(
                 overige = overigeOndertekencertificaten(keystore, volledigeKeten.first()),
                 herkomst = herkomst,
             )
+        }
+
+        /** Leest `subject.serialNumber` (OID 2.5.4.5), waar een organisatiecertificaat de OIN draagt. */
+        fun oinUit(certificaat: X509Certificate): String? {
+            val subject = certificaat.subjectX500Principal.getName(X500Principal.RFC2253, mapOf(OID_SERIALNUMBER to SERIALNUMBER))
+
+            return LdapName(subject).rdns
+                .firstOrNull { it.type.equals(SERIALNUMBER, ignoreCase = true) }
+                ?.value
+                ?.toString()
         }
 
         /** De publieke sleutel van [certificaat] als JWK (RFC 7517), met zijn eigen keten-loze `x5c`. */

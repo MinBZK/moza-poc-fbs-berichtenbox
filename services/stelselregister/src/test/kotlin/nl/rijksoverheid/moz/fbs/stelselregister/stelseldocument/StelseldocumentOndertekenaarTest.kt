@@ -87,6 +87,44 @@ class StelseldocumentOndertekenaarTest {
         assertThrows(Afnemer.Geweigerd::class.java) {
             Afnemer(Testketens.geldig.root, "00000000000000009999").accepteer(uitgifte.jws, nu)
         }
+        afnemer.accepteer(uitgifte.jws, nu)
+    }
+
+    @Test
+    fun `een uitgever die niet in het certificaat staat wordt niet ondertekend`() {
+        val andereUitgever = StelseldocumentOndertekenaar("00000000000000009999", "test", Duration.ofHours(24))
+
+        val fout = assertThrows(OngeldigeOndertekensleutelException::class.java) {
+            andereUitgever.onderteken(document, sleutel, nu)
+        }
+
+        assertTrue(fout.message.orEmpty().contains("subject.serialNumber"))
+    }
+
+    // Het scenario waar de band tussen `iss` en het certificaat voor bestaat: een geldige
+    // handtekening van een ándere organisatie onder dezelfde root, met de verwachte uitgever in
+    // de payload. Met de hand opgebouwd, want de ondertekenaar weigert dit zelf.
+    @Test
+    fun `een document van een andere organisatie onder dezelfde keten wordt geweigerd`() {
+        val vreemd = Ondertekensleutel.uitKeystore(
+            Testketens.andereUitgever.pad,
+            Testketens.andereUitgever.wachtwoord,
+            Wegwerpketen.ALIAS,
+            nu,
+        )
+        val base64url = Base64.getUrlEncoder().withoutPadding()
+        val header = Afnemer.JSON.writeValueAsBytes(
+            mapOf("alg" to "ES256", "typ" to "stelseldocument+jwt", "kid" to vreemd.kid, "x5c" to vreemd.x5c),
+        )
+        val payload = document.payload(uitgever, "test", nu, nu.plus(Duration.ofHours(1)))
+        val teOndertekenen = base64url.encodeToString(header) + "." + base64url.encodeToString(payload)
+        val jws = teOndertekenen + "." + base64url.encodeToString(vreemd.onderteken(teOndertekenen.toByteArray()))
+
+        val fout = assertThrows(Afnemer.Geweigerd::class.java) {
+            Afnemer(Testketens.andereUitgever.root, uitgever).accepteer(jws, nu)
+        }
+
+        assertEquals("het ondertekencertificaat is niet van de verwachte uitgever", fout.message)
     }
 
     @Test

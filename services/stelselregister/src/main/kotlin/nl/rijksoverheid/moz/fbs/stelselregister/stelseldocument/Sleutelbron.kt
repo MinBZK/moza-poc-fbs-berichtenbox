@@ -23,20 +23,27 @@ class Sleutelbron(
     private val clock: Clock,
 ) {
 
-    val sleutel: Ondertekensleutel by lazy { laad(config.keystore(), LaunchMode.current(), clock.instant()) }
+    val sleutel: Ondertekensleutel by lazy {
+        laad(config.keystore(), LaunchMode.current(), clock.instant(), config.uitgeverOin())
+    }
 
     companion object {
         private val log = Logger.getLogger(Sleutelbron::class.java)
         private val WAARSCHUWEN_BINNEN: Duration = Duration.ofDays(30)
 
-        fun laad(keystore: StelseldocumentConfig.Keystore, launchMode: LaunchMode, nu: Instant): Ondertekensleutel {
+        fun laad(
+            keystore: StelseldocumentConfig.Keystore,
+            launchMode: LaunchMode,
+            nu: Instant,
+            uitgeverOin: String,
+        ): Ondertekensleutel {
             val pad = keystore.pad().map(String::trim).filter(String::isNotEmpty).orElse(null)
 
             val sleutel = if (pad != null) {
                 uitKeystore(Path.of(pad), keystore, nu)
             } else if (launchMode == LaunchMode.DEVELOPMENT || launchMode == LaunchMode.TEST) {
                 log.warn("Geen stelseldocument.keystore.pad gezet: het stelseldocument wordt ondertekend met een wegwerpketen")
-                Wegwerpketen.alsOndertekensleutel(nu)
+                Wegwerpketen.alsOndertekensleutel(nu, uitgeverOin)
             } else {
                 throw OngeldigeOndertekensleutelException(
                     "stelseldocument.keystore.pad ontbreekt. Buiten ontwikkel- en testmodus ondertekent de dienst " +
