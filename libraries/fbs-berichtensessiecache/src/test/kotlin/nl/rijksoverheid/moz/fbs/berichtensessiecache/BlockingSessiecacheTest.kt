@@ -30,10 +30,11 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
-import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
@@ -108,10 +109,20 @@ class BlockingSessiecacheTest {
 
         assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger))
 
-        // paginaGrootte boven het plafond wordt op 100 gecapt
-        every { service.getBerichten(3, 100, ontvanger, "afz", "werk") } returns Uni.createFrom().item(legePagina)
+        every { service.getBerichten(3, 200, ontvanger, "afz", "werk") } returns Uni.createFrom().item(legePagina)
 
         assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger, pagina = 3, paginaGrootte = 500, afzender = "afz", map = "werk"))
+    }
+
+    @ParameterizedTest(name = "paginaGrootte {0} wordt {1}")
+    @CsvSource("1, 1", "100, 100", "150, 150", "199, 199", "200, 200", "201, 200", "10000, 200")
+    fun `lijst en zoek leveren de gevraagde paginaGrootte tot en met het plafond van 200`(gevraagd: Int, verwacht: Int) {
+        stubStatus(gereed)
+        every { service.getBerichten(0, verwacht, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+        every { service.zoekBerichten("factuur", 0, verwacht, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger, paginaGrootte = gevraagd))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.zoek(ontvanger, "factuur", paginaGrootte = gevraagd))
     }
 
     @Test

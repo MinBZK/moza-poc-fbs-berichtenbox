@@ -26,6 +26,9 @@ import java.util.UUID
 interface Sessiecache {
 
     companion object {
+        /** Grootste pagina die [lijst] en [zoek] leveren; een grotere vraag wordt hierop afgekapt. */
+        const val MAX_PAGINA_GROOTTE: Int = 200
+
         /**
          * Mapwaarde die een bericht uit zijn map haalt. `null` betekent in een merge-patch al "niet
          * wijzigen", dus wissen heeft een eigen waarde nodig; het magazijn gebruikt dezelfde.
@@ -38,7 +41,7 @@ interface Sessiecache {
      * [afzender] en/of [map]. Vereist een afgeronde ophaling (zie foutsemantiek).
      * De pagina draagt altijd [BerichtenPagina.volledigheid] van de laatste ronde,
      * ook bij [zoek].
-     * `pagina` default 0; `paginaGrootte` default 20, gecapt op 100.
+     * `pagina` default 0; `paginaGrootte` default 20, gecapt op [MAX_PAGINA_GROOTTE].
      */
     fun lijst(
         ontvanger: Identificatienummer,
@@ -49,7 +52,7 @@ interface Sessiecache {
     ): BerichtenPagina
 
     /**
-     * Volledig-tekst zoeken (RediSearch) in de berichten van [ontvanger].
+     * Volledig-tekst zoeken (RediSearch) in het onderwerp van de berichten van [ontvanger].
      * Zelfde paginering, filters en gereed-vereiste als [lijst].
      */
     fun zoek(
