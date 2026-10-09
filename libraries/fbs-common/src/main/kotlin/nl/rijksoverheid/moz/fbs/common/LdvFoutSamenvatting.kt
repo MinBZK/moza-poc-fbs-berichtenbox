@@ -14,9 +14,9 @@ package nl.rijksoverheid.moz.fbs.common
  *
  * Saneren met [FoutBeschrijving.saneer] volstaat hier niet: dat redact cijferreeksen en
  * control-chars, maar laat vrije tekst — inclusief berichtinhoud — ongemoeid. Daarom
- * gaat alleen de klassenaam mee. Dat is geen informatieverlies voor diagnose: het
- * volledige foutbeeld staat in de applicatielog, die via `trace_id`/`span_id` aan de
- * logregel te koppelen is.
+ * gaat alleen de klassenaam mee. Voor diagnose staan de types, de stack en de SQLState
+ * van de hele keten in de applicatielog (zie [Foutspoor]), die via `trace_id`/`span_id`
+ * aan de logregel te koppelen is.
  *
  * **Gevolg voor alerting:** `exception.type` op de ERROR-child is hierdoor de klasse van de
  * samenvatting, niet die van de fout; het echte type staat in `exception.message`. Een

@@ -94,4 +94,29 @@ class UncaughtExceptionMapperTest {
             "errorId-correlatie moet aanwezig zijn — gevonden: $formatted",
         )
     }
+
+    @Test
+    fun `de stacktrace in de errorlog draagt de types, maar geen enkele message`() {
+        // Een logger drukt van een meegegeven exceptie de message af, ook die van elke cause
+        // en suppressed fout. Een database-driver zet daar een heel INSERT-statement in.
+        val exception = IllegalStateException(
+            "commit mislukt voor Jan de Vries",
+            IOException("Batch entry 0 INSERT ... VALUES ('999993653') was aborted"),
+        )
+        exception.addSuppressed(IOException("rollback mislukt voor jan@example.nl"))
+
+        mapper.toResponse(exception)
+
+        val thrown = records.single { it.level == Level.SEVERE }.thrown
+        assertNotNull(thrown, "de stack moet in LogRecord.thrown blijven staan")
+        val weergave = thrown.stackTraceToString()
+
+        listOf("Jan de Vries", "jan@example.nl", "999993653", "INSERT").forEach { fragment ->
+            assertFalse(weergave.contains(fragment), "'$fragment' hoort niet in de applicatielog: $weergave")
+        }
+
+        assertTrue(weergave.contains("java.lang.IllegalStateException"), weergave)
+        assertTrue(weergave.contains("java.io.IOException"), weergave)
+        assertTrue(weergave.contains(UncaughtExceptionMapperTest::class.java.name), "de stack ontbreekt: $weergave")
+    }
 }
