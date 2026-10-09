@@ -31,6 +31,7 @@ class LeveringMislukt private constructor(beschrijving: String) :
                     is DownstreamResultaat.NetwerkFout -> "NetwerkFout"
                     is DownstreamResultaat.SerialisatieFout -> "SerialisatieFout"
                     is DownstreamResultaat.ConfiguratieFout -> "ConfiguratieFout"
+                    is DownstreamResultaat.OpbouwFout -> "OpbouwFout"
                 },
             )
         }

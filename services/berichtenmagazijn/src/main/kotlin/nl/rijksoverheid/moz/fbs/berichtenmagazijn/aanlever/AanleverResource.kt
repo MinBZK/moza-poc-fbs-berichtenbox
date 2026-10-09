@@ -28,6 +28,8 @@ import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
 import java.sql.SQLException
+import java.util.Collections
+import java.util.IdentityHashMap
 import javax.transaction.xa.XAException
 
 /**
@@ -74,7 +76,7 @@ class AanleverResource(
         // aanleveraar krijgt dan een 500 en levert opnieuw aan, met een nieuw berichtId
         // en dus een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
         //
-        // Throwable: ook een Error rolt de opslag terug, en zonder uitkomst leest de logregel als geslaagd.
+        // Throwable: ook na een Error leest de logregel zonder uitkomst als geslaagd.
         try {
             opslagService.slaBerichtOp(bericht, bijlagen)
         } catch (ex: Throwable) {
@@ -83,8 +85,11 @@ class AanleverResource(
             if (commitOnzeker(ex)) {
                 // Het bericht kan toch zijn opgeslagen; "mislukt" zou dan te weinig registreren.
                 log.warnf(
-                    "Uitkomst van de opslag onzeker na %s; geen mislukte uitkomst in het logboek (%s)",
+                    "%s: uitkomst van de opslag onzeker na %s (SQLState %s); " +
+                        "geen mislukte uitkomst in het logboek (%s)",
+                    OPSLAG_ONZEKER_ALERT_TOKEN,
                     ex.javaClass.name,
+                    sqlStates(ex).ifEmpty { listOf("onbekend") }.joinToString(),
                     kenmerken,
                 )
             } else {
@@ -147,7 +152,9 @@ class AanleverResource(
 
                 bericht
             }
-        } catch (ex: Exception) {
+        } catch (ex: Throwable) {
+            // Throwable: ook bij een Error moet de logregel de fout dragen, en mag een
+            // schrijffout van het logboek hem niet vervangen.
             pendingFailure = ex
             span.setStatus(StatusCode.ERROR)
             throw ex
@@ -218,10 +225,11 @@ class AanleverResource(
             processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
 
             return logregels
-        } catch (ex: Exception) {
+        } catch (ex: Throwable) {
             // Deze methode draait vanuit een finally-blok. Gooien terwijl er al een fout
             // propageert zou die vervángen, waardoor de aanleveraar de domeinfout niet
-            // meer ziet; de LDV-fout gaat dan mee als suppressed.
+            // meer ziet; de LDV-fout gaat dan mee als suppressed. Throwable: een afwijkende
+            // wrapper-versie op het classpath meldt zich als LinkageError.
             if (pendingFailure == null) throw ex
 
             pendingFailure.addSuppressed(ex)
@@ -238,33 +246,52 @@ class AanleverResource(
     internal companion object {
         /**
          * `true` als de database de transactie mogelijk wél heeft vastgelegd. Dat kan alleen als
-         * de COMMIT zelf verstuurd is en de bevestiging uitbleef; een fout daarvóór, ook een
-         * verbroken verbinding, laat zeker niets achter.
+         * de COMMIT zelf verstuurd is en de bevestiging uitbleef.
          *
          * De pool meldt een mislukte `connection.commit()` als [XAException], en de
          * transactiemanager maakt daar een gewone rollback van: aan het type van de buitenste
-         * fout is een onzekere commit dus niet te zien. Van een commit-fout telt alleen een
-         * integriteits- of serialisatiefout als zeker teruggedraaid.
+         * fout is een onzekere commit dus niet te zien. Een [XAException] in de keten telt
+         * daarom als onzeker, tenzij de database de transactie aantoonbaar afwees. Ook een
+         * rollback die zelf mislukt levert een [XAException] op; die valt dan aan de kant van
+         * een logregel te veel.
          */
         fun commitOnzeker(fout: Throwable): Boolean {
             val keten = foutKeten(fout)
 
-            if (keten.any { it is HeuristicMixedException || it is HeuristicCommitException }) return true
+            if (keten.fouten.any { it is HeuristicMixedException || it is HeuristicCommitException }) return true
 
-            if (keten.none { it is XAException }) return false
+            // Voorbij de grens kan een commit-fout zitten.
+            if (keten.afgekapt) return true
 
-            return keten.filterIsInstance<SQLException>().none { sqlFout ->
-                SQLSTATE_AFGEWEZEN.any { sqlFout.sqlState?.startsWith(it) == true }
-            }
+            if (keten.fouten.none { it is XAException }) return false
+
+            return keten.fouten.filterIsInstance<SQLException>().none { afgewezen(it.sqlState) }
         }
 
+        /** De SQLStates in de keten van [fout]; voor diagnose, zonder persoonsgegevens. */
+        private fun sqlStates(fout: Throwable): List<String> =
+            foutKeten(fout).fouten.filterIsInstance<SQLException>().mapNotNull { it.sqlState }
+
         /**
-         * [fout] met haar oorzaken én onderdrukte fouten. De transactiemanager hangt de
-         * commit-fout als suppressed aan een `RollbackException` zonder oorzaak; wie alleen
+         * Integriteit (`23`) en transactie-rollback (`40`): de database draaide de transactie
+         * zelf terug. `40003` hoort er niet bij, dat is juist "uitkomst onbekend".
+         */
+        private fun afgewezen(sqlState: String?): Boolean {
+            if (sqlState == null || sqlState == SQLSTATE_UITKOMST_ONBEKEND) return false
+
+            return SQLSTATE_AFGEWEZEN.any(sqlState::startsWith)
+        }
+
+        private class FoutKeten(val fouten: Set<Throwable>, val afgekapt: Boolean)
+
+        /**
+         * [fout] met haar cause-keten én suppressed fouten. De transactiemanager hangt de
+         * commit-fout als suppressed aan een `RollbackException` zonder cause; wie alleen
          * `cause` afloopt, ziet hem niet.
          */
-        private fun foutKeten(fout: Throwable): Set<Throwable> {
-            val gezien = LinkedHashSet<Throwable>()
+        private fun foutKeten(fout: Throwable): FoutKeten {
+            // Op identiteit: equals van een vreemde exceptieklasse zegt hier niets.
+            val gezien = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
             val wachtrij = ArrayDeque(listOf(fout))
 
             while (wachtrij.isNotEmpty() && gezien.size < MAX_FOUTEN) {
@@ -276,13 +303,16 @@ class AanleverResource(
                 wachtrij.addAll(huidige.suppressed)
             }
 
-            return gezien
+            return FoutKeten(gezien, afgekapt = wachtrij.any { it !in gezien })
         }
 
-        /** SQLState-klassen waarmee de database een COMMIT afwijst: integriteit en transactie-rollback. */
         private val SQLSTATE_AFGEWEZEN = listOf("23", "40")
+        private const val SQLSTATE_UITKOMST_ONBEKEND = "40003"
 
         /** Begrenst het aflopen van de fout-keten; een cyclische keten is zeldzaam maar mogelijk. */
-        private const val MAX_FOUTEN = 32
+        const val MAX_FOUTEN = 32
+
+        /** Stabiel token voor alert-routing op een opslag waarvan de uitkomst niet vaststaat. */
+        const val OPSLAG_ONZEKER_ALERT_TOKEN = "LDV_OPSLAG_ONZEKER"
     }
 }

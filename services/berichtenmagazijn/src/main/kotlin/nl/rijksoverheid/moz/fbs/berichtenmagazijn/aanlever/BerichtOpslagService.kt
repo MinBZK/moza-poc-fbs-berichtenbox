@@ -150,7 +150,9 @@ class BerichtOpslagService(
             ToestemmingGeweigerdException::class,
         ],
     )
-    @Transactional
+    // rollbackOn: zonder legt de interceptor de opslag vast als er een checked exception uit
+    // komt, en schrijft de resource daarna "mislukt" over een bericht dat er staat.
+    @Transactional(rollbackOn = [Exception::class])
     fun slaBerichtOp(bericht: Bericht, bijlagen: List<BijlageInvoer> = emptyList()) {
         try {
             repository.save(bericht)

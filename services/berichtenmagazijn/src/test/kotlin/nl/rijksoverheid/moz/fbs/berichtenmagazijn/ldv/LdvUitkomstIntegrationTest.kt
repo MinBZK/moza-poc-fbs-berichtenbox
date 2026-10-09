@@ -13,6 +13,7 @@ import jakarta.enterprise.inject.Instance
 import jakarta.inject.Inject
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.AanleverResource
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BerichtOpslagService
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
@@ -26,7 +27,6 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieStream
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.Publicatiedoel
 import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
-import org.hamcrest.Matchers.greaterThanOrEqualTo
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -56,7 +56,8 @@ import javax.sql.DataSource
  * zetten er met [leverAanStub] een eigen server voor. De scheduler staat in tests uit; de tests verwerken
  * hun eigen claim stap voor stap, na de openstaande claims van andere tests te hebben
  * afgesloten — anders bepaalt de backoff-timing welke claim een stap oppakt.
- * Elke test gebruikt een eigen ontvanger en ruimt zijn rijen na afloop op.
+ * Elke test gebruikt een eigen ontvanger en ruimt zijn logboek-rijen na afloop op. Berichten
+ * en claims blijven staan; daarom sluit een test die claims verwerkt de andere eerst af.
  */
 @QuarkusTest
 @TestProfile(LdvPostgresIntegrationTest.LdvAanProfile::class)
@@ -76,17 +77,28 @@ class LdvUitkomstIntegrationTest {
 
     private var ontvanger: String? = null
     private var afnemer: DownstreamHttpServer? = null
+    private var stubClient: DownstreamClient? = null
 
     @AfterEach
     fun ruimOp() {
         // Een test die halverwege faalt mag geen interrupt-vlag achterlaten voor de opruiming.
         Thread.interrupted()
-        afnemer?.close()
-        afnemer = null
-        voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON logboek_dataverwerkingen")
-        voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON publicatie_deliveries")
-        ontvanger?.let { bsn ->
-            voerUit("DELETE FROM logboek_dataverwerkingen WHERE attributes->>'dpl.core.data_subject_id' = '$bsn'")
+
+        // De triggers eerst: blijft er een staan, dan faalt elke latere aanlevering in deze
+        // database zonder herkenbare oorzaak.
+        try {
+            voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON logboek_dataverwerkingen")
+            voerUit("DROP TRIGGER IF EXISTS $WEIGER_TRIGGER ON publicatie_deliveries")
+            voerUit("DROP FUNCTION IF EXISTS $WEIGER_TRIGGER()")
+            ontvanger?.let { bsn ->
+                voerUit("DELETE FROM logboek_dataverwerkingen WHERE attributes->>'dpl.core.data_subject_id' = '$bsn'")
+            }
+        } finally {
+            // De vervangende client is geen bean; zonder dit blijft zijn HttpClient open.
+            stubClient?.stop()
+            stubClient = null
+            afnemer?.close()
+            afnemer = null
         }
     }
 
@@ -116,7 +128,7 @@ class LdvUitkomstIntegrationTest {
         val bsn = gebruik(ONTVANGER_ROLLBACK)
         weigerInserts("publicatie_deliveries", voorwaarde = "true")
 
-        leverAan(bsn).then().statusCode(greaterThanOrEqualTo(500))
+        leverAan(bsn).then().statusCode(500)
 
         assertEquals(0, aantalBerichtenVoor(bsn), "de transactie hoort teruggedraaid te zijn")
         val rijen = logregels(bsn, "aanleveren-bericht")
@@ -134,7 +146,7 @@ class LdvUitkomstIntegrationTest {
         val bsn = gebruik(ONTVANGER_VERBINDING_VOOR_COMMIT)
         weigerInserts("publicatie_deliveries", voorwaarde = "true", sqlState = SQLSTATE_VERBINDING_WEG)
 
-        leverAan(bsn).then().statusCode(greaterThanOrEqualTo(500))
+        leverAan(bsn).then().statusCode(500)
 
         assertEquals(0, aantalBerichtenVoor(bsn))
         val rijen = logregels(bsn, "aanleveren-bericht")
@@ -147,12 +159,23 @@ class LdvUitkomstIntegrationTest {
         // stellen of de transactie vastligt; "mislukt" zou te weinig kunnen registreren.
         val bsn = gebruik(ONTVANGER_COMMIT_ONZEKER)
         weigerBijCommit("publicatie_deliveries", sqlState = SQLSTATE_VERBINDING_WEG)
+        var uitkomstMeldingen = emptyList<String>()
 
-        leverAan(bsn).then().statusCode(greaterThanOrEqualTo(500))
+        val opslagMeldingen = vangMeldingen(AanleverResource::class.java) {
+            uitkomstMeldingen = vangMeldingen(MislukteUitkomst::class.java) {
+                leverAan(bsn).then().statusCode(500)
+            }
+        }
 
         val rij = logregels(bsn, "aanleveren-bericht").single()
         assertNull(rij.uitkomst)
         assertEquals("UNSET", rij.status)
+        // Zonder deze twee is "bewust weggelaten" niet te onderscheiden van "schrijven mislukt".
+        assertTrue(
+            opslagMeldingen.any { it.contains(AanleverResource.OPSLAG_ONZEKER_ALERT_TOKEN) },
+            "verwacht ${AanleverResource.OPSLAG_ONZEKER_ALERT_TOKEN} — was: $opslagMeldingen",
+        )
+        assertTrue(uitkomstMeldingen.isEmpty(), "er is geen uitkomst geprobeerd — was: $uitkomstMeldingen")
     }
 
     @Test
@@ -161,7 +184,7 @@ class LdvUitkomstIntegrationTest {
         val bsn = gebruik(ONTVANGER_COMMIT_AFGEWEZEN)
         weigerBijCommit("publicatie_deliveries", sqlState = "23514")
 
-        leverAan(bsn).then().statusCode(greaterThanOrEqualTo(500))
+        leverAan(bsn).then().statusCode(500)
 
         assertEquals(0, aantalBerichtenVoor(bsn))
         val rijen = logregels(bsn, "aanleveren-bericht")
@@ -260,6 +283,13 @@ class LdvUitkomstIntegrationTest {
         assertEquals(0, stub.aantalAanroepen, "zonder logregel mag er niets naar de afnemer gaan")
         assertEquals("TE_PUBLICEREN" to 0, claimVan(berichtId), "de claim blijft onaangeroerd openstaan")
         assertTrue(logregels(bsn, "publicatie-default").isEmpty())
+
+        // Tegenproef: dezelfde claim bereikt de stub zodra het logboek weer schrijft. Zonder
+        // dit slaagt "nul verzoeken" ook als de levering langs de stub heen ging.
+        voerUit("DROP TRIGGER $WEIGER_TRIGGER ON logboek_dataverwerkingen")
+        verwerkPoging()
+
+        assertEquals(1, stub.aantalAanroepen)
     }
 
     @Test
@@ -272,7 +302,7 @@ class LdvUitkomstIntegrationTest {
             "logboek_dataverwerkingen",
             voorwaarde = "NEW.attributes->>'${ProcessingHandler.OUTCOME_ATTRIBUTE_KEY}' IS NOT NULL",
         )
-        val meldingen = vangMeldingen { verwerkPoging() }
+        val meldingen = vangMeldingen(MislukteUitkomst::class.java) { verwerkPoging() }
 
         assertEquals("TE_PUBLICEREN" to 1, claimVan(berichtId), "de poging telt, de retry staat gepland")
         val eerstePoging = logregels(bsn, "publicatie-default").single()
@@ -353,8 +383,9 @@ class LdvUitkomstIntegrationTest {
     }
 
     /**
-     * Zet een antwoordende afnemer in de plaats van de gesloten poort. De echte
-     * [DownstreamClient] doet de verzending; alleen zijn bestemming is vervangen.
+     * Zet een antwoordende afnemer in de plaats van de gesloten poort. Een echte
+     * [DownstreamClient] doet de verzending, maar met een eigen configuratie en zonder
+     * OpenTelemetry: de trace-koppeling naar het uitgaande verzoek valt buiten deze tests.
      */
     private fun leverAanStub(): DownstreamHttpServer {
         val stub = DownstreamHttpServer().also { it.start() }
@@ -374,10 +405,9 @@ class LdvUitkomstIntegrationTest {
         }
         val geenOpenTelemetry = mockk<Instance<OpenTelemetry>> { every { isResolvable } returns false }
 
-        QuarkusMock.installMockForType(
-            DownstreamClient(config, objectMapper, geenOpenTelemetry, "test"),
-            DownstreamClient::class.java,
-        )
+        val client = DownstreamClient(config, objectMapper, geenOpenTelemetry, "test")
+        stubClient = client
+        QuarkusMock.installMockForType(client, DownstreamClient::class.java)
 
         return stub
     }
@@ -501,8 +531,8 @@ class LdvUitkomstIntegrationTest {
         }
     }
 
-    /** De ERROR-meldingen van [MislukteUitkomst] tijdens [actie], geformatteerd. */
-    private fun vangMeldingen(actie: () -> Unit): List<String> {
+    /** De meldingen van [bron] tijdens [actie], geformatteerd. */
+    private fun vangMeldingen(bron: Class<*>, actie: () -> Unit): List<String> {
         val meldingen = mutableListOf<String>()
         val handler = object : Handler() {
             override fun publish(record: LogRecord) {
@@ -514,7 +544,7 @@ class LdvUitkomstIntegrationTest {
 
             override fun close() = Unit
         }
-        val logger = Logger.getLogger(MislukteUitkomst::class.java.name)
+        val logger = Logger.getLogger(bron.name)
         logger.addHandler(handler)
 
         try {

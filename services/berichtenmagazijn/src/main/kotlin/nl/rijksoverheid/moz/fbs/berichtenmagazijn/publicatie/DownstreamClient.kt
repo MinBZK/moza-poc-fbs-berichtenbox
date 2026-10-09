@@ -123,47 +123,30 @@ class DownstreamClient(
     /**
      * Levert een CloudEvent aan downstream [doel] (key uit config). Resultaat:
      * [DownstreamResultaat.Geslaagd] bij 2xx, een specifiek
-     * [DownstreamResultaat.Mislukt]-subtype anders. Gooit zelf nooit — fouten
+     * [DownstreamResultaat.Mislukt]-subtype anders. Gooit geen Exception — fouten
      * worden naar de stream gerapporteerd zodat retry-besluit één plek heeft.
      */
     fun lever(doel: Publicatiedoel, event: CloudEvent): DownstreamResultaat {
-        val downstream = config.downstreams()[doel.key]
-            ?: return DownstreamResultaat.ConfiguratieFout.voorVerzending(
-                "Downstream '${doel.key}' niet geconfigureerd",
-            )
-
-        val url = downstream.url()
-        val grantHash = bruikbareGrantHash(downstream)
-
-        if (grantHash != null) {
-            val hashFout = vormfout(grantHash)
-
-            if (hashFout != null) return hashFout
-        }
-
-        val urlValidatie = valideerUrl(url, viaOutway = grantHash != null)
-
-        if (urlValidatie != null) return urlValidatie
-
-        val payload = try {
-            objectMapper.writeValueAsBytes(event)
-        } catch (ex: JsonProcessingException) {
-            log.errorf(ex, "Serialisatie van CloudEvent mislukt: doel=%s eventType=%s", doel, event.type)
-            return DownstreamResultaat.SerialisatieFout.voorVerzending(
-                "Serialisatie mislukt voor doel=$doel: ${ex.javaClass.simpleName}",
-            )
-        }
-
-        // Alles tot aan de verzending is opbouw uit config en event. Een fout daarin herhaalt
-        // zich bij elke poging en er is niets verzonden: een resultaat, geen exceptie, zodat
-        // de claim terminaal wordt in plaats van elke pollronde opnieuw te beginnen.
-        val (request, transactionId) = try {
-            bouwVerzoek(url, payload, grantHash, doel)
+        // Alles tot aan de verzending is opbouw uit config en event, en er is nog niets
+        // verzonden. Een resultaat en geen exceptie: anders rolt de claim-transactie terug en
+        // schrijft elke pollronde een nieuwe logregel voor een verstrekking die nooit vertrekt.
+        val voorbereiding = try {
+            bereidVoor(doel, event)
         } catch (ex: RuntimeException) {
-            log.errorf(ex, "Verzoek voor downstream niet op te bouwen: doel=%s", doel)
-            return DownstreamResultaat.ConfiguratieFout.voorVerzending(
-                "Verzoek niet op te bouwen voor doel=$doel: ${ex.javaClass.simpleName}",
-            )
+            log.errorf(ex, "Verzoek voor downstream niet klaar te zetten: doel=%s", doel)
+            val reden = "Verzoek niet klaar te zetten voor doel=$doel: ${ex.javaClass.simpleName}"
+
+            // Alleen een afgekeurde waarde (URL, header, timeout) herhaalt zich zeker bij elke
+            // poging. De rest kan tijdelijk zijn of een bug: herstelbaar houden.
+            return when (ex) {
+                is IllegalArgumentException -> DownstreamResultaat.ConfiguratieFout.voorVerzending(reden)
+                else -> DownstreamResultaat.OpbouwFout.voorVerzending(reden)
+            }
+        }
+
+        val (request, transactionId) = when (voorbereiding) {
+            is Voorbereiding.Afgekeurd -> return voorbereiding.resultaat
+            is Voorbereiding.Klaar -> voorbereiding
         }
 
         return try {
@@ -187,13 +170,52 @@ class DownstreamClient(
         }
     }
 
-    /** Het verzoek, met de FSC-transaction-id als het door de outway gaat. */
+    private sealed interface Voorbereiding {
+        /** Het verzoek, met de FSC-transaction-id als het door de outway gaat. */
+        data class Klaar(val request: HttpRequest, val transactionId: String?) : Voorbereiding
+
+        class Afgekeurd(val resultaat: DownstreamResultaat.Mislukt) : Voorbereiding
+    }
+
+    private fun bereidVoor(doel: Publicatiedoel, event: CloudEvent): Voorbereiding {
+        val downstream = config.downstreams()[doel.key]
+            ?: return Voorbereiding.Afgekeurd(
+                DownstreamResultaat.ConfiguratieFout.voorVerzending("Downstream '${doel.key}' niet geconfigureerd"),
+            )
+
+        val url = downstream.url()
+        val grantHash = bruikbareGrantHash(downstream)
+
+        if (grantHash != null) {
+            val hashFout = vormfout(grantHash)
+
+            if (hashFout != null) return Voorbereiding.Afgekeurd(hashFout)
+        }
+
+        val urlValidatie = valideerUrl(url, viaOutway = grantHash != null)
+
+        if (urlValidatie != null) return Voorbereiding.Afgekeurd(urlValidatie)
+
+        val payload = try {
+            objectMapper.writeValueAsBytes(event)
+        } catch (ex: JsonProcessingException) {
+            log.errorf(ex, "Serialisatie van CloudEvent mislukt: doel=%s eventType=%s", doel, event.type)
+            return Voorbereiding.Afgekeurd(
+                DownstreamResultaat.SerialisatieFout.voorVerzending(
+                    "Serialisatie mislukt voor doel=$doel: ${ex.javaClass.simpleName}",
+                ),
+            )
+        }
+
+        return bouwVerzoek(url, payload, grantHash, doel)
+    }
+
     private fun bouwVerzoek(
         url: String,
         payload: ByteArray,
         grantHash: String?,
         doel: Publicatiedoel,
-    ): Pair<HttpRequest, String?> {
+    ): Voorbereiding.Klaar {
         val requestBuilder = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .timeout(config.client().requestTimeout())
@@ -237,7 +259,7 @@ class DownstreamClient(
         // reconstrueerbaar blijft (Logboek Dataverwerkingen vereiste).
         injecteerTraceparent(requestBuilder)
 
-        return requestBuilder.build() to transactionId
+        return Voorbereiding.Klaar(requestBuilder.build(), transactionId)
     }
 
     /**
@@ -672,6 +694,23 @@ sealed interface DownstreamResultaat {
         }
     }
 
+    /**
+     * Een onverwachte fout bij het klaarzetten van het verzoek. Anders dan een
+     * [ConfiguratieFout] kan die tijdelijk zijn of uit een programmeerfout komen: herstelbaar,
+     * zodat de pogingen-grens de herhaling begrenst en een bug niet elke openstaande claim
+     * in één ronde definitief laat mislukken.
+     */
+    @ConsistentCopyVisibility
+    data class OpbouwFout private constructor(override val reden: String) : Mislukt {
+        override val herstelbaar: Boolean = true
+        override val zekerNietVerzonden: Boolean = true
+
+        companion object {
+            /** Het verzoek kwam niet tot stand: er is niets verzonden. */
+            fun voorVerzending(reden: String): OpbouwFout = OpbouwFout(reden)
+        }
+    }
+
     @ConsistentCopyVisibility
     data class ConfiguratieFout private constructor(override val reden: String) : Mislukt {
         override val herstelbaar: Boolean = false
@@ -679,8 +718,8 @@ sealed interface DownstreamResultaat {
 
         companion object {
             /**
-             * De fout viel vóór het eerste request-byte. Ook een mislukte TLS-handshake valt
-             * hieronder: zonder geslaagde handshake verwerkt de afnemer het verzoek niet.
+             * De afnemer heeft het verzoek niet verwerkt: de fout viel vóór verzending, of in
+             * een TLS-handshake die niet slaagde.
              */
             fun voorVerzending(reden: String): ConfiguratieFout = ConfiguratieFout(reden)
         }
