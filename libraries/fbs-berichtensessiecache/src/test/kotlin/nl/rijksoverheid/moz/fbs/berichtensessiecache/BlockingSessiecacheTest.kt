@@ -121,8 +121,8 @@ class BlockingSessiecacheTest {
         every { service.getBerichten(0, verwacht, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
         every { service.zoekBerichten("factuur", 0, verwacht, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.lijst(ontvanger, paginaGrootte = gevraagd))
-        assertSame(legePagina, facade.zoek(ontvanger, "factuur", paginaGrootte = gevraagd))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger, paginaGrootte = gevraagd))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.zoek(ontvanger, "factuur", paginaGrootte = gevraagd))
     }
 
     @Test
