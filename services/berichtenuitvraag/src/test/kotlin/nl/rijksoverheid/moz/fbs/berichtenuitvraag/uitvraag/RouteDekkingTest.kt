@@ -43,8 +43,8 @@ class RouteDekkingTest {
         private const val BASIS_PAD = "/api/v1"
 
         /** Vastgelegd zodat een verdwenen pad door een halve spec-parse niet stil de dekking verkleint. */
-        private const val PADEN = 6
-        private const val OPERATIES = 8
+        private const val PADEN = 7
+        private const val OPERATIES = 9
 
         /**
          * Methodes die geen enkel pad in onze specs declareert; de eerste bruikbare dient als

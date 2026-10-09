@@ -532,6 +532,32 @@ body.ingeklapt #paneel {
     max-width: 100%;
 }
 
+/* Een vakje hoort niet de invoerveld-opmaak te krijgen: dat maakt er een breed grijs blok van.
+   De eigen breedte en de opmaak van de browser volstaan. */
+.veld--vinkje input[type="checkbox"] {
+    background: none;
+    border: 0;
+    inline-size: auto;
+    margin: 0;
+    padding: 0;
+}
+
+.veld--vinkje label {
+    align-items: center;
+    display: flex;
+    gap: var(--bediening-space-xs);
+}
+
+/* Een korte, altijd zichtbare omschrijving onder de optie, zoals NL Design System voor een
+   formulierveld aanraadt: uitleg die achter een knopje zit, vindt niet iedereen terug. Op een eigen
+   regel binnen het veld, in dezelfde opmaak als de uitleg bij een groep. */
+.veld__omschrijving {
+    color: var(--bediening-color-text-subtle);
+    flex-basis: 100%;
+    font-size: var(--bediening-font-size-sm);
+    margin: 0;
+}
+
 .uitleg {
     color: var(--bediening-color-text-subtle);
     font-size: var(--bediening-font-size-sm);

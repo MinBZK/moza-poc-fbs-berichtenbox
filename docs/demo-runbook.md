@@ -102,8 +102,11 @@ Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-vo
 > **Waarom CORS geen build-flag is:** CORS is een runtime-property en staat uitsluitend als env-var
 > in het demo-profiel van `compose.yaml`; de `application.properties` van `berichtenuitvraag` bevat
 > geen CORS-config. Enabled zónder `origins` laat alleen same-origin door, en de UI op `:8095`
-> roept de API op `:8086` aan — vandaar de allowlist ernaast in compose. Het prod-profiel zet CORS
-> niet aan, dus de ZAD-images blijven CORS-loos zonder dat de build iets hoeft te weten.
+> roept de API op `:8086` aan — vandaar de allowlist ernaast in compose. De proeftuin (`:8096`) en
+> de demo-proxy (`:8097`) staan er ook op: hun nginx proxyt de API wel, maar geeft de `Origin` van
+> een schrijf-request door, en zonder allowlist geeft "uit map halen" dan een 403. Het prod-profiel
+> zet CORS niet aan; op ZAD staat hij als env op de uitvraag (`demo/environment/zad-demo/README.md`
+> §4).
 
 ### Podman in plaats van Docker
 
@@ -260,6 +263,24 @@ projecten voedt. Een uitrol die hem gebruikt, zet er een `notice` over bovenaan 
 demo die zich anders gedraagt dan de repo pint terug te vinden is. `.github/scripts/proeftuin-image.sh`
 weigert een waarde zonder tag of digest, dus een typfout hangt geen component in ImagePullBackOff.
 
+**Alleen voor één preview.** Om een PR van de proeftuin aan een PR van ons te koppelen, zet je
+dezelfde variabele op de GitHub-environment van die preview. Die wint daar van de repo-variabele en
+de pin, en `test` en de andere previews merken er niets van:
+
+```bash
+gh variable set PROEFTUIN_IMAGE --env pr-336 --body ghcr.io/minbzk/moza-poc/preview:pr-164-42aabac
+gh run rerun <run-id> --job <job-id>    # alleen `deploy-preview-magazijnen` van de laatste run
+gh variable delete PROEFTUIN_IMAGE --env pr-336
+```
+
+Alleen die ene job opnieuw draaien volstaat: hij leest de variabele opnieuw en hergebruikt de rest
+van de run, terwijl een volledige rerun alle images opnieuw bouwt en alle drie de projecten
+uitrolt. De job-id vind je met `gh run view <run-id> --json jobs`.
+
+De environment `pr-<n>` bestaat vanaf de eerste uitrol van de PR en verdwijnt bij het opruimen van
+de preview, en de variabele met hem. Een nieuwe push aan de kant van de proeftuin levert een nieuwe
+tag op; die zet je opnieuw, want de variabele volgt hun PR niet vanzelf.
+
 Wil je een draaiend component *nu* verzetten zonder een deploy af te wachten, dan kan dat met
 `zadctl deployment update-image` — maar de eerstvolgende uitrol zet het terug naar wat de variabele
 of de pin zegt. Voor iets dat langer dan een demonstratie moet blijven staan, is de variabele de
@@ -307,6 +328,7 @@ in dat bestand vanzelf — de tabel hieronder niet, die werk je met de hand bij.
 | Garage Van Dijk B.V. | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
 | Grootbedrijf B.V. | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
 | Landelijk Concern N.V. | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
+| Demo-onderneming 4 | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
 
 Welke magazijnen een persona bevraagt, bepaalt de profiel-stub (opt-in per afzender-OIN). Kies een
 persona, klik **Ophalen** (start de sessie + haalt op), daarna **Vernieuw** (leest alleen de cache).
@@ -337,15 +359,18 @@ een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand
 Na een refresh staat die stand er direct weer.
 
 **Tabblad Demo**
-- *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg en
-  laadt de basisvulling opnieuw; in één klik terug naar de begintoestand.
+- *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg,
+  laadt de basisvulling opnieuw en wist als laatste de sessies; in één klik terug naar de
+  begintoestand. Een open berichtenbox krijgt bij zijn volgende hartslag `sessie-verlopen` en haalt
+  zelf opnieuw op.
 - *Berichtenbox verversen* — herlaadt het frame. Bewust een knop: verversen zet de berichtenbox
   terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
   Een verse stack heeft die al: de console zet hem na het opstarten zelf in elk echt magazijn zonder
   berichten. In een gevulde omgeving zet deze knop alles dubbel.
-- *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases. Twee keer vullen zonder legen
-  geeft dubbele berichten.
+- *Magazijnen legen* — TRUNCATE op beide echte magazijn-databases, en daarna de sessies wissen,
+  anders tonen open berichtenboxen nog de oude berichten. Twee keer vullen zonder legen geeft
+  dubbele berichten.
 - *Random berichten opvoeren* — N random berichten; tegelijk scenario 5.
 - *Bericht plaatsen* — N berichten voor de persona die je in de keuzelijst aanwijst, zodat je
   niet hoeft af te wachten of de willekeur ze bij de ondernemer op het scherm legt. Welk van
@@ -360,8 +385,8 @@ uit) en de omliggende diensten (Redis, profielservice, notificatie, uitvraag/aan
 een proxy die deze omgeving niet heeft, staan er niet: op ZAD krijgen de magazijnen hun gedrag uit
 de simulator.
 
-**Tabblad Scenario's** — *Cache verlopen* (wist alle sessie-keys; de volgende `GET /berichten` geeft
-409 tot je opnieuw ophaalt), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
+**Tabblad Scenario's** — *Cache verlopen* (wist alle sessie-keys; een open berichtenbox haalt
+zelf opnieuw op, een losse `GET /berichten` geeft 409 tot je opnieuw ophaalt), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
 
@@ -446,7 +471,7 @@ volgen in fase 7.
 | 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit*. Veel: persona Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → Ophalen → n−2 FOUT + partiële lijst |
 | 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → Ophalen |
 | 5 | Nieuwe berichten tijdens de sessie | Persona haalt op → *Random berichten opvoeren* → **Vernieuw** toont de nieuwe berichten |
-| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen*, of ~2 min niets doen (demo-TTL is `PT2M`) → volgende actie geeft 409 |
+| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → de open berichtenbox krijgt `sessie-verlopen` en haalt zelf opnieuw op. Wachten (demo-TTL is `PT2M`) werkt alleen zonder open berichtenbox: de hartslag houdt de sessie in leven. Daarna geeft de volgende actie 409 |
 | 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open een RVO-bericht (uit de cache) → bijlage-download faalt |
 | 8 | Foutieve aanlevering | Scenario's → *Ongeldig bericht aanbieden* → 400 RFC 9457 problem+json in de melding |
 | 9 | Profielservice weg | *Profielservice uit* → Ophalen kan de magazijnenlijst niet resolven |
@@ -461,6 +486,48 @@ volgen in fase 7.
 Na een storingsscenario altijd *Alles normaal* (tabblad Storingen) en voor de gesimuleerde
 magazijnen *Legen en gedrag terugzetten* (tabblad Scenario's). De toestandsbalk bovenaan het paneel zegt of dat gelukt is:
 zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een stip.
+
+### Mappen horen bij het bericht
+
+Een map is een eigenschap van een bericht en staat bij de organisatie die het verstuurde; er is
+geen centrale mappenlijst. Deze drie scenario's maken de gevolgen zichtbaar. Waarom het zo werkt
+en wat het alternatief kost, staat in [Mappen horen bij het bericht](mappen-bij-het-bericht.md).
+
+> **Speel ze in de berichtenbox van de proeftuin** (§5b), en alleen met een versie die de velden
+> hieronder gebruikt. De keten levert ze; of de gepinde versie ze al toont, bepaalt die box. De
+> gearchiveerde box van de demo-console (:8095) toont ze niet.
+
+Ze draaien op een eigen persona, **Demo-onderneming 4** (KVK `90000015`): of vrije mappen er komen
+is nog niet besloten, dus de andere persona's hebben geen mappen. Hij bevraagt dezelfde honderd
+organisaties als Landelijk Concern, waarvan er vijftien traag zijn en een paar niet leveren. Een
+ophaalronde duurt daardoor lang genoeg om het overzicht te zien aangroeien — zonder storingsknop, dus
+ook op ZAD. Een KVK-persona en geen BSN: de berichtenbox van de proeftuin neemt geen BSN-identiteiten
+over.
+
+Zijn berichten komen van de simulator, die ze bij het vullen in een map zet naar het gedrag van de
+organisatie:
+
+| Map | Waar | Berichten | Wat je ziet |
+|---|---|---|---|
+| Vergunningen | elke organisatie die gewoon of traag antwoordt | 87 | groeit mee terwijl de organisaties leveren |
+| Subsidies | alleen de vijftien trage organisaties | 15 | verschijnt pas na een paar seconden |
+| Handhaving | alleen organisaties die niet leveren (o.a. Gemeente Almere en Gemeente Arnhem) | 5 | verschijnt nooit — twee andere niet-leverende organisaties hebben hem niet |
+| Te bespreken met adviseur | Centraal Justitieel Incassobureau | 1 | verdwijnt met zijn enige bericht |
+
+| # | Scenario | Zo speel je het |
+|---|---|---|
+| M1 | Het mappenoverzicht groeit mee | Demo-onderneming 4 → **Ophalen**. Het groeien zit in de eerste drie à vier seconden: *Vergunningen* telt op van ~12 naar 87, *Subsidies* komt pas na de trage organisaties op 15. De ronde loopt daarna nog tot ~12 s door op organisaties die niet leveren (gemeten op ZAD) |
+| M2 | Een map verdwijnt met zijn laatste bericht | Open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
+| M3 | Een organisatie levert niet | Na de ronde staat *Handhaving* er niet, en meldt de Berichtenbox welke organisaties niet leverden — ook na verversen of doorbladeren |
+
+Staan de mappen er niet, dan heeft de simulator nog geen post voor deze persona: hij vult zichzelf
+alleen bij het opstarten en alleen in lege magazijnen. Tabblad Scenario's → **Berichten klaarzetten**
+vult hem bij, zonder bestaande post te raken. Is M2 al gespeeld, dan zet *Legen en gedrag
+terugzetten* gevolgd door **Berichten klaarzetten** de uitgangssituatie terug.
+
+De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`),
+uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`), en
+haalt een bericht uit zijn map met `"map": ""`.
 
 ---
 
@@ -487,8 +554,9 @@ zolang er iets aanstaat, blijft de storings-chip rood en houdt het tabblad een s
   de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
   en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).
   Dat staat op DEBUG en de demo draait onder het dev-profiel, dus het staat al aan.
-- **Demo-cache-TTL is 2 minuten.** Pauzeer je langer tussen Ophalen en een vervolgactie, dan is de
-  sessie verlopen (409). Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
+- **Demo-cache-TTL is 2 minuten.** Staat er geen berichtenbox open en pauzeer je langer tussen
+  Ophalen en een vervolgactie, dan is de sessie verlopen (409); een open berichtenbox houdt hem met
+  zijn hartslag in leven. Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.

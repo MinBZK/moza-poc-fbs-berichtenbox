@@ -22,7 +22,7 @@ zwakst naar sterkst:
 |---|---|---|
 | Gedeelde catch-all en foutgevallen | 100 en 10 | `externe-stubs/mappings/` |
 | Handgeschreven persona's | 5 | `demo-profiel/mappings/`, deze map |
-| De vier ondernemers, met volledige fan-out | 1 | `demo-profiel/generated/`, gegenereerd |
+| De ondernemers uit het generatiescript, met volledige fan-out | 1 | `demo-profiel/generated/`, gegenereerd |
 
 De onderste laag komt uit `demo/genereer-magazijnen.py` en draagt naast de twee echte magazijnen ook
 de gesimuleerde: 3, 15, 45 en 100 organisaties. Lokaal bind-mount compose die map rechtstreeks; in

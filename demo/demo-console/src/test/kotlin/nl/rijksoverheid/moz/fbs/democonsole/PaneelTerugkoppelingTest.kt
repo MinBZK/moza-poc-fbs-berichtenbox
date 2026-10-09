@@ -875,6 +875,20 @@ class PaneelTerugkoppelingTest {
         return bron.substringBefore(tot)
     }
 
+    @Test
+    fun `een mislukt wissen van de sessies kleurt de uitkomst let-op, maar een mislukte vulling blijft rood`() {
+        // Herstel en legen melden het in hun tekst, maar tekst alleen laat de knop groen. En de
+        // bijzaak mag een rode uitkomst niet naar oranje halen: de fout-tak komt vóór de bijzaak.
+        val soort = functie("vullingSoort")
+
+        assertTrue("body.sessiesNietGewist" in soort, "vullingSoort kijkt niet naar sessiesNietGewist")
+
+        val fout = soort.indexOf("return 'fout'")
+        val bijzaakInSlot = soort.indexOf("return bijzaakMislukt ||")
+
+        assertTrue(fout in 0 until bijzaakInSlot, "de bijzaak weegt mee vóór een mislukte vulling rood wordt")
+    }
+
     /** De body van een functie op het hoogste niveau van `bediening.js`. */
     private fun functie(naam: String): String {
         val body = Regex("""^(?:async )?function $naam\([^)]*\) \{${'$'}(.*?)^}${'$'}""", setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL))

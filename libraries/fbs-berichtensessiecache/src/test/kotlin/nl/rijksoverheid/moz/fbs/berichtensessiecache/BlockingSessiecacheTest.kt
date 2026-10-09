@@ -17,6 +17,11 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -25,8 +30,13 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import java.time.Instant
 import java.util.UUID
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
+import org.junit.jupiter.params.provider.MethodSource
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
  * Pin het facade-contract van [BlockingSessiecache]: de gereed-status-gating op
@@ -39,7 +49,8 @@ import java.util.UUID
 class BlockingSessiecacheTest {
 
     private val service = mockk<BerichtensessiecacheService>(relaxed = false)
-    private val facade = BlockingSessiecache(service, facadeAwaitTimeoutSeconds = 5)
+    private val volger = mockk<SessieVolger>(relaxed = true)
+    private val facade = BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
@@ -55,6 +66,14 @@ class BlockingSessiecacheTest {
         magazijnId = "magazijn-a",
         aantalBijlagen = 0,
     )
+
+    companion object {
+        @JvmStatic
+        fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
+
+        @JvmStatic
+        fun geldigeMapnamen(): List<String> = listOf(Sessiecache.MAP_WISSEN, "a", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE))
+    }
 
     private fun stubStatus(status: AggregationStatus?) {
         every { service.getAggregationStatus(ontvanger) } returns Uni.createFrom().item(status)
@@ -88,12 +107,22 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.lijst(ontvanger))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger))
 
-        // paginaGrootte boven het plafond wordt op 100 gecapt
-        every { service.getBerichten(3, 100, ontvanger, "afz", "werk") } returns Uni.createFrom().item(legePagina)
+        every { service.getBerichten(3, 200, ontvanger, "afz", "werk") } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.lijst(ontvanger, pagina = 3, paginaGrootte = 500, afzender = "afz", map = "werk"))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger, pagina = 3, paginaGrootte = 500, afzender = "afz", map = "werk"))
+    }
+
+    @ParameterizedTest(name = "paginaGrootte {0} wordt {1}")
+    @CsvSource("1, 1", "100, 100", "150, 150", "199, 199", "200, 200", "201, 200", "10000, 200")
+    fun `lijst en zoek leveren de gevraagde paginaGrootte tot en met het plafond van 200`(gevraagd: Int, verwacht: Int) {
+        stubStatus(gereed)
+        every { service.getBerichten(0, verwacht, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+        every { service.zoekBerichten("factuur", 0, verwacht, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.lijst(ontvanger, paginaGrootte = gevraagd))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.zoek(ontvanger, "factuur", paginaGrootte = gevraagd))
     }
 
     @Test
@@ -105,7 +134,33 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
 
-        assertSame(legePagina, facade.zoek(ontvanger, "factuur"))
+        assertEquals(legePagina.copy(volledigheid = Volledigheid.VOLLEDIG), facade.zoek(ontvanger, "factuur"))
+    }
+
+    /**
+     * Wie in de laatste ronde niet leverde, staat in de aggregatiestatus en niet in de berichten.
+     * Lijst én zoek moeten het meegeven, anders verdwijnt het signaal zodra de ondernemer zoekt.
+     */
+    @Test
+    fun `lijst en zoek dragen de niet-geleverde organisaties uit de aggregatiestatus`() {
+        val nietGeleverd = listOf(NietGeleverd("magazijn-b", "Belasting", MagazijnFoutStatus.TIMEOUT))
+
+        stubStatus(
+            AggregationStatus(
+                status = OphalenStatus.GEREED,
+                totaalMagazijnen = 3,
+                geslaagd = 1,
+                mislukt = 1,
+                nietOpgehaald = 1,
+                nietGeleverd = nietGeleverd,
+            ),
+        )
+        every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+        every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+
+        // Twee organisaties niet geleverd, één bij naam bekend: het aantal komt uit de tellers.
+        assertEquals(Volledigheid(2, nietGeleverd), facade.lijst(ontvanger).volledigheid)
+        assertEquals(Volledigheid(2, nietGeleverd), facade.zoek(ontvanger, "factuur").volledigheid)
     }
 
     @Test
@@ -165,6 +220,28 @@ class BlockingSessiecacheTest {
         assertThrows<SessiecacheException.OngeldigeInvoer> {
             facade.werkBerichtBij(ontvanger, UUID.randomUUID(), status = null, map = null)
         }
+    }
+
+    /**
+     * De facade bewaakt zijn eigen contract: een ongeldige naam hoort als [SessiecacheException.OngeldigeInvoer]
+     * terug te komen en de cache niet te raken, niet als 500 diep uit Redis.
+     */
+    @ParameterizedTest(name = "map=\"{0}\"")
+    @MethodSource("ongeldigeMapnamen")
+    fun `werkBerichtBij weigert een ongeldige mapnaam zonder de cache te raken`(map: String) {
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.werkBerichtBij(ontvanger, UUID.randomUUID(), null, map) }
+
+        verify(exactly = 0) { service.updateBerichtMetadata(any(), ontvanger, any(), any()) }
+    }
+
+    @ParameterizedTest(name = "map=\"{0}\"")
+    @MethodSource("geldigeMapnamen")
+    fun `werkBerichtBij laat de wis-waarde en een naam tot de grens door`(map: String) {
+        val bijgewerkt = testBericht()
+
+        every { service.updateBerichtMetadata(any(), ontvanger, null, map) } returns Uni.createFrom().item(bijgewerkt)
+
+        assertSame(bijgewerkt, facade.werkBerichtBij(ontvanger, bijgewerkt.berichtId, null, map))
     }
 
     @Test
@@ -245,6 +322,79 @@ class BlockingSessiecacheTest {
     }
 
     @Test
+    fun `schrijfBericht meldt het bericht aan bij de gevolgde sessies`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { volger.meldAan(ontvanger, bericht.berichtId) } returns Uni.createFrom().voidItem()
+
+        facade.schrijfBericht(ontvanger, bericht)
+
+        verify(exactly = 1) { volger.meldAan(ontvanger, bericht.berichtId) }
+    }
+
+    @Test
+    fun `schrijfBericht slaagt ook als het aanmelden bij gevolgde sessies mislukt`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { volger.meldAan(ontvanger, bericht.berichtId) } returns
+            Uni.createFrom().failure(IllegalStateException("redis weg"))
+
+        assertSame(bericht, facade.schrijfBericht(ontvanger, bericht))
+    }
+
+    // --- volg ---
+
+    @Test
+    fun `volg kent dezelfde gating als lijst, vóór de stream`() {
+        stubStatus(null)
+        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger) }
+
+        stubStatus(AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
+        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger) }
+
+        verify(exactly = 0) { volger.volg(ontvanger) }
+    }
+
+    @Test
+    fun `volg geeft de stream van de volger door bij een afgeronde ophaling`() {
+        stubStatus(gereed)
+        val stream = Multi.createFrom().item<SessieGebeurtenis>(SessieGebeurtenis.VolgenGestart)
+        every { volger.actief() } returns Uni.createFrom().voidItem()
+        every { volger.volg(ontvanger) } returns stream
+
+        assertSame(stream, facade.volg(ontvanger))
+    }
+
+    @Test
+    fun `volg zonder werkend abonnement is Onbereikbaar, vóór de stream`() {
+        // Anders valt de mislukking pas op een geopende stream: de afnemer ziet een lege, sluitende
+        // 200 in plaats van een storing waarop hij kan wachten.
+        stubStatus(gereed)
+        every { volger.actief() } returns Uni.createFrom().failure(IllegalStateException("probe kwam niet terug"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger) }
+    }
+
+    @Test
+    fun `volg op een stoppende pod is ook Onbereikbaar, vóór de stream`() {
+        // Een gewone uitrol: de afnemer krijgt een 503 en verbindt bij een andere pod. De facade
+        // logt dit niet als error per stream; dat de pod stopt, meldt hij zelf één keer.
+        stubStatus(gereed)
+        every { volger.actief() } returns Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
+
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+
+        assertTrue(fout.cause is AbonnementGesloten)
+        // Eigen melding, en daarmee aantoonbaar een eigen tak: het vangnet voor onbekende fouten
+        // geeft ook Onbereikbaar, maar logt er een error met stack bij.
+        assertEquals("Nieuwe berichten volgen kan nu niet. Probeer het straks opnieuw.", fout.message)
+        verify(exactly = 0) { volger.volg(ontvanger) }
+    }
+
+    @Test
     fun `schrijfBericht vertaalt validator-afwijzing naar OngeldigeInvoer`() {
         stubStatus(gereed)
         val bericht = testBericht()
@@ -304,7 +454,7 @@ class BlockingSessiecacheTest {
     @Test
     fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
         val ex = assertThrows<IllegalArgumentException> {
-            BlockingSessiecache(service, facadeAwaitTimeoutSeconds = 0)
+            BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 0)
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")

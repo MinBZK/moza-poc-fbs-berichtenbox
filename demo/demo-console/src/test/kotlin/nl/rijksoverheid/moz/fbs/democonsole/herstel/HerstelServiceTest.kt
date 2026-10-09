@@ -7,18 +7,24 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import nl.rijksoverheid.moz.fbs.democonsole.Aanvulling
 import nl.rijksoverheid.moz.fbs.democonsole.HERSTELTIJD_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.PUBLICATIEWACHTRIJ_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.SESSIES_GEWIST_MELDING
+import nl.rijksoverheid.moz.fbs.democonsole.SESSIES_NIET_GEWIST_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.Faalreden
 import nl.rijksoverheid.moz.fbs.democonsole.dataset.Basisdataset
 import nl.rijksoverheid.moz.fbs.democonsole.legen.MagazijnDatabase
+import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessieService
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.GesimuleerdHerstel
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoService
 import nl.rijksoverheid.moz.fbs.democonsole.tempo.TempoStatus
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -32,6 +38,7 @@ class HerstelServiceTest {
     private val basisdataset = mockk<Basisdataset>()
     private val aanleverService = mockk<AanleverService>()
     private val simulatorService = mockk<SimulatorService>()
+    private val sessieService = mockk<SessieService>()
 
     private val service = HerstelService(
         tempoService,
@@ -40,6 +47,7 @@ class HerstelServiceTest {
         basisdataset,
         aanleverService,
         simulatorService,
+        sessieService,
     )
 
     private fun alleStappenSlagen() {
@@ -48,6 +56,7 @@ class HerstelServiceTest {
         every { magazijnDatabase.leegAlles() } returns mapOf("magazijn-a" to 20, "magazijn-b" to 20)
         every { basisdataset.laad() } returns emptyList()
         every { aanleverService.leverAan(any()) } returns AanleverResultaat.van(40, 40, 0, 0, emptyList())
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns 6
         every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(berichten = 2000, magazijnen = 98)
         every { simulatorService.vulStandaard() } returns
             nl.rijksoverheid.moz.fbs.democonsole.simulator.SeedUitkomst(98, 4, 10584, 2646, 0, 500)
@@ -56,9 +65,10 @@ class HerstelServiceTest {
     @Test
     fun `herstel doorloopt de stappen in de juiste volgorde`() {
         // De volgorde draagt betekenis: een lopende stroom zou tijdens het legen blijven vullen,
-        // en storingen zouden de basisvulling laten mislukken. De gesimuleerde magazijnen komen als
-        // laatste, want zij houden de twee echte magazijnen nergens voor tegen — andersom liet een
-        // onbereikbare simulator ze ongemoeid en bleef de omgeving halverwege staan.
+        // en storingen zouden de basisvulling laten mislukken. De gesimuleerde magazijnen komen na
+        // de echte, want zij houden die twee nergens voor tegen — andersom liet een onbereikbare
+        // simulator ze ongemoeid en bleef de omgeving halverwege staan. De sessies gaan als laatste:
+        // een berichtenbox die eerder opnieuw ophaalt, blijft staan met een halve set.
         alleStappenSlagen()
 
         service.herstel()
@@ -70,6 +80,7 @@ class HerstelServiceTest {
             aanleverService.leverAan(any())
             simulatorService.herstelZoMogelijk()
             simulatorService.vulStandaard()
+            sessieService.laatSessiesVerlopenZoMogelijk()
         }
     }
 
@@ -131,6 +142,14 @@ class HerstelServiceTest {
         assertEquals("wel geleegd, niet gevuld: seed afgebroken", resultaat.gesimuleerd.overgeslagen)
         assertEquals(2000, resultaat.gesimuleerd.berichten)
         assertEquals(0, resultaat.gesimuleerdGevuld)
+
+        // Het wissen blijft de laatste stap, ook als de simulator halverwege struikelt.
+        assertEquals(6, resultaat.sessiesGewist)
+
+        verifyOrder {
+            simulatorService.vulStandaard()
+            sessieService.laatSessiesVerlopenZoMogelijk()
+        }
     }
 
     @Test
@@ -149,10 +168,47 @@ class HerstelServiceTest {
     }
 
     @Test
-    fun `een herstel zonder mislukkingen meldt alleen de hersteltijd`() {
+    fun `een herstel zonder mislukkingen meldt het wissen van de sessies en de hersteltijd`() {
+        // Niet de wachtrij-melding van de vulling: na het wissen halen de berichtenboxen zelf
+        // opnieuw op, rechtstreeks uit de magazijnen en niet via die wachtrij.
         alleStappenSlagen()
 
-        assertEquals(HERSTELTIJD_MELDING, service.herstel().letOp)
+        val letOp = service.herstel().letOp
+
+        assertEquals("$SESSIES_GEWIST_MELDING $HERSTELTIJD_MELDING", letOp)
+        assertFalse(letOp.contains(PUBLICATIEWACHTRIJ_MELDING))
+    }
+
+    @Test
+    fun `lukt het wissen van de sessies niet, dan zegt het herstel dat en gaat het verder`() {
+        alleStappenSlagen()
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns null
+
+        val resultaat = service.herstel()
+
+        assertNull(resultaat.sessiesGewist)
+        assertTrue(resultaat.letOp.startsWith(SESSIES_NIET_GEWIST_MELDING), resultaat.letOp)
+        verify { simulatorService.vulStandaard() }
+    }
+
+    @Test
+    fun `een mislukt wissen staat positief op de lijn, zodat het paneel niet groen kleurt`() {
+        // `non-null` laat een `null` voor sessiesGewist van de lijn vallen; zonder dit veld is
+        // "niet gelukt" daar niet te onderscheiden van "niet gevraagd".
+        alleStappenSlagen()
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns null
+
+        val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.herstel()))
+
+        assertTrue(json.path("sessiesNietGewist").booleanValue(), "$json")
+    }
+
+    @Test
+    fun `ook zonder simulator worden de sessies gewist`() {
+        alleStappenSlagen()
+        every { simulatorService.herstelZoMogelijk() } returns GesimuleerdHerstel(overgeslagen = "geen simulator")
+
+        assertEquals(6, service.herstel().sessiesGewist)
     }
 
     @Test
@@ -164,7 +220,7 @@ class HerstelServiceTest {
         every { aanleverService.leverAan(any()) } returns mislukt
 
         // De volledige regel, want juist de naad tussen de twee zinnen is wat hier kan misgaan.
-        assertEquals("${mislukt.letOp} $HERSTELTIJD_MELDING", service.herstel().letOp)
+        assertEquals("${mislukt.reden} $SESSIES_GEWIST_MELDING $HERSTELTIJD_MELDING", service.herstel().letOp)
     }
 
     @Test
@@ -176,14 +232,15 @@ class HerstelServiceTest {
         val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.herstel()))
 
         assertTrue(json.path("letOp").isTextual, "veld letOp ontbreekt of is geen tekst: $json")
-        assertEquals(HERSTELTIJD_MELDING, json.path("letOp").asText())
+        assertEquals("$SESSIES_GEWIST_MELDING $HERSTELTIJD_MELDING", json.path("letOp").asText())
     }
 
     @Test
     fun `een mislukte basisvulling breekt af nadat de magazijnen al geleegd zijn`() {
         // Vastgelegd omdat het niet vanzelf spreekt: hier is het legen onomkeerbaar gebeurd en gaat
         // de rest niet door. De simulator wordt dan bewust niet meer aangeraakt — die opnieuw
-        // vullen tegen lege echte magazijnen maakt de tussenstand alleen verwarrender.
+        // vullen tegen lege echte magazijnen maakt de tussenstand alleen verwarrender. De sessies
+        // gaan wel weg: anders tonen open berichtenboxen berichten die nergens meer staan.
         alleStappenSlagen()
         every { aanleverService.leverAan(any()) } throws IllegalStateException("magazijn weigert")
 
@@ -192,5 +249,31 @@ class HerstelServiceTest {
         verify { magazijnDatabase.leegAlles() }
         verify(exactly = 0) { simulatorService.herstelZoMogelijk() }
         verify(exactly = 0) { simulatorService.vulStandaard() }
+        verify(exactly = 1) { sessieService.laatSessiesVerlopenZoMogelijk() }
+    }
+
+    @Test
+    fun `lukt het wissen wel, dan draagt een mislukte vulling geen sessiemelding`() {
+        // Anders zou het paneel "sessies niet gewist" melden terwijl dat wel lukte.
+        alleStappenSlagen()
+        every { aanleverService.leverAan(any()) } throws IllegalStateException("magazijn weigert")
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.herstel() }
+
+        assertTrue(fout.suppressed.none { it is Aanvulling })
+    }
+
+    @Test
+    fun `mislukken vulling en wissen allebei, dan draagt de fout ook de sessiemelding`() {
+        // Anders ziet de bediener alleen de vulfout en niet dat open berichtenboxen oude berichten
+        // blijven tonen.
+        alleStappenSlagen()
+        every { aanleverService.leverAan(any()) } throws IllegalStateException("magazijn weigert")
+        every { sessieService.laatSessiesVerlopenZoMogelijk() } returns null
+
+        val fout = assertThrows(IllegalStateException::class.java) { service.herstel() }
+
+        assertEquals("magazijn weigert", fout.message)
+        assertEquals(listOf(SESSIES_NIET_GEWIST_MELDING), fout.suppressed.filterIsInstance<Aanvulling>().map { it.message })
     }
 }

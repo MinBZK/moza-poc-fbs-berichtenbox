@@ -5,6 +5,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 
@@ -19,15 +20,28 @@ import java.util.UUID
  * een nieuw foutscenario dwingt daar een bouwfout af. Zie [SessiecacheException] voor de
  * afzonderlijke foutgevallen.
  *
- * Het streaming [ophalen] heeft een eigen asynchroon foutkanaal (`Multi`-failure) en
- * valt buiten deze hiërarchie.
+ * De streams [ophalen] en [volg] hebben een eigen asynchroon foutkanaal (`Multi`-failure) voor
+ * wat er ná het openen misgaat, en vallen daarvoor buiten deze hiërarchie.
  */
 interface Sessiecache {
+
+    companion object {
+        /** Grootste pagina die [lijst] en [zoek] leveren; een grotere vraag wordt hierop afgekapt. */
+        const val MAX_PAGINA_GROOTTE: Int = 200
+
+        /**
+         * Mapwaarde die een bericht uit zijn map haalt. `null` betekent in een merge-patch al "niet
+         * wijzigen", dus wissen heeft een eigen waarde nodig; het magazijn gebruikt dezelfde.
+         */
+        const val MAP_WISSEN = ""
+    }
 
     /**
      * Berichtenlijst voor [ontvanger], gepagineerd, optioneel gefilterd op
      * [afzender] en/of [map]. Vereist een afgeronde ophaling (zie foutsemantiek).
-     * `pagina` default 0; `paginaGrootte` default 20, gecapt op 100.
+     * De pagina draagt altijd [BerichtenPagina.volledigheid] van de laatste ronde,
+     * ook bij [zoek].
+     * `pagina` default 0; `paginaGrootte` default 20, gecapt op [MAX_PAGINA_GROOTTE].
      */
     fun lijst(
         ontvanger: Identificatienummer,
@@ -38,7 +52,7 @@ interface Sessiecache {
     ): BerichtenPagina
 
     /**
-     * Volledig-tekst zoeken (RediSearch) in de berichten van [ontvanger].
+     * Volledig-tekst zoeken (RediSearch) in het onderwerp van de berichten van [ontvanger].
      * Zelfde paginering, filters en gereed-vereiste als [lijst].
      */
     fun zoek(
@@ -64,7 +78,8 @@ interface Sessiecache {
 
     /**
      * Merge-PATCH op leesstatus en/of map. Minimaal één van beide moet gezet zijn
-     * (anders 400). Retourneert het bijgewerkte bericht, of `null` als het bericht
+     * (anders 400). `map` = [MAP_WISSEN] haalt het bericht uit zijn map, terug naar
+     * Postvak IN. Retourneert het bijgewerkte bericht, of `null` als het bericht
      * niet bestaat of niet van [ontvanger] is.
      */
     fun werkBerichtBij(
@@ -95,4 +110,19 @@ interface Sessiecache {
      * geen actieve sessie is voor deze ontvanger.
      */
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
+
+    /**
+     * Volgt de sessie van [ontvanger] terwijl de berichtenbox openstaat: elk bericht dat via
+     * [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
+     * periodieke hartslag houdt de sessie in leven. Zie [SessieGebeurtenis] voor het verloop.
+     *
+     * Vereist net als [lijst] een afgeronde ophaling en gooit dezelfde [SessiecacheException]s,
+     * synchroon en vóór de stream. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór de
+     * stream een [SessiecacheException.Onbereikbaar]. Een storing daarna beëindigt de stream met een
+     * fout; de afnemer verbindt dan opnieuw.
+     *
+     * De stream eindigt ook uit zichzelf na `berichtensessiecache.volg-max-duur`, zonder
+     * [SessieGebeurtenis.SessieVerlopen]: de sessie loopt dan nog, en de afnemer verbindt opnieuw.
+     */
+    fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis>
 }

@@ -2,8 +2,10 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.e2e
 
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo as wmEqualTo
 import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.patch as wmPatch
 import com.github.tomakehurst.wiremock.client.WireMock.delete as wmDelete
@@ -13,14 +15,26 @@ import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
+import io.restassured.RestAssured
 import io.restassured.RestAssured.given
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.WireMockBackendsResource
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
 import org.hamcrest.CoreMatchers.nullValue
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.hamcrest.Matchers.contains
+import org.hamcrest.Matchers.empty
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
+import org.junit.jupiter.api.fail
+import java.net.HttpURLConnection
+import java.net.URI
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Volledige keten door de échte bedrading (CLAUDE.md testlaag 4): HTTP-request →
@@ -93,6 +107,23 @@ class UitvraagKetenE2eTest {
         )
     }
 
+    /** Levert [ids] in magazijn-pagina's van [MAGAZIJN_PAGINA], zoals een echt magazijn pagineert. */
+    private fun stubMagazijnPaginas(server: WireMockServer, ids: List<String>, bsn: String, afzender: String) {
+        ids.chunked(MAGAZIJN_PAGINA).forEachIndexed { pagina, deel ->
+            val berichten = deel.joinToString(",") { id ->
+                """{"berichtId":"$id","afzender":"$afzender","ontvanger":{"type":"BSN","waarde":"$bsn"},""" +
+                    """"onderwerp":"Bericht $id","publicatietijdstip":"2026-03-10T10:00:00Z","aantalBijlagen":0}"""
+            }
+
+            server.stubFor(
+                get(urlPathMatching("/api/v1/berichten")).withQueryParam("page", wmEqualTo(pagina.toString())).willReturn(
+                    aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody("""{"berichten":[$berichten],"totalElements":${ids.size}}"""),
+                ),
+            )
+        }
+    }
+
     @Test
     fun `volledige keten - ophalen vult Redis en daarna werken lijst detail patch en delete`() {
         val bsn = "999990019"
@@ -126,6 +157,8 @@ class UitvraagKetenE2eTest {
             .statusCode(200)
             .body("berichten[0].berichtId", equalTo(berichtId))
             .body("berichten[0].magazijnId", equalTo(OIN_A))
+            .body("aantalNietGeleverd", equalTo(0))
+            .body("nietGeleverd", empty<Any>())
 
         // Detail inclusief inhoud.
         given()
@@ -148,6 +181,34 @@ class UitvraagKetenE2eTest {
             .then()
             .statusCode(200)
             .body("status", equalTo("gelezen"))
+
+        // Map zetten en weer wissen tegen de échte cache: daarna staat het bericht in Postvak IN,
+        // ook in de lijst, en de leesstatus is gebleven.
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"map":"werk"}""")
+            .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+            .then()
+            .statusCode(200)
+            .body("map", equalTo("werk"))
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"map":""}""")
+            .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+            .then()
+            .statusCode(200)
+            .body("\$", not(hasKey("map")))
+            .body("status", equalTo("gelezen"))
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().get("/api/v1/berichten")
+            .then()
+            .statusCode(200)
+            .body("berichten[0]", not(hasKey("map")))
 
         // Dual-write DELETE; daarna is het bericht ook uit de cache verdwenen, maar laat het
         // wél een spoor na: de ondernemer hoort te horen dát hij het zelf weggooide.
@@ -220,6 +281,10 @@ class UitvraagKetenE2eTest {
             .then()
             .statusCode(200)
             .body("berichten[0].berichtId", equalTo(berichtId))
+            // Wie niet leverde, overleeft de stroom: via Redis terug op de lijst.
+            .body("aantalNietGeleverd", equalTo(1))
+            .body("nietGeleverd.magazijnId", contains(OIN_B))
+            .body("nietGeleverd[0].status", equalTo("FOUT"))
     }
 
     @Test
@@ -360,12 +425,123 @@ class UitvraagKetenE2eTest {
             .header("Retry-After", "30")
     }
 
+    @Test
+    fun `wie de next-links volgt met de grootste pagina, krijgt de volledige opgehaalde set`() {
+        // Meer berichten dan één pagina van het plafond, uit meerdere magazijn-pagina's: een
+        // afnemer die zelf filtert en sorteert, moet de hele set binnenkrijgen zonder gaten of
+        // dubbelingen, en weten wanneer hij klaar is.
+        val bsn = "999990020"
+        val aantal = Sessiecache.MAX_PAGINA_GROOTTE + 50
+        val ids = (0 until aantal).map { i -> "00000000-0000-4000-8000-%012d".format(i) }
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnPaginas(magazijnA, ids, bsn, OIN_A)
+
+        given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+
+        val gelezen = mutableListOf<String>()
+        var href: String? = "/api/v1/berichten?paginaGrootte=${Sessiecache.MAX_PAGINA_GROOTTE}"
+        var paginas = 0
+
+        while (href != null) {
+            val antwoord = given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .`when`().get(href)
+                .then()
+                .statusCode(200)
+                .extract().jsonPath()
+            gelezen += antwoord.getList<String>("berichten.berichtId")
+            href = antwoord.getString("_links.next.href")
+            paginas++
+        }
+
+        assertEquals(2, paginas)
+        assertEquals(ids.toSet(), gelezen.toSet())
+        assertEquals(aantal, gelezen.size, "geen dubbelingen over de paginagrens heen")
+    }
+
+    @Test
+    fun `een aanmelding verschijnt in een gevolgde sessie zonder nieuwe ophaalronde`() {
+        val bsn = "999993653"
+        val nieuwId = "22222222-2222-2222-2222-222222222222"
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, "33333333-3333-3333-3333-333333333333", bsn, "magazijn-a", OIN_A)
+        given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+        val lijstVerzoeken = { magazijnA.findAll(getRequestedFor(urlPathMatching("/api/v1/berichten"))).size }
+        val naOphalen = lijstVerzoeken()
+
+        val regels = LinkedBlockingQueue<String>()
+
+        val connection = (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection)
+            .apply {
+                setRequestProperty("X-Ontvanger", "BSN:$bsn")
+                setRequestProperty("Accept", "text/event-stream")
+                readTimeout = 10_000
+            }
+
+        // Eerst de status, dan pas de lezer: HttpURLConnection is niet thread-safe.
+        assertEquals(200, connection.responseCode)
+
+        val lezer = Thread { runCatching { connection.inputStream.bufferedReader().lineSequence().forEach { regels += it } } }
+            .apply { isDaemon = true; start() }
+
+        try {
+            wachtOpRegel(regels, "\"event\":\"volgen-gestart\"")
+
+            given()
+                .contentType("application/cloudevents+json")
+                .body(aanmelding(nieuwId, bsn))
+                .`when`().post("/api/v1/aanmeldingen")
+                .then()
+                .statusCode(202)
+
+            val frame = wachtOpRegel(regels, "\"event\":\"bericht-bijgekomen\"")
+
+            assertTrue(frame.contains("\"berichtId\":\"$nieuwId\""), "Verwacht het aangemelde bericht in: $frame")
+            assertEquals(naOphalen, lijstVerzoeken(), "het bericht hoort zonder nieuwe bevraging van het magazijn te komen")
+        } finally {
+            connection.disconnect()
+            lezer.join(2_000)
+        }
+    }
+
+    private fun wachtOpRegel(regels: LinkedBlockingQueue<String>, bevat: String): String {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+
+        while (System.nanoTime() < deadline) {
+            val regel = regels.poll(100, TimeUnit.MILLISECONDS) ?: continue
+
+            if (regel.contains(bevat)) return regel
+        }
+
+        fail("Geen regel met $bevat binnen 5 s")
+    }
+
+    private fun aanmelding(berichtId: String, bsn: String) = """
+        {
+          "id": "evt-$berichtId",
+          "source": "urn:nld:oin:$OIN_A:systeem:fbs-magazijn",
+          "specversion": "1.0",
+          "type": "nl.rijksoverheid.fbs.bericht.gepubliceerd",
+          "subject": "$berichtId",
+          "datacontenttype": "application/json",
+          "data": {
+            "berichtId": "$berichtId",
+            "afzender": "$OIN_A",
+            "ontvanger": { "type": "BSN", "waarde": "$bsn" },
+            "onderwerp": "Net binnen",
+            "publicatietijdstip": "2026-09-21T10:00:00Z"
+          }
+        }
+    """.trimIndent()
 }
 
 // magazijnId == afzender-OIN (register-conventie). Bron is de gedeelde fixture, zodat
 // de stub-OIN's en de geïnjecteerde register-config gegarandeerd dezelfde waarden zijn.
 private val OIN_A = WireMockBackendsResource.OIN_A
 private val OIN_B = WireMockBackendsResource.OIN_B
+
+// Gelijk aan `berichtensessiecache.magazijn-page-size`; een grotere stub-pagina wijst de lezer af.
+private const val MAGAZIJN_PAGINA = 100
 
 /**
  * Echte facade-keten: Redis via Dev Services (Redis Stack — RediSearch is nodig
