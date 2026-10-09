@@ -239,6 +239,7 @@ Wat je hoe dan ook moet weten:
 | `.github/scripts/proeftuin-pin-pr.sh`  | Biedt een achterlopende berichtenbox-pin als PR aan en sluit die PR zodra de pin bij is; vervangt Dependabot voor dít image (reden bij de `ignore`-regel in `.github/dependabot.yml`). Fixture-suite ernaast in `test-proeftuin-pin-pr.sh` |
 | `.github/scripts/pin-pr-lib.sh`        | Gedeeld PR-onderhoud van de twee pin-scripts (`fuzz-basis-pin.sh` en `proeftuin-pin-pr.sh`): token eisen, de eigen PR vinden zonder fork-PR's te raken, de branch publiceren, de PR opruimen. Wordt gesourcet; het oordeel over "verouderd" blijft per pad |
 | `.github/scripts/pin-pr-teststubs.sh`  | Gedeelde harness van de twee pin-suites (`gh`/`git`-stubs met faal-schakelaars, asserties, opzet per geval). Bewust niet `test-*.sh`: `ci-scripts.yml` draait elk `test-*.sh` als suite. Zelftest ernaast in `test-pin-pr-teststubs.sh` — zonder die suite zou één regel in de harness beide pin-suites betekenisloos maken zonder dat een telling daalt |
+| `.github/scripts/zad-taak-lib.sh`      | Gedeeld wachten op een taak van Operations Manager (`cross-domain-preview.sh` en `preview-klaarzetten.sh`): een mislukte opvraging wordt herhaald, twintig op rij of een 401/403 breekt af, de grens van twee minuten per taak blijft. Wordt gesourcet; wat een eindtoestand betekent blijft per script |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
 
 ## Omgevingsvariabelen
