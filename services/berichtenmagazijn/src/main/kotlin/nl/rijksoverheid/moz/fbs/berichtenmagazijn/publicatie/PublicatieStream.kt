@@ -25,8 +25,8 @@ class PublicatieStream(
 
     /**
      * Poison-pill counter: na N opeenvolgende mislukkingen slaat de stream één ronde over
-     * zodat een kapotte claim of DB-uitval geen tight loop CPU/IO laat branden. Reset bij
-     * elke succesvolle ronde. `AtomicInteger` zodat increment correct blijft mocht
+     * zodat een kapotte claim of DB-uitval geen tight loop CPU/IO laat branden. Een `Error`
+     * telt mee, ook al gaat die door naar de aanroeper. Reset bij elke succesvolle ronde. `AtomicInteger` zodat increment correct blijft mocht
      * `concurrentExecution` ooit `PROCEED` worden (`+=` op `@Volatile` is niet atomair).
      */
     private val opeenvolgendeFouten = AtomicInteger(0)
@@ -50,6 +50,14 @@ class PublicatieStream(
         var verwerkt = 0
         val batchCap = config.batchGrootte()
         while (verwerkt < batchCap) {
+            // Een onderbroken thread levert niets meer af: elke volgende claim zou direct op
+            // de interrupt stranden en toch een poging plus een logregel kosten. De vlag
+            // blijft staan voor de scheduler.
+            if (Thread.currentThread().isInterrupted) {
+                log.infof("Pollronde onderbroken na %d claims; resterende claims blijven openstaan", verwerkt)
+                break
+            }
+
             val isClaimVerwerkt = try {
                 verwerker.verwerkEenClaim()
             } catch (ex: RuntimeException) {
@@ -62,6 +70,11 @@ class PublicatieStream(
                     nieuw, verwerkt,
                 )
                 return
+            } catch (ex: Error) {
+                // Hoort de JVM te bereiken, maar telt mee: een Error die zich bij dezelfde
+                // claim herhaalt, zou anders elke ronde zonder cooldown terugkomen.
+                opeenvolgendeFouten.incrementAndGet()
+                throw ex
             }
             if (!isClaimVerwerkt) break
             verwerkt += 1

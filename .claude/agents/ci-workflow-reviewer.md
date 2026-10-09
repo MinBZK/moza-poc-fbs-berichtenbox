@@ -69,16 +69,16 @@ handtekening-controle.
 
 ## 7. Concurrency en de OM-vergrendeling
 
-OM vergrendelt op project, niet op deployment. Draait er een tweede taak in hetzelfde project, dan
-verliest de wachtstap van een lopende deploy: het resultaat is `superseded`, draagt geen `urls`, en
-de job faalt op "Could not extract URLs from result" — een melding die de oorzaak niet noemt. De
-wijziging is opgeslagen en `superseded_by` noemt de taak die hem overneemt, maar de jobs die op die
-deploy wachten worden overgeslagen. Opnieuw draaien helpt pas als het project stil is. De
-structurele fix hoort in de action (RijksICTGilde/zad-actions#59).
+OM vergrendelt op project, niet op deployment. Een nieuwere taak met een omvattend bereik —
+dezelfde deployment opnieuw, of een projectbrede taak — neemt de wachtstap van een lopende deploy
+over: diens resultaat is `superseded` en `superseded_by` noemt de opvolger. `zad-actions/deploy`
+volgt die opvolger en faalt alleen als hij `failed`/`cancelled` eindigt of als de wijziging is
+opgeslagen maar niet uitgerold. Elke wachtstap is afzonderlijk begrensd door `task-timeout`, dus
+een keten kan langer duren dan één `task-timeout`.
 
-De concurrency-groepen in `deploy.yml` staan per project **en** PR, dus die race sluiten ze niet
-uit. Vlag een wijziging die de kans daarop vergroot, en vlag een nieuwe stap die de foutmelding als
-een echte deploy-fout behandelt.
+De concurrency-groepen in `deploy.yml` staan per project **en** PR, dus zo'n samenloop sluiten ze
+niet uit. Vlag een wijziging die de kans daarop vergroot (een extra projectbrede taak, een tweede
+uitrol van dezelfde deployment).
 
 ## Rapportage
 
