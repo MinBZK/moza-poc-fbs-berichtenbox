@@ -84,7 +84,7 @@ maak_stub() {
   printf '%s' "$upsert" >"$werkmap/upsert"
   printf '%s' "$taak" >"$werkmap/taak"
   printf '%s' "$config" >"$werkmap/config"
-  rm -f "$werkmap/aanroepen" "$werkmap/bodies"
+  rm -f "$werkmap/aanroepen" "$werkmap/bodies" "$werkmap/taakreeks" "$werkmap/taakteller"
 
   cat >"$werkmap/curl" <<STUB
 #!/usr/bin/env bash
@@ -97,7 +97,21 @@ done
 
 case "\$*" in
   *:upsert-deployment*) cat "$werkmap/upsert" ;;
-  */tasks/*) cat "$werkmap/taak" ;;
+  */tasks/*)
+    n=\$((\$(cat "$werkmap/taakteller" 2>/dev/null || echo 0) + 1))
+    echo "\$n" >"$werkmap/taakteller"
+
+    # De eerste opvragingen volgen `taakreeks`, als die er is; daarna geldt het gewone antwoord.
+    case "\$(sed -n "\${n}p" "$werkmap/taakreeks" 2>/dev/null)" in
+      curl:*) exit 7 ;;
+      http:503) printf 'storing\n503'; exit 0 ;;
+      http:403) printf 'geweigerd\n403'; exit 0 ;;
+      bezig) printf '{"task_id":"t-1","status":"running"}\n200'; exit 0 ;;
+    esac
+
+    cat "$werkmap/taak"
+    printf '\n200'
+    ;;
   */config/deployment/*) printf '{"task_id":"t-2"}' ;;
   *cross-domain-access/config*) cat "$werkmap/config" ;;
   */deployments*) cat "$werkmap/lijst"; exit $lijst_rc ;;
@@ -105,6 +119,20 @@ case "\$*" in
 esac
 STUB
   chmod +x "$werkmap/curl"
+
+  # Het wachten slaapt tussen twee opvragingen; de suite niet.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$werkmap/sleep"
+  chmod +x "$werkmap/sleep"
+}
+
+# Regisseert de eerste opvragingen van een taak, één per argument: `curl:` (curl zelf faalt),
+# `http:503`, `http:403` of `bezig`. Na `maak_stub` aanroepen; die wist de reeks.
+taakreeks() {
+  printf '%s\n' "$@" >"$werkmap/taakreeks"
+}
+
+opvragingen() {
+  cat "$werkmap/taakteller" 2>/dev/null || echo 0
 }
 
 # Zet $RC, $UITVOER en $AANROEPEN, zodat een test op alle drie kan toetsen.
@@ -186,6 +214,74 @@ draai mpfm-w3h pr-7 test "$COMPONENTEN" outbound "${REGELS[@]}"
 
 gelijk "een antwoord zonder taak-id stopt het script" 1 "$RC"
 bevat "en zegt waaróm" 'Geen taak-id' "$UITVOER"
+
+# --- een taak die even niet op te vragen is ----------------------------------------------------------
+# De deployment is dan al aangeboden. Breekt de stap op één mislukte opvraging af, dan slaat de run
+# de deploys over terwijl de preview gewoon klaarstaat. De lus zelf heeft zijn eigen suite
+# (test-zad-taak-lib.sh); hier staat dat dit script hem gebruikt, met zijn eigen eisen en meldingen.
+#
+# De reeks geldt voor de eerste taak (het aanmaken); de taak van de regels erna krijgt het gewone
+# antwoord.
+maak_stub "$LIJST_ZONDER" '{"task_id":"t-1"}' "$UITGESTELD" "$(configuratie "$PROJECTREGELS")"
+taakreeks curl: bezig http:503 bezig
+draai mpfm-w3h pr-7 test "$COMPONENTEN" outbound "${REGELS[@]}"
+
+gelijk "voorbijgaande fouten bij het opvragen breken het klaarzetten niet af" 0 "$RC"
+bevat "de deployment is daarna aangemaakt" 'aangemaakt zonder uitrol' "$UITVOER"
+bevat "en zijn regels worden nog gezet" '/config/deployment/pr-7/outbound?rollout=false' "$AANROEPEN"
+
+# De eis dat er niet is uitgerold geldt ook na een hik.
+maak_stub "$LIJST_ZONDER" '{"task_id":"t-1"}' \
+  '{"task_id":"t-1","status":"completed","result":{"status":"success","processing":{"status":"completed"}}}' \
+  "$(configuratie "$PROJECTREGELS")"
+taakreeks http:503
+draai mpfm-w3h pr-7 test "$COMPONENTEN" outbound "${REGELS[@]}"
+
+gelijk "een taak die na een hik tóch uitrolde stopt het script" 1 "$RC"
+bevat "en zegt dat hij uitrolde" 'rolde uit' "$UITVOER"
+
+maak_stub "$LIJST_ZONDER" '{"task_id":"t-1"}' "$UITGESTELD" "$(configuratie "$PROJECTREGELS")"
+# shellcheck disable=SC2046
+taakreeks $(printf 'http:503 %.0s' $(seq 40))
+draai mpfm-w3h pr-7 test "$COMPONENTEN" outbound "${REGELS[@]}"
+
+gelijk "een taak die niet op te vragen blijft stopt het script" 1 "$RC"
+bevat "met de melding dat de deployment onzeker is" 'of de deployment klaarstaat is onbekend' "$UITVOER"
+bevat "en de oorzaak erbij" 'laatste: HTTP 503' "$UITVOER"
+bevat_niet "de regels worden dan niet meer gezet" '/config/deployment/' "$AANROEPEN"
+
+if [ "$(opvragingen)" -lt 40 ]; then
+  ok "en geeft het op vóór de wachttijd om is"
+else
+  fout "een aanhoudende fout werd $(opvragingen) keer opgevraagd"
+fi
+
+maak_stub "$LIJST_ZONDER" '{"task_id":"t-1"}' "$UITGESTELD" "$(configuratie "$PROJECTREGELS")"
+taakreeks http:403
+draai mpfm-w3h pr-7 test "$COMPONENTEN" outbound "${REGELS[@]}"
+
+gelijk "een geweigerde sleutel bij het opvragen stopt het script" 1 "$RC"
+gelijk "zonder nieuwe poging" 1 "$(opvragingen)"
+bevat "en noemt de status" 'HTTP 403' "$UITVOER"
+
+# Het aanmaken zelf wordt niet herhaald: ging het antwoord verloren, dan is niet te zien of de
+# deployment al was aangeboden.
+maak_stub "$LIJST_ZONDER" '{"task_id":"t-1"}' "$UITGESTELD" "$(configuratie "$PROJECTREGELS")"
+draai mpfm-w3h pr-7 test "$COMPONENTEN" outbound "${REGELS[@]}"
+
+case "$(grep upsert-deployment "$werkmap/aanroepen")" in
+  *--retry*) fout "het aanmaken wordt herhaald" ;;
+  *POST*) ok "het aanmaken wordt niet herhaald" ;;
+  *) fout "er ging geen aanmaakverzoek uit — deze controle meet niets" ;;
+esac
+
+# Zonder `cancelled` als eindtoestand wacht het script twee minuten en meldt het dan "nog niet klaar"
+# over een taak die allang is afgebroken.
+maak_stub "$LIJST_ZONDER" '{"task_id":"t-1"}' '{"task_id":"t-1","status":"cancelled"}' "$(configuratie "$PROJECTREGELS")"
+draai mpfm-w3h pr-7 test "$COMPONENTEN" outbound "${REGELS[@]}"
+
+gelijk "een afgebroken taak stopt het script" 1 "$RC"
+bevat "met zijn eindtoestand" "eindigde als 'cancelled'" "$UITVOER"
 
 # --- de deploymentlijst ------------------------------------------------------------------------------
 # Een lijst die niet te lezen is, mag niet als "bestaat nog niet" doorgaan: dan zou het script een

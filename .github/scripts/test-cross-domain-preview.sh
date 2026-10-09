@@ -61,7 +61,7 @@ maak_stub() {
   local projectitems
   projectitems=$(printf '%s' "$projectregels" | sed 's/"\([^"]*\)"/{"name":"\1"}/g')
 
-  rm -f "$map/taak"
+  rm -f "$map/taak" "$map/taakreeks" "$map/taakteller"
   [ -z "$taakantwoord" ] || printf '%s' "$taakantwoord" >"$map/taak"
 
   cat >"$map/curl" <<STUB
@@ -74,11 +74,23 @@ for arg in "\$@"; do
 done
 
 if printf '%s' "\$*" | grep -q '/tasks/'; then
+  n=\$((\$(cat "$map/taakteller" 2>/dev/null || echo 0) + 1))
+  echo "\$n" >"$map/taakteller"
+
+  # De eerste opvragingen volgen `taakreeks`, als die er is; daarna geldt het gewone antwoord.
+  case "\$(sed -n "\${n}p" "$map/taakreeks" 2>/dev/null)" in
+    curl:*) exit 7 ;;
+    http:503) printf 'storing\n503'; exit 0 ;;
+    http:401) printf 'geweigerd\n401'; exit 0 ;;
+    bezig) printf '{"task_id":"t-1","status":"running"}\n200'; exit 0 ;;
+  esac
+
   if [ -f "$map/taak" ]; then
     cat "$map/taak"
   else
     printf '{"task_id":"t-1","status":"$taakstatus"}'
   fi
+  printf '\n200'
   exit 0
 fi
 
@@ -92,6 +104,20 @@ printf '%s' '$patch_antwoord'
 exit $patch_rc
 STUB
   chmod +x "$map/curl"
+
+  # Het wachten slaapt tussen twee opvragingen; de suite niet.
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$map/sleep"
+  chmod +x "$map/sleep"
+}
+
+# Regisseert de eerste opvragingen van de taak, één per argument: `curl:` (curl zelf faalt),
+# `http:503`, `http:401` of `bezig`. Na `maak_stub` aanroepen; die wist de reeks.
+taakreeks() {
+  printf '%s\n' "$@" >"$werkmap/taakreeks"
+}
+
+opvragingen() {
+  cat "$werkmap/taakteller" 2>/dev/null || echo 0
 }
 
 # Draait het script met de stub op het pad. Zet $RC op de exitcode en $UITVOER op wat het
@@ -215,6 +241,63 @@ maak_stub "$werkmap" '{"task_id":"t-1"}' failed
 draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
 gelijk "een gefaalde taak stopt het script" 1 "$RC"
 bevat "en noemt de eindtoestand" "eindigde als 'failed'" "$UITVOER"
+
+# --- een taak die even niet op te vragen is -----------------------------------------------------
+# De patch is dan al aangenomen. Breekt de stap op één mislukte opvraging af, dan staat de regel er
+# mogelijk gewoon en weet alleen niemand het. De lus zelf heeft zijn eigen suite
+# (test-zad-taak-lib.sh); hier staat dat dit script hem gebruikt, met zijn eigen meldingen.
+maak_stub "$werkmap" '{"task_id":"t-1"}' completed
+taakreeks bezig http:503 curl: bezig
+draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
+gelijk "voorbijgaande fouten bij het opvragen breken de stap niet af" 0 "$RC"
+gelijk "de taak wordt opgevraagd tot hij klaar is" 5 "$(opvragingen)"
+bevat "en de stap meldt de regel als gezet" 'zet: inbound-regels (regel)' "$UITVOER"
+
+maak_stub "$werkmap" '{"task_id":"t-1"}' completed
+# shellcheck disable=SC2046
+taakreeks $(printf 'http:503 %.0s' $(seq 40))
+draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
+gelijk "een taak die niet op te vragen blijft stopt het script" 1 "$RC"
+bevat "met de melding dat de netwerkregel onzeker is" 'de uitkomst van de netwerkregel is onbekend' "$UITVOER"
+bevat "en de oorzaak erbij" 'laatste: HTTP 503' "$UITVOER"
+
+if [ "$(opvragingen)" -lt 40 ]; then
+  ok "en geeft het op vóór de wachttijd om is"
+else
+  fout "een aanhoudende fout werd $(opvragingen) keer opgevraagd"
+fi
+
+maak_stub "$werkmap" '{"task_id":"t-1"}' completed
+taakreeks bezig http:401
+draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
+gelijk "een geweigerde sleutel bij het opvragen stopt het script" 1 "$RC"
+gelijk "zonder nieuwe poging" 2 "$(opvragingen)"
+bevat "en noemt de status" 'HTTP 401' "$UITVOER"
+
+# Een afgebroken taak ná een hik blijft een afgebroken taak.
+maak_stub "$werkmap" '{"task_id":"t-1"}' cancelled
+taakreeks http:503
+draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
+gelijk "een afgebroken taak na een hik stopt het script" 1 "$RC"
+bevat "met zijn eindtoestand" "eindigde als 'cancelled'" "$UITVOER"
+
+maak_stub "$werkmap" '{"task_id":"t-1"}' error
+draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
+bevat "ook 'error' is een eindtoestand" "eindigde als 'error'" "$UITVOER"
+
+# De configuratie is een GET en mag door curl zelf herhaald worden; de patch niet, want elke patch
+# die aankomt wordt een eigen taak.
+maak_stub "$werkmap" '{"task_id":"t-1"}' completed
+rm -f "$werkmap/aanroepen"
+draai "$werkmap" zet mpfm-w3h pr-7 inbound regel
+bevat "de configuratie-GET herhaalt zichzelf" '--retry 3' "$(grep -v -e PATCH -e /tasks/ "$werkmap/aanroepen")"
+bevat "en heeft een eigen tijdsgrens" '--max-time 30 ' "$(grep -v -e PATCH -e /tasks/ "$werkmap/aanroepen")"
+
+case "$(grep PATCH "$werkmap/aanroepen")" in
+  *--retry*) fout "de patch wordt herhaald" ;;
+  *PATCH*) ok "de patch wordt niet herhaald" ;;
+  *) fout "er ging geen patch uit — deze controle meet niets" ;;
+esac
 
 # --- uitrol uitstellen --------------------------------------------------------------------------
 # preview-klaarzetten.sh zet de regels van een nieuwe preview vóór zijn eerste uitrol. Zonder de vlag

@@ -28,6 +28,9 @@
 
 set -euo pipefail
 
+# shellcheck source=.github/scripts/zad-taak-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/zad-taak-lib.sh"
+
 readonly STANDAARD_API_URL='https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
 
 # Overschrijfbaar zodat de unittests het HTTP-verkeer kunnen onderscheppen zonder netwerk. In CI
@@ -124,30 +127,13 @@ al_gezet() {
 # verwerking `skipped`, en wie die tweede leest, wacht twee minuten op een taak die allang klaar is.
 wacht_op_taak() {
   local api_url=$1 api_key=$2 taak=$3
-  local status antwoord
 
-  # Elke seconde, niet elke twee: de taak zelf duurt tientallen seconden en zit op het kritieke pad
-  # van de preview-uitrol, dus de halve wachttijd na afloop telt en één extra GET niet.
-  for _ in $(seq 120); do
-    if ! antwoord=$("$CURL" -sf -H "X-API-Key: $api_key" "$api_url/tasks/$taak"); then
-      fout "Taak $taak niet op te vragen; de uitkomst van de netwerkregel is onbekend."
-    fi
+  zad_wacht_op_taak "$api_url" "$api_key" "$taak" \
+    "de uitkomst van de netwerkregel is onbekend" "de netwerkregel staat mogelijk niet" \
+    completed failed error cancelled
 
-    status=$(jq -r '.status // ""' <<<"$antwoord" 2>/dev/null) || status=""
-
-    case "$status" in
-      completed)
-        return 0
-        ;;
-      failed | error | cancelled)
-        fout "Taak $taak eindigde als '$status': $antwoord"
-        ;;
-    esac
-
-    sleep 1
-  done
-
-  fout "Taak $taak was na twee minuten nog niet klaar; de netwerkregel staat mogelijk niet."
+  [ "$zad_taak_status" = completed ] \
+    || fout "Taak $taak eindigde als '$zad_taak_status': $zad_taak_antwoord"
 }
 
 main() {
@@ -184,8 +170,10 @@ main() {
 
   local api_url=${ZAD_API_URL:-$STANDAARD_API_URL} config
 
-  # Eén keer ophalen voor beide controles: de configuratie van een project is er één.
-  if ! config=$("$CURL" -sf -H "X-API-Key: $api_key" \
+  # Eén keer ophalen voor beide controles: de configuratie van een project is er één. Een GET, dus
+  # curl mag hem zelf herhalen op een 5xx of een geweigerde verbinding; `--max-time` zodat een stille
+  # TCP-stall niet tot de job-timeout doorloopt.
+  if ! config=$("$CURL" -sSf --max-time 30 --retry 3 --retry-connrefused -H "X-API-Key: $api_key" \
     "$api_url/v2/projects/$project/services/cross-domain-access/config"); then
     fout "Cross-domain-configuratie van $project niet op te vragen; kan de projectregels niet controleren."
   fi
@@ -201,7 +189,9 @@ main() {
   local body antwoord taak
   body=$(patch_body zet "$deployment" "$richting" "$@")
 
-  if ! antwoord=$("$CURL" -sf -X PATCH \
+  # Zonder herhaling: elke patch die aankomt wordt een eigen taak, en bij een antwoord dat onderweg
+  # verloren ging is niet te zien of de eerste al was aangenomen. `-S` zodat curl zegt waaróm.
+  if ! antwoord=$("$CURL" -sSf -X PATCH \
     -H "X-API-Key: $api_key" -H 'Content-Type: application/json' \
     "$api_url/v2/projects/$project/services/cross-domain-access/config/deployment/$deployment/$richting$query" \
     -d "$body"); then
