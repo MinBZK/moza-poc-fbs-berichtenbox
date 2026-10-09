@@ -13,14 +13,17 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.NullSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
 import java.util.Optional
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /**
  * Unit-tests voor [DownstreamClient]: succes-pad, foutpaden en URL-validatie.
@@ -382,6 +385,93 @@ class DownstreamClientTest {
             resultaat is DownstreamResultaat.NetwerkFout || resultaat is DownstreamResultaat.Timeout,
             "verwacht NetwerkFout of Timeout, kreeg $resultaat",
         )
+        // Er kwam geen verbinding, dus er is niets verzonden: het logboek mag "mislukt" zeggen.
+        assertTrue((resultaat as DownstreamResultaat.Mislukt).zekerNietVerzonden, "kreeg $resultaat")
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    fun `een onbekende host geldt als zeker niet verzonden`() {
+        // Een resolver die .invalid tóch beantwoordt (captive of wildcard-DNS) maakt deze test
+        // betekenisloos; de mapping zelf staat zonder netwerk in DownstreamVerzendzekerheidTest.
+        assumeTrue(runCatching { java.net.InetAddress.getByName("aanmeld.invalid") }.isFailure)
+
+        // .invalid resolveert per RFC 6761 nooit. Met https, anders strandt de aanroep al op de
+        // TLS-eis en komt de verzending zelf niet aan bod.
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("https://aanmeld.invalid/events"))
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(resultaat is DownstreamResultaat.NetwerkFout, "kreeg $resultaat")
+        assertTrue((resultaat as DownstreamResultaat.Mislukt).zekerNietVerzonden, "kreeg $resultaat")
+    }
+
+    @Test
+    fun `een verzoek dat niet op te bouwen is geldt als configuratiefout en wordt niet verzonden`() {
+        // Zonder dit resultaat gooit lever, rolt de claim-transactie terug en schrijft elke
+        // pollronde een nieuwe logregel voor een verstrekking die nooit vertrekt.
+        every { config.client() } returns mockk {
+            every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
+            every { requestTimeout() } returns java.time.Duration.ZERO
+        }
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout, "kreeg $resultaat")
+        assertEquals(0, server.aantalAanroepen)
+    }
+
+    @Test
+    fun `een onverwachte fout bij het opbouwen is herstelbaar en niet verzonden`() {
+        // Een bug of tijdelijke fout mag niet elke openstaande claim definitief MISLUKT maken;
+        // de pogingen-grens begrenst de herhaling.
+        every { config.client() } returns mockk {
+            every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
+            every { requestTimeout() } throws NullPointerException("config niet geladen")
+        }
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(resultaat is DownstreamResultaat.OpbouwFout, "kreeg $resultaat")
+        resultaat as DownstreamResultaat.Mislukt
+        assertTrue(resultaat.herstelbaar)
+        assertTrue(resultaat.zekerNietVerzonden)
+        assertEquals(0, server.aantalAanroepen)
+    }
+
+    @Test
+    fun `ook een fout voor de URL-controles levert een resultaat op en geen exceptie`() {
+        every { config.downstreams() } throws IllegalStateException("config-mapping stuk")
+
+        val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertTrue(resultaat is DownstreamResultaat.OpbouwFout, "kreeg $resultaat")
+        assertEquals(0, server.aantalAanroepen)
+    }
+
+    @Test
+    fun `een onderbroken levering is onzeker en behoudt de interrupt-flag`() {
+        // Een server die de verbinding aanneemt maar niet antwoordt: de interrupt valt dan
+        // na het opzetten van de verbinding. Een gesloten poort zou kunnen racen met de
+        // ConnectException.
+        java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { socket ->
+            every { config.downstreams() } returns
+                mapOf("aanmeld" to DownstreamStub("http://127.0.0.1:${socket.localPort}/events"))
+            client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+            Thread.currentThread().interrupt()
+
+            val resultaat = try {
+                client.lever(Publicatiedoel("aanmeld"), event)
+            } finally {
+                assertTrue(Thread.interrupted(), "de interrupt-flag moet hersteld zijn")
+            }
+
+            assertTrue(resultaat is DownstreamResultaat.NetwerkFout, "kreeg $resultaat")
+            assertFalse((resultaat as DownstreamResultaat.Mislukt).zekerNietVerzonden)
+        }
     }
 
     @Test

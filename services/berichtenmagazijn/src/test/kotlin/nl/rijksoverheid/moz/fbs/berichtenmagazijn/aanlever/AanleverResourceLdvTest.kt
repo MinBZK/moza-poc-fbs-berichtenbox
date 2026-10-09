@@ -7,28 +7,46 @@ import io.mockk.slot
 import io.mockk.verify
 import io.mockk.verifyOrder
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.SpanContext
 import io.opentelemetry.context.Context
+import jakarta.transaction.HeuristicCommitException
+import jakarta.transaction.HeuristicMixedException
+import jakarta.transaction.HeuristicRollbackException
+import jakarta.transaction.RollbackException
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MultivaluedHashMap
 import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import java.net.URI
+import java.sql.SQLException
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 import java.util.UUID
+import java.util.logging.Handler
+import java.util.logging.Level
+import java.util.logging.LogRecord
+import java.util.logging.Logger
+import javax.transaction.xa.XAException
 
 /**
  * Borgt het logboek-gedrag van [AanleverResource]:
@@ -39,7 +57,9 @@ import java.util.UUID
  *  2. **Geen persoonsgegevens in de foutattributen**: de wrapper zet `exception.message`
  *     op dezelfde child-spans die `dpl.core.data_subject_id` dragen; alleen het type van
  *     een fout mag daarheen.
- *  3. **dataSubjectType correlatie-parity**: het `dpl.core.data_subject_id_type`-veld
+ *  3. **Uitkomst achteraf**: mislukt de opslag ná de bevestigde logregel, dan krijgt die
+ *     logregel een ERROR-child — anders leest hij als geslaagde aanlevering.
+ *  4. **dataSubjectType correlatie-parity**: het `dpl.core.data_subject_id_type`-veld
  *     bevat de concrete type-naam (BSN/RSIN/KVK), niet de relationele rol "ontvanger".
  *     Anders correleert het LDV-record niet met dat van [PublicatieClaimVerwerker].
  *
@@ -51,6 +71,7 @@ class AanleverResourceLdvTest {
     private val opslagService = mockk<BerichtOpslagService>()
     private val logboekContext = LogboekContext()
     private val processingHandler = mockk<ProcessingHandler>()
+    private val logregels = listOf(Logregel(SpanContext.getInvalid(), "logregel", null, null))
     private val publicatieConfig = mockk<PublicatieConfig>()
     private val span = mockk<Span>(relaxed = true)
     private val uriInfo = mockk<UriInfo>().apply {
@@ -109,7 +130,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `de logregel is bevestigd voordat het bericht wordt opgeslagen`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         resource.leverBerichtAan(request)
@@ -128,7 +149,7 @@ class AanleverResourceLdvTest {
         // aanleveraar een 500 krijgt en opnieuw aanlevert — met een nieuw berichtId, dus
         // een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         every {
             processingHandler.enforceWriteAcknowledgement(true)
         } throws LogboekWriteException("Logregel kon niet in het Logboek worden opgeslagen")
@@ -160,7 +181,7 @@ class AanleverResourceLdvTest {
         stubBaseline()
         every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
             IllegalStateException("opslag stuk")
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(false) }
 
         val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
@@ -168,6 +189,42 @@ class AanleverResourceLdvTest {
         assertEquals("opslag stuk", ex.message)
         verify { processingHandler.enforceWriteAcknowledgement(false) }
         verify { span.end() }
+    }
+
+    @Test
+    fun `ook een Error bij het valideren staat als fout in de logregel en wordt niet gemaskeerd`() {
+        // Zonder de fout leest de logregel als een geslaagde verwerking, en zou een
+        // schrijffout van het logboek de Error vervangen.
+        stubBaseline()
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
+            StackOverflowError()
+        val gemeld = slot<Throwable>()
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), capture(gemeld))
+        } returns logregels
+        stubSchrijffoutDieKanMaskeren()
+
+        assertThrows<StackOverflowError> { resource.leverBerichtAan(request) }
+
+        assertEquals(StackOverflowError::class.java.name, gemeld.captured.message)
+    }
+
+    @Test
+    fun `op het foutpad mag ook een Error uit addLogboekContextToSpan de domeinfout niet maskeren`() {
+        // Een afwijkende wrapper-versie op het classpath geeft een LinkageError; ook die
+        // draait vanuit finally en zou de afwijzing vervangen.
+        stubBaseline()
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalStateException("ontvanger onbekend")
+        every {
+            processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any())
+        } throws NoSuchMethodError("addLogboekContextToSpan")
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        assertEquals("ontvanger onbekend", ex.message)
+        assertTrue(ex.suppressed.any { it is NoSuchMethodError }, "de LDV-fout moet als suppressed meereizen")
     }
 
     @Test
@@ -226,7 +283,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `dataSubjectType krijgt concrete type BSN in plaats van relationele rol`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
 
         resource.leverBerichtAan(request)
@@ -240,7 +297,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `traceparent-processor met CRLF wordt gesaneerd (geen log-injection)`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
@@ -264,7 +321,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `traceparent-processor met PII-cijferreeks wordt geredact`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
@@ -288,7 +345,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `gewone traceparent-processor wordt ongeschonden doorgelaten`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { httpHeaders.getHeaderString("traceparent") } returns
             "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
@@ -309,7 +366,7 @@ class AanleverResourceLdvTest {
     @Test
     fun `inbound traceparent wordt als parent geadopteerd`() {
         stubBaseline()
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         // Upstream is vertrouwd (auth aan de clusterrand): de span continueert de
         // inbound trace-context i.p.v. een nieuwe root te forceren.
@@ -329,5 +386,296 @@ class AanleverResourceLdvTest {
         // inbound `traceparent` gevuld; hier borgen we dat de resource hem adopteert i.p.v.
         // hem te negeren. (Down­stream-propagatie gebeurt bewust níét — de outbox ontkoppelt.)
         assertEquals(Context.current(), parentSlot.captured)
+    }
+
+    @Test
+    fun `een opslagfout na de bevestigde logregel krijgt een ERROR-child met alleen het type`() {
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        val opslagFout = IllegalStateException("Failing row contains (1, 999993653, Beste heer)")
+        every { opslagService.slaBerichtOp(any(), any()) } throws opslagFout
+        val fout = slot<Throwable>()
+        every { processingHandler.recordFailedOutcome(logregels, capture(fout)) } returns emptyList()
+
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        assertSame(opslagFout, ex, "de aanleveraar moet de oorspronkelijke fout krijgen")
+        assertEquals(IllegalStateException::class.java.name, fout.captured.message)
+
+        verifyOrder {
+            processingHandler.enforceWriteAcknowledgement(true)
+            opslagService.slaBerichtOp(gevalideerdBericht, any())
+            processingHandler.recordFailedOutcome(logregels, any())
+        }
+    }
+
+    @Test
+    fun `ook een Error uit de opslag krijgt een ERROR-child`() {
+        // De transactie rolt net zo goed terug; zonder uitkomst leest de logregel als geslaagd.
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws StackOverflowError()
+        every { processingHandler.recordFailedOutcome(logregels, any()) } returns emptyList()
+
+        assertThrows<StackOverflowError> { resource.leverBerichtAan(request) }
+
+        verify { processingHandler.recordFailedOutcome(logregels, any()) }
+    }
+
+    @ParameterizedTest
+    @MethodSource("onzekereCommits")
+    fun `een commit met onzekere uitkomst krijgt geen ERROR-child`(fout: Throwable) {
+        // Het bericht kan toch zijn opgeslagen; "mislukt" zou dan te weinig registreren.
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws fout
+
+        val ex = assertThrows<Throwable> { resource.leverBerichtAan(request) }
+
+        assertSame(fout, ex)
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    @Test
+    fun `een onzekere opslag meldt het token, het bericht en de SQLState, maar niet de ontvanger`() {
+        // Deze melding is het enige spoor dat de uitkomst bewust is weggelaten.
+        val records = mutableListOf<LogRecord>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) {
+                records.add(record)
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger(AanleverResource::class.java.name)
+        logger.addHandler(handler)
+
+        try {
+            stubBaseline()
+            every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+            justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+            every { opslagService.slaBerichtOp(any(), any()) } throws
+                commitFout(SQLException("I/O error voor 999993653", "08006"))
+
+            assertThrows<RollbackException> { resource.leverBerichtAan(request) }
+        } finally {
+            logger.removeHandler(handler)
+        }
+
+        val melding = records.single { it.level == Level.WARNING }.message
+        assertTrue(melding.startsWith(AanleverResource.OPSLAG_ONZEKER_ALERT_TOKEN), melding)
+        assertTrue(melding.contains(gevalideerdBericht.berichtId.toString()), melding)
+        assertTrue(melding.contains("08006"), melding)
+        assertFalse(melding.contains("999993653"), "geen BSN in de applicatielog — was: $melding")
+    }
+
+    @ParameterizedTest
+    @MethodSource("zekereFouten")
+    fun `een fout die de transactie zeker terugdraait krijgt een ERROR-child`(fout: Throwable) {
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws fout
+        every { processingHandler.recordFailedOutcome(logregels, any()) } returns emptyList()
+
+        val ex = assertThrows<Throwable> { resource.leverBerichtAan(request) }
+
+        assertSame(fout, ex)
+        verify { processingHandler.recordFailedOutcome(logregels, any()) }
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    fun `een cyclische cause-keten laat de commit-toets niet hangen`() {
+        val a = IllegalStateException("a")
+        val b = IllegalStateException("b", a)
+        a.initCause(b)
+
+        assertFalse(AanleverResource.commitOnzeker(a))
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    fun `een cyclus via suppressed laat de commit-toets niet hangen en vindt de commit-fout`() {
+        val a = commitFout(SQLException("I/O error", "08006"))
+        val b = IllegalStateException("b")
+        a.addSuppressed(b)
+        b.addSuppressed(a)
+
+        assertTrue(AanleverResource.commitOnzeker(b))
+    }
+
+    @Test
+    fun `een keten die binnen de grens past wordt volledig beoordeeld`() {
+        assertFalse(AanleverResource.commitOnzeker(geneste(AanleverResource.MAX_FOUTEN)))
+    }
+
+    @Test
+    fun `een afgekapte keten telt als onzeker`() {
+        // Voorbij de grens kan een commit-fout zitten; "zeker mislukt" zou dan te weinig registreren.
+        assertTrue(AanleverResource.commitOnzeker(geneste(AanleverResource.MAX_FOUTEN + 1)))
+    }
+
+    @Test
+    fun `een verloren uitkomst noemt het bericht, maar niet de ontvanger`() {
+        val records = mutableListOf<LogRecord>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) {
+                records.add(record)
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger(MislukteUitkomst::class.java.name)
+        logger.addHandler(handler)
+
+        try {
+            stubBaseline()
+            every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+            justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+            every { opslagService.slaBerichtOp(any(), any()) } throws IllegalStateException("opslag stuk")
+            every { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) } returns logregels
+
+            assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+        } finally {
+            logger.removeHandler(handler)
+        }
+
+        val melding = records.single { it.level == Level.SEVERE }.message
+        assertTrue(melding.contains(gevalideerdBericht.berichtId.toString()), melding)
+        assertFalse(melding.contains("999993653"), "geen BSN in de applicatielog — was: $melding")
+    }
+
+    @Test
+    fun `een verloren uitkomst-logregel vervangt de opslagfout niet`() {
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+        every { opslagService.slaBerichtOp(any(), any()) } throws IllegalStateException("opslag stuk")
+        every { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) } returns logregels
+
+        val ex = assertThrows<IllegalStateException> { resource.leverBerichtAan(request) }
+
+        assertEquals("opslag stuk", ex.message)
+    }
+
+    @Test
+    fun `een geslaagde aanlevering schrijft geen uitkomst-logregel`() {
+        stubBaseline()
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        resource.leverBerichtAan(request)
+
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    @Test
+    fun `een afwijzing voor de bevestiging krijgt geen ERROR-child, de logregel zelf staat al op ERROR`() {
+        stubBaseline()
+        every { opslagService.valideerAanlevering(any(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalArgumentException("ontvanger onbekend")
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
+        justRun { processingHandler.enforceWriteAcknowledgement(any()) }
+
+        assertThrows<IllegalArgumentException> { resource.leverBerichtAan(request) }
+
+        verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    /** Een schrijffout van het logboek die gooit zodra er geen fout propageert. */
+    private fun stubSchrijffoutDieKanMaskeren() {
+        justRun { processingHandler.enforceWriteAcknowledgement(false) }
+        every { processingHandler.enforceWriteAcknowledgement(true) } throws
+            LogboekWriteException("logregel niet opgeslagen")
+    }
+
+    companion object {
+        @JvmStatic
+        fun onzekereCommits(): List<Throwable> = listOf(
+            RuntimeException("commit", HeuristicMixedException("gemengd")),
+            RuntimeException("commit", HeuristicCommitException("vastgelegd")),
+            HeuristicMixedException("direct"),
+            // Een heuristische uitkomst gaat vóór een afwijzing elders in de keten.
+            RuntimeException("commit", HeuristicMixedException("gemengd")).apply {
+                addSuppressed(commitFout(SQLException("deferred foreign key", "23503")))
+            },
+            // Verbinding weg tijdens de COMMIT: de bevestiging kan zijn weggevallen.
+            commitFout(SQLException("I/O error", "08006")),
+            // De backend viel weg nadat de COMMIT verstuurd was.
+            commitFout(SQLException("terminating connection", "57P01")),
+            // Klasse 40, maar juist de code voor "uitkomst onbekend".
+            commitFout(SQLException("statement completion unknown", "40003")),
+            commitFout(SQLException("zonder SQLState")),
+            commitFout(null),
+            // Dezelfde commit-fout, door een tussenlaag als cause verpakt.
+            IllegalStateException("opslag", commitFout(SQLException("I/O error", "08006"))),
+            IllegalStateException("opslag", xaFout(XAException.XA_RBROLLBACK, SQLException("I/O error", "08006"))),
+            // De commit-fout is niet de eerste suppressed, en hangt naast een cause.
+            RollbackException("ARJUNA016053").apply {
+                addSuppressed(IllegalStateException("synchronization"))
+                addSuppressed(xaFout(XAException.XA_RBROLLBACK, SQLException("I/O error", "08006")))
+            },
+            RollbackException("ARJUNA016053").apply {
+                initCause(IllegalStateException("flush"))
+                addSuppressed(xaFout(XAException.XA_RBROLLBACK, SQLException("I/O error", "08006")))
+            },
+            // Ook een rollback die zelf mislukt komt als XAException binnen. Er is dan geen
+            // COMMIT verstuurd, maar dat is aan de keten niet te zien: de veilige kant.
+            RollbackException("ARJUNA016053").apply {
+                addSuppressed(xaFout(XAException.XAER_RMERR, SQLException("I/O error", "08006")))
+            },
+        )
+
+        @JvmStatic
+        fun zekereFouten(): List<Throwable> = listOf(
+            // Vóór de COMMIT: wat er ook misging, er is niets vastgelegd.
+            IllegalStateException("opslag", SQLException("duplicate key", "23505")),
+            IllegalStateException("opslag", SQLException("I/O error", "08006")),
+            IllegalStateException("opslag", SQLException("pool uitgeput")),
+            IllegalStateException("opslag", SQLException("datetime overflow", "22008")),
+            RuntimeException("commit", HeuristicRollbackException("teruggedraaid")),
+            // Tijdens de COMMIT, maar door de database afgewezen.
+            commitFout(SQLException("deferred foreign key", "23503")),
+            commitFout(SQLException("serialization failure", "40001")),
+            // De afwijzing zit onder een SQLException zonder SQLState, of andersom.
+            commitFout(SQLException("wrapper").apply { initCause(SQLException("deferred foreign key", "23503")) }),
+            commitFout(SQLException("deferred foreign key", "23503").apply { initCause(SQLException("detail")) }),
+            // De opslag zelf werd afgewezen, daarna mislukte ook de rollback.
+            IllegalStateException("opslag", SQLException("duplicate key", "23505")).apply {
+                addSuppressed(xaFout(XAException.XAER_RMERR, SQLException("I/O error", "08006")))
+            },
+        )
+
+        /**
+         * De vorm waarin een mislukte `connection.commit()` de resource bereikt, zoals die
+         * tegen een echte database is waargenomen: de pool meldt de fout als XAException, en
+         * de transactiemanager hangt die als suppressed aan een RollbackException zonder cause.
+         * `LdvUitkomstIntegrationTest` bewaakt de uitkomst voor die echte keten.
+         */
+        private fun commitFout(oorzaak: SQLException?): RollbackException =
+            RollbackException("ARJUNA016053: Could not commit transaction.").apply {
+                addSuppressed(xaFout(XAException.XA_RBROLLBACK, oorzaak))
+            }
+
+        private fun xaFout(code: Int, oorzaak: Throwable?): XAException {
+            val fout = XAException(code)
+            oorzaak?.let(fout::initCause)
+
+            return fout
+        }
+
+        /** Een cause-keten van [aantal] fouten, zonder commit-fout. */
+        private fun geneste(aantal: Int): Throwable =
+            (1 until aantal).fold(IllegalStateException("0") as Throwable) { binnenste, i ->
+                IllegalStateException("$i", binnenste)
+            }
     }
 }
