@@ -4,6 +4,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.common.Foutspoor
 import org.jboss.logging.Logger
 import java.net.URI
 import java.util.UUID
@@ -37,10 +38,11 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         return if (status >= 500) {
             // Log met correlation-id; `exception.message` blijft eruit (saneer dekt geen
-            // niet-numerieke PII zoals namen/e-mail). Het exception-object geeft de stack
-            // mee zodat support via errorId correleert.
+            // niet-numerieke PII zoals namen/e-mail). De stack gaat mee als Foutspoor, zodat
+            // support via errorId correleert: de exceptie zelf zou haar message en die van
+            // elke cause alsnog in de stacktrace afdrukken.
             log.errorf(
-                exception,
+                Foutspoor.van(exception),
                 "Server error %d (errorId=%s, type=%s, cause=%s)",
                 status,
                 errorId,

@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.common
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class LdvFoutSamenvattingTest {
@@ -35,5 +36,16 @@ class LdvFoutSamenvattingTest {
         val samenvatting = LdvFoutSamenvatting.van(RuntimeException())
 
         assertEquals("java.lang.RuntimeException", samenvatting.oorspronkelijkType)
+    }
+
+    @Test
+    fun `de samenvatting draagt geen stacktrace en geen oorzaak`() {
+        // Een stacktrace wijst alleen naar de factory-methode; een oorzaak zou de
+        // oorspronkelijke message alsnog meenemen als de stacktrace-export aan staat.
+        val samenvatting = LdvFoutSamenvatting.van(IllegalStateException("Failing row contains (999993653)"))
+
+        assertEquals(0, samenvatting.stackTrace.size)
+        assertNull(samenvatting.cause)
+        assertFalse(samenvatting.stackTraceToString().contains("999993653"))
     }
 }

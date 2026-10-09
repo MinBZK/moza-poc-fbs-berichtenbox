@@ -33,6 +33,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
+
+# shellcheck source=.github/scripts/zad-taak-lib.sh
+source "$HERE/zad-taak-lib.sh"
+
 readonly STANDAARD_API_URL='https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
 
 # Overschrijfbaar zodat de unittests het HTTP-verkeer kunnen onderscheppen zonder netwerk.
@@ -62,33 +66,20 @@ upsert_body() {
 # API die de vlag negeert of een pad dat hem niet kent — dan staat de preview weer vóór zijn regels
 # in het cluster, en eindigt de deploy na 300 s op precies de time-out die dit script voorkomt.
 wacht_op_uitgestelde_taak() {
-  local api_url=$1 api_key=$2 taak=$3 antwoord status verwerking
+  local api_url=$1 api_key=$2 taak=$3 verwerking
 
-  for _ in $(seq 120); do
-    antwoord=$("$CURL" -sf -H "X-API-Key: $api_key" "$api_url/tasks/$taak") \
-      || fout "Taak $taak niet op te vragen; of de deployment klaarstaat is onbekend."
+  zad_wacht_op_taak "$api_url" "$api_key" "$taak" \
+    "of de deployment klaarstaat is onbekend" "de deployment staat mogelijk niet klaar" \
+    completed failed cancelled
 
-    status=$(jq -r '.status // ""' <<<"$antwoord" 2>/dev/null) || status=""
+  [ "$zad_taak_status" = completed ] \
+    || fout "Taak $taak eindigde als '$zad_taak_status': $(jq -r '.error_message // .result.error // ""' <<<"$zad_taak_antwoord" 2>/dev/null)"
 
-    case "$status" in
-      completed)
-        verwerking=$(jq -r '.result.processing.status // "ontbreekt"' <<<"$antwoord" 2>/dev/null) \
-          || verwerking=onleesbaar
+  verwerking=$(jq -r '.result.processing.status // "ontbreekt"' <<<"$zad_taak_antwoord" 2>/dev/null) \
+    || verwerking=onleesbaar
 
-        [ "$verwerking" = skipped ] \
-          || fout "Taak $taak rolde uit (verwerking: $verwerking) terwijl rollout=false gevraagd was."
-
-        return 0
-        ;;
-      failed | cancelled)
-        fout "Taak $taak eindigde als '$status': $(jq -r '.error_message // .result.error // ""' <<<"$antwoord" 2>/dev/null)"
-        ;;
-    esac
-
-    sleep 1
-  done
-
-  fout "Taak $taak was na twee minuten nog niet klaar; de deployment staat mogelijk niet klaar."
+  [ "$verwerking" = skipped ] \
+    || fout "Taak $taak rolde uit (verwerking: $verwerking) terwijl rollout=false gevraagd was."
 }
 
 main() {
@@ -128,7 +119,9 @@ main() {
     1)
       local antwoord taak
 
-      antwoord=$("$CURL" -sf -X POST \
+      # Zonder herhaling: ging het antwoord onderweg verloren, dan is niet te zien of de deployment
+      # al is aangeboden. Een herstart van de job ziet dat wel, aan de deploymentlijst hierboven.
+      antwoord=$("$CURL" -sSf -X POST \
         -H "X-API-Key: $api_key" -H 'Content-Type: application/json' \
         "$api_url/v2/projects/$project/:upsert-deployment?rollout=false" -d "$body") \
         || fout "Het aanmaken van $project/$deployment is geweigerd."

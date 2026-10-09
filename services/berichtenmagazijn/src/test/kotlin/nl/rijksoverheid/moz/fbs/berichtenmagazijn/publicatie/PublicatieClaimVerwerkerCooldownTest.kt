@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
+import io.opentelemetry.api.trace.SpanContext
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
@@ -51,6 +53,7 @@ class PublicatieClaimVerwerkerCooldownTest {
     private val downstreamClient = mockk<DownstreamClient>()
     private val config = mockk<PublicatieConfig>()
     private val processingHandler = mockk<ProcessingHandler>()
+    private val logregels = listOf(Logregel(SpanContext.getInvalid(), "logregel", null, null))
     private val span = mockk<Span>(relaxed = true)
     private val clock = MutableClock(Instant.parse("2026-05-12T10:00:00Z"))
 
@@ -123,10 +126,10 @@ class PublicatieClaimVerwerkerCooldownTest {
         every { config.downstreams() } returns emptyMap()
         every { config.verwerkingsregisterPubliceren() } returns "https://register.example.com/x"
         every { cloudEventBuilder.bouw(bericht, claim.doel, any()) } returns event
-        justRun { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) }
+        every { processingHandler.addLogboekContextToSpan(any(), any<LogboekContext>(), any()) } returns logregels
         justRun { processingHandler.enforceWriteAcknowledgement(any()) }
         every { downstreamClient.lever(claim.doel, event) } returns
-            DownstreamResultaat.ConfiguratieFout("Downstream '${claim.doel.key}' niet geconfigureerd")
+            DownstreamResultaat.ConfiguratieFout.voorVerzending("Downstream '${claim.doel.key}' niet geconfigureerd")
         justRun { claimer.markeerMislukt(any(), any(), any()) }
     }
 

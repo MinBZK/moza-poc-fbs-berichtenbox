@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.3.0
+  version: 0.3.1
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -100,10 +100,25 @@ paths:
       tags: [Uitvraag]
       summary: Berichtenlijst
       description: |
-        Volledige berichtenlijst voor de ontvanger; bron is de sessiecache.
-        Filteren per map is (nog) niet beschikbaar: de sessiecache indexeert
-        `map` niet (zie issue #571). Het `map`-veld wordt wél per bericht
-        teruggegeven.
+        De berichten van de lopende sessie van de ontvanger: wat de laatste ophaalronde
+        opleverde, plus wat er daarna is aangemeld. Bron is de sessiecache. De volgorde is
+        geen contract: na het ophalen nieuwste eerst, een later aangemeld bericht achteraan.
+
+        Volg `_links.next` tot hij ontbreekt; dan heb je de volledige set. De pagina's zijn
+        geen momentopname: wordt er tijdens het bladeren een bericht verwijderd, dan schuift
+        de rest één plaats op en valt er per verwijdering één bericht tussen twee pagina's
+        door. Verwijdert de afnemer zelf tijdens het bladeren, dan weet hij dat en leest hij
+        opnieuw vanaf de eerste pagina. Een verwijdering in een ander venster merkt hij niet:
+        de lijst noemt geen totaal en `_volgen` meldt geen verwijderingen. Het overgeslagen
+        bericht ontbreekt dan tot de lijst opnieuw gelezen wordt.
+
+        Filteren (op `map` of op afzender via `magazijnId`), zoeken op onderwerp en
+        sorteren doet de afnemer over die set. Dat houdt het resultaat consistent en
+        laat zich combineren met `_volgen`: voeg elk `bericht-bijgekomen` aan de set toe en
+        pas filter, zoekterm en sortering opnieuw toe.
+
+        Dat een organisatie niets of niet alles leverde, staat niet in deze lijst maar in
+        de events van `_ophalen` (`status`, `afgekapt`).
       operationId: getBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -247,7 +262,11 @@ paths:
     get:
       tags: [Uitvraag]
       summary: Zoeken in berichten
-      description: Volledig-tekst zoeken in berichten via de sessiecache.
+      description: |
+        Zoekt in het onderwerp van de berichten van de lopende sessie; de tekst van een
+        bericht zit niet in de sessiecache en is hier dus niet doorzoekbaar. Levert alleen
+        de eerste 20 treffers, nieuwste eerst, zonder paginering. Wie over de volledige set
+        wil zoeken, haalt die op via `GET /berichten` en zoekt zelf.
       operationId: zoekenBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'

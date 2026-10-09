@@ -4,12 +4,15 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.context.Context as OtelContext
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.transaction.HeuristicCommitException
+import jakarta.transaction.HeuristicMixedException
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
@@ -17,12 +20,17 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtResponse
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Link
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
 import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieConfig
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
 import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import org.jboss.logging.Logger
+import java.sql.SQLException
+import java.util.Collections
+import java.util.IdentityHashMap
+import javax.transaction.xa.XAException
 
 /**
  * REST-resource voor de Aanlever API.
@@ -55,36 +63,59 @@ class AanleverResource(
 ) : AanleverApi {
 
     private val log = Logger.getLogger(AanleverResource::class.java)
+    private val mislukteUitkomst = MislukteUitkomst(processingHandler)
 
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         val bijlagen = berichtAanleverenRequest.bijlagen.orEmpty().map { dto ->
             BijlageInvoer(naam = dto.naam, mimeType = dto.mimeType, content = dto.inhoud)
         }
-        val bericht = valideerEnLegVast(berichtAanleverenRequest, bijlagen)
+        val (bericht, logregels) = valideerEnLegVast(berichtAanleverenRequest, bijlagen)
 
         // Pas opslaan nadat de logregel bevestigd is. Andersom zou een aanlevering die
         // niet in het logboek kwam tóch een bericht én outbox-leveringen achterlaten: de
         // aanleveraar krijgt dan een 500 en levert opnieuw aan, met een nieuw berichtId
         // en dus een nieuwe CloudEvent-id waarop downstream-dedup niet aanslaat.
-        opslagService.slaBerichtOp(bericht, bijlagen)
+        //
+        // Throwable: ook na een Error leest de logregel zonder uitkomst als geslaagd.
+        try {
+            opslagService.slaBerichtOp(bericht, bijlagen)
+        } catch (ex: Throwable) {
+            val kenmerken = "aanleveren berichtId=${bericht.berichtId}"
+
+            if (commitOnzeker(ex)) {
+                // Het bericht kan toch zijn opgeslagen; "mislukt" zou dan te weinig registreren.
+                log.warnf(
+                    "%s: uitkomst van de opslag onzeker na %s (SQLState %s); " +
+                        "geen mislukte uitkomst in het logboek (%s)",
+                    OPSLAG_ONZEKER_ALERT_TOKEN,
+                    ex.javaClass.name,
+                    sqlStates(ex).ifEmpty { listOf("onbekend") }.joinToString(),
+                    kenmerken,
+                )
+            } else {
+                mislukteUitkomst.legZekereFoutVast(logregels, ex, kenmerken)
+            }
+
+            throw ex
+        }
 
         return naarBerichtResponse(bericht)
     }
+
+    private data class VastgelegdeAanlevering(val bericht: Bericht, val logregels: List<Logregel>)
 
     /**
      * Valideert de aanlevering en legt de voorgenomen verwerking vast in het logboek.
      * Keert pas terug als de logregel bevestigd is; een [LogboekWriteException] betekent
      * dat er niets opgeslagen wordt.
      *
-     * De logregel beschrijft daarmee het voornemen, niet de uitkomst: een opslagfout ná
-     * dit punt laat een logregel achter voor een aanlevering die niet plaatsvond.
-     * Over-rapporteren is hier het veiligere uiterste — TODO(#924) voor het vastleggen
-     * van de uitkomst.
+     * De logregel beschrijft daarmee het voornemen, niet de uitkomst. Mislukt de opslag
+     * daarna, dan krijgen de teruggegeven logregels een ERROR-child via [MislukteUitkomst].
      */
     private fun valideerEnLegVast(
         berichtAanleverenRequest: BerichtAanleverenRequest,
         bijlagen: List<BijlageInvoer>,
-    ): Bericht {
+    ): VastgelegdeAanlevering {
         // De recorder is thread-gebonden en deze resource doet zijn eigen span-beheer:
         // zonder legen kan een schrijffout van een eerder request op deze pooled thread
         // dit request laten falen.
@@ -93,13 +124,15 @@ class AanleverResource(
         // Span en LDV-context binnen try zodat een latere config-throw geen
         // span-leak veroorzaakt; finally end()'t altijd.
         var pendingFailure: Throwable? = null
+        var logregels: List<Logregel> = emptyList()
         val span = processingHandler.startSpan("aanleveren-bericht", OtelContext.current())
-        try {
+
+        val bericht = try {
             // processingActivityId vóór de eerste mogelijke fout zetten zodat
             // addLogboekContextToSpan in finally niet faalt. dataSubjectId/-Type krijgen
             // hieronder de gevalideerde ontvanger (tot dan: safe defaults via filter).
             logboekContext.processingActivityId = publicatieConfig.verwerkingsregisterAanleveren()
-            return span.makeCurrent().use { _ ->
+            span.makeCurrent().use { _ ->
                 val ontvangerDto = berichtAanleverenRequest.ontvanger
                 val bericht = opslagService.valideerAanlevering(
                     afzender = berichtAanleverenRequest.afzender,
@@ -119,13 +152,17 @@ class AanleverResource(
 
                 bericht
             }
-        } catch (ex: Exception) {
+        } catch (ex: Throwable) {
+            // Throwable: ook bij een Error moet de logregel de fout dragen, en mag een
+            // schrijffout van het logboek hem niet vervangen.
             pendingFailure = ex
             span.setStatus(StatusCode.ERROR)
             throw ex
         } finally {
-            koppelLdvContextEnEindigSpan(span, pendingFailure)
+            logregels = koppelLdvContextEnEindigSpan(span, pendingFailure)
         }
+
+        return VastgelegdeAanlevering(bericht, logregels)
     }
 
     private fun naarBerichtResponse(bericht: Bericht): BerichtResponse {
@@ -150,7 +187,11 @@ class AanleverResource(
         }
     }
 
-    private fun koppelLdvContextEnEindigSpan(span: Span, pendingFailure: Throwable?) {
+    /**
+     * Geeft de bevestigde logregels terug, voor [MislukteUitkomst]. Met een [pendingFailure]
+     * gooit de aanroeper hoe dan ook en is de lijst niet van belang.
+     */
+    private fun koppelLdvContextEnEindigSpan(span: Span, pendingFailure: Throwable?): List<Logregel> {
         try {
             // foreign_operation.processor-attribuut equivalent aan LogboekInterceptor
             // — alleen koppelen als upstream een traceparent stuurde.
@@ -164,7 +205,7 @@ class AanleverResource(
                 )
             }
 
-            try {
+            val logregels = try {
                 // Alleen het type van de fout gaat mee: de wrapper zet exception.message op
                 // dezelfde child-spans die dpl.core.data_subject_id dragen, en die rijen
                 // gaan bij een inzageverzoek naar buiten.
@@ -182,10 +223,13 @@ class AanleverResource(
             // het bericht uit de database. Propageert er al een functionele fout, dan mag
             // een schrijffout die niet maskeren: die fout moet de aanleveraar bereiken.
             processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
-        } catch (ex: Exception) {
+
+            return logregels
+        } catch (ex: Throwable) {
             // Deze methode draait vanuit een finally-blok. Gooien terwijl er al een fout
             // propageert zou die vervángen, waardoor de aanleveraar de domeinfout niet
-            // meer ziet; de LDV-fout gaat dan mee als suppressed.
+            // meer ziet; de LDV-fout gaat dan mee als suppressed. Throwable: een afwijkende
+            // wrapper-versie op het classpath meldt zich als LinkageError.
             if (pendingFailure == null) throw ex
 
             pendingFailure.addSuppressed(ex)
@@ -194,6 +238,81 @@ class AanleverResource(
                 "LDV-logregel voor aanleveren mislukt terwijl er al een fout propageert (categorie=%s)",
                 ex.javaClass.simpleName,
             )
+
+            return emptyList()
         }
+    }
+
+    internal companion object {
+        /**
+         * `true` als de database de transactie mogelijk wél heeft vastgelegd. Dat kan alleen als
+         * de COMMIT zelf verstuurd is en de bevestiging uitbleef.
+         *
+         * De pool meldt een mislukte `connection.commit()` als [XAException], en de
+         * transactiemanager maakt daar een gewone rollback van: aan het type van de buitenste
+         * fout is een onzekere commit dus niet te zien. Een [XAException] in de keten telt
+         * daarom als onzeker, tenzij de database de transactie aantoonbaar afwees. Ook een
+         * rollback die zelf mislukt levert een [XAException] op; die valt dan aan de kant van
+         * een logregel te veel.
+         */
+        fun commitOnzeker(fout: Throwable): Boolean {
+            val keten = foutKeten(fout)
+
+            if (keten.fouten.any { it is HeuristicMixedException || it is HeuristicCommitException }) return true
+
+            // Voorbij de grens kan een commit-fout zitten.
+            if (keten.afgekapt) return true
+
+            if (keten.fouten.none { it is XAException }) return false
+
+            return keten.fouten.filterIsInstance<SQLException>().none { afgewezen(it.sqlState) }
+        }
+
+        /** De SQLStates in de keten van [fout]; voor diagnose, zonder persoonsgegevens. */
+        private fun sqlStates(fout: Throwable): List<String> =
+            foutKeten(fout).fouten.filterIsInstance<SQLException>().mapNotNull { it.sqlState }
+
+        /**
+         * Integriteit (`23`) en transactie-rollback (`40`): de database draaide de transactie
+         * zelf terug. `40003` hoort er niet bij, dat is juist "uitkomst onbekend".
+         */
+        private fun afgewezen(sqlState: String?): Boolean {
+            if (sqlState == null || sqlState == SQLSTATE_UITKOMST_ONBEKEND) return false
+
+            return SQLSTATE_AFGEWEZEN.any(sqlState::startsWith)
+        }
+
+        private class FoutKeten(val fouten: Set<Throwable>, val afgekapt: Boolean)
+
+        /**
+         * [fout] met haar cause-keten én suppressed fouten. De transactiemanager hangt de
+         * commit-fout als suppressed aan een `RollbackException` zonder cause; wie alleen
+         * `cause` afloopt, ziet hem niet.
+         */
+        private fun foutKeten(fout: Throwable): FoutKeten {
+            // Op identiteit: equals van een vreemde exceptieklasse zegt hier niets.
+            val gezien = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
+            val wachtrij = ArrayDeque(listOf(fout))
+
+            while (wachtrij.isNotEmpty() && gezien.size < MAX_FOUTEN) {
+                val huidige = wachtrij.removeFirst()
+
+                if (!gezien.add(huidige)) continue
+
+                huidige.cause?.let(wachtrij::add)
+                wachtrij.addAll(huidige.suppressed)
+            }
+
+            return FoutKeten(gezien, afgekapt = wachtrij.any { it !in gezien })
+        }
+
+        private val SQLSTATE_AFGEWEZEN = listOf("23", "40")
+        private const val SQLSTATE_UITKOMST_ONBEKEND = "40003"
+
+        /** Begrenst het aflopen van de fout-keten; een cyclische keten is zeldzaam maar mogelijk. */
+        const val MAX_FOUTEN = 32
+
+        /** Stabiel token voor alert-routing op een opslag waarvan de uitkomst niet vaststaat. */
+        const val OPSLAG_ONZEKER_ALERT_TOKEN = "LDV_OPSLAG_ONZEKER"
     }
 }

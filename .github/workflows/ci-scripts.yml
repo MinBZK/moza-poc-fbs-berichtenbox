@@ -123,15 +123,16 @@ jobs:
             [.github/scripts/test-wijzigingsfilter.sh]=111
             [.github/scripts/test-uitrol-poort.sh]=100
             [.github/scripts/test-demo-grens.sh]=62
-            [.github/scripts/test-cross-domain-preview.sh]=51
-            [.github/scripts/test-preview-klaarzetten.sh]=62
+            [.github/scripts/test-cross-domain-preview.sh]=67
+            [.github/scripts/test-preview-klaarzetten.sh]=78
+            [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=22
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=74
             [.github/scripts/test-proeftuin-image.sh]=20
-            [.github/scripts/test-proeftuin-pin-pr.sh]=128
+            [.github/scripts/test-proeftuin-pin-pr.sh]=129
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-proeftuin-pin.sh]=139
           )

@@ -7,7 +7,9 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
 import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
@@ -42,6 +44,7 @@ class PublicatieClaimVerwerker(
 ) {
 
     private val log = Logger.getLogger(PublicatieClaimVerwerker::class.java)
+    private val mislukteUitkomst = MislukteUitkomst(processingHandler)
 
     /**
      * Cache van per-doel gestripte downstream-URLs. URLs zijn config-stabiel (SmallRye
@@ -82,8 +85,9 @@ class PublicatieClaimVerwerker(
      *
      * De logregel legt daarmee de voorgenomen verstrekking vast, niet de uitkomst: de
      * LDV-schrijfactie loopt over een eigen JDBC-verbinding met een eigen commit, dus een
-     * rollback haalt hem niet meer weg. De uitkomst van de levering blijft in de
-     * claim-status en het applicatielog.
+     * rollback haalt hem niet meer weg. Staat vast dat de afnemer het bericht niet kreeg,
+     * dan krijgt de logregel een ERROR-child via [MislukteUitkomst]. Bij een onzekere
+     * levering niet: liever een verstrekking te veel in het logboek dan een te weinig.
      */
     private fun verwerkClaim(claim: PublicatieClaim) {
         val bericht = berichten.findByBerichtId(claim.berichtId)
@@ -95,14 +99,34 @@ class PublicatieClaimVerwerker(
 
         val downstreamConfig = config.downstreams()[claim.doel.key]
 
-        legVerstrekkingVast(claim, bericht, downstreamConfig)
-
+        val logregels = legVerstrekkingVast(claim, bericht, downstreamConfig)
+        val kenmerken = "publiceren berichtId=${claim.berichtId} doel=${claim.doel} claimId=${claim.claimId}"
         val nu = clock.instant()
-        val event = cloudEventBuilder.bouw(bericht, claim.doel, nu)
 
-        when (val resultaat = downstreamClient.lever(claim.doel, event)) {
+        // Een opbouwfout herhaalt zich bij elke poging. Als SerialisatieFout wordt de claim
+        // terminaal; opnieuw gooien zou de transactie terugdraaien en elke pollronde een
+        // nieuwe logregel met ERROR-child opleveren.
+        //
+        // Error apart: die valt ook vóór de levering en verdient zijn uitkomst, maar hoort door te gaan.
+        val event = try {
+            cloudEventBuilder.bouw(bericht, claim.doel, nu)
+        } catch (ex: Exception) {
+            log.errorf(ex, "CloudEvent niet op te bouwen: berichtId=%s doel=%s", claim.berichtId, claim.doel)
+            null
+        } catch (ex: Error) {
+            mislukteUitkomst.legZekereFoutVast(logregels, ex, kenmerken)
+            throw ex
+        }
+
+        val resultaat = event?.let { downstreamClient.lever(claim.doel, it) }
+            ?: DownstreamResultaat.SerialisatieFout.voorVerzending("CloudEvent niet op te bouwen")
+
+        when (resultaat) {
             is DownstreamResultaat.Geslaagd -> verwerkGeslaagd(claim, nu)
-            is DownstreamResultaat.Mislukt -> verwerkMislukt(claim, resultaat, nu, downstreamConfig)
+            is DownstreamResultaat.Mislukt -> {
+                mislukteUitkomst.legLeveringVast(logregels, resultaat, kenmerken)
+                verwerkMislukt(claim, resultaat, nu, downstreamConfig)
+            }
         }
     }
 
@@ -111,26 +135,31 @@ class PublicatieClaimVerwerker(
      * `UNSET`: het logboek registreert dat de gegevens verstrekt gaan worden, niet of de
      * downstream ze aannam. Uitzondering: een onbekend doel (config-drift) krijgt hier al
      * `ERROR`, want dan staat de onmogelijkheid al vast vóór er een downstream-call is.
+     *
+     * @return de logregels die een ERROR-child krijgen als vaststaat dat er niets verstrekt
+     *         is; leeg bij een onbekend doel, want die logregel is zelf al de mislukte uitkomst.
      */
     private fun legVerstrekkingVast(
         claim: PublicatieClaim,
         bericht: Bericht,
         downstreamConfig: PublicatieConfig.Downstream?,
-    ) {
+    ): List<Logregel> {
         // Recorder is thread-gebonden; leeg 'm voor dit span-beheer begint.
         LogboekWriteFailureRecorder.clear()
 
         var pendingFailure: Throwable? = null
         val span = processingHandler.startSpan("publicatie-${claim.doel}", Context.current())
 
-        try {
+        return try {
             val ldvContext = LogboekContext().apply {
                 processingActivityId = config.verwerkingsregisterPubliceren()
             }
 
             zetLdvEnSpanAttributen(claim, bericht, downstreamConfig, ldvContext, span)
-            processingHandler.addLogboekContextToSpan(span, ldvContext)
-        } catch (ex: Exception) {
+            val logregels = processingHandler.addLogboekContextToSpan(span, ldvContext)
+
+            if (downstreamConfig == null) emptyList() else logregels
+        } catch (ex: Throwable) {
             pendingFailure = ex
             throw ex
         } finally {
@@ -172,7 +201,7 @@ class PublicatieClaimVerwerker(
             // setStatus(status) zonder description en gooit die tekst dus weg.
             span.setAttribute("publicatie.fout", "bericht-niet-gevonden")
             processingHandler.addLogboekContextToSpan(span, ldvContext)
-        } catch (ex: Exception) {
+        } catch (ex: Throwable) {
             pendingFailure = ex
             throw ex
         } finally {
@@ -185,12 +214,16 @@ class PublicatieClaimVerwerker(
      * hand-gerold span-blok: anders blijft een schrijffout op de thread staan zodra er
      * binnen het blok iets misgaat, en erft een volgende verwerking op dezelfde thread 'm.
      *
-     * [pendingFailure] bepaalt of een schrijffout mag gooien — een propagerende
-     * functionele fout mag niet gemaskeerd worden door een LDV-fout er overheen.
+     * [pendingFailure] bepaalt of een schrijffout mag gooien — een propagerende fout, ook
+     * een Error, mag niet gemaskeerd worden door een LDV-fout er overheen.
      */
     private fun eindigSpanEnBevestig(span: Span, pendingFailure: Throwable?) {
         try {
             span.end()
+        } catch (ex: Throwable) {
+            if (pendingFailure == null) throw ex
+
+            pendingFailure.addSuppressed(ex)
         } finally {
             processingHandler.enforceWriteAcknowledgement(throwOnFailure = pendingFailure == null)
         }
@@ -236,6 +269,7 @@ class PublicatieClaimVerwerker(
         span.setAttribute("dpl.core.foreign_operation.processor", downstreamUrl)
         span.setAttribute("publicatie.doel", claim.doel.key)
         span.setAttribute("publicatie.bericht_id", claim.berichtId.toString())
+        span.setAttribute("publicatie.poging", claim.pogingen + 1L)
     }
 
     private fun verwerkGeslaagd(claim: PublicatieClaim, nu: Instant) {

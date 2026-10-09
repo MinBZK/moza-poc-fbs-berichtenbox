@@ -197,7 +197,9 @@ internal class BlockingSessiecache(
         }
     }
 
-    private fun effectieveGrootte(paginaGrootte: Int?): Int = (paginaGrootte ?: 20).coerceAtMost(100)
+    // Moet gelijk zijn aan het maximum dat de uitvraag-API toestaat: een lager plafond kapt een
+    // toegestane paginagrootte stil af, en wie de hele set leest, mist dan berichten.
+    private fun effectieveGrootte(paginaGrootte: Int?): Int = (paginaGrootte ?: 20).coerceAtMost(Sessiecache.MAX_PAGINA_GROOTTE)
 
     private fun <T> awaitOrServiceUnavailable(block: () -> Uni<T>): T {
         try {

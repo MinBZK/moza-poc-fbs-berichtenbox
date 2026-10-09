@@ -19,11 +19,12 @@ gh run list --workflow "Deploy ZAD" --limit 5
 ```
 
 Doe geen handmatig OM-werk terwijl er een deploy loopt. OM vergrendelt op project, niet op
-deployment: een tweede taak overruled de wachtstap, het resultaat wordt `superseded`, draagt geen
-`urls`, en de job faalt op `Could not extract URLs from result`. De jobs die op die deploy wachten
-worden overgeslagen, dus de preview is niet compleet. De wijziging is opgeslagen, maar of hij is
-uitgerold, laat alleen het manifest in stap 1 zien. Opnieuw draaien helpt pas als het project stil
-is; bij drukte wordt ook de herhaling overruled (RijksICTGilde/zad-actions#59).
+deployment: een nieuwere taak met een omvattend bereik (dezelfde deployment opnieuw, of een
+projectbrede taak) neemt de wachtstap over en het resultaat van de eerste wordt `superseded`. De
+deploy-stap volgt de overnemende taak en faalt alleen als die `failed`/`cancelled` eindigt of als
+de wijziging is opgeslagen maar niet uitgerold; de melding noemt dan de taak, respectievelijk het
+aantal wachtende wijzigingen en `zad project refresh`. Een rode deploy-stap ná een overname wijst
+dus naar die andere taak, niet naar de eigen wijziging.
 
 ## 1. Lees het gerenderde manifest — dit is de grond-waarheid
 

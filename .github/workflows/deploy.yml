@@ -146,6 +146,10 @@ env:
   # Let op: dit is de wachttijd van de runner op de OM-task. De melding "timed out waiting for
   # application to be created" komt daarentegen van OM zelf (Argo-Application-wait) en wordt
   # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
+  #
+  # De waarde geldt per wachtstap, niet per deploy: neemt een nieuwere taak de uitrol over, dan
+  # wacht de action opnieuw zo lang op die opvolger. De `timeout-minutes` van de drie
+  # deploy-preview-jobs laat daarom twee wachtstappen toe; verhoog je deze waarde, verhoog die mee.
   PREVIEW_TASK_TIMEOUT: '900'
   # De comment wordt door .github/scripts/preview-comment.sh geplaatst en niet door de
   # deploy-action; het waarom staat in de kop van dat script. cleanup-preview.yml zoekt de comment
@@ -910,7 +914,8 @@ jobs:
       && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes, preview-klaarzetten]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
+    timeout-minutes: 35
     # De URL's gaan naar `preview-afronding`, die de PR-comment samenstelt: één comment met de demo
     # én deze uitvraag erin.
     outputs:
@@ -935,7 +940,7 @@ jobs:
       # deze uitrol rendert ze meteen mee.
       - name: Deploy uitvraag-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -959,7 +964,8 @@ jobs:
       && needs.changes.outputs.deploy == 'true'
     needs: [meta, build, build-externe-stubs, gate, changes, preview-klaarzetten]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
+    timeout-minutes: 35
     concurrency:
       group: zad-externe-stubs-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -970,7 +976,7 @@ jobs:
       # bij de componentenlijst in `meta`. De inbound-regels voor de Toxiproxy's staan al in het
       # projectbestand (`preview-klaarzetten`), dus deze uitrol rendert ze meteen mee.
       - name: Deploy externe-stubs-project
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -1047,7 +1053,8 @@ jobs:
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
+    timeout-minutes: 35
     concurrency:
       group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -1113,7 +1120,7 @@ jobs:
 
       - name: Deploy magazijnen-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -1221,7 +1228,7 @@ jobs:
       name: test
     steps:
       - name: Deploy uitvraag-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1241,7 +1248,7 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/logius/deploy/zad/upsert-peer.sh.
       - name: Deploy uitvraag-project (fsc-logius — FSC-peer)
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1278,7 +1285,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy externe-stubs-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -1342,7 +1349,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy magazijnen-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -1364,7 +1371,7 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
       - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
-        uses: RijksICTGilde/zad-actions/deploy@4ac541a57542a22bde95b28f3ace4ee3123acd7a # v4
+        uses: RijksICTGilde/zad-actions/deploy@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}

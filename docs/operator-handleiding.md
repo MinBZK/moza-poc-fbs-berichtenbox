@@ -141,6 +141,51 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
   (`aanslag-de-vries.pdf`). De keten logt hem nergens, maar response-header-logging op een
   ingress of outway zou hem alsnog in een log zetten: laat die uit staan voor dit endpoint.
 
+### Uitkomst van een verwerking in het logboek
+
+Aanleveren en publiceren schrijven hun logregel vóór de verwerking (fail-closed). Staat bij het
+schrijven al vast dat de verwerking niet doorgaat (een afgewezen aanlevering, een onbekend
+publicatiedoel), dan staat die logregel zelf op `ERROR`. Anders staat hij op `UNSET`, en mislukt
+de verwerking daarna aantoonbaar, dan krijgt hij een ERROR-child met dezelfde naam, betrokkene en
+verwerkingsactiviteit en het attribuut `moza.ldv.uitkomst=mislukt`.
+
+**Leesregel: een logregel op `UNSET` zonder ERROR-child is geslaagd; een logregel die zelf op
+`ERROR` staat, is mislukt.** Dit is een afspraak binnen MOZa; de standaard kent deze leesregel nog
+niet (Logius-standaarden/logboek-dataverwerkingen#314).
+
+* **Liever te veel dan te weinig.** Een ERROR-child komt er alleen als vaststaat dat de
+  verwerking niet plaatsvond. Bij publiceren: een fout bij het opbouwen van het bericht of het
+  verzoek, een configuratiefout (URL-validatie, grant-hash, TLS-handshake) of een fout bij het
+  opzetten van de verbinding (geweigerd, onbekende host, connect-timeout). Bij een read-timeout, een verbroken
+  antwoord of een HTTP-foutantwoord kan de afnemer het bericht wél hebben; die poging blijft als
+  verstrekking staan. Bij aanleveren blijft de ERROR-child ook weg als de database de opslag
+  mogelijk toch vastlegde: de commit was verstuurd maar de bevestiging bleef uit. Een fout
+  vóór de commit krijgt de ERROR-child wel, ook bij een verbroken verbinding; alleen als daarna
+  ook het terugdraaien mislukt, is dat niet meer te onderscheiden en blijft hij weg.
+* **Pogingen:** elke leverpoging heeft een eigen logregel met `publicatie.poging`, en deelt
+  `publicatie.bericht_id` en `publicatie.doel` met de andere pogingen voor dezelfde verstrekking.
+  Het nummer is het aantal geregistreerde mislukte pogingen + 1; na een teruggedraaide verwerking
+  kan een nummer terugkomen. Meerdere regels zonder ERROR-child voor hetzelfde bericht en doel
+  betekenen dat er *mogelijk* meer dan eens is verstrekt: meestal een onzekere poging gevolgd
+  door een retry, zeldzamer het duplicate-send-venster na een 2xx. Het foutbeeld per poging
+  staat in de applicatielog en de claim-status.
+* **Foutattributen:** `exception.type` op een ERROR-child is een vaste samenvattingsklasse
+  (`…common.LdvFoutSamenvatting` of `…publicatie.LeveringMislukt`), nooit het echte fouttype.
+  Filter daarom op `exception.message`: bij aanleveren de volledige klassenaam van de fout, bij
+  publiceren een categorie (`NetwerkFout`, `Timeout`, `SerialisatieFout`, `ConfiguratieFout`,
+  `OpbouwFout`). De foutmelding zelf staat er nooit in,
+  want die rijen gaan bij een inzageverzoek naar buiten; het foutbeeld staat, gesaneerd, in de
+  applicatielog.
+* **`LDV_UITKOMST_ONTBREEKT`** (ERROR, met soort verwerking, `berichtId`, bij publiceren ook doel
+  en `claimId`, en de `trace_id:span_id` van de betrokken logregels): de ERROR-child kon niet
+  worden opgeslagen. De verwerking is mislukt, maar het logboek toont haar als geslaagd. Dat is
+  onder-rapportage en vraagt om een alert; herstel is handmatig. Het token werkt alleen met
+  `logboekdataverwerking.span-processor=simple`, dat fail-closed toch al vereist.
+* **`LDV_OPSLAG_ONZEKER`** (WARN, met het fouttype, de SQLState en `berichtId`): bij een
+  aanlevering faalde de commit zonder dat vaststaat of de database het bericht vastlegde. De
+  aanleveraar kreeg een fout, het logboek toont de verwerking als geslaagd. Ga met het
+  `berichtId` na of het bericht er staat; staat het er niet, dan is dit over-rapportage.
+
 ### W3C Trace Context (outbound)
 * Alleen `traceparent` wordt naar downstream gestuurd; `tracestate`
   (vendor-data) wordt expliciet gefilterd om vendor-data-leak

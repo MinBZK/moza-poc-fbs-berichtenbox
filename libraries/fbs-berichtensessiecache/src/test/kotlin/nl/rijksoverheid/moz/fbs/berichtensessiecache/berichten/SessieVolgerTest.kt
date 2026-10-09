@@ -7,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
@@ -114,6 +115,7 @@ class SessieVolgerTest {
 
         volgend.awaitCompletion(Duration.ofSeconds(5))
         assertEquals(SessieGebeurtenis.SessieVerlopen, volgend.items.last())
+        wachtTotAfgemeld(BerichtenCache.cacheKey(ontvanger))
     }
 
     @Test
@@ -134,6 +136,7 @@ class SessieVolgerTest {
         volgend.awaitFailure(Duration.ofSeconds(5))
         assertEquals(fout, volgend.failure)
         assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.items, "geen hartslag na een mislukte verlenging")
+        wachtTotAfgemeld(BerichtenCache.cacheKey(ontvanger))
     }
 
     @Test
@@ -268,7 +271,7 @@ class SessieVolgerTest {
 
         volgend.awaitCompletion(Duration.ofSeconds(5))
         assertTrue(SessieGebeurtenis.SessieVerlopen !in volgend.items)
-        assertEquals(0, aanmeldingen.aantalLuisteraars(BerichtenCache.cacheKey(ontvanger)))
+        wachtTotAfgemeld(BerichtenCache.cacheKey(ontvanger))
     }
 
     @ParameterizedTest(name = "max-duur {0}")
@@ -290,11 +293,25 @@ class SessieVolgerTest {
      * `awaitItems(n)` faalt zodra er méér dan `n` items zijn, en op een trage runner kan er al een
      * volgend item binnen zijn. Hier telt alleen of de voorwaarde op enig moment waar wordt.
      */
-    private fun AssertSubscriber<SessieGebeurtenis>.wachtTot(voorwaarde: (List<SessieGebeurtenis>) -> Boolean) {
+    private fun AssertSubscriber<SessieGebeurtenis>.wachtTot(voorwaarde: (List<SessieGebeurtenis>) -> Boolean) =
+        wachtOp({ "voorwaarde niet gehaald binnen 5 s; items: $items" }) { voorwaarde(items) }
+
+    /**
+     * De emitter meldt het einde aan de afnemer vóórdat hij `onTermination` draait, en daar zit de
+     * afmelding. Eindigt de stream op een andere thread dan die van de test, dan is de luisteraar
+     * direct na `awaitCompletion` of `awaitFailure` nog niet per se afgemeld.
+     */
+    private fun wachtTotAfgemeld(cacheKey: String) =
+        wachtOp({ "luisteraar niet afgemeld binnen 5 s; nog ${aanmeldingen.aantalLuisteraars(cacheKey)}" }) {
+            aanmeldingen.aantalLuisteraars(cacheKey) == 0
+        }
+
+    private fun wachtOp(melding: () -> String, voorwaarde: () -> Boolean) {
         val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
 
-        while (!voorwaarde(items)) {
-            check(System.nanoTime() < deadline) { "voorwaarde niet gehaald binnen 5 s; items: $items" }
+        while (!voorwaarde()) {
+            if (System.nanoTime() >= deadline) fail<Unit>(melding())
+
             Thread.sleep(10)
         }
     }
