@@ -7,7 +7,7 @@
 # met alleen A's bericht is de proef ook groen terwijl B onbereikbaar is. Daarom toetst stap 4
 # ook de ophaal-stream zelf: geen foutstatus, en van beide magazijnen een geslaagde bevraging.
 #
-# Stap 5 toetst de breedte: de vier ondernemers horen bij 3, 15, 45 en 100 organisaties uit te komen.
+# Stap 5 toetst de breedte: de ondernemers horen bij 3, 15, 45 en 100 organisaties uit te komen.
 # Dat is wat de gesimuleerde magazijnen toevoegen, en het gaat stil kapot — een profiel-stub die niet
 # is meegegenereerd of een uitvraag die nog met het oude register draait, geeft gewoon een kleinere
 # lijst.
@@ -124,9 +124,9 @@ for onderwerp in "$onderwerp_a" "$onderwerp_b"; do
         || { echo "FOUT: '$onderwerp' niet gevonden in de uitvraag"; exit 1; }
 done
 
-echo "5/5 fan-out van de vier ondernemers"
+echo "5/5 fan-out van de ondernemers"
 
-# De vier ondernemers halen op bij 3, 15, 45 en 100 organisaties; de kleinere zitten volledig in de
+# De ondernemers halen op bij 3, 15, 45 en 100 organisaties; de kleinere zitten volledig in de
 # grotere. Dat is de hele reden dat de simulator bestaat, en het is precies het soort ding dat stil
 # kapot gaat: een profiel-stub die niet meegegenereerd is, een register dat niet is herladen, of een
 # uitvraag die na een herstart nog met de oude set draait. Het aantal 'gestart'-regels in de stroom
@@ -155,5 +155,6 @@ fanout "BSN:999993653" 3   "kleine eenmanszaak"
 fanout "KVK:90000014"  15  "klein bedrijf"
 fanout "KVK:90000001"  45  "grootbedrijf"
 fanout "KVK:90000003"  100 "landelijk concern"
+fanout "KVK:90000015"  100 "mappen-demo"
 
-echo "OK: keten werkt end-to-end via beide magazijnen, en de vier ondernemers halen op bij 3/15/45/100 organisaties"
+echo "OK: keten werkt end-to-end via beide magazijnen, en de ondernemers halen op bij 3/15/45/100 organisaties"

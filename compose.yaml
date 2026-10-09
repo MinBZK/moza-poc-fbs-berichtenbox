@@ -358,7 +358,13 @@ services:
       # en zou 403 geven. De UI leidt de API-host bovendien af uit de browser-locatie, dus elk
       # adres waarop de demo geopend wordt moet hier staan. Zet DEMO_HOST op het VM- of
       # container-adres; de default localhost dekt de gewone lokale demo.
-      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095"
+      #
+      # De proeftuin (:8096) en de demo-proxy (:8097) staan er ook op, al gaat hun API-verkeer
+      # server-side door hun nginx. Een browser stuurt bij elke schrijf-request (PATCH, zoals een
+      # bericht uit zijn map halen) zijn eigen origin mee, de proxy geeft die door, en voor de
+      # uitvraag is dat een vreemde origin: zonder deze regels een 403 "CORS Rejected". Lezen
+      # merkt er niets van, omdat een browser bij een GET naar zijn eigen origin geen Origin stuurt.
+      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095,http://localhost:8096,http://127.0.0.1:8096,http://${DEMO_HOST:-localhost}:8096,http://localhost:8097,http://127.0.0.1:8097,http://${DEMO_HOST:-localhost}:8097"
       # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
       # prod houdt PT12H. De property heeft geen min-validatie.
       BERICHTENSESSIECACHE_TTL: PT2M

@@ -98,12 +98,18 @@ data class BerichtStatus(
 /**
  * Wijziging op de status van een bericht, met de merge-patch-semantiek van de spec: een veld dat
  * `null` is blijft ongewijzigd. Dat is geen detail — het verschil tussen "niet meegestuurd" en "op
- * niets zetten" is precies wat een `PATCH` op een map betekent.
+ * niets zetten" is precies wat een `PATCH` op een map betekent. Daarom wist de lege string een map
+ * (terug naar Postvak IN): `null` is al bezet door "niet wijzigen".
  */
 data class BerichtStatusWijziging(val gelezen: Boolean?, val map: String?) {
 
+    val wistMap: Boolean get() = map == ""
+
+    /** De map om te zetten; `null` bij "niet wijzigen" én bij wissen. */
+    val nieuweMap: String? get() = map?.takeUnless { wistMap }
+
     init {
-        BerichtStatus.valideerMapnaam(map)
+        BerichtStatus.valideerMapnaam(nieuweMap)
     }
 
     val isLeeg: Boolean get() = gelezen == null && map == null

@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkBericht
@@ -96,6 +97,7 @@ object DemoBerichten {
         aantal: Int,
         bijlageElke: Int,
         nu: Instant,
+        gedrag: GedragModus = GedragModus.NORMAAL,
     ): List<BulkBericht> = (1..aantal).map { volgnummer ->
         val sleutel = "$magazijnOin:${ontvanger.type}:${ontvanger.waarde}:$volgnummer"
         // Nieuwste bovenaan: het eerste bericht is het oudste, dus de tijdstippen lopen terug.
@@ -129,7 +131,7 @@ object DemoBerichten {
 
         // De bijlagen gaan apart mee: de bulk-opslag schrijft kolommen en kijkt niet naar
         // `Bericht.bijlagen`, dus ze daar óók in zetten zou dood werk zijn.
-        BulkBericht(bericht, bijlagen)
+        BulkBericht(bericht, bijlagen, DemoMappen.voor(ontvanger, magazijnOin, gedrag, volgnummer))
     }
 
     private fun inhoud(magazijnOin: String, volgnummer: Int): String =

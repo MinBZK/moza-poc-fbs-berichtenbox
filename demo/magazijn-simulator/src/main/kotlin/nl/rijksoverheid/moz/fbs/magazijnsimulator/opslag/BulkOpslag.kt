@@ -7,7 +7,7 @@ import java.sql.Timestamp
 import java.util.UUID
 
 /** Wat er in één keer weggeschreven moet worden voor één magazijn. */
-data class BulkBericht(val bericht: Bericht, val bijlagen: List<Bijlage>)
+data class BulkBericht(val bericht: Bericht, val bijlagen: List<Bijlage>, val map: String? = null)
 
 /**
  * Schrijft een hele demo in één transactie weg.
@@ -48,6 +48,7 @@ class BulkOpslag(private val entityManager: EntityManager) {
 
             toegevoegd += dbIdPerBerichtId.size
             bijlagen += schrijfBijlagen(blok, dbIdPerBerichtId)
+            schrijfMappen(blok, dbIdPerBerichtId)
         }
 
         return BulkUitkomst(
@@ -152,6 +153,36 @@ class BulkOpslag(private val entityManager: EntityManager) {
         }
 
         return paren.size
+    }
+
+    /**
+     * De map van elk nieuw bericht dat er een heeft, als status zoals de ontvanger hem zou zetten.
+     * Alleen voor wat zojuist is toegevoegd, om dezelfde reden als bij [schrijfBijlagen]. Als
+     * wijzigingsmoment het ontvangstmoment: dan is het bericht meteen bij binnenkomst verplaatst, en
+     * blijft een tweede vulronde met dezelfde klok dezelfde rij opleveren.
+     */
+    private fun schrijfMappen(blok: List<BulkBericht>, dbIdPerBerichtId: Map<UUID, Long>) {
+        val rijen = blok.mapNotNull { item ->
+            val berichtDbId = dbIdPerBerichtId[item.bericht.berichtId]
+            val map = item.map
+
+            if (berichtDbId == null || map == null) null else Triple(berichtDbId, map, item.bericht.tijdstipOntvangst)
+        }
+
+        rijen.chunked(BLOKGROOTTE).forEach { deel ->
+            val waarden = deel.indices.joinToString(", ") { i -> "(:r$i, FALSE, :m$i, :t$i)" }
+            val query = entityManager.createNativeQuery(
+                "INSERT INTO bericht_status (bericht_db_id, gelezen, map, gewijzigd_op) VALUES $waarden",
+            )
+
+            deel.forEachIndexed { i, (berichtDbId, map, tijdstip) ->
+                query.setParameter("r$i", berichtDbId)
+                query.setParameter("m$i", map)
+                query.setParameter("t$i", Timestamp.from(tijdstip))
+            }
+
+            query.executeUpdate()
+        }
     }
 
     private companion object {

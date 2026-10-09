@@ -42,7 +42,7 @@ class PersonaConfiguratieTest {
     fun `levert de ingerichte persona's in de volgorde van de keuzelijst`() {
         assertEquals(
             listOf(
-                "bakkerij", "proeftuin-een", "proeftuin-twee", "proeftuin-drie",
+                "bakkerij", "proeftuin-een", "proeftuin-twee", "proeftuin-drie", "proeftuin-vier",
                 "vandijk", "grootbedrijf", "pietersen", "concern",
             ),
             personaService.alle().map { it.id },
@@ -104,7 +104,7 @@ class PersonaConfiguratieTest {
             personaService.metMagazijnen().map { it.id },
         )
         assertEquals(
-            listOf("grootbedrijf", "concern"),
+            listOf("proeftuin-vier", "grootbedrijf", "concern"),
             (personaService.alle() - personaService.metMagazijnen().toSet()).map { it.id },
         )
     }

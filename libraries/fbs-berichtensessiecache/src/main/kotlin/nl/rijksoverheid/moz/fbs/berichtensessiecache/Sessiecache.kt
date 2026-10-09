@@ -28,11 +28,19 @@ interface Sessiecache {
     companion object {
         /** Grootste pagina die [lijst] en [zoek] leveren; een grotere vraag wordt hierop afgekapt. */
         const val MAX_PAGINA_GROOTTE: Int = 200
+
+        /**
+         * Mapwaarde die een bericht uit zijn map haalt. `null` betekent in een merge-patch al "niet
+         * wijzigen", dus wissen heeft een eigen waarde nodig; het magazijn gebruikt dezelfde.
+         */
+        const val MAP_WISSEN = ""
     }
 
     /**
      * Berichtenlijst voor [ontvanger], gepagineerd, optioneel gefilterd op
      * [afzender] en/of [map]. Vereist een afgeronde ophaling (zie foutsemantiek).
+     * De pagina draagt altijd [BerichtenPagina.volledigheid] van de laatste ronde,
+     * ook bij [zoek].
      * `pagina` default 0; `paginaGrootte` default 20, gecapt op [MAX_PAGINA_GROOTTE].
      */
     fun lijst(
@@ -70,7 +78,8 @@ interface Sessiecache {
 
     /**
      * Merge-PATCH op leesstatus en/of map. Minimaal één van beide moet gezet zijn
-     * (anders 400). Retourneert het bijgewerkte bericht, of `null` als het bericht
+     * (anders 400). `map` = [MAP_WISSEN] haalt het bericht uit zijn map, terug naar
+     * Postvak IN. Retourneert het bijgewerkte bericht, of `null` als het bericht
      * niet bestaat of niet van [ontvanger] is.
      */
     fun werkBerichtBij(
