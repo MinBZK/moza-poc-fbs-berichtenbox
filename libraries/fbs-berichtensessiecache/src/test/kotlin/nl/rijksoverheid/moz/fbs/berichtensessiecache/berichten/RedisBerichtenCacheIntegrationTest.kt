@@ -1,6 +1,5 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile

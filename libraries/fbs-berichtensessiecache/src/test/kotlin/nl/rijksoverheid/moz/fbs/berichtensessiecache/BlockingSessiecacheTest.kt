@@ -35,7 +35,6 @@ import org.junit.jupiter.params.provider.CsvSource
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
-import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
