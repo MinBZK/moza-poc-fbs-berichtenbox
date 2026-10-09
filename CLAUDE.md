@@ -204,7 +204,8 @@ Wat je hoe dan ook moet weten:
   OM uitgeschakeld component weer aan te zetten: daar volstaat één `zadctl deployment
   update-image` met dezelfde tag.
 - **Geen handmatig OM-werk terwijl er een deploy loopt** (`gh run list --workflow "Deploy ZAD"`):
-  OM vergrendelt op project, en de deploy faalt dan op een melding die de oorzaak niet noemt.
+  OM vergrendelt op project. Een projectbrede taak neemt de wachtstap van de lopende deploy over;
+  de deploy-stap volgt die taak, en faalt mee als die taak faalt.
 
 ## Belangrijke bestanden
 
