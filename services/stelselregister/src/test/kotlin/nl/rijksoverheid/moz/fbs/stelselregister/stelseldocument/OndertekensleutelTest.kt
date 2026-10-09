@@ -1,0 +1,415 @@
+package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
+
+import org.jose4j.jwk.EllipticCurveJsonWebKey
+import org.jose4j.jwk.JsonWebKey
+import org.jose4j.lang.HashUtil
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+import java.nio.file.Files
+import java.nio.file.Path
+import java.security.Signature
+import java.time.Duration
+import java.time.Instant
+
+class OndertekensleutelTest {
+
+    private val nu = Instant.now()
+
+    private fun laad(keten: Testketens.Keten, alias: String = Wegwerpketen.ALIAS, moment: Instant = nu) =
+        Ondertekensleutel.uitKeystore(keten.pad, keten.wachtwoord, alias, moment)
+
+    private fun geweigerd(blok: () -> Unit): String =
+        assertThrows(OngeldigeOndertekensleutelException::class.java, blok).message.orEmpty()
+
+    @Test
+    fun `een geldige keystore levert het ondertekencertificaat zonder de root`() {
+        val sleutel = laad(Testketens.geldig)
+
+        assertEquals(listOf(Testketens.geldig.certificaat), sleutel.keten)
+        assertEquals(1, sleutel.x5c.size)
+        assertEquals(Testketens.geldig.certificaat, Afnemer.certificaat(sleutel.x5c.single()))
+        assertEquals(Sleutelherkomst.KEYSTORE, sleutel.herkomst)
+    }
+
+    @Test
+    fun `de OIN van de uitgever komt uit subject-serialNumber van het certificaat`() {
+        assertEquals(Wegwerpketen.STANDAARD_OIN, laad(Testketens.geldig).uitgeverOin)
+        assertEquals("00000000000000007777", laad(Testketens.andereUitgever).uitgeverOin)
+    }
+
+    @Test
+    fun `een certificaat zonder serialNumber heeft geen OIN`() {
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.geldig.root))
+    }
+
+    @Test
+    fun `de root staat niet tussen de overige ondertekencertificaten`() {
+        assertEquals(emptyList<Any>(), laad(Testketens.geldig).overige)
+    }
+
+    @Test
+    fun `de kid is de RFC 7638-thumbprint van de publieke sleutel`() {
+        val sleutel = laad(Testketens.geldig)
+        val verwacht = JsonWebKey.Factory.newJwk(Testketens.geldig.certificaat.publicKey)
+            .calculateBase64urlEncodedThumbprint(HashUtil.SHA_256)
+
+        assertEquals(verwacht, sleutel.kid)
+    }
+
+    @Test
+    fun `de jwk beschrijft dezelfde publieke sleutel en bevat geen privaat deel`() {
+        val jwk = Ondertekensleutel.jwk(Testketens.geldig.certificaat)
+        val gelezen = JsonWebKey.Factory.newJwk(jwk) as EllipticCurveJsonWebKey
+
+        assertEquals(Testketens.geldig.certificaat.publicKey, gelezen.publicKey)
+        assertEquals(setOf("kty", "crv", "x", "y", "kid", "use", "alg", "x5c"), jwk.keys)
+        assertEquals(43, (jwk.getValue("x") as String).length)
+        assertEquals(43, (jwk.getValue("y") as String).length)
+        assertFalse(jwk.containsKey("d"))
+    }
+
+    @Test
+    fun `de handtekening is 64 bytes en klopt met het certificaat`() {
+        val gegevens = "te ondertekenen".toByteArray()
+        val handtekening = laad(Testketens.geldig).onderteken(gegevens)
+
+        assertEquals(64, handtekening.size)
+        assertTrue(
+            Signature.getInstance("SHA256withECDSAinP1363Format").run {
+                initVerify(Testketens.geldig.certificaat.publicKey)
+                update(gegevens)
+                verify(handtekening)
+            },
+        )
+    }
+
+    @Test
+    fun `resterend telt tot de einddatum van het certificaat`() {
+        val einde = Testketens.geldig.certificaat.notAfter.toInstant()
+        val sleutel = laad(Testketens.geldig)
+
+        assertEquals(Duration.ofDays(3), sleutel.resterend(einde.minus(Duration.ofDays(3))))
+        assertTrue(sleutel.resterend(einde.plusSeconds(1)).isNegative)
+    }
+
+    @Test
+    fun `een tweede ondertekencertificaat in de keystore telt als overige sleutel`() {
+        val keystore = java.security.KeyStore.getInstance("PKCS12").apply {
+            Files.newInputStream(Testketens.geldig.pad).use { load(it, Testketens.geldig.wachtwoord) }
+            setCertificateEntry("vorige", Testketens.ander.certificaat)
+            setCertificateEntry("rsa", Testketens.rsa.certificaat)
+        }
+        val pad = Files.createTempDirectory("rotatie").resolve("keystore.p12")
+        Files.newOutputStream(pad).use { keystore.store(it, Testketens.geldig.wachtwoord) }
+
+        val sleutel = Ondertekensleutel.uitKeystore(pad, Testketens.geldig.wachtwoord, Wegwerpketen.ALIAS, nu)
+
+        assertEquals(listOf(Testketens.ander.certificaat), sleutel.overige)
+    }
+
+    @Test
+    fun `een ontbrekend bestand wordt geweigerd`() {
+        val melding = geweigerd {
+            Ondertekensleutel.uitKeystore(Path.of("/bestaat/niet.p12"), "x".toCharArray(), Wegwerpketen.ALIAS, nu)
+        }
+
+        assertTrue(melding.contains("bestaat niet"), melding)
+    }
+
+    @Test
+    fun `een verkeerd wachtwoord wordt geweigerd zonder het wachtwoord te noemen`() {
+        val melding = geweigerd {
+            Ondertekensleutel.uitKeystore(Testketens.geldig.pad, "verkeerd-wachtwoord".toCharArray(), Wegwerpketen.ALIAS, nu)
+        }
+
+        assertTrue(melding.contains("niet te openen"), melding)
+        assertFalse(melding.contains("verkeerd-wachtwoord"), melding)
+    }
+
+    @Test
+    fun `een bestand dat geen keystore is wordt geweigerd`() {
+        val pad = Files.createTempFile("geen-keystore", ".p12").also { Files.writeString(it, "dit is geen PKCS#12") }
+
+        val melding = geweigerd { Ondertekensleutel.uitKeystore(pad, "x".toCharArray(), Wegwerpketen.ALIAS, nu) }
+
+        assertTrue(melding.contains("niet te openen"), melding)
+    }
+
+    @Test
+    fun `een onbekende alias wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.geldig, alias = "bestaat-niet") }
+
+        assertTrue(melding.contains("geen sleutel onder alias 'bestaat-niet'"), melding)
+    }
+
+    @Test
+    fun `een RSA-sleutel wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.rsa) }
+
+        assertTrue(melding.contains("geen EC P-256-sleutel"), melding)
+    }
+
+    @Test
+    fun `een EC-sleutel op een andere curve wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.p384) }
+
+        assertTrue(melding.contains("geen EC P-256-sleutel"), melding)
+    }
+
+    @Test
+    fun `een zelfondertekend certificaat zonder uitgever wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.geldig, alias = Wegwerpketen.ROOT_ALIAS) }
+
+        assertTrue(melding.contains("zelfondertekend"), melding)
+    }
+
+    @Test
+    fun `een certificaat dat niet bij de sleutel hoort wordt geweigerd`() {
+        val keten = Testketens.samengesteld(
+            sleutel = Testketens.geldig.sleutel,
+            keten = listOf(Testketens.ander.certificaat, Testketens.ander.root),
+        )
+
+        val melding = geweigerd { laad(keten) }
+
+        assertTrue(melding.contains("hoort niet bij de sleutel"), melding)
+    }
+
+    @Test
+    fun `een certificaat met een RSA-sleutel bij een EC-sleutel wordt geweigerd`() {
+        val keten = Testketens.samengesteld(
+            sleutel = Testketens.geldig.sleutel,
+            keten = listOf(Testketens.rsa.certificaat, Testketens.rsa.root),
+        )
+
+        val melding = geweigerd { laad(keten) }
+
+        assertTrue(melding.contains("hoort niet bij de sleutel"), melding)
+    }
+
+    // Rechtstreeks op de controle: een PKCS#12-keystore bouwt bij het laden zelf een keten en laat
+    // een certificaat dat er niet in past weg, dus via een bestand is deze toestand niet te maken.
+    @Test
+    fun `een keten waarvan de schakels niet sluiten wordt geweigerd`() {
+        val melding = geweigerd {
+            Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat, Testketens.ander.root), "alias", nu)
+        }
+
+        assertTrue(melding.contains("sluit niet"), melding)
+    }
+
+    @Test
+    fun `een sluitende keten en een keten van een schakel passeren`() {
+        Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat, Testketens.geldig.root), "alias", nu)
+        Ondertekensleutel.valideerKeten(listOf(Testketens.geldig.certificaat), "alias", nu)
+    }
+
+    @Test
+    fun `een keten met een tussencertificaat levert blad en tussencertificaat in die volgorde, zonder root`() {
+        val keten = Testketens.metTussencertificaat
+        val sleutel = laad(keten)
+
+        assertEquals(listOf(keten.certificaat, keten.certificaat(Testketens.TUSSEN_ALIAS)), sleutel.keten)
+        assertEquals(2, sleutel.x5c.size)
+        assertEquals(keten.certificaat, Afnemer.certificaat(sleutel.x5c[0]))
+        assertFalse(sleutel.keten.contains(keten.root))
+    }
+
+    @Test
+    fun `een tussencertificaat telt niet als overige ondertekensleutel`() {
+        assertEquals(emptyList<Any>(), laad(Testketens.metTussencertificaat).overige)
+    }
+
+    @Test
+    fun `de keten geldt tot de kortst geldende schakel, ook als dat het tussencertificaat is`() {
+        val keten = Testketens.metKortTussencertificaat
+        val tussenEinde = keten.certificaat(Testketens.TUSSEN_ALIAS).notAfter.toInstant()
+        val sleutel = laad(keten)
+
+        assertTrue(tussenEinde.isBefore(keten.certificaat.notAfter.toInstant()))
+        assertEquals(tussenEinde, sleutel.geldigTot)
+        assertEquals(Duration.ofDays(1), sleutel.resterend(tussenEinde.minus(Duration.ofDays(1))))
+    }
+
+    @Test
+    fun `een verlopen tussencertificaat blokkeert, ook als het ondertekencertificaat nog geldt`() {
+        val keten = Testketens.metKortTussencertificaat
+        val naTussen = keten.certificaat(Testketens.TUSSEN_ALIAS).notAfter.toInstant().plusSeconds(1)
+
+        val melding = geweigerd { laad(keten, moment = naTussen) }
+
+        assertTrue(melding.contains("sluit niet of is niet geldig"), melding)
+    }
+
+    // De vervalsing waar padvalidatie voor bestaat: elke handtekening in de keten klopt, maar de
+    // uitgever van het ondertekencertificaat mag helemaal geen certificaten uitgeven.
+    @Test
+    fun `een keten via een certificaat dat geen CA is wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.viaNietCa) }
+
+        assertTrue(melding.contains("sluit niet of is niet geldig"), melding)
+    }
+
+    @Test
+    fun `een ondertekencertificaat dat zelf CA is wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.bladIsCa) }
+
+        assertTrue(melding.contains("CA-certificaat"), melding)
+    }
+
+    @Test
+    fun `een ondertekencertificaat zonder digitalSignature wordt geweigerd`() {
+        listOf(Testketens.zonderSleutelgebruik, Testketens.alleenVersleutelen).forEach { keten ->
+            val melding = geweigerd { laad(keten) }
+
+            assertTrue(melding.contains("digitalSignature"), melding)
+        }
+    }
+
+    @Test
+    fun `een subject met twee serienummers of een samengestelde RDN heeft geen OIN`() {
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.tweeSerienummers.certificaat))
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.samengesteldeRdn.certificaat))
+        assertEquals(null, Ondertekensleutel.oinUit(Testketens.zonderSerienummer.certificaat))
+    }
+
+    @ParameterizedTest(name = "coördinaat {0}")
+    @ValueSource(
+        strings = [
+            "1",
+            "452312848583266388373324160190187140051835877600158453279131187530910662656",
+            "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "57896044618658097711785492504343953926634992332820282019728792003956564819968",
+            "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+        ],
+    )
+    fun `een coordinaat is altijd 32 bytes, met of zonder voorloopnullen of tekenbyte`(waarde: String) {
+        val invoer = java.math.BigInteger(waarde)
+        val bytes = java.util.Base64.getUrlDecoder().decode(Ondertekensleutel.coordinaat(invoer))
+
+        assertEquals(32, bytes.size)
+        assertEquals(invoer, java.math.BigInteger(1, bytes))
+    }
+
+    @Test
+    fun `een verlopen certificaat wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.verlopen) }
+
+        assertTrue(melding.contains("niet geldig"), melding)
+    }
+
+    @Test
+    fun `een certificaat dat nog niet geldig is wordt geweigerd`() {
+        val melding = geweigerd { laad(Testketens.nogNietGeldig) }
+
+        assertTrue(melding.contains("niet geldig"), melding)
+    }
+
+    @Test
+    fun `precies op de begindatum geldt het certificaat, een seconde ervoor niet`() {
+        val begin = Testketens.geldig.certificaat.notBefore.toInstant()
+
+        laad(Testketens.geldig, moment = begin)
+        geweigerd { laad(Testketens.geldig, moment = begin.minusSeconds(1)) }
+    }
+
+    @Test
+    fun `precies op de einddatum geldt het certificaat niet meer`() {
+        val einde = Testketens.geldig.certificaat.notAfter.toInstant()
+
+        laad(Testketens.geldig, moment = einde.minusSeconds(1))
+        geweigerd { laad(Testketens.geldig, moment = einde) }
+    }
+
+    // Zonder root in de keystore is het bovenste certificaat het anker, en dat toetst padvalidatie
+    // niet. Het komt wel in x5c, waar een afnemer het weigert.
+    @Test
+    fun `zonder root wordt een bovenste certificaat dat geen CA is geweigerd`() {
+        val keten = Testketens.viaNietCa
+        val melding = geweigerd {
+            Ondertekensleutel.valideerKeten(listOf(keten.certificaat, keten.certificaat(Testketens.TUSSEN_ALIAS)), "alias", nu)
+        }
+
+        assertTrue(melding.contains("mag geen certificaten uitgeven"), melding)
+    }
+
+    @Test
+    fun `zonder root wordt een bovenste certificaat buiten zijn geldigheid geweigerd`() {
+        val keten = Testketens.metKortTussencertificaat
+        val tussen = keten.certificaat(Testketens.TUSSEN_ALIAS)
+        val schakels = listOf(keten.certificaat, tussen)
+
+        Ondertekensleutel.valideerKeten(schakels, "alias", nu)
+
+        val laat = Testketens.metLaatTussencertificaat
+        val verlopen = geweigerd { Ondertekensleutel.valideerKeten(schakels, "alias", tussen.notAfter.toInstant()) }
+        val teVroeg = geweigerd {
+            Ondertekensleutel.valideerKeten(listOf(laat.certificaat, laat.certificaat(Testketens.TUSSEN_ALIAS)), "alias", nu)
+        }
+
+        assertTrue(verlopen.contains("Het bovenste certificaat in de keten"), verlopen)
+        assertTrue(teVroeg.contains("Het bovenste certificaat in de keten"), teVroeg)
+        assertTrue(teVroeg.contains("niet geldig op"), teVroeg)
+    }
+
+    @Test
+    fun `zonder root wordt een bovenste CA-certificaat zonder keyCertSign geweigerd`() {
+        val keten = Testketens.tussenZonderKeyCertSign
+        val melding = geweigerd {
+            Ondertekensleutel.valideerKeten(listOf(keten.certificaat, keten.certificaat(Testketens.TUSSEN_ALIAS)), "alias", nu)
+        }
+
+        assertTrue(melding.contains("mag geen certificaten uitgeven"), melding)
+    }
+
+    // Met de root erbij vangt padvalidatie een overschreden padlengte. Zonder root is het bovenste
+    // certificaat het anker, en dan moet de eigen controle het doen.
+    @Test
+    fun `zonder root telt de padlengte van het bovenste certificaat`() {
+        val kort = Testketens.tussenMetPadlengteNul
+        val bovenste = kort.certificaat(Testketens.TUSSEN_ALIAS)
+        val tussen = Testketens.metTussencertificaat.certificaat(Testketens.TUSSEN_ALIAS)
+
+        Ondertekensleutel.valideerKeten(listOf(kort.certificaat, bovenste), "alias", nu)
+
+        val melding = geweigerd { Ondertekensleutel.valideerKeten(listOf(kort.certificaat, tussen, bovenste), "alias", nu) }
+
+        assertTrue(melding.contains("niet over een keten van deze lengte"), melding)
+    }
+
+    // Een gelijke naam maakt een certificaat geen root: het is door een ander ondertekend, een
+    // afnemer heeft het nodig om de keten te sluiten, en het hoort dus in x5c te blijven.
+    @Test
+    fun `een bovenste certificaat dat alleen de naam van een root draagt blijft in de keten`() {
+        val bron = Testketens.tussenMetRootnaam
+        val tussen = bron.certificaat(Testketens.TUSSEN_ALIAS)
+        val keten = Testketens.samengesteld(sleutel = bron.sleutel, keten = listOf(bron.certificaat, tussen))
+
+        assertEquals(tussen.subjectX500Principal, tussen.issuerX500Principal)
+        assertEquals(listOf(bron.certificaat, tussen), laad(keten).keten)
+    }
+
+    @Test
+    fun `een tussencertificaat zonder root in de keystore staat als bovenste in de keten`() {
+        val bron = Testketens.metTussencertificaat
+        val tussen = bron.certificaat(Testketens.TUSSEN_ALIAS)
+        val keten = Testketens.samengesteld(sleutel = bron.sleutel, keten = listOf(bron.certificaat, tussen))
+
+        assertEquals(listOf(bron.certificaat, tussen), laad(keten).keten)
+    }
+
+    @Test
+    fun `een keten zonder root in de keystore blijft bruikbaar`() {
+        val keten = Testketens.samengesteld(
+            sleutel = Testketens.geldig.sleutel,
+            keten = listOf(Testketens.geldig.certificaat),
+        )
+
+        assertEquals(listOf(Testketens.geldig.certificaat), laad(keten).keten)
+    }
+}

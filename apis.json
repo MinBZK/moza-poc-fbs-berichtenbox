@@ -1,16 +1,17 @@
 {
   "$schema": "https://apis-json.org/0.18/apis-schema.json",
   "name": "MOZa PoC Federatief Berichtenstelsel APIs",
-  "description": "Decentraal berichtenmagazijn van het Federatief Berichtenstelsel (FBS) — onderdeel van MijnOverheid Zakelijk.",
+  "description": "API's van het Federatief Berichtenstelsel (FBS) — onderdeel van MijnOverheid Zakelijk.",
   "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/apis.json",
   "tags": [
     "fbs",
     "berichten",
     "mijnoverheid-zakelijk",
-    "publicatie-stream"
+    "publicatie-stream",
+    "stelseldocument"
   ],
   "created": "2026-05-13",
-  "modified": "2026-06-04",
+  "modified": "2026-10-08",
   "specificationVersion": "0.18",
   "apis": [
     {
@@ -19,11 +20,42 @@
       "image": "https://www.rijksoverheid.nl/img/logo-rijksoverheid.svg",
       "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox",
       "baseURL": "/api/v1",
-      "tags": ["aanlever", "berichten"],
+      "tags": [
+        "aanlever",
+        "berichten"
+      ],
       "properties": [
         {
           "type": "X-OpenAPI",
           "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml"
+        },
+        {
+          "type": "X-Repository",
+          "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox"
+        }
+      ],
+      "contact": [
+        {
+          "FN": "MijnOverheid Zakelijk",
+          "email": "mijnoverheidzakelijk@minbzk.nl",
+          "X-twitter": ""
+        }
+      ]
+    },
+    {
+      "name": "FBS Stelselregister — Stelseldocument API",
+      "description": "Het ondertekende stelseldocument met de deelnemende organisaties en het adres van hun berichtenmagazijn (GET /api/v1/stelseldocument). Publiek, zonder authenticatie.",
+      "image": "https://www.rijksoverheid.nl/img/logo-rijksoverheid.svg",
+      "humanURL": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox",
+      "baseURL": "/api/v1",
+      "tags": [
+        "stelseldocument",
+        "magazijnregister"
+      ],
+      "properties": [
+        {
+          "type": "X-OpenAPI",
+          "url": "https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/services/stelselregister/src/main/resources/openapi/stelselregister-api.yaml"
         },
         {
           "type": "X-Repository",

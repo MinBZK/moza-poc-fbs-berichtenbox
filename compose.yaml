@@ -170,7 +170,7 @@ services:
   #
   # Images bouwen met jib (geen Dockerfile):
   #   ./mvnw clean package -DskipTests \
-  #     -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/magazijn-simulator -am \
+  #     -pl services/berichtenmagazijn,services/berichtenuitvraag,services/stelselregister,demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
   #     -Dquarkus.container-image.build=true \
   #     -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo
   #
@@ -377,6 +377,41 @@ services:
       # berichten wegláten.
       BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE: "5"
     volumes:
+      - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
+
+  # Publiceert het magazijnregister als ondertekend stelseldocument. Leest dezelfde
+  # register-uitbreiding als de uitvraag, zodat het document de magazijnen noemt waar de keten mee
+  # werkt. De adressen in het document zijn die waarop een app het magazijn bereikt, dus de
+  # gepubliceerde poorten en niet de Toxiproxy-route van de uitvraag. Voor de gesimuleerde
+  # magazijnen staat in het gegenereerde register een container-naam; die is alleen binnen de
+  # stack bruikbaar.
+  #
+  # De keystore komt uit demo/environment/stelselregister/pki/maak-keten.sh. Zonder die stap
+  # start deze container niet: buiten ontwikkel- en testmodus ondertekent de dienst alleen met
+  # een beheerde keystore. De map wordt gemount en niet het bestand, zodat een ontbrekende
+  # keystore een leesbare foutmelding geeft in plaats van een map met de naam van het bestand.
+  stelselregister:
+    image: fbs-demo/fbs-stelselregister:demo
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:8094:8094"
+    env_file:
+      - path: demo/environment/stelselregister/pki/out/keystore.env
+        required: false
+    environment:
+      TZ: Europe/Amsterdam
+      QUARKUS_PROFILE: dev
+      QUARKUS_HTTP_HOST: 0.0.0.0
+      # Het document is bedoeld om vanaf elk adres gelezen te worden; zie de toelichting bij de
+      # uitvraag over de Host-controle onder dev.
+      QUARKUS_HTTP_HOST_VALIDATION_REQUIRE_LOCALHOST: "false"
+      STELSELDOCUMENT_OMGEVING: demo
+      STELSELDOCUMENT_KEYSTORE_PAD: /etc/stelselregister/keystore.p12
+      MAGAZIJN_A_URL: http://${DEMO_HOST:-localhost}:8090
+      MAGAZIJN_B_URL: http://${DEMO_HOST:-localhost}:8091
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties
+    volumes:
+      - ./demo/environment/stelselregister/pki/out:/etc/stelselregister:ro
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
 
   # De demo-identiteiten, als eigen dienst. Wél op DEMO_BIND en niet op DEMO_BEDIENING_BIND: dit is

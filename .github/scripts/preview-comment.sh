@@ -7,8 +7,9 @@
 # met een eigen header per project staan er twee comments op de PR die het opruimen allebei moet
 # kennen. Eén comment, samengesteld ná de laatste deploy, houdt de URL's bij elkaar.
 #
-# Wat de aanroeper meegeeft bepaalt wat erin staat; deploy.yml geeft de demo en de uitvraag mee en
-# laat het project met de externe stubs weg, omdat dat geen ingang is voor wie de PR opent.
+# Wat de aanroeper meegeeft bepaalt wat erin staat; deploy.yml geeft de demo, de uitvraag en het
+# stelselregister mee en laat het project met de externe stubs weg, omdat dat geen ingang is voor
+# wie de PR opent.
 #
 # De header moet gelijk blijven aan die in cleanup-preview.yml: die zoekt de comment bij het
 # sluiten van de PR op `startswith` van dezelfde tekst. Drift laat de comment achter op een

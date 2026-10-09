@@ -1,0 +1,21 @@
+meta {
+  name: 2. Stelseldocument ophalen als het gewijzigd is (304)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrlStelselregister}}/api/v1/stelseldocument
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/jose
+  If-None-Match: {{etag}}
+}
+
+docs {
+  Zet `etag` in de omgeving op de `ETag` van request 1. Zolang er geen nieuw exemplaar is
+  uitgegeven volgt `304` zonder body.
+}

@@ -32,7 +32,7 @@ needs_json() {
   printf '%s' "$json"
 }
 
-# Drie previews, drie test-deploys en vier bouw-jobs uit telkens drie resp. vier resultaten. `-`
+# Vier previews, vier test-deploys en vier bouw-jobs uit telkens vier resultaten. `-`
 # staat voor een leeg resultaat, zodat woordsplitsing die waarde niet opslokt.
 #
 # De twee hulpjobs volgen standaard de eerste preview: ze draaien als de previews draaien en blijven
@@ -50,7 +50,9 @@ fixture() {
     "preview-klaarzetten=$klaarzetten"
     "preview-afronding=$afronding"
     "deploy-preview-uitvraag=${p[0]}" "deploy-preview-externe-stubs=${p[1]}" "deploy-preview-magazijnen=${p[2]}"
+    "deploy-preview-stelselregister=${p[3]}"
     "deploy-test-uitvraag=${t[0]}" "deploy-test-externe-stubs=${t[1]}" "deploy-test-magazijnen=${t[2]}"
+    "deploy-test-stelselregister=${t[3]}"
     "build=${b[0]}" "build-externe-stubs=${b[1]}" "build-contract-bootstrap=${b[2]}" "build-demo-images=${b[3]}"
   )
 
@@ -92,37 +94,37 @@ verwacht_poort() {
 
 PR_REF=refs/pull/1/merge
 MAIN=refs/heads/main
-DRIE_OK='success success success'
-DRIE_UIT='skipped skipped skipped'
+VIER_OK='success success success success'
+VIER_UIT='skipped skipped skipped skipped'
 
 # --- A. afgebroken run ---------------------------------------------------------------------------
 # De vorm die een annulering aanneemt is niet van een legitieme uitkomst te onderscheiden: `gate`
 # en de uitrol-jobs dragen zelf `!cancelled()` en rapporteren dan 'skipped'. Zonder de expliciete
 # CANCELLED-invoer zou juist de docs-only-vorm hieronder groen zijn.
 verwacht_poort "afgebroken run op de uitrol-tak blokkeert" 1 "run is afgebroken" \
-  pull_request "$PR_REF" true success true success "$(fixture "$DRIE_OK" "$DRIE_UIT")"
+  pull_request "$PR_REF" true success true success "$(fixture "$VIER_OK" "$VIER_UIT")"
 verwacht_poort "afgebroken run op de niets-verwacht-tak blokkeert" 1 "run is afgebroken" \
-  pull_request "$PR_REF" true success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT")"
+  pull_request "$PR_REF" true success false skipped "$(fixture "$VIER_UIT" "$VIER_UIT")"
 verwacht_poort "afgebroken run op een push blokkeert" 1 "run is afgebroken" \
-  push "$MAIN" true success true success "$(fixture "$DRIE_UIT" "$DRIE_OK")"
+  push "$MAIN" true success true success "$(fixture "$VIER_UIT" "$VIER_OK")"
 
 # --- B. de changes-poort -------------------------------------------------------------------------
 for uitkomst in failure cancelled skipped ''; do
   verwacht_poort "changes='$uitkomst' blokkeert" 1 "wijzigingsdetectie eindigde als" \
-    pull_request "$PR_REF" false "$uitkomst" true success "$(fixture "$DRIE_OK" "$DRIE_UIT")"
+    pull_request "$PR_REF" false "$uitkomst" true success "$(fixture "$VIER_OK" "$VIER_UIT")"
 done
 
 # --- C. askeuze per event ------------------------------------------------------------------------
-verwacht_poort "push beoordeelt de test-as" 0 "Alle 3 uitrol-jobs geslaagd" \
-  push "$MAIN" false success true success "$(fixture "$DRIE_UIT" "$DRIE_OK")"
-verwacht_poort "pull_request beoordeelt de previews" 0 "Alle 3 uitrol-jobs geslaagd" \
-  pull_request "$PR_REF" false success true success "$(fixture "$DRIE_OK" "$DRIE_UIT")"
+verwacht_poort "push beoordeelt de test-as" 0 "Alle 4 uitrol-jobs geslaagd" \
+  push "$MAIN" false success true success "$(fixture "$VIER_UIT" "$VIER_OK")"
+verwacht_poort "pull_request beoordeelt de previews" 0 "Alle 4 uitrol-jobs geslaagd" \
+  pull_request "$PR_REF" false success true success "$(fixture "$VIER_OK" "$VIER_UIT")"
 verwacht_poort "push buiten main blokkeert" 1 "alleen main" \
-  push refs/heads/thema false success true success "$(fixture "$DRIE_UIT" "$DRIE_OK")"
+  push refs/heads/thema false success true success "$(fixture "$VIER_UIT" "$VIER_OK")"
 
 for event in '' workflow_dispatch schedule; do
   verwacht_poort "onbekend event '$event' blokkeert" 1 "Onbekend event" \
-    "$event" "$MAIN" false success true success "$(fixture "$DRIE_OK" "$DRIE_OK")"
+    "$event" "$MAIN" false success true success "$(fixture "$VIER_OK" "$VIER_OK")"
 done
 
 # De merge queue rolt niets uit en bouwt niets: beide assen, de hulpjobs en de bouw-jobs stil.
@@ -130,87 +132,91 @@ QUEUE_REF=refs/heads/gh-readonly-queue/main/pr-7-0123456789abcdef0123456789abcde
 QUEUE_BOUW='skipped skipped skipped skipped'
 
 verwacht_poort "merge queue zonder uitrol is groen" 0 "geen uitrol verwacht" \
-  merge_group "$QUEUE_REF" false success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW")"
+  merge_group "$QUEUE_REF" false success false skipped "$(fixture "$VIER_UIT" "$VIER_UIT" "$QUEUE_BOUW")"
 verwacht_poort "merge queue met deploy=true blokkeert" 1 "detectie omgevallen" \
-  merge_group "$QUEUE_REF" false success true success "$(fixture "$DRIE_OK" "$DRIE_UIT" "$QUEUE_BOUW")"
+  merge_group "$QUEUE_REF" false success true success "$(fixture "$VIER_OK" "$VIER_UIT" "$QUEUE_BOUW")"
 verwacht_poort "merge queue buiten main blokkeert" 1 "alleen de queue van main" \
   merge_group refs/heads/gh-readonly-queue/thema/pr-7-abc false success false skipped \
-  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW")"
+  "$(fixture "$VIER_UIT" "$VIER_UIT" "$QUEUE_BOUW")"
 verwacht_poort "een draaiende preview in de merge queue blokkeert" 1 "'deploy-preview-uitvraag'" \
-  merge_group "$QUEUE_REF" false success false skipped "$(fixture "success skipped skipped" "$DRIE_UIT" "$QUEUE_BOUW")"
+  merge_group "$QUEUE_REF" false success false skipped "$(fixture "success skipped skipped skipped" "$VIER_UIT" "$QUEUE_BOUW")"
 verwacht_poort "een draaiende test-deploy in de merge queue blokkeert" 1 "niet hoort te draaien" \
-  merge_group "$QUEUE_REF" false success false skipped "$(fixture "$DRIE_UIT" "skipped skipped success" "$QUEUE_BOUW")"
+  merge_group "$QUEUE_REF" false success false skipped "$(fixture "$VIER_UIT" "skipped skipped success skipped" "$QUEUE_BOUW")"
 verwacht_poort "een draaiende preview-afronding in de merge queue blokkeert" 1 "preview-afronding" \
   merge_group "$QUEUE_REF" false success false skipped \
-  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW" success)"
+  "$(fixture "$VIER_UIT" "$VIER_UIT" "$QUEUE_BOUW" success)"
 verwacht_poort "een draaiende build in de merge queue blokkeert" 1 "'build-demo-images'" \
   merge_group "$QUEUE_REF" false success false skipped \
-  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "skipped skipped skipped success")"
+  "$(fixture "$VIER_UIT" "$VIER_UIT" "skipped skipped skipped success")"
 verwacht_poort "een ontbrekende build in de merge queue blokkeert" 1 "in plaats van 4" \
   merge_group "$QUEUE_REF" false success false skipped \
-  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW" | grep -v '^build-demo-images=')"
+  "$(fixture "$VIER_UIT" "$VIER_UIT" "$QUEUE_BOUW" | grep -v '^build-demo-images=')"
 verwacht_poort "afgebroken run in de merge queue blokkeert" 1 "run is afgebroken" \
-  merge_group "$QUEUE_REF" true success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT" "$QUEUE_BOUW")"
+  merge_group "$QUEUE_REF" true success false skipped "$(fixture "$VIER_UIT" "$VIER_UIT" "$QUEUE_BOUW")"
 
 # De as die bij dit event niet hoort te draaien moet volledig stil zijn; draait daar tóch iets,
 # dan matcht de `if` van die jobs breder dan bedoeld.
 verwacht_poort "een draaiende test-deploy op een PR blokkeert" 1 "niet hoort te draaien" \
-  pull_request "$PR_REF" false success true success "$(fixture "$DRIE_OK" "skipped success skipped")"
+  pull_request "$PR_REF" false success true success "$(fixture "$VIER_OK" "skipped success skipped skipped")"
 verwacht_poort "een draaiende preview op een push blokkeert" 1 "niet hoort te draaien" \
-  push "$MAIN" false success true success "$(fixture "skipped skipped failure" "$DRIE_OK")"
+  push "$MAIN" false success true success "$(fixture "skipped skipped failure skipped" "$VIER_OK")"
 
 # --- D. deploy-uitkomst --------------------------------------------------------------------------
 for waarde in '' True TRUE onzin; do
   verwacht_poort "deploy='$waarde' blokkeert" 1 "in plaats van true/false" \
-    pull_request "$PR_REF" false success "$waarde" skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT")"
+    pull_request "$PR_REF" false success "$waarde" skipped "$(fixture "$VIER_UIT" "$VIER_UIT")"
 done
 
 # Op een push valt de detectie altijd terug op alles-aan; deploy=false betekent daar dat ze is
 # omgevallen. Beide gevallen zijn beslissend: zonder de invariant meldt de poort hier groen.
 verwacht_poort "push met deploy=false en overgeslagen test-deploys blokkeert" 1 "detectie omgevallen" \
-  push "$MAIN" false success false success "$(fixture "$DRIE_UIT" "$DRIE_UIT")"
+  push "$MAIN" false success false success "$(fixture "$VIER_UIT" "$VIER_UIT")"
 verwacht_poort "push met deploy=false en overgeslagen gate blokkeert" 1 "detectie omgevallen" \
-  push "$MAIN" false success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT")"
+  push "$MAIN" false success false skipped "$(fixture "$VIER_UIT" "$VIER_UIT")"
 
 # --- E. tak "geen uitrol verwacht" (PR, deploy=false) ---------------------------------------------
 verwacht_poort "PR zonder uitrolbare wijziging: alles overgeslagen" 0 "geen uitrol verwacht" \
-  pull_request "$PR_REF" false success false skipped "$(fixture "$DRIE_UIT" "$DRIE_UIT")"
+  pull_request "$PR_REF" false success false skipped "$(fixture "$VIER_UIT" "$VIER_UIT")"
 verwacht_poort "PR zonder uitrolbare wijziging maar gate viel om" 1 "kwaliteitspoort eindigde als 'failure'" \
-  pull_request "$PR_REF" false success false failure "$(fixture "$DRIE_UIT" "$DRIE_UIT")"
+  pull_request "$PR_REF" false success false failure "$(fixture "$VIER_UIT" "$VIER_UIT")"
 verwacht_poort "PR zonder uitrolbare wijziging maar gate geannuleerd" 1 "kwaliteitspoort eindigde als 'cancelled'" \
-  pull_request "$PR_REF" false success false cancelled "$(fixture "$DRIE_UIT" "$DRIE_UIT")"
+  pull_request "$PR_REF" false success false cancelled "$(fixture "$VIER_UIT" "$VIER_UIT")"
 
 # Het afwijkende resultaat op elke positie, anders bewijst de test alleen dat de lus bij het
 # eerste element stopt.
 verwacht_poort "uitrol op positie 1 draaide toch" 1 "'deploy-preview-uitvraag'" \
-  pull_request "$PR_REF" false success false skipped "$(fixture "success skipped skipped" "$DRIE_UIT")"
+  pull_request "$PR_REF" false success false skipped "$(fixture "success skipped skipped skipped" "$VIER_UIT")"
 verwacht_poort "uitrol op positie 2 draaide toch" 1 "'deploy-preview-externe-stubs'" \
-  pull_request "$PR_REF" false success false skipped "$(fixture "skipped failure skipped" "$DRIE_UIT")"
+  pull_request "$PR_REF" false success false skipped "$(fixture "skipped failure skipped skipped" "$VIER_UIT")"
 verwacht_poort "uitrol op positie 3 draaide toch" 1 "'deploy-preview-magazijnen'" \
-  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped success" "$DRIE_UIT")"
+  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped success skipped" "$VIER_UIT")"
+verwacht_poort "uitrol op positie 4 draaide toch" 1 "'deploy-preview-stelselregister'" \
+  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped skipped success" "$VIER_UIT")"
 
 # --- F. tak "uitrol verwacht" ---------------------------------------------------------------------
 for gate in failure skipped cancelled ''; do
   verwacht_poort "gate='$gate' bij een verwachte uitrol blokkeert" 1 "er is niet uitgerold" \
-    pull_request "$PR_REF" false success true "$gate" "$(fixture "$DRIE_OK" "$DRIE_UIT")"
+    pull_request "$PR_REF" false success true "$gate" "$(fixture "$VIER_OK" "$VIER_UIT")"
 done
 
 # 'skipped' is hoe een gevallen of verdrongen build zich hier toont: die jobs staan wél in de
 # needs (voor de diagnose) maar niet op de uitrol-as, dus de uitrol-jobs slaan over via hun `if`.
 for resultaat in failure skipped cancelled ''; do
   verwacht_poort "uitrol-job '$resultaat' op positie 1 blokkeert" 1 "'deploy-preview-uitvraag'" \
-    pull_request "$PR_REF" false success true success "$(fixture "${resultaat:--} success success" "$DRIE_UIT")"
+    pull_request "$PR_REF" false success true success "$(fixture "${resultaat:--} success success success" "$VIER_UIT")"
   verwacht_poort "uitrol-job '$resultaat' op positie 2 blokkeert" 1 "'deploy-preview-externe-stubs'" \
-    pull_request "$PR_REF" false success true success "$(fixture "success ${resultaat:--} success" "$DRIE_UIT")"
+    pull_request "$PR_REF" false success true success "$(fixture "success ${resultaat:--} success success" "$VIER_UIT")"
   verwacht_poort "uitrol-job '$resultaat' op positie 3 blokkeert" 1 "'deploy-preview-magazijnen'" \
-    pull_request "$PR_REF" false success true success "$(fixture "success success ${resultaat:--}" "$DRIE_UIT")"
+    pull_request "$PR_REF" false success true success "$(fixture "success success ${resultaat:--} success" "$VIER_UIT")"
+  verwacht_poort "uitrol-job '$resultaat' op positie 4 blokkeert" 1 "'deploy-preview-stelselregister'" \
+    pull_request "$PR_REF" false success true success "$(fixture "success success success ${resultaat:--}" "$VIER_UIT")"
 done
 
 # De bouw-jobs zijn de gebruikelijke oorzaak van een overgeslagen uitrol; hun stand hoort in de
 # melding te staan, anders wijst de fout naar het gevolg in plaats van naar de oorzaak.
 verwacht_poort "een verdrongen build staat in de melding" 1 "bouw: build=cancelled" \
   pull_request "$PR_REF" false success true success \
-  "$(fixture "$DRIE_UIT" "$DRIE_UIT" "cancelled success success success")"
+  "$(fixture "$VIER_UIT" "$VIER_UIT" "cancelled success success success")"
 
 # --- F2. de hulpjobs van een preview --------------------------------------------------------------
 # `preview-klaarzetten` (deployments en netwerkregels vóór de eerste uitrol) en `preview-afronding`
@@ -230,21 +236,21 @@ for job in preview-klaarzetten preview-afronding; do
   for resultaat in failure cancelled skipped ''; do
     verwacht_poort "$job '$resultaat' bij een verwachte preview blokkeert" 1 "$job" \
       pull_request "$PR_REF" false success true success \
-      "$(hulp_fixture "$job" "${resultaat:--}" "$DRIE_OK" "$DRIE_UIT")"
+      "$(hulp_fixture "$job" "${resultaat:--}" "$VIER_OK" "$VIER_UIT")"
   done
 
   # Ontbreekt de job in de needs van de poort, dan leest zijn resultaat als leeg en zou een
   # stilzwijgend verdwenen job groen doorgaan.
   verwacht_poort "$job niet in needs blokkeert" 1 "ontbreekt" \
     pull_request "$PR_REF" false success true success \
-    "$(fixture "$DRIE_OK" "$DRIE_UIT" | grep -v "^$job=")"
+    "$(fixture "$VIER_OK" "$VIER_UIT" | grep -v "^$job=")"
 
   # De andere kant op: een test-deployment krijgt zijn regels op projectniveau, dus daar hoort de job
   # stil te blijven. Draait hij tóch, dan matcht zijn `if` breder dan bedoeld.
   verwacht_poort "een draaiende $job op een push blokkeert" 1 "$job" \
-    push "$MAIN" false success true success "$(hulp_fixture "$job" success "$DRIE_UIT" "$DRIE_OK")"
+    push "$MAIN" false success true success "$(hulp_fixture "$job" success "$VIER_UIT" "$VIER_OK")"
   verwacht_poort "een draaiende $job zonder uitrol blokkeert" 1 "$job" \
-    pull_request "$PR_REF" false success false skipped "$(hulp_fixture "$job" success "$DRIE_UIT" "$DRIE_UIT")"
+    pull_request "$PR_REF" false success false skipped "$(hulp_fixture "$job" success "$VIER_UIT" "$VIER_UIT")"
 done
 
 # --- G. kardinaliteit, op beide assen -------------------------------------------------------------
@@ -253,28 +259,61 @@ build-externe-stubs=success
 build-contract-bootstrap=success
 build-demo-images=success'
 
-verwacht_poort "nul previews in needs blokkeert" 1 "in plaats van 3" \
-  pull_request "$PR_REF" false success true success "$BOUW"
-verwacht_poort "één preview in needs blokkeert" 1 "in plaats van 3" \
-  pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
+# De stille as staat er in elk geval compleet bij. De poort beoordeelt die as eerst; ontbreekt hij,
+# dan keurt de poort daar al af met "0 uitrol-jobs gevonden" en bewijst de test niets over de as
+# waar het om gaat. De verwachting noemt daarom het getelde aantal, niet alleen het verwachte.
+TEST_STIL='deploy-test-uitvraag=skipped
+deploy-test-externe-stubs=skipped
+deploy-test-magazijnen=skipped
+deploy-test-stelselregister=skipped'
+PREVIEW_STIL='deploy-preview-uitvraag=skipped
+deploy-preview-externe-stubs=skipped
+deploy-preview-magazijnen=skipped
+deploy-preview-stelselregister=skipped'
+HULP='preview-klaarzetten=success
+preview-afronding=success'
+
+verwacht_poort "nul previews in needs blokkeert" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+  pull_request "$PR_REF" false success true success "$TEST_STIL
+$HULP
 $BOUW"
-verwacht_poort "twee previews in needs blokkeert" 1 "in plaats van 3" \
+verwacht_poort "één preview in needs blokkeert" 1 "1 uitrol-jobs gevonden in plaats van 4" \
+  pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
+$TEST_STIL
+$HULP
+$BOUW"
+verwacht_poort "twee previews in needs blokkeert" 1 "2 uitrol-jobs gevonden in plaats van 4" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
+$TEST_STIL
+$HULP
 $BOUW"
-verwacht_poort "vier previews in needs blokkeert" 1 "in plaats van 3" \
-  pull_request "$PR_REF" false success true success "$(fixture "$DRIE_OK" "$DRIE_UIT")
-deploy-preview-nieuw=success"
-verwacht_poort "nul test-deploys in needs blokkeert op een push" 1 "in plaats van 3" \
-  push "$MAIN" false success true success "$BOUW"
-verwacht_poort "twee test-deploys in needs blokkeert op een push" 1 "in plaats van 3" \
-  push "$MAIN" false success true success "deploy-test-uitvraag=success
-deploy-test-externe-stubs=success
-$BOUW"
-verwacht_poort "een ontbrekende stille as blokkeert ook" 1 "in plaats van 3" \
+# Het geval van de dag dat er een project bijkomt: drie van de vier jobs op de actieve as.
+verwacht_poort "drie previews in needs blokkeert" 1 "3 uitrol-jobs gevonden in plaats van 4" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
 deploy-preview-magazijnen=success
+$TEST_STIL
+$HULP
+$BOUW"
+verwacht_poort "vijf previews in needs blokkeert" 1 "5 uitrol-jobs gevonden in plaats van 4" \
+  pull_request "$PR_REF" false success true success "$(fixture "$VIER_OK" "$VIER_UIT")
+deploy-preview-nieuw=success"
+verwacht_poort "nul test-deploys in needs blokkeert op een push" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+  push "$MAIN" false success true success "$PREVIEW_STIL
+$BOUW"
+verwacht_poort "drie test-deploys in needs blokkeert op een push" 1 "3 uitrol-jobs gevonden in plaats van 4" \
+  push "$MAIN" false success true success "deploy-test-uitvraag=success
+deploy-test-externe-stubs=success
+deploy-test-magazijnen=success
+$PREVIEW_STIL
+$BOUW"
+verwacht_poort "een ontbrekende stille as blokkeert ook" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+  pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
+deploy-preview-externe-stubs=success
+deploy-preview-magazijnen=success
+deploy-preview-stelselregister=success
+$HULP
 $BOUW"
 
 # --- H. onbruikbare invoer -------------------------------------------------------------------------
@@ -316,21 +355,21 @@ direct() {
   local changes=$1 deploy=$2 previews=$3
 
   EVENT=pull_request REF="$PR_REF" CANCELLED=false CHANGES="$changes" DEPLOY="$deploy" \
-    GATE=success NEEDS="$(needs_json "$(fixture "$previews" "$DRIE_UIT")")" \
+    GATE=success NEEDS="$(needs_json "$(fixture "$previews" "$VIER_UIT")")" \
     "$HERE/uitrol-poort.sh" 2>&1
 }
 
 rc=0
-uitvoer=$(direct success true "$DRIE_OK") || rc=$?
+uitvoer=$(direct success true "$VIER_OK") || rc=$?
 
-if [ "$rc" = 0 ] && [[ $uitvoer == *"Alle 3 uitrol-jobs geslaagd"* ]]; then
+if [ "$rc" = 0 ] && [[ $uitvoer == *"Alle 4 uitrol-jobs geslaagd"* ]]; then
   ok "directe uitvoering velt het positieve oordeel"
 else
   mislukt "directe uitvoering gaf rc=$rc zonder verdict: $(tr '\n' ' ' <<<"$uitvoer")"
 fi
 
 rc=0
-uitvoer=$(direct failure true "$DRIE_OK") || rc=$?
+uitvoer=$(direct failure true "$VIER_OK") || rc=$?
 
 if [ "$rc" = 1 ] && [[ $uitvoer == *"::error::"* ]]; then
   ok "directe uitvoering blokkeert en annoteert"

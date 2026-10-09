@@ -17,7 +17,7 @@ run groen en blijft de preview staan):**
 `berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`, `toxiproxy-aanmeld`, `toxiproxy-redis`),
 `magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`, `demopersonas`,
 `magazijnsimulator`, `proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
-`toxiproxy-profiel`, `toxiproxy-notificatie`).
+`toxiproxy-profiel`, `toxiproxy-notificatie`), `stelselregister` = `mpfs-rab` (`stelselregister`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Een draft-PR krijgt geen preview; die rolt uit zodra de PR ready for review is. Previews worden
 opgeruimd door `cleanup-preview.yml` bij het sluiten van de PR; een gemiste opruiming haal je in
@@ -99,7 +99,7 @@ xattr -d com.apple.quarantine ~/.local/bin/zadctl 2>/dev/null || true   # zonder
 zadctl --version
 
 zadctl login                    # SSO (Keycloak); de ZAD_API_KEY_*-secrets zijn niet lokaal leesbaar
-zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl; schrijft .env.zadctl (0600, gitignored)
+zadctl project use mpfb-8wh     # of mpfm-w3h / mpfpsm-lcl / mpfs-rab; schrijft .env.zadctl (0600, gitignored)
 ```
 
 **Inloggen vanuit een container** (onze dev-omgeving): `zadctl login` zet een loopback-listener

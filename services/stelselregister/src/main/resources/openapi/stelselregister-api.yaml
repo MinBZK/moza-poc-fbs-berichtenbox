@@ -1,0 +1,352 @@
+openapi: 3.0.3
+info:
+  title: FBS Stelselregister API
+  version: 0.1.0
+  description: |
+    Publiceert welke organisaties aan het Federatief Berichtenstelsel (FBS) deelnemen en waar hun
+    berichtenmagazijn staat, als **stelseldocument**: één document, ondertekend door de
+    stelselbeheerder. Een app die berichten rechtstreeks bij de magazijnen ophaalt, leest hier
+    welke magazijnen er zijn en controleert aan de handtekening dat de lijst van de
+    stelselbeheerder komt en onderweg niet is gewijzigd.
+
+    De vorm volgt de conceptstandaard BK Connect (draft-00). Wat die standaard aan een
+    toepassingsprofiel overlaat — pad, vorm van de handtekening, sleuteldistributie en
+    geldigheidsduur — staat in `docs/stelseldocument-toepassingsprofiel.md` in de repository.
+
+    ## Wat het document wel en niet zegt
+
+    Het document is een **ondertekende adreslijst**. Het zegt welke organisaties meedoen en op
+    welk adres hun magazijn staat. Het bevat nog geen sleutels van die organisaties: ontleen er
+    dus geen vertrouwen in een magazijn aan. De verbinding met een magazijn is zo betrouwbaar als
+    de TLS eronder.
+
+    ## Vorm
+
+    Het antwoord op `GET /stelseldocument` is een JWS in compacte serialisatie
+    (`application/jose`): drie base64url-delen, gescheiden door een punt. Het middelste deel is de
+    JSON-payload (schema `StelseldocumentPayload`), het eerste de header (schema
+    `StelseldocumentHeader`). De veldnamen in de payload zijn Engels en snake_case, omdat ze uit
+    de standaard komen.
+
+    ## Het document verifiëren
+
+    Voer deze zes stappen uit in deze volgorde, en weiger het document zodra er één faalt.
+
+    1. De header bevat uitsluitend `alg`, `typ`, `kid` en `x5c`, met `alg` exact `ES256` en `typ`
+       exact `stelseldocument+jwt`. Weiger een document met enig ander headerveld, zoals `jku`,
+       `jwk`, `x5u` of `crit`, en haal nooit een sleutel op via zo'n veld. De sleutel komt uit
+       `x5c`; `kid` en de sleutelset spelen bij de verificatie geen rol.
+    2. Valideer het certificaatpad in `x5c` tot de root die je vooraf hebt vastgelegd, volgens
+       RFC 5280 §6. Dat is meer dan controleren dat elke handtekening in de keten klopt: elk
+       certificaat na het eerste moet een CA zijn (`basicConstraints` met `CA:TRUE`, sleutelgebruik
+       `keyCertSign`) en een padlengte-beperking moet gerespecteerd worden; het eerste certificaat
+       is geen CA en heeft sleutelgebruik `digitalSignature`; elk certificaat is op dit moment
+       geldig. Gebruik hiervoor een X.509-bibliotheek. WebCrypto en de meeste JOSE-bibliotheken
+       doen deze stap niet. De root staat niet in `x5c` en komt niet van deze dienst: je legt hem
+       vast bij het bouwen van je app.
+    3. Controleer de handtekening met de publieke sleutel uit het eerste certificaat in `x5c`.
+       Zonder stap 2 bewijst deze stap niets: het document levert die sleutel zelf aan.
+    4. Het subject van dat certificaat bevat precies één `serialNumber` (OID 2.5.4.5), en dat is
+       de OIN van de stelselbeheerder die je verwacht; `iss` heeft dezelfde waarde. Sla deze stap
+       niet over: onder een root die ook andere certificaten uitgeeft, kan elke houder daarvan
+       anders een document ondertekenen dat zich als de stelselbeheerder voordoet.
+    5. `environment` is de omgeving waarvoor je app gebouwd is. Een document uit een demo- of
+       testomgeving kan onder dezelfde root en dezelfde OIN zijn ondertekend.
+    6. `iat` ligt niet meer dan 60 seconden in de toekomst, `exp` ligt niet meer dan 24 uur na
+       `iat`, `exp` is niet voorbij, en `iat` is niet ouder dan dat van het laatste exemplaar dat
+       je accepteerde. De grens op `iat` en op de geldigheid is geen formaliteit: wie de sleutel
+       in handen krijgt, kiest die waarden zelf.
+
+    `version` is een kenmerk van de inhoud en heeft geen rol in de verificatie.
+
+    `/.well-known/jwks.json` toont de publieke sleutels van deze dienst, als gemak voor wie ze wil
+    inzien. Het is geen bron van vertrouwen: het komt van hetzelfde adres als het document.
+
+    ## Verversen
+
+    Een document is 24 uur geldig en wordt elk uur opnieuw uitgegeven. `version` verandert alleen
+    als de inhoud verandert; `iat` bij elke uitgifte. Haal ruim vóór `exp` een nieuw exemplaar op,
+    bijvoorbeeld elk uur, en gebruik `If-None-Match` met de `ETag` van je laatste exemplaar om
+    alleen een nieuw document te krijgen als er één is.
+
+    Een wijziging in het register komt in het document zodra de stelselbeheerder de dienst opnieuw
+    heeft gestart. Een organisatie die uit het register verdwijnt, staat daarna uiterlijk 24 uur
+    nog in het exemplaar dat een app al had.
+
+    ## Buiten deze API
+
+    Twee paden staan los van `/api/v1` en dragen geen `API-Version`:
+
+    - `GET /.well-known/jwks.json` — de publieke sleutels (RFC 7517), `application/jwk-set+json`.
+    - `GET /.well-known/security.txt` — verwijst door naar het centrale meldpunt (RFC 9116).
+
+    ## Foutantwoorden herkennen
+
+    Elk foutantwoord onder `/api/v1` is `application/problem+json` (RFC 9457) en draagt in `type`
+    een kenmerk van de vorm `urn:fbs:fout:<code>`. Stuur je gedrag op `type`, niet op `title` of
+    `detail`. Buiten `/api/v1` antwoordt de HTTP-laag zelf, zonder problem-document.
+
+    | `type` | Status | Situatie |
+    |---|---|---|
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad onder `/api/v1` bestaat niet |
+    | `urn:fbs:fout:ongeldig-verzoek` | 405, 406 | Een andere methode dan `GET`, of een `Accept` die `application/jose` uitsluit |
+    | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Er is op dit moment geen geldig document |
+    | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
+  contact:
+    name: MijnOverheid Zakelijk
+    email: moza@minbzk.nl
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+  license:
+    name: EUPL-1.2
+    url: https://eupl.eu/1.2/nl/
+  x-api-id: nl.rijksoverheid.moz.fbs.stelselregister
+  x-summary: Het ondertekende stelseldocument met de deelnemende magazijnen
+
+# ADR nlgov:servers-use-https — bewust afgeweken (pas-toe-of-leg-uit): de API wordt
+# achter een TLS-terminerende gateway geserveerd, waardoor de externe https-host per
+# omgeving verschilt. De relatieve base-path is omgeving-onafhankelijk.
+servers:
+  - url: /api/v1
+    description: Base-path; de host verschilt per omgeving
+
+tags:
+  - name: Stelseldocument
+    description: Het ondertekende document met de deelnemende organisaties en hun magazijn
+
+paths:
+  /stelseldocument:
+    get:
+      tags: [Stelseldocument]
+      operationId: getStelseldocument
+      summary: Haal het geldende stelseldocument op
+      description: |
+        Levert het geldende stelseldocument als JWS in compacte serialisatie. Het antwoord is
+        publiek en mag kort gecachet worden. Zie de API-beschrijving voor de stappen waarmee je de
+        handtekening controleert.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: De `ETag` van het exemplaar dat je al hebt; bij een ongewijzigd document volgt `304`.
+          schema:
+            type: string
+            maxLength: 512
+      responses:
+        '200':
+          description: Het geldende stelseldocument
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Vary:
+              $ref: '#/components/headers/Vary'
+          content:
+            application/jose:
+              schema:
+                type: string
+                description: JWS compact (`header.payload.signature`), elk deel base64url zonder opvulling
+                pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+        '304':
+          description: Het document is niet gewijzigd sinds de meegegeven `ETag`
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Vary:
+              $ref: '#/components/headers/Vary'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  headers:
+    API-Version:
+      description: De volledige versie van deze API (semver)
+      schema:
+        type: string
+        example: 0.1.0
+    ETag:
+      description: Zwakke validator van dit exemplaar; verandert bij elke uitgifte
+      schema:
+        type: string
+        example: W/"q1w2e3"
+    Cache-Control:
+      description: Het document is publiek en mag kort bewaard worden
+      schema:
+        type: string
+        example: public, max-age=300
+    Vary:
+      description: |
+        Altijd `Origin`: het antwoord draagt alleen CORS-headers als het verzoek een `Origin` had,
+        en een gedeelde cache moet die twee uit elkaar houden.
+      schema:
+        type: string
+        example: Origin
+    Retry-After:
+      description: Aantal seconden waarna opnieuw proberen zin heeft
+      schema:
+        type: integer
+
+  schemas:
+    # StelseldocumentHeader en StelseldocumentPayload hangen aan geen enkel pad: OpenAPI 3.0 kan
+    # geen schema aan een `application/jose`-body koppelen. Spectral meldt ze daarom als ongebruikt.
+    # Ze zijn wel contract: de contracttest decodeert de JWS en legt beide delen ertegen.
+    StelseldocumentHeader:
+      type: object
+      description: De JWS-header van het stelseldocument. Bevat precies deze vier velden.
+      required: [alg, typ, kid, x5c]
+      additionalProperties: false
+      properties:
+        alg:
+          type: string
+          enum: [ES256]
+        typ:
+          type: string
+          enum: [stelseldocument+jwt]
+        kid:
+          type: string
+          description: RFC 7638-thumbprint van de ondertekensleutel
+          pattern: '^[A-Za-z0-9_-]{43}$'
+        x5c:
+          type: array
+          description: |
+            De certificaatketen van het ondertekencertificaat, zonder de root. Het eerste element
+            is het ondertekencertificaat. Elk element is een DER-certificaat in standaard base64.
+          minItems: 1
+          items:
+            type: string
+
+    StelseldocumentPayload:
+      type: object
+      description: De inhoud van het stelseldocument.
+      required: [iss, iat, exp, version, environment, organizations, app_managers, document_types]
+      additionalProperties: false
+      properties:
+        iss:
+          type: string
+          description: OIN van de stelselbeheerder die het document ondertekende
+          pattern: '^[0-9]{20}$'
+        iat:
+          type: integer
+          format: int64
+          description: Moment van uitgifte, in seconden sinds 1970-01-01T00:00:00Z
+        exp:
+          type: integer
+          format: int64
+          description: Moment waarna het document niet meer geldt, in seconden sinds 1970-01-01T00:00:00Z
+        version:
+          type: string
+          description: |
+            Kenmerk van de inhoud (`organizations`, `app_managers`, `document_types`). Gelijke
+            inhoud geeft een gelijke waarde; `iat` ordent twee exemplaren.
+          pattern: '^[A-Za-z0-9_-]{43}$'
+        environment:
+          type: string
+          description: |
+            De omgeving waarvoor dit document is uitgegeven. Een demo- of previewdocument bevat
+            fictieve organisatienummers; gebruik het niet buiten die omgeving.
+          minLength: 1
+        organizations:
+          type: array
+          description: De deelnemende organisaties, gesorteerd op OIN
+          items:
+            $ref: '#/components/schemas/Organisatie'
+        app_managers:
+          type: array
+          description: De toegelaten app-beheerders. Nog leeg.
+          items:
+            type: object
+        document_types:
+          type: array
+          description: De soorten documenten die in dit stelsel worden uitgewisseld
+          items:
+            $ref: '#/components/schemas/Documentsoort'
+
+    Organisatie:
+      type: object
+      required: [oin, name, magazijn_url]
+      additionalProperties: false
+      properties:
+        oin:
+          type: string
+          description: Organisatie-identificatienummer
+          pattern: '^[0-9]{20}$'
+        name:
+          type: string
+          description: Weergavenaam van de organisatie
+          minLength: 1
+        magazijn_url:
+          type: string
+          format: uri
+          description: Het publieke adres van het berichtenmagazijn van deze organisatie
+
+    Documentsoort:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    Problem:
+      type: object
+      description: |
+        RFC 9457 Problem Details. `type`, `title` en `status` zijn de stabiele velden waar clients
+        op kunnen koppelen; `detail` en `instance` zijn diagnostisch.
+      required: [type, title, status]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          format: uri
+          default: "about:blank"
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+
+  responses:
+    NotAcceptable:
+      description: De `Accept`-header sluit `application/jose` uit
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalServerError:
+      description: Onverwachte fout; `instance` draagt de correlatie-id
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Er is op dit moment geen geldig stelseldocument beschikbaar
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        Retry-After:
+          $ref: '#/components/headers/Retry-After'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

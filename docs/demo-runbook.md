@@ -25,11 +25,11 @@ ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikk
 
 ## 2. Images bouwen (jib, geen Dockerfile)
 
-De demo draait de vijf eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
+De demo draait de zes eigen services als container-image (`fbs-demo/…:demo`). Bouw ze met jib:
 
 ```bash
 ./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,services/stelselregister,demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo \
   -Dquarkus.jib.platforms=linux/arm64        # alleen op Apple Silicon
@@ -140,9 +140,9 @@ Twee beperkingen daarbij:
   authenticatie en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
 
 Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
-controleert dat die de gestapelde bestanden aankan, controleert dat de vier demo-images gebouwd
-zijn, genereert de stub-artefacten, en controleert na elke start dat elke container draait. Redis,
-de vier Postgres-instanties, de profiel-stub, de magazijn-simulator, Toxiproxy en de vijf services
+controleert dat die de gestapelde bestanden aankan, controleert dat de demo-images gebouwd
+zijn, genereert de stub-artefacten en de sleutelketen van het stelselregister, en controleert na elke start dat elke container draait. Redis,
+de vier Postgres-instanties, de profiel-stub, de magazijn-simulator, Toxiproxy en de services
 worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
 
 Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
@@ -196,6 +196,7 @@ docker compose -f compose.yaml -f compose.podman.yaml --profile demo down
 | demo-console | 8095 | Bedieningspaneel + Berichtenbox-UI |
 | berichtenuitvraag | 8086 | Ophalen/tonen/beheren van berichten |
 | berichtenmagazijn-a / -b | 8090 / 8091 | Twee echte magazijnen (RVO / Belastingdienst) |
+| stelselregister | 8094 | Het magazijnregister als ondertekend stelseldocument (`/api/v1/stelseldocument`); de root om het te verifiëren staat in `demo/environment/stelselregister/pki/out/root.pem` |
 | magazijn-simulator | 8092 | Eén service die n gesimuleerde magazijnen bedient, elk op `/magazijn/<OIN>`; slaat echt op en kan per magazijn traag, haperend of onbereikbaar zijn |
 | magazijn-a / -b (WireMock) | 8081 / 8082 | Overblijfsel-stubs; starten óók zonder `--profile demo`, maar niets bevraagt ze |
 | toxiproxy | 8474 (admin) | Netwerkstoringen tussen uitvraag/magazijn en afhankelijkheden |

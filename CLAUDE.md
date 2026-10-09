@@ -30,7 +30,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 
 ## Architectuurprincipes
 
-- **OpenAPI-first:** De OpenAPI spec per service (`berichtenuitvraag-api.yaml`, `berichtenmagazijn-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze. De sessiecache en het magazijnregister zijn interne libraries zonder eigen API-spec: hun CDI-facades (`Sessiecache`, `Magazijnregister`) zijn daar het contract.
+- **OpenAPI-first:** De OpenAPI spec per service (`berichtenuitvraag-api.yaml`, `berichtenmagazijn-api.yaml`, `stelselregister-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze. De sessiecache en het magazijnregister zijn interne libraries zonder eigen API-spec: hun CDI-facades (`Sessiecache`, `Magazijnregister`) zijn daar het contract.
 - **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`. Spec valideren met Spectral-linter (zie Tooling).
 - **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
@@ -44,7 +44,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **GroupId:** `nl.rijksoverheid.moz`
 - **Packages:** `nl.rijksoverheid.moz.fbs.<module-naam>.*` — `fbs` reserveert een productnamespace onder de MOZ-organisatie-groupId, zowel voor services als voor gedeelde libraries.
 - **Monorepo structuur:** drie module-roots met elk een betekenis: `services/<service-naam>/` en `libraries/<library-naam>/` vormen het stelsel, `demo/<module-naam>/` bevat demonstratiecode die nooit in productie draait. `.github/scripts/demo-grens.sh` faalt zodra een pom van het stelsel de naam van een demo-module noemt — als dependency, parent of plugin; andersom mag wel.
-- **Actieve modules:** `services/berichtenmagazijn` en `services/berichtenuitvraag`; demonstratiecode in `demo/demo-console` (bedieningspaneel voor demo's), `demo/demo-personas` (de demo-identiteiten, als eigen dienst zodat een berichtenbox ze kan lezen zonder bij het paneel te kunnen) en `demo/magazijn-simulator` (één service die zich als veel magazijnen voordoet, zie `demo/README.md`). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers, de Profiel-serviceclient met voorkeuren en toestemming, de FSC-outway-headers en -TLS-validatie, en de LDV-validators), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
+- **Actieve modules:** `services/berichtenmagazijn`, `services/berichtenuitvraag` en `services/stelselregister` (publiceert het magazijnregister als ondertekend stelseldocument; geen persoonsgegevens, geen database); demonstratiecode in `demo/demo-console` (bedieningspaneel voor demo's), `demo/demo-personas` (de demo-identiteiten, als eigen dienst zodat een berichtenbox ze kan lezen zonder bij het paneel te kunnen) en `demo/magazijn-simulator` (één service die zich als veel magazijnen voordoet, zie `demo/README.md`). Gedeelde libraries: `libraries/fbs-common` (JAX-RS filters, exception mappers, identificatienummers, de Profiel-serviceclient met voorkeuren en toestemming, de FSC-outway-headers en -TLS-validatie, en de LDV-validators), `libraries/fbs-magazijnregister` (1:1-koppeling afzender-OIN ↔ magazijn achter de `Magazijnregister`-facade) en `libraries/fbs-berichtensessiecache` (in-process sessiecache achter de `Sessiecache`-facade; alles daarbinnen is `internal`).
 - **Magazijnregister:** één magazijn per deelnemende organisatie; het `magazijnId` dat door DTO's/SSE stroomt ís de afzender-OIN (publiek, geen PII). Config-conventie: `magazijnen."<OIN>".{url,naam}` — de map-key is de OIN, dus dubbele OIN's zijn structureel onmogelijk. Beide velden zijn verplicht: `naam` is de weergavenaam die de ondernemer bij elk bericht ziet. `ConfigMagazijnregister` valideert keys/URLs/namen fail-fast bij boot (https-eis buiten dev/test). Consumers (sessiecache-aggregatie, `MagazijnRouter`-routering) lezen uitsluitend de `Magazijnregister`-facade; database-opslag + beheer-interface volgen later.
 - **Gegenereerde code:** `target/generated-sources/openapi/` — nooit handmatig aanpassen
 - **Bestandsnamen:** geen spaties in bestands- of mapnamen; gebruik `kebab-case` of `snake_case` (documentatie/markdown/configuratie) of `PascalCase`/`camelCase` (Kotlin/Java sources) — zodat shellscripts, build-tools en CI-pipelines zonder quoting werken.
@@ -126,12 +126,13 @@ class Voorbeeld {
 ## Quarkus configuratie
 
 - **Security-headers staan op de Vert.x-laag, niet in config of een JAX-RS-filter:** `fbs-common/SecurityHeaders` bepaalt de waarden, `SecurityHeadersRegistratie` plaatst ze via een `headersEndHandler` met `set`. Dat is de enige laag waar een header te *vervangen* is; `quarkus.http.header.*` en `quarkus.http.filter.*` vóegen toe en kennen bovendien één pad per headernaam. Twee lagen naast elkaar leverde eerder elke header dubbel op — en twee CSP-headers doorsnijdt een browser tot de strengste, dus een padspecifieke waarde is zo niet uit te drukken. Voeg security-headers voor de **stelsel-diensten** dus niet toe in `application.properties` of in een `ContainerResponseFilter`. De demo-modules hangen bewust niet aan `fbs-common` en zetten ze wél in hun eigen `application.properties` — daar is dat de juiste plek.
-- **`SecurityHeadersRegistratie` staat per dienst, niet in fbs-common:** alleen de wáárden zijn gedeeld. Elke consumer van `fbs-common` erft de jandex-index en dus elke bean daarin, ook `fbs-berichtensessiecache` — een library die een Quarkus zónder HTTP-laag start en daardoor omviel op een `ClassNotFoundException` voor `Filters` (de Vert.x-runtime stond er als `provided` niet op). Een bibliotheek die door niet-HTTP-consumers wordt gebruikt, hoort geen HTTP-bedrading te bevatten. De twee kopieën moeten identiek blijven; een derde dienst krijgt zijn eigen kopie.
+- **`SecurityHeadersRegistratie` staat per dienst, niet in fbs-common:** alleen de wáárden zijn gedeeld. Elke consumer van `fbs-common` erft de jandex-index en dus elke bean daarin, ook `fbs-berichtensessiecache` — een library die een Quarkus zónder HTTP-laag start en daardoor omviel op een `ClassNotFoundException` voor `Filters` (de Vert.x-runtime stond er als `provided` niet op). Een bibliotheek die door niet-HTTP-consumers wordt gebruikt, hoort geen HTTP-bedrading te bevatten. De kopieën (magazijn, uitvraag, stelselregister) moeten identiek blijven; een volgende dienst krijgt zijn eigen kopie.
 - **CSP verschilt per pad:** API-paden (inclusief `/openapi.json`) krijgen `default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`; alles onder het non-application root-pad (`/q`) houdt alleen `frame-ancestors 'none'`, want Swagger UI en de dev-UI laden hun eigen script en stylesheet. Let op: Quarkus levert `quarkus.http.non-application-root-path` relatief terug (`q`, niet `/q`).
 - **Een `inline`-bijlage mag same-origin geframed worden:** die responses krijgen `SAMEORIGIN` + `frame-ancestors 'self'` (plus `img-src`/`object-src 'self'`, anders blijft de weergave leeg). De beslissing hangt aan de `Content-Disposition` die er al op staat en niet aan het pad — zo zijn "mag getoond worden" en "mag ingesloten worden" per definitie dezelfde verzameling. Toegestaan binnen NCSC U/PW.03-04 (`SAMEORIGIN` "indien functioneel noodzakelijk"; `frame-ancestors: none of self`); een benóémde vreemde origin mag niet, die haalt de internet.nl-toets niet.
 - **`/openapi.json` expliciet configureren:** ADR-vereiste; default Quarkus-path is `/q/openapi`. Beide services hebben `quarkus.smallrye-openapi.path=/openapi.json`.
 - **`quarkus.jackson.serialization-inclusion=non_null`:** optionele HAL-velden (bv. `_links.next` op laatste pagina) moeten afwezig zijn i.p.v. `null`, anders faalt `swagger-request-validator` op de Problem-schema-check.
 - **Dynamic Content-Type pattern:** voor endpoints met variabel MIME-type (bv. bijlage-download) — OpenAPI `content: '*/*':` + een `ContainerResponseFilter` die `Content-Type` overschrijft uit een unieke request-property. **NameBinding (`@NameBinding`) werkt niet** op override-methodes vanuit gegenereerde JAX-RS interfaces in Quarkus REST; property-driven gating is de werkbare guard (zie `BijlageContentTypeFilter`).
+- **Een dienst zonder logboek zet `fbs.logboek.afwezig=true`:** `fbs-common` levert ook onderdelen voor diensten die persoonsgegevens verwerken. Het stelselregister doet dat niet en sluit ze uit: de validators via `quarkus.arc.exclude-types`, en `LogboekContextDefaultFilter` via deze build-time-property — `exclude-types` haalt een JAX-RS-provider wel uit CDI maar niet uit de registratie als filter, en dan draait hij zonder zijn injectie.
 
 ## Build & test commando's
 
@@ -155,6 +156,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
+./mvnw clean test -pl services/stelselregister -am               # Tests stelselregister (geen Docker; testsleutels via keytool)
 ./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo + detekt
 ./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am    # Dev mode (poort 8086)
 ./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am    # Dev mode (poort 8090)
@@ -195,7 +197,7 @@ Wat je hoe dan ook moet weten:
   `prune: true`, dus een directe `kubectl`- of live-OM-wijziging aan een draaiende deployment wordt
   teruggedraaid. Reactiveren en schalen gaat via OM, dat commit naar de Git-repo die Argo volgt.
 - **Projecten (project-id = OM-project):** `berichtenuitvraag` = `mpfb-8wh`,
-  `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`. Deployment-namen: `test` (baseline,
+  `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`, `stelselregister` = `mpfs-rab`. Deployment-namen: `test` (baseline,
   push→main) en `pr-<n>` (previews). Een id wijzigen moet in `.github/workflows/deploy.yml` én in de
   matrix van `.github/workflows/cleanup-preview.yml`.
 - **`DELETE /api/v2/projects/{p}/{d}` is DESTRUCTIEF.** Het draait Argo `prune`+`Delete` en, voor
@@ -223,10 +225,14 @@ Wat je hoe dan ook moet weten:
 | `demo/podman-up.sh`, `demo/smoke.sh`   | De demo-stack draaien onder Podman (`podman-prepare.sh` gaat eraan vooraf) en er een rookproef overheen halen |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
+| `services/stelselregister/`            | Het magazijnregister als ondertekend stelseldocument (JWS, ES256). Sleutel uit een PKCS#12-keystore; een wegwerpketen alleen in ontwikkel- en testmodus, gekoppeld aan de launch mode |
+| `services/stelselregister/src/main/resources/openapi/stelselregister-api.yaml` | OpenAPI spec stelseldocument, met de verificatiestappen voor afnemers |
+| `docs/stelseldocument-toepassingsprofiel.md` | Hoe FBS het stelseldocument uit BK Connect invult: vorm, geldigheid, verificatie, afwijkingen |
+| `demo/environment/stelselregister/`    | Sleutelketen voor de demo (`pki/maak-keten.sh`); de inrichting op ZAD staat in `demo/environment/zad-demo/stelselregister.md` |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
 | `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, de demo met de proeftuin als berichtenbox, configuratie |
 | `docs/demo-runbook.md`                 | De demo opzetten en spelen: images bouwen (jib), stub-artefacten genereren, stack starten, poorten, persona's, bedieningspaneel, scenario's en valkuilen |
-| `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens |
+| `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens; voor het stelselregister de ondertekensleutel |
 | `docs/operations/`                     | Operationele notities per onderwerp: `zad-gitops.md` (deploy-debug), `profiel-404-alert.md`, `redisearch-schema-bump.md` |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator). Draagt ook de enige pin van de berichtenbox uit de proeftuin; `.github/scripts/proeftuin-image.sh` leest die regel voor de deploy en het ZAD-creatiescript |
@@ -241,6 +247,7 @@ Wat je hoe dan ook moet weten:
 | `.github/scripts/pin-pr-teststubs.sh`  | Gedeelde harness van de twee pin-suites (`gh`/`git`-stubs met faal-schakelaars, asserties, opzet per geval). Bewust niet `test-*.sh`: `ci-scripts.yml` draait elk `test-*.sh` als suite. Zelftest ernaast in `test-pin-pr-teststubs.sh` — zonder die suite zou één regel in de harness beide pin-suites betekenisloos maken zonder dat een telling daalt |
 | `.github/scripts/zad-taak-lib.sh`      | Gedeeld wachten op een taak van Operations Manager (`cross-domain-preview.sh` en `preview-klaarzetten.sh`): een mislukte opvraging wordt herhaald, twintig op rij of een 401/403 breekt af, de grens van twee minuten per taak blijft. Wordt gesourcet; wat een eindtoestand betekent blijft per script |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
+
 
 ## Omgevingsvariabelen
 

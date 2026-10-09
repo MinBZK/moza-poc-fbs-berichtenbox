@@ -5,8 +5,8 @@
 # De validatie bestaat volledig uit weigeren — een pad bij een tcp-scheme, een tweede regel voor
 # hetzelfde component, een poort buiten het bereik — en een operator die `plan` draait toetst per
 # definitie een tabel die klopt. Dat weigeren wordt dus door geen enkele handmatige run geraakt, en
-# het is precies wat een latere opruiming stilzwijgend kan slopen. Het script muteert 27 componenten
-# in drie projecten zonder rollback; een validatie die niet meer valideert, merk je daar pas als de
+# het is precies wat een latere opruiming stilzwijgend kan slopen. Het script muteert 28 componenten
+# in vier projecten zonder rollback; een validatie die niet meer valideert, merk je daar pas als de
 # helft omgezet is.
 #
 # Hetzelfde geldt voor de argumenten die het script bouwt. Dat de tabel klopt, zegt niets over wat
@@ -357,14 +357,14 @@ tel() {
 }
 
 alle="$(tel alle)"
-som=$(( $(tel mpfb-8wh) + $(tel mpfm-w3h) + $(tel mpfpsm-lcl) ))
+som=$(( $(tel mpfb-8wh) + $(tel mpfm-w3h) + $(tel mpfpsm-lcl) + $(tel mpfs-rab) ))
 
 # De ondergrens apart: zonder deze check zou een script dat meteen afbreekt alle=0 en som=0 geven,
 # en dan is "de filters dekken samen de hele tabel" waar zonder iets te betekenen.
 if [ "$alle" -le 0 ]; then
   fout "de kale plan-run leverde geen enkele regel op; de teller meet niets"
 elif [ "$alle" -eq "$som" ]; then
-  ok "de drie projectfilters samen dekken de hele tabel ($alle regels)"
+  ok "de vier projectfilters samen dekken de hele tabel ($alle regels)"
 else
   fout "alle=$alle maar de projecten samen $som"
 fi

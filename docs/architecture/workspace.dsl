@@ -150,6 +150,9 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
                     magazijnregister = container "Magazijnregister" "Houdt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." "Quarkus / Kotlin — gedeelde library (in-process)" "Interne Module"
 
+                    stelselregister = container "Stelselregister" "Publiceert het magazijnregister als stelseldocument: één document, ondertekend door de stelselbeheerder (JWS, ES256), dat een app zonder FSC-toegang ophaalt en tot een vastgelegde root herleidt. Geen persoonsgegevens, geen database." "Quarkus / Kotlin"
+
+                    stelselregister -> magazijnregister "Leest de deelnemende organisaties en hun magazijn-adres" "CDI (in-process)"
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldVerwerker -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
                     uitvraagOphaalService -> sessiecacheFacade "Haalt berichten op" "CDI (in-process facade)"
