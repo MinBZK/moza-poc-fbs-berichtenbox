@@ -63,6 +63,7 @@ bevat "verouderde pin zonder open PR opent een PR" "gh pr create"
 bevat "verouderde pin zonder open PR pusht de branch" "git push -f origin chore/proeftuin-pin"
 body "de nieuwe PR noemt de tag waarnaar hij gaat" "$TAG"
 body "de nieuwe PR noemt de referentie die er stond" "$HUIDIG"
+body "de nieuwe PR zegt dat de pin ook voor ZAD geldt" "ook de pin voor ZAD"
 regel "de image-regel draagt de nieuwe digest" "$NIEUWE_REGEL"
 regel_niet "de oude image-regel is weg" "$OUDE_REGEL"
 # De volledige aanroepen, niet alleen het commando: een `commit -a` of een weggevallen pathspec zou
