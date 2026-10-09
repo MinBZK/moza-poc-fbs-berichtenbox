@@ -268,7 +268,7 @@ class SessieVolgerTest {
 
         volgend.awaitCompletion(Duration.ofSeconds(5))
         assertTrue(SessieGebeurtenis.SessieVerlopen !in volgend.items)
-        assertEquals(0, aanmeldingen.aantalLuisteraars(BerichtenCache.cacheKey(ontvanger)))
+        wachtTotAfgemeld(BerichtenCache.cacheKey(ontvanger))
     }
 
     @ParameterizedTest(name = "max-duur {0}")
@@ -295,6 +295,20 @@ class SessieVolgerTest {
 
         while (!voorwaarde(items)) {
             check(System.nanoTime() < deadline) { "voorwaarde niet gehaald binnen 5 s; items: $items" }
+            Thread.sleep(10)
+        }
+    }
+
+    /**
+     * De emitter meldt het einde aan de afnemer vóórdat hij opruimt. Eindigt de stream op een
+     * andere thread dan die van de test, dan is de luisteraar direct na `awaitCompletion` nog niet
+     * per se afgemeld.
+     */
+    private fun wachtTotAfgemeld(cacheKey: String) {
+        val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+
+        while (aanmeldingen.aantalLuisteraars(cacheKey) != 0) {
+            check(System.nanoTime() < deadline) { "luisteraar niet afgemeld binnen 5 s" }
             Thread.sleep(10)
         }
     }
