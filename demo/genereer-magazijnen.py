@@ -5,7 +5,7 @@ Drie bestanden, uit één bron, zodat beide kanten van de keten niet uit elkaar 
 
   * het register voor de berichtenuitvraag  — welke OIN op welk adres te bereiken is;
   * de set voor de magazijn-simulator       — welke magazijnen hij voorstelt, en met welk volgnummer;
-  * de profiel-stubs voor vier ondernemers  — bij hoeveel organisaties elk van hen berichten heeft.
+  * de profiel-stubs voor de ondernemers    — bij hoeveel organisaties elk van hen berichten heeft.
 
 Het volgnummer bepaalt het gedrag van een magazijn (traag, haperend, onbereikbaar); die verdeling
 staat in de simulator zelf, niet hier. Dit script schrijft alleen het nummer.
@@ -36,7 +36,7 @@ SIMULATOR_URL = os.environ.get("SIMULATOR_URL", "http://magazijn-simulator:8092"
 # Waar de namen van de twee echte magazijnen staan; relatief aan de root van de repository.
 REGISTER_VAN_DE_UITVRAAG = "services/berichtenuitvraag/src/main/resources/application.properties"
 
-# Vier ondernemers, van klein naar extreem. De sets zijn genest: elke grotere bevat de kleinere
+# De ondernemers, van klein naar extreem. De sets zijn genest: elke grotere bevat de kleinere
 # helemaal. Het verschil in wachttijd komt daardoor puur door de extra organisaties en niet doordat
 # er andere organisaties in het spel zijn.
 #
@@ -58,6 +58,9 @@ ONDERNEMERS = [
     ("klein-bedrijf", "KVK", "90000014", 15),
     ("grootbedrijf", "KVK", "90000001", 45),
     ("landelijk-concern", "KVK", "90000003", 100),
+    # De mappen-demo: dezelfde honderd als Landelijk Concern, zodat een ophaalronde lang genoeg duurt
+    # om het mappenoverzicht te zien aangroeien. De simulator geeft zijn berichten mappen (DemoMappen).
+    ("mappen-demo", "KVK", "90000015", 100),
 ]
 
 # Namen van echte uitvoeringsorganisaties voor de eerste magazijnen, zodat een demo herkenbaar is

@@ -130,13 +130,21 @@ data class BijlageSamenvatting(
     }
 }
 
-/** Eén pagina lijst-/zoekresultaten; element-type is altijd de lichte samenvatting. */
+/**
+ * Eén pagina lijst-/zoekresultaten; element-type is altijd de lichte samenvatting.
+ *
+ * [volledigheid] geldt voor de hele lijst, niet voor deze pagina, en komt uit de ophaalronde —
+ * niet uit de cache-laag die de pagina bouwt. `null` betekent "niet ingevuld" en niet "volledig":
+ * de facade vult hem, en een pad dat dat vergeet, hoort op te vallen in plaats van stil een
+ * volledige lijst te claimen.
+ */
 data class BerichtenPagina(
     val berichten: List<BerichtSamenvatting>,
     val page: Int,
     val pageSize: Int,
     val totalElements: Long,
     val totalPages: Int,
+    val volledigheid: Volledigheid? = null,
 ) {
     init {
         require(page >= 0) { "page mag niet negatief zijn" }

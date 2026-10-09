@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.aanlever
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -7,6 +8,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.democonsole.PUBLICATIEWACHTRIJ_MELDING
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverVerzoek
 import nl.rijksoverheid.moz.fbs.democonsole.generator.OntvangerDto
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -43,7 +46,12 @@ class AanleverServiceTest {
         if (berichtId != null) every { it.readEntity(AanleverRespons::class.java) } returns AanleverRespons(berichtId)
     }
 
-    private fun opdracht(magazijnOin: String = RVO, gelezen: Boolean = false, type: String = "BSN") = AanleverOpdracht(
+    private fun opdracht(
+        magazijnOin: String = RVO,
+        gelezen: Boolean = false,
+        type: String = "BSN",
+        map: String? = null,
+    ) = AanleverOpdracht(
         magazijnOin,
         AanleverVerzoek(
             afzender = magazijnOin,
@@ -53,6 +61,7 @@ class AanleverServiceTest {
             publicatietijdstip = "2026-09-04T10:00:00Z",
         ),
         gelezen,
+        map,
     )
 
     private fun magazijnAntwoordt(status: Int, berichtId: String? = null, detail: String? = null) {
@@ -66,17 +75,39 @@ class AanleverServiceTest {
     }
 
     @Test
-    fun `een geslaagde ronde draagt geen reden`() {
+    fun `een geslaagde ronde draagt geen reden, wel de melding over de publicatie-wachtrij`() {
         magazijnAntwoordt(201, "b-1")
 
         val resultaat = service.leverAan(listOf(opdracht(), opdracht()))
 
         assertEquals(AanleverResultaat.van(2, 2, 0, 0, emptyList()), resultaat)
-        assertNull(resultaat.letOp, "een ronde zonder mislukkingen hoort geen let-op-regel te tonen")
+        assertEquals(PUBLICATIEWACHTRIJ_MELDING, resultaat.letOp, "een geslaagde ronde hoort alleen de wachtrij te melden")
+        assertFalse(resultaat.letOp!!.contains("Reden:"), "zonder mislukking hoort er geen reden te staan")
+    }
+
+    @Test
+    fun `een ronde waarin niets aankwam meldt de wachtrij niet`() {
+        // Anders leidt die regel af van het enige dat telt: waarom er niets aankwam.
+        magazijnAntwoordt(403)
+
+        assertFalse(service.leverAan(listOf(opdracht())).letOp!!.contains("publicatie-wachtrij"))
+    }
+
+    @Test
+    fun `op de lijn staat letOp, maar de losse reden niet`() {
+        // `reden` is voor het herstel, dat de wachtrij-melding weglaat; als eigen veld zou het paneel
+        // dezelfde reden twee keer kunnen tonen.
+        magazijnAntwoordt(403)
+
+        val json = jacksonObjectMapper().readTree(jacksonObjectMapper().writeValueAsString(service.leverAan(listOf(opdracht(), opdracht()))))
+
+        assertTrue(json.path("letOp").isTextual, "$json")
+        assertFalse(json.has("reden"), "$json")
     }
 
     @Test
     fun `een lege ronde draagt geen reden`() {
+        // Niets aangeboden, dus ook niets in de wachtrij; de regel hoort dan helemaal weg te blijven.
         assertNull(service.leverAan(emptyList()).letOp)
     }
 
@@ -257,7 +288,7 @@ class AanleverServiceTest {
         val resultaat = service.leverAan(listOf(opdracht(gelezen = true)))
 
         assertEquals(AanleverResultaat.van(1, 1, markeringMislukt = 1, zonderBerichtId = 0, redenen = emptyList()), resultaat)
-        assertNull(resultaat.letOp)
+        assertEquals(PUBLICATIEWACHTRIJ_MELDING, resultaat.letOp, "het bericht kwam aan, dus geen reden — wel de wachtrij")
     }
 
     @Test
@@ -285,6 +316,43 @@ class AanleverServiceTest {
         assertEquals(AanleverResultaat.van(3, 3, markeringMislukt = 1, zonderBerichtId = 0, redenen = emptyList()), resultaat)
     }
 
+    /**
+     * Welke velden de status-patch draagt, hangt af van de vlaggen. Een veld dat niet gevraagd is,
+     * moet ontbreken: `gelezen = false` meesturen zou een eerder gelezen bericht terugzetten.
+     */
+    @ParameterizedTest(name = "gelezen={0}, map={1}")
+    @CsvSource(value = ["false, Belasting, NULL", "true, Belasting, true", "true, NULL, true"], nullValues = ["NULL"])
+    fun `de status-patch draagt precies de gevraagde vlaggen`(gelezen: Boolean, map: String?, verwachtGelezen: Boolean?) {
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons(201, "b-1")
+        every { client.markeer(any(), any(), any()) } returns respons(200)
+
+        service.leverAan(listOf(opdracht(gelezen = gelezen, map = map)))
+
+        verify(exactly = 1) { client.markeer("b-1", "BSN:$ONTVANGER", StatusPatch(gelezen = verwachtGelezen, map = map)) }
+    }
+
+    @Test
+    fun `zonder gelezen en zonder map volgt er geen status-patch`() {
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons(201, "b-1")
+
+        service.leverAan(listOf(opdracht()))
+
+        verify(exactly = 0) { client.markeer(any(), any(), any()) }
+    }
+
+    @Test
+    fun `een bericht dat niet in zijn map kwam, telt als markering en niet als mislukt`() {
+        every { clients[RVO] } returns client
+        every { client.leverAan(any()) } returns respons(201, "b-1")
+        every { client.markeer(any(), any(), any()) } returns respons(500)
+
+        val resultaat = service.leverAan(listOf(opdracht(map = "Belasting")))
+
+        assertEquals(AanleverResultaat.van(1, 1, markeringMislukt = 1, zonderBerichtId = 0, redenen = emptyList()), resultaat)
+    }
+
     @Test
     fun `een onverwachte fout in één opdracht laat de rest van de ronde staan`() {
         // Zonder deze grens meldt de console niets over wat al wél is afgeleverd, en levert een
@@ -301,7 +369,11 @@ class AanleverServiceTest {
         assertEquals(1, resultaat.mislukt)
         // De faalmodus erbij: elke reden noemt het magazijn, dus alleen daarop asserteren zou niet
         // onderscheiden of dit als onbereikbaar, geweigerd of onverwacht gemeld werd.
-        assertEquals("Reden: ${Faalreden.onverwacht(BELASTINGDIENST, IllegalStateException())}.", resultaat.letOp)
+        // Twee berichten kwamen wél aan, dus de wachtrij-melding hoort er ook te staan — achter de reden.
+        assertEquals(
+            "Reden: ${Faalreden.onverwacht(BELASTINGDIENST, IllegalStateException())}. $PUBLICATIEWACHTRIJ_MELDING",
+            resultaat.letOp,
+        )
     }
 
     @Test
@@ -318,7 +390,7 @@ class AanleverServiceTest {
         val resultaat = service.leverAan(listOf(opdracht()))
 
         assertEquals(AanleverResultaat.van(1, 1, 0, zonderBerichtId = 1, redenen = emptyList()), resultaat)
-        assertNull(resultaat.letOp)
+        assertEquals(PUBLICATIEWACHTRIJ_MELDING, resultaat.letOp, "het bericht kwam aan, dus geen reden — wel de wachtrij")
     }
 
     @Test

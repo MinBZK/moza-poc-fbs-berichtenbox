@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
@@ -283,5 +285,15 @@ class DomeinInvariantenTest {
     @Test
     fun `een lege mapnaam wordt al bij de wijziging geweigerd`() {
         assertThrows<DomeinFout> { BerichtStatusWijziging(gelezen = null, map = "   ") }
+    }
+
+    /** Alleen de lege string wist; `null` is al bezet door "niet wijzigen". */
+    @Test
+    fun `de lege string wist de map en zet er niets voor in de plaats`() {
+        val wijziging = BerichtStatusWijziging(gelezen = null, map = "")
+
+        assertTrue(wijziging.wistMap)
+        assertNull(wijziging.nieuweMap)
+        assertFalse(wijziging.isLeeg)
     }
 }

@@ -153,6 +153,11 @@ De berichtenbox van de demo loopt achter op de main van [MinBZK/moza-poc](https:
 Klik de demo door (\`--profile demo\`) voordat je deze PR merget; een oudere berichtenbox is een
 oudere demo, geen kapotte build, dus laten staan mag ook.
 
+**Deze regel is ook de pin voor ZAD**; daar hoeft niets apart gezet te worden. De deploy leest hem
+uit \`compose.yaml\`: de preview van deze PR draait de nieuwe berichtenbox al, en na het mergen
+volgt \`test\` vanzelf. Alleen een gezette variabele \`PROEFTUIN_IMAGE\` (repo of environment) wint
+van deze pin.
+
 Deze PR wordt bij elke run opnieuw op de laatste stand gezet, en sluit zichzelf zodra de pin buiten
 deze PR om bij is. Sluiten is dus geen manier om de bump te weigeren: de volgende run opent hem
 opnieuw. Wil je een versie overslaan, laat deze PR dan staan tot de volgende langskomt.

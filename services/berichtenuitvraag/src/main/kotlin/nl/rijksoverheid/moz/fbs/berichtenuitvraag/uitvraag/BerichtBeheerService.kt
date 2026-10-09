@@ -47,6 +47,17 @@ class BerichtBeheerService(
             )
         }
 
+        // Alleen de lege string wist; witruimte is een ongeldige naam. Magazijn en cache weigeren
+        // hem ook, maar hier krijgt de aanroeper de hint naar `""` zonder magazijn-round-trip.
+        val map = patch.map
+
+        if (map != null && map != Sessiecache.MAP_WISSEN && map.isBlank()) {
+            throw WebApplicationException(
+                "Een mapnaam mag niet uit alleen witruimte bestaan; gebruik \"\" om een bericht uit zijn map te halen.",
+                Response.Status.BAD_REQUEST,
+            )
+        }
+
         val magazijn = magazijnRouter.forMagazijn(magazijnId)
 
         mapUpstreamFout(log, "magazijn-PATCH") {

@@ -10,10 +10,12 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
  * In-memory [Sessiecache]-facade voor de uitvraag-testsuite: seedbare berichten,
@@ -42,6 +44,8 @@ class MockSessiecache : Sessiecache {
     // ophalen() is het streaming-pad met een eigen (WAE-)foutkanaal; bewust niet vernauwd.
     var ophalenFout: RuntimeException? = null
     var ophalenEvents: Multi<MagazijnEvent> = Multi.createFrom().empty()
+    var volgFout: SessiecacheException? = null
+    var volgGebeurtenissen: Multi<SessieGebeurtenis> = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
 
     var lijstResultaat: BerichtenPagina? = null
 
@@ -67,6 +71,8 @@ class MockSessiecache : Sessiecache {
         verwijderFouten.clear()
         ophalenFout = null
         ophalenEvents = Multi.createFrom().empty()
+        volgFout = null
+        volgGebeurtenissen = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
         lijstResultaat = null
         laatstePagina = null
         laatsteGrootte = null
@@ -125,7 +131,8 @@ class MockSessiecache : Sessiecache {
         laatsteWerkBijMap = map
 
         val bestaand = berichten[berichtId] ?: return null
-        val bijgewerkt = bestaand.copy(status = status ?: bestaand.status, map = map ?: bestaand.map)
+        val nieuweMap = if (map == Sessiecache.MAP_WISSEN) null else map ?: bestaand.map
+        val bijgewerkt = bestaand.copy(status = status ?: bestaand.status, map = nieuweMap)
         berichten[berichtId] = bijgewerkt
 
         return bijgewerkt
@@ -151,6 +158,12 @@ class MockSessiecache : Sessiecache {
         return bericht
     }
 
+    override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+        volgFout?.let { throw it }
+
+        return volgGebeurtenissen
+    }
+
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {
         val alle = berichten.values.sortedByDescending { it.publicatietijdstip }.map { it.toSamenvatting() }
         val grootte = paginaGrootte ?: 20
@@ -161,6 +174,7 @@ class MockSessiecache : Sessiecache {
             pageSize = grootte,
             totalElements = alle.size.toLong(),
             totalPages = if (alle.isEmpty()) 0 else ((alle.size + grootte - 1) / grootte),
+            volledigheid = Volledigheid.VOLLEDIG,
         )
     }
 }
