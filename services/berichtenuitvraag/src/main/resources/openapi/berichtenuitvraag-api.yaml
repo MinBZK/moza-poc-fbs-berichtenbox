@@ -104,9 +104,13 @@ paths:
         opleverde, plus wat er daarna is aangemeld. Bron is de sessiecache. De volgorde is
         geen contract: na het ophalen nieuwste eerst, een later aangemeld bericht achteraan.
 
-        Volg `_links.next` tot hij ontbreekt; dan heb je de volledige set. Verwijdert de
-        ontvanger tussen twee pagina's een bericht, dan schuift de rest één plaats op en kan
-        er één overgeslagen worden; lees dan opnieuw vanaf de eerste pagina.
+        Volg `_links.next` tot hij ontbreekt; dan heb je de volledige set. De pagina's zijn
+        geen momentopname: wordt er tijdens het bladeren een bericht verwijderd, dan schuift
+        de rest één plaats op en valt er per verwijdering één bericht tussen twee pagina's
+        door. Verwijdert de afnemer zelf tijdens het bladeren, dan weet hij dat en leest hij
+        opnieuw vanaf de eerste pagina. Een verwijdering in een ander venster merkt hij niet:
+        de lijst noemt geen totaal en `_volgen` meldt geen verwijderingen. Het overgeslagen
+        bericht ontbreekt dan tot de lijst opnieuw gelezen wordt.
 
         Filteren (op `map` of op afzender via `magazijnId`), zoeken op onderwerp en
         sorteren doet de afnemer over die set. Dat houdt het resultaat consistent en
