@@ -150,9 +150,6 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
                     magazijnregister = container "Magazijnregister" "Houdt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." "Quarkus / Kotlin — gedeelde library (in-process)" "Interne Module"
 
-                    stelselregister = container "Stelselregister" "Publiceert het magazijnregister als stelseldocument: één document, ondertekend door de stelselbeheerder (JWS, ES256), dat een app zonder FSC-toegang ophaalt en tot een vastgelegde root herleidt. Geen persoonsgegevens, geen database." "Quarkus / Kotlin"
-
-                    stelselregister -> magazijnregister "Leest de deelnemende organisaties en hun magazijn-adres" "CDI (in-process)"
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldVerwerker -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
                     uitvraagOphaalService -> sessiecacheFacade "Haalt berichten op" "CDI (in-process facade)"
@@ -163,8 +160,18 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                     uitvraagBeheerService -> magazijnregister "Zoekt het magazijn-endpoint op voor write-routering" "CDI (in-process)"
                 }
 
+                // Een eigen systeem en geen container van het Uitvraag Systeem: de app die het document
+                // leest, komt daar juist niet langs. Het document wordt opgebouwd met dezelfde
+                // magazijnregister-library, uit een eigen configuratie; er loopt geen aanroep naar de uitvraag.
+                stelselregister = softwareSystem "Stelselregister" "Publiceert de deelnemende organisaties en het adres van hun berichtenmagazijn als stelseldocument: één document, ondertekend door de stelselbeheerder (JWS, ES256), dat een app zonder FSC-toegang ophaalt en tot een vastgelegde root herleidt. Opgebouwd uit het magazijnregister; geen persoonsgegevens, geen database." "FBS Dienst"
+
             }
         }
+
+        // De route waarin de burger berichten met een app rechtstreeks bij de magazijnen ophaalt (BK Connect),
+        // naast de route via Interactielaag en Uitvraag Systeem. Zie de view FbsVoorBurgers.
+        berichtenApp = softwareSystem "Berichten-app" "App op het apparaat van de burger die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." "Extern Systeem"
+        appManager = softwareSystem "App Manager" "Bevestigt na inloggen met DigiD de identiteit van de burger en geeft de app een credential uit, gebonden aan het sleutelpaar van de app (BK Connect)" "Extern Systeem"
 
         medewerkerA -> orgA "Verstuurt berichten via" "HTTPS"
         medewerkerB -> orgB "Verstuurt berichten via" "HTTPS"
@@ -181,6 +188,13 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"
+
+        burger -> berichtenApp "Bekijkt berichten van alle deelnemende organisaties" "App op eigen apparaat"
+        berichtenApp -> appManager "Laat de identiteit van de burger bevestigen en ontvangt een credential" "HTTPS"
+        appManager -> digiD "Authenticatie burgers" "SAML 2.0"
+        berichtenApp -> stelselregister "Haalt het stelseldocument op en verifieert de handtekening tot de vastgelegde root" "HTTPS (JWS, publiek, zonder FSC)"
+        berichtenApp -> magazijnOphaalBeheerApi "Haalt de berichten van de burger rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
+        berichtenApp -> eigenMagazijn "Haalt de berichten van de burger rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
 
         // Drie componentrelaties (ophalen, sessiecache-aggregatie, beheer) lopen naar hetzelfde magazijn.
         // Structurizr leidt daaruit per elementenpaar hooguit één systeemlijn af, die dan willekeurig de
@@ -230,6 +244,21 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         systemLandscape "SystemLandscape" "Het Federatief Berichtenstelsel - een stelsel van federatief gekoppelde diensten" {
             include *
             autoLayout
+        }
+
+        systemLandscape "FbsVoorBurgers" "FBS voor burgers: de app haalt berichten rechtstreeks bij de magazijnen op; het stelseldocument zegt welke magazijnen er zijn" {
+            include burger berichtenApp appManager digiD stelselregister bboMagazijn eigenMagazijn
+            autoLayout lr
+        }
+
+        dynamic * "FbsVoorBurgersVerloop" "FBS voor burgers: het verloop van één keer berichten ophalen" {
+            burger -> berichtenApp "Opent de app"
+            berichtenApp -> appManager "Laat de identiteit bevestigen (eenmalig, daarna hergebruikt)"
+            appManager -> digiD "Laat de burger inloggen"
+            berichtenApp -> stelselregister "Haalt het stelseldocument op en verifieert het; bepaalt zo welke magazijnen er zijn"
+            berichtenApp -> bboMagazijn "Haalt de berichten op bij elk magazijn uit het document"
+            berichtenApp -> eigenMagazijn "Idem, parallel; een magazijn dat niet antwoordt, toont de app als niet bereikbaar"
+            autoLayout lr
         }
 
         systemContext bboMagazijn "Berichtenmagazijn" "Context van het BBO-gehoste Berichtenmagazijn" {

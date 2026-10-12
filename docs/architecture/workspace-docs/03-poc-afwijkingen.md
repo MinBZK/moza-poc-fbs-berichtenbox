@@ -26,3 +26,7 @@ oplossingsrichting voor keten-brede authenticatie en autorisatie binnen MOZa.
 - **AuthZEN PEP/PDP** — de Autorisatie Service is in het model een PEP/PDP-container; de PoC
   doet ontvanger-autorisatie centraal in-process via `opslag/BerichtAutorisatie` in
   berichtenmagazijn (één `vereisOntvanger`-check, geen externe PDP).
+- **FBS voor burgers** (views `FbsVoorBurgers` en `FbsVoorBurgersVerloop`) — alleen het
+  Stelselregister is gebouwd. De Berichten-app, de App Manager en het rechtstreeks ophalen bij
+  een magazijn volgens BK Connect zijn doelbeeld; welke variant daarvoor geldt (HTTPS-JWT of
+  OpenID4VP) is nog niet gekozen.
