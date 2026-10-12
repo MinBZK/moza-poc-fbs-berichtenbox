@@ -20,8 +20,10 @@ met ECDSA of EdDSA (3.1). De structuur is vrij: de velden `oin`, `name`, `discov
 naar de vindbaarheidsconfiguratie van elke organisatie — niet de veldnaam. Pad, JWS-vorm,
 sleuteldistributie en geldigheidsduur laat de standaard aan een toepassingsprofiel (2.2.2).
 
-De naam van de route waar dit document bij hoort, ligt nog niet vast. Module, paden, config en
-ZAD-project heten daarom naar de rol (stelselbeheer) en niet naar de route.
+De naam van de route waar dit document bij hoort, lag bij de start nog niet vast. Module, paden,
+config en ZAD-project heten daarom naar de rol (stelselbeheer) en niet naar de route. In de
+architectuur heet de route inmiddels **Rechtstreeks ophalen** en geldt hij voor burgers én
+ondernemers; dat de naam tussentijds veranderde, bevestigt de keuze om naar de rol te noemen.
 
 ### Wat het document wel en niet levert
 
@@ -45,7 +47,7 @@ stelseldocument. Ze dienen een ander publiek.
 
 - **FSC-directory en -contracts** regelen verkeer tussen organisaties. Toegang vergt mTLS onder de
   trust anchor van de group en is dus onbereikbaar voor een browser-app.
-- **Het stelseldocument** is de publieke afgeleide voor apps van ondernemers.
+- **Het stelseldocument** is de publieke afgeleide voor apps van burgers en ondernemers.
 - **Het magazijnregister is leidend.** Het document wordt eruit opgebouwd en bevat niets wat daar
   niet in staat; de OIN koppelt een regel in het document aan een peer in FSC.
 
