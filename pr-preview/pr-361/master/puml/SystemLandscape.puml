@@ -15,10 +15,22 @@ skinparam {
 
 hide stereotype
 
+skinparam rectangle<<AppManager>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BackgroundColor #438dd5
   FontColor #ffffff
   BorderColor #2e6295
+  shadowing false
+}
+skinparam rectangle<<Berichtenapp>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
   shadowing false
 }
 skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
@@ -93,6 +105,12 @@ skinparam rectangle<<ProfielService>> {
   BorderColor #0b4884
   shadowing false
 }
+skinparam rectangle<<Stelselregister>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  shadowing false
+}
 skinparam rectangle<<eHerkenning>> {
   BackgroundColor #666666
   FontColor #ffffff
@@ -113,12 +131,14 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
       skinparam RectangleBorderStyle<<group2>> dashed
 
       rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
+      rectangle "==Stelselregister\n<size:10>[Software System]</size>\n\nPubliceert de deelnemende organisaties en het adres van hun berichtenmagazijn als stelseldocument: één document, ondertekend door de stelselbeheerder (JWS, ES256), dat een app zonder FSC-toegang ophaalt en tot een vastgelegde root herleidt. Opgebouwd uit het magazijnregister; geen persoonsgegevens, geen database." <<Stelselregister>> as Stelselregister
     }
 
 }
 
 person "==Burger\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Burger>> as Burger
 rectangle "==Organisatie A\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<OrganisatieA>> as OrganisatieA
+rectangle "==App Manager\n<size:10>[Software System]</size>\n\nBevestigt na inloggen met DigiD de identiteit van de burger en geeft de app een credential uit, gebonden aan het sleutelpaar van de app (BK Connect)" <<AppManager>> as AppManager
 rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
 person "==Ondernemer / Zakelijke gebruiker\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<OndernemerZakelijkegebruiker>> as OndernemerZakelijkegebruiker
 person "==Medewerker A\n<size:10>[Person]</size>\n\nVerstuurt berichten namens Organisatie A" <<MedewerkerA>> as MedewerkerA
@@ -128,6 +148,7 @@ rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-cha
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
 rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
+rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
 
 MedewerkerA .[#707070,thickness=2].> OrganisatieA : "<color:#707070>Verstuurt berichten via\n<color:#707070><size:8>[HTTPS]</size>"
 MedewerkerB .[#707070,thickness=2].> OrganisatieB : "<color:#707070>Verstuurt berichten via\n<color:#707070><size:8>[HTTPS]</size>"
@@ -141,6 +162,12 @@ Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#7070
 Interactielaag .[#707070,thickness=2].> ProfielService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
 Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers\n<color:#707070><size:8>[SAML 2.0]</size>"
+Burger .[#707070,thickness=2].> Berichtenapp : "<color:#707070>Bekijkt berichten van alle deelnemende organisaties\n<color:#707070><size:8>[App op eigen apparaat]</size>"
+Berichtenapp .[#707070,thickness=2].> AppManager : "<color:#707070>Laat de identiteit van de burger bevestigen en ontvangt een credential\n<color:#707070><size:8>[HTTPS]</size>"
+AppManager .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
+Berichtenapp .[#707070,thickness=2].> Stelselregister : "<color:#707070>Haalt het stelseldocument op en verifieert de handtekening tot de vastgelegde root\n<color:#707070><size:8>[HTTPS (JWS, publiek, zonder FSC)]</size>"
+Berichtenapp .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt de berichten van de burger rechtstreeks op, op het adres uit het stelseldocument\n<color:#707070><size:8>[HTTPS volgens BK Connect (variant nog niet gekozen)]</size>"
+Berichtenapp .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt de berichten van de burger rechtstreeks op, op het adres uit het stelseldocument\n<color:#707070><size:8>[HTTPS volgens BK Connect (variant nog niet gekozen)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst op, en berichtinhoud of bijlagen per geopend bericht; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichtenlijst op, en berichtinhoud of bijlagen per geopend bericht; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"

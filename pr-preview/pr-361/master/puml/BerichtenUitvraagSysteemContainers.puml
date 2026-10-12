@@ -74,12 +74,6 @@ skinparam rectangle<<ProfielService>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam rectangle<<BerichtenUitvraagSysteem.Stelselregister>> {
-  BackgroundColor #1168bd
-  FontColor #ffffff
-  BorderColor #0b4884
-  shadowing false
-}
 skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BorderColor #2e6295
   FontColor #2e6295
@@ -97,7 +91,6 @@ rectangle "Berichten Uitvraag Systeem\n<size:10>[Software System]</size>" <<Beri
   rectangle "==BSNk Transformatie\n<size:10>[Container: BSNk container (Logius)]</size>\n\nTransformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" <<BerichtenUitvraagSysteem.BSNkTransformatie>> as BerichtenUitvraagSysteem.BSNkTransformatie
   rectangle "==Aanmeld Service\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nWerkt de cache bij voor nieuwe berichten verzonden tijdens de sessie van de ontvanger" <<BerichtenUitvraagSysteem.AanmeldService>> as BerichtenUitvraagSysteem.AanmeldService
   rectangle "==Magazijnregister\n<size:10>[Container: Quarkus / Kotlin — gedeelde library (in-process)]</size>\n\nHoudt per deelnemende organisatie (OIN) bij welk berichtenmagazijn erbij hoort — 1:1, het magazijnId ís de OIN. Nu config-backed; later database-opslag met beheer-interface." <<BerichtenUitvraagSysteem.Magazijnregister>> as BerichtenUitvraagSysteem.Magazijnregister
-  rectangle "==Stelselregister\n<size:10>[Container: Quarkus / Kotlin]</size>\n\nPubliceert het magazijnregister als stelseldocument: één document, ondertekend door de stelselbeheerder (JWS, ES256), dat een app zonder FSC-toegang ophaalt en tot een vastgelegde root herleidt. Geen persoonsgegevens, geen database." <<BerichtenUitvraagSysteem.Stelselregister>> as BerichtenUitvraagSysteem.Stelselregister
 }
 
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService : "<color:#707070>Berichten-API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
@@ -108,7 +101,6 @@ BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> Berichten
 Berichtenmagazijneigengehost .[#707070,thickness=2].> BerichtenUitvraagSysteem.AanmeldService : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> ProfielService : "<color:#707070>Haalt dienstvoorkeuren op om te bepalen welke magazijnen bevraagd worden\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst met kopgegevens op (zonder berichtinhoud)\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
-BerichtenUitvraagSysteem.Stelselregister .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Leest de deelnemende organisaties en hun magazijn-adres\n<color:#707070><size:8>[CDI (in-process)]</size>"
 BerichtenUitvraagSysteem.Berichtensessiecache .[#707070,thickness=2].> BerichtenUitvraagSysteem.BSNkTransformatie : "<color:#707070>Transformeert PP naar EP per magazijn\n<color:#707070><size:8>[BSNk API (lokaal)]</size>"
 BerichtenUitvraagSysteem.AanmeldService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt cache bij (aanmeld-write, in-sessie)\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"

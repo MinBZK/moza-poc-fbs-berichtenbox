@@ -35,7 +35,7 @@
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a></li>
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
         </ul>
       </aside>
       <div class="container is-fluid">
@@ -50,8 +50,16 @@
             </thead>
             <tbody>
               <tr>
+                <td><span class="has-text-grey has-text-weight-bold">App Manager (External)</span></td>
+                <td><span class="">Bevestigt na inloggen met DigiD de identiteit van de burger en geeft de app een credential uit, gebonden aan het sleutelpaar van de app (BK Connect)</span></td>
+              </tr>
+              <tr>
                 <td class="has-text-weight-bold"><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a></td>
                 <td><span class="">Centraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel</span></td>
+              </tr>
+              <tr>
+                <td><span class="has-text-grey has-text-weight-bold">Berichten-app (External)</span></td>
+                <td><span class="">App op het apparaat van de burger die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt.</span></td>
               </tr>
               <tr>
                 <td class="has-text-weight-bold"><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a></td>
@@ -88,6 +96,10 @@
               <tr>
                 <td><span class="has-text-grey has-text-weight-bold">Profiel Service (External)</span></td>
                 <td><span class="">Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)</span></td>
+              </tr>
+              <tr>
+                <td class="has-text-weight-bold"><a href="../stelselregister/" class="">Stelselregister</a></td>
+                <td><span class="">Publiceert de deelnemende organisaties en het adres van hun berichtenmagazijn als stelseldocument: één document, ondertekend door de stelselbeheerder (JWS, ES256), dat een app zonder FSC-toegang ophaalt en tot een vastgelegde root herleidt. Opgebouwd uit het magazijnregister; geen persoonsgegevens, geen database.</span></td>
               </tr>
             </tbody>
           </table>

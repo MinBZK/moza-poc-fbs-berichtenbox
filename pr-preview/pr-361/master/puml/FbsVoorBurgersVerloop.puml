@@ -1,0 +1,88 @@
+@startuml
+set separator none
+title Dynamic
+
+left to right direction
+skinparam ranksep 60
+skinparam nodesep 30
+
+skinparam {
+  arrowFontSize 10
+  defaultTextAlignment center
+  wrapWidth 200
+  maxMessageSize 100
+}
+
+hide stereotype
+
+skinparam rectangle<<AppManager>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<Berichtenapp>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
+  BackgroundColor #2d8a4e
+  FontColor #ffffff
+  BorderColor #1e6b38
+  shadowing false
+}
+skinparam rectangle<<Berichtenmagazijneigengehost>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam person<<Burger>> {
+  BackgroundColor #08427b
+  FontColor #ffffff
+  BorderColor #052e56
+  shadowing false
+}
+skinparam rectangle<<DigiD>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<Stelselregister>> {
+  BackgroundColor #438dd5
+  FontColor #ffffff
+  BorderColor #2e6295
+  shadowing false
+}
+
+rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
+  skinparam RectangleBorderColor<<group1>> #cccccc
+  skinparam RectangleFontColor<<group1>> #cccccc
+  skinparam RectangleBorderStyle<<group1>> dashed
+
+  rectangle "==Berichtenmagazijn (eigen gehost)\n<size:10>[Software System]</size>\n\nDoor een deelnemende organisatie zelf gehoste berichtenmagazijn-instantie met dezelfde koppelvlakken (aanleveren, ophalen/beheren, aanmelden) als de BBO-gehoste variant." <<Berichtenmagazijneigengehost>> as Berichtenmagazijneigengehost
+  rectangle "==Berichtenmagazijn (BBO-gehost)\n<size:10>[Software System]</size>\n\nBerichten opslaan, ophalen en beheren (incl. berichtstatus). BBO-gehoste referentie-implementatie die deelnemende organisaties kunnen afnemen in plaats van zelf te hosten." <<BerichtenmagazijnBBOgehost>> as BerichtenmagazijnBBOgehost
+    rectangle "Centraal gehoste services" <<group2>> as group2 {
+      skinparam RectangleBorderColor<<group2>> #cccccc
+      skinparam RectangleFontColor<<group2>> #cccccc
+      skinparam RectangleBorderStyle<<group2>> dashed
+
+      rectangle "==Stelselregister\n<size:10>[Software System]</size>\n\nPubliceert de deelnemende organisaties en het adres van hun berichtenmagazijn als stelseldocument: één document, ondertekend door de stelselbeheerder (JWS, ES256), dat een app zonder FSC-toegang ophaalt en tot een vastgelegde root herleidt. Opgebouwd uit het magazijnregister; geen persoonsgegevens, geen database." <<Stelselregister>> as Stelselregister
+    }
+
+}
+
+person "==Burger\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Burger>> as Burger
+rectangle "==App Manager\n<size:10>[Software System]</size>\n\nBevestigt na inloggen met DigiD de identiteit van de burger en geeft de app een credential uit, gebonden aan het sleutelpaar van de app (BK Connect)" <<AppManager>> as AppManager
+rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
+rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
+Burger .[#707070,thickness=2].> Berichtenapp : "<color:#707070>1. Opent de app\n<color:#707070><size:8>[App op eigen apparaat]</size>"
+Berichtenapp .[#707070,thickness=2].> AppManager : "<color:#707070>2. Laat de identiteit bevestigen (eenmalig, daarna hergebruikt)\n<color:#707070><size:8>[HTTPS]</size>"
+AppManager .[#707070,thickness=2].> DigiD : "<color:#707070>3. Laat de burger inloggen\n<color:#707070><size:8>[SAML 2.0]</size>"
+Berichtenapp .[#707070,thickness=2].> Stelselregister : "<color:#707070>4. Haalt het stelseldocument op en verifieert het; bepaalt zo welke magazijnen er zijn\n<color:#707070><size:8>[HTTPS (JWS, publiek, zonder FSC)]</size>"
+Berichtenapp .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>5. Haalt de berichten op bij elk magazijn uit het document\n<color:#707070><size:8>[HTTPS volgens BK Connect (variant nog niet gekozen)]</size>"
+Berichtenapp .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>6. Idem, parallel; een magazijn dat niet antwoordt, toont de app als niet bereikbaar\n<color:#707070><size:8>[HTTPS volgens BK Connect (variant nog niet gekozen)]</size>"
+@enduml
