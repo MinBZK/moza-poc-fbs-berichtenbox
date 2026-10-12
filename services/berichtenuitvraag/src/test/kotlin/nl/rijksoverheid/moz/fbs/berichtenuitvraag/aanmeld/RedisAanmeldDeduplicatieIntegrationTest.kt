@@ -38,25 +38,47 @@ class RedisAanmeldDeduplicatieIntegrationTest {
     fun `eerste keer true, daarna duplicaat false`() {
         val id = nieuwId()
 
-        assertTrue(dedup.eerstgezien(id))
-        assertFalse(dedup.eerstgezien(id))
+        assertTrue(dedup.eerstgezien(MAGAZIJN_A, id))
+        assertFalse(dedup.eerstgezien(MAGAZIJN_A, id))
+    }
+
+    @Test
+    fun `hetzelfde event-id van een ander magazijn is een eigen event`() {
+        val id = nieuwId()
+
+        assertTrue(dedup.eerstgezien(MAGAZIJN_A, id))
+        assertTrue(dedup.eerstgezien(MAGAZIJN_B, id))
+        assertFalse(dedup.eerstgezien(MAGAZIJN_A, id))
+        assertFalse(dedup.eerstgezien(MAGAZIJN_B, id))
+    }
+
+    @Test
+    fun `verwijder raakt alleen de marker van dat magazijn`() {
+        val id = nieuwId()
+        dedup.eerstgezien(MAGAZIJN_A, id)
+        dedup.eerstgezien(MAGAZIJN_B, id)
+
+        dedup.verwijder(MAGAZIJN_A, id)
+
+        assertTrue(dedup.eerstgezien(MAGAZIJN_A, id))
+        assertFalse(dedup.eerstgezien(MAGAZIJN_B, id))
     }
 
     @Test
     fun `verwijder maakt herverwerken mogelijk`() {
         val id = nieuwId()
 
-        assertTrue(dedup.eerstgezien(id))
-        dedup.verwijder(id)
-        assertTrue(dedup.eerstgezien(id))
+        assertTrue(dedup.eerstgezien(MAGAZIJN_A, id))
+        dedup.verwijder(MAGAZIJN_A, id)
+        assertTrue(dedup.eerstgezien(MAGAZIJN_A, id))
     }
 
     @Test
     fun `marker krijgt een positieve TTL`() {
         val id = nieuwId()
-        dedup.eerstgezien(id)
+        dedup.eerstgezien(MAGAZIJN_A, id)
 
-        val ttl = redis.key(String::class.java).ttl("aanmeld:event:$id").await().indefinitely()
+        val ttl = redis.key(String::class.java).ttl("aanmeld:event:$MAGAZIJN_A:$id").await().indefinitely()
 
         assertTrue(ttl > 0, "verwachtte positieve TTL, was $ttl")
     }
@@ -70,7 +92,7 @@ class RedisAanmeldDeduplicatieIntegrationTest {
 
         try {
             val taken = (1..threads).map {
-                pool.submit { if (dedup.eerstgezien(id)) eersten.incrementAndGet() }
+                pool.submit { if (dedup.eerstgezien(MAGAZIJN_A, id)) eersten.incrementAndGet() }
             }
 
             taken.forEach { it.get() }
@@ -79,6 +101,11 @@ class RedisAanmeldDeduplicatieIntegrationTest {
         }
 
         assertEquals(1, eersten.get(), "NX moet precies één winnaar opleveren bij concurrent claims")
+    }
+
+    private companion object {
+        const val MAGAZIJN_A = "00000000000000100000"
+        const val MAGAZIJN_B = "00000001823288444000"
     }
 }
 

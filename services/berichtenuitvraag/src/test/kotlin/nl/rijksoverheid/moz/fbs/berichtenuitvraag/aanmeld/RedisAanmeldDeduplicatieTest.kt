@@ -49,7 +49,7 @@ class RedisAanmeldDeduplicatieTest {
         every { values.setAndChanged(any(), any(), any<SetArgs>()) } returns
             Uni.createFrom().failure(RuntimeException("connection reset"))
 
-        val ex = assertThrows<WebApplicationException> { dedup.eerstgezien("evt-1") }
+        val ex = assertThrows<WebApplicationException> { dedup.eerstgezien("00000000000000100000", "evt-1") }
 
         assertEquals(503, ex.response.status)
     }
@@ -59,7 +59,7 @@ class RedisAanmeldDeduplicatieTest {
         every { values.setAndChanged(any(), any(), any<SetArgs>()) } returns
             Uni.createFrom().failure(TimeoutException())
 
-        val ex = assertThrows<WebApplicationException> { dedup.eerstgezien("evt-1") }
+        val ex = assertThrows<WebApplicationException> { dedup.eerstgezien("00000000000000100000", "evt-1") }
 
         assertEquals(503, ex.response.status)
     }
@@ -68,7 +68,7 @@ class RedisAanmeldDeduplicatieTest {
     fun `geslaagde NX-write geeft true`() {
         every { values.setAndChanged(any(), any(), any<SetArgs>()) } returns Uni.createFrom().item(true)
 
-        assertTrue(dedup.eerstgezien("evt-1"))
+        assertTrue(dedup.eerstgezien("00000000000000100000", "evt-1"))
     }
 
     @Test

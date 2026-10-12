@@ -42,6 +42,7 @@ class AanmeldResourceTest {
     // resolvet de afzender-OIN via AfzenderMagazijnIndex en weigert een onbekende bron
     // met 400 nog vóór de idempotentie-claim.
     private val afzender = "00000000000000100000"
+    private val andereAfzender = "00000001823288444000"
 
     @Inject
     lateinit var sessiecache: MockSessiecache
@@ -158,6 +159,26 @@ class AanmeldResourceTest {
         }
 
         assertEquals(1, sessiecache.schrijfAanroepen.size)
+    }
+
+    @Test
+    fun `hetzelfde event-id en berichtnummer van twee organisaties levert twee berichten op`() {
+        // Een CloudEvents-id is alleen uniek binnen zijn bron; twee organisaties kunnen hetzelfde
+        // id en hetzelfde berichtnummer kiezen zonder dat het om hetzelfde bericht gaat.
+        val id = "evt-gedeeld-${UUID.randomUUID()}"
+        val berichtId = UUID.randomUUID()
+
+        listOf(afzender, andereAfzender).forEach { oin ->
+            given()
+                .contentType(cloudEventsJson)
+                .body(event(id = id, berichtId = berichtId, afzenderOin = oin))
+                .`when`().post("/api/v1/aanmeldingen")
+                .then()
+                .statusCode(202)
+        }
+
+        assertEquals(setOf(afzender, andereAfzender), sessiecache.schrijfAanroepen.map { it.magazijnId }.toSet())
+        assertEquals(2, sessiecache.berichten.size)
     }
 
     @Test

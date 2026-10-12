@@ -42,7 +42,7 @@ class AanmeldService(
     fun verwerk(event: AangemeldCloudEvent) {
         val gepubliceerd = parse(event)
 
-        if (!deduplicatie.eerstgezien(gepubliceerd.eventId)) {
+        if (!deduplicatie.eerstgezien(gepubliceerd.magazijnId, gepubliceerd.eventId)) {
             log.debug("Aanmeld-event al eerder verwerkt; overgeslagen (idempotentie)")
 
             return
@@ -61,7 +61,7 @@ class AanmeldService(
             geschreven = schrijf(gepubliceerd)
         } finally {
             if (!geschreven) {
-                runCatching { deduplicatie.verwijder(gepubliceerd.eventId) }
+                runCatching { deduplicatie.verwijder(gepubliceerd.magazijnId, gepubliceerd.eventId) }
                     .onFailure { log.warnf(it, "Vrijgeven idempotentie-marker faalde; TTL ruimt alsnog op") }
             }
         }

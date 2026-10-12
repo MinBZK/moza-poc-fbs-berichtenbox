@@ -36,8 +36,8 @@ class AanmeldServiceTest {
 
     @BeforeEach
     fun setup() {
-        every { dedup.eerstgezien(any()) } returns true
-        every { dedup.verwijder(any()) } just Runs
+        every { dedup.eerstgezien(afzender, any()) } returns true
+        every { dedup.verwijder(afzender, any()) } just Runs
         every { index.magazijnVoor(Oin(afzender)) } returns AfzenderMagazijnIndex.BronMagazijn(Oin(afzender), "Magazijn A")
     }
 
@@ -71,12 +71,12 @@ class AanmeldServiceTest {
         assertEquals(berichtId, slot.captured.berichtId)
         verify { logboek.dataSubjectId = ontvangerBsn }
         // Marker behouden: bericht is echt geschreven.
-        verify(exactly = 0) { dedup.verwijder(any()) }
+        verify(exactly = 0) { dedup.verwijder(afzender, any()) }
     }
 
     @Test
     fun `duplicaat wordt overgeslagen zonder schrijven`() {
-        every { dedup.eerstgezien("evt-1") } returns false
+        every { dedup.eerstgezien(afzender, "evt-1") } returns false
 
         service.verwerk(event())
 
@@ -92,7 +92,7 @@ class AanmeldServiceTest {
         service.verwerk(event())
 
         // Niets geschreven → marker vrijgeven (geen 24u-marker voor no-ops).
-        verify(exactly = 1) { dedup.verwijder("evt-1") }
+        verify(exactly = 1) { dedup.verwijder(afzender, "evt-1") }
     }
 
     @Test
@@ -103,7 +103,7 @@ class AanmeldServiceTest {
         val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
 
         assertEquals(503, ex.response.status)
-        verify(exactly = 1) { dedup.verwijder("evt-1") }
+        verify(exactly = 1) { dedup.verwijder(afzender, "evt-1") }
     }
 
     @Test
@@ -116,12 +116,12 @@ class AanmeldServiceTest {
         val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
 
         assertEquals(400, ex.response.status)
-        verify(exactly = 1) { dedup.verwijder("evt-1") }
+        verify(exactly = 1) { dedup.verwijder(afzender, "evt-1") }
     }
 
     @Test
     fun `dedup-store onbereikbaar (503) propageert zonder schrijven`() {
-        every { dedup.eerstgezien("evt-1") } throws WebApplicationException("redis down", 503)
+        every { dedup.eerstgezien(afzender, "evt-1") } throws WebApplicationException("redis down", 503)
 
         val ex = assertThrows<WebApplicationException> { service.verwerk(event()) }
 
@@ -189,7 +189,7 @@ class AanmeldServiceTest {
         val ex = assertThrows<WebApplicationException> { service.verwerk(event(specversion = "0.3")) }
 
         assertEquals(400, ex.response.status)
-        verify(exactly = 0) { dedup.eerstgezien(any()) }
+        verify(exactly = 0) { dedup.eerstgezien(afzender, any()) }
     }
 
     @Test

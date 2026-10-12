@@ -112,9 +112,9 @@ object AanmeldCloudEventFuzzer {
         }
 
         val dedup = object : AanmeldDeduplicatie {
-            override fun eerstgezien(eventId: String): Boolean = true
+            override fun eerstgezien(magazijnId: String, eventId: String): Boolean = true
 
-            override fun verwijder(eventId: String) = Unit
+            override fun verwijder(magazijnId: String, eventId: String) = Unit
         }
 
         // De superclass-constructor vereist een register; hier inhoudsloos omdat de
