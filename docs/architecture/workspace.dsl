@@ -168,10 +168,10 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
             }
         }
 
-        // De route waarin de burger berichten met een app rechtstreeks bij de magazijnen ophaalt (BK Connect),
-        // naast de route via Interactielaag en Uitvraag Systeem. Zie de view FbsVoorBurgers.
-        berichtenApp = softwareSystem "Berichten-app" "App op het apparaat van de burger die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." "Extern Systeem"
-        appManager = softwareSystem "App Manager" "Laat de burger inloggen met DigiD en geeft daarna een credential uit aan de app: een bevestiging van de identiteit van de burger, gebonden aan het sleutelpaar van de app (BK Connect)" "Extern Systeem"
+        // De route waarin een burger of ondernemer berichten met een app rechtstreeks bij de magazijnen ophaalt
+        // (BK Connect), naast de route via Interactielaag en Uitvraag Systeem. Zie de view RechtstreeksOphalen.
+        berichtenApp = softwareSystem "Berichten-app" "App op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." "Extern Systeem"
+        appManager = softwareSystem "App Manager" "Laat de burger inloggen met DigiD of de ondernemer met eHerkenning, en geeft daarna een credential uit aan de app: een bevestiging van de identiteit, gebonden aan het sleutelpaar van de app (BK Connect). Hoe de machtiging van een ondernemer daarin meekomt, is nog open." "Extern Systeem"
 
         medewerkerA -> orgA "Verstuurt berichten via" "HTTPS"
         medewerkerB -> orgB "Verstuurt berichten via" "HTTPS"
@@ -190,11 +190,13 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"
 
         burger -> berichtenApp "Bekijkt berichten van alle deelnemende organisaties" "App op eigen apparaat"
-        berichtenApp -> appManager "Laat de identiteit van de burger bevestigen en ontvangt een credential" "HTTPS"
+        ondernemer -> berichtenApp "Bekijkt berichten van alle deelnemende organisaties, namens de onderneming" "App op eigen apparaat"
+        berichtenApp -> appManager "Laat de identiteit van de gebruiker bevestigen en ontvangt een credential" "HTTPS"
         appManager -> digiD "Authenticatie burgers" "SAML 2.0"
+        appManager -> eHerkenning "Authenticatie en machtigingen zakelijke gebruikers" "SAML 2.0"
         berichtenApp -> stelselregister "Haalt het stelseldocument op en verifieert de handtekening tot de vastgelegde root" "HTTPS (JWS, publiek, zonder FSC)"
-        berichtenApp -> magazijnOphaalBeheerApi "Haalt de berichten van de burger rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
-        berichtenApp -> eigenMagazijn "Haalt de berichten van de burger rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
+        berichtenApp -> magazijnOphaalBeheerApi "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
+        berichtenApp -> eigenMagazijn "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
 
         // Drie componentrelaties (ophalen, sessiecache-aggregatie, beheer) lopen naar hetzelfde magazijn.
         // Structurizr leidt daaruit per elementenpaar hooguit één systeemlijn af, die dan willekeurig de
@@ -246,18 +248,30 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
             autoLayout
         }
 
-        systemLandscape "FbsVoorBurgers" "FBS voor burgers: de app haalt berichten rechtstreeks bij de magazijnen op; het stelseldocument zegt welke magazijnen er zijn" {
-            include burger berichtenApp appManager digiD stelselregister bboMagazijn eigenMagazijn
+        systemLandscape "RechtstreeksOphalen" "Rechtstreeks ophalen: een app haalt berichten van een burger of ondernemer rechtstreeks bij de magazijnen op; het stelseldocument zegt welke magazijnen er zijn" {
+            include burger ondernemer berichtenApp appManager digiD eHerkenning stelselregister bboMagazijn eigenMagazijn
             autoLayout lr
         }
 
-        dynamic * "FbsVoorBurgersVerloop" "FBS voor burgers: het verloop van één keer berichten ophalen" {
+        dynamic * "RechtstreeksOphalenBurger" "Rechtstreeks ophalen door een burger: het verloop van één keer berichten ophalen" {
             burger -> berichtenApp "Opent de app"
             berichtenApp -> appManager "Laat de identiteit bevestigen (eenmalig, daarna hergebruikt)"
             appManager -> digiD "Laat de burger inloggen"
             berichtenApp -> stelselregister "Haalt het stelseldocument op en verifieert het; bepaalt zo welke magazijnen er zijn"
             berichtenApp -> bboMagazijn "Haalt de berichten op bij elk magazijn uit het document"
             berichtenApp -> eigenMagazijn "Idem, parallel; een magazijn dat niet antwoordt, toont de app als niet bereikbaar"
+            autoLayout lr
+        }
+
+        // Verschilt van de burger in stap 3: het magazijn moet ook zien namens welke onderneming de
+        // gebruiker handelt. Hoe die machtiging in het credential komt, is nog niet uitgewerkt.
+        dynamic * "RechtstreeksOphalenOndernemer" "Rechtstreeks ophalen door een ondernemer: het verloop van één keer berichten ophalen" {
+            ondernemer -> berichtenApp "Opent de app"
+            berichtenApp -> appManager "Laat de identiteit en de machtiging bevestigen (eenmalig, daarna hergebruikt)"
+            appManager -> eHerkenning "Laat de ondernemer inloggen en haalt de machtiging op (open: hoe die in het credential komt)"
+            berichtenApp -> stelselregister "Haalt het stelseldocument op en verifieert het; bepaalt zo welke magazijnen er zijn"
+            berichtenApp -> bboMagazijn "Haalt de berichten van de onderneming op bij elk magazijn uit het document"
+            berichtenApp -> eigenMagazijn "Idem, parallel; het magazijn controleert de machtiging per verzoek"
             autoLayout lr
         }
 
