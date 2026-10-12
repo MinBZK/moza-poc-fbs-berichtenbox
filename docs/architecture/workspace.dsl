@@ -171,7 +171,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         // De route waarin de burger berichten met een app rechtstreeks bij de magazijnen ophaalt (BK Connect),
         // naast de route via Interactielaag en Uitvraag Systeem. Zie de view FbsVoorBurgers.
         berichtenApp = softwareSystem "Berichten-app" "App op het apparaat van de burger die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." "Extern Systeem"
-        appManager = softwareSystem "App Manager" "Bevestigt na inloggen met DigiD de identiteit van de burger en geeft de app een credential uit, gebonden aan het sleutelpaar van de app (BK Connect)" "Extern Systeem"
+        appManager = softwareSystem "App Manager" "Laat de burger inloggen met DigiD en geeft daarna een credential uit aan de app: een bevestiging van de identiteit van de burger, gebonden aan het sleutelpaar van de app (BK Connect)" "Extern Systeem"
 
         medewerkerA -> orgA "Verstuurt berichten via" "HTTPS"
         medewerkerB -> orgB "Verstuurt berichten via" "HTTPS"
