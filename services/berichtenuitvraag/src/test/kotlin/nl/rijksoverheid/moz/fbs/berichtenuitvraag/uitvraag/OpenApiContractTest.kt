@@ -9,6 +9,7 @@ import com.github.tomakehurst.wiremock.client.WireMock.delete
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.patch
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
+import com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching
 import io.quarkus.test.common.QuarkusTestResource
 import io.quarkus.test.junit.QuarkusTest
@@ -98,7 +99,7 @@ class OpenApiContractTest {
             aantalBijlagen = bijlagen.size,
             bijlagen = bijlagen,
         )
-        sessiecache.berichten[berichtId] = bericht
+        sessiecache.zet(bericht)
 
         return bericht
     }
@@ -178,7 +179,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
     }
@@ -292,7 +293,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
             .header("Content-Type", "application/pdf")
@@ -302,12 +303,89 @@ class OpenApiContractTest {
     // --- Foutresponses tegen het Problem-schema (RFC 9457), via de validator ---
 
     @Test
+    fun `GET bericht by id - twee magazijnen met hetzelfde nummer leveren elk hun eigen bericht`() {
+        WireMockBackendsResource.magazijnB.resetAll()
+        val gedeeld = UUID.randomUUID()
+        seedBericht(gedeeld, magazijnId = WireMockBackendsResource.OIN_A)
+        seedBericht(gedeeld, magazijnId = WireMockBackendsResource.OIN_B)
+        listOf(WireMockBackendsResource.magazijnA to "Tekst van A", WireMockBackendsResource.magazijnB to "Tekst van B")
+            .forEach { (magazijn, tekst) ->
+                magazijn.stubFor(
+                    get(urlPathEqualTo("/api/v1/berichten/$gedeeld")).willReturn(
+                        aResponse().withStatus(200)
+                            .withHeader("Content-Type", "application/json")
+                            .withBody("""{"inhoud": "$tekst"}"""),
+                    ),
+                )
+            }
+
+        listOf(WireMockBackendsResource.OIN_A to "Tekst van A", WireMockBackendsResource.OIN_B to "Tekst van B")
+            .forEach { (oin, tekst) ->
+                given()
+                    .filter(validator)
+                    .header("X-Ontvanger", ontvanger)
+                    .`when`()
+                    .get("/api/v1/berichten/$gedeeld?magazijnId=$oin")
+                    .then()
+                    .statusCode(200)
+                    .body("magazijnId", equalTo(oin))
+                    .body("inhoud", equalTo(tekst))
+                    .body("_links.self.href", equalTo("/api/v1/berichten/$gedeeld?magazijnId=$oin"))
+            }
+    }
+
+    @Test
+    fun `GET bericht by id zonder magazijnId levert 400 problem+json`() {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @ParameterizedTest(name = "magazijnId={0}")
+    @ValueSource(strings = ["00000009999999999999", "a:b", "${WireMockBackendsResource.OIN_A}:x"])
+    fun `GET bericht by id met een magazijnId waaronder het bericht niet staat levert 404`(magazijnId: String) {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("magazijnId", magazijnId)
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
+
+        WireMockBackendsResource.magazijnA.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    @Test
+    fun `GET bijlage zonder magazijnId levert 400 problem+json`() {
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
     fun `GET bericht by id - cache-miss levert valide Problem-404`() {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/${UUID.randomUUID()}")
+            .get("/api/v1/berichten/${UUID.randomUUID()}?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(404)
             .contentType("application/problem+json")
@@ -327,7 +405,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
             .contentType("application/problem+json")
@@ -346,7 +424,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(409)
             .contentType("application/problem+json")
@@ -397,7 +475,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(410)
             .contentType("application/problem+json")
@@ -412,7 +490,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/${UUID.randomUUID()}")
+            .get("/api/v1/berichten/${UUID.randomUUID()}?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(404)
             .contentType("application/problem+json")
@@ -431,7 +509,7 @@ class OpenApiContractTest {
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
             .`when`()
-            .get("/api/v1/berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}")
+            .get("/api/v1/berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(410)
             .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))

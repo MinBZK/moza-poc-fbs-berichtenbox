@@ -59,7 +59,7 @@ class VolgenSseTest {
                 """{"event":"bericht-bijgekomen","bericht":{"berichtId":"$BERICHT_ID","onderwerp":"Nieuwe beschikking",""" +
                     """"afzenderNaam":"RVO","publicatietijdstip":"2026-09-21T10:00:00Z","aantalBijlagen":0,""" +
                     """"magazijnId":"$RVO",""" +
-                    """"_links":{"self":{"href":"/api/v1/berichten/$BERICHT_ID"}}}}""",
+                    """"_links":{"self":{"href":"/api/v1/berichten/$BERICHT_ID?magazijnId=$RVO"}}}}""",
             ),
         )
 

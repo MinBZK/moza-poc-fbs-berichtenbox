@@ -26,7 +26,9 @@ import java.util.UUID
  * uit de cache te halen vóór de write, en is de write-flow onafhankelijk van de
  * cache-state — een verlopen cache leidt niet langer tot een 404 op PATCH/DELETE.
  * Een onbekende of foute `magazijnId` wordt door het magazijn afgehandeld (404/403);
- * een `magazijnId` die niet in de config staat geeft 502 via [MagazijnRouter].
+ * een `magazijnId` die niet in de config staat geeft 502 via [MagazijnRouter]. Ook de
+ * cache-update gaat op het paar: hetzelfde berichtnummer kan bij een andere organisatie
+ * voorkomen, en dat bericht hoort ongemoeid te blijven.
  */
 @ApplicationScoped
 class BerichtBeheerService(
@@ -67,7 +69,7 @@ class BerichtBeheerService(
         val ontvangerId = Identificatienummer.fromHeader(ontvanger)
 
         val bijgewerkt = try {
-            sessiecache.werkBerichtBij(ontvangerId, berichtId, UitvraagDtoMapper.toLeesstatus(patch.status), patch.map)
+            sessiecache.werkBerichtBij(ontvangerId, magazijnId, berichtId, UitvraagDtoMapper.toLeesstatus(patch.status), patch.map)
         } catch (e: SessiecacheException) {
             if (!e.isStoring()) {
                 // Een niet-storing fout ná een geslaagde magazijn-write is een contract-bug,
@@ -82,7 +84,7 @@ class BerichtBeheerService(
             }
 
             log.errorf(e, "cache-PATCH storing na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
-            invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvangerId, magazijnId, berichtId)
             throw badGateway(e)
         }
 
@@ -118,7 +120,7 @@ class BerichtBeheerService(
 
         try {
             // Idempotente invalidate: "niet in cache" is geen fout, dus geen 404-pad hier.
-            sessiecache.verwijder(ontvangerId, berichtId)
+            sessiecache.verwijder(ontvangerId, magazijnId, berichtId)
         } catch (e: SessiecacheException) {
             if (!e.isStoring()) {
                 log.errorf(e, "%s cache-DELETE niet-storing ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
@@ -127,14 +129,14 @@ class BerichtBeheerService(
             }
 
             log.errorf(e, "cache-DELETE storing na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
-            invalideerCacheNaMagazijnWrite(ontvangerId, berichtId)
+            invalideerCacheNaMagazijnWrite(ontvangerId, magazijnId, berichtId)
             throw badGateway(e)
         }
     }
 
-    private fun invalideerCacheNaMagazijnWrite(ontvanger: Identificatienummer, berichtId: UUID) {
+    private fun invalideerCacheNaMagazijnWrite(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID) {
         try {
-            sessiecache.verwijder(ontvanger, berichtId)
+            sessiecache.verwijder(ontvanger, magazijnId, berichtId)
         } catch (e: SessiecacheException) {
             // Dubbele cache-faal: de write naar de cache faalde én de compenserende
             // invalidate faalde. De cache blijft stale tot de TTL zonder self-heal —

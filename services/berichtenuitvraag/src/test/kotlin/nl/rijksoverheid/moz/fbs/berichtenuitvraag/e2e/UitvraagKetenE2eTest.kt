@@ -163,7 +163,7 @@ class UitvraagKetenE2eTest {
         // Detail inclusief inhoud.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
-            .`when`().get("/api/v1/berichten/$berichtId")
+            .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(200)
             .body("inhoud", equalTo("Inhoud van magazijn-a"))
@@ -224,7 +224,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
-            .`when`().get("/api/v1/berichten/$berichtId")
+            .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(410)
             .body("type", equalTo("urn:fbs:fout:bericht-verwijderd"))
@@ -232,7 +232,7 @@ class UitvraagKetenE2eTest {
         // Een bericht dat er nooit was, blijft ononderscheidbaar van dat van een ander.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
-            .`when`().get("/api/v1/berichten/33333333-3333-3333-3333-333333333333")
+            .`when`().get("/api/v1/berichten/33333333-3333-3333-3333-333333333333?magazijnId=$OIN_A")
             .then()
             .statusCode(404)
             .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
@@ -250,7 +250,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$andereBsn")
-            .`when`().get("/api/v1/berichten/$berichtId")
+            .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(404)
             .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))

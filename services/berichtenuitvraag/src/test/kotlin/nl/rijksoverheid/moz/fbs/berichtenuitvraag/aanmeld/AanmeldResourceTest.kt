@@ -96,7 +96,7 @@ class AanmeldResourceTest {
             .then()
             .statusCode(202)
 
-        val bericht = sessiecache.berichten[berichtId]
+        val bericht = sessiecache.berichtMet(berichtId)
         // 1:1 OIN↔magazijn: het magazijn-id is de afzender-OIN zelf.
         assertEquals(afzender, bericht?.magazijnId)
         assertEquals(0, bericht?.aantalBijlagen)
@@ -215,7 +215,7 @@ class AanmeldResourceTest {
             .statusCode(202)
 
         assertEquals(2, sessiecache.schrijfAanroepen.size)
-        assertEquals(afzender, sessiecache.berichten[berichtId]?.magazijnId)
+        assertEquals(afzender, sessiecache.berichtMet(berichtId)?.magazijnId)
     }
 
     @Test
@@ -247,7 +247,7 @@ class AanmeldResourceTest {
             .statusCode(202)
 
         assertEquals(1, sessiecache.berichten.size)
-        assertEquals(berichtId, sessiecache.berichten[berichtId]?.berichtId)
+        assertEquals(berichtId, sessiecache.berichtMet(berichtId)?.berichtId)
     }
 
     @Test

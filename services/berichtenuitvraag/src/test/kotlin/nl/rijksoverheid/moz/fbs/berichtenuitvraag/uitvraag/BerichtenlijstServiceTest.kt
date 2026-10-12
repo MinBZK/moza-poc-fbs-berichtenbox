@@ -142,7 +142,7 @@ class BerichtenlijstServiceTest {
         assertEquals(2, item.aantalBijlagen)
         assertEquals("werk", item.map)
         assertEquals(KVK, item.magazijnId)
-        assertEquals("/api/v1/berichten/$id", item.links.self.href)
+        assertEquals("/api/v1/berichten/$id?magazijnId=$KVK", item.links.self.href)
     }
 
     @Test

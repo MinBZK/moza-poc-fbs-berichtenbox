@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.3.1
+  version: 0.4.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -61,7 +61,9 @@ info:
     bericht bestaat wel, maar is niet van jou" exact hetzelfde antwoord: `bericht-onbekend` met
     een 404. Dat is opzet — een verschil daartussen zou het bestaan van andermans berichten
     aftastbaar maken. De opzoeking is per ontvanger gesleuteld, dus die twee gevallen zijn hier
-    letterlijk dezelfde misser.
+    letterlijk dezelfde misser. Een bericht wordt daarbij aangewezen door `magazijnId` én
+    `berichtId`: een organisatie deelt haar berichtnummers zelf uit, dus hetzelfde nummer kan bij
+    twee organisaties voorkomen.
 
     Op `PATCH` en `DELETE` geldt dat niet: die gaan naar het magazijn, dat het bericht opzoekt
     vóór het de eigenaar controleert en daardoor `geen-toegang` (403) geeft op andermans bericht
@@ -214,10 +216,10 @@ paths:
 
         Volgorde en volledigheid: de stroom bevat hoogstens één `volgen-gestart`, meestal als
         eerste. Lees op dat moment de lijst (`GET /berichten`) en voeg elk
-        `bericht-bijgekomen` toe, ontdubbeld op `berichtId`. Wat vóór `volgen-gestart`
-        binnenkwam staat in de lijst, wat erna komt krijg je hier; een bericht dat op het
-        grensvlak valt kan in beide zitten, en een `bericht-bijgekomen` kan zelfs vóór
-        `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
+        `bericht-bijgekomen` toe, ontdubbeld op (`magazijnId`, `berichtId`). Wat vóór
+        `volgen-gestart` binnenkwam staat in de lijst, wat erna komt krijg je hier; een
+        bericht dat op het grensvlak valt kan in beide zitten, en een `bericht-bijgekomen`
+        kan zelfs vóór `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
         compleet: verbind opnieuw en doe hetzelfde.
 
         Blijkt de sessie bij het verbinden al verlopen, dan is `sessie-verlopen` het enige
@@ -300,6 +302,7 @@ paths:
       operationId: getBerichtById
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/MagazijnIdQuery'
       responses:
         '200':
           description: Bericht
@@ -399,6 +402,7 @@ paths:
       operationId: getBijlage
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/MagazijnIdQuery'
       responses:
         '200':
           description: Bijlage-bytes
@@ -478,12 +482,17 @@ components:
       description: |
         Identifier van het magazijn waarin het bericht is opgeslagen — het OIN
         van de deelnemende organisatie (per organisatie bestaat precies één
-        magazijn). Te halen uit het `magazijnId`-veld van de GET-response
-        (lijst of detail); voor de client een opaque waarde. De client geeft
-        het mee zodat de uitvraag-service geen sessiecache-lookup nodig heeft
-        om het bron-magazijn te bepalen. Een waarde die niet in het
-        magazijnregister staat levert 502 op; een bekend magazijn dat het
-        bericht niet kent, handelt zelf af (404/403).
+        magazijn). Te halen uit het `magazijnId`-veld van de lijst of het
+        detail, of mee te nemen door `_links.self` te volgen; voor de client
+        een opaque waarde.
+
+        Een organisatie deelt haar berichtnummers zelf uit, dus een
+        `berichtId` is alleen uniek binnen zijn magazijn: pas samen wijzen ze
+        één bericht aan. Bij het ophalen van een bericht of bijlage levert een
+        paar dat de sessie niet kent 404 `bericht-onbekend`. Bij `PATCH` en
+        `DELETE` gaat de wijziging rechtstreeks naar dit magazijn: een waarde
+        die niet in het magazijnregister staat levert 502 op; een bekend
+        magazijn dat het bericht niet kent, handelt zelf af (404/403).
 
   headers:
     API-Version:
