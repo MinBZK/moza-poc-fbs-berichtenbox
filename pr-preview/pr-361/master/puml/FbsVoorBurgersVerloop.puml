@@ -76,7 +76,7 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 }
 
 person "==Burger\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Burger>> as Burger
-rectangle "==App Manager\n<size:10>[Software System]</size>\n\nBevestigt na inloggen met DigiD de identiteit van de burger en geeft de app een credential uit, gebonden aan het sleutelpaar van de app (BK Connect)" <<AppManager>> as AppManager
+rectangle "==App Manager\n<size:10>[Software System]</size>\n\nLaat de burger inloggen met DigiD en geeft daarna een credential uit aan de app: een bevestiging van de identiteit van de burger, gebonden aan het sleutelpaar van de app (BK Connect)" <<AppManager>> as AppManager
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
 Burger .[#707070,thickness=2].> Berichtenapp : "<color:#707070>1. Opent de app\n<color:#707070><size:8>[App op eigen apparaat]</size>"

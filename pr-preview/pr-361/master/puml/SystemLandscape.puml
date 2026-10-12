@@ -138,7 +138,7 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 
 person "==Burger\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Burger>> as Burger
 rectangle "==Organisatie A\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<OrganisatieA>> as OrganisatieA
-rectangle "==App Manager\n<size:10>[Software System]</size>\n\nBevestigt na inloggen met DigiD de identiteit van de burger en geeft de app een credential uit, gebonden aan het sleutelpaar van de app (BK Connect)" <<AppManager>> as AppManager
+rectangle "==App Manager\n<size:10>[Software System]</size>\n\nLaat de burger inloggen met DigiD en geeft daarna een credential uit aan de app: een bevestiging van de identiteit van de burger, gebonden aan het sleutelpaar van de app (BK Connect)" <<AppManager>> as AppManager
 rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
 person "==Ondernemer / Zakelijke gebruiker\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<OndernemerZakelijkegebruiker>> as OndernemerZakelijkegebruiker
 person "==Medewerker A\n<size:10>[Person]</size>\n\nVerstuurt berichten namens Organisatie A" <<MedewerkerA>> as MedewerkerA
