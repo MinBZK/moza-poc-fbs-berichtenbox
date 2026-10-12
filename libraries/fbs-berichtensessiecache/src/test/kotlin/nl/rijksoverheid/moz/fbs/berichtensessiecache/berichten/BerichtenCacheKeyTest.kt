@@ -17,13 +17,13 @@ class BerichtenCacheKeyTest {
     @Test
     fun `cacheKey heeft correct prefix`() {
         val key = BerichtenCache.cacheKey(Bsn("999993653"))
-        assertTrue(key.startsWith("berichtensessiecache:v3:"))
+        assertTrue(key.startsWith("berichtensessiecache:v4:"))
     }
 
     @Test
     fun `cacheKey bevat 64 hex characters na prefix`() {
         val key = BerichtenCache.cacheKey(Bsn("999993653"))
-        val hash = key.removePrefix("berichtensessiecache:v3:")
+        val hash = key.removePrefix("berichtensessiecache:v4:")
         assertEquals(64, hash.length)
         assertTrue(hash.matches(Regex("[0-9a-f]{64}")))
     }
@@ -51,16 +51,41 @@ class BerichtenCacheKeyTest {
     }
 
     @Test
-    fun `berichtKey bevat UUID`() {
+    fun `berichtKey bevat magazijn en berichtnummer`() {
         val id = UUID.fromString("11111111-1111-1111-1111-111111111111")
-        val key = BerichtenCache.berichtKey(id)
-        assertEquals("bericht:v3:11111111-1111-1111-1111-111111111111", key)
+        val key = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, id))
+        assertEquals("bericht:v4:$MAGAZIJN_A:11111111-1111-1111-1111-111111111111", key)
     }
 
     @Test
     fun `berichtKey heeft correct prefix`() {
-        val id = UUID.randomUUID()
-        val key = BerichtenCache.berichtKey(id)
+        val key = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, UUID.randomUUID()))
         assertTrue(key.startsWith(BerichtenCache.BERICHT_PREFIX))
+    }
+
+    @Test
+    fun `zelfde berichtnummer bij twee magazijnen geeft twee sleutels`() {
+        val id = UUID.randomUUID()
+
+        assertNotEquals(
+            BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, id)),
+            BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_B, id)),
+        )
+    }
+
+    @Test
+    fun `tombstone-sleutel onderscheidt magazijnen met hetzelfde berichtnummer`() {
+        val id = UUID.randomUUID()
+        val ontvanger = Bsn("999993653")
+
+        assertNotEquals(
+            BerichtenCache.verwijderdKey(ontvanger, BerichtSleutel(MAGAZIJN_A, id)),
+            BerichtenCache.verwijderdKey(ontvanger, BerichtSleutel(MAGAZIJN_B, id)),
+        )
+    }
+
+    private companion object {
+        const val MAGAZIJN_A = "00000001000000000001"
+        const val MAGAZIJN_B = "00000001000000000002"
     }
 }

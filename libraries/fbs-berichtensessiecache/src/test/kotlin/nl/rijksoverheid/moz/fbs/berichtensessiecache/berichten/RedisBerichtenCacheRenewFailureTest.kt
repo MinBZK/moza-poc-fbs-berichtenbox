@@ -29,7 +29,7 @@ class RedisBerichtenCacheRenewFailureTest {
     fun `mislukte TTL-verlenging laat een geslaagde getById onaangetast`() {
         val berichtId = UUID.randomUUID()
         val ontvanger = Oin("00000001234567890000")
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(BerichtSleutel("00000001800866472000", berichtId))
 
         val hashCommands = mockk<ReactiveHashCommands<String, String, String>>()
         every { redis.hash(String::class.java) } returns hashCommands
@@ -62,7 +62,7 @@ class RedisBerichtenCacheRenewFailureTest {
             maxWaitingHandlers = 2048,
         )
 
-        val bericht = cache.getById(berichtId, ontvanger).await().indefinitely()
+        val bericht = cache.getById(BerichtSleutel("00000001800866472000", berichtId), ontvanger).await().indefinitely()
 
         assertNotNull(bericht, "read moet slagen ondanks een mislukte TTL-verlenging")
         assertEquals(berichtId, bericht!!.berichtId)

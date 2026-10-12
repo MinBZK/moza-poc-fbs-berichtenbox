@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -15,22 +14,22 @@ import java.util.concurrent.CopyOnWriteArrayList
 @ApplicationScoped
 internal class MockAanmeldingen : Aanmeldingen {
 
-    private class Luisteraar(val opBericht: (UUID) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
+    private class Luisteraar(val opBericht: (BerichtSleutel) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 
     private val luisteraars = ConcurrentHashMap<String, CopyOnWriteArrayList<Luisteraar>>()
 
-    val meldingen = CopyOnWriteArrayList<Pair<String, UUID>>()
+    val meldingen = CopyOnWriteArrayList<Pair<String, BerichtSleutel>>()
 
-    override fun meld(cacheKey: String, berichtId: UUID): Uni<Void> {
-        meldingen += cacheKey to berichtId
-        luisteraars[cacheKey]?.forEach { it.opBericht(berichtId) }
+    override fun meld(cacheKey: String, sleutel: BerichtSleutel): Uni<Void> {
+        meldingen += cacheKey to sleutel
+        luisteraars[cacheKey]?.forEach { it.opBericht(sleutel) }
 
         return Uni.createFrom().voidItem()
     }
 
     override fun registreer(
         cacheKey: String,
-        opBericht: (UUID) -> Unit,
+        opBericht: (BerichtSleutel) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Aanmeldingen.Afmelding {

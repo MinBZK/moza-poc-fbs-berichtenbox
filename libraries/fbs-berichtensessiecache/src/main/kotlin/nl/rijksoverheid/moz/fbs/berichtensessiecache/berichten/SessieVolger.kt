@@ -10,7 +10,6 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -21,7 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].
  * Wat vóór dat moment binnenkwam, leest de afnemer uit de lijst; wat erna komt, krijgt hij hier.
  * Wat in het overlappende stukje valt, krijgt hij twee keer — daarom ontdubbelt hij op
- * `berichtId`.
+ * (`magazijnId`, `berichtId`).
  *
  * `@Startup` zodat een verkeerd ingestelde hartslag de pod bij het opstarten tegenhoudt en niet
  * pas bij de eerste bezoeker.
@@ -61,8 +60,8 @@ internal class SessieVolger(
         }
     }
 
-    fun meldAan(ontvanger: Identificatienummer, berichtId: UUID): Uni<Void> =
-        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), berichtId)
+    fun meldAan(ontvanger: Identificatienummer, sleutel: BerichtSleutel): Uni<Void> =
+        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), sleutel)
 
     /**
      * Slaagt zodra deze pod aanmeldingen ontvangt. De facade wacht hierop vóórdat hij de stream
@@ -80,7 +79,7 @@ internal class SessieVolger(
                 .subscribe().with { emitter.complete() }
             val afmelding = aanmeldingen.registreer(
                 cacheKey,
-                opBericht = { berichtId -> stuurDoor(berichtId, ontvanger, emitter) },
+                opBericht = { sleutel -> stuurDoor(sleutel, ontvanger, emitter) },
                 opStoring = emitter::fail,
                 // Een stoppende pod is geen storing: zelfde einde als na de maximale duur.
                 opEinde = emitter::complete,
@@ -132,13 +131,13 @@ internal class SessieVolger(
      * Geeft de cache niets terug, dan staat het bericht er niet (meer): de aanmelding wordt
      * overgeslagen en de lijst blijft de waarheid.
      */
-    private fun stuurDoor(berichtId: UUID, ontvanger: Identificatienummer, emitter: MultiEmitter<in SessieGebeurtenis>) {
-        berichtenCache.getById(berichtId, ontvanger).subscribe().with(
+    private fun stuurDoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer, emitter: MultiEmitter<in SessieGebeurtenis>) {
+        berichtenCache.getById(sleutel, ontvanger).subscribe().with(
             { bericht ->
                 if (bericht == null) {
-                    // Het berichtId is geen persoonsgegeven; dit spoor verbindt een gemist bericht
+                    // De sleutel is geen persoonsgegeven; dit spoor verbindt een gemist bericht
                     // op het scherm met een hash die eerder verliep dan zijn lijst-entry.
-                    log.debugf("Aangemeld bericht %s niet in de cache; overgeslagen", berichtId)
+                    log.debugf("Aangemeld bericht %s niet in de cache; overgeslagen", sleutel)
                 } else {
                     emitter.emit(SessieGebeurtenis.BerichtBijgekomen(bericht))
                 }

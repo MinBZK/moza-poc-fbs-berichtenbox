@@ -183,15 +183,15 @@ internal class BerichtensessiecacheService(
         return berichtenCache.getAggregationStatus(key)
     }
 
-    fun getBerichtById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
-        log.debugf("Ophalen bericht uit cache: %s", berichtId)
+    fun getBerichtById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> {
+        log.debugf("Ophalen bericht uit cache: %s", sleutel)
 
-        return berichtenCache.getById(berichtId, ontvanger)
+        return berichtenCache.getById(sleutel, ontvanger)
     }
 
     /** Of [ontvanger] dit bericht zelf verwijderde; zie [BerichtenCache.isVerwijderdVoor]. */
-    fun isBerichtVerwijderd(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
-        berichtenCache.isVerwijderdVoor(berichtId, ontvanger)
+    fun isBerichtVerwijderd(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean> =
+        berichtenCache.isVerwijderdVoor(sleutel, ontvanger)
 
     fun zoekBerichten(q: String, page: Int, pageSize: Int, ontvanger: Identificatienummer, afzender: String?, map: String? = null): Uni<BerichtenPagina> {
         // q is user-input zonder CRLF-filter op spec-niveau; loggen van q.length voorkomt
@@ -202,23 +202,23 @@ internal class BerichtensessiecacheService(
         return berichtenCache.search(ontvanger, q, page, pageSize, afzender, map)
     }
 
-    fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
-        log.debugf("Bijwerken bericht: berichtId=%s, status=%s, map=%s", berichtId, status, map)
+    fun updateBerichtMetadata(sleutel: BerichtSleutel, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
+        log.debugf("Bijwerken bericht: %s, status=%s, map=%s", sleutel, status, map)
 
-        return berichtenCache.updateBerichtMetadata(berichtId, ontvanger, status, map)
+        return berichtenCache.updateBerichtMetadata(sleutel, ontvanger, status, map)
     }
 
     fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Bericht> {
-        log.debugf("Toevoegen bericht aan cache: berichtId=%s", bericht.berichtId)
+        log.debugf("Toevoegen bericht aan cache: %s", bericht.sleutel)
         val gevalideerd = berichtValidator.valideer(bericht)
 
         return berichtenCache.createBericht(gevalideerd, ontvanger).replaceWith(gevalideerd)
     }
 
-    fun verwijderBericht(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
-        log.debugf("Verwijderen bericht uit cache: berichtId=%s", berichtId)
+    fun verwijderBericht(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> {
+        log.debugf("Verwijderen bericht uit cache: %s", sleutel)
 
-        return berichtenCache.delete(berichtId, ontvanger)
+        return berichtenCache.delete(sleutel, ontvanger)
     }
 
     /**

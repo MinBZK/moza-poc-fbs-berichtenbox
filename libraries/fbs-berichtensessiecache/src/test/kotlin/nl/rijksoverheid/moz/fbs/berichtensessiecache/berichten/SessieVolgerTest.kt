@@ -87,11 +87,28 @@ class SessieVolgerTest {
     }
 
     @Test
+    fun `twee magazijnen met hetzelfde berichtnummer komen allebei door`() {
+        startSessie(ontvanger)
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
+
+        val vanA = bericht(ontvanger)
+        val vanB = vanA.copy(magazijnId = "00000001003214345001", onderwerp = "van B")
+        meldAan(vanA)
+        meldAan(vanB)
+
+        volgend.wachtTot { items -> items.count { it is SessieGebeurtenis.BerichtBijgekomen } == 2 }
+        assertEquals(
+            listOf(SessieGebeurtenis.BerichtBijgekomen(vanA), SessieGebeurtenis.BerichtBijgekomen(vanB)),
+            volgend.zonderHartslag().drop(1),
+        )
+    }
+
+    @Test
     fun `een melding waarvan het bericht al weg is, wordt overgeslagen`() {
         startSessie(ontvanger)
         val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
 
-        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), UUID.randomUUID()).await().indefinitely()
+        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), BerichtSleutel("00000001003214345000", UUID.randomUUID())).await().indefinitely()
 
         assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.zonderHartslag())
     }
@@ -197,7 +214,7 @@ class SessieVolgerTest {
     @Test
     fun `een leesfout op een aangemeld bericht breekt de stream af`() {
         val falendeCache = object : BerichtenCache by cache {
-            override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> =
+            override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> =
                 Uni.createFrom().failure(IllegalStateException("redis weg"))
         }
 
@@ -206,7 +223,7 @@ class SessieVolgerTest {
         val volgend = volgerMetFout.volg(ontvanger).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
         volgend.wachtTot { it.isNotEmpty() }
 
-        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), UUID.randomUUID()).await().indefinitely()
+        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), BerichtSleutel("00000001003214345000", UUID.randomUUID())).await().indefinitely()
 
         volgend.awaitFailure()
     }
@@ -225,11 +242,11 @@ class SessieVolgerTest {
 
     @Test
     fun `meldAan meldt onder de cacheKey van de ontvanger`() {
-        val berichtId = UUID.randomUUID()
+        val sleutel = BerichtSleutel("00000001003214345000", UUID.randomUUID())
 
-        volger.meldAan(ontvanger, berichtId).await().indefinitely()
+        volger.meldAan(ontvanger, sleutel).await().indefinitely()
 
-        assertEquals(listOf(BerichtenCache.cacheKey(ontvanger) to berichtId), aanmeldingen.meldingen)
+        assertEquals(listOf(BerichtenCache.cacheKey(ontvanger) to sleutel), aanmeldingen.meldingen)
     }
 
     @ParameterizedTest(name = "hartslag {0}")
@@ -325,7 +342,7 @@ class SessieVolgerTest {
 
     private fun meldAan(bericht: Bericht) {
         cache.createBericht(bericht, bericht.ontvanger).await().indefinitely()
-        volger.meldAan(bericht.ontvanger, bericht.berichtId).await().indefinitely()
+        volger.meldAan(bericht.ontvanger, bericht.sleutel).await().indefinitely()
     }
 
     private fun bericht(wie: Identificatienummer) = Bericht(

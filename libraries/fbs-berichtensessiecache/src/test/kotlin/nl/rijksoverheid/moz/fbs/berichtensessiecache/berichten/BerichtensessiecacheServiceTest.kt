@@ -681,9 +681,9 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `getBerichtById delegeert naar cache`() {
         val bericht = testBericht()
-        every { berichtenCache.getById(bericht.berichtId, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { berichtenCache.getById(bericht.sleutel, ontvanger) } returns Uni.createFrom().item(bericht)
 
-        val result = service.getBerichtById(bericht.berichtId, ontvanger).await().indefinitely()
+        val result = service.getBerichtById(bericht.sleutel, ontvanger).await().indefinitely()
 
         assertNotNull(result)
         assertEquals(bericht.berichtId, result!!.berichtId)
@@ -693,9 +693,9 @@ class BerichtensessiecacheServiceTest {
     fun `updateBerichtMetadata delegeert status-update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(status = Leesstatus.GELEZEN)
-        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
+        every { berichtenCache.updateBerichtMetadata(bericht.sleutel, ontvanger, "GELEZEN", null) } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, "GELEZEN", null).await().indefinitely()
+        val result = service.updateBerichtMetadata(bericht.sleutel, ontvanger, "GELEZEN", null).await().indefinitely()
 
         assertNotNull(result)
         assertEquals(Leesstatus.GELEZEN, result!!.status)
@@ -705,9 +705,9 @@ class BerichtensessiecacheServiceTest {
     fun `updateBerichtMetadata delegeert map-update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(map = "archief")
-        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
+        every { berichtenCache.updateBerichtMetadata(bericht.sleutel, ontvanger, null, "archief") } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, null, "archief").await().indefinitely()
+        val result = service.updateBerichtMetadata(bericht.sleutel, ontvanger, null, "archief").await().indefinitely()
 
         assertNotNull(result)
         assertEquals("archief", result!!.map)
@@ -717,9 +717,9 @@ class BerichtensessiecacheServiceTest {
     fun `updateBerichtMetadata delegeert gecombineerde update naar cache`() {
         val bericht = testBericht()
         val updated = bericht.copy(status = Leesstatus.GELEZEN, map = "archief")
-        every { berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
+        every { berichtenCache.updateBerichtMetadata(bericht.sleutel, ontvanger, "gelezen", "archief") } returns Uni.createFrom().item(updated)
 
-        val result = service.updateBerichtMetadata(bericht.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
+        val result = service.updateBerichtMetadata(bericht.sleutel, ontvanger, "gelezen", "archief").await().indefinitely()
 
         assertNotNull(result)
         assertEquals(Leesstatus.GELEZEN, result!!.status)
