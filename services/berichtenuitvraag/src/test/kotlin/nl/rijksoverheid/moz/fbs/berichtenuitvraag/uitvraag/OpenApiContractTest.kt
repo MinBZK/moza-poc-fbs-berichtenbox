@@ -308,6 +308,7 @@ class OpenApiContractTest {
         val gedeeld = UUID.randomUUID()
         seedBericht(gedeeld, magazijnId = WireMockBackendsResource.OIN_A)
         seedBericht(gedeeld, magazijnId = WireMockBackendsResource.OIN_B)
+
         listOf(WireMockBackendsResource.magazijnA to "Tekst van A", WireMockBackendsResource.magazijnB to "Tekst van B")
             .forEach { (magazijn, tekst) ->
                 magazijn.stubFor(
@@ -349,7 +350,7 @@ class OpenApiContractTest {
     }
 
     @ParameterizedTest(name = "magazijnId={0}")
-    @ValueSource(strings = ["00000009999999999999", "a:b", "${WireMockBackendsResource.OIN_A}:x"])
+    @ValueSource(strings = ["00000009999999999999", WireMockBackendsResource.OIN_B])
     fun `GET bericht by id met een magazijnId waaronder het bericht niet staat levert 404`(magazijnId: String) {
         val id = UUID.randomUUID()
         seedBericht(id)
@@ -366,6 +367,67 @@ class OpenApiContractTest {
             .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
 
         WireMockBackendsResource.magazijnA.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+    }
+
+    // Alleen een OIN komt door: de waarde belandt in sleutels en logregels, en mag daar geen BSN of
+    // regelafbreking binnensmokkelen.
+    @ParameterizedTest(name = "magazijnId={0}")
+    @ValueSource(strings = ["", "999990019", "a:b", "0000000100000000000\r\nX", "000000010000000000001"])
+    fun `GET bericht by id met een magazijnId dat geen OIN is levert 400 problem+json`(magazijnId: String) {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+
+        given()
+            .header("X-Ontvanger", ontvanger)
+            .queryParam("magazijnId", magazijnId)
+            .`when`()
+            .get("/api/v1/berichten/$id")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+    }
+
+    @Test
+    fun `GET bijlage van een bericht met hetzelfde nummer bij een ander magazijn gaat naar dat magazijn`() {
+        WireMockBackendsResource.magazijnB.resetAll()
+        val gedeeld = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        seedBericht(gedeeld, magazijnId = WireMockBackendsResource.OIN_A)
+        seedBericht(gedeeld, magazijnId = WireMockBackendsResource.OIN_B, bijlagen = listOf(BijlageSamenvatting(bijlageId, "b.pdf")))
+        WireMockBackendsResource.magazijnB.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$gedeeld/bijlagen/$bijlageId")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/pdf").withBody(byteArrayOf(37, 80, 68, 70)),
+            ),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$gedeeld/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_B}")
+            .then()
+            .statusCode(200)
+
+        WireMockBackendsResource.magazijnA.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$gedeeld/bijlagen/$bijlageId")))
+    }
+
+    @Test
+    fun `GET bijlage met een magazijnId waaronder het bericht niet staat levert 404 zonder magazijn-aanroep`() {
+        val id = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        seedBericht(id, bijlagen = listOf(BijlageSamenvatting(bijlageId, "a.pdf")))
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$id/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_B}")
+            .then()
+            .statusCode(404)
+            .contentType("application/problem+json")
+            .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
+
+        WireMockBackendsResource.magazijnA.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$id/bijlagen/$bijlageId")))
     }
 
     @Test

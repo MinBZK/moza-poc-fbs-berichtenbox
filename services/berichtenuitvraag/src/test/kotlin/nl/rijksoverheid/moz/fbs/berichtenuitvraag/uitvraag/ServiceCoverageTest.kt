@@ -619,12 +619,12 @@ class ServiceCoverageTest {
     fun `bijlage met onbekend magazijnId uit cache geeft 502 zonder magazijn-call`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        seedBericht(berichtId, magazijnId = "magazijn-onbekend")
+        seedBericht(berichtId, magazijnId = "00000009999999999999")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=magazijn-onbekend")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=00000009999999999999")
             .then()
             .statusCode(502)
 
@@ -645,7 +645,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-onbekend")
+            .patch("/api/v1/berichten/$id?magazijnId=00000009999999999999")
             .then()
             .statusCode(502)
     }
@@ -657,7 +657,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-onbekend")
+            .delete("/api/v1/berichten/$id?magazijnId=00000009999999999999")
             .then()
             .statusCode(502)
     }

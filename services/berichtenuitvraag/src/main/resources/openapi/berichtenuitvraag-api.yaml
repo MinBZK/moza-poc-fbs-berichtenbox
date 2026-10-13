@@ -478,7 +478,9 @@ components:
       name: magazijnId
       in: query
       required: true
-      schema: { type: string, minLength: 1 }
+      # Alleen een OIN: de waarde komt in sleutels en logregels terecht, en mag daar geen BSN of
+      # regelafbreking binnensmokkelen.
+      schema: { type: string, pattern: '^[0-9]{20}$' }
       description: |
         Identifier van het magazijn waarin het bericht is opgeslagen — het OIN
         van de deelnemende organisatie (per organisatie bestaat precies één

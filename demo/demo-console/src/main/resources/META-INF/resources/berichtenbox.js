@@ -659,7 +659,6 @@ function detailKop(bericht) {
   return frag;
 }
 
-// PATCH vereist content-type merge-patch+json.
 async function markeer(bericht, status) {
   const respons = await api(berichtPad(bericht), {
     method: 'PATCH',

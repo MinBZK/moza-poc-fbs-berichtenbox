@@ -140,7 +140,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) }
+        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any(), any()) }
     }
 
     @Test
@@ -183,7 +183,7 @@ class BerichtBeheerServiceTest {
 
         assertEquals(404, fout.response.status)
         assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, magazijnId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test
@@ -200,7 +200,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.BAD_REQUEST.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, magazijnId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test
@@ -225,7 +225,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, magazijnId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test
@@ -286,7 +286,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) }
+        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any(), any()) }
     }
 
     @Test
@@ -299,7 +299,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.UNAUTHORIZED.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, magazijnId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test

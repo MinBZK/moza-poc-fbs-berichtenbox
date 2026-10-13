@@ -32,7 +32,7 @@ class MockAanmeldDeduplicatie : AanmeldDeduplicatie {
     }
 
     override fun verwijder(magazijnId: String, eventId: String) {
-        verwijderd += eventId
+        verwijderd += "$magazijnId:$eventId"
         gezien.remove("$magazijnId:$eventId")
     }
 }

@@ -77,6 +77,7 @@ internal interface BerichtenCache {
                 .digest(canonical.toByteArray(Charsets.UTF_8))
             return "berichtensessiecache:v4:${HEX.formatHex(digest)}"
         }
+
         // v4: de berichthash draagt het magazijn, want een berichtnummer is alleen uniek binnen
         // het magazijn dat het uitdeelde. Een pod van een vorige versie zou een gedeelde lijst
         // op alleen het nummer matchen en zo het bericht van de ene organisatie bij de andere

@@ -71,7 +71,7 @@ class AanmeldServiceTest {
         assertEquals(berichtId, slot.captured.berichtId)
         verify { logboek.dataSubjectId = ontvangerBsn }
         // Marker behouden: bericht is echt geschreven.
-        verify(exactly = 0) { dedup.verwijder(afzender, any()) }
+        verify(exactly = 0) { dedup.verwijder(any(), any()) }
     }
 
     @Test
@@ -189,7 +189,7 @@ class AanmeldServiceTest {
         val ex = assertThrows<WebApplicationException> { service.verwerk(event(specversion = "0.3")) }
 
         assertEquals(400, ex.response.status)
-        verify(exactly = 0) { dedup.eerstgezien(afzender, any()) }
+        verify(exactly = 0) { dedup.eerstgezien(any(), any()) }
     }
 
     @Test

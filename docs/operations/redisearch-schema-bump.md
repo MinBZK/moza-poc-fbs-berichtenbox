@@ -172,6 +172,6 @@ Geen automatische versie-tracking in Redis (zoals Flyway voor PostgreSQL).
 Houd schema-wijzigingen bij in `CHANGELOG.md` of via PR-titel-conventie zodat
 deploy-team weet wanneer deze procedure nodig is.
 
-Bij twijfel: vergelijk `FT.INFO berichten-idx-v3`-output met
+Bij twijfel: vergelijk `FT.INFO berichten-idx-v4`-output met
 `RedisBerichtenCache.init()` `CreateArgs(...)` — afwijking betekent schema-bump
 nodig.

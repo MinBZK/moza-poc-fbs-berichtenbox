@@ -1114,6 +1114,20 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(1, redis.list(String::class.java).llen(listKey()).await().indefinitely())
     }
 
+    @Test
+    fun `een aanmelding herstelt een verlopen hash met de status van zijn eigen magazijn`() {
+        val (vanA, vanB) = tweeMagazijnenZelfdeNummer()
+        berichtenCache.store(cacheKey(), listOf(vanA, vanB)).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(vanA.sleutel, ontvanger, "gelezen", "Belasting").await().indefinitely()
+        redis.key().del(BerichtenCache.berichtKey(vanB.sleutel)).await().indefinitely()
+
+        berichtenCache.createBericht(vanB, ontvanger).await().indefinitely()
+
+        val hersteld = berichtenCache.getById(vanB.sleutel, ontvanger).await().indefinitely()!!
+        assertNull(hersteld.status)
+        assertNull(hersteld.map)
+    }
+
     private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001234567890000",
