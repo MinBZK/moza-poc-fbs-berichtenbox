@@ -600,7 +600,8 @@ components:
           description: |
             Hoeveel organisaties in de laatste ophaalronde niet leverden. Hun berichten
             ontbreken in deze lijst, en daarmee ook de mappen waar die in staan: een
-            mappenoverzicht dat uit deze lijst is afgeleid, is pas volledig bij `0`. Geldt
+            mappenoverzicht dat uit deze lijst is afgeleid, is pas volledig bij `0` én een
+            lege `afgekapt`. Geldt
             voor de hele lijst en staat daarom op elke pagina, ook na verversen of bladeren —
             het voortgangsbericht van het ophalen is dan al lang weg.
         nietGeleverd:
@@ -608,8 +609,8 @@ components:
           description: |
             Welke organisaties dat waren, gesorteerd op naam. Meestal zijn dat er precies
             `aantalNietGeleverd`, maar het kunnen er minder zijn als niet van elke organisatie
-            bekend is welke het was. Lees volledigheid dus af aan `aantalNietGeleverd`, niet
-            aan een lege lijst.
+            bekend is welke het was. Lees volledigheid dus af aan `aantalNietGeleverd` en
+            `afgekapt`, niet aan een lege `nietGeleverd`.
           items: { $ref: '#/components/schemas/NietGeleverdeOrganisatie' }
         afgekapt:
           type: array
@@ -646,10 +647,14 @@ components:
         aantalOpgehaald:
           type: integer
           minimum: 0
-          description: Hoeveel berichten van deze organisatie in de lijst staan.
+          description: |
+            Hoeveel berichten deze organisatie in de laatste ophaalronde leverde; hetzelfde getal
+            als `aantalBerichten` in haar `magazijn-bevraging-voltooid`-event. Wordt niet
+            bijgewerkt als er binnen de sessie een bericht bijkomt of verdwijnt.
         totaalBeschikbaar:
           type: integer
           format: int64
+          minimum: 1
           description: |
             Wat de organisatie zelf als totaal meldde; altijd groter dan `aantalOpgehaald`.
             Ontbreekt als ze geen bruikbaar totaal gaf — dan is alleen bekend dát er meer is.

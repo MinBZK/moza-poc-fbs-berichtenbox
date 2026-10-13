@@ -31,6 +31,7 @@ data class Afgekapt(
 ) {
     init {
         require(aantalOpgehaald >= 0) { "aantalOpgehaald mag niet negatief zijn" }
+
         require(totaalBeschikbaar == null || totaalBeschikbaar > aantalOpgehaald) {
             "totaalBeschikbaar moet groter zijn dan aantalOpgehaald, anders is er niets afgekapt"
         }
@@ -39,10 +40,9 @@ data class Afgekapt(
 
 /**
  * Hoe volledig de lijst is die bij de laatste ophaalronde hoort. Volledig betekent
- * [aantalNietGeleverd] `== 0` én een lege [afgekapt], níet een lege [nietGeleverd]: een ronde van
- * vóórdat de namen bewaard werden, telt wel wie niet leverde maar weet niet wie. Dan is
- * [nietGeleverd] korter dan [aantalNietGeleverd], en moet het portaal "mogelijk onvolledig" tonen
- * zonder namen.
+ * [aantalNietGeleverd] `== 0` én een lege [afgekapt]. Het aantal is leidend en niet een lege
+ * [nietGeleverd]: het contract staat toe dat er minder namen zijn dan organisaties, en dan hoort
+ * het portaal "mogelijk onvolledig" te tonen zonder namen.
  */
 data class Volledigheid(
     val aantalNietGeleverd: Int,

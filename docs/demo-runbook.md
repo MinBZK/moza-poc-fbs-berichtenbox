@@ -526,8 +526,9 @@ vult hem bij, zonder bestaande post te raken. Is M2 al gespeeld, dan zet *Legen 
 terugzetten* gevolgd door **Berichten klaarzetten** de uitgangssituatie terug.
 
 De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`),
-uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`) en
-welke niet alles leverden (`afgekapt`), en haalt een bericht uit zijn map met `"map": ""`.
+uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`), en
+haalt een bericht uit zijn map met `"map": ""`. Welke organisaties niet alles leverden (`afgekapt`)
+leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's niet nodig.
 
 ---
 
@@ -549,7 +550,7 @@ welke niet alles leverden (`afgekapt`), en haalt een bericht uit zijn map met `"
   laten zien dat de uitvraag ook afkápt als een organisatie meer heeft dan wij ophalen, zet dan
   daarnaast `BERICHTENSESSIECACHE_MAX_BERICHTEN_PER_MAGAZIJN` laag (bijvoorbeeld 5): de Berichtenbox
   meldt dan per organisatie "niet alles opgehaald" — tijdens het ophalen, en daarna boven de lijst,
-  ook na *Vernieuwen*. Standaard staat die grens op de productiewaarde, want verlagen betekent
+  ook na **Vernieuw**. Standaard staat die grens op de productiewaarde, want verlagen betekent
   berichten weglaten.
 - **Het doorpagineren meelezen** kan met `docker compose logs -f berichtenuitvraag | grep pagina`:
   de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren

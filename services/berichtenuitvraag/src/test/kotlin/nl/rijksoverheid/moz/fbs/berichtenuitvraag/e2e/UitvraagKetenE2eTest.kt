@@ -288,15 +288,25 @@ class UitvraagKetenE2eTest {
     }
 
     /**
-     * Een organisatie die meer heeft dan ze leverde, blijft dat op de lijst: op elke pagina en bij
-     * elke volgende lezing, niet alleen in het event van de ophaalronde. De tweede lezing is de
-     * herlaadactie — er draait geen nieuwe ronde, alles komt uit de sessie in Redis.
+     * Een organisatie die meer heeft dan ze leverde, blijft dat op de lijst: op elke pagina, in de
+     * zoekresultaten en bij elke volgende lezing, niet alleen in het event van de ophaalronde. De
+     * tweede lezing is de herlaadactie — er draait geen nieuwe ronde, alles komt uit de sessie in
+     * Redis. Magazijn B levert alles en een totaal dat dat bevestigt, dus dat staat er níet bij.
      */
     @Test
-    fun `een afgekapte organisatie blijft op de lijst staan bij bladeren en verversen`() {
+    fun `een afgekapte organisatie blijft op de lijst staan bij bladeren, zoeken en verversen`() {
         val bsn = "999990056"
         val ids = (1..2).map { i -> "00000000-0000-4000-8000-%012d".format(i) }
-        stubProfielOptIn(bsn, OIN_A)
+        stubProfielOptIn(bsn, OIN_A, OIN_B)
+        magazijnB.stubFor(
+            get(urlPathMatching("/api/v1/berichten")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
+                    """{"berichten":[{"berichtId":"00000000-0000-4000-8000-000000000003","afzender":"$OIN_B",""" +
+                        """"ontvanger":{"type":"BSN","waarde":"$bsn"},"onderwerp":"Bericht van B",""" +
+                        """"publicatietijdstip":"2026-03-09T10:00:00Z","aantalBijlagen":0}],"totalElements":1}""",
+                ),
+            ),
+        )
         magazijnA.stubFor(
             get(urlPathMatching("/api/v1/berichten")).willReturn(
                 aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
@@ -313,16 +323,21 @@ class UitvraagKetenE2eTest {
 
         assertTrue(sse.contains("\"afgekapt\":true"), "Verwacht het afkap-signaal in de ronde zelf: $sse")
 
-        val paden = listOf("/api/v1/berichten?pagina=0&paginaGrootte=1", "/api/v1/berichten?pagina=1&paginaGrootte=1")
+        // Drie berichten: twee pagina's van één, en de zoekresultaten in één keer.
+        val paden = mapOf(
+            "/api/v1/berichten?pagina=0&paginaGrootte=1" to 1,
+            "/api/v1/berichten?pagina=1&paginaGrootte=1" to 1,
+            "/api/v1/berichten/_zoeken?q=Bericht" to 3,
+        )
 
         repeat(2) {
-            for (pad in paden) {
+            for ((pad, aantal) in paden) {
                 given()
                     .header("X-Ontvanger", "BSN:$bsn")
                     .`when`().get(pad)
                     .then()
                     .statusCode(200)
-                    .body("berichten.size()", equalTo(1))
+                    .body("berichten.size()", equalTo(aantal))
                     .body("afgekapt.magazijnId", contains(OIN_A))
                     .body("afgekapt[0].aantalOpgehaald", equalTo(2))
                     .body("afgekapt[0].totaalBeschikbaar", equalTo(812))

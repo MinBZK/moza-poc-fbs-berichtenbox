@@ -1330,6 +1330,54 @@ class BerichtensessiecacheServiceTest {
         assertEquals(listOf(Afgekapt("magazijn-a", "Magazijn A", 1, 2L)), bewaard.captured.afgekapt)
     }
 
+    /** Valt het enige bericht af, dan leverde de organisatie niets bruikbaars maar wel een totaal: "0 van 1". */
+    @Test
+    fun `een organisatie wier enige bericht afvalt staat met nul opgehaald bij afgekapt, niet bij niet geleverd`() {
+        val client = mockk<MagazijnClient>()
+        val ongeldig = testMagazijnBericht().copy(ontvanger = MagazijnBericht.MagazijnOntvanger("BSN", "123456789"))
+        val bewaard = slot<AggregationStatus>()
+
+        stubAggregatie(client)
+        every { berichtenCache.storeAggregationStatus(cacheKey, capture(bewaard)) } returns Uni.createFrom().voidItem()
+        every { client.getBerichten(any(), any(), any(), any()) } returns
+            MagazijnBerichtenResponse(listOf(ongeldig), totalElements = 1L, totalPages = 1)
+
+        service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        assertEquals(listOf(Afgekapt("magazijn-a", "Magazijn A", 0, 1L)), bewaard.captured.afgekapt)
+        assertEquals(1, bewaard.captured.geslaagd)
+        assertEquals(emptyList<NietGeleverd>(), bewaard.captured.nietGeleverd)
+    }
+
+    /**
+     * Twee organisaties met dezelfde naam: dan beslist het magazijnId. De bevragingen lopen parallel,
+     * dus zonder die tweede sleutel hangt de volgorde af van wie het eerst klaar is.
+     */
+    @Test
+    fun `afgekapte organisaties met dezelfde naam staan op magazijnId`() {
+        val organisaties = listOf("magazijn-c" to "Belasting", "magazijn-a" to "Belasting", "magazijn-b" to "Noord")
+        val magazijnen = organisaties.associate { (id, naam) ->
+            val client = mockk<MagazijnClient>()
+
+            every { client.getBerichten(any(), any(), any(), any()) } returns
+                MagazijnBerichtenResponse(magazijnBerichten(1), totalElements = 812L, totalPages = 1)
+
+            id to IngeschrevenMagazijn(client, naam)
+        }
+        val bewaard = slot<AggregationStatus>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(magazijnen.keys)
+        every { clientFactory.getAllMagazijnen() } returns magazijnen
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, capture(bewaard)) } returns Uni.createFrom().voidItem()
+
+        service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        assertEquals(listOf("magazijn-a", "magazijn-c", "magazijn-b"), bewaard.captured.afgekapt.map { it.magazijnId })
+    }
+
     @Test
     fun `lock-acquire JSON-fout via 2-niveau cause-wrap classificeert nog steeds als 500`() {
         // Productie-pad is CompletionException → SyncFailure → JPE (>=2 niveaus).

@@ -291,8 +291,8 @@ async function laadLijst() {
   herteken();
 }
 
-// Wat er aan de lijst ontbreekt, uit de lijst zelf. De voortgangsregels van het ophalen zeggen
-// hetzelfde, maar zijn weg na Vernieuwen of bij een andere sessie; deze melding niet.
+// Uit de lijst zelf, niet uit de voortgangsregels: die beschrijven alleen de ronde die in dit
+// tabblad liep, en zijn er niet na het herladen van de pagina of in een ander tabblad.
 function toonVolledigheid(lijst) {
   const vak = el('volledigheid');
   const delen = [];
