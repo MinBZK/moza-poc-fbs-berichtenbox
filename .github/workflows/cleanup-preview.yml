@@ -1,4 +1,4 @@
-# Ruimt de preview van een PR op: de `pr-<n>`-deployment in elk van de drie ZAD-projecten, de
+# Ruimt de preview van een PR op: de `pr-<n>`-deployment in elk van de vier ZAD-projecten, de
 # GitHub-omgeving en -deployments, de deploy-comment en de ghcr-versies van die PR.
 #
 # WAAROM EEN EIGEN WORKFLOW EN NIET IN deploy.yml: die filtert met `branches: [main]` op de
@@ -43,6 +43,7 @@
 #   ZAD_API_KEY_UITVRAAG    — API-key project mpfb-8wh
 #   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
 #   ZAD_API_KEY_MAGAZIJNEN  — API-key project mpfm-w3h
+#   ZAD_API_KEY_STELSELREGISTER — API-key project mpfs-rab
 #   GH_ADMIN_TOKEN          — PAT met Administration: write op deze repo (fine-grained), of een
 #                             classic token met `repo`-scope én admin op de repo. GITHUB_TOKEN mag
 #                             omgevingen niet verwijderen, en de naam mag niet met `GITHUB_`
@@ -128,7 +129,7 @@ jobs:
           fi
 
           # Een handmatige run is de inhaalslag voor een gemiste opruiming, dus bediend door iemand
-          # met haast. Een typefout zou anders drie keer "niet gevonden" opleveren: een volledig
+          # met haast. Een typefout zou anders in elk project "niet gevonden" opleveren: een volledig
           # groene run die niets opruimde. Erger is een bestaand nummer van een ópen PR: dat sloopt
           # een levende preview inclusief database. Bij een close-event zijn beide eisen per
           # definitie al waar.
@@ -152,9 +153,9 @@ jobs:
             echo "owner=${GITHUB_REPOSITORY_OWNER,,}"
           } >> "$GITHUB_OUTPUT"
 
-  # De ZAD-teardown per project, als matrix: de drie projecten verschillen alleen in id, key en
-  # groepsnaam. Bewust géén drie losse jobs meer — de controlestap eronder was dan drie keer
-  # byte-identiek, en de eerste keer dat iemand hem op twee van de drie bijwerkt is de verificatie
+  # De ZAD-teardown per project, als matrix: de projecten verschillen alleen in id, key en
+  # groepsnaam. Bewust géén losse jobs per project meer — de controlestap eronder was dan per job
+  # byte-identiek, en de eerste keer dat iemand hem niet overal bijwerkt is de verificatie
   # asymmetrisch zonder dat iets dat opmerkt.
   #
   # De GitHub-kant (omgeving, deployments, comment) hangt aan de PR en niet aan een project en
@@ -178,6 +179,9 @@ jobs:
           - naam: magazijnen
             project: mpfm-w3h
             key: ZAD_API_KEY_MAGAZIJNEN
+          - naam: stelselregister
+            project: mpfs-rab
+            key: ZAD_API_KEY_STELSELREGISTER
     # Zelfde groepsnaam als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
     # lopende deploy niet onder handen wegtrekken. Concurrency-groepen zijn repo-breed, dus de
     # verhuizing naar een eigen workflow verandert daar niets aan — de namen moeten wél gelijk
@@ -484,7 +488,7 @@ jobs:
           #
           # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
           # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-stelselregister fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
               echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
               fail=1

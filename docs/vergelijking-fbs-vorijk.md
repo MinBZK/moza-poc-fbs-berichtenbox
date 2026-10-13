@@ -71,15 +71,15 @@ De uitdaging is: *"Kan een decentraal systeem de authenticatie vertrouwen, maar 
 
 **Maar** — dit past niet 1-op-1 op de FBS-usecase, want:
 
-1. **FBS is een webportaal** (Interactielaag), geen mobiele app. De burger heeft geen eigen keypair.
-2. **FBS aggregeert berichten** uit meerdere magazijnen in één sessie — dat vereist een centraal ophaalmoment.
-3. **eHerkenning ketenmachtigingen** zijn complexer dan persoonlijke identificatie — de machtigingsketen (Persoon → Gemachtigde Organisatie → Vertegenwoordigde Organisatie) moet meereizen.
+1. **De route via de Interactielaag is een webportaal**, geen mobiele app; de gebruiker heeft daar geen eigen keypair. Daarnaast kent het doelbeeld de route **Rechtstreeks ophalen**, met een app die wél direct bij de magazijnen ophaalt (zie de views `RechtstreeksOphalen*` in de architectuur).
+2. **De portaalroute aggregeert berichten** uit meerdere magazijnen in één sessie — dat vereist een centraal ophaalmoment.
+3. **eHerkenning ketenmachtigingen** zijn complexer dan persoonlijke identificatie — de machtigingsketen (Persoon → Gemachtigde Organisatie → Vertegenwoordigde Organisatie) moet meereizen. Bij de route Rechtstreeks ophalen is dit de open vraag voor ondernemers: hoe die machtiging in het credential meekomt, zodat het magazijn ziet namens welke onderneming iemand handelt.
 
 ## Wat FBS kan overnemen
 
 1. **Verifiable Credentials als machtigingsbewijs**: In plaats van machtigingsclaims als "gewone" JWT-claims door te sturen, zou de Interactielaag een **cryptografisch ondertekend machtigingsbewijs** kunnen meesturen dat het decentrale magazijn zelfstandig kan verifiëren — vergelijkbaar met hoe BK Connect Verifiable Credentials gebruikt.
 
-2. **Stelseldocument-concept**: FBS heeft al FSC-contracts en het OIN-stelsel — dit is functioneel vergelijkbaar met het stelseldocument van VoRijk. De trust-basis is er al. De makers van VoRijk noemen Blauwe Knop Connect zelf "een soort FSC voor burgers": FSC beveiligt het verkeer tussen organisaties, Blauwe Knop Connect dat tussen burger en organisatie. De twee vullen elkaar aan en zijn geen alternatieven voor elkaar.
+2. **Stelseldocument-concept**: FBS heeft FSC-contracts en het OIN-stelsel, en daarmee een trust-basis *tussen organisaties*. Voor een app van een burger of ondernemer is die basis onbereikbaar: de FSC-directory vraagt mTLS onder de trust anchor van de group. De makers van VoRijk noemen Blauwe Knop Connect zelf "een soort FSC voor burgers": FSC beveiligt het verkeer tussen organisaties, Blauwe Knop Connect dat tussen burger en organisatie. De twee vullen elkaar aan en zijn geen alternatieven voor elkaar. In FBS geldt de route ook voor ondernemers; daar moet naast de identiteit ook de machtiging naar het magazijn meekomen (zie punt 3 hierboven). FBS publiceert het magazijnregister daarom ook als stelseldocument — één document, ondertekend door de stelselbeheerder, dat een app zonder FSC-toegang ophaalt en verifieert. Het register blijft leidend; het document is de publieke afgeleide. Zie [het toepassingsprofiel](stelseldocument-toepassingsprofiel.md).
 
 3. **OpenID4VP als aanvulling**: Naast het huidige JWT-bearer model zou OpenID4VP gebruikt kunnen worden om machtigingsbewijzen te presenteren aan decentrale systemen, waardoor die systemen het bewijs zelf kunnen verifiëren in plaats van de JWT-issuer te moeten vertrouwen.
 
@@ -95,7 +95,7 @@ De uitdaging is: *"Kan een decentraal systeem de authenticatie vertrouwen, maar 
 | **Uitval van één bron** | Opgevangen in de uitvraag | Opgevangen in de app |
 | **Geschikt voor** | Webportaal, aggregatie | Mobiele app, directe toegang |
 
-De kern: VoRijk kiest voor **"de burger bewijst zelf wie hij is"** terwijl FBS kiest voor **"de Interactielaag staat garant voor de burger"**. Beide zijn valide, maar bij FBS moet het decentrale systeem de Interactielaag vertrouwen — en dat vertrouwen is geborgd via FSC-contracts, mTLS, PKIoverheid-certificaten en het OIN-stelsel.
+De kern: VoRijk kiest voor **"de burger bewijst zelf wie hij is"** terwijl FBS kiest voor **"de Interactielaag staat garant voor de burger"**. Beide zijn valide, maar bij FBS moet het decentrale systeem de Interactielaag vertrouwen — en dat vertrouwen is geborgd via FSC-contracts, mTLS, PKIoverheid-certificaten en het OIN-stelsel. FBS kiest daarbij niet óf-óf: naast de portaalroute kent het doelbeeld de route Rechtstreeks ophalen, waarin het stelseldocument het vertrouwen in de lijst met magazijnen geeft en FSC het vertrouwen tussen organisaties blijft regelen.
 
 ## Bronnen
 

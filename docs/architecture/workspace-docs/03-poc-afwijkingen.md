@@ -26,3 +26,9 @@ oplossingsrichting voor keten-brede authenticatie en autorisatie binnen MOZa.
 - **AuthZEN PEP/PDP** — de Autorisatie Service is in het model een PEP/PDP-container; de PoC
   doet ontvanger-autorisatie centraal in-process via `opslag/BerichtAutorisatie` in
   berichtenmagazijn (één `vereisOntvanger`-check, geen externe PDP).
+- **Rechtstreeks ophalen** (views `RechtstreeksOphalen`, `RechtstreeksOphalenBurger` en
+  `RechtstreeksOphalenOndernemer`) — alleen het Stelselregister is gebouwd. De Berichten-app, de
+  App Manager en het rechtstreeks ophalen bij een magazijn volgens BK Connect zijn doelbeeld;
+  welke variant daarvoor geldt (HTTPS-JWT of OpenID4VP) is nog niet gekozen. Voor ondernemers is
+  bovendien open hoe de eHerkenning-machtiging, inclusief ketenmachtiging, in het credential
+  meekomt, zodat het magazijn kan zien namens welke onderneming iemand handelt.

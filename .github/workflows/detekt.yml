@@ -188,6 +188,12 @@ jobs:
         with:
           sarif_file: services/berichtenuitvraag/target/detekt.sarif
           category: detekt-berichtenuitvraag
+      - name: Upload SARIF — stelselregister
+        if: ${{ always() && hashFiles('services/stelselregister/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: services/stelselregister/target/detekt.sarif
+          category: detekt-stelselregister
       - name: Upload SARIF — demo-console
         if: ${{ always() && hashFiles('demo/demo-console/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2

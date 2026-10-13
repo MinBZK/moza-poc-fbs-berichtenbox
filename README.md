@@ -41,6 +41,7 @@ De belangrijkste paden:
 |---------------------------------------|---------------------------------------------------------------------------------|
 | `services/berichtenmagazijn/`         | Magazijn-service (PostgreSQL + Flyway, Aanlever-API)                             |
 | `services/berichtenuitvraag/`         | Uitvraag-service (frontend-API, aggregatie, SSE)                                 |
+| `services/stelselregister/`           | Publiceert het magazijnregister als ondertekend stelseldocument                  |
 | `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, identificatienummers (BSN/RSIN/KvK/OIN), Profiel-client |
 | `libraries/fbs-magazijnregister/`     | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)                    |
 | `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                           |
@@ -75,6 +76,9 @@ zodat elke instantie live-reload en de devconsole houdt:
 
 # Terminal 2 — berichtenuitvraag (poort 8086, bevat de in-process sessiecache)
 ./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am
+
+# Optioneel — stelselregister (poort 8094); heeft de andere twee niet nodig
+./mvnw compile quarkus:dev -pl services/stelselregister -am
 ```
 
 De `compile`-fase vóór `quarkus:dev` zorgt dat de gedeelde modules onder `libraries/`
@@ -86,6 +90,7 @@ lokale Maven-repository staat.
 |----------------------|--------------------------------------------------|-----------------------------------------|
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
 | berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
+| stelselregister      | `http://localhost:8094/api/v1/stelseldocument`   | `http://localhost:8094/openapi.json`    |
 
 De uitvraag verwacht in dev óók een magazijn B op 8091. Draai je alleen A, dan meldt het ophalen
 een gedeeltelijke storing — dat is correct gedrag, geen defect. Zie
@@ -122,6 +127,8 @@ Verder lezen:
 - [Demo-runbook](docs/demo-runbook.md) — de demo-stack en alle scenario's
 - [Operator-handleiding magazijn](docs/operator-handleiding.md) — verplichte productie-overrides, LDV, outbox
 - [Operator-handleiding uitvraag](docs/operator-handleiding-uitvraag.md) — sessiecache-TLS, timeout-invarianten, cache-TTL's
+- [Operator-handleiding stelselregister](docs/operator-handleiding-stelselregister.md) — de ondertekensleutel, wisselen en bewaken
+- [Toepassingsprofiel stelseldocument](docs/stelseldocument-toepassingsprofiel.md) — hoe een app het stelseldocument ophaalt en verifieert
 - [`docs/operations/`](docs/operations/) — runbooks per operationele procedure (alerts, schema-bumps)
 - [Vergelijking VoRijk (Blauwe Knop) vs. het Federatief Berichtenstelsel](docs/vergelijking-fbs-vorijk.md)
 - [Vergelijking ERDS en European Business Wallet vs. het Federatief Berichtenstelsel](docs/vergelijking-fbs-erds-ebw.md)

@@ -7,15 +7,16 @@ samengevoegd tot één deploybaar proces.
 
 ## Fysieke deploybare eenheden
 
-De implementatie kent **twee** deploybare Quarkus-services plus **drie** in-process
+De implementatie kent **drie** deploybare Quarkus-services plus **drie** in-process
 gedeelde libraries die binnen die services meedraaien (geen eigen proces, geen netwerk-hop):
 
 | Deploybare eenheid | Type | Bevat (logische containers / modules) |
 |---|---|---|
 | `services/berichtenmagazijn` | Quarkus-service | Berichtenmagazijn Aanlever API, Ophaal- en Beheer API, Bericht Validatie Service, Autorisatie Service, Publicatie Stream, Retentie Service, Dataopslag (PostgreSQL via Dev Services/compose) |
 | `services/berichtenuitvraag` | Quarkus-service | Berichten Uitvraag Service, Aanmeld Service, en — in-process — Berichtensessiecache en Magazijnregister |
+| `services/stelselregister` | Quarkus-service | Stelselregister; bouwt het stelseldocument met de magazijnregister-library uit een eigen configuratie |
 | `libraries/fbs-berichtensessiecache` | in-process library | Berichtensessiecache-container (Sessiecache-facade); draait binnen berichtenuitvraag |
-| `libraries/fbs-magazijnregister` | in-process library | Magazijnregister-container; draait binnen berichtenuitvraag |
+| `libraries/fbs-magazijnregister` | in-process library | Magazijnregister-container; draait binnen berichtenuitvraag en stelselregister |
 | `libraries/fbs-common` | in-process library | Gedeelde JAX-RS filters, exception mappers, identificatienummers, Profiel-client |
 
 ## Waarom logisch ≠ fysiek

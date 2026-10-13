@@ -133,6 +133,9 @@ jobs:
         # workflow installeert de bibliotheken in de lokale Maven-repository, dus de cache vult het
         # niet stil aan met een oude versie.
         #
+        # Het stelselregister heeft daarom een eigen shard: het gebruikt fbs-common en
+        # fbs-magazijnregister, die het complement uitsluit.
+        #
         # `-am` bouwt en test fbs-common ook in de berichtenmagazijn-shard (~30s dubbel); dat is
         # goedkoper dan per shard uitzoeken welke upstream-modules erbij horen.
         #
@@ -143,7 +146,7 @@ jobs:
           ${{ fromJSON(
             (inputs.demo-only || needs.changes.outputs.demo-only) == 'true'
             && '[{"id":"demo","modules":"demo/*"}]'
-            || '[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"berichtenuitvraag","modules":"libraries/fbs-common,libraries/fbs-magazijnregister,libraries/fbs-berichtensessiecache,services/berichtenuitvraag"},{"id":"overig","modules":"!services/berichtenmagazijn,!libraries/fbs-common,!libraries/fbs-magazijnregister,!libraries/fbs-berichtensessiecache,!services/berichtenuitvraag"}]'
+            || '[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"berichtenuitvraag","modules":"libraries/fbs-common,libraries/fbs-magazijnregister,libraries/fbs-berichtensessiecache,services/berichtenuitvraag"},{"id":"stelselregister","modules":"services/stelselregister"},{"id":"overig","modules":"!services/berichtenmagazijn,!libraries/fbs-common,!libraries/fbs-magazijnregister,!libraries/fbs-berichtensessiecache,!services/berichtenuitvraag,!services/stelselregister"}]'
           ) }}
     runs-on: ubuntu-latest
     # Vangnet tegen een hangende test: een request tegen een niet-bestaande route

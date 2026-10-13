@@ -3,7 +3,8 @@
 Alles wat je lokaal nodig hebt om te bouwen, testen en handmatig tegen de API's aan te praten.
 Voor het opzetten van de demo-stack: [`demo-runbook.md`](demo-runbook.md). Voor draaien in
 productie is er een operator-handleiding per service:
-[magazijn](operator-handleiding.md) en [uitvraag](operator-handleiding-uitvraag.md).
+[magazijn](operator-handleiding.md), [uitvraag](operator-handleiding-uitvraag.md) en
+[stelselregister](operator-handleiding-stelselregister.md).
 
 ## Een endpoint wijzigen: OpenAPI-first
 
@@ -35,6 +36,7 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
+./mvnw clean test -pl services/stelselregister -am            # geen Docker; maakt testsleutels met keytool
 ```
 
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
@@ -173,6 +175,7 @@ dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
 - `bruno/berichtenmagazijn/` — aanlever- en beheer-API
 - `bruno/berichtenuitvraag/` — frontend-facade (lijst, zoek, ophalen-SSE, detail, bijlage,
   PATCH/DELETE) en de aanmeld-webhook
+- `bruno/stelselregister/` — het stelseldocument, de sleutelset en `security.txt`
 
 Open de folder in Bruno, kies environment `lokaal` en run requests. De collectie spiegelt de
 OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een bijbehorende `.bru`-request.
@@ -196,7 +199,20 @@ staan de URL's op `http://localhost:8090` en `:8091` als default, zodat dezelfde
 container naar container-DNS wijst zonder de basisregels te hoeven overschrijven. Een lege
 `grantHash` betekent: geen FSC-outway, roep het magazijn rechtstreeks aan.
 
+Het stelselregister draagt dezelfde twee basisregels in zijn eigen `application.properties`, zonder
+`grantHash`, en publiceert ze als stelseldocument. Een test in die module
+(`RegisterGelijkAanUitvraagTest`) faalt zodra OIN's, namen of omgevingsvariabelen uiteenlopen:
+wijzig je het register van de uitvraag, wijzig dan dat van het stelselregister mee.
+
+### Het stelselregister lokaal
+
+In dev-mode ondertekent het stelselregister met een wegwerpketen die het bij het opstarten zelf
+maakt; er is niets voor in te richten. Een gebouwd image doet dat niet — ook niet onder het
+dev-profiel — en heeft de keystore uit `demo/environment/stelselregister/pki/maak-keten.sh` nodig.
+Dat script levert ook `out/root.pem`, de root waartegen je het document verifieert.
+
 Voor productie is er per service een operator-handleiding:
 [magazijn](operator-handleiding.md) (verplichte overrides, LDV-TLS, outbox, monitoring) en
 [uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, cache-TTL's).
-Beide beschrijven ook de bewust-onveilige kleppen en de alert-regels die daarbij horen.
+Het [stelselregister](operator-handleiding-stelselregister.md) heeft er een over de ondertekensleutel.
+De eerste twee beschrijven ook de bewust-onveilige kleppen en de alert-regels die daarbij horen.
