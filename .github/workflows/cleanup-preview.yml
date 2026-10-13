@@ -231,7 +231,7 @@ jobs:
         # `!= 'false'` en niet `== 'true'`: valt de stap hierboven om, dan is de output leeg, en dan
         # hoort er gewoon verwijderd te worden.
         if: ${{ !cancelled() && steps.bestaat.outputs.bestaat != 'false' }}
-        uses: RijksICTGilde/zad-actions/cleanup@428dc1e446dcf30db3b356f27c7c5073bae28f48 # v4.3.1
+        uses: RijksICTGilde/zad-actions/cleanup@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
         with:
           api-key: ${{ secrets[matrix.key] }}
           project-id: ${{ matrix.project }}
