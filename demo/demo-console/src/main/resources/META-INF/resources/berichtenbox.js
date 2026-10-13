@@ -30,10 +30,6 @@ const omgevingGeladen = fetch('/api/demo/omgeving')
     return null;
   });
 
-// magazijnId per bericht onthouden: PATCH en DELETE vereisen het als queryparameter, en een
-// schrijfactie vanuit de lijst heeft zo geen detail-aanroep nodig om eraan te komen.
-const magazijnPerBericht = new Map();
-
 // `afzenderNaam` is verplicht in de uitvraag-API; de terugval dekt een uitvraag die het contract
 // niet nakomt. Dan liever deze tekst dan de kale OIN, die een schermlezer cijfer voor cijfer
 // voorleest — en dan struikelt het sorteren niet over undefined.
@@ -64,10 +60,6 @@ const el = (id) => document.getElementById(id);
 
 function huidigeOntvanger() {
   return el('persona').value;
-}
-
-function magazijnVan(berichtId) {
-  return magazijnPerBericht.get(berichtId);
 }
 
 function toon(element, zichtbaar) {
@@ -291,8 +283,6 @@ async function laadLijst() {
   }
 
   alleBerichten = verzameld;
-  magazijnPerBericht.clear();
-  alleBerichten.forEach((bericht) => magazijnPerBericht.set(bericht.berichtId, bericht.magazijnId));
   herteken();
 }
 
@@ -555,7 +545,6 @@ el('vernieuw').addEventListener('click', laadLijst);
 // verkeerde plaatje. De magazijnnamen blijven: die horen bij de OIN, niet bij de persona.
 function wisPersonaState() {
   alleBerichten = [];
-  magazijnPerBericht.clear();
   actieveMap = null;
   huidigePagina = 0;
   renderMappen();
@@ -599,8 +588,11 @@ const zonderOnzichtbareTekens = (naam) => naam.replace(/[\p{Cc}\p{Cf}]/gu, '');
 
 // Download via fetch (geen <a href>: dat stuurt de X-Ontvanger-header niet mee). De
 // respons is binair; we maken er een blob-URL van en triggeren de download programmatisch.
-async function downloadBijlage(berichtId, bijlageId, naam) {
-  const respons = await api(`/berichten/${berichtId}/bijlagen/${bijlageId}`);
+async function downloadBijlage(bericht, bijlageId, naam) {
+  const respons = await api(
+    `/berichten/${encodeURIComponent(bericht.berichtId)}/bijlagen/${encodeURIComponent(bijlageId)}` +
+      `?magazijnId=${encodeURIComponent(bericht.magazijnId)}`,
+  );
 
   if (!respons.ok) {
     alert(`Bijlage downloaden mislukt (${await foutTekst(respons)}).`);
@@ -620,8 +612,14 @@ async function downloadBijlage(berichtId, bijlageId, naam) {
   URL.revokeObjectURL(url);
 }
 
-async function toonDetail(berichtId) {
-  const respons = await api('/berichten/' + berichtId);
+// Een bericht is het paar van magazijn en berichtnummer: twee organisaties kunnen hetzelfde nummer
+// uitdelen, dus elk verzoek over één bericht noemt beide. Lijst en detail dragen allebei het paar.
+function berichtPad(bericht) {
+  return `/berichten/${encodeURIComponent(bericht.berichtId)}?magazijnId=${encodeURIComponent(bericht.magazijnId)}`;
+}
+
+async function toonDetail(bericht) {
+  const respons = await api(berichtPad(bericht));
 
   if (!respons.ok) {
     alert(`Bericht laden mislukt (${await foutTekst(respons)}).`);
@@ -629,11 +627,11 @@ async function toonDetail(berichtId) {
     return;
   }
 
-  const bericht = await respons.json();
+  const geladen = await respons.json();
   const detail = el('detail');
 
   detail.innerHTML = '';
-  detail.append(detailKop(bericht), detailInhoud(bericht), renderBijlagen(bericht), detailActies(bericht));
+  detail.append(detailKop(geladen), detailInhoud(geladen), renderBijlagen(geladen), detailActies(geladen));
   toon(detail, true);
 }
 
@@ -652,7 +650,7 @@ function detailKop(bericht) {
   const isGelezen = bericht.status === 'gelezen';
 
   knop.textContent = isGelezen ? 'Markeer ongelezen' : 'Markeer gelezen';
-  knop.addEventListener('click', () => markeer(bericht.berichtId, isGelezen ? 'ongelezen' : 'gelezen'));
+  knop.addEventListener('click', () => markeer(bericht, isGelezen ? 'ongelezen' : 'gelezen'));
 
   const frag = document.createDocumentFragment();
 
@@ -661,29 +659,9 @@ function detailKop(bericht) {
   return frag;
 }
 
-// Elke schrijfactie (PATCH/DELETE) heeft ?magazijnId= nodig, bewaard bij het laden van de lijst.
-// Ontbreekt hij, dan zou encodeURIComponent(undefined) de string "undefined" doorsturen en de
-// server met een HTTP 400 antwoorden — een melding die naar de server wijst terwijl de oorzaak
-// lokaal is. Geeft null terug als het bericht niet bekend is; de aanroeper stopt dan.
-function vereisMagazijn(berichtId) {
-  const magazijnId = magazijnVan(berichtId);
-
-  if (!magazijnId) {
-    alert('Geen magazijnId bekend — haal eerst de lijst op.');
-
-    return null;
-  }
-
-  return magazijnId;
-}
-
-// PATCH vereist ?magazijnId= (uit de lijst bewaard) en content-type merge-patch+json.
-async function markeer(berichtId, status) {
-  const magazijnId = vereisMagazijn(berichtId);
-
-  if (!magazijnId) return;
-
-  const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
+// PATCH vereist content-type merge-patch+json.
+async function markeer(bericht, status) {
+  const respons = await api(berichtPad(bericht), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/merge-patch+json' },
     body: JSON.stringify({ status }),
@@ -698,27 +676,23 @@ async function markeer(berichtId, status) {
   // Eerst de lijst verversen (verbergt het detail), dan het detail opnieuw tonen — zo blijft
   // het geopende bericht zichtbaar met de bijgewerkte status.
   await laadLijst();
-  await toonDetail(berichtId);
+  await toonDetail(bericht);
 }
 
 // Een bericht openen markeert het als gelezen (alleen hier, niet bij elke her-render van het
 // detail, zodat de "markeer ongelezen"-knop blijft werken).
 function openBericht(bericht) {
   if (bericht.status !== 'gelezen') {
-    markeer(bericht.berichtId, 'gelezen');
+    markeer(bericht, 'gelezen');
   } else {
-    toonDetail(bericht.berichtId);
+    toonDetail(bericht);
   }
 }
 
 // PATCH {map}. Merge-patch kan `map` niet wissen (null = niet wijzigen), dus verplaatsen
 // gaat alleen náár een map/Archief, niet terug naar Postvak IN.
-async function schrijfMap(berichtId, map) {
-  const magazijnId = vereisMagazijn(berichtId);
-
-  if (!magazijnId) return;
-
-  const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
+async function schrijfMap(bericht, map) {
+  const respons = await api(berichtPad(bericht), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/merge-patch+json' },
     body: JSON.stringify({ map }),
@@ -733,7 +707,7 @@ async function schrijfMap(berichtId, map) {
   await laadLijst();
 }
 
-function verplaats(berichtId, huidigeMap) {
+function verplaats(bericht, huidigeMap) {
   const bestaande = mapNamen().filter((m) => m !== 'Archief');
   const suggestie = huidigeMap && huidigeMap !== 'Archief' ? huidigeMap : '';
 
@@ -743,22 +717,18 @@ function verplaats(berichtId, huidigeMap) {
   );
 
   if (naam && naam.trim()) {
-    schrijfMap(berichtId, naam.trim());
+    schrijfMap(bericht, naam.trim());
   }
 }
 
-function archiveer(berichtId) {
-  schrijfMap(berichtId, 'Archief');
+function archiveer(bericht) {
+  schrijfMap(bericht, 'Archief');
 }
 
-async function verwijder(berichtId) {
+async function verwijder(bericht) {
   if (!confirm('Dit bericht definitief verwijderen?')) return;
 
-  const magazijnId = vereisMagazijn(berichtId);
-
-  if (!magazijnId) return;
-
-  const respons = await api(`/berichten/${berichtId}?magazijnId=${encodeURIComponent(magazijnId)}`, {
+  const respons = await api(berichtPad(bericht), {
     method: 'DELETE',
   });
 
@@ -803,7 +773,7 @@ function renderBijlagen(bericht) {
 
     knop.type = 'button';
     knop.textContent = bijlage.naam;
-    knop.addEventListener('click', () => downloadBijlage(bericht.berichtId, bijlage.bijlageId, bijlage.naam));
+    knop.addEventListener('click', () => downloadBijlage(bericht, bijlage.bijlageId, bijlage.naam));
     div.appendChild(knop);
   });
 
@@ -818,17 +788,17 @@ function detailActies(bericht) {
   const verplaatsKnop = document.createElement('button');
 
   verplaatsKnop.textContent = 'Verplaats naar map…';
-  verplaatsKnop.addEventListener('click', () => verplaats(bericht.berichtId, mapVan(bericht)));
+  verplaatsKnop.addEventListener('click', () => verplaats(bericht, mapVan(bericht)));
 
   const archiefKnop = document.createElement('button');
 
   archiefKnop.textContent = 'Archiveer';
-  archiefKnop.addEventListener('click', () => archiveer(bericht.berichtId));
+  archiefKnop.addEventListener('click', () => archiveer(bericht));
 
   const verwijderKnop = document.createElement('button');
 
   verwijderKnop.textContent = 'Verwijder';
-  verwijderKnop.addEventListener('click', () => verwijder(bericht.berichtId));
+  verwijderKnop.addEventListener('click', () => verwijder(bericht));
 
   div.append(verplaatsKnop, archiefKnop, verwijderKnop);
 

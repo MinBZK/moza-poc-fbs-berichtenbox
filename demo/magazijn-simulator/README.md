@@ -181,10 +181,10 @@ er toevallig nog stond.
 
 **Wat er klaargezet wordt is volledig afgeleid.** Dezelfde aanroep geeft dezelfde berichten, tot en
 met de bericht-nummers. Een demo die je oefent is daarmee dezelfde demo als je hem geeft. De nummers
-verschillen wél over magazijnen heen: twee magazijnen mogen in werkelijkheid hetzelfde nummer
-uitdelen, maar de sessiecache van de uitvraag slaat berichten op zonder magazijn in de sleutel
-([#1004](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1004)), en zolang dat gebrek openstaat
-hoort een demo daar niet per ongeluk over te vallen.
+verschillen over magazijnen heen. Twee magazijnen mogen in werkelijkheid hetzelfde nummer uitdelen,
+en sinds [#1004](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1004) kan de uitvraag daar
+ook tegen: een bericht is daar het paar van magazijn en nummer. Een demo die die samenloop wil laten
+zien, levert hem bewust aan, niet via deze vulling.
 
 **Twintig berichten per magazijn is niet toevallig.** De uitvraag haalt per magazijn één pagina op
 en het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets
