@@ -35,7 +35,7 @@
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a></li>
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
         </ul>
       </aside>
       <div class="container is-fluid">
@@ -43,7 +43,7 @@
           <div><h1>Deployment-units: logisch vs. fysiek</h1>
 <p>Dit model beschrijft de <strong>doel-architectuur</strong>. De C4-containers zijn een <em>logische</em> decompositie: ze drukken verantwoordelijkheden en koppelvlakken uit, niet de fysieke deploybare eenheden. In de huidige implementatie (PoC) zijn meerdere logische containers samengevoegd tot één deploybaar proces.</p>
 <h2>Fysieke deploybare eenheden</h2>
-<p>De implementatie kent <strong>twee</strong> deploybare Quarkus-services plus <strong>drie</strong> in-process gedeelde libraries die binnen die services meedraaien (geen eigen proces, geen netwerk-hop):</p>
+<p>De implementatie kent <strong>drie</strong> deploybare Quarkus-services plus <strong>drie</strong> in-process gedeelde libraries die binnen die services meedraaien (geen eigen proces, geen netwerk-hop):</p>
 <table>
  <thead>
   <tr>
@@ -64,6 +64,11 @@
    <td>Berichten Uitvraag Service, Aanmeld Service, en — in-process — Berichtensessiecache en Magazijnregister</td>
   </tr>
   <tr>
+   <td><code>services/stelselregister</code></td>
+   <td>Quarkus-service</td>
+   <td>Stelselregister; bouwt het stelseldocument met de magazijnregister-library uit een eigen configuratie</td>
+  </tr>
+  <tr>
    <td><code>libraries/fbs-berichtensessiecache</code></td>
    <td>in-process library</td>
    <td>Berichtensessiecache-container (Sessiecache-facade); draait binnen berichtenuitvraag</td>
@@ -71,7 +76,7 @@
   <tr>
    <td><code>libraries/fbs-magazijnregister</code></td>
    <td>in-process library</td>
-   <td>Magazijnregister-container; draait binnen berichtenuitvraag</td>
+   <td>Magazijnregister-container; draait binnen berichtenuitvraag en stelselregister</td>
   </tr>
   <tr>
    <td><code>libraries/fbs-common</code></td>
