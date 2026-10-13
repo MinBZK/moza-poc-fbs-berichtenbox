@@ -1147,6 +1147,9 @@ internal class RedisBerichtenCache(
  *
  * Een status die vóór dit veld in de cache is geschreven leest terug met `nietOpgehaald = 0` — de
  * default hierboven. Dat klopt inhoudelijk: zo'n ronde kende de categorie nog niet.
+ *
+ * [afgekapt] noemt organisaties die geslaagd zijn maar niet alles leverden; ze tellen dus mee in
+ * [geslaagd] en kunnen niet ook in [nietGeleverd] staan.
  */
 internal data class AggregationStatus(
     val status: OphalenStatus = OphalenStatus.GEREED,
@@ -1155,6 +1158,7 @@ internal data class AggregationStatus(
     val mislukt: Int = 0,
     val nietOpgehaald: Int = 0,
     val nietGeleverd: List<NietGeleverd> = emptyList(),
+    val afgekapt: List<Afgekapt> = emptyList(),
 ) {
     init {
         require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn" }
@@ -1174,10 +1178,17 @@ internal data class AggregationStatus(
         require(nietGeleverd.distinctBy { it.magazijnId }.size == nietGeleverd.size) {
             "nietGeleverd noemt een organisatie dubbel"
         }
+
+        require(afgekapt.size <= geslaagd) { "afgekapt mag niet meer organisaties noemen dan geslaagd" }
+        require(afgekapt.distinctBy { it.magazijnId }.size == afgekapt.size) { "afgekapt noemt een organisatie dubbel" }
+
+        require(afgekapt.none { a -> nietGeleverd.any { it.magazijnId == a.magazijnId } }) {
+            "een organisatie kan niet tegelijk afgekapt en niet geleverd zijn"
+        }
     }
 
     /** Wat de lijst van deze ronde over zijn eigen volledigheid moet zeggen. Een functie, zodat hij niet in Redis belandt. */
-    fun volledigheid(): Volledigheid = Volledigheid(mislukt + nietOpgehaald, nietGeleverd)
+    fun volledigheid(): Volledigheid = Volledigheid(mislukt + nietOpgehaald, nietGeleverd, afgekapt)
 }
 
 internal enum class OphalenStatus {

@@ -20,6 +20,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
@@ -182,6 +183,18 @@ class BlockingSessiecacheTest {
         // Twee organisaties niet geleverd, één bij naam bekend: het aantal komt uit de tellers.
         assertEquals(Volledigheid(2, nietGeleverd), facade.lijst(ontvanger).volledigheid)
         assertEquals(Volledigheid(2, nietGeleverd), facade.zoek(ontvanger, "factuur").volledigheid)
+    }
+
+    @Test
+    fun `lijst en zoek dragen de afgekapte organisaties uit de aggregatiestatus`() {
+        val afgekapt = listOf(Afgekapt(MAGAZIJN_B, "Belasting", 500, 812L))
+
+        stubStatus(AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 2, geslaagd = 2, afgekapt = afgekapt))
+        every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+        every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+
+        assertEquals(Volledigheid(0, emptyList(), afgekapt), facade.lijst(ontvanger).volledigheid)
+        assertEquals(Volledigheid(0, emptyList(), afgekapt), facade.zoek(ontvanger, "factuur").volledigheid)
     }
 
     @Test

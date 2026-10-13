@@ -287,6 +287,50 @@ class UitvraagKetenE2eTest {
             .body("nietGeleverd[0].status", equalTo("FOUT"))
     }
 
+    /**
+     * Een organisatie die meer heeft dan ze leverde, blijft dat op de lijst: op elke pagina en bij
+     * elke volgende lezing, niet alleen in het event van de ophaalronde. De tweede lezing is de
+     * herlaadactie — er draait geen nieuwe ronde, alles komt uit de sessie in Redis.
+     */
+    @Test
+    fun `een afgekapte organisatie blijft op de lijst staan bij bladeren en verversen`() {
+        val bsn = "999990056"
+        val ids = (1..2).map { i -> "00000000-0000-4000-8000-%012d".format(i) }
+        stubProfielOptIn(bsn, OIN_A)
+        magazijnA.stubFor(
+            get(urlPathMatching("/api/v1/berichten")).willReturn(
+                aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody(
+                    """{"berichten":[${ids.joinToString(",") { id ->
+                        """{"berichtId":"$id","afzender":"$OIN_A","ontvanger":{"type":"BSN","waarde":"$bsn"},""" +
+                            """"onderwerp":"Bericht $id","publicatietijdstip":"2026-03-10T10:00:00Z","aantalBijlagen":0}"""
+                    }}],"totalElements":812}""",
+                ),
+            ),
+        )
+
+        val sse = given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen")
+            .then().statusCode(200).extract().body().asString()
+
+        assertTrue(sse.contains("\"afgekapt\":true"), "Verwacht het afkap-signaal in de ronde zelf: $sse")
+
+        val paden = listOf("/api/v1/berichten?pagina=0&paginaGrootte=1", "/api/v1/berichten?pagina=1&paginaGrootte=1")
+
+        repeat(2) {
+            for (pad in paden) {
+                given()
+                    .header("X-Ontvanger", "BSN:$bsn")
+                    .`when`().get(pad)
+                    .then()
+                    .statusCode(200)
+                    .body("berichten.size()", equalTo(1))
+                    .body("afgekapt.magazijnId", contains(OIN_A))
+                    .body("afgekapt[0].aantalOpgehaald", equalTo(2))
+                    .body("afgekapt[0].totaalBeschikbaar", equalTo(812))
+                    .body("aantalNietGeleverd", equalTo(0))
+            }
+        }
+    }
+
     @Test
     fun `ophaalronde levert per bericht de naam die het register voor zijn magazijn kent`() {
         // Het andere been van de aanmeld-test: hier komen de berichten uit een échte ophaalronde

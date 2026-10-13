@@ -167,4 +167,89 @@ class AggregationStatusTest {
 
         assertEquals(Volledigheid(mislukt + nietOpgehaald, nietGeleverd), status.volledigheid())
     }
+
+    @Test
+    fun `meer afgekapte organisaties dan geslaagd wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            AggregationStatus(
+                totaalMagazijnen = 2,
+                geslaagd = 1,
+                afgekapt = listOf(Afgekapt("magazijn-a", "A", 500), Afgekapt("magazijn-b", "B", 500)),
+            )
+        }
+
+        assertEquals("afgekapt mag niet meer organisaties noemen dan geslaagd", ex.message)
+    }
+
+    @Test
+    fun `een organisatie die dubbel als afgekapt staat wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            AggregationStatus(
+                totaalMagazijnen = 2,
+                geslaagd = 2,
+                afgekapt = List(2) { Afgekapt("magazijn-a", "A", 500) },
+            )
+        }
+
+        assertEquals("afgekapt noemt een organisatie dubbel", ex.message)
+    }
+
+    @Test
+    fun `een organisatie die zowel afgekapt als niet geleverd is wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> {
+            AggregationStatus(
+                totaalMagazijnen = 2,
+                geslaagd = 1,
+                mislukt = 1,
+                nietGeleverd = listOf(NietGeleverd("magazijn-a", "A", MagazijnFoutStatus.FOUT)),
+                afgekapt = listOf(Afgekapt("magazijn-a", "A", 500)),
+            )
+        }
+
+        assertEquals("een organisatie kan niet tegelijk afgekapt en niet geleverd zijn", ex.message)
+    }
+
+    /** Een status zonder het veld leest als een ronde waarin niemand afgekapt is. */
+    @Test
+    fun `afgekapt is optioneel`() {
+        assertEquals(emptyList<Afgekapt>(), AggregationStatus(totaalMagazijnen = 1, geslaagd = 1).afgekapt)
+    }
+
+    @ParameterizedTest(name = "{0} afgekapt")
+    @CsvSource("0", "1", "2")
+    fun `de volledigheid draagt wie niet alles leverde`(aantal: Int) {
+        val afgekapt = (0 until aantal).map { Afgekapt("magazijn-$it", "Organisatie $it", 500, 812L) }
+        val nietGeleverd = listOf(NietGeleverd("magazijn-x", "X", MagazijnFoutStatus.TIMEOUT))
+        val status = AggregationStatus(
+            totaalMagazijnen = 3,
+            geslaagd = 2,
+            mislukt = 1,
+            nietGeleverd = nietGeleverd,
+            afgekapt = afgekapt,
+        )
+
+        assertEquals(Volledigheid(1, nietGeleverd, afgekapt), status.volledigheid())
+    }
+
+    @Test
+    fun `een negatief aantal opgehaald wordt geweigerd`() {
+        val ex = assertThrows<IllegalArgumentException> { Afgekapt("magazijn-a", "A", -1) }
+
+        assertEquals("aantalOpgehaald mag niet negatief zijn", ex.message)
+    }
+
+    /** "500 van 500 — niet alles opgehaald" is een tegenspraak; het totaal moet erboven liggen. */
+    @ParameterizedTest(name = "opgehaald={0}, totaal={1}")
+    @CsvSource("500, 500", "500, 499", "0, 0")
+    fun `een totaal dat niet boven het opgehaalde ligt wordt geweigerd`(opgehaald: Int, totaal: Long) {
+        val ex = assertThrows<IllegalArgumentException> { Afgekapt("magazijn-a", "A", opgehaald, totaal) }
+
+        assertEquals("totaalBeschikbaar moet groter zijn dan aantalOpgehaald, anders is er niets afgekapt", ex.message)
+    }
+
+    @ParameterizedTest(name = "opgehaald={0}, totaal={1}")
+    @CsvSource("500, 501", "0, 1", "500,")
+    fun `een totaal boven het opgehaalde, of geen totaal, is geldig`(opgehaald: Int, totaal: Long?) {
+        assertEquals(totaal, Afgekapt("magazijn-a", "A", opgehaald, totaal).totaalBeschikbaar)
+    }
 }

@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.AfgekapteOrganisatie
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
@@ -10,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.NietGeleverdeOrganisatie
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt as DomeinAfgekapt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht as DomeinBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting as DomeinSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting as DomeinBijlage
@@ -54,6 +56,14 @@ object UitvraagDtoMapper {
             magazijnId = nietGeleverd.magazijnId
             naam = nietGeleverd.naam
             status = ApiMagazijnStatus.fromValue(nietGeleverd.status.wire.value)
+        }
+
+    fun toApiAfgekapt(afgekapt: DomeinAfgekapt): AfgekapteOrganisatie =
+        AfgekapteOrganisatie().apply {
+            magazijnId = afgekapt.magazijnId
+            naam = afgekapt.naam
+            aantalOpgehaald = afgekapt.aantalOpgehaald
+            totaalBeschikbaar = afgekapt.totaalBeschikbaar
         }
 
     fun toLeesstatus(status: BerichtStatus?): Leesstatus? = when (status) {

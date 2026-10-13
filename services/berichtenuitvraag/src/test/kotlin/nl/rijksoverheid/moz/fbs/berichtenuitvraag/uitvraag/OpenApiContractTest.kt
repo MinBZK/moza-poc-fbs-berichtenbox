@@ -21,6 +21,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import org.hamcrest.Matchers.contains
@@ -149,6 +150,38 @@ class OpenApiContractTest {
             .statusCode(200)
             .body("aantalNietGeleverd", equalTo(4))
             .body("nietGeleverd.status", contains("FOUT", "TIMEOUT", "NIET_OPGEHAALD"))
+    }
+
+    /** Met en zonder totaal: het optionele veld moet ontbreken, niet `null` zijn. */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["/api/v1/berichten", "/api/v1/berichten/_zoeken?q=rente"])
+    fun `lijst en zoeken met afgekapte organisaties leveren valide BerichtenLijst`(pad: String) {
+        sessiecache.lijstResultaat = BerichtenPagina(
+            berichten = emptyList(),
+            page = 0,
+            pageSize = 20,
+            totalElements = 0L,
+            totalPages = 0,
+            volledigheid = Volledigheid(
+                aantalNietGeleverd = 0,
+                nietGeleverd = emptyList(),
+                afgekapt = listOf(
+                    Afgekapt(WireMockBackendsResource.OIN_A, "Organisatie A", 500, 812L),
+                    Afgekapt(WireMockBackendsResource.OIN_B, "Organisatie B", 500),
+                ),
+            ),
+        )
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get(pad)
+            .then()
+            .statusCode(200)
+            .body("afgekapt.magazijnId", contains(WireMockBackendsResource.OIN_A, WireMockBackendsResource.OIN_B))
+            .body("afgekapt[0].totaalBeschikbaar", equalTo(812))
+            .body("afgekapt[1]", not(hasKey("totaalBeschikbaar")))
     }
 
     @Test

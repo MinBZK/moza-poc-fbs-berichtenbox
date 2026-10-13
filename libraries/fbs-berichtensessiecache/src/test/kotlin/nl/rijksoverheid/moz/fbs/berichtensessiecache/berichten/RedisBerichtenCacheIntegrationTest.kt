@@ -936,6 +936,26 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertEquals(1, gelezen!!.mislukt)
         assertEquals(emptyList<NietGeleverd>(), gelezen.nietGeleverd)
+        assertEquals(emptyList<Afgekapt>(), gelezen.afgekapt)
+    }
+
+    /** Met en zonder totaal: een `null` die als 0 terugkomt, zou "500 van 0" melden. */
+    @Test
+    fun `de afgekapte organisaties overleven de roundtrip door Redis`() {
+        val status = AggregationStatus(
+            status = OphalenStatus.GEREED,
+            totaalMagazijnen = 3,
+            geslaagd = 2,
+            mislukt = 1,
+            nietGeleverd = listOf(NietGeleverd("magazijn-c", "Zuid", MagazijnFoutStatus.FOUT)),
+            afgekapt = listOf(
+                Afgekapt("magazijn-a", "Belasting", 500, 812L),
+                Afgekapt("magazijn-b", "Noord", 500),
+            ),
+        )
+        berichtenCache.storeAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertEquals(status, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
     }
 
     @Test
