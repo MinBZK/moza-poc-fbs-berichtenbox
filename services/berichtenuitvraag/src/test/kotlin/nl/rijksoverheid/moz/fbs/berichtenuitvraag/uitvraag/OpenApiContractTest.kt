@@ -352,6 +352,7 @@ class OpenApiContractTest {
     @ParameterizedTest(name = "magazijnId={0}")
     @ValueSource(strings = ["00000009999999999999", WireMockBackendsResource.OIN_B])
     fun `GET bericht by id met een magazijnId waaronder het bericht niet staat levert 404`(magazijnId: String) {
+        WireMockBackendsResource.magazijnB.resetAll()
         val id = UUID.randomUUID()
         seedBericht(id)
 
@@ -366,7 +367,9 @@ class OpenApiContractTest {
             .contentType("application/problem+json")
             .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
 
+        // Geen van beide magazijnen: ook niet het magazijn dat in het verzoek genoemd wordt.
         WireMockBackendsResource.magazijnA.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
+        WireMockBackendsResource.magazijnB.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
 
     // Alleen een OIN komt door: de waarde belandt in sleutels en logregels, en mag daar geen BSN of
@@ -413,6 +416,7 @@ class OpenApiContractTest {
 
     @Test
     fun `GET bijlage met een magazijnId waaronder het bericht niet staat levert 404 zonder magazijn-aanroep`() {
+        WireMockBackendsResource.magazijnB.resetAll()
         val id = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
         seedBericht(id, bijlagen = listOf(BijlageSamenvatting(bijlageId, "a.pdf")))
@@ -428,6 +432,7 @@ class OpenApiContractTest {
             .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
 
         WireMockBackendsResource.magazijnA.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$id/bijlagen/$bijlageId")))
+        WireMockBackendsResource.magazijnB.verify(0, getRequestedFor(urlPathEqualTo("/api/v1/berichten/$id/bijlagen/$bijlageId")))
     }
 
     @Test

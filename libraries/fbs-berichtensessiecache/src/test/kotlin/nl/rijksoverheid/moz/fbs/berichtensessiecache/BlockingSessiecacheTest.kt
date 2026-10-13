@@ -26,6 +26,10 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
+import java.net.URI
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -34,6 +38,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
@@ -52,7 +57,17 @@ class BlockingSessiecacheTest {
 
     private val service = mockk<BerichtensessiecacheService>(relaxed = false)
     private val volger = mockk<SessieVolger>(relaxed = true)
-    private val facade = BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 5)
+    // Een echte implementatie en geen MockK-mock: `any()` op de value class Oin bouwt een lege OIN,
+    // en die haalt de validatie niet.
+    private val register = object : Magazijnregister {
+        private val inschrijvingen = listOf(MAGAZIJN, MAGAZIJN_B)
+            .map { Magazijninschrijving(Oin(it), URI("https://magazijn.example"), "Magazijn $it") }
+
+        override fun alle() = inschrijvingen
+
+        override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
+    }
+    private val facade = BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
@@ -65,12 +80,14 @@ class BlockingSessiecacheTest {
         ontvanger = ontvanger,
         onderwerp = "Testonderwerp",
         publicatietijdstip = Instant.parse("2026-01-01T10:00:00Z"),
-        magazijnId = "magazijn-a",
+        magazijnId = MAGAZIJN,
         aantalBijlagen = 0,
     )
 
     companion object {
-        const val MAGAZIJN = "magazijn-a"
+        const val MAGAZIJN = "00000001003214345000"
+        const val MAGAZIJN_B = "00000001823288444000"
+        const val ONBEKEND_MAGAZIJN = "00000009999999999999"
 
         @JvmStatic
         fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
@@ -147,7 +164,7 @@ class BlockingSessiecacheTest {
      */
     @Test
     fun `lijst en zoek dragen de niet-geleverde organisaties uit de aggregatiestatus`() {
-        val nietGeleverd = listOf(NietGeleverd("magazijn-b", "Belasting", MagazijnFoutStatus.TIMEOUT))
+        val nietGeleverd = listOf(NietGeleverd(MAGAZIJN_B, "Belasting", MagazijnFoutStatus.TIMEOUT))
 
         stubStatus(
             AggregationStatus(
@@ -203,17 +220,56 @@ class BlockingSessiecacheTest {
         assertNull(facade.bericht(ontvanger, MAGAZIJN, id))
     }
 
+    // Alleen een ingeschreven magazijn komt bij de cache: de magazijnId belandt daar in Redis-sleutels
+    // en in het aanmeldkanaal, en een spatie of dubbele punt zou die vormen breken.
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b", "$MAGAZIJN:x", ""])
+    fun `bericht van een magazijn buiten het register is onbekend, zonder de cache te raadplegen`(magazijnId: String) {
+        stubStatus(gereed)
+
+        assertNull(facade.bericht(ontvanger, magazijnId, UUID.randomUUID()))
+
+        verify(exactly = 0) { service.getBerichtById(any(), ontvanger) }
+        verify(exactly = 0) { service.isBerichtVerwijderd(any(), ontvanger) }
+    }
+
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b"])
+    fun `werkBerichtBij voor een magazijn buiten het register wijzigt niets`(magazijnId: String) {
+        assertNull(facade.werkBerichtBij(ontvanger, magazijnId, UUID.randomUUID(), Leesstatus.GELEZEN, null))
+
+        verify(exactly = 0) { service.updateBerichtMetadata(any(), ontvanger, any(), any()) }
+    }
+
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b"])
+    fun `verwijder voor een magazijn buiten het register is een no-op`(magazijnId: String) {
+        facade.verwijder(ontvanger, magazijnId, UUID.randomUUID())
+
+        verify(exactly = 0) { service.verwijderBericht(any(), ontvanger) }
+    }
+
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b"])
+    fun `schrijfBericht van een magazijn buiten het register is ongeldige invoer`(magazijnId: String) {
+        val bericht = testBericht().copy(magazijnId = magazijnId)
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verify(exactly = 0) { service.createBericht(any(), ontvanger) }
+    }
+
     @Test
     fun `bericht levert het bericht van het genoemde magazijn, ook bij een gedeeld berichtnummer`() {
         stubStatus(gereed)
         val vanA = testBericht()
-        val vanB = vanA.copy(magazijnId = "magazijn-b", onderwerp = "van B")
+        val vanB = vanA.copy(magazijnId = MAGAZIJN_B, onderwerp = "van B")
 
         every { service.getBerichtById(vanA.sleutel, ontvanger) } returns Uni.createFrom().item(vanA)
         every { service.getBerichtById(vanB.sleutel, ontvanger) } returns Uni.createFrom().item(vanB)
 
-        assertSame(vanB, facade.bericht(ontvanger, "magazijn-b", vanA.berichtId))
-        assertSame(vanA, facade.bericht(ontvanger, "magazijn-a", vanA.berichtId))
+        assertSame(vanB, facade.bericht(ontvanger, MAGAZIJN_B, vanA.berichtId))
+        assertSame(vanA, facade.bericht(ontvanger, MAGAZIJN, vanA.berichtId))
     }
 
     @Test
@@ -471,7 +527,7 @@ class BlockingSessiecacheTest {
     @Test
     fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
         val ex = assertThrows<IllegalArgumentException> {
-            BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 0)
+            BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 0)
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")

@@ -18,6 +18,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
@@ -33,6 +35,7 @@ import java.util.UUID
 internal class BlockingSessiecache(
     private val service: BerichtensessiecacheService,
     private val volger: SessieVolger,
+    private val register: Magazijnregister,
     // Begrenzing op de blocking-await van de facade over élk lees-/schrijfpad van het
     // Sessiecache-contract (de paden raken een lokale/naast-de-pod Redis, geen remote
     // magazijn-RTT — vandaar dezelfde 5s-ondergrens als cache-await-timeout-seconds).
@@ -84,6 +87,8 @@ internal class BlockingSessiecache(
     override fun bericht(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID): Bericht? {
         requireGereedStatus(ontvanger)
 
+        if (!ingeschreven(magazijnId)) return null
+
         val sleutel = BerichtSleutel(magazijnId, berichtId)
         val bericht = awaitOrServiceUnavailable { service.getBerichtById(sleutel, ontvanger) }
 
@@ -119,12 +124,16 @@ internal class BlockingSessiecache(
             )
         }
 
+        if (!ingeschreven(magazijnId)) return null
+
         return awaitOrServiceUnavailable {
             service.updateBerichtMetadata(BerichtSleutel(magazijnId, berichtId), ontvanger, status?.wire, map)
         }
     }
 
     override fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID) {
+        if (!ingeschreven(magazijnId)) return
+
         awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
     }
 
@@ -135,6 +144,10 @@ internal class BlockingSessiecache(
             throw SessiecacheException.OngeldigeInvoer(
                 "Ontvanger in bericht komt niet overeen met de opgegeven ontvanger.",
             )
+        }
+
+        if (!ingeschreven(bericht.magazijnId)) {
+            throw SessiecacheException.OngeldigeInvoer("Bericht hoort bij geen ingeschreven magazijn.")
         }
 
         // Aanmeld-pad mag alleen bestaande, actieve sessies bijwerken: als er geen
@@ -162,6 +175,18 @@ internal class BlockingSessiecache(
         awaitOrServiceUnavailable { volger.actief() }
 
         return volger.volg(ontvanger)
+    }
+
+    /**
+     * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en
+     * in het aanmeldkanaal; een spatie of dubbele punt zou die vormen breken, en een magazijn dat
+     * het register niet kent kan de uitvraag toch niet routeren. Voor de aanroeper is zo'n bericht
+     * gewoon onbekend.
+     */
+    private fun ingeschreven(magazijnId: String): Boolean {
+        val oin = runCatching { Oin(magazijnId) }.getOrNull() ?: return false
+
+        return register.voorOin(oin) != null
     }
 
     /**

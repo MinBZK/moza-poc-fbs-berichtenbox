@@ -1,9 +1,10 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld
 
 /**
- * Idempotentie-marker voor verwerkte CloudEvents, op basis van het CloudEvents
- * `id` binnen zijn magazijn: een CloudEvents-`id` is alleen uniek binnen zijn bron,
- * en twee organisaties kunnen hetzelfde id kiezen. Een webhook-concern (niet de berichten-cache), bewust los van de
+ * Idempotentie-marker voor verwerkte CloudEvents, op basis van het CloudEvents-`id`
+ * per magazijn. Twee organisaties kunnen hetzelfde id kiezen; het magazijn is hier het
+ * magazijn dat de uitvraag uit de afzender afleidt, niet de vrije `source` uit de
+ * envelop. Een webhook-concern (niet de berichten-cache), bewust los van de
  * `Sessiecache`-facade met een eigen Redis-keyspace.
  */
 interface AanmeldDeduplicatie {

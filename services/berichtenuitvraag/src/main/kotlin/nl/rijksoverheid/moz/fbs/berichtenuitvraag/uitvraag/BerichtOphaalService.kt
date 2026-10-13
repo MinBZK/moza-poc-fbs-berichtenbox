@@ -213,7 +213,7 @@ class BerichtOphaalService(
     class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val inhoud: ByteArray)
 
     private fun zoekBerichtInCache(xOntvanger: String, magazijnId: String, berichtId: UUID) =
-        leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId)") {
+        leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId magazijnId=$magazijnId)") {
             sessiecache.bericht(Identificatienummer.fromHeader(xOntvanger), magazijnId, berichtId)
         }
 

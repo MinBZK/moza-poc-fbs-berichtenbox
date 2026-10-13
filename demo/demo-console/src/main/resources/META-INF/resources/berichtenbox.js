@@ -589,10 +589,11 @@ const zonderOnzichtbareTekens = (naam) => naam.replace(/[\p{Cc}\p{Cf}]/gu, '');
 // Download via fetch (geen <a href>: dat stuurt de X-Ontvanger-header niet mee). De
 // respons is binair; we maken er een blob-URL van en triggeren de download programmatisch.
 async function downloadBijlage(bericht, bijlageId, naam) {
-  const respons = await api(
-    `/berichten/${encodeURIComponent(bericht.berichtId)}/bijlagen/${encodeURIComponent(bijlageId)}` +
-      `?magazijnId=${encodeURIComponent(bericht.magazijnId)}`,
-  );
+  const pad = berichtPad(bericht, `/bijlagen/${encodeURIComponent(bijlageId)}`);
+
+  if (!pad) return;
+
+  const respons = await api(pad);
 
   if (!respons.ok) {
     alert(`Bijlage downloaden mislukt (${await foutTekst(respons)}).`);
@@ -614,12 +615,25 @@ async function downloadBijlage(bericht, bijlageId, naam) {
 
 // Een bericht is het paar van magazijn en berichtnummer: twee organisaties kunnen hetzelfde nummer
 // uitdelen, dus elk verzoek over één bericht noemt beide. Lijst en detail dragen allebei het paar.
-function berichtPad(bericht) {
-  return `/berichten/${encodeURIComponent(bericht.berichtId)}?magazijnId=${encodeURIComponent(bericht.magazijnId)}`;
+// Ontbreekt de magazijnId, dan zou encodeURIComponent(undefined) de tekst "undefined" doorsturen en
+// antwoordt de server met een 400 die naar de server wijst, terwijl de oorzaak hier ligt. Geeft null
+// terug na een melding; de aanroeper stopt dan.
+function berichtPad(bericht, achtervoegsel = '') {
+  if (!bericht.magazijnId) {
+    alert('Geen magazijnId bekend voor dit bericht — haal de lijst opnieuw op.');
+
+    return null;
+  }
+
+  return `/berichten/${encodeURIComponent(bericht.berichtId)}${achtervoegsel}?magazijnId=${encodeURIComponent(bericht.magazijnId)}`;
 }
 
 async function toonDetail(bericht) {
-  const respons = await api(berichtPad(bericht));
+  const pad = berichtPad(bericht);
+
+  if (!pad) return;
+
+  const respons = await api(pad);
 
   if (!respons.ok) {
     alert(`Bericht laden mislukt (${await foutTekst(respons)}).`);
@@ -660,7 +674,11 @@ function detailKop(bericht) {
 }
 
 async function markeer(bericht, status) {
-  const respons = await api(berichtPad(bericht), {
+  const pad = berichtPad(bericht);
+
+  if (!pad) return;
+
+  const respons = await api(pad, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/merge-patch+json' },
     body: JSON.stringify({ status }),
@@ -691,7 +709,11 @@ function openBericht(bericht) {
 // PATCH {map}. Merge-patch kan `map` niet wissen (null = niet wijzigen), dus verplaatsen
 // gaat alleen náár een map/Archief, niet terug naar Postvak IN.
 async function schrijfMap(bericht, map) {
-  const respons = await api(berichtPad(bericht), {
+  const pad = berichtPad(bericht);
+
+  if (!pad) return;
+
+  const respons = await api(pad, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/merge-patch+json' },
     body: JSON.stringify({ map }),
@@ -727,7 +749,11 @@ function archiveer(bericht) {
 async function verwijder(bericht) {
   if (!confirm('Dit bericht definitief verwijderen?')) return;
 
-  const respons = await api(berichtPad(bericht), {
+  const pad = berichtPad(bericht);
+
+  if (!pad) return;
+
+  const respons = await api(pad, {
     method: 'DELETE',
   });
 

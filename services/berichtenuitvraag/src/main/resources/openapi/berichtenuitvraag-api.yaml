@@ -484,9 +484,8 @@ components:
       description: |
         Identifier van het magazijn waarin het bericht is opgeslagen — het OIN
         van de deelnemende organisatie (per organisatie bestaat precies één
-        magazijn). Te halen uit het `magazijnId`-veld van de lijst of het
-        detail, of mee te nemen door `_links.self` te volgen; voor de client
-        een opaque waarde.
+        magazijn), dus twintig cijfers. Te halen uit het `magazijnId`-veld van de
+        lijst of het detail, of mee te nemen door `_links.self` te volgen.
 
         Een organisatie deelt haar berichtnummers zelf uit, dus een
         `berichtId` is alleen uniek binnen zijn magazijn: pas samen wijzen ze
@@ -940,8 +939,8 @@ components:
       type: string
       description: |
         Identificeert de organisatie waarvan de berichten komen — het OIN van de deelnemende
-        organisatie (per organisatie bestaat precies één magazijn). Voor de client een opaque
-        waarde; dezelfde waarde staat in het `magazijnId`-veld van een bericht.
+        organisatie (per organisatie bestaat precies één magazijn), dus twintig cijfers. Dezelfde
+        waarde gaat als `magazijnId`-query mee bij elke vraag over één bericht.
 
     MagazijnNaam:
       type: string

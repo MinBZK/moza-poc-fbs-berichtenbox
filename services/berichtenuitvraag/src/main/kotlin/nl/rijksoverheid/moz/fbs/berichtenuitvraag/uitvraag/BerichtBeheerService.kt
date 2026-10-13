@@ -78,12 +78,12 @@ class BerichtBeheerService(
                 // maar wél met hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
                 // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een
                 // storing-desync, dus géén stille warnf maar een alertbare errorf. Status propageert.
-                log.errorf(e, "%s cache-PATCH niet-storing ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
+                log.errorf(e, "%s cache-PATCH niet-storing ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
 
                 throw e.naApiFout()
             }
 
-            log.errorf(e, "cache-PATCH storing na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s", berichtId)
+            log.errorf(e, "cache-PATCH storing na geslaagde magazijn-PATCH; invalidate volgt. berichtId=%s magazijnId=%s", berichtId, magazijnId)
             invalideerCacheNaMagazijnWrite(ontvangerId, magazijnId, berichtId)
             throw badGateway(e)
         }
@@ -93,7 +93,7 @@ class BerichtBeheerService(
             // cache — verlopen TTL of eerdere invalidate. Zelfde alert-anker: de magazijn-
             // mutatie is doorgevoerd terwijl de client een 404 ziet; zichtbaar maken i.p.v.
             // stil als gewone not-found wegschrijven.
-            log.errorf("%s cache-PATCH miste het bericht ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
+            log.errorf("%s cache-PATCH miste het bericht ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
 
             throw FbsFoutException(
                 Foutcode.BERICHT_ONBEKEND,
@@ -123,12 +123,12 @@ class BerichtBeheerService(
             sessiecache.verwijder(ontvangerId, magazijnId, berichtId)
         } catch (e: SessiecacheException) {
             if (!e.isStoring()) {
-                log.errorf(e, "%s cache-DELETE niet-storing ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
+                log.errorf(e, "%s cache-DELETE niet-storing ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
 
                 throw e.naApiFout()
             }
 
-            log.errorf(e, "cache-DELETE storing na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s", berichtId)
+            log.errorf(e, "cache-DELETE storing na geslaagde magazijn-DELETE; invalidate volgt. berichtId=%s magazijnId=%s", berichtId, magazijnId)
             invalideerCacheNaMagazijnWrite(ontvangerId, magazijnId, berichtId)
             throw badGateway(e)
         }
@@ -144,7 +144,7 @@ class BerichtBeheerService(
             // te verdrinken in warnings. Vooraan een stabiele marker zodat de Loki-alert-
             // rule daarop ankert i.p.v. op de (vertaalbare) proza. Pak bij de volgende
             // project-brede metric-toevoeging een echte counter op.
-            log.errorf(e, "%s compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s", ALERT_CACHE_DESYNC, berichtId)
+            log.errorf(e, "%s compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
         }
     }
 
