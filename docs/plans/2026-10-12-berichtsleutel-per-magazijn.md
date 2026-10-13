@@ -1,6 +1,6 @@
 # Berichtsleutel per magazijn — implementatieplan
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 > **Voor agentische uitvoerders:** gebruik superpowers:subagent-driven-development of
 > superpowers:executing-plans om dit plan taak voor taak uit te voeren. Stappen gebruiken
@@ -428,3 +428,21 @@ De acceptatiecriteria van #1004:
 | Beide berichten met eigen inhoud | `RedisBerichtenCacheIntegrationTest` (store/getById per paar), `OpenApiContractTest` (twee magazijnen, zelfde id) |
 | Gelezen/verplaatsen/verwijderen raakt alleen het bedoelde bericht | `RedisBerichtenCacheIntegrationTest` (update/delete laat B ongemoeid, hash én lijst), `BerichtBeheerServiceTest` |
 | Test die de samenloop nabootst en faalt op de huidige implementatie | De nieuwe integratietests uit Taak 1 stap 2, eerst rood gezien in stap 3 |
+
+## Uitvoering
+
+Afwijkingen van het plan, ontstaan tijdens de uitvoering en de review:
+
+- **`MagazijnIdQuery` eist een OIN** (`pattern: '^[0-9]{20}$'`) in plaats van `minLength: 1`. De
+  waarde uit de query komt in Redis-sleutels en logregels terecht; zonder patroon kon daar een BSN of
+  een regelafbreking in belanden. Gevolg: een `magazijnId` die geen OIN is geeft op alle vier de
+  operaties een 400; een onbekende OIN blijft 404 (ophalen) of 502 (`PATCH`/`DELETE`).
+- **Proeftuin** (`MinBZK/moza-poc`, branch `fix/1004-bericht-per-magazijn`): de keten-bron geeft een
+  bericht als `id` het paar `magazijnId:berichtId`, zodat de render-laag, de state en de detailpagina
+  ongewijzigd per bericht blijven rekenen. Elk verzoek over één bericht stuurt `?magazijnId=` mee.
+  De nginx-route voor bijlagen gaf bewust alleen `$uri` door; die laat nu precies `magazijnId` door.
+- **Volgorde van mergen omgekeerd:** een uitvraag zonder de verplichte parameter negeert een
+  onbekende query-parameter, dus de proeftuin-wijziging werkt al tegen de huidige uitvraag. Eerst de
+  proeftuin mergen en de pin in `compose.yaml` bijwerken, daarna deze PR.
+- Taak 1 en 2 kwamen in één commit: de library compileert alleen met beide.
+
