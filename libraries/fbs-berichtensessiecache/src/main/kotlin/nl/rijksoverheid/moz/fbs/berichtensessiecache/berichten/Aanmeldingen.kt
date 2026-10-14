@@ -25,8 +25,8 @@ import java.util.concurrent.atomic.AtomicReference
  */
 internal interface Aanmeldingen {
 
-    /** Meldt dat [berichtId] in de sessie onder [cacheKey] is bijgeschreven. */
-    fun meld(cacheKey: String, berichtId: UUID): Uni<Void>
+    /** Meldt dat het bericht [sleutel] in de sessie onder [cacheKey] is bijgeschreven. */
+    fun meld(cacheKey: String, sleutel: BerichtSleutel): Uni<Void>
 
     /**
      * Registreert een luisteraar voor de sessie onder [cacheKey], direct en synchroon. Berichten
@@ -36,7 +36,7 @@ internal interface Aanmeldingen {
      */
     fun registreer(
         cacheKey: String,
-        opBericht: (UUID) -> Unit,
+        opBericht: (BerichtSleutel) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Afmelding
@@ -63,7 +63,7 @@ internal class AbonnementGesloten(melding: String) : IllegalStateException(meldi
  * Een abonnement per open berichtenbox zou er één Redis-connection per bezoeker kosten: de
  * Quarkus-client opent voor elke `subscribe` een eigen, langlevende connection.
  *
- * Het kanaalbericht is de `cacheKey` plus het `berichtId`; de inhoud leest de ontvangende pod
+ * Het kanaalbericht is de `cacheKey` plus `berichtId` en `magazijnId`; de inhoud leest de ontvangende pod
  * zelf uit de cache. De `cacheKey` is een SHA-256 zonder geheim over het identificatienummer en
  * dus een pseudoniem, geen anonimisering: een BSN is eruit terug te rekenen. Het kanaal verdient
  * daarom dezelfde bescherming als de sessie-keys (TLS en authenticatie op Redis).
@@ -104,11 +104,12 @@ internal class RedisAanmeldingen(
         }
     }
 
-    override fun meld(cacheKey: String, berichtId: UUID): Uni<Void> = publiceer(cacheKey, berichtId)
+    override fun meld(cacheKey: String, sleutel: BerichtSleutel): Uni<Void> =
+        publiceer("$cacheKey$SCHEIDING${sleutel.berichtId}$SCHEIDING${sleutel.magazijnId}")
 
     override fun registreer(
         cacheKey: String,
-        opBericht: (UUID) -> Unit,
+        opBericht: (BerichtSleutel) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Aanmeldingen.Afmelding {
@@ -191,16 +192,27 @@ internal class RedisAanmeldingen(
         )
     }
 
-    private fun publiceer(sleutel: String, id: UUID): Uni<Void> =
-        redis.pubsub(String::class.java).publish(KANAAL, "$sleutel$SCHEIDING$id")
+    private fun publiceer(bericht: String): Uni<Void> =
+        redis.pubsub(String::class.java).publish(KANAAL, bericht)
+
+    private fun publiceerProbe(probe: UUID): Uni<Void> = publiceer("$PROBE$SCHEIDING$probe")
 
     // `internal` zodat een test de verdeling onder gelijktijdig registreren en afmelden kan toetsen
     // zonder een Redis-bericht te hoeven afwachten.
     internal fun verdeel(bericht: String) {
-        val scheiding = bericht.lastIndexOf(SCHEIDING)
-        val id = runCatching { UUID.fromString(bericht.substring(scheiding + 1)) }.getOrNull()
+        val delen = bericht.split(SCHEIDING)
+        val sessie = delen[0]
+        val id = delen.getOrNull(1)?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        val magazijnId = delen.getOrNull(2)
 
-        if (scheiding <= 0 || id == null) {
+        if (sessie == PROBE && delen.size == 2 && id != null) {
+            // Ook de probes van andere pods komen hier langs; die staan niet in de map.
+            probes[id]?.complete(null)
+
+            return
+        }
+
+        if (sessie.isEmpty() || id == null || delen.size != 3 || magazijnId.isNullOrEmpty()) {
             // Ons eigen kanaal, dus een onleesbaar bericht is een defect. De inhoud blijft uit de
             // log: een cacheKey is een pseudoniem van de ontvanger.
             log.warn("Onleesbaar bericht op het aanmeldkanaal genegeerd")
@@ -208,20 +220,13 @@ internal class RedisAanmeldingen(
             return
         }
 
-        val sleutel = bericht.substring(0, scheiding)
-
-        if (sleutel == PROBE) {
-            // Ook de probes van andere pods komen hier langs; die staan niet in de map.
-            probes[id]?.complete(null)
-
-            return
-        }
+        val sleutel = BerichtSleutel(magazijnId, id)
 
         // Per luisteraar afgeschermd: gooit er één, dan horen de andere tabbladen van dezelfde
         // ontvanger het bericht toch.
-        luisteraars[sleutel]?.forEach { luisteraar ->
+        luisteraars[sessie]?.forEach { luisteraar ->
             try {
-                luisteraar.opBericht(id)
+                luisteraar.opBericht(sleutel)
             } catch (fout: RuntimeException) {
                 log.warnf(fout, "Aanmelding niet aan een gevolgde sessie doorgegeven; de andere gaan door")
             }
@@ -234,7 +239,7 @@ internal class RedisAanmeldingen(
         val terug = CompletableFuture<Void>()
         probes[probe] = terug
 
-        return publiceer(PROBE, probe)
+        return publiceerProbe(probe)
             .chain { _ -> Uni.createFrom().completionStage(terug) }
             .ifNoItem().after(PROBE_TIMEOUT)
             .failWith { TimeoutException("probe op het aanmeldkanaal kwam niet terug binnen $PROBE_TIMEOUT") }
@@ -301,7 +306,7 @@ internal class RedisAanmeldingen(
 
             val zender = Multi.createFrom().ticks().every(PROBE_INTERVAL)
                 .onOverflow().drop()
-                .onItem().transformToUniAndConcatenate { _ -> publiceer(PROBE, probe) }
+                .onItem().transformToUniAndConcatenate { _ -> publiceerProbe(probe) }
                 .subscribe().with({}, { fout -> teruggezien.completeExceptionally(fout) })
 
             return Uni.createFrom().completionStage(teruggezien)
@@ -366,11 +371,12 @@ internal class RedisAanmeldingen(
         }
     }
 
-    private class Luisteraar(val opBericht: (UUID) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
+    private class Luisteraar(val opBericht: (BerichtSleutel) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 
     companion object {
-        // Zelfde versie als de sessie-keys: de cacheKey in het bericht heeft die vorm.
-        const val KANAAL = "berichtensessiecache:v3:aanmeldingen"
+        // Zelfde versie als de sessie-keys: de cacheKey in het bericht heeft die vorm. Sinds v4
+        // draagt het bericht ook de magazijnId, die een v3-pod niet zou kunnen lezen.
+        const val KANAAL = "berichtensessiecache:v4:aanmeldingen"
         private const val SCHEIDING = ' '
 
         // Kan nooit een cacheKey zijn: die begint met `berichtensessiecache:`.

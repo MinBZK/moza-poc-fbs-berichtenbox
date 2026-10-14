@@ -51,25 +51,41 @@ class RedisAanmeldingenIntegrationTest {
 
     @Test
     fun `een aanmelding op de ene pod komt aan bij de luisteraar op de andere`() {
-        val ontvangen = LinkedBlockingQueue<UUID>()
+        val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
         anderePod.registreer(cacheKey, { ontvangen += it }, {}, {})
         anderePod.actief().await().atMost(WACHTTIJD)
-        val berichtId = UUID.randomUUID()
+        val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
 
-        aanmeldingen.meld(cacheKey, berichtId).await().atMost(WACHTTIJD)
+        aanmeldingen.meld(cacheKey, aangemeld).await().atMost(WACHTTIJD)
 
-        assertEquals(berichtId, ontvangen.poll(5, TimeUnit.SECONDS))
+        assertEquals(aangemeld, ontvangen.poll(5, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun `hetzelfde berichtnummer van twee magazijnen komt als twee aanmeldingen aan`() {
+        val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
+        anderePod.registreer(cacheKey, { ontvangen += it }, {}, {})
+        anderePod.actief().await().atMost(WACHTTIJD)
+        val gedeeld = UUID.randomUUID()
+        val vanA = BerichtSleutel(MAGAZIJN, gedeeld)
+        val vanB = BerichtSleutel("00000001003214345001", gedeeld)
+
+        aanmeldingen.meld(cacheKey, vanA).await().atMost(WACHTTIJD)
+        aanmeldingen.meld(cacheKey, vanB).await().atMost(WACHTTIJD)
+
+        assertEquals(vanA, ontvangen.poll(5, TimeUnit.SECONDS))
+        assertEquals(vanB, ontvangen.poll(5, TimeUnit.SECONDS))
     }
 
     @Test
     fun `alleen de luisteraars van dezelfde sessie krijgen de aanmelding`() {
-        val eigen = LinkedBlockingQueue<UUID>()
-        val vreemd = LinkedBlockingQueue<UUID>()
+        val eigen = LinkedBlockingQueue<BerichtSleutel>()
+        val vreemd = LinkedBlockingQueue<BerichtSleutel>()
         anderePod.registreer(cacheKey, { eigen += it }, {}, {})
         anderePod.registreer("${cacheKey}x", { vreemd += it }, {}, {})
         anderePod.actief().await().atMost(WACHTTIJD)
 
-        aanmeldingen.meld(cacheKey, UUID.randomUUID()).await().atMost(WACHTTIJD)
+        aanmeldingen.meld(cacheKey, BerichtSleutel(MAGAZIJN, UUID.randomUUID())).await().atMost(WACHTTIJD)
 
         assertTrue(eigen.poll(5, TimeUnit.SECONDS) != null)
         assertTrue(vreemd.isEmpty())
@@ -77,30 +93,30 @@ class RedisAanmeldingenIntegrationTest {
 
     @Test
     fun `een onleesbaar kanaalbericht wordt overgeslagen zonder het abonnement te breken`() {
-        val ontvangen = LinkedBlockingQueue<UUID>()
+        val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
         anderePod.registreer(cacheKey, { ontvangen += it }, {}, {})
         anderePod.actief().await().atMost(WACHTTIJD)
         val pubsub = redis.pubsub(String::class.java)
 
-        listOf("zonder-scheiding", " ${UUID.randomUUID()}", "$cacheKey geen-uuid").forEach {
+        listOf("zonder-scheiding", " ${UUID.randomUUID()}", "$cacheKey geen-uuid $MAGAZIJN", "$cacheKey ${UUID.randomUUID()}").forEach {
             pubsub.publish(RedisAanmeldingen.KANAAL, it).await().atMost(WACHTTIJD)
         }
 
-        val berichtId = UUID.randomUUID()
-        aanmeldingen.meld(cacheKey, berichtId).await().atMost(WACHTTIJD)
+        val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
+        aanmeldingen.meld(cacheKey, aangemeld).await().atMost(WACHTTIJD)
 
-        assertEquals(berichtId, ontvangen.poll(5, TimeUnit.SECONDS))
+        assertEquals(aangemeld, ontvangen.poll(5, TimeUnit.SECONDS))
         assertTrue(ontvangen.isEmpty())
     }
 
     @Test
     fun `na afmelden komt er niets meer door`() {
-        val ontvangen = LinkedBlockingQueue<UUID>()
+        val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
         val afmelding = anderePod.registreer(cacheKey, { ontvangen += it }, {}, {})
         anderePod.actief().await().atMost(WACHTTIJD)
 
         afmelding.afmelden()
-        aanmeldingen.meld(cacheKey, UUID.randomUUID()).await().atMost(WACHTTIJD)
+        aanmeldingen.meld(cacheKey, BerichtSleutel(MAGAZIJN, UUID.randomUUID())).await().atMost(WACHTTIJD)
 
         assertEquals(null, ontvangen.poll(500, TimeUnit.MILLISECONDS))
     }
@@ -116,7 +132,7 @@ class RedisAanmeldingenIntegrationTest {
             val sleutel = "$cacheKey-$ronde"
             val vertrekkend = pod.registreer(sleutel, {}, {}, {})
             val start = CyclicBarrier(2)
-            val ontvangen = LinkedBlockingQueue<UUID>()
+            val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
 
             val sluiter = Thread {
                 start.await()
@@ -127,10 +143,10 @@ class RedisAanmeldingenIntegrationTest {
             val nieuw = pod.registreer(sleutel, { ontvangen += it }, {}, {})
             sluiter.join()
 
-            val berichtId = UUID.randomUUID()
-            pod.verdeel("$sleutel $berichtId")
+            val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
+            pod.verdeel("$sleutel ${aangemeld.berichtId} ${aangemeld.magazijnId}")
 
-            assertEquals(berichtId, ontvangen.poll(), "ronde $ronde: de nieuwe luisteraar kreeg de aanmelding niet")
+            assertEquals(aangemeld, ontvangen.poll(), "ronde $ronde: de nieuwe luisteraar kreeg de aanmelding niet")
             nieuw.afmelden()
         }
     }
@@ -140,18 +156,18 @@ class RedisAanmeldingenIntegrationTest {
         // Afwisselend gooiend en ontvangend: de volgorde in de set ligt niet vast, dus met één van
         // elk zou de test op een defecte verdeling de helft van de keren toch slagen.
         val pod = RedisAanmeldingen(redis, STANDAARD_CONTROLE)
-        val ontvangen = LinkedBlockingQueue<UUID>()
+        val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
 
         repeat(TABBLADEN) {
             pod.registreer(cacheKey, { throw IllegalStateException("tabblad kapot") }, {}, {})
             pod.registreer(cacheKey, { ontvangen += it }, {}, {})
         }
 
-        val berichtId = UUID.randomUUID()
+        val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
 
-        pod.verdeel("$cacheKey $berichtId")
+        pod.verdeel("$cacheKey ${aangemeld.berichtId} ${aangemeld.magazijnId}")
 
-        assertEquals(List(TABBLADEN) { berichtId }, ontvangen.toList())
+        assertEquals(List(TABBLADEN) { aangemeld }, ontvangen.toList())
     }
 
     @Test
@@ -218,7 +234,7 @@ class RedisAanmeldingenIntegrationTest {
         // trage reactie mag niet alle streams van de pod tegelijk laten herverbinden.
         val pod = RedisAanmeldingen(redis, SNELLE_CONTROLE)
         val storingen = LinkedBlockingQueue<Throwable>()
-        val ontvangen = LinkedBlockingQueue<UUID>()
+        val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
 
         try {
             pod.registreer(cacheKey, { ontvangen += it }, { storingen += it }, {})
@@ -228,10 +244,10 @@ class RedisAanmeldingenIntegrationTest {
 
             assertEquals(null, storingen.poll(TWEE_PROBES.toMillis(), TimeUnit.MILLISECONDS), "een enkele gemiste probe is geen storing")
 
-            val berichtId = UUID.randomUUID()
-            aanmeldingen.meld(cacheKey, berichtId).await().atMost(WACHTTIJD)
+            val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
+            aanmeldingen.meld(cacheKey, aangemeld).await().atMost(WACHTTIJD)
 
-            assertEquals(berichtId, ontvangen.poll(5, TimeUnit.SECONDS))
+            assertEquals(aangemeld, ontvangen.poll(5, TimeUnit.SECONDS))
         } finally {
             hervat()
             pod.stop()
@@ -261,14 +277,14 @@ class RedisAanmeldingenIntegrationTest {
 
             // Na de pauze bouwt de volgende activering een nieuw abonnement dat weer doorgeeft.
             hervat()
-            val ontvangen = LinkedBlockingQueue<UUID>()
+            val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
             pod.registreer(cacheKey, { ontvangen += it }, {}, {})
             pod.actief().await().atMost(WACHTTIJD)
-            val berichtId = UUID.randomUUID()
+            val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
 
-            aanmeldingen.meld(cacheKey, berichtId).await().atMost(WACHTTIJD)
+            aanmeldingen.meld(cacheKey, aangemeld).await().atMost(WACHTTIJD)
 
-            assertEquals(berichtId, ontvangen.poll(5, TimeUnit.SECONDS))
+            assertEquals(aangemeld, ontvangen.poll(5, TimeUnit.SECONDS))
         } finally {
             hervat()
             pod.stop()
@@ -305,7 +321,7 @@ class RedisAanmeldingenIntegrationTest {
         berichtenCache.store(cacheKey, listOf(bericht)).await().atMost(WACHTTIJD)
         berichtenCache.storeAggregationStatus(cacheKey, AggregationStatus(OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1))
             .await().atMost(WACHTTIJD)
-        val hashKey = BerichtenCache.berichtKey(bericht.berichtId)
+        val hashKey = BerichtenCache.berichtKey(bericht.sleutel)
 
         // Vers: ruim boven de helft van de 2 s uit het profiel, dus niets te doen.
         assertTrue(berichtenCache.verlengSessie(cacheKey).await().atMost(WACHTTIJD))
@@ -358,6 +374,7 @@ class RedisAanmeldingenIntegrationTest {
 
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
+        const val MAGAZIJN = "00000001003214345000"
         const val HERHALINGEN = 2_000
         const val TABBLADEN = 5
         val STANDAARD_CONTROLE: Duration = Duration.ofSeconds(30)

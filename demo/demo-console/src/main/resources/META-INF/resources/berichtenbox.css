@@ -27,6 +27,7 @@ main { padding: 1.5rem; max-width: 60rem; }
 .lijst .ongelezen { font-weight: 700; }
 .lijst .meta { color: #555; font-size: 0.85rem; margin-left: auto; white-space: nowrap; }
 .melding { color: #555; }
+.volledigheid { padding: 0.5rem 0.75rem; margin: 0 0 0.5rem; background: #fff4ce; border-left: 4px solid #c88a00; }
 /* [hidden] eerst: een `display`-regel op dezelfde specificiteit wint anders van de
    browser-default `[hidden] { display: none }`, waardoor toon(..., false) niets doet. */
 [hidden] { display: none !important; }

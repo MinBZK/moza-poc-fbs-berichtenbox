@@ -68,7 +68,7 @@ class RedisBerichtenCacheBatchIntegrationTest {
         // staat dus als laatste in `sorted`, in de laatste batch. Zou alleen de eerste batch
         // verwerkt zijn, dan mist juist deze hash of zijn TTL.
         val laatsteInBatchVolgorde = berichten.first()
-        val ttl = redis.key().ttl(BerichtenCache.berichtKey(laatsteInBatchVolgorde.berichtId))
+        val ttl = redis.key().ttl(BerichtenCache.berichtKey(laatsteInBatchVolgorde.sleutel))
             .await().atMost(Duration.ofSeconds(5))
 
         assertTrue(ttl > 0, "hash van het laatste bericht moet bestaan met een TTL; was: $ttl")
@@ -86,7 +86,7 @@ class RedisBerichtenCacheBatchIntegrationTest {
         // renewBerichtTtls' batches. Zonder batching valt de EXPIRE-transactie in zijn geheel om
         // (queue-overflow) en blijft deze TTL onaangeroerd.
         val laatsteInBatchVolgorde = berichten.first()
-        val berichtKey = BerichtenCache.berichtKey(laatsteInBatchVolgorde.berichtId)
+        val berichtKey = BerichtenCache.berichtKey(laatsteInBatchVolgorde.sleutel)
 
         // `store` zet deze TTL al op de volle profiel-waarde (PT5M); een korte, kunstmatige TTL
         // vooraf maakt een uitgebleven renew zichtbaar — anders zou "TTL nog positief" ook zonder
@@ -112,7 +112,7 @@ class RedisBerichtenCacheBatchIntegrationTest {
         berichtenCache.store(cacheKey, berichten).await().atMost(Duration.ofSeconds(30))
 
         val gevonden = berichten.count { b ->
-            berichtenCache.getById(b.berichtId, ontvanger).await().atMost(Duration.ofSeconds(5)) != null
+            berichtenCache.getById(b.sleutel, ontvanger).await().atMost(Duration.ofSeconds(5)) != null
         }
 
         assertEquals(200, gevonden, "elk bericht uit elke batch moet opvraagbaar zijn")

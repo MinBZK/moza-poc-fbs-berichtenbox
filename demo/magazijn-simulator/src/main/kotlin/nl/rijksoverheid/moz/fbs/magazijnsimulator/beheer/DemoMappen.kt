@@ -12,7 +12,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
  * De map hangt aan het gedrag van het magazijn, zodat één ophaalronde alle gevolgen laat zien van
  * een map die bij het bericht hoort en niet los wordt bewaard:
  *
- * - [VERSPREID] staat bij elke organisatie die gewoon of traag antwoordt: het aantal loopt op terwijl
+ * - [VERSPREID] staat bij elke organisatie die haar lijst levert: het aantal loopt op terwijl
  *   de organisaties leveren.
  * - [ALLEEN_TRAAG] staat alleen bij trage organisaties: de map verschijnt pas na een paar seconden.
  * - [ALLEEN_ONBEREIKBAAR] staat alleen bij organisaties die niet leveren: de map verschijnt nooit, en
@@ -54,8 +54,11 @@ object DemoMappen {
         }
     }
 
-    /** Leveren altijd; haperend en weigerend doen dat niet betrouwbaar en blijven erbuiten. */
-    private val LEVEREND = setOf(GedragModus.NORMAAL, GedragModus.TRAAG)
+    /**
+     * Leveren altijd; haperend en weigerend doen dat niet betrouwbaar en blijven erbuiten. Een
+     * onvolledig magazijn levert zijn hele lijst, alleen met een groter totaal erbij.
+     */
+    private val LEVEREND = setOf(GedragModus.NORMAAL, GedragModus.TRAAG, GedragModus.ONVOLLEDIG)
 
     private val ONBEREIKBAAR = setOf(GedragModus.UIT, GedragModus.STUK)
 }

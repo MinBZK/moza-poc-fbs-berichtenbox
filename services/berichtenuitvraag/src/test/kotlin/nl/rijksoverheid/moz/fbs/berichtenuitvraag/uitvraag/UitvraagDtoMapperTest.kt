@@ -110,7 +110,7 @@ class UitvraagDtoMapperTest {
         assertEquals(BerichtStatus.GELEZEN, api.status)
         assertEquals(bijlageId, api.bijlagen.single().bijlageId)
         assertEquals("factuur.pdf", api.bijlagen.single().naam)
-        assertEquals("/api/v1/berichten/$id", api.links.self.href)
+        assertEquals("/api/v1/berichten/$id?magazijnId=magazijn-a", api.links.self.href)
     }
 
     @Test
@@ -136,7 +136,7 @@ class UitvraagDtoMapperTest {
         assertEquals("magazijn-b", api.magazijnId)
         assertEquals(3, api.aantalBijlagen)
         assertNull(api.status)
-        assertEquals("/api/v1/berichten/$id", api.links.self.href)
+        assertEquals("/api/v1/berichten/$id?magazijnId=magazijn-b", api.links.self.href)
     }
 
 }

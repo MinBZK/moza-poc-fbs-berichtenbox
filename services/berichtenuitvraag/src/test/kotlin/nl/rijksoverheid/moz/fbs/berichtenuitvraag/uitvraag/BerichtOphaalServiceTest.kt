@@ -53,7 +53,7 @@ class BerichtOphaalServiceTest {
         magazijnId: String = "magazijn-a",
         bijlagen: List<BijlageSamenvatting> = emptyList(),
     ) {
-        every { sessiecache.bericht(ontvangerId, berichtId) } returns domeinBericht(berichtId, magazijnId, bijlagen)
+        every { sessiecache.bericht(ontvangerId, magazijnId, berichtId) } returns domeinBericht(berichtId, magazijnId, bijlagen)
     }
 
     private fun stubBijlageResponse(berichtId: UUID, bijlageId: UUID, bytes: ByteArray, mimeType: String = "application/pdf") {
@@ -77,32 +77,44 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(id)
         stubInhoud(id, "Tekst uit het magazijn")
 
-        val result = service.haalBericht("BSN:999990019", id)
+        val result = service.haalBericht("BSN:999990019", "magazijn-a", id)
 
         assertEquals(id, result.berichtId)
         assertEquals("magazijn-a", result.magazijnId)
         assertEquals("Tekst uit het magazijn", result.inhoud)
-        assertEquals("/api/v1/berichten/$id", result.links.self.href)
+        assertEquals("/api/v1/berichten/$id?magazijnId=magazijn-a", result.links.self.href)
     }
 
     @Test
-    fun `haalBericht routeert op het magazijn uit de cache, niet op iets uit het verzoek`() {
+    fun `haalBericht routeert naar het magazijn waaronder de cache het bericht kent`() {
         val id = UUID.randomUUID()
         stubBerichtLookup(id, magazijnId = "magazijn-b")
         stubInhoud(id)
 
-        service.haalBericht("BSN:999990019", id)
+        service.haalBericht("BSN:999990019", "magazijn-b", id)
 
         verify { router.forMagazijn("magazijn-b") }
     }
 
     @Test
+    fun `haalBericht met een magazijn waaronder het nummer niet staat geeft 404 zonder magazijn-aanroep`() {
+        val id = UUID.randomUUID()
+        stubBerichtLookup(id, magazijnId = "magazijn-a")
+        every { sessiecache.bericht(ontvangerId, "magazijn-b", id) } returns null
+
+        val fout = assertThrows(FbsFoutException::class.java) { service.haalBericht("BSN:999990019", "magazijn-b", id) }
+
+        assertEquals(404, fout.response.status)
+        verify(exactly = 0) { router.forMagazijn(any()) }
+    }
+
+    @Test
     fun `haalBericht geeft 404 met het kenmerk bericht-onbekend wanneer de cache het bericht niet kent`() {
         val id = UUID.randomUUID()
-        every { sessiecache.bericht(ontvangerId, id) } returns null
+        every { sessiecache.bericht(ontvangerId, "magazijn-a", id) } returns null
 
         val fout = assertThrows(FbsFoutException::class.java) {
-            service.haalBericht("BSN:999990019", id)
+            service.haalBericht("BSN:999990019", "magazijn-a", id)
         }
 
         assertEquals(404, fout.response.status)
@@ -121,7 +133,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bericht("BSN:999990019", id) } throws NotFoundException("weg bij de bron")
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBericht("BSN:999990019", id)
+            service.haalBericht("BSN:999990019", "magazijn-a", id)
         }
 
         assertEquals(404, ex.response.status)
@@ -135,7 +147,7 @@ class BerichtOphaalServiceTest {
             WebApplicationException("magazijn stuk", Response.Status.INTERNAL_SERVER_ERROR)
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBericht("BSN:999990019", id)
+            service.haalBericht("BSN:999990019", "magazijn-a", id)
         }
 
         assertEquals(502, ex.response.status)
@@ -148,7 +160,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bericht("BSN:999990019", id) } throws ProcessingException("magazijn onbereikbaar")
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBericht("BSN:999990019", id)
+            service.haalBericht("BSN:999990019", "magazijn-a", id)
         }
 
         assertEquals(502, ex.response.status)
@@ -157,10 +169,10 @@ class BerichtOphaalServiceTest {
     @Test
     fun `haalBijlage geeft 404 met het kenmerk bericht-onbekend wanneer de cache het bericht niet kent`() {
         val id = UUID.randomUUID()
-        every { sessiecache.bericht(ontvangerId, id) } returns null
+        every { sessiecache.bericht(ontvangerId, "magazijn-a", id) } returns null
 
         val fout = assertThrows(FbsFoutException::class.java) {
-            service.haalBijlage("BSN:999990019", id, UUID.randomUUID())
+            service.haalBijlage("BSN:999990019", "magazijn-a", id, UUID.randomUUID())
         }
 
         assertEquals(404, fout.response.status)
@@ -181,7 +193,7 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
 
         assertEquals("application/pdf", bijlage.mimeType)
         assertArrayEquals(bytes, bijlage.inhoud)
@@ -201,7 +213,7 @@ class BerichtOphaalServiceTest {
         )
         stubBijlageResponse(berichtId, gevraagde, byteArrayOf(1))
 
-        val bijlage = service.haalBijlage("BSN:999990019", berichtId, gevraagde)
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, gevraagde)
 
         assertEquals("aanslag 2026.pdf", bijlage.bestandsnaam)
     }
@@ -213,7 +225,7 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId, bijlagen = listOf(BijlageSamenvatting(UUID.randomUUID(), "andere.pdf")))
         stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
 
-        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
 
         assertEquals(null, bijlage.bestandsnaam)
         assertArrayEquals(byteArrayOf(1), bijlage.inhoud)
@@ -234,7 +246,7 @@ class BerichtOphaalServiceTest {
         )
         stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
 
-        assertEquals("eerste.pdf", service.haalBijlage("BSN:999990019", berichtId, bijlageId).bestandsnaam)
+        assertEquals("eerste.pdf", service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId).bestandsnaam)
     }
 
     @Test
@@ -244,7 +256,7 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
 
-        assertEquals(null, service.haalBijlage("BSN:999990019", berichtId, bijlageId).bestandsnaam)
+        assertEquals(null, service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId).bestandsnaam)
     }
 
     @Test
@@ -261,7 +273,7 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
 
         // Service zélf valideert niet; raw value doorgeven aan filter.
         assertEquals("not-a-mime-type", bijlage.mimeType)
@@ -279,7 +291,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
         assertEquals(502, ex.response.status)
     }
@@ -296,7 +308,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
         val fout = assertThrows(FbsFoutException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         assertEquals(404, fout.response.status)
@@ -315,7 +327,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
         val fout = assertThrows(FbsFoutException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         assertEquals(403, fout.response.status)
@@ -334,7 +346,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         assertEquals(401, ex.response.status)
@@ -352,7 +364,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         assertEquals(422, ex.response.status)
@@ -366,7 +378,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } throws ProcessingException("connect timeout")
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         assertEquals(502, ex.response.status)
@@ -385,7 +397,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
         assertEquals(502, ex.response.status)
     }
@@ -404,7 +416,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         // Een fout tijdens het lezen van de body ná een geldige 200 is een upstream-
@@ -428,7 +440,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } throws WebApplicationException("upstream kapot", upstreamResp)
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         assertEquals(502, ex.response.status)
@@ -446,7 +458,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } throws waeZonderResponse
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         assertEquals(502, ex.response.status)
@@ -470,7 +482,7 @@ class BerichtOphaalServiceTest {
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns mockResp
 
-        val bijlage = service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
 
         // Falende close mag de geslaagde read niet kapotmaken: bytes komen normaal terug.
         assertEquals("application/pdf", bijlage.mimeType)
@@ -490,7 +502,7 @@ class BerichtOphaalServiceTest {
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } throws WebApplicationException("upstream kapot", upstreamResp)
 
         val ex = assertThrows(WebApplicationException::class.java) {
-            service.haalBijlage("BSN:999990019", berichtId, bijlageId)
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
         }
 
         // Een falende close mag de echte 502-mapping niet overschaduwen.

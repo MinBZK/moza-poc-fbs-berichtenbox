@@ -1580,7 +1580,7 @@ function vulKeuze(keuze, knop, opties, leegTekst, keuzeId) {
 
 /* Van gezond naar kapot, zodat de telling bij elke uitlezing dezelfde vorm heeft. Een modus die hier
  * ontbreekt valt niet weg maar komt achteraan. */
-const MODUS_VOLGORDE = ['NORMAAL', 'TRAAG', 'HAPERT', 'WEIGERT', 'MALFORMED', 'STUK', 'UIT'];
+const MODUS_VOLGORDE = ['NORMAAL', 'TRAAG', 'ONVOLLEDIG', 'HAPERT', 'WEIGERT', 'MALFORMED', 'STUK', 'UIT'];
 
 /* Wat elk blok op het Info-blad tekent. `bewaarbaar` snoeit een antwoord vóór het in het geheugen en
  * in sessionStorage belandt; een blok zonder die functie bewaart het antwoord zoals het binnenkwam. */

@@ -5,8 +5,12 @@ meta {
 }
 
 get {
-  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}/bijlagen/{{bijlageId}}
+  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}/bijlagen/{{bijlageId}}?magazijnId={{magazijnId}}
   auth: none
+}
+
+params:query {
+  magazijnId: {{magazijnId}}
 }
 
 headers {

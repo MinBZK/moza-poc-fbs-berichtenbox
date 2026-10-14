@@ -25,15 +25,15 @@ class MockAanmeldDeduplicatie : AanmeldDeduplicatie {
         fout = null
     }
 
-    override fun eerstgezien(eventId: String): Boolean {
+    override fun eerstgezien(magazijnId: String, eventId: String): Boolean {
         fout?.let { throw it }
 
-        return gezien.add(eventId)
+        return gezien.add("$magazijnId:$eventId")
     }
 
-    override fun verwijder(eventId: String) {
-        verwijderd += eventId
-        gezien.remove(eventId)
+    override fun verwijder(magazijnId: String, eventId: String) {
+        verwijderd += "$magazijnId:$eventId"
+        gezien.remove("$magazijnId:$eventId")
     }
 }
 

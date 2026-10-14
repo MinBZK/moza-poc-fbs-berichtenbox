@@ -93,7 +93,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
             .body("berichtId", equalTo(id.toString()))
@@ -115,7 +115,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
 
@@ -145,7 +145,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
     }
@@ -161,7 +161,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
     }
@@ -208,7 +208,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_B}")
             .then()
             .statusCode(200)
             .body("afzenderNaam", equalTo(WireMockBackendsResource.NAAM_B))
@@ -260,7 +260,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
     }
@@ -278,7 +278,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(404)
     }
@@ -298,7 +298,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
     }
@@ -318,7 +318,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
     }
@@ -348,7 +348,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
             .header("Content-Disposition", "attachment; filename=\"kwaad.html\"; filename*=UTF-8''kwaad.html")
@@ -375,7 +375,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
             .header("Content-Disposition", "inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf")
@@ -399,7 +399,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
             .header("Content-Disposition", "inline")
@@ -428,7 +428,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_B}")
             .then()
             .statusCode(200)
 
@@ -554,7 +554,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$id")
+            .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(503)
             .contentType(containsString("application/problem+json"))
@@ -566,7 +566,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/${UUID.randomUUID()}")
+            .get("/api/v1/berichten/${UUID.randomUUID()}?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(404)
     }
@@ -619,12 +619,12 @@ class ServiceCoverageTest {
     fun `bijlage met onbekend magazijnId uit cache geeft 502 zonder magazijn-call`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        seedBericht(berichtId, magazijnId = "magazijn-onbekend")
+        seedBericht(berichtId, magazijnId = "00000009999999999999")
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId")
+            .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=00000009999999999999")
             .then()
             .statusCode(502)
 
@@ -645,7 +645,7 @@ class ServiceCoverageTest {
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
-            .patch("/api/v1/berichten/$id?magazijnId=magazijn-onbekend")
+            .patch("/api/v1/berichten/$id?magazijnId=00000009999999999999")
             .then()
             .statusCode(502)
     }
@@ -657,7 +657,7 @@ class ServiceCoverageTest {
         given()
             .header("X-Ontvanger", "BSN:999990019")
             .`when`()
-            .delete("/api/v1/berichten/$id?magazijnId=magazijn-onbekend")
+            .delete("/api/v1/berichten/$id?magazijnId=00000009999999999999")
             .then()
             .statusCode(502)
     }
@@ -668,7 +668,7 @@ class ServiceCoverageTest {
         afzenderNaam: String = WireMockBackendsResource.NAAM_A,
         bijlagen: List<BijlageSamenvatting> = emptyList(),
     ) {
-        sessiecache.berichten[berichtId] = Bericht(
+        sessiecache.zet(Bericht(
             berichtId = berichtId,
             afzender = "00000001003214345000",
             afzenderNaam = afzenderNaam,
@@ -678,7 +678,7 @@ class ServiceCoverageTest {
             magazijnId = magazijnId,
             aantalBijlagen = bijlagen.size,
             bijlagen = bijlagen,
-        )
+        ))
     }
 
     private fun stubMagazijnDetail(id: UUID, inhoud: String) {

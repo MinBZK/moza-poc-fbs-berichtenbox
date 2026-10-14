@@ -120,6 +120,16 @@ data class BerichtSamenvatting(
     val status: Leesstatus? = null,
 )
 
+/**
+ * Wat één bericht aanwijst. Een organisatie deelt haar berichtnummers zelf uit, dus een nummer is
+ * alleen uniek binnen het magazijn dat het uitdeelde.
+ */
+internal data class BerichtSleutel(val magazijnId: String, val berichtId: UUID)
+
+internal val Bericht.sleutel: BerichtSleutel get() = BerichtSleutel(magazijnId, berichtId)
+
+internal val BerichtSamenvatting.sleutel: BerichtSleutel get() = BerichtSleutel(magazijnId, berichtId)
+
 data class BijlageSamenvatting(
     val bijlageId: UUID,
     val naam: String,

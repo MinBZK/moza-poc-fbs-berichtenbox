@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
 import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
@@ -108,6 +109,38 @@ class GedragKetenTest : MagazijnTestBasis() {
             .extract().asString()
 
         assertTrue(body.contains("dit is geen lijst"), "verwacht een body die niet als lijst te lezen is")
+    }
+
+    /**
+     * Levert zijn hele lijst, maar noemt een groter totaal: de uitvraag meldt hem dan als "niet alles
+     * opgehaald". Het aantal berichten en het detailpad blijven wat ze zijn.
+     */
+    @Test
+    fun `een onvolledig magazijn noemt een archief bovenop de berichten die het levert`() {
+        val berichtId = leverAan()
+        val echt = lijst(ONTVANGER)
+
+        zet(Gedrag(GedragModus.ONVOLLEDIG, latencyP50Ms = 0, latencyP95Ms = 0))
+
+        val onvolledig = lijst(ONTVANGER)
+
+        assertTrue(echt.first > 0, "de aanlevering hoort in de lijst te staan")
+        assertEquals(echt.first, onvolledig.first, "de lijst zelf blijft volledig")
+        assertEquals(echt.second + Gedrag.ONVOLLEDIG_ARCHIEF, onvolledig.second)
+
+        given()
+            .header(ONTVANGER_HEADER, ONTVANGER)
+            .`when`().get("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+    }
+
+    /** Wie hier geen post heeft, krijgt geen "0 van 480": dat zou een archief verzinnen. */
+    @Test
+    fun `een onvolledig magazijn zonder post voor deze ontvanger noemt geen archief`() {
+        zet(Gedrag(GedragModus.ONVOLLEDIG, latencyP50Ms = 0, latencyP95Ms = 0))
+
+        assertEquals(0 to 0L, lijst("KVK:90000099"))
     }
 
     @Test
@@ -213,6 +246,18 @@ class GedragKetenTest : MagazijnTestBasis() {
             .`when`().get("/magazijn/$ANDER_MAGAZIJN/api/v1/berichten")
             .then()
             .statusCode(200)
+    }
+
+    /** Hoeveel berichten de eerste pagina draagt en welk totaal het magazijn noemt. */
+    private fun lijst(ontvanger: String): Pair<Int, Long> {
+        val antwoord = given()
+            .header(ONTVANGER_HEADER, ontvanger)
+            .`when`().get("$BASIS/berichten?page=0&pageSize=100")
+            .then()
+            .statusCode(200)
+            .extract()
+
+        return antwoord.path<List<Any>>("berichten").size to antwoord.path<Number>("totalElements").toLong()
     }
 
     private fun zet(gedrag: Gedrag) {

@@ -30,8 +30,8 @@ import java.util.UUID
  * de facade (BlockingSessiecache) een retriable 503 geeft i.p.v. een misleidende 404 (na een
  * geslaagde magazijn-write zou een 404 de client laten denken dat het bericht weg is).
  */
-internal class CacheContentieException(berichtId: UUID) :
-    RuntimeException("Cache-update afgebroken door gelijktijdige wijziging voor berichtId=$berichtId")
+internal class CacheContentieException(sleutel: BerichtSleutel) :
+    RuntimeException("Cache-update afgebroken door gelijktijdige wijziging voor $sleutel")
 
 internal interface BerichtenCache {
     fun store(key: String, berichten: List<Bericht>): Uni<Void>
@@ -41,17 +41,17 @@ internal interface BerichtenCache {
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: Identificatienummer? = null, map: String? = null): Uni<BerichtenPagina?>
     fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String? = null, map: String? = null): Uni<BerichtenPagina>
-    fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?>
-    fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?>
+    fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?>
+    fun updateBerichtMetadata(sleutel: BerichtSleutel, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?>
     fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void>
-    fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void>
+    fun delete(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void>
 
     /**
      * Of [ontvanger] dit bericht binnen deze sessie zélf verwijderde. Alleen te vertrouwen als
      * antwoord op een misser: staat het bericht er nog, dan is dat de waarheid en zegt de
      * tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
      */
-    fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean>
+    fun isVerwijderdVoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean>
 
     /**
      * Houdt een gevolgde sessie in leven zonder dat er gelezen wordt. `false` als er geen sessie
@@ -75,17 +75,15 @@ internal interface BerichtenCache {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v3:${HEX.formatHex(digest)}"
+            return "berichtensessiecache:v4:${HEX.formatHex(digest)}"
         }
-        // v3: twee schemawijzigingen tegelijk. Berichten dragen sinds kort een verplichte
-        // `afzenderNaam`, en de berichttekst is uit hash én blob verdwenen. Een pod van een
-        // vorige versie die zo'n entry leest mist een veld dat hij verplicht acht en geeft een
-        // 500 op de berichtenlijst; aan dat gedrag valt niets te veranderen, dus moeten de
-        // sleutels disjunct zijn. Beide wijzigingen kwamen los van elkaar op v2 uit — vandaar
-        // v3, want één versienummer voor twee vormen brengt precies de botsing terug die de
-        // bump moest voorkomen.
-        fun berichtKey(berichtId: UUID) = "$BERICHT_PREFIX$berichtId"
-        const val BERICHT_PREFIX = "bericht:v3:"
+
+        // v4: de berichthash draagt het magazijn, want een berichtnummer is alleen uniek binnen
+        // het magazijn dat het uitdeelde. Een pod van een vorige versie zou een gedeelde lijst
+        // op alleen het nummer matchen en zo het bericht van de ene organisatie bij de andere
+        // bijwerken of opruimen; daarom zijn alle sleutels van de sessie disjunct van v3.
+        fun berichtKey(sleutel: BerichtSleutel) = "$BERICHT_PREFIX${sleutel.magazijnId}:${sleutel.berichtId}"
+        const val BERICHT_PREFIX = "bericht:v4:"
 
         /**
          * Key van de tombstone die een zelf-verwijderd bericht achterlaat, onder de sessie-key van
@@ -94,8 +92,8 @@ internal interface BerichtenCache {
          * belandt — [cacheKey] is een SHA-256. En de key valt buiten [BERICHT_PREFIX], het
          * indexeerpatroon van [SEARCH_INDEX], zodat een tombstone niet als zoekresultaat terugkomt.
          */
-        fun verwijderdKey(ontvanger: Identificatienummer, berichtId: UUID) =
-            "${cacheKey(ontvanger)}:verwijderd:$berichtId"
+        fun verwijderdKey(ontvanger: Identificatienummer, sleutel: BerichtSleutel) =
+            "${cacheKey(ontvanger)}:verwijderd:${sleutel.magazijnId}:${sleutel.berichtId}"
 
         // De index-naam draagt dezelfde versie als de prefix waarop hij filtert, en dat is geen
         // cosmetica: de bootstrap laat een bestaande index bewust ongemoeid, dus een index die op
@@ -104,7 +102,7 @@ internal interface BerichtenCache {
         // verkeerde prefix is functioneel identiek aan géén index, maar valt buiten de fail-fast
         // hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index aan en
         // blijven oude pods tijdens een rolling deploy op de oude werken.
-        const val SEARCH_INDEX = "berichten-idx-v3"
+        const val SEARCH_INDEX = "berichten-idx-v4"
 
         /**
          * [verlengSessie] verlengt pas wanneer nog minder dan `ttl / VERLENG_DEEL` van de
@@ -242,7 +240,7 @@ internal class RedisBerichtenCache(
                 .chain { _ -> txKey.expire(listKey, ttl) }
                 .chain { _ ->
                     RedisBatching.inBatches(sorted, redisBatchgrootte) { bericht ->
-                        val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
+                        val berichtKey = BerichtenCache.berichtKey(bericht.sleutel)
                         val fields = berichtToHash(bericht)
 
                         txHash.hset(berichtKey, fields)
@@ -454,9 +452,9 @@ internal class RedisBerichtenCache(
         return args
     }
 
-    override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
+    override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(sleutel)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .map { fields ->
                 if (fields.isEmpty()) return@map null
@@ -467,7 +465,7 @@ internal class RedisBerichtenCache(
                 if (bericht != null) renewReadTtl(cacheKey, listOf(bericht))
                 else Uni.createFrom().voidItem()
             }
-            .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor berichtId=%s", berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor %s", sleutel) }
     }
 
     /**
@@ -496,13 +494,13 @@ internal class RedisBerichtenCache(
      */
     private fun renewReadTtl(cacheKey: String, berichten: List<Bericht>?): Uni<Void> {
         if (berichten.isNullOrEmpty()) return renewSessionTtl(cacheKey)
-        return renewBerichtTtls(cacheKey, berichten.map { it.berichtId })
+        return renewBerichtTtls(cacheKey, berichten.map { it.sleutel })
     }
 
     /** Variant van [renewReadTtl] voor samenvatting-paden (FT.SEARCH-projecties). */
     private fun renewReadTtlSamenvatting(cacheKey: String, berichten: List<BerichtSamenvatting>?): Uni<Void> {
         if (berichten.isNullOrEmpty()) return renewSessionTtl(cacheKey)
-        return renewBerichtTtls(cacheKey, berichten.map { it.berichtId })
+        return renewBerichtTtls(cacheKey, berichten.map { it.sleutel })
     }
 
     /**
@@ -511,18 +509,18 @@ internal class RedisBerichtenCache(
      * Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing in de batch
      * ongezien blijven; de read zelf is al gelukt.
      */
-    private fun renewBerichtTtls(cacheKey: String, ids: List<UUID>): Uni<Void> =
-        verlengTtls(cacheKey, ids)
+    private fun renewBerichtTtls(cacheKey: String, sleutels: List<BerichtSleutel>): Uni<Void> =
+        verlengTtls(cacheKey, sleutels)
             .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
             .onFailure().recoverWithNull().replaceWithVoid()
 
-    private fun verlengTtls(cacheKey: String, ids: List<UUID>): Uni<Void> {
+    private fun verlengTtls(cacheKey: String, berichten: List<BerichtSleutel>): Uni<Void> {
         val listKey = listKey(cacheKey)
         val statusKey = statusKey(cacheKey)
 
         return redis.withTransaction { tx ->
             val txKey = tx.key()
-            val sleutels = listOf(listKey, statusKey) + ids.map { BerichtenCache.berichtKey(it) }
+            val sleutels = listOf(listKey, statusKey) + berichten.map { BerichtenCache.berichtKey(it) }
 
             RedisBatching.inBatches(sleutels, redisBatchgrootte) { sleutel ->
                 txKey.expire(sleutel, ttl).replaceWithVoid()
@@ -549,14 +547,14 @@ internal class RedisBerichtenCache(
     private fun verlengHeleSessie(key: String): Uni<Void> =
         redis.list(String::class.java).lrange(listKey(key), 0, -1)
             .chain { jsonList ->
-                // Alleen het id is nodig; een onleesbare entry slaat alleen die ene hash over.
+                // Alleen de sleutel is nodig; een onleesbare entry slaat alleen die ene hash over.
                 // Het leespad meldt de corruptie al, met de juiste status.
-                val ids = jsonList.mapNotNull(::idVan)
+                val sleutels = jsonList.mapNotNull(::sleutelVan)
 
                 // Niet best-effort zoals op het leespad: daar is de lees al gelukt en is de TTL
                 // bijzaak, hier ís verlengen de opdracht. Een mislukking hoort de hartslag te
                 // bereiken, anders meldt die een levende sessie die intussen afloopt.
-                verlengTtls(key, ids)
+                verlengTtls(key, sleutels)
             }
 
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
@@ -701,7 +699,7 @@ internal class RedisBerichtenCache(
         data class Ongewijzigd(val bericht: Bericht) : UpdatePlan
 
         // Te schrijven en te wissen hash-velden + de herbouwde list met het vervangen blob op
-        // `berichtId`. Wissen is een HDEL: een leeg veld zou de TAG-index een lege map laten zien.
+        // (magazijnId, berichtId). Wissen is een HDEL: een leeg veld zou de TAG-index een lege map laten zien.
         data class Wijzig(
             val updated: Bericht,
             val hashVelden: Map<String, String>,
@@ -710,7 +708,7 @@ internal class RedisBerichtenCache(
         ) : UpdatePlan
     }
 
-    override fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
+    override fun updateBerichtMetadata(sleutel: BerichtSleutel, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
         // Merge-PATCH: alleen de meegegeven velden worden bijgewerkt; ontbrekende velden blijven
         // onveranderd. De sessie-`list` bevat volledige JSON-blobs die het ongefilterde `getPage`
         // direct deserialiseert — een HSET-alleen update laat die list stale (oude status/map
@@ -721,32 +719,32 @@ internal class RedisBerichtenCache(
         // laten we de cache met rust en levert de operatie een retriable 503 op zodat de client
         // opnieuw kan proberen.
         val leesstatus = status?.let { Leesstatus.fromWire(it) }
-        return probeerUpdateMetadata(berichtId, ontvanger, leesstatus, map, 1)
+        return probeerUpdateMetadata(sleutel, ontvanger, leesstatus, map, 1)
     }
 
     private fun probeerUpdateMetadata(
-        berichtId: UUID,
+        sleutel: BerichtSleutel,
         ontvanger: Identificatienummer,
         status: Leesstatus?,
         map: String?,
         poging: Int,
     ): Uni<Bericht?> {
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(sleutel)
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
 
         return redis.withTransaction<UpdatePlan>(
-            { reads -> bepaalUpdatePlan(reads, berichtKey, listKey, berichtId, ontvanger, status, map) },
+            { reads -> bepaalUpdatePlan(reads, berichtKey, listKey, sleutel, ontvanger, status, map) },
             { plan, tx -> voerUpdatePlanUit(plan, tx, berichtKey, listKey) },
             listKey,
             berichtKey,
         ).chain { result ->
-            verwerkUpdateResultaat(result, berichtId, ontvanger, status, map, poging)
+            verwerkUpdateResultaat(result, sleutel, ontvanger, status, map, poging)
         }
             .onFailure().invoke { e ->
                 // Contentie is al op warn gelogd en is geen echte storing; alleen
                 // overige fouten als error loggen.
-                if (e !is CacheContentieException) log.errorf(e, "Redis update mislukt voor berichtId=%s", berichtId)
+                if (e !is CacheContentieException) log.errorf(e, "Redis update mislukt voor %s", sleutel)
             }
     }
 
@@ -755,7 +753,7 @@ internal class RedisBerichtenCache(
         reads: ReactiveRedisDataSource,
         berichtKey: String,
         listKey: String,
-        berichtId: UUID,
+        sleutel: BerichtSleutel,
         ontvanger: Identificatienummer,
         status: Leesstatus?,
         map: String?,
@@ -770,7 +768,7 @@ internal class RedisBerichtenCache(
                     when {
                         bericht.ontvanger != ontvanger -> Uni.createFrom().item(UpdatePlan.Geen)
                         status == null && map == null -> Uni.createFrom().item(UpdatePlan.Ongewijzigd(bericht))
-                        else -> maakWijzigPlan(reads, listKey, berichtId, bericht, status, map)
+                        else -> maakWijzigPlan(reads, listKey, sleutel, bericht, status, map)
                     }
                 }
             }
@@ -778,7 +776,7 @@ internal class RedisBerichtenCache(
     private fun maakWijzigPlan(
         reads: ReactiveRedisDataSource,
         listKey: String,
-        berichtId: UUID,
+        sleutel: BerichtSleutel,
         bericht: Bericht,
         status: Leesstatus?,
         map: String?,
@@ -799,23 +797,13 @@ internal class RedisBerichtenCache(
 
         return reads.list(String::class.java).lrange(listKey, 0, -1)
             .map { entries ->
-                UpdatePlan.Wijzig(updated, hashVelden, gewisteVelden, herbouwLijst(entries, berichtId, updatedJson))
+                UpdatePlan.Wijzig(updated, hashVelden, gewisteVelden, herbouwLijst(entries, sleutel, updatedJson))
             }
     }
 
-    /** Vervangt het blob met `berichtId` in de sessie-list door [updatedJson]; overige entries blijven. */
-    private fun herbouwLijst(entries: List<String>, berichtId: UUID, updatedJson: String): List<String> =
-        entries.map { json ->
-            val match = runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
-                .onFailure { e ->
-                    // Onparsebare blob: kan per definitie niet het te
-                    // updaten bericht zijn; behoud en log (cache-corruptie).
-                    log.warnf(e, "Onparsebare list-entry bij update; entry behouden. berichtId=%s", berichtId)
-                }
-                .getOrNull() == berichtId.toString()
-
-            if (match) updatedJson else json
-        }
+    /** Vervangt het blob van [sleutel] in de sessie-list door [updatedJson]; overige entries blijven. */
+    private fun herbouwLijst(entries: List<String>, sleutel: BerichtSleutel, updatedJson: String): List<String> =
+        entries.map { json -> if (blobMatcht(json, sleutel, "update")) updatedJson else json }
 
     /** Write-fase (MULTI/EXEC): voert het in de read-fase bepaalde plan uit. */
     private fun voerUpdatePlanUit(
@@ -866,14 +854,14 @@ internal class RedisBerichtenCache(
 
     private fun verwerkUpdateResultaat(
         result: OptimisticLockingTransactionResult<UpdatePlan>,
-        berichtId: UUID,
+        sleutel: BerichtSleutel,
         ontvanger: Identificatienummer,
         status: Leesstatus?,
         map: String?,
         poging: Int,
     ): Uni<Bericht?> {
         if (result.discarded() && poging < MAX_UPDATE_METADATA_POGINGEN) {
-            return probeerUpdateMetadata(berichtId, ontvanger, status, map, poging + 1)
+            return probeerUpdateMetadata(sleutel, ontvanger, status, map, poging + 1)
         }
 
         if (result.discarded()) {
@@ -882,12 +870,12 @@ internal class RedisBerichtenCache(
             // zijn). Signaleer een retriable fout → 503 zodat de client opnieuw
             // kan proberen. Op warn: verwacht onder hoge gelijktijdigheid, geen crash.
             log.warnf(
-                "Redis update na %d pogingen afgebroken door concurrente wijziging; retriable 503. berichtId=%s",
+                "Redis update na %d pogingen afgebroken door concurrente wijziging; retriable 503. %s",
                 poging,
-                berichtId,
+                sleutel,
             )
 
-            return Uni.createFrom().failure(CacheContentieException(berichtId))
+            return Uni.createFrom().failure(CacheContentieException(sleutel))
         }
 
         return when (val plan = result.preTransactionResult) {
@@ -909,7 +897,7 @@ internal class RedisBerichtenCache(
      */
     override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
         val listKey = listKey(BerichtenCache.cacheKey(ontvanger))
-        val berichtKey = BerichtenCache.berichtKey(bericht.berichtId)
+        val berichtKey = BerichtenCache.berichtKey(bericht.sleutel)
         val velden = berichtToHash(bericht).flatMap { (veld, waarde) -> listOf(veld, waarde) }
         val argumenten = listOf(
             AANMELD_SCRIPT,
@@ -917,34 +905,42 @@ internal class RedisBerichtenCache(
             listKey,
             berichtKey,
             bericht.berichtId.toString(),
+            bericht.magazijnId,
             objectMapper.writeValueAsString(bericht),
             ttl.toMillis().toString(),
         ) + velden
 
         return redis.execute("EVAL", *argumenten.toTypedArray())
-            .invoke { uitkomst -> log.debugf("Aangemeld bericht %s: %s", bericht.berichtId, uitkomst) }
+            .invoke { uitkomst -> log.debugf("Aangemeld bericht %s: %s", bericht.sleutel, uitkomst) }
             .replaceWithVoid()
-            .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor berichtId=%s", bericht.berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor %s", bericht.sleutel) }
     }
 
-    /** Alleen het id; een onleesbare entry telt niet als treffer, het leespad meldt hem al. */
-    private fun idVan(json: String): UUID? =
-        runCatching { UUID.fromString(objectMapper.readTree(json).path("berichtId").asText()) }.getOrNull()
+    /** Alleen de sleutel; een onleesbare entry telt niet als treffer, het leespad meldt hem al. */
+    private fun sleutelVan(json: String): BerichtSleutel? =
+        runCatching {
+            val blob = objectMapper.readTree(json)
+            val magazijnId = blob.path("magazijnId").asText()
 
-    override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
+            val berichtId = UUID.fromString(blob.path("berichtId").asText())
+
+            if (magazijnId.isEmpty()) null else BerichtSleutel(magazijnId, berichtId)
+        }.getOrNull()
+
+    override fun delete(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> {
         // Idempotent cache-invalidate. De sessie-`list` bevat JSON-blobs (gevuld via
         // `createBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
         // blijft het bericht zonder list-prune zichtbaar in `GET /berichten`.
         //
         // Aanpak: HGETALL (eigenaar-check) → LRANGE + parse om de matchende blob(s) op
-        // `berichtId` te vinden → LREM met die exact-value(s) → DEL hash. LREM is per-call
-        // Redis-atomair en raakt alleen exact-matchende entries: een concurrent `createBericht`
-        // tussen onze LRANGE en LREM voegt een blob met andere inhoud toe (andere berichtId
+        // (magazijnId, berichtId) te vinden → LREM met die exact-value(s) → DEL hash. LREM is
+        // per-call Redis-atomair en raakt alleen exact-matchende entries: een concurrent `createBericht`
+        // tussen onze LRANGE en LREM voegt een blob met andere inhoud toe (ander bericht
         // ⇒ andere JSON) en blijft dus behouden zonder WATCH/retry-loop. Bij eerdere TTL
         // van 60s was een WATCH+retry-aanpak met "self-healing via TTL" als noodverbetering
         // verdedigbaar; bij de huidige TTL (uren) is dat niet meer acceptabel — LREM
         // elimineert de race volledig in plaats van hem af te wachten.
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(sleutel)
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val listKey = listKey(cacheKey)
 
@@ -961,20 +957,20 @@ internal class RedisBerichtenCache(
                     // eerdere DELETE blijft staan; die wordt hier niet aangeraakt.
                     Uni.createFrom().voidItem()
                 } else {
-                    pruneListEnDelHash(listKey, berichtKey, berichtId)
-                        .chain { _ -> schrijfTombstone(berichtId, ontvanger) }
+                    pruneListEnDelHash(listKey, berichtKey, sleutel)
+                        .chain { _ -> schrijfTombstone(sleutel, ontvanger) }
                 }
             }
-            .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor berichtId=%s", berichtId) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis delete mislukt voor %s", sleutel) }
     }
 
-    override fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
-        redis.key().exists(BerichtenCache.verwijderdKey(ontvanger, berichtId))
+    override fun isVerwijderdVoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean> =
+        redis.key().exists(BerichtenCache.verwijderdKey(ontvanger, sleutel))
             // Degradeert naar "niet bekend als verwijderd": de tombstone verrijkt een misser, hij
             // is er geen voorwaarde voor. Zonder deze terugval maakt een Redis-hik op déze lookup
             // van een doodgewone 404 een 503 met `Retry-After`, en gaat de client wachten op een
             // bericht dat nooit bestond.
-            .onFailure().invoke { e -> log.warnf(e, "Tombstone-lookup mislukt; misser blijft onbekend. berichtId=%s", berichtId) }
+            .onFailure().invoke { e -> log.warnf(e, "Tombstone-lookup mislukt; misser blijft onbekend. %s", sleutel) }
             .onFailure().recoverWithItem(false)
 
     /**
@@ -990,9 +986,9 @@ internal class RedisBerichtenCache(
      * bij de activiteit van de sessie; het gevolg is wel dat het antwoord in een lang doorlopende
      * sessie van 410 terugvalt naar 404 zodra de TTL verstrijkt.
      */
-    private fun schrijfTombstone(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> =
+    private fun schrijfTombstone(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> =
         redis.value(String::class.java)
-            .set(BerichtenCache.verwijderdKey(ontvanger, berichtId), "1", SetArgs().ex(ttl.seconds))
+            .set(BerichtenCache.verwijderdKey(ontvanger, sleutel), "1", SetArgs().ex(ttl.seconds))
             // Best-effort, net als de TTL-verlenging: de delete zelf is dan al onherroepelijk
             // uitgevoerd, en die alsnog laten omvallen levert een 502 op een geslaagde verwijdering
             // plus een compensatie-invalidate die niets meer te invalideren heeft. Wat verloren
@@ -1001,35 +997,39 @@ internal class RedisBerichtenCache(
             .onFailure().invoke { e ->
                 log.errorf(
                     e,
-                    "%s tombstone-schrijf faalde ná geslaagde cache-delete; een volgende lookup meldt onbekend i.p.v. verwijderd. berichtId=%s",
+                    "%s tombstone-schrijf faalde ná geslaagde cache-delete; een volgende lookup meldt onbekend i.p.v. verwijderd. %s",
                     ALERT_TOMBSTONE_VERLOREN,
-                    berichtId,
+                    sleutel,
                 )
             }
             .onFailure().recoverWithNull()
             .replaceWithVoid()
 
-    private fun pruneListEnDelHash(listKey: String, berichtKey: String, berichtId: UUID): Uni<Void> =
+    private fun pruneListEnDelHash(listKey: String, berichtKey: String, sleutel: BerichtSleutel): Uni<Void> =
         redis.list(String::class.java).lrange(listKey, 0, -1)
             .chain { entries ->
-                val matching = entries.filter { json -> blobMatchtBerichtId(json, berichtId) }
+                val matching = entries.filter { json -> blobMatcht(json, sleutel, "delete-prune") }
 
-                // Eén LREM per match (in praktijk 0 of 1, want berichtId is uniek). count=0:
+                // Eén LREM per match (in praktijk 0 of 1, want het paar is uniek). count=0:
                 // verwijder alle exact-matchende voorkomens.
                 RedisBatching.inBatches(matching, redisBatchgrootte) { blob ->
                     redis.list(String::class.java).lrem(listKey, 0, blob).replaceWithVoid()
                 }.chain { _ -> redis.key().del(berichtKey).replaceWithVoid() }
             }
 
-    private fun blobMatchtBerichtId(json: String, berichtId: UUID): Boolean =
-        runCatching { objectMapper.readTree(json).get("berichtId")?.asText() }
-            .onFailure { e ->
-                // Corrupte/legacy list-entry: conservatief behouden (kan per definitie niet
-                // het te verwijderen bericht zijn), maar wel loggen — een onparsebare blob
-                // duidt op cache-corruptie.
-                log.warnf(e, "Onparsebare list-entry bij delete-prune; entry overgeslagen. berichtId=%s", berichtId)
-            }
-            .getOrNull() == berichtId.toString()
+    /**
+     * Of het blob [sleutel] is: berichtnummer én magazijn, want alleen het paar wijst één bericht aan.
+     * Een onparsebaar blob kan per definitie niet het bedoelde bericht zijn: het blijft staan, maar
+     * wordt wel gelogd — het duidt op cache-corruptie.
+     */
+    private fun blobMatcht(json: String, sleutel: BerichtSleutel, handeling: String): Boolean =
+        runCatching { objectMapper.readTree(json) }
+            .onFailure { e -> log.warnf(e, "Onparsebare list-entry bij %s; entry behouden. %s", handeling, sleutel) }
+            .getOrNull()
+            ?.let { blob ->
+                blob.path("berichtId").asText() == sleutel.berichtId.toString() &&
+                    blob.path("magazijnId").asText() == sleutel.magazijnId
+            } == true
 
     companion object {
         // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de update een
@@ -1040,8 +1040,9 @@ internal class RedisBerichtenCache(
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         /**
-         * KEYS: sessie-lijst, berichthash. ARGV: berichtId, JSON voor de lijst, TTL in ms, daarna
-         * de hash-velden als veld/waarde-paren.
+         * KEYS: sessie-lijst, berichthash. ARGV: berichtId, magazijnId, JSON voor de lijst, TTL in
+         * ms, daarna de hash-velden als veld/waarde-paren. Een treffer vraagt beide: hetzelfde
+         * nummer van een ander magazijn is een ander bericht.
          *
          * Kent de lijst het bericht maar is de hash verlopen, dan komt de hash terug met status en
          * map uit de lijst-entry: alleen die twee wijzigen na het aanmelden, en de aanmelding zelf
@@ -1056,19 +1057,19 @@ internal class RedisBerichtenCache(
             for _, entry in ipairs(redis.call('LRANGE', KEYS[1], 0, -1)) do
                 if string.find(entry, ARGV[1], 1, true) then
                     local leesbaar, bericht = pcall(cjson.decode, entry)
-                    if leesbaar and type(bericht) == 'table' and bericht.berichtId == ARGV[1] then
+                    if leesbaar and type(bericht) == 'table' and bericht.berichtId == ARGV[1] and bericht.magazijnId == ARGV[2] then
                         gevonden = bericht
                         break
                     end
                 end
             end
 
-            local ttl = tonumber(ARGV[3])
+            local ttl = tonumber(ARGV[4])
 
             if gevonden == nil then
-                redis.call('RPUSH', KEYS[1], ARGV[2])
+                redis.call('RPUSH', KEYS[1], ARGV[3])
                 redis.call('PEXPIRE', KEYS[1], ttl)
-                redis.call('HSET', KEYS[2], unpack(ARGV, 4))
+                redis.call('HSET', KEYS[2], unpack(ARGV, 5))
                 redis.call('PEXPIRE', KEYS[2], ttl)
                 return 'toegevoegd'
             end
@@ -1078,7 +1079,7 @@ internal class RedisBerichtenCache(
             end
 
             local velden = {}
-            for i = 4, #ARGV, 2 do
+            for i = 5, #ARGV, 2 do
                 if ARGV[i] ~= 'status' and ARGV[i] ~= 'map' then
                     table.insert(velden, ARGV[i])
                     table.insert(velden, ARGV[i + 1])
@@ -1146,6 +1147,9 @@ internal class RedisBerichtenCache(
  *
  * Een status die vóór dit veld in de cache is geschreven leest terug met `nietOpgehaald = 0` — de
  * default hierboven. Dat klopt inhoudelijk: zo'n ronde kende de categorie nog niet.
+ *
+ * [afgekapt] noemt organisaties die geslaagd zijn maar niet alles leverden; ze tellen dus mee in
+ * [geslaagd] en kunnen niet ook in [nietGeleverd] staan.
  */
 internal data class AggregationStatus(
     val status: OphalenStatus = OphalenStatus.GEREED,
@@ -1154,6 +1158,7 @@ internal data class AggregationStatus(
     val mislukt: Int = 0,
     val nietOpgehaald: Int = 0,
     val nietGeleverd: List<NietGeleverd> = emptyList(),
+    val afgekapt: List<Afgekapt> = emptyList(),
 ) {
     init {
         require(totaalMagazijnen >= 0) { "totaalMagazijnen mag niet negatief zijn" }
@@ -1173,10 +1178,17 @@ internal data class AggregationStatus(
         require(nietGeleverd.distinctBy { it.magazijnId }.size == nietGeleverd.size) {
             "nietGeleverd noemt een organisatie dubbel"
         }
+
+        require(afgekapt.size <= geslaagd) { "afgekapt mag niet meer organisaties noemen dan geslaagd" }
+        require(afgekapt.distinctBy { it.magazijnId }.size == afgekapt.size) { "afgekapt noemt een organisatie dubbel" }
+
+        require(afgekapt.none { a -> nietGeleverd.any { it.magazijnId == a.magazijnId } }) {
+            "een organisatie kan niet tegelijk afgekapt en niet geleverd zijn"
+        }
     }
 
     /** Wat de lijst van deze ronde over zijn eigen volledigheid moet zeggen. Een functie, zodat hij niet in Redis belandt. */
-    fun volledigheid(): Volledigheid = Volledigheid(mislukt + nietOpgehaald, nietGeleverd)
+    fun volledigheid(): Volledigheid = Volledigheid(mislukt + nietOpgehaald, nietGeleverd, afgekapt)
 }
 
 internal enum class OphalenStatus {

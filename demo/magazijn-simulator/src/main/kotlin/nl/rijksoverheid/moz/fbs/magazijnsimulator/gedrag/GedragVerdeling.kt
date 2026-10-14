@@ -10,12 +10,13 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag
  *
  * De verdeling is realistisch bedoeld: veruit de meeste organisaties doen het gewoon, een handvol is
  * traag, een paar liggen eruit. Over de achtennegentig gesimuleerde magazijnen komt dat neer op
- * 72 normaal, 15 traag, 4 haperend, 3 stuk, 2 onbereikbaar, 1 weigerend en 1 onbruikbaar.
+ * 71 normaal, 15 traag, 4 haperend, 3 stuk, 2 onbereikbaar, 1 onvolledig, 1 weigerend en
+ * 1 onbruikbaar.
  *
- * De plaatsing van die laatste twee is niet willekeurig: index 22 valt binnen de persona met 45
- * organisaties en index 71 alleen binnen de grootste. Zo houden de twee kleinste persona's een schoon
- * contrast — daar valt niets uit — en wordt de tak "wel bereikbaar, maar geen bruikbaar antwoord"
- * pas zichtbaar in de grote scenario's, waar hij thuishoort.
+ * De plaatsing van die laatste drie is niet willekeurig: index 17 en 22 vallen binnen de persona met
+ * 45 organisaties en index 71 alleen binnen de grootste. Zo houden de twee kleinste persona's een
+ * schoon contrast — daar valt niets uit — en worden "niet alles opgehaald" en "wel bereikbaar, maar
+ * geen bruikbaar antwoord" pas zichtbaar in de grote scenario's, waar ze thuishoren.
  */
 object GedragVerdeling {
 
@@ -25,6 +26,7 @@ object GedragVerdeling {
     /** Volgnummers die consequent een serverfout geven. */
     private val STUK = setOf(33, 66, 98)
 
+    private const val ONVOLLEDIG_INDEX = 17
     private const val WEIGERT_INDEX = 22
     private const val MALFORMED_INDEX = 71
     private const val HAPERT_ELKE = 20
@@ -42,6 +44,7 @@ object GedragVerdeling {
         val modus = when {
             index in UIT -> GedragModus.UIT
             index in STUK -> GedragModus.STUK
+            index == ONVOLLEDIG_INDEX -> GedragModus.ONVOLLEDIG
             index == WEIGERT_INDEX -> GedragModus.WEIGERT
             index == MALFORMED_INDEX -> GedragModus.MALFORMED
             index % HAPERT_ELKE == 0 -> GedragModus.HAPERT
