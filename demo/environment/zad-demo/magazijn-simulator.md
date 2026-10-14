@@ -145,6 +145,12 @@ Tot oktober 2026 stond de rol op een vaste twintig en draaiden previews met `DB_
 pr-315 (2026-09-16) gaf dat 89–91 keer OK, 7–9 keer een bewust stukgezet magazijn en 2 time-outs, met
 wachttijden op een connection tot 4,4 s.
 
+Gemeten op `test` na de omzetting naar honderd (2026-10-14, één opwarmronde en drie meetrondes met
+`demo/meet-fanout.sh`): bij de ondernemer met honderd organisaties 89–91 keer OK, en elke uitvaller
+een magazijn dat bewust stukstaat — de twee time-outs zijn de twee magazijnen op *uit*. Geen
+`too many connections` bij één van de componenten; de simulatorpool piekte op 42, waar hij onder de
+oude grens op 18 bleef steken.
+
 Wat er werkelijk gebeurt, staat in de log — zie "Zicht op de connection pool" in
 `demo/magazijn-simulator/README.md`. Lokaal staat de database op 200 verbindingen en volstaat de
 default van vijftig.
