@@ -461,7 +461,7 @@ de simulator herstarten na regenereren.
 
 ## 9. De scenario's spelen
 
-De demo dekt de 14 scenario's uit de eisen. 13 zijn nu speelbaar; #14 (load/stress) en de rode vlag
+De demo dekt de 14 scenario's uit de eisen, plus #15 (niet alles opgehaald). 14 zijn nu speelbaar; #14 (load/stress) en de rode vlag
 volgen in fase 7.
 
 | # | Scenario | Zo speel je het |
@@ -480,6 +480,7 @@ volgen in fase 7.
 | 12 | Redis weg | *Redis uit* → `GET /berichten` geeft 502 problem+json (geen kale 500); *Cache verlopen* blijft werken |
 | 13 | Ontdubbeling | Persona **eerst Ophalen** (actieve sessie!) → Scenario's → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht |
 | 14 | Load/stress | **Fase 7** — k6-script, nog te bouwen |
+| 15 | Niet alles opgehaald | Persona Grootbedrijf → **Ophalen**. De Autoriteit Persoonsgegevens noemt meer berichten dan ze levert (simulator-modus `ONVOLLEDIG`): boven de lijst staat "Niet alles opgehaald bij: Autoriteit Persoonsgegevens (27 van 507)", en die melding blijft na **Vernieuw** en op een volgende pagina staan |
 
 **Rode vlag (markeren als belangrijk):** nog te bouwen (fase 7 — productiecode door de hele keten).
 
@@ -509,7 +510,7 @@ organisatie:
 
 | Map | Waar | Berichten | Wat je ziet |
 |---|---|---|---|
-| Vergunningen | elke organisatie die gewoon of traag antwoordt | 87 | groeit mee terwijl de organisaties leveren |
+| Vergunningen | elke organisatie die haar lijst levert: gewoon, traag of onvolledig | 87 | groeit mee terwijl de organisaties leveren |
 | Subsidies | alleen de vijftien trage organisaties | 15 | verschijnt pas na een paar seconden |
 | Handhaving | alleen organisaties die niet leveren (o.a. Gemeente Almere en Gemeente Arnhem) | 5 | verschijnt nooit — twee andere niet-leverende organisaties hebben hem niet |
 | Te bespreken met adviseur | Centraal Justitieel Incassobureau | 1 | verdwijnt met zijn enige bericht |
@@ -547,11 +548,11 @@ leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's
 - **Paginagrootte staat in de demo op 5** (`BERICHTENSESSIECACHE_MAGAZIJN_PAGE_SIZE`), waar productie
   er honderd vraagt. De demo-dataset zet zes tot tien berichten per organisatie per ondernemer; met
   de productiewaarde komt dat in één call binnen en is er niets van het doorpagineren te zien. Wil je
-  laten zien dat de uitvraag ook afkápt als een organisatie meer heeft dan wij ophalen, zet dan
-  daarnaast `BERICHTENSESSIECACHE_MAX_BERICHTEN_PER_MAGAZIJN` laag (bijvoorbeeld 5): de Berichtenbox
-  meldt dan per organisatie "niet alles opgehaald" — tijdens het ophalen, en daarna boven de lijst,
-  ook na **Vernieuw**. Standaard staat die grens op de productiewaarde, want verlagen betekent
-  berichten weglaten.
+  laten zien dat de uitvraag ook afkápt als een organisatie meer heeft dan wij ophalen, dan volstaat
+  scenario 15. Wil je de eigen bovengrens van de uitvraag zien werken, zet dan daarnaast
+  `BERICHTENSESSIECACHE_MAX_BERICHTEN_PER_MAGAZIJN` laag (bijvoorbeeld 5): de Berichtenbox meldt dan
+  bij élke organisatie "niet alles opgehaald". Standaard staat die grens op de productiewaarde, want
+  verlagen betekent berichten weglaten.
 - **Het doorpagineren meelezen** kan met `docker compose logs -f berichtenuitvraag | grep pagina`:
   de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
   en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).

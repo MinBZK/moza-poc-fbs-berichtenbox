@@ -5,6 +5,8 @@ import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.SimulatorFout
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtRepository
@@ -32,8 +34,18 @@ class BerichtService(
     private val clock: Clock,
 ) {
 
-    fun lijst(ontvanger: Identificatie, afzender: String?, page: Int, pageSize: Int): BerichtenPagina =
-        repository.lijst(magazijnDbId(), ontvanger, afzender, page, pageSize)
+    /**
+     * Een [GedragModus.ONVOLLEDIG]-magazijn telt een archief mee dat de lijst niet levert. Alleen als
+     * er voor deze ontvanger iets staat: wie hier geen post heeft, krijgt geen "0 van 480".
+     */
+    fun lijst(ontvanger: Identificatie, afzender: String?, page: Int, pageSize: Int): BerichtenPagina {
+        val pagina = repository.lijst(magazijnDbId(), ontvanger, afzender, page, pageSize)
+        val onvolledig = magazijnContext.magazijn.gedrag.modus == GedragModus.ONVOLLEDIG
+
+        if (!onvolledig || pagina.totalElements == 0L) return pagina
+
+        return pagina.copy(totalElements = pagina.totalElements + Gedrag.ONVOLLEDIG_ARCHIEF)
+    }
 
     /**
      * Eerst bestaan, dan mogen. Een verwijderd of onbekend bericht is een 404 nog vóór de

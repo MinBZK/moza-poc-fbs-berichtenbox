@@ -20,6 +20,7 @@ class GedragVerdelingTest {
         // De vaste uitzonderingen.
         "28,UIT", "97,UIT",
         "33,STUK", "66,STUK", "98,STUK",
+        "17,ONVOLLEDIG",
         "22,WEIGERT",
         "71,MALFORMED",
         // Veelvouden van twintig haperen…
@@ -57,8 +58,9 @@ class GedragVerdelingTest {
 
         assertEquals(
             mapOf(
-                GedragModus.NORMAAL to 72,
+                GedragModus.NORMAAL to 71,
                 GedragModus.TRAAG to 15,
+                GedragModus.ONVOLLEDIG to 1,
                 GedragModus.HAPERT to 4,
                 GedragModus.STUK to 3,
                 GedragModus.UIT to 2,
@@ -70,12 +72,14 @@ class GedragVerdelingTest {
     }
 
     /**
-     * Waar de twee bijzondere storingen staan, is een keuze: de weigering valt binnen de persona met
-     * 45 organisaties, het onbruikbare antwoord alleen binnen de grootste. Zo houden de twee kleinste
-     * persona's een schoon contrast.
+     * Waar de drie bijzondere gevallen staan, is een keuze: het onvolledige magazijn en de weigering
+     * vallen binnen de persona met 45 organisaties (volgnummers 1 tot en met 43), het onbruikbare
+     * antwoord alleen binnen de grootste. De persona met vijftien organisaties (1 tot en met 13) houdt
+     * zo een schoon contrast.
      */
     @Test
-    fun `de twee bijzondere storingen staan binnen de bedoelde persona`() {
+    fun `de drie bijzondere gevallen staan binnen de bedoelde persona`() {
+        assertEquals(GedragModus.ONVOLLEDIG, GedragVerdeling.voorIndex(17).modus)
         assertEquals(GedragModus.WEIGERT, GedragVerdeling.voorIndex(22).modus)
         assertEquals(GedragModus.MALFORMED, GedragVerdeling.voorIndex(71).modus)
     }
