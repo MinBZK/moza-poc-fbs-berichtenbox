@@ -292,8 +292,8 @@ WARN  [org.hibernate.orm.jdbc.error] FATAL: too many connections for role "<proj
 
 Die rol is gedeeld met de andere componenten van dezelfde deployment, dus de pool van deze service
 kan hem niet alleen opmaken. Herhaalde `Retrying establishment`-regels zonder één geslaagde
-verbinding betekenen dat het budget op is; `docs/operations/zad-gitops.md` beschrijft de grens en de
-twee env-lagen waarmee de pool per omgeving wordt bijgesteld.
+verbinding betekenen dat het budget op is; `docs/operations/zad-gitops.md` beschrijft de grens, waar
+hij is ingesteld en hoe hij is opgebouwd uit de pools van de componenten.
 
 De tellers van de regel per interval komen uit Agroal en vragen
 `quarkus.datasource.jdbc.metrics.enabled` (staat aan). Zonder die vlag geeft elke teller nul terug —
