@@ -21,6 +21,12 @@ skinparam rectangle<<BerichtenUitvraagSysteem>> {
   BorderColor #2e6295
   shadowing false
 }
+skinparam rectangle<<Berichtenapp>> {
+  BackgroundColor #666666
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
   BackgroundColor #2d8a4e
   FontColor #ffffff
@@ -65,7 +71,9 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
+rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
 
+Berichtenapp .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument\n<color:#707070><size:8>[HTTPS volgens BK Connect (variant nog niet gekozen)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst op, en berichtinhoud of bijlagen per geopend bericht; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
