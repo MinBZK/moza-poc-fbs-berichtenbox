@@ -17,10 +17,10 @@
 #             een handgeschreven expressie per job.
 set -Eeuo pipefail
 
-# Aantal uitrol-jobs per as: drie previews op een PR, drie test-deployments op een push. Vast
+# Aantal uitrol-jobs per as: vier previews op een PR, vier test-deployments op een push. Vast
 # getal zodat een verdwenen job een fout oplevert in plaats van een kortere lus die groen meldt
 # over minder jobs dan er zijn; test-uitrol-poort.sh kruist het met de jobs in deploy.yml.
-VERWACHT_AANTAL=3
+VERWACHT_AANTAL=4
 
 fout() {
   echo "::error::$1"

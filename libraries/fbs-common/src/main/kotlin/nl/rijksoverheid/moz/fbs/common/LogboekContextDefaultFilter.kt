@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.common
 
+import io.quarkus.arc.properties.UnlessBuildProperty
 import jakarta.annotation.Priority
 import jakarta.inject.Inject
 import jakarta.ws.rs.Priorities
@@ -16,6 +17,9 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
  */
 const val LDV_CONTEXT_DEFAULT_PRIORITY = Priorities.AUTHENTICATION - 100
 
+/** Build-time-schakelaar waarmee een dienst zonder logboek [LogboekContextDefaultFilter] weglaat. */
+const val LOGBOEK_AFWEZIG_KEY = "fbs.logboek.afwezig"
+
 /**
  * Zet safe defaults op LogboekContext vóór resource-code de echte `dataSubjectId` zet.
  * Zonder deze defaults levert een request dat vóór de resource sneuvelt — Bean Validation
@@ -24,7 +28,14 @@ const val LDV_CONTEXT_DEFAULT_PRIORITY = Priorities.AUTHENTICATION - 100
  * wegschrijft met een waarschuwing.
  *
  * Vroege [LDV_CONTEXT_DEFAULT_PRIORITY] zodat latere filters op een gevulde context rekenen.
+ *
+ * Een dienst zonder logboek — één die geen persoonsgegevens verwerkt en de wrapper dus niet op
+ * zijn classpath heeft — zet `fbs.logboek.afwezig=true`. Zonder die schakelaar eist dit filter een
+ * [LogboekContext] die daar niet bestaat en start de dienst niet. Het is een build-time-property:
+ * een provider uitsluiten kan alleen bij het bouwen, en `quarkus.arc.exclude-types` haalt wel de
+ * bean weg maar niet de registratie als filter.
  */
+@UnlessBuildProperty(name = LOGBOEK_AFWEZIG_KEY, stringValue = "true", enableIfMissing = true)
 @Provider
 @Priority(LDV_CONTEXT_DEFAULT_PRIORITY)
 class LogboekContextDefaultFilter : ContainerRequestFilter {

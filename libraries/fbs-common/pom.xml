@@ -80,6 +80,12 @@
             <artifactId>quarkus-core</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- @UnlessBuildProperty op LogboekContextDefaultFilter, voor consumers zonder logboek. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-arc</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
             <artifactId>logboekdataverwerking-wrapper</artifactId>
