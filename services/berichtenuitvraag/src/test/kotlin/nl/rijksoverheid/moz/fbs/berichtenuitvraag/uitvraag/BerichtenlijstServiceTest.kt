@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatti
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
@@ -89,6 +90,24 @@ class BerichtenlijstServiceTest {
         }
     }
 
+    /** Met en zonder totaal: een ontbrekend totaal mag niet als `0` doorkomen. */
+    @ParameterizedTest(name = "{0} afgekapt")
+    @ValueSource(ints = [0, 1, 2])
+    fun `lijst en zoek geven de afgekapte organisaties door`(aantal: Int) {
+        val totalen = listOf(812L, null)
+        val afgekapt = (0 until aantal).map { i -> Afgekapt("magazijn-$i", "Organisatie $i", 500, totalen[i]) }
+        val metAfgekapt = pagina().copy(volledigheid = Volledigheid(0, emptyList(), afgekapt))
+
+        every { sessiecache.lijst(ontvanger, null, null) } returns metAfgekapt
+        every { sessiecache.zoek(ontvanger, "factuur") } returns metAfgekapt
+
+        val verwacht = afgekapt.map { listOf(it.magazijnId, it.naam, it.aantalOpgehaald, it.totaalBeschikbaar) }
+
+        for (lijst in listOf(service.lijst("BSN:999990019", null, null), service.zoek("BSN:999990019", "factuur"))) {
+            assertEquals(verwacht, lijst.afgekapt.map { listOf(it.magazijnId, it.naam, it.aantalOpgehaald, it.totaalBeschikbaar) })
+        }
+    }
+
     /** Twee niet geleverd, geen naam bekend: het aantal moet doorkomen, anders leest de lijst als volledig. */
     @Test
     fun `een aantal zonder namen komt door als onvolledig`() {
@@ -142,7 +161,7 @@ class BerichtenlijstServiceTest {
         assertEquals(2, item.aantalBijlagen)
         assertEquals("werk", item.map)
         assertEquals(KVK, item.magazijnId)
-        assertEquals("/api/v1/berichten/$id", item.links.self.href)
+        assertEquals("/api/v1/berichten/$id?magazijnId=$KVK", item.links.self.href)
     }
 
     @Test

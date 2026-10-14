@@ -17,6 +17,12 @@ enum class GedragModus {
     /** Antwoordt correct, maar traag — met een lange staart, zoals echte responstijden. */
     TRAAG,
 
+    /**
+     * Antwoordt vlot en levert zijn hele lijst, maar telt in `totalElements` een archief mee dat de
+     * lijst niet levert. De uitvraag meldt de organisatie dan als "niet alles opgehaald".
+     */
+    ONVOLLEDIG,
+
     /** Antwoordt meestal, maar valt met een zekere kans om. */
     HAPERT,
 
@@ -83,6 +89,13 @@ data class Gedrag(
          */
         const val TRAAG_PLAFOND_MS = 8_000
 
+        /**
+         * Hoeveel berichten een [GedragModus.ONVOLLEDIG]-magazijn bovenop zijn lijst meetelt. Een
+         * archief van een paar honderd: bij de 27 berichten die het bedieningspaneel klaarzet wordt
+         * dat "27 van 507", een verschil dat niemand als afrondingsfout leest.
+         */
+        const val ONVOLLEDIG_ARCHIEF = 480L
+
         private val FOUT_STATUS_BEREIK = 400..599
 
         private val CLIENT_FOUT_BEREIK = 400..499
@@ -108,7 +121,9 @@ data class Gedrag(
             foutkans: Double,
             foutStatus: Int,
         ): String? = when (modus) {
-            GedragModus.NORMAAL -> (
+            // ONVOLLEDIG antwoordt zo vlot als een gezond magazijn: wat hij laat zien zit in het
+            // totaal, niet in de responstijd.
+            GedragModus.NORMAAL, GedragModus.ONVOLLEDIG -> (
                 "een gezond magazijn antwoordt binnen $NORMALE_LATENCY_MS ms; voor trager gedrag is " +
                     "er TRAAG (kreeg latencyP50Ms $latencyP50Ms)"
                 ).takeIf { latencyP50Ms > NORMALE_LATENCY_MS }
@@ -172,6 +187,7 @@ data class Gedrag(
         fun standaardVoor(modus: GedragModus): Gedrag = when (modus) {
             GedragModus.NORMAAL -> NORMAAL
             GedragModus.TRAAG -> Gedrag(modus, latencyP50Ms = 1_200, latencyP95Ms = 4_000)
+            GedragModus.ONVOLLEDIG -> Gedrag(modus)
             GedragModus.HAPERT -> Gedrag(modus, foutkans = 0.5)
             GedragModus.STUK -> Gedrag(modus)
             // Ruim boven de query-timeout van tien seconden die de uitvraag per magazijn hanteert:

@@ -27,8 +27,8 @@ internal class MockBerichtenCache : BerichtenCache {
     private val lists = ConcurrentHashMap<String, List<Bericht>>()
     private val statuses = ConcurrentHashMap<String, AggregationStatus>()
     private val locks = ConcurrentHashMap.newKeySet<String>()
-    private val byId = ConcurrentHashMap<UUID, Bericht>()
-    private val tombstones = ConcurrentHashMap<UUID, Identificatienummer>()
+    private val byId = ConcurrentHashMap<BerichtSleutel, Bericht>()
+    private val tombstones = ConcurrentHashMap<BerichtSleutel, Identificatienummer>()
 
     companion object {
         // Modelleert de optimistic-lock-exhaustie van RedisBerichtenCache: bij `true`
@@ -55,7 +55,7 @@ internal class MockBerichtenCache : BerichtenCache {
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
         val sorted = berichten.sortedByDescending { it.publicatietijdstip }
         lists["$key:list"] = sorted
-        berichten.forEach { byId[it.berichtId] = it }
+        berichten.forEach { byId[it.sleutel] = it }
         return Uni.createFrom().voidItem()
     }
 
@@ -95,21 +95,21 @@ internal class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().item(BerichtenPagina(slice, page, pageSize, gefilterd.size.toLong(), totalPages))
     }
 
-    override fun getById(berichtId: UUID, ontvanger: Identificatienummer): Uni<Bericht?> {
-        val bericht = byId[berichtId]
+    override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> {
+        val bericht = byId[sleutel]
         return Uni.createFrom().item(if (bericht?.ontvanger == ontvanger) bericht else null)
     }
 
-    override fun updateBerichtMetadata(berichtId: UUID, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
-        if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(berichtId))
+    override fun updateBerichtMetadata(sleutel: BerichtSleutel, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
+        if (faalUpdateMetContentie) return Uni.createFrom().failure(CacheContentieException(sleutel))
 
-        val bericht = byId[berichtId]
+        val bericht = byId[sleutel]
         if (bericht == null || bericht.ontvanger != ontvanger) return Uni.createFrom().nullItem()
         val updated = bericht.copy(
             status = status?.let { Leesstatus.fromWire(it) } ?: bericht.status,
             map = map ?: bericht.map,
         )
-        byId[berichtId] = updated
+        byId[sleutel] = updated
         return Uni.createFrom().item(updated)
     }
 
@@ -119,27 +119,27 @@ internal class MockBerichtenCache : BerichtenCache {
         val existing = lists[listKey] ?: emptyList()
 
         // Zoals de echte cache: een bericht dat de sessie al kent, komt er niet nog eens bij.
-        if (existing.any { it.berichtId == bericht.berichtId }) return Uni.createFrom().voidItem()
+        if (existing.any { it.sleutel == bericht.sleutel }) return Uni.createFrom().voidItem()
 
         lists[listKey] = (existing + bericht).sortedByDescending { it.publicatietijdstip }
-        byId[bericht.berichtId] = bericht
+        byId[bericht.sleutel] = bericht
         return Uni.createFrom().voidItem()
     }
 
-    override fun delete(berichtId: UUID, ontvanger: Identificatienummer): Uni<Void> {
-        val existing = byId[berichtId]
+    override fun delete(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> {
+        val existing = byId[sleutel]
         if (existing != null && existing.ontvanger == ontvanger) {
-            byId.remove(berichtId)
-            tombstones[berichtId] = ontvanger
+            byId.remove(sleutel)
+            tombstones[sleutel] = ontvanger
             val key = BerichtenCache.cacheKey(ontvanger)
             val listKey = "$key:list"
-            lists[listKey]?.let { lists[listKey] = it.filter { b -> b.berichtId != berichtId } }
+            lists[listKey]?.let { lists[listKey] = it.filter { b -> b.sleutel != sleutel } }
         }
         return Uni.createFrom().voidItem()
     }
 
-    override fun isVerwijderdVoor(berichtId: UUID, ontvanger: Identificatienummer): Uni<Boolean> =
-        Uni.createFrom().item(tombstones[berichtId] == ontvanger)
+    override fun isVerwijderdVoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean> =
+        Uni.createFrom().item(tombstones[sleutel] == ontvanger)
 
     override fun verlengSessie(key: String): Uni<Boolean> =
         Uni.createFrom().item(statuses.containsKey("$key:status"))

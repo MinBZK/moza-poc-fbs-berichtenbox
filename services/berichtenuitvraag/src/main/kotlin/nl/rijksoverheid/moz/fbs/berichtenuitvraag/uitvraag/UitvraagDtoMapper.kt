@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.AfgekapteOrganisatie
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
@@ -10,11 +11,14 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.NietGeleverdeOrganisatie
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt as DomeinAfgekapt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht as DomeinBericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting as DomeinSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting as DomeinBijlage
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd as DomeinNietGeleverd
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.MagazijnStatus as ApiMagazijnStatus
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Mapt tussen de uitvraag-API-modellen, het sessiecache-domein en het
@@ -54,6 +58,14 @@ object UitvraagDtoMapper {
             status = ApiMagazijnStatus.fromValue(nietGeleverd.status.wire.value)
         }
 
+    fun toApiAfgekapt(afgekapt: DomeinAfgekapt): AfgekapteOrganisatie =
+        AfgekapteOrganisatie().apply {
+            magazijnId = afgekapt.magazijnId
+            naam = afgekapt.naam
+            aantalOpgehaald = afgekapt.aantalOpgehaald
+            totaalBeschikbaar = afgekapt.totaalBeschikbaar
+        }
+
     fun toLeesstatus(status: BerichtStatus?): Leesstatus? = when (status) {
         BerichtStatus.GELEZEN -> Leesstatus.GELEZEN
         BerichtStatus.ONGELEZEN -> Leesstatus.ONGELEZEN
@@ -85,7 +97,7 @@ object UitvraagDtoMapper {
         status = toApiStatus(bericht.status)
         magazijnId = bericht.magazijnId
         bijlagen = bericht.bijlagen.map { toApiBijlage(it) }
-        links = berichtLinks(bericht.berichtId)
+        links = berichtLinks(bericht.magazijnId, bericht.berichtId)
     }
 
     fun toApiSamenvatting(samenvatting: DomeinSamenvatting, afzenderNaam: String): BerichtSamenvatting =
@@ -98,7 +110,7 @@ object UitvraagDtoMapper {
             map = samenvatting.map
             status = toApiStatus(samenvatting.status)
             magazijnId = samenvatting.magazijnId
-            links = berichtLinks(samenvatting.berichtId)
+            links = berichtLinks(samenvatting.magazijnId, samenvatting.berichtId)
         }
 
     private fun toApiBijlage(bijlage: DomeinBijlage): BijlageMetadata = BijlageMetadata().apply {
@@ -106,7 +118,10 @@ object UitvraagDtoMapper {
         naam = bijlage.naam
     }
 
-    private fun berichtLinks(berichtId: java.util.UUID): BerichtLinks = BerichtLinks().apply {
-        self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/$berichtId" }
+    // Het magazijn hoort in de link: een berichtnummer wijst pas samen met zijn magazijn één
+    // bericht aan, en wie de link volgt, hoeft dat niet zelf te weten.
+    private fun berichtLinks(magazijnId: String, berichtId: java.util.UUID): BerichtLinks = BerichtLinks().apply {
+        val magazijn = URLEncoder.encode(magazijnId, StandardCharsets.UTF_8)
+        self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/$berichtId?magazijnId=$magazijn" }
     }
 }

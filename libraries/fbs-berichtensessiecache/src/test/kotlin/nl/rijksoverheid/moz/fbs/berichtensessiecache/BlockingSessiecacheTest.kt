@@ -9,6 +9,7 @@ import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSleutel
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheContentieException
@@ -19,11 +20,17 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
+import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
+import java.net.URI
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -32,6 +39,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
@@ -50,7 +58,17 @@ class BlockingSessiecacheTest {
 
     private val service = mockk<BerichtensessiecacheService>(relaxed = false)
     private val volger = mockk<SessieVolger>(relaxed = true)
-    private val facade = BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 5)
+    // Een echte implementatie en geen MockK-mock: `any()` op de value class Oin bouwt een lege OIN,
+    // en die haalt de validatie niet.
+    private val register = object : Magazijnregister {
+        private val inschrijvingen = listOf(MAGAZIJN, MAGAZIJN_B)
+            .map { Magazijninschrijving(Oin(it), URI("https://magazijn.example"), "Magazijn $it") }
+
+        override fun alle() = inschrijvingen
+
+        override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
+    }
+    private val facade = BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
@@ -63,11 +81,15 @@ class BlockingSessiecacheTest {
         ontvanger = ontvanger,
         onderwerp = "Testonderwerp",
         publicatietijdstip = Instant.parse("2026-01-01T10:00:00Z"),
-        magazijnId = "magazijn-a",
+        magazijnId = MAGAZIJN,
         aantalBijlagen = 0,
     )
 
     companion object {
+        const val MAGAZIJN = "00000001003214345000"
+        const val MAGAZIJN_B = "00000001823288444000"
+        const val ONBEKEND_MAGAZIJN = "00000009999999999999"
+
         @JvmStatic
         fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
 
@@ -143,7 +165,7 @@ class BlockingSessiecacheTest {
      */
     @Test
     fun `lijst en zoek dragen de niet-geleverde organisaties uit de aggregatiestatus`() {
-        val nietGeleverd = listOf(NietGeleverd("magazijn-b", "Belasting", MagazijnFoutStatus.TIMEOUT))
+        val nietGeleverd = listOf(NietGeleverd(MAGAZIJN_B, "Belasting", MagazijnFoutStatus.TIMEOUT))
 
         stubStatus(
             AggregationStatus(
@@ -164,14 +186,26 @@ class BlockingSessiecacheTest {
     }
 
     @Test
+    fun `lijst en zoek dragen de afgekapte organisaties uit de aggregatiestatus`() {
+        val afgekapt = listOf(Afgekapt(MAGAZIJN_B, "Belasting", 500, 812L))
+
+        stubStatus(AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 2, geslaagd = 2, afgekapt = afgekapt))
+        every { service.getBerichten(0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+        every { service.zoekBerichten("factuur", 0, 20, ontvanger, null, null) } returns Uni.createFrom().item(legePagina)
+
+        assertEquals(Volledigheid(0, emptyList(), afgekapt), facade.lijst(ontvanger).volledigheid)
+        assertEquals(Volledigheid(0, emptyList(), afgekapt), facade.zoek(ontvanger, "factuur").volledigheid)
+    }
+
+    @Test
     fun `bericht vereist gereed-status en levert null door bij onbekend id`() {
         stubStatus(gereed)
         val id = UUID.randomUUID()
 
-        every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
-        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(false)
+        every { service.getBerichtById(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().item(false)
 
-        assertNull(facade.bericht(ontvanger, id))
+        assertNull(facade.bericht(ontvanger, MAGAZIJN, id))
     }
 
     @Test
@@ -179,10 +213,10 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val id = UUID.randomUUID()
 
-        every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
-        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(true)
+        every { service.getBerichtById(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().item(true)
 
-        assertThrows<SessiecacheException.BerichtVerwijderd> { facade.bericht(ontvanger, id) }
+        assertThrows<SessiecacheException.BerichtVerwijderd> { facade.bericht(ontvanger, MAGAZIJN, id) }
     }
 
     @Test
@@ -193,10 +227,62 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val id = UUID.randomUUID()
 
-        every { service.getBerichtById(id, ontvanger) } returns Uni.createFrom().nullItem()
-        every { service.isBerichtVerwijderd(id, ontvanger) } returns Uni.createFrom().item(false)
+        every { service.getBerichtById(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().nullItem()
+        every { service.isBerichtVerwijderd(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().item(false)
 
-        assertNull(facade.bericht(ontvanger, id))
+        assertNull(facade.bericht(ontvanger, MAGAZIJN, id))
+    }
+
+    // Alleen een ingeschreven magazijn komt bij de cache: de magazijnId belandt daar in Redis-sleutels
+    // en in het aanmeldkanaal, en een spatie of dubbele punt zou die vormen breken.
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b", "$MAGAZIJN:x", ""])
+    fun `bericht van een magazijn buiten het register is onbekend, zonder de cache te raadplegen`(magazijnId: String) {
+        stubStatus(gereed)
+
+        assertNull(facade.bericht(ontvanger, magazijnId, UUID.randomUUID()))
+
+        verify(exactly = 0) { service.getBerichtById(any(), ontvanger) }
+        verify(exactly = 0) { service.isBerichtVerwijderd(any(), ontvanger) }
+    }
+
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b"])
+    fun `werkBerichtBij voor een magazijn buiten het register wijzigt niets`(magazijnId: String) {
+        assertNull(facade.werkBerichtBij(ontvanger, magazijnId, UUID.randomUUID(), Leesstatus.GELEZEN, null))
+
+        verify(exactly = 0) { service.updateBerichtMetadata(any(), ontvanger, any(), any()) }
+    }
+
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b"])
+    fun `verwijder voor een magazijn buiten het register is een no-op`(magazijnId: String) {
+        facade.verwijder(ontvanger, magazijnId, UUID.randomUUID())
+
+        verify(exactly = 0) { service.verwijderBericht(any(), ontvanger) }
+    }
+
+    @ParameterizedTest(name = "magazijnId=\"{0}\"")
+    @ValueSource(strings = [ONBEKEND_MAGAZIJN, "a b"])
+    fun `schrijfBericht van een magazijn buiten het register is ongeldige invoer`(magazijnId: String) {
+        val bericht = testBericht().copy(magazijnId = magazijnId)
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verify(exactly = 0) { service.createBericht(any(), ontvanger) }
+    }
+
+    @Test
+    fun `bericht levert het bericht van het genoemde magazijn, ook bij een gedeeld berichtnummer`() {
+        stubStatus(gereed)
+        val vanA = testBericht()
+        val vanB = vanA.copy(magazijnId = MAGAZIJN_B, onderwerp = "van B")
+
+        every { service.getBerichtById(vanA.sleutel, ontvanger) } returns Uni.createFrom().item(vanA)
+        every { service.getBerichtById(vanB.sleutel, ontvanger) } returns Uni.createFrom().item(vanB)
+
+        assertSame(vanB, facade.bericht(ontvanger, MAGAZIJN_B, vanA.berichtId))
+        assertSame(vanA, facade.bericht(ontvanger, MAGAZIJN, vanA.berichtId))
     }
 
     @Test
@@ -206,11 +292,11 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val bericht = testBericht()
 
-        every { service.getBerichtById(bericht.berichtId, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { service.getBerichtById(bericht.sleutel, ontvanger) } returns Uni.createFrom().item(bericht)
 
         // `isBerichtVerwijderd` blijft bewust ongestubd: de mock is strikt, dus een aanroep
         // laat deze test falen. Dat is directer dan een verify achteraf.
-        assertSame(bericht, facade.bericht(ontvanger, bericht.berichtId))
+        assertSame(bericht, facade.bericht(ontvanger, bericht.magazijnId, bericht.berichtId))
     }
 
     // --- werkBerichtBij ---
@@ -218,7 +304,7 @@ class BlockingSessiecacheTest {
     @Test
     fun `werkBerichtBij zonder status en map geeft OngeldigeInvoer`() {
         assertThrows<SessiecacheException.OngeldigeInvoer> {
-            facade.werkBerichtBij(ontvanger, UUID.randomUUID(), status = null, map = null)
+            facade.werkBerichtBij(ontvanger, MAGAZIJN, UUID.randomUUID(), status = null, map = null)
         }
     }
 
@@ -229,7 +315,7 @@ class BlockingSessiecacheTest {
     @ParameterizedTest(name = "map=\"{0}\"")
     @MethodSource("ongeldigeMapnamen")
     fun `werkBerichtBij weigert een ongeldige mapnaam zonder de cache te raken`(map: String) {
-        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.werkBerichtBij(ontvanger, UUID.randomUUID(), null, map) }
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.werkBerichtBij(ontvanger, MAGAZIJN, UUID.randomUUID(), null, map) }
 
         verify(exactly = 0) { service.updateBerichtMetadata(any(), ontvanger, any(), any()) }
     }
@@ -241,7 +327,7 @@ class BlockingSessiecacheTest {
 
         every { service.updateBerichtMetadata(any(), ontvanger, null, map) } returns Uni.createFrom().item(bijgewerkt)
 
-        assertSame(bijgewerkt, facade.werkBerichtBij(ontvanger, bijgewerkt.berichtId, null, map))
+        assertSame(bijgewerkt, facade.werkBerichtBij(ontvanger, bijgewerkt.magazijnId, bijgewerkt.berichtId, null, map))
     }
 
     @Test
@@ -249,20 +335,20 @@ class BlockingSessiecacheTest {
         val id = UUID.randomUUID()
         val bijgewerkt = testBericht().copy(berichtId = id, status = Leesstatus.GELEZEN)
 
-        every { service.updateBerichtMetadata(id, ontvanger, "gelezen", null) } returns Uni.createFrom().item(bijgewerkt)
+        every { service.updateBerichtMetadata(BerichtSleutel(MAGAZIJN, id), ontvanger, "gelezen", null) } returns Uni.createFrom().item(bijgewerkt)
 
-        assertSame(bijgewerkt, facade.werkBerichtBij(ontvanger, id, Leesstatus.GELEZEN, null))
+        assertSame(bijgewerkt, facade.werkBerichtBij(ontvanger, MAGAZIJN, id, Leesstatus.GELEZEN, null))
     }
 
     @Test
     fun `werkBerichtBij vertaalt schrijf-contentie naar Onbereikbaar`() {
         val id = UUID.randomUUID()
 
-        every { service.updateBerichtMetadata(id, ontvanger, null, "archief") } returns
-            Uni.createFrom().failure(CacheContentieException(id))
+        every { service.updateBerichtMetadata(BerichtSleutel(MAGAZIJN, id), ontvanger, null, "archief") } returns
+            Uni.createFrom().failure(CacheContentieException(BerichtSleutel(MAGAZIJN, id)))
 
         assertThrows<SessiecacheException.Onbereikbaar> {
-            facade.werkBerichtBij(ontvanger, id, status = null, map = "archief")
+            facade.werkBerichtBij(ontvanger, MAGAZIJN, id, status = null, map = "archief")
         }
     }
 
@@ -272,16 +358,16 @@ class BlockingSessiecacheTest {
     fun `verwijder delegeert en vertaalt Redis-fouten naar Onbereikbaar`() {
         val id = UUID.randomUUID()
 
-        every { service.verwijderBericht(id, ontvanger) } returns Uni.createFrom().voidItem()
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().voidItem()
 
-        facade.verwijder(ontvanger, id)
+        facade.verwijder(ontvanger, MAGAZIJN, id)
 
-        verify { service.verwijderBericht(id, ontvanger) }
+        verify { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) }
 
-        every { service.verwijderBericht(id, ontvanger) } returns
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
             Uni.createFrom().failure(RuntimeException("redis weg"))
 
-        assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, id) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, MAGAZIJN, id) }
     }
 
     @Test
@@ -326,11 +412,11 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val bericht = testBericht()
         every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
-        every { volger.meldAan(ontvanger, bericht.berichtId) } returns Uni.createFrom().voidItem()
+        every { volger.meldAan(ontvanger, bericht.sleutel) } returns Uni.createFrom().voidItem()
 
         facade.schrijfBericht(ontvanger, bericht)
 
-        verify(exactly = 1) { volger.meldAan(ontvanger, bericht.berichtId) }
+        verify(exactly = 1) { volger.meldAan(ontvanger, bericht.sleutel) }
     }
 
     @Test
@@ -338,7 +424,7 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val bericht = testBericht()
         every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
-        every { volger.meldAan(ontvanger, bericht.berichtId) } returns
+        every { volger.meldAan(ontvanger, bericht.sleutel) } returns
             Uni.createFrom().failure(IllegalStateException("redis weg"))
 
         assertSame(bericht, facade.schrijfBericht(ontvanger, bericht))
@@ -413,10 +499,10 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val id = UUID.randomUUID()
 
-        every { service.getBerichtById(id, ontvanger) } returns
+        every { service.getBerichtById(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
             Uni.createFrom().failure(JsonParseException(null, "corrupt"))
 
-        assertThrows<SessiecacheException.Onleesbaar> { facade.bericht(ontvanger, id) }
+        assertThrows<SessiecacheException.Onleesbaar> { facade.bericht(ontvanger, MAGAZIJN, id) }
     }
 
     @Test
@@ -424,10 +510,10 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val id = UUID.randomUUID()
 
-        every { service.getBerichtById(id, ontvanger) } returns
+        every { service.getBerichtById(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
             Uni.createFrom().failure(CacheCorruptedException.veldOntbreekt("onderwerp"))
 
-        assertThrows<SessiecacheException.Onleesbaar> { facade.bericht(ontvanger, id) }
+        assertThrows<SessiecacheException.Onleesbaar> { facade.bericht(ontvanger, MAGAZIJN, id) }
     }
 
     @Test
@@ -454,7 +540,7 @@ class BlockingSessiecacheTest {
     @Test
     fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
         val ex = assertThrows<IllegalArgumentException> {
-            BlockingSessiecache(service, volger, facadeAwaitTimeoutSeconds = 0)
+            BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 0)
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")

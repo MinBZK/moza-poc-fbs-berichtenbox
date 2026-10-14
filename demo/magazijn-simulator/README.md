@@ -123,6 +123,7 @@ doet, laat niet zien wat een gebruiker merkt als het níét meezit.
 |---|---|
 | `NORMAAL` | een vlot en correct antwoord |
 | `TRAAG` | een correct antwoord, later — log-normaal verdeeld, dus met een lange staart |
+| `ONVOLLEDIG` | een vlot en correct antwoord met de hele lijst, maar een `totalElements` dat 480 berichten archief meetelt; de Berichtenbox meldt de organisatie als "niet alles opgehaald" |
 | `HAPERT` | meestal goed, met een zekere kans een serverfout |
 | `STUK` | consequent een serverfout |
 | `UIT` | geen antwoord binnen de tijd die de aanroeper hem gunt; wie langer wacht krijgt een serverfout (standaard 503) |
@@ -144,7 +145,9 @@ simulatie valt.
 
 Uit het volgnummer, deterministisch en zonder loting: elke omgeving krijgt dezelfde verdeling, en
 een demo die je vandaag oefent gedraagt zich morgen hetzelfde. Over de volle achtennegentig komt dat
-neer op 72 normaal, 15 traag, 4 haperend, 3 stuk, 2 onbereikbaar, 1 weigerend en 1 onbruikbaar.
+neer op 71 normaal, 15 traag, 4 haperend, 3 stuk, 2 onbereikbaar, 1 onvolledig, 1 weigerend en 1
+onbruikbaar. Het onvolledige magazijn (volgnummer 17, Autoriteit Persoonsgegevens) valt binnen de
+persona's met 45 en 100 organisaties.
 
 Binnen één demo wisselt een haperend magazijn wél af — anders hapert het niet. Elk magazijn heeft
 daarvoor zijn eigen toevalsgenerator met een vaste startwaarde uit zijn OIN, zodat de reeks
@@ -181,10 +184,10 @@ er toevallig nog stond.
 
 **Wat er klaargezet wordt is volledig afgeleid.** Dezelfde aanroep geeft dezelfde berichten, tot en
 met de bericht-nummers. Een demo die je oefent is daarmee dezelfde demo als je hem geeft. De nummers
-verschillen wél over magazijnen heen: twee magazijnen mogen in werkelijkheid hetzelfde nummer
-uitdelen, maar de sessiecache van de uitvraag slaat berichten op zonder magazijn in de sleutel
-([#1004](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1004)), en zolang dat gebrek openstaat
-hoort een demo daar niet per ongeluk over te vallen.
+verschillen over magazijnen heen. Twee magazijnen mogen in werkelijkheid hetzelfde nummer uitdelen,
+en sinds [#1004](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1004) kan de uitvraag daar
+ook tegen: een bericht is daar het paar van magazijn en nummer. Een demo die die samenloop wil laten
+zien, levert hem bewust aan, niet via deze vulling.
 
 **Twintig berichten per magazijn is niet toevallig.** De uitvraag haalt per magazijn één pagina op
 en het magazijn levert er standaard twintig; daarboven ziet de ondernemer niets
@@ -292,8 +295,8 @@ WARN  [org.hibernate.orm.jdbc.error] FATAL: too many connections for role "<proj
 
 Die rol is gedeeld met de andere componenten van dezelfde deployment, dus de pool van deze service
 kan hem niet alleen opmaken. Herhaalde `Retrying establishment`-regels zonder één geslaagde
-verbinding betekenen dat het budget op is; `docs/operations/zad-gitops.md` beschrijft de grens en de
-twee env-lagen waarmee de pool per omgeving wordt bijgesteld.
+verbinding betekenen dat het budget op is; `docs/operations/zad-gitops.md` beschrijft de grens, waar
+hij is ingesteld en hoe hij is opgebouwd uit de pools van de componenten.
 
 De tellers van de regel per interval komen uit Agroal en vragen
 `quarkus.datasource.jdbc.metrics.enabled` (staat aan). Zonder die vlag geeft elke teller nul terug —

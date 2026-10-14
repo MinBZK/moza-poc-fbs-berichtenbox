@@ -43,8 +43,8 @@ class BerichtOphaalService(
     private val magazijnRouter: MagazijnRouter,
     private val afzendernamen: Afzendernamen,
 ) {
-    fun haalBericht(xOntvanger: String, berichtId: UUID): Bericht {
-        val domeinBericht = zoekBerichtInCache(xOntvanger, berichtId)
+    fun haalBericht(xOntvanger: String, magazijnId: String, berichtId: UUID): Bericht {
+        val domeinBericht = zoekBerichtInCache(xOntvanger, magazijnId, berichtId)
             ?: throw berichtOnbekend()
 
         return UitvraagDtoMapper.toApiBericht(
@@ -56,8 +56,9 @@ class BerichtOphaalService(
 
     /**
      * De berichttekst staat niet in de cache: die blijft bij de bron tot de ontvanger het
-     * bericht opent. Routeren op het `magazijnId` uit het gecachete bericht — niet op iets
-     * uit het verzoek — zodat een aanroeper geen tekst uit een vreemd magazijn kan opvragen.
+     * bericht opent. Routeren op het `magazijnId` uit het gecachete bericht: de vraag bepaalt
+     * wélk bericht, maar alleen een bericht dat de cache voor deze ontvanger kent, leidt naar
+     * een magazijn — zo kan een aanroeper geen tekst uit een vreemd magazijn opvragen.
      *
      * Gevolg van het niet-vooruit-kopiëren: bij een onbereikbaar bronmagazijn is dit ene
      * bericht niet te openen, terwijl de lijst gewoon zichtbaar blijft.
@@ -111,13 +112,13 @@ class BerichtOphaalService(
         return detail.inhoud
     }
 
-    fun haalBijlage(xOntvanger: String, berichtId: UUID, bijlageId: UUID): BijlageInhoud {
+    fun haalBijlage(xOntvanger: String, magazijnId: String, berichtId: UUID, bijlageId: UUID): BijlageInhoud {
         // Lookup-then-route: cache is authoritative voor welk magazijn de
         // bron is. De extra cache-read is acceptabel: Redis is snel en
         // het bericht-detail is hoe dan ook nodig om de bijlage-toegang te
         // autoriseren (een misser op de cache wordt hier de 404 of 410 van de
         // client, i.p.v. te lekken via een 502).
-        val bericht = zoekBerichtInCache(xOntvanger, berichtId)
+        val bericht = zoekBerichtInCache(xOntvanger, magazijnId, berichtId)
             ?: throw berichtOnbekend()
         val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
 
@@ -211,9 +212,9 @@ class BerichtOphaalService(
      */
     class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val inhoud: ByteArray)
 
-    private fun zoekBerichtInCache(xOntvanger: String, berichtId: UUID) =
-        leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId)") {
-            sessiecache.bericht(Identificatienummer.fromHeader(xOntvanger), berichtId)
+    private fun zoekBerichtInCache(xOntvanger: String, magazijnId: String, berichtId: UUID) =
+        leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId magazijnId=$magazijnId)") {
+            sessiecache.bericht(Identificatienummer.fromHeader(xOntvanger), magazijnId, berichtId)
         }
 
     private fun berichtOnbekend() =

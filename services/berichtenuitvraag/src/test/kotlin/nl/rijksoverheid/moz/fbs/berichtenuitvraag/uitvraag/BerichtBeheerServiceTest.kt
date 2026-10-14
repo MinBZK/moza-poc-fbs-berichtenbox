@@ -57,7 +57,7 @@ class BerichtBeheerServiceTest {
     @Test
     fun `patch happy-path magazijn-eerst dan cache geeft bericht uit cache`() {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } returns bijgewerkt
 
         val result = service.patch(ontvanger, id, magazijnId, patch)
 
@@ -66,7 +66,7 @@ class BerichtBeheerServiceTest {
             // Assert de gemapte patch (niet `any()`): borgt dat GELEZEN → gelezen=true
             // wordt vertaald; een geïnverteerde of weggevallen mapping faalt hier.
             magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = true, map = null))
-            sessiecache.werkBerichtBij(ontvangerId, id, Leesstatus.GELEZEN, null)
+            sessiecache.werkBerichtBij(ontvangerId, magazijnId, id, Leesstatus.GELEZEN, null)
         }
     }
 
@@ -76,7 +76,7 @@ class BerichtBeheerServiceTest {
         // magazijnId-queryparameter of het berichtId.
         every { afzendernamen.naamVoor(any<Bericht>()) } returns "Belastingdienst"
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } returns bijgewerkt
 
         val result = service.patch(ontvanger, id, magazijnId, patch)
 
@@ -87,7 +87,7 @@ class BerichtBeheerServiceTest {
     fun `patch ONGELEZEN mapt naar gelezen-false richting magazijn`() {
         val ongelezenPatch = BerichtPatch().apply { status = BerichtStatus.ONGELEZEN }
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } returns bijgewerkt
 
         service.patch(ontvanger, id, magazijnId, ongelezenPatch)
 
@@ -110,13 +110,13 @@ class BerichtBeheerServiceTest {
     @Test
     fun `patch met lege map haalt het bericht uit zijn map bij magazijn en cache`() {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } returns bijgewerkt
 
         service.patch(ontvanger, id, magazijnId, BerichtPatch().apply { map = "" })
 
         verifyOrder {
             magazijn.patchBericht(ontvanger, id, UitvraagDtoMapper.MagazijnPatch(gelezen = null, map = ""))
-            sessiecache.werkBerichtBij(ontvangerId, id, null, Sessiecache.MAP_WISSEN)
+            sessiecache.werkBerichtBij(ontvangerId, magazijnId, id, null, Sessiecache.MAP_WISSEN)
         }
     }
 
@@ -140,28 +140,28 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) }
+        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any(), any()) }
     }
 
     @Test
     fun `patch cache-faal triggert invalidate en gooit 502`() {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws SessiecacheException.Onbereikbaar("cache-down")
-        every { sessiecache.verwijder(ontvangerId, any()) } returns Unit
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } throws SessiecacheException.Onbereikbaar("cache-down")
+        every { sessiecache.verwijder(ontvangerId, magazijnId, any()) } returns Unit
 
         val ex = assertThrows(WebApplicationException::class.java) {
             service.patch(ontvanger, id, magazijnId, patch)
         }
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify { sessiecache.verwijder(ontvangerId, id) }
+        verify { sessiecache.verwijder(ontvangerId, magazijnId, id) }
     }
 
     @Test
     fun `patch cache-faal en invalidate-faal gooit nog steeds 502`() {
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws SessiecacheException.Onbereikbaar("cache-down")
-        every { sessiecache.verwijder(ontvangerId, any()) } throws SessiecacheException.Onbereikbaar("ook-down")
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } throws SessiecacheException.Onbereikbaar("cache-down")
+        every { sessiecache.verwijder(ontvangerId, magazijnId, any()) } throws SessiecacheException.Onbereikbaar("ook-down")
 
         val ex = assertThrows(WebApplicationException::class.java) {
             service.patch(ontvanger, id, magazijnId, patch)
@@ -175,7 +175,7 @@ class BerichtBeheerServiceTest {
         // null = bericht niet (meer) in cache; magazijn-write was al door — 404 mét
         // desync-alert in de log, geen invalidate (er valt niets te invalideren).
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns null
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } returns null
 
         val fout = assertThrows(FbsFoutException::class.java) {
             service.patch(ontvanger, id, magazijnId, patch)
@@ -183,7 +183,7 @@ class BerichtBeheerServiceTest {
 
         assertEquals(404, fout.response.status)
         assertEquals(Foutcode.BERICHT_ONBEKEND, fout.foutcode)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test
@@ -192,7 +192,7 @@ class BerichtBeheerServiceTest {
         // write is een contract-bug, geen transport-storing: status-behoudend door, geen
         // invalidate (de cache-write is niet doorgegaan).
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } throws
+        every { sessiecache.werkBerichtBij(ontvangerId, magazijnId, any(), any(), any()) } throws
             SessiecacheException.OngeldigeInvoer("cache-ongeldig")
 
         val ex = assertThrows(WebApplicationException::class.java) {
@@ -200,19 +200,19 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.BAD_REQUEST.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test
     fun `verwijder happy-path doet beide deletes in volgorde`() {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
-        every { sessiecache.verwijder(ontvangerId, any()) } returns Unit
+        every { sessiecache.verwijder(ontvangerId, magazijnId, any()) } returns Unit
 
         service.verwijder(ontvanger, id, magazijnId)
 
         verifyOrder {
             magazijn.verwijderBericht(ontvanger, id)
-            sessiecache.verwijder(ontvangerId, id)
+            sessiecache.verwijder(ontvangerId, magazijnId, id)
         }
     }
 
@@ -225,7 +225,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test
@@ -233,7 +233,7 @@ class BerichtBeheerServiceTest {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
         // Eerste call faalt, tweede (compensatie) slaagt.
         var aanroepen = 0
-        every { sessiecache.verwijder(ontvangerId, any()) } answers {
+        every { sessiecache.verwijder(ontvangerId, magazijnId, any()) } answers {
             aanroepen++
 
             if (aanroepen == 1) throw SessiecacheException.Onbereikbaar("cache-down")
@@ -244,13 +244,13 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 2) { sessiecache.verwijder(ontvangerId, id) }
+        verify(exactly = 2) { sessiecache.verwijder(ontvangerId, magazijnId, id) }
     }
 
     @Test
     fun `verwijder cache-niet-storing-fout propageert zonder compensatie`() {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
-        every { sessiecache.verwijder(ontvangerId, any()) } throws SessiecacheException.OngeldigeInvoer("cache-ongeldig")
+        every { sessiecache.verwijder(ontvangerId, magazijnId, any()) } throws SessiecacheException.OngeldigeInvoer("cache-ongeldig")
 
         val ex = assertThrows(WebApplicationException::class.java) {
             service.verwijder(ontvanger, id, magazijnId)
@@ -258,20 +258,20 @@ class BerichtBeheerServiceTest {
 
         assertEquals(Response.Status.BAD_REQUEST.statusCode, ex.response.status)
         // Eén call (de write die de niet-storing-fout gaf); geen tweede compensatie-call.
-        verify(exactly = 1) { sessiecache.verwijder(ontvangerId, id) }
+        verify(exactly = 1) { sessiecache.verwijder(ontvangerId, magazijnId, id) }
     }
 
     @Test
     fun `verwijder cache-faal + compensatie-faal gooit 502`() {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
-        every { sessiecache.verwijder(ontvangerId, any()) } throws SessiecacheException.Onbereikbaar("cache-down")
+        every { sessiecache.verwijder(ontvangerId, magazijnId, any()) } throws SessiecacheException.Onbereikbaar("cache-down")
 
         val ex = assertThrows(WebApplicationException::class.java) {
             service.verwijder(ontvanger, id, magazijnId)
         }
 
         assertEquals(Response.Status.BAD_GATEWAY.statusCode, ex.response.status)
-        verify(exactly = 2) { sessiecache.verwijder(ontvangerId, id) }
+        verify(exactly = 2) { sessiecache.verwijder(ontvangerId, magazijnId, id) }
     }
 
     @Test
@@ -286,7 +286,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.FORBIDDEN.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) }
+        verify(exactly = 0) { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any(), any()) }
     }
 
     @Test
@@ -299,7 +299,7 @@ class BerichtBeheerServiceTest {
         }
 
         assertEquals(Response.Status.UNAUTHORIZED.statusCode, ex.response.status)
-        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any()) }
+        verify(exactly = 0) { sessiecache.verwijder(ontvangerId, any(), any()) }
     }
 
     @Test
@@ -307,22 +307,22 @@ class BerichtBeheerServiceTest {
         // De router krijgt exact de magazijnId-parameter; geen cache-lookup vooraf,
         // dus een verlopen/lege cache veroorzaakt geen 404 of 502 op de magazijn-write.
         every { magazijn.patchBericht(any(), any(), any()) } returns Unit
-        every { sessiecache.werkBerichtBij(ontvangerId, any(), any(), any()) } returns bijgewerkt
+        every { sessiecache.werkBerichtBij(ontvangerId, "magazijn-X", id, any(), any()) } returns bijgewerkt
 
         service.patch(ontvanger, id, "magazijn-X", patch)
 
         verify { router.forMagazijn("magazijn-X") }
-        verify(exactly = 0) { sessiecache.bericht(ontvangerId, any()) }
+        verify(exactly = 0) { sessiecache.bericht(ontvangerId, any(), any()) }
     }
 
     @Test
     fun `verwijder routeert via meegegeven magazijnId zonder cache-lookup`() {
         every { magazijn.verwijderBericht(any(), any()) } returns Unit
-        every { sessiecache.verwijder(ontvangerId, any()) } returns Unit
+        every { sessiecache.verwijder(ontvangerId, "magazijn-X", id) } returns Unit
 
         service.verwijder(ontvanger, id, "magazijn-X")
 
         verify { router.forMagazijn("magazijn-X") }
-        verify(exactly = 0) { sessiecache.bericht(ontvangerId, any()) }
+        verify(exactly = 0) { sessiecache.bericht(ontvangerId, any(), any()) }
     }
 }

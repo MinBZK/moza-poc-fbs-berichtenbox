@@ -42,7 +42,7 @@ class LdvSubjectRegistrationTest {
     @Test
     fun `succesvolle request schrijft type en waarde uit X-Ontvanger naar de LDV-context`() {
         val id = UUID.randomUUID()
-        sessiecache.berichten[id] = nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht(
+        sessiecache.zet(nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
             afzenderNaam = "Magazijn A",
@@ -51,7 +51,7 @@ class LdvSubjectRegistrationTest {
             publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = "magazijn-a",
             aantalBijlagen = 0,
-        )
+        ))
 
         // Via de lijst: elk leespad registreert het subject op dezelfde manier, en de
         // lijst komt volledig uit de cache — dan hoeft deze test geen magazijn te stubben.

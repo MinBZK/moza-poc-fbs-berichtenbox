@@ -233,9 +233,9 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 
 Elke open berichtenbox houdt één SSE-verbinding open. Een aanmelding die op de ene pod binnenkomt,
 bereikt een berichtenbox op een andere pod via Redis pub/sub (kanaal
-`berichtensessiecache:v3:aanmeldingen`); elke pod heeft daar precies één abonnement op, dus één
-extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de sessiesleutel en
-het `berichtId`. Die sleutel is een SHA-256 zonder geheim over het identificatienummer en dus een
+`berichtensessiecache:v4:aanmeldingen`); elke pod heeft daar precies één abonnement op, dus één
+extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de sessiesleutel, het
+`berichtId` en de `magazijnId` (de OIN van de organisatie, geen persoonsgegeven). Die sleutel is een SHA-256 zonder geheim over het identificatienummer en dus een
 pseudoniem van de ontvanger, geen anonimisering: het kanaal hoort dezelfde bescherming te krijgen
 als de rest van Redis (TLS en authenticatie).
 

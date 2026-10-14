@@ -41,7 +41,7 @@ class DualWriteFaultTest {
     }
 
     private fun seedBericht(id: UUID) {
-        sessiecache.berichten[id] = Bericht(
+        sessiecache.zet(Bericht(
             berichtId = id,
             afzender = "00000001003214345000",
             afzenderNaam = "Magazijn A",
@@ -50,7 +50,7 @@ class DualWriteFaultTest {
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = WireMockBackendsResource.OIN_A,
             aantalBijlagen = 0,
-        )
+        ))
     }
 
     private fun stubMagazijnPatchOk(id: UUID) {
@@ -225,7 +225,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(502)
 
-        assertEquals(listOf(id), sessiecache.verwijderAanroepen)
+        assertEquals(listOf(WireMockBackendsResource.OIN_A to id), sessiecache.verwijderAanroepen)
     }
 
     @Test
@@ -247,7 +247,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(400)
 
-        assertEquals(emptyList<UUID>(), sessiecache.verwijderAanroepen)
+        assertEquals(emptyList<Pair<String, UUID>>(), sessiecache.verwijderAanroepen)
     }
 
     @Test
@@ -267,7 +267,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(404)
 
-        assertEquals(emptyList<UUID>(), sessiecache.verwijderAanroepen)
+        assertEquals(emptyList<Pair<String, UUID>>(), sessiecache.verwijderAanroepen)
     }
 
     @Test
@@ -289,7 +289,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(502)
 
-        assertEquals(listOf(id), sessiecache.verwijderAanroepen)
+        assertEquals(listOf(WireMockBackendsResource.OIN_A to id), sessiecache.verwijderAanroepen)
     }
 
     // ───── DELETE ─────
@@ -309,7 +309,7 @@ class DualWriteFaultTest {
 
         WireMockBackendsResource.magazijnA.verify(deleteRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
 
-        assertEquals(listOf(id), sessiecache.verwijderAanroepen)
+        assertEquals(listOf(WireMockBackendsResource.OIN_A to id), sessiecache.verwijderAanroepen)
     }
 
     @Test
@@ -327,7 +327,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(502)
 
-        assertEquals(emptyList<UUID>(), sessiecache.verwijderAanroepen)
+        assertEquals(emptyList<Pair<String, UUID>>(), sessiecache.verwijderAanroepen)
     }
 
     @Test
@@ -345,7 +345,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(502)
 
-        assertEquals(listOf(id, id), sessiecache.verwijderAanroepen)
+        assertEquals(listOf(WireMockBackendsResource.OIN_A to id, WireMockBackendsResource.OIN_A to id), sessiecache.verwijderAanroepen)
     }
 
     @Test
@@ -363,7 +363,7 @@ class DualWriteFaultTest {
             .then()
             .statusCode(502)
 
-        assertEquals(listOf(id, id), sessiecache.verwijderAanroepen)
+        assertEquals(listOf(WireMockBackendsResource.OIN_A to id, WireMockBackendsResource.OIN_A to id), sessiecache.verwijderAanroepen)
     }
 
     @Test
@@ -381,6 +381,6 @@ class DualWriteFaultTest {
             .statusCode(400)
 
         // Eén call (de write die de niet-storing-fout gaf); geen tweede compensatie-call.
-        assertEquals(listOf(id), sessiecache.verwijderAanroepen)
+        assertEquals(listOf(WireMockBackendsResource.OIN_A to id), sessiecache.verwijderAanroepen)
     }
 }

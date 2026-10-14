@@ -50,17 +50,17 @@ class UitvraagResource(
     }
 
     @Logboek(name = "uitvraag-bericht", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
-    override fun getBerichtById(berichtId: UUID, xOntvanger: String): Bericht {
+    override fun getBerichtById(berichtId: UUID, xOntvanger: String, magazijnId: String): Bericht {
         registreerLdvSubject(xOntvanger)
 
-        return ophaalService.haalBericht(xOntvanger, berichtId)
+        return ophaalService.haalBericht(xOntvanger, magazijnId, berichtId)
     }
 
     @Logboek(name = "uitvraag-bijlage", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
-    override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
+    override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String, magazijnId: String): ByteArray {
         registreerLdvSubject(xOntvanger)
 
-        val bijlage = ophaalService.haalBijlage(xOntvanger, berichtId, bijlageId)
+        val bijlage = ophaalService.haalBijlage(xOntvanger, magazijnId, berichtId, bijlageId)
         request.setProperty(BIJLAGE_MIME_TYPE_PROPERTY, bijlage.mimeType)
         request.setProperty(BIJLAGE_NAAM_PROPERTY, bijlage.bestandsnaam)
 

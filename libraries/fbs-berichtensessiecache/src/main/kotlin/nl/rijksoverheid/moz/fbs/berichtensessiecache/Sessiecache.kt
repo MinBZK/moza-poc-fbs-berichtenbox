@@ -73,8 +73,12 @@ interface Sessiecache {
      * sessie zélf verwijderde. Het bericht van een ánder levert `null`, gelijk aan een onbekend
      * bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
      * hier niet zichtbaar te worden.
+     *
+     * Een organisatie deelt haar berichtnummers zelf uit, dus een nummer is alleen uniek binnen het
+     * magazijn dat het uitdeelde; daarom hoort [magazijnId] bij de vraag. Dat geldt ook voor
+     * [werkBerichtBij] en [verwijder].
      */
-    fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht?
+    fun bericht(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID): Bericht?
 
     /**
      * Merge-PATCH op leesstatus en/of map. Minimaal één van beide moet gezet zijn
@@ -84,6 +88,7 @@ interface Sessiecache {
      */
     fun werkBerichtBij(
         ontvanger: Identificatienummer,
+        magazijnId: String,
         berichtId: UUID,
         status: Leesstatus?,
         map: String?,
@@ -93,7 +98,7 @@ interface Sessiecache {
      * Idempotente cache-invalidate: "niet in cache" is geen fout (TTL kan verlopen
      * zijn, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
      */
-    fun verwijder(ontvanger: Identificatienummer, berichtId: UUID)
+    fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID)
 
     /**
      * Orkestreert het ophalen van berichten uit de voor [ontvanger] relevante

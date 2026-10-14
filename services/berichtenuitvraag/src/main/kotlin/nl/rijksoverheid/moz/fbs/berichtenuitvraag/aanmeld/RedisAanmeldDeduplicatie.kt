@@ -37,19 +37,19 @@ class RedisAanmeldDeduplicatie(
     private val awaitTimeout = config.deduplicatie().redisAwaitTimeout()
         .also { require(!it.isZero && !it.isNegative) { "aanmeld.deduplicatie.redis-await-timeout moet groter dan nul zijn" } }
 
-    override fun eerstgezien(eventId: String): Boolean {
+    override fun eerstgezien(magazijnId: String, eventId: String): Boolean {
         val args = SetArgs().nx().ex(ttlSeconden)
 
         // setAndChanged (niet set): geeft true als de NX-write daadwerkelijk plaatsvond
         // = eerste keer. Een gewone set zou de first-seen-detectie stil breken.
         return runOrServiceUnavailable("markeren") {
-            values.setAndChanged(sleutel(eventId), "1", args).await().atMost(awaitTimeout)
+            values.setAndChanged(sleutel(magazijnId, eventId), "1", args).await().atMost(awaitTimeout)
         }
     }
 
-    override fun verwijder(eventId: String) {
+    override fun verwijder(magazijnId: String, eventId: String) {
         runOrServiceUnavailable("verwijderen") {
-            keys.del(sleutel(eventId)).await().atMost(awaitTimeout)
+            keys.del(sleutel(magazijnId, eventId)).await().atMost(awaitTimeout)
         }
     }
 
@@ -71,7 +71,7 @@ class RedisAanmeldDeduplicatie(
         return WebApplicationException("Idempotentie-store niet bereikbaar. Probeer het later opnieuw.", 503)
     }
 
-    private fun sleutel(eventId: String): String = "$KEY_PREFIX$eventId"
+    private fun sleutel(magazijnId: String, eventId: String): String = "$KEY_PREFIX$magazijnId:$eventId"
 
     companion object {
         private const val KEY_PREFIX = "aanmeld:event:"

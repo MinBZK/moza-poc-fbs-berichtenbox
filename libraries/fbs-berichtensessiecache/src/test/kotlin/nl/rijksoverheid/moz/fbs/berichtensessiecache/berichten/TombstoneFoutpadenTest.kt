@@ -75,7 +75,7 @@ class TombstoneFoutpadenTest {
             Uni.createFrom().failure(RuntimeException("OOM command not allowed"))
 
         // Faalt de Uni, dan gooit `await` hier — dát is de assertie.
-        cache.delete(berichtId, ontvanger).await().atMost(Duration.ofSeconds(5))
+        cache.delete(BerichtSleutel("magazijn-a", berichtId), ontvanger).await().atMost(Duration.ofSeconds(5))
     }
 
     @Test
@@ -86,7 +86,7 @@ class TombstoneFoutpadenTest {
         every { keys.exists(any<String>()) } returns
             Uni.createFrom().failure(RuntimeException("connection reset"))
 
-        val verwijderd = cache.isVerwijderdVoor(berichtId, ontvanger).await().atMost(Duration.ofSeconds(5))
+        val verwijderd = cache.isVerwijderdVoor(BerichtSleutel("magazijn-a", berichtId), ontvanger).await().atMost(Duration.ofSeconds(5))
 
         assertFalse(verwijderd)
     }

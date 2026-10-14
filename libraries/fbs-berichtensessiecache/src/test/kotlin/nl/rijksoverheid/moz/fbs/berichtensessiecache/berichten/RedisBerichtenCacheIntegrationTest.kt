@@ -144,7 +144,7 @@ class RedisBerichtenCacheIntegrationTest {
             uitLijst.berichten.associate { it.berichtId to it.afzenderNaam },
         )
 
-        val uitHash = berichtenCache.getById(berichten[1].berichtId, ontvanger).await().indefinitely()
+        val uitHash = berichtenCache.getById(berichten[1].sleutel, ontvanger).await().indefinitely()
 
         assertEquals("Rijksdienst voor Ondernemend Nederland", uitHash?.afzenderNaam)
 
@@ -191,7 +191,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         redis.hash(String::class.java).hset("bericht:v1:$berichtId", v1Hash).await().indefinitely()
 
-        assertNull(berichtenCache.getById(berichtId, ontvanger).await().indefinitely())
+        assertNull(berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely())
     }
 
     @Test
@@ -248,7 +248,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val original = berichten[0]
-        val retrieved = berichtenCache.getById(original.berichtId, ontvanger).await().indefinitely()
+        val retrieved = berichtenCache.getById(original.sleutel, ontvanger).await().indefinitely()
 
         assertNotNull(retrieved)
         assertEquals(original.berichtId, retrieved!!.berichtId)
@@ -267,7 +267,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         // OIN met andere waarde: 20 cijfers, niet geheel nullen
         val andereOntvanger = Oin("00000001003214345000")
-        val result = berichtenCache.getById(berichten[0].berichtId, andereOntvanger)
+        val result = berichtenCache.getById(berichten[0].sleutel, andereOntvanger)
             .await().indefinitely()
 
         assertNull(result)
@@ -279,7 +279,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val original = berichten[0]
-        val updated = berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, "GELEZEN", null)
+        val updated = berichtenCache.updateBerichtMetadata(original.sleutel, ontvanger, "GELEZEN", null)
             .await().indefinitely()
 
         assertNotNull(updated)
@@ -301,9 +301,9 @@ class RedisBerichtenCacheIntegrationTest {
 
         val original = berichten[0]
         // Zet eerst status zodat we kunnen verifiëren dat een map-only update die niet wist
-        berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, "gelezen", null).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(original.sleutel, ontvanger, "gelezen", null).await().indefinitely()
 
-        val updated = berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, null, "archief")
+        val updated = berichtenCache.updateBerichtMetadata(original.sleutel, ontvanger, null, "archief")
             .await().indefinitely()
 
         assertNotNull(updated)
@@ -317,7 +317,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val original = berichten[0]
-        val updated = berichtenCache.updateBerichtMetadata(original.berichtId, ontvanger, "gelezen", "archief")
+        val updated = berichtenCache.updateBerichtMetadata(original.sleutel, ontvanger, "gelezen", "archief")
             .await().indefinitely()
 
         assertNotNull(updated)
@@ -338,16 +338,16 @@ class RedisBerichtenCacheIntegrationTest {
         val target = berichten[0]
         val oudeMap = requireNotNull(target.map) { "fixture-bericht hoort in een map te zitten" }
 
-        berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, "gelezen", null).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(target.sleutel, ontvanger, "gelezen", null).await().indefinitely()
 
-        val updated = berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, null, Sessiecache.MAP_WISSEN)
+        val updated = berichtenCache.updateBerichtMetadata(target.sleutel, ontvanger, null, Sessiecache.MAP_WISSEN)
             .await().indefinitely()
 
         assertNotNull(updated)
         assertNull(updated!!.map)
         assertEquals(Leesstatus.GELEZEN, updated.status, "wissen van de map mag de leesstatus niet raken")
 
-        assertNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()?.map)
+        assertNull(berichtenCache.getById(target.sleutel, ontvanger).await().indefinitely()?.map)
 
         val ongefilterd = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
         assertNull(ongefilterd!!.berichten.single { it.berichtId == target.berichtId }.map, "list-entry toont de oude map")
@@ -366,13 +366,13 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
 
-        val updated = berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, "gelezen", Sessiecache.MAP_WISSEN)
+        val updated = berichtenCache.updateBerichtMetadata(target.sleutel, ontvanger, "gelezen", Sessiecache.MAP_WISSEN)
             .await().indefinitely()
 
         assertEquals(Leesstatus.GELEZEN, updated!!.status)
         assertNull(updated.map)
 
-        val gelezen = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
+        val gelezen = berichtenCache.getById(target.sleutel, ontvanger).await().indefinitely()
 
         assertEquals(Leesstatus.GELEZEN, gelezen!!.status)
         assertNull(gelezen.map)
@@ -388,7 +388,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
 
-        berichtenCache.updateBerichtMetadata(target.berichtId, ontvanger, "gelezen", "archief").await().indefinitely()
+        berichtenCache.updateBerichtMetadata(target.sleutel, ontvanger, "gelezen", "archief").await().indefinitely()
 
         // Ongefilterde, list-backed pad (afzender == null → LRANGE, niet RediSearch).
         val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
@@ -404,7 +404,7 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
-        val result = berichtenCache.updateBerichtMetadata(berichten[0].berichtId, Oin("99999999999999999999"), "gelezen", null)
+        val result = berichtenCache.updateBerichtMetadata(berichten[0].sleutel, Oin("99999999999999999999"), "gelezen", null)
             .await().indefinitely()
 
         assertNull(result)
@@ -412,7 +412,7 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `update op niet-bestaand bericht retourneert null`() {
-        val result = berichtenCache.updateBerichtMetadata(UUID.randomUUID(), ontvanger, "gelezen", null)
+        val result = berichtenCache.updateBerichtMetadata(BerichtSleutel(MAGAZIJN_A, UUID.randomUUID()), ontvanger, "gelezen", null)
             .await().indefinitely()
 
         assertNull(result)
@@ -424,9 +424,9 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val target = berichten[0]
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
-        val result = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
+        val result = berichtenCache.getById(target.sleutel, ontvanger).await().indefinitely()
         assertNull(result)
     }
 
@@ -439,7 +439,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
 
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
         assertNotNull(page)
@@ -452,7 +452,7 @@ class RedisBerichtenCacheIntegrationTest {
         val bericht = testBerichten().take(1)
         berichtenCache.store(cacheKey(), bericht).await().indefinitely()
 
-        berichtenCache.delete(bericht[0].berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(bericht[0].sleutel, ontvanger).await().indefinitely()
 
         val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
         assertNull(page)
@@ -464,9 +464,9 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
 
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
-        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+        assertTrue(berichtenCache.isVerwijderdVoor(target.sleutel, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -477,9 +477,9 @@ class RedisBerichtenCacheIntegrationTest {
         val target = berichten[0]
         val andereOntvanger = Oin(System.nanoTime().toString().padStart(20, '9').takeLast(20))
 
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
-        assertFalse(berichtenCache.isVerwijderdVoor(target.berichtId, andereOntvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(target.sleutel, andereOntvanger).await().indefinitely())
     }
 
     @Test
@@ -487,8 +487,8 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
-        assertFalse(berichtenCache.isVerwijderdVoor(berichten[0].berichtId, ontvanger).await().indefinitely())
-        assertFalse(berichtenCache.isVerwijderdVoor(UUID.randomUUID(), ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(berichten[0].sleutel, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(BerichtSleutel(MAGAZIJN_A, UUID.randomUUID()), ontvanger).await().indefinitely())
     }
 
     @Test
@@ -496,12 +496,12 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
-        berichtenCache.delete(berichten[0].berichtId, ontvanger).await().indefinitely()
-        berichtenCache.delete(berichten[1].berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(berichten[0].sleutel, ontvanger).await().indefinitely()
+        berichtenCache.delete(berichten[1].sleutel, ontvanger).await().indefinitely()
 
-        assertTrue(berichtenCache.isVerwijderdVoor(berichten[0].berichtId, ontvanger).await().indefinitely())
-        assertTrue(berichtenCache.isVerwijderdVoor(berichten[1].berichtId, ontvanger).await().indefinitely())
-        assertFalse(berichtenCache.isVerwijderdVoor(berichten[2].berichtId, ontvanger).await().indefinitely())
+        assertTrue(berichtenCache.isVerwijderdVoor(berichten[0].sleutel, ontvanger).await().indefinitely())
+        assertTrue(berichtenCache.isVerwijderdVoor(berichten[1].sleutel, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(berichten[2].sleutel, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -512,11 +512,11 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
-        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+        assertTrue(berichtenCache.isVerwijderdVoor(target.sleutel, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -527,11 +527,11 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
-        assertNotNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely())
+        assertNotNull(berichtenCache.getById(target.sleutel, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -539,13 +539,13 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten()
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
         berichtenCache.createBericht(target, ontvanger).await().indefinitely()
 
         // De tombstone blijft staan maar wordt nooit geraadpleegd zolang het bericht er is;
         // de lookup-volgorde in de facade is wat dit afdekt.
-        assertNotNull(berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely())
+        assertNotNull(berichtenCache.getById(target.sleutel, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -555,7 +555,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
 
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
 
         val treffers = berichtenCache.search(ontvanger, "bericht", 0, 50, null, null).await().indefinitely()
         assertTrue(treffers.berichten.none { it.berichtId == target.berichtId })
@@ -564,7 +564,7 @@ class RedisBerichtenCacheIntegrationTest {
     @Test
     fun `delete onbestaand bericht is no-op`() {
         // Geen exceptie en geen kerneffect — er is simpelweg niets om te verwijderen.
-        berichtenCache.delete(UUID.randomUUID(), ontvanger).await().indefinitely()
+        berichtenCache.delete(BerichtSleutel(MAGAZIJN_A, UUID.randomUUID()), ontvanger).await().indefinitely()
     }
 
     @Test
@@ -590,7 +590,7 @@ class RedisBerichtenCacheIntegrationTest {
         )
 
         // Gelijktijdig afvuren zonder onderlinge ordening.
-        val deleteStage = berichtenCache.delete(teVerwijderen.berichtId, ontvanger).subscribeAsCompletionStage()
+        val deleteStage = berichtenCache.delete(teVerwijderen.sleutel, ontvanger).subscribeAsCompletionStage()
         val addStage = berichtenCache.createBericht(nieuw, ontvanger).subscribeAsCompletionStage()
         CompletableFuture.allOf(deleteStage.toCompletableFuture(), addStage.toCompletableFuture()).join()
 
@@ -609,25 +609,25 @@ class RedisBerichtenCacheIntegrationTest {
 
         redis.list(String::class.java).rpush(listKey(), "{geen-geldige-json").await().indefinitely()
 
-        berichtenCache.delete(bericht[0].berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(bericht[0].sleutel, ontvanger).await().indefinitely()
 
         val entries = redis.list(String::class.java).lrange(listKey(), 0, -1).await().indefinitely()
         assertEquals(listOf("{geen-geldige-json"), entries, "onparsebare entry moet behouden blijven, doelbericht verwijderd")
-        assertNull(berichtenCache.getById(bericht[0].berichtId, ontvanger).await().indefinitely())
+        assertNull(berichtenCache.getById(bericht[0].sleutel, ontvanger).await().indefinitely())
     }
 
     @Test
-    fun `delete-prune verwijdert alle list-entries die naar hetzelfde berichtId matchen`() {
-        // berichtId is uniek per aanlevering, dus normaal staat een berichtId maar één keer in de
-        // list — maar de prune-batch moet ook een dubbele match volledig opruimen, anders blijft
-        // een duplicaat na delete zichtbaar in `GET /berichten`.
+    fun `delete-prune verwijdert alle list-entries van hetzelfde magazijn en nummer`() {
+        // Het paar is uniek per aanlevering, dus normaal staat het maar één keer in de list —
+        // maar de prune-batch moet ook een dubbele match volledig opruimen, anders blijft een
+        // duplicaat na delete zichtbaar in `GET /berichten`.
         val bericht = testBerichten().take(1)[0]
         berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
 
         val duplicaatJson = objectMapper.writeValueAsString(bericht.copy(onderwerp = "Duplicaat"))
         redis.list(String::class.java).rpush(listKey(), duplicaatJson).await().indefinitely()
 
-        berichtenCache.delete(bericht.berichtId, ontvanger).await().indefinitely()
+        berichtenCache.delete(bericht.sleutel, ontvanger).await().indefinitely()
 
         val entries = redis.list(String::class.java).lrange(listKey(), 0, -1).await().indefinitely()
         assertTrue(entries.isEmpty(), "beide list-entries voor het doelbericht moeten verwijderd zijn; over: $entries")
@@ -651,7 +651,7 @@ class RedisBerichtenCacheIntegrationTest {
         )
         berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
 
-        val retrieved = berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()
+        val retrieved = berichtenCache.getById(bericht.sleutel, ontvanger).await().indefinitely()
         assertNotNull(retrieved)
         assertEquals(1, retrieved!!.bijlagen.size)
         assertEquals(bijlageId, retrieved.bijlagen[0].bijlageId)
@@ -666,11 +666,11 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
 
         val target = berichten[0]
-        berichtenCache.delete(target.berichtId, Oin("99999999999999999999")).await().indefinitely()
+        berichtenCache.delete(target.sleutel, Oin("99999999999999999999")).await().indefinitely()
 
         // Guard moet vóór elke mutatie short-circuiten: zowel de hash (getById) als
         // de list (getPage) van de échte ontvanger blijven volledig intact.
-        val result = berichtenCache.getById(target.berichtId, ontvanger).await().indefinitely()
+        val result = berichtenCache.getById(target.sleutel, ontvanger).await().indefinitely()
         assertNotNull(result)
 
         val page = berichtenCache.getPage(cacheKey(), 0, 50, null, null).await().indefinitely()
@@ -748,7 +748,7 @@ class RedisBerichtenCacheIntegrationTest {
         assertEquals(listOf(nieuw.berichtId), page.berichten.map { it.berichtId })
 
         // Zonder TTL blijft een hash met gegevens van de ontvanger voor altijd in Redis staan.
-        listOf(listKey(), BerichtenCache.berichtKey(nieuw.berichtId)).forEach { sleutel ->
+        listOf(listKey(), BerichtenCache.berichtKey(nieuw.sleutel)).forEach { sleutel ->
             assertTrue(pttl(sleutel) in 1..sessieTtl.toMillis(), "$sleutel zonder sessie-TTL: ${pttl(sleutel)}")
         }
     }
@@ -769,7 +769,7 @@ class RedisBerichtenCacheIntegrationTest {
         val lezer = Thread {
             try {
                 while (!klaar.get()) {
-                    berichtenCache.getById(gelezen.berichtId, ontvanger).await().indefinitely()
+                    berichtenCache.getById(gelezen.sleutel, ontvanger).await().indefinitely()
                     gelezenTijdensAanmelden.incrementAndGet()
                     lezerLoopt.countDown()
                 }
@@ -805,7 +805,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         berichtenCache.createBericht(nieuw, ontvanger).await().indefinitely()
 
-        assertEquals(nieuw, berichtenCache.getById(nieuw.berichtId, ontvanger).await().indefinitely())
+        assertEquals(nieuw, berichtenCache.getById(nieuw.sleutel, ontvanger).await().indefinitely())
 
         val treffers = berichtenCache.search(ontvanger, "subsidie", 0, 50, null, null).await().indefinitely()
 
@@ -836,31 +836,31 @@ class RedisBerichtenCacheIntegrationTest {
         val bericht = testBerichten()[0]
         berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
         // Een andere map dan de aanmelding meebrengt: zo is te zien waar het herstel vandaan komt.
-        berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, Leesstatus.GELEZEN.wire, "archief").await().indefinitely()
-        redis.key().del(BerichtenCache.berichtKey(bericht.berichtId)).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(bericht.sleutel, ontvanger, Leesstatus.GELEZEN.wire, "archief").await().indefinitely()
+        redis.key().del(BerichtenCache.berichtKey(bericht.sleutel)).await().indefinitely()
 
         berichtenCache.createBericht(bericht, ontvanger).await().indefinitely()
 
-        val hersteld = berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()
+        val hersteld = berichtenCache.getById(bericht.sleutel, ontvanger).await().indefinitely()
 
         assertEquals(Leesstatus.GELEZEN, hersteld?.status)
         assertEquals("archief", hersteld?.map)
         assertEquals(1L, berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()!!.totalElements)
-        assertTrue(pttl(BerichtenCache.berichtKey(bericht.berichtId)) in 1..sessieTtl.toMillis())
+        assertTrue(pttl(BerichtenCache.berichtKey(bericht.sleutel)) in 1..sessieTtl.toMillis())
     }
 
     @Test
     fun `een lijst-entry die maar half te lezen is, blokkeert de aanmelding niet`() {
-        // Het id is te lezen, de rest past niet (meer) op een Bericht, zoals na een wijziging van het
+        // De sleutel is te lezen, de rest past niet (meer) op een Bericht, zoals na een wijziging van het
         // opslagformaat. De vaste velden komen dan uit de aanmelding, status en map uit de entry:
         // die heeft geen map, dus het herstelde bericht ook niet.
         val bericht = testBerichten()[0]
-        val halfLeesbaar = """{"berichtId":"${bericht.berichtId}","publicatietijdstip":"geen tijdstip","status":"gelezen"}"""
+        val halfLeesbaar = """{"berichtId":"${bericht.berichtId}","magazijnId":"${bericht.magazijnId}","publicatietijdstip":"geen tijdstip","status":"gelezen"}"""
         redis.list(String::class.java).rpush(listKey(), halfLeesbaar).await().indefinitely()
 
         berichtenCache.createBericht(bericht, ontvanger).await().indefinitely()
 
-        val hersteld = berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()
+        val hersteld = berichtenCache.getById(bericht.sleutel, ontvanger).await().indefinitely()
 
         assertEquals(bericht.onderwerp, hersteld?.onderwerp)
         assertEquals(Leesstatus.GELEZEN, hersteld?.status)
@@ -872,11 +872,11 @@ class RedisBerichtenCacheIntegrationTest {
     fun `een aanmelding van een bekend bericht laat een gewijzigde status staan`() {
         val bericht = testBerichten()[0]
         berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
-        berichtenCache.updateBerichtMetadata(bericht.berichtId, ontvanger, Leesstatus.GELEZEN.wire, null).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(bericht.sleutel, ontvanger, Leesstatus.GELEZEN.wire, null).await().indefinitely()
 
         berichtenCache.createBericht(bericht, ontvanger).await().indefinitely()
 
-        assertEquals(Leesstatus.GELEZEN, berichtenCache.getById(bericht.berichtId, ontvanger).await().indefinitely()?.status)
+        assertEquals(Leesstatus.GELEZEN, berichtenCache.getById(bericht.sleutel, ontvanger).await().indefinitely()?.status)
     }
 
     @Test
@@ -936,6 +936,26 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertEquals(1, gelezen!!.mislukt)
         assertEquals(emptyList<NietGeleverd>(), gelezen.nietGeleverd)
+        assertEquals(emptyList<Afgekapt>(), gelezen.afgekapt)
+    }
+
+    /** Met en zonder totaal: een `null` die als 0 terugkomt, zou "500 van 0" melden. */
+    @Test
+    fun `de afgekapte organisaties overleven de roundtrip door Redis`() {
+        val status = AggregationStatus(
+            status = OphalenStatus.GEREED,
+            totaalMagazijnen = 3,
+            geslaagd = 2,
+            mislukt = 1,
+            nietGeleverd = listOf(NietGeleverd("magazijn-c", "Zuid", MagazijnFoutStatus.FOUT)),
+            afgekapt = listOf(
+                Afgekapt("magazijn-a", "Belasting", 500, 812L),
+                Afgekapt("magazijn-b", "Noord", 500),
+            ),
+        )
+        berichtenCache.storeAggregationStatus(cacheKey(), status).await().indefinitely()
+
+        assertEquals(status, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
     }
 
     @Test
@@ -1031,12 +1051,101 @@ class RedisBerichtenCacheIntegrationTest {
         assertTrue(rsinZoek.berichten.any { it.berichtId == rsinBericht.berichtId })
 
         // getById: een via een ander type gelekt berichtId mag niet ophaalbaar zijn.
-        assertNull(berichtenCache.getById(rsinBericht.berichtId, bsn).await().indefinitely())
+        assertNull(berichtenCache.getById(rsinBericht.sleutel, bsn).await().indefinitely())
 
         // Eigen bericht is ophaalbaar én reconstrueert naar het juiste subtype.
-        val eigen = berichtenCache.getById(bsnBericht.berichtId, bsn).await().indefinitely()
+        val eigen = berichtenCache.getById(bsnBericht.sleutel, bsn).await().indefinitely()
         assertNotNull(eigen)
         assertEquals(bsn, eigen!!.ontvanger)
+    }
+
+    // Twee organisaties delen hun berichtnummers onafhankelijk van elkaar uit; hetzelfde nummer
+    // bij beide is toegestaan en mag het ene bericht het andere niet laten verdringen.
+    private fun tweeMagazijnenZelfdeNummer(): Pair<Bericht, Bericht> {
+        val gedeeld = UUID.randomUUID()
+
+        return berichtVoor(ontvanger, "van A", MAGAZIJN_A).copy(berichtId = gedeeld) to
+            berichtVoor(ontvanger, "van B", MAGAZIJN_B).copy(berichtId = gedeeld)
+    }
+
+    @Test
+    fun `twee magazijnen met hetzelfde berichtnummer houden elk hun eigen bericht`() {
+        val (vanA, vanB) = tweeMagazijnenZelfdeNummer()
+        berichtenCache.store(cacheKey(), listOf(vanA, vanB)).await().indefinitely()
+
+        assertEquals("van A", berichtenCache.getById(vanA.sleutel, ontvanger).await().indefinitely()?.onderwerp)
+        assertEquals("van B", berichtenCache.getById(vanB.sleutel, ontvanger).await().indefinitely()?.onderwerp)
+
+        val pagina = berichtenCache.getPage(cacheKey(), 0, PAGINA).await().indefinitely()!!
+        assertEquals(setOf(MAGAZIJN_A, MAGAZIJN_B), pagina.berichten.map { it.magazijnId }.toSet())
+    }
+
+    @Test
+    fun `bijwerken van het ene bericht laat het andere met hetzelfde nummer ongemoeid`() {
+        val (vanA, vanB) = tweeMagazijnenZelfdeNummer()
+        berichtenCache.store(cacheKey(), listOf(vanA, vanB)).await().indefinitely()
+
+        berichtenCache.updateBerichtMetadata(vanA.sleutel, ontvanger, "gelezen", "Belasting").await().indefinitely()
+
+        val b = berichtenCache.getById(vanB.sleutel, ontvanger).await().indefinitely()!!
+        assertNull(b.status)
+        assertNull(b.map)
+
+        val lijst = berichtenCache.getPage(cacheKey(), 0, PAGINA).await().indefinitely()!!.berichten
+        assertEquals("Belasting", lijst.single { it.magazijnId == MAGAZIJN_A }.map)
+        assertNull(lijst.single { it.magazijnId == MAGAZIJN_B }.map)
+    }
+
+    @Test
+    fun `verwijderen van het ene bericht laat het andere met hetzelfde nummer bereikbaar`() {
+        val (vanA, vanB) = tweeMagazijnenZelfdeNummer()
+        berichtenCache.store(cacheKey(), listOf(vanA, vanB)).await().indefinitely()
+
+        berichtenCache.delete(vanA.sleutel, ontvanger).await().indefinitely()
+
+        assertNull(berichtenCache.getById(vanA.sleutel, ontvanger).await().indefinitely())
+        assertEquals("van B", berichtenCache.getById(vanB.sleutel, ontvanger).await().indefinitely()?.onderwerp)
+        assertTrue(berichtenCache.isVerwijderdVoor(vanA.sleutel, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(vanB.sleutel, ontvanger).await().indefinitely())
+
+        val lijst = berichtenCache.getPage(cacheKey(), 0, PAGINA).await().indefinitely()!!.berichten
+        assertEquals(listOf(MAGAZIJN_B), lijst.map { it.magazijnId })
+    }
+
+    @Test
+    fun `een aanmelding met het nummer van een bericht van een ander magazijn wordt toegevoegd`() {
+        val (vanA, vanB) = tweeMagazijnenZelfdeNummer()
+        berichtenCache.store(cacheKey(), listOf(vanA)).await().indefinitely()
+
+        berichtenCache.createBericht(vanB, ontvanger).await().indefinitely()
+
+        assertEquals(2, redis.list(String::class.java).llen(listKey()).await().indefinitely())
+        assertEquals("van B", berichtenCache.getById(vanB.sleutel, ontvanger).await().indefinitely()?.onderwerp)
+        assertEquals("van A", berichtenCache.getById(vanA.sleutel, ontvanger).await().indefinitely()?.onderwerp)
+    }
+
+    @Test
+    fun `een herhaalde aanmelding van hetzelfde magazijn en nummer blijft één entry`() {
+        val (vanA, _) = tweeMagazijnenZelfdeNummer()
+        berichtenCache.store(cacheKey(), listOf(vanA)).await().indefinitely()
+
+        berichtenCache.createBericht(vanA, ontvanger).await().indefinitely()
+
+        assertEquals(1, redis.list(String::class.java).llen(listKey()).await().indefinitely())
+    }
+
+    @Test
+    fun `een aanmelding herstelt een verlopen hash met de status van zijn eigen magazijn`() {
+        val (vanA, vanB) = tweeMagazijnenZelfdeNummer()
+        berichtenCache.store(cacheKey(), listOf(vanA, vanB)).await().indefinitely()
+        berichtenCache.updateBerichtMetadata(vanA.sleutel, ontvanger, "gelezen", "Belasting").await().indefinitely()
+        redis.key().del(BerichtenCache.berichtKey(vanB.sleutel)).await().indefinitely()
+
+        berichtenCache.createBericht(vanB, ontvanger).await().indefinitely()
+
+        val hersteld = berichtenCache.getById(vanB.sleutel, ontvanger).await().indefinitely()!!
+        assertNull(hersteld.status)
+        assertNull(hersteld.map)
     }
 
     private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
@@ -1070,13 +1179,13 @@ class RedisBerichtenCacheIntegrationTest {
         val berichten = testBerichten().take(1)
         berichtenCache.store(cacheKey(), berichten).await().indefinitely()
         val target = berichten[0]
-        berichtenCache.delete(target.berichtId, ontvanger).await().indefinitely()
-        assertTrue(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+        berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
+        assertTrue(berichtenCache.isVerwijderdVoor(target.sleutel, ontvanger).await().indefinitely())
 
         // TTL is 2s in RealRedisTestProfile, wacht 3s
         Thread.sleep(3_000)
 
-        assertFalse(berichtenCache.isVerwijderdVoor(target.berichtId, ontvanger).await().indefinitely())
+        assertFalse(berichtenCache.isVerwijderdVoor(target.sleutel, ontvanger).await().indefinitely())
     }
 
     @Test
@@ -1182,7 +1291,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         repeat(3) {
             Thread.sleep(1_000)
-            val bericht = berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+            val bericht = berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
             assertNotNull(bericht, "Bericht-hash is vroegtijdig verlopen op iteratie $it")
         }
     }
@@ -1195,7 +1304,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
 
         val velden = redis.hash(String::class.java)
-            .hgetall(BerichtenCache.berichtKey(bericht.berichtId))
+            .hgetall(BerichtenCache.berichtKey(bericht.sleutel))
             .await().indefinitely()
 
         assertFalse(velden.containsKey("inhoud"), "Was: ${velden.keys}")
@@ -1212,7 +1321,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         repeat(3) {
             Thread.sleep(1_000)
-            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
         }
 
         val listTtl = redis.key().ttl(listKey()).await().indefinitely()
@@ -1225,7 +1334,7 @@ class RedisBerichtenCacheIntegrationTest {
         // hashToBericht MOET CacheCorruptedException werpen (niet RuntimeException of upcast),
         // anders wordt het pad in BlockingSessiecache verkeerd geclassificeerd (503 i.p.v. 500).
         val berichtId = UUID.randomUUID()
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, berichtId))
         val partialHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
@@ -1241,7 +1350,7 @@ class RedisBerichtenCacheIntegrationTest {
         redis.hash(String::class.java).hset(berichtKey, partialHash).await().indefinitely()
 
         val ex = assertThrows<CacheCorruptedException> {
-            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
         }
 
         assertTrue(ex.message!!.contains("magazijnId"), "Was: ${ex.message}")
@@ -1255,7 +1364,7 @@ class RedisBerichtenCacheIntegrationTest {
         // "Redis onbereikbaar" (503). De hash krijgt de bericht-prefix zodat hij in de
         // zoekindex belandt; `publicatietijdstip` is opzettelijk geen geldige Instant.
         val berichtId = UUID.randomUUID()
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, berichtId))
         val corrupteHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
@@ -1294,7 +1403,7 @@ class RedisBerichtenCacheIntegrationTest {
     @Test
     fun `getById werpt CacheCorruptedException bij onleesbare UUID-waarde`() {
         val berichtId = UUID.randomUUID()
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, berichtId))
         val corruptHash = mapOf(
             "berichtId" to "geen-uuid-meer",
             "afzender" to "00000001234567890000",
@@ -1310,7 +1419,7 @@ class RedisBerichtenCacheIntegrationTest {
         redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
 
         val ex = assertThrows<CacheCorruptedException> {
-            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
         }
 
         assertTrue(ex.message!!.contains("berichtId"), "Was: ${ex.message}")
@@ -1320,7 +1429,7 @@ class RedisBerichtenCacheIntegrationTest {
     @Test
     fun `getById werpt CacheCorruptedException bij onleesbare tijdstip-waarde`() {
         val berichtId = UUID.randomUUID()
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, berichtId))
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
@@ -1336,7 +1445,7 @@ class RedisBerichtenCacheIntegrationTest {
         redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
 
         val ex = assertThrows<CacheCorruptedException> {
-            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
         }
 
         assertTrue(ex.message!!.contains("publicatietijdstip"), "Was: ${ex.message}")
@@ -1348,7 +1457,7 @@ class RedisBerichtenCacheIntegrationTest {
         // Opgeslagen ontvanger-waarde is geen geldig BSN (elfproef): reconstructie via
         // Identificatienummer.of MOET dit als cache-corruptie (500) surfacen, niet stil doorlaten.
         val berichtId = UUID.randomUUID()
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, berichtId))
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
@@ -1364,7 +1473,7 @@ class RedisBerichtenCacheIntegrationTest {
         redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
 
         val ex = assertThrows<CacheCorruptedException> {
-            berichtenCache.getById(berichtId, Bsn("999993653")).await().indefinitely()
+            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), Bsn("999993653")).await().indefinitely()
         }
 
         assertTrue(ex.message!!.contains("ontvanger"), "Was: ${ex.message}")
@@ -1373,7 +1482,7 @@ class RedisBerichtenCacheIntegrationTest {
     @Test
     fun `getById werpt CacheCorruptedException bij onbekend ontvangerType`() {
         val berichtId = UUID.randomUUID()
-        val berichtKey = BerichtenCache.berichtKey(berichtId)
+        val berichtKey = BerichtenCache.berichtKey(BerichtSleutel(MAGAZIJN_A, berichtId))
         val corruptHash = mapOf(
             "berichtId" to berichtId.toString(),
             "afzender" to "00000001234567890000",
@@ -1389,7 +1498,7 @@ class RedisBerichtenCacheIntegrationTest {
         redis.hash(String::class.java).hset(berichtKey, corruptHash).await().indefinitely()
 
         val ex = assertThrows<CacheCorruptedException> {
-            berichtenCache.getById(berichtId, ontvanger).await().indefinitely()
+            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
         }
 
         assertTrue(ex.message!!.contains("ontvanger"), "Was: ${ex.message}")
@@ -1471,5 +1580,7 @@ class RedisBerichtenCacheIntegrationTest {
         const val REEKS = 50
         const val WACHTTIJD_S = 10L
         const val PAGINA = Sessiecache.MAX_PAGINA_GROOTTE
+        const val MAGAZIJN_A = "magazijn-a"
+        const val MAGAZIJN_B = "magazijn-b"
     }
 }

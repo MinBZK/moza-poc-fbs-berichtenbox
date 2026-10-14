@@ -66,7 +66,7 @@ class AanmeldingenPogingenTest {
 
     @Test
     fun `de late subscriber van een opgegeven poging raakt de volgende poging niet`() {
-        val ontvangen = LinkedBlockingQueue<UUID>()
+        val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
         pod.registreer("sessie", { ontvangen += it }, {}, {})
 
         // De eerste poging geeft op: de probe gaat niet over het kanaal, en de subscriber is er nog niet.
@@ -79,10 +79,10 @@ class AanmeldingenPogingenTest {
         verify(exactly = 1) { eersteSubscriber.unsubscribe() }
         verify(exactly = 0) { tweedeSubscriber.unsubscribe() }
 
-        val berichtId = UUID.randomUUID()
-        pod.meld("sessie", berichtId).await().atMost(WACHTTIJD)
+        val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
+        pod.meld("sessie", aangemeld).await().atMost(WACHTTIJD)
 
-        assertEquals(berichtId, ontvangen.poll())
+        assertEquals(aangemeld, ontvangen.poll())
 
         // Bij het stoppen hoort de pod de tweede nog te kennen, anders blijft die connection open.
         pod.stop()
@@ -123,5 +123,6 @@ class AanmeldingenPogingenTest {
 
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
+        const val MAGAZIJN = "00000001003214345000"
     }
 }

@@ -7,8 +7,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
  * Een stream bevat hoogstens één [VolgenGestart]. Alles wat daarna in de sessie wordt aangemeld,
  * komt als [BerichtBijgekomen] door; wat ervóór binnenkwam, staat al in de lijst. Een
  * [BerichtBijgekomen] kan [VolgenGestart] ook vóórgaan: de luisteraar staat er al vóórdat de
- * sessie gecontroleerd is. Een afnemer die bij [VolgenGestart] de lijst leest en op `berichtId`
- * ontdubbelt, mist dus niets — ook niet na een verbroken connection.
+ * sessie gecontroleerd is. Een afnemer die bij [VolgenGestart] de lijst leest en op
+ * (`magazijnId`, `berichtId`) ontdubbelt, mist dus niets — ook niet na een verbroken connection.
  *
  * Uitzonderingen op dat verloop. Blijkt de sessie bij het starten al weg, dan is
  * [SessieVerlopen] het enige item. Na `berichtensessiecache.volg-max-duur`, of als de pod stopt,

@@ -31,7 +31,16 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 @ApplicationScoped
 class MockSessiecache : Sessiecache {
 
-    val berichten = ConcurrentHashMap<UUID, Bericht>()
+    // Gesleuteld op (magazijnId, berichtId), zoals de echte cache: hetzelfde nummer kan bij twee
+    // organisaties voorkomen.
+    val berichten = ConcurrentHashMap<Pair<String, UUID>, Bericht>()
+
+    fun zet(bericht: Bericht) {
+        berichten[bericht.magazijnId to bericht.berichtId] = bericht
+    }
+
+    /** Het enige bericht met dit nummer; voor tests die maar één magazijn kennen. */
+    fun berichtMet(berichtId: UUID): Bericht? = berichten.values.singleOrNull { it.berichtId == berichtId }
 
     // Sync-facade-foutinjectie is getypeerd op SessiecacheException: de echte facade gooit
     // uitsluitend dat type, dus dwingt de compiler af dat tests geen onbereikbaar fout-pad
@@ -55,7 +64,7 @@ class MockSessiecache : Sessiecache {
     var laatsteWerkBijStatus: Leesstatus? = null
     var laatsteWerkBijMap: String? = null
     var werkBijAanroepen = 0
-    val verwijderAanroepen = mutableListOf<UUID>()
+    val verwijderAanroepen = mutableListOf<Pair<String, UUID>>()
 
     val schrijfFouten = ArrayDeque<SessiecacheException>()
     val schrijfAanroepen = mutableListOf<Bericht>()
@@ -113,14 +122,15 @@ class MockSessiecache : Sessiecache {
         return lijstResultaat ?: paginaVan(pagina, paginaGrootte)
     }
 
-    override fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht? {
+    override fun bericht(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID): Bericht? {
         berichtFout?.let { throw it }
 
-        return berichten[berichtId]
+        return berichten[magazijnId to berichtId]
     }
 
     override fun werkBerichtBij(
         ontvanger: Identificatienummer,
+        magazijnId: String,
         berichtId: UUID,
         status: Leesstatus?,
         map: String?,
@@ -130,18 +140,18 @@ class MockSessiecache : Sessiecache {
         laatsteWerkBijStatus = status
         laatsteWerkBijMap = map
 
-        val bestaand = berichten[berichtId] ?: return null
+        val bestaand = berichten[magazijnId to berichtId] ?: return null
         val nieuweMap = if (map == Sessiecache.MAP_WISSEN) null else map ?: bestaand.map
         val bijgewerkt = bestaand.copy(status = status ?: bestaand.status, map = nieuweMap)
-        berichten[berichtId] = bijgewerkt
+        berichten[magazijnId to berichtId] = bijgewerkt
 
         return bijgewerkt
     }
 
-    override fun verwijder(ontvanger: Identificatienummer, berichtId: UUID) {
-        verwijderAanroepen += berichtId
+    override fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID) {
+        verwijderAanroepen += magazijnId to berichtId
         verwijderFouten.removeFirstOrNull()?.let { throw it }
-        berichten.remove(berichtId)
+        berichten.remove(magazijnId to berichtId)
     }
 
     override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> {
@@ -153,7 +163,7 @@ class MockSessiecache : Sessiecache {
     override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht {
         schrijfAanroepen += bericht
         schrijfFouten.removeFirstOrNull()?.let { throw it }
-        berichten[bericht.berichtId] = bericht
+        zet(bericht)
 
         return bericht
     }

@@ -88,17 +88,18 @@ object AanmeldCloudEventFuzzer {
                 map: String?,
             ): BerichtenPagina = throw UnsupportedOperationException()
 
-            override fun bericht(ontvanger: Identificatienummer, berichtId: UUID): Bericht? =
+            override fun bericht(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID): Bericht? =
                 throw UnsupportedOperationException()
 
             override fun werkBerichtBij(
                 ontvanger: Identificatienummer,
+                magazijnId: String,
                 berichtId: UUID,
                 status: Leesstatus?,
                 map: String?,
             ): Bericht? = throw UnsupportedOperationException()
 
-            override fun verwijder(ontvanger: Identificatienummer, berichtId: UUID): Unit =
+            override fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID): Unit =
                 throw UnsupportedOperationException()
 
             override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> =
@@ -111,9 +112,9 @@ object AanmeldCloudEventFuzzer {
         }
 
         val dedup = object : AanmeldDeduplicatie {
-            override fun eerstgezien(eventId: String): Boolean = true
+            override fun eerstgezien(magazijnId: String, eventId: String): Boolean = true
 
-            override fun verwijder(eventId: String) = Unit
+            override fun verwijder(magazijnId: String, eventId: String) = Unit
         }
 
         // De superclass-constructor vereist een register; hier inhoudsloos omdat de
