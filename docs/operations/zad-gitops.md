@@ -237,27 +237,50 @@ uit.
   geverifieerd). Projecten zónder DB (externe-stubs `mpfpsm-lcl`: enkel wiremock-stubs,
   ephemeral) verliezen niets.
 
-## De database-rol van een deployment: twintig verbindingen
+## De database-rol van een deployment: de connection limit
 
-Elke deployment krijgt van OM één PostgreSQL-rol `<project>_<deployment>`, aangemaakt met een
-hardgecodeerde `CONNECTION LIMIT 20` (`RijksICTGilde/RIG-Cluster`,
-`operations-manager/python/opi/connectors/postgres.py`). Die limiet zit op de rol en niet op de
-database: in `mpfm-w3h` delen `magazijna`, `magazijnb` (met hun logboek), `democonsole` en
-`magazijnsimulator` samen die twintig. Een nieuwe preview krijgt een verse rol, dus opnieuw twintig.
-Een `ALTER ROLE ... CONNECTION LIMIT` met de hand overleeft de eerstvolgende heraanmaak van die
-gebruiker niet.
+Elke deployment krijgt van OM één PostgreSQL-rol `<project>_<deployment>` (plus een `_ro`-rol) met
+een `CONNECTION LIMIT`. Een rol is in PostgreSQL het account waarmee een client inlogt; alle
+componenten van een deployment loggen in met dezelfde gebruikersnaam en hetzelfde wachtwoord. Die
+limiet zit op de rol en niet op de database of het component: in `mpfm-w3h` delen `magazijna`,
+`magazijnb` (met hun logboek), `democonsole` en `magazijnsimulator` hem samen.
 
-**Hoe het zich meldt.** In de log van het component `FATAL: too many connections for role "<rol>"` en
-reeksen `Retrying establishment of connection`, terwijl zijn pool-regel gezond oogt — een geweigerde
-poging telt niet mee in de tellers van de pool. Aan de aanroepende kant zie je alleen time-outs: op
-2026-09-15 brak de uitvraag in één ophaalronde ruim veertig gesimuleerde magazijnen af op
-`timeout period of 12000ms`, terwijl de berichten gewoon in de database stonden. Wie dan naar de
-vulling kijkt, zoekt op de verkeerde plek.
+**Hij is een instelling van de dienst `postgresql-database`**, veld `connection-limit` (1–500,
+platformstandaard 20). Een deploymentwaarde wint van de projectwaarde, die wint van de standaard. OM
+leest bij elke verwerking `rolconnlimit` en zet de rol bij een verschil op de berekende waarde, ook
+een bestaande rol. Een `ALTER ROLE` met de hand houdt daardoor niet langer stand dan de volgende
+verwerking — zo verloor `test` begin oktober 2026 ongemerkt zijn handmatig opgehoogde limiet en zakte
+hij terug naar twintig.
 
-**De enige knop aan onze kant** is elk component binnen dat budget laten passen; ZAD werkt aan een
-instelbare limiet (`RIG-Cluster`, `plans/de-connectielimiet-wordt-instelbaar.md`, veld
-`connection-limit`, 1–100). Zolang previews blijven haperen, is dat het signaal om te kijken of die
-er al is.
+```bash
+zadctl -p mpfm-w3h service config get postgresql-database
+zadctl -p mpfm-w3h service config set postgresql-database --target project --set connection-limit=100
+```
+
+`config set` schrijft het hele document van die laag: een veld dat je niet noemt, verdwijnt. Lees
+dus eerst met `get` wat er staat.
+
+**Wat er staat:** `mpfm-w3h` heeft `connection-limit: 100` op projectniveau, en dus elke deployment,
+ook een nieuwe preview, zonder handwerk. Honderd is de som van wat de componenten maximaal
+openhouden, met een kleine marge:
+
+| component | max |
+|---|---|
+| `magazijna`, `magazijnb` | 2 × 21 (Agroal-default 20, plus één logboek-connection) |
+| `democonsole` | 2 × 2 (`jdbc.max-size` per datasource) |
+| `magazijnsimulator` | 50 (`DB_POOL_MAX`-default) |
+| **som** | **96** |
+
+Groeit een van die pools, verhoog dan de limiet mee; kies hem niet ruimer dan de som, want elke rol
+claimt ruimte op de databaseserver die alle projecten delen. `mpfb-8wh` (alleen de ene
+logboek-connection van de uitvraag) en `mpfpsm-lcl` (geen database) staan op de standaard.
+
+**Hoe een te krappe limiet zich meldt.** In de log van het component `FATAL: too many connections for
+role "<rol>"` en reeksen `Retrying establishment of connection`, terwijl zijn pool-regel gezond oogt —
+een geweigerde poging telt niet mee in de tellers van de pool, en de piek blijft steken onder het
+maximum. Aan de aanroepende kant zie je alleen time-outs: op 2026-09-15 brak de uitvraag in één
+ophaalronde ruim veertig gesimuleerde magazijnen af op `timeout period of 12000ms`, terwijl de
+berichten gewoon in de database stonden. Wie dan naar de vulling kijkt, zoekt op de verkeerde plek.
 
 ### Env per component en per deployment
 
@@ -277,6 +300,13 @@ zadctl env add -c <component> --deployment test KEY=waarde    # alleen voor test
   de componenten van de nieuwe deployment uitsluitend uit de `{reference, image}`-paren die de
   workflow meestuurt. Diensten op deploymentniveau (cross-domain-access, postgresql-database) worden
   wél gekopieerd — dat was de oorzaak van de preview-netwerkregels die naar `test` bleven wijzen.
+- **Hetzelfde geldt voor geheugen.** Op `test` stond de uitvraag (`mpfb-8wh`) op 733Mi, terwijl een
+  preview de componentwaarde kreeg: 196Mi, ooit door `resource tune` zo afgesteld. Bij een
+  ophaalronde over honderd organisaties herstartte de uitvraag op de preview daardoor midden in de
+  ronde; zichtbaar als een stroom die halverwege afbreekt en een readiness-check die even `503`
+  geeft. Lees bij twijfel de `resources` in het gerenderde manifest van béide deployments. Sinds
+  2026-10-14 staat 733Mi op componentniveau. Een volgende `resource tune` stemt af op het gebruik
+  van dat moment en kan de limiet weer laten krimpen; tune dus pas ná een volle fan-out.
 - **Een env-wijziging rolt direct uit:** OM rendert opnieuw en de pods herstarten binnen een minuut
   (gemeten 2026-09-16), ondanks dat de waarden via `envFrom` uit een secret komen zonder
   checksum-annotatie.
