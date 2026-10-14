@@ -1,6 +1,6 @@
 # Connectielimiet van de ZAD-database passend maken
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 Issue: MinBZK/MijnOverheidZakelijk#1210.
 
