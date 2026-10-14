@@ -298,6 +298,13 @@ zadctl env add -c <component> --deployment test KEY=waarde    # alleen voor test
   de componenten van de nieuwe deployment uitsluitend uit de `{reference, image}`-paren die de
   workflow meestuurt. Diensten op deploymentniveau (cross-domain-access, postgresql-database) worden
   wél gekopieerd — dat was de oorzaak van de preview-netwerkregels die naar `test` bleven wijzen.
+- **Hetzelfde geldt voor geheugen.** Op `test` stond de uitvraag (`mpfb-8wh`) op 733Mi, terwijl een
+  preview de componentwaarde kreeg: 196Mi, ooit door `resource tune` zo afgesteld. Bij een
+  ophaalronde over honderd organisaties herstartte de uitvraag op de preview daardoor midden in de
+  ronde; zichtbaar als een stroom die halverwege afbreekt en een readiness-check die even `503`
+  geeft. Lees bij twijfel de `resources` in het gerenderde manifest van béide deployments. Sinds
+  2026-10-14 staat 733Mi op componentniveau. Een volgende `resource tune` stemt af op het gebruik
+  van dat moment en kan de limiet weer laten krimpen; tune dus pas ná een volle fan-out.
 - **Een env-wijziging rolt direct uit:** OM rendert opnieuw en de pods herstarten binnen een minuut
   (gemeten 2026-09-16), ondanks dat de waarden via `envFrom` uit een secret komen zonder
   checksum-annotatie.

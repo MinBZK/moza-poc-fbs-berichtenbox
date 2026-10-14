@@ -149,7 +149,10 @@ Gemeten op `test` na de omzetting naar honderd (2026-10-14, één opwarmronde en
 `demo/meet-fanout.sh`): bij de ondernemer met honderd organisaties 89–91 keer OK, en elke uitvaller
 een magazijn dat bewust stukstaat — de twee time-outs zijn de twee magazijnen op *uit*. Geen
 `too many connections` bij één van de componenten; de simulatorpool piekte op 42, waar hij onder de
-oude grens op 18 bleef steken.
+oude grens op 18 bleef steken. Op de verse preview pr-373 gaf dezelfde meting 91 van de 100, met
+alleen bewust storende uitvallers, geen verbindingsfout en een poolpiek van 27 — pas nadat de uitvraag
+daar hetzelfde geheugen kreeg als op `test` (zie `docs/operations/zad-gitops.md`, "Hetzelfde geldt
+voor geheugen").
 
 Wat er werkelijk gebeurt, staat in de log — zie "Zicht op de connection pool" in
 `demo/magazijn-simulator/README.md`. Lokaal staat de database op 200 verbindingen en volstaat de
