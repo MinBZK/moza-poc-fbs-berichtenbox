@@ -240,8 +240,10 @@ uit.
 ## De database-rol van een deployment: de connection limit
 
 Elke deployment krijgt van OM één PostgreSQL-rol `<project>_<deployment>` (plus een `_ro`-rol) met
-een `CONNECTION LIMIT`. Die limiet zit op de rol en niet op de database: in `mpfm-w3h` delen
-`magazijna`, `magazijnb` (met hun logboek), `democonsole` en `magazijnsimulator` hem samen.
+een `CONNECTION LIMIT`. Een rol is in PostgreSQL het account waarmee een client inlogt; alle
+componenten van een deployment loggen in met dezelfde gebruikersnaam en hetzelfde wachtwoord. Die
+limiet zit op de rol en niet op de database of het component: in `mpfm-w3h` delen `magazijna`,
+`magazijnb` (met hun logboek), `democonsole` en `magazijnsimulator` hem samen.
 
 **Hij is een instelling van de dienst `postgresql-database`**, veld `connection-limit` (1–500,
 platformstandaard 20). Een deploymentwaarde wint van de projectwaarde, die wint van de standaard. OM

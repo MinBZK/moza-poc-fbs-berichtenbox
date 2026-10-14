@@ -130,10 +130,10 @@ zadctl env add -c magazijnsimulator \
 service die er honderd voorstelt, dus elke per-service-default komt op een honderdste van zijn
 bedoelde last uit; de meting daarachter staat in `docs/plans/2026-08-21-magazijn-simulator-design.md`
 onder "Meting (stap 6)". Op ZAD is niet de pool de bindende grens, maar de database-rol van de
-deployment.
+deployment: het PostgreSQL-account waarmee de componenten inloggen.
 
-**Elke deployment deelt één rol** met `magazijna`, `magazijnb` (met hun logboek) en `democonsole`, en
-die rol heeft een connection limit. Die staat in `mpfm-w3h` op projectniveau op honderd — de som van
+**Binnen een deployment deelt de simulator één rol** met `magazijna`, `magazijnb` (met hun logboek) en
+`democonsole`, en die rol heeft een connection limit. Die staat in `mpfm-w3h` op projectniveau op honderd — de som van
 de pools van die vier componenten — zodat elke verse preview hem erft;
 `docs/operations/zad-gitops.md` legt uit hoe hij is ingesteld en hoe een te krappe grens zich meldt.
 Een pool die ruimer is dan de rol toelaat helpt niet en verplaatst de storing alleen: gemeten met 120
