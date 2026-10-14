@@ -2,9 +2,8 @@
 
 **Status:** Uitgevoerd
 
-Issue: MinBZK/MijnOverheidZakelijk#1224. Gebaseerd op PR #371 (`fix/1004-berichtsleutel-per-magazijn`),
-omdat die dezelfde versieregel en dezelfde spec van de uitvraag wijzigt; PR #373 raakt geen van deze
-bestanden.
+Issue: MinBZK/MijnOverheidZakelijk#1224. Bouwt voort op PR #371 (gemerged), die de uitvraag-API naar
+0.5.0 bracht; deze wijziging brengt haar naar 0.6.0.
 
 ## Context
 
@@ -27,7 +26,14 @@ declareren het pad niet. Spectral geeft daarom op beide specs `paths-open-api-js
   zijn en dat het document paden bevat.
 - **CORS alleen op dit pad:** de resource zet `Access-Control-Allow-Origin: *`. Een `GET` zonder eigen
   headers is een simple request, dus een preflight is niet nodig. De globale CORS-policy blijft
-  ongewijzigd (magazijn: expliciet uit; uitvraag: niet geconfigureerd, dus uit).
+  ongewijzigd (magazijn: expliciet uit; uitvraag: niet geconfigureerd, dus uit). Bewust alleen simple
+  requests: een preflight krijgt de header niet en `API-Version` wordt niet exposed. De test stuurt een
+  `Origin` mee, zodat een later aangezette CORS-laag die het pad zou weigeren opvalt.
+- **Simulator genereert `Specificatie` niet.** `demo/magazijn-simulator` genereert uit de magazijn-spec;
+  per gesimuleerd magazijn hetzelfde document leveren voegt niets toe, dus `apisToGenerate` beperkt
+  zich tot `Aanlever,Berichten`.
+- **Twee identieke resources**, niet in fbs-common: om dezelfde reden als `SecurityHeadersRegistratie`
+  (geen HTTP-bedrading in een library met niet-HTTP-consumers).
 - **Nieuwe tag `Specificatie`** in beide specs. De uitvraag genereert alleen `Uitvraag`; die lijst krijgt
   `Specificatie` erbij.
 - **Versie:** een nieuw pad is een minor-wijziging: uitvraag 0.5.0 → 0.6.0, magazijn 0.4.0 → 0.5.0.

@@ -19,6 +19,10 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.SpecificatieApi
  * [OpenApiDocumentService] is een runtime-bean van Quarkus en geen gedocumenteerde API. Een
  * onbekende documentnaam levert stil een leeg document op; de test die beide paden vergelijkt,
  * vangt een wijziging daarin.
+ *
+ * Niet in fbs-common, om dezelfde reden als `SecurityHeadersRegistratie`: die library wordt
+ * ook gebruikt door consumers zonder HTTP-laag. De tegenhanger in het berichtenmagazijn is identiek
+ * en moet dat blijven.
  */
 @ApplicationScoped
 class SpecificatieResource(private val documenten: OpenApiDocumentService) : SpecificatieApi {
@@ -26,7 +30,9 @@ class SpecificatieResource(private val documenten: OpenApiDocumentService) : Spe
     override fun getOpenApiDocument(): Any =
         Response.ok(documenten.getDocument(STANDAARD_DOCUMENT, Format.JSON), MediaType.APPLICATION_JSON_TYPE)
             // Alleen op dit pad: het document is openbaar en tooling in de browser moet het kunnen
-            // lezen. De rest van de API houdt CORS dicht.
+            // lezen. De rest van de API houdt CORS dicht. Bewust alleen voor een simple request:
+            // een preflight (OPTIONS) krijgt deze header niet en `API-Version` wordt niet exposed,
+            // want een `GET` zonder eigen headers is alles wat tooling nodig heeft.
             .header("Access-Control-Allow-Origin", "*")
             .build()
 

@@ -34,6 +34,9 @@ class SpecificatieResourceTest {
     fun `het document onder het basisadres voldoet aan de spec`() {
         given()
             .filter(validator)
+            // Zoals een browser op een ander domein vraagt; zonder Origin bewijst de test alleen
+            // dat de resource de header zet, niet dat een CORS-laag ervoor hem laat staan.
+            .header("Origin", "https://elders.example")
             .`when`()
             .get("/api/v1/openapi.json")
             .then()

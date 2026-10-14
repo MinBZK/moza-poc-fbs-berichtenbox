@@ -436,31 +436,6 @@ paths:
         '502': { $ref: '#/components/responses/BadGateway' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /openapi.json:
-    get:
-      tags: [Specificatie]
-      summary: OpenAPI-document van deze API
-      description: |
-        Dit document, als JSON, op `/openapi.json` onder het basisadres
-        (ADR `/core/publish-openapi`). Vrij op te halen, ook vanuit een browser op een
-        ander domein: de response staat elke origin toe, de rest van de API niet.
-      operationId: getOpenApiDocument
-      responses:
-        '200':
-          description: Het OpenAPI-document
-          headers:
-            API-Version: { $ref: '#/components/headers/API-Version' }
-            # Kleine letters: de ADR-linter zoekt de header op precies deze sleutel.
-            access-control-allow-origin:
-              description: Altijd `*`, zodat tooling in de browser het document kan lezen.
-              schema: { type: string, enum: ['*'] }
-          content:
-            application/json:
-              schema:
-                type: object
-                description: OpenAPI-document (OpenAPI 3).
-        '500': { $ref: '#/components/responses/InternalServerError' }
-
   /aanmeldingen:
     post:
       tags: [Aanmeld]
@@ -488,6 +463,31 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /openapi.json:
+    get:
+      tags: [Specificatie]
+      summary: OpenAPI-document van deze API
+      description: |
+        Dit document, als JSON, op `/openapi.json` onder het basisadres
+        (ADR `/core/publish-openapi`). Vrij op te halen, ook vanuit een browser op een
+        ander domein: de response staat elke origin toe, de rest van de API niet.
+      operationId: getOpenApiDocument
+      responses:
+        '200':
+          description: Het OpenAPI-document
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+            # Kleine letters: de ADR-linter zoekt de header op precies deze sleutel.
+            access-control-allow-origin:
+              description: Altijd `*`, zodat tooling in de browser het document kan lezen.
+              schema: { type: string, enum: ['*'] }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: OpenAPI-document (OpenAPI 3).
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   parameters:
