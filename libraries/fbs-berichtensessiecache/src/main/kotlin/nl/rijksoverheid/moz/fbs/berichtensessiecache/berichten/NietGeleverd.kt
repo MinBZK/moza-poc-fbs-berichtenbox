@@ -16,14 +16,38 @@ data class NietGeleverd(
 )
 
 /**
+ * Een organisatie die in de laatste ophaalronde wél leverde, maar niet alles: er staat meer bij
+ * haar dan [aantalOpgehaald]. Net als bij [NietGeleverd] meldt de ophaalronde dat al, maar zonder
+ * deze vermelding oogt de lijst na verversen of bladeren weer volledig.
+ *
+ * [totaalBeschikbaar] is wat de organisatie zelf als totaal noemde, of null als ze geen bruikbaar
+ * totaal gaf; dan is alleen bekend dát er meer is.
+ */
+data class Afgekapt(
+    val magazijnId: String,
+    val naam: String,
+    val aantalOpgehaald: Int,
+    val totaalBeschikbaar: Long? = null,
+) {
+    init {
+        require(aantalOpgehaald >= 0) { "aantalOpgehaald mag niet negatief zijn" }
+
+        require(totaalBeschikbaar == null || totaalBeschikbaar > aantalOpgehaald) {
+            "totaalBeschikbaar moet groter zijn dan aantalOpgehaald, anders is er niets afgekapt"
+        }
+    }
+}
+
+/**
  * Hoe volledig de lijst is die bij de laatste ophaalronde hoort. Volledig betekent
- * [aantalNietGeleverd] `== 0`, níet een lege [nietGeleverd]: een ronde van vóórdat de namen
- * bewaard werden, telt wel wie niet leverde maar weet niet wie. Dan is [nietGeleverd] korter dan
- * [aantalNietGeleverd], en moet het portaal "mogelijk onvolledig" tonen zonder namen.
+ * [aantalNietGeleverd] `== 0` én een lege [afgekapt]. Het aantal is leidend en niet een lege
+ * [nietGeleverd]: het contract staat toe dat er minder namen zijn dan organisaties, en dan hoort
+ * het portaal "mogelijk onvolledig" te tonen zonder namen.
  */
 data class Volledigheid(
     val aantalNietGeleverd: Int,
     val nietGeleverd: List<NietGeleverd>,
+    val afgekapt: List<Afgekapt> = emptyList(),
 ) {
     init {
         require(aantalNietGeleverd >= 0) { "aantalNietGeleverd mag niet negatief zijn" }

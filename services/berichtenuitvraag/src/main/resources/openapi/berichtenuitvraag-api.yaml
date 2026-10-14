@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -119,8 +119,9 @@ paths:
         laat zich combineren met `_volgen`: voeg elk `bericht-bijgekomen` aan de set toe en
         pas filter, zoekterm en sortering opnieuw toe.
 
-        Dat een organisatie niets of niet alles leverde, staat niet in deze lijst maar in
-        de events van `_ophalen` (`status`, `afgekapt`).
+        Dat een organisatie niets of niet alles leverde, staat op elke pagina in
+        `nietGeleverd` en `afgekapt`: hetzelfde als de events van `_ophalen` meldden, maar
+        ook nog na verversen, bladeren of terugkomen binnen de sessie.
       operationId: getBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
@@ -588,7 +589,7 @@ components:
         Paginatie via HAL `_links.next`/`prev`. Aantallen (totalElements,
         totalPages) bewust niet opgenomen — frontend navigeert via links zonder
         absolute paginavoortgang.
-      required: [berichten, aantalNietGeleverd, nietGeleverd]
+      required: [berichten, aantalNietGeleverd, nietGeleverd, afgekapt]
       properties:
         berichten:
           type: array
@@ -599,7 +600,8 @@ components:
           description: |
             Hoeveel organisaties in de laatste ophaalronde niet leverden. Hun berichten
             ontbreken in deze lijst, en daarmee ook de mappen waar die in staan: een
-            mappenoverzicht dat uit deze lijst is afgeleid, is pas volledig bij `0`. Geldt
+            mappenoverzicht dat uit deze lijst is afgeleid, is pas volledig bij `0` én een
+            lege `afgekapt`. Geldt
             voor de hele lijst en staat daarom op elke pagina, ook na verversen of bladeren —
             het voortgangsbericht van het ophalen is dan al lang weg.
         nietGeleverd:
@@ -607,9 +609,18 @@ components:
           description: |
             Welke organisaties dat waren, gesorteerd op naam. Meestal zijn dat er precies
             `aantalNietGeleverd`, maar het kunnen er minder zijn als niet van elke organisatie
-            bekend is welke het was. Lees volledigheid dus af aan `aantalNietGeleverd`, niet
-            aan een lege lijst.
+            bekend is welke het was. Lees volledigheid dus af aan `aantalNietGeleverd` en
+            `afgekapt`, niet aan een lege `nietGeleverd`.
           items: { $ref: '#/components/schemas/NietGeleverdeOrganisatie' }
+        afgekapt:
+          type: array
+          description: |
+            Organisaties die in de laatste ophaalronde wél leverden, maar niet alles: bij hen
+            staat meer dan deze lijst bevat. Gesorteerd op naam; leeg als elke organisatie die
+            leverde alles leverde. Een mappenoverzicht dat uit deze lijst is afgeleid, kan dan een
+            map missen. Net als `nietGeleverd` geldt dit voor de hele lijst en staat het op elke
+            pagina. Toon het: anders lijkt een afgekapte lijst een volledige lijst.
+          items: { $ref: '#/components/schemas/AfgekapteOrganisatie' }
         _links:
           $ref: '#/components/schemas/PaginaLinks'
 
@@ -623,6 +634,30 @@ components:
         magazijnId: { $ref: '#/components/schemas/MagazijnId' }
         naam: { $ref: '#/components/schemas/MagazijnNaam' }
         status: { $ref: '#/components/schemas/MagazijnStatus' }
+
+    AfgekapteOrganisatie:
+      type: object
+      description: |
+        Een organisatie die in de laatste ophaalronde niet alles leverde. Haar
+        `magazijn-bevraging-voltooid`-event had status `OK` en `afgekapt: true`.
+      required: [magazijnId, naam, aantalOpgehaald]
+      properties:
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        naam: { $ref: '#/components/schemas/MagazijnNaam' }
+        aantalOpgehaald:
+          type: integer
+          minimum: 0
+          description: |
+            Hoeveel berichten deze organisatie in de laatste ophaalronde leverde; hetzelfde getal
+            als `aantalBerichten` in haar `magazijn-bevraging-voltooid`-event. Wordt niet
+            bijgewerkt als er binnen de sessie een bericht bijkomt of verdwijnt.
+        totaalBeschikbaar:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            Wat de organisatie zelf als totaal meldde; altijd groter dan `aantalOpgehaald`.
+            Ontbreekt als ze geen bruikbaar totaal gaf — dan is alleen bekend dát er meer is.
 
     BerichtSamenvatting:
       type: object

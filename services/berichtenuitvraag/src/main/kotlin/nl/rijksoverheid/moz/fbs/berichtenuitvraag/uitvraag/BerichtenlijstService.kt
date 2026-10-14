@@ -61,13 +61,14 @@ class BerichtenlijstService(
 
     /**
      * Een pagina zonder volledigheid is een fout in de facade, geen volledige lijst. Hard falen, want
-     * `aantalNietGeleverd = 0` zou de ondernemer vertellen dat hij alles ziet.
+     * `aantalNietGeleverd = 0` en een lege `afgekapt` zouden de ondernemer vertellen dat hij alles ziet.
      */
     private fun BerichtenLijst.vulVolledigheid(pagina: BerichtenPagina) {
         val volledigheid = checkNotNull(pagina.volledigheid) { "facade leverde een pagina zonder volledigheid" }
 
         aantalNietGeleverd = volledigheid.aantalNietGeleverd
         nietGeleverd = volledigheid.nietGeleverd.map { UitvraagDtoMapper.toApiNietGeleverd(it) }
+        afgekapt = volledigheid.afgekapt.map { UitvraagDtoMapper.toApiAfgekapt(it) }
     }
 
     private fun toApiSamenvatting(samenvatting: DomeinSamenvatting) =

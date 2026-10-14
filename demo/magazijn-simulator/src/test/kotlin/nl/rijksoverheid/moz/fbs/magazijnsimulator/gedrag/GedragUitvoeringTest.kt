@@ -139,6 +139,16 @@ class GedragUitvoeringTest {
      * nooit, terwijl het overzicht "hapert" blijft melden. Dat is geen instelling maar een leugen,
      * en het type laat hem daarom niet meer maken.
      */
+    /** Onvolledig zit in het totaal, niet in de responstijd of een fout: hij valt nooit om. */
+    @Test
+    fun `een onvolledig magazijn valt nooit om en is niet trager dan gezond`() {
+        val uitvoering = GedragUitvoering()
+        val onvolledig = Gedrag.standaardVoor(GedragModus.ONVOLLEDIG)
+
+        assertTrue(List(20) { uitvoering.valtOm(OIN, onvolledig) }.none { it })
+        assertThrows<IllegalArgumentException> { Gedrag(GedragModus.ONVOLLEDIG, latencyP50Ms = 300, latencyP95Ms = 300) }
+    }
+
     @Test
     fun `haperen zonder foutkans is geen geldig gedrag`() {
         assertThrows<IllegalArgumentException> { Gedrag(GedragModus.HAPERT, foutkans = 0.0) }

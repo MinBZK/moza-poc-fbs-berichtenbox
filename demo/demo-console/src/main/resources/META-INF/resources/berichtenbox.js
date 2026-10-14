@@ -260,6 +260,7 @@ async function laadLijst() {
 
     if (respons.status === 409) {
       alleBerichten = [];
+      toonVolledigheid(null);
       toonLeeg('Nog niet opgehaald — klik op Ophalen.');
 
       return;
@@ -267,6 +268,7 @@ async function laadLijst() {
 
     if (!respons.ok) {
       if (verzameld.length === 0) {
+        toonVolledigheid(null);
         toonLeeg(`Lijst laden mislukt (${await foutTekst(respons)}).`, true);
 
         return;
@@ -277,6 +279,9 @@ async function laadLijst() {
 
     const lijst = await respons.json();
 
+    // Volledigheid geldt voor de hele lijst en staat op elke pagina; de eerste volstaat.
+    if (paginas === 0) toonVolledigheid(lijst);
+
     verzameld.push(...(lijst.berichten || []));
     pad = volgendePad(lijst);
     paginas += 1;
@@ -284,6 +289,32 @@ async function laadLijst() {
 
   alleBerichten = verzameld;
   herteken();
+}
+
+// Uit de lijst zelf, niet uit de voortgangsregels: die beschrijven alleen de ronde die in dit
+// tabblad liep, en zijn er niet na het herladen van de pagina of in een ander tabblad.
+function toonVolledigheid(lijst) {
+  const vak = el('volledigheid');
+  const delen = [];
+
+  if (lijst) {
+    const afgekapt = (lijst.afgekapt || []).map((organisatie) => {
+      const van = typeof organisatie.totaalBeschikbaar === 'number' ? ` van ${organisatie.totaalBeschikbaar}` : '';
+
+      return `${organisatie.naam || organisatie.magazijnId} (${organisatie.aantalOpgehaald}${van})`;
+    });
+    const nietGeleverd = (lijst.nietGeleverd || []).map((organisatie) => organisatie.naam || organisatie.magazijnId);
+    const zonderNaam = (lijst.aantalNietGeleverd || 0) - nietGeleverd.length;
+
+    if (afgekapt.length > 0) delen.push(`Niet alles opgehaald bij: ${afgekapt.join(', ')}.`);
+
+    if (nietGeleverd.length > 0) delen.push(`Niet geleverd door: ${nietGeleverd.join(', ')}.`);
+
+    if (zonderNaam > 0) delen.push(`${zonderNaam} organisatie${zonderNaam === 1 ? '' : 's'} leverde${zonderNaam === 1 ? '' : 'n'} niet.`);
+  }
+
+  vak.textContent = delen.join(' ');
+  toon(vak, delen.length > 0);
 }
 
 // Her-rendert zijbalk + lijst uit de in-memory array (na laden, sorteren, filteren of actie).
@@ -552,6 +583,7 @@ function wisPersonaState() {
 
 el('persona').addEventListener('change', () => {
   wisPersonaState();
+  toonVolledigheid(null);
   toon(el('voortgang'), false);
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
 });

@@ -724,6 +724,11 @@ internal class BerichtensessiecacheService(
         is MagazijnResult.Success -> {
             alleBerichten.addAll(result.berichten)
             tellers.geslaagd.incrementAndGet()
+
+            if (result.afgekapt) {
+                tellers.afgekapt.add(Afgekapt(result.magazijnId, result.naam, result.berichten.size, result.totaalBeschikbaar))
+            }
+
             MagazijnBevragingGeslaagd(
                 magazijnId = result.magazijnId,
                 naam = result.naam,
@@ -833,6 +838,7 @@ internal class BerichtensessiecacheService(
                     mislukt = tellers.mislukt.get(),
                     nietOpgehaald = tellers.nietOpgehaald.get(),
                     nietGeleverd = tellers.nietGeleverd.sortedWith(compareBy({ it.naam }, { it.magazijnId })),
+                    afgekapt = tellers.afgekapt.sortedWith(compareBy({ it.naam }, { it.magazijnId })),
                 )
 
                 // Parallel: store(berichten) en storeAggregationStatus(GEREED) hebben
@@ -1178,6 +1184,7 @@ internal class RondeTellers {
 
     /** De bevragingen lopen parallel af, dus een thread-veilige verzameling. */
     val nietGeleverd = ConcurrentLinkedQueue<NietGeleverd>()
+    val afgekapt = ConcurrentLinkedQueue<Afgekapt>()
 
     /** Boekt één mislukte uitkomst op de teller die bij zijn status hoort. */
     fun tel(fout: MagazijnFoutStatus) {
