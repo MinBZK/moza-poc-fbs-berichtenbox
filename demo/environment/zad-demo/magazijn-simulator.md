@@ -126,33 +126,33 @@ zadctl env add -c magazijnsimulator \
   BEHEER_TOKEN=<geheim>
 ```
 
-`DB_POOL_MAX` staat hier wél, en per laag verschillend. De simulator is één service die er honderd
-voorstelt, dus elke per-service-default komt op een honderdste van zijn bedoelde last uit; de meting
-daarachter staat in `docs/plans/2026-08-21-magazijn-simulator-design.md` onder "Meting (stap 6)".
-Maar op ZAD is niet de pool de bindende grens, maar de database-rol van de deployment.
+`DB_POOL_MAX` staat hier bewust niet: de default van vijftig geldt ook op ZAD. De simulator is één
+service die er honderd voorstelt, dus elke per-service-default komt op een honderdste van zijn
+bedoelde last uit; de meting daarachter staat in `docs/plans/2026-08-21-magazijn-simulator-design.md`
+onder "Meting (stap 6)". Op ZAD is niet de pool de bindende grens, maar de database-rol van de
+deployment: het PostgreSQL-account waarmee de componenten inloggen.
 
-**Elke deployment deelt één rol van twintig verbindingen** met `magazijna`, `magazijnb` (met hun
-logboek) en `democonsole`. Dat getal staat vast in de Operations Manager en geldt opnieuw voor elke
-verse preview; `docs/operations/zad-gitops.md` legt uit hoe het zich meldt en wat ZAD eraan doet. Een
-pool die ruimer is dan de rol toelaat helpt niet en verplaatst de storing alleen: gemeten met 120 op
-een database van twintig vielen van zestig gelijktijdige bevragingen er vijf om met "sorry, too many
-clients already", en die weigering telt niet mee in de tellers van de pool — van binnen ziet hij er
-dan gezond uit.
+**Binnen een deployment deelt de simulator één rol** met `magazijna`, `magazijnb` (met hun logboek) en
+`democonsole`, en die rol heeft een connection limit. Die staat in `mpfm-w3h` op projectniveau op honderd — de som van
+de pools van die vier componenten — zodat elke verse preview hem erft;
+`docs/operations/zad-gitops.md` legt uit hoe hij is ingesteld en hoe een te krappe grens zich meldt.
+Een pool die ruimer is dan de rol toelaat helpt niet en verplaatst de storing alleen: gemeten met 120
+op een database van twintig vielen van zestig gelijktijdige bevragingen er vijf om met "sorry, too
+many clients already", en die weigering telt niet mee in de tellers van de pool — van binnen ziet hij
+er dan gezond uit. Verhoog `DB_POOL_MAX` dus nooit zonder de limiet van de rol mee te verhogen.
 
-Daarom staat de waarde op ZAD in twee lagen:
+Tot oktober 2026 stond de rol op een vaste twintig en draaiden previews met `DB_POOL_MAX=10`: op
+pr-315 (2026-09-16) gaf dat 89–91 keer OK, 7–9 keer een bewust stukgezet magazijn en 2 time-outs, met
+wachttijden op een connection tot 4,4 s.
 
-```bash
-zadctl env add -c magazijnsimulator DB_POOL_MAX=10                      # elke preview
-zadctl env add -c magazijnsimulator --deployment test DB_POOL_MAX=50    # test houdt zijn ruimte
-```
-
-Tien past binnen de twintig van een preview en laat de rest over voor A, B en de console. Op `test`
-blijft vijftig staan: die rol is ooit met de hand opgehoogd en haalt een volle fan-out zonder
-wachtenden. Gemeten op preview pr-315 (2026-09-16) met tien: een ophaalronde over 98 gesimuleerde
-magazijnen gaf 89–91 keer OK, 7–9 keer een magazijn dat bewust stukstaat en 2 time-outs, in 11–12
-seconden, zonder één verbindingsfout. Wachten op een connection kostte gemiddeld 0,3–0,7 s en piekte
-op 4,4 s — dat is de prijs van een kleine pool. Hoger dan veertien kan niet zonder de rest van het
-budget op te eten.
+Gemeten op `test` na de omzetting naar honderd (2026-10-14, één opwarmronde en drie meetrondes met
+`demo/meet-fanout.sh`): bij de ondernemer met honderd organisaties 89–91 keer OK, en elke uitvaller
+een magazijn dat bewust stukstaat — de twee time-outs zijn de twee magazijnen op *uit*. Geen
+`too many connections` bij één van de componenten; de simulatorpool piekte op 42, waar hij onder de
+oude grens op 18 bleef steken. Op de verse preview pr-373 gaf dezelfde meting 91 van de 100, met
+alleen bewust storende uitvallers, geen verbindingsfout en een poolpiek van 27 — pas nadat de uitvraag
+daar hetzelfde geheugen kreeg als op `test` (zie `docs/operations/zad-gitops.md`, "Hetzelfde geldt
+voor geheugen").
 
 Wat er werkelijk gebeurt, staat in de log — zie "Zicht op de connection pool" in
 `demo/magazijn-simulator/README.md`. Lokaal staat de database op 200 verbindingen en volstaat de
@@ -396,8 +396,7 @@ en geen geheugenprobleem.
 Op `test` staat het component op `requests 256Mi / 50m` en `limits 768Mi / 1`, en de tune liet die
 staan; bij een volle fan-out meldt de poolregel daar `piek 37 ... van max 50, 0 wachtend`. Geheugen is
 op die schaal dus niet de grens — gebruik die getallen als vergelijkingspunt en niet als voorschrift.
-Een preview draait op dezelfde resources maar op `DB_POOL_MAX=10`, en meldt dan `piek 10 ... van max
-10` met wachttijden tot enkele seconden. Dat is bedoeld en geen storing.
+Een preview draait op dezelfde resources en dezelfde pool, en hoort hetzelfde beeld te geven.
 
 **Meet nooit de eerste ronde na een herstart.** Elke uitrol herstart de simulator, en twee minuten
 daarna viel op pr-315 de hele fan-out in time-outs; een paar minuten later liep dezelfde ronde in 11
