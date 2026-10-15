@@ -136,7 +136,7 @@ een herhaalstap (stap B).
 "Groen maar draait niet" kost meer dan een rode job, zie de aanleiding. Alternatief was een eigen
 `zadctl deployment describe`-wachtstap na elke deploy-stap: tien keer meer code met polling, en
 die stap zou overdoen wat OM al meldt. Voor de Kyverno-helft (zie "Waar de controle ontbreekt") is
-zo'n controle wel de enige weg; dat vervolg staat in #1327.
+zo'n controle wel de enige weg; dat vervolg staat in MinBZK/MijnOverheidZakelijk#1327.
 
 ## Verificatie
 
