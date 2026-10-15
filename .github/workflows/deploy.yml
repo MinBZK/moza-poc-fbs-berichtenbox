@@ -123,6 +123,19 @@ permissions: read-all
 
 env:
   REGISTRY: ghcr.io
+  # De eigen images, per build-job die ze publiceert (`build` op zijn matrix-waarde). Elke build-job
+  # vraagt als laatste stap het register naar precies deze namen; een `BUILD SUCCESS` zegt niet dat
+  # er iets gepubliceerd is. Elke componentenlijst hieronder mag alleen namen uit deze lijst noemen —
+  # test-images-gepubliceerd.sh bewaakt dat, en dat elke sleutel door één controlestap gelezen wordt.
+  EIGEN_IMAGES: >-
+    {
+      "berichtenuitvraag": ["fbs-berichtenuitvraag"],
+      "berichtenmagazijn": ["fbs-berichtenmagazijn"],
+      "stelselregister": ["fbs-stelselregister"],
+      "externe-stubs": ["fbs-externe-stubs", "fbs-demo-profiel"],
+      "contract-bootstrap": ["fbs-fsc-contract-bootstrap"],
+      "demo-images": ["fbs-demo-console", "fbs-demo-personas", "fbs-magazijn-simulator"]
+    }
   PROJECT_UITVRAAG: mpfb-8wh
   PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
@@ -486,6 +499,21 @@ jobs:
             -Dquarkus.container-image.tag="$TAG" \
             -Dquarkus.container-image.username="$GHCR_USER"
 
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)[matrix.service], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+
   # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
   # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
   #
@@ -579,6 +607,21 @@ jobs:
           echo "Fan-out geverifieerd: Landelijk Concern kent $scopes organisaties."
           docker push "$DEMO_IMG"
 
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)['externe-stubs'], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
   # interne manager-API heeft daar geen route en de tenant-baseline-NetworkPolicy laat alleen
   # verkeer binnen hetzelfde deployment toe. Eén image, twee rollen — welke, leest het entrypoint
@@ -615,6 +658,21 @@ jobs:
           # Context is demo/environment/ en niet de contracts-map: de scripts leunen op ../../lib.
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
+
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)['contract-bootstrap'], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # De drie demo-modules met een eigen image: het bedieningspaneel, de personadienst en de
   # magazijn-simulator. Alle drie componenten van `test` in het magazijnen-project, dus ze rollen
@@ -667,6 +725,21 @@ jobs:
             -Dquarkus.container-image.group="$GROUP" \
             -Dquarkus.container-image.tag="$TAG" \
             -Dquarkus.container-image.username="$GHCR_USER"
+
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)['demo-images'], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # De vier toetsende workflows draaien als aangeroepen (`workflow_call`) job ín deze workflow,
   # zodat de deploy er met `needs:` aan kan hangen. Vóór #173 draaiden ze zelfstandig en wachtte

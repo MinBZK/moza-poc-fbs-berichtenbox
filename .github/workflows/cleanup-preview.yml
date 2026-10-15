@@ -482,9 +482,9 @@ jobs:
 
           # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
-          # gelijkgenummerde PR in een andere repo kunnen wissen. Houd deze lijst in sync met
-          # de `build`-matrix, `build-externe-stubs`, `build-contract-bootstrap` en
-          # `build-demo-images` in deploy.yml; een vergeten package laat weesversies achter.
+          # gelijkgenummerde PR in een andere repo kunnen wissen. Dezelfde namen als `EIGEN_IMAGES`
+          # in deploy.yml; een vergeten package laat weesversies achter, en
+          # test-images-gepubliceerd.sh faalt zodra de twee uit elkaar lopen.
           #
           # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
           # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
