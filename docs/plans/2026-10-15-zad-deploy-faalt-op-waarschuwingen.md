@@ -46,7 +46,7 @@ Wat dit plan níet vangt: resources die bij de Argo-sync niet ontstaan. In de aa
 alleen `uitvraag (image_pull)`; dat `pr-376-redis` en de Services ontbraken door de Kyverno-time-out
 stond niet in de waarschuwing. Zonder die image-pull was de job ook met `--strict` groen gebleven.
 Een gezondheidscontrole per component (sync- en health-status uit `zadctl deployment describe`)
-is een eigen vervolg, buiten dit plan.
+is een eigen vervolg, buiten dit plan: [MinBZK/MijnOverheidZakelijk#1327](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1327).
 
 ## Ontwerp
 
@@ -136,7 +136,7 @@ een herhaalstap (stap B).
 "Groen maar draait niet" kost meer dan een rode job, zie de aanleiding. Alternatief was een eigen
 `zadctl deployment describe`-wachtstap na elke deploy-stap: tien keer meer code met polling, en
 die stap zou overdoen wat OM al meldt. Voor de Kyverno-helft (zie "Waar de controle ontbreekt") is
-zo'n controle wel de enige weg; dat vervolg krijgt een eigen issue.
+zo'n controle wel de enige weg; dat vervolg staat in #1327.
 
 ## Verificatie
 
