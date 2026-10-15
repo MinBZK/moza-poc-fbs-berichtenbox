@@ -28,6 +28,7 @@ branch-state laat Surefire stale `.class`-bestanden draaien, wat misleidende fou
 ongewijzigde code.
 
 ```bash
+./mvnw clean test -pl libraries/fbs-kern -am                  # pure JVM
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
 ./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker

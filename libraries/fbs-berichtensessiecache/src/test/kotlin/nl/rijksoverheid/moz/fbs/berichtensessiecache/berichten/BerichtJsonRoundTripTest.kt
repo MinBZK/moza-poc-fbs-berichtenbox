@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Rsin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue

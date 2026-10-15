@@ -5,8 +5,8 @@ import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.ext.Provider
-import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageContentDisposition
-import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageMediaType
+import nl.rijksoverheid.moz.fbs.kern.bijlage.BijlageContentDisposition
+import nl.rijksoverheid.moz.fbs.kern.bijlage.BijlageMediaType
 import org.jboss.logging.Logger
 
 /**

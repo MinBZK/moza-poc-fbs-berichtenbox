@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnregister
 
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import java.net.URI
 
 /**

@@ -11,6 +11,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
 import java.time.Instant
@@ -94,7 +95,7 @@ internal class BerichtEntity {
     // verandert de opgeslagen betekenis dan niet stilzwijgend.
     @Column(name = "ontvanger_type", nullable = false, length = 8)
     @Enumerated(EnumType.STRING)
-    var ontvangerType: IdentificatieType = IdentificatieType.OIN
+    var ontvangerType: IdentificatienummerType = IdentificatienummerType.OIN
 
     @Column(name = "ontvanger_waarde", nullable = false, length = 20)
     var ontvangerWaarde: String = ""

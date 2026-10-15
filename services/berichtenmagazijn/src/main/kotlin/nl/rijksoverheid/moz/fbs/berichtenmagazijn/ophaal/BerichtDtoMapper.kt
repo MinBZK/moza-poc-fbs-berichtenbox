@@ -15,7 +15,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht as BerichtDt
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtKop
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatus
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.PagedBerichten
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata as DomainBijlageMetadata
 import java.util.UUID

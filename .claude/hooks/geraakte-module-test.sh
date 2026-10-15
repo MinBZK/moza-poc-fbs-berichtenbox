@@ -37,6 +37,7 @@ fi
 module=""
 
 for kandidaat in \
+    libraries/fbs-kern \
     libraries/fbs-common \
     libraries/fbs-magazijnregister \
     libraries/fbs-berichtensessiecache \
@@ -59,10 +60,10 @@ if [[ -z "$module" ]]; then
     exit 0
 fi
 
-# Deze twee booten geen Quarkus en hebben geen container nodig: enkele seconden, dus we draaien ze.
+# Deze drie booten geen Quarkus en hebben geen container nodig: enkele seconden, dus we draaien ze.
 snel=false
 
-if [[ "$module" == "libraries/fbs-common" || "$module" == "libraries/fbs-magazijnregister" ]]; then
+if [[ "$module" == "libraries/fbs-kern" || "$module" == "libraries/fbs-common" || "$module" == "libraries/fbs-magazijnregister" ]]; then
     snel=true
 fi
 

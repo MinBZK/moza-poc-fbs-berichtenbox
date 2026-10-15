@@ -1,7 +1,7 @@
-package nl.rijksoverheid.moz.fbs.common.identificatie
+package nl.rijksoverheid.moz.fbs.kern.identificatie
 
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
-import nl.rijksoverheid.moz.fbs.common.exception.requireValid
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.exception.requireValid
 import java.security.MessageDigest
 import java.util.HexFormat
 
@@ -46,11 +46,11 @@ sealed interface Identificatienummer {
 
         /**
          * Leest een `X-Ontvanger` header in formaat `<TYPE>:<WAARDE>` en bouwt
-         * er een getypeerd [Identificatienummer] van. De header is op spec-niveau
-         * al gevalideerd (regex per type, zie `OntvangerHeader` in de OpenAPI-spec)
-         * door de JAX-RS Bean Validation annotaties op de gegenereerde interface;
-         * deze functie zet om naar het domein-model en delegeert verdere
-         * type-invarianten (elfproef, niet-geheel-nullen) aan [of].
+         * er een getypeerd [Identificatienummer] van. Achter een gegenereerde
+         * interface is de header al op spec-niveau gevalideerd (regex per type, zie
+         * `OntvangerHeader` in de OpenAPI-spec); niet elke aanroeper heeft die laag,
+         * dus deze functie dwingt de vorm zelf af en delegeert de type-invarianten
+         * (elfproef, niet-geheel-nullen) aan [of].
          * Gooit [DomainValidationException] bij ongeldige invoer.
          */
         fun fromHeader(header: String): Identificatienummer {
@@ -59,11 +59,14 @@ sealed interface Identificatienummer {
                 "X-Ontvanger header moet in formaat <TYPE>:<WAARDE> zijn"
             }
 
-            val type = try {
-                IdentificatienummerType.valueOf(parts[0])
-            } catch (ex: IllegalArgumentException) {
-                throw DomainValidationException("Onbekend identificatienummer-type: ${parts[0]}", ex)
-            }
+            // Lookup via `entries` en niet via `valueOf`: die melding noemt de aangeboden tekst,
+            // ook als cause. Zonder spec-regex ervoor zou een omgedraaide `123456782:BSN` zo een
+            // BSN in foutmelding en log zetten.
+            val type = IdentificatienummerType.entries.firstOrNull { it.name == parts[0] }
+                ?: throw DomainValidationException(
+                    "Onbekend identificatienummer-type; toegestaan: ${IdentificatienummerType.entries.joinToString()}",
+                )
+
             return of(type, parts[1])
         }
     }

@@ -8,7 +8,7 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkOpslag
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.hamcrest.Matchers.hasSize
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -75,7 +75,7 @@ class OpstartvullingOpnieuwTest : MagazijnTestBasis() {
             eerste.dbId,
             DemoBerichten.voor(
                 magazijnOin = eerste.oin,
-                ontvanger = Identificatie.uitHeader(ANDERE_ONTVANGER),
+                ontvanger = Identificatienummer.fromHeader(ANDERE_ONTVANGER),
                 aantal = 1,
                 bijlageElke = 0,
                 nu = klok.instant(),

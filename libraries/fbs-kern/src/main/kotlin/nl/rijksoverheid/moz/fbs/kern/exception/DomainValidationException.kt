@@ -1,12 +1,15 @@
-package nl.rijksoverheid.moz.fbs.common.exception
+package nl.rijksoverheid.moz.fbs.kern.exception
 
 /**
  * Marker-exception voor domein-validatiefouten afkomstig van expliciete checks in
  * domeinobjecten (bv. init-blocks van value objects). Alleen deze exception mag
- * veilig een door de developer geschreven boodschap aan de client exposen
- * (zie [DomainValidationExceptionMapper] → 400). Generieke [IllegalArgumentException]s
- * uit dependencies/JDK worden behandeld als programmeerfout en krijgen een
- * 500-response met correlation-id via [UncaughtExceptionMapper].
+ * veilig een door de developer geschreven boodschap aan de client exposen: een
+ * dienst die hem afvangt, vertaalt hem naar een 400. Generieke [IllegalArgumentException]s uit
+ * dependencies/JDK worden behandeld als programmeerfout en krijgen een 500 met
+ * correlation-id — anders zou een interne fout zich als clientfout voordoen.
+ *
+ * De boodschap gaat dus ongesaneerd naar de client: interpoleer geen aangeboden
+ * waarde (BSN, header-inhoud) in de melding.
  */
 class DomainValidationException(message: String, cause: Throwable? = null) :
     IllegalArgumentException(message, cause)

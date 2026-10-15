@@ -5,9 +5,9 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Rsin
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -1148,7 +1148,7 @@ class RedisBerichtenCacheIntegrationTest {
         assertNull(hersteld.map)
     }
 
-    private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
+    private fun berichtVoor(ontvanger: nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer, onderwerp: String, magazijnId: String) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = "00000001234567890000",
         afzenderNaam = "Magazijn A",

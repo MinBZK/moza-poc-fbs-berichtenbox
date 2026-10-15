@@ -1,5 +1,8 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag
 
+import nl.rijksoverheid.moz.fbs.kern.exception.requireValid
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import java.time.Instant
 import java.util.UUID
 
@@ -13,8 +16,8 @@ import java.util.UUID
  */
 data class Bericht(
     val berichtId: UUID,
-    val afzender: Identificatie,
-    val ontvanger: Identificatie,
+    val afzender: Oin,
+    val ontvanger: Identificatienummer,
     val onderwerp: String,
     val inhoud: String,
     val tijdstipOntvangst: Instant,
@@ -24,12 +27,13 @@ data class Bericht(
     val status: BerichtStatus? = null,
 ) {
     init {
-        vereis(afzender.type == IdentificatieType.OIN) { "Afzender moet een OIN zijn" }
-        vereis(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
-        vereis(onderwerp.length <= MAX_ONDERWERP_LENGTE) {
+        requireValid(onderwerp.isNotBlank()) { "Onderwerp mag niet leeg zijn" }
+
+        requireValid(onderwerp.length <= MAX_ONDERWERP_LENGTE) {
             "Onderwerp mag maximaal $MAX_ONDERWERP_LENGTE tekens zijn"
         }
-        vereis(inhoud.isNotBlank()) { "Inhoud mag niet leeg zijn" }
+
+        requireValid(inhoud.isNotBlank()) { "Inhoud mag niet leeg zijn" }
 
         // De grens is in UTF-8 bytes, niet in tekens: een emoji van vier bytes hoort vier keer zo
         // zwaar te tellen. De goedkope voorcheck voorkomt dat elke aanlevering een megabyte
@@ -37,14 +41,14 @@ data class Bericht(
         if (inhoud.length > MAX_INHOUD_BYTES / MAX_BYTES_PER_TEKEN) {
             val bytes = inhoud.toByteArray(Charsets.UTF_8).size
 
-            vereis(bytes <= MAX_INHOUD_BYTES) {
+            requireValid(bytes <= MAX_INHOUD_BYTES) {
                 "Inhoud mag maximaal ${MAX_INHOUD_BYTES / 1024 / 1024} MiB UTF-8 zijn (kreeg $bytes bytes)"
             }
         }
 
         // Volledige identiteit vergelijken: twee types met dezelfde cijferreeks zijn verschillende
         // identificatienummers.
-        vereis(afzender != ontvanger) { "Afzender en ontvanger mogen niet hetzelfde nummer hebben" }
+        requireValid(afzender != ontvanger) { "Afzender en ontvanger mogen niet hetzelfde nummer hebben" }
     }
 
     companion object {
@@ -87,8 +91,9 @@ data class BerichtStatus(
         fun valideerMapnaam(map: String?) {
             if (map == null) return
 
-            vereis(map.isNotBlank()) { "Mapnaam mag niet leeg zijn" }
-            vereis(map.length <= MAX_MAPNAAM_LENGTE) {
+            requireValid(map.isNotBlank()) { "Mapnaam mag niet leeg zijn" }
+
+            requireValid(map.length <= MAX_MAPNAAM_LENGTE) {
                 "Mapnaam mag maximaal $MAX_MAPNAAM_LENGTE tekens zijn"
             }
         }
@@ -141,9 +146,12 @@ data class Bijlage(
     val inhoud: ByteArray,
 ) {
     init {
-        vereis(inhoud.isNotEmpty()) { "Bijlage mag niet leeg zijn" }
-        vereis(inhoud.size <= MAX_INHOUD_BYTES) {
-            "Bijlage mag maximaal ${MAX_INHOUD_BYTES / 1024 / 1024} MiB zijn (kreeg ${inhoud.size} bytes)"
+        requireValid(inhoud.isNotEmpty()) { "Bijlage mag niet leeg zijn" }
+
+        val bytes = inhoud.size
+
+        requireValid(bytes <= MAX_INHOUD_BYTES) {
+            "Bijlage mag maximaal ${MAX_INHOUD_BYTES / 1024 / 1024} MiB zijn (kreeg $bytes bytes)"
         }
     }
 
@@ -178,11 +186,11 @@ data class Bijlage(
          * `Content-Type` van te maken is.
          */
         fun valideerVorm(naam: String, mimeType: String) {
-            vereis(naam.isNotBlank()) { "Bijlagenaam mag niet leeg zijn" }
-            vereis(naam.length <= MAX_NAAM_LENGTE) { "Bijlagenaam mag maximaal $MAX_NAAM_LENGTE tekens zijn" }
-            vereis(mimeType.isNotBlank()) { "MIME-type mag niet leeg zijn" }
-            vereis(mimeType.length <= MAX_MIME_LENGTE) { "MIME-type mag maximaal $MAX_MIME_LENGTE tekens zijn" }
-            vereis(MEDIATYPE_VORM.matches(mimeType)) { "MIME-type hoort de vorm type/subtype te hebben" }
+            requireValid(naam.isNotBlank()) { "Bijlagenaam mag niet leeg zijn" }
+            requireValid(naam.length <= MAX_NAAM_LENGTE) { "Bijlagenaam mag maximaal $MAX_NAAM_LENGTE tekens zijn" }
+            requireValid(mimeType.isNotBlank()) { "MIME-type mag niet leeg zijn" }
+            requireValid(mimeType.length <= MAX_MIME_LENGTE) { "MIME-type mag maximaal $MAX_MIME_LENGTE tekens zijn" }
+            requireValid(MEDIATYPE_VORM.matches(mimeType)) { "MIME-type hoort de vorm type/subtype te hebben" }
         }
 
         /**

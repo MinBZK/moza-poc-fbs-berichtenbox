@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.common.profiel
 
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 
 /**
  * Helpers rond `PartijResponse`-interpretatie. Bron van waarheid voor de

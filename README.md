@@ -42,7 +42,8 @@ De belangrijkste paden:
 | `services/berichtenmagazijn/`         | Magazijn-service (PostgreSQL + Flyway, Aanlever-API)                             |
 | `services/berichtenuitvraag/`         | Uitvraag-service (frontend-API, aggregatie, SSE)                                 |
 | `services/stelselregister/`           | Publiceert het magazijnregister als ondertekend stelseldocument                  |
-| `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, identificatienummers (BSN/RSIN/KvK/OIN), Profiel-client |
+| `libraries/fbs-kern/`                 | Regels zonder beans voor stelsel én demo: identificatienummers, bijlagen         |
+| `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, Profiel-client                       |
 | `libraries/fbs-magazijnregister/`     | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)                    |
 | `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                           |
 | `bruno/`                              | Bruno-collecties met voorbeeldrequests per service                                |

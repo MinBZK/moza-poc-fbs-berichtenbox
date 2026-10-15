@@ -193,9 +193,10 @@
                     <excludes>
                         <!-- Gegenereerde OpenAPI model-klassen -->
                         <exclude>nl/rijksoverheid/moz/fbs/berichtenuitvraag/api/**</exclude>
-                        <!-- fbs-common en de sessiecache-library hebben eigen testsuites met
+                        <!-- fbs-kern, fbs-common en de sessiecache-library hebben eigen testsuites met
                              eigen 90%-gate; uitsluiten voorkomt dubbele meting. -->
                         <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                        <exclude>nl/rijksoverheid/moz/fbs/kern/**</exclude>
                         <exclude>nl/rijksoverheid/moz/fbs/magazijnregister/**</exclude>
                         <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/**</exclude>
                     </excludes>
@@ -216,6 +217,7 @@
                             <excludes>
                                 <exclude>nl/rijksoverheid/moz/fbs/berichtenuitvraag/api/**</exclude>
                                 <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                                <exclude>nl/rijksoverheid/moz/fbs/kern/**</exclude>
                                 <exclude>nl/rijksoverheid/moz/fbs/berichtensessiecache/**</exclude>
                             </excludes>
                             <rules>
@@ -226,6 +228,7 @@
                                              `*` matcht alleen het laatste segment. -->
                                         <exclude>nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.**</exclude>
                                         <exclude>nl.rijksoverheid.moz.fbs.common.**</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.kern.**</exclude>
                                         <exclude>nl.rijksoverheid.moz.fbs.berichtensessiecache.**</exclude>
                                     </excludes>
                                     <limits>

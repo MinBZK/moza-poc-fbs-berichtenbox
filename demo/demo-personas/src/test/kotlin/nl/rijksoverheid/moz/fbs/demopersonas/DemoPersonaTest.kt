@@ -49,6 +49,7 @@ class DemoPersonaTest {
         "KVK, 1234567a",
         "KVK, ''",
         "bsn, 999993653",
+        "OIN, 00000001003214345000",
     )
     fun `weigert een nummer of type dat de keten niet accepteert`(type: String, waarde: String) {
         assertThrows(IllegalArgumentException::class.java) { persona(type = type, waarde = waarde) }
