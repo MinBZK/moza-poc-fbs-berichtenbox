@@ -6,7 +6,7 @@
 uitgevoerd maar dat componenten ongezond zijn. Nu gaat zo'n job groen, en ziet niemand het tot een
 afhankelijke deployment erover struikelt.
 
-Issue: nog aan te maken in `MinBZK/MijnOverheidZakelijk` (na akkoord van de opdrachtgever).
+Issue: [MinBZK/MijnOverheidZakelijk#1324](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1324). Upstream: [RijksICTGilde/zad-actions#77](https://github.com/RijksICTGilde/zad-actions/pull/77).
 
 ## Aanleiding
 
