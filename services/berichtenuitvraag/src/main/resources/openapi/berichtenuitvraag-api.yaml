@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -95,6 +95,8 @@ tags:
       gepubliceerd bericht aanmeldt. Werkt de sessiecache bij voor ontvangers met
       een actieve sessie. Wordt buiten codegen afgehandeld (custom media type +
       202-respons).
+  - name: Specificatie
+    description: Dit OpenAPI-document, op de plek waar de API Design Rules het verwachten.
 
 paths:
   /berichten:
@@ -461,6 +463,31 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /openapi.json:
+    get:
+      tags: [Specificatie]
+      summary: OpenAPI-document van deze API
+      description: |
+        Dit document, als JSON, op `/openapi.json` onder het basisadres
+        (ADR `/core/publish-openapi`). Vrij op te halen, ook vanuit een browser op een
+        ander domein: de response staat elke origin toe, de rest van de API niet.
+      operationId: getOpenApiDocument
+      responses:
+        '200':
+          description: Het OpenAPI-document
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+            # Kleine letters: de ADR-linter zoekt de header op precies deze sleutel.
+            access-control-allow-origin:
+              description: Altijd `*`, zodat tooling in de browser het document kan lezen.
+              schema: { type: string, enum: ['*'] }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: OpenAPI-document (OpenAPI 3).
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   parameters:

@@ -169,7 +169,7 @@
                     <execution>
                         <id>generate</id>
                         <configuration>
-                            <apisToGenerate>Uitvraag</apisToGenerate>
+                            <apisToGenerate>Uitvraag,Specificatie</apisToGenerate>
                         </configuration>
                     </execution>
                 </executions>
