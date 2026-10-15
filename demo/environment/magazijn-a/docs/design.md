@@ -91,7 +91,8 @@ nooit een kloon-bron.
 
 De app-component `magazijna` blijft in `test`. De inway bereikt haar **cross-deployment op het
 cluster-interne Service-adres** (`http://test-magazijna.rig-prd-mpfm-w3h.svc.cluster.local:8090`;
-override via `ZAD_MAGAZIJNA_DEPLOYMENT`), met een `cross-domain-access`-regel tussen beide. Gedeeld project betekent gedeelde API-key: `ZAD_API_KEY_MAGAZIJNEN`.
+override via `ZAD_MAGAZIJNA_DEPLOYMENT`), met een `cross-domain-access`-regel tussen beide.
+Gedeeld project betekent gedeelde API-key: `ZAD_API_KEY_MAGAZIJNEN`.
 De raw v2-API maakt geen nieuwe deployments aan, dus `fsc-magazijna` wordt eenmalig leeg in de
 UI aangemaakt (zonder clone-from).
 

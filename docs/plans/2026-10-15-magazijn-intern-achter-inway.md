@@ -45,9 +45,10 @@ kan het acceptatiecriterium "geen publicatie op het web meer" worden afgevinkt.
 ## Ontwerpkeuzes
 
 - **Plain HTTP op de laatste hop.** De app luistert zelf niet met TLS; de ingress termineerde het.
-  Dezelfde afweging als aan de uitvraag-kant, en dezelfde voorwaarde als de LDV-verbinding:
-  transport-encryptie in het project hoort per project bevestigd te worden. TLS op de app zelf is
-  een apart recept (eigen certificaat, anker bij de inway) en hoort niet in deze stap.
+  Ook de hop van de ingress-controller naar de pod was dus al plaintext binnen het cluster: het
+  transport wordt niet zwakker, alleen de bron van de hop verandert (inway in plaats van
+  ingress-controller). Dezelfde afweging als aan de uitvraag-kant. TLS op de app zelf is een apart
+  recept (eigen certificaat, anker bij de inway) en hoort niet in deze stap.
 - **Volledig gespecificeerde projectregels**, niet het per-deployment-invullen van
   `cross-domain-preview.sh`: beide kanten noemen een vaste deployment (`fsc-magazijna`, `test`),
   en een preview hoort deze route juist níet te krijgen.
@@ -58,5 +59,7 @@ kan het acceptatiecriterium "geen publicatie op het web meer" worden afgevinkt.
 
 - Gerenderde manifests: Egress-policy op `magazijna-fscinway` (`fsc-magazijna`) en Ingress-policy
   op `magazijna` (`test`), elkaars spiegelbeeld op poort 8090.
-- Een ophaalronde met een verse BSN levert een nieuwe transactie in de txlog van logius én van
-  magazijn-a, en de inway logt geen fouten richting het interne adres.
+- De controller toont na de omzetting het interne adres als `endpoint_url`, en een ophaalronde
+  met een verse BSN ná dat tijdstip levert een nieuwe transactie in de txlog van logius én van
+  magazijn-a. Het transactielogboek alleen bewijst de laatste hop niet: het ziet er voor beide
+  routes hetzelfde uit. De combinatie wel, want de inway kent alleen dat ene adres.

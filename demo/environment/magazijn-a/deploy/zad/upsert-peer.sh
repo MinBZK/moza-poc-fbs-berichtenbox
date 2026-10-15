@@ -127,12 +127,12 @@ DIRECTORY_MANAGER_HOST="${ZAD_DIRECTORY_MANAGER_HOST:-dirmgr-test-mft-tp9.${BASE
 # Peer en app-component `magazijna` delen het project (`mpfm-w3h`) maar NIET de deployment: de app
 # draait in `test` (door deploy.yml beheerd, bron van de PR-preview-clones), de peer in
 # `fsc-magazijna`. De upstream-URL wijst dus naar de APP-deployment, niet naar `${DEPLOYMENT}`;
-# een volledige override kan via ZAD_MAGAZIJNA_UPSTREAM_URL. Het is het cluster-interne
-# Service-adres (plain HTTP, de app luistert niet met TLS): zo verlaat federatieverkeer het cluster
-# niet. Het vraagt een cross-domain-access-regel tussen inway en app, zie
-# cutover-interne-upstream.md. Dit is GEEN inway-env-var
+# een volledige override kan via ZAD_MAGAZIJNA_UPSTREAM_URL. Die URL is GEEN inway-env-var
 # (OpenFSC kent geen "upstream" op de inway) maar de endpoint_url die bij de service-publicatie op
 # de magazijna-fscctl Administration-API wordt meegegeven — zie verify-zad.md, stap (b).
+# Standaard is het het cluster-interne Service-adres (plain HTTP, de app luistert niet met TLS):
+# zo verlaat federatieverkeer het cluster niet. Het vraagt een cross-domain-access-regel tussen
+# inway en app, zie cutover-interne-upstream.md.
 MAGAZIJNA_DEPLOYMENT="${ZAD_MAGAZIJNA_DEPLOYMENT:-test}"
 MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-http://${MAGAZIJNA_DEPLOYMENT}-magazijna.rig-prd-${PROJECT}.svc.cluster.local:8090}"
 
