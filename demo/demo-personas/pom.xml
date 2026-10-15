@@ -23,6 +23,14 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
+        <!-- De elfproef van het stelsel zelf, zodat een persona-nummer precies dan geweigerd wordt
+             als het magazijn het zou weigeren. Geen fbs-common: dat brengt beans mee die een
+             leeslijst niet hoort te hebben. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-kern</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-kotlin</artifactId>

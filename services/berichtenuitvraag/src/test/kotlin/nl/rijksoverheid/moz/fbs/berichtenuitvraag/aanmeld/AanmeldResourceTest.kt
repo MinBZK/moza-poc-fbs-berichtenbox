@@ -11,7 +11,7 @@ import jakarta.inject.Inject
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MockSessiecache
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.not

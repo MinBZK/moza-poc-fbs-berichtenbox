@@ -21,7 +21,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenFout
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.ResponseHeader
 import org.jboss.resteasy.reactive.RestStreamElementType

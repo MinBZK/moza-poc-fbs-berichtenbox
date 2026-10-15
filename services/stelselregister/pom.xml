@@ -160,8 +160,9 @@
                 <configuration>
                     <excludes>
                         <exclude>nl/rijksoverheid/moz/fbs/stelselregister/api/**</exclude>
-                        <!-- fbs-common heeft eigen testsuite; uitsluiten voorkomt dubbele meting. -->
+                        <!-- fbs-kern en fbs-common hebben eigen testsuites; uitsluiten voorkomt dubbele meting. -->
                         <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                        <exclude>nl/rijksoverheid/moz/fbs/kern/**</exclude>
                     </excludes>
                     <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
                 </configuration>
@@ -194,6 +195,7 @@
                             <excludes>
                                 <exclude>nl/rijksoverheid/moz/fbs/stelselregister/api/**</exclude>
                                 <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
+                                <exclude>nl/rijksoverheid/moz/fbs/kern/**</exclude>
                             </excludes>
                             <rules>
                                 <rule>
@@ -203,6 +205,7 @@
                                              `*` matcht alleen het laatste segment. -->
                                         <exclude>nl.rijksoverheid.moz.fbs.stelselregister.api.**</exclude>
                                         <exclude>nl.rijksoverheid.moz.fbs.common.**</exclude>
+                                        <exclude>nl.rijksoverheid.moz.fbs.kern.**</exclude>
                                     </excludes>
                                     <limits>
                                         <limit>

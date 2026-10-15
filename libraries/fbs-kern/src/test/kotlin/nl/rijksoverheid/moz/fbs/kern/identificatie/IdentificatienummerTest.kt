@@ -1,16 +1,20 @@
-package nl.rijksoverheid.moz.fbs.common.identificatie
+package nl.rijksoverheid.moz.fbs.kern.identificatie
 
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.BSN
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.KVK
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.OIN
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType.RSIN
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType.BSN
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType.KVK
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType.OIN
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType.RSIN
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 class IdentificatienummerTest {
 
@@ -276,7 +280,32 @@ class IdentificatienummerTest {
         val ex = assertThrows(DomainValidationException::class.java) {
             Identificatienummer.fromHeader("FOO:123456789")
         }
-        assertTrue(ex.message!!.contains("FOO"), "Bericht moet prefix vermelden: ${ex.message}")
+
+        assertTrue(ex.message!!.contains("BSN, RSIN, KVK, OIN"), "Melding moet toegestane types noemen: ${ex.message}")
+        assertFalse(ex.message!!.contains("FOO"), "Melding mag het aangeboden type niet echoën: ${ex.message}")
+    }
+
+    @Test
+    fun `fromHeader met omgedraaide header zet het nummer niet in melding of cause`() {
+        val ex = assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader("999993653:BSN")
+        }
+
+        assertFalse(ex.message!!.contains("999993653"), "BSN gelekt in melding: ${ex.message}")
+        assertNull(ex.cause, "de cause zou de aangeboden waarde alsnog meedragen")
+    }
+
+    /**
+     * `split(limit = 2)` betekent dat alles ná de eerste dubbele punt de waarde is. Een extra
+     * scheidingsteken hoort dus op de vorm van de waarde te stranden, en een leeg deel hoort geen
+     * `IndexOutOfBounds` te geven.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["KVK:", "BSN:999993653:extra", ":90000001", "KVK", ""])
+    fun `fromHeader met misvormde header werpt DomainValidationException`(header: String) {
+        assertThrows(DomainValidationException::class.java) {
+            Identificatienummer.fromHeader(header)
+        }
     }
 
     @Test

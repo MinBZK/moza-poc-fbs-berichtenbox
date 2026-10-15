@@ -6,10 +6,10 @@ import io.mockk.verify
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.Kvk
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Kvk
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Rsin
 import nl.rijksoverheid.moz.fbs.common.profiel.DienstResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.IdentificatieResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest

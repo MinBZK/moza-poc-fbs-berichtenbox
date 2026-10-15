@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
-import nl.rijksoverheid.moz.fbs.common.exception.requireValid
+import nl.rijksoverheid.moz.fbs.kern.exception.requireValid
 import java.util.UUID
 
 /**

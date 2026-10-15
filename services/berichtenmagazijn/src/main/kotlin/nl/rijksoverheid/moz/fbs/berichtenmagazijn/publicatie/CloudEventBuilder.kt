@@ -2,8 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
@@ -146,7 +146,7 @@ data class OntvangerData(
         // `take(64)` begrenst oversize-DoS (BIO 12.4.1, AVG art. 5.1.c).
         val typeVoorLog = type.take(64).filter { it.isLetterOrDigit() || it == '_' }
         val typed = enumValues<IdentificatienummerType>().firstOrNull { it.name == type }
-            ?: throw nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException(
+            ?: throw nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException(
                 "Onbekend identificatienummer-type",
                 cause = IllegalArgumentException("type=$typeVoorLog"),
             )

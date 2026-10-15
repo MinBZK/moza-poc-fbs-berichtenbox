@@ -17,8 +17,8 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BIJLAGE_MIME_TYPE_PROPE
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BIJLAGE_NAAM_PROPERTY
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtDtoMapper
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal.BerichtOphaalService
-import nl.rijksoverheid.moz.fbs.common.bijlage.BijlageMediaType
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.bijlage.BijlageMediaType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtStatusPatch as BerichtStatusPatchDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusPatch as BerichtStatusPatchDomain

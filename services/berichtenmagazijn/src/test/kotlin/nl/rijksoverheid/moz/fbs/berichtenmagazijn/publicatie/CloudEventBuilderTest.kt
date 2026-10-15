@@ -4,8 +4,8 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.mockk.every
 import io.mockk.mockk
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -111,14 +111,14 @@ class CloudEventBuilderTest {
     fun `OntvangerData weigert ongeldig BSN (elfproef-bewaking in payload)`() {
         // Een rauw `(type=BSN, waarde=...)` met ongeldige elfproef mag de outbox
         // niet in lekken — voorkomt regressie na refactor.
-        org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+        org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException> {
             OntvangerData(type = "BSN", waarde = "111111111")
         }
     }
 
     @Test
     fun `OntvangerData_van bouwt vanuit gevalideerd Identificatienummer`() {
-        val data = OntvangerData.van(nl.rijksoverheid.moz.fbs.common.identificatie.Bsn("999993653"))
+        val data = OntvangerData.van(nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn("999993653"))
         assertEquals("BSN", data.type)
         assertEquals("999993653", data.waarde)
     }
@@ -130,7 +130,7 @@ class CloudEventBuilderTest {
         // statisch detail naar de client gaan, NIET de raw payload.
         // Refactor die de interpolatie herinvoert wordt hier gevangen.
         val attackPayload = "BOGUS\r\nLevel: ERROR\nInjected line"
-        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException> {
             OntvangerData(type = attackPayload, waarde = "x")
         }
         // Statische message (geen $type-interpolatie meer)
@@ -154,7 +154,7 @@ class CloudEventBuilderTest {
         // Round 13 H1: type-waarde verdween eerder volledig; support kon niet
         // achterhalen welke bogus-input binnenkwam. Cause draagt de waarde nu
         // (DomainValidationExceptionMapper logt cause-message gesaneerd).
-        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException> {
             OntvangerData(type = "ONBEKEND_TYPE_X", waarde = "999993653")
         }
         val cause = ex.cause
@@ -173,7 +173,7 @@ class CloudEventBuilderTest {
         // Whitelist [A-Za-z0-9_] op type-veld vóór cause-meegave: alle interessante
         // PII-bytes (`@`, spatie, `.`, `,`, `:`) worden weg-gefilterd.
         val piiPayload = "jan.jansen@voorbeeld.nl Kerkstraat 1, Amsterdam"
-        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException> {
             OntvangerData(type = piiPayload, waarde = "999993653")
         }
         val causeMessage = ex.cause!!.message!!
@@ -200,7 +200,7 @@ class CloudEventBuilderTest {
         // Voorkomt log-volume-DoS: aanvaller stuurt 1 MB type-waarde, cause
         // mag niet ongebreideld groeien. take(64) begrenst.
         val oversizeType = "X".repeat(10_000)
-        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException> {
+        val ex = org.junit.jupiter.api.assertThrows<nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException> {
             OntvangerData(type = oversizeType, waarde = "999993653")
         }
         val causeMessage = ex.cause!!.message!!

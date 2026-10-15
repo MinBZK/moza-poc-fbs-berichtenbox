@@ -1,11 +1,11 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkBericht
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
@@ -93,7 +93,7 @@ object DemoBerichten {
      */
     fun voor(
         magazijnOin: String,
-        ontvanger: Identificatie,
+        ontvanger: Identificatienummer,
         aantal: Int,
         bijlageElke: Int,
         nu: Instant,
@@ -104,7 +104,7 @@ object DemoBerichten {
         val ontvangen = nu.minus(Duration.ofHours((aantal - volgnummer).toLong()))
         val bericht = Bericht(
             berichtId = UUID.nameUUIDFromBytes(sleutel.toByteArray()),
-            afzender = Identificatie(IdentificatieType.OIN, magazijnOin),
+            afzender = Oin(magazijnOin),
             ontvanger = ontvanger,
             onderwerp = "${ONDERWERPEN[volgnummer % ONDERWERPEN.size]} ($volgnummer)",
             inhoud = inhoud(magazijnOin, volgnummer),

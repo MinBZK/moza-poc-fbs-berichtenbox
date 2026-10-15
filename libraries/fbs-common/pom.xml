@@ -16,6 +16,13 @@
     <description>Herbruikbare JAX-RS filters en exception mappers voor FBS services</description>
 
     <dependencies>
+        <!-- De framework-vrije regels (identificatienummers, bijlage-weergave, de domein-
+             validatiefout) staan in fbs-kern; hier alleen de bedrading eromheen. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-kern</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>jakarta.ws.rs</groupId>
             <artifactId>jakarta.ws.rs-api</artifactId>
@@ -90,15 +97,6 @@
             <groupId>nl.mijnoverheidzakelijk.ldv</groupId>
             <artifactId>logboekdataverwerking-wrapper</artifactId>
             <scope>provided</scope>
-        </dependency>
-        <!-- Jazzer: fuzz-target voor de gedeelde header-/identificatie-validatie
-             (Identificatienummer.fromHeader). Draait onder ClusterFuzzLite, niet onder
-             Surefire; alleen de API-jar is nodig om te compileren. -->
-        <dependency>
-            <groupId>com.code-intelligence</groupId>
-            <artifactId>jazzer-api</artifactId>
-            <version>0.30.0</version>
-            <scope>test</scope>
         </dependency>
         <!-- RuntimeDelegate-implementatie voor JAX-RS `Response.status(...)` in mapper-tests. -->
         <dependency>

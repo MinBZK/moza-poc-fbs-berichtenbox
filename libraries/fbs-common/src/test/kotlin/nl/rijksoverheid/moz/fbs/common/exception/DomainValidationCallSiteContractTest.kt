@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test
 import java.io.File
 
 /**
- * Borgt het call-site-invariant van [DomainValidationException]:
+ * Borgt het call-site-invariant van `DomainValidationException`:
  *
  *  > `requireValid { ... }`-lambda's en directe `throw DomainValidationException(...)`
  *  > messages mogen GEEN raw REST-input-velden interpoleren — die landen ongesaneerd
@@ -142,7 +142,7 @@ class DomainValidationCallSiteContractTest {
         }
         // throw DomainValidationException("...") — FQN of import-vorm
         val throwPositions = Regex(
-            """throw\s+(?:nl\.rijksoverheid\.moz\.fbs\.common\.exception\.)?DomainValidationException\s*\(""",
+            """throw\s+(?:nl\.rijksoverheid\.moz\.fbs\.kern\.exception\.)?DomainValidationException\s*\(""",
         ).findAll(inhoud)
         throwPositions.forEach { m ->
             val openParenIdx = m.range.last

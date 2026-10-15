@@ -1,9 +1,9 @@
-package nl.rijksoverheid.moz.fbs.common.fuzzing
+package nl.rijksoverheid.moz.fbs.kern.fuzzing
 
 import com.code_intelligence.jazzer.api.FuzzedDataProvider
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 
 /**
  * Fuzz `Identificatienummer.fromHeader(X-Ontvanger)`. De header is attacker-
@@ -15,7 +15,7 @@ import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
  * een value-class init-blok) — dat zou de mapper-pipeline omzeilen en als 500
  * i.p.v. 400 eindigen.
  *
- * Co-located met de geteste code in `fbs-common`: de fuzzer hoort bij de gedeelde
+ * Co-located met de geteste code in `fbs-kern`: de fuzzer hoort bij de gedeelde
  * validatie, niet bij een toevallige consument ervan.
  */
 object IdentificatienummerFromHeaderFuzzer {

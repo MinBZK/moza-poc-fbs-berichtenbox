@@ -3,6 +3,9 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.kern.exception.requireValid
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.SimulatorFout
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
@@ -13,8 +16,6 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtStatusWijziging
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bijlage
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.vereis
 import org.jboss.logging.Logger
 import java.time.Clock
 import java.util.UUID
@@ -38,7 +39,7 @@ class BerichtService(
      * Een [GedragModus.ONVOLLEDIG]-magazijn telt een archief mee dat de lijst niet levert. Alleen als
      * er voor deze ontvanger iets staat: wie hier geen post heeft, krijgt geen "0 van 480".
      */
-    fun lijst(ontvanger: Identificatie, afzender: String?, page: Int, pageSize: Int): BerichtenPagina {
+    fun lijst(ontvanger: Identificatienummer, afzender: String?, page: Int, pageSize: Int): BerichtenPagina {
         val pagina = repository.lijst(magazijnDbId(), ontvanger, afzender, page, pageSize)
         val onvolledig = magazijnContext.magazijn.gedrag.modus == GedragModus.ONVOLLEDIG
 
@@ -51,7 +52,7 @@ class BerichtService(
      * Eerst bestaan, dan mogen. Een verwijderd of onbekend bericht is een 404 nog vóór de
      * ontvanger-check; pas als het bericht er is, kan het antwoord 403 worden.
      */
-    fun haalOp(berichtId: UUID, ontvanger: Identificatie): Bericht {
+    fun haalOp(berichtId: UUID, ontvanger: Identificatienummer): Bericht {
         val bericht = repository.zoek(magazijnDbId(), berichtId) ?: throw nietGevonden(berichtId)
 
         vereisOntvanger(bericht, ontvanger)
@@ -64,7 +65,7 @@ class BerichtService(
      * 403), dan pas de bijlage zoeken. Een bestaande bijlage-id onder een ánder bericht levert
      * daardoor ook een 404 op, in plaats van bytes uit een bericht van iemand anders.
      */
-    fun haalBijlageOp(berichtId: UUID, bijlageId: UUID, ontvanger: Identificatie): Bijlage {
+    fun haalBijlageOp(berichtId: UUID, bijlageId: UUID, ontvanger: Identificatienummer): Bijlage {
         haalOp(berichtId, ontvanger)
 
         return repository.zoekBijlage(magazijnDbId(), berichtId, bijlageId)
@@ -84,8 +85,8 @@ class BerichtService(
      * uit dat verschil zou af te leiden zijn welke bericht-id's bestaan. Het eigen verwijderde
      * bericht komt daardoor pas ná de eigenaar-check langs, en mag dus een 410 krijgen.
      */
-    fun wijzigStatus(berichtId: UUID, ontvanger: Identificatie, wijziging: BerichtStatusWijziging): Bericht {
-        vereis(!wijziging.isLeeg) { "Patch moet minstens een van 'gelezen' of 'map' bevatten" }
+    fun wijzigStatus(berichtId: UUID, ontvanger: Identificatienummer, wijziging: BerichtStatusWijziging): Bericht {
+        requireValid(!wijziging.isLeeg) { "Patch moet minstens een van 'gelezen' of 'map' bevatten" }
 
         val bestaand = repository.zoekInclusiefVerwijderd(magazijnDbId(), berichtId) ?: throw nietGevonden(berichtId)
 
@@ -107,7 +108,7 @@ class BerichtService(
      * (RFC 9110 §9.3.5). Andermans bericht geeft 403, ook als het al verwijderd is — zie
      * [wijzigStatus] voor waarom dat geen 404 mag worden.
      */
-    fun verwijder(berichtId: UUID, ontvanger: Identificatie) {
+    fun verwijder(berichtId: UUID, ontvanger: Identificatienummer) {
         val bestaand = repository.zoekInclusiefVerwijderd(magazijnDbId(), berichtId) ?: throw nietGevonden(berichtId)
 
         vereisOntvanger(bestaand.bericht, ontvanger)
@@ -129,8 +130,8 @@ class BerichtService(
      * tijdstip van ontvangst; ontbreekt een publicatietijdstip, dan is dat exact hetzelfde moment.
      */
     fun leverAan(
-        afzender: Identificatie,
-        ontvanger: Identificatie,
+        afzender: Oin,
+        ontvanger: Identificatienummer,
         onderwerp: String,
         inhoud: String,
         publicatietijdstip: java.time.Instant?,
@@ -165,7 +166,7 @@ class BerichtService(
      * De waarde blijft uit de log — die kan een BSN zijn. Het bericht-id en het type volstaan om een
      * geweigerde aanroep terug te vinden.
      */
-    private fun vereisOntvanger(bericht: Bericht, ontvanger: Identificatie) {
+    private fun vereisOntvanger(bericht: Bericht, ontvanger: Identificatienummer) {
         if (bericht.ontvanger != ontvanger) {
             throw ForbiddenException("Geen toegang tot dit bericht")
         }

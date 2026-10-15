@@ -1,8 +1,8 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Kvk
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
 
 /**
  * In welke map een demobericht staat. Alleen de persona die de mappen demonstreert krijgt mappen:
@@ -24,7 +24,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
 object DemoMappen {
 
     /** De persona uit `demo.personas.proeftuin-vier` en `demo/genereer-magazijnen.py`. */
-    val ONTVANGER = Identificatie(IdentificatieType.KVK, "90000015")
+    val ONTVANGER = Kvk("90000015")
 
     const val VERSPREID = "Vergunningen"
     const val ALLEEN_TRAAG = "Subsidies"
@@ -42,7 +42,7 @@ object DemoMappen {
     private const val TWEEDE = 2
     private const val DERDE = 3
 
-    fun voor(ontvanger: Identificatie, magazijnOin: String, gedrag: GedragModus, volgnummer: Int): String? {
+    fun voor(ontvanger: Identificatienummer, magazijnOin: String, gedrag: GedragModus, volgnummer: Int): String? {
         if (ontvanger != ONTVANGER) return null
 
         return when {

@@ -6,10 +6,10 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdMagazijn
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkBericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BulkOpslag
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.MagazijnRepository
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.vereis
+import nl.rijksoverheid.moz.fbs.kern.exception.requireValid
 import org.jboss.logging.Logger
 import java.time.Clock
 
@@ -76,7 +76,7 @@ class BeheerService(
         // dezelfde berichten op en is dus onschadelijk — valt hier niet te raden wat bedoeld is.
         val dubbel = verzoek.aanpassingen.groupingBy { it.oin }.eachCount().filterValues { it > 1 }.keys
 
-        vereis(dubbel.isEmpty()) { "Elke OIN mag maar één keer in de lijst staan; dubbel: ${dubbel.sorted()}" }
+        requireValid(dubbel.isEmpty()) { "Elke OIN mag maar één keer in de lijst staan; dubbel: ${dubbel.sorted()}" }
 
         val gewenst = verzoek.aanpassingen.map { aanpassing -> aanpassing.oin to bouwGedrag(aanpassing.gedrag()) }
 
@@ -122,10 +122,11 @@ class BeheerService(
         val foutkans = verzoek.foutkans ?: standaard.foutkans
         val foutStatus = verzoek.foutStatus ?: standaard.foutStatus
 
-        vereis(p50 >= 0) { "latencyP50Ms mag niet negatief zijn (kreeg $p50)" }
-        vereis(p95 >= p50) { "latencyP95Ms ($p95) hoort niet onder latencyP50Ms ($p50) te liggen" }
-        vereis(foutkans in 0.0..1.0) { "foutkans hoort tussen 0 en 1 te liggen (kreeg $foutkans)" }
-        vereis(foutStatus in FOUT_STATUS_BEREIK) {
+        requireValid(p50 >= 0) { "latencyP50Ms mag niet negatief zijn (kreeg $p50)" }
+        requireValid(p95 >= p50) { "latencyP95Ms ($p95) hoort niet onder latencyP50Ms ($p50) te liggen" }
+        requireValid(foutkans in 0.0..1.0) { "foutkans hoort tussen 0 en 1 te liggen (kreeg $foutkans)" }
+
+        requireValid(foutStatus in FOUT_STATUS_BEREIK) {
             "foutStatus hoort een HTTP-foutcode te zijn, tussen ${FOUT_STATUS_BEREIK.first} en " +
                 "${FOUT_STATUS_BEREIK.last} (kreeg $foutStatus)"
         }
@@ -135,7 +136,7 @@ class BeheerService(
         // en dan wijst een demo de schuld toe aan het stelsel in plaats van aan de knop.
         val bezwaar = Gedrag.bezwaarTegenModus(verzoek.modus, p50, p95, foutkans, foutStatus)
 
-        vereis(bezwaar == null) { "Dit past niet bij modus ${verzoek.modus}: ${bezwaar.orEmpty()}" }
+        requireValid(bezwaar == null) { "Dit past niet bij modus ${verzoek.modus}: ${bezwaar.orEmpty()}" }
 
         return Gedrag(verzoek.modus, p50, p95, foutkans, foutStatus)
     }
@@ -152,19 +153,21 @@ class BeheerService(
      * magazijnen die eerder aan de beurt waren al vol terwijl de aanroeper een 400 krijgt die daar
      * niets over zegt.
      */
-    private fun valideer(verzoek: SeedVerzoek, teVullen: List<GesimuleerdMagazijn>): List<Identificatie> {
-        vereis(verzoek.ontvangers.isNotEmpty()) { "Geef minstens één ontvanger op" }
-        vereis(verzoek.berichtenPerMagazijn in 1..SeedVerzoek.MAX_AANTAL) {
+    private fun valideer(verzoek: SeedVerzoek, teVullen: List<GesimuleerdMagazijn>): List<Identificatienummer> {
+        requireValid(verzoek.ontvangers.isNotEmpty()) { "Geef minstens één ontvanger op" }
+
+        requireValid(verzoek.berichtenPerMagazijn in 1..SeedVerzoek.MAX_AANTAL) {
             "berichtenPerMagazijn hoort tussen 1 en ${SeedVerzoek.MAX_AANTAL} te liggen " +
                 "(kreeg ${verzoek.berichtenPerMagazijn})"
         }
-        vereis(verzoek.bijlageElke >= 0) { "bijlageElke mag niet negatief zijn (kreeg ${verzoek.bijlageElke})" }
 
-        val ontvangers = verzoek.ontvangers.map { Identificatie.uitHeader(it) }.distinct()
+        requireValid(verzoek.bijlageElke >= 0) { "bijlageElke mag niet negatief zijn (kreeg ${verzoek.bijlageElke})" }
+
+        val ontvangers = verzoek.ontvangers.map { Identificatienummer.fromHeader(it) }.distinct()
         val eigenOins = teVullen.map { it.oin }.toSet()
-        val botsend = ontvangers.filter { it.type == IdentificatieType.OIN && it.waarde in eigenOins }
+        val botsend = ontvangers.filter { it.type == IdentificatienummerType.OIN && it.waarde in eigenOins }
 
-        vereis(botsend.isEmpty()) {
+        requireValid(botsend.isEmpty()) {
             "Een magazijn kan geen bericht aan zichzelf sturen; deze ontvangers zijn zelf een " +
                 "gesimuleerd magazijn: ${botsend.map { it.waarde }.sorted()}"
         }

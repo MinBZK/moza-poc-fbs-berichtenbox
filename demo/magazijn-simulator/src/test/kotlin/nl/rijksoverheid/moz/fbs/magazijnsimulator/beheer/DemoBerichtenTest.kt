@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Kvk
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -54,7 +53,7 @@ class DemoBerichtenTest {
     private companion object {
         const val MAGAZIJN = "00000009000000000001"
 
-        val ONTVANGER = Identificatie(IdentificatieType.KVK, "90000001")
+        val ONTVANGER = Kvk("90000001")
 
         val NU: Instant = Instant.parse("2026-09-02T10:00:00Z")
     }

@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld
 
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import java.time.Instant
 import java.util.UUID
 

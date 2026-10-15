@@ -10,7 +10,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -174,7 +174,7 @@ class ProfielMagazijnResolverIntegrationTest {
             ),
         )
 
-        val result = resolver.resolve(nl.rijksoverheid.moz.fbs.common.identificatie.Rsin("002564440")).await().atMost(Duration.ofSeconds(5))
+        val result = resolver.resolve(nl.rijksoverheid.moz.fbs.kern.identificatie.Rsin("002564440")).await().atMost(Duration.ofSeconds(5))
 
         assertEquals(setOf(WireMockMagazijnResource.OIN_B), result)
     }
@@ -199,7 +199,7 @@ class ProfielMagazijnResolverIntegrationTest {
             ),
         )
 
-        val result = resolver.resolve(nl.rijksoverheid.moz.fbs.common.identificatie.Kvk("12345678")).await().atMost(Duration.ofSeconds(5))
+        val result = resolver.resolve(nl.rijksoverheid.moz.fbs.kern.identificatie.Kvk("12345678")).await().atMost(Duration.ofSeconds(5))
 
         assertEquals(setOf(WireMockMagazijnResource.OIN_A), result)
     }

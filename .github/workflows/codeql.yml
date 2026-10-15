@@ -84,8 +84,8 @@ jobs:
       # niet bereikt) en staat er als vangrail: wie de fase ooit optrekt, krijgt de
       # testcompilatie dan niet ongemerkt terug.
       #
-      # `-T` draait de reactor parallel. De module-graaf is breed — alleen `fbs-common` is
-      # upstream van de rest — dus het kritieke pad loopt via `fbs-common` naar het zwaarste
+      # `-T` draait de reactor parallel. De module-graaf is breed — alleen `fbs-kern` en
+      # `fbs-common` zijn upstream van de rest — dus het kritieke pad loopt via die twee naar het zwaarste
       # component, in plaats van via de som van alle modules. De winst blijft beperkt doordat
       # de extractie CPU-gebonden is en de runner weinig kernen heeft: modules die naast elkaar
       # draaien concurreren om dezelfde kernen. Om diezelfde reden helpt een hogere waarde dan

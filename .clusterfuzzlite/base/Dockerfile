@@ -26,6 +26,7 @@ WORKDIR /warmup
 COPY .mvn .mvn
 COPY mvnw mvnw
 COPY pom.xml pom.xml
+COPY libraries/fbs-kern/pom.xml libraries/fbs-kern/pom.xml
 COPY libraries/fbs-common/pom.xml libraries/fbs-common/pom.xml
 COPY libraries/fbs-magazijnregister/pom.xml libraries/fbs-magazijnregister/pom.xml
 COPY libraries/fbs-berichtensessiecache/pom.xml libraries/fbs-berichtensessiecache/pom.xml

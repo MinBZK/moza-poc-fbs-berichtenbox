@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common.bijlage
+package nl.rijksoverheid.moz.fbs.kern.bijlage
 
 import jakarta.ws.rs.core.MediaType
 
@@ -26,7 +26,7 @@ import jakarta.ws.rs.core.MediaType
  * zijn eigen gebruiker. Wordt `X-Ontvanger` ooit optioneel, dan raakt dat deze
  * afweging: dan is het download-adres wél rechtstreeks te openen.
  *
- * Beide diensten gebruiken deze functie, zodat een afnemer die rechtstreeks bij
+ * Magazijn en uitvraag gebruiken deze functie, zodat een afnemer die rechtstreeks bij
  * een magazijn ophaalt hetzelfde antwoord krijgt als via de uitvraag. De uitvraag
  * beslist daarbij op het type dat het bronmagazijn meestuurt: `inline` reikt niet
  * verder dan het vertrouwen in de magazijnen in het register.
