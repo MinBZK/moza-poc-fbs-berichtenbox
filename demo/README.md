@@ -19,7 +19,8 @@ verwacht.
 | `genereer-magazijnen.py` | Genereert uit één getal n: het register, de set van de simulator en de vier ondernemers (3, 15, 45 en 100 aangesloten organisaties) |
 | `smoke.sh` | Rookproef over de demo-stack |
 | `meet-fanout.sh` | Meet per ondernemer de tijd tot het eerste bericht en tot de complete lijst, uit de SSE-stroom van de uitvraag |
-| `podman-prepare.sh`, `podman-up.sh` | Demo-stack draaien onder Podman |
+| `podman-prepare.sh`, `podman-up.sh` | Demo-stack draaien onder Podman (`up`, `down`, `ps`, `compose …`) |
+| `lib/podman-modus.sh` | De modus-keuze (docker, bridge, hostnet) die `podman-up.sh` en de FSC-peer-harnessen (`environment/<peer>/deploy/local/up.sh`) delen, met zijn tests |
 
 De demo-runbook staat in [`../docs/demo-runbook.md`](../docs/demo-runbook.md).
 

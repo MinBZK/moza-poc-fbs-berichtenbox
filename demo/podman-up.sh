@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-# Start de demo-stack onder podman en kiest zelf de werkbare netwerkmodus.
-#
-#   bridge   — normale podman (Linux rootless, podman machine op macOS/Windows). Adressering en
-#              poorten gelijk aan de Docker-stack; alleen image-namen en SELinux-labels wijken af.
-#   hostnet  — vangnet voor omgevingen zonder bruikbaar bridge-netwerk, bijvoorbeeld podman-in-een-
-#              container: `/proc/sys` is daar read-only (netavark kan geen bridge opzetten) en
-#              aardvark-dns ontbreekt vaak, dus container-DNS resolvet niet. Alle containers delen
-#              dan de netns van de aanroeper en praten over 127.0.0.1.
+# shellcheck source-path=SCRIPTDIR
+# Start de demo-stack onder podman en kiest zelf de werkbare netwerkmodus (bridge of hostnet; zie
+# demo/lib/podman-modus.sh voor wat ze betekenen en hoe de keuze valt).
 #
 # In hostnet komt er een derde compose-bestand bovenop de basis en de podman-overlay. Dat bestand
 # heeft geen healthchecks (zie de reden daar), dus start die modus uitsluitend via dit script: een
@@ -14,9 +9,15 @@
 # initialiseert. In bridge doen de healthchecks uit compose.yaml dat werk wél.
 #
 # Gebruik:
-#   demo/podman-up.sh                 # modus automatisch bepalen
-#   MODUS=hostnet demo/podman-up.sh   # forceren
+#   demo/podman-up.sh [up]                 # modus automatisch bepalen en starten
+#   MODUS=hostnet demo/podman-up.sh        # forceren
 #   DEMO_HOST=10.0.0.5 demo/podman-up.sh
+#   demo/podman-up.sh down [-v]            # afbreken, met de bestanden van de laatste start
+#   demo/podman-up.sh ps                   # status
+#   demo/podman-up.sh compose <args…>      # elk ander compose-commando, bv. `logs -f berichtenuitvraag`
+#
+# De modus van de laatste start staat in demo/generated/.modus; `down`, `ps` en `compose` lezen
+# hem terug, zodat geen vervolgcommando met minder compose-bestanden de stack half omzet.
 #
 # DEMO_HOST is het adres waarop je de demo benadert (voor de CORS-allowlist van de uitvraag);
 # default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
@@ -25,6 +26,26 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# shellcheck source=lib/podman-modus.sh
+. "$ROOT/demo/lib/podman-modus.sh"
+
+MODUS_BESTAND="$ROOT/demo/generated/.modus"
+COMMANDO="${1:-up}"
+if [ "$#" -gt 0 ]; then shift; fi
+
+case "$COMMANDO" in
+    up|down|ps|compose) ;;
+    *)
+        echo "Onbekend commando '$COMMANDO'; kies up, down, ps of compose <args…>." >&2
+        exit 2
+        ;;
+esac
+
+if [ "$COMMANDO" = "up" ] && [ "$#" -gt 0 ]; then
+    echo "\`up\` neemt geen argumenten; gebruik \`compose up …\` voor een gerichte start." >&2
+    exit 2
+fi
 
 export DEMO_HOST="${DEMO_HOST:-localhost}"
 
@@ -46,7 +67,6 @@ esac
 # weigert de generator — daar valt van die ondernemer niets te bouwen.
 export DEMO_MAGAZIJNEN="${DEMO_MAGAZIJNEN:-98}"
 
-PROBE_IMAGE=docker.io/library/alpine:3.20
 DEMO_IMAGES=(
     localhost/fbs-demo/fbs-berichtenmagazijn:demo
     localhost/fbs-demo/fbs-berichtenuitvraag:demo
@@ -55,151 +75,22 @@ DEMO_IMAGES=(
     localhost/fbs-demo/fbs-stelselregister:demo
 )
 
-# --- gereedschap en podman-socket bepalen -----------------------------------------------------
+# --- gereedschap, engine en modus -------------------------------------------------------------
 
-for gereedschap in podman curl python3 openssl; do
-    command -v "$gereedschap" >/dev/null 2>&1 || {
-        echo "$gereedschap niet gevonden op PATH." >&2
-        exit 1
-    }
-done
-
-# macOS levert geen `timeout`; met coreutils heet hij `gtimeout`. Zonder deze check faalt elke
-# probe pas na de volledige deadline op een 'command not found' die niemand verwacht.
-TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
-
-[ -n "$TIMEOUT_BIN" ] || {
-    echo "timeout(1) ontbreekt (macOS: brew install coreutils)." >&2
-    exit 1
-}
-
-if [ -z "${DOCKER_HOST:-}" ]; then
-    SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
-
-    if [ ! -S "$SOCK" ]; then
-        echo "Podman-API-socket ontbreekt ($SOCK) — starten…"
-        mkdir -p "$(dirname "$SOCK")"
-
-        # `--time=0` houdt de service draaien ná dit script, zodat een latere `… down` dezelfde
-        # socket vindt. Het log blijft staan: zonder die uitvoer is een mislukte start (subuid,
-        # storage.conf, bezette socket) niet te diagnosticeren.
-        SERVICE_LOG="$(mktemp -t podman-service.XXXXXX)"
-        podman system service --time=0 "unix://$SOCK" >"$SERVICE_LOG" 2>&1 &
-        for _ in $(seq 1 20); do [ -S "$SOCK" ] && break; sleep 0.5; done
-
-        [ -S "$SOCK" ] || {
-            echo "podman system service kwam niet omhoog ($SOCK):" >&2
-            tail -20 "$SERVICE_LOG" >&2
-            exit 1
-        }
-    fi
-
-    export DOCKER_HOST="unix://$SOCK"
-fi
-
-# `podman` leest DOCKER_HOST niet (dat is CONTAINER_HOST), compose wél. Wijst DOCKER_HOST naar een
-# andere engine, dan zouden de podman-checks hieronder een andere machine beoordelen dan waarop de
-# stack landt; ze worden dan overgeslagen in plaats van een verkeerd antwoord te geven.
-PODMAN_RUNTIME=0
-case "$DOCKER_HOST" in
-    *podman*) PODMAN_RUNTIME=1 ;;
-esac
-
-if [ "$PODMAN_RUNTIME" -eq 0 ]; then
-    echo "Let op: DOCKER_HOST=$DOCKER_HOST wijst niet naar een podman-socket."
-    echo "  De image- en netwerkcontroles die podman rechtstreeks bevragen worden overgeslagen."
-fi
-
-# `docker compose` (v2) eerst: hostnet gebruikt `!reset`, dat pas v2.24.4 kent. Een los
-# `docker-compose` op PATH kan nog de oude v1 zijn.
-if docker compose version >/dev/null 2>&1; then
-    COMPOSE_BIN=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE_BIN=(docker-compose)
-elif command -v podman-compose >/dev/null 2>&1; then
-    COMPOSE_BIN=(podman-compose)
+if [ "$COMMANDO" = "up" ]; then
+    modus_gereedschap podman curl python3 openssl
 else
-    echo "Geen compose-implementatie gevonden (docker compose, docker-compose of podman-compose)." >&2
-    exit 1
+    modus_gereedschap podman
 fi
 
-# --- modus bepalen ----------------------------------------------------------------------------
+modus_engine
+modus_compose_kiezen
 
-kan_bridge() {
-    local net="fbs-netprobe-$$-${RANDOM}" log ok=1
-
-    log="$(mktemp -t netprobe.XXXXXX)"
-
-    probe_opruimen() {
-        podman rm -f "${net}-doel" >/dev/null 2>&1 || true
-        podman network rm "$net" >/dev/null 2>&1 || true
-        rm -f "$log"
-    }
-
-    # Probe-netwerken en -containers stapelen zich anders op in de podman-state. De signaalvariant
-    # sluit zelf af: zonder `exit` slikt de handler het signaal en loopt het script gewoon door.
-    trap 'probe_opruimen; trap - RETURN INT TERM; exit 130' INT TERM
-    trap 'probe_opruimen; trap - RETURN INT TERM' RETURN
-
-    # Het probe-image apart binnenhalen: een registry-fout (rate limit, air-gapped, proxy) zegt
-    # niets over de bruikbaarheid van de bridge, maar zou anders als 'geen bridge' tellen.
-    if ! podman image exists "$PROBE_IMAGE" && ! podman pull -q "$PROBE_IMAGE" >"$log" 2>&1; then
-        echo "  probe-image $PROBE_IMAGE niet beschikbaar: $(tail -1 "$log")" >&2
-        echo "  Modus niet vast te stellen; kies expliciet MODUS=bridge of MODUS=hostnet." >&2
-        probe_opruimen
-        exit 1
-    fi
-
-    if ! podman network create "$net" >"$log" 2>&1; then
-        echo "  bridge niet bruikbaar: $(tail -1 "$log")"
-        return 1
-    fi
-
-    # Bridge én naamresolutie moeten werken: zonder aardvark-dns start een container wel, maar
-    # resolvet geen enkele service-naam en faalt de hele stack pas ná het opstarten.
-    if podman run -d --rm --name "${net}-doel" --network "$net" \
-           "$PROBE_IMAGE" sleep 60 >"$log" 2>&1; then
-
-        # Een paar pogingen: aardvark-dns publiceert het record niet altijd meteen, en één
-        # vals-negatief zou de stack naar de riskantere modus duwen.
-        for _ in 1 2 3; do
-            podman run --rm --network "$net" "$PROBE_IMAGE" \
-                getent hosts "${net}-doel" >/dev/null 2>&1 && { ok=0; break; }
-
-            sleep 2
-        done
-
-        if [ "$ok" -ne 0 ]; then
-            echo "  bridge staat, maar containernamen resolven niet (aardvark-dns?)"
-        fi
-    else
-        echo "  bridge staat, maar een container starten erop lukt niet: $(tail -1 "$log")"
-    fi
-
-    return $ok
-}
-
-MODUS="${MODUS:-}"
-
-if [ -z "$MODUS" ]; then
+if [ "$COMMANDO" = "up" ]; then
     echo "[1/4] netwerkmodus bepalen"
-
-    # Buiten Linux draait podman in een VM; een gedeelde netns is dan die van de VM en niet die
-    # van de host, zodat er zonder gepubliceerde poorten niets doorkomt. Hostnet is daar dus geen
-    # bruikbaar vangnet en wordt nooit automatisch gekozen. Draait de stack op een andere engine
-    # dan podman, dan geldt hetzelfde: hostnet bestaat alleen voor kapotte podman-netwerken, en de
-    # probe hieronder zou een engine beoordelen die de stack niet draait.
-    if [ "$(uname -s)" != "Linux" ] || [ "$PODMAN_RUNTIME" -eq 0 ]; then
-        MODUS=bridge
-    elif kan_bridge; then
-        MODUS=bridge
-    else
-        MODUS=hostnet
-    fi
-
-    echo "  → $MODUS"
+    modus_bepalen bridge hostnet
 else
-    echo "[1/4] netwerkmodus: $MODUS (opgegeven)"
+    modus_teruglezen "$MODUS_BESTAND" "demo/podman-up.sh up"
 fi
 
 C=("${COMPOSE_BIN[@]}" -f compose.yaml -f compose.podman.yaml)
@@ -213,35 +104,29 @@ fi
 # afbreken met de vraag om een waarde.
 if [ -n "${PROEFTUIN_IMAGE:-}" ]; then
     C+=(-f compose.proeftuin-versie.yaml)
-    echo "[1/4] berichtenbox: $PROEFTUIN_IMAGE (PROEFTUIN_IMAGE overschrijft de pin)"
+
+    if [ "$COMMANDO" = "up" ]; then
+        echo "[1/4] berichtenbox: $PROEFTUIN_IMAGE (PROEFTUIN_IMAGE overschrijft de pin)"
+    fi
 fi
 
 C+=(--profile demo)
 
-# Toets de uitkomst, niet het versienummer en niet of het parset: `version --short` geeft bij een
-# externe compose-provider een versie die niets over de ondersteunde spec zegt, en een onbekende
-# YAML-tag wordt door sommige implementaties stilzwijgend genegeerd in plaats van geweigerd. Dus
-# renderen en kijken of `!reset` écht is toegepast — blijft er een gepubliceerde poort staan naast
-# `network_mode: host`, dan mislukt de start pas verderop en zonder bruikbare melding.
-if ! RENDER="$("${C[@]}" config 2>&1)"; then
-    echo "Deze compose kan de gestapelde bestanden niet verwerken:" >&2
-    printf '%s\n' "$RENDER" >&2
+case "$COMMANDO" in
+    down)
+        "${C[@]}" down "$@"
+        rm -f "$MODUS_BESTAND"
+        exit 0
+        ;;
+    ps)
+        exec "${C[@]}" ps "$@"
+        ;;
+    compose)
+        exec "${C[@]}" "$@"
+        ;;
+esac
 
-    # Implementaties die `!reset` niet kennen struikelen al over de tag zelf en komen dus hier
-    # terecht, niet in de assertie hieronder.
-    if [ "$MODUS" = "hostnet" ]; then
-        echo "hostnet vraagt compose v2.24.4 of nieuwer voor \`!reset\`; podman-compose kan dit niet." >&2
-    fi
-
-    exit 1
-fi
-
-if [ "$MODUS" = "hostnet" ] && printf '%s\n' "$RENDER" | grep -q 'published:'; then
-    echo "Er blijft een gepubliceerde poort staan naast \`network_mode: host\`." >&2
-    echo "Waarschijnlijk heeft een service in compose.yaml \`ports:\` gekregen zonder dat" >&2
-    echo "compose.podman-hostnet.yaml die met \`ports: !reset []\` opruimt." >&2
-    exit 1
-fi
+modus_render_controleren "${C[@]}"
 
 echo "[2/4] artefacten genereren"
 "$ROOT/demo/podman-prepare.sh" "$MODUS"
@@ -344,6 +229,10 @@ INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-
        magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
 SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
           demo-personas stelselregister proeftuin demo-proxy)
+
+# Vóór de eerste container: ook een start die halverwege faalt, moet met `down` op te ruimen zijn.
+mkdir -p "$(dirname "$MODUS_BESTAND")"
+modus_onthouden "$MODUS_BESTAND"
 
 echo "[3/4] infra starten ($MODUS)"
 "${C[@]}" up -d "${INFRA[@]}"

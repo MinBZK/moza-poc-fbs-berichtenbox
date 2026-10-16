@@ -11,7 +11,7 @@ door meerdere consumer-repo's tegelijk gebruikt).
 | [`logius`](logius/) | afnemer (outway naar `magazijn-a`) + aanbieder (inway, nog zonder dienst) | `00000000000000001000` | `mpfb-8wh`, deployment `fsc-logius` (co-located met de `uitvraag`-app) |
 
 Elke peer-map bevat dezelfde indeling: `pki/` (certificaat-scripts), `deploy/local/`
-(lokale docker-compose-harness), `deploy/zad/` (ZAD-rollout-runbooks + plan/validate-
+(lokale compose-harness, gestart met `deploy/local/up.sh`), `deploy/zad/` (ZAD-rollout-runbooks + plan/validate-
 script) en `docs/` (ontwerpachtergrond).
 
 ## Lokaal: één peer of de hele federatie
@@ -24,4 +24,12 @@ Voor alles wat zich *tussen* peers afspeelt — een contract, een data-pad, serv
 zet [`federatie/`](federatie/) de peers naast elkaar in één netns, met één directory, één
 group-CA en één SNI-router. Dat is de lokale tegenhanger van de ZAD-opstelling hierboven.
 
-`lib/fsc-harness.sh` bevat de helpers die de scripts van alle peers delen.
+Een losse peer start je met `<peer>/deploy/local/up.sh` (`up`, `down`, `ps`, `compose …`). Het
+script kiest zelf tussen Docker, podman met een bridge-netwerk en podman zonder (`hostnet`),
+onthoudt die keuze voor de vervolgcommando's en stopt met de oorzaak als een gevraagde modus hier
+niet kan — dezelfde werkwijze en dezelfde modus-keuze (`../lib/podman-modus.sh`) als
+`demo/podman-up.sh` voor de demo-stack. De federatie draait altijd in `hostnet`: haar adresplan
+bestaat alleen in een gedeelde netns.
+
+`lib/fsc-harness.sh` bevat de helpers die de scripts van alle peers delen; `lib/peer-stack.sh` is
+het startscript achter elke `deploy/local/up.sh`.

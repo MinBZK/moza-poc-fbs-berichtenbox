@@ -24,7 +24,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/../../../lib/fsc-harness.sh"
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
-COMPOSE=(docker compose -f "${HERE}/docker-compose.yaml")
+COMPOSE=(docker compose -f "${HERE}/compose.yaml")
 
 CONSUMER_OIN="00000000000000001000"
 PROVIDER_OIN="00000000000000001000"

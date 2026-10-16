@@ -224,7 +224,7 @@ Wat je hoe dan ook moet weten:
 | `demo/demo-personas/`                  | De demo-identiteiten als eigen dienst (`GET /api/demo/personas`); apart van het paneel zodat een berichtenbox de lijst kan lezen zonder bij de knoppen te kunnen |
 | `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests plus één `@QuarkusTest` zonder Docker) |
 | `demo/magazijn-simulator/`             | Eén service die zich als veel magazijnen voordoet, per pad-prefix `/magazijn/<OIN>`. Genereert uit `berichtenmagazijn-api.yaml` van het echte magazijn — die koppeling is een pad-verwijzing (`api.spec.file`) en staat niet in de reactor-graaf |
-| `demo/podman-up.sh`, `demo/smoke.sh`   | De demo-stack draaien onder Podman (`podman-prepare.sh` gaat eraan vooraf) en er een rookproef overheen halen |
+| `demo/podman-up.sh`, `demo/smoke.sh`   | De demo-stack draaien onder Podman (`up`/`down`/`ps`/`compose`; `podman-prepare.sh` gaat eraan vooraf) en er een rookproef overheen halen. De modus-keuze (docker, bridge, hostnet) staat in `demo/lib/podman-modus.sh` en wordt gedeeld met `demo/environment/<peer>/deploy/local/up.sh` |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `services/stelselregister/`            | Het magazijnregister als ondertekend stelseldocument (JWS, ES256). Sleutel uit een PKCS#12-keystore; een wegwerpketen alleen in ontwikkel- en testmodus, gekoppeld aan de launch mode |
@@ -243,6 +243,7 @@ Wat je hoe dan ook moet weten:
 | `.github/scripts/wijzigingsfilter.sh`  | Bepaalt per PR wat er moet draaien (code-checks, deploy, test-scope, fuzz); deploy.yml, test.yml, detekt.yml en cflite_pr.yml delen dit script. Unittests ernaast in `test-wijzigingsfilter.sh`, gedraaid door `ci-scripts.yml` |
 | `.github/scripts/uitrol-poort.sh`      | Oordeelt ná een deploy-run of er terecht wél of niet is uitgerold — een overgeslagen gate mag geen groene, lege run opleveren |
 | `.github/scripts/merge-guard.sh`       | Controleert één gerenderde compose-merge van een FSC-peer-harness op de eisen die in een gedeelde netns gelden |
+| `.github/scripts/selinux-label-guard.sh` | Eist `:z` op elke bind-mount van een gerenderde podman-merge (bridge, hostnet, federatie; peers én demo-stack), zodat de opstellingen op een SELinux-enforcing-host starten |
 | `.github/scripts/proeftuin-pin.sh`     | Vergelijkt de gepinde berichtenbox-digest in `compose.yaml` met de laatste main-commit van `MinBZK/moza-poc` en rapporteert een status; `pin-consistency.yml` en `proeftuin-pin.yml` delen hem |
 | `.github/scripts/proeftuin-pin-pr.sh`  | Biedt een achterlopende berichtenbox-pin als PR aan en sluit die PR zodra de pin bij is; vervangt Dependabot voor dít image (reden bij de `ignore`-regel in `.github/dependabot.yml`). Fixture-suite ernaast in `test-proeftuin-pin-pr.sh` |
 | `.github/scripts/pin-pr-lib.sh`        | Gedeeld PR-onderhoud van de twee pin-scripts (`fuzz-basis-pin.sh` en `proeftuin-pin-pr.sh`): token eisen, de eigen PR vinden zonder fork-PR's te raken, de branch publiceren, de PR opruimen. Wordt gesourcet; het oordeel over "verouderd" blijft per pad |

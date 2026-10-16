@@ -1,7 +1,7 @@
 # Bewaakt dat de compose-overlays van de lokale FSC-harnessen blijven passen op hun basis.
 #
-# De hostnet-overlay spiegelt elke service uit docker-compose.yaml: `network_mode: host`,
-# `extra_hosts` en een botsvrije poort op 127.0.0.1. Drie dingen kunnen daar stil misgaan:
+# De hostnet-overlay spiegelt elke service uit compose.yaml: `network_mode: host`,
+# `extra_hosts` en een botsvrije poort op 127.0.0.1. Vier dingen kunnen daar stil misgaan:
 #
 #  1. Iemand voegt een service aan de basis toe en vergeet de overlay. Die service vraagt dan het
 #     default-netwerk terug, en omdat de overlay dat netwerk met `!reset` weghaalt, valt de hele
@@ -11,6 +11,9 @@
 #     draaien (controller met AUTHN_TYPE=none, postgres met harness-credentials).
 #  3. Iemand voegt een service toe die `/pki` leest onder een vaste UID, zonder keep-id. Die faalt
 #     onder rootless podman met `permission denied` op de privékey.
+#  4. Iemand voegt een bind-mount toe zonder `:z`. Die faalt op een host met SELinux enforcing,
+#     in bridge én in hostnet — vandaar dat .github/scripts/selinux-label-guard.sh ook de
+#     bridge-merge (basis + podman-overlay) toetst, die verder niet gerenderd wordt.
 #
 # De federatie-opstelling (demo/environment/federatie/) legt daar een VIERDE laag op die alle peers
 # in één netns zet. Die laag is de laatste en dus beslissend; wat daar geïntroduceerd wordt, is in
@@ -28,10 +31,10 @@ on:
     types: [opened, synchronize, reopened]
     # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
     # zonder dat de guard zelf ooit gedraaid heeft.
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
   push:
     branches: [main]
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
@@ -62,11 +65,11 @@ jobs:
           overlays=0
 
           for peer in demo/environment/*/deploy/local; do
-            [ -f "$peer/docker-compose.yaml" ] || continue
+            [ -f "$peer/compose.yaml" ] || continue
             peers=$((peers + 1))
 
-            if [ ! -f "$peer/docker-compose.podman-hostnet.yaml" ]; then
-              echo "FOUT: $peer heeft geen docker-compose.podman-hostnet.yaml — verwijderd of hernoemd?"
+            if [ ! -f "$peer/compose.podman-hostnet.yaml" ]; then
+              echo "FOUT: $peer heeft geen compose.podman-hostnet.yaml — verwijderd of hernoemd?"
               fail=1
               continue
             fi
@@ -75,13 +78,19 @@ jobs:
 
             # PKI_DIR/HOST_UID komen normaal uit .env (gitignored). De waarden doen er niet toe:
             # `config` rendert alleen, het mount niets en controleert geen paden.
-            if ! (cd "$peer" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
-                    docker compose -f docker-compose.yaml \
-                                   -f docker-compose.podman.yaml \
-                                   -f docker-compose.podman-hostnet.yaml config --format json) \
-                 | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "$peer (hostnet-merge)" --postgres; then
-              fail=1
-            fi
+            hostnet=$(cd "$peer" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
+                        docker compose -f compose.yaml \
+                                       -f compose.podman.yaml \
+                                       -f compose.podman-hostnet.yaml config --format json) \
+              || { echo "FOUT: $peer — de hostnet-merge rendert niet."; fail=1; continue; }
+            bridge=$(cd "$peer" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
+                       docker compose -f compose.yaml \
+                                      -f compose.podman.yaml config --format json) \
+              || { echo "FOUT: $peer — de bridge-merge rendert niet."; fail=1; continue; }
+
+            printf '%s' "$hostnet" | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "$peer (hostnet-merge)" --postgres || fail=1
+            printf '%s' "$hostnet" | "$GITHUB_WORKSPACE/.github/scripts/selinux-label-guard.sh" "$peer (hostnet-merge)" || fail=1
+            printf '%s' "$bridge" | "$GITHUB_WORKSPACE/.github/scripts/selinux-label-guard.sh" "$peer (bridge-merge)" || fail=1
           done
 
           if [ "$peers" -eq 0 ] || [ "$overlays" -ne "$peers" ]; then
@@ -131,9 +140,9 @@ jobs:
             fi
 
             merged=$(cd "$lokaal" && PKI_DIR=../../pki HOST_UID=1000 HOST_GID=1000 \
-              docker compose -f docker-compose.yaml \
-                             -f docker-compose.podman.yaml \
-                             -f docker-compose.podman-hostnet.yaml \
+              docker compose -f compose.yaml \
+                             -f compose.podman.yaml \
+                             -f compose.podman-hostnet.yaml \
                              -f "../../../federatie/compose/$peer.yaml" config --format json)
 
             # De gastheer draait de gedeelde postgres; bij de gasten staat die in een inactief
@@ -143,6 +152,8 @@ jobs:
             else
               printf '%s' "$merged" | "$GUARD" "$peer (federatie-merge)" || fail=1
             fi
+
+            printf '%s' "$merged" | "$GITHUB_WORKSPACE/.github/scripts/selinux-label-guard.sh" "$peer (federatie-merge)" || fail=1
 
             # De adressen die deze peer in de federatie claimt, uit env én uit `command`
             # (stub-upstream draagt zijn adres in een `-listen=`-vlag). Elke component heeft een
@@ -276,7 +287,26 @@ jobs:
             -f compose.podman-hostnet.yaml config --format json \
             | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "demo-stack (hostnet-merge)"
 
+      - name: Elke bind-mount van de demo-stack draagt een SELinux-label
+        # Ook na een eerdere fout in deze job: twee losse signalen zijn meer waard dan één.
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+
+          fail=0
+
+          for lagen in "compose.podman.yaml" "compose.podman.yaml compose.podman-hostnet.yaml"; do
+            args=(-f compose.yaml)
+            for f in $lagen; do args+=(-f "$f"); done
+
+            DEMO_HOST=localhost DEMO_MAGAZIJNEN=98 docker compose --profile demo "${args[@]}" config --format json \
+              | "$GITHUB_WORKSPACE/.github/scripts/selinux-label-guard.sh" "demo-stack ($lagen)" || fail=1
+          done
+
+          exit "$fail"
+
       - name: De console stuurt Toxiproxy in deze modus ook naar loopback
+        if: ${{ !cancelled() }}
         # De demo-console maakt de proxies zelf aan en zet ze elke reconcile-ronde terug. Staan haar
         # adressen niet op de gedeelde netns ingesteld, dan overschrijft ze de geladen definities met
         # container-DNS-namen die daar niet resolven — en dat is aan niets te zien: Toxiproxy blijft
@@ -326,8 +356,8 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck + bash-unittests
-        # De harness is bash, en de bash-tests die er zijn (demo/environment/lib/test-*.sh) draaiden
-        # tot nu toe nergens automatisch. Zonder deze stap rot elke test die eraan wordt toegevoegd.
+        # De harness is bash, en de bash-tests die er zijn (demo/environment/lib/test-*.sh en de
+        # modus-keuze in demo/lib/test-*.sh) draaiden tot nu toe nergens automatisch. Zonder deze stap rot elke test die eraan wordt toegevoegd.
         #
         # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
         # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die
@@ -350,18 +380,38 @@ jobs:
                  demo/environment/*/pki/*.sh \
                  demo/environment/zad-demo/*.sh \
                  demo/*.sh \
-                 .github/scripts/merge-guard.sh; then
+                 demo/lib/*.sh \
+                 .github/scripts/merge-guard.sh \
+                 .github/scripts/selinux-label-guard.sh; then
             fail=1
           fi
 
           echo "== bash-unittests =="
           gedraaid=0
-          for t in demo/environment/lib/test-*.sh; do
+          for t in demo/environment/lib/test-*.sh demo/lib/test-*.sh; do
             [ -f "$t" ] || continue
             gedraaid=$((gedraaid + 1))
             echo "-- $t"
             bash "$t" || fail=1
           done
+
+          # De modus-keuze voor beide opstellingen hangt aan deze ene suite. Zonder eis op naam en
+          # aantal valt hij weg (verwijderd, hernoemd, uitgehold) terwijl de telling hierboven op
+          # de overige suites groen blijft.
+          suite=demo/lib/test-podman-modus.sh
+          if [ ! -f "$suite" ]; then
+            echo "FOUT: $suite ontbreekt."
+            fail=1
+          else
+            uitvoer=$(bash "$suite" 2>&1) || true
+            gemeten=$(sed -n 's/^ASSERTIES=//p' <<<"$uitvoer" | tail -1)
+            geteld=$(grep -c '^OK: ' <<<"$uitvoer" || true)
+
+            if ! [[ "${gemeten:-}" =~ ^[0-9]+$ ]] || [ "$gemeten" -lt 42 ] || [ "$geteld" -lt "$gemeten" ]; then
+              echo "FOUT: $suite leverde ASSERTIES=${gemeten:-<geen>} met $geteld geslaagd, verwacht minstens 42."
+              fail=1
+            fi
+          fi
 
           if [ "$gedraaid" -eq 0 ]; then
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."

@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
 
-COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
+COMPOSE=(docker compose -f "$HERE/compose.yaml")
 CONSUMER_OIN="00000000000000001000"
 DIR_OIN="00000000000000000010"
 TIMEOUT=120

@@ -21,9 +21,9 @@ OIDC-login-voorziening — dat blijft buiten scope voor deze peer-harness. Bouwt
 
 ## Benodigdheden
 
-- **Docker** + `docker compose` (v2). Onder **rootless podman** stapel je
-  `deploy/local/docker-compose.podman.yaml` erop — zie de podman-eisen onder
-  [Troubleshooting](#troubleshooting).
+- **Docker** + `docker compose` (v2), of **podman** met `docker compose` ≥ 2.24.4 tegen de
+  podman-socket. `deploy/local/up.sh` kiest zelf de compose-bestanden die daarbij horen — zie
+  [Starten en modi](#starten-en-modi).
 - Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
   `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
   faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
@@ -49,10 +49,9 @@ cd -
 cp deploy/local/.env.example deploy/local/.env
 printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env
 
-# 3. Start de stack. Onder rootless podman: hang er
-#    `-f deploy/local/docker-compose.podman.yaml` achter, in élk compose-commando hieronder.
-docker compose -f deploy/local/docker-compose.yaml up -d
-sleep 20 && docker compose -f deploy/local/docker-compose.yaml ps
+# 3. Start de stack. Het script kiest de modus (docker, bridge of hostnet), legt hem vast en
+#    wacht tot smoke-services.sh groen is.
+./deploy/local/up.sh
 
 # 4. Draai de smoke.
 ./deploy/local/run-smokes.sh    # verwacht: "ALLE SMOKES GROEN."
@@ -68,10 +67,10 @@ Losse smokes (voor gerichte diagnose, elk zelfstandig draaibaar):
 ./deploy/local/consume-service.sh    # verwacht: "CONSUME OK."
 ```
 
-Opruimen (met dezelfde `-f`'s als waarmee je startte):
+Opruimen — het script gebruikt de compose-bestanden van de laatste start:
 
 ```bash
-docker compose -f deploy/local/docker-compose.yaml down -v
+./deploy/local/up.sh down -v
 ```
 
 > **Hosts-bestand niet nodig.** De SNI-hostnames (`directory.fsc-test.local`,
@@ -141,23 +140,55 @@ authenticated `:9443` blijkt te eisen, faalt de boot daar zichtbaar terwijl de r
 draait. Juist die componenten hernummert de hostnet-overlay van poort, dus een fout daarin moet
 luid falen.
 
+## Starten en modi
+
+`deploy/local/up.sh` start de harness in de modus die op deze machine werkt. Het is dezelfde
+werkwijze als `demo/podman-up.sh` voor de demo-stack, op dezelfde bibliotheek
+(`demo/lib/podman-modus.sh`):
+
+| Modus | Wanneer | Compose-bestanden |
+|---|---|---|
+| `docker` | Docker-engine | `compose.yaml` |
+| `bridge` | podman met een werkend bridge-netwerk (Linux rootless, podman machine) | + `compose.podman.yaml` |
+| `hostnet` | podman zonder bruikbaar bridge-netwerk, bv. podman in een container | + `compose.podman.yaml` + `compose.podman-hostnet.yaml` |
+
+Zonder podman op PATH (en zonder `DOCKER_HOST` naar een podman-socket) wordt het `docker`. Onder
+podman zet het script eerst een proef-bridge met naamresolutie op en kijkt of podman healthchecks
+vanzelf uitvoert (zonder systemd gebeurt dat niet, en wacht de start eindeloos op postgres). Pas als
+een van beide niet lukt kiest het `hostnet` — buiten Linux nooit. `MODUS=<modus>` forceert. Kan de gekozen modus hier niet
+werken (`docker` op een podman-socket, `hostnet` buiten Linux of met
+`ip_unprivileged_port_start` boven 443, een compose die `!reset` niet kent), dan stopt het met de
+oorzaak in plaats van terug te vallen.
+
+```bash
+./deploy/local/up.sh                         # starten; wacht tot smoke-services.sh groen is
+./deploy/local/up.sh ps                      # status
+./deploy/local/up.sh compose logs -f router  # elk ander compose-commando
+./deploy/local/up.sh down -v                 # afbreken, inclusief volumes
+```
+
+De modus van de laatste start staat in `deploy/local/.modus`; `down`, `ps` en `compose` lezen hem
+terug. Zo kan geen vervolgcommando met een andere set bestanden de stack half omzetten. Draait de
+peer in de federatie, gebruik dan `../federatie/federatie.sh`: `up.sh` weigert een project dat
+buiten het script gestart is, want het zou de containers zonder de federatielaag hercreëren.
+
 ## Podman zonder bridge-netwerk
 
 Draait podman zélf in een container, dan kan netavark geen bridge opzetten (`failed to set
 autoconf sysctl: Permission denied` — `/proc/sys` is daar niet schrijfbaar) en ontbreekt
 `aardvark-dns`, waardoor geen enkele containernaam resolvet. De overlay
-`docker-compose.podman-hostnet.yaml` laat alle containers dan de netns van de aanroeper delen:
+`compose.podman-hostnet.yaml` laat alle containers dan de netns van de aanroeper delen. `up.sh`
+kiest hem zelf zodra de proef-bridge faalt; forceren kan ook:
 
 ```bash
-docker compose -f deploy/local/docker-compose.yaml \
-               -f deploy/local/docker-compose.podman.yaml \
-               -f deploy/local/docker-compose.podman-hostnet.yaml up -d
+MODUS=hostnet ./deploy/local/up.sh
 ./deploy/local/run-smokes.sh
 ```
 
-**Elk verder compose-commando heeft dezelfde drie `-f`'s nodig** — `up`, `down`, `restart`,
-`--force-recreate`. Met één `-f` rendert compose de services opnieuw uit alleen de basis en draait
-hij je stilletjes terug naar bridge. De smokes zijn wél veilig met één `-f`: die lezen alleen
+**Start, herstart en breek deze modus af via `up.sh`** (`up.sh compose restart …`, `up.sh compose
+up -d --force-recreate …`). Een compose-commando met één `-f` rendert de services opnieuw uit
+alleen de basis en draait je stilletjes terug naar bridge; het script geeft steeds de drie
+bestanden mee. De smokes zijn wél veilig met één `-f`: die lezen alleen
 (`exec`, `logs`, `ps`, `config`) en hercreëren niets — `ps` en `exec` vinden de draaiende
 containers op projectnaam plus servicelabel, ongeacht met hoeveel `-f` ze gestart zijn.
 
@@ -201,7 +232,8 @@ Vijf beperkingen:
   `net.ipv4.ip_unprivileged_port_start` op 0 hebben.** De per-container `sysctls`-regel uit de
   basis vervalt hier: in een gedeelde netns mag een container die niet zetten. Controleer met
   `sysctl net.ipv4.ip_unprivileged_port_start`. Staat hij op 1024, dan faalt de router op
-  `bind 127.0.0.1:443: Permission denied`. De namen resolven dan nog wél — die komen hier uit
+  `bind 127.0.0.1:443: Permission denied`; `up.sh` controleert dit vóór de start en stopt met
+  die oorzaak. De namen resolven dan nog wél — die komen hier uit
   `extra_hosts`, niet van de router — maar elke `:443`-verbinding krijgt ECONNREFUSED en alle
   smokes vallen om zonder dat de managerlogs een fout tonen. Zet je hem host-breed op 0, dan
   mag voortaan elke onprivilegieerde gebruiker op die machine onder poort 1024 binden — draai dat
@@ -226,22 +258,25 @@ Vijf beperkingen:
 - **Container kan cert niet vinden** → controleer dat `pki/out/logius/<endpoint>/` en
   `pki/internal/logius/<endpoint>/` bestaan (na `./pki/issue.sh`); paden moeten
   matchen met de compose-env.
-- **`permission denied` op `key.pem` bij boot** → onder rootless podman: de
-  `docker-compose.podman.yaml`-overlay ontbreekt in het commando (zie de podman-eisen hieronder).
+- **`permission denied` op `key.pem` bij boot** → onder rootless podman: de stack
+  is buiten `up.sh` gestart, zonder `compose.podman.yaml`.
   Anders: `HOST_UID`/`HOST_GID` in `deploy/local/.env` matchen niet met de eigenaar van de keys.
   Zet ze met
   `printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env` en
-  `docker compose -f deploy/local/docker-compose.yaml -f deploy/local/docker-compose.podman.yaml up -d --force-recreate`
-  (onder Docker zonder die tweede `-f`; onder de hostnet-overlay met alle drie).
+  `./deploy/local/up.sh compose up -d --force-recreate`.
+- **`permission denied` op `/pki` of de haproxy-config terwijl rechten en UID kloppen** → SELinux
+  enforcing (Fedora, RHEL): een bind-mount heeft dan het label `:z` nodig. Dat staat op elke mount
+  in `compose.podman.yaml` (en in de overlays die een mount vervangen), en de overlay-guard in CI
+  eist het. Gestart zonder die overlay? Start via `up.sh`.
 - **Poort bezet** (8081, 8091) → stop de conflicterende dienst of pas de `ports`/`bind`
-  in `docker-compose.yaml` / `haproxy.cfg` aan. De router publiceert geen host-poort
+  in `compose.yaml` / `haproxy.cfg` aan. De router publiceert geen host-poort
   (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren — behalve
   onder de hostnet-overlay, waar de hele stack de poortruimte van je machine deelt (zie
   [Podman zonder bridge-netwerk](#podman-zonder-bridge-netwerk)).
-- **Smoke faalt** → `docker compose -f deploy/local/docker-compose.yaml logs
+- **Smoke faalt** → `./deploy/local/up.sh compose logs
   manager-directory manager-logius controller-logius` voor de mesh-logs. Blijft de announce-smoke
   hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan éérst
-  `docker compose -f deploy/local/docker-compose.yaml ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de ROUTER,
+  `./deploy/local/up.sh ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de ROUTER,
   dus zonder router vertrekt geen enkele announce en zie je in de managerlogs geen fout.
 - **Podman i.p.v. Docker** → de harness draait op beide, mits:
   - Gebruik `docker compose` of `podman compose` (zónder streepje). `podman-compose` (mét
@@ -254,8 +289,8 @@ Vijf beperkingen:
   - `haproxy.cfg` gebruikt `parse-resolv-conf` in plaats van een vast nameserver-adres: Docker's
     embedded DNS zit op `127.0.0.11`, podman's aardvark-dns op de netwerk-gateway. Met een hard
     adres logt de router `<NOSRV>` en zijn alle backends onbereikbaar.
-  - Stapel `-f deploy/local/docker-compose.podman.yaml` op elk compose-commando. Die overlay zet
-    `userns_mode: "keep-id"` op de cert-lezende services. Rootless podman mapt host-UID 1000 op
+  - `up.sh` stapelt `compose.podman.yaml` op de basis. Die overlay zet `userns_mode: "keep-id"`
+    op de cert-lezende services en `:z` op elke bind-mount. Rootless podman mapt host-UID 1000 op
     container-UID 0; zonder keep-id is de UID uit `user:` een subuid die de 0600-privékeys niet
     mag lezen, en faalt elke container die `/pki` mount bij boot. De regel staat bewust niet in de
     basis: Docker accepteert alleen een lege `userns_mode` of `host` en weigert op `keep-id`.
@@ -264,8 +299,8 @@ Vijf beperkingen:
 - **`migrate-*` hangt / `database "…" does not exist`** → `postgres-init.sql` draait alleen bij
   een **vers** volume. Bestaat er al een postgres-volume van een eerdere run? Maak de ontbrekende
   DB eenmalig aan (`... exec -T postgres psql -U postgres -c "CREATE DATABASE <naam>;"`) of
-  `down -v && up -d` (wist alles, re-init inclusief nieuwe DB's) — met dezelfde `-f`'s
-  als waarmee je startte.
+  `./deploy/local/up.sh down -v && ./deploy/local/up.sh` (wist alles, re-init inclusief nieuwe
+  DB's).
 
 ## Cert-contract (referentie, overgenomen uit `pki/README.md`)
 

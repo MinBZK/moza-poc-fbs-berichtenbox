@@ -32,6 +32,16 @@ ENVDIR="$(cd "${HERE}/.." && pwd)"
 
 fsc_errlog_init
 
+# De peers krijgen hier elk een eigen loopback-adres in één gedeelde netns; in bridge heeft elk
+# compose-project een eigen netwerk en bestaat dat adresplan niet. De modus-keuze van de losse
+# harnessen (deploy/local/up.sh) geldt hier dus niet, en een opgegeven andere modus zou anders
+# zwijgend genegeerd worden.
+if [ -n "${MODUS:-}" ] && [ "$MODUS" != "hostnet" ]; then
+  echo "FOUT: de federatie draait alleen in hostnet (een gedeelde netns); MODUS=${MODUS} kan hier niet." >&2
+  echo "      Een losse peer in ${MODUS}: demo/environment/<peer>/deploy/local/up.sh." >&2
+  exit 2
+fi
+
 ANNOUNCE_TIMEOUT="${ANNOUNCE_TIMEOUT:-120}"
 ANNOUNCE_INTERVAL="${ANNOUNCE_INTERVAL:-5}"
 UP_POGINGEN="${UP_POGINGEN:-3}"
@@ -49,16 +59,16 @@ verwacht_peers() {
 # compose_project <peer>: de projectnaam van die peer. Faalt hard bij een ontbrekende `name:` —
 # een lege projectnaam maakt elk container-filter betekenisloos en dus elke controle die daarop
 # leunt stil.
-compose_project() { fsc_compose_project "${ENVDIR}/$1/deploy/local/docker-compose.yaml"; }
+compose_project() { fsc_compose_project "${ENVDIR}/$1/deploy/local/compose.yaml"; }
 
 # dc <peer> <compose-commando...>: docker compose voor die peer, met de vier -f-bestanden.
 dc() {
   local peer="$1" lokaal="${ENVDIR}/$1/deploy/local"; shift
   local f args=()
 
-  for f in "${lokaal}/docker-compose.yaml" \
-           "${lokaal}/docker-compose.podman.yaml" \
-           "${lokaal}/docker-compose.podman-hostnet.yaml" \
+  for f in "${lokaal}/compose.yaml" \
+           "${lokaal}/compose.podman.yaml" \
+           "${lokaal}/compose.podman-hostnet.yaml" \
            "${HERE}/compose/${peer}.yaml"; do
     [ -r "$f" ] || { echo "FAIL: compose-bestand ontbreekt of onleesbaar: $f" >&2; return 1; }
     args+=(-f "$f")
