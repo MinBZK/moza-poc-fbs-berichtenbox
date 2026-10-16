@@ -132,6 +132,8 @@ en de documentatie gelijktrekken.
   vastgelegde `.modus`. `demo/smoke.sh` faalde op stap 2 (403, geen profiel). Dat komt niet door
   deze wijziging: het lokale `fbs-berichtenmagazijn:demo`-image dateert van 4 september, van vóór
   #304, en vraagt het profiel nog op via `GET …/BSN/<nr>` in plaats van `POST …/partij`.
+  Met alle zes demo-images opnieuw gebouwd vanaf deze branch is `demo/smoke.sh` groen (5/5,
+  fan-out 3/15/45/100 organisaties).
 - Niet verifieerbaar hier, zoals verwacht: SELinux enforcing en het bridge-pad op een echte
   rootless-host.
 
