@@ -107,7 +107,7 @@ berichten() {
 # De txlog-meting hieronder telt alleen transacties die DEZE run veroorzaakt. Een eerdere
 # smoke-contract-run laat namelijk ook een gedeelde transactie achter; zonder nulmeting zou deze
 # smoke groen blijven terwijl de uitvraag rechtstreeks naar het magazijn ging.
-if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/docker-compose.yaml")"; then
+if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/compose.yaml")"; then
   txids() {  # <db> <richting>
     podman exec "${PROJECT}-postgres-1" psql -U postgres -d "$1" -tA \
       -c "SELECT transaction_id FROM transactionlog.records

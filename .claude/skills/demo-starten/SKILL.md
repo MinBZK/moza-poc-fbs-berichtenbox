@@ -96,4 +96,5 @@ onbereikbaar is.
 
 ```bash
 docker compose --profile demo down -v
+demo/podman-up.sh down -v        # onder podman: met de bestanden van de laatste start
 ```

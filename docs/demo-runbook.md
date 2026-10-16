@@ -113,7 +113,13 @@ Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-vo
 ```bash
 demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
 DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
+demo/podman-up.sh ps                     # status
+demo/podman-up.sh compose logs -f berichtenuitvraag
+demo/podman-up.sh down                   # afbreken (voeg -v toe om de volumes te wissen)
 ```
+
+Dezelfde werkwijze geldt voor de FSC-peer-harnessen (`demo/environment/<peer>/deploy/local/up.sh`);
+beide scripts delen de modus-keuze in `demo/lib/podman-modus.sh`.
 
 De stack luistert standaard **alleen op `127.0.0.1`**: zonder die grens staan Redis (zonder
 wachtwoord), drie PostgreSQL-instanties met demo-credentials en de WireMock-admin-API's op elke
@@ -145,7 +151,7 @@ zijn, genereert de stub-artefacten en de sleutelketen van het stelselregister, e
 de vier Postgres-instanties, de profiel-stub, de magazijn-simulator, Toxiproxy en de services
 worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
 
-Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als naamresolutie test:
+Twee modi, automatisch bepaald met probes op het bridge-netwerk, de naamresolutie en of podman healthchecks vanzelf uitvoert (zonder systemd gebeurt dat niet, en blijft elke start op een `service_healthy`-afhankelijkheid hangen):
 
 | Modus | Wanneer | Bestand |
 |---|---|---|
@@ -153,8 +159,20 @@ Twee modi, automatisch bepaald met een probe die zowel het bridge-netwerk als na
 | `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (derde bestand, bovenop de basis en de podman-overlay) |
 
 Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet` nooit
-automatisch gekozen: podman draait daar in een VM, dus de gedeelde namespace is die van de VM en
-zonder gepubliceerde poorten komt er niets door naar je werkplek.
+automatisch gekozen en ook geforceerd geweigerd: podman draait daar in een VM, dus de gedeelde
+namespace is die van de VM en zonder gepubliceerde poorten komt er niets door naar je werkplek.
+Kan een gevraagde modus hier niet werken, dan stopt het script met de oorzaak in plaats van terug
+te vallen.
+
+De modus van de laatste start staat in `demo/generated/.modus`. `down`, `ps`, `compose …` en een
+tweede `up` lezen hem terug en geven dezelfde compose-bestanden mee; een opgegeven `MODUS` die
+afwijkt van de vastgelegde wordt geweigerd, want die zou de draaiende stack half omzetten. Ook
+`PROEFTUIN_IMAGE` wordt daar vastgelegd: een vervolgcommando in een nieuwe shell houdt de
+berichtenbox op die versie, een opnieuw gezette variabele wordt het nieuwe vastgelegde punt, en
+`down` wist hem.
+
+Op Fedora/RHEL met SELinux enforcing heeft elke bind-mount het label `:z` nodig; dat staat in
+`compose.podman.yaml`, en een CI-job eist het voor elke mount in de gerenderde merges.
 
 In `hostnet` delen alle containers één netwerknamespace: de zes Toxiproxy-proxy-listeners, die in
 `bridge` alleen intern bestonden, zijn dan ook op de machine zelf zichtbaar. Ze binden — net als
@@ -179,12 +197,10 @@ en werkt niet met `podman-compose`. Het script rendert daarom eerst de samengest
 en controleert dat er geen gepubliceerde poort meer in staat — een implementatie die de tag
 negeert in plaats van toepast, valt daar door de mand.
 
-Afsluiten met dezelfde socket en dezelfde overlays als het script gebruikte:
+Afsluiten via het script, dat dezelfde socket en dezelfde overlays gebruikt als bij de start:
 
 ```bash
-export DOCKER_HOST="unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
-docker compose -f compose.yaml -f compose.podman.yaml --profile demo down
-# in hostnet: -f compose.podman-hostnet.yaml vóór --profile toevoegen
+demo/podman-up.sh down
 ```
 
 ---

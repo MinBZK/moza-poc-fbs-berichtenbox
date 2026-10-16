@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/../../../lib/fsc-harness.sh"
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
-COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
+COMPOSE=(docker compose -f "$HERE/compose.yaml")
 # Overrulebaar zodat één peer kan toetsen of hij de dienst van een ÁNDERE peer in de gedeelde
 # catalogus ziet — de kerneigenschap van een federatie. Defaults = de eigen dienst, dus
 # standalone verandert er niets.

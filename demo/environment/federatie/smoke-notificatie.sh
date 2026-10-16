@@ -151,7 +151,7 @@ fi
 # NA de probe, niet ervoor: die gaat zelf door outway en inway en schrijft dus in beide logboeken.
 # Stond de nulmeting ervóór, dan telde die rij als "nieuw" en kon assert 2 nooit rood worden — ook
 # niet als het magazijn buiten de outway om levert, wat deze smoke juist moet uitsluiten.
-if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/docker-compose.yaml")"; then
+if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/compose.yaml")"; then
   txids() {  # <db> <richting>
     podman exec "${PROJECT}-postgres-1" psql -U postgres -d "$1" -tA \
       -c "SELECT transaction_id FROM transactionlog.records

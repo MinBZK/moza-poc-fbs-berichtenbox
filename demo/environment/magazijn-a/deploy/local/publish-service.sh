@@ -21,7 +21,7 @@ fsc_have_jq
 }
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
-COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
+COMPOSE=(docker compose -f "$HERE/compose.yaml")
 # Overrulebaar, symmetrisch met de andere peers: één inway kan meer dan één dienst dragen.
 SERVICE_NAME="${FSC_SERVICE_NAME:-berichtenmagazijn}"
 PROVIDER_OIN="00000000000000100000"

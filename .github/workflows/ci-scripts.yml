@@ -27,7 +27,7 @@ on:
     types: [checks_requested]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
+    paths: ['.github/scripts/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**', 'demo/lib/**', 'compose.yaml', 'compose.podman*.yaml']
 
 permissions:
   contents: read
@@ -120,7 +120,7 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=111
+            [.github/scripts/test-wijzigingsfilter.sh]=112
             [.github/scripts/test-uitrol-poort.sh]=100
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
@@ -136,6 +136,7 @@ jobs:
             [.github/scripts/test-proeftuin-pin-pr.sh]=129
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-proeftuin-pin.sh]=139
+            [.github/scripts/test-selinux-label-guard.sh]=22
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt
