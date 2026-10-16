@@ -248,8 +248,34 @@ diagnose_announce() {
     || echo "  (directory-DB onbereikbaar — draait de gastheer-stack?)" >&2
 }
 
+# modus_bestand <peer>: waar deploy/local/up.sh de modus van die peer vastlegt. De federatie zet er
+# `federatie` in, zodat de losse up.sh deze peer niet zonder de vierde laag hercreëert; andersom
+# weigert de federatie een peer die al los draait.
+modus_bestand() { echo "${ENVDIR}/$1/deploy/local/.modus"; }
+
+markeer_peers() {
+  local peer bestand vastgelegd
+
+  for peer in $(fsc_alle_peers); do
+    bestand="$(modus_bestand "$peer")"
+    vastgelegd="$(head -n1 "$bestand" 2>/dev/null || true)"
+
+    if [ -n "$vastgelegd" ] && [ "$vastgelegd" != "federatie" ]; then
+      echo "FAIL: ${peer} draait los in ${vastgelegd} (${bestand})." >&2
+      echo "      Breek hem eerst af: demo/environment/${peer}/deploy/local/up.sh down -v" >&2
+      exit 1
+    fi
+  done
+
+  for peer in $(fsc_alle_peers); do
+    printf 'federatie\n' >"$(modus_bestand "$peer")"
+  done
+}
+
 case "${1:-}" in
   up)
+    markeer_peers
+
     echo "federatie: gastheer-stack (${GASTHEER}) — postgres, router, directory + peer..."
     up_met_retry "$GASTHEER"
 
@@ -295,6 +321,11 @@ case "${1:-}" in
       echo "FEDERATIE NIET SCHOON NEER — ruim handmatig op voor je opnieuw 'up' draait." >&2
       exit 1
     }
+
+    for peer in $(fsc_alle_peers); do
+      rm -f "$(modus_bestand "$peer")"
+    done
+
     echo "FEDERATIE NEER."
     ;;
 

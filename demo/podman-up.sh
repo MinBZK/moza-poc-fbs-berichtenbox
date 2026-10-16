@@ -88,9 +88,24 @@ modus_compose_kiezen
 
 if [ "$COMMANDO" = "up" ]; then
     echo "[1/4] netwerkmodus bepalen"
-    modus_bepalen bridge hostnet
+    modus_voor_start "$MODUS_BESTAND" demo/podman-up.sh bridge hostnet
 else
-    modus_teruglezen "$MODUS_BESTAND" "demo/podman-up.sh up"
+    modus_teruglezen "$MODUS_BESTAND" demo/podman-up.sh bridge hostnet
+fi
+
+# De proeftuin-versie bepaalt de set compose-bestanden net zo goed als de modus. Zonder vastleggen
+# zou een vervolgcommando in een nieuwe shell de berichtenbox stil terugzetten op de gepinde versie.
+# Een expliciet gezette variabele wint en wordt het nieuwe vastgelegde punt; `down` wist hem.
+PROEFTUIN_IMAGE="${PROEFTUIN_IMAGE:-$(modus_instelling "$MODUS_BESTAND" PROEFTUIN_IMAGE)}"
+INSTELLINGEN=()
+
+if [ -n "$PROEFTUIN_IMAGE" ]; then
+    export PROEFTUIN_IMAGE
+    INSTELLINGEN+=("PROEFTUIN_IMAGE=$PROEFTUIN_IMAGE")
+fi
+
+if [ "$COMMANDO" != "up" ] && [ "$COMMANDO" != "down" ] && [ -s "$MODUS_BESTAND" ]; then
+    modus_onthouden "$MODUS_BESTAND" "${INSTELLINGEN[@]+"${INSTELLINGEN[@]}"}"
 fi
 
 C=("${COMPOSE_BIN[@]}" -f compose.yaml -f compose.podman.yaml)
@@ -102,7 +117,7 @@ fi
 # Dezelfde variabele als de deploy leest, zodat lokaal en ZAD op één naam te sturen zijn. De
 # overlay alleen meegeven wanneer hij gezet is: hij draagt `:?` en zou een gewone start anders
 # afbreken met de vraag om een waarde.
-if [ -n "${PROEFTUIN_IMAGE:-}" ]; then
+if [ -n "$PROEFTUIN_IMAGE" ]; then
     C+=(-f compose.proeftuin-versie.yaml)
 
     if [ "$COMMANDO" = "up" ]; then
@@ -232,7 +247,7 @@ SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenui
 
 # Vóór de eerste container: ook een start die halverwege faalt, moet met `down` op te ruimen zijn.
 mkdir -p "$(dirname "$MODUS_BESTAND")"
-modus_onthouden "$MODUS_BESTAND"
+modus_onthouden "$MODUS_BESTAND" "${INSTELLINGEN[@]+"${INSTELLINGEN[@]}"}"
 
 echo "[3/4] infra starten ($MODUS)"
 "${C[@]}" up -d "${INFRA[@]}"

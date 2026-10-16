@@ -231,33 +231,97 @@ verwacht "een gepubliceerde poort naast network_mode host stopt de start" 1 "gep
 STUB_ENV="MODUS=bridge STUB_RENDER=published:8080" geval "$met" "$RENDER"
 verwacht "in bridge horen gepubliceerde poorten er gewoon bij" 0 "RENDER-OK"
 
-# --- modus_onthouden / modus_teruglezen ---
+# --- modus_onthouden / modus_teruglezen / modus_voor_start ---
 
 bestand="$werkmap/.modus"
-TERUG="modus_teruglezen '$bestand' 'up.sh up'; echo \"MODUS=\$MODUS\""
+# Na modus_engine, zodat de controle op de engine meedraait zoals in de echte scripts.
+TERUG="modus_engine; modus_teruglezen '$bestand' up.sh docker bridge hostnet; echo \"MODUS=\$MODUS\""
+START="modus_engine; modus_voor_start '$bestand' up.sh docker bridge hostnet; echo \"MODUS=\$MODUS\""
 
 rm -f "$bestand"
-STUB_ENV="" geval "$met" "$TERUG"
-verwacht "zonder vastgelegde modus en zonder MODUS: stoppen en zeggen hoe het wel kan" 2 "Start hem met \`up.sh up\`"
+STUB_ENV="$PODMAN_SOCK" geval "$met" "$TERUG"
+verwacht "zonder vastgelegde modus en zonder MODUS: stoppen en zeggen hoe het wel kan" 2 "Start hem met \`up.sh\`"
 
-STUB_ENV="MODUS=hostnet" geval "$met" "$TERUG"
+STUB_ENV="$PODMAN_SOCK MODUS=hostnet" geval "$met" "$TERUG"
 verwacht "zonder vastgelegde modus geldt een opgegeven MODUS" 0 "MODUS=hostnet"
+
+STUB_ENV="$PODMAN_SOCK MODUS=hostnett" geval "$met" "$TERUG"
+verwacht "zonder vastgelegde modus wordt een tikfout in MODUS geweigerd" 2 "MODUS='hostnett' bestaat hier niet"
+
+STUB_ENV="$PODMAN_SOCK MODUS=docker" geval "$met" "$TERUG"
+verwacht "zonder vastgelegde modus gaat een opgegeven MODUS ook langs de engine-controle" 2 "compose landt op podman"
 
 STUB_ENV="MODUS=hostnet" geval "$met" "modus_onthouden '$bestand'; echo vastgelegd"
 verwacht "modus_onthouden schrijft het bestand" 0 "vastgelegd"
 
-STUB_ENV="" geval "$met" "$TERUG"
+if [ "$(wc -l <"$bestand" | tr -d ' ')" = "1" ]; then
+  ok "zonder instellingen bevat het bestand alleen de modus"
+else
+  fout "zonder instellingen hoort het bestand één regel te hebben — $(cat "$bestand")"
+fi
+
+STUB_ENV="$PODMAN_SOCK" geval "$met" "$TERUG"
 verwacht "een vastgelegde modus wordt teruggelezen" 0 "MODUS=hostnet"
 
-STUB_ENV="MODUS=hostnet" geval "$met" "$TERUG"
+STUB_ENV="$PODMAN_SOCK MODUS=hostnet" geval "$met" "$TERUG"
 verwacht "een opgegeven MODUS gelijk aan de vastgelegde is goed" 0 "MODUS=hostnet"
 
-STUB_ENV="MODUS=bridge" geval "$met" "$TERUG"
+STUB_ENV="$PODMAN_SOCK MODUS=bridge" geval "$met" "$TERUG"
 verwacht "een opgegeven MODUS die afwijkt van de vastgelegde wordt geweigerd" 2 "gestart in hostnet"
 
+STUB_ENV="$DOCKER_SOCK" geval "$met" "MODUS_DOCKER_TOEGESTAAN=1; $TERUG"
+verwacht "een vastgelegde podman-modus terwijl compose nu op Docker landt" 2 "compose landt op Docker"
+
+printf 'onzin\n' >"$bestand"
+STUB_ENV="$PODMAN_SOCK" geval "$met" "$TERUG"
+verwacht "een onbekende waarde in het bestand wordt geweigerd" 2 "MODUS='onzin' bestaat hier niet"
+
 : >"$bestand"
-STUB_ENV="" geval "$met" "$TERUG"
+STUB_ENV="$PODMAN_SOCK" geval "$met" "$TERUG"
 verwacht "een leeg modusbestand telt als ontbrekend" 2 "niet vast te stellen"
+
+# Instellingen naast de modus (de proeftuin-versie): leeg, één, meerdere.
+STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand' PROEFTUIN_IMAGE=ghcr.io/x:pr-1; modus_instelling '$bestand' PROEFTUIN_IMAGE"
+verwacht "één instelling wordt vastgelegd en teruggelezen" 0 "ghcr.io/x:pr-1"
+
+STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand' A=1 PROEFTUIN_IMAGE=ghcr.io/x:pr-2 B=3; modus_instelling '$bestand' PROEFTUIN_IMAGE; modus_instelling '$bestand' B"
+verwacht "tussen meerdere instellingen wordt de juiste gevonden" 0 $'ghcr.io/x:pr-2\n3'
+
+STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand'; echo \"[\$(modus_instelling '$bestand' PROEFTUIN_IMAGE)]\""
+verwacht "een niet vastgelegde instelling is leeg" 0 "[]"
+
+STUB_ENV="" geval "$met" "printf 'PROEFTUIN_IMAGE=fout\n' >'$bestand'; echo \"[\$(modus_instelling '$bestand' PROEFTUIN_IMAGE)]\""
+verwacht "de modusregel zelf telt nooit als instelling" 0 "[]"
+
+STUB_ENV="" geval "$met" "echo \"[\$(modus_instelling '$werkmap/bestaat-niet' PROEFTUIN_IMAGE)]\""
+verwacht "zonder bestand is een instelling leeg" 0 "[]"
+
+# modus_voor_start: een tweede `up` naast een draaiende stack zet hem niet om.
+rm -f "$bestand"
+STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1" geval "$met" "$START"
+verwacht "zonder vastgelegde modus bepaalt up hem opnieuw" 0 "MODUS=hostnet"
+
+printf 'bridge\n' >"$bestand"
+STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1" geval "$met" "$START"
+verwacht "met een vastgelegde modus houdt up die aan, ook als de probe nu anders zou kiezen" 0 "MODUS=bridge"
+
+case "$UITVOER" in
+  *"vastgelegd bij de vorige start"*) ok "up meldt dat de modus van de vorige start geldt" ;;
+  *) fout "up meldt de vastgelegde modus niet — $UITVOER" ;;
+esac
+
+STUB_ENV="$PODMAN_SOCK MODUS=hostnet" geval "$met" "$START"
+verwacht "up met een MODUS die afwijkt van een draaiende stack wordt geweigerd" 2 "gestart in bridge"
+
+# Het probe-image hoort ook bij een opgegeven bridge eerst opgehaald te worden: anders leest een
+# registry-fout als 'geen healthchecks' en wordt de gebruiker naar hostnet gestuurd.
+STUB_ENV="$PODMAN_SOCK MODUS=bridge STUB_PULL_FAAL=1" geval "$met" "$BEPAAL_DEMO"
+verwacht "MODUS=bridge met een onbereikbaar probe-image noemt die oorzaak" 1 "probe-image"
+
+case "$UITVOER" in
+  *"zonder lopende healthchecks"*) fout "een pull-fout wordt als healthcheck-probleem gemeld — $UITVOER" ;;
+  *) ok "een pull-fout wordt niet als healthcheck-probleem gemeld" ;;
+esac
 
 echo "ASSERTIES=$asserties"
 exit "$mislukt"

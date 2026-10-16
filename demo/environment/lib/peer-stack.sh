@@ -19,8 +19,9 @@
 # minder bestanden rendert de services opnieuw uit de basis en zet de stack stilletjes terug naar
 # bridge; via dit script kan dat niet.
 #
-# De federatie (demo/environment/federatie/) start de peers zelf, met haar eigen vierde laag. Een
-# peer die zo draait, start dit script niet opnieuw: dat zou hem zonder die laag hercreëren.
+# De federatie (demo/environment/federatie/) start de peers zelf, met haar eigen vierde laag, en
+# zet daarvoor `federatie` in hun .modus. Zo'n peer raakt dit script niet aan: elk commando hier
+# zou hem zonder die laag hercreëren of een andere set bestanden voorleggen.
 set -euo pipefail
 
 LOKAAL="$(cd "${1:?usage: peer-stack.sh <deploy/local-map> [up|down|ps|compose …]}" && pwd)"
@@ -51,6 +52,12 @@ if [ "$COMMANDO" = "up" ] && [ "$#" -gt 0 ]; then
     exit 2
 fi
 
+if [ "$(head -n1 "$MODUS_BESTAND" 2>/dev/null || true)" = "federatie" ]; then
+    echo "FOUT: $PEER draait in de federatie ($MODUS_BESTAND)." >&2
+    echo "      Gebruik demo/environment/federatie/federatie.sh (status, restart <service>, down)." >&2
+    exit 2
+fi
+
 # Zonder .env faalt compose op `${PKI_DIR:?}` met een melding over een variabele, niet over de
 # ontbrekende stap; en zonder certs start elke container die /pki mount en sterft hij bij boot.
 if [ ! -f "$LOKAAL/.env" ]; then
@@ -68,11 +75,19 @@ modus_gereedschap
 modus_engine
 modus_compose_kiezen
 
+# De smokes en publish-service.sh roepen zelf `docker compose` aan; met een andere implementatie
+# start de stack wel, maar wacht de gezondheidscontrole hieronder vergeefs zijn volle tijd uit.
+if [ "${COMPOSE_BIN[*]}" != "docker compose" ]; then
+    echo "FOUT: de harness vraagt \`docker compose\` (v2); gevonden: ${COMPOSE_BIN[*]}." >&2
+    echo "      Installeer de compose-plugin; podman-compose dekt \`depends_on: condition:\` en \`!reset\` niet." >&2
+    exit 1
+fi
+
 if [ "$COMMANDO" = "up" ]; then
     echo "netwerkmodus bepalen"
-    modus_bepalen docker bridge hostnet
+    modus_voor_start "$MODUS_BESTAND" "$START" docker bridge hostnet
 else
-    modus_teruglezen "$MODUS_BESTAND" "$START"
+    modus_teruglezen "$MODUS_BESTAND" "$START" docker bridge hostnet
 fi
 
 C=("${COMPOSE_BIN[@]}" -f "$LOKAAL/compose.yaml")
@@ -118,13 +133,19 @@ fi
 
 # PKI_DIR is relatief aan de projectmap (deploy/local), net als in compose zelf.
 pki="$(fsc_compose_env_lees "$LOKAAL/.env" PKI_DIR)"
+
+if [ -z "$pki" ]; then
+    echo "FOUT: PKI_DIR staat niet in $LOKAAL/.env (zie .env.example)." >&2
+    exit 1
+fi
+
 case "$pki" in
     /*) ;;
     *) pki="$LOKAAL/$pki" ;;
 esac
 
-if [ -z "$pki" ] || [ ! -d "$pki/out" ]; then
-    echo "FOUT: geen certs onder PKI_DIR (${pki:-<niet gezet>}/out). Genereer ze eerst (zie pki/README.md):" >&2
+if [ ! -d "$pki/out" ]; then
+    echo "FOUT: geen certs onder PKI_DIR ($pki/out). Genereer ze eerst (zie pki/README.md):" >&2
     echo "  cd demo/environment/$PEER/pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh" >&2
     exit 1
 fi

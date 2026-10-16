@@ -130,10 +130,32 @@ modus_compose_kiezen() {
     fi
 }
 
-# modus_kan_bridge: 0 als podman hier een bridge-netwerk mét werkende naamresolutie kan opzetten.
+# modus_probe_image: haalt het probe-image op als het er nog niet is. Een registry-fout (rate limit,
+# air-gapped, proxy) zegt niets over bridge of healthchecks, maar zou anders als 'werkt niet' tellen
+# en de gebruiker naar de verkeerde modus sturen. Daarom stopt dit met die oorzaak.
+modus_probe_image() {
+    local log
+
+    podman image exists "$MODUS_PROBE_IMAGE" && return 0
+
+    log="$(mktemp -t probe-image.XXXXXX)"
+
+    if ! podman pull -q "$MODUS_PROBE_IMAGE" >"$log" 2>&1; then
+        echo "  probe-image $MODUS_PROBE_IMAGE niet beschikbaar: $(tail -1 "$log")" >&2
+        echo "  Modus niet vast te stellen; kies expliciet MODUS=bridge of MODUS=hostnet." >&2
+        rm -f "$log"
+        exit 1
+    fi
+
+    rm -f "$log"
+}
+
+# modus_kan_bridge: 0 als podman hier een bridge-netwerk mét werkende naamresolutie kan opzetten,
+# en healthchecks vanzelf uitvoert (zie modus_healthchecks_lopen).
 modus_kan_bridge() {
     local net="fbs-netprobe-$$-${RANDOM}" log ok=1
 
+    modus_probe_image
     log="$(mktemp -t netprobe.XXXXXX)"
 
     probe_opruimen() {
@@ -147,15 +169,6 @@ modus_kan_bridge() {
     trap 'probe_opruimen; trap - RETURN INT TERM; exit 130' INT TERM
     trap 'probe_opruimen; trap - RETURN INT TERM' RETURN
 
-    # Het probe-image apart binnenhalen: een registry-fout (rate limit, air-gapped, proxy) zegt
-    # niets over de bruikbaarheid van de bridge, maar zou anders als 'geen bridge' tellen.
-    if ! podman image exists "$MODUS_PROBE_IMAGE" && ! podman pull -q "$MODUS_PROBE_IMAGE" >"$log" 2>&1; then
-        echo "  probe-image $MODUS_PROBE_IMAGE niet beschikbaar: $(tail -1 "$log")" >&2
-        echo "  Modus niet vast te stellen; kies expliciet MODUS=bridge of MODUS=hostnet." >&2
-        probe_opruimen
-        exit 1
-    fi
-
     if ! podman network create "$net" >"$log" 2>&1; then
         echo "  bridge niet bruikbaar: $(tail -1 "$log")"
         return 1
@@ -164,6 +177,7 @@ modus_kan_bridge() {
     # Bridge én naamresolutie moeten werken: zonder aardvark-dns start een container wel, maar
     # resolvet geen enkele service-naam en faalt de hele stack pas ná het opstarten.
     if podman run -d --rm --name "${net}-doel" --network "$net" \
+           --health-cmd true --health-interval 1s \
            "$MODUS_PROBE_IMAGE" sleep 60 >"$log" 2>&1; then
 
         # Een paar pogingen: aardvark-dns publiceert het record niet altijd meteen, en één
@@ -177,6 +191,8 @@ modus_kan_bridge() {
 
         if [ "$ok" -ne 0 ]; then
             echo "  bridge staat, maar containernamen resolven niet (aardvark-dns?)"
+        elif ! modus_healthchecks_lopen "${net}-doel"; then
+            ok=1
         fi
     else
         echo "  bridge staat, maar een container starten erop lukt niet: $(tail -1 "$log")"
@@ -185,19 +201,26 @@ modus_kan_bridge() {
     return $ok
 }
 
-# modus_healthchecks_lopen: 0 als podman healthchecks vanzelf uitvoert.
+# modus_healthchecks_lopen [container]: 0 als podman healthchecks vanzelf uitvoert. Met een
+# container (gestart met `--health-cmd`) wordt die bekeken; zonder start dit een eigen probe.
 #
 # Podman plant ze via systemd-timers. Zonder systemd (podman in een container) draait er nooit één:
 # elke container blijft op `starting`, en een `up -d` met `depends_on: service_healthy` wacht dan
 # zonder einde. De bridge kan daar wél werken, dus de netwerkprobe alleen ziet dit niet. De
 # hostnet-overlays halen de healthchecks juist weg, en zijn daar dan de werkbare modus.
 modus_healthchecks_lopen() {
-    local naam="fbs-hcprobe-$$-${RANDOM}" status=""
+    local naam="${1:-}" eigen=0 status=""
 
-    if ! podman run -d --rm --name "$naam" --health-cmd true --health-interval 1s \
-           "$MODUS_PROBE_IMAGE" sleep 30 >/dev/null 2>&1; then
-        echo "  healthcheck-probe start niet; healthchecks niet vast te stellen"
-        return 1
+    if [ -z "$naam" ]; then
+        naam="fbs-hcprobe-$$-${RANDOM}"
+        eigen=1
+        modus_probe_image
+
+        if ! podman run -d --rm --name "$naam" --health-cmd true --health-interval 1s \
+               "$MODUS_PROBE_IMAGE" sleep 30 >/dev/null 2>&1; then
+            echo "  healthcheck-probe start niet; healthchecks niet vast te stellen"
+            return 1
+        fi
     fi
 
     for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -206,12 +229,29 @@ modus_healthchecks_lopen() {
         sleep 1
     done
 
-    podman rm -f -t 0 "$naam" >/dev/null 2>&1 || true
+    if [ "$eigen" -eq 1 ]; then
+        podman rm -f -t 0 "$naam" >/dev/null 2>&1 || true
+    fi
 
     if [ "$status" != "healthy" ]; then
         echo "  podman voert healthchecks niet vanzelf uit (status '${status:-onbekend}' na 10s; geen systemd?)"
         return 1
     fi
+}
+
+# modus_geldig <modus> <toegestane modus…>: stopt als de modus niet in de lijst staat. Zonder deze
+# controle valt een tikfout (`hostnett`) door elke `case` heen en krijgt compose alleen de basis.
+modus_geldig() {
+    local modus="$1"
+    shift
+
+    case " $* " in
+        *" $modus "*) ;;
+        *)
+            echo "FOUT: MODUS='$modus' bestaat hier niet; kies uit:$(printf ' %s' "$@")." >&2
+            exit 2
+            ;;
+    esac
 }
 
 # modus_bepalen <toegestane modus…>: zet MODUS — opgegeven en gecontroleerd, of gedetecteerd.
@@ -220,14 +260,7 @@ modus_bepalen() {
     local toegestaan=" $* "
 
     if [ -n "${MODUS:-}" ]; then
-        case "$toegestaan" in
-            *" $MODUS "*) ;;
-            *)
-                echo "FOUT: MODUS='$MODUS' bestaat hier niet; kies uit:$(printf ' %s' "$@")." >&2
-                exit 2
-                ;;
-        esac
-
+        modus_geldig "$MODUS" "$@"
         modus_past_op_engine
 
         # Een bridge zonder lopende healthchecks start wel, maar `up` wacht daarna eindeloos op de
@@ -255,7 +288,7 @@ modus_bepalen() {
         esac
     elif [ "$(uname -s)" != "Linux" ]; then
         MODUS=bridge
-    elif modus_kan_bridge && modus_healthchecks_lopen; then
+    elif modus_kan_bridge; then
         MODUS=bridge
     else
         MODUS=hostnet
@@ -322,40 +355,78 @@ modus_render_controleren() {
     fi
 }
 
-# modus_onthouden <bestand>: legt MODUS vast, zodat elk vervolgcommando dezelfde compose-bestanden
-# krijgt. Een `down` of `up --force-recreate` met minder bestanden rendert de services opnieuw uit
-# de basis en zet de stack stilletjes in een andere modus.
+# modus_onthouden <bestand> [NAAM=waarde…]: legt MODUS vast, plus de instellingen die de set
+# compose-bestanden mede bepalen. Een `down` of `up --force-recreate` met minder bestanden rendert de
+# services opnieuw uit de basis en zet de stack stilletjes in een andere modus of versie.
 modus_onthouden() {
-    printf '%s\n' "$MODUS" >"$1"
+    local bestand="$1"
+    shift
+
+    {
+        printf '%s\n' "$MODUS"
+
+        if [ "$#" -gt 0 ]; then
+            printf '%s\n' "$@"
+        fi
+    } >"$bestand"
 }
 
-# modus_teruglezen <bestand> <start-commando>: zet MODUS uit het bestand van de laatste start.
+# modus_instelling <bestand> <NAAM>: de vastgelegde waarde van NAAM, of leeg.
+modus_instelling() {
+    [ -r "$1" ] || return 0
+    sed -n "2,\$ s/^$2=//p" "$1" | head -n1
+}
+
+# modus_teruglezen <bestand> <start-commando> <toegestane modus…>: zet MODUS uit het bestand van de
+# laatste start.
 #
 # Een opgegeven MODUS die afwijkt, wordt geweigerd: de stack draait in de vastgelegde modus, en een
 # commando met de bestanden van een andere zou hem half omzetten. Zonder bestand — gestart buiten
-# dit script, of al afgebroken — is alleen een opgegeven MODUS bruikbaar.
+# dit script, of al afgebroken — is alleen een opgegeven MODUS bruikbaar. Beide waarden gaan langs
+# dezelfde controle als bij de start.
 modus_teruglezen() {
     local bestand="$1" start="$2" vastgelegd=""
+    shift 2
 
     if [ -r "$bestand" ]; then
         vastgelegd="$(head -n1 "$bestand")"
     fi
 
     if [ -z "$vastgelegd" ]; then
-        if [ -n "${MODUS:-}" ]; then
-            return 0
+        if [ -z "${MODUS:-}" ]; then
+            echo "FOUT: niet vast te stellen in welke modus deze stack draait ($bestand ontbreekt)." >&2
+            echo "      Start hem met \`$start\`, of geef de modus op waarin hij draait met MODUS=<modus>." >&2
+            exit 2
         fi
 
-        echo "FOUT: niet vast te stellen in welke modus deze stack draait ($bestand ontbreekt)." >&2
-        echo "      Start hem met \`$start\`, of geef de modus op waarin hij draait met MODUS=<modus>." >&2
-        exit 2
+        modus_geldig "$MODUS" "$@"
+        modus_past_op_engine
+        return 0
     fi
 
     if [ -n "${MODUS:-}" ] && [ "$MODUS" != "$vastgelegd" ]; then
         echo "FOUT: MODUS=$MODUS, maar deze stack is gestart in $vastgelegd ($bestand)." >&2
-        echo "      Laat MODUS weg, of breek de stack eerst af." >&2
+        echo "      Laat MODUS weg, of breek de stack eerst af met \`$start down\`." >&2
+        echo "      Draait hij niet meer, verwijder dan $bestand." >&2
         exit 2
     fi
 
+    modus_geldig "$vastgelegd" "$@"
     MODUS="$vastgelegd"
+    modus_past_op_engine
+}
+
+# modus_voor_start <bestand> <start-commando> <toegestane modus…>: de modus voor `up`. Is er al een
+# vastgelegde modus, dan geldt die (en weigert een afwijkende MODUS), zodat een tweede `up` naast een
+# draaiende stack hem niet half omzet. Anders wordt hij bepaald.
+modus_voor_start() {
+    local bestand="$1" start="$2"
+    shift 2
+
+    if [ -s "$bestand" ]; then
+        modus_teruglezen "$bestand" "$start" "$@"
+        echo "  → $MODUS (vastgelegd bij de vorige start, $bestand)"
+    else
+        modus_bepalen "$@"
+    fi
 }

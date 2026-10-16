@@ -164,9 +164,12 @@ namespace is die van de VM en zonder gepubliceerde poorten komt er niets door na
 Kan een gevraagde modus hier niet werken, dan stopt het script met de oorzaak in plaats van terug
 te vallen.
 
-De modus van de laatste start staat in `demo/generated/.modus`. `down`, `ps` en `compose …` lezen
-hem terug en geven dezelfde compose-bestanden mee; een opgegeven `MODUS` die afwijkt van de
-vastgelegde wordt geweigerd, want die zou de draaiende stack half omzetten.
+De modus van de laatste start staat in `demo/generated/.modus`. `down`, `ps`, `compose …` en een
+tweede `up` lezen hem terug en geven dezelfde compose-bestanden mee; een opgegeven `MODUS` die
+afwijkt van de vastgelegde wordt geweigerd, want die zou de draaiende stack half omzetten. Ook
+`PROEFTUIN_IMAGE` wordt daar vastgelegd: een vervolgcommando in een nieuwe shell houdt de
+berichtenbox op die versie, een opnieuw gezette variabele wordt het nieuwe vastgelegde punt, en
+`down` wist hem.
 
 Op Fedora/RHEL met SELinux enforcing heeft elke bind-mount het label `:z` nodig; dat staat in
 `compose.podman.yaml`, en een CI-job eist het voor elke mount in de gerenderde merges.

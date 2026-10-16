@@ -167,10 +167,13 @@ oorzaak in plaats van terug te vallen.
 ./deploy/local/up.sh down -v                 # afbreken, inclusief volumes
 ```
 
-De modus van de laatste start staat in `deploy/local/.modus`; `down`, `ps` en `compose` lezen hem
-terug. Zo kan geen vervolgcommando met een andere set bestanden de stack half omzetten. Draait de
-peer in de federatie, gebruik dan `../federatie/federatie.sh`: `up.sh` weigert een project dat
-buiten het script gestart is, want het zou de containers zonder de federatielaag hercreëren.
+De modus van de laatste start staat in `deploy/local/.modus`; `down`, `ps`, `compose` en een
+tweede `up` lezen hem terug, en een afwijkende `MODUS` wordt geweigerd. Zo kan geen
+vervolgcommando met een andere set bestanden de stack half omzetten. De federatie zet `federatie`
+in dat bestand; `up.sh` weigert dan elk commando en verwijst naar `../federatie/federatie.sh`,
+want het zou de containers zonder de federatielaag hercreëren. Andersom weigert `federatie.sh up`
+een peer die los draait. De harness vraagt `docker compose` (v2); met `docker-compose` of
+`podman-compose` stopt `up.sh` meteen.
 
 ## Podman zonder bridge-netwerk
 

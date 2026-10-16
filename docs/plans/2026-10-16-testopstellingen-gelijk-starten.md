@@ -145,3 +145,25 @@ in plaats van er zelf een te starten (anders vielen de peers op macOS om, die ee
 de suite onder `demo/lib/` wordt in CI op naam en aantal (≥ 42) geëist; de label-suite noemt een
 render-fout bij naam; `demo/lib/` valt buiten de uitrolpoort (`wijzigingsfilter.sh`, met een
 fixture erbij); de demo-stack-stappen draaien ook na een eerdere fout in hun job.
+
+### Review op de PR (code-review)
+
+Tien bevindingen, alle verwerkt:
+
+- **Vastgelegde modus geldt ook voor `up`.** Een tweede `up` gebruikt de modus uit `.modus` en
+  weigert een afwijkende `MODUS` (`modus_voor_start`); eerder kon een `MODUS=bridge` naast een
+  draaiende hostnet-stack hem half omzetten.
+- **De federatie markeert haar peers.** `federatie.sh up` zet `federatie` in elke `.modus` (en
+  weigert een peer die los draait), `down` wist dat; `up.sh` weigert elk commando op een
+  gemarkeerde peer. Eerder sloeg een oud `.modus` de controle op "buiten het script gestart" over.
+- Elke modus, opgegeven of teruggelezen, gaat langs dezelfde validatie en engine-controle.
+- `PROEFTUIN_IMAGE` wordt naast de modus vastgelegd (`modus_onthouden <bestand> NAAM=waarde…`).
+- Het probe-image wordt ook vóór een geforceerde healthcheck-probe opgehaald; de healthcheck van de
+  automatische keuze lift mee op de doel-container van de bridge-probe.
+- `up.sh` eist `docker compose`, want de smokes roepen dat zelf aan; een lege `PKI_DIR` krijgt een
+  eigen melding; de suite onder `demo/lib/` draait in CI één keer, met een minimum van 58.
+
+Nagespeeld: de proeftuin-versie overleeft een nieuwe shell en verdwijnt bij `down`; een tweede `up`
+houdt `hostnet` aan, `MODUS=bridge` ernaast wordt geweigerd; `federatie.sh up` weigert een los
+draaiende peer; met de federatie op weigert `up.sh`, `smoke-federatie.sh` groen, na `down` zijn de
+markeringen weg.
