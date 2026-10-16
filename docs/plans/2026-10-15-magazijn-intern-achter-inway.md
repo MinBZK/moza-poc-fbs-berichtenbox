@@ -1,6 +1,6 @@
 # Federatieverkeer naar magazijn-a blijft binnen het cluster
 
-**Status:** Concept
+**Status:** Uitgevoerd (stap 1–3; stap 4 volgt in MinBZK/MijnOverheidZakelijk#1328)
 
 Issue: MinBZK/MijnOverheidZakelijk#983. Spiegelbeeld van de uitvraag-kant
 (`demo/environment/logius/deploy/zad/cutover-interne-outway.md`).
@@ -63,3 +63,14 @@ kan het acceptatiecriterium "geen publicatie op het web meer" worden afgevinkt.
   met een verse BSN ná dat tijdstip levert een nieuwe transactie in de txlog van logius én van
   magazijn-a. Het transactielogboek alleen bewijst de laatste hop niet: het ziet er voor beide
   routes hetzelfde uit. De combinatie wel, want de inway kent alleen dat ene adres.
+
+## Uitvoering (2026-10-16)
+
+- 06:43 UTC: regels `fscinway-naar-magazijna` gezet; om 06:43:52/55 gerenderd als Ingress-policy op
+  `test-magazijna` en Egress-policy op `fsc-magazijna-magazijna-fscinway`, beide TCP 8090.
+- 06:50 UTC: `endpoint_url` van `berichtenmagazijn` bijgewerkt van
+  `https://magazijna-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl` naar het interne adres en
+  teruggelezen.
+- 06:53:20 UTC: ophaalronde met een verse BSN, magazijn-a `OK`. `logius-fscoutway` stuurde
+  `/api/v1/berichten` door (06:53:20.96), `magazijna-fscinway` proxyde hem (06:53:21.07), en beide
+  txlogs schreven records op die tijdstippen. Geen fouten in de inway-log over het afgelopen uur.
