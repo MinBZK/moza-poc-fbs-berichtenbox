@@ -658,14 +658,14 @@ async function downloadBijlage(bijlage) {
 // Ontbreekt de magazijnId, dan zou encodeURIComponent(undefined) de tekst "undefined" doorsturen en
 // antwoordt de server met een 400 die naar de server wijst, terwijl de oorzaak hier ligt. Geeft null
 // terug na een melding; de aanroeper stopt dan.
-function berichtPad(bericht, achtervoegsel = '') {
+function berichtPad(bericht) {
   if (!bericht.magazijnId) {
     alert('Geen magazijnId bekend voor dit bericht — haal de lijst opnieuw op.');
 
     return null;
   }
 
-  return `/berichten/${encodeURIComponent(bericht.berichtId)}${achtervoegsel}?magazijnId=${encodeURIComponent(bericht.magazijnId)}`;
+  return `/berichten/${encodeURIComponent(bericht.berichtId)}?magazijnId=${encodeURIComponent(bericht.magazijnId)}`;
 }
 
 async function toonDetail(bericht) {
