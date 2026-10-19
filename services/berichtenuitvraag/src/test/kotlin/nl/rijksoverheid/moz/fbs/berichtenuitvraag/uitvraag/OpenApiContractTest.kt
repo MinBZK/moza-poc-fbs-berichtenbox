@@ -333,6 +333,53 @@ class OpenApiContractTest {
             .header("Content-Disposition", "inline; filename=\"aanslag_2026.pdf\"; filename*=UTF-8''aanslag%202026.pdf")
     }
 
+    @Test
+    fun `GET bijlage via de self-link uit het berichtdetail levert die bijlage`() {
+        val berichtId = UUID.randomUUID()
+        val eerste = UUID.randomUUID()
+        val tweede = UUID.randomUUID()
+        seedBericht(
+            berichtId,
+            bijlagen = listOf(BijlageSamenvatting(eerste, "eerste.pdf"), BijlageSamenvatting(tweede, "tweede.png")),
+        )
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"inhoud": "Tekst"}"""),
+            ),
+        )
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$berichtId/bijlagen/$tweede")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "image/png")
+                    .withBody(byteArrayOf(-119, 80, 78, 71)), // PNG-signatuur
+            ),
+        )
+
+        // De tweede bijlage volgen: bij één bijlage zou een link die altijd naar de eerste
+        // wijst niet opvallen.
+        val href: String = given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get("/api/v1/berichten/$berichtId?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(200)
+            .extract()
+            .path("bijlagen[1]._links.self.href")
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .get(href)
+            .then()
+            .statusCode(200)
+            .header("Content-Type", "image/png")
+            .header("Content-Disposition", startsWith("inline; filename=\"tweede.png\""))
+    }
+
     // --- Foutresponses tegen het Problem-schema (RFC 9457), via de validator ---
 
     @Test

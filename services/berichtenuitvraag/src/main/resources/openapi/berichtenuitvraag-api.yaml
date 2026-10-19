@@ -390,7 +390,8 @@ paths:
       summary: Bijlage ophalen (octet-stream, dynamic Content-Type)
       description: |
         Streamt bijlage-bytes rechtstreeks uit het magazijn, met `Content-Type` uit de
-        metadata van de bijlage.
+        metadata van de bijlage. Een afnemer vindt dit adres als `_links.self` bij de
+        bijlage in het berichtdetail.
 
         `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
         mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
@@ -750,7 +751,7 @@ components:
         ontbreken wanneer het bericht uit de sessiecache komt (die bewaart per
         bijlage alleen `bijlageId` en `naam`); het werkelijke MIME-type wordt
         meegegeven bij het downloaden van de bijlage zelf.
-      required: [bijlageId, naam]
+      required: [bijlageId, naam, _links]
       properties:
         bijlageId: { type: string, format: uuid }
         naam: { type: string }
@@ -796,6 +797,12 @@ components:
 
     BijlageLinks:
       type: object
+      description: |
+        `self` is het adres waar deze bijlage op te halen is (`GET`, met dezelfde
+        `X-Ontvanger`-header als het bericht). Volg dit adres in plaats van het zelf
+        samen te stellen uit `berichtId`, `bijlageId` en `magazijnId`: de vorm van het
+        adres is geen onderdeel van het contract, deze verwijzing wel.
+      required: [self]
       properties:
         self: { $ref: '#/components/schemas/Link' }
 

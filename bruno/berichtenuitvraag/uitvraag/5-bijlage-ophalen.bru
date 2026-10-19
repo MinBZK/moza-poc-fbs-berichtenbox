@@ -5,15 +5,16 @@ meta {
 }
 
 get {
-  url: {{baseUrlUitvraag}}/berichten/{{berichtId}}/bijlagen/{{bijlageId}}?magazijnId={{magazijnId}}
+  url: {{bijlageUrl}}
   auth: none
-}
-
-params:query {
-  magazijnId: {{magazijnId}}
 }
 
 headers {
   X-Ontvanger: {{ontvangerHeaderPersoon}}
   traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+docs {
+  Volgt `_links.self` van de eerste bijlage uit "4. Bericht ophalen (detail)"; draai die
+  request dus eerst. Het adres hoort een afnemer niet zelf samen te stellen.
 }
