@@ -127,7 +127,7 @@ class UitvraagDtoMapperTest {
             ontvanger = Bsn("999990019"),
             onderwerp = "Onderwerp",
             publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
-            magazijnId = "00000001003214345000",
+            magazijnId = "magazijn-a",
             aantalBijlagen = aantal,
             bijlagen = bijlagen,
         )
@@ -135,7 +135,7 @@ class UitvraagDtoMapperTest {
         val api = UitvraagDtoMapper.toApiBericht(domein, afzenderNaam = "Belastingdienst", inhoud = null)
 
         assertEquals(
-            bijlagen.map { "/api/v1/berichten/$id/bijlagen/${it.bijlageId}?magazijnId=00000001003214345000" },
+            bijlagen.map { "/api/v1/berichten/$id/bijlagen/${it.bijlageId}?magazijnId=magazijn-a" },
             api.bijlagen.map { it.links.self.href },
         )
     }

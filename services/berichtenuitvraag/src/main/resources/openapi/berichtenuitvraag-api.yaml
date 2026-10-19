@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.6.0
+  version: 0.7.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -689,7 +689,7 @@ components:
 
     BerichtSamenvatting:
       type: object
-      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, aantalBijlagen, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, aantalBijlagen, magazijnId, _links]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
@@ -716,7 +716,7 @@ components:
 
     Bericht:
       type: object
-      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, magazijnId, _links]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
@@ -787,11 +787,13 @@ components:
 
     Link:
       type: object
+      required: [href]
       properties:
         href: { type: string, format: uri-reference }
 
     BerichtLinks:
       type: object
+      required: [self]
       properties:
         self: { $ref: '#/components/schemas/Link' }
 
@@ -800,8 +802,7 @@ components:
       description: |
         `self` is het adres waar deze bijlage op te halen is (`GET`, met dezelfde
         `X-Ontvanger`-header als het bericht). Volg dit adres in plaats van het zelf
-        samen te stellen uit `berichtId`, `bijlageId` en `magazijnId`: de vorm van het
-        adres is geen onderdeel van het contract, deze verwijzing wel.
+        samen te stellen uit `berichtId`, `bijlageId` en `magazijnId`.
       required: [self]
       properties:
         self: { $ref: '#/components/schemas/Link' }

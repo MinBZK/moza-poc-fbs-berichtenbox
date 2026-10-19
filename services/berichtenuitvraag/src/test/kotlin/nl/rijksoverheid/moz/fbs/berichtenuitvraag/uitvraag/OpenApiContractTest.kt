@@ -220,7 +220,9 @@ class OpenApiContractTest {
     @Test
     fun `PATCH bericht doet dual-write en levert valide Bericht`() {
         val id = UUID.randomUUID()
-        seedBericht(id)
+        val bijlageId = UUID.randomUUID()
+        // Met bijlage, zodat de validator ook op dit pad de verplichte bijlage-link ziet.
+        seedBericht(id, bijlagen = listOf(BijlageSamenvatting(bijlageId, "factuur.pdf")))
         WireMockBackendsResource.magazijnA.stubFor(
             patch(urlPathMatching("/api/v1/berichten/$id"))
                 .willReturn(aResponse().withStatus(204)),
@@ -235,6 +237,10 @@ class OpenApiContractTest {
             .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(200)
+            .body(
+                "bijlagen[0]._links.self.href",
+                equalTo("/api/v1/berichten/$id/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}"),
+            )
     }
 
     /** De lege string is een geldige waarde voor `map` (terug naar Postvak IN); de respons draagt dan geen map. */
