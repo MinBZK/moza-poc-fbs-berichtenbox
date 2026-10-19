@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common.bijlage
+package nl.rijksoverheid.moz.fbs.kern.bijlage
 
 import jakarta.ws.rs.core.MediaType
 

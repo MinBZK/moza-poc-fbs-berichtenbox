@@ -4,7 +4,7 @@ import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

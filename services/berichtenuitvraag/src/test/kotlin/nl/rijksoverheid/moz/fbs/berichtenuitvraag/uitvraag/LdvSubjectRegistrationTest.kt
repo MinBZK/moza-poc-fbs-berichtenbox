@@ -46,7 +46,7 @@ class LdvSubjectRegistrationTest {
             berichtId = id,
             afzender = "00000001003214345000",
             afzenderNaam = "Magazijn A",
-            ontvanger = nl.rijksoverheid.moz.fbs.common.identificatie.Bsn("999990019"),
+            ontvanger = nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn("999990019"),
             onderwerp = "X",
             publicatietijdstip = java.time.Instant.parse("2026-05-26T10:00:00Z"),
             magazijnId = "magazijn-a",

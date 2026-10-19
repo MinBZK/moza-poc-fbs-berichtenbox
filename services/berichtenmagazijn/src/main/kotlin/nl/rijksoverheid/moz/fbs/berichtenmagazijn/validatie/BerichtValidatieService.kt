@@ -4,8 +4,8 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.BijlageInvoer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.Profiel404Duiding
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielNietGevonden

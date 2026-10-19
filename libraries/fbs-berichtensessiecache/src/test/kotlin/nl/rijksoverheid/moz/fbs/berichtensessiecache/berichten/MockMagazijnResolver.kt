@@ -5,7 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 
 /**
  * In-memory alternatieve implementatie van [MagazijnResolver] voor tests met

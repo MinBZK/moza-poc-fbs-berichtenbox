@@ -1,20 +1,14 @@
-package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
+package nl.rijksoverheid.moz.fbs.kern.bijlage
 
 import jakarta.ws.rs.core.MediaType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 
-/**
- * Legt voor de simulator-kopie exact hetzelfde gedrag vast als
- * `BijlageContentDispositionTest` in `fbs-common` — de gevallen zijn daaruit overgenomen. Een
- * wijziging aan één van beide kopieën moet je hier met de hand meenemen: de test roept alleen de
- * simulator aan en merkt niets van een fbs-common-wijziging.
- */
 class BijlageContentDispositionTest {
 
     @ParameterizedTest
@@ -214,20 +208,6 @@ class BijlageContentDispositionTest {
             "inline; filename=\"${"a".repeat(254)}\"; filename*=UTF-8''${"a".repeat(254)}",
             waarde,
         )
-    }
-
-    @Test
-    fun `een control-teken in een mediatype-parameter maakt de waarde onbruikbaar`() {
-        // Zo'n waarde parseert wel, maar de HTTP-laag weigert de header pas bij het schrijven.
-        assertNull(bijlageMediaType("application/pdf;name=\"a\r\nX-Injected: 1\""))
-    }
-
-    @Test
-    fun `een onparsebare waarde levert geen mediatype op`() {
-        assertNull(bijlageMediaType(""))
-        assertNull(bijlageMediaType("application"))
-        assertNull(bijlageMediaType("//"))
-        assertEquals("application/pdf", bijlageMediaType("application/pdf")?.toString())
     }
 
     private companion object {

@@ -17,7 +17,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockBerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue

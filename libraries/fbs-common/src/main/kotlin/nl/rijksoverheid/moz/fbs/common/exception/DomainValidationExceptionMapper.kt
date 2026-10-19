@@ -6,6 +6,7 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.FoutBeschrijving
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import org.jboss.logging.Logger
 import java.net.URI
 import java.util.UUID

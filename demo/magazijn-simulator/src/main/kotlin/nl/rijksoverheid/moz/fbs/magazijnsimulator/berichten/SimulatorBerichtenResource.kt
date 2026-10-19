@@ -7,7 +7,10 @@ import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
+import nl.rijksoverheid.moz.fbs.kern.bijlage.BijlageMediaType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.BerichtenApi
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Bericht as BerichtDto
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtStatusPatch
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.ONVERWACHTE_FOUT_DETAIL
@@ -15,10 +18,8 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.problemResponse
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtStatusWijziging
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
 import org.jboss.logging.Logger
 import java.util.UUID
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Bericht as BerichtDto
 
 /**
  * Alle operaties onder `/berichten` voor het magazijn dat het pad-filter heeft gekozen. Net als bij
@@ -47,7 +48,7 @@ class SimulatorBerichtenResource(
         pageSize: Int?,
     ): BerichtenLijst {
         val pagina = service.lijst(
-            ontvanger = Identificatie.uitHeader(xOntvanger),
+            ontvanger = Identificatienummer.fromHeader(xOntvanger),
             afzender = afzender,
             page = page ?: DEFAULT_PAGE,
             pageSize = pageSize ?: DEFAULT_PAGE_SIZE,
@@ -57,10 +58,10 @@ class SimulatorBerichtenResource(
     }
 
     override fun getBerichtById(berichtId: UUID, xOntvanger: String): BerichtDto =
-        BerichtDtoMapper.naarBericht(service.haalOp(berichtId, Identificatie.uitHeader(xOntvanger)), basis())
+        BerichtDtoMapper.naarBericht(service.haalOp(berichtId, Identificatienummer.fromHeader(xOntvanger)), basis())
 
     override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String): ByteArray {
-        val bijlage = service.haalBijlageOp(berichtId, bijlageId, Identificatie.uitHeader(xOntvanger))
+        val bijlage = service.haalBijlageOp(berichtId, bijlageId, Identificatienummer.fromHeader(xOntvanger))
 
         // Een opgeslagen MIME-type dat onbruikbaar is als headerwaarde kan sinds de vormcontrole op
         // `Bijlage` niet meer via een aanlevering binnenkomen; het zou met de hand aangepaste data zijn. Dan liever
@@ -71,7 +72,7 @@ class SimulatorBerichtenResource(
         // logregel zowel de bijlage als het id draagt dat de aanroeper te zien krijgt. Zou de mapper
         // zijn eigen id maken, dan staat de bijlageId in een regel zonder id en het id in een regel
         // zonder bijlageId, en is de melding van een aanroeper niet terug te zoeken.
-        val mediaType = bijlageMediaType(bijlage.mimeType)
+        val mediaType = BijlageMediaType.parse(bijlage.mimeType)
 
         if (mediaType == null) {
             val foutId = UUID.randomUUID()
@@ -105,7 +106,7 @@ class SimulatorBerichtenResource(
     ): BerichtDto {
         val bericht = service.wijzigStatus(
             berichtId = berichtId,
-            ontvanger = Identificatie.uitHeader(xOntvanger),
+            ontvanger = Identificatienummer.fromHeader(xOntvanger),
             wijziging = BerichtStatusWijziging(berichtStatusPatch.gelezen, berichtStatusPatch.map),
         )
 
@@ -113,7 +114,7 @@ class SimulatorBerichtenResource(
     }
 
     override fun verwijderBericht(berichtId: UUID, xOntvanger: String) {
-        service.verwijder(berichtId, Identificatie.uitHeader(xOntvanger))
+        service.verwijder(berichtId, Identificatienummer.fromHeader(xOntvanger))
     }
 
     private fun basis(): UriBuilder = MagazijnPad.basisUri(uriInfo, magazijnContext.magazijn.oin)

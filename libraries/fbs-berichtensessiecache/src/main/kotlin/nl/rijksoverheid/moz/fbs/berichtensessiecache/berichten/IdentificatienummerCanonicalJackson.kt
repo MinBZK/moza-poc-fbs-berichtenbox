@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.DeserializationContext
 import com.fasterxml.jackson.databind.JsonDeserializer
 import com.fasterxml.jackson.databind.JsonSerializer
 import com.fasterxml.jackson.databind.SerializerProvider
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 
 /**
  * Serialiseert een [Identificatienummer] in de sessiecache-lijst-JSON als canonieke

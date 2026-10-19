@@ -136,6 +136,9 @@ jobs:
         # Het stelselregister heeft daarom een eigen shard: het gebruikt fbs-common en
         # fbs-magazijnregister, die het complement uitsluit.
         #
+        # fbs-kern staat om dezelfde reden juist níét bij de uitsluitingen: de demo-modules in het
+        # complement gebruiken hem.
+        #
         # `-am` bouwt en test fbs-common ook in de berichtenmagazijn-shard (~30s dubbel); dat is
         # goedkoper dan per shard uitzoeken welke upstream-modules erbij horen.
         #

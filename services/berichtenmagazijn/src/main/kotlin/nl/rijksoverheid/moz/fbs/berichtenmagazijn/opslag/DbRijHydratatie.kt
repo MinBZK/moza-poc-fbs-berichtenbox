@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
 import jakarta.ws.rs.InternalServerErrorException
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import org.jboss.logging.Logger
 import java.util.UUID
 

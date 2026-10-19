@@ -6,8 +6,8 @@ import io.mockk.spyk
 import io.mockk.verify
 import io.quarkus.runtime.LaunchMode
 import io.quarkus.runtime.StartupEvent
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals

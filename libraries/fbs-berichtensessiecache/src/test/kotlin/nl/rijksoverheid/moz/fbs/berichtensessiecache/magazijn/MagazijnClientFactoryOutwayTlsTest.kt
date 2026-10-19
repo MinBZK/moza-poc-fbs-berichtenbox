@@ -4,7 +4,7 @@ import io.mockk.mockk
 import io.quarkus.tls.TlsConfiguration
 import io.quarkus.tls.TlsConfigurationRegistry
 import nl.rijksoverheid.moz.fbs.common.fsc.OutwayTls
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals

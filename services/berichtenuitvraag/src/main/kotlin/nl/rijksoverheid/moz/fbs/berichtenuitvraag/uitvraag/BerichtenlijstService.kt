@@ -7,7 +7,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtenLijst
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.PaginaLinks
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets

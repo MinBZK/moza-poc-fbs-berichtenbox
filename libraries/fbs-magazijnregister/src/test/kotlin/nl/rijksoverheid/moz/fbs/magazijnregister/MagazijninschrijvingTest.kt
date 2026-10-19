@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnregister
 
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow

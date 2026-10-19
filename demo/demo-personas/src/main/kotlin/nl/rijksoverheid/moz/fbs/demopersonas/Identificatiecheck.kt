@@ -1,41 +1,26 @@
 package nl.rijksoverheid.moz.fbs.demopersonas
 
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
+
 /**
- * Minimale identificatienummer-validatie voor de demo-personas; een uitgeklede kopie van
- * `Identificatienummer` in fbs-common, die de demo-modules bewust niet als dependency hebben: die
- * library trekt de productie-stack mee (LDV-wrapper, JAX-RS-filters). De prijs is deze duplicatie —
- * wie de elfproef wijzigt, wijzigt beide. Doel is fail-fast bij een typfout in de
- * persona-lijst, zodat het magazijn straks geen 400 geeft midden in een demo.
+ * Toetst het nummer van een persona met dezelfde regels als het stelsel, zodat het magazijn straks
+ * geen 400 geeft midden in een demo. Fail-fast bij een typfout in de persona-lijst.
  *
- * Geen enkele melding echoot de aangeboden waarde, ook niet die van `type`: deze meldingen
- * belanden via het opstarten in de applicatielog, en wie `type` en `waarde` verwisselt zou daar
- * anders zijn identificatienummer in terugvinden. De persona-id die de aanroeper eraan plakt is
- * de locator; wat toegestaan is staat in de melding zelf.
+ * Wat hier zelf staat is alleen welke types een persona mag hebben: een ondernemer is een persoon
+ * of een onderneming, geen organisatie met een OIN. Het type wordt via `firstOrNull` opgezocht en
+ * niet via `valueOf`, want die laatste noemt de aangeboden tekst in zijn melding — en wie `type` en
+ * `waarde` verwisselt, zou zo zijn identificatienummer in de opstartlog terugvinden.
  */
 object Identificatiecheck {
 
-    private const val TOEGESTAAN = "BSN, RSIN, KVK"
-
-    private val ELFPROEF_GEWICHTEN = intArrayOf(9, 8, 7, 6, 5, 4, 3, 2, -1)
+    private val TOEGESTAAN = listOf(IdentificatienummerType.BSN, IdentificatienummerType.RSIN, IdentificatienummerType.KVK)
 
     fun valideer(type: String, waarde: String) {
-        when (type) {
-            "BSN", "RSIN" -> vereisElfproef(type, waarde)
-            "KVK" -> require(waarde.matches(Regex("^[0-9]{8}$")) && waarde != "00000000") {
-                "$type moet 8 cijfers zijn (niet louter nullen)"
-            }
+        val bekend = TOEGESTAAN.firstOrNull { it.name == type }
 
-            else -> throw IllegalArgumentException("onbekend ontvanger-type; toegestaan: $TOEGESTAAN")
-        }
-    }
+        requireNotNull(bekend) { "onbekend ontvanger-type; toegestaan: ${TOEGESTAAN.joinToString()}" }
 
-    private fun vereisElfproef(type: String, waarde: String) {
-        require(waarde.matches(Regex("^[0-9]{9}$")) && waarde != "000000000") {
-            "$type moet 9 cijfers zijn (niet louter nullen)"
-        }
-
-        val som = waarde.mapIndexed { index, teken -> teken.digitToInt() * ELFPROEF_GEWICHTEN[index] }.sum()
-
-        require(som % 11 == 0) { "$type doorstaat de elfproef niet" }
+        Identificatienummer.of(bekend, waarde)
     }
 }

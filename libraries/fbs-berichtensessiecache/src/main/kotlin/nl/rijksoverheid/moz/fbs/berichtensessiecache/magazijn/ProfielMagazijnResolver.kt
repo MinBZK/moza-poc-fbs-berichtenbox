@@ -8,9 +8,9 @@ import io.smallrye.mutiny.infrastructure.Infrastructure
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijRequest
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.Profiel404Duiding

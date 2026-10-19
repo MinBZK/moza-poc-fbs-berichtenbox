@@ -9,7 +9,7 @@ import io.quarkus.redis.datasource.keys.ReactiveKeyCommands
 import io.quarkus.redis.datasource.list.ReactiveListCommands
 import io.quarkus.redis.datasource.value.ReactiveValueCommands
 import io.smallrye.mutiny.Uni
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import java.time.Duration

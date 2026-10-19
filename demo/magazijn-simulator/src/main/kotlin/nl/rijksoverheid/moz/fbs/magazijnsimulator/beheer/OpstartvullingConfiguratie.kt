@@ -1,6 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 
 /**
  * Leest de opstartvulling uit de configuratie en keurt hem goed of af.
@@ -38,7 +38,7 @@ object OpstartvullingConfiguratie {
             // de plek in de lijst is genoeg om hem in het bestand terug te vinden.
             val plek = "$PREFIX.ontvangers[${ontvangers.indexOf(ontvanger)}]"
 
-            runCatching { Identificatie.uitHeader(ontvanger) }.onFailure { fout ->
+            runCatching { Identificatienummer.fromHeader(ontvanger) }.onFailure { fout ->
                 throw IllegalStateException("$plek is geen bruikbare ontvanger: ${fout.message}", fout)
             }
         }

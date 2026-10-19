@@ -12,7 +12,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid

@@ -3,7 +3,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.DomeinFout
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import org.jboss.logging.Logger
 import java.util.UUID
 
@@ -17,11 +17,11 @@ import java.util.UUID
  * in een antwoord of een log te belanden.
  */
 @Provider
-class DomeinFoutMapper : ExceptionMapper<DomeinFout> {
+class DomeinFoutMapper : ExceptionMapper<DomainValidationException> {
 
     private val log = Logger.getLogger(DomeinFoutMapper::class.java)
 
-    override fun toResponse(exception: DomeinFout): Response {
+    override fun toResponse(exception: DomainValidationException): Response {
         val foutId = UUID.randomUUID()
 
         // Op info en niet op debug: een clientfout is geen incident, maar het effectieve niveau is

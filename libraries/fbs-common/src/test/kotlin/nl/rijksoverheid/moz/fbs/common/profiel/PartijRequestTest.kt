@@ -1,10 +1,10 @@
 package nl.rijksoverheid.moz.fbs.common.profiel
 
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.Kvk
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.common.identificatie.Rsin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Kvk
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Rsin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows

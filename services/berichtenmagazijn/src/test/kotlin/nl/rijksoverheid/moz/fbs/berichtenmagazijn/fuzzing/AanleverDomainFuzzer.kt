@@ -7,10 +7,10 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.BerichtValidatieService
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
 import java.time.Instant
 import java.util.UUID

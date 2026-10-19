@@ -1,8 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag
 
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test

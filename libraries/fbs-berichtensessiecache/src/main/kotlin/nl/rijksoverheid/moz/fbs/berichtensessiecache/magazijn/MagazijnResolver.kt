@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn
 
 import io.smallrye.mutiny.Uni
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 
 /**
  * Bepaalt welke magazijnen bevraagd worden voor een specifieke ontvanger.

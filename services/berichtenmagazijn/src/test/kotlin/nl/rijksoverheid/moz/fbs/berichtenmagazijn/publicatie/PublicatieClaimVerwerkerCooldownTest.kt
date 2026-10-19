@@ -10,8 +10,8 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach

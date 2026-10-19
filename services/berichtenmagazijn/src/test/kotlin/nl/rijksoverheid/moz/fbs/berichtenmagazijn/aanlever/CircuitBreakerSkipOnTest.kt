@@ -12,7 +12,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.validatie.MockProfielServiceClient
 import nl.rijksoverheid.moz.fbs.common.profiel.PartijResponse
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceClient
-import nl.rijksoverheid.moz.fbs.common.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
 import org.junit.jupiter.api.AfterEach

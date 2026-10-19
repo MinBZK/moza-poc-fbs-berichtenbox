@@ -12,7 +12,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -22,7 +22,7 @@ import java.util.UUID
 class BerichtOphaalServiceTest {
 
     private val sessiecache: Sessiecache = mockk()
-    private val ontvangerId = nl.rijksoverheid.moz.fbs.common.identificatie.Bsn("999990019")
+    private val ontvangerId = nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn("999990019")
     private val magazijn: MagazijnClient = mockk()
     private val router: MagazijnRouter = mockk {
         every { forMagazijn(any()) } returns magazijn

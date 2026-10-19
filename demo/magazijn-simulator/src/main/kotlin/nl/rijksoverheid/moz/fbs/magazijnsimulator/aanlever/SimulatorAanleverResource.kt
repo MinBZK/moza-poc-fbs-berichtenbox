@@ -3,6 +3,9 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.aanlever
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.UriInfo
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.AanleverApi
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.BerichtResponse
@@ -11,8 +14,6 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten.BerichtService
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bijlage
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
 import java.util.UUID
 
 /**
@@ -32,9 +33,9 @@ class SimulatorAanleverResource(
 
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
         val bericht = service.leverAan(
-            afzender = Identificatie(IdentificatieType.OIN, berichtAanleverenRequest.afzender),
-            ontvanger = Identificatie(
-                IdentificatieType.valueOf(berichtAanleverenRequest.ontvanger.type.value()),
+            afzender = Oin(berichtAanleverenRequest.afzender),
+            ontvanger = Identificatienummer.of(
+                IdentificatienummerType.valueOf(berichtAanleverenRequest.ontvanger.type.value()),
                 berichtAanleverenRequest.ontvanger.waarde,
             ),
             onderwerp = berichtAanleverenRequest.onderwerp,

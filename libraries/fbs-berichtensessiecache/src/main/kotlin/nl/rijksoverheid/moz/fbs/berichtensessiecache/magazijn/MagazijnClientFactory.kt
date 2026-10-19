@@ -9,7 +9,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import nl.rijksoverheid.moz.fbs.common.fsc.FscOutwayHeadersFilter
 import nl.rijksoverheid.moz.fbs.common.fsc.OutwayTls
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.eclipse.microprofile.config.inject.ConfigProperty
