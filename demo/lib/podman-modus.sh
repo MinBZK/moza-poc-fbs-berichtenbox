@@ -47,9 +47,13 @@ modus_gereedschap() {
 # rootless podman wijst. Dat proces houdt de user namespace vast; elke podman-aanroep probeert zich
 # erbij te voegen. Overleeft het bestand een herstart van de container, dan faalt dat met `cannot
 # re-exec process to join the existing user namespace` — een melding die niet naar het bestand
-# wijst. Een hergebruikte pid (een ander proces) is even verweesd als een verdwenen pid.
+# wijst. Verweesd is: geen geldige pid, een pid die niet bestaat, of een proces dat niet van deze
+# gebruiker is of geen podman-proces (een hergebruikte pid). Ruim in twijfel níét op: een levende
+# pause.pid weghalen zet een draaiende stack in een user namespace die podman niet meer terugvindt.
+# Daarom telt elk eigen proces waarvan de naam met `podman` begint als levend, ook als het niet
+# precies `podman pause` heet.
 modus_pause_pid_verweesd() {
-    local pid
+    local pid comm
 
     [ -f "$1" ] || return 1
 
@@ -59,7 +63,17 @@ modus_pause_pid_verweesd() {
         '' | *[!0-9]*) return 0 ;;
     esac
 
-    [ "$(cat "/proc/$pid/comm" 2>/dev/null || true)" != "podman pause" ]
+    [ -d "/proc/$pid" ] || return 0
+
+    [ "$(stat -c %u "/proc/$pid" 2>/dev/null || true)" = "$(id -u)" ] || return 0
+
+    comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
+
+    case "$comm" in
+        podman*) return 1 ;;
+    esac
+
+    return 0
 }
 
 # modus_runtime_dir: de runtime-map van rootless podman, met dezelfde keuze als podman zelf:
@@ -115,11 +129,19 @@ modus_socket_status() {
 
 # modus_engine_is_podman <pad>: vraagt het de engine zelf. Het pad zegt niets: podman-docker
 # publiceert podman op /run/docker.sock, en een symlink kan elke naam dragen. Zonder curl blijft
-# alleen het pad over.
+# alleen het pad over. De uitvoer eerst vangen en dan matchen: in een pijp naar `grep -q` kan de
+# schrijver onder `pipefail` op SIGPIPE falen, en dan valt de uitkomst willekeurig om.
 modus_engine_is_podman() {
+    local versie
+
     if command -v curl >/dev/null 2>&1; then
-        curl -sS --max-time 5 --unix-socket "$1" http://d/version 2>/dev/null | grep -q '"Podman Engine"'
-        return
+        versie="$(curl -sS --max-time 5 --unix-socket "$1" http://d/version 2>/dev/null || true)"
+
+        case "$versie" in
+            *'"Podman Engine"'*) return 0 ;;
+        esac
+
+        return 1
     fi
 
     case "$1" in
@@ -127,6 +149,17 @@ modus_engine_is_podman() {
     esac
 
     return 1
+}
+
+# modus_eigen_socket <pad>: 0 als dit de rootless podman-socket van deze gebruiker is. Alleen die mag
+# dit script herstarten. Een ander pad met "podman" erin kan een rootful socket zijn (systemd
+# socket-activation), en curl meldt een geweigerde toegang met dezelfde exit 7 als "niemand
+# luistert": die opruimen zou een levende socket van een ander weghalen.
+modus_eigen_socket() {
+    [ "$1" = "$(modus_runtime_dir)/podman/podman.sock" ] || return 1
+
+    # Een bestand dat er staat, moet van deze gebruiker zijn; anders is het niet ons om weg te halen.
+    [ ! -e "$1" ] || [ -O "$1" ]
 }
 
 # modus_podman_service <pad>: start `podman system service` op een socket waarop niemand luistert, en
@@ -140,7 +173,8 @@ modus_podman_service() {
     echo "Podman-API antwoordt niet op $sock — service starten…"
     mkdir -p "$(dirname "$sock")"
     # Een socketbestand zonder luisteraar laat `system service` falen op `address already in use`.
-    # Veilig, want de aanroeper heeft vastgesteld dat er niemand luistert (modus_socket_status 1).
+    # Veilig, want de aanroeper heeft vastgesteld dat er niemand luistert (modus_socket_status 1) en
+    # dat het de eigen socket is (modus_eigen_socket).
     rm -f "$sock"
 
     service_log="$(mktemp -t podman-service.XXXXXX)"
@@ -174,7 +208,7 @@ modus_podman_service() {
 # Bijwerkingen, en daarom alleen aanroepen vóór een commando dat de engine echt nodig heeft: een
 # verweesde pause.pid wordt opgeruimd en een eigen podman-socket zonder luisteraar wordt gestart.
 modus_engine() {
-    local sock eigen=0 status=0
+    local sock status=0
 
     if [ -z "${DOCKER_HOST:-}" ] && ! command -v podman >/dev/null 2>&1; then
         if [ "${MODUS_DOCKER_TOEGESTAAN:-0}" -eq 1 ] && command -v docker >/dev/null 2>&1; then
@@ -200,7 +234,6 @@ modus_engine() {
             fi
         else
             sock="$(modus_runtime_dir)/podman/podman.sock"
-            eigen=1
         fi
 
         export DOCKER_HOST="unix://$sock"
@@ -211,15 +244,12 @@ modus_engine() {
             sock="${DOCKER_HOST#unix://}"
             modus_socket_status "$sock" || status=$?
 
-            # Een dode engine is niet te vragen wat hij is; herstarten doet dit alleen voor een
-            # podman-socket op Linux — de eigen, of een opgegeven pad dat er zichtbaar een is.
-            if [ "$status" -eq 1 ] && [ "$(uname -s)" = "Linux" ] && command -v podman >/dev/null 2>&1; then
-                case "$eigen:$sock" in
-                    1:* | *:*podman*)
-                        modus_podman_service "$sock"
-                        status=0
-                        ;;
-                esac
+            # Een dode engine is niet te vragen wat hij is; herstarten doet dit alleen voor de eigen
+            # rootless podman-socket op Linux, ook als DOCKER_HOST er expliciet naar wijst.
+            if [ "$status" -eq 1 ] && [ "$(uname -s)" = "Linux" ] && command -v podman >/dev/null 2>&1 \
+                && modus_eigen_socket "$sock"; then
+                modus_podman_service "$sock"
+                status=0
             fi
 
             case "$status" in
@@ -255,6 +285,25 @@ modus_engine() {
     fi
 }
 
+# modus_compose_is_v2 <compose-commando…>: 0 als dit docker compose v2 is. Gevraagd aan `version`,
+# niet afgeleid uit `--help`: podman-compose kent ook een `--parallel`. v1 meldt zich als
+# `docker-compose version 1…`, podman-compose als `podman-compose version …`. De uitkomst wordt per
+# proces onthouden: een federatie roept dit per peer en per poging aan.
+modus_compose_is_v2() {
+    local versie
+
+    if [ -z "${MODUS_COMPOSE_V2:-}" ]; then
+        versie="$("$@" version 2>/dev/null || true)"
+
+        case "$versie" in
+            *"Docker Compose version"*) MODUS_COMPOSE_V2=1 ;;
+            *) MODUS_COMPOSE_V2=0 ;;
+        esac
+    fi
+
+    [ "$MODUS_COMPOSE_V2" -eq 1 ]
+}
+
 # modus_compose_up <compose-commando met alle -f's…>: `up -d`, op podman met de containers één voor
 # één aangemaakt.
 #
@@ -268,14 +317,15 @@ modus_engine() {
 #
 # Serieel door per service `create` aan te roepen, in de volgorde van `config --services` (die van de
 # afhankelijkheden): elke aanroep vindt zijn afhankelijkheden dan al en maakt precies één container.
-# `up -d` start daarna alleen nog. COMPOSE_PARALLEL_LIMIT=1 en `--parallel 1` beperken het aanmaken
-# bij `up` in docker compose v2.32 níét — gemeten, de containers stonden toch tegelijk op `Creating`.
-# Het ophalen raakt de mapping niet en blijft parallel; `--policy missing` houdt een start met
-# aanwezige images offline. Docker kent de race niet.
+# Zonder `--no-recreate`: een container met gewijzigde configuratie moet hier opnieuw worden
+# aangemaakt, anders doet `up -d` dat daarna voor alle gewijzigde tegelijk. `up -d` start daarna
+# alleen nog. COMPOSE_PARALLEL_LIMIT=1 en `--parallel 1` beperken het aanmaken bij `up` in docker
+# compose v2.32 níét — gemeten, de containers stonden toch tegelijk op `Creating`. Het ophalen raakt
+# de mapping niet en blijft parallel; `--policy missing` houdt een start met aanwezige images
+# offline. Docker kent de race niet.
 #
-# Vraagt docker compose v2 (`pull --policy` en `create --no-recreate` per service). `--help` noemt bij
-# v2 `--parallel`, en dat dient hier als herkenning. Ontbreekt het, dan valt dit terug op een gewone
-# `up -d` en zegt het waarom.
+# Vraagt docker compose v2 (`pull --policy`, `create` per service). Een andere compose valt terug op
+# een gewone `up -d`, en dit zegt waarom.
 modus_compose_up() {
     local services service
 
@@ -284,9 +334,9 @@ modus_compose_up() {
         return
     fi
 
-    if ! "$@" --help 2>/dev/null | grep -q -- '--parallel'; then
-        echo "Let op: dit is geen docker compose v2 (\`--parallel\` ontbreekt); de containers" >&2
-        echo "  worden tegelijk aangemaakt en kunnen botsen op 'container ID 0 cannot be mapped'." >&2
+    if ! modus_compose_is_v2 "$@"; then
+        echo "Let op: dit is geen docker compose v2; de containers worden tegelijk aangemaakt en" >&2
+        echo "  kunnen botsen op 'container ID 0 cannot be mapped'." >&2
         "$@" up -d
         return
     fi
@@ -295,7 +345,7 @@ modus_compose_up() {
     services="$("$@" config --services)" || return
 
     for service in $services; do
-        "$@" create --no-recreate "$service" || return
+        "$@" create "$service" || return
     done
 
     "$@" up -d

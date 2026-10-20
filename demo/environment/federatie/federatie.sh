@@ -44,18 +44,35 @@ if [ -n "${MODUS:-}" ] && [ "$MODUS" != "hostnet" ]; then
   exit 2
 fi
 
-# engine_voor_compose: vóór elk commando dat compose aanroept. De federatie bevraagt podman ook
-# rechtstreeks (`podman ps/exec/logs`), dus compose moet op dezelfde engine landen. modus_engine
-# ruimt een verweesde pause.pid op en zorgt voor een API-socket die antwoordt; anders verdwijnt die
-# oorzaak achter de eerste compose-fout. Niet bij `status` of een onbekend commando: dat zijn
-# bijwerkingen die daar niet horen.
+# zelfde_engine: de federatie bevraagt podman ook rechtstreeks (`podman ps/exec/logs`). compose volgt
+# DOCKER_HOST, de podman-CLI CONTAINER_HOST; wijzen die naar verschillende engines, dan maakt compose
+# de stack op de ene en zoeken de controles hem op de andere — met een "geen containers"-fout ná een
+# geslaagde `up`. Daarom praat de CLI via dezelfde socket als compose.
+zelfde_engine() {
+  [ -n "${DOCKER_HOST:-}" ] || return 0
+
+  if [ -n "${CONTAINER_HOST:-}" ] && [ "$CONTAINER_HOST" != "$DOCKER_HOST" ]; then
+    echo "FOUT: DOCKER_HOST (${DOCKER_HOST}) en CONTAINER_HOST (${CONTAINER_HOST}) wijzen naar verschillende engines." >&2
+    echo "      compose volgt de eerste, de podman-CLI de tweede; zet ze gelijk of maak er één leeg." >&2
+    exit 1
+  fi
+
+  export CONTAINER_HOST="$DOCKER_HOST"
+}
+
+# engine_voor_compose: vóór elk commando dat compose aanroept. modus_engine ruimt een verweesde
+# pause.pid op en zorgt voor een API-socket die antwoordt; anders verdwijnt die oorzaak achter de
+# eerste compose-fout. Niet bij `status` of een onbekend commando: dat zijn bijwerkingen die daar
+# niet horen.
 engine_voor_compose() {
   modus_engine
 
   if [ "$PODMAN_RUNTIME" -ne 1 ]; then
-    echo "FOUT: de federatie vraagt podman; DOCKER_HOST=${DOCKER_HOST} wijst naar een andere engine." >&2
+    echo "FOUT: de federatie vraagt podman; DOCKER_HOST=${DOCKER_HOST:-<niet gezet>} wijst naar een andere engine." >&2
     exit 1
   fi
+
+  zelfde_engine
 }
 
 ANNOUNCE_TIMEOUT="${ANNOUNCE_TIMEOUT:-120}"
@@ -190,7 +207,7 @@ up_met_retry() {
       echo "      Log in met \`docker login docker.io\` (zonder docker-CLI:" >&2
       echo "      \`podman login --authfile ~/.docker/config.json docker.io\`), of wacht tot de limiet" >&2
       echo "      verloopt, en draai dan opnieuw '$0 up'." >&2
-      grep -m1 -E 'toomanyrequests|pull rate limit' "$log" >&2; rm -f "$log"; return 1
+      fsc_pull_limiet_regel "$log" >&2; rm -f "$log"; return 1
     fi
 
     if [ "$poging" -lt "$UP_POGINGEN" ]; then
@@ -406,6 +423,7 @@ case "${1:-}" in
     ;;
 
   status)
+    zelfde_engine
     # Elke pipeline met `|| true`: onder `pipefail` geeft een `grep` zonder treffers een non-nul
     # status, en dan zou juist het diagnose-commando zwijgend afbreken.
     # Alleen de containers van deze federatie: een ongefilterde `ps -a` toont elke container op de
