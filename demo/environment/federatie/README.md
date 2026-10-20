@@ -112,8 +112,8 @@ for p in logius magazijn-a; do
 done
 
 # 2. PKI per peer (vereist cfssl; zie <peer>/pki/README.md)
-(cd logius/pki && ./init-ca.sh && ./issue.sh && ./verify.sh)
-(cd magazijn-a/pki && ./init-ca.sh && ./issue.sh && ./verify.sh)
+(cd logius/pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh)
+(cd magazijn-a/pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh)
 
 # 3. Eén group-CA over alle peers — DESTRUCTIEF op de doel-peers, zie de kop van het script
 ./federatie/deel-groep-ca.sh --check      # toont wat er zou gebeuren
