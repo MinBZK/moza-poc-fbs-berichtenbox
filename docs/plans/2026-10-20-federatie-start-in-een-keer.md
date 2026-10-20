@@ -36,8 +36,9 @@ tweede of derde poging slaagt en een warme start nooit faalt.
 
 ## Ontwerpkeuzes
 
-1. **Images parallel ophalen, containers serieel aanmaken.** `compose pull --policy missing` en
-   daarna `compose --parallel 1 up -d`. Het ophalen raakt geen ID-mapping en hoeft dus niet serieel;
+1. **Images parallel ophalen, containers serieel aanmaken.** `compose pull --policy missing`, dan
+   per service `compose create --no-recreate` in afhankelijkheidsvolgorde, dan `up -d` (zie de
+   correctie onder Uitkomst: `--parallel 1` serialiseert niet). Het ophalen raakt geen ID-mapping en hoeft dus niet serieel;
    `--policy missing` houdt een warme start offline en snel. Alleen op podman: Docker kent de race
    niet en houdt zijn parallelle start. Geldt voor `federatie.sh` én `peer-stack.sh`, want de losse
    peers dragen dezelfde `keep-id`-overlays.
@@ -82,17 +83,58 @@ tweede of derde poging slaagt en een warme start nooit faalt.
 
 ## Uitkomst (2026-10-20)
 
-| Situatie, met de fix | Runs | Mislukt | Duur |
-|---|---|---|---|
-| koud (images verwijderd) | 4 | 0, geen foutmeldingen | 31–36 s |
-| warm | 3 | 0, geen foutmeldingen | 15–16 s |
-| losse peer `magazijn-a/deploy/local/up.sh`, warm | 1 | 0 | 15 s |
+**Correctie op de eerste uitvoering.** De eerste versie serialiseerde met `--parallel 1`. Vier koude
+runs slaagden daarmee, maar dat was geluk: ze duurden even lang als parallel, en bij de review-ronde
+faalde een warme run alsnog op de race. In de compose-uitvoer stonden inway, outway en toolbox
+tegelijk op `Creating`. Ook `COMPOSE_PARALLEL_LIMIT=1` beperkt het aanmaken bij `up` in docker
+compose v2.32 niet; de eerdere "0 van 5" daarmee kwam door de seriële pulls die de creates
+toevallig uit elkaar trokken. Ontwerpkeuze 1 is daarom vervangen door: per service `create
+--no-recreate`, in de volgorde van `config --services` (afhankelijkheden eerst), en daarna `up -d`.
 
-- Serieel aanmaken kost na de parallelle pull vrijwel niets: koud even snel als parallel, warm gelijk.
+Gemeten met de definitieve versie (warm; de ID-mapped kopie verdwijnt met de laatste container, dus
+elke start na `down` loopt de race opnieuw):
+
+| | Runs | Mislukt | Max. tegelijk op `Creating` | Duur |
+|---|---|---|---|---|
+| kale `compose up -d` (logius) | 1 | — | 4 | — |
+| `modus_compose_up` (logius) | 1 | — | 1 | — |
+| `federatie.sh up`, `UP_POGINGEN=1` | 6 | 0, geen foutmeldingen | — | 18–19 s (parallel: 15 s) |
+| losse peer `up.sh` (logius, magazijn-a) | 2 | 0 | — | 16 s |
+
 - `smoke-federatie.sh` groen.
-- Een vijfde koude run liep tegen het limiet voor anonieme pulls van Docker Hub (te veel meetrondes).
-  Dat leverde eerst een nietszeggende melding op; `federatie.sh` herkent het nu
-  (`fsc_pull_limiet_bereikt`), stopt zonder retry en noemt `podman login docker.io`. Live nagespeeld.
+- Koude runs zijn met de definitieve versie niet herhaald: het limiet voor anonieme pulls bij Docker
+  Hub was door de meetrondes bereikt. Dat leverde eerst een nietszeggende melding op; `federatie.sh`
+  herkent het nu (`fsc_pull_limiet_bereikt`), stopt zonder retry en noemt `docker login docker.io`.
+  Live nagespeeld. Een koude start verschilt alleen in de pull vooraf, die buiten het seriële deel
+  valt.
+- `status` en een onbekend commando hebben live geen bijwerkingen meer (geen opruiming, geen
+  service-start).
 - De `pause.pid`-guard en de herstart van een dode socket zijn alleen met unittests gedekt: live
   naspelen raakt de podman-sessie waarin de ontwikkelcontainer zelf draait.
-- De `uid_map`-fout is niet gereproduceerd; staat als bekend gedrag in de README.
+
+## Review (PR #390)
+
+Alle tien bevindingen verwerkt:
+
+- **Hoog — een trage socket werd als dood opgeruimd.** `modus_socket_status` onderscheidt nu drie
+  uitkomsten: antwoordt, niemand luistert (curl exit 7) of onbeslist (timeout). Alleen bij "niemand
+  luistert" wordt de socket weggehaald en de service herstart; bij een timeout stopt het script en
+  blijft de socket staan.
+- **Engine-type via de engine zelf** (`/version` → `Podman Engine`) in plaats van de substring
+  `podman` in het pad, zodat podman-docker op `/run/docker.sock` ook serieel start.
+- **Eén runtime-map** (`modus_runtime_dir`) voor pause.pid én socket, met de terugval op
+  `/tmp/podman-run-<uid>`; één socketcontrole per start in plaats van drie.
+- **`federatie.sh`** roept de engine-stap alleen aan bij commando's die compose nodig hebben; `status`
+  en een onbekend commando hebben geen bijwerkingen meer.
+- **Loginadvies** bij het pull-limiet: `docker login docker.io` (compose leest
+  `~/.docker/config.json`), of `podman login --authfile ~/.docker/config.json docker.io`.
+- **Compose v2-eis** expliciet: zonder `--parallel` in de help valt `modus_compose_up` terug op een
+  gewone `up -d` en meldt het dat.
+- **Peer-READMEs** bijgewerkt; `uid_map` is daar én in de federatie-README nu beschreven als gevolg van
+  dezelfde race (een `up` naast een `Created`-achterblijver), niet als losse fout.
+- **Tests:** het pauzeproces is een script in plaats van een kopie van `sleep` (busybox/uutils), met
+  een `trap`; de `setsid`-tak wordt getest; de seriële start toetst de exacte reeks aanroepen.
+  92 asserties; CI-minimum mee opgehoogd.
+- **Serieel op elke podman, niet alleen bij vfs** — bewust zo gelaten: overlay zonder kernelsteun
+  maakt dezelfde kopie, en dat is vooraf niet betrouwbaar vast te stellen. Serieel kost gemeten
+  ~3 seconden per start. De reden staat bij `modus_compose_up` en in de README.

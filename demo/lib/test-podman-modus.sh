@@ -43,16 +43,29 @@ cat >"$basis/sleep" <<EOF
 exit 0
 EOF
 
-# `curl --unix-socket <pad> …/_ping` antwoordt OK, behalve als er een `<pad>.dood` naast ligt: dan
-# staat er wel een socketbestand, maar luistert niemand.
+# `curl --unix-socket <pad> <url>`, gestuurd door markers naast de socket: `<pad>.dood` = niemand
+# luistert (exit 7, verbinding geweigerd), `<pad>.traag` = timeout (exit 28), `<pad>.docker` = de
+# engine is Docker. `/_ping` geeft OK, `/version` de componentnaam van de engine.
 cat >"$basis/curl" <<'EOF'
 #!/bin/sh
 while [ $# -gt 0 ]; do
-  [ "$1" = --unix-socket ] && sock="$2"
+  case "$1" in
+    --unix-socket) sock="$2"; shift ;;
+    http://*) url="$1" ;;
+  esac
   shift
 done
 [ -e "$sock.dood" ] && exit 7
-printf OK
+[ -e "$sock.traag" ] && exit 28
+case "$url" in
+  */version)
+    if [ -e "$sock.docker" ]; then
+      printf '{"Components":[{"Name":"Engine","Version":"27.3.1"}]}'
+    else
+      printf '{"Components":[{"Name":"Podman Engine","Version":"5.4.2"}]}'
+    fi ;;
+  *) printf OK ;;
+esac
 EOF
 
 cat >"$basis/uname" <<'EOF'
@@ -96,6 +109,11 @@ EOF
 
 chmod +x "$basis/sleep" "$basis/curl" "$basis/uname" "$basis/docker" "$met/podman"
 
+# Een extra map met alleen setsid, voor de tak die de service van de aanroepende shell losmaakt.
+met_setsid="$werkmap/met-setsid"
+mkdir -p "$met_setsid"
+ln -s "$(command -v setsid)" "$met_setsid/setsid"
+
 # geval <naam> <PATH-variant> <script>: draait het script na het sourcen, zet STATUS en UITVOER.
 geval() {
   local pad="$1" script="$2"
@@ -127,6 +145,7 @@ maak_socket() {
 
 maak_socket "$werkmap/podman/podman.sock"
 maak_socket "$werkmap/docker/docker.sock"
+touch "$werkmap/docker/docker.sock.docker"
 PODMAN_SOCK="DOCKER_HOST=unix://$werkmap/podman/podman.sock"
 DOCKER_SOCK="DOCKER_HOST=unix://$werkmap/docker/docker.sock"
 BEPAAL_DEMO='modus_engine; modus_bepalen bridge hostnet; echo "MODUS=$MODUS"'
@@ -138,7 +157,7 @@ STUB_ENV="$PODMAN_SOCK" geval "$met" 'modus_engine; echo "PR=$PODMAN_RUNTIME"'
 verwacht "een podman-socket in DOCKER_HOST telt als podman" 0 "PR=1"
 
 STUB_ENV="$DOCKER_SOCK" geval "$met" 'modus_engine; echo "PR=$PODMAN_RUNTIME"'
-verwacht "een andere DOCKER_HOST telt niet als podman, en dat wordt gemeld" 0 "wijst niet naar een podman-socket"
+verwacht "een andere DOCKER_HOST telt niet als podman, en dat wordt gemeld" 0 "wijst niet naar een podman-engine"
 
 STUB_ENV="$DOCKER_SOCK" geval "$met" 'MODUS_DOCKER_TOEGESTAAN=1; modus_engine; echo "PR=$PODMAN_RUNTIME"'
 verwacht "waar Docker een modus is, is een Docker-socket geen waarschuwing waard" 0 "PR=0"
@@ -190,6 +209,38 @@ touch "$faal_sock.dood"
 STUB_ENV="DOCKER_HOST=unix://$faal_sock STUB_SERVICE_FAAL=1" geval "$met" "$SOCK_ENGINE"
 verwacht "een service die niet opkomt: stoppen met het log van de service" 1 "newuidmap"
 
+setsid_sock="$werkmap/setsid/podman.sock"
+maak_socket "$setsid_sock"
+touch "$setsid_sock.dood"
+STUB_ENV="DOCKER_HOST=unix://$setsid_sock STUB_ECHTE_SLEEP=1" geval "$met:$met_setsid" "$SOCK_ENGINE"
+verwacht "met setsid start de service ook, losgemaakt van de shell" 0 "PR=1 DH=unix://$setsid_sock"
+
+# Een service die te traag antwoordt leeft nog. Zijn socket weghalen laat hem onbereikbaar
+# doordraaien, en een tweede service ernaast lost niets op.
+traag_sock="$werkmap/traag/podman.sock"
+maak_socket "$traag_sock"
+touch "$traag_sock.traag"
+STUB_ENV="DOCKER_HOST=unix://$traag_sock" geval "$met" "$SOCK_ENGINE"
+verwacht "een socket die niet op tijd antwoordt: stoppen, niet herstarten" 1 "niet binnen 5 seconden"
+[ -S "$traag_sock" ] && ok "de socket van een trage service blijft staan" || fout "de socket van een trage service is verwijderd"
+
+case "$UITVOER" in
+  *"service starten"*) fout "een trage service wordt als dood herstart — $UITVOER" ;;
+  *) ok "een trage service wordt niet herstart" ;;
+esac
+
+# Het pad zegt niets over de engine: podman-docker publiceert podman op een docker.sock.
+podman_als_docker="$werkmap/run/docker.sock"
+maak_socket "$podman_als_docker"
+STUB_ENV="DOCKER_HOST=unix://$podman_als_docker" geval "$met" "$SOCK_ENGINE"
+verwacht "podman achter een docker.sock telt als podman" 0 "PR=1"
+
+docker_als_podman="$werkmap/docker-podman/podman.sock"
+maak_socket "$docker_als_podman"
+touch "$docker_als_podman.docker"
+STUB_ENV="DOCKER_HOST=unix://$docker_als_podman" geval "$met" "$SOCK_ENGINE"
+verwacht "Docker achter een pad met 'podman' erin telt niet als podman" 0 "PR=0"
+
 dode_docker="$werkmap/dood/docker.sock"
 maak_socket "$dode_docker"
 touch "$dode_docker.dood"
@@ -208,6 +259,23 @@ case "$UITVOER" in
   *) ok "een levende socket wordt niet herstart" ;;
 esac
 
+# Eén runtime-map voor pause.pid en socket, met dezelfde keuze als podman.
+STUB_ENV="" geval "$met" 'modus_runtime_dir'
+verwacht "de runtime-map volgt XDG_RUNTIME_DIR" 0 "$werkmap"
+
+UITVOER="$(env -i HOME="$werkmap" PATH="$met:$basis" "$basis/bash" -c ". '$LIB'; modus_runtime_dir" 2>&1)"
+
+case "$UITVOER" in
+  "/run/user/$(id -u)"|"/tmp/podman-run-$(id -u)") ok "zonder XDG_RUNTIME_DIR: /run/user/<uid> of /tmp/podman-run-<uid> ($UITVOER)" ;;
+  *) fout "zonder XDG_RUNTIME_DIR een onverwachte runtime-map — $UITVOER" ;;
+esac
+
+if [ ! -w "/run/user/$(id -u)" ]; then
+  [ "$UITVOER" = "/tmp/podman-run-$(id -u)" ] \
+    && ok "zonder schrijfbare /run/user/<uid> valt de runtime-map terug op /tmp" \
+    || fout "zonder schrijfbare /run/user/<uid> geen terugval op /tmp — $UITVOER"
+fi
+
 # --- pause.pid ---
 
 pid_bestand="$werkmap/libpod/tmp/pause.pid"
@@ -218,10 +286,18 @@ true &
 dode_pid=$!
 wait "$dode_pid" || true
 
-# Een proces met dezelfde comm als het pauzeproces van podman.
-cp "$echte_sleep" "$werkmap/podman pause"
-"$werkmap/podman pause" 30 &
+# Een proces met dezelfde comm als het pauzeproces van podman. Een script en geen kopie van sleep:
+# een multi-call binary (busybox, uutils) draait onder een andere naam niet als sleep.
+printf '#!/bin/sh\nwhile :; do %s 1; done\n' "$echte_sleep" >"$werkmap/podman pause"
+chmod +x "$werkmap/podman pause"
+"$werkmap/podman pause" &
 pauze_pid=$!
+trap 'kill "$pauze_pid" 2>/dev/null || true; rm -rf "$werkmap"' EXIT
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ "$(cat "/proc/$pauze_pid/comm" 2>/dev/null || true)" = "podman pause" ] && break
+  "$echte_sleep" 0.1
+done
 
 verweesd_geval() {  # <verwacht 0/1> <omschrijving> <inhoud, of - voor geen bestand>
   rm -f "$pid_bestand"
@@ -255,28 +331,62 @@ rm -f "$pid_bestand"
 
 # --- modus_compose_up ---
 
-# Een compose-stand-in die zijn argumenten logt; STUB_COMPOSE_PULL_FAAL laat `pull` falen.
-COMPOSE_NEP='nep() { echo "AANROEP $*"; case " $* " in *" pull "*) [ -z "${STUB_COMPOSE_PULL_FAAL:-}" ] ;; esac; }'
+# Een compose-stand-in die zijn argumenten logt. `--help` noemt `--parallel`, behalve met
+# STUB_OUDE_COMPOSE (compose v1, podman-compose); `config --services` geeft STUB_SERVICES;
+# STUB_COMPOSE_FAAL=<subcommando> laat dat subcommando falen.
+COMPOSE_NEP='nep() {
+  case " $* " in
+    *" --help "*) [ -z "${STUB_OUDE_COMPOSE:-}" ] && echo "      --parallel int   Control max parallelism"; return 0 ;;
+    *" config --services "*) printf "%s\n" ${STUB_SERVICES:-postgres manager outway} ;;
+    *) echo "AANROEP $*" ;;
+  esac
+  case " $* " in *" ${STUB_COMPOSE_FAAL:-niets} "*) return 1 ;; esac
+}'
 
 STUB_ENV="" geval "$met" "$COMPOSE_NEP; PODMAN_RUNTIME=1; modus_compose_up nep -f a.yaml"
 verwacht "op podman eerst de ontbrekende images ophalen" 0 "AANROEP -f a.yaml pull --policy missing --quiet"
-verwacht "op podman de containers één voor één aanmaken" 0 "AANROEP -f a.yaml --parallel 1 up -d"
+
+# Volgorde is de kern: elke service apart, in de volgorde van config --services, en pas daarna up.
+VERWACHT_REEKS="AANROEP -f a.yaml pull --policy missing --quiet
+AANROEP -f a.yaml create --no-recreate postgres
+AANROEP -f a.yaml create --no-recreate manager
+AANROEP -f a.yaml create --no-recreate outway
+AANROEP -f a.yaml up -d"
+
+if [ "$UITVOER" = "$VERWACHT_REEKS" ]; then
+  ok "op podman per service één create, in afhankelijkheidsvolgorde, en dan up"
+else
+  fout "op podman niet de verwachte reeks aanroepen — kreeg: $UITVOER"
+fi
+
+STUB_ENV="STUB_SERVICES=enig" geval "$met" "$COMPOSE_NEP; PODMAN_RUNTIME=1; modus_compose_up nep"
+verwacht "één service: één create" 0 "AANROEP create --no-recreate enig"
 
 STUB_ENV="" geval "$met" "$COMPOSE_NEP; PODMAN_RUNTIME=0; modus_compose_up nep -f a.yaml"
-verwacht "op Docker een gewone parallelle up" 0 "AANROEP -f a.yaml up -d"
+
+if [ "$UITVOER" = "AANROEP -f a.yaml up -d" ]; then
+  ok "op Docker alleen een gewone parallelle up"
+else
+  fout "op Docker niet alleen up -d — kreeg: $UITVOER"
+fi
+
+STUB_ENV="STUB_OUDE_COMPOSE=1" geval "$met" "$COMPOSE_NEP; PODMAN_RUNTIME=1; modus_compose_up nep -f a.yaml"
+verwacht "een compose zonder --parallel: gewone up, met de reden erbij" 0 "geen docker compose v2"
 
 case "$UITVOER" in
-  *pull*|*--parallel*) fout "op Docker wordt de start toch geserialiseerd — $UITVOER" ;;
-  *) ok "op Docker geen pull-stap en geen --parallel" ;;
+  *create*|*" pull "*) fout "een compose zonder --parallel krijgt toch v2-aanroepen — $UITVOER" ;;
+  *) ok "een compose zonder --parallel krijgt geen v2-aanroepen" ;;
 esac
 
-STUB_ENV="STUB_COMPOSE_PULL_FAAL=1" geval "$met" "$COMPOSE_NEP; PODMAN_RUNTIME=1; modus_compose_up nep -f a.yaml"
+for faal in pull create; do
+  STUB_ENV="STUB_COMPOSE_FAAL=$faal" geval "$met" "$COMPOSE_NEP; PODMAN_RUNTIME=1; modus_compose_up nep -f a.yaml"
 
-if [ "$STATUS" -ne 0 ] && [[ "$UITVOER" != *" up -d"* ]]; then
-  ok "een mislukte pull stopt vóór up, met een fout"
-else
-  fout "een mislukte pull loopt door naar up of slaagt — exit $STATUS: $UITVOER"
-fi
+  if [ "$STATUS" -ne 0 ] && [[ "$UITVOER" != *" up -d"* ]]; then
+    ok "een mislukte $faal stopt vóór up, met een fout"
+  else
+    fout "een mislukte $faal loopt door naar up of slaagt — exit $STATUS: $UITVOER"
+  fi
+done
 
 # --- modus_bepalen: automatisch ---
 

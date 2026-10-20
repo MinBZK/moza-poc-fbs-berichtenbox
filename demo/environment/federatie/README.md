@@ -288,24 +288,37 @@ Drie dingen om te weten:
 
 - **`depends_on: !override`, niet `!reset`** — zie de toelichting in `compose/magazijn-a.yaml`.
 - **De containers worden op podman één voor één aangemaakt.** De podman-overlays draaien elke
-  FSC-service met `userns_mode: keep-id`. Met de `vfs`-storage-driver (podman in een container) maakt
-  podman bij de eerste container per image-laag een ID-mapped kopie; containers die tegelijk worden
-  aangemaakt botsen daarop met `container ID 0 cannot be mapped to a host ID`. De images worden daarom
-  eerst parallel opgehaald (`pull --policy missing`) en daarna serieel gestart. Dat kost nauwelijks
-  tijd: het ophalen overheerst, en een koude start bleef rond de 35 seconden.
+  FSC-service met `userns_mode: keep-id`. Kan de storage-driver een laag niet ID-mapped mounten
+  (`vfs` altijd, zoals in podman-in-een-container; overlay alleen met kernelsteun), dan maakt podman
+  bij de eerste container per image-laag een ID-mapped kopie; containers die tegelijk worden
+  aangemaakt botsen daarop met `container ID 0 cannot be mapped to a host ID`. De kopie verdwijnt
+  met de laatste container, dus dit speelt na elke `down`, niet alleen op een schone machine. De
+  images worden daarom eerst parallel opgehaald (`pull --policy missing`), daarna maakt het script
+  per service één container aan (`create`, in de volgorde van de afhankelijkheden), en pas dan volgt
+  `up -d`. `COMPOSE_PARALLEL_LIMIT=1` en `--parallel 1` lijken hetzelfde te doen, maar beperken het
+  aanmaken bij `up` niet. Dit geldt op elke podman: of de driver kopieert, is vooraf niet
+  betrouwbaar vast te stellen. Het vraagt docker compose v2; een andere compose start gewoon
+  parallel en meldt dat.
   Meldt `federatie.sh up` toch een mislukte poging, dan ruimt het op en probeert het opnieuw
   (`UP_POGINGEN`, standaard 3), maar dat hoort niet voor te komen.
-- **Bekend, niet door ons op te lossen:** `crun: write file '/proc/<pid>/uid_map': Operation not
-  permitted: OCI permission denied` is eenmaal gezien bij een start met parallelle creates, en daarna
-  niet meer gereproduceerd. Komt hij terug, dan vangt de retry hem op; meld het dan in MinBZK/MijnOverheidZakelijk#975 met de
+- **`write /proc/<pid>/uid_map: Operation not permitted`** is het gevolg van dezelfde race: een
+  volgende `up` naast een container die na de eerste fout op `Created` bleef staan. Met het seriële
+  aanmaken komt de eerste fout niet meer voor, en de retry ruimt `Created`-achterblijvers op vóór
+  hij opnieuw begint. Zie je hem toch, meld het dan in MinBZK/MijnOverheidZakelijk#975 met de
   podman- en crun-versie (`podman version`, `crun --version`).
+- **Limiet voor anonieme pulls bereikt** (`toomanyrequests`): `federatie.sh up` stopt dan zonder
+  retry. Log in met `docker login docker.io` — compose stuurt de gegevens uit `~/.docker/config.json`
+  mee, niet die uit podmans eigen `auth.json`; zonder docker-CLI schrijft
+  `podman login --authfile ~/.docker/config.json docker.io` hetzelfde bestand.
 - **Een verweesde `pause.pid`** (na een herstart van de container) liet elke podman-aanroep falen op
-  `cannot re-exec process to join the existing user namespace`. `federatie.sh`, de losse `up.sh` en
-  `podman-up.sh` ruimen dat bestand nu zelf op als het proces erin niet meer het pauzeproces van
-  podman is, en melden dat.
+  `cannot re-exec process to join the existing user namespace`. `federatie.sh` (bij elk commando
+  behalve `status`), de losse `up.sh` en `podman-up.sh` ruimen dat bestand zelf op als het proces
+  erin niet meer het pauzeproces van podman is, en melden dat.
 - **Een podman-API-socket waarop niemand luistert** wordt vooraf herkend en de service wordt opnieuw
-  gestart. Valt hij tijdens `up` weg (`error during connect`), dan stopt `federatie.sh` met de
-  instructie `down` en daarna `up` te draaien; dan start het de service zelf.
+  gestart. Antwoordt hij wel maar niet binnen vijf seconden, dan blijft hij staan en stopt het
+  script: een bezette service is niet dood. Valt hij tijdens `up` weg (`error during connect`), dan
+  stopt `federatie.sh` met de instructie `down` en daarna `up` te draaien; dan start het de service
+  zelf.
 - **Paden in de overlays zijn relatief aan de project-directory** — zie de toelichting in
   `compose/logius.yaml`.
 - **Standalone en federatie kunnen niet tegelijk.** Beide claimen `:443` en `:5432`.

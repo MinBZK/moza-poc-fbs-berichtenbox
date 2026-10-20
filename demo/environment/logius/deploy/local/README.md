@@ -245,11 +245,14 @@ Vijf beperkingen:
   externe peer kon toen ook niet; deze overlay cementeert dat. Draai `127.0.0.1` niet terug naar
   `0.0.0.0` om een multi-host-testnet te bouwen — dan zet je de hele stack, inclusief postgres en
   de controller zonder authenticatie, op het netwerk.
-- **Faalt een container tijdens de eerste `up`** (`container ID 0 cannot be mapped to a host ID`),
-  dan blijft hij in status `Created` achter en geeft elke volgende `up`
-  `write /proc/<pid>/uid_map: Operation not permitted`. Dat is geen keep-id-probleem maar een race
-  bij het aanmaken van de ID-gemapte laagkopie. Ruim op en probeer opnieuw; soms is dat twee of
-  drie keer nodig voordat de stack compleet staat:
+- **De containers worden op podman één voor één aangemaakt.** Met `userns_mode: keep-id` en een
+  storage-driver die lagen niet ID-mapped kan mounten (`vfs`, zoals in podman-in-een-container)
+  maakt podman per image-laag een ID-mapped kopie; tegelijk aangemaakte containers botsten daarop
+  met `container ID 0 cannot be mapped to a host ID`, en een volgende `up` naast de achtergebleven
+  `Created`-container gaf `write /proc/<pid>/uid_map: Operation not permitted`. `up.sh` haalt de
+  images daarom eerst parallel op en maakt daarna per service één container aan, in de volgorde
+  van de afhankelijkheden, vóór `up -d`. Zie je een van die
+  twee meldingen toch, ruim dan de achterblijvers op en start opnieuw:
 
   ```bash
   podman ps -a --format '{{.Names}} {{.Status}}' | grep -v ' Up ' | awk '{print $1}' \

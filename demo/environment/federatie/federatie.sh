@@ -44,15 +44,19 @@ if [ -n "${MODUS:-}" ] && [ "$MODUS" != "hostnet" ]; then
   exit 2
 fi
 
-# De federatie bevraagt podman rechtstreeks (`podman ps/exec/logs`), dus compose moet op dezelfde
-# engine landen. modus_engine ruimt vooraf een verweesde pause.pid op en zorgt voor een API-socket
-# die antwoordt; anders verdwijnt die oorzaak achter de eerste compose-fout.
-modus_engine
+# engine_voor_compose: vóór elk commando dat compose aanroept. De federatie bevraagt podman ook
+# rechtstreeks (`podman ps/exec/logs`), dus compose moet op dezelfde engine landen. modus_engine
+# ruimt een verweesde pause.pid op en zorgt voor een API-socket die antwoordt; anders verdwijnt die
+# oorzaak achter de eerste compose-fout. Niet bij `status` of een onbekend commando: dat zijn
+# bijwerkingen die daar niet horen.
+engine_voor_compose() {
+  modus_engine
 
-if [ "$PODMAN_RUNTIME" -ne 1 ]; then
-  echo "FOUT: de federatie vraagt podman; DOCKER_HOST=${DOCKER_HOST} wijst naar een andere engine." >&2
-  exit 1
-fi
+  if [ "$PODMAN_RUNTIME" -ne 1 ]; then
+    echo "FOUT: de federatie vraagt podman; DOCKER_HOST=${DOCKER_HOST} wijst naar een andere engine." >&2
+    exit 1
+  fi
+}
 
 ANNOUNCE_TIMEOUT="${ANNOUNCE_TIMEOUT:-120}"
 ANNOUNCE_INTERVAL="${ANNOUNCE_INTERVAL:-5}"
@@ -182,7 +186,10 @@ up_met_retry() {
 
     if fsc_pull_limiet_bereikt "$log"; then
       echo "FAIL: de registry weigert het ophalen van images voor '${peer}': limiet voor anonieme pulls bereikt." >&2
-      echo "      Log in (\`podman login docker.io\`) of wacht tot de limiet verloopt, en draai dan opnieuw '$0 up'." >&2
+      # compose stuurt de inloggegevens uit ~/.docker/config.json mee, niet die uit podmans auth.json.
+      echo "      Log in met \`docker login docker.io\` (zonder docker-CLI:" >&2
+      echo "      \`podman login --authfile ~/.docker/config.json docker.io\`), of wacht tot de limiet" >&2
+      echo "      verloopt, en draai dan opnieuw '$0 up'." >&2
       grep -m1 -E 'toomanyrequests|pull rate limit' "$log" >&2; rm -f "$log"; return 1
     fi
 
@@ -291,6 +298,7 @@ markeer_peers() {
 
 case "${1:-}" in
   up)
+    engine_voor_compose
     markeer_peers
 
     echo "federatie: gastheer-stack (${GASTHEER}) — postgres, router, directory + peer..."
@@ -323,6 +331,7 @@ case "${1:-}" in
     ;;
 
   down)
+    engine_voor_compose
     # Fouten tellen in plaats van slikken: een mislukte teardown laat het postgres-volume staan,
     # en de volgende `up` faalt dan op iets dat niets met afbreken te maken lijkt te hebben.
     RC=0
@@ -347,6 +356,7 @@ case "${1:-}" in
     ;;
 
   stop|start)
+    engine_voor_compose
     # Goedkoop itereren: containers stoppen/starten zonder de volumes te wissen.
     ACTIE="$1"
     RC=0
@@ -370,6 +380,8 @@ case "${1:-}" in
       echo "usage: $0 restart <service>   (voor een volledige cyclus: $0 down && $0 up)" >&2
       exit 2
     }
+
+    engine_voor_compose
 
     GEVONDEN=0
     for peer in $(fsc_alle_peers); do
