@@ -1,6 +1,6 @@
 # Lokale testfederatie start in één keer
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 Issue: MinBZK/MijnOverheidZakelijk#975. Bouwt voort op PR #386 (#933, `chore/933-testopstellingen-gelijk-starten`):
 die levert `demo/lib/podman-modus.sh` (engine- en socketkeuze) en `demo/environment/lib/peer-stack.sh`
@@ -79,3 +79,20 @@ tweede of derde poging slaagt en een warme start nooit faalt.
 - Verweesde `pause.pid` nagespeeld (pid van een beëindigd proces) → `federatie.sh up` ruimt op en
   start. Gestopte API-service nagespeeld → melding vóór compose.
 - Een losse peer via `up.sh` koud → in één keer gezond.
+
+## Uitkomst (2026-10-20)
+
+| Situatie, met de fix | Runs | Mislukt | Duur |
+|---|---|---|---|
+| koud (images verwijderd) | 4 | 0, geen foutmeldingen | 31–36 s |
+| warm | 3 | 0, geen foutmeldingen | 15–16 s |
+| losse peer `magazijn-a/deploy/local/up.sh`, warm | 1 | 0 | 15 s |
+
+- Serieel aanmaken kost na de parallelle pull vrijwel niets: koud even snel als parallel, warm gelijk.
+- `smoke-federatie.sh` groen.
+- Een vijfde koude run liep tegen het limiet voor anonieme pulls van Docker Hub (te veel meetrondes).
+  Dat leverde eerst een nietszeggende melding op; `federatie.sh` herkent het nu
+  (`fsc_pull_limiet_bereikt`), stopt zonder retry en noemt `podman login docker.io`. Live nagespeeld.
+- De `pause.pid`-guard en de herstart van een dode socket zijn alleen met unittests gedekt: live
+  naspelen raakt de podman-sessie waarin de ontwikkelcontainer zelf draait.
+- De `uid_map`-fout is niet gereproduceerd; staat als bekend gedrag in de README.
