@@ -138,3 +138,34 @@ Alle tien bevindingen verwerkt:
 - **Serieel op elke podman, niet alleen bij vfs** — bewust zo gelaten: overlay zonder kernelsteun
   maakt dezelfde kopie, en dat is vooraf niet betrouwbaar vast te stellen. Serieel kost gemeten
   ~3 seconden per start. De reden staat bij `modus_compose_up` en in de README.
+
+## Tweede review (PR #390)
+
+Alle tien bevindingen verwerkt:
+
+- **Hoog — `create --no-recreate` liet gewijzigde containers staan**, waarna `up -d` ze tegelijk
+  opnieuw aanmaakte. Nu `create` zonder die vlag. Gemeten met een override die elke service een
+  gewijzigd label geeft: `modus_compose_up` maakt 14 van 14 containers één voor één opnieuw aan
+  (max. 1 tegelijk, driemaal herhaald), een ongewijzigde stack niet; een kale `up -d` deed er 3
+  tegelijk, en in één ronde viel daarbij de podman-API weg (`error during connect: EOF`).
+- **Hoog — de v2-herkenning via `--help`** matchte ook podman-compose (nagegaan: die kent
+  `--parallel`). Nu via `compose version` ("Docker Compose version"), één keer per proces.
+- **Alleen de eigen socket herstarten** (`modus_eigen_socket`: het pad in de runtime-map én van deze
+  gebruiker). Een rootful of vreemde socket wordt niet meer weggehaald; curl's exit 7 bij een
+  geweigerde toegang kan dan geen levende socket van een ander raken.
+- **Uitvoer eerst vangen, dan matchen** in plaats van `| grep -q` onder `pipefail`.
+- **Dezelfde engine voor compose en de podman-CLI**: `federatie.sh` zet `CONTAINER_HOST` gelijk aan
+  `DOCKER_HOST` (ook bij `status`), en stopt als beide gezet zijn en verschillen. Live nagespeeld;
+  de podman-CLI werkt als remote client via die socket.
+- **`${DOCKER_HOST:-<niet gezet>}`** in de foutmelding onder `set -u`.
+- **pause.pid voorzichtiger**: verweesd als de pid ontbreekt, niet bestaat, of van een ander of geen
+  podman-proces is (naam begint niet met `podman`). Een eigen podman-proces met een andere naam
+  blijft staan. De eigenaarscontrole is niet los te toetsen zonder een vreemd proces dat met
+  `podman` begint; de test dekt een proces van root, dat ook op de naam al zou vallen.
+- **Eén patroon voor het pull-limiet** (`fsc_pull_limiet_regel`), voor herkennen én tonen.
+- **De v2-controle draait één keer per proces** in plaats van per peer en per poging.
+
+Verificatie na deze ronde: 98 asserties (CI-minimum mee opgehoogd), vier mutaties op de nieuwe kern
+gevangen, shellcheck schoon. Live: zes van zes `federatie.sh up` in één poging (18 s), `status`
+zonder bijwerkingen, een ongelijke `CONTAINER_HOST` geweigerd, smoke groen, beide losse peers gezond
+(16–17 s).

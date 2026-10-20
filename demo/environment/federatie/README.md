@@ -294,7 +294,8 @@ Drie dingen om te weten:
   aangemaakt botsen daarop met `container ID 0 cannot be mapped to a host ID`. De kopie verdwijnt
   met de laatste container, dus dit speelt na elke `down`, niet alleen op een schone machine. De
   images worden daarom eerst parallel opgehaald (`pull --policy missing`), daarna maakt het script
-  per service één container aan (`create`, in de volgorde van de afhankelijkheden), en pas dan volgt
+  per service één container aan (`create`, in de volgorde van de afhankelijkheden; ook een
+  container met gewijzigde configuratie wordt zo één voor één opnieuw aangemaakt), en pas dan volgt
   `up -d`. `COMPOSE_PARALLEL_LIMIT=1` en `--parallel 1` lijken hetzelfde te doen, maar beperken het
   aanmaken bij `up` niet. Dit geldt op elke podman: of de driver kopieert, is vooraf niet
   betrouwbaar vast te stellen. Het vraagt docker compose v2; een andere compose start gewoon
@@ -314,11 +315,16 @@ Drie dingen om te weten:
   `cannot re-exec process to join the existing user namespace`. `federatie.sh` (bij elk commando
   behalve `status`), de losse `up.sh` en `podman-up.sh` ruimen dat bestand zelf op als het proces
   erin niet meer het pauzeproces van podman is, en melden dat.
-- **Een podman-API-socket waarop niemand luistert** wordt vooraf herkend en de service wordt opnieuw
-  gestart. Antwoordt hij wel maar niet binnen vijf seconden, dan blijft hij staan en stopt het
-  script: een bezette service is niet dood. Valt hij tijdens `up` weg (`error during connect`), dan
+- **Een podman-API-socket waarop niemand luistert** wordt vooraf herkend. Is het de eigen rootless
+  socket (`<runtime-map>/podman/podman.sock`), dan wordt de service opnieuw gestart; elke andere
+  socket, ook een rootful `/run/podman/podman.sock`, blijft staan en het script meldt dat de engine
+  niet antwoordt. Antwoordt de socket wel maar niet binnen vijf seconden, dan stopt het script ook:
+  een bezette service is niet dood. Valt hij tijdens `up` weg (`error during connect`), dan
   stopt `federatie.sh` met de instructie `down` en daarna `up` te draaien; dan start het de service
   zelf.
+- **compose en de podman-CLI praten met dezelfde engine.** compose volgt `DOCKER_HOST`, de
+  podman-CLI `CONTAINER_HOST`; `federatie.sh` zet de tweede gelijk aan de eerste, zodat de controles
+  na `up` naar dezelfde containers kijken. Staan ze allebei en verschillen ze, dan stopt het script.
 - **Paden in de overlays zijn relatief aan de project-directory** — zie de toelichting in
   `compose/logius.yaml`.
 - **Standalone en federatie kunnen niet tegelijk.** Beide claimen `:443` en `:5432`.
