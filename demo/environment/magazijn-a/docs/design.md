@@ -67,7 +67,7 @@ uitbreiding), txlog-hardening/e2e-verantwoording (#728), en het echte data-pad d
 | ZAD-project (peer én app) | `magazijnen` / `mpfm-w3h` | co-locatie, zie Architectuur |
 | ZAD-deployment peer | `fsc-magazijna` | deployment-isolatie, zie Architectuur |
 | ZAD-deployment app (inway-upstream) | `test` (previews: `pr-<n>`) | repo B `deploy.yml` |
-| App-component (inway-upstream) | `magazijna` (cross-deployment via ingress-URL) | repo B `deploy.yml` |
+| App-component (inway-upstream) | `magazijna` (cross-deployment, cluster-intern) | repo B `deploy.yml` |
 | Dienst-naam in de directory | `berichtenmagazijn` | dit ontwerp |
 | FSC-images (pin) | `v2.5.2` (manager/inway/controller/directory-ui) | repo A |
 | migrate-wrapper-images | `ghcr.io/minbzk/moza-fsc-testnet-{manager,controller,txlog}-migrate:<tag>` | repo A |
@@ -89,9 +89,10 @@ directory, een tweede manager die dezelfde peer-identiteit claimt. Wat niet in `
 kan niet uit `test` gekloond worden; de peer blijft zo een singleton. `fsc-magazijna` is zelf
 nooit een kloon-bron.
 
-De app-component `magazijna` blijft in `test`. De inway bereikt haar **cross-deployment via de
-ingress-URL** (`https://magazijna-test-mpfm-w3h.<base-domain>`, https/:443; override via
-`ZAD_MAGAZIJNA_DEPLOYMENT`). Gedeeld project betekent gedeelde API-key: `ZAD_API_KEY_MAGAZIJNEN`.
+De app-component `magazijna` blijft in `test`. De inway bereikt haar **cross-deployment op het
+cluster-interne Service-adres** (`http://test-magazijna.rig-prd-mpfm-w3h.svc.cluster.local:8090`;
+override via `ZAD_MAGAZIJNA_DEPLOYMENT`), met een `cross-domain-access`-regel tussen beide.
+Gedeeld project betekent gedeelde API-key: `ZAD_API_KEY_MAGAZIJNEN`.
 De raw v2-API maakt geen nieuwe deployments aan, dus `fsc-magazijna` wordt eenmalig leeg in de
 UI aangemaakt (zonder clone-from).
 
