@@ -287,11 +287,25 @@ Drie dingen om te weten:
 ## Valkuilen
 
 - **`depends_on: !override`, niet `!reset`** — zie de toelichting in `compose/magazijn-a.yaml`.
-- **Podman faalt regelmatig op de eerste `up`** met een ID-mapping-fout; `federatie.sh up` ruimt op
-  en probeert het in totaal drie keer (`UP_POGINGEN`). De mislukte poging staat in de uitvoer;
-  zolang het script `FEDERATIE OP` meldt, is er niets aan de hand.
-- **Bezwijkt de podman-API-service** (`error during connect`), dan herstart `federatie.sh` die
-  bewust niet voor je — het meldt het commando.
+- **De containers worden op podman één voor één aangemaakt.** De podman-overlays draaien elke
+  FSC-service met `userns_mode: keep-id`. Met de `vfs`-storage-driver (podman in een container) maakt
+  podman bij de eerste container per image-laag een ID-mapped kopie; containers die tegelijk worden
+  aangemaakt botsen daarop met `container ID 0 cannot be mapped to a host ID`. De images worden daarom
+  eerst parallel opgehaald (`pull --policy missing`) en daarna serieel gestart. Dat kost nauwelijks
+  tijd: het ophalen overheerst, en een koude start bleef rond de 35 seconden.
+  Meldt `federatie.sh up` toch een mislukte poging, dan ruimt het op en probeert het opnieuw
+  (`UP_POGINGEN`, standaard 3), maar dat hoort niet voor te komen.
+- **Bekend, niet door ons op te lossen:** `crun: write file '/proc/<pid>/uid_map': Operation not
+  permitted: OCI permission denied` is eenmaal gezien bij een start met parallelle creates, en daarna
+  niet meer gereproduceerd. Komt hij terug, dan vangt de retry hem op; meld het dan in MinBZK/MijnOverheidZakelijk#975 met de
+  podman- en crun-versie (`podman version`, `crun --version`).
+- **Een verweesde `pause.pid`** (na een herstart van de container) liet elke podman-aanroep falen op
+  `cannot re-exec process to join the existing user namespace`. `federatie.sh`, de losse `up.sh` en
+  `podman-up.sh` ruimen dat bestand nu zelf op als het proces erin niet meer het pauzeproces van
+  podman is, en melden dat.
+- **Een podman-API-socket waarop niemand luistert** wordt vooraf herkend en de service wordt opnieuw
+  gestart. Valt hij tijdens `up` weg (`error during connect`), dan stopt `federatie.sh` met de
+  instructie `down` en daarna `up` te draaien; dan start het de service zelf.
 - **Paden in de overlays zijn relatief aan de project-directory** — zie de toelichting in
   `compose/logius.yaml`.
 - **Standalone en federatie kunnen niet tegelijk.** Beide claimen `:443` en `:5432`.

@@ -364,3 +364,10 @@ fsc_compose_project() {
 fsc_podman_api_dood() {
   grep -qE 'Cannot connect to the Docker daemon|error during connect|dial unix .*(connection refused|no such file)' "$1"
 }
+
+# fsc_pull_limiet_bereikt <logbestand>: 0 als een registry het ophalen weigerde op zijn limiet voor
+# anonieme pulls. Een herhaling haalt die limiet alleen sneller, dus dit hoort te stoppen met de
+# handeling die hem opheft in plaats van te retryen.
+fsc_pull_limiet_bereikt() {
+  grep -qE 'toomanyrequests|pull rate limit' "$1"
+}

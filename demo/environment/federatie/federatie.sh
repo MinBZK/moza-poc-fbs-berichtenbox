@@ -27,6 +27,8 @@ ENVDIR="$(cd "${HERE}/.." && pwd)"
 
 # shellcheck source=../lib/fsc-harness.sh
 . "${ENVDIR}/lib/fsc-harness.sh"
+# shellcheck source=../../lib/podman-modus.sh
+. "${ENVDIR}/../lib/podman-modus.sh"
 # shellcheck source=peers.env
 . "${HERE}/peers.env"
 
@@ -40,6 +42,16 @@ if [ -n "${MODUS:-}" ] && [ "$MODUS" != "hostnet" ]; then
   echo "FOUT: de federatie draait alleen in hostnet (een gedeelde netns); MODUS=${MODUS} kan hier niet." >&2
   echo "      Een losse peer in ${MODUS}: demo/environment/<peer>/deploy/local/up.sh." >&2
   exit 2
+fi
+
+# De federatie bevraagt podman rechtstreeks (`podman ps/exec/logs`), dus compose moet op dezelfde
+# engine landen. modus_engine ruimt vooraf een verweesde pause.pid op en zorgt voor een API-socket
+# die antwoordt; anders verdwijnt die oorzaak achter de eerste compose-fout.
+modus_engine
+
+if [ "$PODMAN_RUNTIME" -ne 1 ]; then
+  echo "FOUT: de federatie vraagt podman; DOCKER_HOST=${DOCKER_HOST} wijst naar een andere engine." >&2
+  exit 1
 fi
 
 ANNOUNCE_TIMEOUT="${ANNOUNCE_TIMEOUT:-120}"
@@ -121,19 +133,18 @@ dode_containers() {
 
 # up_met_retry <peer>: `up -d` met een begrensd aantal pogingen.
 #
-# Podman kan bij een verse `up` twee transiënte fouten geven die niets met de configuratie te maken
-# hebben, en beide laten containers op `Created` achter waardoor een simpele herhaling óók faalt:
-#   - "container ID 0 cannot be mapped to a host ID" — twee containers maken tegelijk een ID-mapped
-#     kopie van dezelfde image-laag; wie verliest, faalt. Na één geslaagde kopie is de laag gecached.
-#   - de podman-API-service bezwijkt onder de gelijktijdige creates. Die moet je zelf herstarten;
-#     dit script meldt dat en stopt, want retryen tegen een dode API is zinloos.
+# De race op de ID-mapped laagkopie ("container ID 0 cannot be mapped to a host ID") voorkomt
+# modus_compose_up door de containers één voor één aan te maken. De retry is het vangnet voor wat
+# daarna nog transiënt kan zijn; een mislukte poging laat containers op `Created` achter, dus die
+# worden eerst opgeruimd. Bezwijkt de podman-API-service, dan stopt dit: retryen tegen een dode API
+# is zinloos, en een nieuwe aanroep van dit script start hem zelf opnieuw.
 up_met_retry() {
   local peer="$1" project poging=1 log rc dood rc_status
   project="$(compose_project "$peer")"
   log=$(mktemp)
 
   while [ "$poging" -le "$UP_POGINGEN" ]; do
-    rc=0; dc "$peer" up -d >"$log" 2>&1 || rc=$?
+    rc=0; modus_compose_up dc "$peer" >"$log" 2>&1 || rc=$?
 
     if [ "$rc" -eq 0 ]; then
       # `up -d` exit 0 zodra de containers gestárt zijn, niet zodra ze gezond zijn. De overlay geeft
@@ -164,13 +175,19 @@ up_met_retry() {
     fi
 
     if fsc_podman_api_dood "$log"; then
-      echo "FAIL: de podman-API-service is niet bereikbaar. Herstart 'm en probeer opnieuw:" >&2
-      echo "  podman system service --time=0 unix://\${XDG_RUNTIME_DIR:-/tmp/podman-run-\$(id -u)}/podman/podman.sock &" >&2
+      echo "FAIL: de podman-API-service is onderweg weggevallen. Draai '$0 down' en daarna '$0 up';" >&2
+      echo "      dit script start de service dan zelf opnieuw." >&2
       tail -n 5 "$log" >&2; rm -f "$log"; return 1
     fi
 
+    if fsc_pull_limiet_bereikt "$log"; then
+      echo "FAIL: de registry weigert het ophalen van images voor '${peer}': limiet voor anonieme pulls bereikt." >&2
+      echo "      Log in (\`podman login docker.io\`) of wacht tot de limiet verloopt, en draai dan opnieuw '$0 up'." >&2
+      grep -m1 -E 'toomanyrequests|pull rate limit' "$log" >&2; rm -f "$log"; return 1
+    fi
+
     if [ "$poging" -lt "$UP_POGINGEN" ]; then
-      echo "  poging ${poging}/${UP_POGINGEN} faalde (transiënt?), restanten opruimen en opnieuw..." >&2
+      echo "  poging ${poging}/${UP_POGINGEN} faalde — dat hoort niet voor te komen; restanten opruimen en opnieuw." >&2
       tail -n 2 "$log" >&2
       opruimen "$project" "$log"
       sleep 2

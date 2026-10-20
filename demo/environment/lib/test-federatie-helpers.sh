@@ -5,7 +5,8 @@
 #   - fsc_compose_project levert de projectnaam waarop de container-filters staan; leeg betekent
 #     dat élke `--filter label=com.docker.compose.project=` niets meer selecteert, en dus dat de
 #     controles die daarop leunen zwijgend uitgeschakeld zijn;
-#   - fsc_podman_api_dood beslist of `federatie.sh up` retryt of stopt met een herstart-instructie;
+#   - fsc_podman_api_dood en fsc_pull_limiet_bereikt beslissen of `federatie.sh up` retryt of stopt
+#     met een instructie;
 #   - leaves_ketenen beslist of een DESTRUCTIEVE CA-operatie als "al gedaan" wordt overgeslagen.
 #
 # Geen containers, geen netwerk: openssl plus een tmpdir.
@@ -137,6 +138,20 @@ if fsc_compose_project "$WERK/bestaat-niet.yaml" >/dev/null 2>&1; then
 else
   ok "compose_project faalt hard op een ontbrekend bestand"
 fi
+
+# --- fsc_pull_limiet_bereikt --------------------------------------------------------------------
+limiet_geval() {  # <verwacht 0/1> <omschrijving> <loginhoud>
+  printf '%s\n' "$3" > "$WERK/log"
+  if fsc_pull_limiet_bereikt "$WERK/log"; then gemeten=0; else gemeten=1; fi
+  [ "$gemeten" -eq "$1" ] && ok "$2" || fout "$2 (verwacht $1, kreeg $gemeten)"
+}
+
+limiet_geval 0 "herkent de rate-limit-melding van Docker Hub" \
+  'outway-logius Error {"message":"toomanyrequests: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit"}'
+limiet_geval 1 "een gewone pull-fout is geen rate limit" \
+  'Error response from daemon: manifest unknown: manifest unknown'
+limiet_geval 1 "een ID-mapping-fout is geen rate limit" \
+  'creating an ID-mapped copy of layer "8473d9e6": container ID 0 cannot be mapped to a host ID'
 
 # --- fsc_podman_api_dood ------------------------------------------------------------------------
 api_geval() {  # <verwacht 0/1> <omschrijving> <loginhoud>
