@@ -50,9 +50,13 @@ class AanmeldResourceTest {
     @Inject
     lateinit var dedup: MockAanmeldDeduplicatie
 
+    /** Een lopende sessie van de standaard-ontvanger; zonder die weigert de sessiecontrole elk berichtenpad. */
+    private lateinit var sessie: String
+
     @BeforeEach
     fun reset() {
         sessiecache.reset()
+        sessie = sessiecache.sessieVoor()
         dedup.reset()
     }
 
@@ -122,7 +126,7 @@ class AanmeldResourceTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", "BSN:999990019")
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)

@@ -40,14 +40,16 @@ class VolgenSseTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    private lateinit var sessie: String
+
     @BeforeEach
     fun reset() {
         sessiecache.reset()
+        sessie = sessiecache.sessieVoor()
     }
 
     companion object {
         private const val RVO = "00000000000000100000"
-        private const val SESSIE = "AAAAAAAAAAAAAAAAAAAAAA"
         private val BERICHT_ID: UUID = UUID.fromString("0b0e5a52-8a8f-4d5f-9d2e-2f7f7a0c1d11")
 
         @JvmStatic
@@ -124,7 +126,7 @@ class VolgenSseTest {
     fun `de X-Sessie gaat ongewijzigd naar de cache`() {
         volgen()
 
-        assertEquals(listOf(SESSIE), sessiecache.volgSessies)
+        assertEquals(listOf(sessie), sessiecache.volgSessies)
     }
 
     @ParameterizedTest(name = "{0}")
@@ -138,7 +140,7 @@ class VolgenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
-            .header("X-Sessie", SESSIE)
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -195,7 +197,7 @@ class VolgenSseTest {
     private fun volgen(): String =
         given()
             .header("X-Ontvanger", "BSN:999990019")
-            .header("X-Sessie", SESSIE)
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -210,7 +212,7 @@ class VolgenSseTest {
     private fun open(): HttpURLConnection =
         (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection).apply {
             setRequestProperty("X-Ontvanger", "BSN:999990019")
-            setRequestProperty("X-Sessie", SESSIE)
+            setRequestProperty("X-Sessie", sessie)
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000

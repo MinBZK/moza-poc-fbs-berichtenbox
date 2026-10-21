@@ -78,9 +78,21 @@ class MockSessiecache : Sessiecache {
     val sessies = ConcurrentHashMap<String, Identificatienummer>()
     var startSessieFout: SessiecacheException? = null
 
+    /** Laat de volgende start melden dat hij resten van een verlopen sessie wiste. */
+    var restenBijVolgendeStart = false
+    var raakFout: SessiecacheException? = null
+    val geraakteSessies = java.util.concurrent.CopyOnWriteArrayList<String>()
+
+    /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
+    fun sessieVoor(ontvanger: String = "BSN:999990019"): String =
+        startSessie(Identificatienummer.fromHeader(ontvanger)).sessieId
+
     fun reset() {
         sessies.clear()
         startSessieFout = null
+        restenBijVolgendeStart = false
+        raakFout = null
+        geraakteSessies.clear()
         berichten.clear()
         schrijfFouten.clear()
         schrijfAanroepen.clear()
@@ -190,13 +202,23 @@ class MockSessiecache : Sessiecache {
     override fun startSessie(ontvanger: Identificatienummer): SessieStart {
         startSessieFout?.let { throw it }
 
+        // Dezelfde grens als de echte facade, zodat de 429 van de uitvraag hier ook uit de grens komt.
+        if (sessies.values.count { it == ontvanger } >= MAX_SESSIES_PER_ONTVANGER) {
+            throw SessiecacheException.TeVeelSessies("Te veel sessies tegelijk.")
+        }
+
         val sessieId = UUID.randomUUID().toString().replace("-", "").take(SESSIE_ID_LENGTE)
         sessies[sessieId] = ontvanger
+        val resten = restenBijVolgendeStart
+        restenBijVolgendeStart = false
 
-        return SessieStart(sessieId, Instant.now().plusSeconds(900), restenOpgeruimd = false)
+        return SessieStart(sessieId, Instant.now().plusSeconds(900), restenOpgeruimd = resten)
     }
 
     override fun raakSessie(sessieId: String, ontvanger: Identificatienummer) {
+        geraakteSessies += sessieId
+        raakFout?.let { throw it }
+
         if (sessies[sessieId] != ontvanger) throw SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
     }
 
@@ -225,6 +247,9 @@ class MockSessiecache : Sessiecache {
 
 // Gelijk aan de lengte van een echt sessie-id, zodat de vorm-eis van de uitvraag-API hem accepteert.
 private const val SESSIE_ID_LENGTE = 22
+
+// Gelijk aan de default van `berichtensessiecache.sessie.max-per-ontvanger`.
+private const val MAX_SESSIES_PER_ONTVANGER = 5
 
 /**
  * Activeert [MockSessiecache] als alternative voor de echte facade. Redis blijft

@@ -78,9 +78,13 @@ class OpenApiContractTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    /** Een lopende sessie van de standaard-ontvanger; zonder die weigert de sessiecontrole elk berichtenpad. */
+    private lateinit var sessie: String
+
     @BeforeEach
     fun reset() {
         sessiecache.reset()
+        sessie = sessiecache.sessieVoor()
         WireMockBackendsResource.magazijnA.resetAll()
     }
 
@@ -115,7 +119,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten")
             .then()
@@ -145,7 +149,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get(pad)
             .then()
@@ -177,7 +181,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get(pad)
             .then()
@@ -192,7 +196,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("q", "rente")
             .`when`()
             .get("/api/v1/berichten/_zoeken")
@@ -215,7 +219,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -234,7 +238,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -256,7 +260,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":""}""")
             .`when`()
@@ -283,7 +287,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body(mapOf("map" to map))
             .`when`()
@@ -307,7 +311,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -334,7 +338,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -368,7 +372,7 @@ class OpenApiContractTest {
                 given()
                     .filter(validator)
                     .header("X-Ontvanger", ontvanger)
-                    .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+                    .header("X-Sessie", sessie)
                     .`when`()
                     .get("/api/v1/berichten/$gedeeld?magazijnId=$oin")
                     .then()
@@ -386,7 +390,7 @@ class OpenApiContractTest {
 
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$id")
             .then()
@@ -404,7 +408,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("magazijnId", magazijnId)
             .`when`()
             .get("/api/v1/berichten/$id")
@@ -428,7 +432,7 @@ class OpenApiContractTest {
 
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("magazijnId", magazijnId)
             .`when`()
             .get("/api/v1/berichten/$id")
@@ -453,7 +457,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$gedeeld/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_B}")
             .then()
@@ -472,7 +476,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$id/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_B}")
             .then()
@@ -488,7 +492,7 @@ class OpenApiContractTest {
     fun `GET bijlage zonder magazijnId levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}")
             .then()
@@ -501,7 +505,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/${UUID.randomUUID()}?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -522,7 +526,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$berichtId/bijlagen/$bijlageId?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -542,7 +546,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -559,7 +563,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -577,7 +581,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -596,7 +600,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -612,7 +616,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/${UUID.randomUUID()}?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -632,7 +636,7 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -662,12 +666,69 @@ class OpenApiContractTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten")
             .then()
             .statusCode(409)
             .contentType("application/problem+json")
+    }
+
+    // --- Sessies: start, einde, en de weigeringen die erbij horen ---
+
+    @Test
+    fun `POST sessies levert valide Sessie met 201`() {
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(201)
+    }
+
+    @Test
+    fun `POST sessies boven de grens levert valide Problem-429`() {
+        repeat(4) { sessiecache.sessieVoor(ontvanger) }
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(429)
+            .contentType("application/problem+json")
+            .body("type", equalTo("urn:fbs:fout:te-veel-sessies"))
+    }
+
+    @Test
+    fun `DELETE sessies-huidige geeft 204`() {
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("X-Sessie", sessie)
+            .`when`()
+            .delete("/api/v1/sessies/huidige")
+            .then()
+            .statusCode(204)
+    }
+
+    // Goed gevormd maar nooit gestart: zo blijft het verzoek binnen de spec en toetst de validator
+    // het antwoord. Een ontbrekende header zou al op de request-validatie stranden.
+    @ParameterizedTest
+    @ValueSource(strings = ["/api/v1/berichten", "/api/v1/berichten/_zoeken?q=rente", "/api/v1/berichten/_volgen"])
+    fun `een onbekende sessie levert valide Problem-401`(pad: String) {
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("X-Sessie", "A".repeat(22))
+            .`when`()
+            .get(pad)
+            .then()
+            .statusCode(401)
+            .contentType("application/problem+json")
+            .body("type", equalTo("urn:fbs:fout:sessie-ongeldig"))
     }
 
     // --- Input-validatie (400): X-Ontvanger en zoek-parameter `q` ---
@@ -690,7 +751,7 @@ class OpenApiContractTest {
     fun `GET berichten met malformed X-Ontvanger levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", "GEENGELDIGTYPE:123")
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten")
             .then()
@@ -702,7 +763,7 @@ class OpenApiContractTest {
     fun `GET berichten-zoeken zonder verplichte q levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .`when`()
             .get("/api/v1/berichten/_zoeken")
             .then()
@@ -714,7 +775,7 @@ class OpenApiContractTest {
     fun `GET berichten-zoeken met te lange q levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("q", "x".repeat(201))
             .`when`()
             .get("/api/v1/berichten/_zoeken")
@@ -731,7 +792,7 @@ class OpenApiContractTest {
     fun `GET berichten met paginaGrootte boven maximum levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("paginaGrootte", 201)
             .`when`()
             .get("/api/v1/berichten")
@@ -744,7 +805,7 @@ class OpenApiContractTest {
     fun `GET berichten met paginaGrootte onder minimum levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("paginaGrootte", 0)
             .`when`()
             .get("/api/v1/berichten")
@@ -757,7 +818,7 @@ class OpenApiContractTest {
     fun `GET berichten met negatieve pagina levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("pagina", -1)
             .`when`()
             .get("/api/v1/berichten")
@@ -773,7 +834,7 @@ class OpenApiContractTest {
     fun `GET berichten-zoeken met te korte q levert 400 problem+json`() {
         given()
             .header("X-Ontvanger", ontvanger)
-            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
+            .header("X-Sessie", sessie)
             .queryParam("q", "x")
             .`when`()
             .get("/api/v1/berichten/_zoeken")

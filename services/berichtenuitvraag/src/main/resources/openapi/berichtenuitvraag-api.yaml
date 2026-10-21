@@ -192,8 +192,8 @@ paths:
         tel hem nooit als geslaagd. Negeer een `event` dat je niet kent. Een afnemer die
         zich hieraan houdt, breekt niet op een latere toevoeging.
 
-        Foutsemantiek: header-validatie, een al lopende ophaling (`409`) en een
-        onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
+        Foutsemantiek: header-validatie, een ongeldige sessie (`401`), een al lopende
+        ophaling (`409`) en een onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
         opgezet staat de HTTP-status op `200` vast; een storing daarna uit zich
         niet in een afwijkende status maar in het uitblijven van het afsluitende
         `ophalen-gereed`-event (en de per-magazijn fout-events) — de client
@@ -233,18 +233,22 @@ paths:
         kan zelfs vóór `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
         compleet: verbind opnieuw en doe hetzelfde.
 
-        Blijkt de sessie bij het verbinden al verlopen, dan is `sessie-verlopen` het enige
-        dat komt; `volgen-gestart` blijft dan uit.
+        Eindigt de sessie terwijl de stroom openstaat (uitgelogd, of verlopen), dan komt
+        `sessie-verlopen` en eindigt de stroom. Dat kan ook vlak na het verbinden gebeuren:
+        dan is `sessie-verlopen` het enige dat komt en blijft `volgen-gestart` uit. Een sessie
+        die bij het verbinden al ongeldig is, geeft geen stroom maar een `401`.
 
         Een `hartslag` komt periodiek, ook als er niets gebeurt. Blijft hij twee keer uit,
         dan is de verbinding stuk zonder dat de client dat merkt: sluit haar en verbind
-        opnieuw. Na `sessie-verlopen` eindigt de stroom; start dan eerst een nieuwe
-        ophaalronde. Eindigt de stroom zonder `sessie-verlopen`, verbind dan opnieuw.
+        opnieuw. Na `sessie-verlopen` eindigt de stroom; start dan eerst een nieuwe sessie
+        en een nieuwe ophaalronde. Eindigt de stroom zonder `sessie-verlopen`, verbind dan
+        opnieuw.
 
         Uitbreidbaarheid: negeer een `event` dat je niet kent.
 
         Foutsemantiek, allemaal vóór de stream: een ongeldige `X-Ontvanger` geeft `400`.
-        Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
+        Een ontbrekende, onbekende of verlopen `X-Sessie`, of een sessie van een andere
+        ontvanger, geeft `401` met `sessie-ongeldig`. Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
         (`nog-niet-opgehaald` of `ophalen-bezig`), na een mislukte een `503`. Staan er te
         veel berichtenboxen tegelijk open, voor deze ontvanger of in totaal, dan komt er een
         `503` met `te-veel-open-berichtenboxen`. De dienst telt dat per instantie; reken dus
@@ -606,7 +610,10 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Unauthorized:
-      description: Niet geauthenticeerd
+      description: |
+        Niet geauthenticeerd. Onder `/berichten`: de `X-Sessie` ontbreekt, is onbekend of
+        verlopen, of hoort bij een andere ontvanger (`urn:fbs:fout:sessie-ongeldig`). Die
+        gevallen zijn bewust niet van elkaar te onderscheiden; start een nieuwe sessie.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
