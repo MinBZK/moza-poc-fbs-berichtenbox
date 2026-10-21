@@ -1,6 +1,6 @@
 # Sessiecache gekoppeld aan de inlogsessie — ontwerp
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 Issue: MinBZK/MijnOverheidZakelijk#943. Tussenstand in het issue:
 <https://github.com/MinBZK/MijnOverheidZakelijk/issues/943#issuecomment-6312260142>.
@@ -182,6 +182,9 @@ nieuwe verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitv
   request-gebonden `@Logboek`-interceptor geschreven kunnen worden. Hoe is aan de builder.
 - Alleen het vangnet (Redis-TTL na een mislukte opruiming) is niet te loggen; daarom gaat aan dat
   vangnet altijd een gelogde mislukte opruiming vooraf.
+- Wist de controle ná een schrijfactie gegevens (geschreven nadat de laatste sessie al eindigde),
+  dan krijgt dat wissen geen eigen logregel: de verwerking eindigde al bij het uitloggen of verlopen,
+  en die regel is er al.
 
 ### Logging en privacy
 

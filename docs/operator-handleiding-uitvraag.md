@@ -227,7 +227,7 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 | `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik |
 | `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat vast op `max-duur` + marge en wordt nooit verlengd. Het is alleen een vangnet voor een mislukt opruimen; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend |
 | `berichtensessiecache.sessie.max-per-ontvanger` (`SESSIE_MAX_PER_ONTVANGER`) | `5` | Maximum aantal gelijktijdige sessies per ontvanger; daarboven weigert `POST /sessies` met 429 |
-| `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt |
+| `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt. Eén ronde haalt batches van 100 op zolang die vol zijn, binnen een budget van een half interval; een ontvanger waarvan het opruimen mislukt, schuift een interval (minstens 30 s) naar achteren |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de sessiegegevens-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
 | `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Raakt de inlogsessie van een open berichtenbox, zodat die niet door inactiviteit verloopt, en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.sessie.inactiviteit` blijven, anders start de pod niet |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
@@ -238,12 +238,29 @@ Elk opruimen van berichtgegevens (uitloggen, verlopen, vegen) komt als verwerkin
 Regels die je in de logs kunt zien:
 
 - `WARN Opruimen verlopen sessie mislukt; volgende ronde probeert opnieuw`: Redis gaf een fout; de
-  sessie blijft in de index en de veegtaak probeert het na `veeg-interval` opnieuw. Houdt dit aan,
-  dan ruimt uiteindelijk de Redis-TTL op.
+  sessie blijft in de index, maar schuift `veeg-interval` (minstens 30 s) naar achteren, zodat de
+  ontvangers erachter niet hoeven te wachten. Daarna probeert de veegtaak het opnieuw. Houdt dit
+  aan, dan ruimt uiteindelijk de Redis-TTL op.
 - `WARN Opruimen verlopen sessie niet bevestigd; de gegevens zijn mogelijk gewist, anders vangt de Redis-TTL ze op`:
   geen antwoord van Redis; de uitkomst is onzeker.
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
   vastgelegd. Alert-token; controleer de LDV-verbinding en leg de opruiming handmatig na.
+
+### Overgang naar sessiegebonden opslag
+
+- **Leeg de berichtenopslag bij de eerste uitrol**, vóór of tijdens het uitrollen: verwijder alle
+  sleutels onder `bericht:v4:*` en `berichtensessiecache:*`. Het is alleen een cache; de magazijnen
+  blijven de bron, en de berichtenbox haalt na het inloggen alles opnieuw op. Een berichthash van
+  vóór de overgang staat niet in de `:sleutels`-set van zijn ontvanger, dus het opruimen bij
+  uitloggen of verlopen vindt hem niet en hij blijft staan tot zijn oude TTL afloopt.
+- **Volgorde:** de PR in `moza-poc` (de berichtenbox die sessies start) wordt eerst gemerged; pas
+  daarna gaat de gepinde berichtenbox in `compose.yaml` mee. Een berichtenbox zonder sessies krijgt
+  `401` op elk pad onder `/berichten`.
+- **Redis standalone of Sentinel, geen Cluster.** De sessiescripts wissen sleutels van één
+  ontvanger die niet als `KEYS` worden meegegeven en dus over hash-slots heen kunnen liggen.
+- **Zet geen entity- of response-body-logging aan op `/sessies`.** Het antwoord van
+  `POST /sessies` bevat het sessie-id, en de `toString` van het gegenereerde `Sessie`-model ook; het
+  id is een credential.
 
 ## Open berichtenboxen (`_volgen`)
 

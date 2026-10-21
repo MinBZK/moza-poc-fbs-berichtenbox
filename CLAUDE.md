@@ -185,6 +185,9 @@ transitieve libraries, niet uit onze code of config):
 - `LogManager accessed before the "java.util.logging.manager" system property was set`
   — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch,
   geen effect op test- of runtime-gedrag.
+- JaCoCo: `Cannot transform ...$$inlined$assertThrows... archive could not be found` — de
+  klassen die Kotlin voor een geïnlinede `assertThrows` in een test genereert; alleen
+  testklassen, die buiten de meting vallen, dus geen effect op de coverage-gate.
 
 ## ZAD deploy & GitOps (debug)
 
