@@ -409,7 +409,7 @@ const SAMENVATTINGEN = {
     'simulator-legen': (body) =>
         body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
 
-    sessie: (body) => body.gewisteKeys + ' sessie-key(s) gewist; de volgende uitvraag geeft 409',
+    sessie: (body) => body.gewisteKeys + ' sessie-key(s) gewist; de berichtenbox krijgt 401 en start een nieuwe sessie',
 
     'foutieve-aanlevering': (body) => 'Het magazijn wees de aanlevering af met HTTP ' + body.status,
 

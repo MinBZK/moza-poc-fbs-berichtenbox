@@ -76,7 +76,7 @@ lever_aan B "$MAGAZIJN_B" "$AFZENDER_OIN_B" "$onderwerp_b"
 start_sessie() {
     local ontvanger="$1" antwoord
     antwoord=$(curl -sf -X POST "$UITVRAAG/api/v1/sessies" -H "X-Ontvanger: $ontvanger") \
-        || { echo "FOUT: sessie starten voor $ontvanger mislukte"; exit 1; }
+        || { echo "FOUT: sessie starten voor $ontvanger mislukte" >&2; return 1; }
     printf '%s' "$antwoord" | sed -n 's/.*"sessieId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
@@ -87,7 +87,7 @@ beeindig_sessie() {
 }
 
 echo "4/5 ophalen via uitvraag"
-SESSIE=$(start_sessie "$ONTVANGER")
+SESSIE=$(start_sessie "$ONTVANGER") || exit 1
 [ -n "$SESSIE" ] || { echo "FOUT: de uitvraag gaf geen sessieId terug"; exit 1; }
 # De sessiecache vult zich pas na een ophaal-ronde; GET /berichten leest alleen de cache.
 stream=/tmp/smoke-ophalen.txt
@@ -153,7 +153,7 @@ fanout() {
     local ontvanger="$1" verwacht="$2" naam="$3"
     local stroom="/tmp/smoke-fanout-$verwacht.txt" sessie
 
-    sessie=$(start_sessie "$ontvanger")
+    sessie=$(start_sessie "$ontvanger") || exit 1
     [ -n "$sessie" ] || { echo "FOUT: de uitvraag gaf geen sessieId terug voor $naam"; exit 1; }
 
     curl -sf -N --max-time 90 "$UITVRAAG/api/v1/berichten/_ophalen" \

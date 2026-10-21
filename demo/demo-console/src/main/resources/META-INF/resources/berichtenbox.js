@@ -158,6 +158,20 @@ async function beeindigSessie(ontvanger) {
   }
 }
 
+// Alleen het eigen foutcontract telt als sessieverlies. Een 401 van een inlogmuur ervoor (HTML) zegt
+// niets over de sessie; die vergeten laat de sessie ongebruikt achter tegen het plafond.
+async function isSessieOngeldig(respons) {
+  if (respons.status !== 401) return false;
+
+  try {
+    const body = await respons.clone().json();
+
+    return body.type === 'urn:fbs:fout:sessie-ongeldig';
+  } catch (fout) {
+    return false;
+  }
+}
+
 // Fetch-helper: zet altijd de X-Ontvanger- en X-Sessie-header en de basis-URL. Een connection error
 // (uitvraag weg, connection halverwege doorgeknipt) komt terug als respons-vormig object in plaats van
 // een verworpen promise, zodat elke aanroeper hem via zijn bestaande `respons.ok`-toets ziet.
@@ -165,10 +179,10 @@ async function beeindigSessie(ontvanger) {
 // juist de storing die de demo moet tonen, blijft dan onzichtbaar.
 // Een 401 betekent dat de uitvraag de sessie niet (meer) kent: het bewaarde id wordt weggegooid en
 // de aanroeper beslist of hij opnieuw ophaalt.
-async function api(pad, opties = {}) {
+// `ontvanger` staat expliciet in de aanroep van een lopende actie: wisselt de persona halverwege,
+// dan blijft die actie bij de oorspronkelijke ontvanger en sessie in plaats van die van de nieuwe.
+async function api(pad, opties = {}, ontvanger = huidigeOntvanger()) {
   await omgevingGeladen;
-
-  const ontvanger = huidigeOntvanger();
   const sessie = await startSessie(ontvanger);
 
   if (sessie.fout) return sessie.fout;
@@ -178,7 +192,10 @@ async function api(pad, opties = {}) {
   try {
     const respons = await fetch(BASIS + pad, Object.assign({}, opties, { headers }));
 
-    if (respons.status === 401) vergeetSessie(ontvanger);
+    if (await isSessieOngeldig(respons)) {
+      vergeetSessie(ontvanger);
+      respons.sessieOngeldig = true;
+    }
 
     return respons;
   } catch (fout) {
@@ -198,14 +215,20 @@ function toonVoortgang(regels) {
 async function ophalen(opnieuwNaVerlopen = false) {
   const regels = ['Ophalen gestart…'];
   const afgekapteMagazijnen = new Set();
+  // Wisselt de persona tijdens de ronde, dan hoort niets van deze ronde meer op het scherm en mag
+  // een 401 (de sessie is bij het wisselen beëindigd) geen ronde voor de nieuwe persona starten.
+  const ontvanger = huidigeOntvanger();
+  const verouderd = () => huidigeOntvanger() !== ontvanger;
 
   toonVoortgang(regels);
 
-  const respons = await api('/berichten/_ophalen');
+  const respons = await api('/berichten/_ophalen', {}, ontvanger);
+
+  if (verouderd()) return;
 
   // Eén nieuwe poging: api() startte bij de aanroep een verse sessie, dus een tweede 401 is geen
   // verlopen sessie maar iets anders, en een lus zou dat verbergen.
-  if (respons.status === 401 && !opnieuwNaVerlopen) return ophalen(true);
+  if (respons.sessieOngeldig && !opnieuwNaVerlopen) return ophalen(true);
 
   if (!respons.ok) {
     toonVoortgang([`Ophalen mislukt (${await foutTekst(respons)})`]);
@@ -225,6 +248,12 @@ async function ophalen(opnieuwNaVerlopen = false) {
   try {
     while (!klaar) {
       const { done, value } = await lezer.read();
+
+      if (verouderd()) {
+        await lezer.cancel();
+
+        return;
+      }
 
       if (done) break;
 
@@ -252,6 +281,8 @@ async function ophalen(opnieuwNaVerlopen = false) {
 
     return;
   }
+
+  if (verouderd()) return;
 
   await laadLijst(true);
 }
@@ -361,11 +392,16 @@ async function laadLijst(opnieuwNaVerlopen = false) {
   const verzameld = [];
   let pad = '/berichten';
   let paginas = 0;
+  // Zie ophalen(): een wissel van persona maakt dit resultaat waardeloos, en pagina's van twee
+  // ontvangers mogen niet in één lijst belanden.
+  const ontvanger = huidigeOntvanger();
 
   while (pad && paginas < 100) {
-    const respons = await api(pad);
+    const respons = await api(pad, {}, ontvanger);
 
-    if (respons.status === 401 && verzameld.length === 0 && !opnieuwNaVerlopen) {
+    if (huidigeOntvanger() !== ontvanger) return;
+
+    if (respons.sessieOngeldig && verzameld.length === 0 && !opnieuwNaVerlopen) {
       await ophalen(true);
 
       return;
@@ -391,6 +427,8 @@ async function laadLijst(opnieuwNaVerlopen = false) {
     }
 
     const lijst = await respons.json();
+
+    if (huidigeOntvanger() !== ontvanger) return;
 
     // Volledigheid geldt voor de hele lijst en staat op elke pagina; de eerste volstaat.
     if (paginas === 0) toonVolledigheid(lijst);
