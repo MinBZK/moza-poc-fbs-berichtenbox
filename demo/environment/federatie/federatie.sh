@@ -19,7 +19,7 @@
 #   3. elke peer heeft zijn deploy/local/.env
 #   4. net.ipv4.ip_unprivileged_port_start = 0    -> anders faalt de router op `bind :443`
 #
-# Linux + podman: gebruikt `ss` (iproute2) en `podman`. Niet draaibaar op macOS.
+# Linux + podman: gebruikt `ss` (iproute2) en `podman`. Op andere systemen weigert `up`; zie hieronder.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -40,6 +40,21 @@ if [ -n "${MODUS:-}" ] && [ "$MODUS" != "hostnet" ]; then
   echo "FOUT: de federatie draait alleen in hostnet (een gedeelde netns); MODUS=${MODUS} kan hier niet." >&2
   echo "      Een losse peer in ${MODUS}: demo/environment/<peer>/deploy/local/up.sh." >&2
   exit 2
+fi
+
+# De peers delen de netns van de host en binden elk op een eigen 127.20.x-adres. Op macOS draaien
+# de containers in de VM van podman machine en niet op de host; daar bestaat dat adresplan niet en
+# blijven de containers op "Created" staan. Afbreken, stoppen en de status mogen wél, zodat
+# overblijfselen van zo'n poging op te ruimen zijn.
+if [ "$(uname -s)" != "Linux" ]; then
+  case "${1:-}" in
+    up|start|restart)
+      echo "FOUT: de federatie draait alleen op Linux (een gedeelde netns op de host); dit is $(uname -s)." >&2
+      echo "      Een losse peer kan hier wel: demo/environment/<peer>/deploy/local/up.sh." >&2
+      echo "      Overblijfselen van een eerdere poging ruim je op met '$0 down'." >&2
+      exit 2
+      ;;
+  esac
 fi
 
 ANNOUNCE_TIMEOUT="${ANNOUNCE_TIMEOUT:-120}"
@@ -390,6 +405,11 @@ case "${1:-}" in
       fsc_warn_errlog "podman ps faalde voor ${peer}"
     done
     echo
+    if [ "$(uname -s)" != "Linux" ]; then
+      echo "listeners: niet getoond, want de federatie draait alleen op Linux."
+      exit 0
+    fi
+
     echo "listeners in de gedeelde netns:"
     # Stderr apart houden: gevouwen in de lijst zou een foutregel hieronder als wildcard-bind lezen.
     # Eerst ontdubbelen, dán op poort ordenen. `sort -u -t: -k2 -n` vergelijkt alléén de sleutel,

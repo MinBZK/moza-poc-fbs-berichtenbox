@@ -220,3 +220,7 @@ opstellingen buiten de PR-beschrijving.
   demo-proxy (allebei nginx) nog naar het oude stuurden. Nagespeeld met twee nginx-containers onder
   podman: na een nieuw IP van de bestemming geen antwoord meer, na een herstart van de proxy wel.
   `up.sh` herstart die twee daarom na het starten van de diensten.
+- `federatie.sh up` op macOS liet containers op "Created" achter, en `status` faalde daarna op een
+  ontbrekende `ss`. Het script weigert `up`, `start` en `restart` nu buiten Linux met de reden;
+  `down`, `stop` en `status` blijven werken, zodat zulke overblijfselen op te ruimen zijn.
+  Getoetst met een `uname`-stub die Darwin teruggeeft.
