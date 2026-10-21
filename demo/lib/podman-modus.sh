@@ -356,6 +356,34 @@ modus_render_controleren() {
     fi
 }
 
+# modus_poorten_vrij <compose-commando…>: stopt als een host-poort die dit project publiceert al
+# bezet is. Zonder deze controle start compose de helft van de containers en faalt dan op de eerste
+# botsende poort; de opstellingen publiceren deels dezelfde poorten (8081, 8090, 8091), dus naast
+# elkaar draaien is precies het geval. Alleen bij een eerste start: draaien er al containers van
+# dit project, dan zijn bezette poorten vermoedelijk van onszelf.
+modus_poorten_vrij() {
+    local poort bezet=""
+
+    if [ -n "$("$@" ps -aq 2>/dev/null </dev/null)" ]; then
+        return 0
+    fi
+
+    for poort in $("$@" config 2>/dev/null </dev/null \
+                   | sed -nE 's/^[[:space:]]*published: *"?([0-9]+)"?.*/\1/p' | sort -un); do
+        # Een poort die een verbinding aanneemt is bezet; een gesloten poort weigert meteen.
+        if (exec 3<>"/dev/tcp/127.0.0.1/$poort") 2>/dev/null; then
+            bezet="$bezet $poort"
+        fi
+    done
+
+    if [ -n "$bezet" ]; then
+        echo "FOUT: deze poorten zijn al in gebruik:$bezet" >&2
+        echo "      Draait er een andere opstelling (de demo-stack of een FSC-peer)? Die publiceren" >&2
+        echo "      deels dezelfde poorten; breek die eerst af met haar eigen \`down\`." >&2
+        exit 1
+    fi
+}
+
 # modus_onthouden <bestand> [NAAM=waarde…]: legt MODUS vast, plus de instellingen die de set
 # compose-bestanden mede bepalen. Een `down` of `up --force-recreate` met minder bestanden rendert de
 # services opnieuw uit de basis en zet de stack stilletjes in een andere modus of versie.

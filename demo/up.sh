@@ -149,6 +149,7 @@ case "$COMMANDO" in
 esac
 
 modus_render_controleren "${C[@]}"
+modus_poorten_vrij "${C[@]}"
 
 echo "[2/4] artefacten genereren"
 # Docker adresseert op container-DNS, net als bridge, en krijgt dus dezelfde artefacten.

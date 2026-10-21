@@ -121,7 +121,9 @@ Gemeenschappelijk: `docker compose` v2.24.4 of nieuwer (tegen podman praat die m
 podman-socket), en `timeout` — op macOS uit coreutils (`brew install coreutils`).
 
 Een losse peer en de federatie gebruiken dezelfde containers en sluiten elkaar daarom uit; het
-script weigert de ene zolang de andere draait. Alleen de infra, zonder services, om die zelf in
+script weigert de ene zolang de andere draait. De demo-stack en een losse peer publiceren deels dezelfde
+poorten (8081, 8090, 8091) en draaien dus evenmin naast elkaar; `up.sh` noemt bij een eerste start
+de poorten die al bezet zijn, voordat er een container start. Alleen de infra, zonder services, om die zelf in
 dev-mode te draaien: `docker compose up -d` (zie [Tests draaien](#tests-draaien) en
 [een tweede magazijn draaien](#een-tweede-magazijn-draaien)).
 

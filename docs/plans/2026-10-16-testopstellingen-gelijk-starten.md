@@ -225,3 +225,9 @@ opstellingen buiten de PR-beschrijving.
   ontbrekende `ss`. Het script weigert `up`, `start` en `restart` nu buiten Linux met de reden;
   `down`, `stop` en `status` blijven werken, zodat zulke overblijfselen op te ruimen zijn.
   Getoetst met een `uname`-stub die Darwin teruggeeft.
+- Een logius-peer naast de draaiende demo-stack startte op macOS half en faalde dan op
+  `cannot bind tcp port :8081`: de demo-stack en de peers publiceren deels dezelfde poorten. Beide
+  `up.sh`-scripts controleren nu bij een eerste start (nog geen containers van het project) of de
+  gepubliceerde poorten vrij zijn, en stoppen anders met de bezette poorten. Vier nieuwe asserties
+  in de suite onder `demo/lib/` (62), en nagespeeld met de echte render van de logius-peer en een
+  listener op 8081.

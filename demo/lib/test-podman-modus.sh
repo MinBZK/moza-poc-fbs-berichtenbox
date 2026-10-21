@@ -30,7 +30,7 @@ met="$werkmap/met-podman"
 zonder="$werkmap/zonder-podman"
 mkdir -p "$basis" "$met" "$zonder"
 
-for gereedschap in bash mktemp tail head seq cat id mkdir rm grep sed dirname timeout; do
+for gereedschap in bash mktemp tail head seq cat id mkdir rm grep sed sort dirname timeout; do
   pad="$(command -v "$gereedschap")" || { echo "gereedschap $gereedschap ontbreekt voor de test" >&2; exit 1; }
   ln -s "$pad" "$basis/$gereedschap"
 done
@@ -47,11 +47,12 @@ EOF
 
 cat >"$basis/docker" <<'EOF'
 #!/bin/sh
-# `docker compose version` slaagt; `docker compose … config` levert STUB_RENDER of faalt.
+# `docker compose version` slaagt; `docker compose … config` levert STUB_RENDER of faalt, en
+# `docker compose … ps` geeft STUB_PS.
 [ "$1" = compose ] || exit 0
 shift
 case "$1" in version) exit 0 ;; esac
-for arg in "$@"; do last="$arg"; done
+for arg in "$@"; do last="$arg"; [ "$arg" = ps ] && { printf '%s' "${STUB_PS:-}"; exit 0; }; done
 if [ "$last" = config ]; then
   [ -n "${STUB_RENDER_FAAL:-}" ] && { echo "yaml: unknown tag !reset" >&2; exit 15; }
   printf '%s\n' "${STUB_RENDER:-services: {}}"
@@ -230,6 +231,38 @@ verwacht "een gepubliceerde poort naast network_mode host stopt de start" 1 "gep
 
 STUB_ENV="MODUS=bridge STUB_RENDER=published:8080" geval "$met" "$RENDER"
 verwacht "in bridge horen gepubliceerde poorten er gewoon bij" 0 "RENDER-OK"
+
+# --- modus_poorten_vrij ---
+
+# Een echte listener: de controle maakt een verbinding, en die moet ergens aankomen.
+luisteraar="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+python3 -c 'import socket, sys, time
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(8); time.sleep(60)' "$luisteraar" &
+luisteraar_pid=$!
+trap 'kill "$luisteraar_pid" 2>/dev/null; rm -rf "$werkmap"' EXIT
+
+for _ in $(seq 1 50); do
+  (exec 3<>"/dev/tcp/127.0.0.1/$luisteraar") 2>/dev/null && break
+  sleep 0.1
+done
+
+# Een gesloten poort: gebonden en weer losgelaten, dus vrij en zonder listener.
+vrij="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+
+POORTEN='modus_poorten_vrij docker compose -f x.yaml; echo POORTEN-OK'
+
+STUB_ENV="STUB_RENDER=published:\"$vrij\"" geval "$met" "$POORTEN"
+verwacht "een vrije gepubliceerde poort laat de start door" 0 "POORTEN-OK"
+
+STUB_ENV="STUB_RENDER=published:\"$luisteraar\"" geval "$met" "$POORTEN"
+verwacht "een bezette gepubliceerde poort stopt de start en noemt de poort" 1 "in gebruik: $luisteraar"
+
+STUB_ENV="STUB_RENDER=published:\"$luisteraar\" STUB_PS=abc123" geval "$met" "$POORTEN"
+verwacht "met eigen containers van het project geen poortcontrole" 0 "POORTEN-OK"
+
+STUB_ENV="STUB_RENDER=services:{}" geval "$met" "$POORTEN"
+verwacht "zonder gepubliceerde poorten (hostnet) niets te controleren" 0 "POORTEN-OK"
 
 # --- modus_onthouden / modus_teruglezen / modus_voor_start ---
 
