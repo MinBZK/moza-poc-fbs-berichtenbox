@@ -98,13 +98,13 @@ Volg `/openapi-wijziging`. Dit is de eerste push; de moza-poc-sessie bouwt erop.
 ### Task 5: Library — verlopen sessies vegen
 
 **Files:**
-- Modify: `Sessiecache.kt`: `fun ruimVerlopenSessiesOp(max: Int = 100): List<Opruiming>` — `data class Opruiming(val ontvanger: Identificatienummer, val gelukt: Boolean)`.
+- Modify: `Sessiecache.kt`: `fun ruimVerlopenSessiesOp(max: Int = 100): List<Opruiming>` — `data class Opruiming(val ontvanger: Identificatienummer, val uitkomst: OpruimUitkomst)`, `enum class OpruimUitkomst { GEWIST, MISLUKT, ONBEVESTIGD }`.
 - Modify: `SessieScripts.kt` (VEEG per ontvanger: score verloopindex > now → overslaan; nog lopende leden → score bijwerken naar hun max, overslaan; anders purge + ZREM → opgeruimd)
 - Test: `.../sessie/SessieVegenTest.kt`
 
-Een purge die faalt (Redis-fout) levert `Opruiming(gelukt = false)` en laat de ontvanger in de index staan. Ontvanger parsen uit de canonical string via `Identificatienummer.fromHeader`; een onleesbaar lid wordt gelogd (zonder waarde) en verwijderd.
+Een purge die faalt (Redis-fout) levert `MISLUKT` en laat de ontvanger in de index staan. Ontvanger parsen uit de canonical string via `Identificatienummer.fromHeader`; een onleesbaar lid wordt gelogd (zonder waarde) en verwijderd. Een time-out levert `ONBEVESTIGD` (het script kan alsnog afgerond zijn).
 
-- [ ] Step 1: Tests: `verlopen laatste sessie wordt opgeruimd`, `ontvanger met nog één lopende sessie blijft staan en krijgt de juiste score`, `twee gelijktijdige vegers ruimen één keer op` (twee coroutines/threads, tel `gelukt`-opruimingen = 1), `max begrenst de batch`. Step 2–5 als boven.
+- [ ] Step 1: Tests: `verlopen laatste sessie wordt opgeruimd`, `ontvanger met nog één lopende sessie blijft staan en krijgt de juiste score`, `twee gelijktijdige vegers ruimen één keer op` (twee coroutines/threads, tel `GEWIST`-opruimingen = 1), `max begrenst de batch`. Step 2–5 als boven.
 
 ### Task 6: Uitvraag — sessie-endpoints, sessiefilter, foutmapping, LDV
 
@@ -124,7 +124,7 @@ Een purge die faalt (Redis-fout) levert `Opruiming(gelukt = false)` en laat de o
 - Modify: `services/berichtenuitvraag/pom.xml` (`quarkus-scheduler` als die ontbreekt)
 - Test: `.../sessie/SessieVegerTest.kt`
 
-Per `Opruiming`: LDV-regel onder `UITVRAAG_SESSIE`, aanleiding `verlopen`, uitkomst gelukt/mislukt. Mislukt → `log.warnf("Opruimen verlopen sessie mislukt; volgende ronde probeert opnieuw")` zonder ontvanger. Controleer of de LDV-wrapper buiten een HTTP-verzoek een record schrijft; zo niet, gebruik de programmatische API van de wrapper.
+Per `Opruiming`: LDV-regel onder `UITVRAAG_SESSIE`, aanleiding `verlopen`, uitkomst `GEWIST`/`MISLUKT`/`ONBEVESTIGD`. `MISLUKT` → `log.warnf("Opruimen verlopen sessie mislukt; volgende ronde probeert opnieuw")` zonder ontvanger; `ONBEVESTIGD` → waarschuwing dat het opruimen niet bevestigd is (de Redis-TTL is het vangnet). Controleer of de LDV-wrapper buiten een HTTP-verzoek een record schrijft; zo niet, gebruik de programmatische API van de wrapper.
 
 - [ ] Step 1: Tests: `verlopen sessie wordt binnen twee veegintervallen opgeruimd en gelogd` (inactiviteit PT2S, interval PT1S), `mislukte opruiming logt waarschuwing zonder BSN` (log-capture, assert geen waarde van de ontvanger). Step 2–5.
 
