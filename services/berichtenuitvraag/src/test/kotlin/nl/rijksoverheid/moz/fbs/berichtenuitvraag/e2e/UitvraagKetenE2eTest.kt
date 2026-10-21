@@ -312,8 +312,13 @@ class UitvraagKetenE2eTest {
         stubMagazijnBericht(magazijnA, berichtId, bsn, "magazijn-a", OIN_A)
         val sessieId = sessie(bsn)
 
-        given().header("X-Ontvanger", "BSN:$bsn").header("X-Sessie", sessieId).`when`().get("/api/v1/berichten/_ophalen")
-            .then().statusCode(200).body(containsString("\"totaalBerichten\":1"))
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessieId)
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+            .body(containsString("\"totaalBerichten\":1"))
 
         assertTrue(sessieSleutels(bsn).isNotEmpty(), "na het ophalen staan de gegevens in Redis")
         assertTrue(redis.key().exists("bericht:v4:$OIN_A:$berichtId"))
@@ -409,7 +414,10 @@ class UitvraagKetenE2eTest {
             ),
         )
 
-        val sse = given().header("X-Ontvanger", "BSN:$bsn").header("X-Sessie", sessie(bsn)).`when`().get("/api/v1/berichten/_ophalen")
+        val sse = given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
             .then().statusCode(200).extract().body().asString()
 
         assertTrue(sse.contains("\"afgekapt\":true"), "Verwacht het afkap-signaal in de ronde zelf: $sse")
@@ -597,7 +605,12 @@ class UitvraagKetenE2eTest {
         stubProfielOptIn(bsn, OIN_A)
         stubMagazijnPaginas(magazijnA, ids, bsn, OIN_A)
 
-        given().header("X-Ontvanger", "BSN:$bsn").header("X-Sessie", sessie(bsn)).`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
 
         val gelezen = mutableListOf<String>()
         var href: String? = "/api/v1/berichten?paginaGrootte=${Sessiecache.MAX_PAGINA_GROOTTE}"
@@ -627,7 +640,12 @@ class UitvraagKetenE2eTest {
         val nieuwId = "22222222-2222-2222-2222-222222222222"
         stubProfielOptIn(bsn, OIN_A)
         stubMagazijnBericht(magazijnA, "33333333-3333-3333-3333-333333333333", bsn, "magazijn-a", OIN_A)
-        given().header("X-Ontvanger", "BSN:$bsn").header("X-Sessie", sessie(bsn)).`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
         val lijstVerzoeken = { magazijnA.findAll(getRequestedFor(urlPathMatching("/api/v1/berichten"))).size }
         val naOphalen = lijstVerzoeken()
 

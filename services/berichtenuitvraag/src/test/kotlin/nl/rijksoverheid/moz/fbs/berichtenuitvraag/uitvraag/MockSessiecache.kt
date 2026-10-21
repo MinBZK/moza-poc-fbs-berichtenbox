@@ -19,6 +19,7 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
@@ -81,7 +82,7 @@ class MockSessiecache : Sessiecache {
     /** Laat de volgende start melden dat hij resten van een verlopen sessie wiste. */
     var restenBijVolgendeStart = false
     var raakFout: SessiecacheException? = null
-    val geraakteSessies = java.util.concurrent.CopyOnWriteArrayList<String>()
+    val geraakteSessies = CopyOnWriteArrayList<String>()
 
     /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
     fun sessieVoor(ontvanger: String = "BSN:999990019"): String =

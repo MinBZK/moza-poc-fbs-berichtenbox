@@ -497,7 +497,6 @@ paths:
           headers:
             API-Version: { $ref: '#/components/headers/API-Version' }
         '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -568,8 +567,10 @@ components:
       required: true
       schema: { type: string, pattern: '^[A-Za-z0-9_-]{22}$' }
       description: |
-        Geheim sessie-id uit `POST /sessies`. Ontbreekt de header of is de sessie onbekend,
-        verlopen of van een andere ontvanger, dan volgt `401` met `sessie-ongeldig`.
+        Geheim sessie-id uit `POST /sessies`. Onder `/berichten`: ontbreekt de header, is hij
+        niet goed gevormd, of is de sessie onbekend, verlopen of van een andere ontvanger, dan
+        volgt `401` met `sessie-ongeldig`. Bij `DELETE /sessies/huidige` geeft een ontbrekende
+        of niet goed gevormde header `400`, en een onbekende of verlopen sessie `204`.
     BerichtIdPath:
       name: berichtId
       in: path

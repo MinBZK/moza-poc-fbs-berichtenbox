@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
-import java.net.HttpURLConnection
 import java.net.Socket
 import java.util.UUID
 
@@ -68,6 +67,17 @@ class SessieFilterTest {
             Route(Method.DELETE, "/api/v1/berichten/$ID?magazijnId=$MAGAZIJN"),
             Route(Method.GET, "/api/v1/berichten/$ID/bijlagen/${UUID.randomUUID()}?magazijnId=$MAGAZIJN"),
         )
+
+        @JvmStatic
+        fun krommeHeaders(): List<Arguments> = routes().flatMap { route ->
+            listOf(
+                Arguments.of(route, "dezelfde X-Ontvanger twee keer", listOf(ONTVANGER, ONTVANGER)),
+                Arguments.of(route, "twee verschillende X-Ontvangers", listOf(ONTVANGER, "BSN:999993653")),
+                Arguments.of(route, "geen X-Ontvanger", emptyList<String>()),
+                // Voldoet aan het patroon, maar niet aan de elfproef.
+                Arguments.of(route, "een BSN zonder elfproef", listOf("BSN:123456789")),
+            )
+        }
 
         @JvmStatic
         fun ongeldigeSessies(): List<Arguments> = routes().flatMap { route ->
@@ -131,6 +141,44 @@ class SessieFilterTest {
             .then()
             .statusCode(400)
             .contentType("application/problem+json")
+            .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+
+        assertTrue(sessiecache.geraakteSessies.isEmpty())
+    }
+
+    /**
+     * Elk geval waarin de headers niet precies één bruikbare waarde dragen. Een samengevoegde
+     * `X-Ontvanger` ("a,b") liet de controle eerder door, terwijl de resource de eerste waarde nam.
+     */
+    @ParameterizedTest(name = "{0} met {1}")
+    @MethodSource("krommeHeaders")
+    fun `een X-Ontvanger die niet precies een geldige waarde is, geeft 400 zonder de sessie te raken`(
+        route: Route,
+        omschrijving: String,
+        ontvangers: List<String>,
+    ) {
+        val verzoek = given().header("X-Sessie", "A".repeat(22))
+
+        ontvangers.forEach { verzoek.header("X-Ontvanger", it) }
+
+        route.stuur(verzoek)
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+
+        assertTrue(sessiecache.geraakteSessies.isEmpty(), omschrijving)
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("routes")
+    fun `een dubbele X-Sessie geeft 401, ook als beide waarden een lopende sessie zijn`(route: Route) {
+        val sessie = sessiecache.sessieVoor(ONTVANGER)
+
+        route.stuur(given().header("X-Ontvanger", ONTVANGER).header("X-Sessie", sessie).header("X-Sessie", sessie))
+            .then()
+            .statusCode(401)
+            .body("type", equalTo("urn:fbs:fout:sessie-ongeldig"))
 
         assertTrue(sessiecache.geraakteSessies.isEmpty())
     }
@@ -173,18 +221,20 @@ class SessieFilterTest {
     @Test
     fun `een omweg via een vrijgesteld pad omzeilt de sessiecontrole niet`() {
         // Ruw over de socket: een HTTP-client lost `..` vaak al zelf op, en dan toetst de test niets.
+        // Met een goed gevormde maar nooit gestarte sessie: alleen de sessiecontrole kan dit dan
+        // weigeren, dus elke andere status dan 401 betekent dat de omweg erlangs kwam.
         val status = Socket("localhost", RestAssured.port).use { socket ->
             socket.getOutputStream().write(
                 (
                     "GET /api/v1/aanmeldingen/../berichten HTTP/1.1\r\n" +
-                        "Host: localhost\r\nX-Ontvanger: $ONTVANGER\r\nConnection: close\r\n\r\n"
+                        "Host: localhost\r\nX-Ontvanger: $ONTVANGER\r\nX-Sessie: ${"A".repeat(22)}\r\n" +
+                        "Connection: close\r\n\r\n"
                     ).toByteArray(),
             )
 
             socket.getInputStream().bufferedReader().readLine().split(' ')[1].toInt()
         }
 
-        assertNotEquals(HttpURLConnection.HTTP_OK, status)
-        assertTrue(status == 401 || status == 404 || status == 400, "onverwachte status $status")
+        assertEquals(401, status)
     }
 }

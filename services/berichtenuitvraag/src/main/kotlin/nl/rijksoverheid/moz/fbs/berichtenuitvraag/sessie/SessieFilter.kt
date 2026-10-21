@@ -24,10 +24,13 @@ import org.jboss.logging.Logger
  * krom gevormde `X-Sessie` als 400 weigeren, terwijl de aanroeper elk soort ongeldige sessie als
  * dezelfde 401 hoort te zien. Dit filter draait vóór die validatie.
  *
- * Een ongeldige `X-Ontvanger` laat het filter wél door: zonder ontvanger valt er geen sessie te
- * toetsen, en de validatie geeft daar de 400 die afnemers nu kennen. Post-matching, zodat het pad
- * het pad is waarop de router het verzoek al heeft gematcht; een omweg als
- * `/aanmeldingen/../berichten` komt hier dus als `/berichten` binnen.
+ * Faalt dicht: de controle telt de headerwaarden zelf. `getHeaderString` voegt herhaalde waarden
+ * samen met een komma, terwijl `@HeaderParam` de eerste neemt; wie twee keer `X-Ontvanger` stuurt,
+ * zou zo langs een controle op de samengevoegde waarde komen en toch een geldige ontvanger in de
+ * resource krijgen. Daarom precies één `X-Ontvanger` die als identificatienummer te lezen is (anders
+ * 400 `ongeldig-verzoek`, dezelfde vorm als de validatie geeft) en precies één goed gevormde
+ * `X-Sessie` (anders 401). Post-matching, zodat het pad het pad is waarop de router het verzoek al
+ * heeft gematcht; een omweg als `/aanmeldingen/../berichten` komt hier dus als `/berichten` binnen.
  *
  * De sessie-id is een credential en komt in geen enkele logregel of foutmelding.
  */
@@ -40,23 +43,33 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
     override fun filter(request: ContainerRequestContext) {
         if (!valtOnderBerichten(request.uriInfo.path)) return
 
-        val ontvanger = leesOntvanger(request.getHeaderString(ONTVANGER_HEADER)) ?: return
-        val sessieId = request.getHeaderString(SESSIE_HEADER)
+        val ontvanger = leesOntvanger(request.headers[ONTVANGER_HEADER].orEmpty())
+        val sessieId = request.headers[SESSIE_HEADER]?.singleOrNull()
 
         if (sessieId == null || !SESSIE_VORM.matches(sessieId)) throw sessieOngeldig()
 
         leesUitCache(log, "sessie-raken") { sessiecache.raakSessie(sessieId, ontvanger) }
     }
 
-    private fun leesOntvanger(header: String?): Identificatienummer? {
-        if (header == null || splitOntvanger(header) == null) return null
+    private fun leesOntvanger(waarden: List<String>): Identificatienummer {
+        val header = waarden.singleOrNull()
+
+        if (header == null || splitOntvanger(header) == null) throw ontvangerOngeldig()
 
         return try {
             Identificatienummer.fromHeader(header)
-        } catch (ignored: DomainValidationException) {
-            null
+        } catch (e: DomainValidationException) {
+            throw ontvangerOngeldig(e)
         }
     }
+
+    // Geen waarde in de melding: die kan een BSN zijn.
+    private fun ontvangerOngeldig(oorzaak: Throwable? = null) = FbsFoutException(
+        Foutcode.ONGELDIG_VERZOEK,
+        Response.Status.BAD_REQUEST,
+        "X-Ontvanger: precies één geldig identificatienummer vereist (Type:waarde)",
+        oorzaak,
+    )
 
     private fun sessieOngeldig() =
         FbsFoutException(Foutcode.SESSIE_ONGELDIG, Response.Status.UNAUTHORIZED, Foutcode.SESSIE_ONGELDIG.uitleg)
