@@ -224,7 +224,7 @@ Wat je hoe dan ook moet weten:
 | `demo/demo-personas/`                  | De demo-identiteiten als eigen dienst (`GET /api/demo/personas`); apart van het paneel zodat een berichtenbox de lijst kan lezen zonder bij de knoppen te kunnen |
 | `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests plus één `@QuarkusTest` zonder Docker) |
 | `demo/magazijn-simulator/`             | Eén service die zich als veel magazijnen voordoet, per pad-prefix `/magazijn/<OIN>`. Genereert uit `berichtenmagazijn-api.yaml` van het echte magazijn — die koppeling is een pad-verwijzing (`api.spec.file`) en staat niet in de reactor-graaf |
-| `demo/podman-up.sh`, `demo/smoke.sh`   | De demo-stack draaien onder Podman (`up`/`down`/`ps`/`compose`; `podman-prepare.sh` gaat eraan vooraf) en er een rookproef overheen halen. De modus-keuze (docker, bridge, hostnet) staat in `demo/lib/podman-modus.sh` en wordt gedeeld met `demo/environment/<peer>/deploy/local/up.sh` |
+| `demo/up.sh`, `demo/smoke.sh`   | De demo-stack draaien op Docker of podman (`up`/`down`/`ps`/`compose`) en er een rookproef overheen halen. De modus-keuze (docker, bridge, hostnet) staat in `demo/lib/podman-modus.sh` en wordt gedeeld met `demo/environment/<peer>/deploy/local/up.sh` |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `services/stelselregister/`            | Het magazijnregister als ondertekend stelseldocument (JWS, ES256). Sleutel uit een PKCS#12-keystore; een wegwerpketen alleen in ontwikkel- en testmodus, gekoppeld aan de launch mode |

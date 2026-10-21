@@ -65,7 +65,7 @@ UITROL_RELEVANT='deploy'
 # hoort dus een preview te kopen — anders draait die preview een stub van een oudere tag en bewijst
 # de groene check niets over de wijziging.
 #
-# demo/lib/ bevat de modus-keuze van de lokale opstellingen (gesourcet door podman-up.sh en de
+# demo/lib/ bevat de modus-keuze van de lokale opstellingen (gesourcet door demo/up.sh en de
 # FSC-peer-harnessen); geen image leest hem.
 #
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.

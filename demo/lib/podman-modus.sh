@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Kiest de werkbare netwerkmodus voor een lokale testopstelling en onthoudt die tussen commando's.
-# Wordt gesourcet door demo/podman-up.sh (de demo-stack) en demo/environment/lib/peer-stack.sh (de
+# Wordt gesourcet door demo/up.sh (de demo-stack) en demo/environment/lib/peer-stack.sh (de
 # FSC-peer-harnessen); welke compose-bestanden bij een modus horen, beslist het script dat sourcet.
 #
 #   docker   — Docker-engine. Alleen de basis; de podman-overlays zijn daar niet nodig of zelfs
@@ -303,7 +303,8 @@ modus_past_op_engine() {
         docker)
             if [ "$PODMAN_RUNTIME" -eq 1 ]; then
                 echo "FOUT: MODUS=docker, maar compose landt op podman ($DOCKER_HOST)." >&2
-                echo "      Zonder de podman-overlay faalt elke container die de privékeys leest; kies bridge of hostnet." >&2
+                echo "      Zonder de podman-overlay (keep-id, SELinux-labels, image-namen) start de stack daar niet;" >&2
+                echo "      kies bridge of hostnet." >&2
                 exit 2
             fi
             ;;

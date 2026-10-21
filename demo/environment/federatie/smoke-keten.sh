@@ -15,7 +15,7 @@
 #   - magazijn-a's inway wijst naar het ECHTE magazijn, niet naar de stub:
 #       FSC_UPSTREAM_URL=http://127.0.0.1:8090 ../magazijn-a/deploy/local/publish-service.sh
 #   - de demo-stack draait met de uitvraag door de outway:
-#       MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 demo/podman-up.sh
+#       MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 demo/up.sh
 #
 # Linux + podman: gebruikt `podman` en `curl`.
 set -euo pipefail

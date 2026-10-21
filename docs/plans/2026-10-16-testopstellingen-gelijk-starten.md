@@ -167,3 +167,51 @@ Nagespeeld: de proeftuin-versie overleeft een nieuwe shell en verdwijnt bij `dow
 houdt `hostnet` aan, `MODUS=bridge` ernaast wordt geweigerd; `federatie.sh up` weigert een los
 draaiende peer; met de federatie op weigert `up.sh`, `smoke-federatie.sh` groen, na `down` zijn de
 markeringen weg.
+
+## Aanvulling 2026-10-21: de demo-stack ook op Docker via het script
+
+**Status:** Uitgevoerd
+
+### Aanleiding
+
+Een toets van de documentatie aan het laatste acceptatiecriterium ("dezelfde werkwijze in dezelfde
+termen") liet een gat zien. De peers starten op elke engine met `deploy/local/up.sh`, die zelf ook
+`docker` kiest. `demo/podman-up.sh` eiste podman en kende alleen `bridge` en `hostnet`. Een
+Docker-gebruiker van de demo-stack startte dus met een kale `docker compose --profile demo up -d`,
+zonder gezondheidscontrole of vastgelegde modus, en het runbook beschreef twee werkwijzen naast
+elkaar. Dat is de tweedeling die het issue wilde opheffen.
+
+Daarnaast stonden er resten van de oude werkwijze in de docs (`podman-prepare.sh` als losse stap,
+"Vereist Docker" boven een sectie die podman toelaat), en bestond er geen overzicht van de drie
+opstellingen buiten de PR-beschrijving.
+
+### Ontwerpkeuzes
+
+- **`demo/podman-up.sh` wordt `demo/up.sh`.** Het patroon wordt `<opstelling>/up.sh`, gelijk aan de
+  peers. `demo/podman-up.sh` blijft als dunne verwijzing voor wie de oude naam kent; hij voert
+  `demo/up.sh` uit.
+- **Modus `docker` erbij, op dezelfde manier als de peers.** `MODUS_DOCKER_TOEGESTAAN=1`, podman
+  is geen vereist gereedschap meer, en in `docker` krijgt compose alleen `compose.yaml` (de overlays
+  zijn podman-specifiek: `localhost/`-imagenamen en `:z`-labels). De image-controle vraagt per
+  engine de eigen naam op (`podman image exists localhost/…` of `docker image inspect …`).
+- **De stub-artefacten in `docker` zijn die van `bridge`.** Adressering op container-DNS is
+  gelijk; `podman-prepare.sh` houdt zijn naam, want het is een interne stap van `up.sh`.
+- **`docker compose up -d` zonder profiel blijft de route voor ontwikkelen** (alleen infra, services
+  in dev-mode). Dat is een ander doel dan een opstelling starten en blijft zo beschreven.
+- **Eén overzicht in `docs/ontwikkelen.md`:** de drie opstellingen, hun commando, wat je ervoor
+  nodig hebt, en dat de federatie alleen op Linux draait. Runbook en README's verwijzen ernaar.
+
+### Verificatie
+
+- shellcheck op de gewijzigde scripts; `demo/lib/test-podman-modus.sh` (58 asserties) en
+  `.github/scripts/test-wijzigingsfilter.sh` groen.
+- De modus-keuze via `demo/up.sh`, zonder te starten: `MODUS=docker` op een podman-socket en
+  `MODUS=bridge` op Docker worden geweigerd met de oorzaak, een tikfout ook; `demo/podman-up.sh`
+  meldt de nieuwe naam en draait `demo/up.sh`.
+- De compose-bestanden per modus via `compose config --images`: in `docker` alleen de basis
+  (`fbs-demo/…`), in `bridge` met de podman-overlay (`localhost/fbs-demo/…`).
+- Niet uitgevoerd: een volledige start na de hernoeming (in de ontwikkelcontainer draaide de
+  federatie, en beide passen daar niet samen op de schijf), en het `docker`-pad tegen een echte
+  Docker-engine. De modus-keuze voor `docker` is dezelfde code als bij de peers en door de suite
+  onder `demo/lib/` gedekt; de start zelf is ongewijzigd ten opzichte van `bridge`, op de set
+  compose-bestanden en de image-controle na.
