@@ -37,3 +37,14 @@ internal interface SessieConfig {
  * sessie die er nu loopt. Wissen is een actieve stap; deze TTL vangt alleen een mislukt opruimen op.
  */
 internal val SessieConfig.dataTtl: Duration get() = maxDuur().plus(vangnetMarge())
+
+/**
+ * Hoe ver een ontvanger wiens opruimen mislukte in de verloopindex naar achteren schuift. Zonder
+ * uitstel blijft hij vooraan staan en krijgt elke pod bij elke ronde dezelfde mislukkers, terwijl
+ * gezonde ontvangers erachter wachten tot de Redis-TTL. Minstens één interval, zodat de ronde die
+ * hem net zag hem niet opnieuw probeert; minstens 30 s, zodat een kort interval een aanhoudende
+ * fout niet in een stroom foutregels verandert.
+ */
+internal val SessieConfig.veegUitstel: Duration get() = maxOf(veegInterval(), MIN_VEEG_UITSTEL)
+
+private val MIN_VEEG_UITSTEL: Duration = Duration.ofSeconds(30)

@@ -236,9 +236,22 @@ internal class BlockingSessiecache(
                 Opruiming(ontvanger, OpruimUitkomst.ONBEVESTIGD)
             } else {
                 log.errorf(e, "Opruimen van een verlopen sessie mislukt; een volgende veegronde probeert het opnieuw")
+                stelUit(ontvanger)
                 Opruiming(ontvanger, OpruimUitkomst.MISLUKT)
             }
         }
+
+    /**
+     * Best-effort: lukt ook dit niet, dan blijft de ontvanger vooraan in de index staan en is de
+     * volgende ronde gewoon weer een poging. Een fout hier verandert de uitkomst MISLUKT niet.
+     */
+    private fun stelUit(ontvanger: Identificatienummer) {
+        try {
+            sessies.stelUit(ontvanger).await().atMost(timeout)
+        } catch (e: Exception) {
+            log.warnf("Uitstellen van een mislukte opruiming mislukt (%s); de volgende veegronde ziet hem weer vooraan", e.javaClass.simpleName)
+        }
+    }
 
     /**
      * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en
@@ -309,8 +322,9 @@ internal class BlockingSessiecache(
     private fun vertaalCacheFout(e: Throwable): Exception = when (e) {
         // Cache-operatie hing langer dan de facade-await-timeout — log warn met cause zodat
         // operations niet alleen het onbereikbaar-pad ziet maar ook welke await het was. Silent
-        // discard verbergt prestatie-regressies in Redis.
-        is java.util.concurrent.TimeoutException -> {
+        // discard verbergt prestatie-regressies in Redis. `atMost` gooit Mutiny's eigen
+        // TimeoutException, en die is geen subklasse van die uit de JDK.
+        is java.util.concurrent.TimeoutException, is io.smallrye.mutiny.TimeoutException -> {
             log.warnf(e, "Cache-operatie overschreed timeout van %s; onbereikbaar naar caller", timeout)
             SessiecacheException.Onbereikbaar("Cache niet bereikbaar. Probeer het later opnieuw", e)
         }

@@ -43,6 +43,9 @@ class SessieVegenTest {
     @Inject
     lateinit var redis: ReactiveRedisDataSource
 
+    @Inject
+    internal lateinit var register: SessieRegister
+
     private val beschadigd = mutableListOf<String>()
 
     @BeforeEach
@@ -191,6 +194,41 @@ class SessieVegenTest {
     }
 
     @Test
+    fun `honderd mislukkers schuiven naar achteren en houden een gezonde ontvanger niet tegen`() {
+        val stuk = List(AANTAL_MISLUKT) { nieuweOntvanger() }
+        stuk.forEach(::zetBeschadigd)
+        // Achter alle mislukkers in de index: zonder uitstel komt hij nooit in een batch van honderd.
+        val heel = nieuweOntvanger()
+        zetVerlopen(heel)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 2.0, heel.toCanonicalString()).await().atMost(WACHTTIJD)
+
+        val eerste = sessiecache.ruimVerlopenSessiesOp(max = AANTAL_MISLUKT)
+
+        assertEquals(stuk.map { Opruiming(it, OpruimUitkomst.MISLUKT) }.toSet(), eerste.toSet())
+        val ondergrens = redisTijdMs() + UITSTEL_MS - MARGE_MS
+        stuk.forEach { assertTrue(indexScore(it)!! >= ondergrens, "Niet naar achteren geschoven: ${indexScore(it)}") }
+
+        assertEquals(listOf(Opruiming(heel, OpruimUitkomst.GEWIST)), sessiecache.ruimVerlopenSessiesOp(max = AANTAL_MISLUKT))
+        assertFalse(bestaat("${key(heel)}:list"))
+        assertEquals(emptyList<Opruiming>(), sessiecache.ruimVerlopenSessiesOp(max = AANTAL_MISLUKT))
+        assertEquals(AANTAL_MISLUKT, indexLeden().size, "De mislukkers horen in de index te blijven")
+    }
+
+    @Test
+    fun `uitstellen zet geen ontvanger terug die uit de index is en haalt geen later verloop naar voren`() {
+        val weg = nieuweOntvanger()
+        val later = nieuweOntvanger()
+        val laterScore = redisTijdMs() + Duration.ofDays(1).toMillis().toDouble()
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, laterScore, later.toCanonicalString()).await().atMost(WACHTTIJD)
+
+        register.stelUit(weg).await().atMost(WACHTTIJD)
+        register.stelUit(later).await().atMost(WACHTTIJD)
+
+        assertNull(indexScore(weg))
+        assertEquals(laterScore, indexScore(later))
+    }
+
+    @Test
     fun `een onleesbaar lid wordt uit de index gehaald en niet gemeld`() {
         val ontvanger = nieuweOntvanger()
         zetVerlopen(ontvanger)
@@ -216,6 +254,19 @@ class SessieVegenTest {
 
         assertFalse("999993653" in tekst, tekst)
         assertTrue("BSN" in tekst, tekst)
+    }
+
+    /** Een verlopen ontvanger wiens sessiesleutel van het verkeerde type is, zodat zijn script faalt. */
+    private fun zetBeschadigd(ontvanger: Identificatienummer) {
+        beschadigd += "${key(ontvanger)}:sessies"
+        redis.value(String::class.java).set("${key(ontvanger)}:sessies", "geen-zset").await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, ontvanger.toCanonicalString()).await().atMost(WACHTTIJD)
+    }
+
+    private fun redisTijdMs(): Double {
+        val tijd = redis.execute("TIME").await().atMost(WACHTTIJD)
+
+        return tijd.get(0).toLong() * 1000.0 + tijd.get(1).toLong() / 1000
     }
 
     /** Een ontvanger wiens laatste sessie verliep zonder dat er geveegd is. */
@@ -251,6 +302,11 @@ class SessieVegenTest {
         const val WACHTTIJD_S = 10L
         const val INACTIVITEIT_MS = 2_000L
         const val AANTAL_GELIJKTIJDIG = 20
+        const val AANTAL_MISLUKT = 100
+
+        // Het veeg-uitstel bij het standaardinterval van 30 s; de marge dekt de duur van de test zelf.
+        const val UITSTEL_MS = 30_000.0
+        const val MARGE_MS = 5_000.0
         private val teller = AtomicLong(System.nanoTime())
 
         fun nieuweOntvanger() = Oin(teller.incrementAndGet().toString().padStart(20, '0').takeLast(20))

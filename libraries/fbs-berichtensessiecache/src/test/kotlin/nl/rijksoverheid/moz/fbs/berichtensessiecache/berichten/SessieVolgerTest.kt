@@ -419,6 +419,8 @@ class SessieVolgerTest {
         override fun verlopen(max: Int): Uni<List<Identificatienummer>> = throw UnsupportedOperationException()
 
         override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> = throw UnsupportedOperationException()
+
+        override fun stelUit(ontvanger: Identificatienummer): Uni<Unit> = throw UnsupportedOperationException()
     }
 
     private companion object {

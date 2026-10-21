@@ -19,9 +19,9 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
@@ -85,8 +85,12 @@ class MockSessiecache : Sessiecache {
     var restenBijVolgendeStart = false
     var raakFout: SessiecacheException? = null
 
-    /** Wat de volgende veegronde als opruimingen teruggeeft; daarna is de lijst weer leeg. */
-    val opruimingen = AtomicReference<List<Opruiming>>(emptyList())
+    /** Wat de volgende veegrondes als opruimingen teruggeven, één lijst per aanroep; daarna leeg. */
+    val veegRondes = ConcurrentLinkedQueue<List<Opruiming>>()
+
+    /** Neemt het over van [veegRondes]: krijgt het gevraagde maximum en levert zelf de ronde. */
+    @Volatile
+    var veegRonde: ((Int) -> List<Opruiming>)? = null
     var veegFout: SessiecacheException? = null
     val veegAanroepen = AtomicInteger()
     val geraakteSessies = CopyOnWriteArrayList<String>()
@@ -100,7 +104,8 @@ class MockSessiecache : Sessiecache {
         startSessieFout = null
         restenBijVolgendeStart = false
         raakFout = null
-        opruimingen.set(emptyList())
+        veegRondes.clear()
+        veegRonde = null
         veegFout = null
         veegAanroepen.set(0)
         geraakteSessies.clear()
@@ -243,7 +248,7 @@ class MockSessiecache : Sessiecache {
         veegAanroepen.incrementAndGet()
         veegFout?.let { throw it }
 
-        return opruimingen.getAndSet(emptyList())
+        return veegRonde?.invoke(max) ?: veegRondes.poll().orEmpty()
     }
 
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {

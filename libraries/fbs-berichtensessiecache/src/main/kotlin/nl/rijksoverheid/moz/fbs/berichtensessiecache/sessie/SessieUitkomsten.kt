@@ -48,8 +48,9 @@ enum class OpruimUitkomst {
     GEWIST,
 
     /**
-     * Het opruimen faalde. De ontvanger staat nog in de verloopindex, dus een volgende veegronde
-     * probeert het opnieuw; een deel van de gegevens kan al gewist zijn.
+     * Het opruimen faalde. De ontvanger staat nog in de verloopindex, maar een veeginterval (minstens
+     * 30 s) naar achteren, zodat de ontvangers achter hem aan de beurt komen; daarna probeert een
+     * veegronde het opnieuw. Een deel van de gegevens kan al gewist zijn.
      */
     MISLUKT,
 

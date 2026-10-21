@@ -222,4 +222,15 @@ internal object SessieScripts {
         redis.call('ZREM', KEYS[3], ARGV[1])
         return 1
     """.trimIndent()
+
+    /**
+     * Afwijkende KEYS: alleen de verloopindex. ARGV: uitstel (ms), ontvanger. Schuift een ontvanger
+     * wiens [VEEG] faalde naar "nu + uitstel", zodat de kandidaten erachter aan de beurt komen.
+     * `XX`: wie intussen uit de index verdween, komt er niet terug. `GT`: een later verloop, van een
+     * sessie die intussen startte, blijft staan.
+     */
+    val UITSTEL = GEDEELD + "\n\n" + """
+        redis.call('ZADD', KEYS[1], 'XX', 'GT', tijdInMs() + tonumber(ARGV[1]), ARGV[2])
+        return 1
+    """.trimIndent()
 }

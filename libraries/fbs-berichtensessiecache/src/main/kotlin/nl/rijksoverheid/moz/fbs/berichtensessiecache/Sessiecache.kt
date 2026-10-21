@@ -178,11 +178,12 @@ interface Sessiecache {
      * blijft staan en verschijnt niet in het resultaat.
      *
      * Per ontvanger is de uitkomst [OpruimUitkomst.GEWIST], [OpruimUitkomst.MISLUKT] (de ontvanger
-     * blijft in de index; een volgende ronde probeert opnieuw) of [OpruimUitkomst.ONBEVESTIGD] (geen antwoord
-     * binnen de wachttijd: de gegevens zijn mogelijk gewist, en anders vangt de Redis-TTL ze op). Een
-     * fout bij één ontvanger breekt de ronde niet af. Gooit [SessiecacheException.Onbereikbaar] als
-     * de verlopen sessies niet op te vragen zijn, en [SessiecacheException.OngeldigeInvoer] voor een
-     * [max] kleiner dan 1.
+     * blijft in de index, een veeginterval naar achteren; een latere ronde probeert opnieuw) of
+     * [OpruimUitkomst.ONBEVESTIGD] (geen antwoord binnen de wachttijd: de gegevens zijn mogelijk
+     * gewist, en anders vangt de Redis-TTL ze op). Een fout bij één ontvanger breekt de ronde niet
+     * af. Een resultaat van precies [max] betekent dat er mogelijk meer verlopen sessies wachten.
+     * Gooit [SessiecacheException.Onbereikbaar] als de verlopen sessies niet op te vragen zijn, en
+     * [SessiecacheException.OngeldigeInvoer] voor een [max] kleiner dan 1.
      */
     fun ruimVerlopenSessiesOp(max: Int = 100): List<Opruiming>
 }

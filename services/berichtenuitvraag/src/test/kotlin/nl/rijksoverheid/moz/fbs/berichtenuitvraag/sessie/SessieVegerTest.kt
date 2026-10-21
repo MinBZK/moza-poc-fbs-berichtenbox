@@ -99,13 +99,17 @@ abstract class SessieVegerTestBasis {
     }
 }
 
-/** De scheduler staat in de tests standaard uit: ze roepen de ronde zelf aan, zodat er geen tick tussen kan komen. */
+/**
+ * De scheduler staat in de tests standaard uit: ze roepen de ronde zelf aan, zodat er geen tick tussen
+ * kan komen. Het interval bepaalt dan alleen het tijdsbudget van een ronde (de helft): kort genoeg om
+ * het budget in een test te zien opraken, ruim genoeg dat een paar volle batches erin passen.
+ */
 class SessieVegerHandmatigProfile : QuarkusTestProfile {
 
     override fun getEnabledAlternatives(): Set<Class<*>> = MockSessiecacheProfile().enabledAlternatives
 
     override fun getConfigOverrides(): Map<String, String> =
-        MockSessiecacheProfile().configOverrides
+        MockSessiecacheProfile().configOverrides + mapOf("berichtensessiecache.sessie.veeg-interval" to "PT2S")
 }
 
 @QuarkusTest
@@ -116,6 +120,9 @@ class SessieVegerTest : SessieVegerTestBasis() {
     lateinit var veger: SessieVeger
 
     companion object {
+        const val BATCH_DUUR_MS = 300L
+        const val VEEG_INTERVAL_MS = 2_000L
+
         @JvmStatic
         fun gevallen(): List<Arguments> = listOf(
             Arguments.of(OpruimUitkomst.GEWIST, StatusCode.OK, null),
@@ -131,7 +138,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
         status: StatusCode,
         waarschuwing: String?,
     ) {
-        sessiecache.opruimingen.set(listOf(Opruiming(Bsn("999990019"), uitkomst)))
+        sessiecache.veegRondes.add(listOf(Opruiming(Bsn("999990019"), uitkomst)))
 
         val regels = vangLog { veger.veeg() }
 
@@ -150,7 +157,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
     @Test
     fun `meerdere ontvangers worden elk gelogd en een ronde zonder verlopen sessies logt niets`() {
-        sessiecache.opruimingen.set(
+        sessiecache.veegRondes.add(
             listOf(
                 Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST),
                 Opruiming(Kvk("90000011"), OpruimUitkomst.MISLUKT),
@@ -168,6 +175,54 @@ class SessieVegerTest : SessieVegerTestBasis() {
     }
 
     @Test
+    fun `na een volle batch mislukkers komt de gezonde ontvanger erachter in dezelfde ronde aan de beurt`() {
+        val mislukt = List(SessieVeger.BATCH) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
+        val gezond = Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)
+        val volgende = listOf(Opruiming(Bsn("999993653"), OpruimUitkomst.GEWIST))
+        sessiecache.veegRondes.addAll(listOf(mislukt, listOf(gezond), volgende))
+
+        veger.veeg()
+
+        assertEquals(2, sessiecache.veegAanroepen.get(), "Een korte batch hoort de ronde te beëindigen")
+        assertEquals(SessieVeger.BATCH + 1, logregels.size)
+        assertEquals("999990019", logregels.last().waarde)
+        assertEquals(StatusCode.OK, logregels.last().status)
+        assertEquals(listOf(volgende), sessiecache.veegRondes.toList(), "De batch na de korte hoort voor de volgende tick")
+    }
+
+    @Test
+    fun `aanhoudend volle batches stoppen op het tijdsbudget van een halve tick`() {
+        sessiecache.veegRonde = { max ->
+            Thread.sleep(BATCH_DUUR_MS)
+            List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
+        }
+
+        val start = System.nanoTime()
+        veger.veeg()
+        val duurMs = (System.nanoTime() - start) / 1_000_000
+
+        // Budget 1 s (de helft van PT2S) en 300 ms per batch: na de vierde batch is het op.
+        assertTrue(sessiecache.veegAanroepen.get() in 2..5, "Aanroepen: ${sessiecache.veegAanroepen.get()}")
+        assertTrue(duurMs < VEEG_INTERVAL_MS, "Een ronde hoort binnen zijn tick te blijven, duurde $duurMs ms")
+        assertEquals(sessiecache.veegAanroepen.get() * SessieVeger.BATCH, logregels.size)
+    }
+
+    @Test
+    fun `een fout halverwege beëindigt de ronde, en wat al opgeruimd was staat in het logboek`() {
+        val aanroepen = java.util.concurrent.atomic.AtomicInteger()
+        sessiecache.veegRonde = { max ->
+            if (aanroepen.incrementAndGet() > 1) throw SessiecacheException.Onbereikbaar("redis weg")
+
+            List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
+        }
+
+        veger.veeg()
+
+        assertEquals(2, aanroepen.get())
+        assertEquals(SessieVeger.BATCH, logregels.size)
+    }
+
+    @Test
     fun `een onbereikbare cache gooit niet en laat de volgende ronde opnieuw proberen`() {
         sessiecache.veegFout = SessiecacheException.Onbereikbaar("redis weg bij 999990019")
 
@@ -179,7 +234,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
         assertTrue(logregels.isEmpty())
 
         sessiecache.veegFout = null
-        sessiecache.opruimingen.set(listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)))
+        sessiecache.veegRondes.add(listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)))
         veger.veeg()
 
         assertEquals(1, logregels.size)
@@ -204,7 +259,7 @@ class SessieVegerGeplandTest : SessieVegerTestBasis() {
 
     @Test
     fun `de scheduler voert zelf een veegronde uit en de opruiming komt in het logboek`() {
-        sessiecache.opruimingen.set(listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)))
+        sessiecache.veegRondes.add(listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)))
 
         val einde = System.nanoTime() + 10_000_000_000L
 

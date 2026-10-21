@@ -101,6 +101,7 @@ class BlockingSessiecacheTest {
         const val MAGAZIJN_B = "00000001823288444000"
         const val ONBEKEND_MAGAZIJN = "00000009999999999999"
         const val SESSIE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
+        const val TIMEOUT_MELDING = "Cache niet bereikbaar. Probeer het later opnieuw"
 
         @JvmStatic
         fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
@@ -665,6 +666,8 @@ class BlockingSessiecacheTest {
         every { sessies.veeg(kandidaten[5]) } returns
             Uni.createFrom().failure(IllegalStateException("client", java.util.concurrent.TimeoutException()))
         every { sessies.veeg(kandidaten[6]) } returns Uni.createFrom().item(true)
+        // Per kandidaat en niet met `any()`: dat bouwt een lege OIN, en die haalt de validatie niet.
+        kandidaten.forEach { every { sessies.stelUit(it) } returns Uni.createFrom().item(Unit) }
 
         val opruimingen = snel.ruimVerlopenSessiesOp()
 
@@ -678,6 +681,31 @@ class BlockingSessiecacheTest {
                 Opruiming(kandidaten[6], OpruimUitkomst.GEWIST),
             ),
             opruimingen,
+        )
+
+        // Alleen een mislukker schuift naar achteren: na een timeout is hij mogelijk al weg.
+        kandidaten.forEachIndexed { i, kandidaat ->
+            verify(exactly = if (i in 1..3) 1 else 0) { sessies.stelUit(kandidaat) }
+        }
+    }
+
+    @Test
+    fun `een mislukt uitstel na een mislukt opruimen laat de uitkomst MISLUKT en breekt de ronde niet af`() {
+        val kandidaten = List(3) { Oin("%020d".format(it + 1)) }
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[1]) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[2]) } returns Uni.createFrom().item(true)
+        every { sessies.stelUit(kandidaten[0]) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.stelUit(kandidaten[1]) } throws IllegalStateException("synchroon")
+
+        assertEquals(
+            listOf(
+                Opruiming(kandidaten[0], OpruimUitkomst.MISLUKT),
+                Opruiming(kandidaten[1], OpruimUitkomst.MISLUKT),
+                Opruiming(kandidaten[2], OpruimUitkomst.GEWIST),
+            ),
+            facade.ruimVerlopenSessiesOp(),
         )
     }
 
@@ -693,6 +721,24 @@ class BlockingSessiecacheTest {
         every { sessies.verlopen(100) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
 
         assertThrows<SessiecacheException.Onbereikbaar> { facade.ruimVerlopenSessiesOp() }
+    }
+
+    // --- timeouts ---
+
+    @Test
+    fun `een await die de timeout overschrijdt is Onbereikbaar via de timeout-tak`() {
+        // Mutiny's TimeoutException (van `atMost`) is geen subklasse van die uit de JDK; beide horen
+        // als timeout herkend te worden en niet als willekeurige fout.
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().nothing()
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(java.util.concurrent.TimeoutException())
+
+        val mutiny = assertThrows<SessiecacheException.Onbereikbaar> { snel.raakSessie(SESSIE_ID, ontvanger) }
+        val jdk = assertThrows<SessiecacheException.Onbereikbaar> { snel.beeindigSessie(SESSIE_ID, ontvanger) }
+
+        assertEquals(TIMEOUT_MELDING, mutiny.message)
+        assertTrue(mutiny.cause is io.smallrye.mutiny.TimeoutException, "Was: ${mutiny.cause}")
+        assertEquals(TIMEOUT_MELDING, jdk.message)
     }
 
     // --- config-validatie facade-await-timeout ---

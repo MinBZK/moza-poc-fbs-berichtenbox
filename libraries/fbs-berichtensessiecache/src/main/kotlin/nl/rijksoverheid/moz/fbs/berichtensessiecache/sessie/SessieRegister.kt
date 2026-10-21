@@ -48,6 +48,12 @@ internal interface SessieRegister {
      * dezelfde ontvanger krijgt er hooguit één `true`.
      */
     fun veeg(ontvanger: Identificatienummer): Uni<Boolean>
+
+    /**
+     * Schuift [ontvanger] in de verloopindex het veeg-uitstel naar achteren, na een mislukt [veeg].
+     * Staat hij er niet (meer) in, of ligt zijn verloop al later, dan verandert er niets.
+     */
+    fun stelUit(ontvanger: Identificatienummer): Uni<Unit>
 }
 
 /**
@@ -152,6 +158,12 @@ internal class RedisSessieRegister(
 
     override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> =
         voerUit(SessieScripts.VEEG, ontvanger, listOf(ontvanger.toCanonicalString())).map { it.toInteger() == 1 }
+
+    override fun stelUit(ontvanger: Identificatienummer): Uni<Unit> {
+        val argumenten = listOf(config.veegUitstel.toMillis().toString(), ontvanger.toCanonicalString())
+
+        return voerUit(SessieScripts.UITSTEL, listOf(VERLOOP_INDEX), argumenten).replaceWith(Unit)
+    }
 
     private fun voerUit(script: String, ontvanger: Identificatienummer, argumenten: List<String>) =
         voerUit(script, sleutels(ontvanger), argumenten)
