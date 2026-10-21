@@ -238,3 +238,4 @@ opstellingen buiten de PR-beschrijving.
   (`smoke-*`, `publish-service.sh`, `consume-service.sh`) kiezen de engine nu op dezelfde manier
   (`fsc_lokale_engine`); een gezette `DOCKER_HOST` blijft staan. Nagespeeld met een `uname`- en
   `podman machine`-stub: zonder `DOCKER_HOST` landt compose op de podman-socket.
+  Daarna op macOS (bridge): `logius/deploy/local/run-smokes.sh` volledig groen.
