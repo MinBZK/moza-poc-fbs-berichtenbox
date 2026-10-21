@@ -18,23 +18,9 @@ class RedisSessieRegisterConfigTest {
 
     private val redis = mockk<ReactiveRedisDataSource>()
 
-    private data class Config(
-        val inactiviteit: Duration = Duration.ofMinutes(15),
-        val maxDuur: Duration = Duration.ofHours(12),
-        val vangnetMarge: Duration = Duration.ofHours(1),
-        val maxPerOntvanger: Int = 5,
-        val veegInterval: Duration = Duration.ofSeconds(30),
-    ) : SessieConfig {
-        override fun inactiviteit() = inactiviteit
-        override fun maxDuur() = maxDuur
-        override fun vangnetMarge() = vangnetMarge
-        override fun maxPerOntvanger() = maxPerOntvanger
-        override fun veegInterval() = veegInterval
-    }
-
     @Test
     fun `de standaardwaarden worden geaccepteerd`() {
-        assertDoesNotThrow { RedisSessieRegister(redis, Config()) }
+        assertDoesNotThrow { RedisSessieRegister(redis, TestSessieConfig()) }
     }
 
     @ParameterizedTest
@@ -42,10 +28,10 @@ class RedisSessieRegisterConfigTest {
     fun `een duur van nul of negatief wordt per sleutel geweigerd`(waarde: String) {
         val duur = Duration.parse(waarde)
         val gevallen = mapOf(
-            "inactiviteit" to Config(inactiviteit = duur),
-            "max-duur" to Config(maxDuur = duur),
-            "vangnet-marge" to Config(vangnetMarge = duur),
-            "veeg-interval" to Config(veegInterval = duur),
+            "inactiviteit" to TestSessieConfig(inactiviteit = duur),
+            "max-duur" to TestSessieConfig(maxDuur = duur),
+            "vangnet-marge" to TestSessieConfig(vangnetMarge = duur),
+            "veeg-interval" to TestSessieConfig(veegInterval = duur),
         )
 
         gevallen.forEach { (sleutel, config) ->
@@ -58,7 +44,7 @@ class RedisSessieRegisterConfigTest {
     @ParameterizedTest
     @ValueSource(ints = [0, -1])
     fun `een grens per ontvanger van nul of negatief wordt geweigerd`(grens: Int) {
-        val fout = assertThrows<IllegalArgumentException> { RedisSessieRegister(redis, Config(maxPerOntvanger = grens)) }
+        val fout = assertThrows<IllegalArgumentException> { RedisSessieRegister(redis, TestSessieConfig(maxPerOntvanger = grens)) }
 
         assertTrue(fout.message!!.contains("berichtensessiecache.sessie.max-per-ontvanger"), "Was: ${fout.message}")
     }

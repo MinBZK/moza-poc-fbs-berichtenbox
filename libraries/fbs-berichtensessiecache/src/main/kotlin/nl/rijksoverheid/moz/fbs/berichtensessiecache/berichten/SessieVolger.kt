@@ -6,6 +6,8 @@ import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.subscription.Cancellable
 import io.smallrye.mutiny.subscription.MultiEmitter
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieConfig
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.dataTtl
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
@@ -38,8 +40,7 @@ internal class SessieVolger(
     // aanvraag af, zodat een vergeten tabblad de sessie niet eindeloos vasthoudt.
     @param:ConfigProperty(name = "berichtensessiecache.volg-max-duur", defaultValue = "PT1H")
     private val maxDuur: Duration,
-    @ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT12H")
-    ttl: Duration,
+    sessieConfig: SessieConfig,
 ) {
     private val log = Logger.getLogger(SessieVolger::class.java)
 
@@ -54,9 +55,11 @@ internal class SessieVolger(
 
         // De cache verlengt pas als er minder dan dit deel van de sessieduur rest; een tragere
         // hartslag laat een gevolgde sessie tussen twee slagen in verlopen.
-        require(hartslag < ttl.dividedBy(BerichtenCache.VERLENG_DEEL)) {
-            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan " +
-                "1/${BerichtenCache.VERLENG_DEEL} van berichtensessiecache.ttl ($ttl)"
+        val dataTtl = sessieConfig.dataTtl
+
+        require(hartslag < dataTtl.dividedBy(BerichtenCache.VERLENG_DEEL)) {
+            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan 1/${BerichtenCache.VERLENG_DEEL} van " +
+                "berichtensessiecache.sessie.max-duur + berichtensessiecache.sessie.vangnet-marge ($dataTtl)"
         }
     }
 

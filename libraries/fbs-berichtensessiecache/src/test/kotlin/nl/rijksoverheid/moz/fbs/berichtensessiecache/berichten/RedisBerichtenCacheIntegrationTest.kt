@@ -5,10 +5,11 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieConfig
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.dataTtl
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Rsin
-import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -41,8 +42,10 @@ class RedisBerichtenCacheIntegrationTest {
     @Inject
     lateinit var objectMapper: com.fasterxml.jackson.databind.ObjectMapper
 
-    @ConfigProperty(name = "berichtensessiecache.ttl")
-    lateinit var sessieTtl: Duration
+    @Inject
+    internal lateinit var sessieConfig: SessieConfig
+
+    private val sessieTtl: Duration get() = sessieConfig.dataTtl
 
     // OIN gebruikt als test-ontvanger: geen elfproef-vereiste, 20-cijferig uniek per test-run.
     private val ontvangerWaarde = System.nanoTime().toString().padStart(20, '0').takeLast(20)
@@ -755,8 +758,8 @@ class RedisBerichtenCacheIntegrationTest {
 
     @Test
     fun `een reeks aanmeldingen terwijl de berichtenbox leest, komt er helemaal in`() {
-        // Een open berichtenbox verlengt bij elk gelezen bericht de TTL van de lijst (EXPIRE). Een
-        // aanmelding die op die lijst wachtte tot er niets aan veranderde, liep daar op stuk.
+        // Een open berichtenbox leest terwijl aanmeldingen binnenkomen. Een aanmelding die op de
+        // lijst wachtte tot er niets aan veranderde, liep daar vroeger op stuk.
         // Achter elkaar aangemeld: gelijktijdig zou de test de connection-pool meten, niet dit.
         val gelezen = testBerichten()[0]
         berichtenCache.store(cacheKey(), listOf(gelezen)).await().indefinitely()
@@ -1203,23 +1206,55 @@ class RedisBerichtenCacheIntegrationTest {
         assertNull(after)
     }
 
-    @Test
-    fun `sliding TTL - reads verlengen sessie-keys zodat actieve gebruiker data behoudt`() {
-        val berichten = testBerichten().take(1)
-        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+    /**
+     * De TTL op de gegevens is een vangnet dat ná de laatste sessie valt; het wissen zelf is een
+     * actieve stap. Schoof lezen de TTL op, dan zou een lezende sessie haar gegevens voorbij het
+     * plafond van de sessie laten leven.
+     */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["lijst", "gefilterde lijst", "zoeken", "bericht"])
+    fun `lezen verlengt de TTL van de gegevens niet`(leespad: String) {
+        val bericht = testBerichten()[0]
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
         berichtenCache.storeAggregationStatus(
             cacheKey(),
             AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1),
         ).await().indefinitely()
+        val sleutels = listOf(listKey(), "${cacheKey()}:status", "${cacheKey()}:sleutels", BerichtenCache.berichtKey(bericht.sleutel))
 
-        // TTL is 2s; doe 3 reads elk na 1s. Zonder sliding TTL zou de data na 2s weg zijn;
-        // met sliding TTL verlengt elke read en blijft de data beschikbaar.
-        repeat(3) {
-            Thread.sleep(1_000)
-            val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
-            assertNotNull(page, "Cache is vroegtijdig verlopen op iteratie $it")
-            assertEquals(1, page!!.totalElements)
+        Thread.sleep(1_000)
+
+        val lezing = when (leespad) {
+            "lijst" -> berichtenCache.getPage(cacheKey(), 0, 20, null, null).replaceWithVoid()
+            "gefilterde lijst" -> berichtenCache.getPage(cacheKey(), 0, 20, bericht.afzender, ontvanger).replaceWithVoid()
+            "zoeken" -> berichtenCache.search(ontvanger, "belastingaangifte", 0, 20).replaceWithVoid()
+            else -> berichtenCache.getById(bericht.sleutel, ontvanger).replaceWithVoid()
         }
+
+        lezing.await().indefinitely()
+
+        sleutels.forEach { sleutel ->
+            val resterend = pttl(sleutel)
+
+            assertTrue(resterend in 1..sessieTtl.toMillis() - 900, "$sleutel verlengd of verlopen: $resterend ms")
+        }
+    }
+
+    @Test
+    fun `de sleutelset kent elke berichthash en tombstone van de ontvanger`() {
+        val opgehaald = testBerichten().take(2)
+        val aangemeld = testBerichten()[2]
+        berichtenCache.store(cacheKey(), opgehaald).await().indefinitely()
+        berichtenCache.createBericht(aangemeld, ontvanger).await().indefinitely()
+        berichtenCache.delete(opgehaald[0].sleutel, ontvanger).await().indefinitely()
+
+        val sleutels = redis.set(String::class.java).smembers("${cacheKey()}:sleutels").await().indefinitely()
+
+        val verwacht = (opgehaald + aangemeld).map { BerichtenCache.berichtKey(it.sleutel) } +
+            BerichtenCache.verwijderdKey(ontvanger, opgehaald[0].sleutel)
+
+        assertEquals(verwacht.toSet(), sleutels)
+        assertTrue(pttl("${cacheKey()}:sleutels") in 1..sessieTtl.toMillis())
     }
 
     @Test
@@ -1284,19 +1319,6 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `sliding TTL - getById verlengt TTL van berichthash`() {
-        val berichten = testBerichten().take(1)
-        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
-        val berichtId = berichten[0].berichtId
-
-        repeat(3) {
-            Thread.sleep(1_000)
-            val bericht = berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
-            assertNotNull(bericht, "Bericht-hash is vroegtijdig verlopen op iteratie $it")
-        }
-    }
-
-    @Test
     fun `opgeslagen hash draagt geen berichttekst`() {
         // De tekst hoort in het bronmagazijn te blijven. Zou hij hier tóch in Redis landen,
         // dan is de belofte van gegevensminimalisatie gebroken zonder dat iets faalt.
@@ -1308,24 +1330,6 @@ class RedisBerichtenCacheIntegrationTest {
             .await().indefinitely()
 
         assertFalse(velden.containsKey("inhoud"), "Was: ${velden.keys}")
-    }
-
-    @Test
-    fun `sliding TTL - getById verlengt ook de list-key`() {
-        // getById verlengt naast de berichthash ook de sessie-keys (list + status), zodat een
-        // detailweergave alléén de pagina-navigatie niet alsnog laat verlopen. TTL is 2s; 3 reads
-        // met 1s ertussen tonen dat de list-key blijft leven zolang er gelezen wordt.
-        val berichten = testBerichten().take(1)
-        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
-        val berichtId = berichten[0].berichtId
-
-        repeat(3) {
-            Thread.sleep(1_000)
-            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
-        }
-
-        val listTtl = redis.key().ttl(listKey()).await().indefinitely()
-        assertTrue(listTtl > 0, "list-key is vroegtijdig verlopen ondanks herhaalde getById-reads; was: $listTtl")
     }
 
     @Test

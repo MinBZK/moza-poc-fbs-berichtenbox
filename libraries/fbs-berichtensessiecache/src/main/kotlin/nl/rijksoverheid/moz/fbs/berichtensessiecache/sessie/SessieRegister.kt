@@ -26,6 +26,13 @@ internal interface SessieRegister {
     fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean>
 
     fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde>
+
+    /**
+     * Wist de gegevens onder [cacheKey] als er geen lopende sessie meer is, in één atomaire stap;
+     * `true` als er iets gewist is. Hoort direct ná een schrijfactie die niet zelf aan een sessie
+     * hangt, zodat een uitlog die ermee kruist niets laat staan.
+     */
+    fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean>
 }
 
 /**
@@ -72,8 +79,8 @@ internal class RedisSessieRegister(
             config.maxPerOntvanger().toString(),
             ontvanger.toCanonicalString(),
             // Geen sessie leeft langer dan start + maximale duur, dus de laatste start bepaalt hoe
-            // lang de administratie moet blijven staan.
-            config.maxDuur().plus(config.vangnetMarge()).toMillis().toString(),
+            // lang de administratie en de gegevens moeten blijven staan.
+            config.dataTtl.toMillis().toString(),
         )
 
         return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
@@ -110,10 +117,14 @@ internal class RedisSessieRegister(
         return voerUit(SessieScripts.EINDE, ontvanger, argumenten).map { SessieEinde.valueOf(it.toString()) }
     }
 
+    override fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean> =
+        voerUit(SessieScripts.OPRUIMEN, sleutels(cacheKey), emptyList()).map { it.toInteger() == 1 }
+
     private fun voerUit(script: String, ontvanger: Identificatienummer, argumenten: List<String>) =
-        sleutels(ontvanger).let { keys ->
-            redis.execute("EVAL", script, keys.size.toString(), *keys.toTypedArray(), *argumenten.toTypedArray())
-        }
+        voerUit(script, sleutels(ontvanger), argumenten)
+
+    private fun voerUit(script: String, keys: List<String>, argumenten: List<String>) =
+        redis.execute("EVAL", script, keys.size.toString(), *keys.toTypedArray(), *argumenten.toTypedArray())
 
     companion object {
         /** Stelselbreed: per ontvanger het verloop van zijn laatst verlopende sessie, voor het actief opruimen. */
@@ -127,18 +138,17 @@ internal class RedisSessieRegister(
         private val HEX = HexFormat.of()
 
         /** De KEYS van elk script in [SessieScripts], in de volgorde die daar beschreven staat. */
-        fun sleutels(ontvanger: Identificatienummer): List<String> {
-            val k = BerichtenCache.cacheKey(ontvanger)
+        fun sleutels(ontvanger: Identificatienummer): List<String> = sleutels(BerichtenCache.cacheKey(ontvanger))
 
-            return listOf(
-                "$k:sessies",
-                "$k:sessies:plafond",
-                VERLOOP_INDEX,
-                RedisBerichtenCache.listKey(k),
-                RedisBerichtenCache.statusKey(k),
-                RedisBerichtenCache.lockKey(k),
-            )
-        }
+        fun sleutels(k: String): List<String> = listOf(
+            "$k:sessies",
+            "$k:sessies:plafond",
+            VERLOOP_INDEX,
+            RedisBerichtenCache.listKey(k),
+            RedisBerichtenCache.statusKey(k),
+            RedisBerichtenCache.lockKey(k),
+            RedisBerichtenCache.sleutelsKey(k),
+        )
 
         private fun nieuweSessieId(): String {
             val bytes = ByteArray(SESSIE_ID_BYTES).also(RANDOM::nextBytes)

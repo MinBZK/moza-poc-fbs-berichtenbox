@@ -107,6 +107,8 @@ interface Sessiecache {
      * magazijnen en vult de cache; retourneert een SSE-compatible event-stream
      * met per-magazijn voortgang en een afsluitend GEREED/FOUT-event. Gooit 409
      * wanneer er al een ophaling loopt voor deze ontvanger (atomaire Redis-lock).
+     * Eindigt de laatste sessie terwijl de ronde loopt, dan wist de ronde wat ze
+     * schreef en eindigt de stream zonder afsluitend event.
      */
     fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent>
 
@@ -114,7 +116,8 @@ interface Sessiecache {
      * Schrijft één bericht bij in een bestaande, actieve sessie (aanmeld-pad).
      * Gooit 400 wanneer `bericht.ontvanger` niet overeenkomt met [ontvanger] of
      * wanneer het bericht de defensieve limieten overschrijdt; 404 wanneer er
-     * geen actieve sessie is voor deze ontvanger.
+     * geen actieve sessie is voor deze ontvanger, ook als de laatste sessie eindigde
+     * terwijl het bericht geschreven werd — het is dan weer gewist.
      */
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
 

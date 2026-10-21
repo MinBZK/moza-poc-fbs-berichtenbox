@@ -13,6 +13,8 @@ import io.quarkus.redis.datasource.value.SetArgs
 import io.smallrye.mutiny.Uni
 import jakarta.annotation.PostConstruct
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieConfig
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.dataTtl
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 import org.eclipse.microprofile.config.inject.ConfigProperty
@@ -56,7 +58,7 @@ internal interface BerichtenCache {
     /**
      * Houdt een gevolgde sessie in leven zonder dat er gelezen wordt. `false` als er geen sessie
      * (meer) is; een mislukte verlenging is een gefaalde `Uni`, geen `true`. Verlengt alleen een
-     * afgeronde ophaling, en pas wanneer minder dan `ttl / VERLENG_DEEL` resteert: dan gaan ook
+     * afgeronde ophaling, en pas wanneer minder dan `dataTtl / VERLENG_DEEL` resteert: dan gaan ook
      * alle berichthashes mee, en dat is een lees over de hele lijst die niet op elke hartslag hoeft.
      * Een lopende ophaling houdt haar korte vangnet-TTL.
      */
@@ -105,7 +107,7 @@ internal interface BerichtenCache {
         const val SEARCH_INDEX = "berichten-idx-v4"
 
         /**
-         * [verlengSessie] verlengt pas wanneer nog minder dan `ttl / VERLENG_DEEL` van de
+         * [verlengSessie] verlengt pas wanneer nog minder dan `dataTtl / VERLENG_DEEL` van de
          * bewaartermijn rest. Wie een gevolgde sessie in leven houdt, moet dus vaker dan dat
          * aankloppen; [SessieVolger] toetst zijn hartslag hiertegen.
          */
@@ -117,11 +119,10 @@ internal interface BerichtenCache {
 internal class RedisBerichtenCache(
     private val redis: ReactiveRedisDataSource,
     private val objectMapper: ObjectMapper,
-    @param:ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT12H")
-    private val ttl: Duration,
+    sessieConfig: SessieConfig,
     // Korte, aparte vangnet-TTL voor de aggregatie-lock én de BEZIG-status, losgekoppeld van de
-    // cache-bewaartermijn (`ttl`). Crasht een pod midden in aggregatie, dan mag de ontvanger niet
-    // langer dan deze timeout geblokkeerd blijven voor opnieuw `_ophalen` (met `ttl` was dat tot 12u).
+    // TTL op de gegevens. Crasht een pod midden in aggregatie, dan mag de ontvanger niet langer
+    // dan deze timeout geblokkeerd blijven voor opnieuw `_ophalen`.
     // Moet ruim boven de normale aggregatieduur (resolver outer-await + cache-await) liggen, anders
     // ontgrendelt een nog lopende aggregatie voortijdig en kan een concurrent `_ophalen` dubbel draaien.
     @param:ConfigProperty(name = "berichtensessiecache.aggregation-lock-ttl", defaultValue = "PT2M")
@@ -135,7 +136,7 @@ internal class RedisBerichtenCache(
     // (`quarkus.redis.max-waiting-handlers`, default 2048). Zonder deze grens groeit een
     // store-transactie mee met het aantal organisaties van de ontvanger en loopt die wachtrij
     // vol — de ophaalronde faalt dan pas in de laatste stap, ná alle bevragingen. Elk bericht
-    // kost twee commando's (HSET + EXPIRE), maar die zijn per bericht met `.chain` geregen, dus
+    // kost twee commando's (HSET + PEXPIRE), maar die zijn per bericht met `.chain` geregen, dus
     // de piek per batch is deze waarde zelf, niet het dubbele.
     @param:ConfigProperty(name = "berichtensessiecache.redis-batchgrootte", defaultValue = "256")
     private val redisBatchgrootte: Int,
@@ -147,6 +148,10 @@ internal class RedisBerichtenCache(
     private val maxWaitingHandlers: Int,
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
+
+    // Vast, niet verschuivend met leesverkeer: het wissen is een actieve stap bij het einde van de
+    // laatste sessie, deze TTL is alleen het vangnet als dat mislukt.
+    private val dataTtl: Duration = sessieConfig.dataTtl
 
     @PostConstruct
     fun init() {
@@ -229,7 +234,11 @@ internal class RedisBerichtenCache(
 
         val sorted = berichten.sortedByDescending { it.publicatietijdstip }
         val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
+        val sleutelsKey = sleutelsKey(key)
+        val berichtKeys = sorted.map { BerichtenCache.berichtKey(it.sleutel) }
 
+        // De hashes van een vorige ronde blijven staan en dus ook in de sleutelset: alleen zo kan
+        // het opruimen na de laatste sessie ze nog vinden.
         return redis.withTransaction { tx ->
             val txList = tx.list(String::class.java)
             val txKey = tx.key()
@@ -237,17 +246,19 @@ internal class RedisBerichtenCache(
 
             txKey.del(listKey)
                 .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
-                .chain { _ -> txKey.expire(listKey, ttl) }
+                .chain { _ -> txKey.pexpire(listKey, dataTtl) }
                 .chain { _ ->
                     RedisBatching.inBatches(sorted, redisBatchgrootte) { bericht ->
                         val berichtKey = BerichtenCache.berichtKey(bericht.sleutel)
                         val fields = berichtToHash(bericht)
 
                         txHash.hset(berichtKey, fields)
-                            .chain { _ -> txKey.expire(berichtKey, ttl) }
+                            .chain { _ -> txKey.pexpire(berichtKey, dataTtl) }
                             .replaceWithVoid()
                     }
                 }
+                .chain { _ -> tx.set(String::class.java).sadd(sleutelsKey, *berichtKeys.toTypedArray()) }
+                .chain { _ -> txKey.pexpire(sleutelsKey, dataTtl) }
         }.replaceWithVoid()
             .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache", berichten.size) }
             .onFailure().invoke { e -> log.errorf(e, "Redis store mislukt voor key=%s", key) }
@@ -256,7 +267,7 @@ internal class RedisBerichtenCache(
     override fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
         val statusKey = statusKey(key)
         val json = objectMapper.writeValueAsString(status)
-        return redis.value(String::class.java).setex(statusKey, ttl.seconds, json)
+        return redis.value(String::class.java).set(statusKey, json, SetArgs().px(dataTtl))
             .chain { _ -> redis.key().del(lockKey(key)) }
             .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis storeAggregationStatus mislukt voor key=%s", key) }
@@ -267,7 +278,7 @@ internal class RedisBerichtenCache(
         val json = objectMapper.writeValueAsString(status)
         // Nog-lopende (BEZIG) status: korte vangnet-TTL gelijk aan de lock, zodat een crash de
         // status niet 12u laat hangen. De terminale GEREED/FOUT-status (storeAggregationStatus)
-        // volgt wél de lange cache-`ttl` omdat die het gecachte resultaat spiegelt.
+        // volgt wél de TTL van de gegevens, omdat die het gecachte resultaat spiegelt.
         return redis.value(String::class.java).setex(statusKey, aggregationLockTtl.seconds, json)
             .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis updateAggregationStatus mislukt voor key=%s", key) }
@@ -366,9 +377,6 @@ internal class RedisBerichtenCache(
                     )
                 }
             }
-            // Sliding TTL: elke succesvolle read verlengt de sessie-keys zodat actieve gebruikers
-            // hun cache niet verliezen tijdens een sessie.
-            .call { result -> if (result != null) renewSessionTtl(key) else Uni.createFrom().voidItem() }
             .onFailure(com.fasterxml.jackson.core.JsonProcessingException::class.java)
                 .invoke { _ -> /* al gelogd hierboven, geen dubbele log */ }
             .onFailure { ex -> ex !is com.fasterxml.jackson.core.JsonProcessingException }
@@ -403,7 +411,6 @@ internal class RedisBerichtenCache(
                     BerichtenPagina(berichten, page, pageSize, total, totalPages)
                 }
             }
-            .call { result -> renewReadTtlSamenvatting(cacheKey, result?.berichten) }
             // afzender is user-input zonder spec-pattern in alle gevallen (zie OpenAPI);
             // .length voorkomt log-injectie via CRLF in een rogue query-param.
             .onFailure().invoke { e -> log.errorf(e, "RediSearch getPageFiltered mislukt (key=%s, afzender.length=%d, map.length=%d)", cacheKey, afzender?.length ?: 0, map?.length ?: 0) }
@@ -430,7 +437,6 @@ internal class RedisBerichtenCache(
                 val totalPages = if (total == 0L) 0 else ((total + pageSize - 1) / pageSize).toInt()
                 BerichtenPagina(berichten, page, pageSize, total, totalPages)
             }
-            .call { result -> renewReadTtlSamenvatting(cacheKey, result.berichten) }
             // Splitsing zodat document-corruptie niet als query-fout in metrics belandt.
             // q.length i.p.v. q-waarde: q is user-controlled (RediSearch-query) en zou
             // log-injectie via CRLF kunnen veroorzaken.
@@ -453,7 +459,6 @@ internal class RedisBerichtenCache(
     }
 
     override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> {
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val berichtKey = BerichtenCache.berichtKey(sleutel)
         return redis.hash(String::class.java).hgetall(berichtKey)
             .map { fields ->
@@ -461,69 +466,22 @@ internal class RedisBerichtenCache(
                 val bericht = hashToBericht(fields)
                 if (bericht.ontvanger != ontvanger) null else bericht
             }
-            .call { bericht ->
-                if (bericht != null) renewReadTtl(cacheKey, listOf(bericht))
-                else Uni.createFrom().voidItem()
-            }
             .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor %s", sleutel) }
     }
 
     /**
-     * Verlengt TTL op sessie-keys (list + status) zodat actieve gebruikers hun cache niet
-     * verliezen. Faalt niet hard: als verlengen mislukt, wordt dat gelogd maar niet gepropageerd —
-     * de oorspronkelijke read heeft al gelukt en de cache valt anders uiterlijk na `ttl` weg.
+     * MULTI/EXEC-batch: de sessie-keys, de sleutelset en de berichthashes krijgen samen de TTL van
+     * de gegevens, in batches aangeboden zodat een lange lijst de connection-wachtrij niet vult.
      */
-    private fun renewSessionTtl(cacheKey: String): Uni<Void> {
-        val listKey = listKey(cacheKey)
-        val statusKey = statusKey(cacheKey)
-        return Uni.combine().all()
-            .unis(
-                redis.key().expire(listKey, ttl),
-                redis.key().expire(statusKey, ttl),
-            ).discardItems()
-            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL verlengen mislukt voor cacheKey=%s", cacheKey) }
-            .onFailure().recoverWithNull().replaceWithVoid()
-    }
-
-    /**
-     * Verlengt TTL op sessie-keys én op de per-bericht hash keys die via een read zijn geraakt.
-     * Zo blijven zowel de lijst als de berichten-hashes in sync qua TTL.
-     *
-     * Caller geeft de `cacheKey` mee — vermijdt een tweede SHA-256-pass per read op
-     * de hot path (callers hebben de key al berekend).
-     */
-    private fun renewReadTtl(cacheKey: String, berichten: List<Bericht>?): Uni<Void> {
-        if (berichten.isNullOrEmpty()) return renewSessionTtl(cacheKey)
-        return renewBerichtTtls(cacheKey, berichten.map { it.sleutel })
-    }
-
-    /** Variant van [renewReadTtl] voor samenvatting-paden (FT.SEARCH-projecties). */
-    private fun renewReadTtlSamenvatting(cacheKey: String, berichten: List<BerichtSamenvatting>?): Uni<Void> {
-        if (berichten.isNullOrEmpty()) return renewSessionTtl(cacheKey)
-        return renewBerichtTtls(cacheKey, berichten.map { it.sleutel })
-    }
-
-    /**
-     * MULTI/EXEC pipeline-batch: alle EXPIRE-commands (2 sessie-keys + N bericht-hashes) in één
-     * transactie, in batches aangeboden zodat een grote pagina de connection-wachtrij niet vult.
-     * Log + slik: TTL-renew is best-effort. Bij stille discard zou een Redis-storing in de batch
-     * ongezien blijven; de read zelf is al gelukt.
-     */
-    private fun renewBerichtTtls(cacheKey: String, sleutels: List<BerichtSleutel>): Uni<Void> =
-        verlengTtls(cacheKey, sleutels)
-            .onFailure().invoke { e -> log.warnf(e, "Sliding TTL renewReadTtl mislukt voor cacheKey=%s (read geslaagd, TTL niet verlengd)", cacheKey) }
-            .onFailure().recoverWithNull().replaceWithVoid()
-
     private fun verlengTtls(cacheKey: String, berichten: List<BerichtSleutel>): Uni<Void> {
-        val listKey = listKey(cacheKey)
-        val statusKey = statusKey(cacheKey)
+        val vast = listOf(listKey(cacheKey), statusKey(cacheKey), sleutelsKey(cacheKey))
 
         return redis.withTransaction { tx ->
             val txKey = tx.key()
-            val sleutels = listOf(listKey, statusKey) + berichten.map { BerichtenCache.berichtKey(it) }
+            val sleutels = vast + berichten.map { BerichtenCache.berichtKey(it) }
 
             RedisBatching.inBatches(sleutels, redisBatchgrootte) { sleutel ->
-                txKey.expire(sleutel, ttl).replaceWithVoid()
+                txKey.pexpire(sleutel, dataTtl).replaceWithVoid()
             }
         }.replaceWithVoid()
     }
@@ -537,7 +495,7 @@ internal class RedisBerichtenCache(
                     when {
                         // Net tussen de twee reads verlopen.
                         resterend == SLEUTEL_ONTBREEKT -> Uni.createFrom().item(false)
-                        resterend > ttl.toMillis() / BerichtenCache.VERLENG_DEEL -> Uni.createFrom().item(true)
+                        resterend > dataTtl.toMillis() / BerichtenCache.VERLENG_DEEL -> Uni.createFrom().item(true)
                         else -> verlengHeleSessie(key).replaceWith(true)
                     }
                 }
@@ -735,7 +693,7 @@ internal class RedisBerichtenCache(
 
         return redis.withTransaction<UpdatePlan>(
             { reads -> bepaalUpdatePlan(reads, berichtKey, listKey, sleutel, ontvanger, status, map) },
-            { plan, tx -> voerUpdatePlanUit(plan, tx, berichtKey, listKey) },
+            { plan, tx -> voerUpdatePlanUit(plan, tx, berichtKey, listKey, sleutelsKey(cacheKey)) },
             listKey,
             berichtKey,
         ).chain { result ->
@@ -811,6 +769,7 @@ internal class RedisBerichtenCache(
         tx: ReactiveTransactionalRedisDataSource,
         berichtKey: String,
         listKey: String,
+        sleutelsKey: String,
     ): Uni<Void> =
         when (plan) {
             UpdatePlan.Geen -> Uni.createFrom().voidItem()
@@ -825,7 +784,7 @@ internal class RedisBerichtenCache(
                 val rebuildList = if (plan.nieuweLijst.isNotEmpty()) {
                     txKey.del(listKey)
                         .chain { _ -> txList.rpush(listKey, *plan.nieuweLijst.toTypedArray()) }
-                        .chain { _ -> txKey.expire(listKey, ttl) }
+                        .chain { _ -> txKey.pexpire(listKey, dataTtl) }
                         .replaceWithVoid()
                 } else {
                     Uni.createFrom().voidItem()
@@ -844,9 +803,13 @@ internal class RedisBerichtenCache(
                     Uni.createFrom().voidItem()
                 }
 
+                // Ook de sleutelset: krijgt de hash een nieuwe TTL en de set niet, dan kan de set
+                // eerder verlopen en vindt het opruimen de hash niet meer.
                 zetVelden
                     .chain { _ -> wisVelden }
-                    .chain { _ -> txKey.expire(berichtKey, ttl) }
+                    .chain { _ -> txKey.pexpire(berichtKey, dataTtl) }
+                    .chain { _ -> tx.set(String::class.java).sadd(sleutelsKey, berichtKey) }
+                    .chain { _ -> txKey.pexpire(sleutelsKey, dataTtl) }
                     .chain { _ -> rebuildList }
                     .replaceWithVoid()
             }
@@ -892,22 +855,23 @@ internal class RedisBerichtenCache(
      * twee keer in.
      *
      * Controleren en toevoegen in één Lua-script, dus atomair zonder WATCH. Een WATCH op de lijst
-     * zou afbreken op elke EXPIRE die een open berichtenbox bij het lezen doet — precies wat er
+     * zou afbreken op elke EXPIRE die een open berichtenbox op zijn hartslag doet — precies wat er
      * gebeurt als een reeks aanmeldingen binnenkomt terwijl die ontvanger volgt.
      */
     override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
-        val listKey = listKey(BerichtenCache.cacheKey(ontvanger))
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
         val berichtKey = BerichtenCache.berichtKey(bericht.sleutel)
         val velden = berichtToHash(bericht).flatMap { (veld, waarde) -> listOf(veld, waarde) }
         val argumenten = listOf(
             AANMELD_SCRIPT,
-            "2",
-            listKey,
+            "3",
+            listKey(cacheKey),
             berichtKey,
+            sleutelsKey(cacheKey),
             bericht.berichtId.toString(),
             bericht.magazijnId,
             objectMapper.writeValueAsString(bericht),
-            ttl.toMillis().toString(),
+            dataTtl.toMillis().toString(),
         ) + velden
 
         return redis.execute("EVAL", *argumenten.toTypedArray())
@@ -977,19 +941,21 @@ internal class RedisBerichtenCache(
      * Laat achter dat déze ontvanger dit bericht verwijderde, zodat een volgende lookup het
      * verschil kan maken tussen "nooit gezien" en "zelf weggegooid".
      *
-     * `SET … EX` in één commando, net als de aggregatie-lock hierboven: bij een losse SET gevolgd
+     * `SET … PX` in één commando, net als de aggregatie-lock hierboven: bij een losse SET gevolgd
      * door EXPIRE blijft de key voorgoed staan zodra die tweede stap faalt. De waarde is een
-     * plaatshouder — de eigenaar zit in de key (zie [BerichtenCache.verwijderdKey]).
-     *
-     * De TTL loopt vanaf het verwijderen en schuift níét mee met leesverkeer, anders dan de
-     * sessie-keys en de berichthashes. Een tombstone hoort bij één handeling in het verleden, niet
-     * bij de activiteit van de sessie; het gevolg is wel dat het antwoord in een lang doorlopende
-     * sessie van 410 terugvalt naar 404 zodra de TTL verstrijkt.
+     * plaatshouder — de eigenaar zit in de key (zie [BerichtenCache.verwijderdKey]). In dezelfde
+     * transactie gaat de key de sleutelset in, zodat het opruimen na de laatste sessie hem vindt.
      */
-    private fun schrijfTombstone(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> =
-        redis.value(String::class.java)
-            .set(BerichtenCache.verwijderdKey(ontvanger, sleutel), "1", SetArgs().ex(ttl.seconds))
-            // Best-effort, net als de TTL-verlenging: de delete zelf is dan al onherroepelijk
+    private fun schrijfTombstone(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> {
+        val tombstone = BerichtenCache.verwijderdKey(ontvanger, sleutel)
+        val sleutelsKey = sleutelsKey(BerichtenCache.cacheKey(ontvanger))
+
+        return redis.withTransaction { tx ->
+            tx.value(String::class.java).set(tombstone, "1", SetArgs().px(dataTtl))
+                .chain { _ -> tx.set(String::class.java).sadd(sleutelsKey, tombstone) }
+                .chain { _ -> tx.key().pexpire(sleutelsKey, dataTtl) }
+        }
+            // Best-effort: de delete zelf is dan al onherroepelijk
             // uitgevoerd, en die alsnog laten omvallen levert een 502 op een geslaagde verwijdering
             // plus een compensatie-invalidate die niets meer te invalideren heeft. Wat verloren
             // gaat is het kenmerk: de rest van de sessie meldt "onbekend" waar "verwijderd" hoorde.
@@ -1004,6 +970,7 @@ internal class RedisBerichtenCache(
             }
             .onFailure().recoverWithNull()
             .replaceWithVoid()
+    }
 
     private fun pruneListEnDelHash(listKey: String, berichtKey: String, sleutel: BerichtSleutel): Uni<Void> =
         redis.list(String::class.java).lrange(listKey, 0, -1)
@@ -1034,15 +1001,16 @@ internal class RedisBerichtenCache(
     companion object {
         // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de update een
         // retriable contentie-fout geeft. Een klein plafond voorkomt ongebonden retry onder
-        // pathologische contentie. Ook een EXPIRE van een lezende berichtenbox breekt de WATCH af.
+        // pathologische contentie. Ook een EXPIRE van een gevolgde berichtenbox breekt de WATCH af.
         // (Delete gebruikt LREM en heeft geen retry-loop nodig.)
         // TODO(MinBZK/MijnOverheidZakelijk#1166): atomair zonder WATCH, zoals createBericht, zodat meelezen niet meer botst.
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         /**
-         * KEYS: sessie-lijst, berichthash. ARGV: berichtId, magazijnId, JSON voor de lijst, TTL in
-         * ms, daarna de hash-velden als veld/waarde-paren. Een treffer vraagt beide: hetzelfde
-         * nummer van een ander magazijn is een ander bericht.
+         * KEYS: sessie-lijst, berichthash, sleutelset. ARGV: berichtId, magazijnId, JSON voor de
+         * lijst, TTL in ms, daarna de hash-velden als veld/waarde-paren. Een treffer vraagt beide:
+         * hetzelfde nummer van een ander magazijn is een ander bericht. Elke geschreven hash gaat de
+         * sleutelset in, zodat het opruimen na de laatste sessie hem vindt.
          *
          * Kent de lijst het bericht maar is de hash verlopen, dan komt de hash terug met status en
          * map uit de lijst-entry: alleen die twee wijzigen na het aanmelden, en de aanmelding zelf
@@ -1066,11 +1034,17 @@ internal class RedisBerichtenCache(
 
             local ttl = tonumber(ARGV[4])
 
+            local function registreer()
+                redis.call('PEXPIRE', KEYS[2], ttl)
+                redis.call('SADD', KEYS[3], KEYS[2])
+                redis.call('PEXPIRE', KEYS[3], ttl)
+            end
+
             if gevonden == nil then
                 redis.call('RPUSH', KEYS[1], ARGV[3])
                 redis.call('PEXPIRE', KEYS[1], ttl)
                 redis.call('HSET', KEYS[2], unpack(ARGV, 5))
-                redis.call('PEXPIRE', KEYS[2], ttl)
+                registreer()
                 return 'toegevoegd'
             end
 
@@ -1093,7 +1067,7 @@ internal class RedisBerichtenCache(
             end
 
             redis.call('HSET', KEYS[2], unpack(velden))
-            redis.call('PEXPIRE', KEYS[2], ttl)
+            registreer()
             return 'hash hersteld'
         """.trimIndent()
 
@@ -1108,6 +1082,9 @@ internal class RedisBerichtenCache(
         internal fun listKey(key: String) = "$key:list"
         internal fun statusKey(key: String) = "$key:status"
         internal fun lockKey(key: String) = "$key:lock"
+
+        /** SET met de berichthashes en tombstones van de ontvanger; het opruimen wist ze aan de hand hiervan. */
+        internal fun sleutelsKey(key: String) = "$key:sleutels"
 
         // TypeReference voor Jackson-deserialisatie van de `bijlagen`-hash-field (JSON-array).
         private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}

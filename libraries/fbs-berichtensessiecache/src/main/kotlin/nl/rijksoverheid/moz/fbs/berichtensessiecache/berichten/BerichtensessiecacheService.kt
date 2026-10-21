@@ -26,6 +26,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.circuitActieVoor
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.eclipse.microprofile.config.inject.ConfigProperty
@@ -83,6 +84,7 @@ internal class BerichtensessiecacheService(
     // zodat een dood magazijn niet onnodig bulkhead-permits bezet houdt.
     private val circuitBreaker: MagazijnCircuitBreaker,
     private val paginaLezer: MagazijnPaginaLezer,
+    private val sessies: SessieRegister,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
@@ -512,7 +514,7 @@ internal class BerichtensessiecacheService(
      * opgehaalde berichten niet met een lege lijst overschrijven.
      */
     private fun legeResultaten(cacheKey: String): Multi<MagazijnEvent> {
-        try {
+        val opgeruimd = try {
             // Parallel: spaart 1 RTT op hot-path (nieuwe gebruikers zonder opt-ins).
             // Per-Uni .onFailure houdt log-context welke faalde.
             Uni.combine().all()
@@ -523,6 +525,9 @@ internal class BerichtensessiecacheService(
                         .onFailure().invoke { e -> log.errorf(e, "storeAggregationStatus(GEREED) mislukt voor lege magazijn-set, key=%s", cacheKey) },
                 )
                 .discardItems()
+                // Zoals na een ronde met magazijnen: kruiste die met het einde van de laatste sessie,
+                // dan blijft er geen GEREED-status achter.
+                .chain { _ -> sessies.ruimOpZonderSessie(cacheKey) }
                 .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
         } catch (ex: Exception) {
             val errorId = UUID.randomUUID()
@@ -539,6 +544,8 @@ internal class BerichtensessiecacheService(
                 ),
             )
         }
+
+        if (opgeruimd) return Multi.createFrom().empty()
 
         return Multi.createFrom().item(
             OphalenGereed(
@@ -821,6 +828,9 @@ internal class BerichtensessiecacheService(
      * OPHALEN_GEREED-event. Bij een cache-fout een OPHALEN_FOUT-event i.p.v. een mid-stream
      * HTTP-500 (de SSE-stream loopt dan al); een dubbele cache-fout krijgt een
      * `[ALERT cache_doublefail]`-marker voor alert-routing.
+     *
+     * De ronde controleert vooraf geen sessie en kan dus kruisen met het einde van de laatste:
+     * daarom ná het schrijven [SessieRegister.ruimOpZonderSessie], zodat ze dan niets achterlaat.
      */
     private fun aggregeerEnSlaOp(
         cacheKey: String,
@@ -850,14 +860,23 @@ internal class BerichtensessiecacheService(
                         berichtenCache.storeAggregationStatus(cacheKey, status),
                     )
                     .discardItems()
-                    .map<MagazijnEvent> { _ ->
-                        OphalenGereed(
-                            totaalBerichten = alleBerichten.size,
-                            geslaagd = tellers.geslaagd.get(),
-                            mislukt = tellers.mislukt.get(),
-                            nietOpgehaald = tellers.nietOpgehaald.get(),
-                            totaalMagazijnen = totaalMagazijnen,
-                        )
+                    .chain { _ -> sessies.ruimOpZonderSessie(cacheKey) }
+                    .chain { opgeruimd ->
+                        // De laatste sessie eindigde tijdens de ronde en het geschrevene is weer
+                        // gewist: geen GEREED, de stream eindigt zonder slotevent.
+                        if (opgeruimd) {
+                            Uni.createFrom().nullItem()
+                        } else {
+                            Uni.createFrom().item<MagazijnEvent>(
+                                OphalenGereed(
+                                    totaalBerichten = alleBerichten.size,
+                                    geslaagd = tellers.geslaagd.get(),
+                                    mislukt = tellers.mislukt.get(),
+                                    nietOpgehaald = tellers.nietOpgehaald.get(),
+                                    totaalMagazijnen = totaalMagazijnen,
+                                ),
+                            )
+                        }
                     }
             }
             // Ongetypeerd: Vert.x meldt clientfouten (zoals een volgelopen commando-wachtrij) met

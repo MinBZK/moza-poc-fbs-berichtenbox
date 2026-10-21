@@ -4,12 +4,14 @@ import com.fasterxml.jackson.core.JsonParseException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheContentieException
@@ -71,7 +73,10 @@ class BlockingSessiecacheTest {
 
         override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
     }
-    private val sessies = mockk<SessieRegister>()
+    // Standaard loopt er nog een sessie: de schrijftests gaan over het schrijven, niet over het kruisen.
+    private val sessies = mockk<SessieRegister>().also {
+        every { it.ruimOpZonderSessie(any()) } returns Uni.createFrom().item(false)
+    }
     private val facade = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
 
@@ -433,6 +438,36 @@ class BlockingSessiecacheTest {
             Uni.createFrom().failure(IllegalStateException("redis weg"))
 
         assertSame(bericht, facade.schrijfBericht(ontvanger, bericht))
+    }
+
+    @Test
+    fun `schrijfBericht dat kruist met het einde van de laatste sessie geeft GeenActieveSessie en meldt niets aan`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        val cacheKey = BerichtenCache.cacheKey(ontvanger)
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().item(true)
+
+        assertThrows<SessiecacheException.GeenActieveSessie> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verifyOrder {
+            service.createBericht(bericht, ontvanger)
+            sessies.ruimOpZonderSessie(cacheKey)
+        }
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+    }
+
+    @Test
+    fun `schrijfBericht met een mislukte opruimcontrole is Onbereikbaar`() {
+        // De aanleveraar moet het opnieuw proberen: of het bericht een sessie heeft, is niet bekend.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(any()) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
     }
 
     // --- volg ---

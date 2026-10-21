@@ -9,7 +9,13 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  * 1. `$k:sessies` — ZSET, lid `sha256(sessie-id)`, score het verloop in ms;
  * 2. `$k:sessies:plafond` — HASH, lid → plafond: start + maximale duur in ms;
  * 3. de stelselbrede verloopindex — ZSET, lid de ontvanger, score zijn laatste verloop in ms;
- * 4–6. de gegevens: `$k:list`, `$k:status`, `$k:lock`.
+ * 4–6. de gegevens onder een vaste naam: `$k:list`, `$k:status`, `$k:lock`;
+ * 7. `$k:sleutels` — SET met elke andere gegevenssleutel van de ontvanger: de berichthashes, ook
+ *    die van eerdere ophaalrondes, en de tombstones. De hashes vallen buiten de sessie-prefix en
+ *    zijn anders alleen via een zoekopdracht te vinden.
+ *
+ * Omdat de leden van `$k:sleutels` niet in KEYS staan, gaan deze scripts uit van één Redis-node,
+ * zoals het aanmeldscript van de berichtencache.
  *
  * De tijd komt uit Redis (`TIME`) en niet uit de pod: pods met een verschillende klok zouden
  * anders over hetzelfde verloop verschillend oordelen.
@@ -34,31 +40,60 @@ internal object SessieScripts {
             end
         end
 
+        -- In stukken: unpack van duizenden leden loopt tegen de stackgrens van Lua aan.
         local function purge()
             local gewist = redis.call('DEL', KEYS[4], KEYS[5], KEYS[6])
-            redis.call('DEL', KEYS[1], KEYS[2])
+            local leden = redis.call('SMEMBERS', KEYS[7])
+            for i = 1, #leden, 1000 do
+                gewist = gewist + redis.call('DEL', unpack(leden, i, math.min(i + 999, #leden)))
+            end
+            redis.call('DEL', KEYS[1], KEYS[2], KEYS[7])
             return gewist
+        end
+
+        -- Een BEZIG-status houdt zijn korte TTL: die moet na een gecrashte ophaalronde snel vrijkomen.
+        local function trekTtlOp(ttl)
+            redis.call('PEXPIRE', KEYS[4], ttl)
+            for _, sleutel in ipairs(redis.call('SMEMBERS', KEYS[7])) do
+                redis.call('PEXPIRE', sleutel, ttl)
+            end
+            redis.call('PEXPIRE', KEYS[7], ttl)
+
+            local status = redis.call('GET', KEYS[5])
+            if status then
+                local leesbaar, waarde = pcall(cjson.decode, status)
+                if leesbaar and type(waarde) == 'table' and waarde.status ~= 'BEZIG' then
+                    redis.call('PEXPIRE', KEYS[5], ttl)
+                end
+            end
         end
     """.trimIndent()
 
     /**
      * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), grens per ontvanger, ontvanger,
-     * vangnet-TTL van de sessie-administratie (ms).
+     * vangnet-TTL van de sessie-administratie en de gegevens (ms).
      *
      * Antwoord `{0}` bij de grens, anders `{1, verloop in ms, aantal gewiste gegevenssleutels}`.
-     * Alleen een start zonder andere lopende sessie wist: die begint met een vers beeld.
+     * Alleen een start zonder andere lopende sessie wist: die begint met een vers beeld. Een start
+     * naast een lopende sessie trekt de TTL van de bestaande gegevens op, anders verlopen ze vóór
+     * het plafond van de nieuwe sessie.
      */
     val START = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
         ruimVerlopenOp(nu)
 
+        local leeg = redis.call('ZCARD', KEYS[1]) == 0
         local gewist = 0
-        if redis.call('ZCARD', KEYS[1]) == 0 then
+        if leeg then
             gewist = purge()
         end
 
         if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[4]) then
             return { 0 }
+        end
+
+        if not leeg then
+            trekTtlOp(ARGV[6])
         end
 
         local plafond = nu + tonumber(ARGV[3])
@@ -126,5 +161,26 @@ internal object SessieScripts {
             return 'OPGERUIMD'
         end
         return 'ONBEKEND'
+    """.trimIndent()
+
+    /**
+     * Geen ARGV. Antwoord 1 als er geen lopende sessie is en er gegevens gewist zijn, anders 0.
+     *
+     * Draait ná het schrijven van een ophaalronde of een aanmelding: eindigde de laatste sessie
+     * terwijl die liep, dan ruimt dit het geschrevene op, in welke volgorde het ook gebeurde.
+     * De verloopindex blijft ongemoeid; die is van de veegtaak, en deze ontvanger staat er hooguit
+     * nog in als zijn laatste sessie verliep zonder dat er geveegd is.
+     */
+    val OPRUIMEN = GEDEELD + "\n\n" + """
+        ruimVerlopenOp(tijdInMs())
+
+        if redis.call('ZCARD', KEYS[1]) > 0 then
+            return 0
+        end
+
+        if purge() > 0 then
+            return 1
+        end
+        return 0
     """.trimIndent()
 }

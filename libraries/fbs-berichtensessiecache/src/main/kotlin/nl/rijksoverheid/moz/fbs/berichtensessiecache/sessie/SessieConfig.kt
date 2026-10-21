@@ -30,3 +30,10 @@ internal interface SessieConfig {
     @WithDefault("PT30S")
     fun veegInterval(): Duration
 }
+
+/**
+ * De Redis-TTL op de berichtgegevens van een ontvanger, gezet bij elke schrijfactie. Geen sessie
+ * leeft langer dan start + [SessieConfig.maxDuur], dus wat nu geschreven wordt, overleeft elke
+ * sessie die er nu loopt. Wissen is een actieve stap; deze TTL vangt alleen een mislukt opruimen op.
+ */
+internal val SessieConfig.dataTtl: Duration get() = maxDuur().plus(vangnetMarge())

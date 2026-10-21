@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheContentieException
@@ -167,6 +168,16 @@ internal class BlockingSessiecache(
             // Defensieve limiet overschreden (BerichtValidator): invoerfout van de
             // aanleverende caller, geen infrastructuurfout.
             throw SessiecacheException.OngeldigeInvoer(e.message ?: "Ongeldig bericht.", e)
+        }
+
+        // De statuscontrole hierboven en het schrijven zijn twee stappen; eindigde de laatste sessie
+        // daartussen, dan is het bericht nu weer gewist en hoort de aanleveraar dat er geen sessie was.
+        val opgeruimd = awaitOrServiceUnavailable { sessies.ruimOpZonderSessie(BerichtenCache.cacheKey(ontvanger)) }
+
+        if (opgeruimd) {
+            throw SessiecacheException.GeenActieveSessie(
+                "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
+            )
         }
 
         meldAanGevolgdeSessies(ontvanger, geschreven)

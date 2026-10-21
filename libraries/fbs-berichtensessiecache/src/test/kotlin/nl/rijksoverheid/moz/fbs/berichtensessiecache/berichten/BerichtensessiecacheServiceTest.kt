@@ -21,6 +21,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazi
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClient
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -53,6 +54,10 @@ class BerichtensessiecacheServiceTest {
     }
     private val validator = BerichtValidator(limieten)
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
+    // Standaard loopt er een sessie, dus ruimt niets op; het kruisen met uitloggen heeft eigen tests.
+    private val sessies = mockk<SessieRegister>().also {
+        every { it.ruimOpZonderSessie(any()) } returns Uni.createFrom().item(false)
+    }
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
     private val testBulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 15000L)
@@ -72,6 +77,7 @@ class BerichtensessiecacheServiceTest {
         cacheAwaitTimeoutSeconds = 5L,
         bulkhead = testBulkhead,
         circuitBreaker = testBreaker,
+        sessies = sessies,
     ).also { it.valideerTimeouts() }
 
     private val ontvanger = Bsn("999993653")
@@ -172,6 +178,64 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
+    fun `een ronde zonder magazijnen die kruist met het einde van de laatste sessie eindigt zonder GEREED`() {
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
+        every { clientFactory.getAllMagazijnen() } returns emptyMap()
+        every { berichtenCache.store(cacheKey, emptyList()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().item(true)
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
+
+        assertEquals(emptyList<MagazijnEvent>(), events)
+    }
+
+    @ParameterizedTest(name = "opgeruimd={0}")
+    @ValueSource(booleans = [false, true])
+    fun `na het opslaan van een ronde volgt de opruimcontrole, en alleen zonder opruiming een GEREED`(opgeruimd: Boolean) {
+        val client = mockk<MagazijnClient>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
+        every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().item(opgeruimd)
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        assertEquals(if (opgeruimd) 0 else 1, events.filterIsInstance<OphalenGereed>().size, "Events: $events")
+        assertTrue(events.filterIsInstance<OphalenFout>().isEmpty(), "Events: $events")
+        io.mockk.verifyOrder {
+            berichtenCache.store(cacheKey, any())
+            sessies.ruimOpZonderSessie(cacheKey)
+        }
+    }
+
+    @Test
+    fun `een mislukte opruimcontrole na de ronde meldt dat de resultaten niet bewaard zijn`() {
+        // Of de ronde bij een lopende sessie hoort, is dan onbekend; opnieuw ophalen is het veilige advies.
+        val client = mockk<MagazijnClient>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
+        every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        assertEquals(1, events.filterIsInstance<OphalenMisluktNaBevraging>().size, "Events: $events")
+        assertTrue(events.filterIsInstance<OphalenGereed>().isEmpty(), "Events: $events")
+    }
+
+    @Test
     fun `ProfielServiceFoutException uit resolver propageert en zet FOUT-status`() {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns
@@ -212,6 +276,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         ).also { it.valideerTimeouts() }
 
         val eerderBericht = Bericht(
@@ -295,6 +360,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -314,6 +380,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -336,6 +403,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -356,6 +424,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -374,6 +443,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -392,6 +462,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 0L,
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -847,6 +918,7 @@ class BerichtensessiecacheServiceTest {
                 cacheAwaitTimeoutSeconds = 5L,
                 bulkhead = teKrap,
                 circuitBreaker = testBreaker,
+                sessies = sessies,
             ).valideerTimeouts()
         }
 
@@ -870,6 +942,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = exact,
             circuitBreaker = testBreaker,
+            sessies = sessies,
         ).valideerTimeouts()
     }
 
@@ -991,6 +1064,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = volBulkhead,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+            sessies = sessies,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
@@ -1062,6 +1136,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = balansBulkhead,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+            sessies = sessies,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
@@ -1138,6 +1213,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = bulkheadMetGrens,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+            sessies = sessies,
         ).also { it.valideerTimeouts() }
 
         val magazijnIds = (1..aantalMagazijnen).map { nummer -> "magazijn-%03d".format(nummer) }
@@ -1215,6 +1291,7 @@ class BerichtensessiecacheServiceTest {
             cacheAwaitTimeoutSeconds = 5L,
             bulkhead = bulkheadKortBudget,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+            sessies = sessies,
         ).also { it.valideerTimeouts() }
 
         // 100 organisaties × 200 ms bij 5 tegelijk = twintig golven van 200 ms; de hele ronde duurt
@@ -1623,6 +1700,7 @@ class BerichtensessiecacheServiceTest {
         cacheAwaitTimeoutSeconds = 5L,
         bulkhead = testBulkhead,
         circuitBreaker = testBreaker,
+        sessies = sessies,
         paginaLezer = paginaLezer,
     ).also { it.valideerTimeouts() }
 

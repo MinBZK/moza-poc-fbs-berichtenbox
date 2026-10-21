@@ -17,7 +17,9 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured
 import io.restassured.RestAssured.given
+import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.WireMockBackendsResource
 import org.hamcrest.CoreMatchers.containsString
 import org.hamcrest.CoreMatchers.equalTo
@@ -52,6 +54,19 @@ class UitvraagKetenE2eTest {
     private val profiel get() = WireMockBackendsResource.profiel
     private val magazijnA get() = WireMockBackendsResource.magazijnA
     private val magazijnB get() = WireMockBackendsResource.magazijnB
+
+    @Inject
+    lateinit var sessiecache: Sessiecache
+
+    /**
+     * Een ophaalronde of aanmelding zonder lopende sessie ruimt na het schrijven alles weer op; deze
+     * keten toetst wat er binnen een sessie gebeurt. Eén sessie per ontvanger voor de hele klasse,
+     * want per test een nieuwe zou de grens van vijf per ontvanger halen.
+     */
+    @BeforeEach
+    fun startSessies() {
+        ONTVANGERS.filter(gestart::add).forEach { sessiecache.startSessie(Bsn(it)) }
+    }
 
     @BeforeEach
     fun resetStubs() {
@@ -628,6 +643,15 @@ private val OIN_B = WireMockBackendsResource.OIN_B
 
 // Gelijk aan `berichtensessiecache.magazijn-page-size`; een grotere stub-pagina wijst de lezer af.
 private const val MAGAZIJN_PAGINA = 100
+
+// Elke ontvanger die deze keten gebruikt; ontbreekt er een, dan ruimt zijn ophaalronde zichzelf op.
+private val ONTVANGERS = listOf(
+    "999990019", "999990020", "999990032", "999990044", "999990056",
+    "999990111", "999990123", "999991401", "999993653",
+)
+
+// Klassebreed: de testinstantie is per test nieuw, de Redis-container niet.
+private val gestart = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
 /**
  * Echte facade-keten: Redis via Dev Services (Redis Stack — RediSearch is nodig
