@@ -235,6 +235,74 @@ class BerichtensessiecacheServiceTest {
         assertTrue(events.filterIsInstance<OphalenGereed>().isEmpty(), "Events: $events")
     }
 
+    @ParameterizedTest(name = "opruimen faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `na de FOUT-status van een mislukte ronde volgt de opruimcontrole, zonder de melding te veranderen`(opruimenFaalt: Boolean) {
+        val client = mockk<MagazijnClient>()
+
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { clientFactory.getAllMagazijnen() } returns mapOf("magazijn-a" to IngeschrevenMagazijn(client, "Magazijn A"))
+        every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
+        every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().failure(RuntimeException("Redis store down"))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(cacheKey) } returns
+            if (opruimenFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        assertEquals(1, events.filterIsInstance<OphalenMisluktNaBevraging>().size, "Events: $events")
+        io.mockk.verifyOrder {
+            berichtenCache.storeAggregationStatus(cacheKey, match { it.status == OphalenStatus.FOUT })
+            sessies.ruimOpZonderSessie(cacheKey)
+        }
+    }
+
+    @ParameterizedTest(name = "opruimen faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `na de FOUT-status bij een resolverfout volgt de opruimcontrole, zonder de fout te veranderen`(opruimenFaalt: Boolean) {
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(500))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(cacheKey) } returns
+            if (opruimenFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
+
+        assertThrows<ProfielServiceFoutException> { service.haalBerichtenOp(ontvanger) }
+
+        io.mockk.verifyOrder {
+            berichtenCache.storeAggregationStatus(cacheKey, match { it.status == OphalenStatus.FOUT })
+            sessies.ruimOpZonderSessie(cacheKey)
+        }
+    }
+
+    @Test
+    fun `een FOUT-status die niet geschreven kon worden, krijgt geen opruimcontrole`() {
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(500))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+
+        assertThrows<ProfielServiceFoutException> { service.haalBerichtenOp(ontvanger) }
+
+        verify(exactly = 0) { sessies.ruimOpZonderSessie(any()) }
+    }
+
+    @ParameterizedTest(name = "opruimen faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `verwijderen volgt met de opruimcontrole en slaagt ook als die faalt`(opruimenFaalt: Boolean) {
+        val sleutel = BerichtSleutel("magazijn-a", UUID.randomUUID())
+        every { berichtenCache.delete(sleutel, ontvanger) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(cacheKey) } returns
+            if (opruimenFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
+
+        service.verwijderBericht(sleutel, ontvanger).await().atMost(Duration.ofSeconds(5))
+
+        io.mockk.verifyOrder {
+            berichtenCache.delete(sleutel, ontvanger)
+            sessies.ruimOpZonderSessie(cacheKey)
+        }
+    }
+
     @Test
     fun `ProfielServiceFoutException uit resolver propageert en zet FOUT-status`() {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)

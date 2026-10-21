@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnClientFactory
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
@@ -29,6 +30,7 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -64,6 +66,67 @@ class SessieOpruimenTest {
         MockMagazijnClientFactory.tegenhouden?.countDown()
         MockMagazijnClientFactory.tegenhouden = null
         MockMagazijnClientFactory.bevraagd = null
+        MockMagazijnResolver.tegenhouden?.countDown()
+        MockMagazijnResolver.tegenhouden = null
+        MockMagazijnResolver.bereikt = null
+        MockMagazijnResolver.fout = null
+    }
+
+    @Test
+    fun `een mislukte ronde die kruist met het einde van de laatste sessie laat geen status achter`() {
+        // De FOUT-status volgt op het opruimen; de verloopindex kent de ontvanger dan al niet meer,
+        // dus zonder opruimen na die schrijfactie blijft hij tot de vangnet-TTL staan.
+        val sessie = sessiecache.startSessie(ontvanger)
+        vulAlsOpgehaald(listOf(bericht()))
+        val bereikt = CountDownLatch(1)
+        MockMagazijnResolver.bereikt = bereikt
+        MockMagazijnResolver.tegenhouden = CountDownLatch(1)
+        MockMagazijnResolver.fout = IllegalStateException("resolver stuk")
+
+        val ronde = CompletableFuture.supplyAsync { runCatching { sessiecache.ophalen(ontvanger) } }
+
+        assertTrue(bereikt.await(WACHTTIJD_S, TimeUnit.SECONDS), "de ronde kwam niet bij de resolver")
+        assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(sessie.sessieId, ontvanger))
+        MockMagazijnResolver.tegenhouden?.countDown()
+
+        assertTrue(ronde.get(RONDE_S, TimeUnit.SECONDS).isFailure, "de ronde hoort te falen")
+        assertNietsAchter(emptyList())
+    }
+
+    @Test
+    fun `verwijderen dat kruist met het einde van de laatste sessie laat geen tombstone achter`() {
+        // Zonder lopende sessie op het moment van schrijven: zoals een delete die de hash nog las
+        // vóór het opruimen en zijn tombstone erna schrijft.
+        val berichten = listOf(bericht())
+        vulAlsOpgehaald(berichten)
+
+        sessiecache.verwijder(ontvanger, berichten[0].magazijnId, berichten[0].berichtId)
+
+        assertFalse(bestaat(BerichtenCache.verwijderdKey(ontvanger, berichten[0].sleutel)))
+        assertNietsAchter(berichten)
+    }
+
+    @Test
+    fun `verwijderen naast een lopende sessie laat de tombstone staan`() {
+        sessiecache.startSessie(ontvanger)
+        val berichten = listOf(bericht())
+        vulAlsOpgehaald(berichten)
+
+        sessiecache.verwijder(ontvanger, berichten[0].magazijnId, berichten[0].berichtId)
+
+        assertTrue(bestaat(BerichtenCache.verwijderdKey(ontvanger, berichten[0].sleutel)))
+    }
+
+    @Test
+    fun `opruimen wist een sleutelset die groter is dan één stuk`() {
+        // 1001: het tweede stuk heeft precies één lid, de grens waar een rekenfout in de stukken zit.
+        val sleutels = (1..AANTAL_OVER_GRENS).map { "$k:verwijderd:grens:$it" }
+        redis.value(String::class.java).mset(sleutels.associateWith { "1" }).await().atMost(WACHTTIJD)
+        redis.set(String::class.java).sadd("$k:sleutels", *sleutels.toTypedArray()).await().atMost(WACHTTIJD)
+
+        assertTrue(sessies.ruimOpZonderSessie(k).await().atMost(WACHTTIJD))
+
+        assertEquals(emptyList<String>(), sleutelsOnder(k))
     }
 
     @ParameterizedTest(name = "{0} berichten")
@@ -298,6 +361,7 @@ class SessieOpruimenTest {
         const val MAX_DUUR_MS = 20_000L
         const val DATA_TTL_MS = 21_000L
         const val LOCK_TTL_MS = 5_000L
+        const val AANTAL_OVER_GRENS = 1001
         private val teller = AtomicLong(System.nanoTime())
 
         fun nieuweOntvanger() = Oin(teller.incrementAndGet().toString().padStart(20, '0').takeLast(20))

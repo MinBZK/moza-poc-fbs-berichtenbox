@@ -220,8 +220,26 @@ internal class BerichtensessiecacheService(
     fun verwijderBericht(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> {
         log.debugf("Verwijderen bericht uit cache: %s", sleutel)
 
+        // Een delete die met het einde van de laatste sessie kruist, schrijft zijn tombstone ná
+        // het opruimen; de controle erna haalt die weer weg.
         return berichtenCache.delete(sleutel, ontvanger)
+            .call { _ -> ruimOpBestEffort(BerichtenCache.cacheKey(ontvanger)) }
     }
+
+    /**
+     * Ruimt op als er geen lopende sessie meer is, na een schrijfactie waarvan de uitkomst al vaststaat:
+     * een tombstone of een FOUT-status. Mislukt dat, dan blijft er hooguit iets staan tot de
+     * vangnet-TTL; de handeling zelf hoort daar niet alsnog op te falen. Alleen de fout-soort in de
+     * log: de cacheKey is een hash van de ontvanger.
+     */
+    private fun ruimOpBestEffort(cacheKey: String): Uni<Void> =
+        sessies.ruimOpZonderSessie(cacheKey)
+            .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
+            .onFailure().invoke { e ->
+                log.warnf("Opruimen zonder lopende sessie mislukt (fout=%s); de vangnet-TTL ruimt het op", e.javaClass.name)
+            }
+            .onFailure().recoverWithNull()
+            .replaceWithVoid()
 
     /**
      * Orkestreert het ophalen van berichten uit de magazijnen die de [MagazijnResolver]
@@ -930,6 +948,9 @@ internal class BerichtensessiecacheService(
         )
 
         return berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
+            // Ook een mislukte ronde kan met het einde van de laatste sessie kruisen; de
+            // verloopindex kent de ontvanger dan niet meer, dus niemand anders ruimt de status op.
+            .call { _ -> ruimOpBestEffort(cacheKey) }
             // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
             // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
             // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
@@ -995,6 +1016,10 @@ internal class BerichtensessiecacheService(
             ).await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
 
             log.warnf("Lock vrijgegeven na fout (errorId=%s) voor key=%s: %s", errorId, cacheKey, oorzaak)
+
+            // Zoals na een mislukte ronde: eindigde de laatste sessie intussen, dan blijft de
+            // FOUT-status anders staan zonder dat de veegtaak de ontvanger nog kent.
+            ruimOpBestEffort(cacheKey).await().indefinitely()
         } catch (cleanupEx: Exception) {
             // Een afbreking is ook hier geen storing: een rolling restart tijdens een lopende
             // ophaalstart zou anders gegarandeerd een FATAL met alert-marker per onderbroken
