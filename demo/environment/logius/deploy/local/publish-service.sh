@@ -8,6 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
+fsc_lokale_engine
 
 # Zet $HAVE_JQ; de vergelijking van de bestaande upstream leest de controller-JSON met jq.
 #

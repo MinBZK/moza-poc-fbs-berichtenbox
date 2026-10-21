@@ -231,3 +231,10 @@ opstellingen buiten de PR-beschrijving.
   gepubliceerde poorten vrij zijn, en stoppen anders met de bezette poorten. Vier nieuwe asserties
   in de suite onder `demo/lib/` (62), en nagespeeld met de echte render van de logius-peer en een
   listener op 8081.
+- Na een start in bridge op macOS faalde `run-smokes.sh` met `service "postgres" is not running`,
+  terwijl postgres draaide. `up.sh` kiest de socket van podman machine zelf en zet `DOCKER_HOST`
+  alleen voor zichzelf; de los gestarte smokes spraken de standaardengine van de docker-CLI aan
+  (Rancher Desktop), waar geen logius draait. De peer-scripts die compose aanroepen
+  (`smoke-*`, `publish-service.sh`, `consume-service.sh`) kiezen de engine nu op dezelfde manier
+  (`fsc_lokale_engine`); een gezette `DOCKER_HOST` blijft staan. Nagespeeld met een `uname`- en
+  `podman machine`-stub: zonder `DOCKER_HOST` landt compose op de podman-socket.

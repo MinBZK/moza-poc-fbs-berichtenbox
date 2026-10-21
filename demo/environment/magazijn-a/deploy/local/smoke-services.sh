@@ -7,6 +7,10 @@
 # dus een fout daarin moet luid falen in plaats van onder een groene keten te verdwijnen.
 set -euo pipefail
 
+# shellcheck source=../../../lib/fsc-harness.sh
+source "$(dirname "$0")/../../../lib/fsc-harness.sh"
+fsc_lokale_engine
+
 COMPOSE=(docker compose -f "$(dirname "$0")/compose.yaml")
 
 echo "smoke: containerstatus controleren..."

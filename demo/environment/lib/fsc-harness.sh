@@ -4,6 +4,21 @@
 # GROUP_ID) staat in elk script zelf — hier alleen het generieke idioom. bash 3.2-compatibel
 # (macOS-default, zie smoke-services.sh): geen associative arrays, geen mapfile, geen ${var^^}.
 
+# --- engine -----------------------------------------------------------------------------------
+
+# fsc_lokale_engine: laat `docker compose` dezelfde engine aanspreken als deploy/local/up.sh. Dat
+# script kiest de socket zelf (op macOS die van podman machine) en zet hem alleen voor zichzelf; een
+# los gestarte smoke sprak anders de standaardengine van de docker-CLI aan, vond daar geen
+# containers en meldde `service "postgres" is not running`. Een gezette DOCKER_HOST blijft staan.
+# Alleen voor de lokale harnessen: in een ZAD-container is er geen engine om te kiezen.
+fsc_lokale_engine() {
+  # shellcheck source=../../lib/podman-modus.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../../lib/podman-modus.sh"
+  # shellcheck disable=SC2034  # gelezen door modus_engine.
+  MODUS_DOCKER_TOEGESTAAN=1
+  modus_engine
+}
+
 # --- ERRLOG-levenscyclus --------------------------------------------------------------------
 
 # fsc_errlog_init: mktemp + trap, zet de globale $ERRLOG. Aanroepen ná `set -euo pipefail`.

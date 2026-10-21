@@ -8,6 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
+fsc_lokale_engine
 
 COMPOSE=(docker compose -f "$HERE/compose.yaml")
 CONSUMER_OIN="00000000000000001000"

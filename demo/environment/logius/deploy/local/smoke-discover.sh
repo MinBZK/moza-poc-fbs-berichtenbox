@@ -10,6 +10,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
+fsc_lokale_engine
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/compose.yaml")
