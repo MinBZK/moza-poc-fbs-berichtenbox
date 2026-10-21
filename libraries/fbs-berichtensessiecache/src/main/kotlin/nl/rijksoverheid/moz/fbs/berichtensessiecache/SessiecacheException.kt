@@ -44,4 +44,13 @@ sealed class SessiecacheException(message: String, cause: Throwable? = null) : R
      * andere ontvanger: die krijgt de misser die hij ook voor een onbekend bericht zou krijgen.
      */
     class BerichtVerwijderd(message: String) : SessiecacheException(message)
+
+    /**
+     * Het sessie-id is geen lopende sessie van deze ontvanger: onbekend, verlopen of van een ander.
+     * Eén geval, zodat een aanroeper niet kan aftasten welke id's ooit bestonden.
+     */
+    class SessieOngeldig(message: String) : SessiecacheException(message)
+
+    /** De ontvanger heeft al het maximum aantal lopende sessies; een nieuwe start wordt geweigerd. */
+    class TeVeelSessies(message: String) : SessiecacheException(message)
 }

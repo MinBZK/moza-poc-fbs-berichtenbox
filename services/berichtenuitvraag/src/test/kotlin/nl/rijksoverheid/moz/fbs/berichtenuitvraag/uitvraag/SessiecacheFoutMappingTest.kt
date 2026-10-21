@@ -37,6 +37,8 @@ class SessiecacheFoutMappingTest {
         assertEquals(400, SessiecacheException.OngeldigeInvoer("x").naApiFout().response.status)
         assertEquals(404, SessiecacheException.GeenActieveSessie("x").naApiFout().response.status)
         assertEquals(410, SessiecacheException.BerichtVerwijderd("x").naApiFout().response.status)
+        assertEquals(401, SessiecacheException.SessieOngeldig("x").naApiFout().response.status)
+        assertEquals(429, SessiecacheException.TeVeelSessies("x").naApiFout().response.status)
     }
 
     @Test
@@ -50,6 +52,8 @@ class SessiecacheFoutMappingTest {
             SessiecacheException.OngeldigeInvoer("x") to Foutcode.ONGELDIG_VERZOEK,
             SessiecacheException.GeenActieveSessie("x") to Foutcode.GEEN_ACTIEVE_SESSIE,
             SessiecacheException.BerichtVerwijderd("x") to Foutcode.BERICHT_VERWIJDERD,
+            SessiecacheException.SessieOngeldig("x") to Foutcode.SESSIE_ONGELDIG,
+            SessiecacheException.TeVeelSessies("x") to Foutcode.TE_VEEL_SESSIES,
         )
 
         kenmerken.forEach { (uitkomst, verwacht) ->
@@ -74,6 +78,8 @@ class SessiecacheFoutMappingTest {
             SessiecacheException.OngeldigeInvoer("x"),
             SessiecacheException.GeenActieveSessie("x"),
             SessiecacheException.BerichtVerwijderd("x"),
+            SessiecacheException.SessieOngeldig("x"),
+            SessiecacheException.TeVeelSessies("x"),
         )
 
         gevallen.forEach { geval ->
@@ -98,6 +104,8 @@ class SessiecacheFoutMappingTest {
         assertFalse(SessiecacheException.OngeldigeInvoer("x").isStoring())
         assertFalse(SessiecacheException.GeenActieveSessie("x").isStoring())
         assertFalse(SessiecacheException.BerichtVerwijderd("x").isStoring())
+        assertFalse(SessiecacheException.SessieOngeldig("x").isStoring())
+        assertFalse(SessiecacheException.TeVeelSessies("x").isStoring())
     }
 
     /**

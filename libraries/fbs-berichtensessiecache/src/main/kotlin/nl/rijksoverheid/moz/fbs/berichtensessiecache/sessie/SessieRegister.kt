@@ -1,0 +1,152 @@
+package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
+
+import io.quarkus.redis.datasource.ReactiveRedisDataSource
+import io.quarkus.runtime.Startup
+import io.smallrye.mutiny.Uni
+import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisBerichtenCache
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.time.Instant
+import java.util.Base64
+import java.util.HexFormat
+
+/**
+ * De lopende inlogsessies per ontvanger. Een sessie-id komt hier alleen als argument binnen; opslag
+ * en vergelijking gaan over `sha256(id)`, zodat een dump van Redis geen bruikbare sessies oplevert.
+ */
+internal interface SessieRegister {
+
+    /** Start een sessie, of levert `null` als de ontvanger al het maximum aantal lopende sessies heeft. */
+    fun start(ontvanger: Identificatienummer): Uni<SessieStart?>
+
+    /** Of [sessieId] een lopende sessie van [ontvanger] is; zo ja, dan is hij nu verlengd. */
+    fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean>
+
+    fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde>
+}
+
+/**
+ * `@Startup` zodat een ongeldige sessieconfiguratie de pod bij het opstarten tegenhoudt en niet pas
+ * bij de eerste inlog.
+ */
+@Startup
+@ApplicationScoped
+internal class RedisSessieRegister(
+    private val redis: ReactiveRedisDataSource,
+    private val config: SessieConfig,
+) : SessieRegister {
+
+    init {
+        // Een duur van nul laat elke sessie direct verlopen, of — bij het veeginterval — de veegtaak
+        // onafgebroken draaien; een grens van nul weigert elke inlog.
+        require(config.inactiviteit().isPositive) {
+            "berichtensessiecache.sessie.inactiviteit (${config.inactiviteit()}) moet groter zijn dan 0"
+        }
+
+        require(config.maxDuur().isPositive) {
+            "berichtensessiecache.sessie.max-duur (${config.maxDuur()}) moet groter zijn dan 0"
+        }
+
+        require(config.vangnetMarge().isPositive) {
+            "berichtensessiecache.sessie.vangnet-marge (${config.vangnetMarge()}) moet groter zijn dan 0"
+        }
+
+        require(config.maxPerOntvanger() > 0) {
+            "berichtensessiecache.sessie.max-per-ontvanger (${config.maxPerOntvanger()}) moet groter zijn dan 0"
+        }
+
+        require(config.veegInterval().isPositive) {
+            "berichtensessiecache.sessie.veeg-interval (${config.veegInterval()}) moet groter zijn dan 0"
+        }
+    }
+
+    override fun start(ontvanger: Identificatienummer): Uni<SessieStart?> {
+        val sessieId = nieuweSessieId()
+        val argumenten = listOf(
+            hash(sessieId),
+            config.inactiviteit().toMillis().toString(),
+            config.maxDuur().toMillis().toString(),
+            config.maxPerOntvanger().toString(),
+            ontvanger.toCanonicalString(),
+            // Geen sessie leeft langer dan start + maximale duur, dus de laatste start bepaalt hoe
+            // lang de administratie moet blijven staan.
+            config.maxDuur().plus(config.vangnetMarge()).toMillis().toString(),
+        )
+
+        return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
+            if (antwoord.get(0).toInteger() == 0) {
+                null
+            } else {
+                SessieStart(
+                    sessieId = sessieId,
+                    uiterlijkGeldigTot = Instant.ofEpochMilli(antwoord.get(1).toLong()),
+                    restenOpgeruimd = antwoord.get(2).toLong() > 0,
+                )
+            }
+        }
+    }
+
+    override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean> {
+        // Wat niet de vorm van een uitgegeven id heeft, kan geen sessie zijn; dat hoeft Redis niet te zien.
+        if (!SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(false)
+
+        val argumenten = listOf(
+            hash(sessieId),
+            config.inactiviteit().toMillis().toString(),
+            ontvanger.toCanonicalString(),
+        )
+
+        return voerUit(SessieScripts.RAAK, ontvanger, argumenten).map { it.toInteger() == 1 }
+    }
+
+    override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> {
+        if (!SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(SessieEinde.ONBEKEND)
+
+        val argumenten = listOf(hash(sessieId), ontvanger.toCanonicalString())
+
+        return voerUit(SessieScripts.EINDE, ontvanger, argumenten).map { SessieEinde.valueOf(it.toString()) }
+    }
+
+    private fun voerUit(script: String, ontvanger: Identificatienummer, argumenten: List<String>) =
+        sleutels(ontvanger).let { keys ->
+            redis.execute("EVAL", script, keys.size.toString(), *keys.toTypedArray(), *argumenten.toTypedArray())
+        }
+
+    companion object {
+        /** Stelselbreed: per ontvanger het verloop van zijn laatst verlopende sessie, voor het actief opruimen. */
+        const val VERLOOP_INDEX = "berichtensessiecache:v4:verloop"
+
+        /** 128 bits, base64url zonder opvulling. */
+        private const val SESSIE_ID_BYTES = 16
+        private val SESSIE_ID_VORM = Regex("^[A-Za-z0-9_-]{22}$")
+
+        private val RANDOM = SecureRandom()
+        private val HEX = HexFormat.of()
+
+        /** De KEYS van elk script in [SessieScripts], in de volgorde die daar beschreven staat. */
+        fun sleutels(ontvanger: Identificatienummer): List<String> {
+            val k = BerichtenCache.cacheKey(ontvanger)
+
+            return listOf(
+                "$k:sessies",
+                "$k:sessies:uiterlijk",
+                VERLOOP_INDEX,
+                RedisBerichtenCache.listKey(k),
+                RedisBerichtenCache.statusKey(k),
+                RedisBerichtenCache.lockKey(k),
+            )
+        }
+
+        private fun nieuweSessieId(): String {
+            val bytes = ByteArray(SESSIE_ID_BYTES).also(RANDOM::nextBytes)
+
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        }
+
+        private fun hash(sessieId: String): String =
+            HEX.formatHex(MessageDigest.getInstance("SHA-256").digest(sessieId.toByteArray(Charsets.UTF_8)))
+    }
+}

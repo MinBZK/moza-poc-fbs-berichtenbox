@@ -1105,9 +1105,9 @@ internal class RedisBerichtenCache(
         // PTTL-antwoord voor een sleutel die niet (meer) bestaat.
         private const val SLEUTEL_ONTBREEKT = -2L
 
-        private fun listKey(key: String) = "$key:list"
-        private fun statusKey(key: String) = "$key:status"
-        private fun lockKey(key: String) = "$key:lock"
+        internal fun listKey(key: String) = "$key:list"
+        internal fun statusKey(key: String) = "$key:status"
+        internal fun lockKey(key: String) = "$key:lock"
 
         // TypeReference voor Jackson-deserialisatie van de `bijlagen`-hash-field (JSON-array).
         private val BIJLAGE_LIST_TYPE = object : TypeReference<List<BijlageSamenvatting>>() {}

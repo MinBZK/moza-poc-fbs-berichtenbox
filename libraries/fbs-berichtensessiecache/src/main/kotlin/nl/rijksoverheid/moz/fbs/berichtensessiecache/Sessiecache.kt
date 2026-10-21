@@ -6,6 +6,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.util.UUID
 
@@ -130,4 +132,30 @@ interface Sessiecache {
      * [SessieGebeurtenis.SessieVerlopen]: de sessie loopt dan nog, en de afnemer verbindt opnieuw.
      */
     fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis>
+
+    /**
+     * Start een inlogsessie voor [ontvanger]. Loopt er voor hem nog geen andere sessie, dan worden
+     * eerst de gegevens van een eerdere, verlopen sessie gewist: een sessie begint met een vers
+     * beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
+     *
+     * Gooit [SessiecacheException.TeVeelSessies] wanneer [ontvanger] al het maximum aantal lopende
+     * sessies heeft (`berichtensessiecache.sessie.max-per-ontvanger`); er wordt geen bestaande
+     * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
+     */
+    fun startSessie(ontvanger: Identificatienummer): SessieStart
+
+    /**
+     * Controleert dat [sessieId] een lopende sessie van [ontvanger] is en verlengt hem met de
+     * inactiviteitsduur, nooit voorbij de maximale duur vanaf de start. Gooit
+     * [SessiecacheException.SessieOngeldig] voor een onbekende, verlopen of andermans sessie — die
+     * drie zijn voor de aanroeper bewust niet te onderscheiden.
+     */
+    fun raakSessie(sessieId: String, ontvanger: Identificatienummer)
+
+    /**
+     * Beëindigt de sessie [sessieId] van [ontvanger]. Was dat zijn laatste lopende sessie, dan
+     * worden zijn gegevens gewist ([SessieEinde.OPGERUIMD]). Idempotent: een onbekende of al
+     * verlopen sessie is geen fout maar [SessieEinde.ONBEKEND].
+     */
+    fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
 }

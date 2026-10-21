@@ -17,6 +17,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
@@ -36,6 +39,7 @@ internal class BlockingSessiecache(
     private val service: BerichtensessiecacheService,
     private val volger: SessieVolger,
     private val register: Magazijnregister,
+    private val sessies: SessieRegister,
     // Begrenzing op de blocking-await van de facade over élk lees-/schrijfpad van het
     // Sessiecache-contract (de paden raken een lokale/naast-de-pod Redis, geen remote
     // magazijn-RTT — vandaar dezelfde 5s-ondergrens als cache-await-timeout-seconds).
@@ -176,6 +180,19 @@ internal class BlockingSessiecache(
 
         return volger.volg(ontvanger)
     }
+
+    override fun startSessie(ontvanger: Identificatienummer): SessieStart =
+        awaitOrServiceUnavailable { sessies.start(ontvanger) }
+            ?: throw SessiecacheException.TeVeelSessies("Er lopen al te veel sessies voor deze ontvanger.")
+
+    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer) {
+        val loopt = awaitOrServiceUnavailable { sessies.raak(sessieId, ontvanger) }
+
+        if (!loopt) throw SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
+    }
+
+    override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
+        awaitOrServiceUnavailable { sessies.beeindig(sessieId, ontvanger) }
 
     /**
      * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en

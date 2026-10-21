@@ -10,6 +10,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldDeduplicatie
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldService
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldBerichtData
@@ -108,6 +110,15 @@ object AanmeldCloudEventFuzzer {
             override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht = bericht
 
             override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> =
+                throw UnsupportedOperationException()
+
+            override fun startSessie(ontvanger: Identificatienummer): SessieStart =
+                throw UnsupportedOperationException()
+
+            override fun raakSessie(sessieId: String, ontvanger: Identificatienummer): Unit =
+                throw UnsupportedOperationException()
+
+            override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
                 throw UnsupportedOperationException()
         }
 

@@ -12,7 +12,10 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
@@ -69,7 +72,13 @@ class MockSessiecache : Sessiecache {
     val schrijfFouten = ArrayDeque<SessiecacheException>()
     val schrijfAanroepen = mutableListOf<Bericht>()
 
+    /** Lopende sessies: id → ontvanger. Geen verloop; dat gedrag wordt in de library getest. */
+    val sessies = ConcurrentHashMap<String, Identificatienummer>()
+    var startSessieFout: SessiecacheException? = null
+
     fun reset() {
+        sessies.clear()
+        startSessieFout = null
         berichten.clear()
         schrijfFouten.clear()
         schrijfAanroepen.clear()
@@ -174,6 +183,25 @@ class MockSessiecache : Sessiecache {
         return volgGebeurtenissen
     }
 
+    override fun startSessie(ontvanger: Identificatienummer): SessieStart {
+        startSessieFout?.let { throw it }
+
+        val sessieId = UUID.randomUUID().toString().replace("-", "").take(SESSIE_ID_LENGTE)
+        sessies[sessieId] = ontvanger
+
+        return SessieStart(sessieId, Instant.now().plusSeconds(900), restenOpgeruimd = false)
+    }
+
+    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer) {
+        if (sessies[sessieId] != ontvanger) throw SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
+    }
+
+    override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde {
+        if (!sessies.remove(sessieId, ontvanger)) return SessieEinde.ONBEKEND
+
+        return if (sessies.containsValue(ontvanger)) SessieEinde.BEEINDIGD else SessieEinde.OPGERUIMD
+    }
+
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {
         val alle = berichten.values.sortedByDescending { it.publicatietijdstip }.map { it.toSamenvatting() }
         val grootte = paginaGrootte ?: 20
@@ -188,6 +216,9 @@ class MockSessiecache : Sessiecache {
         )
     }
 }
+
+// Gelijk aan de lengte van een echt sessie-id, zodat de vorm-eis van de uitvraag-API hem accepteert.
+private const val SESSIE_ID_LENGTE = 22
 
 /**
  * Activeert [MockSessiecache] als alternative voor de echte facade. Redis blijft

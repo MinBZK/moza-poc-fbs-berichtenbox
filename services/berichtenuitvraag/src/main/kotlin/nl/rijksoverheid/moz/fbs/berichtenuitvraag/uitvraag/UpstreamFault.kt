@@ -117,6 +117,8 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
     is SessiecacheException.OngeldigeInvoer,
     is SessiecacheException.GeenActieveSessie,
     is SessiecacheException.BerichtVerwijderd,
+    is SessiecacheException.SessieOngeldig,
+    is SessiecacheException.TeVeelSessies,
     -> false
 }
 
@@ -146,6 +148,10 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
     // bestond en weg is. De cache honoreert de tombstone alleen voor de eigenaar, dus dit
     // antwoord verraadt niets over het bericht van een ander.
     is SessiecacheException.BerichtVerwijderd -> cacheFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE)
+    is SessiecacheException.SessieOngeldig -> cacheFout(Foutcode.SESSIE_ONGELDIG, Response.Status.UNAUTHORIZED)
+    // 429 en geen 409: de grens is een tijdelijke toestand die verdwijnt zodra een andere sessie
+    // eindigt of verloopt.
+    is SessiecacheException.TeVeelSessies -> cacheFout(Foutcode.TE_VEEL_SESSIES, Response.Status.TOO_MANY_REQUESTS)
 }
 
 /** Cache-fout met kenmerk; de message van de cache blijft het detail. */

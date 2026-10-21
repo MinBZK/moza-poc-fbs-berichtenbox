@@ -25,6 +25,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -68,7 +71,8 @@ class BlockingSessiecacheTest {
 
         override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
     }
-    private val facade = BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 5)
+    private val sessies = mockk<SessieRegister>()
+    private val facade = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
@@ -89,6 +93,7 @@ class BlockingSessiecacheTest {
         const val MAGAZIJN = "00000001003214345000"
         const val MAGAZIJN_B = "00000001823288444000"
         const val ONBEKEND_MAGAZIJN = "00000009999999999999"
+        const val SESSIE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
 
         @JvmStatic
         fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
@@ -535,12 +540,56 @@ class BlockingSessiecacheTest {
         assertThrows<SessiecacheException.Onbereikbaar> { facade.lijst(ontvanger) }
     }
 
+    // --- sessies ---
+
+    @Test
+    fun `startSessie geeft de gestarte sessie door`() {
+        val start = SessieStart("AAAAAAAAAAAAAAAAAAAAAA", Instant.parse("2026-10-21T12:00:00Z"), restenOpgeruimd = true)
+        every { sessies.start(ontvanger) } returns Uni.createFrom().item(start)
+
+        assertSame(start, facade.startSessie(ontvanger))
+    }
+
+    @Test
+    fun `startSessie op de grens gooit TeVeelSessies`() {
+        every { sessies.start(ontvanger) } returns Uni.createFrom().nullItem()
+
+        assertThrows<SessiecacheException.TeVeelSessies> { facade.startSessie(ontvanger) }
+    }
+
+    @Test
+    fun `raakSessie zonder lopende sessie gooit SessieOngeldig`() {
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(false)
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.raakSessie(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `beeindigSessie geeft de uitkomst door`() {
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(SessieEinde.BEEINDIGD)
+
+        assertEquals(SessieEinde.BEEINDIGD, facade.beeindigSessie(SESSIE_ID, ontvanger))
+    }
+
+    @Test
+    fun `een Redis-storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
+        // Een storing als ongeldige sessie melden zou elke ingelogde gebruiker uitloggen.
+        val storing = IllegalStateException("redis connection reset")
+        every { sessies.start(ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.startSessie(ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.raakSessie(SESSIE_ID, ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.beeindigSessie(SESSIE_ID, ontvanger) }
+    }
+
     // --- config-validatie facade-await-timeout ---
 
     @Test
     fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
         val ex = assertThrows<IllegalArgumentException> {
-            BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 0)
+            BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 0)
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")
