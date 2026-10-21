@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtLinks
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BijlageLinks
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BijlageMetadata
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.NietGeleverdeOrganisatie
@@ -19,6 +20,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd as D
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.MagazijnStatus as ApiMagazijnStatus
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 /**
  * Mapt tussen de uitvraag-API-modellen, het sessiecache-domein en het
@@ -96,7 +98,7 @@ object UitvraagDtoMapper {
         map = bericht.map
         status = toApiStatus(bericht.status)
         magazijnId = bericht.magazijnId
-        bijlagen = bericht.bijlagen.map { toApiBijlage(it) }
+        bijlagen = bericht.bijlagen.map { toApiBijlage(bericht.magazijnId, bericht.berichtId, it) }
         links = berichtLinks(bericht.magazijnId, bericht.berichtId)
     }
 
@@ -113,15 +115,23 @@ object UitvraagDtoMapper {
             links = berichtLinks(samenvatting.magazijnId, samenvatting.berichtId)
         }
 
-    private fun toApiBijlage(bijlage: DomeinBijlage): BijlageMetadata = BijlageMetadata().apply {
-        bijlageId = bijlage.bijlageId
-        naam = bijlage.naam
+    // Het magazijn hoort in elke link: een berichtnummer wijst pas samen met zijn magazijn één
+    // bericht aan, en wie de link volgt, hoeft dat niet zelf te weten.
+    private fun toApiBijlage(magazijnId: String, berichtId: UUID, bijlage: DomeinBijlage): BijlageMetadata =
+        BijlageMetadata().apply {
+            bijlageId = bijlage.bijlageId
+            naam = bijlage.naam
+            links = BijlageLinks().apply {
+                self = Link().apply {
+                    href = "${ApiInfo.BASE_PATH}/berichten/$berichtId/bijlagen/${bijlage.bijlageId}" +
+                        "?magazijnId=${queryWaarde(magazijnId)}"
+                }
+            }
+        }
+
+    private fun berichtLinks(magazijnId: String, berichtId: UUID): BerichtLinks = BerichtLinks().apply {
+        self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/$berichtId?magazijnId=${queryWaarde(magazijnId)}" }
     }
 
-    // Het magazijn hoort in de link: een berichtnummer wijst pas samen met zijn magazijn één
-    // bericht aan, en wie de link volgt, hoeft dat niet zelf te weten.
-    private fun berichtLinks(magazijnId: String, berichtId: java.util.UUID): BerichtLinks = BerichtLinks().apply {
-        val magazijn = URLEncoder.encode(magazijnId, StandardCharsets.UTF_8)
-        self = Link().apply { href = "${ApiInfo.BASE_PATH}/berichten/$berichtId?magazijnId=$magazijn" }
-    }
+    private fun queryWaarde(waarde: String): String = URLEncoder.encode(waarde, StandardCharsets.UTF_8)
 }
