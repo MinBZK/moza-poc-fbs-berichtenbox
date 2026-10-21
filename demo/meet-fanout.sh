@@ -79,9 +79,20 @@ import urllib.request
 
 uitvraag, ontvanger, bestand = sys.argv[1:4]
 
+# Elke ronde een eigen sessie: de uitvraag eist X-Sessie, en vervalcache() wist de sessies tussen de
+# rondes. Het id wordt niet geprint.
+try:
+    with urllib.request.urlopen(urllib.request.Request(
+        f"{uitvraag}/api/v1/sessies", headers={"X-Ontvanger": ontvanger}, method="POST",
+    ), timeout=30) as antwoord:
+        sessie = json.load(antwoord)["sessieId"]
+except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as fout:
+    print(f"FOUT: sessie starten voor {ontvanger} mislukte: {fout}", file=sys.stderr)
+    sys.exit(1)
+
 verzoek = urllib.request.Request(
     f"{uitvraag}/api/v1/berichten/_ophalen",
-    headers={"X-Ontvanger": ontvanger, "Accept": "text/event-stream"},
+    headers={"X-Ontvanger": ontvanger, "X-Sessie": sessie, "Accept": "text/event-stream"},
     method="GET",
 )
 
@@ -106,6 +117,15 @@ try:
 except (urllib.error.URLError, TimeoutError) as fout:
     print(f"FOUT: de ophaalronde voor {ontvanger} mislukte: {fout}", file=sys.stderr)
     sys.exit(1)
+finally:
+    # Beëindigen is idempotent; een mislukking laat de sessie hooguit verlopen.
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            f"{uitvraag}/api/v1/sessies/huidige",
+            headers={"X-Ontvanger": ontvanger, "X-Sessie": sessie}, method="DELETE",
+        ), timeout=30).close()
+    except (urllib.error.URLError, TimeoutError):
+        pass
 
 if not regels:
     print(f"FOUT: geen enkel event ontvangen voor {ontvanger}; de stroom staat in {bestand}", file=sys.stderr)

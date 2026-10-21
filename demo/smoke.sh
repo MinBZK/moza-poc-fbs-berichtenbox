@@ -72,11 +72,27 @@ lever_aan A "$MAGAZIJN_A" "$AFZENDER_OIN_A" "$onderwerp_a"
 echo "3/5 bericht aanleveren bij magazijn B"
 lever_aan B "$MAGAZIJN_B" "$AFZENDER_OIN_B" "$onderwerp_b"
 
+# Elke /berichten-aanroep eist een sessie (X-Sessie). Het id gaat nooit in een URL of in de uitvoer.
+start_sessie() {
+    local ontvanger="$1" antwoord
+    antwoord=$(curl -sf -X POST "$UITVRAAG/api/v1/sessies" -H "X-Ontvanger: $ontvanger") \
+        || { echo "FOUT: sessie starten voor $ontvanger mislukte"; exit 1; }
+    printf '%s' "$antwoord" | sed -n 's/.*"sessieId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+beeindig_sessie() {
+    curl -sf -X DELETE "$UITVRAAG/api/v1/sessies/huidige" \
+        -H "X-Ontvanger: $1" -H "X-Sessie: $2" > /dev/null \
+        || { echo "FOUT: sessie beëindigen voor $1 mislukte"; exit 1; }
+}
+
 echo "4/5 ophalen via uitvraag"
+SESSIE=$(start_sessie "$ONTVANGER")
+[ -n "$SESSIE" ] || { echo "FOUT: de uitvraag gaf geen sessieId terug"; exit 1; }
 # De sessiecache vult zich pas na een ophaal-ronde; GET /berichten leest alleen de cache.
 stream=/tmp/smoke-ophalen.txt
 curl -sf -N --max-time 30 "$UITVRAAG/api/v1/berichten/_ophalen" \
-    -H "X-Ontvanger: $ONTVANGER" > "$stream"
+    -H "X-Ontvanger: $ONTVANGER" -H "X-Sessie: $SESSIE" > "$stream"
 
 # Een 2xx op de stream zegt niets over de afzonderlijke magazijnen: die degraderen stilletjes.
 # De uitvraag levert per magazijn een 'magazijn-bevraging-voltooid'-event met status
@@ -117,12 +133,14 @@ for veld in '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' \
 done
 
 lijst=/tmp/smoke-berichten.json
-curl -sf "$UITVRAAG/api/v1/berichten" -H "X-Ontvanger: $ONTVANGER" > "$lijst"
+curl -sf "$UITVRAAG/api/v1/berichten" -H "X-Ontvanger: $ONTVANGER" -H "X-Sessie: $SESSIE" > "$lijst"
 
 for onderwerp in "$onderwerp_a" "$onderwerp_b"; do
     grep -q "$onderwerp" "$lijst" \
         || { echo "FOUT: '$onderwerp' niet gevonden in de uitvraag"; exit 1; }
 done
+
+beeindig_sessie "$ONTVANGER" "$SESSIE"
 
 echo "5/5 fan-out van de ondernemers"
 
@@ -133,11 +151,16 @@ echo "5/5 fan-out van de ondernemers"
 # is wat de ondernemer daadwerkelijk bevraagt.
 fanout() {
     local ontvanger="$1" verwacht="$2" naam="$3"
-    local stroom="/tmp/smoke-fanout-$verwacht.txt"
+    local stroom="/tmp/smoke-fanout-$verwacht.txt" sessie
+
+    sessie=$(start_sessie "$ontvanger")
+    [ -n "$sessie" ] || { echo "FOUT: de uitvraag gaf geen sessieId terug voor $naam"; exit 1; }
 
     curl -sf -N --max-time 90 "$UITVRAAG/api/v1/berichten/_ophalen" \
-        -H "X-Ontvanger: $ontvanger" -H "Accept: text/event-stream" > "$stroom" \
+        -H "X-Ontvanger: $ontvanger" -H "X-Sessie: $sessie" -H "Accept: text/event-stream" > "$stroom" \
         || { echo "FOUT: ophalen voor $naam mislukte"; exit 1; }
+
+    beeindig_sessie "$ontvanger" "$sessie"
 
     local gestart
     gestart=$(grep -Ec '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' "$stroom" || true)
