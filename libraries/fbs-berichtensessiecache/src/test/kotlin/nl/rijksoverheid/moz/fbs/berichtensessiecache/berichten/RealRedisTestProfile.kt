@@ -16,7 +16,5 @@ class RealRedisTestProfile : QuarkusTestProfile {
         "berichtensessiecache.sessie.max-duur" to "PT1S",
         "berichtensessiecache.sessie.vangnet-marge" to "PT1S",
         "berichtensessiecache.aggregation-lock-ttl" to "PT2S",
-        // Onder de helft van die TTL, anders weigert SessieVolger te starten.
-        "berichtensessiecache.volg-hartslag" to "PT0.5S",
     )
 }

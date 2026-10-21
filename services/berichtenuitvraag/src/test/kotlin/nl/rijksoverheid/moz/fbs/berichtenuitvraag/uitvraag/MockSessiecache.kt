@@ -58,6 +58,7 @@ class MockSessiecache : Sessiecache {
     var ophalenEvents: Multi<MagazijnEvent> = Multi.createFrom().empty()
     var volgFout: SessiecacheException? = null
     var volgGebeurtenissen: Multi<SessieGebeurtenis> = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
+    val volgSessies = mutableListOf<String>()
 
     var lijstResultaat: BerichtenPagina? = null
 
@@ -91,6 +92,7 @@ class MockSessiecache : Sessiecache {
         ophalenEvents = Multi.createFrom().empty()
         volgFout = null
         volgGebeurtenissen = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
+        volgSessies.clear()
         lijstResultaat = null
         laatstePagina = null
         laatsteGrootte = null
@@ -177,7 +179,8 @@ class MockSessiecache : Sessiecache {
         return bericht
     }
 
-    override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+    override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> {
+        volgSessies += sessieId
         volgFout?.let { throw it }
 
         return volgGebeurtenissen

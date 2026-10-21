@@ -47,6 +47,7 @@ class VolgenSseTest {
 
     companion object {
         private const val RVO = "00000000000000100000"
+        private const val SESSIE = "AAAAAAAAAAAAAAAAAAAAAA"
         private val BERICHT_ID: UUID = UUID.fromString("0b0e5a52-8a8f-4d5f-9d2e-2f7f7a0c1d11")
 
         @JvmStatic
@@ -69,6 +70,7 @@ class VolgenSseTest {
             Arguments.of(SessiecacheException.OphalenBezig("bezig"), 409, "ophalen-bezig"),
             Arguments.of(SessiecacheException.OphalenMislukt("mislukt"), 503, "ophalen-mislukt"),
             Arguments.of(SessiecacheException.Onbereikbaar("weg"), 503, "tijdelijk-niet-beschikbaar"),
+            Arguments.of(SessiecacheException.SessieOngeldig("ongeldig"), 401, "sessie-ongeldig"),
         )
 
         @JvmStatic
@@ -118,6 +120,13 @@ class VolgenSseTest {
         assertEquals(listOf("volgen-gestart", "bericht-bijgekomen", "hartslag", "sessie-verlopen"), events)
     }
 
+    @Test
+    fun `de X-Sessie gaat ongewijzigd naar de cache`() {
+        volgen()
+
+        assertEquals(listOf(SESSIE), sessiecache.volgSessies)
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("foutenVoorDeStream")
     fun `zonder bruikbare sessie valt de status vóór de stream`(
@@ -129,6 +138,7 @@ class VolgenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", SESSIE)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -185,6 +195,7 @@ class VolgenSseTest {
     private fun volgen(): String =
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", SESSIE)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -199,6 +210,7 @@ class VolgenSseTest {
     private fun open(): HttpURLConnection =
         (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection).apply {
             setRequestProperty("X-Ontvanger", "BSN:999990019")
+            setRequestProperty("X-Sessie", SESSIE)
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000

@@ -7,7 +7,7 @@ import io.smallrye.mutiny.subscription.Cancellable
 import io.smallrye.mutiny.subscription.MultiEmitter
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieConfig
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.dataTtl
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
@@ -15,8 +15,8 @@ import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en verlengt de
- * sessie op elke hartslag, zodat een bezoeker die alleen kijkt zijn sessie niet verliest.
+ * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en raakt de
+ * inlogsessie op elke hartslag, zodat een bezoeker die alleen kijkt zijn sessie niet verliest.
  *
  * De volgorde bij het starten is wat "niets missen" waarmaakt: eerst de luisteraar registreren,
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].
@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference
 internal class SessieVolger(
     private val berichtenCache: BerichtenCache,
     private val aanmeldingen: Aanmeldingen,
+    private val sessies: SessieRegister,
     // Onder de 30 s waarop een OpenShift-route een stille connection standaard afbreekt, en ruim
     // onder de 60 s van een nginx-proxy.
     @param:ConfigProperty(name = "berichtensessiecache.volg-hartslag", defaultValue = "PT20S")
@@ -53,13 +54,12 @@ internal class SessieVolger(
             "berichtensessiecache.volg-max-duur ($maxDuur) moet groter zijn dan berichtensessiecache.volg-hartslag ($hartslag)"
         }
 
-        // De cache verlengt pas als er minder dan dit deel van de sessieduur rest; een tragere
-        // hartslag laat een gevolgde sessie tussen twee slagen in verlopen.
-        val dataTtl = sessieConfig.dataTtl
+        // Zo laat één gemiste of vertraagde slag een gevolgde sessie niet verlopen.
+        val inactiviteit = sessieConfig.inactiviteit()
 
-        require(hartslag < dataTtl.dividedBy(BerichtenCache.VERLENG_DEEL)) {
-            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan 1/${BerichtenCache.VERLENG_DEEL} van " +
-                "berichtensessiecache.sessie.max-duur + berichtensessiecache.sessie.vangnet-marge ($dataTtl)"
+        require(hartslag < inactiviteit.dividedBy(2)) {
+            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan de helft van " +
+                "berichtensessiecache.sessie.inactiviteit ($inactiviteit)"
         }
     }
 
@@ -73,7 +73,7 @@ internal class SessieVolger(
      */
     fun actief(): Uni<Void> = aanmeldingen.actief()
 
-    fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+    fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
         return Multi.createFrom().emitter { emitter ->
@@ -95,12 +95,14 @@ internal class SessieVolger(
             }
 
             aanmeldingen.actief()
-                .chain { _ -> berichtenCache.verlengSessie(cacheKey) }
+                // De facade controleerde de sessie al; dit vangt een einde tussen die controle en
+                // VolgenGestart, zodat SessieVerlopen dan het enige item is.
+                .chain { _ -> sessies.raak(sessieId, ontvanger) }
                 .subscribe().with(
                     { loopt ->
                         if (loopt) {
                             emitter.emit(SessieGebeurtenis.VolgenGestart)
-                            hartslagen.set(startHartslag(cacheKey, emitter))
+                            hartslagen.set(startHartslag(sessieId, ontvanger, emitter))
 
                             // Afgebroken terwijl de hartslag nog niet stond: onTermination zag hem niet.
                             if (emitter.isCancelled) hartslagen.getAndSet(null)?.cancel()
@@ -113,10 +115,19 @@ internal class SessieVolger(
         }
     }
 
-    private fun startHartslag(cacheKey: String, emitter: MultiEmitter<in SessieGebeurtenis>): Cancellable =
+    /**
+     * Een mislukte aanraking breekt de stream af en meldt geen [SessieGebeurtenis.SessieVerlopen]:
+     * een storing in Redis is geen einde van de sessie, en de afnemer die opnieuw verbindt, krijgt
+     * een eerlijke 503 in plaats van een uitlog.
+     */
+    private fun startHartslag(
+        sessieId: String,
+        ontvanger: Identificatienummer,
+        emitter: MultiEmitter<in SessieGebeurtenis>,
+    ): Cancellable =
         Multi.createFrom().ticks().every(hartslag)
             .onOverflow().drop()
-            .onItem().transformToUniAndConcatenate { _ -> berichtenCache.verlengSessie(cacheKey) }
+            .onItem().transformToUniAndConcatenate { _ -> sessies.raak(sessieId, ontvanger) }
             .subscribe().with(
                 { loopt -> if (loopt) emitter.emit(SessieGebeurtenis.Hartslag) else beeindig(emitter) },
                 { fout ->

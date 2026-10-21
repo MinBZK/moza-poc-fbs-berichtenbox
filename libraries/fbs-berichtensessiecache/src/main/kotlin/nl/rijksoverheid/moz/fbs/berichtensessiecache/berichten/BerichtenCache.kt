@@ -55,15 +55,6 @@ internal interface BerichtenCache {
      */
     fun isVerwijderdVoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean>
 
-    /**
-     * Houdt een gevolgde sessie in leven zonder dat er gelezen wordt. `false` als er geen sessie
-     * (meer) is; een mislukte verlenging is een gefaalde `Uni`, geen `true`. Verlengt alleen een
-     * afgeronde ophaling, en pas wanneer minder dan `dataTtl / VERLENG_DEEL` resteert: dan gaan ook
-     * alle berichthashes mee, en dat is een lees over de hele lijst die niet op elke hartslag hoeft.
-     * Een lopende ophaling houdt haar korte vangnet-TTL.
-     */
-    fun verlengSessie(key: String): Uni<Boolean>
-
     companion object {
         // ThreadLocal MessageDigest + HexFormat: bespaart `getInstance("SHA-256")`-allocatie
         // én per-byte `String.format("%02x", ...)` per cacheKey-call. cacheKey wordt per
@@ -105,13 +96,6 @@ internal interface BerichtenCache {
         // hieronder. Met de versie in de naam maakt elke nieuwe pod zijn eigen index aan en
         // blijven oude pods tijdens een rolling deploy op de oude werken.
         const val SEARCH_INDEX = "berichten-idx-v4"
-
-        /**
-         * [verlengSessie] verlengt pas wanneer nog minder dan `dataTtl / VERLENG_DEEL` van de
-         * bewaartermijn rest. Wie een gevolgde sessie in leven houdt, moet dus vaker dan dat
-         * aankloppen; [SessieVolger] toetst zijn hartslag hiertegen.
-         */
-        const val VERLENG_DEEL = 2L
     }
 }
 
@@ -468,52 +452,6 @@ internal class RedisBerichtenCache(
             }
             .onFailure().invoke { e -> log.errorf(e, "Redis getById mislukt voor %s", sleutel) }
     }
-
-    /**
-     * MULTI/EXEC-batch: de sessie-keys, de sleutelset en de berichthashes krijgen samen de TTL van
-     * de gegevens, in batches aangeboden zodat een lange lijst de connection-wachtrij niet vult.
-     */
-    private fun verlengTtls(cacheKey: String, berichten: List<BerichtSleutel>): Uni<Void> {
-        val vast = listOf(listKey(cacheKey), statusKey(cacheKey), sleutelsKey(cacheKey))
-
-        return redis.withTransaction { tx ->
-            val txKey = tx.key()
-            val sleutels = vast + berichten.map { BerichtenCache.berichtKey(it) }
-
-            RedisBatching.inBatches(sleutels, redisBatchgrootte) { sleutel ->
-                txKey.pexpire(sleutel, dataTtl).replaceWithVoid()
-            }
-        }.replaceWithVoid()
-    }
-
-    override fun verlengSessie(key: String): Uni<Boolean> =
-        getAggregationStatus(key).chain { aggregatie ->
-            when {
-                aggregatie == null -> Uni.createFrom().item(false)
-                aggregatie.status != OphalenStatus.GEREED -> Uni.createFrom().item(true)
-                else -> redis.key().pttl(statusKey(key)).chain { resterend ->
-                    when {
-                        // Net tussen de twee reads verlopen.
-                        resterend == SLEUTEL_ONTBREEKT -> Uni.createFrom().item(false)
-                        resterend > dataTtl.toMillis() / BerichtenCache.VERLENG_DEEL -> Uni.createFrom().item(true)
-                        else -> verlengHeleSessie(key).replaceWith(true)
-                    }
-                }
-            }
-        }
-
-    private fun verlengHeleSessie(key: String): Uni<Void> =
-        redis.list(String::class.java).lrange(listKey(key), 0, -1)
-            .chain { jsonList ->
-                // Alleen de sleutel is nodig; een onleesbare entry slaat alleen die ene hash over.
-                // Het leespad meldt de corruptie al, met de juiste status.
-                val sleutels = jsonList.mapNotNull(::sleutelVan)
-
-                // Niet best-effort zoals op het leespad: daar is de lees al gelukt en is de TTL
-                // bijzaak, hier ís verlengen de opdracht. Een mislukking hoort de hartslag te
-                // bereiken, anders meldt die een levende sessie die intussen afloopt.
-                verlengTtls(key, sleutels)
-            }
 
     private fun berichtToHash(bericht: Bericht): Map<String, String> = buildMap {
         put("berichtId", bericht.berichtId.toString())
@@ -880,17 +818,6 @@ internal class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis createBericht mislukt voor %s", bericht.sleutel) }
     }
 
-    /** Alleen de sleutel; een onleesbare entry telt niet als treffer, het leespad meldt hem al. */
-    private fun sleutelVan(json: String): BerichtSleutel? =
-        runCatching {
-            val blob = objectMapper.readTree(json)
-            val magazijnId = blob.path("magazijnId").asText()
-
-            val berichtId = UUID.fromString(blob.path("berichtId").asText())
-
-            if (magazijnId.isEmpty()) null else BerichtSleutel(magazijnId, berichtId)
-        }.getOrNull()
-
     override fun delete(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> {
         // Idempotent cache-invalidate. De sessie-`list` bevat JSON-blobs (gevuld via
         // `createBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
@@ -1075,9 +1002,6 @@ internal class RedisBerichtenCache(
         // wanneer het verwijderd-kenmerk stil wegvalt. Wijzig de waarde niet zonder de
         // bijbehorende alert-rule mee te verhuizen.
         private const val ALERT_TOMBSTONE_VERLOREN = "FBS_ALERT[tombstone_verloren]"
-
-        // PTTL-antwoord voor een sleutel die niet (meer) bestaat.
-        private const val SLEUTEL_ONTBREEKT = -2L
 
         internal fun listKey(key: String) = "$key:list"
         internal fun statusKey(key: String) = "$key:status"

@@ -185,11 +185,12 @@ internal class BlockingSessiecache(
         return geschreven
     }
 
-    override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+    override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> {
+        raakSessie(sessieId, ontvanger)
         requireGereedStatus(ontvanger)
         awaitOrServiceUnavailable { volger.actief() }
 
-        return volger.volg(ontvanger)
+        return volger.volg(ontvanger, sessieId)
     }
 
     override fun startSessie(ontvanger: Identificatienummer): SessieStart =

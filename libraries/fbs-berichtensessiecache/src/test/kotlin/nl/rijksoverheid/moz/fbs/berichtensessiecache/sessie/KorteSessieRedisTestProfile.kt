@@ -19,5 +19,7 @@ class KorteSessieRedisTestProfile : QuarkusTestProfile {
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
         "berichtensessiecache.sessie.inactiviteit" to "PT2S",
         "berichtensessiecache.sessie.max-duur" to "PT3S",
+        // Onder de helft van de inactiviteit, anders weigert SessieVolger te starten.
+        "berichtensessiecache.volg-hartslag" to "PT0.5S",
     )
 }

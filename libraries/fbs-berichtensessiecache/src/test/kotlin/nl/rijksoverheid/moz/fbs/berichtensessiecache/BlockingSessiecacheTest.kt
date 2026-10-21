@@ -474,50 +474,78 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `volg kent dezelfde gating als lijst, vóór de stream`() {
+        stubLopendeSessie()
         stubStatus(null)
-        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger) }
+        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger, SESSIE_ID) }
 
         stubStatus(AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
-        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger) }
+        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger, SESSIE_ID) }
 
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
-    fun `volg geeft de stream van de volger door bij een afgeronde ophaling`() {
+    fun `volg geeft de stream van de volger door bij een lopende sessie en een afgeronde ophaling`() {
+        stubLopendeSessie()
         stubStatus(gereed)
         val stream = Multi.createFrom().item<SessieGebeurtenis>(SessieGebeurtenis.VolgenGestart)
         every { volger.actief() } returns Uni.createFrom().voidItem()
-        every { volger.volg(ontvanger) } returns stream
+        every { volger.volg(ontvanger, SESSIE_ID) } returns stream
 
-        assertSame(stream, facade.volg(ontvanger))
+        assertSame(stream, facade.volg(ontvanger, SESSIE_ID))
+        verify(exactly = 1) { sessies.raak(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `volg zonder lopende sessie gooit SessieOngeldig, vóór de stream en vóór de cache`() {
+        // Synchroon, zoals elke andere ongeldige sessie: een stream die meteen SessieVerlopen meldt,
+        // zou de afnemer een 200 geven op een verzoek dat niet mocht.
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(false)
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { service.getAggregationStatus(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
+    }
+
+    @Test
+    fun `volg bij een storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
     fun `volg zonder werkend abonnement is Onbereikbaar, vóór de stream`() {
         // Anders valt de mislukking pas op een geopende stream: de afnemer ziet een lege, sluitende
         // 200 in plaats van een storing waarop hij kan wachten.
+        stubLopendeSessie()
         stubStatus(gereed)
         every { volger.actief() } returns Uni.createFrom().failure(IllegalStateException("probe kwam niet terug"))
 
-        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
     fun `volg op een stoppende pod is ook Onbereikbaar, vóór de stream`() {
         // Een gewone uitrol: de afnemer krijgt een 503 en verbindt bij een andere pod. De facade
         // logt dit niet als error per stream; dat de pod stopt, meldt hij zelf één keer.
+        stubLopendeSessie()
         stubStatus(gereed)
         every { volger.actief() } returns Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
 
-        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
 
         assertTrue(fout.cause is AbonnementGesloten)
         // Eigen melding, en daarmee aantoonbaar een eigen tak: het vangnet voor onbekende fouten
         // geeft ook Onbereikbaar, maar logt er een error met stack bij.
         assertEquals("Nieuwe berichten volgen kan nu niet. Probeer het straks opnieuw.", fout.message)
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
+    }
+
+    private fun stubLopendeSessie() {
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(true)
     }
 
     @Test

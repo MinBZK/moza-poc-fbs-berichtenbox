@@ -65,7 +65,7 @@ class UitvraagKetenE2eTest {
      */
     @BeforeEach
     fun startSessies() {
-        ONTVANGERS.filter(gestart::add).forEach { sessiecache.startSessie(Bsn(it)) }
+        ONTVANGERS.forEach { bsn -> sessieVan.computeIfAbsent(bsn) { sessiecache.startSessie(Bsn(it)).sessieId } }
     }
 
     @BeforeEach
@@ -575,6 +575,7 @@ class UitvraagKetenE2eTest {
         val connection = (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection)
             .apply {
                 setRequestProperty("X-Ontvanger", "BSN:$bsn")
+                setRequestProperty("X-Sessie", sessieVan.getValue(bsn))
                 setRequestProperty("Accept", "text/event-stream")
                 readTimeout = 10_000
             }
@@ -650,8 +651,8 @@ private val ONTVANGERS = listOf(
     "999990111", "999990123", "999991401", "999993653",
 )
 
-// Klassebreed: de testinstantie is per test nieuw, de Redis-container niet.
-private val gestart = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+// Klassebreed: de testinstantie is per test nieuw, de Redis-container niet. BSN → sessie-id.
+private val sessieVan = java.util.concurrent.ConcurrentHashMap<String, String>()
 
 /**
  * Echte facade-keten: Redis via Dev Services (Redis Stack — RediSearch is nodig

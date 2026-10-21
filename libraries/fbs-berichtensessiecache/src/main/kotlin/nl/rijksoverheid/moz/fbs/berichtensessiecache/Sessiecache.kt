@@ -122,19 +122,23 @@ interface Sessiecache {
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
 
     /**
-     * Volgt de sessie van [ontvanger] terwijl de berichtenbox openstaat: elk bericht dat via
-     * [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
-     * periodieke hartslag houdt de sessie in leven. Zie [SessieGebeurtenis] voor het verloop.
+     * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat: elk bericht
+     * dat via [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
+     * periodieke hartslag raakt de sessie (zie [raakSessie]) en houdt hem zo in leven. Eindigt de
+     * sessie, uitgelogd of verlopen, dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit.
+     * Zie [SessieGebeurtenis] voor het verloop.
      *
-     * Vereist net als [lijst] een afgeronde ophaling en gooit dezelfde [SessiecacheException]s,
-     * synchroon en vóór de stream. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór de
-     * stream een [SessiecacheException.Onbereikbaar]. Een storing daarna beëindigt de stream met een
-     * fout; de afnemer verbindt dan opnieuw.
+     * Synchroon en vóór de stream: [SessiecacheException.SessieOngeldig] als [sessieId] geen lopende
+     * sessie van [ontvanger] is, daarna net als [lijst] de eis van een afgeronde ophaling met
+     * dezelfde [SessiecacheException]s. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór
+     * de stream een [SessiecacheException.Onbereikbaar]. Een storing daarna, ook bij het raken van de
+     * sessie, beëindigt de stream met een fout en niet met [SessieGebeurtenis.SessieVerlopen]; de
+     * afnemer verbindt dan opnieuw.
      *
      * De stream eindigt ook uit zichzelf na `berichtensessiecache.volg-max-duur`, zonder
      * [SessieGebeurtenis.SessieVerlopen]: de sessie loopt dan nog, en de afnemer verbindt opnieuw.
      */
-    fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis>
+    fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis>
 
     /**
      * Start een inlogsessie voor [ontvanger]. Loopt er voor hem nog geen andere sessie, dan worden

@@ -225,7 +225,7 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 |---|---|---|
 | `berichtensessiecache.ttl` | `PT12H` | Sliding TTL: elke succesvolle read verlengt hem. Dekt een halve werkdag zonder herhaalde ophaal-flow; verlagen bij geheugendruk op Redis |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de cache-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger 12 uur te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
-| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Verlengt de sessie van een open berichtenbox en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.ttl` blijven, anders start de pod niet |
+| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Raakt de inlogsessie van een open berichtenbox, zodat die niet door inactiviteit verloopt, en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.sessie.inactiviteit` blijven, anders start de pod niet |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
 

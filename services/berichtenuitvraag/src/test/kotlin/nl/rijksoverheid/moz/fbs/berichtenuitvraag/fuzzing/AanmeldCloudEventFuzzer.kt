@@ -109,7 +109,7 @@ object AanmeldCloudEventFuzzer {
 
             override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht = bericht
 
-            override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> =
+            override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> =
                 throw UnsupportedOperationException()
 
             override fun startSessie(ontvanger: Identificatienummer): SessieStart =
