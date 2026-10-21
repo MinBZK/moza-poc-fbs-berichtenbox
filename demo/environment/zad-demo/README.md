@@ -475,10 +475,10 @@ Haalt upstream de dubbele child weg, of komt de Quay-dedupe (PROJQUAY-10068) in 
 de digest weg en volstaat de tag.
 
 **Nog op te ruimen.** Onderweg is het image korte tijd onder onze eigen namespace doorgepubliceerd
-(`ghcr.io/minbzk/fbs-toxiproxy`), en de componenten in `test` zijn met díe verwijzing aangemaakt. De
-eerstvolgende `deploy-test-*` zet ze op `TOXIPROXY_IMAGE`; daarna is dat package wees en kan het
-weg. Het staat niet in de sweep-lijst van `cleanup-preview.yml`, dus tot die tijd verdwijnt het niet
-vanzelf — en dat is maar goed ook, want `test` trekt het nog.
+(`ghcr.io/minbzk/fbs-toxiproxy`), en de componenten in `test` zijn met díe verwijzing aangemaakt.
+Inmiddels draaien alle vier op `TOXIPROXY_IMAGE` (gecontroleerd in de gerenderde manifests op
+2026-10-21), dus het package is wees en kan met de hand weg. Het staat niet in de sweep-lijst van
+`cleanup-preview.yml`, dus vanzelf verdwijnt het niet.
 
 ### De netwerkregels voor de admin-API's
 
@@ -596,6 +596,13 @@ for m in magazijna magazijnb; do
 done
 ```
 
+**De eerste van die twee aanroepen meldt een mislukte uitrol, en dat hoort zo.** Aliassen van alle
+componenten in een deployment komen samen in één gedeeld secret, dus een sleutel die op twee
+componenten staat moet op beide dezelfde waarde hebben. Na `magazijna` verschilt hij nog van
+`magazijnb` (`Conflicting alias 'AANMELD_URL' in deployment 'test'`); de aanroep op `magazijnb`
+trekt dat gelijk en rolt wél uit. Controleer daarna `AANMELD_URL` en `NOTIFICATIE_URL` in
+`mpfm-w3h/test/magazijna-platform-secret.yaml` van de gerenderde manifests.
+
 **Alleen een preview omhangen kan ook**, zonder `test` te raken. Aliassen kunnen dat niet — die
 bestaan alleen op componentniveau (`Service 'aliases' has no values at target
 'deployment-component'`) — maar `user-env-vars` wél:
@@ -610,9 +617,21 @@ sleutels wint de laatste. Geen `$DEPLOYMENT_NAME` hierin: de waarde geldt maar v
 dus de naam mag er hard in. Zo is een preview volledig te demonstreren terwijl `test` nog op een
 oudere console draait.
 
-**Let op bij `test`:** dat draagt zelf al een deployment-override voor `PROFIEL_SERVICE_URL`. Een
-alias op componentniveau komt daar dus niet doorheen — verzet daar de deployment-waarde, niet de
-alias.
+**Op `test` loopt profiel door FSC, en daar hoort de proxy achter de inway.** De `uitvraag` in
+`test` draagt een deployment-override voor `PROFIEL_SERVICE_URL`, samen met
+`PROFIEL_SERVICE_GRANT_HASH` en de outway-TLS-configuratie: het verkeer gaat uitvraag →
+`logius-fscoutway` → `logius-fscinway` → de `endpoint_url` van de dienst `profiel-service`. De alias
+hierboven komt daar niet doorheen, en die override verzetten haalt FSC uit de keten. Zet in plaats
+daarvan in de beheer-UI van `logius-fscctl` (Diensten → `profiel-service`, bijwerken, niet
+verwijderen) de `endpoint_url` op de proxy:
+
+```
+https://toxiproxy-profiel-test-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl
+```
+
+Het terugrol-adres is `https://profiel-test-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl`. Er is geen
+netwerkregel voor nodig: de inway bereikt de proxy over de publieke ingress, net als eerst de
+profielservice. Een preview kent die override niet en volgt de alias.
 
 **De console blijft rechtstreeks op Redis staan.** Zijn `REDIS_HOSTS` uit stap 5 verandert niet: de
 cache-verval-knop is een beheeractie, en die hoort te blijven werken terwijl je de Redis-stroom
