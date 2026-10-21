@@ -132,7 +132,7 @@ internal class RedisSessieRegister(
 
             return listOf(
                 "$k:sessies",
-                "$k:sessies:uiterlijk",
+                "$k:sessies:plafond",
                 VERLOOP_INDEX,
                 RedisBerichtenCache.listKey(k),
                 RedisBerichtenCache.statusKey(k),

@@ -544,7 +544,7 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `startSessie geeft de gestarte sessie door`() {
-        val start = SessieStart("AAAAAAAAAAAAAAAAAAAAAA", Instant.parse("2026-10-21T12:00:00Z"), restenOpgeruimd = true)
+        val start = SessieStart(SESSIE_ID, Instant.parse("2026-10-21T12:00:00Z"), restenOpgeruimd = true)
         every { sessies.start(ontvanger) } returns Uni.createFrom().item(start)
 
         assertSame(start, facade.startSessie(ontvanger))

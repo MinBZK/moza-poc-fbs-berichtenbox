@@ -7,7 +7,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  *
  * Alle scripts delen dezelfde KEYS (zie [RedisSessieRegister.sleutels]):
  * 1. `$k:sessies` — ZSET, lid `sha256(sessie-id)`, score het verloop in ms;
- * 2. `$k:sessies:uiterlijk` — HASH, lid → start + maximale duur in ms;
+ * 2. `$k:sessies:plafond` — HASH, lid → plafond: start + maximale duur in ms;
  * 3. de stelselbrede verloopindex — ZSET, lid de ontvanger, score zijn laatste verloop in ms;
  * 4–6. de gegevens: `$k:list`, `$k:status`, `$k:lock`.
  *
@@ -61,10 +61,10 @@ internal object SessieScripts {
             return { 0 }
         end
 
-        local uiterlijk = nu + tonumber(ARGV[3])
-        local verloop = math.min(nu + tonumber(ARGV[2]), uiterlijk)
+        local plafond = nu + tonumber(ARGV[3])
+        local verloop = math.min(nu + tonumber(ARGV[2]), plafond)
         redis.call('ZADD', KEYS[1], verloop, ARGV[1])
-        redis.call('HSET', KEYS[2], ARGV[1], uiterlijk)
+        redis.call('HSET', KEYS[2], ARGV[1], plafond)
         redis.call('PEXPIRE', KEYS[1], ARGV[6])
         redis.call('PEXPIRE', KEYS[2], ARGV[6])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[5])
@@ -82,12 +82,12 @@ internal object SessieScripts {
             return 0
         end
 
-        local uiterlijk = tonumber(redis.call('HGET', KEYS[2], ARGV[1]))
-        if not uiterlijk then
+        local plafond = tonumber(redis.call('HGET', KEYS[2], ARGV[1]))
+        if not plafond then
             return 0
         end
 
-        local verloop = math.min(nu + tonumber(ARGV[2]), uiterlijk)
+        local verloop = math.min(nu + tonumber(ARGV[2]), plafond)
         redis.call('ZADD', KEYS[1], verloop, ARGV[1])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[3])
         return 1
@@ -110,6 +110,10 @@ internal object SessieScripts {
         ruimVerlopenOp(nu)
 
         if redis.call('ZCARD', KEYS[1]) > 0 then
+            -- Zonder GT: de beëindigde sessie kan de laatst verlopende geweest zijn, en een te late
+            -- score laat de veegtaak deze ontvanger tot een inactiviteitsduur te laat vinden.
+            local laatste = redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')
+            redis.call('ZADD', KEYS[3], laatste[2], ARGV[2])
             if bekend then
                 return 'BEEINDIGD'
             end

@@ -21,6 +21,9 @@ import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 import java.util.HexFormat
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -69,6 +72,44 @@ class RedisSessieRegisterTest {
 
         assertTrue(start.restenOpgeruimd)
         assertEquals(0, redis.key().exists("$k:status", "$k:list").await().atMost(WACHTTIJD))
+    }
+
+    @Test
+    fun `start na het verlopen van alle sessies ruimt hun gegevens op`() {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        sessiecache.startSessie(ontvanger)
+        redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
+
+        Thread.sleep(2300)
+        val start = sessiecache.startSessie(ontvanger)
+
+        assertTrue(start.restenOpgeruimd)
+        assertFalse(redis.key().exists("$k:status").await().atMost(WACHTTIJD))
+    }
+
+    @Test
+    fun `gelijktijdige starts houden zich aan de grens`() {
+        val aantal = 10
+        val poort = CyclicBarrier(aantal)
+        val pool = Executors.newFixedThreadPool(aantal)
+
+        val uitkomsten = try {
+            (1..aantal)
+                .map {
+                    pool.submit<Boolean> {
+                        poort.await()
+                        runCatching { sessiecache.startSessie(ontvanger) }
+                            .onFailure { if (it !is SessiecacheException.TeVeelSessies) throw it }
+                            .isSuccess
+                    }
+                }
+                .map { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        assertEquals(5, uitkomsten.count { it })
+        assertEquals(5, uitkomsten.count { !it })
     }
 
     @Test
@@ -162,6 +203,20 @@ class RedisSessieRegisterTest {
     }
 
     @Test
+    fun `einde naast een andere sessie zet de verloopindex terug op de laatst verlopende`() {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        val a = sessiecache.startSessie(ontvanger).sessieId
+        val b = sessiecache.startSessie(ontvanger).sessieId
+
+        Thread.sleep(300)
+        sessiecache.raakSessie(a, ontvanger)
+        sessiecache.beeindigSessie(a, ontvanger)
+
+        val verloopB = redis.sortedSet(String::class.java).zscore("$k:sessies", sha256(b)).await().atMost(WACHTTIJD)!!
+        assertEquals(verloopB, verloopIndexScore())
+    }
+
+    @Test
     fun `zesde start gooit TeVeelSessies en na een einde lukt het weer`() {
         val ids = (1..5).map { sessiecache.startSessie(ontvanger).sessieId }
 
@@ -202,7 +257,7 @@ class RedisSessieRegisterTest {
 
         sessiecache.beeindigSessie(id, ontvanger)
 
-        val over = redis.key().exists("$k:status", "$k:list", "$k:lock", "$k:sessies", "$k:sessies:uiterlijk")
+        val over = redis.key().exists("$k:status", "$k:list", "$k:lock", "$k:sessies", "$k:sessies:plafond")
             .await().atMost(WACHTTIJD)
         assertEquals(0, over)
         val inIndex = redis.sortedSet(String::class.java).zrange(VERLOOP_INDEX, 0, -1).await().atMost(WACHTTIJD)
@@ -212,6 +267,15 @@ class RedisSessieRegisterTest {
     @Test
     fun `einde van onbekende id geeft ONBEKEND`() {
         assertEquals(SessieEinde.ONBEKEND, sessiecache.beeindigSessie(ONBEKENDE_ID, ontvanger))
+    }
+
+    @Test
+    fun `einde van onbekende id zonder lopende sessie wist achtergebleven gegevens en meldt OPGERUIMD`() {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
+
+        assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(ONBEKENDE_ID, ontvanger))
+        assertFalse(redis.key().exists("$k:status").await().atMost(WACHTTIJD))
     }
 
     @Test

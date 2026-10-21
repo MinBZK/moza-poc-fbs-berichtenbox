@@ -153,9 +153,11 @@ interface Sessiecache {
     fun raakSessie(sessieId: String, ontvanger: Identificatienummer)
 
     /**
-     * Beëindigt de sessie [sessieId] van [ontvanger]. Was dat zijn laatste lopende sessie, dan
-     * worden zijn gegevens gewist ([SessieEinde.OPGERUIMD]). Idempotent: een onbekende of al
-     * verlopen sessie is geen fout maar [SessieEinde.ONBEKEND].
+     * Beëindigt de sessie [sessieId] van [ontvanger]. Loopt er daarna geen sessie meer voor hem,
+     * dan worden zijn gegevens gewist ([SessieEinde.OPGERUIMD]) — ook bij een onbekende of al
+     * verlopen sessie, als er nog gegevens stonden: elk wissen hoort gemeld te worden.
+     * Idempotent: een onbekende of verlopen sessie is geen fout; zonder iets te wissen is de
+     * uitkomst [SessieEinde.ONBEKEND].
      */
     fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
 }
