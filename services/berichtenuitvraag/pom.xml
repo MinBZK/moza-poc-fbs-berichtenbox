@@ -60,6 +60,11 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-redis-client</artifactId>
         </dependency>
+        <!-- Veegtaak voor verlopen sessies (SessieVeger). -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-scheduler</artifactId>
+        </dependency>
 
         <!-- Logboek Dataverwerkingen (AVG Art. 30 logging) -->
         <dependency>

@@ -25,8 +25,9 @@ import java.util.UUID
 
 /**
  * De sessiecontrole vóór elk pad onder `/berichten`. Eén antwoord voor elk soort ongeldige sessie,
- * zodat een aanroeper niet kan aftasten welke id's ooit bestonden; een ongeldige `X-Ontvanger`
- * blijft de 400 van de validatie, want zonder geldige ontvanger valt er geen sessie te toetsen.
+ * zodat een aanroeper niet kan aftasten welke id's ooit bestonden. Een ontbrekende, dubbele of
+ * elfproef-falende `X-Ontvanger` is een 400 van het filter zelf, want zonder geldige ontvanger
+ * valt er geen sessie te toetsen.
  */
 @QuarkusTest
 @TestProfile(MockSessiecacheProfile::class)

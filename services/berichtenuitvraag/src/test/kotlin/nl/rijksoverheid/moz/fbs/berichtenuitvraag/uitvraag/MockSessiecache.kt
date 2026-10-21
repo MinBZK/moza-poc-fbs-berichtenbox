@@ -20,6 +20,8 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
@@ -82,6 +84,11 @@ class MockSessiecache : Sessiecache {
     /** Laat de volgende start melden dat hij resten van een verlopen sessie wiste. */
     var restenBijVolgendeStart = false
     var raakFout: SessiecacheException? = null
+
+    /** Wat de volgende veegronde als opruimingen teruggeeft; daarna is de lijst weer leeg. */
+    val opruimingen = AtomicReference<List<Opruiming>>(emptyList())
+    var veegFout: SessiecacheException? = null
+    val veegAanroepen = AtomicInteger()
     val geraakteSessies = CopyOnWriteArrayList<String>()
 
     /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
@@ -93,6 +100,9 @@ class MockSessiecache : Sessiecache {
         startSessieFout = null
         restenBijVolgendeStart = false
         raakFout = null
+        opruimingen.set(emptyList())
+        veegFout = null
+        veegAanroepen.set(0)
         geraakteSessies.clear()
         berichten.clear()
         schrijfFouten.clear()
@@ -229,7 +239,12 @@ class MockSessiecache : Sessiecache {
         return if (sessies.containsValue(ontvanger)) SessieEinde.BEEINDIGD else SessieEinde.OPGERUIMD
     }
 
-    override fun ruimVerlopenSessiesOp(max: Int): List<Opruiming> = emptyList()
+    override fun ruimVerlopenSessiesOp(max: Int): List<Opruiming> {
+        veegAanroepen.incrementAndGet()
+        veegFout?.let { throw it }
+
+        return opruimingen.getAndSet(emptyList())
+    }
 
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {
         val alle = berichten.values.sortedByDescending { it.publicatietijdstip }.map { it.toSamenvatting() }
