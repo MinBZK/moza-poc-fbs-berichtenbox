@@ -23,9 +23,10 @@ C4-model en de plannen in [`docs/plans/`](plans/)) worden inhoudelijk beoordeeld
 en alle niet-testcode wordt door ontwikkelaars gereviewd voordat die in de
 hoofdbranch wordt opgenomen. Testcode wordt niet regel voor regel gereviewd; de
 werking wordt in plaats daarvan functioneel beproefd (met Bruno-requests en een
-demo-applicatie). Dit gebeurt via de pull-request-workflow met code-eigenaarschap
-(`CODEOWNERS`) en een CI-pijplijn met onder andere CodeQL-securityscanning en
-OpenSSF Scorecard. De mens blijft eindverantwoordelijk; de AI is een hulpmiddel.
+demo-applicatie). Dit gebeurt via de pull-request-workflow: de hoofdbranch
+accepteert een wijziging pas na goedkeuring door een andere ontwikkelaar, en
+opnieuw na elke latere push. Daarnaast draait een CI-pijplijn met onder andere
+CodeQL-securityscanning en OpenSSF Scorecard. De mens blijft eindverantwoordelijk; de AI is een hulpmiddel.
 
 Deze afbakening is een bewust onderdeel van de beproeving: we onderzoeken hoeveel
 en hoe nauwkeurig menselijke review nodig én haalbaar is. De aanname die we
