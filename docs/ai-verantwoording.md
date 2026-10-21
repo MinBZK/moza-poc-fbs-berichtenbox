@@ -26,7 +26,8 @@ werking wordt in plaats daarvan functioneel beproefd (met Bruno-requests en een
 demo-applicatie). Dit gebeurt via de pull-request-workflow: de hoofdbranch
 accepteert een wijziging pas na goedkeuring door een andere ontwikkelaar, en
 opnieuw na elke latere push. Daarnaast draait een CI-pijplijn met onder andere
-CodeQL-securityscanning en OpenSSF Scorecard. De mens blijft eindverantwoordelijk; de AI is een hulpmiddel.
+CodeQL-securityscanning en OpenSSF Scorecard. De mens blijft
+eindverantwoordelijk; de AI is een hulpmiddel.
 
 Deze afbakening is een bewust onderdeel van de beproeving: we onderzoeken hoeveel
 en hoe nauwkeurig menselijke review nodig én haalbaar is. De aanname die we
