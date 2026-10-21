@@ -6,7 +6,9 @@ import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisBerichtenCache
+import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import org.jboss.logging.Logger
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
@@ -33,6 +35,19 @@ internal interface SessieRegister {
      * hangt, zodat een uitlog die ermee kruist niets laat staan.
      */
     fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean>
+
+    /**
+     * Hoogstens [max] ontvangers wier laatste sessie volgens de verloopindex verlopen is. Alleen een
+     * kandidaat: of er echt geen sessie meer loopt, beslist [veeg].
+     */
+    fun verlopen(max: Int): Uni<List<Identificatienummer>>
+
+    /**
+     * Wist de gegevens van [ontvanger] en haalt hem uit de verloopindex als er geen lopende sessie
+     * meer is, in één atomaire stap; `true` als déze aanroep dat deed. Van gelijktijdige vegers voor
+     * dezelfde ontvanger krijgt er hooguit één `true`.
+     */
+    fun veeg(ontvanger: Identificatienummer): Uni<Boolean>
 }
 
 /**
@@ -120,6 +135,24 @@ internal class RedisSessieRegister(
     override fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean> =
         voerUit(SessieScripts.OPRUIMEN, sleutels(cacheKey), emptyList()).map { it.toInteger() == 1 }
 
+    override fun verlopen(max: Int): Uni<List<Identificatienummer>> =
+        voerUit(SessieScripts.KANDIDATEN, listOf(VERLOOP_INDEX), listOf(max.toString())).flatMap { antwoord ->
+            val leden = antwoord.map { it.toString() }.associateWith(::leesOntvanger)
+            val onleesbaar = leden.filterValues { it == null }.keys
+            val ontvangers = leden.values.filterNotNull()
+
+            if (onleesbaar.isEmpty()) {
+                Uni.createFrom().item(ontvangers)
+            } else {
+                // Zonder de waarde: een lid dat net niet als ontvanger te lezen is, kan een BSN bevatten.
+                log.warnf("%d onleesbare leden uit de verloopindex verwijderd", onleesbaar.size)
+                redis.sortedSet(String::class.java).zrem(VERLOOP_INDEX, *onleesbaar.toTypedArray()).replaceWith(ontvangers)
+            }
+        }
+
+    override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> =
+        voerUit(SessieScripts.VEEG, ontvanger, listOf(ontvanger.toCanonicalString())).map { it.toInteger() == 1 }
+
     private fun voerUit(script: String, ontvanger: Identificatienummer, argumenten: List<String>) =
         voerUit(script, sleutels(ontvanger), argumenten)
 
@@ -127,6 +160,8 @@ internal class RedisSessieRegister(
         redis.execute("EVAL", script, keys.size.toString(), *keys.toTypedArray(), *argumenten.toTypedArray())
 
     companion object {
+        private val log = Logger.getLogger(RedisSessieRegister::class.java)
+
         /** Stelselbreed: per ontvanger het verloop van zijn laatst verlopende sessie, voor het actief opruimen. */
         const val VERLOOP_INDEX = "berichtensessiecache:v4:verloop"
 
@@ -155,6 +190,13 @@ internal class RedisSessieRegister(
 
             return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
         }
+
+        private fun leesOntvanger(lid: String): Identificatienummer? =
+            try {
+                Identificatienummer.fromHeader(lid)
+            } catch (ignored: DomainValidationException) {
+                null
+            }
 
         private fun hash(sessieId: String): String =
             HEX.formatHex(MessageDigest.getInstance("SHA-256").digest(sessieId.toByteArray(Charsets.UTF_8)))

@@ -25,4 +25,8 @@ internal class MockSessieRegister : SessieRegister {
         Uni.createFrom().item(SessieEinde.BEEINDIGD)
 
     override fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean> = Uni.createFrom().item(false)
+
+    override fun verlopen(max: Int): Uni<List<Identificatienummer>> = Uni.createFrom().item(emptyList())
+
+    override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(false)
 }

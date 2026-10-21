@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
 
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.time.Instant
 
 /**
@@ -30,4 +31,16 @@ enum class SessieEinde {
 
     /** Er loopt geen sessie meer voor deze ontvanger en zijn gegevens zijn gewist. */
     OPGERUIMD,
+}
+
+/**
+ * Het opruimen van één ontvanger wiens laatste sessie verlopen is. [gelukt] is `false` als het
+ * wissen faalde; de ontvanger blijft dan staan voor een volgende veegronde.
+ */
+data class Opruiming(
+    val ontvanger: Identificatienummer,
+    val gelukt: Boolean,
+) {
+    // Zoals bij SessieStart: toString belandt makkelijk in een log, en de waarde kan een BSN zijn.
+    override fun toString(): String = "Opruiming(ontvanger=${ontvanger.type}:***, gelukt=$gelukt)"
 }

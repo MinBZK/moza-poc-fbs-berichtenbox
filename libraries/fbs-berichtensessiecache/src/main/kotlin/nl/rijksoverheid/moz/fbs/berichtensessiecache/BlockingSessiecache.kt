@@ -18,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
@@ -205,6 +206,22 @@ internal class BlockingSessiecache(
 
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
         awaitOrServiceUnavailable { sessies.beeindig(sessieId, ontvanger) }
+
+    override fun ruimVerlopenSessiesOp(max: Int): List<Opruiming> {
+        // Redis leest een negatieve LIMIT als "alles": dat maakt van een begrensde ronde een onbegrensde.
+        if (max < 1) throw SessiecacheException.OngeldigeInvoer("max ($max) moet minstens 1 zijn.")
+
+        // Per ontvanger een eigen begrensde wachttijd: een trage ontvanger mag de opruimingen die al
+        // gebeurd zijn niet uit het resultaat laten vallen, anders komen die nooit in het logboek.
+        return awaitOrServiceUnavailable { sessies.verlopen(max) }.mapNotNull { ontvanger ->
+            try {
+                if (awaitOrServiceUnavailable { sessies.veeg(ontvanger) }) Opruiming(ontvanger, gelukt = true) else null
+            } catch (ignored: SessiecacheException) {
+                // De vertaling naar SessiecacheException heeft de oorzaak al gelogd.
+                Opruiming(ontvanger, gelukt = false)
+            }
+        }
+    }
 
     /**
      * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en

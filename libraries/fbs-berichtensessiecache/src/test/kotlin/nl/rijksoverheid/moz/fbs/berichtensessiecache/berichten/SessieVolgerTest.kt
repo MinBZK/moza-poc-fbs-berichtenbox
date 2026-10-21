@@ -415,6 +415,10 @@ class SessieVolgerTest {
         override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> = throw UnsupportedOperationException()
 
         override fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean> = throw UnsupportedOperationException()
+
+        override fun verlopen(max: Int): Uni<List<Identificatienummer>> = throw UnsupportedOperationException()
+
+        override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> = throw UnsupportedOperationException()
     }
 
     private companion object {

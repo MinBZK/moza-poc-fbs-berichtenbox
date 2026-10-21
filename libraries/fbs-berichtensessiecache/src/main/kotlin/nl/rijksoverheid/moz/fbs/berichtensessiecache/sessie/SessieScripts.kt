@@ -5,7 +5,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  * stap beslissen of er nog een lopende sessie is en wat er dan met de gegevens gebeurt; een losse
  * reeks commando's laat twee pods tegelijk "ik ben de laatste" concluderen.
  *
- * Alle scripts delen dezelfde KEYS (zie [RedisSessieRegister.sleutels]):
+ * Alle scripts behalve [KANDIDATEN] delen dezelfde KEYS (zie [RedisSessieRegister.sleutels]):
  * 1. `$k:sessies` — ZSET, lid `sha256(sessie-id)`, score het verloop in ms;
  * 2. `$k:sessies:plafond` — HASH, lid → plafond: start + maximale duur in ms;
  * 3. de stelselbrede verloopindex — ZSET, lid de ontvanger, score zijn laatste verloop in ms;
@@ -182,5 +182,44 @@ internal object SessieScripts {
             return 1
         end
         return 0
+    """.trimIndent()
+
+    /**
+     * Afwijkende KEYS: alleen de verloopindex. ARGV: het maximum aantal. Antwoord de ontvangers wier
+     * laatste sessie volgens de index verlopen is. Een script en geen losse `ZRANGEBYSCORE`, zodat
+     * "nu" dezelfde Redis-tijd is als in [VEEG].
+     */
+    val KANDIDATEN = GEDEELD + "\n\n" + """
+        return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', tijdInMs(), 'LIMIT', 0, tonumber(ARGV[1]))
+    """.trimIndent()
+
+    /**
+     * ARGV: ontvanger. Antwoord 1 als dit script de ontvanger heeft opgeruimd, anders 0.
+     *
+     * De index is alleen een aanwijzing: tussen [KANDIDATEN] en dit script kan een sessie gestart of
+     * geraakt zijn, of een andere pod al geveegd hebben. Pas als hier blijkt dat er echt geen lopende
+     * sessie meer is, wordt er gewist en verdwijnt de ontvanger uit de index; zo ruimt precies één
+     * pod op en meldt het. Ook als een eerder opruimen na een schrijfactie de gegevens al wiste, is
+     * dit het moment dat de verwerking eindigt, dus dan is het antwoord eveneens 1.
+     */
+    val VEEG = GEDEELD + "\n\n" + """
+        local nu = tijdInMs()
+        local score = redis.call('ZSCORE', KEYS[3], ARGV[1])
+        if not score or tonumber(score) > nu then
+            return 0
+        end
+
+        ruimVerlopenOp(nu)
+
+        if redis.call('ZCARD', KEYS[1]) > 0 then
+            -- Zonder GT: de index liep achter op een lopende sessie en moet naar diens verloop.
+            local laatste = redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')
+            redis.call('ZADD', KEYS[3], laatste[2], ARGV[1])
+            return 0
+        end
+
+        purge()
+        redis.call('ZREM', KEYS[3], ARGV[1])
+        return 1
     """.trimIndent()
 }

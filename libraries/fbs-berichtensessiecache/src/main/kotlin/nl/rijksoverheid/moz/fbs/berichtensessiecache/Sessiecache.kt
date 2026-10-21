@@ -6,6 +6,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
@@ -167,4 +168,17 @@ interface Sessiecache {
      * uitkomst [SessieEinde.ONBEKEND].
      */
     fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
+
+    /**
+     * Ruimt hoogstens [max] ontvangers op wier laatste sessie verlopen is, en meldt per ontvanger
+     * het resultaat; elk wissen hoort in het logboek. Bedoeld voor een periodieke taak, en veilig om
+     * op meerdere pods tegelijk te draaien: per ontvanger beslist één atomaire stap, dus een
+     * opruiming wordt precies één keer gemeld. Wie in de tussentijd een sessie startte of raakte,
+     * blijft staan en verschijnt niet in het resultaat.
+     *
+     * Een mislukt wissen is [Opruiming.gelukt] `false`; die ontvanger komt bij een volgende ronde
+     * terug. Gooit [SessiecacheException.Onbereikbaar] als de verlopen sessies niet op te vragen
+     * zijn, en [SessiecacheException.OngeldigeInvoer] voor een [max] kleiner dan 1.
+     */
+    fun ruimVerlopenSessiesOp(max: Int = 100): List<Opruiming>
 }
