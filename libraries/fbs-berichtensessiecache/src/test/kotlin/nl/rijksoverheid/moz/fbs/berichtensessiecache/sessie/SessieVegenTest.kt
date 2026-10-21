@@ -247,6 +247,95 @@ class SessieVegenTest {
     }
 
     @Test
+    fun `opruimen na schrijven zonder sessie laat de ontvanger wachtend in de index, en de veeg meldt hem`() {
+        val ontvanger = nieuweOntvanger()
+        zetGegevens(ontvanger)
+
+        assertTrue(register.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
+
+        assertTrue(indexScore(ontvanger)!! <= redisTijdMs(), "niet wachtend: ${indexScore(ontvanger)}")
+        assertTrue(register.veeg(ontvanger).await().atMost(WACHTTIJD))
+    }
+
+    @Test
+    fun `opruimen na schrijven naast een lopende sessie laat de index ongemoeid`() {
+        val ontvanger = nieuweOntvanger()
+        sessiecache.startSessie(ontvanger)
+        zetGegevens(ontvanger)
+        val score = indexScore(ontvanger)
+
+        assertFalse(register.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
+
+        assertEquals(score, indexScore(ontvanger))
+    }
+
+    @Test
+    fun `opruimen na schrijven zonder sessie en zonder gegevens zet niemand in de index`() {
+        val ontvanger = nieuweOntvanger()
+
+        assertFalse(register.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
+
+        assertNull(indexScore(ontvanger))
+    }
+
+    @Test
+    fun `uitloggen na een opruimen achter een verlopen sessie meldt het wissen, en de veeg daarna niet meer`() {
+        // Laatste sessie verlopen, dan een schrijfactie die zelf opruimt, dan pas het uitloggen: zonder
+        // de wachtende index-entry wist het uitloggen niets en haalt hij de taak van de veegtaak weg.
+        val ontvanger = nieuweOntvanger()
+        val sessie = sessiecache.startSessie(ontvanger)
+        Thread.sleep(INACTIVITEIT_MS + 300)
+        zetGegevens(ontvanger)
+        assertTrue(register.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
+
+        assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(sessie.sessieId, ontvanger))
+
+        assertFalse(register.veeg(ontvanger).await().atMost(WACHTTIJD))
+        assertNull(indexScore(ontvanger))
+    }
+
+    @Test
+    fun `een start na een opruimen achter een verlopen sessie meldt het wissen als resten`() {
+        val ontvanger = nieuweOntvanger()
+        sessiecache.startSessie(ontvanger)
+        Thread.sleep(INACTIVITEIT_MS + 300)
+        zetGegevens(ontvanger)
+        assertTrue(register.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
+
+        assertTrue(sessiecache.startSessie(ontvanger).restenOpgeruimd)
+
+        assertFalse(register.veeg(ontvanger).await().atMost(WACHTTIJD))
+    }
+
+    @Test
+    fun `een start zonder wachtende taak en zonder gegevens meldt geen resten`() {
+        val ontvanger = nieuweOntvanger()
+
+        assertFalse(sessiecache.startSessie(ontvanger).restenOpgeruimd)
+    }
+
+    @Test
+    fun `markeren voor de veeg zet een ontvanger zonder entry wachtend in de index`() {
+        val ontvanger = nieuweOntvanger()
+
+        register.markeerVoorVeeg(ontvanger).await().atMost(WACHTTIJD)
+
+        assertTrue(indexScore(ontvanger)!! <= redisTijdMs(), "niet wachtend: ${indexScore(ontvanger)}")
+    }
+
+    @Test
+    fun `markeren voor de veeg laat het verloop van een lopende sessie staan`() {
+        val ontvanger = nieuweOntvanger()
+        sessiecache.startSessie(ontvanger)
+        val score = indexScore(ontvanger)!!
+
+        register.markeerVoorVeeg(ontvanger).await().atMost(WACHTTIJD)
+
+        assertEquals(score, indexScore(ontvanger))
+        assertTrue(score > redisTijdMs())
+    }
+
+    @Test
     fun `toString van een opruiming noemt het type maar niet de waarde`() {
         val bsn = Bsn("999993653")
 

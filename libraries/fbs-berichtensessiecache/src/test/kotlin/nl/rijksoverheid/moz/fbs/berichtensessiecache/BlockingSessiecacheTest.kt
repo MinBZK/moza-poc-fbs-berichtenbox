@@ -11,7 +11,6 @@ import jakarta.ws.rs.WebApplicationException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSleutel
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheContentieException
@@ -76,11 +75,12 @@ class BlockingSessiecacheTest {
         override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
     }
     // Standaard loopt er nog een sessie: de schrijftests gaan over het schrijven, niet over het kruisen.
+    // De ontvanger zelf en niet `any()`: MockK bouwt voor `any()` een Bsn zonder waarde.
+    private val ontvanger = Bsn("999990019")
     private val sessies = mockk<SessieRegister>().also {
-        every { it.ruimOpZonderSessie(any()) } returns Uni.createFrom().item(false)
+        every { it.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(false)
     }
     private val facade = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 5)
-    private val ontvanger = Bsn("999990019")
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
     private val legePagina = BerichtenPagina(emptyList(), 0, 20, 0L, 0)
@@ -447,29 +447,37 @@ class BlockingSessiecacheTest {
     fun `schrijfBericht dat kruist met het einde van de laatste sessie geeft GeenLijstInCache en meldt niets aan`() {
         stubStatus(gereed)
         val bericht = testBericht()
-        val cacheKey = BerichtenCache.cacheKey(ontvanger)
         every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
-        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().item(true)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(true)
 
         assertThrows<SessiecacheException.GeenLijstInCache> { facade.schrijfBericht(ontvanger, bericht) }
 
         verifyOrder {
             service.createBericht(bericht, ontvanger)
-            sessies.ruimOpZonderSessie(cacheKey)
+            sessies.ruimOpZonderSessie(ontvanger)
         }
         verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
     }
 
-    @Test
-    fun `schrijfBericht met een mislukte opruimcontrole is Onbereikbaar`() {
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `schrijfBericht met een mislukte opruimcontrole markeert voor de veeg en is Onbereikbaar`(markerenFaalt: Boolean) {
         // De aanleveraar moet het opnieuw proberen: of het bericht een sessie heeft, is niet bekend.
+        // De herlevering vindt dan geen status meer, dus alleen de veegtaak kan het nog opruimen.
         stubStatus(gereed)
         val bericht = testBericht()
         every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
-        every { sessies.ruimOpZonderSessie(any()) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            if (markerenFaalt) Uni.createFrom().failure(IllegalStateException("nog steeds weg")) else Uni.createFrom().item(Unit)
 
-        assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
 
+        assertEquals("redis weg", fout.cause?.message, "de oorspronkelijke fout hoort door te komen")
+        verifyOrder {
+            sessies.ruimOpZonderSessie(ontvanger)
+            sessies.markeerVoorVeeg(ontvanger)
+        }
         verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
     }
 

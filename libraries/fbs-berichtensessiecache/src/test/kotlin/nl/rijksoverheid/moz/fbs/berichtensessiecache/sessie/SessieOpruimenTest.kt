@@ -124,7 +124,7 @@ class SessieOpruimenTest {
         redis.value(String::class.java).mset(sleutels.associateWith { "1" }).await().atMost(WACHTTIJD)
         redis.set(String::class.java).sadd("$k:sleutels", *sleutels.toTypedArray()).await().atMost(WACHTTIJD)
 
-        assertTrue(sessies.ruimOpZonderSessie(k).await().atMost(WACHTTIJD))
+        assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
 
         assertEquals(emptyList<String>(), sleutelsOnder(k))
     }
@@ -181,7 +181,7 @@ class SessieOpruimenTest {
         val bsnKey = BerichtenCache.cacheKey(bsn)
         val stubBerichten = MockMagazijnClientFactory.testBerichtenA + MockMagazijnClientFactory.testBerichtenB
         redis.key().del(*stubBerichten.map { BerichtenCache.berichtKey(it.sleutel) }.toTypedArray()).await().atMost(WACHTTIJD)
-        sessies.ruimOpZonderSessie(bsnKey).await().atMost(WACHTTIJD)
+        sessies.ruimOpZonderSessie(bsn).await().atMost(WACHTTIJD)
 
         val sessie = sessiecache.startSessie(bsn)
         val bevraagd = CountDownLatch(1)
@@ -226,7 +226,7 @@ class SessieOpruimenTest {
 
         berichtenCache.createBericht(nieuw, ontvanger).await().atMost(WACHTTIJD)
 
-        assertTrue(sessies.ruimOpZonderSessie(k).await().atMost(WACHTTIJD))
+        assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
         assertNietsAchter(listOf(nieuw))
     }
 
@@ -243,7 +243,7 @@ class SessieOpruimenTest {
 
     @Test
     fun `opruimen zonder sessie en zonder gegevens meldt niets`() {
-        assertFalse(sessies.ruimOpZonderSessie(k).await().atMost(WACHTTIJD))
+        assertFalse(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
     }
 
     @Test
@@ -252,7 +252,7 @@ class SessieOpruimenTest {
         // Een lid met een verloop in het verleden: zoals een sessie die verliep zonder dat er geveegd is.
         redis.sortedSet(String::class.java).zadd("$k:sessies", 1.0, "verlopen").await().atMost(WACHTTIJD)
 
-        assertTrue(sessies.ruimOpZonderSessie(k).await().atMost(WACHTTIJD))
+        assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
         assertEquals(emptyList<String>(), sleutelsOnder(k))
     }
 

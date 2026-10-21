@@ -6,7 +6,6 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSleutel
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheContentieException
@@ -18,6 +17,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.ALERT_OPRUIMEN_NA_SCHRIJVEN
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
@@ -174,7 +174,14 @@ internal class BlockingSessiecache(
 
         // De statuscontrole hierboven en het schrijven zijn twee stappen; eindigde de laatste sessie
         // daartussen, dan is het bericht nu weer gewist en hoort de aanleveraar dat er geen lijst was.
-        val opgeruimd = awaitOrServiceUnavailable { sessies.ruimOpZonderSessie(BerichtenCache.cacheKey(ontvanger)) }
+        val opgeruimd = try {
+            awaitOrServiceUnavailable { sessies.ruimOpZonderSessie(ontvanger) }
+        } catch (e: SessiecacheException) {
+            // De herlevering die op deze fout volgt, vindt na een uitlog geen status meer en ruimt dus
+            // niets op; alleen de veegtaak kan het geschrevene dan nog vinden.
+            markeerVoorVeeg(ontvanger)
+            throw e
+        }
 
         if (opgeruimd) {
             throw SessiecacheException.GeenLijstInCache(
@@ -250,6 +257,19 @@ internal class BlockingSessiecache(
             sessies.stelUit(ontvanger).await().atMost(timeout)
         } catch (e: Exception) {
             log.warnf("Uitstellen van een mislukte opruiming mislukt (%s); de volgende veegronde ziet hem weer vooraan", e.javaClass.simpleName)
+        }
+    }
+
+    /** Best-effort: de aanleveraar krijgt hoe dan ook de oorspronkelijke fout en levert opnieuw. */
+    private fun markeerVoorVeeg(ontvanger: Identificatienummer) {
+        try {
+            sessies.markeerVoorVeeg(ontvanger).await().atMost(timeout)
+        } catch (e: Exception) {
+            log.errorf(
+                "%s Opruimen na een aanmelding mislukt en ook het markeren voor de veegtaak (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
+                ALERT_OPRUIMEN_NA_SCHRIJVEN,
+                e.javaClass.name,
+            )
         }
     }
 

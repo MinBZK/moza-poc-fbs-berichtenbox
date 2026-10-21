@@ -26,6 +26,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.circuitActieVoor
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.ALERT_OPRUIMEN_NA_SCHRIJVEN
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
@@ -223,20 +224,38 @@ internal class BerichtensessiecacheService(
         // Een delete die met het einde van de laatste sessie kruist, schrijft zijn tombstone ná
         // het opruimen; de controle erna haalt die weer weg.
         return berichtenCache.delete(sleutel, ontvanger)
-            .call { _ -> ruimOpBestEffort(BerichtenCache.cacheKey(ontvanger)) }
+            .call { _ -> ruimOpBestEffort(ontvanger) }
     }
 
     /**
      * Ruimt op als er geen lopende sessie meer is, na een schrijfactie waarvan de uitkomst al vaststaat:
-     * een tombstone of een FOUT-status. Mislukt dat, dan blijft er hooguit iets staan tot de
-     * vangnet-TTL; de handeling zelf hoort daar niet alsnog op te falen. Alleen de fout-soort in de
-     * log: de cacheKey is een hash van de ontvanger.
+     * een tombstone of een FOUT-status. De handeling zelf hoort niet alsnog te falen op een mislukt
+     * opruimen. Na een uitlog kent de verloopindex de ontvanger niet meer, dus zonder markering zou
+     * het geschrevene onzichtbaar blijven staan tot de vangnet-TTL, die het zonder logregel wist.
+     * Alleen de fout-soort in de log: de cacheKey is een hash van de ontvanger.
      */
-    private fun ruimOpBestEffort(cacheKey: String): Uni<Void> =
-        sessies.ruimOpZonderSessie(cacheKey)
+    private fun ruimOpBestEffort(ontvanger: Identificatienummer): Uni<Void> =
+        sessies.ruimOpZonderSessie(ontvanger)
             .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
+            .replaceWithVoid()
+            .onFailure().recoverWithUni { e -> markeerNaMisluktOpruimen(ontvanger, e) }
+
+    private fun markeerNaMisluktOpruimen(ontvanger: Identificatienummer, opruimFout: Throwable): Uni<Void> =
+        sessies.markeerVoorVeeg(ontvanger)
+            .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
+            .invoke { _ ->
+                log.warnf(
+                    "Opruimen zonder lopende sessie mislukt (fout=%s); de veegtaak ruimt het op",
+                    opruimFout.javaClass.name,
+                )
+            }
             .onFailure().invoke { e ->
-                log.warnf("Opruimen zonder lopende sessie mislukt (fout=%s); de vangnet-TTL ruimt het op", e.javaClass.name)
+                log.errorf(
+                    "%s Opruimen zonder lopende sessie mislukt (fout=%s) en ook het markeren voor de veegtaak (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
+                    ALERT_OPRUIMEN_NA_SCHRIJVEN,
+                    opruimFout.javaClass.name,
+                    e.javaClass.name,
+                )
             }
             .onFailure().recoverWithNull()
             .replaceWithVoid()
@@ -254,7 +273,7 @@ internal class BerichtensessiecacheService(
             status = OphalenStatus.BEZIG,
             totaalMagazijnen = 0,
         )
-        val wasSet = verwerfOphaalLock(cacheKey, bezigStatus)
+        val wasSet = verwerfOphaalLock(ontvanger, cacheKey, bezigStatus)
 
         if (!wasSet) {
             throw WebApplicationException(
@@ -268,11 +287,11 @@ internal class BerichtensessiecacheService(
             is ResolveUitkomst.Ids -> uitkomst.ids
         }
 
-        val clients = bepaalClients(resolvedIds, cacheKey)
+        val clients = bepaalClients(resolvedIds, ontvanger, cacheKey)
 
         // Geen magazijnen → lege resultaten + GEREED-status.
         if (clients.isEmpty()) {
-            return legeResultaten(cacheKey)
+            return legeResultaten(ontvanger, cacheKey)
         }
 
         // synchronizedList(ArrayList) i.p.v. ConcurrentLinkedQueue: Mutiny's merging-stream
@@ -281,7 +300,7 @@ internal class BerichtensessiecacheService(
         val alleBerichten: MutableList<Bericht> = Collections.synchronizedList(ArrayList())
         val tellers = RondeTellers()
 
-        zetBezigStatusMetTotaal(cacheKey, bezigStatus, clients.size)
+        zetBezigStatusMetTotaal(ontvanger, cacheKey, bezigStatus, clients.size)
 
         val ontvangerString = ontvanger.toCanonicalString()
 
@@ -320,7 +339,7 @@ internal class BerichtensessiecacheService(
             bulkhead.ronde(voltooidStreams).onCompletion().invoke(
                 Runnable { logRondeAfgerond(clients.size, rondeStartNanos, tellers) },
             ),
-            aggregeerEnSlaOp(cacheKey, clients.size, alleBerichten, tellers),
+            aggregeerEnSlaOp(ontvanger, cacheKey, clients.size, alleBerichten, tellers),
         )
     }
 
@@ -349,17 +368,17 @@ internal class BerichtensessiecacheService(
      * geslaagd zijn (lockKey wel, statusKey niet). De cache-laag compenseert intern,
      * maar caller-side cleanup als defense-in-depth voor await-level failures.
      */
-    private fun verwerfOphaalLock(cacheKey: String, bezigStatus: AggregationStatus): Boolean {
+    private fun verwerfOphaalLock(ontvanger: Identificatienummer, cacheKey: String, bezigStatus: AggregationStatus): Boolean {
         return try {
             berichtenCache.trySetAggregationStatus(cacheKey, bezigStatus)
                 .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
         } catch (ex: Exception) {
-            throw naarLockAcquireFout(ex, cacheKey)
+            throw naarLockAcquireFout(ex, ontvanger, cacheKey)
         }
     }
 
     /** Logt + ruimt de lock op en mapt de geclassificeerde lock-acquire-fout naar een HTTP-fout. */
-    private fun naarLockAcquireFout(ex: Exception, cacheKey: String): WebApplicationException {
+    private fun naarLockAcquireFout(ex: Exception, ontvanger: Identificatienummer, cacheKey: String): WebApplicationException {
         // Cause-walking: Mutiny's blocking-await wrapt upstream-failures, dus directe
         // instanceof matched de echte fout niet.
         val errorId = UUID.randomUUID()
@@ -371,28 +390,28 @@ internal class BerichtensessiecacheService(
                 // meldt het log ten onrechte dat de lock op zijn TTL leunt.
                 Thread.interrupted()
                 log.warnf(ex, "(errorId=%s) Lock-acquire onderbroken voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "lock-acquire interrupted", errorId, afbreking = true)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "lock-acquire interrupted", errorId, afbreking = true)
                 Thread.currentThread().interrupt()
                 WebApplicationException("Service shutdown tijdens ophaalstart", 503)
             }
             LockAcquireError.JSON_SERIALIZATION -> {
                 log.errorf(ex, "(errorId=%s) Lock-acquire JSON-serialisatie-fout voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "json-serialisatie-fout bij lock-acquire", errorId)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "json-serialisatie-fout bij lock-acquire", errorId)
                 WebApplicationException("Interne fout bij serialisatie status", 500)
             }
             LockAcquireError.TIMEOUT -> {
                 log.errorf(ex, "(errorId=%s) Lock-acquire timeout voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "lock-acquire timeout", errorId)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "lock-acquire timeout", errorId)
                 WebApplicationException("Cache niet bereikbaar bij ophaalstart (timeout)", 503)
             }
             LockAcquireError.IO_FAULT -> {
                 log.errorf(ex, "(errorId=%s) Lock-acquire I/O-fout voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
-                cleanupLockMetFoutStatus(cacheKey, "lock-acquire I/O-fout: ${ex.javaClass.simpleName}", errorId)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "lock-acquire I/O-fout: ${ex.javaClass.simpleName}", errorId)
                 WebApplicationException("Cache niet bereikbaar bij ophaalstart", 503)
             }
             LockAcquireError.UNEXPECTED -> {
                 log.errorf(ex, "(errorId=%s) Lock-acquire onverwachte fout voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
-                cleanupLockMetFoutStatus(cacheKey, "lock-acquire onverwacht: ${ex.javaClass.simpleName}", errorId)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "lock-acquire onverwacht: ${ex.javaClass.simpleName}", errorId)
                 WebApplicationException("Interne fout bij ophaalstart", 500)
             }
         }
@@ -417,7 +436,7 @@ internal class BerichtensessiecacheService(
             ResolveUitkomst.Ids(ids)
         } catch (ex: ProfielServiceFoutException) {
             // ex.errorId doorgeven zodat cleanup-log dezelfde id draagt als mapper-respons.
-            cleanupLockMetFoutStatus(cacheKey, "profiel-service-fout: ${ex.categorie.name}", ex.errorId)
+            cleanupLockMetFoutStatus(ontvanger, cacheKey, "profiel-service-fout: ${ex.categorie.name}", ex.errorId)
 
             // CONFIG_DRIFT: eigen-config-fout, niet Profiel-storing — emit zichtbare
             // OPHALEN_FOUT i.p.v. 503 zodat client weet "geen ophaling mogelijk", niet
@@ -436,11 +455,11 @@ internal class BerichtensessiecacheService(
                 ),
             )
         } catch (ex: Exception) {
-            gooiResolverFout(ex, cacheKey)
+            gooiResolverFout(ex, ontvanger, cacheKey)
         }
     }
 
-    private fun gooiResolverFout(ex: Exception, cacheKey: String): Nothing {
+    private fun gooiResolverFout(ex: Exception, ontvanger: Identificatienummer, cacheKey: String): Nothing {
         // Cause-walking via causeChain() (eenmaal materialiseren) — Mutiny wrapt
         // InterruptedException/TimeoutException, directe instanceof matched niet.
         val chain = ex.causeChain()
@@ -460,7 +479,7 @@ internal class BerichtensessiecacheService(
                 val errorId = UUID.randomUUID()
 
                 log.warnf(ex, "(errorId=%s) Resolver-await onderbroken voor key=%s", errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "resolver-await interrupted", errorId, afbreking = true)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "resolver-await interrupted", errorId, afbreking = true)
                 Thread.currentThread().interrupt()
                 throw WebApplicationException("Service shutdown tijdens ophalen", 503)
             }
@@ -469,7 +488,7 @@ internal class BerichtensessiecacheService(
                 val foutException = ProfielServiceFoutException.resolverMislukt(ex)
 
                 log.errorf(ex, "Resolver await overschreed outer-budget (%ds) (errorId=%s) voor key=%s", outerAwaitSeconds, foutException.errorId, cacheKey)
-                cleanupLockMetFoutStatus(cacheKey, "resolver outer-await timeout", foutException.errorId)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "resolver outer-await timeout", foutException.errorId)
                 throw foutException
             }
             else -> {
@@ -477,7 +496,7 @@ internal class BerichtensessiecacheService(
                 val errorId = UUID.randomUUID()
 
                 log.errorf(ex, "(errorId=%s) Onverwachte fout in resolver-await voor key=%s (cause=%s)", errorId, cacheKey, ex.javaClass.simpleName)
-                cleanupLockMetFoutStatus(cacheKey, "onverwachte resolver-fout: ${ex.javaClass.simpleName}", errorId)
+                cleanupLockMetFoutStatus(ontvanger, cacheKey, "onverwachte resolver-fout: ${ex.javaClass.simpleName}", errorId)
                 throw WebApplicationException("Interne fout tijdens ophalen", 500)
             }
         }
@@ -490,7 +509,7 @@ internal class BerichtensessiecacheService(
      * Cleanup vóór de throw: zonder dit blijft de lock tot TTL hangen en blokkeert
      * legitieme retries na de drift-fix.
      */
-    private fun bepaalClients(resolvedIds: Set<String>, cacheKey: String): Map<String, IngeschrevenMagazijn> {
+    private fun bepaalClients(resolvedIds: Set<String>, ontvanger: Identificatienummer, cacheKey: String): Map<String, IngeschrevenMagazijn> {
         val allClients = clientFactory.getAllMagazijnen()
         val onbekend = resolvedIds - allClients.keys
 
@@ -498,7 +517,7 @@ internal class BerichtensessiecacheService(
             val errorId = UUID.randomUUID()
 
             log.errorf("(errorId=%s) Drift: resolver leverde onbekende magazijn-IDs %s voor key=%s", errorId, onbekend, cacheKey)
-            cleanupLockMetFoutStatus(cacheKey, "drift: resolver leverde onbekende magazijn-IDs", errorId)
+            cleanupLockMetFoutStatus(ontvanger, cacheKey, "drift: resolver leverde onbekende magazijn-IDs", errorId)
             throw IllegalArgumentException("Resolver leverde onbekende magazijn-IDs: $onbekend")
         }
 
@@ -507,7 +526,12 @@ internal class BerichtensessiecacheService(
 
     // Happy: alleen statusKey overschrijven; lockKey blijft tot GEREED/FOUT-schrijfactie.
     // Fout: cleanupLockMetFoutStatus schrijft FOUT (geeft lock vrij via interne del).
-    private fun zetBezigStatusMetTotaal(cacheKey: String, bezigStatus: AggregationStatus, totaalMagazijnen: Int) {
+    private fun zetBezigStatusMetTotaal(
+        ontvanger: Identificatienummer,
+        cacheKey: String,
+        bezigStatus: AggregationStatus,
+        totaalMagazijnen: Int,
+    ) {
         try {
             berichtenCache.updateAggregationStatus(
                 cacheKey,
@@ -517,7 +541,7 @@ internal class BerichtensessiecacheService(
             val errorId = UUID.randomUUID()
 
             log.errorf(ex, "(errorId=%s) Update aggregatie-status (BEZIG, totaalMagazijnen=%d) mislukt voor key=%s", errorId, totaalMagazijnen, cacheKey)
-            cleanupLockMetFoutStatus(cacheKey, "update-aggregatie-status mislukt", errorId)
+            cleanupLockMetFoutStatus(ontvanger, cacheKey, "update-aggregatie-status mislukt", errorId)
             throw WebApplicationException("Cache niet bereikbaar tijdens initialisatie ophaalsessie.", 503)
         }
     }
@@ -531,7 +555,7 @@ internal class BerichtensessiecacheService(
      * de voorkeurenbron levert een fout op en komt hier dus niet langs: die mag de eerder
      * opgehaalde berichten niet met een lege lijst overschrijven.
      */
-    private fun legeResultaten(cacheKey: String): Multi<MagazijnEvent> {
+    private fun legeResultaten(ontvanger: Identificatienummer, cacheKey: String): Multi<MagazijnEvent> {
         val opgeruimd = try {
             // Parallel: spaart 1 RTT op hot-path (nieuwe gebruikers zonder opt-ins).
             // Per-Uni .onFailure houdt log-context welke faalde.
@@ -545,14 +569,14 @@ internal class BerichtensessiecacheService(
                 .discardItems()
                 // Zoals na een ronde met magazijnen: kruiste die met het einde van de laatste sessie,
                 // dan blijft er geen GEREED-status achter.
-                .chain { _ -> sessies.ruimOpZonderSessie(cacheKey) }
+                .chain { _ -> sessies.ruimOpZonderSessie(ontvanger) }
                 .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
         } catch (ex: Exception) {
             val errorId = UUID.randomUUID()
             val ref = errorId.toString()
 
             log.errorf(ex, "(errorId=%s) Store-fout bij lege magazijn-set voor key=%s", errorId, cacheKey)
-            cleanupLockMetFoutStatus(cacheKey, "store-fout bij lege magazijn-set", errorId)
+            cleanupLockMetFoutStatus(ontvanger, cacheKey, "store-fout bij lege magazijn-set", errorId)
             // SSE-stream is al actief op dit punt; een fout-event geeft de client
             // dezelfde UX als het aggregatie-faalpad i.p.v. een mid-stream HTTP-500.
             return Multi.createFrom().item(
@@ -851,6 +875,7 @@ internal class BerichtensessiecacheService(
      * daarom ná het schrijven [SessieRegister.ruimOpZonderSessie], zodat ze dan niets achterlaat.
      */
     private fun aggregeerEnSlaOp(
+        ontvanger: Identificatienummer,
         cacheKey: String,
         totaalMagazijnen: Int,
         alleBerichten: MutableList<Bericht>,
@@ -878,7 +903,7 @@ internal class BerichtensessiecacheService(
                         berichtenCache.storeAggregationStatus(cacheKey, status),
                     )
                     .discardItems()
-                    .chain { _ -> sessies.ruimOpZonderSessie(cacheKey) }
+                    .chain { _ -> sessies.ruimOpZonderSessie(ontvanger) }
                     .chain { opgeruimd ->
                         // De laatste sessie eindigde tijdens de ronde en het geschrevene is weer
                         // gewist: geen GEREED, de stream eindigt zonder slotevent.
@@ -902,7 +927,7 @@ internal class BerichtensessiecacheService(
             // laat dat type door naar de SSE-emitter, waarna de verbinding wegvalt zonder dat de
             // gebruiker hoort dat zijn ophaalronde niet bewaard is.
             .onFailure().recoverWithUni { error ->
-                herstelNaAggregatieCacheFout(error, cacheKey, totaalMagazijnen, alleBerichten, tellers)
+                herstelNaAggregatieCacheFout(error, ontvanger, cacheKey, totaalMagazijnen, alleBerichten, tellers)
             }
             .toMulti()
 
@@ -913,6 +938,7 @@ internal class BerichtensessiecacheService(
      */
     private fun herstelNaAggregatieCacheFout(
         error: Throwable,
+        ontvanger: Identificatienummer,
         cacheKey: String,
         totaalMagazijnen: Int,
         alleBerichten: MutableList<Bericht>,
@@ -950,7 +976,7 @@ internal class BerichtensessiecacheService(
         return berichtenCache.storeAggregationStatus(cacheKey, foutStatus)
             // Ook een mislukte ronde kan met het einde van de laatste sessie kruisen; de
             // verloopindex kent de ontvanger dan niet meer, dus niemand anders ruimt de status op.
-            .call { _ -> ruimOpBestEffort(cacheKey) }
+            .call { _ -> ruimOpBestEffort(ontvanger) }
             // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
             // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
             // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
@@ -1000,6 +1026,7 @@ internal class BerichtensessiecacheService(
      *   paden krijgen een verse id zodat `[ALERT cache_doublefail]`-pad een anker heeft.
      */
     private fun cleanupLockMetFoutStatus(
+        ontvanger: Identificatienummer,
         cacheKey: String,
         oorzaak: String,
         errorId: UUID = UUID.randomUUID(),
@@ -1019,7 +1046,7 @@ internal class BerichtensessiecacheService(
 
             // Zoals na een mislukte ronde: eindigde de laatste sessie intussen, dan blijft de
             // FOUT-status anders staan zonder dat de veegtaak de ontvanger nog kent.
-            ruimOpBestEffort(cacheKey).await().indefinitely()
+            ruimOpBestEffort(ontvanger).await().indefinitely()
         } catch (cleanupEx: Exception) {
             // Een afbreking is ook hier geen storing: een rolling restart tijdens een lopende
             // ophaalstart zou anders gegarandeerd een FATAL met alert-marker per onderbroken

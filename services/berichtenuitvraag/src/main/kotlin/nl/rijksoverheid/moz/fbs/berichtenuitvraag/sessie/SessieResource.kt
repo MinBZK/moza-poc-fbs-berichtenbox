@@ -4,6 +4,8 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
@@ -51,7 +53,16 @@ class SessieResource(
         registreerLdvSubject(logboekContext, xOntvanger)
 
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
-        val einde = leesUitCache(log, "sessie-einde") { sessiecache.beeindigSessie(xSessie, ontvanger) }
+        val einde = leesUitCache(log, "sessie-einde") {
+            try {
+                sessiecache.beeindigSessie(xSessie, ontvanger)
+            } catch (e: SessiecacheException.Onbereikbaar) {
+                // Het script kan al gewist en de ontvanger uit de verloopindex gehaald hebben; een
+                // herhaalde uitlog ziet dan niets meer, dus dit is de enige kans op een logregel.
+                sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD, OpruimUitkomst.ONBEVESTIGD)
+                throw e
+            }
+        }
 
         if (einde == SessieEinde.OPGERUIMD) sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD)
     }

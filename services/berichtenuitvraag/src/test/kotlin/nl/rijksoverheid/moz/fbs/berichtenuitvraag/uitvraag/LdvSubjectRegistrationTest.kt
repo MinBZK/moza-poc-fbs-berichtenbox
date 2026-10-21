@@ -17,6 +17,7 @@ import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.ext.Provider
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie.SessieLogboek
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -159,6 +160,38 @@ class LdvSubjectRegistrationTest {
         assertEquals(opruimen + sessieRegel("uitvraag-sessie-einde"), logregels.toList())
 
         if (opgeruimd) verify { opruimSpan.setAttribute(SessieLogboek.AANLEIDING_ATTRIBUUT, "uitgelogd") }
+    }
+
+    @Test
+    fun `een uitlog zonder antwoord van de opslag legt het opruimen als onbevestigd vast`() {
+        val sessie = sessiecache.sessieVoor()
+        sessiecache.beeindigFout = SessiecacheException.Onbereikbaar("Redis antwoordt niet")
+        vangLogregels()
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
+            .delete("/api/v1/sessies/huidige")
+            .then()
+            .statusCode(503)
+
+        assertEquals(listOf(sessieRegel(SessieLogboek.NAAM).copy(status = StatusCode.ERROR)), logregels.filter { it.naam == SessieLogboek.NAAM })
+        verify { opruimSpan.setAttribute(SessieLogboek.AANLEIDING_ATTRIBUUT, "uitgelogd") }
+        verify { opruimSpan.setAttribute(SessieLogboek.UITKOMST_ATTRIBUUT, "onbevestigd") }
+    }
+
+    @Test
+    fun `een uitlog met een andere fout dan onbereikbaar legt geen opruimen vast`() {
+        val sessie = sessiecache.sessieVoor()
+        sessiecache.beeindigFout = SessiecacheException.Onleesbaar("kapot")
+        vangLogregels()
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
+            .delete("/api/v1/sessies/huidige")
+
+        assertEquals(emptyList<Logregel>(), logregels.filter { it.naam == SessieLogboek.NAAM })
     }
 
     /**

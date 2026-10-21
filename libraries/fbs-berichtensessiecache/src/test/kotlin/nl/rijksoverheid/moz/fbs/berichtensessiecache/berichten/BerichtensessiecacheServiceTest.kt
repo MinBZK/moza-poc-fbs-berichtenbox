@@ -25,6 +25,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -54,9 +55,12 @@ class BerichtensessiecacheServiceTest {
     }
     private val validator = BerichtValidator(limieten)
     private val resolver = mockk<MagazijnResolver>(relaxed = true)
+    private val ontvanger = Bsn("999993653")
     // Standaard loopt er een sessie, dus ruimt niets op; het kruisen met uitloggen heeft eigen tests.
+    // De ontvanger zelf en niet `any()`: MockK bouwt voor `any()` een Bsn zonder waarde.
     private val sessies = mockk<SessieRegister>().also {
-        every { it.ruimOpZonderSessie(any()) } returns Uni.createFrom().item(false)
+        every { it.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(false)
+        every { it.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().item(Unit)
     }
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
@@ -80,10 +84,11 @@ class BerichtensessiecacheServiceTest {
         sessies = sessies,
     ).also { it.valideerTimeouts() }
 
-    private val ontvanger = Bsn("999993653")
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
     companion object {
+        const val ALERT_OPRUIMEN = "[ALERT opruimen_na_schrijven]"
+
         @JvmStatic
         fun mappenPerLevering(): List<Arguments> = listOf(
             Arguments.of("niets geleverd", emptyList<String?>(), emptyList<MapTelling>()),
@@ -184,7 +189,7 @@ class BerichtensessiecacheServiceTest {
         every { clientFactory.getAllMagazijnen() } returns emptyMap()
         every { berichtenCache.store(cacheKey, emptyList()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
-        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().item(true)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(true)
 
         val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(5))
 
@@ -203,7 +208,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
-        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().item(opgeruimd)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(opgeruimd)
 
         val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
 
@@ -211,7 +216,7 @@ class BerichtensessiecacheServiceTest {
         assertTrue(events.filterIsInstance<OphalenFout>().isEmpty(), "Events: $events")
         io.mockk.verifyOrder {
             berichtenCache.store(cacheKey, any())
-            sessies.ruimOpZonderSessie(cacheKey)
+            sessies.ruimOpZonderSessie(ontvanger)
         }
     }
 
@@ -227,7 +232,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
-        every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
 
         val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
 
@@ -247,7 +252,7 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.updateAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
         every { berichtenCache.store(cacheKey, any()) } returns Uni.createFrom().failure(RuntimeException("Redis store down"))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
-        every { sessies.ruimOpZonderSessie(cacheKey) } returns
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns
             if (opruimenFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
 
         val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
@@ -255,7 +260,7 @@ class BerichtensessiecacheServiceTest {
         assertEquals(1, events.filterIsInstance<OphalenMisluktNaBevraging>().size, "Events: $events")
         io.mockk.verifyOrder {
             berichtenCache.storeAggregationStatus(cacheKey, match { it.status == OphalenStatus.FOUT })
-            sessies.ruimOpZonderSessie(cacheKey)
+            sessies.ruimOpZonderSessie(ontvanger)
         }
     }
 
@@ -265,14 +270,14 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(500))
         every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
-        every { sessies.ruimOpZonderSessie(cacheKey) } returns
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns
             if (opruimenFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
 
         assertThrows<ProfielServiceFoutException> { service.haalBerichtenOp(ontvanger) }
 
         io.mockk.verifyOrder {
             berichtenCache.storeAggregationStatus(cacheKey, match { it.status == OphalenStatus.FOUT })
-            sessies.ruimOpZonderSessie(cacheKey)
+            sessies.ruimOpZonderSessie(ontvanger)
         }
     }
 
@@ -284,7 +289,7 @@ class BerichtensessiecacheServiceTest {
 
         assertThrows<ProfielServiceFoutException> { service.haalBerichtenOp(ontvanger) }
 
-        verify(exactly = 0) { sessies.ruimOpZonderSessie(any()) }
+        verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
     }
 
     @ParameterizedTest(name = "opruimen faalt={0}")
@@ -292,15 +297,81 @@ class BerichtensessiecacheServiceTest {
     fun `verwijderen volgt met de opruimcontrole en slaagt ook als die faalt`(opruimenFaalt: Boolean) {
         val sleutel = BerichtSleutel("magazijn-a", UUID.randomUUID())
         every { berichtenCache.delete(sleutel, ontvanger) } returns Uni.createFrom().voidItem()
-        every { sessies.ruimOpZonderSessie(cacheKey) } returns
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns
             if (opruimenFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
 
         service.verwijderBericht(sleutel, ontvanger).await().atMost(Duration.ofSeconds(5))
 
         io.mockk.verifyOrder {
             berichtenCache.delete(sleutel, ontvanger)
-            sessies.ruimOpZonderSessie(cacheKey)
+            sessies.ruimOpZonderSessie(ontvanger)
         }
+    }
+
+    @Test
+    fun `een mislukt opruimen na verwijderen markeert de ontvanger voor de veegtaak`() {
+        val sleutel = BerichtSleutel("magazijn-a", UUID.randomUUID())
+        every { berichtenCache.delete(sleutel, ontvanger) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+
+        val regels = vangLog { service.verwijderBericht(sleutel, ontvanger).await().atMost(Duration.ofSeconds(5)) }
+
+        io.mockk.verifyOrder {
+            sessies.ruimOpZonderSessie(ontvanger)
+            sessies.markeerVoorVeeg(ontvanger)
+        }
+        assertTrue(regels.any { it.contains("de veegtaak ruimt het op") }, "Log: $regels")
+        assertTrue(regels.none { it.contains(ALERT_OPRUIMEN) }, "Log: $regels")
+    }
+
+    @Test
+    fun `faalt ook het markeren, dan volgt een alert zonder ontvanger en slaagt het verwijderen`() {
+        val sleutel = BerichtSleutel("magazijn-a", UUID.randomUUID())
+        every { berichtenCache.delete(sleutel, ontvanger) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis nog steeds weg"))
+
+        val regels = vangLog { service.verwijderBericht(sleutel, ontvanger).await().atMost(Duration.ofSeconds(5)) }
+
+        val alert = regels.single { it.contains(ALERT_OPRUIMEN) }
+        assertFalse(alert.contains(ontvanger.waarde), "de BSN hoort niet in de log: $alert")
+        assertFalse(alert.contains(cacheKey), "de cacheKey hoort niet in de log: $alert")
+    }
+
+    @Test
+    fun `een mislukt opruimen na een mislukte ronde markeert de ontvanger voor de veegtaak`() {
+        every { berichtenCache.trySetAggregationStatus(cacheKey, any()) } returns Uni.createFrom().item(true)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(500))
+        every { berichtenCache.storeAggregationStatus(cacheKey, any()) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+
+        assertThrows<ProfielServiceFoutException> { service.haalBerichtenOp(ontvanger) }
+
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
+    }
+
+    private fun vangLog(blok: () -> Unit): List<String> {
+        val regels = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val logger = java.util.logging.Logger.getLogger(BerichtensessiecacheService::class.java.name)
+        val vanger = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) {
+                regels += String.format(record.message, *(record.parameters ?: emptyArray()))
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+
+        logger.addHandler(vanger)
+
+        try {
+            blok()
+        } finally {
+            logger.removeHandler(vanger)
+        }
+
+        return regels
     }
 
     @Test

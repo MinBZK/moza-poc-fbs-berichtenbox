@@ -150,6 +150,10 @@ interface Sessiecache {
      * Gooit [SessiecacheException.TeVeelSessies] wanneer [ontvanger] al het maximum aantal lopende
      * sessies heeft (`berichtensessiecache.sessie.max-per-ontvanger`); er wordt geen bestaande
      * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
+     *
+     * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
+     * gebeurde, dan staat er een sessie die niemand kent. Die verloopt na de inactiviteitsduur, en
+     * dan meldt de veegtaak het opruimen; een gewiste rest gaat zo niet ongemeld verloren.
      */
     fun startSessie(ontvanger: Identificatienummer): SessieStart
 
@@ -167,6 +171,9 @@ interface Sessiecache {
      * verlopen sessie, als er nog gegevens stonden: elk wissen hoort gemeld te worden.
      * Idempotent: een onbekende of verlopen sessie is geen fout; zonder iets te wissen is de
      * uitkomst [SessieEinde.ONBEKEND].
+     *
+     * Bij [SessiecacheException.Onbereikbaar] kan het wissen al gebeurd zijn, en dan ziet een
+     * herhaalde aanroep niets meer: de aanroeper legt die uitlog dan als onbevestigd vast.
      */
     fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
 

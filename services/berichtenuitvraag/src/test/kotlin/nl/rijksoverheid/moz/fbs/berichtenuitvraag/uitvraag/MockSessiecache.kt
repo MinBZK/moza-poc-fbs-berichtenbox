@@ -84,6 +84,7 @@ class MockSessiecache : Sessiecache {
     /** Laat de volgende start melden dat hij resten van een verlopen sessie wiste. */
     var restenBijVolgendeStart = false
     var raakFout: SessiecacheException? = null
+    var beeindigFout: SessiecacheException? = null
 
     /** Wat de volgende veegrondes als opruimingen teruggeven, één lijst per aanroep; daarna leeg. */
     val veegRondes = ConcurrentLinkedQueue<List<Opruiming>>()
@@ -104,6 +105,7 @@ class MockSessiecache : Sessiecache {
         startSessieFout = null
         restenBijVolgendeStart = false
         raakFout = null
+        beeindigFout = null
         veegRondes.clear()
         veegRonde = null
         veegFout = null
@@ -239,6 +241,8 @@ class MockSessiecache : Sessiecache {
     }
 
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde {
+        beeindigFout?.let { throw it }
+
         if (!sessies.remove(sessieId, ontvanger)) return SessieEinde.ONBEKEND
 
         return if (sessies.containsValue(ontvanger)) SessieEinde.BEEINDIGD else SessieEinde.OPGERUIMD

@@ -162,7 +162,8 @@ start van een sessie zonder andere lopende sessie (resten van een vorige keer).
 - **Falen:** mislukt opruimen, dan logt de uitvraag een waarschuwing met correlation-id, zonder
   BSN en zonder ontvanger-hash (een hash van een BSN is terug te rekenen). De ontvanger blijft in
   de verloopindex, dus de volgende veegronde probeert het opnieuw; de Redis-TTL is het laatste
-  vangnet. De gebruiker krijgt bij uitloggen toch `204`: zijn sessie bestaat niet meer.
+  vangnet. Mislukt het uitloggen zelf, dan krijgt de gebruiker `503` en herhaalt de client het
+  verzoek; een herhaling van een uitlog die al gewist had, geeft `204`.
 
 ### `_volgen`
 
@@ -181,10 +182,23 @@ nieuwe verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitv
 - Het opruimen bij verlopen gebeurt buiten een HTTP-verzoek; de logregel moet dus zonder de
   request-gebonden `@Logboek`-interceptor geschreven kunnen worden. Hoe is aan de builder.
 - Alleen het vangnet (Redis-TTL na een mislukte opruiming) is niet te loggen; daarom gaat aan dat
-  vangnet altijd een gelogde mislukte opruiming vooraf.
-- Wist de controle ná een schrijfactie gegevens (geschreven nadat de laatste sessie al eindigde),
-  dan krijgt dat wissen geen eigen logregel: de verwerking eindigde al bij het uitloggen of verlopen,
-  en die regel is er al.
+  vangnet altijd een gelogde mislukte opruiming vooraf, of — bij de dubbele storing hieronder — een
+  alert.
+- **De verloopindex is de takenlijst voor het logboek.** Een script dat gegevens wist en dat zelf
+  niet tot een logregel leidt, laat de ontvanger in de verloopindex staan met score "nu"; wie die
+  entry daarna weghaalt, meldt de opruiming. Concreet: wist de controle ná een schrijfactie gegevens
+  (geschreven nadat de laatste sessie al eindigde), dan zet hij de ontvanger wachtend in de index.
+  De veegtaak legt het wissen dan vast (`verlopen`), of een uitlog of start die de wachtende taak
+  eerder oppakt (`uitgelogd`, `nieuwe-start`). Zonder die markering zou een uitlog of start die
+  niets meer te wissen vindt, de taak stil uit de index halen.
+- Faalt de controle ná een schrijfactie zelf, dan markeert de uitvraag de ontvanger alsnog in de
+  index, zodat de veegtaak het oppakt. Faalt ook dat, dan volgt een foutregel met het alert-token
+  `[ALERT opruimen_na_schrijven]`: dat is de enige route waarlangs de Redis-TTL gegevens zonder
+  voorafgaande logregel wist.
+- Blijft het antwoord op een uitlog uit (time-out), dan kan het wissen al gebeurd zijn terwijl een
+  herhaalde uitlog niets meer ziet. De uitvraag legt het opruimen dan vast met uitkomst
+  `onbevestigd` en antwoordt `503`. Een start die op een time-out stuit, laat hooguit een sessie
+  achter die niemand kent; die verloopt en de veegtaak meldt het opruimen.
 
 ### Logging en privacy
 

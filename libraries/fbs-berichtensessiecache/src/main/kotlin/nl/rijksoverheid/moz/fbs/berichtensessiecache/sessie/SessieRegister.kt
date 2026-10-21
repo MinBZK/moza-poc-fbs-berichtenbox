@@ -16,6 +16,12 @@ import java.util.Base64
 import java.util.HexFormat
 
 /**
+ * Stabiel token voor alert-routing: opruimen na een schrijfactie en ook [SessieRegister.markeerVoorVeeg]
+ * faalden, dus de vangnet-TTL wist het geschrevene straks zonder logregel.
+ */
+internal const val ALERT_OPRUIMEN_NA_SCHRIJVEN = "[ALERT opruimen_na_schrijven]"
+
+/**
  * De lopende inlogsessies per ontvanger. Een sessie-id komt hier alleen als argument binnen; opslag
  * en vergelijking gaan over `sha256(id)`, zodat een dump van Redis geen bruikbare sessies oplevert.
  */
@@ -30,11 +36,20 @@ internal interface SessieRegister {
     fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde>
 
     /**
-     * Wist de gegevens onder [cacheKey] als er geen lopende sessie meer is, in één atomaire stap;
+     * Wist de gegevens van [ontvanger] als er geen lopende sessie meer is, in één atomaire stap;
      * `true` als er iets gewist is. Hoort direct ná een schrijfactie die niet zelf aan een sessie
-     * hangt, zodat een uitlog die ermee kruist niets laat staan.
+     * hangt, zodat een uitlog die ermee kruist niets laat staan. Wist het iets, dan blijft
+     * [ontvanger] als wachtende opruiming in de verloopindex staan: dit wissen krijgt zelf geen
+     * logregel, de veegtaak of de volgende start of uitlog meldt het.
      */
-    fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean>
+    fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean>
+
+    /**
+     * Zet [ontvanger] als wachtende opruiming in de verloopindex, als terugval wanneer
+     * [ruimOpZonderSessie] zelf faalde: dan ruimt de veegtaak het op en komt het in het logboek.
+     * Staat hij er al in, met een lopende sessie of al wachtend, dan verandert er niets.
+     */
+    fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit>
 
     /**
      * Hoogstens [max] ontvangers wier laatste sessie volgens de verloopindex verlopen is. Alleen een
@@ -138,8 +153,11 @@ internal class RedisSessieRegister(
         return voerUit(SessieScripts.EINDE, ontvanger, argumenten).map { SessieEinde.valueOf(it.toString()) }
     }
 
-    override fun ruimOpZonderSessie(cacheKey: String): Uni<Boolean> =
-        voerUit(SessieScripts.OPRUIMEN, sleutels(cacheKey), emptyList()).map { it.toInteger() == 1 }
+    override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> =
+        voerUit(SessieScripts.OPRUIMEN, ontvanger, listOf(ontvanger.toCanonicalString())).map { it.toInteger() == 1 }
+
+    override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> =
+        voerUit(SessieScripts.MARKEER, listOf(VERLOOP_INDEX), listOf(ontvanger.toCanonicalString())).replaceWith(Unit)
 
     override fun verlopen(max: Int): Uni<List<Identificatienummer>> =
         voerUit(SessieScripts.KANDIDATEN, listOf(VERLOOP_INDEX), listOf(max.toString())).flatMap { antwoord ->
@@ -185,17 +203,19 @@ internal class RedisSessieRegister(
         private val HEX = HexFormat.of()
 
         /** De KEYS van elk script in [SessieScripts], in de volgorde die daar beschreven staat. */
-        fun sleutels(ontvanger: Identificatienummer): List<String> = sleutels(BerichtenCache.cacheKey(ontvanger))
+        fun sleutels(ontvanger: Identificatienummer): List<String> {
+            val k = BerichtenCache.cacheKey(ontvanger)
 
-        fun sleutels(k: String): List<String> = listOf(
-            "$k:sessies",
-            "$k:sessies:plafond",
-            VERLOOP_INDEX,
-            RedisBerichtenCache.listKey(k),
-            RedisBerichtenCache.statusKey(k),
-            RedisBerichtenCache.lockKey(k),
-            RedisBerichtenCache.sleutelsKey(k),
-        )
+            return listOf(
+                "$k:sessies",
+                "$k:sessies:plafond",
+                VERLOOP_INDEX,
+                RedisBerichtenCache.listKey(k),
+                RedisBerichtenCache.statusKey(k),
+                RedisBerichtenCache.lockKey(k),
+                RedisBerichtenCache.sleutelsKey(k),
+            )
+        }
 
         private fun nieuweSessieId(): String {
             val bytes = ByteArray(SESSIE_ID_BYTES).also(RANDOM::nextBytes)

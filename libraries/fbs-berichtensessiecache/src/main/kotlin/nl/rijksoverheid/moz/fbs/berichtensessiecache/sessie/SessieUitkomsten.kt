@@ -9,7 +9,8 @@ import java.time.Instant
  * [sessieId] is een credential: alleen de houder mag het zien, dus niet loggen en niet in een URL.
  * [uiterlijkGeldigTot] is het verloop als er verder niets gebeurt; elk verzoek in de sessie schuift
  * het op, tot de maximale duur. [restenOpgeruimd] meldt dat de start gegevens van een eerdere,
- * verlopen sessie heeft gewist — dat wissen hoort in het logboek.
+ * verlopen sessie heeft gewist, of een opruiming overnam die nog op de veegtaak wachtte — dat
+ * wissen hoort in het logboek.
  */
 data class SessieStart(
     val sessieId: String,

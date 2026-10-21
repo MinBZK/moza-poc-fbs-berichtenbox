@@ -5,7 +5,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  * stap beslissen of er nog een lopende sessie is en wat er dan met de gegevens gebeurt; een losse
  * reeks commando's laat twee pods tegelijk "ik ben de laatste" concluderen.
  *
- * Alle scripts behalve [KANDIDATEN] delen dezelfde KEYS (zie [RedisSessieRegister.sleutels]):
+ * Alle scripts behalve [KANDIDATEN], [UITSTEL] en [MARKEER] delen dezelfde KEYS (zie
+ * [RedisSessieRegister.sleutels]):
  * 1. `$k:sessies` — ZSET, lid `sha256(sessie-id)`, score het verloop in ms;
  * 2. `$k:sessies:plafond` — HASH, lid → plafond: start + maximale duur in ms;
  * 3. de stelselbrede verloopindex — ZSET, lid de ontvanger, score zijn laatste verloop in ms;
@@ -19,6 +20,11 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  *
  * De tijd komt uit Redis (`TIME`) en niet uit de pod: pods met een verschillende klok zouden
  * anders over hetzelfde verloop verschillend oordelen.
+ *
+ * De verloopindex is ook de takenlijst voor het logboek. Een script dat gegevens wist zonder dat
+ * dat zelf tot een logregel leidt, laat de ontvanger met score "nu" in de index staan; wie die
+ * entry daarna weghaalt ([VEEG], [EINDE], [START]), meldt de opruiming. Zo komt elk wissen door
+ * een van deze scripts in het logboek.
  */
 internal object SessieScripts {
 
@@ -51,6 +57,13 @@ internal object SessieScripts {
             return gewist
         end
 
+        -- Of de ontvanger met een verstreken score in de index staat: een opruiming die nog op
+        -- de veegtaak wacht. Wie hem weghaalt, neemt de melding over.
+        local function wachtend(ontvanger, nu)
+            local score = redis.call('ZSCORE', KEYS[3], ontvanger)
+            return score and tonumber(score) <= nu
+        end
+
         -- Een BEZIG-status houdt zijn korte TTL: die moet na een gecrashte ophaalronde snel vrijkomen.
         local function trekTtlOp(ttl)
             redis.call('PEXPIRE', KEYS[4], ttl)
@@ -73,19 +86,24 @@ internal object SessieScripts {
      * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), grens per ontvanger, ontvanger,
      * vangnet-TTL van de sessie-administratie en de gegevens (ms).
      *
-     * Antwoord `{0}` bij de grens, anders `{1, verloop in ms, aantal gewiste gegevenssleutels}`.
-     * Alleen een start zonder andere lopende sessie wist: die begint met een vers beeld. Een start
-     * naast een lopende sessie trekt de TTL van de bestaande gegevens op, anders verlopen ze vóór
-     * het plafond van de nieuwe sessie.
+     * Antwoord `{0}` bij de grens, anders `{1, verloop in ms, opgeruimd}`, met opgeruimd 1 als de
+     * start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0. Alleen een
+     * start zonder andere lopende sessie wist: die begint met een vers beeld. Een start naast een
+     * lopende sessie trekt de TTL van de bestaande gegevens op, anders verlopen ze vóór het plafond
+     * van de nieuwe sessie.
      */
     val START = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
         ruimVerlopenOp(nu)
 
         local leeg = redis.call('ZCARD', KEYS[1]) == 0
-        local gewist = 0
+        local opgeruimd = 0
         if leeg then
-            gewist = purge()
+            -- Vóór de ZADD hieronder: die schuift een wachtende opruiming naar het nieuwe verloop.
+            local wachtte = wachtend(ARGV[5], nu)
+            if purge() > 0 or wachtte then
+                opgeruimd = 1
+            end
         end
 
         if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[4]) then
@@ -103,7 +121,7 @@ internal object SessieScripts {
         redis.call('PEXPIRE', KEYS[1], ARGV[6])
         redis.call('PEXPIRE', KEYS[2], ARGV[6])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[5])
-        return { 1, verloop, gewist }
+        return { 1, verloop, opgeruimd }
     """.trimIndent()
 
     /**
@@ -133,8 +151,8 @@ internal object SessieScripts {
      * [SessieEinde]).
      *
      * Blijft er geen lopende sessie over, dan wist het script ook bij een onbekend id: er is dan
-     * niemand meer voor wie de gegevens bestaan. Wist dat iets, dan is de uitkomst `OPGERUIMD`,
-     * zodat het wissen in het logboek komt.
+     * niemand meer voor wie de gegevens bestaan. Wist dat iets, of haalt het een wachtende
+     * opruiming uit de index, dan is de uitkomst `OPGERUIMD`, zodat het wissen in het logboek komt.
      */
     val EINDE = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
@@ -155,30 +173,33 @@ internal object SessieScripts {
             return 'ONBEKEND'
         end
 
+        local wachtte = wachtend(ARGV[2], nu)
         local gewist = purge()
         redis.call('ZREM', KEYS[3], ARGV[2])
-        if bekend or gewist > 0 then
+        if bekend or gewist > 0 or wachtte then
             return 'OPGERUIMD'
         end
         return 'ONBEKEND'
     """.trimIndent()
 
     /**
-     * Geen ARGV. Antwoord 1 als er geen lopende sessie is en er gegevens gewist zijn, anders 0.
+     * ARGV: ontvanger. Antwoord 1 als er geen lopende sessie is en er gegevens gewist zijn, anders 0.
      *
      * Draait ná het schrijven van een ophaalronde of een aanmelding: eindigde de laatste sessie
      * terwijl die liep, dan ruimt dit het geschrevene op, in welke volgorde het ook gebeurde.
-     * De verloopindex blijft ongemoeid; die is van de veegtaak, en deze ontvanger staat er hooguit
-     * nog in als zijn laatste sessie verliep zonder dat er geveegd is.
+     * Dit wissen leidt zelf niet tot een logregel, dus het zet de ontvanger met score "nu" in de
+     * verloopindex. Zonder NX of GT: er loopt geen sessie, dus een latere score is achterhaald.
      */
     val OPRUIMEN = GEDEELD + "\n\n" + """
-        ruimVerlopenOp(tijdInMs())
+        local nu = tijdInMs()
+        ruimVerlopenOp(nu)
 
         if redis.call('ZCARD', KEYS[1]) > 0 then
             return 0
         end
 
         if purge() > 0 then
+            redis.call('ZADD', KEYS[3], nu, ARGV[1])
             return 1
         end
         return 0
@@ -231,6 +252,17 @@ internal object SessieScripts {
      */
     val UITSTEL = GEDEELD + "\n\n" + """
         redis.call('ZADD', KEYS[1], 'XX', 'GT', tijdInMs() + tonumber(ARGV[1]), ARGV[2])
+        return 1
+    """.trimIndent()
+
+    /**
+     * Afwijkende KEYS: alleen de verloopindex. ARGV: ontvanger. Zet de ontvanger met score "nu" in de
+     * index als terugval wanneer het opruimen na een schrijfactie zelf faalde; de veegtaak ruimt het
+     * dan op en meldt het. `NX`: een bestaande entry, van een lopende sessie of een al wachtende
+     * opruiming, blijft staan.
+     */
+    val MARKEER = GEDEELD + "\n\n" + """
+        redis.call('ZADD', KEYS[1], 'NX', tijdInMs(), ARGV[1])
         return 1
     """.trimIndent()
 }

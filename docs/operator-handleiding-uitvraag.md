@@ -245,6 +245,16 @@ Regels die je in de logs kunt zien:
   geen antwoord van Redis; de uitkomst is onzeker.
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
   vastgelegd. Alert-token; controleer de LDV-verbinding en leg de opruiming handmatig na.
+- `WARN Opruimen zonder lopende sessie mislukt (fout=...); de veegtaak ruimt het op`: een
+  ophaalronde, aanmelding of verwijdering kruiste met het einde van de laatste sessie, en het
+  opruimen daarna faalde. De ontvanger staat gemarkeerd in de verloopindex; de volgende veegronde
+  ruimt op en legt het vast. Geen actie nodig, tenzij het aanhoudt (dan is Redis instabiel).
+- `ERROR [ALERT opruimen_na_schrijven]`: het opruimen na zo'n schrijfactie faalde, en ook het
+  markeren voor de veegtaak. De gegevens blijven onzichtbaar staan tot de Redis-TTL ze wist, en
+  dat wissen komt niet in het logboek. Alert-token; controleer de bereikbaarheid van Redis. De
+  regel noemt alleen fouttypes: welke ontvanger het betreft, staat bewust niet in de log.
+- Een uitlog waarop Redis niet op tijd antwoordt, geeft de gebruiker `503` en komt als opruiming
+  met uitkomst `onbevestigd` in het logboek: het wissen kan al gebeurd zijn.
 
 ### Overgang naar sessiegebonden opslag
 
