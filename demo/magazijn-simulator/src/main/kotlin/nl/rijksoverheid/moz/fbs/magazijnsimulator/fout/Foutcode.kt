@@ -17,7 +17,7 @@ private const val NAMESPACE = "urn:fbs:fout:"
  * bewust zelf heeft.
  *
  * Alleen de codes die een magazijn kan produceren. De sessie- en ophaal-codes uit de keten
- * (`ophalen-bezig`, `geen-actieve-sessie`, …) horen bij de berichten-uitvraag en zouden hier een
+ * (`ophalen-bezig`, `geen-lijst-in-cache`, …) horen bij de berichten-uitvraag en zouden hier een
  * situatie beschrijven die dit onderdeel niet kent.
  */
 enum class Foutcode(val code: String) {

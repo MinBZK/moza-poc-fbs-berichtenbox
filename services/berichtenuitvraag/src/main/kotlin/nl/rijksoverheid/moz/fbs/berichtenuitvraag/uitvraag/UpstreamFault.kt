@@ -115,7 +115,7 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
     is SessiecacheException.NogNietGevuld,
     is SessiecacheException.OphalenBezig,
     is SessiecacheException.OngeldigeInvoer,
-    is SessiecacheException.GeenActieveSessie,
+    is SessiecacheException.GeenLijstInCache,
     is SessiecacheException.BerichtVerwijderd,
     is SessiecacheException.SessieOngeldig,
     is SessiecacheException.TeVeelSessies,
@@ -143,7 +143,7 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
     is SessiecacheException.Onbereikbaar -> tijdelijkNietBeschikbaar(Foutcode.TIJDELIJK_NIET_BESCHIKBAAR, message, this)
     is SessiecacheException.Onleesbaar -> cacheFout(Foutcode.INTERNE_FOUT, Response.Status.INTERNAL_SERVER_ERROR)
     is SessiecacheException.OngeldigeInvoer -> cacheFout(Foutcode.ONGELDIG_VERZOEK, Response.Status.BAD_REQUEST)
-    is SessiecacheException.GeenActieveSessie -> cacheFout(Foutcode.GEEN_ACTIEVE_SESSIE, Response.Status.NOT_FOUND)
+    is SessiecacheException.GeenLijstInCache -> cacheFout(Foutcode.GEEN_LIJST_IN_CACHE, Response.Status.NOT_FOUND)
     // 410 en niet 404: een afnemer die alleen naar de status kijkt, weet dan al dat dit bericht
     // bestond en weg is. De cache honoreert de tombstone alleen voor de eigenaar, dus dit
     // antwoord verraadt niets over het bericht van een ander.
@@ -189,7 +189,7 @@ private const val RETRY_AFTER_SECONDEN = 30
  * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren storing-fouten, de 409-gating
  * ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]) en — alleen op
  * `bericht` — de 410 van [SessiecacheException.BerichtVerwijderd]. De 400/404-gevallen
- * ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenActieveSessie]) ontstaan
+ * ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenLijstInCache]) ontstaan
  * uitsluitend op de schrijfpaden en bereiken deze grens dus niet.
  */
 internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> T): T =

@@ -157,11 +157,11 @@ internal class BlockingSessiecache(
             throw SessiecacheException.OngeldigeInvoer("Bericht hoort bij geen ingeschreven magazijn.")
         }
 
-        // Aanmeld-pad mag alleen bestaande, actieve sessies bijwerken: als er geen
+        // Aanmeld-pad mag alleen een al opgehaalde lijst bijwerken: als er geen
         // aggregatie heeft plaatsgevonden voor deze ontvanger, hoort er ook geen cache te zijn.
         awaitOrServiceUnavailable { service.getAggregationStatus(ontvanger) }
-            ?: throw SessiecacheException.GeenActieveSessie(
-                "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
+            ?: throw SessiecacheException.GeenLijstInCache(
+                "Geen opgehaalde lijst voor deze ontvanger; bericht niet toegevoegd.",
             )
 
         val geschreven = try {
@@ -173,12 +173,12 @@ internal class BlockingSessiecache(
         }
 
         // De statuscontrole hierboven en het schrijven zijn twee stappen; eindigde de laatste sessie
-        // daartussen, dan is het bericht nu weer gewist en hoort de aanleveraar dat er geen sessie was.
+        // daartussen, dan is het bericht nu weer gewist en hoort de aanleveraar dat er geen lijst was.
         val opgeruimd = awaitOrServiceUnavailable { sessies.ruimOpZonderSessie(BerichtenCache.cacheKey(ontvanger)) }
 
         if (opgeruimd) {
-            throw SessiecacheException.GeenActieveSessie(
-                "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
+            throw SessiecacheException.GeenLijstInCache(
+                "Geen opgehaalde lijst voor deze ontvanger; bericht niet toegevoegd.",
             )
         }
 

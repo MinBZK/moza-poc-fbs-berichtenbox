@@ -404,14 +404,14 @@ class BlockingSessiecacheTest {
     }
 
     @Test
-    fun `schrijfBericht zonder actieve sessie geeft GeenActieveSessie`() {
+    fun `schrijfBericht zonder opgehaalde lijst geeft GeenLijstInCache`() {
         stubStatus(null)
 
-        assertThrows<SessiecacheException.GeenActieveSessie> { facade.schrijfBericht(ontvanger, testBericht()) }
+        assertThrows<SessiecacheException.GeenLijstInCache> { facade.schrijfBericht(ontvanger, testBericht()) }
     }
 
     @Test
-    fun `schrijfBericht met actieve sessie levert het gevalideerde bericht`() {
+    fun `schrijfBericht met opgehaalde lijst levert het gevalideerde bericht`() {
         stubStatus(gereed)
         val bericht = testBericht()
 
@@ -444,14 +444,14 @@ class BlockingSessiecacheTest {
     }
 
     @Test
-    fun `schrijfBericht dat kruist met het einde van de laatste sessie geeft GeenActieveSessie en meldt niets aan`() {
+    fun `schrijfBericht dat kruist met het einde van de laatste sessie geeft GeenLijstInCache en meldt niets aan`() {
         stubStatus(gereed)
         val bericht = testBericht()
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
         every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
         every { sessies.ruimOpZonderSessie(cacheKey) } returns Uni.createFrom().item(true)
 
-        assertThrows<SessiecacheException.GeenActieveSessie> { facade.schrijfBericht(ontvanger, bericht) }
+        assertThrows<SessiecacheException.GeenLijstInCache> { facade.schrijfBericht(ontvanger, bericht) }
 
         verifyOrder {
             service.createBericht(bericht, ontvanger)

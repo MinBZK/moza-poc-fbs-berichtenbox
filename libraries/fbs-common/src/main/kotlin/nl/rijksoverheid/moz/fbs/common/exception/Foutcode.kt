@@ -68,8 +68,8 @@ enum class Foutcode(val code: String, val uitleg: String) {
         "Er staan te veel berichtenboxen tegelijk open. Probeer het straks opnieuw.",
     ),
 
-    /** Geen actieve sessie voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
-    GEEN_ACTIEVE_SESSIE("geen-actieve-sessie", "Er is geen actieve sessie voor deze ontvanger."),
+    /** Geen opgehaalde lijst voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
+    GEEN_LIJST_IN_CACHE("geen-lijst-in-cache", "Er zijn voor deze ontvanger nog geen berichten opgehaald."),
 
     /** De sessie uit `X-Sessie` ontbreekt, is onbekend, verlopen of van een andere ontvanger: opnieuw inloggen. */
     SESSIE_ONGELDIG("sessie-ongeldig", "Uw sessie is verlopen of ongeldig. Log opnieuw in."),

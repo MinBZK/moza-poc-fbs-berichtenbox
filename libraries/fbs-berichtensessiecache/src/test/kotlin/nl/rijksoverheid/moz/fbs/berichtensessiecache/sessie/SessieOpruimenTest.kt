@@ -209,7 +209,7 @@ class SessieOpruimenTest {
         sessiecache.beeindigSessie(sessie.sessieId, ontvanger)
         val nieuw = bericht()
 
-        assertThrows<SessiecacheException.GeenActieveSessie> { sessiecache.schrijfBericht(ontvanger, nieuw) }
+        assertThrows<SessiecacheException.GeenLijstInCache> { sessiecache.schrijfBericht(ontvanger, nieuw) }
 
         assertNietsAchter(listOf(nieuw))
     }

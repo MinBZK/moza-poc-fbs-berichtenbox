@@ -158,7 +158,7 @@ start van een sessie zonder andere lopende sessie (resten van een vorige keer).
   achter (geen list, geen GEREED-status, geen hashes): de controle ná het schrijven ruimt het op.
   De SSE-stream van die ronde eindigt.
 - **Aanmelden na uitloggen:** werkt al goed zolang `:status` mee wordt opgeruimd —
-  `schrijfBericht` weigert zonder status (`GeenActieveSessie`, uitvraag antwoordt `202`).
+  `schrijfBericht` weigert zonder status (`GeenLijstInCache`, uitvraag antwoordt `202`).
 - **Falen:** mislukt opruimen, dan logt de uitvraag een waarschuwing met correlation-id, zonder
   BSN en zonder ontvanger-hash (een hash van een BSN is terug te rekenen). De ontvanger blijft in
   de verloopindex, dus de volgende veegronde probeert het opnieuw; de Redis-TTL is het laatste

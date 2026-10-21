@@ -95,7 +95,7 @@ tags:
     description: |
       CloudEvents-webhook waarop de Publicatie Stream van een magazijn een nieuw
       gepubliceerd bericht aanmeldt. Werkt de sessiecache bij voor ontvangers met
-      een actieve sessie. Wordt buiten codegen afgehandeld (custom media type +
+      een opgehaalde berichtenlijst. Wordt buiten codegen afgehandeld (custom media type +
       202-respons).
   - name: Sessies
     description: |
@@ -508,7 +508,7 @@ paths:
         Ontvangt een CloudEvent (`nl.rijksoverheid.fbs.bericht.gepubliceerd`) van de
         Publicatie Stream van een magazijn (structured content mode, NL GOV
         CloudEvents-profiel) en werkt daarmee de sessiecache bij voor de ontvanger.
-        Alleen ontvangers met een actieve sessie worden bijgewerkt; ontbreekt die,
+        Alleen ontvangers met een opgehaalde berichtenlijst worden bijgewerkt; ontbreekt die,
         dan wordt het event geaccepteerd maar overgeslagen. Idempotent op het
         CloudEvents `id`.
       operationId: meldBerichtAan
@@ -521,7 +521,7 @@ paths:
         '202':
           description: |
             Event geaccepteerd. De cache is bijgewerkt, of bewust overgeslagen
-            (geen actieve sessie / duplicaat). Geen response-body.
+            (geen opgehaalde berichtenlijst / duplicaat). Geen response-body.
           headers:
             API-Version: { $ref: '#/components/headers/API-Version' }
         '400': { $ref: '#/components/responses/BadRequest' }

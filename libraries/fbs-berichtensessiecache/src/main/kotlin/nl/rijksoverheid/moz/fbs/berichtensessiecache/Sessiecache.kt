@@ -115,10 +115,10 @@ interface Sessiecache {
     fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent>
 
     /**
-     * Schrijft één bericht bij in een bestaande, actieve sessie (aanmeld-pad).
+     * Schrijft één bericht bij in de al opgehaalde lijst van [ontvanger] (aanmeld-pad).
      * Gooit 400 wanneer `bericht.ontvanger` niet overeenkomt met [ontvanger] of
      * wanneer het bericht de defensieve limieten overschrijdt; 404 wanneer er
-     * geen actieve sessie is voor deze ontvanger, ook als de laatste sessie eindigde
+     * geen opgehaalde lijst is voor deze ontvanger, ook als de laatste sessie eindigde
      * terwijl het bericht geschreven werd — het is dan weer gewist.
      */
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht

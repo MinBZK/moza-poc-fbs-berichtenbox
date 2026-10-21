@@ -39,6 +39,6 @@ body:json {
 docs {
   CloudEvents-webhook (structured mode) waarop de Publicatie Stream van een magazijn
   een gepubliceerd bericht aanmeldt. 202 = geaccepteerd (cache bijgewerkt, of bewust
-  overgeslagen bij geen actieve sessie / duplicaat). Werkt alleen als de ontvanger een
-  actieve sessie heeft — start die eerst via request 1 (berichtenlijst ophalen, SSE).
+  overgeslagen bij geen opgehaalde lijst / duplicaat). Werkt alleen als de ontvanger een
+  sessie heeft en zijn berichtenlijst al opgehaald is (requests onder sessies/ en uitvraag/).
 }
