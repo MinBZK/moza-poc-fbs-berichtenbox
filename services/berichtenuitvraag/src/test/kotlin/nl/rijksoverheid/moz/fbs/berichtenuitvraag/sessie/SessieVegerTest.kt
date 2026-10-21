@@ -191,10 +191,38 @@ class SessieVegerTest : SessieVegerTestBasis() {
     }
 
     @Test
+    fun `komen dezelfde mislukkers terug, dan stopt de ronde zonder ze opnieuw te loggen`() {
+        sessiecache.veegRonde = { max -> List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) } }
+
+        val regels = vangLog { veger.veeg() }
+
+        assertEquals(2, sessiecache.veegAanroepen.get(), "Een batch vol herhalingen hoort de ronde te beëindigen")
+        assertEquals(SessieVeger.BATCH, logregels.size, "Een herhaalde mislukking hoort niet nog eens in het logboek")
+        assertEquals(SessieVeger.BATCH, regels.count { it.contains("Opruimen verlopen sessie mislukt") }, regels.toString())
+        assertEquals(1, regels.count { it.contains("kwamen in dezelfde ronde terug") }, regels.toString())
+    }
+
+    @Test
+    fun `een herhaalde ontvanger die nu wel gewist is, komt alsnog in het logboek`() {
+        val mislukt = List(SessieVeger.BATCH) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
+        val herhaald = listOf(Opruiming(Kvk("00000001"), OpruimUitkomst.GEWIST), Opruiming(Kvk("00000002"), OpruimUitkomst.MISLUKT))
+        val nieuw = Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)
+        sessiecache.veegRondes.addAll(listOf(mislukt, herhaald + nieuw + mislukt.drop(3)))
+
+        veger.veeg()
+
+        assertEquals(2, sessiecache.veegAanroepen.get())
+        assertEquals(SessieVeger.BATCH + 2, logregels.size)
+        assertEquals(listOf("00000001" to StatusCode.OK, "999990019" to StatusCode.OK), logregels.drop(SessieVeger.BATCH).map { it.waarde to it.status })
+    }
+
+    @Test
     fun `aanhoudend volle batches stoppen op het tijdsbudget van een halve tick`() {
+        val aanroepen = java.util.concurrent.atomic.AtomicInteger()
         sessiecache.veegRonde = { max ->
             Thread.sleep(BATCH_DUUR_MS)
-            List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
+            val ronde = aanroepen.getAndIncrement()
+            List(max) { Opruiming(Kvk("%08d".format(ronde * max + it + 1)), OpruimUitkomst.MISLUKT) }
         }
 
         val start = System.nanoTime()

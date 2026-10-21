@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
@@ -22,6 +23,11 @@ import java.time.Duration
  * leeg in plaats van honderd per tick, en een batch vol mislukkers (die de facade naar achteren
  * schuift) houdt de ontvangers erachter niet tegen. Na een half interval begint de tick geen nieuwe
  * batch meer, zodat hij klaar is voor de volgende; wat over is, pakt die op.
+ *
+ * Komt een ontvanger binnen één tick terug, dan is het naar achteren schuiven zelf mislukt (bijvoorbeeld
+ * een alleen-lezen Redis tijdens een failover) en zou de lus dezelfde batch tot het einde van het budget
+ * herhalen, met evenveel logregels. De tick stopt dan; alleen een herhaling die nu wél gewist is, komt
+ * alsnog in het logboek, want pas daarmee eindigt de verwerking.
  */
 @ApplicationScoped
 class SessieVeger(
@@ -38,6 +44,7 @@ class SessieVeger(
     @Scheduled(every = "{berichtensessiecache.sessie.veeg-interval}", concurrentExecution = SKIP)
     fun veeg() {
         val einde = System.nanoTime() + budget.toNanos()
+        val gezien = HashSet<Identificatienummer>()
 
         do {
             val opruimingen = try {
@@ -48,7 +55,17 @@ class SessieVeger(
                 return
             }
 
-            opruimingen.forEach(::legVast)
+            val herhaald = opruimingen.filterNot { gezien.add(it.ontvanger) }.toSet()
+
+            opruimingen
+                .filter { it !in herhaald || it.uitkomst == OpruimUitkomst.GEWIST }
+                .forEach(::legVast)
+
+            if (herhaald.isNotEmpty()) {
+                log.warnf("Veegronde gestopt: %d ontvangers kwamen in dezelfde ronde terug; volgende ronde probeert opnieuw", herhaald.size)
+
+                return
+            }
         } while (opruimingen.size == BATCH && System.nanoTime() < einde)
     }
 
