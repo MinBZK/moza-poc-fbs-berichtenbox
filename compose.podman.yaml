@@ -1,7 +1,7 @@
 # Podman-override op compose.yaml — bridge-netwerk, dus de normale variant op een host met
 # werkende podman (Linux rootless, of podman machine op macOS/Windows).
 #
-#   demo/podman-up.sh up      # kiest zelf tussen deze overlay en compose.podman-hostnet.yaml
+#   demo/up.sh up      # kiest zelf tussen deze overlay en compose.podman-hostnet.yaml
 #
 # Twee verschillen met Docker:
 #

@@ -12,7 +12,11 @@ ontwikkelen — tests, gates, linting, de services in dev-mode — zie [`ontwikk
 
 ## 1. Vereisten
 
-- **Docker** + Docker Compose.
+- **Een container-engine:** Docker, of podman (Linux, of podman machine op macOS/Windows). Daarbij
+  `docker compose` v2.24.4 of nieuwer; tegen podman praat die met de podman-socket, die
+  `demo/up.sh` zelf zoekt.
+- **`curl`, `python3`, `openssl`** en `timeout` (macOS: `brew install coreutils`, dat levert
+  `gtimeout`).
 - **JDK 21** (de Maven-wrapper `./mvnw` regelt de rest). Geen lokale Maven nodig.
 - **Apple Silicon (arm64):** jib bouwt standaard `amd64`, want de ZAD-cluster is amd64. Voeg aan
   élk image-build-commando `-Dquarkus.jib.platforms=linux/arm64` toe, anders start de container
@@ -42,6 +46,9 @@ Na een codewijziging in één service volstaat dat ene `-pl services/<naam>` opn
 
 ## 3. Stub-artefacten genereren (altijd, vóór de eerste start)
 
+`demo/up.sh` doet deze stap zelf bij elke start; met het script hoef je hier niets te doen. Alleen
+wie de stack met de hand via `docker compose` start, draait hem eerst zelf.
+
 Eén getal `n` genereert het register, de profiel-stub en n WireMock-mappings in `demo/generated/`
 (git-ignored). Dezelfde env-var voedt het script én de demo-console — dus altijd samen exporteren.
 De gesimuleerde magazijnen dragen de breedte van de demo, maar de stap is onvoorwaardelijk: zonder
@@ -50,7 +57,6 @@ de gegenereerde bestanden start de uitvraag niet (zie de waarschuwing in §4):
 ```bash
 export DEMO_MAGAZIJNEN=98
 python3 demo/genereer-magazijnen.py
-docker compose --profile demo up -d
 ```
 
 Wil je n wijzigen: pas `DEMO_MAGAZIJNEN` aan, draai het script opnieuw, en herstart de uitvraag +
@@ -61,14 +67,26 @@ organisaties, waarvan twee echt, en daar valt met minder niets van te bouwen.
 
 ## 4. Stack starten
 
-Er zijn twee modi met dezelfde compose:
+Op elke engine — Docker of podman — met hetzelfde script. Het kiest zelf de modus, wacht tot elke
+service gezond is en onthoudt de keuze voor de vervolgcommando's:
 
-| Commando | Wat draait | Wanneer |
-|---|---|---|
-| `docker compose up -d` | Alleen infra (Redis, de drie Postgres-instanties, WireMock-stubs) | **Ontwikkelen** — draai services zelf met `./mvnw quarkus:dev` (hot reload) |
-| `docker compose --profile demo up -d` | Alles: infra + de drie services + demo-console + Toxiproxy + de magazijn-simulator | **Demo** |
+```bash
+demo/up.sh                        # starten
+DEMO_HOST=10.0.0.5 demo/up.sh     # ander adres dan localhost in de CORS-allowlist
+demo/up.sh ps                     # status
+demo/up.sh compose logs -f berichtenuitvraag
+demo/up.sh down                   # afbreken (voeg -v toe om de volumes te wissen)
+```
 
-> **Draai altijd eerst §3**, óók als je de breedte niet demonstreert. `demo/generated/` is
+Dezelfde werkwijze geldt voor de FSC-peer-harnessen (`demo/environment/<peer>/deploy/local/up.sh`);
+beide scripts delen de modus-keuze in `demo/lib/podman-modus.sh`. Het overzicht van alle lokale
+opstellingen staat in [`ontwikkelen.md`](ontwikkelen.md#lokale-opstellingen-starten).
+
+Alleen de infra, zonder de services — om die zelf in dev-mode te draaien met `./mvnw quarkus:dev`
+(hot reload) — start je wél rechtstreeks: `docker compose up -d`. Dat is ontwikkelen, geen demo; zie
+[`ontwikkelen.md`](ontwikkelen.md).
+
+> **Start je de demo toch met de hand** (`docker compose --profile demo up -d`), draai dan eerst §3. `demo/generated/` is
 > git-ignored, dus na een verse checkout bestaat het niet. Compose maakt een ontbrekend mount-pad
 > zelf aan — als **directory**. `magazijnen-stubs.properties` wordt dan een map,
 > `SMALLRYE_CONFIG_LOCATIONS` wijst naar een map, de uitvraag start niet, en het generatiescript
@@ -97,7 +115,7 @@ Openen na start:
 - **Bedieningspaneel:** <http://localhost:8095/>
 - **Berichtenbox (ondernemer):** <http://localhost:8095/berichtenbox.html>
 
-Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-volumes te wissen).
+Afsluiten: `demo/up.sh down` (voeg `-v` toe om de Postgres-volumes te wissen).
 
 > **Waarom CORS geen build-flag is:** CORS is een runtime-property en staat uitsluitend als env-var
 > in het demo-profiel van `compose.yaml`; de `application.properties` van `berichtenuitvraag` bevat
@@ -108,18 +126,7 @@ Afsluiten: `docker compose --profile demo down` (voeg `-v` toe om de Postgres-vo
 > zet CORS niet aan; op ZAD staat hij als env op de uitvraag (`demo/environment/zad-demo/README.md`
 > §4).
 
-### Podman in plaats van Docker
-
-```bash
-demo/podman-up.sh                        # kiest zelf de werkbare netwerkmodus
-DEMO_HOST=10.0.0.5 demo/podman-up.sh     # ander adres dan localhost in de CORS-allowlist
-demo/podman-up.sh ps                     # status
-demo/podman-up.sh compose logs -f berichtenuitvraag
-demo/podman-up.sh down                   # afbreken (voeg -v toe om de volumes te wissen)
-```
-
-Dezelfde werkwijze geldt voor de FSC-peer-harnessen (`demo/environment/<peer>/deploy/local/up.sh`);
-beide scripts delen de modus-keuze in `demo/lib/podman-modus.sh`.
+### Modi, poorten en wat het script controleert
 
 De stack luistert standaard **alleen op `127.0.0.1`**: zonder die grens staan Redis (zonder
 wachtwoord), drie PostgreSQL-instanties met demo-credentials en de WireMock-admin-API's op elke
@@ -129,36 +136,41 @@ Wil je de demo aan iemand anders tonen, dan zet je hem bewust open, en heb je **
 nodig: `DEMO_BIND` voor de poorten en `DEMO_HOST` voor de CORS-allowlist.
 
 ```bash
-DEMO_BIND=0.0.0.0 DEMO_HOST=10.0.0.5 demo/podman-up.sh
+DEMO_BIND=0.0.0.0 DEMO_HOST=10.0.0.5 demo/up.sh
 ```
 
 `DEMO_BIND` kent maar twee waarden: `127.0.0.1` (default) en `0.0.0.0`. Een specifiek adres wordt
-geweigerd, omdat elke controle in `podman-up.sh` over 127.0.0.1 loopt en anders afloopt op een
+geweigerd, omdat elke controle in `demo/up.sh` over 127.0.0.1 loopt en anders afloopt op een
 timeout terwijl de stack gezond draait.
 
 Twee beperkingen daarbij:
 
-- **`DEMO_BIND` geldt alleen in bridge-modus.** In `hostnet` publiceert compose geen poorten en
+- **`DEMO_BIND` geldt alleen in `docker` en `bridge`.** In `hostnet` publiceert compose geen poorten en
   binden de containers zelf; die staan vast op loopback, want in een gedeelde netns is een
   wildcard-bind de hele machine — en botst hij bovendien met elke specifieke bind van een
   FSC-federatie in dezelfde netns.
 - **Het bedieningspaneel blijft altijd op loopback** (`demo-console`, poort 8095): het heeft geen
   authenticatie en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
 
-Het script zoekt de podman-API-socket (start hem zo nodig), kiest een compose-implementatie en
+Het script kiest de engine (onder podman zoekt het de API-socket en start het die zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de demo-images gebouwd
 zijn, genereert de stub-artefacten en de sleutelketen van het stelselregister, en controleert na elke start dat elke container draait. Redis,
 de vier Postgres-instanties, de profiel-stub, de magazijn-simulator, Toxiproxy en de services
 worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
 
-Twee modi, automatisch bepaald met probes op het bridge-netwerk, de naamresolutie en of podman healthchecks vanzelf uitvoert (zonder systemd gebeurt dat niet, en blijft elke start op een `service_healthy`-afhankelijkheid hangen):
+Drie modi. Zonder podman op PATH (en zonder `DOCKER_HOST` naar een podman-socket) wordt het
+`docker`. Onder podman beslissen probes op het bridge-netwerk, de naamresolutie en of podman
+healthchecks vanzelf uitvoert (zonder systemd gebeurt dat niet, en blijft elke start op een
+`service_healthy`-afhankelijkheid hangen):
 
-| Modus | Wanneer | Bestand |
+| Modus | Wanneer | Compose-bestanden |
 |---|---|---|
-| `bridge` | normale podman: Linux rootless, of podman machine op macOS/Windows | `compose.podman.yaml` (overlay op `compose.yaml`) |
-| `hostnet` | omgevingen zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | `compose.podman-hostnet.yaml` (derde bestand, bovenop de basis en de podman-overlay) |
+| `docker` | Docker-engine | `compose.yaml` |
+| `bridge` | podman met een werkend bridge-netwerk: Linux rootless, of podman machine op macOS/Windows | + `compose.podman.yaml` |
+| `hostnet` | podman zonder bruikbaar bridge-netwerk, bv. podman-in-een-container | + `compose.podman.yaml` + `compose.podman-hostnet.yaml` |
 
-Forceren kan met `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet` nooit
+Heb je beide engines en wil je Docker, wijs er dan met `DOCKER_HOST` naar
+(`unix:///var/run/docker.sock`). Forceren kan met `MODUS=docker`, `MODUS=bridge` of `MODUS=hostnet`. Buiten Linux wordt `hostnet` nooit
 automatisch gekozen en ook geforceerd geweigerd: podman draait daar in een VM, dus de gedeelde
 namespace is die van de VM en zonder gepubliceerde poorten komt er niets door naar je werkplek.
 Kan een gevraagde modus hier niet werken, dan stopt het script met de oorzaak in plaats van terug
@@ -200,7 +212,7 @@ negeert in plaats van toepast, valt daar door de mand.
 Afsluiten via het script, dat dezelfde socket en dezelfde overlays gebruikt als bij de start:
 
 ```bash
-demo/podman-up.sh down
+demo/up.sh down
 ```
 
 ---
@@ -246,12 +258,11 @@ Geen Node of Eleventy nodig. De image staat op digest gepind in `compose.yaml`; 
 zet je met `PROEFTUIN_IMAGE`. Diezelfde naam stuurt de lokale stack én de uitrol op ZAD:
 
 ```bash
-# Lokaal, via podman-up.sh: die neemt de overlay vanzelf mee zodra de variabele staat.
-PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a demo/podman-up.sh
+# Lokaal, via demo/up.sh: die neemt de overlay vanzelf mee zodra de variabele staat.
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a demo/up.sh
 
-# Lokaal, met compose rechtstreeks.
-PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
-  docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
+# Alleen de proeftuin wisselen terwijl de stack al draait.
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 demo/up.sh compose up -d proeftuin
 ```
 
 De hele referentie en niet alleen de tag: nog niet gemergd werk van hun kant staat in een ánder
@@ -308,7 +319,7 @@ via dit adres is `/api/demo/legen` een TRUNCATE op beide magazijn-databases. Wil
 ander adres, zet dat dan bewust:
 
 ```bash
-DEMO_BEDIENING_BIND=0.0.0.0 docker compose --profile demo up -d
+DEMO_BEDIENING_BIND=0.0.0.0 demo/up.sh
 ```
 
 Draait de demo in een dev-container met een eigen netwerk-namespace, dan helpt een loopback-alias
@@ -464,11 +475,11 @@ van klonen. Op een preview raakt legen alleen die preview.
 
 | Wat je wijzigde | Wat nodig is |
 |---|---|
-| Kotlin/resources in een service | jib-rebuild van dat image (§2, `-pl services/<naam>`) → `docker compose --profile demo up -d <service>` |
-| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | Regenereer (§3) → `docker compose --profile demo up -d --force-recreate magazijn-simulator berichtenuitvraag` |
-| `compose.yaml` (env/mount) | `docker compose --profile demo up -d --force-recreate <service>` (geen rebuild) |
-| `toxiproxy/proxies.json` | `docker compose --profile demo up -d --force-recreate toxiproxy` |
-| WireMock-mappings onder `wiremock/magazijn-a/` of `-b/` | `docker compose restart magazijn-a` (of `-b`) — raakt de demo niet; die containers worden door niets bevraagd |
+| Kotlin/resources in een service | jib-rebuild van dat image (§2, `-pl services/<naam>`) → `demo/up.sh compose up -d <service>` |
+| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | Regenereer (§3) → `demo/up.sh compose up -d --force-recreate magazijn-simulator berichtenuitvraag` |
+| `compose.yaml` (env/mount) | `demo/up.sh compose up -d --force-recreate <service>` (geen rebuild) |
+| `toxiproxy/proxies.json` | `demo/up.sh compose up -d --force-recreate toxiproxy` |
+| WireMock-mappings onder `wiremock/magazijn-a/` of `-b/` | `demo/up.sh compose restart magazijn-a` (of `-b`) — raakt de demo niet; die containers worden door niets bevraagd |
 
 De uitvraag leest het stub-register uit een gemount bestand (`SMALLRYE_CONFIG_LOCATIONS`) bij boot —
 regenereren vraagt dus een uitvraag-herstart. WireMock laadt mappings alleen bij startup, dus
@@ -570,7 +581,7 @@ leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's
   `BERICHTENSESSIECACHE_MAX_BERICHTEN_PER_MAGAZIJN` laag (bijvoorbeeld 5): de Berichtenbox meldt dan
   bij élke organisatie "niet alles opgehaald". Standaard staat die grens op de productiewaarde, want
   verlagen betekent berichten weglaten.
-- **Het doorpagineren meelezen** kan met `docker compose logs -f berichtenuitvraag | grep pagina`:
+- **Het doorpagineren meelezen** kan met `demo/up.sh compose logs -f berichtenuitvraag | grep pagina`:
   de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
   en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).
   Dat staat op DEBUG en de demo draait onder het dev-profiel, dus het staat al aan.

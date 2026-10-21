@@ -165,6 +165,7 @@ if [ "$MODUS" = "hostnet" ]; then
 fi
 
 modus_render_controleren "${C[@]}"
+modus_poorten_vrij "${C[@]}"
 
 # Vóór de eerste container: ook een start die halverwege faalt, moet met `down` op te ruimen zijn.
 modus_onthouden "$MODUS_BESTAND"

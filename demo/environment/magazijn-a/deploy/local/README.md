@@ -7,8 +7,8 @@ daarna vindbaar is (discovery). Geen afnemende peer, geen OIDC-login-voorziening
 control-plane-only voor deze ene provider-peer. Bouwt voort op `pki/` (zie dat README voor
 het cert-contract).
 
-> **Vereist Docker + `docker compose` (v2) en gegenereerde certs** (`pki/issue.sh`, vereist
-> `cfssl`). Draai eerst de PKI in `pki/`, dan de stack + smokes hieronder.
+> **Vereist Docker of podman, `docker compose` (v2) en gegenereerde certs** (`pki/issue.sh`,
+> vereist `cfssl`). Draai eerst de PKI in `pki/`, dan de stack + smokes hieronder.
 
 > **Alleen op je eigen machine.** De harness draait met defaults die nergens anders horen:
 > postgres met `postgres/postgres`, de controller met `AUTHN_TYPE=none` en
@@ -122,7 +122,7 @@ mesh-API-methode.
 ## Starten en modi
 
 `deploy/local/up.sh` start de harness in de modus die op deze machine werkt. Het is dezelfde
-werkwijze als `demo/podman-up.sh` voor de demo-stack, op dezelfde bibliotheek
+werkwijze als `demo/up.sh` voor de demo-stack, op dezelfde bibliotheek
 (`demo/lib/podman-modus.sh`):
 
 | Modus | Wanneer | Compose-bestanden |

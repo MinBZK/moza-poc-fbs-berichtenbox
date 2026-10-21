@@ -14,7 +14,7 @@
 # Voorwaarden:
 #   - de federatie draait en de contracten staan -> ./federatie.sh up && contracts/fbs-contracten.sh
 #   - de demo-stack draait met het magazijn door de outway:
-#       MODUS=hostnet NOTIFICATIE_URL=http://127.20.2.5:8443/events demo/podman-up.sh
+#       MODUS=hostnet NOTIFICATIE_URL=http://127.20.2.5:8443/events demo/up.sh
 #
 # Linux + podman: gebruikt `podman` en `curl`.
 set -euo pipefail

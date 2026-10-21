@@ -392,7 +392,7 @@ jobs:
           # valt hij weg (verwijderd, hernoemd, uitgehold) terwijl de telling op de overige suites
           # groen blijft. Verlaag je het minimum, dan is dat een zichtbare diff.
           verplicht=demo/lib/test-podman-modus.sh
-          verplicht_minimum=98
+          verplicht_minimum=102
 
           if [ ! -f "$verplicht" ]; then
             echo "FOUT: $verplicht ontbreekt."

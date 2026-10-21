@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Kiest de werkbare netwerkmodus voor een lokale testopstelling en onthoudt die tussen commando's.
-# Wordt gesourcet door demo/podman-up.sh (de demo-stack) en demo/environment/lib/peer-stack.sh (de
+# Wordt gesourcet door demo/up.sh (de demo-stack) en demo/environment/lib/peer-stack.sh (de
 # FSC-peer-harnessen); welke compose-bestanden bij een modus horen, beslist het script dat sourcet.
 #
 #   docker   — Docker-engine. Alleen de basis; de podman-overlays zijn daar niet nodig of zelfs
@@ -540,7 +540,8 @@ modus_past_op_engine() {
         docker)
             if [ "$PODMAN_RUNTIME" -eq 1 ]; then
                 echo "FOUT: MODUS=docker, maar compose landt op podman ($DOCKER_HOST)." >&2
-                echo "      Zonder de podman-overlay faalt elke container die de privékeys leest; kies bridge of hostnet." >&2
+                echo "      Zonder de podman-overlay (keep-id, SELinux-labels, image-namen) start de stack daar niet;" >&2
+                echo "      kies bridge of hostnet." >&2
                 exit 2
             fi
             ;;
@@ -588,6 +589,34 @@ modus_render_controleren() {
         echo "Er blijft een gepubliceerde poort staan naast \`network_mode: host\`." >&2
         echo "Waarschijnlijk heeft een service in de basis \`ports:\` gekregen zonder dat de" >&2
         echo "hostnet-overlay die met \`ports: !reset []\` opruimt." >&2
+        exit 1
+    fi
+}
+
+# modus_poorten_vrij <compose-commando…>: stopt als een host-poort die dit project publiceert al
+# bezet is. Zonder deze controle start compose de helft van de containers en faalt dan op de eerste
+# botsende poort; de opstellingen publiceren deels dezelfde poorten (8081, 8090, 8091), dus naast
+# elkaar draaien is precies het geval. Alleen bij een eerste start: draaien er al containers van
+# dit project, dan zijn bezette poorten vermoedelijk van onszelf.
+modus_poorten_vrij() {
+    local poort bezet=""
+
+    if [ -n "$("$@" ps -aq 2>/dev/null </dev/null)" ]; then
+        return 0
+    fi
+
+    for poort in $("$@" config 2>/dev/null </dev/null \
+                   | sed -nE 's/^[[:space:]]*published: *"?([0-9]+)"?.*/\1/p' | sort -un); do
+        # Een poort die een verbinding aanneemt is bezet; een gesloten poort weigert meteen.
+        if (exec 3<>"/dev/tcp/127.0.0.1/$poort") 2>/dev/null; then
+            bezet="$bezet $poort"
+        fi
+    done
+
+    if [ -n "$bezet" ]; then
+        echo "FOUT: deze poorten zijn al in gebruik:$bezet" >&2
+        echo "      Draait er een andere opstelling (de demo-stack of een FSC-peer)? Die publiceren" >&2
+        echo "      deels dezelfde poorten; breek die eerst af met haar eigen \`down\`." >&2
         exit 1
     fi
 }

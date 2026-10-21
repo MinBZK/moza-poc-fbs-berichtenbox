@@ -167,3 +167,75 @@ Nagespeeld: de proeftuin-versie overleeft een nieuwe shell en verdwijnt bij `dow
 houdt `hostnet` aan, `MODUS=bridge` ernaast wordt geweigerd; `federatie.sh up` weigert een los
 draaiende peer; met de federatie op weigert `up.sh`, `smoke-federatie.sh` groen, na `down` zijn de
 markeringen weg.
+
+## Aanvulling 2026-10-21: de demo-stack ook op Docker via het script
+
+**Status:** Uitgevoerd
+
+### Aanleiding
+
+Een toets van de documentatie aan het laatste acceptatiecriterium ("dezelfde werkwijze in dezelfde
+termen") liet een gat zien. De peers starten op elke engine met `deploy/local/up.sh`, die zelf ook
+`docker` kiest. `demo/podman-up.sh` eiste podman en kende alleen `bridge` en `hostnet`. Een
+Docker-gebruiker van de demo-stack startte dus met een kale `docker compose --profile demo up -d`,
+zonder gezondheidscontrole of vastgelegde modus, en het runbook beschreef twee werkwijzen naast
+elkaar. Dat is de tweedeling die het issue wilde opheffen.
+
+Daarnaast stonden er resten van de oude werkwijze in de docs (`podman-prepare.sh` als losse stap,
+"Vereist Docker" boven een sectie die podman toelaat), en bestond er geen overzicht van de drie
+opstellingen buiten de PR-beschrijving.
+
+### Ontwerpkeuzes
+
+- **`demo/podman-up.sh` wordt `demo/up.sh`.** Het patroon wordt `<opstelling>/up.sh`, gelijk aan de
+  peers. `demo/podman-up.sh` blijft als dunne verwijzing voor wie de oude naam kent; hij voert
+  `demo/up.sh` uit.
+- **Modus `docker` erbij, op dezelfde manier als de peers.** `MODUS_DOCKER_TOEGESTAAN=1`, podman
+  is geen vereist gereedschap meer, en in `docker` krijgt compose alleen `compose.yaml` (de overlays
+  zijn podman-specifiek: `localhost/`-imagenamen en `:z`-labels). De image-controle vraagt per
+  engine de eigen naam op (`podman image exists localhost/…` of `docker image inspect …`).
+- **De stub-artefacten in `docker` zijn die van `bridge`.** Adressering op container-DNS is
+  gelijk; `podman-prepare.sh` houdt zijn naam, want het is een interne stap van `up.sh`.
+- **`docker compose up -d` zonder profiel blijft de route voor ontwikkelen** (alleen infra, services
+  in dev-mode). Dat is een ander doel dan een opstelling starten en blijft zo beschreven.
+- **Eén overzicht in `docs/ontwikkelen.md`:** de drie opstellingen, hun commando, wat je ervoor
+  nodig hebt, en dat de federatie alleen op Linux draait. Runbook en README's verwijzen ernaar.
+
+### Verificatie
+
+- shellcheck op de gewijzigde scripts; `demo/lib/test-podman-modus.sh` (58 asserties) en
+  `.github/scripts/test-wijzigingsfilter.sh` groen.
+- De modus-keuze via `demo/up.sh`, zonder te starten: `MODUS=docker` op een podman-socket en
+  `MODUS=bridge` op Docker worden geweigerd met de oorzaak, een tikfout ook; `demo/podman-up.sh`
+  meldt de nieuwe naam en draait `demo/up.sh`.
+- De compose-bestanden per modus via `compose config --images`: in `docker` alleen de basis
+  (`fbs-demo/…`), in `bridge` met de podman-overlay (`localhost/fbs-demo/…`).
+- Niet uitgevoerd: een volledige start na de hernoeming (in de ontwikkelcontainer draaide de
+  federatie, en beide passen daar niet samen op de schijf), en het `docker`-pad tegen een echte
+  Docker-engine. De modus-keuze voor `docker` is dezelfde code als bij de peers en door de suite
+  onder `demo/lib/` gedekt; de start zelf is ongewijzigd ten opzichte van `bridge`, op de set
+  compose-bestanden en de image-controle na.
+- Een tweede start op macOS (bridge) bleef hangen op de probe van de demo-proxy: de diensten
+  erachter werden opnieuw gestart en kregen een nieuw IP, terwijl de al draaiende proeftuin en
+  demo-proxy (allebei nginx) nog naar het oude stuurden. Nagespeeld met twee nginx-containers onder
+  podman: na een nieuw IP van de bestemming geen antwoord meer, na een herstart van de proxy wel.
+  `up.sh` herstart die twee daarom na het starten van de diensten.
+  Daarna op macOS (bridge) opnieuw `demo/up.sh` over de draaiende stack heen: slaagt meteen.
+- `federatie.sh up` op macOS liet containers op "Created" achter, en `status` faalde daarna op een
+  ontbrekende `ss`. Het script weigert `up`, `start` en `restart` nu buiten Linux met de reden;
+  `down`, `stop` en `status` blijven werken, zodat zulke overblijfselen op te ruimen zijn.
+  Getoetst met een `uname`-stub die Darwin teruggeeft.
+- Een logius-peer naast de draaiende demo-stack startte op macOS half en faalde dan op
+  `cannot bind tcp port :8081`: de demo-stack en de peers publiceren deels dezelfde poorten. Beide
+  `up.sh`-scripts controleren nu bij een eerste start (nog geen containers van het project) of de
+  gepubliceerde poorten vrij zijn, en stoppen anders met de bezette poorten. Vier nieuwe asserties
+  in de suite onder `demo/lib/` (62), en nagespeeld met de echte render van de logius-peer en een
+  listener op 8081.
+- Na een start in bridge op macOS faalde `run-smokes.sh` met `service "postgres" is not running`,
+  terwijl postgres draaide. `up.sh` kiest de socket van podman machine zelf en zet `DOCKER_HOST`
+  alleen voor zichzelf; de los gestarte smokes spraken de standaardengine van de docker-CLI aan
+  (Rancher Desktop), waar geen logius draait. De peer-scripts die compose aanroepen
+  (`smoke-*`, `publish-service.sh`, `consume-service.sh`) kiezen de engine nu op dezelfde manier
+  (`fsc_lokale_engine`); een gezette `DOCKER_HOST` blijft staan. Nagespeeld met een `uname`- en
+  `podman machine`-stub: zonder `DOCKER_HOST` landt compose op de podman-socket.
+  Daarna op macOS (bridge): `logius/deploy/local/run-smokes.sh` volledig groen.

@@ -10,6 +10,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
+fsc_lokale_engine
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
 COMPOSE=(docker compose -f "$HERE/compose.yaml")
@@ -64,9 +65,10 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
   # --fail-with-body: zonder die vlag is elke HTTP-status goed en wordt er enkel in de RUWE body
   # gegrept. Een 404 met een body als {"message":"service \"x\" not found"} bevat de servicenaam
   # en zou dus als "gevonden" lezen.
+  # stdin dicht: compose v5 sluit een opgevangen exec pas af als stdin sluit.
   out=$("${COMPOSE[@]}" exec -T toolbox curl -sS --fail-with-body \
           --cert "$CERT" --key "$KEY" --cacert "$CA" \
-          "$MANAGER/v1/peers/$DIR_OIN/services?peer_id=$PROVIDER_OIN" 2>"$ERRLOG") || out=""
+          "$MANAGER/v1/peers/$DIR_OIN/services?peer_id=$PROVIDER_OIN" </dev/null 2>"$ERRLOG") || out=""
   fsc_warn_errlog "poll-fout"
 
   # Naam én eigenaar toetsen: de `peer_id`-queryparameter is een server-side filter dat een manager
@@ -103,7 +105,7 @@ done
 echo "FAIL: ${SERVICE_NAME} niet vindbaar binnen ${TIMEOUT}s (publish-service.sh gedraaid?)." >&2
 echo "Debug: eigen publicaties (manager Internal-API) + logs:" >&2
 "${COMPOSE[@]}" exec -T toolbox curl -sS --cert "$CERT" --key "$KEY" --cacert "$CA" \
-   "$MANAGER/v1/services/publications" >&2 || true
+   "$MANAGER/v1/services/publications" </dev/null >&2 || true
 LAST=$(fsc_last_error 3)
 [ -n "$LAST" ] && { echo "  -> laatste poll-fout:" >&2; printf '%s\n' "$LAST" >&2; }
 "${COMPOSE[@]}" logs --tail=50 manager-magazijn-a manager-directory inway-magazijn-a >&2 || true

@@ -28,8 +28,9 @@ Een losse peer start je met `<peer>/deploy/local/up.sh` (`up`, `down`, `ps`, `co
 script kiest zelf tussen Docker, podman met een bridge-netwerk en podman zonder (`hostnet`),
 onthoudt die keuze voor de vervolgcommando's en stopt met de oorzaak als een gevraagde modus hier
 niet kan — dezelfde werkwijze en dezelfde modus-keuze (`../lib/podman-modus.sh`) als
-`demo/podman-up.sh` voor de demo-stack. De federatie draait altijd in `hostnet`: haar adresplan
-bestaat alleen in een gedeelde netns.
+`demo/up.sh` voor de demo-stack. De federatie draait altijd in `hostnet`: haar adresplan
+bestaat alleen in een gedeelde netns, en daarom alleen op Linux. Het overzicht van alle lokale
+opstellingen staat in [`docs/ontwikkelen.md`](../../docs/ontwikkelen.md#lokale-opstellingen-starten).
 
 `lib/fsc-harness.sh` bevat de helpers die de scripts van alle peers delen; `lib/peer-stack.sh` is
 het startscript achter elke `deploy/local/up.sh`.
