@@ -124,10 +124,15 @@ atomair zijn met de berichtgegevens in dezelfde Redis.
   uitvraag, bij het uitloggen van de laatste sessie én bij het verlopen ervan — zodat elk wissen
   in het logboek komt.
 - De Redis-TTL op de gegevens (`:list`, `:status`, tombstones, `bericht:v4:*`-hashes) is alleen
-  nog een vangnet en ligt **altijd ná** het verloopmoment van de laatste sessie: dat moment plus
-  een marge (`berichtensessiecache.sessie.vangnet-marge`, bv. `PT1H`). Verlengen gebeurt bij
-  `raakSessie`, met dezelfde drempel als `verlengSessie` nu (pas als de resterende tijd onder de
-  helft zakt), zodat niet elk verzoek alle hashes raakt.
+  nog een vangnet en ligt **altijd ná** het verloopmoment van de laatste sessie. Elke schrijfactie
+  zet hem op `max-duur + vangnet-marge` (`berichtensessiecache.sessie.vangnet-marge`, `PT1H`);
+  omdat geen sessie langer leeft dan `start + max-duur`, ligt dat vanzelf voorbij elke sessie die
+  er op dat moment is. Alleen een sessie die start terwijl er al een loopt, trekt de TTL van de
+  bestaande gegevens één keer op. Leesverkeer verlengt niets meer — de sliding-TTL en
+  `verlengSessie` verdwijnen.
+- **Schrijven en uitloggen kruisen elkaar:** een ophaalronde of aanmelding die schrijft terwijl
+  de laatste sessie net eindigt, controleert ná het schrijven atomair of er nog een lopende sessie
+  is, en ruimt anders zelf op. Zo laat geen volgorde van gebeurtenissen gegevens achter.
 - Daarmee verlopen de gegevens nooit terwijl een sessie loopt, en wist Redis ze alleen zelf als
   het actieve opruimen faalt.
 - `aggregation-lock-ttl` (PT2M) blijft voor de lock en de BEZIG-status.
@@ -149,8 +154,9 @@ start van een sessie zonder andere lopende sessie (resten van een vorige keer).
   het `ontvanger`-veld te vinden. Hoe de builder ze betrouwbaar en atomair vindt (bijhouden in een
   eigen set per ontvanger bij `store` en aanmelden, of anders) is aan de builder; eis is dat
   opruimen niet halverwege blijft steken en geen half-gevulde sessie achterlaat.
-- **Uitloggen tijdens een ophaalronde:** een ronde die na het opruimen afrondt, schrijft niets
-  meer weg (geen list, geen GEREED-status, geen hashes). De SSE-stream van die ronde eindigt.
+- **Uitloggen tijdens een ophaalronde:** een ronde die na het opruimen afrondt, laat niets
+  achter (geen list, geen GEREED-status, geen hashes): de controle ná het schrijven ruimt het op.
+  De SSE-stream van die ronde eindigt.
 - **Aanmelden na uitloggen:** werkt al goed zolang `:status` mee wordt opgeruimd —
   `schrijfBericht` weigert zonder status (`GeenActieveSessie`, uitvraag antwoordt `202`).
 - **Falen:** mislukt opruimen, dan logt de uitvraag een waarschuwing met correlation-id, zonder
