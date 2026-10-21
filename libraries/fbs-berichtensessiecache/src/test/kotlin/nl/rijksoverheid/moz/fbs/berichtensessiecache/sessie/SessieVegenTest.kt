@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -28,7 +29,9 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Het actief opruimen van ontvangers wier laatste sessie verlopen is, tegen een echte Redis, met de
  * inactiviteit van 2 s uit [KorteSessieRedisTestProfile]. De verloopindex is stelselbreed; elke test
- * begint daarom met een lege index, anders veegt hij ook wat eerdere tests achterlieten.
+ * begint daarom met een lege index, anders veegt hij ook wat eerdere tests achterlieten, en ruimt
+ * na afloop op wat hij bewust van het verkeerde type maakte: een volgende testklasse op dezelfde
+ * Redis zou anders op een WRONGTYPE stuiten.
  */
 @QuarkusTest
 @TestProfile(KorteSessieRedisTestProfile::class)
@@ -40,9 +43,16 @@ class SessieVegenTest {
     @Inject
     lateinit var redis: ReactiveRedisDataSource
 
+    private val beschadigd = mutableListOf<String>()
+
     @BeforeEach
     fun legeVerloopindex() {
         redis.key().del(VERLOOP_INDEX).await().atMost(WACHTTIJD)
+    }
+
+    @AfterEach
+    fun herstelBeschadigdeSleutels() {
+        redis.key().del(VERLOOP_INDEX, *beschadigd.toTypedArray()).await().atMost(WACHTTIJD)
     }
 
     @Test
@@ -65,7 +75,7 @@ class SessieVegenTest {
 
         Thread.sleep(INACTIVITEIT_MS + 300)
 
-        assertEquals(listOf(Opruiming(ontvanger, gelukt = true)), sessiecache.ruimVerlopenSessiesOp())
+        assertEquals(listOf(Opruiming(ontvanger, uitkomst = OpruimUitkomst.GEWIST)), sessiecache.ruimVerlopenSessiesOp())
 
         assertEquals(emptyList<String>(), sleutelsOnder(key(ontvanger)))
         assertFalse(ontvanger.toCanonicalString() in indexLeden())
@@ -95,7 +105,7 @@ class SessieVegenTest {
         val ontvanger = nieuweOntvanger()
         zetVerlopen(ontvanger, metGegevens = false)
 
-        assertEquals(listOf(Opruiming(ontvanger, gelukt = true)), sessiecache.ruimVerlopenSessiesOp())
+        assertEquals(listOf(Opruiming(ontvanger, uitkomst = OpruimUitkomst.GEWIST)), sessiecache.ruimVerlopenSessiesOp())
 
         assertFalse(ontvanger.toCanonicalString() in indexLeden())
     }
@@ -106,7 +116,7 @@ class SessieVegenTest {
         redis.key().del("${key(bsn)}:sessies", "${key(bsn)}:sessies:plafond").await().atMost(WACHTTIJD)
         zetVerlopen(bsn)
 
-        assertEquals(listOf(Opruiming(bsn, gelukt = true)), sessiecache.ruimVerlopenSessiesOp())
+        assertEquals(listOf(Opruiming(bsn, uitkomst = OpruimUitkomst.GEWIST)), sessiecache.ruimVerlopenSessiesOp())
 
         assertFalse(bestaat("${key(bsn)}:list"))
     }
@@ -129,10 +139,10 @@ class SessieVegenTest {
             pool.shutdownNow()
         }
 
-        val gelukt = rondes.flatten().filter { it.gelukt }.map { it.ontvanger }
-        assertEquals(ontvangers.size, gelukt.size, "Dubbel of niet opgeruimd: $rondes")
-        assertEquals(ontvangers.toSet(), gelukt.toSet())
-        assertTrue(rondes.flatten().all { it.gelukt })
+        val gewist = rondes.flatten().filter { it.uitkomst == OpruimUitkomst.GEWIST }.map { it.ontvanger }
+        assertEquals(ontvangers.size, gewist.size, "Dubbel of niet opgeruimd: $rondes")
+        assertEquals(ontvangers.toSet(), gewist.toSet())
+        assertTrue(rondes.flatten().all { it.uitkomst == OpruimUitkomst.GEWIST })
         ontvangers.forEach { assertFalse(bestaat("${key(it)}:list")) }
     }
 
@@ -165,19 +175,19 @@ class SessieVegenTest {
     }
 
     @Test
-    fun `een mislukt opruimen meldt gelukt false, laat de ontvanger in de index en veegt de rest`() {
+    fun `een mislukt opruimen meldt MISLUKT, laat de ontvanger in de index en veegt de rest`() {
         val stuk = nieuweOntvanger()
         val heel = nieuweOntvanger()
         zetVerlopen(heel)
         // Een sessiesleutel van het verkeerde type laat het script van deze ontvanger falen.
+        beschadigd += "${key(stuk)}:sessies"
         redis.value(String::class.java).set("${key(stuk)}:sessies", "geen-zset").await().atMost(WACHTTIJD)
         redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, stuk.toCanonicalString()).await().atMost(WACHTTIJD)
 
         val opruimingen = sessiecache.ruimVerlopenSessiesOp()
 
-        assertEquals(setOf(Opruiming(stuk, gelukt = false), Opruiming(heel, gelukt = true)), opruimingen.toSet())
+        assertEquals(setOf(Opruiming(stuk, uitkomst = OpruimUitkomst.MISLUKT), Opruiming(heel, uitkomst = OpruimUitkomst.GEWIST)), opruimingen.toSet())
         assertEquals(listOf(stuk.toCanonicalString()), indexLeden())
-        redis.key().del("${key(stuk)}:sessies").await().atMost(WACHTTIJD)
     }
 
     @Test
@@ -186,7 +196,7 @@ class SessieVegenTest {
         zetVerlopen(ontvanger)
         redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, "ONBEKEND:123").await().atMost(WACHTTIJD)
 
-        assertEquals(listOf(Opruiming(ontvanger, gelukt = true)), sessiecache.ruimVerlopenSessiesOp())
+        assertEquals(listOf(Opruiming(ontvanger, uitkomst = OpruimUitkomst.GEWIST)), sessiecache.ruimVerlopenSessiesOp())
 
         assertNull(redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, "ONBEKEND:123").await().atMost(WACHTTIJD))
     }
@@ -202,7 +212,7 @@ class SessieVegenTest {
     fun `toString van een opruiming noemt het type maar niet de waarde`() {
         val bsn = Bsn("999993653")
 
-        val tekst = Opruiming(bsn, gelukt = true).toString()
+        val tekst = Opruiming(bsn, uitkomst = OpruimUitkomst.GEWIST).toString()
 
         assertFalse("999993653" in tekst, tekst)
         assertTrue("BSN" in tekst, tekst)

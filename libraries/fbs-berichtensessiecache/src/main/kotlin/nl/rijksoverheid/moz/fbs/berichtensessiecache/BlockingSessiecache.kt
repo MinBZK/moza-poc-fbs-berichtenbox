@@ -18,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
@@ -211,17 +212,33 @@ internal class BlockingSessiecache(
         // Redis leest een negatieve LIMIT als "alles": dat maakt van een begrensde ronde een onbegrensde.
         if (max < 1) throw SessiecacheException.OngeldigeInvoer("max ($max) moet minstens 1 zijn.")
 
-        // Per ontvanger een eigen begrensde wachttijd: een trage ontvanger mag de opruimingen die al
-        // gebeurd zijn niet uit het resultaat laten vallen, anders komen die nooit in het logboek.
-        return awaitOrServiceUnavailable { sessies.verlopen(max) }.mapNotNull { ontvanger ->
-            try {
-                if (awaitOrServiceUnavailable { sessies.veeg(ontvanger) }) Opruiming(ontvanger, gelukt = true) else null
-            } catch (ignored: SessiecacheException) {
-                // De vertaling naar SessiecacheException heeft de oorzaak al gelogd.
-                Opruiming(ontvanger, gelukt = false)
+        return awaitOrServiceUnavailable { sessies.verlopen(max) }.mapNotNull(::veegEen)
+    }
+
+    /**
+     * Per ontvanger een eigen wachttijd en een eigen vangnet: een fout of een trage ontvanger mag de
+     * opruimingen die al gebeurd zijn niet uit het resultaat laten vallen, anders komen die nooit in
+     * het logboek. `null` als er voor deze ontvanger nog een sessie loopt of een andere pod al veegde.
+     */
+    private fun veegEen(ontvanger: Identificatienummer): Opruiming? =
+        try {
+            if (sessies.veeg(ontvanger).await().atMost(timeout)) Opruiming(ontvanger, OpruimUitkomst.GEWIST) else null
+        } catch (e: Exception) {
+            // Een script dat Redis eenmaal kreeg, loopt tot het einde: na een timeout is de uitkomst
+            // onbekend. Een foutantwoord breekt het script af vóór de ZREM aan het einde, dus dan
+            // staat de ontvanger nog in de index voor een volgende ronde. Mutiny's eigen
+            // TimeoutException (van `atMost`) is geen subklasse van die uit de JDK.
+            val onbevestigd = generateSequence<Throwable>(e) { it.cause }
+                .any { it is io.smallrye.mutiny.TimeoutException || it is java.util.concurrent.TimeoutException }
+
+            if (onbevestigd) {
+                log.warnf(e, "Opruimen van een verlopen sessie niet bevestigd binnen %s; de gegevens zijn mogelijk gewist", timeout)
+                Opruiming(ontvanger, OpruimUitkomst.ONBEVESTIGD)
+            } else {
+                log.errorf(e, "Opruimen van een verlopen sessie mislukt; een volgende veegronde probeert het opnieuw")
+                Opruiming(ontvanger, OpruimUitkomst.MISLUKT)
             }
         }
-    }
 
     /**
      * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en

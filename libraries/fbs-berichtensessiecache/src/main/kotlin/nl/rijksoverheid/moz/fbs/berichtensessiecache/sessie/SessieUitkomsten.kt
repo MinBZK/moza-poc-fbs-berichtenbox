@@ -33,14 +33,30 @@ enum class SessieEinde {
     OPGERUIMD,
 }
 
-/**
- * Het opruimen van één ontvanger wiens laatste sessie verlopen is. [gelukt] is `false` als het
- * wissen faalde; de ontvanger blijft dan staan voor een volgende veegronde.
- */
+/** Het opruimen van één ontvanger wiens laatste sessie verlopen is. */
 data class Opruiming(
     val ontvanger: Identificatienummer,
-    val gelukt: Boolean,
+    val uitkomst: OpruimUitkomst,
 ) {
     // Zoals bij SessieStart: toString belandt makkelijk in een log, en de waarde kan een BSN zijn.
-    override fun toString(): String = "Opruiming(ontvanger=${ontvanger.type}:***, gelukt=$gelukt)"
+    override fun toString(): String = "Opruiming(ontvanger=${ontvanger.type}:***, uitkomst=$uitkomst)"
+}
+
+/** Wat het opruimen van een ontvanger wiens laatste sessie verlopen is, heeft gedaan. */
+enum class OpruimUitkomst {
+    /** Er liep geen sessie meer; de gegevens zijn gewist en de ontvanger staat niet meer in de verloopindex. */
+    GEWIST,
+
+    /**
+     * Het opruimen faalde. De ontvanger staat nog in de verloopindex, dus een volgende veegronde
+     * probeert het opnieuw; een deel van de gegevens kan al gewist zijn.
+     */
+    MISLUKT,
+
+    /**
+     * Geen antwoord binnen de wachttijd. Het opruimen kan in Redis alsnog zijn uitgevoerd, of niet;
+     * staan de gegevens er nog, dan wist de Redis-TTL ze uiterlijk na de maximale duur plus de
+     * vangnet-marge.
+     */
+    ONBEVESTIGD,
 }

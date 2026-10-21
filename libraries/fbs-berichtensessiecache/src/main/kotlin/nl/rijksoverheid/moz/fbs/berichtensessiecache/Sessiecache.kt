@@ -6,6 +6,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
@@ -176,9 +177,12 @@ interface Sessiecache {
      * opruiming wordt precies één keer gemeld. Wie in de tussentijd een sessie startte of raakte,
      * blijft staan en verschijnt niet in het resultaat.
      *
-     * Een mislukt wissen is [Opruiming.gelukt] `false`; die ontvanger komt bij een volgende ronde
-     * terug. Gooit [SessiecacheException.Onbereikbaar] als de verlopen sessies niet op te vragen
-     * zijn, en [SessiecacheException.OngeldigeInvoer] voor een [max] kleiner dan 1.
+     * Per ontvanger is de uitkomst [OpruimUitkomst.GEWIST], [OpruimUitkomst.MISLUKT] (de ontvanger
+     * blijft in de index; een volgende ronde probeert opnieuw) of [OpruimUitkomst.ONBEVESTIGD] (geen antwoord
+     * binnen de wachttijd: de gegevens zijn mogelijk gewist, en anders vangt de Redis-TTL ze op). Een
+     * fout bij één ontvanger breekt de ronde niet af. Gooit [SessiecacheException.Onbereikbaar] als
+     * de verlopen sessies niet op te vragen zijn, en [SessiecacheException.OngeldigeInvoer] voor een
+     * [max] kleiner dan 1.
      */
     fun ruimVerlopenSessiesOp(max: Int = 100): List<Opruiming>
 }

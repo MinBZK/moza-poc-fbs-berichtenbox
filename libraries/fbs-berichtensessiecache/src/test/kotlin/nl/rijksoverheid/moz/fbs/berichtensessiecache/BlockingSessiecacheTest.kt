@@ -27,6 +27,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
@@ -645,6 +647,52 @@ class BlockingSessiecacheTest {
         assertThrows<SessiecacheException.Onbereikbaar> { facade.startSessie(ontvanger) }
         assertThrows<SessiecacheException.Onbereikbaar> { facade.raakSessie(SESSIE_ID, ontvanger) }
         assertThrows<SessiecacheException.Onbereikbaar> { facade.beeindigSessie(SESSIE_ID, ontvanger) }
+    }
+
+    // --- verlopen sessies vegen ---
+
+    @Test
+    fun `vegen meldt per ontvanger de uitkomst en loopt na een fout of timeout door`() {
+        // De gewiste ontvanger staat achteraan: een ronde die op een fout afbreekt, verliest hem.
+        val kandidaten = List(7) { Oin("%020d".format(it + 1)) }
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().nothing()
+        every { sessies.veeg(kandidaten[1]) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[2]) } returns Uni.createFrom().failure(NumberFormatException("geen getal"))
+        every { sessies.veeg(kandidaten[3]) } throws IllegalArgumentException("synchroon")
+        every { sessies.veeg(kandidaten[4]) } returns Uni.createFrom().item(false)
+        every { sessies.veeg(kandidaten[5]) } returns
+            Uni.createFrom().failure(IllegalStateException("client", java.util.concurrent.TimeoutException()))
+        every { sessies.veeg(kandidaten[6]) } returns Uni.createFrom().item(true)
+
+        val opruimingen = snel.ruimVerlopenSessiesOp()
+
+        assertEquals(
+            listOf(
+                Opruiming(kandidaten[0], OpruimUitkomst.ONBEVESTIGD),
+                Opruiming(kandidaten[1], OpruimUitkomst.MISLUKT),
+                Opruiming(kandidaten[2], OpruimUitkomst.MISLUKT),
+                Opruiming(kandidaten[3], OpruimUitkomst.MISLUKT),
+                Opruiming(kandidaten[5], OpruimUitkomst.ONBEVESTIGD),
+                Opruiming(kandidaten[6], OpruimUitkomst.GEWIST),
+            ),
+            opruimingen,
+        )
+    }
+
+    @Test
+    fun `vegen zonder kandidaten levert een lege lijst`() {
+        every { sessies.verlopen(3) } returns Uni.createFrom().item(emptyList())
+
+        assertEquals(emptyList<Opruiming>(), facade.ruimVerlopenSessiesOp(max = 3))
+    }
+
+    @Test
+    fun `vegen waarbij de kandidaten niet op te vragen zijn is Onbereikbaar`() {
+        every { sessies.verlopen(100) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.ruimVerlopenSessiesOp() }
     }
 
     // --- config-validatie facade-await-timeout ---
