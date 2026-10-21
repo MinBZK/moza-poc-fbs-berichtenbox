@@ -343,6 +343,11 @@ vereis_draaiend "${INFRA[@]}"
 
 echo "[4/4] services starten en afwachten"
 "${C[@]}" up -d "${SERVICES[@]}"
+# De proeftuin en de demo-proxy zijn nginx, en nginx zoekt de adressen van zijn bestemmingen één
+# keer op, bij het starten. Draaiden ze al terwijl `up` de diensten erachter opnieuw startte, dan
+# kregen die in bridge een nieuw IP en stuurt nginx nog naar het oude: elke aanroep loopt dan in
+# een timeout. Een herstart laat ze opnieuw opzoeken.
+"${C[@]}" restart proeftuin demo-proxy
 vereis_draaiend "${SERVICES[@]}"
 
 wacht_op "berichtenmagazijn-a" berichtenmagazijn-a curl -sSf --max-time 3 http://127.0.0.1:8090/q/health/ready

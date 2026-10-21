@@ -215,3 +215,8 @@ opstellingen buiten de PR-beschrijving.
   Docker-engine. De modus-keuze voor `docker` is dezelfde code als bij de peers en door de suite
   onder `demo/lib/` gedekt; de start zelf is ongewijzigd ten opzichte van `bridge`, op de set
   compose-bestanden en de image-controle na.
+- Een tweede start op macOS (bridge) bleef hangen op de probe van de demo-proxy: de diensten
+  erachter werden opnieuw gestart en kregen een nieuw IP, terwijl de al draaiende proeftuin en
+  demo-proxy (allebei nginx) nog naar het oude stuurden. Nagespeeld met twee nginx-containers onder
+  podman: na een nieuw IP van de bestemming geen antwoord meer, na een herstart van de proxy wel.
+  `up.sh` herstart die twee daarom na het starten van de diensten.
