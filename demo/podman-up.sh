@@ -210,7 +210,11 @@ wacht_op() {
     while :; do
         # `status=$?` ná een `if` leest de status van het if-statement (altijd 0), niet die van
         # de conditie; vandaar de else-tak.
-        if uitvoer="$("$TIMEOUT_BIN" 10 "$@" 2>&1)"; then
+        #
+        # stdin dicht: met opgevangen uitvoer sluit `compose exec` (v5) pas af als stdin sluit, en
+        # dat is hier de terminal. Hij negeert bovendien SIGTERM; zonder `-k` hing het script dan
+        # eindeloos in plaats van na de wachttijd te stoppen.
+        if uitvoer="$("$TIMEOUT_BIN" -k 5 10 "$@" 2>&1 </dev/null)"; then
             break
         else
             status=$?
@@ -219,7 +223,7 @@ wacht_op() {
         if [ "$SECONDS" -ge "$eind" ]; then
             echo "TIMEOUT: $naam kwam niet omhoog (laatste exit $status)." >&2
 
-            if [ "$status" -eq 124 ]; then
+            if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
                 echo "  de laatste poging liep in de timeout van 10s" >&2
             fi
 

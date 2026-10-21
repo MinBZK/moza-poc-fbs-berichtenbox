@@ -63,9 +63,10 @@ fsc_last_error() {
 
 # fsc_tb <curl-args...>: curl binnen de toolbox-container, met de internal-client-cert van de
 # caller. Leest $COMPOSE/$CERT/$KEY/$CA uit de caller-scope (peer-specifiek, hier niet gezet).
+# stdin dicht: met opgevangen uitvoer sluit `compose exec` (v5) pas af als stdin sluit.
 fsc_tb() {
   "${COMPOSE[@]}" exec -T toolbox curl -sS --fail-with-body \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" "$@" 2>"$ERRLOG"
+    --cert "$CERT" --key "$KEY" --cacert "$CA" "$@" </dev/null 2>"$ERRLOG"
 }
 
 # --- contract-bootstrap-helpers (consume-service.sh) ------------------------------------------

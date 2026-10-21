@@ -23,15 +23,16 @@ fsc_errlog_init
 echo "smoke: wachten tot magazijn-a ($PROVIDER_OIN) announce't bij de directory (op :443)..."
 elapsed=0
 while [ "$elapsed" -lt "$TIMEOUT" ]; do
+  # stdin dicht: compose v5 sluit een opgevangen exec pas af als stdin sluit.
   rows=$("${COMPOSE[@]}" exec -T postgres \
     psql -U postgres -d fsc_directory -tA \
-    -c "SELECT id FROM peers.peers WHERE manager_address LIKE '%:443';" 2>"$ERRLOG" || true)
+    -c "SELECT id FROM peers.peers WHERE manager_address LIKE '%:443';" </dev/null 2>"$ERRLOG" || true)
   if printf '%s\n' "$rows" | grep -qx "$PROVIDER_OIN"; then
     echo "OK: magazijn-a is aangemeld bij de directory (manager_address op :443)."
     echo "Aangemelde peers:"
     "${COMPOSE[@]}" exec -T postgres \
       psql -U postgres -d fsc_directory \
-      -c "SELECT id, name, manager_address FROM peers.peers;" || true
+      -c "SELECT id, name, manager_address FROM peers.peers;" </dev/null || true
     exit 0
   fi
   sleep "$INTERVAL"; elapsed=$((elapsed + INTERVAL))
@@ -43,7 +44,7 @@ echo "FAIL: magazijn-a ($PROVIDER_OIN) niet aangemeld op :443 binnen ${TIMEOUT}s
 # query/DB/het schema kapot (bv. kolomnaam), niet de announce. Laat stderr hier
 # DOOR (in ERRLOG) zodat de conclusie op de échte psql-fout rust.
 if ! "${COMPOSE[@]}" exec -T postgres psql -U postgres -d fsc_directory -tA \
-     -c "SELECT id FROM peers.peers WHERE manager_address LIKE '%:443';" 2>"$ERRLOG" \
+     -c "SELECT id FROM peers.peers WHERE manager_address LIKE '%:443';" </dev/null 2>"$ERRLOG" \
      | grep -qx "$DIR_OIN"; then
   echo "  -> directory self-row ($DIR_OIN op :443) ontbreekt: query/DB/schema" \
        "(id/manager_address) kapot, niet de announce." >&2
