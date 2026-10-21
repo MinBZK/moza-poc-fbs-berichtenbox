@@ -178,7 +178,7 @@ dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
   PATCH/DELETE) en de aanmeld-webhook
 - `bruno/stelselregister/` — het stelseldocument, de sleutelset en `security.txt`
 
-Open de folder in Bruno, kies environment `lokaal` en run requests. De collectie spiegelt de
+Open de folder in Bruno, kies environment `lokaal` en run requests. Start voor requests onder `/berichten` eerst een sessie (`bruno/berichtenuitvraag/sessies/`, `POST /api/v1/sessies`) en zet het id in de variabele `sessie`; de requests sturen het als `X-Sessie`. Met curl: zelfde `POST`, daarna `-H "X-Sessie: <id>"` meegeven. De collectie spiegelt de
 OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een bijbehorende `.bru`-request.
 
 ## Configuratie
@@ -214,6 +214,6 @@ Dat script levert ook `out/root.pem`, de root waartegen je het document verifiee
 
 Voor productie is er per service een operator-handleiding:
 [magazijn](operator-handleiding.md) (verplichte overrides, LDV-TLS, outbox, monitoring) en
-[uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, cache-TTL's).
+[uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, sessietermijnen).
 Het [stelselregister](operator-handleiding-stelselregister.md) heeft er een over de ondertekensleutel.
 De eerste twee beschrijven ook de bewust-onveilige kleppen en de alert-regels die daarbij horen.

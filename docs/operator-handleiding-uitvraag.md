@@ -223,11 +223,27 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.ttl` | `PT12H` | Sliding TTL: elke succesvolle read verlengt hem. Dekt een halve werkdag zonder herhaalde ophaal-flow; verlagen bij geheugendruk op Redis |
-| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de cache-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger 12 uur te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
+| `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek. Een open berichtenbox houdt hem in leven via de `_volgen`-hartslag |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik |
+| `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat vast op `max-duur` + marge en wordt nooit verlengd. Het is alleen een vangnet voor een mislukt opruimen; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend |
+| `berichtensessiecache.sessie.max-per-ontvanger` (`SESSIE_MAX_PER_ONTVANGER`) | `5` | Maximum aantal gelijktijdige sessies per ontvanger; daarboven weigert `POST /sessies` met 429 |
+| `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt |
+| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de sessiegegevens-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
 | `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Raakt de inlogsessie van een open berichtenbox, zodat die niet door inactiviteit verloopt, en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.sessie.inactiviteit` blijven, anders start de pod niet |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
+
+Elk opruimen van berichtgegevens (uitloggen, verlopen, vegen) komt als verwerkingsactiviteit
+`urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` in het Logboek Dataverwerkingen.
+Regels die je in de logs kunt zien:
+
+- `WARN Opruimen verlopen sessie mislukt; volgende ronde probeert opnieuw`: Redis gaf een fout; de
+  sessie blijft in de index en de veegtaak probeert het na `veeg-interval` opnieuw. Houdt dit aan,
+  dan ruimt uiteindelijk de Redis-TTL op.
+- `WARN Opruimen verlopen sessie niet bevestigd; de gegevens zijn mogelijk gewist, anders vangt de Redis-TTL ze op`:
+  geen antwoord van Redis; de uitkomst is onzeker.
+- `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
+  vastgelegd. Alert-token; controleer de LDV-verbinding en leg de opruiming handmatig na.
 
 ## Open berichtenboxen (`_volgen`)
 
