@@ -57,6 +57,7 @@ class LdvSubjectRegistrationTest {
         // lijst komt volledig uit de cache — dan hoeft deze test geen magazijn te stubben.
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`()
             .get("/api/v1/berichten")
             .then()

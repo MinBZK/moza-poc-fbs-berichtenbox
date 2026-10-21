@@ -33,6 +33,8 @@ class FoutcodeTest {
             Foutcode.TIJDELIJK_NIET_BESCHIKBAAR to "tijdelijk-niet-beschikbaar",
             Foutcode.TE_VEEL_OPEN_BERICHTENBOXEN to "te-veel-open-berichtenboxen",
             Foutcode.GEEN_ACTIEVE_SESSIE to "geen-actieve-sessie",
+            Foutcode.SESSIE_ONGELDIG to "sessie-ongeldig",
+            Foutcode.TE_VEEL_SESSIES to "te-veel-sessies",
             Foutcode.NIET_GEVONDEN to "niet-gevonden",
             Foutcode.ONGELDIG_VERZOEK to "ongeldig-verzoek",
             Foutcode.GEEN_TOEGANG to "geen-toegang",

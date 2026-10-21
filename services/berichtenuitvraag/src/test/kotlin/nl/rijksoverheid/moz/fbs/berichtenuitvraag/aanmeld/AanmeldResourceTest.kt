@@ -122,6 +122,7 @@ class AanmeldResourceTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)

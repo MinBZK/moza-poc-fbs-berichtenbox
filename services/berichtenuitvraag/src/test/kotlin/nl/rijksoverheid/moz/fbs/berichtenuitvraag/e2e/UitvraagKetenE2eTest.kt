@@ -134,6 +134,7 @@ class UitvraagKetenE2eTest {
         // Vóór de eerste ophaling weigert de leesweg met 409 (cache nog niet gevuld).
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(409)
@@ -141,6 +142,7 @@ class UitvraagKetenE2eTest {
         // Ophalen: SSE-stream eindigt met ophalen-gereed en 1 bericht.
         val sse = given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -152,6 +154,7 @@ class UitvraagKetenE2eTest {
         // Lijst uit de (echte) Redis-cache, met uitvraag-parameternamen in de links.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -163,6 +166,7 @@ class UitvraagKetenE2eTest {
         // Detail inclusief inhoud.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(200)
@@ -175,6 +179,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
@@ -186,6 +191,7 @@ class UitvraagKetenE2eTest {
         // ook in de lijst, en de leesstatus is gebleven.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":"werk"}""")
             .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
@@ -195,6 +201,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":""}""")
             .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
@@ -205,6 +212,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -218,12 +226,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().delete("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(204)
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(410)
@@ -232,6 +242,7 @@ class UitvraagKetenE2eTest {
         // Een bericht dat er nooit was, blijft ononderscheidbaar van dat van een ander.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/33333333-3333-3333-3333-333333333333?magazijnId=$OIN_A")
             .then()
             .statusCode(404)
@@ -244,12 +255,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$andereBsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .header("X-Ontvanger", "BSN:$andereBsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(404)
@@ -266,6 +279,7 @@ class UitvraagKetenE2eTest {
 
         val sse = given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -277,6 +291,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -334,6 +349,7 @@ class UitvraagKetenE2eTest {
             for ((pad, aantal) in paden) {
                 given()
                     .header("X-Ontvanger", "BSN:$bsn")
+                    .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
                     .`when`().get(pad)
                     .then()
                     .statusCode(200)
@@ -359,12 +375,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -391,12 +409,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -414,6 +434,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -428,6 +449,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(503)
@@ -436,6 +458,7 @@ class UitvraagKetenE2eTest {
         // De leesweg meldt de mislukte ophaling; nergens een geslaagde lege lijst.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(503)
@@ -456,6 +479,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -464,6 +488,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -478,6 +503,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:999991401")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(503)
@@ -504,6 +530,7 @@ class UitvraagKetenE2eTest {
         while (href != null) {
             val antwoord = given()
                 .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
                 .`when`().get(href)
                 .then()
                 .statusCode(200)

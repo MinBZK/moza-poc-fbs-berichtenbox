@@ -34,6 +34,7 @@ class UitvraagResource(
     @Logboek(name = "uitvraag-lijst", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
     override fun getBerichten(
         xOntvanger: String,
+        xSessie: String,
         pagina: Int?,
         paginaGrootte: Int?,
     ): BerichtenLijst {
@@ -43,21 +44,21 @@ class UitvraagResource(
     }
 
     @Logboek(name = "uitvraag-zoeken", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
-    override fun zoekenBerichten(xOntvanger: String, q: String): BerichtenLijst {
+    override fun zoekenBerichten(xOntvanger: String, xSessie: String, q: String): BerichtenLijst {
         registreerLdvSubject(xOntvanger)
 
         return lijstService.zoek(xOntvanger, q)
     }
 
     @Logboek(name = "uitvraag-bericht", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
-    override fun getBerichtById(berichtId: UUID, xOntvanger: String, magazijnId: String): Bericht {
+    override fun getBerichtById(berichtId: UUID, xOntvanger: String, xSessie: String, magazijnId: String): Bericht {
         registreerLdvSubject(xOntvanger)
 
         return ophaalService.haalBericht(xOntvanger, magazijnId, berichtId)
     }
 
     @Logboek(name = "uitvraag-bijlage", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
-    override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String, magazijnId: String): ByteArray {
+    override fun getBijlage(berichtId: UUID, bijlageId: UUID, xOntvanger: String, xSessie: String, magazijnId: String): ByteArray {
         registreerLdvSubject(xOntvanger)
 
         val bijlage = ophaalService.haalBijlage(xOntvanger, magazijnId, berichtId, bijlageId)
@@ -68,14 +69,14 @@ class UitvraagResource(
     }
 
     @Logboek(name = "uitvraag-patch", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)
-    override fun updateBerichtMetadata(berichtId: UUID, xOntvanger: String, magazijnId: String, berichtPatch: BerichtPatch): Bericht {
+    override fun updateBerichtMetadata(berichtId: UUID, xOntvanger: String, xSessie: String, magazijnId: String, berichtPatch: BerichtPatch): Bericht {
         registreerLdvSubject(xOntvanger)
 
         return beheerService.patch(xOntvanger, berichtId, magazijnId, berichtPatch)
     }
 
     @Logboek(name = "uitvraag-verwijder", processingActivityId = ProcessingActivities.UITVRAAG_BEHEER)
-    override fun verwijderBericht(berichtId: UUID, xOntvanger: String, magazijnId: String) {
+    override fun verwijderBericht(berichtId: UUID, xOntvanger: String, xSessie: String, magazijnId: String) {
         registreerLdvSubject(xOntvanger)
 
         beheerService.verwijder(xOntvanger, berichtId, magazijnId)

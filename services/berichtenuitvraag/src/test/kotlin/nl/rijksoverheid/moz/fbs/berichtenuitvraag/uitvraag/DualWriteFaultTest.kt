@@ -79,6 +79,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -99,6 +100,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{}""")
             .`when`()
@@ -124,6 +126,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -148,6 +151,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -176,6 +180,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -199,6 +204,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -218,6 +224,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -240,6 +247,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -260,6 +268,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -282,6 +291,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -302,6 +312,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -322,6 +333,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -340,6 +352,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -358,6 +371,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -375,6 +389,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", "AAAAAAAAAAAAAAAAAAAAAA")
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()

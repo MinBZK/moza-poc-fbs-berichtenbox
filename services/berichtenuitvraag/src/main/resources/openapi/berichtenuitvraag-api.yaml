@@ -28,6 +28,8 @@ info:
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
     | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open (`_volgen`): voor deze ontvanger, of in totaal. De dienst telt per instantie, dus de grens is geen vast aantal voor de hele keten. Geen storing | Niet meteen opnieuw verbinden, maar na `Retry-After`. Staat de berichtenbox van deze ondernemer al in andere vensters open, dan helpt er één sluiten |
+    | `urn:fbs:fout:sessie-ongeldig` | 401 | De `X-Sessie` ontbreekt, is onbekend, verlopen of hoort bij een andere ontvanger | "Uw sessie is verlopen of ongeldig. Log opnieuw in." |
+    | `urn:fbs:fout:te-veel-sessies` | 429 | Deze ontvanger heeft te veel sessies tegelijk (`POST /sessies`) | "U bent op te veel plekken tegelijk ingelogd." |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
@@ -95,6 +97,10 @@ tags:
       gepubliceerd bericht aanmeldt. Werkt de sessiecache bij voor ontvangers met
       een actieve sessie. Wordt buiten codegen afgehandeld (custom media type +
       202-respons).
+  - name: Sessies
+    description: |
+      Inlogsessies: een sessie start bij het inloggen en is de sleutel (`X-Sessie`) waaronder
+      de berichten van de ondernemer in de sessiecache staan.
   - name: Specificatie
     description: Dit OpenAPI-document, op de plek waar de API Design Rules het verwachten.
 
@@ -127,6 +133,7 @@ paths:
       operationId: getBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
         - name: pagina
           in: query
           schema: { type: integer, minimum: 0, default: 0 }
@@ -193,6 +200,7 @@ paths:
         detecteert de storing dus op stream-niveau.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
       responses:
         '200':
           description: SSE-stream
@@ -249,6 +257,7 @@ paths:
         bruikbaar; alleen het vanzelf binnenkomen valt weg.
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
       responses:
         '200':
           description: SSE-stream
@@ -275,6 +284,7 @@ paths:
       operationId: zoekenBerichten
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
         - name: q
           in: query
           required: true
@@ -305,6 +315,7 @@ paths:
       operationId: getBerichtById
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
       responses:
         '200':
@@ -332,6 +343,7 @@ paths:
       operationId: updateBerichtMetadata
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
       requestBody:
         required: true
@@ -363,6 +375,7 @@ paths:
       operationId: verwijderBericht
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
       responses:
         '204':
@@ -405,6 +418,7 @@ paths:
       operationId: getBijlage
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
       responses:
         '200':
@@ -434,6 +448,53 @@ paths:
         '410': { $ref: '#/components/responses/Gone' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /sessies:
+    post:
+      tags: [Sessies]
+      summary: Sessie starten
+      description: |
+        Start een inlogsessie voor de ontvanger. Het `sessieId` in het antwoord is een geheim:
+        het gaat als `X-Sessie` mee op elk verzoek onder `/berichten`. Er staat bewust geen
+        `Location`-header op het antwoord, want het id hoort niet in een URL of log te landen.
+        Heeft de ontvanger al het maximum aantal sessies, dan volgt `429` met
+        `te-veel-sessies`.
+      operationId: startSessie
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '201':
+          description: Sessie gestart
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sessie' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /sessies/huidige:
+    delete:
+      tags: [Sessies]
+      summary: Sessie beëindigen
+      description: |
+        Beëindigt de sessie uit `X-Sessie` (uitloggen). Idempotent: ook een al verlopen of
+        onbekende sessie geeft `204`.
+      operationId: beeindigSessie
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+        - $ref: '#/components/parameters/SessieHeader'
+      responses:
+        '204':
+          description: Sessie beëindigd
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /aanmeldingen:
@@ -497,6 +558,14 @@ components:
       required: true
       schema: { type: string, pattern: '^(BSN|RSIN|KVK|OIN):[0-9]+$' }
       description: 'Type:waarde, bijv. `BSN:999990019`'
+    SessieHeader:
+      name: X-Sessie
+      in: header
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{22}$' }
+      description: |
+        Geheim sessie-id uit `POST /sessies`. Ontbreekt de header of is de sessie onbekend,
+        verlopen of van een andere ontvanger, dan volgt `401` met `sessie-ongeldig`.
     BerichtIdPath:
       name: berichtId
       in: path
@@ -538,6 +607,13 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Unauthorized:
       description: Niet geauthenticeerd
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: |
+        Te veel sessies tegelijk voor deze ontvanger (`urn:fbs:fout:te-veel-sessies`). Een
+        andere sessie beëindigen helpt.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -783,6 +859,25 @@ components:
       type: string
       enum: [gelezen, ongelezen]
       nullable: true
+
+    Sessie:
+      type: object
+      required: [sessieId, uiterlijkGeldigTot]
+      properties:
+        sessieId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22}$'
+          description: Geheim; stuur het als `X-Sessie`-header mee. Niet loggen, niet in een URL.
+        uiterlijkGeldigTot:
+          type: string
+          format: date-time
+          description: Moment waarop de sessie uiterlijk verloopt, als er niets gebeurt.
+        _links: { $ref: '#/components/schemas/SessieLinks' }
+
+    SessieLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
 
     Link:
       type: object
