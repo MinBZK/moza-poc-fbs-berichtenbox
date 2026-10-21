@@ -43,12 +43,14 @@ abstract class SessieVegerTestBasis {
 
     protected val logregels = CopyOnWriteArrayList<VeegRegel>()
     protected val aanleidingen = CopyOnWriteArrayList<String>()
+    protected val uitkomsten = CopyOnWriteArrayList<String>()
 
     @BeforeEach
     fun opzet() {
         sessiecache.reset()
         logregels.clear()
         aanleidingen.clear()
+        uitkomsten.clear()
 
         val handler = mockk<ProcessingHandler>(relaxed = true)
         val span = mockk<Span>(relaxed = true)
@@ -56,6 +58,10 @@ abstract class SessieVegerTestBasis {
         every { handler.startSpan(any(), any()) } returns span
         every { span.setAttribute(SessieLogboek.AANLEIDING_ATTRIBUUT, any<String>()) } answers {
             aanleidingen += secondArg<String>()
+            span
+        }
+        every { span.setAttribute(SessieLogboek.UITKOMST_ATTRIBUUT, any<String>()) } answers {
+            uitkomsten += secondArg<String>()
             span
         }
         every { handler.addLogboekContextToSpan(any(), any(), any()) } answers {
@@ -93,13 +99,13 @@ abstract class SessieVegerTestBasis {
     }
 }
 
-/** De scheduler staat uit: de tests roepen de ronde zelf aan, zodat er geen tick tussen kan komen. */
+/** De scheduler staat in de tests standaard uit: ze roepen de ronde zelf aan, zodat er geen tick tussen kan komen. */
 class SessieVegerHandmatigProfile : QuarkusTestProfile {
 
     override fun getEnabledAlternatives(): Set<Class<*>> = MockSessiecacheProfile().enabledAlternatives
 
     override fun getConfigOverrides(): Map<String, String> =
-        MockSessiecacheProfile().configOverrides + mapOf("quarkus.scheduler.enabled" to "false")
+        MockSessiecacheProfile().configOverrides
 }
 
 @QuarkusTest
@@ -111,7 +117,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
     companion object {
         @JvmStatic
-        fun uitkomsten(): List<Arguments> = listOf(
+        fun gevallen(): List<Arguments> = listOf(
             Arguments.of(OpruimUitkomst.GEWIST, StatusCode.OK, null),
             Arguments.of(OpruimUitkomst.MISLUKT, StatusCode.ERROR, "volgende ronde probeert opnieuw"),
             Arguments.of(OpruimUitkomst.ONBEVESTIGD, StatusCode.ERROR, "Redis-TTL"),
@@ -119,7 +125,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("uitkomsten")
+    @MethodSource("gevallen")
     fun `elke uitkomst komt als verlopen opruiming in het logboek, en alleen een misser in de log`(
         uitkomst: OpruimUitkomst,
         status: StatusCode,
@@ -131,6 +137,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
         assertEquals(listOf(VeegRegel(ProcessingActivities.UITVRAAG_SESSIE, "BSN", "999990019", status)), logregels.toList())
         assertEquals(listOf("verlopen"), aanleidingen.toList())
+        assertEquals(listOf(uitkomst.name.lowercase()), uitkomsten.toList())
 
         if (waarschuwing == null) {
             assertTrue(regels.isEmpty(), regels.toString())
@@ -185,7 +192,10 @@ class SessieVegerGeplandProfile : QuarkusTestProfile {
     override fun getEnabledAlternatives(): Set<Class<*>> = MockSessiecacheProfile().enabledAlternatives
 
     override fun getConfigOverrides(): Map<String, String> =
-        MockSessiecacheProfile().configOverrides + mapOf("berichtensessiecache.sessie.veeg-interval" to "PT1S")
+        MockSessiecacheProfile().configOverrides + mapOf(
+            "quarkus.scheduler.enabled" to "true",
+            "berichtensessiecache.sessie.veeg-interval" to "PT1S",
+        )
 }
 
 @QuarkusTest
@@ -193,7 +203,7 @@ class SessieVegerGeplandProfile : QuarkusTestProfile {
 class SessieVegerGeplandTest : SessieVegerTestBasis() {
 
     @Test
-    fun `een verlopen sessie wordt binnen twee veegintervallen opgeruimd en gelogd`() {
+    fun `de scheduler voert zelf een veegronde uit en de opruiming komt in het logboek`() {
         sessiecache.opruimingen.set(listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)))
 
         val einde = System.nanoTime() + 10_000_000_000L
