@@ -70,6 +70,14 @@ class SessieFilterTest {
         )
 
         @JvmStatic
+        fun padVarianten(): List<Arguments> = listOf(
+            Arguments.of("/api/v1//berichten", 401),
+            Arguments.of("/api/v1/%62erichten", 401),
+            Arguments.of("/api/v1/berichten;x=1", 401),
+            Arguments.of("/api/v1/berichten/%5Fzoeken?q=rente", 401),
+        )
+
+        @JvmStatic
         fun krommeHeaders(): List<Arguments> = routes().flatMap { route ->
             listOf(
                 Arguments.of(route, "dezelfde X-Ontvanger twee keer", listOf(ONTVANGER, ONTVANGER)),
@@ -221,21 +229,34 @@ class SessieFilterTest {
 
     @Test
     fun `een omweg via een vrijgesteld pad omzeilt de sessiecontrole niet`() {
-        // Ruw over de socket: een HTTP-client lost `..` vaak al zelf op, en dan toetst de test niets.
-        // Met een goed gevormde maar nooit gestarte sessie: alleen de sessiecontrole kan dit dan
-        // weigeren, dus elke andere status dan 401 betekent dat de omweg erlangs kwam.
-        val status = Socket("localhost", RestAssured.port).use { socket ->
-            socket.getOutputStream().write(
-                (
-                    "GET /api/v1/aanmeldingen/../berichten HTTP/1.1\r\n" +
-                        "Host: localhost\r\nX-Ontvanger: $ONTVANGER\r\nX-Sessie: ${"A".repeat(22)}\r\n" +
-                        "Connection: close\r\n\r\n"
-                    ).toByteArray(),
-            )
+        assertEquals(401, rauweStatus("/api/v1/aanmeldingen/../berichten"))
+    }
 
-            socket.getInputStream().bufferedReader().readLine().split(' ')[1].toInt()
-        }
+    /**
+     * Varianten van het pad die een router anders kan normaliseren dan het filter. Elk antwoord
+     * behalve 401 (de sessiecontrole) of 404 (geen route) betekent dat een resource het verzoek
+     * zonder sessie te zien kreeg.
+     */
+    @ParameterizedTest(name = "{0} geeft {1}")
+    @MethodSource("padVarianten")
+    fun `een padvariant onder berichten komt niet zonder sessie bij de resource`(pad: String, verwacht: Int) {
+        assertEquals(verwacht, rauweStatus(pad))
+    }
 
-        assertEquals(401, status)
+    /**
+     * Ruw over de socket: een HTTP-client lost `..`, dubbele slashes en procent-codering vaak al zelf
+     * op, en dan toetst de test niets. Met een goed gevormde maar nooit gestarte sessie: alleen de
+     * sessiecontrole kan dit dan weigeren.
+     */
+    private fun rauweStatus(pad: String): Int = Socket("localhost", RestAssured.port).use { socket ->
+        socket.getOutputStream().write(
+            (
+                "GET $pad HTTP/1.1\r\n" +
+                    "Host: localhost\r\nX-Ontvanger: $ONTVANGER\r\nX-Sessie: ${"A".repeat(22)}\r\n" +
+                    "Connection: close\r\n\r\n"
+                ).toByteArray(),
+        )
+
+        socket.getInputStream().bufferedReader().readLine().split(' ')[1].toInt()
     }
 }

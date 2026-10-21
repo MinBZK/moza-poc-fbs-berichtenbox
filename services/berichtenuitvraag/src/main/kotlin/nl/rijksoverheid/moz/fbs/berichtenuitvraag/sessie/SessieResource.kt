@@ -5,9 +5,12 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.SessiesApi
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Sessie
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.SessieLinks
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.leesUitCache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.registreerLdvSubject
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
@@ -40,6 +43,7 @@ class SessieResource(
         if (start.restenOpgeruimd) sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START)
 
         return Sessie(start.sessieId, start.uiterlijkGeldigTot)
+            .links(SessieLinks().self(Link().href("${ApiInfo.BASE_PATH}/sessies/huidige")))
     }
 
     @Logboek(name = "uitvraag-sessie-einde", processingActivityId = ProcessingActivities.UITVRAAG_SESSIE)

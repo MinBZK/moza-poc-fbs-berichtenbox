@@ -685,6 +685,7 @@ class OpenApiContractTest {
             .post("/api/v1/sessies")
             .then()
             .statusCode(201)
+            .body("_links.self.href", equalTo("/api/v1/sessies/huidige"))
     }
 
     @Test

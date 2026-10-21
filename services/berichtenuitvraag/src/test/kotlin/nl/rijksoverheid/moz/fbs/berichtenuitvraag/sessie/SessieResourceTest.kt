@@ -50,6 +50,7 @@ class SessieResourceTest {
             // Het id is een geheim: het hoort in geen URL te landen, ook niet in een Location.
             .header("Location", nullValue())
             .body("sessieId", matchesPattern("^[A-Za-z0-9_-]{22}$"))
+            .body("_links.self.href", equalTo("/api/v1/sessies/huidige"))
             .extract()
             .jsonPath()
 
