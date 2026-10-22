@@ -320,7 +320,14 @@ internal class BerichtensessiecacheService(
         val alleBerichten: MutableList<Bericht> = Collections.synchronizedList(ArrayList())
         val tellers = RondeTellers()
 
-        zetBezigStatusMetTotaal(ronde, bezigStatus, clients.size)
+        // De laatste sessie eindigde terwijl de ronde de magazijnen bepaalde: opslaan kan ze dan toch
+        // niet meer, en een magazijn hoort de ontvanger van een uitgelogde gebruiker niet te zien.
+        // Geen slotevent, net als bij een ronde die na het bevragen niets meer kon opslaan.
+        if (!zetBezigStatusMetTotaal(ronde, bezigStatus, clients.size)) {
+            log.info("Ophaalronde heeft de lock niet meer (sessie beëindigd of lock verlopen); geen magazijnen bevraagd")
+
+            return Multi.createFrom().empty()
+        }
 
         val ontvangerString = ontvanger.toCanonicalString()
 
@@ -546,13 +553,14 @@ internal class BerichtensessiecacheService(
 
     // Happy: alleen statusKey overschrijven; lockKey blijft tot GEREED/FOUT-schrijfactie.
     // Fout: cleanupLockMetFoutStatus schrijft FOUT (geeft lock vrij via interne del).
+    // `false` als de ronde de lock niet meer houdt; dan is er niets geschreven.
     private fun zetBezigStatusMetTotaal(
         ronde: Ronde,
         bezigStatus: AggregationStatus,
         totaalMagazijnen: Int,
-    ) {
+    ): Boolean {
         try {
-            berichtenCache.updateAggregationStatus(
+            return berichtenCache.updateAggregationStatus(
                 ronde.cacheKey,
                 bezigStatus.copy(totaalMagazijnen = totaalMagazijnen),
                 ronde.token,
@@ -576,17 +584,22 @@ internal class BerichtensessiecacheService(
      * opgehaalde berichten niet met een lege lijst overschrijven.
      */
     private fun legeResultaten(ronde: Ronde): Multi<MagazijnEvent> {
-        val weg = try {
+        // De timeout alleen op het opslaan: de opruimcontrole erna heeft haar eigen timeout en terugval,
+        // en een ronde die opgeslagen is, hoort geen fout-event te krijgen omdat de controle traag was.
+        val opgeslagen = try {
             berichtenCache.slaRondeOp(ronde.cacheKey, emptyList(), AggregationStatus(status = OphalenStatus.GEREED), ronde.token)
-                // Zoals na een ronde met magazijnen: niets opgeslagen of daarna weer gewist, dan geen GEREED.
-                .chain { opgeslagen -> if (opgeslagen) controleerNaOpslaan(ronde.ontvanger) else Uni.createFrom().item(true) }
                 .await().atMost(Duration.ofSeconds(cacheAwaitTimeoutSeconds))
         } catch (ex: Exception) {
             val errorId = UUID.randomUUID()
             val ref = errorId.toString()
 
             log.errorf(ex, "(errorId=%s) Store-fout bij lege magazijn-set voor key=%s", errorId, ronde.cacheKey)
-            cleanupLockMetFoutStatus(ronde, "store-fout bij lege magazijn-set", errorId)
+
+            // Zonder lock kan het opslaan in Redis al gelukt zijn terwijl het antwoord uitbleef. Liep er
+            // toen geen sessie meer, dan blijft de status anders staan zonder dat de veegtaak hem kent.
+            if (!cleanupLockMetFoutStatus(ronde, "store-fout bij lege magazijn-set", errorId)) {
+                ruimOpBestEffort(ronde.ontvanger).await().indefinitely()
+            }
             // SSE-stream is al actief op dit punt; een fout-event geeft de client
             // dezelfde UX als het aggregatie-faalpad i.p.v. een mid-stream HTTP-500.
             return Multi.createFrom().item(
@@ -596,6 +609,9 @@ internal class BerichtensessiecacheService(
                 ),
             )
         }
+
+        // Zoals na een ronde met magazijnen: niets opgeslagen of daarna weer gewist, dan geen GEREED.
+        val weg = if (opgeslagen) controleerNaOpslaan(ronde.ontvanger).await().indefinitely() else true
 
         if (weg) return Multi.createFrom().empty()
 
@@ -1024,7 +1040,7 @@ internal class BerichtensessiecacheService(
     /**
      * Best-effort lock-release na fout: schrijft de FOUT-status en geeft de lock vrij, alleen als
      * deze ronde hem nog houdt ([BerichtenCache.sluitRondeAf]). Cleanup-failure geslikt — lock
-     * leunt dan op TTL.
+     * leunt dan op TTL. `true` als deze ronde de lock vrijgaf en de opruimcontrole erachter liep.
      *
      * @param errorId caller geeft `ex.errorId` mee (Profiel-pad) zodat de cleanup-log
      *   dezelfde id draagt als `Problem.instance` voor cross-correlatie; non-Profiel
@@ -1039,7 +1055,7 @@ internal class BerichtensessiecacheService(
         // InterruptedException, óók wanneer de werkelijke oorzaak een echte storing was — dan zou
         // de alert-marker juist bij een storing wegvallen.
         afbreking: Boolean = false,
-    ) {
+    ): Boolean {
         try {
             val vrijgegeven = berichtenCache.sluitRondeAf(
                 ronde.cacheKey,
@@ -1051,7 +1067,7 @@ internal class BerichtensessiecacheService(
                 // De lock werd nooit genomen, verliep, of verdween met het opruimen bij een sessie-einde.
                 log.infof("Geen lock vrij te geven na fout (errorId=%s): %s", errorId, oorzaak)
 
-                return
+                return false
             }
 
             log.warnf("Lock vrijgegeven na fout (errorId=%s) voor key=%s: %s", errorId, ronde.cacheKey, oorzaak)
@@ -1059,6 +1075,8 @@ internal class BerichtensessiecacheService(
             // Zoals na een mislukte ronde: liep er bij het schrijven geen sessie meer, dan ruimt
             // dit de FOUT-status weer op.
             ruimOpBestEffort(ronde.ontvanger).await().indefinitely()
+
+            return true
         } catch (cleanupEx: Exception) {
             // Een afbreking is ook hier geen storing: een rolling restart tijdens een lopende
             // ophaalstart zou anders gegarandeerd een FATAL met alert-marker per onderbroken
@@ -1071,7 +1089,7 @@ internal class BerichtensessiecacheService(
                     oorzaak,
                 )
 
-                return
+                return false
             }
 
             // FATAL + ALERT-marker: oorspronkelijke fout PLUS cleanup-fail = lock blijft
@@ -1086,6 +1104,8 @@ internal class BerichtensessiecacheService(
                 ronde.cacheKey,
                 oorzaak,
             )
+
+            return false
         }
     }
 
@@ -1253,14 +1273,6 @@ internal class BerichtensessiecacheService(
 }
 
 /**
- * De uitkomsten van één ophaalronde, geteld terwijl de per-magazijn-events voorbijkomen. De
- * merging-stream emit parallel, vandaar [AtomicInteger] per teller.
- *
- * `nietOpgehaald` staat naast `mislukt` en niet erin: een organisatie die de gelijktijdigheids-
- * grens van de uitvraag niet passeerde is helemaal niet bevraagd, dus er is geen uitspraak over
- * dat magazijn te doen. Wie de twee optelt, meldt een storing waar opnieuw proberen juist helpt.
- */
-/**
  * Eén ophaalronde. [token] staat in de lock zolang de ronde loopt; alleen met dat token mag ze
  * schrijven en de lock vrijgeven, zodat een ronde die een sessie-einde overleefde niets schrijft in
  * de sessie die daarna begon, en de lock van een latere ronde niet vrijgeeft.
@@ -1270,6 +1282,14 @@ private class Ronde(val ontvanger: Identificatienummer) {
     val token: String = UUID.randomUUID().toString()
 }
 
+/**
+ * De uitkomsten van één ophaalronde, geteld terwijl de per-magazijn-events voorbijkomen. De
+ * merging-stream emit parallel, vandaar [AtomicInteger] per teller.
+ *
+ * `nietOpgehaald` staat naast `mislukt` en niet erin: een organisatie die de gelijktijdigheids-
+ * grens van de uitvraag niet passeerde is helemaal niet bevraagd, dus er is geen uitspraak over
+ * dat magazijn te doen. Wie de twee optelt, meldt een storing waar opnieuw proberen juist helpt.
+ */
 internal class RondeTellers {
     val geslaagd = AtomicInteger(0)
     val mislukt = AtomicInteger(0)

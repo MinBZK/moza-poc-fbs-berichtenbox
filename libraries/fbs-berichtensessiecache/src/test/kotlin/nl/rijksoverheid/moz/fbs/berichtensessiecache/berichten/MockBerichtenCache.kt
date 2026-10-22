@@ -65,10 +65,12 @@ internal class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().voidItem()
     }
 
-    override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Void> {
-        if (locks["$key:lock"] == ronde) statuses["$key:status"] = status
+    override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
+        val eigenaar = locks["$key:lock"] == ronde
 
-        return Uni.createFrom().voidItem()
+        if (eigenaar) statuses["$key:status"] = status
+
+        return Uni.createFrom().item(eigenaar)
     }
 
     override fun trySetAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {

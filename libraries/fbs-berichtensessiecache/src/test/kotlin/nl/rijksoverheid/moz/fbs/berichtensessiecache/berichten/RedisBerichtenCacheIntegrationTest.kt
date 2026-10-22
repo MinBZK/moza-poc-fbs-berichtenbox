@@ -1266,11 +1266,13 @@ class RedisBerichtenCacheIntegrationTest {
         assertTrue(lockVerkregen, "Eerste trySet moet slagen")
 
         // updateAggregationStatus werkt de waarde bij maar houdt de lock (key) intact.
-        berichtenCache.updateAggregationStatus(
+        val eigenaar = berichtenCache.updateAggregationStatus(
             cacheKey(),
             bezigStatus.copy(totaalMagazijnen = 3),
             RONDE,
         ).await().indefinitely()
+
+        assertTrue(eigenaar, "De ronde die de lock houdt, hoort dat te horen")
 
         val lockNogAanwezig = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
@@ -1368,8 +1370,7 @@ class RedisBerichtenCacheIntegrationTest {
         val fout = AggregationStatus(status = OphalenStatus.FOUT)
         berichtenCache.trySetAggregationStatus(cacheKey(), bezig, ANDERE_RONDE).await().indefinitely()
 
-        berichtenCache.updateAggregationStatus(cacheKey(), bezig.copy(totaalMagazijnen = 3), RONDE).await().indefinitely()
-
+        assertFalse(berichtenCache.updateAggregationStatus(cacheKey(), bezig.copy(totaalMagazijnen = 3), RONDE).await().indefinitely())
         assertFalse(berichtenCache.sluitRondeAf(cacheKey(), fout, RONDE).await().indefinitely())
         assertEquals(bezig, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
         assertTrue(bestaat("${cacheKey()}:lock"))

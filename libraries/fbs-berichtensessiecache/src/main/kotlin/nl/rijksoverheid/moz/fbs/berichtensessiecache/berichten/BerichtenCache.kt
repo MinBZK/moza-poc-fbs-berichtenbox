@@ -49,8 +49,8 @@ internal interface BerichtenCache {
      */
     fun trySetAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean>
 
-    /** Werkt de BEZIG-status bij, alleen zolang [ronde] de lock houdt. */
-    fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Void>
+    /** Werkt de BEZIG-status bij, alleen zolang [ronde] de lock houdt; `false` als dat niet zo is en er niets geschreven is. */
+    fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean>
 
     /**
      * Slaat het resultaat van ronde [ronde] op (lijst, berichthashes en [status]) en geeft de lock
@@ -341,13 +341,12 @@ internal class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf("Redis sluitRondeAf mislukt (fout=%s)", e.javaClass.name) }
     }
 
-    override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Void> {
+    override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
         val json = objectMapper.writeValueAsString(status)
         // Nog-lopende (BEZIG) status: korte vangnet-TTL gelijk aan de lock, zodat een crash de
         // status niet 12u laat hangen. De terminale GEREED/FOUT-status volgt wél de TTL van de
         // gegevens, omdat die het gecachte resultaat spiegelt.
         return voerLockScriptUit(ZET_STATUS_ALS_EIGENAAR, key, ronde, json, aggregationLockTtl.toMillis().toString(), "0")
-            .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis updateAggregationStatus mislukt voor key=%s", key) }
     }
 
