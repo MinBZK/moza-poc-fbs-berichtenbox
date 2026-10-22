@@ -270,7 +270,7 @@ als de rest van Redis (TLS en authenticatie).
   sinds de inline-weergave de bestandsnaam, en die is door de aanleveraar gekozen
   (`aanslag-de-vries.pdf`). De keten logt hem nergens, maar response-header-logging op een ingress
   of outway zou hem alsnog in een log zetten: laat die uit staan voor dit endpoint.
-- **Een bijlage-download streamt boven 1 MiB.** Een kleinere bijlage leest de uitvraag helemaal in
+- **Een bijlage-download streamt vanaf 1 MiB.** Een kleinere bijlage leest de uitvraag helemaal in
   en geeft ze daarna in één keer door, zoals altijd. Een grotere geeft ze door terwijl ze uit het
   magazijn komt, zodat ze niet in haar geheel door de heap gaat.
   - **Wat een gestreamde download vasthoudt:** zolang de afnemer leest, één worker-thread en één

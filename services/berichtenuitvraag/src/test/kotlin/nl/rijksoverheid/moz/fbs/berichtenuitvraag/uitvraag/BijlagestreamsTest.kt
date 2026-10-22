@@ -90,6 +90,7 @@ class BijlagestreamsTest {
         "2, 0, PT60S",
         "2, 3, PT60S",
         "2, 1, PT0S",
+        "2, 1, PT0.5S",
         "2, 1, -PT1S",
         "2, 1, PT720H",
     )

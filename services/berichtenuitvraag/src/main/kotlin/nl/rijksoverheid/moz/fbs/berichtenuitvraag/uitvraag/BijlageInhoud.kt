@@ -63,6 +63,10 @@ class BijlageInhoud internal constructor(
             // foutantwoord onder de headers van de bijlage.
             schrijf { doel.flush() }
             kopieer(bron, doel, afnemerWeg)
+
+            // Ook het laatste stuk nog onder de bewaking: anders schrijft Quarkus het pas bij het
+            // sluiten, als de plek al vrij is en niets meer op een afnemer let die niet leest.
+            schrijf { doel.flush() }
         } finally {
             toestand.set(Toestand.GESLOTEN)
             sluitMagazijnResponse()

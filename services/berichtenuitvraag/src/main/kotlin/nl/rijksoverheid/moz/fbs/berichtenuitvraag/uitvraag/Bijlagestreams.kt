@@ -7,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
+import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -31,8 +32,10 @@ class Bijlagestreams(private val config: BijlageConfig) {
     private val openPerOntvanger = ConcurrentHashMap<Identificatienummer, Int>()
 
     init {
-        require(!config.maxStilstand().isNegative && !config.maxStilstand().isZero) {
-            "berichtenuitvraag.bijlage.max-stilstand (${config.maxStilstand()}) moet groter zijn dan 0"
+        // De bewaking kijkt eens per seconde, en onder een milliseconde zou Vert.x de idle-timeout als
+        // "geen" lezen.
+        require(config.maxStilstand() >= Duration.ofSeconds(1)) {
+            "berichtenuitvraag.bijlage.max-stilstand (${config.maxStilstand()}) moet minstens een seconde zijn"
         }
 
         // Vert.x krijgt de grens als int milliseconden.

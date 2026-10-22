@@ -25,7 +25,7 @@ class BijlageDoorgifte(
 ) {
 
     /**
-     * Past de bijlage in het begin, dan gaat ze als `byte[]` de deur uit: dat schrijft Quarkus zonder
+     * Is de bijlage kleiner dan [BijlageInhoud.BEGIN_BYTES], dan gaat ze als `byte[]` de deur uit: dat schrijft Quarkus zonder
      * een worker-thread vast te houden, ook als de afnemer traag leest. Anders streamt de rest.
      */
     fun antwoord(bijlage: BijlageInhoud, xOntvanger: String, kenmerken: String): Response {
@@ -56,9 +56,9 @@ class BijlageDoorgifte(
             if (bijlage.wachtLangerDan(maxStilstand) && stilgevallen.compareAndSet(false, true)) verzoek.response().reset()
         }
 
-        // Idempotent: de writer ruimt op als hij klaar is; de end-handler als hij nooit draait (HEAD).
-        // Op de end-handler alleen valt niet te bouwen: zodra Quarkus de output-stream opent, vuurt hij
-        // niet meer.
+        // Idempotent: de writer ruimt op als hij klaar is; de end-handler als hij nooit draait (HEAD,
+        // of een fout na de methode). De end-handler alleen bleek niet genoeg: na een gestreamd
+        // antwoord kwam de plek daarlangs niet terug.
         val ruimOp = {
             verzoek.vertx().cancelTimer(bewaking)
             vrijgave()

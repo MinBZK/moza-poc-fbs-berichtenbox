@@ -59,8 +59,8 @@ class UitvraagResource(
     }
 
     /**
-     * Geeft de bijlage door ([BijlageDoorgifte]). Past ze in het begin, dan gaat ze als `byte[]` de
-     * deur uit. Een grotere bijlage streamt: de methode leest alleen het begin, en de rest schrijft
+     * Geeft de bijlage door ([BijlageDoorgifte]). Is ze kleiner dan 1 MiB, dan gaat ze als `byte[]`
+     * de deur uit. Vanaf 1 MiB streamt ze: de methode leest alleen het begin, en de rest schrijft
      * Quarkus na afloop naar de afnemer, buiten de logregel om.
      *
      * Breekt het magazijn die rest af, dan blijft de logregel op `UNSET`, zonder ERROR-child: de

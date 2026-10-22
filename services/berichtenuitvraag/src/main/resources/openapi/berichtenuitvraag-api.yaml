@@ -404,7 +404,7 @@ paths:
         overdracht langer dan een instelbare tijd stil (standaard een minuut), ook doordat de
         afnemer niet leest, dan breekt ze op dezelfde manier af.
 
-        Een bijlage groter dan 1 MiB houdt een plek bezet zolang ze loopt. Lopen er te veel
+        Een bijlage van 1 MiB of meer houdt een plek bezet zolang ze loopt. Lopen er te veel
         tegelijk, voor deze ontvanger of in totaal, dan volgt een `503` met
         `te-veel-gelijktijdige-downloads` en `Retry-After`. De dienst telt dat per instantie.
 

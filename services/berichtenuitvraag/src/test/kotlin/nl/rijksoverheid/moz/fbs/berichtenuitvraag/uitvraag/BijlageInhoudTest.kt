@@ -53,7 +53,7 @@ class BijlageInhoudTest {
         inhoud(byteArrayOf(9, 9), ByteArrayInputStream(rest)).schrijfNaar(doel) { false }
 
         assertArrayEquals(byteArrayOf(9, 9) + rest, doel.bytes.toByteArray())
-        assertEquals(2, doel.geflushtNa, "de flush hoort direct na het begin te komen")
+        assertEquals(listOf(2, 2 + rest.size), doel.flushes, "een flush direct na het begin, en een na het laatste stuk")
         verify(exactly = 1) { response.close() }
     }
 
@@ -271,17 +271,17 @@ class BijlageInhoudTest {
         }
     }
 
-    /** Onthoudt hoeveel bytes er bij de eerste flush geschreven waren. */
+    /** Onthoudt bij elke flush hoeveel bytes er toen geschreven waren. */
     private class OpnameStream : OutputStream() {
         val bytes = ByteArrayOutputStream()
-        var geflushtNa: Int? = null
+        val flushes = mutableListOf<Int>()
 
         override fun write(b: Int) = bytes.write(b)
 
         override fun write(b: ByteArray, off: Int, len: Int) = bytes.write(b, off, len)
 
         override fun flush() {
-            if (geflushtNa == null) geflushtNa = bytes.size()
+            flushes.add(bytes.size())
         }
     }
 }

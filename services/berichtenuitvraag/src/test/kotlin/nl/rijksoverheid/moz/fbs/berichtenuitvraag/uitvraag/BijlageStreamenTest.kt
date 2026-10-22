@@ -300,11 +300,26 @@ class BijlageStreamenTest {
 
         val (_, melding) = wachtOpMelding(BerichtOphaalService::class.java, "body-read mislukt")
         assertTrue("[${LOGBOEK_SPAN.traceId}:${LOGBOEK_SPAN.spanId}]" in melding, melding)
+
         // De fout ontstaat nog binnen de @Logboek-methode: de logregel krijgt hem zelf mee.
         verify(exactly = 1) {
             processingHandler.addLogboekContextToSpan(any(), any(), match<Throwable> { it is WebApplicationException && it.response.status == 502 })
         }
+
         verify(exactly = 0) { processingHandler.recordFailedOutcome(any<Collection<Logregel>>(), any()) }
+    }
+
+    // Fail-closed: mislukt het schrijven van de logregel, dan gooit de wrapper ná de methode. De
+    // writer draait dan niet, en toch moeten de plek en de magazijn-response vrijkomen.
+    @Test
+    fun `mislukt de logregel na het begin, dan komen de plek en de magazijn-response toch vrij`() {
+        every { processingHandler.enforceWriteAcknowledgement(any()) } throws IllegalStateException("logboek weg")
+        BijlageMagazijnStub.gedrag = BijlageMagazijnStub.bijlage(HEEL_GROOT.toLong()) { it.write(ByteArray(HEEL_GROOT)) }
+
+        val antwoord = http.send(verzoek(), BodyHandlers.ofString())
+
+        assertEquals(500, antwoord.statusCode())
+        assertEquals(BijlageMagazijnStub.Afloop.VOLLEDIG_GESCHREVEN, BijlageMagazijnStub.afloopVoor(berichtId), "de uitvraag hoort de magazijn-response te sluiten")
     }
 
     @Test

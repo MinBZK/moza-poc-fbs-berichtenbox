@@ -5,7 +5,7 @@ import io.smallrye.config.WithDefault
 import java.time.Duration
 
 /**
- * Grenzen op een gestreamde bijlage-download: een bijlage groter dan [BijlageInhoud.BEGIN_BYTES]
+ * Grenzen op een gestreamde bijlage-download: een bijlage van [BijlageInhoud.BEGIN_BYTES] of meer
  * houdt een worker-thread en een magazijn-connection vast zolang de afnemer leest. Gevalideerd bij
  * het opstarten door [Bijlagestreams].
  */

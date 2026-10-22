@@ -54,7 +54,8 @@ Het geheugen per download is begrensd, ongeacht de grootte van de bijlage.
 
 ### Begin en rest
 
-- **Eerst 1 MiB binnen de methode, dan de rest gestreamd.**
+- **Eerst 1 MiB binnen de methode, dan de rest gestreamd.** Kleiner dan 1 MiB gaat als `byte[]`;
+  vanaf 1 MiB streamt de bijlage.
   - `haalBijlage` leest tot 1 MiB in (`BEGIN_BYTES`), nog binnen de `@Logboek`-methode.
   - Past de bijlage daarin, en dat geldt voor wat in de praktijk voorkomt, dan is de
     magazijn-response meteen dicht en gaat ze als `byte[]` de deur uit. Alles gedraagt zich dan als
@@ -66,6 +67,8 @@ Het geheugen per download is begrensd, ongeacht de grootte van de bijlage.
 - **Na het begin ligt de status vast.**
   - `schrijfNaar` schrijft het begin en flusht meteen, vóór het eerste stuk van de rest. Daarmee is
     het antwoord begonnen, en wordt elke fout daarna een gereset connection.
+  - Na het laatste stuk flusht `schrijfNaar` nog eens, onder de bewaking. Anders schrijft Quarkus
+    de laatste buffer pas bij het sluiten, als de plek al vrij is en niets meer op de afnemer let.
   - `BijlageDoorgifte` reset het antwoord zelf voordat ze een fout doorgooit. Zo eindigt een afgebroken
     overdracht nooit netjes, ook als Quarkus het antwoord anders zou afronden (bijvoorbeeld met een
     `WriterInterceptor` erbij).
@@ -128,9 +131,10 @@ Het geheugen per download is begrensd, ongeacht de grootte van de bijlage.
     dat midden in een bijlage stilvalt zijn plek in de pool onbeperkt vast.
 - **De magazijn-response en de plek komen altijd vrij.**
   - In de `finally` van de writer.
-  - Bij het einde van het verzoek via `RoutingContext.addEndHandler`, voor als de writer nooit draait
-    (HEAD). Op die end-handler alleen valt niet te bouwen: zodra Quarkus de output-stream opent,
-    vuurt hij niet meer.
+  - Bij het einde van het verzoek via `RoutingContext.addEndHandler`, voor als de writer nooit draait:
+    een HEAD, of een fout ná de methode, zoals een logregel die fail-closed niet geschreven kon
+    worden. Die end-handler alleen bleek niet genoeg: na een gestreamd antwoord kwam de plek
+    daarlangs niet terug.
   - Meteen in de methode als de afnemer al weg is: een end-handler die pas daarna geregistreerd
     wordt, vuurt nooit.
   - Alles is idempotent.
@@ -197,6 +201,8 @@ Het geheugen per download is begrensd, ongeacht de grootte van de bijlage.
     contractvalidator, de logregel krijgt de fout zelf mee.
   - **Een afnemer die afbreekt:** op debug, en het magazijn wordt vrijgegeven.
   - **HEAD:** de headers, en de magazijn-response gaat dicht.
+  - **Een logregel die na de methode niet geschreven kan worden (fail-closed):** een 500, en de
+    plek en de magazijn-response komen toch vrij.
   - **Een afnemer die vertrekt vóór het magazijn antwoordt (HEAD en GET, ruwe socket):** de
     magazijn-response gaat dicht.
 - **`BijlageGrenzenTest`** (stilstand 2 s, 2 streams per pod, 1 per ontvanger):
