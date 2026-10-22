@@ -428,7 +428,7 @@ zodat `pin-consistency.yml` hem aan `compose.yaml` kan binden.
 
 ```bash
 # Dezelfde waarde als TOXIPROXY_IMAGE in deploy.yml; die is de bron.
-TOXIPROXY_IMAGE='ghcr.io/shopify/toxiproxy:2.12.0@sha256:a3e244375123dad8849091bcc59775e188624d3f602db01901f9af855682fef8'
+TOXIPROXY_IMAGE='ghcr.io/shopify/toxiproxy:2.13.0@sha256:9941f0357759e6c9bfe0ad45e20c415100505113da0f5c436cfd0a4d27579fdc'
 
 for c in profiel:18089 notificatie:18084; do
   naam=toxiproxy-${c%%:*}
