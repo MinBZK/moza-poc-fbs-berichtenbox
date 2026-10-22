@@ -16,8 +16,9 @@
 #   hostnet  compose.yaml + compose.podman.yaml + compose.podman-hostnet.yaml
 #
 # De modus van de laatste start staat in deploy/local/.modus (gitignored). Een compose-commando met
-# minder bestanden rendert de services opnieuw uit de basis en zet de stack stilletjes terug naar
-# bridge; via dit script kan dat niet.
+# minder bestanden rendert de services opnieuw in een andere modus — met alleen de basis is dat
+# docker, zonder keep-id en SELinux-labels, en onder podman faalt elke container dan op /pki. Via
+# dit script kan dat niet.
 #
 # De federatie (demo/environment/federatie/) start de peers zelf, met haar eigen vierde laag, en
 # zet daarvoor `federatie` in hun .modus. Zo'n peer raakt dit script niet aan: elk commando hier
@@ -114,6 +115,7 @@ esac
 # --- up ---------------------------------------------------------------------------------------
 
 PROJECT="$(fsc_compose_project "$LOKAAL/compose.yaml")"
+modus_engine_bereikbaar
 
 # Containers van dit project zonder vastgelegde modus zijn buiten dit script gestart — met de hand,
 # of door de federatie met haar eigen laag. `up` zou ze hercreëren uit een andere set bestanden.
@@ -150,18 +152,8 @@ if [ ! -d "$pki/out" ]; then
     exit 1
 fi
 
-# De router bindt :443. In bridge zet de basis daarvoor een sysctl per container; in een gedeelde
-# netns mag een container dat niet, en geldt de waarde van de aanroeper. Hier controleren en niet
-# afwachten: anders sterft alleen de router, op `bind 127.0.0.1:443: Permission denied`.
 if [ "$MODUS" = "hostnet" ]; then
-    poortgrens="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo onbekend)"
-
-    if [ "$poortgrens" = "onbekend" ] || [ "$poortgrens" -gt 443 ]; then
-        echo "FOUT: hostnet vraagt net.ipv4.ip_unprivileged_port_start <= 443 (nu: $poortgrens)." >&2
-        echo "      De router bindt :443 in de netns van deze shell. Zet hem met" >&2
-        echo "      \`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0\`, of start in bridge." >&2
-        exit 1
-    fi
+    modus_poortgrens
 fi
 
 modus_render_controleren "${C[@]}"

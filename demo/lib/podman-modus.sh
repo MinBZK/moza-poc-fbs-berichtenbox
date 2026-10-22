@@ -21,6 +21,8 @@
 # Bash 3.2-compatibel (macOS): geen `mapfile`, geen associatieve arrays.
 
 MODUS_PROBE_IMAGE="${MODUS_PROBE_IMAGE:-docker.io/library/alpine:3.20}"
+# Te vervangen voor de tests; daarbuiten is er maar één bron.
+MODUS_POORTGRENS_BESTAND="${MODUS_POORTGRENS_BESTAND:-/proc/sys/net/ipv4/ip_unprivileged_port_start}"
 
 # modus_gereedschap <commando…>: elk commando moet op PATH staan. Zet ook TIMEOUT_BIN: macOS levert
 # geen `timeout`, met coreutils heet hij `gtimeout`. Zonder die check faalt elke probe pas na de
@@ -130,6 +132,47 @@ modus_compose_kiezen() {
     fi
 }
 
+# modus_engine_bereikbaar: stopt als de engine waarop compose landt niet antwoordt. Anders leest
+# elke volgende controle de stilte als een uitkomst: geen containers van het project, geen images.
+# De docker-CLI als die er is, want die spreekt net als compose DOCKER_HOST aan; `podman` leest
+# die variabele niet.
+modus_engine_bereikbaar() {
+    local log engine=podman
+
+    command -v docker >/dev/null 2>&1 && engine=docker
+    log="$(mktemp -t engine.XXXXXX)"
+
+    if ! "$engine" info >"$log" 2>&1; then
+        echo "FOUT: de engine antwoordt niet${DOCKER_HOST:+ ($DOCKER_HOST)}: $(tail -1 "$log")" >&2
+        echo "      Start Docker of podman (macOS: \`podman machine start\`) en probeer het opnieuw." >&2
+        rm -f "$log"
+        exit 1
+    fi
+
+    rm -f "$log"
+}
+
+# modus_poortgrens: stopt als een hostnet-router hier niet op :443 mag binden. In bridge
+# zet de basis daarvoor een sysctl per container; in een gedeelde netns mag een container dat niet,
+# en geldt de waarde van de aanroeper. Anders sterft alleen de router, op `bind 127.0.0.1:443:
+# Permission denied`.
+modus_poortgrens() {
+    local grens
+
+    grens="$(cat "$MODUS_POORTGRENS_BESTAND" 2>/dev/null || true)"
+
+    case "$grens" in
+        ''|*[!0-9]*) grens=onbekend ;;
+    esac
+
+    if [ "$grens" = "onbekend" ] || [ "$grens" -gt 443 ]; then
+        echo "FOUT: hostnet vraagt net.ipv4.ip_unprivileged_port_start <= 443 (nu: $grens)." >&2
+        echo "      De router bindt :443 in de netns van deze shell. Zet hem met" >&2
+        echo "      \`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0\`, of start in bridge." >&2
+        exit 1
+    fi
+}
+
 # modus_probe_image: haalt het probe-image op als het er nog niet is. Een registry-fout (rate limit,
 # air-gapped, proxy) zegt niets over bridge of healthchecks, maar zou anders als 'werkt niet' tellen
 # en de gebruiker naar de verkeerde modus sturen. Daarom stopt dit met die oorzaak.
@@ -201,37 +244,21 @@ modus_kan_bridge() {
     return $ok
 }
 
-# modus_healthchecks_lopen [container]: 0 als podman healthchecks vanzelf uitvoert. Met een
-# container (gestart met `--health-cmd`) wordt die bekeken; zonder start dit een eigen probe.
+# modus_healthchecks_lopen <container>: 0 als podman healthchecks vanzelf uitvoert; de container is
+# gestart met `--health-cmd`.
 #
 # Podman plant ze via systemd-timers. Zonder systemd (podman in een container) draait er nooit één:
 # elke container blijft op `starting`, en een `up -d` met `depends_on: service_healthy` wacht dan
 # zonder einde. De bridge kan daar wél werken, dus de netwerkprobe alleen ziet dit niet. De
 # hostnet-overlays halen de healthchecks juist weg, en zijn daar dan de werkbare modus.
 modus_healthchecks_lopen() {
-    local naam="${1:-}" eigen=0 status=""
-
-    if [ -z "$naam" ]; then
-        naam="fbs-hcprobe-$$-${RANDOM}"
-        eigen=1
-        modus_probe_image
-
-        if ! podman run -d --rm --name "$naam" --health-cmd true --health-interval 1s \
-               "$MODUS_PROBE_IMAGE" sleep 30 >/dev/null 2>&1; then
-            echo "  healthcheck-probe start niet; healthchecks niet vast te stellen"
-            return 1
-        fi
-    fi
+    local status=""
 
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-        status="$(podman inspect "$naam" --format '{{.State.Health.Status}}' 2>/dev/null || true)"
+        status="$(podman inspect "$1" --format '{{.State.Health.Status}}' 2>/dev/null || true)"
         [ "$status" = "healthy" ] && break
         sleep 1
     done
-
-    if [ "$eigen" -eq 1 ]; then
-        podman rm -f -t 0 "$naam" >/dev/null 2>&1 || true
-    fi
 
     if [ "$status" != "healthy" ]; then
         echo "  podman voert healthchecks niet vanzelf uit (status '${status:-onbekend}' na 10s; geen systemd?)"
@@ -263,12 +290,13 @@ modus_bepalen() {
         modus_geldig "$MODUS" "$@"
         modus_past_op_engine
 
-        # Een bridge zonder lopende healthchecks start wel, maar `up` wacht daarna eindeloos op de
+        # Dezelfde probe als bij de automatische keuze: zonder bridge-netwerk of naamresolutie valt
+        # de stack pas ná het starten om, en zonder lopende healthchecks wacht `up` eindeloos op de
         # eerste `service_healthy`. Dat hier melden en niet pas als niets meer beweegt.
         if [ "$MODUS" = "bridge" ] && [ "$PODMAN_RUNTIME" -eq 1 ] && [ "$(uname -s)" = "Linux" ] \
-               && ! modus_healthchecks_lopen; then
-            echo "FOUT: MODUS=bridge, maar zonder lopende healthchecks blijft de start hangen op de" >&2
-            echo "      eerste afhankelijkheid. Laat MODUS weg, of kies MODUS=hostnet." >&2
+               && ! modus_kan_bridge; then
+            echo "FOUT: MODUS=bridge kan hier niet werken (zie de oorzaak hierboven)." >&2
+            echo "      Laat MODUS weg, of kies MODUS=hostnet." >&2
             exit 2
         fi
 
@@ -356,11 +384,48 @@ modus_render_controleren() {
     fi
 }
 
-# modus_poorten_vrij <compose-commando…>: stopt als een host-poort die dit project publiceert al
-# bezet is. Zonder deze controle start compose de helft van de containers en faalt dan op de eerste
-# botsende poort; de opstellingen publiceren deels dezelfde poorten (8081, 8090, 8091), dus naast
-# elkaar draaien is precies het geval. Alleen bij een eerste start: draaien er al containers van
-# dit project, dan zijn bezette poorten vermoedelijk van onszelf.
+# modus_poorten: leest een render van stdin en print de host-poorten die de stack bezet.
+#
+# In docker en bridge zijn dat de gepubliceerde poorten. In hostnet publiceert niets (zie
+# modus_render_controleren): daar binden de services rechtstreeks in de netns van de aanroeper, en
+# staan hun poorten in hun eigen configuratie. In een gedeelde netns wijst elk `127.0.0.1:<poort>`
+# naar een listener van de stack zelf — er is geen ander netwerk om naar te verwijzen — behalve een
+# CORS-origin, die een browser-adres noemt. Daarnaast `*PORT`-variabelen (PGPORT, QUARKUS_HTTP_PORT,
+# en POSTGRES_PORT, de enige plek waar de 5432 van een peer-postgres staat) en `--port <poort>`.
+modus_poorten() {
+    if [ "$MODUS" != "hostnet" ]; then
+        sed -nE 's/^[[:space:]]*published: *"?([0-9]+)"?.*/\1/p'
+        return 0
+    fi
+
+    awk '
+        /ORIGIN/ { next }
+
+        {
+            regel = $0
+
+            while (match(regel, /127\.0\.0\.1:[0-9]+/)) {
+                print substr(regel, RSTART + 10, RLENGTH - 10)
+                regel = substr(regel, RSTART + RLENGTH)
+            }
+        }
+
+        poort_volgt {
+            if (match($0, /[0-9]+/)) print substr($0, RSTART, RLENGTH)
+            poort_volgt = 0
+        }
+
+        /^[[:space:]]*-[[:space:]]+--port[[:space:]]*$/ { poort_volgt = 1 }
+        /^[[:space:]]*[A-Z_]*PORT:[[:space:]]*"?[0-9]+"?[[:space:]]*$/ { gsub(/[^0-9]/, "", $2); print $2 }
+    '
+}
+
+# modus_poorten_vrij <compose-commando…>: stopt als een host-poort die dit project bezet al in
+# gebruik is. Zonder deze controle start compose de helft van de containers en faalt dan op de
+# eerste botsende poort — in hostnet pas minuten later, en via een migratie die met de database van
+# de andere stack praat. De opstellingen gebruiken deels dezelfde poorten (8081, 8090, 8091, 5432),
+# dus naast elkaar draaien is precies het geval. Alleen bij een eerste start: draaien er al
+# containers van dit project, dan zijn bezette poorten vermoedelijk van onszelf.
 modus_poorten_vrij() {
     local poort bezet=""
 
@@ -368,9 +433,8 @@ modus_poorten_vrij() {
         return 0
     fi
 
-    for poort in $("$@" config 2>/dev/null </dev/null \
-                   | sed -nE 's/^[[:space:]]*published: *"?([0-9]+)"?.*/\1/p' | sort -un); do
-        # Een poort die een verbinding aanneemt is bezet; een gesloten poort weigert meteen.
+    for poort in $("$@" config 2>/dev/null </dev/null | modus_poorten | sort -un); do
+        # Een poort die een connection aanneemt is bezet; een gesloten poort weigert meteen.
         if (exec 3<>"/dev/tcp/127.0.0.1/$poort") 2>/dev/null; then
             bezet="$bezet $poort"
         fi
@@ -378,7 +442,7 @@ modus_poorten_vrij() {
 
     if [ -n "$bezet" ]; then
         echo "FOUT: deze poorten zijn al in gebruik:$bezet" >&2
-        echo "      Draait er een andere opstelling (de demo-stack of een FSC-peer)? Die publiceren" >&2
+        echo "      Draait er een andere opstelling (de demo-stack of een FSC-peer)? Die gebruiken" >&2
         echo "      deels dezelfde poorten; breek die eerst af met haar eigen \`down\`." >&2
         exit 1
     fi

@@ -132,12 +132,12 @@ werkwijze als `demo/up.sh` voor de demo-stack, op dezelfde bibliotheek
 | `hostnet` | podman zonder bruikbaar bridge-netwerk, bv. podman in een container | + `compose.podman.yaml` + `compose.podman-hostnet.yaml` |
 
 Zonder podman op PATH (en zonder `DOCKER_HOST` naar een podman-socket) wordt het `docker`. Onder
-podman zet het script eerst een proef-bridge met naamresolutie op en kijkt of podman healthchecks
+podman zet het script eerst een probe-bridge met naamresolutie op en kijkt of podman healthchecks
 vanzelf uitvoert (zonder systemd gebeurt dat niet, en wacht de start eindeloos op postgres). Pas als
-een van beide niet lukt kiest het `hostnet` — buiten Linux nooit. `MODUS=<modus>` forceert. Kan de gekozen modus hier niet
-werken (`docker` op een podman-socket, `hostnet` buiten Linux of met
-`ip_unprivileged_port_start` boven 443, een compose die `!reset` niet kent), dan stopt het met de
-oorzaak in plaats van terug te vallen.
+een van beide niet lukt kiest het `hostnet` — buiten Linux nooit. `MODUS=<modus>` forceert. Kan de
+gekozen modus hier niet werken (`docker` op een podman-socket, `bridge` waar de probe-bridge faalt,
+`hostnet` buiten Linux of met `ip_unprivileged_port_start` boven 443, een compose die `!reset` niet
+kent), dan stopt het met de oorzaak in plaats van terug te vallen.
 
 ```bash
 ./deploy/local/up.sh                         # starten; wacht tot smoke-services.sh groen is
@@ -160,7 +160,7 @@ Draait podman zélf in een container, dan kan netavark geen bridge opzetten (`fa
 autoconf sysctl: Permission denied` — `/proc/sys` is daar niet schrijfbaar) en ontbreekt
 `aardvark-dns`, waardoor geen enkele containernaam resolvet. De overlay
 `compose.podman-hostnet.yaml` laat alle containers dan de netns van de aanroeper delen. `up.sh`
-kiest hem zelf zodra de proef-bridge faalt; forceren kan ook:
+kiest hem zelf zodra de probe-bridge faalt; forceren kan ook:
 
 ```bash
 MODUS=hostnet ./deploy/local/up.sh
@@ -168,9 +168,9 @@ MODUS=hostnet ./deploy/local/up.sh
 ```
 
 **Start, herstart en breek deze modus af via `up.sh`** (`up.sh compose restart …`, `up.sh compose
-up -d --force-recreate …`). Een compose-commando met één `-f` rendert de services opnieuw uit
-alleen de basis en draait je stilletjes terug naar bridge; het script geeft steeds de drie
-bestanden mee. De smokes en `publish-service.sh` zijn wél veilig met één
+up -d --force-recreate …`). Een compose-commando met één `-f` rendert de services opnieuw in
+de docker-modus, zonder keep-id en SELinux-labels, en onder podman faalt elke container dan op
+`/pki`; het script geeft steeds de drie bestanden mee. De smokes en `publish-service.sh` zijn wél veilig met één
 `-f`: die lezen alleen (`exec`, `logs`, `ps`, `config`) en hercreëren niets — `ps` en `exec`
 vinden de draaiende containers op projectnaam plus servicelabel, ongeacht met hoeveel `-f` ze
 gestart zijn.
@@ -218,7 +218,7 @@ Vijf beperkingen:
   `sysctl net.ipv4.ip_unprivileged_port_start`. Staat hij op 1024, dan faalt de router op
   `bind 127.0.0.1:443: Permission denied`; `up.sh` controleert dit vóór de start en stopt met
   die oorzaak. De namen resolven dan nog wél — die komen hier uit
-  `extra_hosts`, niet van de router — maar elke `:443`-verbinding krijgt ECONNREFUSED en alle
+  `extra_hosts`, niet van de router — maar elke `:443`-connection krijgt ECONNREFUSED en alle
   smokes vallen om zonder dat de managerlogs een fout tonen. Zet je hem host-breed op 0, dan
   mag voortaan elke onprivilegieerde gebruiker op die machine onder poort 1024 binden — draai dat
   na afloop terug.
@@ -263,9 +263,9 @@ Vijf beperkingen:
   éérst `./deploy/local/up.sh ps -a | grep router`: de `*.fsc-test.local`-namen zijn aliassen van de
   ROUTER, dus zonder router vertrekt geen enkele announce en zie je in de managerlogs geen fout.
 - **Podman i.p.v. Docker** → de harness draait op beide, mits:
-  - Gebruik `docker compose` of `podman compose` (zónder streepje). `podman-compose` (mét
-    streepje) is een losse herimplementatie die `depends_on: condition:` en netwerk-`aliases:`
-    niet volledig dekt — de managers starten dan vóór hun migraties en de peers vinden elkaar
+  - Gebruik `docker compose` (v2), ook tegen een podman-socket; `up.sh` weigert elke andere
+    compose. `podman-compose` (mét streepje) is een losse herimplementatie die `depends_on:
+    condition:` en netwerk-`aliases:` niet volledig dekt — de managers starten dan vóór hun migraties en de peers vinden elkaar
     niet op hun `*.fsc-test.local`-naam.
   - De `router` heeft `sysctls: net.ipv4.ip_unprivileged_port_start=0` nodig: het haproxy-image
     draait als non-root en podman zet die sysctl, anders dan Docker Desktop, niet op 0 → `bind

@@ -59,8 +59,9 @@ export DEMO_MAGAZIJNEN=98
 python3 demo/genereer-magazijnen.py
 ```
 
-Wil je n wijzigen: pas `DEMO_MAGAZIJNEN` aan, draai het script opnieuw, en herstart de uitvraag +
-de simulator (§8). Onder de 98 weigert het script: de grootste ondernemer heeft honderd aangesloten
+Wil je n wijzigen: start opnieuw met `DEMO_MAGAZIJNEN=<n> demo/up.sh` en hercreëer de uitvraag en
+de simulator (§8). Draai het script dan niet los: het schrijft containernamen in het register, en
+alleen `demo/up.sh` (via `demo/podman-prepare.sh <modus>`) zet die in `hostnet` om naar 127.0.0.1. Onder de 98 weigert het script: de grootste ondernemer heeft honderd aangesloten
 organisaties, waarvan twee echt, en daar valt met minder niets van te bouwen.
 
 ---
@@ -111,9 +112,8 @@ sessiecache wordt vóór elke ronde geleegd, anders meet de tweede ronde het cac
 van de eerste meting staan in `docs/plans/2026-08-21-magazijn-simulator-design.md` onder
 "Meting (stap 6)"; die zijn met een volgende meting te vergelijken.
 
-Openen na start:
-- **Bedieningspaneel:** <http://localhost:8095/>
-- **Berichtenbox (ondernemer):** <http://localhost:8095/berichtenbox.html>
+Openen na start: <http://127.0.0.1:8097/bediening/> — de berichtenbox met het bedieningspaneel
+ernaast (§5b). Het kale paneel op `:8095` is een debugadres.
 
 Afsluiten: `demo/up.sh down` (voeg `-v` toe om de Postgres-volumes te wissen).
 
@@ -476,7 +476,7 @@ van klonen. Op een preview raakt legen alleen die preview.
 | Wat je wijzigde | Wat nodig is |
 |---|---|
 | Kotlin/resources in een service | jib-rebuild van dat image (§2, `-pl services/<naam>`) → `demo/up.sh compose up -d <service>` |
-| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | Regenereer (§3) → `demo/up.sh compose up -d --force-recreate magazijn-simulator berichtenuitvraag` |
+| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | `DEMO_MAGAZIJNEN=<n> demo/up.sh` (genereert voor de vastgelegde modus, §3) → `demo/up.sh compose up -d --force-recreate magazijn-simulator berichtenuitvraag` |
 | `compose.yaml` (env/mount) | `demo/up.sh compose up -d --force-recreate <service>` (geen rebuild) |
 | `toxiproxy/proxies.json` | `demo/up.sh compose up -d --force-recreate toxiproxy` |
 | WireMock-mappings onder `wiremock/magazijn-a/` of `-b/` | `demo/up.sh compose restart magazijn-a` (of `-b`) — raakt de demo niet; die containers worden door niets bevraagd |

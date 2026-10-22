@@ -813,7 +813,7 @@ if [ -z "$ci_runs" ]; then
 else
   ci_ontbreekt=""
 
-  for nodig in "find .github/scripts -name 'test-*.sh'" "shellcheck"; do
+  for nodig in "find .github/scripts demo/lib -name 'test-*.sh'" "shellcheck"; do
     grep -qF "$nodig" <<<"$ci_runs" || ci_ontbreekt="$ci_ontbreekt '$nodig'"
   done
 
