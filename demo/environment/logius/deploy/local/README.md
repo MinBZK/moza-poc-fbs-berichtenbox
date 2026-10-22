@@ -27,9 +27,9 @@ OIDC-login-voorziening — dat blijft buiten scope voor deze peer-harness. Bouwt
 - Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
   `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
   faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
-- **jq** (host-side) — `consume-service.sh` leest het grant-hash uit `content.grants[]`
-  daarmee; zonder jq faalt het script expliciet in plaats van het verkeerde (contract-)hash
-  af te geven.
+- **jq** (host-side) — `consume-service.sh` voegt de pagina's van de contractenlijst ermee samen
+  en leest er het grant-hash uit `content.grants[]` mee; zonder jq faalt het script meteen in
+  plaats van een contract te missen of het verkeerde (contract-)hash af te geven.
 
 ## Draaiboek
 

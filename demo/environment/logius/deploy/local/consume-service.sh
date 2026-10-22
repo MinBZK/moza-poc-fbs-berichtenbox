@@ -61,11 +61,22 @@ STATE_FILE="${STATE_DIR}/${CONSUMER_OIN}-${PROVIDER_OIN}-${SERVICE_NAME}.hash"
 
 fsc_errlog_init
 fsc_have_jq
+[ "$HAVE_JQ" -eq 1 ] || {
+  echo "FAIL: jq is vereist; de contractenlijst wordt over alle pagina's heen met jq samengevoegd." >&2
+  exit 1
+}
 
+# De lijst is cursor-gepagineerd (default honderd rijen) en groeit met elk contract dat de manager
+# ooit zag. Stond het eigen contract alleen op een latere pagina, dan diende elke run een nieuw in.
+# fsc_contracten_paginas leest door tot de cursor leeg is.
+#
+# Een lijst die niet te lezen is, is een fout en geen lege lijst: als lege lijst gelezen zou het
+# script een tweede contract indienen naast het bestaande.
 manager_contracts() {
-  local out; out=$(fsc_tb "$MANAGER/v1/contracts") || {
-    echo "  WARN: GET /v1/contracts faalde: $(fsc_last_error)" >&2; : >"$ERRLOG"; }
-  printf '%s' "$out"
+  fsc_contracten_paginas fsc_tb "$MANAGER/v1/contracts?limit=1000" || {
+    echo "FAIL: kon de contractenlijst niet ophalen: $(fsc_last_error)" >&2
+    return 1
+  }
 }
 
 # --- 0. Outway-public-key-thumbprint (host-side openssl) --------------------------------------
@@ -84,7 +95,7 @@ echo "consume: outway public-key-thumbprint = $THUMB"
 if [ -f "$STATE_FILE" ]; then
   SAVED=$(cat "$STATE_FILE" 2>/dev/null || true)
   if [ -n "$SAVED" ]; then
-    LIST=$(manager_contracts)
+    LIST=$(manager_contracts) || exit 1
     case "$(fsc_accept_state "$LIST" "$SAVED" "$PROVIDER_OIN")" in
       yes)
         CSTATE=$(fsc_contract_state "$LIST" "$SAVED")
@@ -153,7 +164,8 @@ echo "  consumer-handtekening gezet (2xx); content_hash=$HASH"
 echo "consume: wachten tot het contract zichtbaar is..."
 elapsed=0; visible=0
 while [ "$elapsed" -lt "$SYNC_TIMEOUT" ]; do
-  if printf '%s' "$(manager_contracts)" | grep -qF "$HASH"; then visible=1; break; fi
+  LIST=$(manager_contracts) || exit 1
+  if printf '%s' "$LIST" | grep -qF "$HASH"; then visible=1; break; fi
   sleep "$SYNC_INTERVAL"; elapsed=$((elapsed + SYNC_INTERVAL))
   echo "  ...nog niet zichtbaar (${elapsed}s)"
 done
@@ -166,7 +178,7 @@ fsc_tb -X PUT "$MANAGER/v1/contracts/$HASH/accept" -H 'Content-Type: application
 echo "  provider-handtekening gezet (2xx)."
 
 # --- 4. Onafhankelijk verifiëren ----------------------------------------------------------------
-FINAL=$(manager_contracts)
+FINAL=$(manager_contracts) || exit 1
 case "$(fsc_accept_state "$FINAL" "$HASH" "$PROVIDER_OIN")" in
   yes) echo "OK: contract $HASH draagt de accept-handtekening (geverifieerd)." ;;
   unknown)
