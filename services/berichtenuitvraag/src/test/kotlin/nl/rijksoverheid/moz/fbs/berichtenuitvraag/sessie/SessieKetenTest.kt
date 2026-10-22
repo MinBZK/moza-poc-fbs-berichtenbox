@@ -13,8 +13,10 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Het portaal als klok, door de hele keten: HTTP, filter, facade en een echte Redis. Inactiviteit
- * 2 s en een maximale duur van een minuut uit [KorteSessieKetenProfile], zodat verlopen binnen een
- * test te zien is en het plafond alleen meetelt als de start er zelf een meegaf.
+ * 4 s en een maximale duur van een minuut uit [KorteSessieKetenProfile], zodat verlopen binnen een
+ * test te zien is en het plafond alleen meetelt als de start er zelf een meegaf. Elke controle dat
+ * een sessie nog loopt, heeft minstens anderhalve seconde speling; een controle dat ze verlopen is,
+ * wacht ruim voorbij het verloop.
  */
 @QuarkusTest
 @TestProfile(KorteSessieKetenProfile::class)
@@ -27,11 +29,11 @@ class SessieKetenTest {
     fun `verlengen houdt de sessie langer dan de inactiviteit in leven`() {
         val sessie = start()
 
-        Thread.sleep(1_200)
+        Thread.sleep(2_000)
         verleng(sessie).then().statusCode(200)
-        Thread.sleep(1_200)
+        Thread.sleep(2_500)
 
-        // Zonder verlenging was de sessie na 2 s verlopen.
+        // Zonder verlenging was de sessie na 4 s verlopen.
         lees(sessie).then().statusCode(200)
     }
 
@@ -39,9 +41,9 @@ class SessieKetenTest {
     fun `opvragen verlengt niet, dus een alleen opgevraagde sessie verloopt`() {
         val sessie = start()
 
-        Thread.sleep(1_200)
+        Thread.sleep(2_000)
         lees(sessie).then().statusCode(200)
-        Thread.sleep(1_000)
+        Thread.sleep(2_300)
 
         lees(sessie).then().statusCode(401)
         verleng(sessie).then().statusCode(401)
@@ -49,7 +51,7 @@ class SessieKetenTest {
 
     @Test
     fun `een plafond van het portaal laat de sessie dan eindigen, en verlengen gaat er niet voorbij`() {
-        val plafond = Instant.now().plusMillis(1_500)
+        val plafond = Instant.now().plusMillis(2_500)
         val sessie = start("""{"uiterlijkGeldigTot":"$plafond"}""")
 
         Thread.sleep(700)
@@ -59,7 +61,7 @@ class SessieKetenTest {
         assertEquals(plafond.toEpochMilli(), uiterlijk.toEpochMilli())
         assertTrue(!Instant.parse(verlengd.path<String>("geldigTot")).isAfter(uiterlijk), "verlengd voorbij het plafond")
 
-        Thread.sleep(1_000)
+        Thread.sleep(2_000)
 
         lees(sessie).then().statusCode(401)
     }
@@ -100,7 +102,7 @@ class KorteSessieKetenProfile : QuarkusTestProfile {
     override fun getConfigOverrides(): Map<String, String> = mapOf(
         "quarkus.redis.devservices.enabled" to "true",
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
-        "berichtensessiecache.sessie.inactiviteit" to "PT2S",
+        "berichtensessiecache.sessie.inactiviteit" to "PT4S",
         "berichtensessiecache.sessie.max-duur" to "PT1M",
     )
 }

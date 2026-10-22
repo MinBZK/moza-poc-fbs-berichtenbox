@@ -46,12 +46,16 @@ abstract class SessieVegerTestBasis {
     protected val aanleidingen = CopyOnWriteArrayList<String>()
     protected val uitkomsten = CopyOnWriteArrayList<String>()
 
+    /** Ontvangers (de waarde) wier logregel het logboek weigert, zoals bij een onbereikbaar logboek. */
+    protected val geweigerd = CopyOnWriteArrayList<String>()
+
     @BeforeEach
     fun opzet() {
         sessiecache.reset()
         logregels.clear()
         aanleidingen.clear()
         uitkomsten.clear()
+        geweigerd.clear()
 
         val handler = mockk<ProcessingHandler>(relaxed = true)
         val span = mockk<Span>(relaxed = true)
@@ -67,6 +71,9 @@ abstract class SessieVegerTestBasis {
         }
         every { handler.addLogboekContextToSpan(any(), any(), any()) } answers {
             val context = secondArg<LogboekContext>()
+
+            if (context.dataSubjectId in geweigerd) throw IllegalStateException("logboek onbereikbaar")
+
             logregels += VeegRegel(context.processingActivityId, context.dataSubjectType, context.dataSubjectId, context.status)
 
             emptyList()
@@ -75,9 +82,9 @@ abstract class SessieVegerTestBasis {
         QuarkusMock.installMockForType(handler, ProcessingHandler::class.java)
     }
 
-    protected fun vangLog(blok: () -> Unit): List<String> {
+    protected fun vangLog(vararg bronnen: Class<*> = arrayOf(SessieVeger::class.java), blok: () -> Unit): List<String> {
         val regels = CopyOnWriteArrayList<String>()
-        val logger = Logger.getLogger(SessieVeger::class.java.name)
+        val loggers = bronnen.map { Logger.getLogger(it.name) }
         val vanger = object : Handler() {
             override fun publish(record: LogRecord) {
                 regels += String.format(record.message, *(record.parameters ?: emptyArray()))
@@ -88,12 +95,12 @@ abstract class SessieVegerTestBasis {
             override fun close() = Unit
         }
 
-        logger.addHandler(vanger)
+        loggers.forEach { it.addHandler(vanger) }
 
         try {
             blok()
         } finally {
-            logger.removeHandler(vanger)
+            loggers.forEach { it.removeHandler(vanger) }
         }
 
         return regels
@@ -257,6 +264,26 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
         assertEquals(2, aanroepen.get())
         assertEquals(SessieVeger.BATCH, logregels.size)
+    }
+
+    @Test
+    fun `een logregel die het logboek weigert, houdt de ontvanger erachter niet tegen en geeft het alert`() {
+        // Het wissen is dan al gebeurd; een fout uit het logboek hoort de ronde niet af te breken.
+        sessiecache.veegRondes.add(
+            listOf(
+                Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST),
+                Opruiming.VanOntvanger(Bsn("999993653"), OpruimUitkomst.GEWIST),
+            ),
+        )
+        geweigerd += "999990019"
+
+        val regels = vangLog(SessieVeger::class.java, SessieLogboek::class.java) { veger.veeg() }
+
+        assertEquals(listOf("999993653"), logregels.map { it.waarde })
+        val alert = regels.single { it.contains(SessieLogboek.ALERT_TOKEN) }
+        assertTrue(alert.contains("aanleiding=verlopen"), alert)
+        assertTrue(regels.none { it.contains("999990019") }, "de BSN hoort niet in de applicatielog: $regels")
+        assertTrue(regels.none { it.contains("veegrondes op rij mislukt") || it.contains("opruimen mislukt") }, "de ronde telt als geslaagd: $regels")
     }
 
     @ParameterizedTest(name = "{0}")
