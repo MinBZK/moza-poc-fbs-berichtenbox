@@ -77,7 +77,9 @@ onderwerp_a="Rookproef demo-stack A $stempel"
 onderwerp_b="Rookproef demo-stack B $stempel"
 
 bijlage_tekst="Rookproef-bijlage $stempel"
-bijlage_a="[{\"naam\": \"rookproef.txt\", \"mimeType\": \"text/plain\", \"inhoud\": \"$(printf '%s' "$bijlage_tekst" | base64 | tr -d '\n')\"}]"
+# Het magazijn neemt alleen application/pdf aan en toetst het mimeType-veld, niet de inhoud;
+# platte tekst als inhoud houdt stap 6 controleerbaar met een grep.
+bijlage_a="[{\"naam\": \"rookproef.pdf\", \"mimeType\": \"application/pdf\", \"inhoud\": \"$(printf '%s' "$bijlage_tekst" | base64 | tr -d '\n')\"}]"
 
 echo "2/6 bericht aanleveren bij magazijn A, met een bijlage"
 lever_aan A "$MAGAZIJN_A" "$AFZENDER_OIN_A" "$onderwerp_a" "$bijlage_a"
