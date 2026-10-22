@@ -13,6 +13,13 @@
 # namen opnieuw op en meet elke verwijdering na. Alleen ongetagde ghcr-versies ruimt deze workflow
 # zelf op, want die horen bij geen PR; preview-resten.sh beschrijft de voorzorg.
 #
+# NOOIT NAAST EEN UITROL. Vóór elke opruiming kijkt de workflow of er een run van deploy.yml of
+# cleanup-preview.yml loopt; zo ja, dan schuift de rest door naar de volgende run. Een delete die
+# een lopende uitrol doorkruist, laat die uitrol op `superseded` stranden.
+#
+# Per run hoogstens MAX_PER_RUN nummers, roterend gekozen zodat een nummer dat blijft mislukken de
+# rest niet blokkeert. Wat niet aan de beurt kwam, staat in de melding: het staat er immers nog.
+#
 # MELDEN GAAT VIA ÉÉN ISSUE in deze repo ("Achtergebleven preview-resten"): een rode job op een
 # geplande run ziet niemand, een issue komt in de notificaties van wie de repo volgt. Het issue gaat
 # open zodra er iets blijft staan, wordt alleen bij een gewijzigde stand bijgewerkt, en sluit zodra
@@ -52,6 +59,9 @@ jobs:
   zad:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Alleen de checkout; de projectsleutels komen uit secrets, niet uit het token.
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -113,6 +123,7 @@ jobs:
       pull-requests: read
     outputs:
       opruimen: ${{ steps.inventaris.outputs.opruimen }}
+      vorige: ${{ steps.inventaris.outputs.vorige }}
       bevindingen: ${{ steps.inventaris.outputs.bevindingen }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -152,11 +163,23 @@ jobs:
             printf 'onbepaald\tclassificatie\tniet vast te stellen welke resten bij een gesloten PR horen\n' >>"$bevindingen"
           fi
 
-          te_doen=$(awk -F'\t' '$2 == "opruimen" { print $1 }' "$bevindingen" | head -n "$MAX_PER_RUN" | tr '\n' ' ' | sed 's/ *$//')
+          te_doen=$(RONDE="$GITHUB_RUN_NUMBER" .github/scripts/preview-resten.sh kies "$bevindingen" | tr '\n' ' ' | sed 's/ *$//')
           totaal=$(awk -F'\t' '$2 == "opruimen"' "$bevindingen" | grep -c . || true)
+
+          # Wat de vorige run als opgeruimd meldde. Komt zo'n nummer nu weer als rest terug, dan meldde
+          # cleanup-preview.yml groen zonder alles weg te halen. Geen vorige run of geen artefact:
+          # dan valt er niets te vergelijken, en dat is geen fout.
+          vorige=""
+          vorige_run=$(gh run list --repo "$REPO" --workflow preview-resten.yml --status completed --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty') || vorige_run=""
+
+          if [ -n "$vorige_run" ] && gh run download "$vorige_run" --repo "$REPO" -n opgeruimd -D "$RUNNER_TEMP/vorige" 2>/dev/null; then
+            vorige=$(tr '\n' ' ' <"$RUNNER_TEMP/vorige/opgeruimd.txt" | sed 's/ *$//')
+          fi
 
           {
             echo "opruimen=$te_doen"
+            echo "vorige=$vorige"
             echo "bevindingen<<EINDE_BEVINDINGEN"
             cat "$bevindingen"
             echo "EINDE_BEVINDINGEN"
@@ -220,6 +243,18 @@ jobs:
             awk -F'\t' '{ print "| pr-" $1 " | " $2 " | " $3 " |" }' "$uitkomsten"
           } >> "$GITHUB_STEP_SUMMARY"
 
+          # Voor de volgende run: komt een van deze nummers dan nog als rest terug, dan meldde
+          # cleanup-preview.yml groen zonder alles weg te halen.
+          awk -F'\t' '$2 == "success" { print $1 }' "$uitkomsten" >"$RUNNER_TEMP/opgeruimd.txt"
+
+      - name: Bewaar wat als opgeruimd gemeld is
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: opgeruimd
+          path: ${{ runner.temp }}/opgeruimd.txt
+          retention-days: 14
+          if-no-files-found: error
+
   # Ongetagde versies horen bij geen PR, dus de inventaris per nummer ziet ze niet.
   ongetagd:
     runs-on: ubuntu-latest
@@ -238,6 +273,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERWIJDER: ${{ github.event_name == 'schedule' || inputs.opruimen }}
+          # Plafond over alle packages samen: binnen de API-limiet van GITHUB_TOKEN, ook bij een
+          # achterstand van honderden versies. De rest volgt de volgende runs.
+          ONGETAGD_PER_RUN: "100"
         run: |
           set -euo pipefail
 
@@ -245,13 +283,20 @@ jobs:
           export ORG
           uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
           : >"$uitkomsten"
+          budget=$ONGETAGD_PER_RUN
 
           pakketten=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
 
           for pkg in $pakketten; do
-            if ! .github/scripts/preview-resten.sh ongetagd "$pkg" >>"$uitkomsten"; then
-              printf '%s\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen\n' "$pkg" >>"$uitkomsten"
+            if ! uit=$(VERWIJDER_MAX="$budget" .github/scripts/preview-resten.sh ongetagd "$pkg"); then
+              uit=$(printf '%s\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen' "$pkg")
             fi
+
+            printf '%s\n' "$uit" >>"$uitkomsten"
+
+            # Elke poging telt mee, ook een geweigerde: die kost evengoed een API-aanroep.
+            gebruikt=$(awk -F'\t' '$2 == "verwijderd" || $2 == "mislukt" { s += $3 } END { print s + 0 }' <<<"$uit")
+            budget=$((budget > gebruikt ? budget - gebruikt : 0))
           done
 
           {
@@ -290,6 +335,7 @@ jobs:
         if: ${{ cancelled() }}
         run: echo "CANCELLED=true" >> "$GITHUB_ENV"
       - name: Werk het issue bij
+        id: melden
         if: ${{ always() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -309,3 +355,13 @@ jobs:
           fi
 
           .github/scripts/preview-resten.sh issue "$bevindingen"
+
+      # Viel de melding zelf om, dan eindigt de run rood op een plek waar niemand kijkt. Een minimaal
+      # issue met de run-URL houdt het signaal in stand; de job blijft daarna rood.
+      - name: Noodmelding
+        if: ${{ always() && steps.melden.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: .github/scripts/preview-resten.sh noodmelding

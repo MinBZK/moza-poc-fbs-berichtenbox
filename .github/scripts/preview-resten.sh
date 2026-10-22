@@ -22,11 +22,16 @@
 #                               (REPO, ORG, PAKKETTEN)
 #   classificeer <bestand>      `<n>\t<klasse>\t<bronnen>` voor de regels `<n>\t<bron>` in <bestand>
 #                               (REPO); klasse is `opruimen`, `geen-pr` of `vreemd-pakket`
+#   kies <bestand>              de nummers die deze run opruimt, roterend (MAX_PER_RUN, RONDE)
 #   opruimen <n>...             start cleanup-preview.yml per nummer, na elkaar, en wacht op de
-#                               uitkomst: `<n>\t<conclusie>\t<run-url>` (REPO, KENMERK)
+#                               uitkomst: `<n>\t<conclusie>\t<run-url of reden>` (REPO, KENMERK);
+#                               conclusie `uitgesteld` als er een uitrol of opruiming liep
 #   ongetagd <package>          ruimt ongetagde ghcr-versies op die nergens meer bij horen:
 #                               `<package>\t<uitkomst>\t<aantal>\t<toelichting>` (ORG, GH_TOKEN,
-#                               VERWIJDER=true om echt te verwijderen)
+#                               VERWIJDER=true om echt te verwijderen, VERWIJDER_MAX als plafond)
+#   bevindingen                 wat er na een run te melden is (NEEDS, CANCELLED, OPRUIMEN)
+#   issue <bevindingen>         houdt het meld-issue bij (REPO, RUN_URL)
+#   noodmelding                 minimaal issue als de melding zelf mislukte (REPO, RUN_URL)
 #
 # Exitcodes: 0 = gelukt, 2 = niet vast te stellen.
 
@@ -176,6 +181,69 @@ classificeer() {
   done
 }
 
+# Welke nummers deze run opruimt: hoogstens MAX_PER_RUN, uit de regels met klasse `opruimen`.
+#
+# Roterend en niet "de laagste tien": blijven de laagste nummers mislukken, dan zouden ze elke run
+# opnieuw de hele ruimte opeisen en kwamen de nummers erna nooit aan de beurt. Het startpunt
+# schuift per run (RONDE, het runnummer) telkens MAX_PER_RUN op, zodat elk nummer binnen
+# ⌈totaal / MAX_PER_RUN⌉ runs geprobeerd wordt — zonder dat er toestand tussen runs nodig is.
+kies() {
+  local bestand=${1:-} max=${MAX_PER_RUN:-} ronde=${RONDE:-}
+  [ -f "$bestand" ] || onbepaald "Gebruik: MAX_PER_RUN=… RONDE=… $0 kies <bevindingen>"
+
+  case "$max$ronde" in
+    '' | *[!0-9]*) onbepaald "MAX_PER_RUN en RONDE moeten getallen zijn." ;;
+  esac
+
+  [ "$max" -gt 0 ] && [ "$ronde" -gt 0 ] || onbepaald "MAX_PER_RUN en RONDE moeten groter dan 0 zijn."
+
+  local nummers totaal begin i
+  mapfile -t nummers < <(awk -F'\t' '$2 == "opruimen" { print $1 }' "$bestand" | sort -un)
+  totaal=${#nummers[@]}
+
+  if [ "$totaal" -le "$max" ]; then
+    [ "$totaal" -eq 0 ] || printf '%s\n' "${nummers[@]}"
+
+    return 0
+  fi
+
+  begin=$(((ronde - 1) * max % totaal))
+
+  for ((i = 0; i < max; i++)); do
+    echo "${nummers[(begin + i) % totaal]}"
+  done
+}
+
+# Loopt er een uitrol of een opruiming? Dan kan er een taak in Operations Manager staan, en die
+# vergrendelt het project. Een delete die daar tussenkomt, neemt de wachtstap van de uitrol over en
+# laat die als `superseded` eindigen (MinBZK/MijnOverheidZakelijk#1075). Niet vast te stellen geldt
+# als bezet: een uitgestelde opruiming komt de volgende run terug, een gestrande uitrol niet.
+bezet() {
+  local workflow aantal
+
+  for workflow in deploy.yml cleanup-preview.yml; do
+    aantal=$("$GH" run list --repo "$REPO" --workflow "$workflow" --limit 20 --json status \
+      | jq '[.[] | select(.status != "completed")] | length') || return 0
+
+    [ "$aantal" -eq 0 ] 2>/dev/null || return 0
+  done
+
+  return 1
+}
+
+# Regels `<n>\tuitgesteld\t<reden>` voor de nummers die deze run niet meer start.
+uitstellen() {
+  local reden=$1 n
+  shift
+
+  for n in "$@"; do
+    printf '%s\tuitgesteld\t%s\n' "$n" "$reden"
+  done
+}
+
+# Na zoveel opvragingen op rij die mislukken, geeft het wachten op een run het op.
+readonly MAX_MISSERS=30
+
 # Start cleanup-preview.yml per nummer en wacht op de conclusie. Na elkaar en niet parallel: elke
 # ZAD-delete laat Operations Manager naar de GitOps-repo committen en vergrendelt het project.
 #
@@ -185,10 +253,17 @@ classificeer() {
 opruimen() {
   [ -n "${REPO:-}" ] && [ -n "${KENMERK:-}" ] || onbepaald "REPO en KENMERK zijn verplicht."
 
-  local n kenmerk run status conclusie missers
+  local nummers=("$@") i n kenmerk run status conclusie missers
 
-  for n in "$@"; do
+  for ((i = 0; i < ${#nummers[@]}; i++)); do
+    n=${nummers[i]}
     kenmerk="$KENMERK-$n"
+
+    if bezet; then
+      uitstellen "er liep een uitrol of opruiming" "${nummers[@]:i}"
+
+      return 0
+    fi
 
     if ! "$GH" workflow run cleanup-preview.yml --repo "$REPO" -f pr="$n" -f aanvraag="$kenmerk" >&2; then
       printf '%s\tniet-gestart\t\n' "$n"
@@ -206,9 +281,13 @@ opruimen() {
       sleep "$WACHT"
     done
 
+    # Een gestarte run die we niet terugvinden, loopt misschien nog. Het volgende nummer starten zou
+    # twee ZAD-deletes naast elkaar zetten; de rest wacht dus op de volgende run.
     if [ -z "$run" ]; then
       printf '%s\tniet-gevonden\t\n' "$n"
-      continue
+      uitstellen "de vorige opruiming in deze run was niet terug te vinden" "${nummers[@]:i+1}"
+
+      return 0
     fi
 
     # Wachten tot de run klaar is. De ZAD-delete duurt minuten per project; de job-timeout van de
@@ -217,7 +296,7 @@ opruimen() {
     status=""
     missers=0
 
-    while [ "$missers" -lt 30 ]; do
+    while [ "$missers" -lt "$MAX_MISSERS" ]; do
       if status=$("$GH" run view "$run" --repo "$REPO" --json status,conclusion \
         | jq -r '"\(.status)\t\(.conclusion)"'); then
         missers=0
@@ -238,33 +317,57 @@ opruimen() {
   done
 }
 
+readonly MANIFEST_TYPEN='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+
 # Het mediatype van een manifest, via de registry-API.
 mediatype() {
   local pkg=$1 digest=$2 token=$3
 
   "$CURL" -sSf --max-time 30 --retry 3 -o /dev/null -w '%{content_type}' -I \
-    -H "Authorization: Bearer $token" \
-    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+    -H "Authorization: Bearer $token" -H "Accept: $MANIFEST_TYPEN" \
+    "$REGISTRY/v2/$ORG/$pkg/manifests/$digest"
+}
+
+# Het manifest zelf, via de registry-API.
+manifest() {
+  local pkg=$1 digest=$2 token=$3
+
+  "$CURL" -sSf --max-time 30 --retry 3 \
+    -H "Authorization: Bearer $token" -H "Accept: $MANIFEST_TYPEN" \
     "$REGISTRY/v2/$ORG/$pkg/manifests/$digest"
 }
 
 # Ongetagde versies ontstaan doordat een tag naar een nieuwere versie verhuist; zo'n versie hoort
-# nergens meer bij en is veilig weg te halen. Maar een multi-arch-image of een image met attestation
-# bestaat uit een getagde index met ongetagde kinderen, en die kinderen zijn in gebruik. Daarom
-# eerst vaststellen dat geen enkele getagde versie in dit package een index is; lukt dat niet, dan
-# blijft alles staan en volgt een melding. Liever een melding te veel dan een kapot image.
+# nergens meer bij en is veilig weg te halen. Twee soorten ongetagde versies zijn wél in gebruik:
+# - de kinderen van een getagde index (multi-arch, of een image met attestation). Daarom eerst
+#   vaststellen dat geen enkele getagde versie in dit package een index is; lukt dat niet, dan
+#   blijft alles staan en volgt een melding.
+# - een referrer: een handtekening of attestation (cosign, `docker buildx --attest`) die via
+#   `subject` naar een ander manifest wijst en zelf geen tag heeft. Elk manifest wordt daarom eerst
+#   opgehaald; een `subject`, of een manifest dat niet op te halen is, blijft staan.
+# Liever een melding te veel dan een kapot image.
+#
+# VERWIJDER_MAX begrenst het aantal verwijderingen per aanroep, oudste eerst; de rest komt als
+# `uitgesteld` terug en wacht op de volgende run. Zo blijft een run binnen de API-limiet van
+# GITHUB_TOKEN, ook bij een achterstand van honderden versies.
 ongetagd() {
-  local pkg=${1:-}
+  local pkg=${1:-} max=${VERWIJDER_MAX:-100}
   [ -n "$pkg" ] && [ -n "${ORG:-}" ] && [ -n "${GH_TOKEN:-}" ] || onbepaald "Gebruik: ORG=… GH_TOKEN=… $0 ongetagd <package>"
+
+  case "$max" in
+    '' | *[!0-9]*) onbepaald "VERWIJDER_MAX moet een getal zijn." ;;
+  esac
 
   local versies kandidaten getagd token digest type ids id fouten=0 rest
 
   versies=$(api "orgs/$ORG/packages/container/$pkg/versions?per_page=100" --paginate | jq -sc 'add') \
     || onbepaald "De versies van $pkg zijn niet op te vragen."
 
-  kandidaten=$(jq -r --argjson nu "$NU" --argjson min "$ONGETAGD_MINIMUM_SECONDEN" '.[]
+  # `id<TAB>digest`, oudste eerst.
+  kandidaten=$(jq -r --argjson nu "$NU" --argjson min "$ONGETAGD_MINIMUM_SECONDEN" '[.[]
     | select((.metadata.container.tags // []) | length == 0)
-    | select($nu - (.created_at | fromdateiso8601) >= $min) | .id' <<<"$versies") \
+    | select($nu - (.created_at | fromdateiso8601) >= $min)]
+    | sort_by(.created_at)[] | "\(.id)\t\(.name)"' <<<"$versies") \
     || onbepaald "De versies van $pkg zijn niet te beoordelen."
 
   [ -n "$kandidaten" ] || return 0
@@ -301,7 +404,40 @@ ongetagd() {
     return 0
   fi
 
-  for id in $kandidaten; do
+  local gekozen uitgesteld referrers=0 onleesbaar=0 inhoud verwijderen=""
+  gekozen=$(head -n "$max" <<<"$kandidaten")
+  uitgesteld=$((aantal - $(grep -c . <<<"$gekozen" || true)))
+
+  while IFS=$'\t' read -r id digest; do
+    [ -n "$id" ] || continue
+
+    if ! inhoud=$(manifest "$pkg" "$digest" "$token") || ! jq -e 'type == "object"' <<<"$inhoud" >/dev/null 2>&1; then
+      onleesbaar=$((onleesbaar + 1))
+    elif jq -e 'has("subject")' <<<"$inhoud" >/dev/null; then
+      referrers=$((referrers + 1))
+    else
+      verwijderen="$verwijderen$id"$'\n'
+    fi
+  done <<<"$gekozen"
+
+  # Een referrer hoort bij het manifest waar hij naar wijst en blijft dus bewust staan. Geen
+  # melding: die zou blijven staan zolang het image bestaat, en een melding die nooit verdwijnt,
+  # leert mensen hem te negeren.
+  if [ "$referrers" -gt 0 ]; then
+    printf '%s\treferrer\t%s\tverwijzen via subject naar een ander manifest\n' "$pkg" "$referrers"
+  fi
+
+  if [ "$onleesbaar" -gt 0 ]; then
+    printf '%s\tbewaard\t%s\tmanifest niet op te halen\n' "$pkg" "$onleesbaar"
+  fi
+
+  if [ "$uitgesteld" -gt 0 ]; then
+    printf '%s\tuitgesteld\t%s\tboven het plafond van %s verwijderingen per run\n' "$pkg" "$uitgesteld" "$max"
+  fi
+
+  [ -n "$verwijderen" ] || return 0
+
+  for id in $verwijderen; do
     api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE >/dev/null 2>&1 || fouten=$((fouten + 1))
   done
 
@@ -309,9 +445,9 @@ ongetagd() {
   # ook als 4xx terug, en alleen wat aantoonbaar uit de lijst verdwenen is, telt als verwijderd.
   ids=$(api "orgs/$ORG/packages/container/$pkg/versions?per_page=100" --paginate | jq -r '.[].id') \
     || onbepaald "De versies van $pkg zijn na het verwijderen niet op te vragen."
-  rest=$(grep -cxFf <(printf '%s\n' "$kandidaten") <<<"$ids" || true)
+  rest=$(grep -cxFf <(printf '%s' "$verwijderen") <<<"$ids" || true)
 
-  printf '%s\tverwijderd\t%s\t\n' "$pkg" "$((aantal - rest))"
+  printf '%s\tverwijderd\t%s\t\n' "$pkg" "$(($(grep -c . <<<"$verwijderen") - rest))"
 
   if [ "$rest" -gt 0 ]; then
     printf '%s\tmislukt\t%s\tstaan na het verwijderen nog in de lijst (%s weigeringen)\n' "$pkg" "$rest" "$fouten"
@@ -357,21 +493,42 @@ bevindingen() {
     | select(.value == "onleesbaar")
     | "onbepaald\tzad:\(.key | ltrimstr("nummers-"))\tde deploymentlijst is niet te lezen"' <<<"$NEEDS"
 
-  # De inventaris: `onbepaald`-regels gaan ongewijzigd door, en per nummer alleen de klassen die
-  # de opruiming niet zelf kan afhandelen.
-  jq -r '.inventaris.outputs.bevindingen // ""' <<<"$NEEDS" | awk -F'\t' '
-    $1 == "onbepaald"                     { print }
-    $2 == "geen-pr"                       { print "geen-pr\tpr-" $1 "\tresten zonder bijbehorende PR: " $3 }
-    $2 == "vreemd-pakket"                 { print "vreemd-pakket\tpr-" $1 "\ttags in een package buiten de opruimlijst: " $3 }
-    $2 == "opruimen" && $3 ~ /vreemd-pakket:/ { print "vreemd-pakket\tpr-" $1 "\ttags in een package buiten de opruimlijst: " $3 }'
+  # Waarom een nummer met klasse `opruimen` geen uitkomst heeft. Zo'n nummer staat er nog: het hoort
+  # in de melding, anders sluit het issue terwijl er resten op hun beurt wachten.
+  local reden
+  if [ "${OPRUIMEN:-false}" != true ]; then
+    reden="alleen geïnventariseerd; deze run ruimde niet op"
+  elif [ "$resultaat" = success ] || [ "$resultaat" = skipped ]; then
+    reden="niet aan de beurt (maximaal ${MAX_PER_RUN:-?} per run)"
+  else
+    reden="de opruimjob eindigde als $resultaat"
+  fi
 
-  jq -r '.opruimen.outputs.uitkomsten // ""' <<<"$NEEDS" | awk -F'\t' '
-    NF && $2 != "success" { print "opruiming-mislukt\tpr-" $1 "\tcleanup-preview.yml eindigde als " $2 ($3 ? " (" $3 ")" : "") }'
+  # De inventaris, met per nummer de uitkomst van de opruiming ernaast. `onbepaald`-regels gaan
+  # ongewijzigd door. Een nummer dat de vorige run met succes opruimde en nu tóch weer als rest
+  # terugkomt, wijst op een opruiming die groen meldt zonder alles weg te halen.
+  awk -F'\t' -v reden="$reden" -v vorige=" $(jq -r '.inventaris.outputs.vorige // ""' <<<"$NEEDS") " '
+    FNR == NR { if (NF) { status[$1] = $2; extra[$1] = $3 } next }
+    $1 == "onbepaald"     { print; next }
+    $2 == "geen-pr"       { print "geen-pr\tpr-" $1 "\tresten zonder bijbehorende PR: " $3; next }
+    $2 == "vreemd-pakket" { print "vreemd-pakket\tpr-" $1 "\ttags in een package buiten de opruimlijst: " $3; next }
+    $2 == "opruimen" {
+      if ($3 ~ /vreemd-pakket:/) print "vreemd-pakket\tpr-" $1 "\ttags in een package buiten de opruimlijst: " $3
+      if (index(vorige, " " $1 " ")) print "terug-na-opruiming\tpr-" $1 "\tde vorige run meldde de opruiming als gelukt, maar er staat nog: " $3
+      s = status[$1]
+      if (s == "success") next
+      if (s == "uitgesteld") { print "wacht-op-opruiming\tpr-" $1 "\tuitgesteld: " extra[$1]; next }
+      if (s != "") { print "opruiming-mislukt\tpr-" $1 "\tcleanup-preview.yml eindigde als " s (extra[$1] ? " (" extra[$1] ")" : ""); next }
+      wacht[++w] = $1
+    }
+    END { for (i = 1; i <= w; i++) print "wacht-op-opruiming\tpr-" wacht[i] "\t" reden "; " w " nummer(s) wachten nog" }
+  ' <(jq -r '.opruimen.outputs.uitkomsten // ""' <<<"$NEEDS") <(jq -r '.inventaris.outputs.bevindingen // ""' <<<"$NEEDS")
 
   jq -r '.ongetagd.outputs.uitkomsten // ""' <<<"$NEEDS" | awk -F'\t' '
-    $2 == "bewaard"   { print "ongetagd-bewaard\t" $1 "\t" $3 " ongetagde versie(s) blijven staan: " $4 }
-    $2 == "mislukt"   { print "ongetagd-mislukt\t" $1 "\t" $3 " ongetagde versie(s) " $4 }
-    $2 == "onbepaald" { print "onbepaald\tghcr:" $1 "\t" $4 }'
+    $2 == "bewaard"    { print "ongetagd-bewaard\t" $1 "\t" $3 " ongetagde versie(s) blijven staan: " $4 }
+    $2 == "mislukt"    { print "ongetagd-mislukt\t" $1 "\t" $3 " ongetagde versie(s) " $4 }
+    $2 == "uitgesteld" { print "ongetagd-uitgesteld\t" $1 "\t" $3 " ongetagde versie(s) " $4 }
+    $2 == "onbepaald"  { print "onbepaald\tghcr:" $1 "\t" $4 }'
 }
 
 readonly ISSUE_TITEL='Achtergebleven preview-resten'
@@ -459,13 +616,37 @@ issue() {
   echo "Issue #$nummer bijgewerkt."
 }
 
+# Vangnet als `bevindingen` of `issue` zelf omvalt: dan zou de run rood eindigen zonder dat iemand
+# het ziet, en de melding is juist het enige signaal van deze workflow. Minimaal, zodat er zo min
+# mogelijk mis kan gaan: alleen de run-URL. De beschrijving zonder stand-markering zorgt dat de
+# volgende geslaagde run het issue volledig bijwerkt.
+noodmelding() {
+  [ -n "${REPO:-}" ] && [ -n "${RUN_URL:-}" ] || onbepaald "REPO en RUN_URL zijn verplicht."
+
+  local nummer tekst="De controle op preview-resten kon zijn bevindingen niet melden; zie $RUN_URL."
+
+  nummer=$(api "repos/$REPO/issues?state=open&per_page=100" --paginate \
+    | jq -r --arg t "$ISSUE_TITEL" '.[] | select(.pull_request == null and .title == $t
+      and .user.login == "github-actions[bot]") | .number' | head -1) || nummer=""
+
+  if [ -n "$nummer" ]; then
+    api "repos/$REPO/issues/$nummer/comments" -X POST -f body="$tekst" >/dev/null \
+      || onbepaald "Ook de noodmelding op issue #$nummer mislukte."
+    echo "Noodmelding geplaatst op issue #$nummer."
+  else
+    api "repos/$REPO/issues" -X POST -f title="$ISSUE_TITEL" -f body="$tekst" >/dev/null \
+      || onbepaald "Ook de noodmelding mislukte."
+    echo "Noodmelding als nieuw issue aangemaakt."
+  fi
+}
+
 # Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   opdracht=${1:-}
   shift || true
 
   case "$opdracht" in
-    zad | github | classificeer | opruimen | ongetagd | bevindingen | issue) "$opdracht" "$@" ;;
-    *) onbepaald "Gebruik: $0 zad|github|classificeer|opruimen|ongetagd|bevindingen|issue …" ;;
+    zad | github | classificeer | kies | opruimen | ongetagd | bevindingen | issue | noodmelding) "$opdracht" "$@" ;;
+    *) onbepaald "Gebruik: $0 zad|github|classificeer|kies|opruimen|ongetagd|bevindingen|issue|noodmelding …" ;;
   esac
 fi

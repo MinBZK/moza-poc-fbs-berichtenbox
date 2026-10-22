@@ -70,13 +70,15 @@ printf '%s\n' "$(basename "$0") $*" >>"$werkmap/aanroepen"
 sleutel=$(printf '%s' "$(basename "$0") $*" | sha256sum | cut -c1-32)
 fix="$werkmap/fix/$sleutel"
 
-# Een tweede antwoord voor dezelfde aanroep (de lijst ná een verwijdering).
-if [ -f "$fix.daarna" ] && [ -f "$fix.gebruikt" ]; then
+# Een ander antwoord vanaf de zoveelste aanroep (standaard de tweede): de lijst ná een
+# verwijdering, of een run die na een reeks mislukte opvragingen tóch antwoordt.
+teller=$(($(cat "$fix.teller" 2>/dev/null || echo 0) + 1))
+echo "$teller" >"$fix.teller"
+
+if [ -f "$fix.daarna" ] && [ "$teller" -ge "$(cat "$fix.vanaf" 2>/dev/null || echo 2)" ]; then
   cat "$fix.daarna"
   exit 0
 fi
-
-touch "$fix.gebruikt"
 
 if [ -f "$fix" ] || [ -f "$fix.rc" ]; then
   [ -f "$fix" ] && cat "$fix"
@@ -114,11 +116,13 @@ antwoord() {
   [ -z "${5:-}" ] || printf '%s' "$5" >"$werkmap/fix/$sleutel.err"
 }
 
-# antwoord_daarna <programma> <argumenten> <stdout>: het antwoord vanaf de tweede aanroep.
+# antwoord_daarna <programma> <argumenten> <stdout> [vanaf]: het antwoord vanaf aanroep <vanaf>
+# (standaard de tweede).
 antwoord_daarna() {
   local sleutel
   sleutel=$(printf '%s' "$1 $2" | sha256sum | cut -c1-32)
   printf '%s' "$3" >"$werkmap/fix/$sleutel.daarna"
+  printf '%s' "${4:-2}" >"$werkmap/fix/$sleutel.vanaf"
 }
 
 aanroepen() {
@@ -147,6 +151,11 @@ gelijk "tags: per-commit, kaal en met dubbel koppelteken; niet main en niet een 
 168
 395" "$(printf '%s\n' pr-16-abc1234 pr-16 pr-16--k1 pr-168-def main-abc1234 pr-0-x latest pr-395--k1423 | nummers_uit_tags | sort)"
 gelijk "pr-16 levert niet de tags van PR 168 op" "168" "$(echo pr-168-abc | nummers_uit_tags)"
+# Het anker `(-|$)` na het nummer: zonder levert `pr-3x` het nummer 3 op, en `pr-12345678-a` de
+# eerste zeven cijfers.
+gelijk "een tag zonder koppelteken of einde na het nummer levert niets" "" \
+  "$(printf '%s\n' pr-3x pr-12345678-a pr-12345678 | nummers_uit_tags)"
+gelijk "zeven cijfers is de grens" "1234567" "$(echo pr-1234567-a | nummers_uit_tags)"
 
 # --- zad ----------------------------------------------------------------------------------------
 readonly OM_URL='https://om.test/api/v2/projects/mpfb-8wh/deployments'
@@ -298,12 +307,70 @@ antwoord gh 'api repos/o/r/pulls?state=open&per_page=100 --paginate' '[]'
 REPO=o/r draai classificeer "$werkmap/leeg.tsv"
 gelijk "zonder resten levert classificeer niets" "0|" "$RC|$UITVOER"
 
+# De grens van 24 uur: precies 24 uur dicht telt mee, een seconde minder niet.
+printf '%s\n' '20	omgeving' '21	omgeving' >"$werkmap/grens.tsv"
+opnieuw
+antwoord gh 'api repos/o/r/pulls?state=open&per_page=100 --paginate' '[]'
+antwoord gh 'api repos/o/r/pulls/20' '{"state":"closed","closed_at":"2026-10-21T00:00:00Z"}'
+antwoord gh 'api repos/o/r/pulls/21' '{"state":"closed","closed_at":"2026-10-21T00:00:01Z"}'
+REPO=o/r draai classificeer "$werkmap/grens.tsv"
+gelijk "precies 24 uur dicht wordt opgeruimd, 23:59:59 nog niet" "20	opruimen	omgeving" "$UITVOER"
+
+# --- kies ---------------------------------------------------------------------------------------
+# kies_nummers <aantal>: een bevindingenbestand met nummers 1..aantal als `opruimen`, plus een
+# `geen-pr` en een `vreemd-pakket` die nooit gekozen mogen worden.
+kies_nummers() {
+  {
+    seq "$1" | sed 's/$/\topruimen\tomgeving/'
+    printf '90\tgeen-pr\tomgeving\n91\tvreemd-pakket\tvreemd-pakket:x\n'
+  } >"$werkmap/kies.tsv"
+}
+
+kies_nummers 10
+MAX_PER_RUN=10 RONDE=1 draai kies "$werkmap/kies.tsv"
+gelijk "precies 10 nummers bij een plafond van 10: alle tien" "1 2 3 4 5 6 7 8 9 10" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
+MAX_PER_RUN=10 RONDE=2 draai kies "$werkmap/kies.tsv"
+gelijk "binnen het plafond hangt de keuze niet van de ronde af" "1 2 3 4 5 6 7 8 9 10" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
+
+kies_nummers 11
+MAX_PER_RUN=10 RONDE=1 draai kies "$werkmap/kies.tsv"
+gelijk "11 nummers bij een plafond van 10: de eerste ronde kiest er tien" "1 2 3 4 5 6 7 8 9 10" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
+MAX_PER_RUN=10 RONDE=2 draai kies "$werkmap/kies.tsv"
+gelijk "de tweede ronde begint bij het nummer dat er de eerste keer af viel" "11 1 2 3 4 5 6 7 8 9" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
+
+kies_nummers 25
+alle=""
+for ronde in 1 2 3; do
+  alle="$alle $(MAX_PER_RUN=10 RONDE=$ronde bash "$SCRIPT" kies "$werkmap/kies.tsv" | tr '\n' ' ')"
+done
+gelijk "binnen ⌈25/10⌉ rondes komt elk nummer aan de beurt" 25 "$(tr ' ' '\n' <<<"$alle" | grep . | sort -un | grep -c .)"
+
+kies_nummers 0
+MAX_PER_RUN=10 RONDE=1 draai kies "$werkmap/kies.tsv"
+gelijk "zonder op te ruimen nummers kiest kies niets" "0|" "$RC|$UITVOER"
+
+for fout_invoer in "MAX_PER_RUN=0 RONDE=1" "MAX_PER_RUN=tien RONDE=1" "MAX_PER_RUN=10 RONDE=" "MAX_PER_RUN= RONDE=1"; do
+  RC=0
+  # shellcheck disable=SC2086 # bewust gesplitst in losse toewijzingen voor env
+  env $fout_invoer bash "$SCRIPT" kies "$werkmap/kies.tsv" >/dev/null 2>&1 || RC=$?
+  gelijk "kies weigert $fout_invoer" 2 "$RC"
+done
+
 # --- opruimen -----------------------------------------------------------------------------------
 opruim_fixtures() {
   antwoord gh "run list --repo o/r --workflow cleanup-preview.yml --event workflow_dispatch --limit 50 --json databaseId,displayTitle" \
     '[{"databaseId":1,"displayTitle":"Cleanup ZAD preview pr-7 resten-99-1-77"},{"databaseId":2,"displayTitle":"Cleanup ZAD preview pr-7 resten-99-1-7"},{"databaseId":3,"displayTitle":"Cleanup ZAD preview pr-8 resten-99-1-8"}]'
   antwoord gh 'run view 2 --repo o/r --json status,conclusion' '{"status":"completed","conclusion":"success"}'
   antwoord gh 'run view 3 --repo o/r --json status,conclusion' '{"status":"completed","conclusion":"failure"}'
+  vrij deploy.yml
+  vrij cleanup-preview.yml
+}
+
+readonly RUNS_DEPLOY='run list --repo o/r --workflow deploy.yml --limit 20 --json status'
+readonly RUNS_CLEANUP='run list --repo o/r --workflow cleanup-preview.yml --limit 20 --json status'
+
+vrij() {
+  antwoord gh "run list --repo o/r --workflow $1 --limit 20 --json status" '[{"status":"completed"},{"status":"completed"}]'
 }
 
 opnieuw
@@ -327,12 +394,65 @@ gelijk "een mislukte start gaat niet verloren en houdt de volgende niet tegen" "
 
 opnieuw
 opruim_fixtures
-REPO=o/r KENMERK=ander draai opruimen 7
-gelijk "een run met een ander kenmerk telt niet" "7	niet-gevonden	" "$UITVOER"
+REPO=o/r KENMERK=ander draai opruimen 7 8 9
+gelijk "een run die niet terug te vinden is, stopt de rij: de rest wacht op de volgende run" "7	niet-gevonden"$'\t'"
+8	uitgesteld	de vorige opruiming in deze run was niet terug te vinden
+9	uitgesteld	de vorige opruiming in deze run was niet terug te vinden" "$UITVOER"
+gelijk "en start geen tweede opruiming naast de eerste" 1 "$(grep -c 'workflow run' "$werkmap/aanroepen")"
+
+# Een lopende uitrol vergrendelt het project in Operations Manager; een delete die daartussen komt,
+# laat die uitrol op `superseded` stranden.
+for status in in_progress queued waiting; do
+  opnieuw
+  opruim_fixtures
+  antwoord gh "$RUNS_DEPLOY" "[{\"status\":\"completed\"},{\"status\":\"$status\"}]"
+  REPO=o/r KENMERK=resten-99-1 draai opruimen 7 8
+  gelijk "een uitrol die $status is, stelt alle nummers uit" "7	uitgesteld	er liep een uitrol of opruiming
+8	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
+  bevat_niet "en start niets bij $status" "workflow run" "$(aanroepen)"
+done
 
 opnieuw
 opruim_fixtures
-rm "$werkmap/fix/$(printf '%s' 'gh run view 2 --repo o/r --json status,conclusion' | sha256sum | cut -c1-32)"
+antwoord gh "$RUNS_DEPLOY" '' 1 'HTTP 502'
+REPO=o/r KENMERK=resten-99-1 draai opruimen 7
+gelijk "is niet vast te stellen of er een uitrol loopt, dan wacht de opruiming" "7	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
+
+opnieuw
+opruim_fixtures
+antwoord gh "$RUNS_CLEANUP" '{"geen":"lijst"}'
+REPO=o/r KENMERK=resten-99-1 draai opruimen 7
+gelijk "een onleesbare runlijst geldt ook als bezet" "7	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
+
+# De controle staat vóór elke start, niet alleen vóór de eerste: begint er halverwege een uitrol,
+# dan wacht de rest.
+opnieuw
+opruim_fixtures
+antwoord_daarna gh "$RUNS_DEPLOY" '[{"status":"in_progress"}]'
+REPO=o/r KENMERK=resten-99-1 draai opruimen 7 8
+gelijk "een uitrol die halverwege begint, stelt de rest uit" "7	success	https://github.com/o/r/actions/runs/2
+8	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
+
+# De grens van MAX_MISSERS opvragingen op rij: 29 missers en dan een antwoord wacht door, 30 geeft op.
+readonly RUN_VIEW_2='run view 2 --repo o/r --json status,conclusion'
+opnieuw
+opruim_fixtures
+antwoord gh "$RUN_VIEW_2" '' 1 'HTTP 502'
+antwoord_daarna gh "$RUN_VIEW_2" '{"status":"completed","conclusion":"success"}' 30
+REPO=o/r KENMERK=resten-99-1 draai opruimen 7
+gelijk "na 29 mislukte opvragingen wordt er nog gewacht" "7	success	https://github.com/o/r/actions/runs/2" "$UITVOER"
+
+opnieuw
+opruim_fixtures
+antwoord gh "$RUN_VIEW_2" '' 1 'HTTP 502'
+antwoord_daarna gh "$RUN_VIEW_2" '{"status":"completed","conclusion":"success"}' 31
+REPO=o/r KENMERK=resten-99-1 draai opruimen 7
+gelijk "na 30 mislukte opvragingen geeft het wachten op" "7	onbekend	https://github.com/o/r/actions/runs/2" "$UITVOER"
+gelijk "en vraagt dan precies 30 keer" 30 "$(grep -c 'run view 2' "$werkmap/aanroepen")"
+
+opnieuw
+opruim_fixtures
+rm "$werkmap/fix/$(printf '%s' "gh $RUN_VIEW_2" | sha256sum | cut -c1-32)"
 REPO=o/r KENMERK=resten-99-1 draai opruimen 7 8
 gelijk "een run die niet op te vragen blijft, geeft het wachten op en houdt de volgende niet tegen" "7	onbekend	https://github.com/o/r/actions/runs/2
 8	failure	https://github.com/o/r/actions/runs/3" "$UITVOER"
@@ -353,8 +473,23 @@ ongetagd_fixtures() {
   antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$VERSIES"
   antwoord curl '-sSf --max-time 30 --retry 3 -u x:t https://ghcr.io/token?scope=repository:o/p:pull' '{"token":"rt"}'
   for d in a e; do
-    antwoord curl "-sSf --max-time 30 --retry 3 -o /dev/null -w %{content_type} -I -H Authorization: Bearer rt -H Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json https://ghcr.io/v2/o/p/manifests/sha256:$d" "${1-$MANIFEST}"
+    antwoord curl "-sSf --max-time 30 --retry 3 -o /dev/null -w %{content_type} -I -H Authorization: Bearer rt -H $ACCEPT https://ghcr.io/v2/o/p/manifests/sha256:$d" "${1-$MANIFEST}"
   done
+
+  for d in b c; do
+    manifest_antwoord "$d" '{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json"}'
+  done
+}
+
+readonly ACCEPT='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+
+# manifest_antwoord <digest-achtervoegsel> <inhoud> [rc]
+manifest_antwoord() {
+  antwoord curl "-sSf --max-time 30 --retry 3 -H Authorization: Bearer rt -H $ACCEPT https://ghcr.io/v2/o/p/manifests/sha256:$1" "$2" "${3:-}"
+}
+
+deletes() {
+  grep DELETE "$werkmap/aanroepen" | sed 's/.*versions\/\([0-9]*\) -X DELETE/\1/' | paste -sd' ' -
 }
 
 opnieuw
@@ -372,6 +507,59 @@ gelijk "oude ongetagde versies worden verwijderd en nagemeten" "0|p	verwijderd	2
 gelijk "precies de oude ongetagde versies krijgen een DELETE" \
   "gh api orgs/o/packages/container/p/versions/2 -X DELETE|gh api orgs/o/packages/container/p/versions/3 -X DELETE" \
   "$(grep DELETE "$werkmap/aanroepen" | paste -sd'|' -)"
+
+# Een referrer (handtekening, attestation) wijst via `subject` naar een ander manifest en blijft
+# staan, zonder melding.
+opnieuw
+ongetagd_fixtures
+manifest_antwoord c '{"schemaVersion":2,"subject":{"digest":"sha256:a"}}'
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":1},{"id":3},{"id":4},{"id":5}]'
+ORG=o GH_TOKEN=t VERWIJDER=true draai ongetagd p
+gelijk "een referrer wordt niet verwijderd" "2" "$(deletes)"
+gelijk "en apart gerapporteerd" "p	referrer	1	verwijzen via subject naar een ander manifest
+p	verwijderd	1	" "$UITVOER"
+
+opnieuw
+ongetagd_fixtures
+manifest_antwoord b '' 22
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":1},{"id":2},{"id":4},{"id":5}]'
+ORG=o GH_TOKEN=t VERWIJDER=true draai ongetagd p
+gelijk "een manifest dat niet op te halen is, blijft staan" "3" "$(deletes)"
+bevat "en wordt gemeld" "p	bewaard	1	manifest niet op te halen" "$UITVOER"
+
+opnieuw
+ongetagd_fixtures
+manifest_antwoord b '<html>proxy</html>'
+ORG=o GH_TOKEN=t VERWIJDER=true draai ongetagd p
+bevat "een manifest dat geen JSON-object is, blijft staan" "p	bewaard	1	manifest niet op te halen" "$UITVOER"
+
+# Het plafond per aanroep: oudste eerst (id 2 is van augustus, id 3 van september).
+opnieuw
+ongetagd_fixtures
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":1},{"id":3},{"id":4},{"id":5}]'
+ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=1 draai ongetagd p
+gelijk "het plafond verwijdert de oudste eerst" "2" "$(deletes)"
+bevat "en meldt de rest als uitgesteld" "p	uitgesteld	1	boven het plafond van 1 verwijderingen per run" "$UITVOER"
+
+opnieuw
+ongetagd_fixtures
+ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=0 draai ongetagd p
+gelijk "een opgebruikt plafond verwijdert niets" "" "$(deletes)"
+gelijk "en stelt alles uit" "0|p	uitgesteld	2	boven het plafond van 0 verwijderingen per run" "$RC|$UITVOER"
+
+ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=veel draai ongetagd p
+gelijk "een plafond dat geen getal is, is onbepaald" 2 "$RC"
+
+# De grens van zeven dagen: precies zeven dagen oud telt mee, een seconde jonger niet.
+opnieuw
+antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' \
+  '[{"id":1,"name":"sha256:a","created_at":"2026-10-01T00:00:00Z","metadata":{"container":{"tags":["main-1"]}}},
+    {"id":6,"name":"sha256:f","created_at":"2026-10-15T00:00:00Z","metadata":{"container":{"tags":[]}}},
+    {"id":7,"name":"sha256:g","created_at":"2026-10-15T00:00:01Z","metadata":{"container":{"tags":[]}}}]'
+antwoord curl '-sSf --max-time 30 --retry 3 -u x:t https://ghcr.io/token?scope=repository:o/p:pull' '{"token":"rt"}'
+antwoord curl "-sSf --max-time 30 --retry 3 -o /dev/null -w %{content_type} -I -H Authorization: Bearer rt -H $ACCEPT https://ghcr.io/v2/o/p/manifests/sha256:a" "$MANIFEST"
+ORG=o GH_TOKEN=t draai ongetagd p
+gelijk "precies zeven dagen oud telt mee, een seconde jonger niet" "p	te-verwijderen	1	alleen geïnventariseerd" "$UITVOER"
 
 opnieuw
 ongetagd_fixtures
@@ -424,7 +612,7 @@ bevinding() {
   local needs
   needs=$(jq -c "$2" <<<"$GOED")
   RC=0
-  UITVOER=$(NEEDS="$needs" CANCELLED="${4:-false}" OPRUIMEN="${5:-true}" bash "$SCRIPT" bevindingen 2>&1) || RC=$?
+  UITVOER=$(NEEDS="$needs" CANCELLED="${4:-false}" OPRUIMEN="${5:-true}" MAX_PER_RUN=10 bash "$SCRIPT" bevindingen 2>&1) || RC=$?
   gelijk "$1" "0|$3" "$RC|$UITVOER"
 }
 
@@ -434,25 +622,47 @@ bevinding "een onleesbaar ZAD-project wordt gemeld" '.zad.outputs."nummers-magaz
 bevinding "een omgevallen ZAD-leg wordt gemeld" '.zad.result = "failure"' 'onbepaald	zad	de job eindigde als failure'
 bevinding "een omgevallen inventaris wordt gemeld" '.inventaris.result = "failure"' 'onbepaald	inventaris	de job eindigde als failure'
 bevinding "een ontbrekende ongetagd-job wordt gemeld" 'del(.ongetagd)' 'onbepaald	ongetagd	de job eindigde als ontbreekt'
-bevinding "een overgeslagen opruiming met werk wordt gemeld" '.opruimen = {"result": "skipped"}' \
-  'onbepaald	opruimen	de job eindigde als skipped; voor 7 is niet vastgesteld of de opruiming lukte'
-bevinding "een overgeslagen opruiming zonder werk is stil" '.inventaris.outputs.opruimen = "" | .opruimen = {"result": "skipped"}' ''
-bevinding "in een inventariseer-run is een overgeslagen opruiming stil" '.opruimen = {"result": "skipped"}' '' false false
+bevinding "een overgeslagen opruiming met werk meldt de job én het nummer dat er nog staat" '.opruimen = {"result": "skipped"}' \
+  'onbepaald	opruimen	de job eindigde als skipped; voor 7 is niet vastgesteld of de opruiming lukte
+wacht-op-opruiming	pr-7	niet aan de beurt (maximaal 10 per run); 1 nummer(s) wachten nog'
+bevinding "een omgevallen opruimjob noemt zijn uitkomst bij elk nummer" '.opruimen = {"result": "failure"}' \
+  'onbepaald	opruimen	de job eindigde als failure; voor 7 is niet vastgesteld of de opruiming lukte
+wacht-op-opruiming	pr-7	de opruimjob eindigde als failure; 1 nummer(s) wachten nog'
+bevinding "een overgeslagen opruiming zonder werk is stil" \
+  '.inventaris.outputs.opruimen = "" | .inventaris.outputs.bevindingen = "" | .opruimen = {"result": "skipped"}' ''
+# Een inventariseer-run ruimt niets op; wat er staat, staat er nog. Zonder deze regel sloot het
+# issue met "geen resten meer" terwijl er niets was weggehaald.
+bevinding "in een inventariseer-run blijft elk op te ruimen nummer gemeld" '.opruimen = {"result": "skipped"}' \
+  'wacht-op-opruiming	pr-7	alleen geïnventariseerd; deze run ruimde niet op; 1 nummer(s) wachten nog' false false
+# Meer nummers dan het plafond: de nummers die niet aan de beurt kwamen, staan er nog.
+bevinding "nummers boven het plafond blijven gemeld, met het aantal dat nog wacht" \
+  '.inventaris.outputs.bevindingen = "7\topruimen\tomgeving\n8\topruimen\tomgeving\n9\topruimen\tomgeving" | .opruimen.outputs.uitkomsten = "7\tsuccess\thttps://x/runs/2"' \
+  'wacht-op-opruiming	pr-8	niet aan de beurt (maximaal 10 per run); 2 nummer(s) wachten nog
+wacht-op-opruiming	pr-9	niet aan de beurt (maximaal 10 per run); 2 nummer(s) wachten nog'
+bevinding "een uitgestelde opruiming blijft gemeld met de reden" \
+  '.opruimen.outputs.uitkomsten = "7\tuitgesteld\ter liep een uitrol of opruiming"' \
+  'wacht-op-opruiming	pr-7	uitgesteld: er liep een uitrol of opruiming'
 bevinding "een mislukte opruiming wordt gemeld met de run" '.opruimen.outputs.uitkomsten = "7\tfailure\thttps://x/runs/2"' \
   'opruiming-mislukt	pr-7	cleanup-preview.yml eindigde als failure (https://x/runs/2)'
 bevinding "een niet-gestarte opruiming wordt gemeld" '.opruimen.outputs.uitkomsten = "7\tniet-gestart\t"' \
   'opruiming-mislukt	pr-7	cleanup-preview.yml eindigde als niet-gestart'
-bevinding "geen-pr en vreemd-pakket worden gemeld, opruimen niet" \
-  '.inventaris.outputs.bevindingen = "7\topruimen\tomgeving\n9\tgeen-pr\tomgeving\n10\tvreemd-pakket\tvreemd-pakket:x\n14\topruimen\tghcr:a,vreemd-pakket:x\nonbepaald\tgithub\tniet te lezen"' \
+bevinding "een nummer dat de vorige run groen opgeruimd werd en nu terug is, wordt gemeld" \
+  '.inventaris.outputs.vorige = "3 7 70"' \
+  'terug-na-opruiming	pr-7	de vorige run meldde de opruiming als gelukt, maar er staat nog: omgeving,zad:uitvraag'
+bevinding "een vorige run met andere nummers meldt niets" '.inventaris.outputs.vorige = "70 17"' ''
+bevinding "geen-pr en vreemd-pakket worden gemeld, een opgeruimd nummer niet" \
+  '.inventaris.outputs.bevindingen = "7\topruimen\tomgeving\n9\tgeen-pr\tomgeving\n10\tvreemd-pakket\tvreemd-pakket:x\n14\topruimen\tghcr:a,vreemd-pakket:x\nonbepaald\tgithub\tniet te lezen"
+   | .opruimen.outputs.uitkomsten = "7\tsuccess\thttps://x/runs/2\n14\tsuccess\thttps://x/runs/3"' \
   'geen-pr	pr-9	resten zonder bijbehorende PR: omgeving
 vreemd-pakket	pr-10	tags in een package buiten de opruimlijst: vreemd-pakket:x
 vreemd-pakket	pr-14	tags in een package buiten de opruimlijst: ghcr:a,vreemd-pakket:x
 onbepaald	github	niet te lezen'
-bevinding "ongetagd: bewaard, mislukt en onbepaald worden gemeld; verwijderd niet" \
-  '.ongetagd.outputs.uitkomsten = "p\tverwijderd\t2\t\nq\tbewaard\t3\tindex\nr\tmislukt\t1\tstaat er nog\ns\tonbepaald\t\tniet te lezen\nt\tte-verwijderen\t4\t"' \
+bevinding "ongetagd: bewaard, mislukt, uitgesteld en onbepaald worden gemeld; verwijderd en referrer niet" \
+  '.ongetagd.outputs.uitkomsten = "p\tverwijderd\t2\t\nq\tbewaard\t3\tindex\nr\tmislukt\t1\tstaat er nog\ns\tonbepaald\t\tniet te lezen\nt\tte-verwijderen\t4\t\nu\tuitgesteld\t5\tboven het plafond\nv\treferrer\t1\tsubject"' \
   'ongetagd-bewaard	q	3 ongetagde versie(s) blijven staan: index
 ongetagd-mislukt	r	1 ongetagde versie(s) staat er nog
-onbepaald	ghcr:s	niet te lezen'
+onbepaald	ghcr:s	niet te lezen
+ongetagd-uitgesteld	u	5 ongetagde versie(s) boven het plafond'
 bevinding "een afgebroken run wordt gemeld" '.' 'onbepaald	run	de run is afgebroken; wat er staat, is niet volledig vastgesteld' true
 
 RC=0
@@ -511,6 +721,31 @@ antwoord gh "api repos/o/r/issues -X POST -f title=Achtergebleven preview-resten
 REPO=o/r RUN_URL=https://run/1 draai issue "$werkmap/leeg.tsv"
 gelijk "zonder bevindingen wordt het aanmaken niet geprobeerd" 0 "$RC"
 
+# --- noodmelding --------------------------------------------------------------------------------
+opnieuw
+antwoord gh "$ISSUES_URL" '[{"number":40,"title":"Achtergebleven preview-resten","user":{"login":"github-actions[bot]"}}]'
+REPO=o/r RUN_URL=https://run/9 draai noodmelding
+gelijk "de noodmelding reageert op een open issue" "0|Noodmelding geplaatst op issue #40." "$RC|$UITVOER"
+bevat "met de run-URL" "api repos/o/r/issues/40/comments -X POST -f body=De controle op preview-resten kon zijn bevindingen niet melden; zie https://run/9." "$(aanroepen)"
+
+opnieuw
+antwoord gh "$ISSUES_URL" '[]'
+REPO=o/r RUN_URL=https://run/9 draai noodmelding
+gelijk "zonder open issue maakt de noodmelding er een" "0|Noodmelding als nieuw issue aangemaakt." "$RC|$UITVOER"
+bevat "met de vaste titel, zodat de volgende run hem terugvindt" "api repos/o/r/issues -X POST -f title=Achtergebleven preview-resten" "$(aanroepen)"
+
+# Is ook de issuelijst niet te lezen, dan liever een tweede issue dan geen signaal.
+opnieuw
+antwoord gh "$ISSUES_URL" '' 1 'HTTP 502'
+REPO=o/r RUN_URL=https://run/9 draai noodmelding
+gelijk "een onleesbare issuelijst houdt de noodmelding niet tegen" "0|Noodmelding als nieuw issue aangemaakt." "$RC|$UITVOER"
+
+opnieuw
+antwoord gh "$ISSUES_URL" '[]'
+antwoord gh 'api repos/o/r/issues -X POST -f title=Achtergebleven preview-resten -f body=De controle op preview-resten kon zijn bevindingen niet melden; zie https://run/9.' '' 1 'HTTP 403'
+REPO=o/r RUN_URL=https://run/9 draai noodmelding
+gelijk "mislukt ook de noodmelding, dan is dat zichtbaar in de exitcode" 2 "$RC"
+
 # --- kruiscontrole met de workflows -------------------------------------------------------------
 while IFS= read -r regel; do
   case "$regel" in
@@ -566,6 +801,26 @@ meld(
 )
 meld((melding.get("permissions") or {}).get("issues") == "write", "de meldjob mag het issue bijwerken")
 meld((jobs.get("opruimen", {}).get("permissions") or {}).get("actions") == "write", "de opruimjob mag cleanup-preview.yml starten")
+meld((jobs["zad"].get("permissions") or {}) == {"contents": "read"}, "de ZAD-inventaris krijgt alleen leesrecht op de code")
+
+nood = [s for s in melding.get("steps") or [] if "noodmelding" in str(s.get("run", ""))]
+melden = [s for s in melding.get("steps") or [] if "preview-resten.sh issue" in str(s.get("run", ""))]
+meld(
+    len(nood) == 1 and len(melden) == 1
+    and f"steps.{melden[0].get('id')}.outcome == 'failure'" in str(nood[0].get("if", "")),
+    "de noodmelding draait precies als de gewone melding faalt",
+)
+
+# Het artefact dat de opruimjob schrijft, is het artefact dat de inventaris leest.
+upload = [s for s in jobs["opruimen"].get("steps") or [] if "upload-artifact" in str(s.get("uses", ""))]
+inventaris_run = " ".join(str(s.get("run", "")) for s in jobs["inventaris"].get("steps") or [])
+meld(
+    len(upload) == 1 and (upload[0].get("with") or {}).get("name") == "opgeruimd"
+    and "-n opgeruimd" in inventaris_run and "opgeruimd.txt" in inventaris_run,
+    "de opruimjob bewaart 'opgeruimd' en de inventaris leest het terug",
+)
+meld("preview-resten.sh kies" in inventaris_run and "GITHUB_RUN_NUMBER" in inventaris_run,
+     "de inventaris kiest roterend op het runnummer")
 
 # De opruiming leunt op cleanup-preview.yml: het kenmerk moet als input bestaan en in de runnaam staan,
 # anders vindt `opruimen` zijn eigen run nooit terug.
