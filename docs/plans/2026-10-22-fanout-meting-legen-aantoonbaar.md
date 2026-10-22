@@ -131,7 +131,9 @@ Gevolgen voor deze wijziging:
   langer dat een niet-geleegde sessiecache "het cache-pad" laat meten.
 - Of de meting die in-process toestand moet omzeilen, is een keuze over de meetmethode. Die raakt de
   vergelijkbaarheid met de eerdere metingen in `docs/plans/2026-08-21-magazijn-simulator-design.md`
-  en hoort in een eigen issue; het issue is nog niet aangemaakt. Knoppen daarvoor: de Profiel-cache
+  en heeft een eigen issue:
+  [MinBZK/MijnOverheidZakelijk#1380](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1380).
+  Knoppen daarvoor: de Profiel-cache
   via `PROFIEL_CACHE_TTL_SECONDS=0` onder `%prod`/`%staging`/`%acceptatie` en via
   `PROFIEL_RESOLVER_CACHE_TTL_SECONDS=0` in de lokale stack (`%dev`); de circuit breaker alleen door
   meer dan 30 s tussen rondes, of via zijn eigen configuratie.
@@ -155,10 +157,12 @@ opgelost, staat in het ontwerp hierboven; per standaard in het kort:
   (5.17/8.12), tekst van servers zonder escape-codes en met een groottegrens (8.28), geen vast
   uitvoerpad in `/tmp`, en het CA-advies dat ook voor de Python-meting werkt.
 
-Buiten deze wijziging, in de uitvraag zelf en daarom in een eigen PR: een verwachte weigering (zoals
-de 409 `nog-niet-opgehaald`) krijgt in het logboek status `ERROR` terwijl LDV §3.2.2.3 daar `UNSET`
-vraagt, en de logregel van `_ophalen` staat altijd op `UNSET`, ook als de ophaalronde mislukte
-(§3.3.1).
+Buiten deze wijziging, in de uitvraag zelf en daarom in een eigen PR
+([MinBZK/moza-poc-fbs-berichtenbox#397](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/pull/397)):
+een verwachte weigering (zoals de 409 `nog-niet-opgehaald`) kreeg in het logboek status `ERROR`
+terwijl LDV §3.2.2.3 daar `UNSET` vraagt, en de logregel van `_ophalen` stond altijd op `UNSET`, ook
+als de ophaalronde mislukte (§3.3.1). Met #397 telt de toets van deze meting (een 409) in het
+logboek dus niet meer als mislukte verwerking.
 
 ## Tests
 
