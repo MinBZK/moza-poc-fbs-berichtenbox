@@ -76,10 +76,32 @@ stempel=$(date +%s)
 onderwerp_a="Rookproef demo-stack A $stempel"
 onderwerp_b="Rookproef demo-stack B $stempel"
 
+# Een echte PDF van één pagina met de tekst ongecomprimeerd erin, zodat stap 6 hem met grep
+# terugvindt. Het magazijn neemt alleen application/pdf aan. De tekst mag geen haakjes of
+# backslash bevatten: die vragen escaping in een PDF-string. De xref telt bytes, vandaar LC_ALL=C.
+pdf_met_tekst() {
+    local LC_ALL=C
+    local stream="BT /F1 12 Tf 72 770 Td ($1) Tj ET"
+    local objecten=(
+        "<< /Type /Catalog /Pages 2 0 R >>"
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
+        "<< /Length ${#stream} >>"$'\nstream\n'"$stream"$'\nendstream'
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    )
+    local pdf=$'%PDF-1.4\n' xref="" i
+
+    for i in "${!objecten[@]}"; do
+        printf -v xref '%s%010d 00000 n \n' "$xref" "${#pdf}"
+        pdf+="$((i + 1)) 0 obj"$'\n'"${objecten[$i]}"$'\nendobj\n'
+    done
+
+    printf '%sxref\n0 %d\n0000000000 65535 f \n%strailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n' \
+        "$pdf" $((${#objecten[@]} + 1)) "$xref" $((${#objecten[@]} + 1)) "${#pdf}"
+}
+
 bijlage_tekst="Rookproef-bijlage $stempel"
-# Het magazijn neemt alleen application/pdf aan en toetst het mimeType-veld, niet de inhoud;
-# platte tekst als inhoud houdt stap 6 controleerbaar met een grep.
-bijlage_a="[{\"naam\": \"rookproef.pdf\", \"mimeType\": \"application/pdf\", \"inhoud\": \"$(printf '%s' "$bijlage_tekst" | base64 | tr -d '\n')\"}]"
+bijlage_a="[{\"naam\": \"rookproef.pdf\", \"mimeType\": \"application/pdf\", \"inhoud\": \"$(pdf_met_tekst "$bijlage_tekst" | base64 | tr -d '\n')\"}]"
 
 echo "2/6 bericht aanleveren bij magazijn A, met een bijlage"
 lever_aan A "$MAGAZIJN_A" "$AFZENDER_OIN_A" "$onderwerp_a" "$bijlage_a"
@@ -198,7 +220,7 @@ if [[ -z "$bijlage_adres" ]]; then
     exit 1
 fi
 
-bijlage=/tmp/smoke-bijlage-a.txt
+bijlage=/tmp/smoke-bijlage-a.pdf
 rm -f "$bijlage"
 status=$(curl -s --max-time 10 -o "$bijlage" -w '%{http_code}' "$DEMO_PROXY$bijlage_adres" \
     -H "Cookie: ontvanger=$ONTVANGER" || true)
