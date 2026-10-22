@@ -91,6 +91,14 @@ berichtenbox moet doen:
   **Geen automatische herstart van de stream** na `sessie-verlopen`: die zou een nieuwe sessie
   openen en zo toch levend houden wat net verlopen is. Eindigt de stream zónder `sessie-verlopen`
   (maximale duur, herstart van de dienst), dan wel gewoon opnieuw verbinden.
+- **Na een automatische herverbinding de lijst niet vanzelf opnieuw lezen.** `GET /berichten`
+  verlengt de sessie, en een herverbinding is geen activiteit van de gebruiker: een proxy die de
+  stream elke paar minuten afbreekt, of een rolling deploy, hield een onbeheerd tabblad anders
+  alsnog tot het plafond ingelogd. Verbind opnieuw en voeg elk `bericht-bijgekomen` toe zoals
+  altijd, maar markeer de lijst als mogelijk onvolledig en lees hem opnieuw bij de volgende actie
+  van de gebruiker (die verlengt dan terecht). Was de gebruiker juist actief toen de verbinding
+  terugkwam, dan mag het meteen. Dit vervangt "verbind opnieuw en doe hetzelfde" uit de eerste
+  versie van de spec.
 
 **Overige contractwijzigingen:**
 
@@ -109,6 +117,9 @@ berichtenbox moet doen:
 - `X-Sessie` staat in de spec als securityschema (`components.securitySchemes.sessie`, `apiKey` in de
   header) in plaats van als parameter. De header zelf is ongewijzigd. Alles wat niet expliciet
   vrijgesteld is (`POST /sessies`, `/aanmeldingen`, `/openapi.json`), vereist hem.
+- Elke operatie met een sessie kan `503` geven (met `Retry-After`) als de opslag van de sessies
+  niet antwoordt, nu ook `PATCH` en `DELETE /berichten/{berichtId}`. Behandel die als tijdelijk:
+  opnieuw proberen na `Retry-After`, de sessie blijft geldig.
 - API-versie `0.7.0`.
 
 **Lokaal testen** tegen de uitvraag van die branch: in de FBS-repo de demo-stack starten met de

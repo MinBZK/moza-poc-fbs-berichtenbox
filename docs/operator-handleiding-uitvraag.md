@@ -244,7 +244,7 @@ uitzonderingen, en beide geven eerst een alert-token in de log:
 
 - het verlopen van de vangnet-TTL, dat zonder logregel wist. Dat gebeurt alleen als het actief
   opruimen langer dan de vangnet-marge uitbleef: na `[ALERT opruimen_na_schrijven]` of bij een
-  veegtaak die blijft falen (`[ALERT sessie_veger_faalt]`);
+  veegtaak die blijft falen, als geheel of voor een ontvanger (`[ALERT sessie_veger_faalt]`);
 - een opruiming die niet in het logboek kon worden geschreven (`LDV_OPRUIMEN_ONTBREEKT`).
 
 Regels die je in de logs kunt zien. De eerste twee komen van de veegtaak (`SessieVeger`); bij een
@@ -266,14 +266,22 @@ met de foutklasse:
 - `WARN Veegronde gestopt: … ontvangers kwamen in dezelfde ronde terug`: het naar achteren schuiven
   mislukte (bijvoorbeeld een alleen-lezen Redis tijdens een failover), dus de ronde kreeg dezelfde
   ontvangers opnieuw. Ze stopt dan na die batch in plaats van ze tot het einde van haar budget te
-  herhalen; de volgende ronde probeert opnieuw.
+  herhalen; de volgende ronde probeert opnieuw. Houdt het aan, dan volgt het alert per ontvanger
+  hieronder.
 - `WARN Verlopen sessies opruimen mislukt (…); volgende ronde probeert opnieuw`: de veegtaak kon
   de verlopen sessies niet eens opvragen. Eén keer is een hik; op rij leidt het tot het alert
   hieronder.
-- `ERROR [ALERT sessie_veger_faalt]`: drie veegrondes op rij konden de verlopen sessies niet eens
-  opvragen (daarna elke tiende mislukte ronde opnieuw, tot er een slaagt). Alert-token: zonder
+- `ERROR [ALERT sessie_veger_faalt]`, in twee vormen, beide per pod. Alert-token: zonder werkende
   veegtaak wist de Redis-TTL de gegevens zonder logregel. Controleer Redis (bereikbaar, niet
-  alleen-lezen, rechten op `EVAL`).
+  alleen-lezen, rechten op `EVAL`), en bij één vastzittende ontvanger de sleutels van die
+  ontvanger (bijvoorbeeld een sleutel van het verkeerde type na handwerk).
+  - `… veegrondes op rij mislukt (…)`: drie veegrondes op rij konden de verlopen sessies niet eens
+    opvragen. Daarna elke tiende mislukte ronde opnieuw, tot er een slaagt.
+  - `… ontvanger(s) konden 3 of meer pogingen op rij niet opgeruimd worden (langste reeks …)`: de
+    kandidaten zijn wel op te vragen, maar het opruimen van een of meer ontvangers blijft mislukken,
+    bijvoorbeeld op een alleen-lezen Redis. Eén regel voor alle vastzittende ontvangers samen,
+    daarna elke tiende ronde opnieuw zolang er een vastzit. De regel noemt alleen aantallen. Na een
+    mislukking schuift een ontvanger minstens 30 s op, dus drie pogingen duren een paar minuten.
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
   vastgelegd. Alert-token. De regel draagt een eigen `foutId`, de aanleiding, de uitkomst, het type
   ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger: naleggen kan dus niet.
@@ -282,23 +290,36 @@ met de foutklasse:
   (AVG art. 5(2)) heeft dan een gat dat niet te herstellen is; dat hoort vastgelegd te worden. Met
   `ontvanger.type=onbekend` kán er hoe dan ook geen logregel komen: de verloopindex noemt alleen
   een hash van de ontvanger, en de leesbare vorm (`…:ontvanger`, met dezelfde vangnet-TTL als de
-  gegevens) was al verlopen. Dat gebeurt pas als de veegtaak een ontvanger langer dan de
-  vangnet-marge niet kon opruimen; zie dan ook `[ALERT sessie_veger_faalt]`.
+  gegevens) was al verlopen, onleesbaar, of hoorde niet bij de index-entry. Dat laatste meldt ook
+  `ERROR Leesbare ontvanger hoort niet bij zijn index-entry`: wijst op handwerk of een
+  herstelscript in Redis. Een opruiming zonder bekende ontvanger die blijft mislukken, geeft per pod
+  één regel bij de eerste mislukte poging en één bij de opruiming die ten slotte lukt, niet bij elk
+  uitstel; tel per pod dus hoogstens twee `foutId`'s per gat. Het verlopen gebeurt pas als de
+  veegtaak een ontvanger langer dan de vangnet-marge niet kon opruimen; zie dan ook
+  `[ALERT sessie_veger_faalt]`.
 - `WARN Opruimen zonder lopende sessie mislukt (fout=...); de veegtaak ruimt het op`: een
   ophaalronde, aanmelding of verwijdering kruiste met het einde van de laatste sessie, en het
   opruimen daarna faalde. De ontvanger staat gemarkeerd in de verloopindex; de volgende veegronde
   ruimt op en legt het vast. Geen actie nodig, tenzij het aanhoudt (dan is Redis instabiel).
-- `ERROR [ALERT opruimen_na_schrijven]`: het opruimen na zo'n schrijfactie faalde, en ook het
-  markeren voor de veegtaak. De gegevens blijven onzichtbaar staan tot de Redis-TTL ze wist, en
-  dat wissen komt niet in het logboek. Alert-token; controleer de bereikbaarheid van Redis. De
-  regel noemt alleen fouttypes: welke ontvanger het betreft, staat bewust niet in de log.
-- Een uitlog waarop Redis niet op tijd antwoordt, geeft de gebruiker `503` en komt als opruiming
-  met uitkomst `onbevestigd` in het logboek: het wissen kan al gebeurd zijn.
+- `ERROR [ALERT opruimen_na_schrijven]`: een schrijfactie kon de veegtaak niet waarschuwen. De
+  regel begint met wat er misging: `Opruimen na een aanmelding mislukt`, `Aanmelding niet
+  bevestigd` of `Verwijderen niet bevestigd` (Redis antwoordde niet op het schrijven zelf, dat dus
+  toch gelukt kan zijn), of `Opruimen zonder lopende sessie mislukt`; en daarna dat ook het
+  markeren voor de veegtaak faalde. Eventueel geschreven gegevens blijven onzichtbaar staan tot de
+  Redis-TTL ze wist, en dat wissen komt niet in het logboek. Alert-token; controleer de
+  bereikbaarheid van Redis. Tijdens een Redis-storing kan het per mislukte aanmelding verschijnen.
+  De regel noemt alleen fouttypes: welke ontvanger het betreft, staat bewust niet in de log.
+- Een uitlog of start waarop Redis niet op tijd antwoordt, geeft de gebruiker `503` en komt als
+  opruiming met uitkomst `onbevestigd` in het logboek (aanleiding `uitgelogd` of `nieuwe-start`):
+  het wissen kan al gebeurd zijn.
 
 In het logboek zelf:
 
-- Een start boven de grens (`429 te-veel-sessies`) staat als logregel zonder status `Error`: het is
-  een bedoelde weigering, geen storing.
+- De logregel van een start (`uitvraag-sessie-start`) draagt `fbs.sessie.start.uitkomst`:
+  `gestart`, of `geweigerd` bij een start boven de grens (`429 te-veel-sessies`) of een ongeldig
+  verzoek (`400`, zoals een plafond in het verleden). Een weigering staat zonder status `Error`: het
+  is een bedoelde weigering of een fout van de afnemer, geen storing. Bij een storing (`503`)
+  ontbreekt het attribuut, want dan is niet bekend of er een sessie begon.
 - De logregel van een uitlog (`uitvraag-sessie-einde`) draagt `fbs.sessie.einde.uitkomst`:
   `opgeruimd`, `beeindigd` (er lopen nog andere sessies) of `onbekend` (de sessie bestond niet en
   er is niets gewist). Zolang er geen authenticatie is, kan iedereen een uitlog voor een
@@ -317,11 +338,29 @@ verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
   hoogstens 12 uur na de start (`max-duur`, of het eerdere plafond van het portaal); de Redis-TTL van
   13 uur (`max-duur` + `vangnet-marge`) is alleen een vangnet als het actief wissen faalt. Wijk je in
   een omgeving af van de defaults, neem dan die waarden op.
-- **Wat de verloopindex bewaart:** één stelselbrede sleutel zonder TTL
-  (`berichtensessiecache:v4:verloop`) met per ontvanger een hash van zijn identificatienummer en het
-  verloopmoment van zijn laatste sessie. Die hash is terug te rekenen door wie de ontvanger kent. De
-  leesbare ontvanger staat per ontvanger apart (`…:ontvanger`), met de vangnet-TTL, en verdwijnt samen
-  met zijn index-entry.
+- **Grondslag:** dezelfde als die van de berichtenuitvraag zelf: de sessie-administratie en het
+  logboek ervan horen bij het tonen van de berichten, niet bij een eigen doel. Stel met de privacy
+  officer de concrete wettelijke grondslag vast (naar verwachting een taak van algemeen belang, AVG
+  art. 6(1)(e)).
+- **Gegevenscategorieën:** het identificatienummer van de ontvanger (BSN, RSIN, KVK-nummer of OIN;
+  voor een BSN geldt UAVG art. 46); de metadata van zijn berichten (afzender, onderwerp,
+  publicatietijdstip, leesstatus, map, namen van bijlagen; de berichttekst blijft in het
+  magazijn); de sessie-administratie (een hash per sessie-id, met verloop en plafond, en dus
+  wanneer iemand van de onderneming actief was); en de verloopindex hieronder.
+- **Logregels over in- en uitloggen:** het logboek krijgt per ontvanger, met hem als betrokkene,
+  `uitvraag-sessie-start`, `uitvraag-sessie-einde` en `uitvraag-sessie-opruimen`. Daarmee legt het
+  vast wanneer er voor die ontvanger werd in- en uitgelogd en wanneer zijn gegevens gewist zijn.
+  Die regels volgen de bewaartermijn van het logboek, niet de termijnen hierboven; neem ze zo op in
+  het register.
+- **Wat de verloopindex bewaart:** één stelselbrede sleutel (`berichtensessiecache:v4:verloop`) met
+  per ontvanger zijn kenmerk en het verloopmoment van zijn laatste sessie. Het kenmerk is SHA-256
+  zonder geheim over het identificatienummer: een pseudoniem, geen anonimisering. Er zijn zo'n 10⁸
+  geldige BSN's, dus wie de index kan lezen, rekent met een woordenboek elk kenmerk in minuten
+  terug; behandel de index als persoonsgegeven. De sleutel heeft een TTL van `max-duur` +
+  `vangnet-marge` + `max-duur` (standaard 25 uur), die elke bijwerking opnieuw zet. Draait de
+  veegtaak niet meer, dan verdwijnt de index dus uiterlijk zo lang na de laatste sessieactiviteit;
+  hij verloopt nooit vóór de gegevens waar hij naar wijst. De leesbare ontvanger staat per
+  ontvanger apart (`…:ontvanger`), met de vangnet-TTL, en verdwijnt samen met zijn index-entry.
 
 ### Koppeling met een portaal
 
