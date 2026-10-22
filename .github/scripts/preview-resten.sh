@@ -22,7 +22,10 @@
 #                               (REPO, ORG, PAKKETTEN)
 #   classificeer <bestand>      `<n>\t<klasse>\t<bronnen>` voor de regels `<n>\t<bron>` in <bestand>
 #                               (REPO); klasse is `opruimen`, `geen-pr` of `vreemd-pakket`
-#   kies <bestand>              de nummers die deze run opruimt, roterend (MAX_PER_RUN, RONDE)
+#   kies <bestand>              de nummers die deze run opruimt, roterend (MAX_PER_RUN, LAATSTE)
+#   vorige-stand <doel>         de stand van de vorige run op main, uit het artefact; exit 1 als
+#                               er geen is (REPO)
+#   nieuwe-stand                de stand voor de volgende run (NEEDS)
 #   opruimen <n>...             start cleanup-preview.yml per nummer, na elkaar, en wacht op de
 #                               uitkomst: `<n>\t<conclusie>\t<run-url of reden>` (REPO, KENMERK);
 #                               conclusie `uitgesteld` als er een uitrol of opruiming liep
@@ -184,20 +187,25 @@ classificeer() {
 # Welke nummers deze run opruimt: hoogstens MAX_PER_RUN, uit de regels met klasse `opruimen`.
 #
 # Roterend en niet "de laagste tien": blijven de laagste nummers mislukken, dan zouden ze elke run
-# opnieuw de hele ruimte opeisen en kwamen de nummers erna nooit aan de beurt. Het startpunt
-# schuift per run (RONDE, het runnummer) telkens MAX_PER_RUN op, zodat elk nummer binnen
-# ⌈totaal / MAX_PER_RUN⌉ runs geprobeerd wordt — zonder dat er toestand tussen runs nodig is.
+# opnieuw de hele ruimte opeisen en kwamen de nummers erna nooit aan de beurt. De keuze begint bij
+# het eerste nummer ná LAATSTE, het laatst geprobeerde nummer uit de stand van de vorige run, en
+# loopt rond. Een run die niets probeert (alleen inventariseren) laat LAATSTE staan, dus schuift de
+# rij alleen op door werk dat echt gedaan is. Zonder stand begint de keuze bij het laagste nummer.
 kies() {
-  local bestand=${1:-} max=${MAX_PER_RUN:-} ronde=${RONDE:-}
-  [ -f "$bestand" ] || onbepaald "Gebruik: MAX_PER_RUN=… RONDE=… $0 kies <bevindingen>"
+  local bestand=${1:-} max=${MAX_PER_RUN:-} laatste=${LAATSTE-0}
+  [ -f "$bestand" ] || onbepaald "Gebruik: MAX_PER_RUN=… [LAATSTE=…] $0 kies <bevindingen>"
 
-  case "$max$ronde" in
-    '' | *[!0-9]*) onbepaald "MAX_PER_RUN en RONDE moeten getallen zijn." ;;
+  case "$max" in
+    '' | *[!0-9]*) onbepaald "MAX_PER_RUN moet een getal zijn." ;;
   esac
 
-  [ "$max" -gt 0 ] && [ "$ronde" -gt 0 ] || onbepaald "MAX_PER_RUN en RONDE moeten groter dan 0 zijn."
+  case "$laatste" in
+    '' | *[!0-9]*) onbepaald "LAATSTE moet een getal zijn." ;;
+  esac
 
-  local nummers totaal begin i
+  [ "$max" -gt 0 ] || onbepaald "MAX_PER_RUN moet groter dan 0 zijn."
+
+  local nummers totaal begin=0 i
   mapfile -t nummers < <(awk -F'\t' '$2 == "opruimen" { print $1 }' "$bestand" | sort -un)
   totaal=${#nummers[@]}
 
@@ -207,7 +215,13 @@ kies() {
     return 0
   fi
 
-  begin=$(((ronde - 1) * max % totaal))
+  # Het eerste nummer groter dan LAATSTE; is er geen, dan rond naar het begin.
+  for ((i = 0; i < totaal; i++)); do
+    if [ "${nummers[i]}" -gt "$laatste" ]; then
+      begin=$i
+      break
+    fi
+  done
 
   for ((i = 0; i < max; i++)); do
     echo "${nummers[(begin + i) % totaal]}"
@@ -347,9 +361,10 @@ manifest() {
 #   opgehaald; een `subject`, of een manifest dat niet op te halen is, blijft staan.
 # Liever een melding te veel dan een kapot image.
 #
-# VERWIJDER_MAX begrenst het aantal verwijderingen per aanroep, oudste eerst; de rest komt als
-# `uitgesteld` terug en wacht op de volgende run. Zo blijft een run binnen de API-limiet van
-# GITHUB_TOKEN, ook bij een achterstand van honderden versies.
+# VERWIJDER_MAX begrenst het aantal verwijderingen per aanroep, oudste eerst, en MANIFEST_MAX het
+# aantal opgehaalde manifests; wat niet onderzocht is, komt als `uitgesteld` terug en wacht op de
+# volgende run. Zo blijft een run binnen de API-limiet van GITHUB_TOKEN, ook bij een achterstand
+# van honderden versies.
 ongetagd() {
   local pkg=${1:-} max=${VERWIJDER_MAX:-100}
   [ -n "$pkg" ] && [ -n "${ORG:-}" ] && [ -n "${GH_TOKEN:-}" ] || onbepaald "Gebruik: ORG=… GH_TOKEN=… $0 ongetagd <package>"
@@ -404,12 +419,22 @@ ongetagd() {
     return 0
   fi
 
-  local gekozen uitgesteld referrers=0 onleesbaar=0 inhoud verwijderen=""
-  gekozen=$(head -n "$max" <<<"$kandidaten")
-  uitgesteld=$((aantal - $(grep -c . <<<"$gekozen" || true)))
+  # Doorlopen tot er `max` verwijderbare versies zijn: bewaarde referrers en onleesbare manifests
+  # tellen niet mee voor dat plafond, anders zouden blijvende referrers onder de oudste versies de
+  # plekken voorgoed bezetten. Het aantal manifest-opvragingen heeft een eigen plafond.
+  local fetch_max=${MANIFEST_MAX:-300} gehaald=0 onderzocht=0 uitgesteld
+  local referrers=0 onleesbaar=0 verwijderbaar=0 inhoud verwijderen=""
+
+  case "$fetch_max" in
+    '' | *[!0-9]*) onbepaald "MANIFEST_MAX moet een getal zijn." ;;
+  esac
 
   while IFS=$'\t' read -r id digest; do
     [ -n "$id" ] || continue
+    [ "$verwijderbaar" -lt "$max" ] && [ "$gehaald" -lt "$fetch_max" ] || break
+
+    gehaald=$((gehaald + 1))
+    onderzocht=$((onderzocht + 1))
 
     if ! inhoud=$(manifest "$pkg" "$digest" "$token") || ! jq -e 'type == "object"' <<<"$inhoud" >/dev/null 2>&1; then
       onleesbaar=$((onleesbaar + 1))
@@ -417,8 +442,11 @@ ongetagd() {
       referrers=$((referrers + 1))
     else
       verwijderen="$verwijderen$id"$'\n'
+      verwijderbaar=$((verwijderbaar + 1))
     fi
-  done <<<"$gekozen"
+  done <<<"$kandidaten"
+
+  uitgesteld=$((aantal - onderzocht))
 
   # Een referrer hoort bij het manifest waar hij naar wijst en blijft dus bewust staan. Geen
   # melding: die zou blijven staan zolang het image bestaat, en een melding die nooit verdwijnt,
@@ -432,7 +460,8 @@ ongetagd() {
   fi
 
   if [ "$uitgesteld" -gt 0 ]; then
-    printf '%s\tuitgesteld\t%s\tboven het plafond van %s verwijderingen per run\n' "$pkg" "$uitgesteld" "$max"
+    printf '%s\tuitgesteld\t%s\tniet onderzocht: plafond van %s verwijderingen of %s manifests per run\n' \
+      "$pkg" "$uitgesteld" "$max" "$fetch_max"
   fi
 
   [ -n "$verwijderen" ] || return 0
@@ -452,6 +481,70 @@ ongetagd() {
   if [ "$rest" -gt 0 ]; then
     printf '%s\tmislukt\t%s\tstaan na het verwijderen nog in de lijst (%s weigeringen)\n' "$pkg" "$rest" "$fouten"
   fi
+}
+
+# De stand tussen runs, als regels `<soort>\t<n>`, in het artefact `preview-resten-stand`:
+#   gelukt   cleanup-preview.yml meldde dit nummer deze run als opgeruimd
+#   terug    een eerder als opgeruimd gemeld nummer dat toch weer als rest terugkwam; blijft in de
+#            stand zolang het nummer terugkomt, zodat de melding niet om de andere run verdwijnt
+#   laatste  het laatst geprobeerde nummer, waar `kies` de volgende run na begint
+readonly STAND_ARTEFACT=preview-resten-stand
+
+# De vorige stand uit NEEDS (`.inventaris.outputs.stand`).
+vorige_stand_uit_needs() {
+  jq -r '.inventaris.outputs.stand // ""' <<<"$NEEDS"
+}
+
+# De nummers die nu als rest terug zijn na een eerdere gemelde opruiming: (gelukt ∪ terug) uit de
+# vorige stand, voor zover ze nu weer met klasse `opruimen` in de inventaris staan.
+terug() {
+  awk -F'\t' '
+    FNR == NR { if ($1 == "gelukt" || $1 == "terug") eerder[$2] = 1; next }
+    $2 == "opruimen" && ($1 in eerder) { print $1 }
+  ' <(vorige_stand_uit_needs) <(jq -r '.inventaris.outputs.bevindingen // ""' <<<"$NEEDS") | sort -un
+}
+
+nieuwe_stand() {
+  [ -n "${NEEDS+gezet}" ] || onbepaald "NEEDS is verplicht."
+  jq -e 'type == "object"' <<<"$NEEDS" >/dev/null 2>&1 || onbepaald "NEEDS is geen toJSON(needs)-uitvoer."
+
+  local uitkomsten laatste
+  uitkomsten=$(jq -r '.opruimen.outputs.uitkomsten // ""' <<<"$NEEDS")
+
+  awk -F'\t' '$2 == "success" { print "gelukt\t" $1 }' <<<"$uitkomsten"
+  terug | sed 's/^/terug\t/'
+
+  # Het laatst geprobeerde nummer; een uitgesteld nummer is niet geprobeerd. Probeerde deze run
+  # niets, dan blijft de vorige waarde staan.
+  laatste=$(awk -F'\t' 'NF && $2 != "uitgesteld" { n = $1 } END { print n }' <<<"$uitkomsten")
+  [ -n "$laatste" ] || laatste=$(vorige_stand_uit_needs | awk -F'\t' '$1 == "laatste" { n = $2 } END { print n }')
+  [ -z "$laatste" ] || printf 'laatste\t%s\n' "$laatste"
+}
+
+# Het meest recente stand-artefact van een run op main. Exit 1 als er geen is (eerste run, of
+# verlopen): dat is een geldige toestand en geen fout. Exit 2 als de lijst of het artefact niet te
+# lezen is; dat moet zichtbaar zijn, want dan vallen de rotatie en de terug-controle stil terug.
+vorige_stand() {
+  local doel=${1:-}
+  [ -n "$doel" ] && [ -n "${REPO:-}" ] || onbepaald "Gebruik: REPO=… $0 vorige-stand <doelbestand>"
+
+  local lijst id
+  lijst=$(api "repos/$REPO/actions/artifacts?name=$STAND_ARTEFACT&per_page=100") \
+    || onbepaald "De artefacten van $REPO zijn niet op te vragen."
+
+  id=$(jq -er '.artifacts | if type == "array" then . else error("geen lijst") end
+    | map(select(.expired == false and .workflow_run.head_branch == "main"))
+    | sort_by(.created_at) | last | .id // ""' <<<"$lijst" 2>/dev/null) \
+    || onbepaald "De artefactlijst van $REPO is onleesbaar."
+
+  [ -n "$id" ] || return 1
+
+  api "repos/$REPO/actions/artifacts/$id/zip" >"$doel.zip" \
+    || onbepaald "Artefact $id is niet te downloaden."
+  python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("stand.tsv"))' \
+    "$doel.zip" >"$doel" 2>/dev/null \
+    || onbepaald "Artefact $id bevat geen leesbare stand."
+  rm -f "$doel.zip"
 }
 
 # Wat er na een run is blijven staan of niet vast te stellen was, als regels
@@ -505,16 +598,16 @@ bevindingen() {
   fi
 
   # De inventaris, met per nummer de uitkomst van de opruiming ernaast. `onbepaald`-regels gaan
-  # ongewijzigd door. Een nummer dat de vorige run met succes opruimde en nu tóch weer als rest
+  # ongewijzigd door. Een nummer dat eerder met succes is opgeruimd en nu tóch weer als rest
   # terugkomt, wijst op een opruiming die groen meldt zonder alles weg te halen.
-  awk -F'\t' -v reden="$reden" -v vorige=" $(jq -r '.inventaris.outputs.vorige // ""' <<<"$NEEDS") " '
+  awk -F'\t' -v reden="$reden" -v vorige=" $(terug | tr '\n' ' ') " '
     FNR == NR { if (NF) { status[$1] = $2; extra[$1] = $3 } next }
     $1 == "onbepaald"     { print; next }
     $2 == "geen-pr"       { print "geen-pr\tpr-" $1 "\tresten zonder bijbehorende PR: " $3; next }
     $2 == "vreemd-pakket" { print "vreemd-pakket\tpr-" $1 "\ttags in een package buiten de opruimlijst: " $3; next }
     $2 == "opruimen" {
       if ($3 ~ /vreemd-pakket:/) print "vreemd-pakket\tpr-" $1 "\ttags in een package buiten de opruimlijst: " $3
-      if (index(vorige, " " $1 " ")) print "terug-na-opruiming\tpr-" $1 "\tde vorige run meldde de opruiming als gelukt, maar er staat nog: " $3
+      if (index(vorige, " " $1 " ")) print "terug-na-opruiming\tpr-" $1 "\teen eerdere run meldde de opruiming als gelukt, maar er staat nog: " $3
       s = status[$1]
       if (s == "success") next
       if (s == "uitgesteld") { print "wacht-op-opruiming\tpr-" $1 "\tuitgesteld: " extra[$1]; next }
@@ -533,6 +626,26 @@ bevindingen() {
 
 readonly ISSUE_TITEL='Achtergebleven preview-resten'
 
+# De nummers van de open meld-issues, oudste eerst. Alleen issues van de workflow zelf: een mens of
+# een PR met dezelfde titel telt niet.
+open_issues() {
+  api "repos/$REPO/issues?state=open&per_page=100" --paginate \
+    | jq -r --arg t "$ISSUE_TITEL" '.[] | select(.pull_request == null and .title == $t
+      and .user.login == "github-actions[bot]") | .number' | sort -n
+}
+
+# De stand waarop een wijziging gemeld wordt. Per PR-nummer telt alleen dát er iets staat, niet
+# waarom: een nummer dat blijft mislukken wisselt door de rotatie per run tussen "mislukt" en "wacht
+# op zijn beurt", en elke wissel zou anders een bijgewerkte beschrijving plus comment opleveren. Het
+# waarom staat in de beschrijving.
+stand_van() {
+  awk -F'\t' '{
+      soort = $1
+      if (soort == "opruiming-mislukt" || soort == "wacht-op-opruiming" || soort == "terug-na-opruiming") soort = "staat-nog"
+      print soort "\t" $2
+    }' "$1" | sort -u | sha256sum | cut -c1-16
+}
+
 # Houdt precies één issue bij met wat er is blijven staan. Een rode job in de Actions-tab ziet niemand
 # op een geplande run; een issue komt in de notificaties van wie de repo volgt.
 #
@@ -542,19 +655,27 @@ readonly ISSUE_TITEL='Achtergebleven preview-resten'
 #   bevindingen, issue open       → alleen bij een gewijzigde stand de beschrijving bijwerken plus
 #                                   een comment; dezelfde stand elke dag opnieuw melden is ruis
 #
-# De stand wordt vergeleken op soort en sleutel, niet op de toelichting: daar staan run-URL's in die
-# elke run anders zijn.
+# De stand wordt vergeleken via stand_van, niet op de toelichting: daar staan run-URL's in die elke
+# run anders zijn.
 issue() {
   local bestand=${1:-}
   [ -f "$bestand" ] && [ -n "${REPO:-}" ] && [ -n "${RUN_URL:-}" ] \
     || onbepaald "Gebruik: REPO=… RUN_URL=… $0 issue <bevindingen>"
 
-  local nummer stand vorige body
+  local nummers nummer extra stand vorige body
 
-  nummer=$(api "repos/$REPO/issues?state=open&per_page=100" --paginate \
-    | jq -r --arg t "$ISSUE_TITEL" '.[] | select(.pull_request == null and .title == $t
-      and .user.login == "github-actions[bot]") | .number' | head -1) \
-    || onbepaald "De open issues van $REPO zijn niet op te vragen."
+  nummers=$(open_issues) || onbepaald "De open issues van $REPO zijn niet op te vragen."
+  nummer=$(head -1 <<<"$nummers")
+
+  # Meer dan één open issue (een eerdere race, of een noodmelding): het oudste blijft, de rest
+  # sluit met een verwijzing. Anders zouden de extra issues nooit meer dichtgaan.
+  for extra in $(tail -n +2 <<<"$nummers"); do
+    api "repos/$REPO/issues/$extra/comments" -X POST -f body="Dubbel van #$nummer; dat issue houdt de stand bij." >/dev/null \
+      || onbepaald "Kon niet reageren op issue #$extra."
+    api "repos/$REPO/issues/$extra" -X PATCH -f state=closed -f state_reason=not_planned >/dev/null \
+      || onbepaald "Kon issue #$extra niet sluiten."
+    echo "Issue #$extra gesloten als dubbel van #$nummer."
+  done
 
   if [ ! -s "$bestand" ]; then
     if [ -n "$nummer" ]; then
@@ -571,7 +692,7 @@ issue() {
     return 0
   fi
 
-  stand=$(cut -f1,2 "$bestand" | sort -u | sha256sum | cut -c1-16)
+  stand=$(stand_van "$bestand")
 
   body=$(
     echo "<!-- stand: $stand -->"
@@ -625,9 +746,10 @@ noodmelding() {
 
   local nummer tekst="De controle op preview-resten kon zijn bevindingen niet melden; zie $RUN_URL."
 
-  nummer=$(api "repos/$REPO/issues?state=open&per_page=100" --paginate \
-    | jq -r --arg t "$ISSUE_TITEL" '.[] | select(.pull_request == null and .title == $t
-      and .user.login == "github-actions[bot]") | .number' | head -1) || nummer=""
+  # Een onleesbare lijst is geen lege lijst: dan een nieuw issue aanmaken zou een dubbel opleveren
+  # naast een issue dat er misschien al staat. Hard falen; de rode job is dan het enige signaal.
+  nummer=$(open_issues) || onbepaald "De open issues zijn niet op te vragen; geen noodmelding geplaatst."
+  nummer=$(head -1 <<<"$nummer")
 
   if [ -n "$nummer" ]; then
     api "repos/$REPO/issues/$nummer/comments" -X POST -f body="$tekst" >/dev/null \
@@ -647,6 +769,8 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 
   case "$opdracht" in
     zad | github | classificeer | kies | opruimen | ongetagd | bevindingen | issue | noodmelding) "$opdracht" "$@" ;;
-    *) onbepaald "Gebruik: $0 zad|github|classificeer|kies|opruimen|ongetagd|bevindingen|issue|noodmelding …" ;;
+    vorige-stand) vorige_stand "$@" ;;
+    nieuwe-stand) nieuwe_stand "$@" ;;
+    *) onbepaald "Gebruik: $0 zad|github|classificeer|kies|opruimen|ongetagd|bevindingen|issue|noodmelding|vorige-stand|nieuwe-stand …" ;;
   esac
 fi

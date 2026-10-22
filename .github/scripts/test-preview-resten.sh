@@ -125,6 +125,13 @@ antwoord_daarna() {
   printf '%s' "${4:-2}" >"$werkmap/fix/$sleutel.vanaf"
 }
 
+# antwoord_bestand <programma> <argumenten> <bestand>: een binair antwoord (een zip).
+antwoord_bestand() {
+  local sleutel
+  sleutel=$(printf '%s' "$1 $2" | sha256sum | cut -c1-32)
+  cp "$3" "$werkmap/fix/$sleutel"
+}
+
 aanroepen() {
   cat "$werkmap/aanroepen"
 }
@@ -326,30 +333,44 @@ kies_nummers() {
   } >"$werkmap/kies.tsv"
 }
 
+kies_uit() {
+  tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//'
+}
+
 kies_nummers 10
-MAX_PER_RUN=10 RONDE=1 draai kies "$werkmap/kies.tsv"
-gelijk "precies 10 nummers bij een plafond van 10: alle tien" "1 2 3 4 5 6 7 8 9 10" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
-MAX_PER_RUN=10 RONDE=2 draai kies "$werkmap/kies.tsv"
-gelijk "binnen het plafond hangt de keuze niet van de ronde af" "1 2 3 4 5 6 7 8 9 10" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
+MAX_PER_RUN=10 draai kies "$werkmap/kies.tsv"
+gelijk "precies 10 nummers bij een plafond van 10: alle tien" "1 2 3 4 5 6 7 8 9 10" "$(kies_uit)"
+MAX_PER_RUN=10 LAATSTE=4 draai kies "$werkmap/kies.tsv"
+gelijk "binnen het plafond hangt de keuze niet van LAATSTE af" "1 2 3 4 5 6 7 8 9 10" "$(kies_uit)"
 
 kies_nummers 11
-MAX_PER_RUN=10 RONDE=1 draai kies "$werkmap/kies.tsv"
-gelijk "11 nummers bij een plafond van 10: de eerste ronde kiest er tien" "1 2 3 4 5 6 7 8 9 10" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
-MAX_PER_RUN=10 RONDE=2 draai kies "$werkmap/kies.tsv"
-gelijk "de tweede ronde begint bij het nummer dat er de eerste keer af viel" "11 1 2 3 4 5 6 7 8 9" "$(tr '\n' ' ' <<<"$UITVOER" | sed 's/ $//')"
+MAX_PER_RUN=10 draai kies "$werkmap/kies.tsv"
+gelijk "11 nummers zonder stand: begin bij het laagste" "1 2 3 4 5 6 7 8 9 10" "$(kies_uit)"
+MAX_PER_RUN=10 LAATSTE=10 draai kies "$werkmap/kies.tsv"
+gelijk "na laatste=10 begint de keuze bij 11 en loopt rond" "11 1 2 3 4 5 6 7 8 9" "$(kies_uit)"
+MAX_PER_RUN=10 LAATSTE=11 draai kies "$werkmap/kies.tsv"
+gelijk "na het hoogste nummer begint de keuze weer bij het laagste" "1 2 3 4 5 6 7 8 9 10" "$(kies_uit)"
+# LAATSTE hoeft niet meer in de lijst te staan: het nummer kan intussen opgeruimd zijn.
+printf '%s\n' '3	opruimen	o' '8	opruimen	o' '15	opruimen	o' '20	opruimen	o' >"$werkmap/gaten.tsv"
+MAX_PER_RUN=2 LAATSTE=9 draai kies "$werkmap/gaten.tsv"
+gelijk "een verdwenen LAATSTE: begin bij het eerstvolgende nummer" "15 20" "$(kies_uit)"
 
+# Elke run gaat verder na het laatst gekozen nummer: binnen ⌈25/10⌉ runs komt elk nummer aan de beurt.
 kies_nummers 25
 alle=""
-for ronde in 1 2 3; do
-  alle="$alle $(MAX_PER_RUN=10 RONDE=$ronde bash "$SCRIPT" kies "$werkmap/kies.tsv" | tr '\n' ' ')"
+laatste=0
+for _ in 1 2 3; do
+  keuze=$(MAX_PER_RUN=10 LAATSTE=$laatste bash "$SCRIPT" kies "$werkmap/kies.tsv")
+  alle="$alle $(tr '\n' ' ' <<<"$keuze")"
+  laatste=$(tail -1 <<<"$keuze")
 done
-gelijk "binnen ⌈25/10⌉ rondes komt elk nummer aan de beurt" 25 "$(tr ' ' '\n' <<<"$alle" | grep . | sort -un | grep -c .)"
+gelijk "binnen ⌈25/10⌉ runs komt elk nummer aan de beurt" 25 "$(tr ' ' '\n' <<<"$alle" | grep . | sort -un | grep -c .)"
 
 kies_nummers 0
-MAX_PER_RUN=10 RONDE=1 draai kies "$werkmap/kies.tsv"
+MAX_PER_RUN=10 draai kies "$werkmap/kies.tsv"
 gelijk "zonder op te ruimen nummers kiest kies niets" "0|" "$RC|$UITVOER"
 
-for fout_invoer in "MAX_PER_RUN=0 RONDE=1" "MAX_PER_RUN=tien RONDE=1" "MAX_PER_RUN=10 RONDE=" "MAX_PER_RUN= RONDE=1"; do
+for fout_invoer in "MAX_PER_RUN=0" "MAX_PER_RUN=tien" "MAX_PER_RUN=" "MAX_PER_RUN=10 LAATSTE=x" "MAX_PER_RUN=10 LAATSTE="; do
   RC=0
   # shellcheck disable=SC2086 # bewust gesplitst in losse toewijzingen voor env
   env $fout_invoer bash "$SCRIPT" kies "$werkmap/kies.tsv" >/dev/null 2>&1 || RC=$?
@@ -539,16 +560,40 @@ ongetagd_fixtures
 antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":1},{"id":3},{"id":4},{"id":5}]'
 ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=1 draai ongetagd p
 gelijk "het plafond verwijdert de oudste eerst" "2" "$(deletes)"
-bevat "en meldt de rest als uitgesteld" "p	uitgesteld	1	boven het plafond van 1 verwijderingen per run" "$UITVOER"
+bevat "en meldt de rest als uitgesteld" "p	uitgesteld	1	niet onderzocht: plafond van 1 verwijderingen of 300 manifests per run" "$UITVOER"
 
 opnieuw
 ongetagd_fixtures
 ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=0 draai ongetagd p
 gelijk "een opgebruikt plafond verwijdert niets" "" "$(deletes)"
-gelijk "en stelt alles uit" "0|p	uitgesteld	2	boven het plafond van 0 verwijderingen per run" "$RC|$UITVOER"
+gelijk "en stelt alles uit" "0|p	uitgesteld	2	niet onderzocht: plafond van 0 verwijderingen of 300 manifests per run" "$RC|$UITVOER"
 
 ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=veel draai ongetagd p
 gelijk "een plafond dat geen getal is, is onbepaald" 2 "$RC"
+
+ORG=o GH_TOKEN=t VERWIJDER=true MANIFEST_MAX=veel draai ongetagd p
+gelijk "een manifest-plafond dat geen getal is, is onbepaald" 2 "$RC"
+
+# Een bewaarde referrer onder de oudste versies bezet geen plek: met een plafond van 1 wordt de
+# volgende, wél verwijderbare versie gevonden, en niets geldt als uitgesteld.
+opnieuw
+ongetagd_fixtures
+manifest_antwoord b '{"schemaVersion":2,"subject":{"digest":"sha256:a"}}'
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":1},{"id":2},{"id":4},{"id":5}]'
+ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=1 draai ongetagd p
+gelijk "een referrer telt niet voor het verwijderplafond" "3" "$(deletes)"
+gelijk "en is niet uitgesteld" "p	referrer	1	verwijzen via subject naar een ander manifest
+p	verwijderd	1	" "$UITVOER"
+
+# Het aparte plafond op manifest-opvragingen: daarna stopt het onderzoek, en wat niet bekeken is,
+# is uitgesteld.
+opnieuw
+ongetagd_fixtures
+manifest_antwoord b '{"schemaVersion":2,"subject":{"digest":"sha256:a"}}'
+ORG=o GH_TOKEN=t VERWIJDER=true MANIFEST_MAX=1 draai ongetagd p
+gelijk "het manifest-plafond begrenst de opvragingen" "" "$(deletes)"
+bevat "en meldt het onbekeken deel als uitgesteld" "p	uitgesteld	1	niet onderzocht: plafond van 100 verwijderingen of 1 manifests per run" "$UITVOER"
+gelijk "precies één manifest opgevraagd" 1 "$(grep -c 'manifests/sha256:[bc]$' "$werkmap/aanroepen")"
 
 # De grens van zeven dagen: precies zeven dagen oud telt mee, een seconde jonger niet.
 opnieuw
@@ -647,9 +692,34 @@ bevinding "een mislukte opruiming wordt gemeld met de run" '.opruimen.outputs.ui
 bevinding "een niet-gestarte opruiming wordt gemeld" '.opruimen.outputs.uitkomsten = "7\tniet-gestart\t"' \
   'opruiming-mislukt	pr-7	cleanup-preview.yml eindigde als niet-gestart'
 bevinding "een nummer dat de vorige run groen opgeruimd werd en nu terug is, wordt gemeld" \
-  '.inventaris.outputs.vorige = "3 7 70"' \
-  'terug-na-opruiming	pr-7	de vorige run meldde de opruiming als gelukt, maar er staat nog: omgeving,zad:uitvraag'
-bevinding "een vorige run met andere nummers meldt niets" '.inventaris.outputs.vorige = "70 17"' ''
+  '.inventaris.outputs.stand = "gelukt\t3\ngelukt\t7\ngelukt\t70\nlaatste\t70"' \
+  'terug-na-opruiming	pr-7	een eerdere run meldde de opruiming als gelukt, maar er staat nog: omgeving,zad:uitvraag'
+# Eenmaal teruggekomen blijft het nummer gemeld zolang het terugkomt, ook als de vorige run het niet
+# probeerde; anders verdwijnt de melding om de andere run.
+bevinding "een eerder teruggekomen nummer blijft gemeld zolang het terugkomt" \
+  '.inventaris.outputs.stand = "terug\t7\nlaatste\t9"' \
+  'terug-na-opruiming	pr-7	een eerdere run meldde de opruiming als gelukt, maar er staat nog: omgeving,zad:uitvraag'
+bevinding "een vorige stand met andere nummers meldt niets" '.inventaris.outputs.stand = "gelukt\t70\nterug\t17\nlaatste\t7"' ''
+
+# --- nieuwe-stand -------------------------------------------------------------------------------
+# nieuwe_stand_van <jq-bewerking op GOED>: de stand die de meldjob voor de volgende run vastlegt.
+nieuwe_stand_van() {
+  NEEDS=$(jq -c "$1" <<<"$GOED") bash "$SCRIPT" nieuwe-stand 2>&1 | paste -sd'|' -
+}
+
+gelijk "de stand legt gelukt en het laatst geprobeerde nummer vast" "gelukt	7|laatste	7" "$(nieuwe_stand_van '.')"
+gelijk "het laatste geprobeerde nummer is het laatste dat niet uitgesteld is" "gelukt	7|laatste	8" \
+  "$(nieuwe_stand_van '.opruimen.outputs.uitkomsten = "7\tsuccess\tu\n8\tfailure\tu\n9\tuitgesteld\tbezet"')"
+gelijk "een run die niets probeerde, houdt het vorige laatste vast" "laatste	42" \
+  "$(nieuwe_stand_van '.opruimen = {"result": "skipped"} | .inventaris.outputs.stand = "laatste\t42\ngelukt\t5"')"
+gelijk "alleen uitgestelde nummers tellen niet als geprobeerd" "laatste	42" \
+  "$(nieuwe_stand_van '.opruimen.outputs.uitkomsten = "7\tuitgesteld\tbezet" | .inventaris.outputs.stand = "laatste\t42"')"
+gelijk "een teruggekomen nummer gaat als terug mee naar de volgende stand" "gelukt	7|terug	7|laatste	7" \
+  "$(nieuwe_stand_van '.inventaris.outputs.stand = "gelukt\t7"')"
+gelijk "een teruggekomen nummer dat er niet meer staat, valt uit de stand" "gelukt	7|laatste	7" \
+  "$(nieuwe_stand_van '.inventaris.outputs.stand = "terug\t70"')"
+gelijk "zonder vorige stand en zonder poging: een lege stand" "" \
+  "$(nieuwe_stand_van '.opruimen = {"result": "skipped"}')"
 bevinding "geen-pr en vreemd-pakket worden gemeld, een opgeruimd nummer niet" \
   '.inventaris.outputs.bevindingen = "7\topruimen\tomgeving\n9\tgeen-pr\tomgeving\n10\tvreemd-pakket\tvreemd-pakket:x\n14\topruimen\tghcr:a,vreemd-pakket:x\nonbepaald\tgithub\tniet te lezen"
    | .opruimen.outputs.uitkomsten = "7\tsuccess\thttps://x/runs/2\n14\tsuccess\thttps://x/runs/3"' \
@@ -721,6 +791,85 @@ antwoord gh "api repos/o/r/issues -X POST -f title=Achtergebleven preview-resten
 REPO=o/r RUN_URL=https://run/1 draai issue "$werkmap/leeg.tsv"
 gelijk "zonder bevindingen wordt het aanmaken niet geprobeerd" 0 "$RC"
 
+# De stand knippert niet: een nummer dat door de rotatie de ene run "mislukt" en de andere "wacht"
+# of "terug" heet, is dezelfde stand. Alleen de beschrijving verschilt.
+printf 'opruiming-mislukt\tpr-7\tcleanup-preview.yml eindigde als failure (https://run/1)\n' >"$werkmap/run1"
+printf 'wacht-op-opruiming\tpr-7\tniet aan de beurt\nterug-na-opruiming\tpr-7\teen eerdere run …\n' >"$werkmap/run2"
+gelijk "mislukt, wacht en terug voor hetzelfde nummer geven dezelfde stand" "$(stand_van "$werkmap/run1")" "$(stand_van "$werkmap/run2")"
+printf 'wacht-op-opruiming\tpr-8\tniet aan de beurt\n' >"$werkmap/run3"
+bevat_niet "een ander nummer geeft een andere stand" "$(stand_van "$werkmap/run1")" "$(stand_van "$werkmap/run3")"
+printf 'vreemd-pakket\tpr-7\tx\n' >"$werkmap/run4"
+bevat_niet "een andere soort bevinding voor hetzelfde nummer geeft een andere stand" "$(stand_van "$werkmap/run1")" "$(stand_van "$werkmap/run4")"
+
+opnieuw
+antwoord gh "$ISSUES_URL" '[{"number":40,"title":"Achtergebleven preview-resten","user":{"login":"github-actions[bot]"}}]'
+antwoord gh 'api repos/o/r/issues/40' "{\"body\":\"<!-- stand: $(stand_van "$werkmap/run1") -->\"}"
+REPO=o/r RUN_URL=https://run/2 draai issue "$werkmap/run2"
+gelijk "twee runs met wisselende rotatiereden: het issue wordt niet bijgewerkt" "0|Issue #40: stand ongewijzigd, niets bijgewerkt." "$RC|$UITVOER"
+bevat_niet "en krijgt geen comment" "-X" "$(aanroepen)"
+
+# Meer dan één open meld-issue: het oudste blijft, de rest gaat dicht met een verwijzing.
+opnieuw
+antwoord gh "$ISSUES_URL" '[{"number":52,"title":"Achtergebleven preview-resten","user":{"login":"github-actions[bot]"}},{"number":40,"title":"Achtergebleven preview-resten","user":{"login":"github-actions[bot]"}}][{"number":61,"title":"Achtergebleven preview-resten","user":{"login":"github-actions[bot]"}}]'
+antwoord gh 'api repos/o/r/issues/40' "{\"body\":\"<!-- stand: $STAND -->\"}"
+REPO=o/r RUN_URL=https://run/1 draai issue "$werkmap/bevindingen"
+bevat "het oudste issue blijft de stand bijhouden" "Issue #40: stand ongewijzigd" "$UITVOER"
+gelijk "de dubbele issues gaan dicht met een verwijzing" \
+  "gh api repos/o/r/issues/52/comments -X POST -f body=Dubbel van #40; dat issue houdt de stand bij.|gh api repos/o/r/issues/52 -X PATCH -f state=closed -f state_reason=not_planned|gh api repos/o/r/issues/61/comments -X POST -f body=Dubbel van #40; dat issue houdt de stand bij.|gh api repos/o/r/issues/61 -X PATCH -f state=closed -f state_reason=not_planned" \
+  "$(grep -- '-X' "$werkmap/aanroepen" | paste -sd'|' -)"
+
+# --- vorige-stand -------------------------------------------------------------------------------
+readonly ARTEFACTEN='api repos/o/r/actions/artifacts?name=preview-resten-stand&per_page=100'
+python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1], "w"); z.writestr("stand.tsv", "gelukt\t7\nlaatste\t9\n"); z.close()' "$werkmap/stand.zip"
+python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1], "w"); z.writestr("iets-anders.txt", "x"); z.close()' "$werkmap/fout.zip"
+
+# Drie artefacten: het nieuwste op main (id 2), een nieuwer op een andere branch (id 3), en een
+# verlopen op main dat nog nieuwer is (id 4). Alleen id 2 telt. Bewust niet op datum gerangschikt:
+# de keuze mag niet van de volgorde van de API afhangen.
+readonly ARTEFACT_LIJST='{"artifacts":[
+  {"id":2,"expired":false,"created_at":"2026-10-21T05:20:00Z","workflow_run":{"head_branch":"main"}},
+  {"id":1,"expired":false,"created_at":"2026-10-19T05:20:00Z","workflow_run":{"head_branch":"main"}},
+  {"id":3,"expired":false,"created_at":"2026-10-21T09:00:00Z","workflow_run":{"head_branch":"feature/x"}},
+  {"id":4,"expired":true,"created_at":"2026-10-21T10:00:00Z","workflow_run":{"head_branch":"main"}}]}'
+
+opnieuw
+antwoord gh "$ARTEFACTEN" "$ARTEFACT_LIJST"
+antwoord_bestand gh 'api repos/o/r/actions/artifacts/2/zip' "$werkmap/stand.zip"
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "het nieuwste niet-verlopen artefact van main wordt gelezen" "0|gelukt	7|laatste	9" "$RC|$(paste -sd'|' - <"$werkmap/gelezen.tsv")"
+
+opnieuw
+antwoord gh "$ARTEFACTEN" '{"artifacts":[{"id":3,"expired":false,"created_at":"2026-10-21T09:00:00Z","workflow_run":{"head_branch":"feature/x"}}]}'
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "zonder artefact op main: geen stand (exit 1), geen fout" 1 "$RC"
+
+opnieuw
+antwoord gh "$ARTEFACTEN" '{"artifacts":[]}'
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "een lege artefactlijst: geen stand" 1 "$RC"
+
+opnieuw
+antwoord gh "$ARTEFACTEN" '' 1 'HTTP 403'
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "een onleesbare artefactlijst is onbepaald, niet 'geen stand'" 2 "$RC"
+
+opnieuw
+antwoord gh "$ARTEFACTEN" '{"message":"proxy"}'
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "een antwoord zonder artefactlijst is onbepaald" 2 "$RC"
+
+opnieuw
+antwoord gh "$ARTEFACTEN" "$ARTEFACT_LIJST"
+antwoord gh 'api repos/o/r/actions/artifacts/2/zip' '' 1 'HTTP 410'
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "een artefact dat niet te downloaden is, is onbepaald" 2 "$RC"
+
+opnieuw
+antwoord gh "$ARTEFACTEN" "$ARTEFACT_LIJST"
+antwoord_bestand gh 'api repos/o/r/actions/artifacts/2/zip' "$werkmap/fout.zip"
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "een artefact zonder stand.tsv is onbepaald" 2 "$RC"
+
 # --- noodmelding --------------------------------------------------------------------------------
 opnieuw
 antwoord gh "$ISSUES_URL" '[{"number":40,"title":"Achtergebleven preview-resten","user":{"login":"github-actions[bot]"}}]'
@@ -734,11 +883,13 @@ REPO=o/r RUN_URL=https://run/9 draai noodmelding
 gelijk "zonder open issue maakt de noodmelding er een" "0|Noodmelding als nieuw issue aangemaakt." "$RC|$UITVOER"
 bevat "met de vaste titel, zodat de volgende run hem terugvindt" "api repos/o/r/issues -X POST -f title=Achtergebleven preview-resten" "$(aanroepen)"
 
-# Is ook de issuelijst niet te lezen, dan liever een tweede issue dan geen signaal.
+# Is ook de issuelijst niet te lezen, dan geen nieuw issue: dat zou een dubbel naast een bestaand
+# issue kunnen zijn. De rode job is dan het signaal.
 opnieuw
 antwoord gh "$ISSUES_URL" '' 1 'HTTP 502'
 REPO=o/r RUN_URL=https://run/9 draai noodmelding
-gelijk "een onleesbare issuelijst houdt de noodmelding niet tegen" "0|Noodmelding als nieuw issue aangemaakt." "$RC|$UITVOER"
+gelijk "een onleesbare issuelijst laat de noodmelding hard falen" 2 "$RC"
+bevat_niet "en maakt geen issue aan" "-X POST" "$(aanroepen)"
 
 opnieuw
 antwoord gh "$ISSUES_URL" '[]'
@@ -811,16 +962,27 @@ meld(
     "de noodmelding draait precies als de gewone melding faalt",
 )
 
-# Het artefact dat de opruimjob schrijft, is het artefact dat de inventaris leest.
-upload = [s for s in jobs["opruimen"].get("steps") or [] if "upload-artifact" in str(s.get("uses", ""))]
+# De stand: de meldjob schrijft hem (alleen na een geslaagde inventaris) als het artefact dat
+# vorige-stand zoekt, met stand.tsv erin; de inventaris leest hem en geeft hem door.
+upload = [s for s in melding.get("steps") or [] if "upload-artifact" in str(s.get("uses", ""))]
+stand_stap = [s for s in melding.get("steps") or [] if "preview-resten.sh nieuwe-stand" in str(s.get("run", ""))]
 inventaris_run = " ".join(str(s.get("run", "")) for s in jobs["inventaris"].get("steps") or [])
+with open(sys.argv[1].replace("workflows/preview-resten.yml", "scripts/preview-resten.sh"), encoding="utf-8") as f:
+    artefact = re.search(r"^readonly STAND_ARTEFACT=(\S+)$", f.read(), re.M)
 meld(
-    len(upload) == 1 and (upload[0].get("with") or {}).get("name") == "opgeruimd"
-    and "-n opgeruimd" in inventaris_run and "opgeruimd.txt" in inventaris_run,
-    "de opruimjob bewaart 'opgeruimd' en de inventaris leest het terug",
+    len(upload) == 1 and artefact is not None
+    and (upload[0].get("with") or {}).get("name") == artefact.group(1)
+    and str((upload[0].get("with") or {}).get("path", "")).endswith("/stand.tsv"),
+    "de meldjob bewaart de stand onder de naam die vorige-stand zoekt",
 )
-meld("preview-resten.sh kies" in inventaris_run and "GITHUB_RUN_NUMBER" in inventaris_run,
-     "de inventaris kiest roterend op het runnummer")
+meld(
+    len(stand_stap) == 1 and "needs.inventaris.result == 'success'" in str(stand_stap[0].get("if", "")),
+    "de stand wordt alleen na een geslaagde inventaris vastgelegd",
+)
+meld("preview-resten.sh vorige-stand" in inventaris_run and "LAATSTE=" in inventaris_run
+     and "preview-resten.sh kies" in inventaris_run,
+     "de inventaris leest de vorige stand en kiest verder na het laatst geprobeerde nummer")
+meld("stand" in (jobs["inventaris"].get("outputs") or {}), "de inventaris geeft de vorige stand door aan de meldjob")
 
 # De opruiming leunt op cleanup-preview.yml: het kenmerk moet als input bestaan en in de runnaam staan,
 # anders vindt `opruimen` zijn eigen run nooit terug.

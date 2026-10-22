@@ -123,7 +123,7 @@ jobs:
       pull-requests: read
     outputs:
       opruimen: ${{ steps.inventaris.outputs.opruimen }}
-      vorige: ${{ steps.inventaris.outputs.vorige }}
+      stand: ${{ steps.inventaris.outputs.stand }}
       bevindingen: ${{ steps.inventaris.outputs.bevindingen }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -163,23 +163,30 @@ jobs:
             printf 'onbepaald\tclassificatie\tniet vast te stellen welke resten bij een gesloten PR horen\n' >>"$bevindingen"
           fi
 
-          te_doen=$(RONDE="$GITHUB_RUN_NUMBER" .github/scripts/preview-resten.sh kies "$bevindingen" | tr '\n' ' ' | sed 's/ *$//')
+          # De stand van de vorige run op main: waar de rotatie verder gaat, en welke nummers eerder
+          # als opgeruimd gemeld zijn. Geen stand (eerste run, verlopen) is geldig; dan begint de
+          # rotatie bij het laagste nummer. Een stand die niet te lezen is, wordt hieronder vermeld.
+          stand="$RUNNER_TEMP/vorige-stand.tsv"
+          stand_rc=0
+          .github/scripts/preview-resten.sh vorige-stand "$stand" || stand_rc=$?
+
+          case "$stand_rc" in
+            0) stand_uitleg="stand van de vorige run gelezen" ;;
+            1) stand_uitleg="geen stand van een vorige run (eerste run, of verlopen)"; : >"$stand" ;;
+            *) stand_uitleg="**de stand van de vorige run is niet te lezen**: de rotatie begint bij het laagste nummer en terugkerende nummers vallen niet op"
+               echo "::warning::De stand van de vorige run is niet te lezen."
+               : >"$stand" ;;
+          esac
+
+          laatste=$(awk -F'\t' '$1 == "laatste" { n = $2 } END { print n + 0 }' "$stand")
+          te_doen=$(LAATSTE="$laatste" .github/scripts/preview-resten.sh kies "$bevindingen" | tr '\n' ' ' | sed 's/ *$//')
           totaal=$(awk -F'\t' '$2 == "opruimen"' "$bevindingen" | grep -c . || true)
-
-          # Wat de vorige run als opgeruimd meldde. Komt zo'n nummer nu weer als rest terug, dan meldde
-          # cleanup-preview.yml groen zonder alles weg te halen. Geen vorige run of geen artefact:
-          # dan valt er niets te vergelijken, en dat is geen fout.
-          vorige=""
-          vorige_run=$(gh run list --repo "$REPO" --workflow preview-resten.yml --status completed --limit 1 \
-            --json databaseId --jq '.[0].databaseId // empty') || vorige_run=""
-
-          if [ -n "$vorige_run" ] && gh run download "$vorige_run" --repo "$REPO" -n opgeruimd -D "$RUNNER_TEMP/vorige" 2>/dev/null; then
-            vorige=$(tr '\n' ' ' <"$RUNNER_TEMP/vorige/opgeruimd.txt" | sed 's/ *$//')
-          fi
 
           {
             echo "opruimen=$te_doen"
-            echo "vorige=$vorige"
+            echo "stand<<EINDE_STAND"
+            cat "$stand"
+            echo "EINDE_STAND"
             echo "bevindingen<<EINDE_BEVINDINGEN"
             cat "$bevindingen"
             echo "EINDE_BEVINDINGEN"
@@ -187,6 +194,8 @@ jobs:
 
           {
             echo "### Inventaris"
+            echo
+            echo "Vorige stand: $stand_uitleg."
             echo
             echo "Op te ruimen: ${te_doen:-niets}${totaal:+ ($totaal in totaal, maximaal $MAX_PER_RUN per run)}"
             echo
@@ -242,18 +251,6 @@ jobs:
             echo "| --- | --- | --- |"
             awk -F'\t' '{ print "| pr-" $1 " | " $2 " | " $3 " |" }' "$uitkomsten"
           } >> "$GITHUB_STEP_SUMMARY"
-
-          # Voor de volgende run: komt een van deze nummers dan nog als rest terug, dan meldde
-          # cleanup-preview.yml groen zonder alles weg te halen.
-          awk -F'\t' '$2 == "success" { print $1 }' "$uitkomsten" >"$RUNNER_TEMP/opgeruimd.txt"
-
-      - name: Bewaar wat als opgeruimd gemeld is
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: opgeruimd
-          path: ${{ runner.temp }}/opgeruimd.txt
-          retention-days: 14
-          if-no-files-found: error
 
   # Ongetagde versies horen bij geen PR, dus de inventaris per nummer ziet ze niet.
   ongetagd:
@@ -365,3 +362,26 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: .github/scripts/preview-resten.sh noodmelding
+
+      # De stand voor de volgende run: waar de rotatie verder gaat en welke nummers als opgeruimd
+      # gemeld zijn (zie preview-resten.sh). Alleen na een geslaagde inventaris; anders blijft de
+      # vorige stand gelden, want de volgende run zoekt het nieuwste artefact op main.
+      - name: Leg de stand vast
+        id: stand
+        if: ${{ always() && needs.inventaris.result == 'success' }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/stand"
+          .github/scripts/preview-resten.sh nieuwe-stand >"$RUNNER_TEMP/stand/stand.tsv"
+          cat "$RUNNER_TEMP/stand/stand.tsv"
+      - name: Bewaar de stand
+        if: ${{ always() && steps.stand.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: preview-resten-stand
+          path: ${{ runner.temp }}/stand/stand.tsv
+          retention-days: 30
+          if-no-files-found: error
