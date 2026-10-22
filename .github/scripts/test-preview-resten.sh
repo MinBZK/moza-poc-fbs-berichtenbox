@@ -721,17 +721,30 @@ gelijk "een teruggekomen nummer dat er niet meer staat, valt uit de stand" "gelu
 gelijk "zonder vorige stand en zonder poging: een lege stand" "" \
   "$(nieuwe_stand_van '.opruimen = {"result": "skipped"}')"
 
-# Een opruimjob die omvalt of in zijn time-out loopt: wat al gelukt was, gaat mee, en de rij gaat
-# verder na het laatst gekozen nummer, niet na het laatst afgeronde. Anders loopt de volgende run
-# op hetzelfde nummer opnieuw vast.
+# Een opruimjob die omvalt of in zijn time-out loopt: wat al gelukt was, gaat mee, en `laatste`
+# wordt het eerste gekozen nummer zonder uitkomst — het nummer waarop hij vastliep. De volgende run
+# begint erna; dat nummer komt achteraan de rotatie terug.
 for uitkomst in failure cancelled; do
-  gelijk "een opruimjob die als $uitkomst eindigt, schuift voorbij het gekozen venster" "gelukt	7|laatste	12" \
+  gelijk "een opruimjob die als $uitkomst eindigt, gaat verder na het nummer waarop hij vastliep" "gelukt	7|laatste	9" \
     "$(nieuwe_stand_van ".opruimen = {\"result\": \"$uitkomst\", \"outputs\": {\"uitkomsten\": \"7\\tsuccess\\tu\"}}
       | .inventaris.outputs.opruimen = \"7 9 12\" | .inventaris.outputs.stand = \"laatste\\t3\"")"
 done
 
-gelijk "een omgevallen opruimjob zonder uitkomsten bewaart nog steeds het venster" "laatste	12" \
+# Viel de job om vóór de eerste poging (een mislukte checkout, een afbreking), dan schuift de rij
+# precies één nummer op, niet het hele venster.
+gelijk "een omgevallen opruimjob zonder uitkomsten schuift één nummer op" "laatste	7" \
   "$(nieuwe_stand_van '.opruimen = {"result": "failure"} | .inventaris.outputs.opruimen = "7 9 12" | .inventaris.outputs.stand = "laatste\t3"')"
+gelijk "een omgevallen opruimjob die alles afrondde, gaat verder na het laatst afgeronde" "gelukt	7|laatste	12" \
+  "$(nieuwe_stand_van '.opruimen = {"result": "cancelled", "outputs": {"uitkomsten": "7\tsuccess\tu\n9\tfailure\tu\n12\tfailure\tu"}} | .inventaris.outputs.opruimen = "7 9 12"')"
+
+# Het hele scenario: venster 3 5 … 25, 3 lukt, vast op 5. De volgende run begint bij 7, en 5 komt
+# achteraan terug.
+seq 3 2 25 | sed 's/$/\topruimen\tomgeving/' >"$werkmap/oneven.tsv"
+laatste_na_vastlopen=$(nieuwe_stand_van '.opruimen = {"result": "cancelled", "outputs": {"uitkomsten": "3\tsuccess\tu"}}
+  | .inventaris.outputs.opruimen = "3 5 7 9 11 13 15 17 19 21" | .inventaris.outputs.stand = ""' | tr '|' '\n' | sed -n 's/^laatste\t//p')
+gelijk "na vastlopen op 5 is 5 het laatste" 5 "$laatste_na_vastlopen"
+gelijk "en de volgende run begint bij 7, met 5 achteraan" "7 9 11 13 15 17 19 21 23 25" \
+  "$(MAX_PER_RUN=10 LAATSTE="$laatste_na_vastlopen" bash "$SCRIPT" kies "$werkmap/oneven.tsv" | paste -sd' ' -)"
 gelijk "een geslaagde opruimjob gaat verder na het laatst afgeronde nummer" "gelukt	7|laatste	9" \
   "$(nieuwe_stand_van '.opruimen.outputs.uitkomsten = "7\tsuccess\tu\n9\tfailure\tu\n12\tuitgesteld\tbezet" | .inventaris.outputs.opruimen = "7 9 12"')"
 bevinding "geen-pr en vreemd-pakket worden gemeld, een opgeruimd nummer niet" \
@@ -882,7 +895,15 @@ opnieuw
 antwoord gh "$ARTEFACTEN" "$ARTEFACT_LIJST"
 antwoord_bestand gh 'api repos/o/r/actions/artifacts/2/zip' "$werkmap/fout.zip"
 REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
-gelijk "een artefact zonder stand.tsv is onbepaald" 2 "$RC"
+# Kapot is blijvend, niet tijdelijk: een eigen exitcode, zodat de workflow opnieuw begint in plaats
+# van elke run het vastleggen te blokkeren tot de retentie verloopt.
+gelijk "een artefact zonder stand.tsv is kapot (exit 3), met een lege stand" "3|0" "$RC|$(wc -c <"$werkmap/gelezen.tsv")"
+
+opnieuw
+antwoord gh "$ARTEFACTEN" "$ARTEFACT_LIJST"
+antwoord gh 'api repos/o/r/actions/artifacts/2/zip' 'dit is geen zip'
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "een artefact dat geen zip is, is kapot (exit 3)" 3 "$RC"
 
 # --- noodmelding --------------------------------------------------------------------------------
 opnieuw
@@ -998,6 +1019,14 @@ meld(
     "stand-gelezen" in (jobs["inventaris"].get("outputs") or {})
     and "stand_gelezen=false" in inventaris_run and "onbepaald\\tstand\\t" in inventaris_run,
     "een onleesbare vorige stand wordt gemeld en blokkeert het vastleggen",
+)
+# Een kapot artefact (exit 3) blokkeert het vastleggen niet, anders bevriest de rotatie tot de
+# retentie verloopt; het wordt wel gemeld. Alleen een tijdelijke storing (exit 2) blokkeert.
+kapot = re.search(r"\n\s*3\) stand_uitleg=.*?;;", inventaris_run, re.S)
+meld(
+    "0 | 1 | 3) stand_gelezen=true ;;" in inventaris_run and "*) stand_gelezen=false ;;" in inventaris_run
+    and kapot is not None and "onbepaald\\tstand\\t" in kapot.group(0),
+    "een kapot stand-artefact wordt gemeld maar blokkeert het vastleggen niet",
 )
 
 # De uitkomsten gaan ook mee als de opruiming omvalt of in zijn time-out loopt.

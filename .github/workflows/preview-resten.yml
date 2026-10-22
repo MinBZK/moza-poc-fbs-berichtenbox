@@ -174,16 +174,25 @@ jobs:
           case "$stand_rc" in
             0) stand_uitleg="stand van de vorige run gelezen" ;;
             1) stand_uitleg="geen stand van een vorige run (eerste run, of verlopen)"; : >"$stand" ;;
+            # Een kapot artefact blijft kapot: als "niet te lezen" zou het elke run het vastleggen
+            # blokkeren. Daarom opnieuw beginnen, maar wel zichtbaar.
+            3) stand_uitleg="**het nieuwste stand-artefact is kapot**: deze run begint opnieuw zonder stand"
+               echo "::warning::Het nieuwste stand-artefact is kapot; deze run begint opnieuw zonder stand."
+               printf 'onbepaald\tstand\thet nieuwste stand-artefact is kapot; de rotatie en de terug-controle beginnen opnieuw\n' >>"$bevindingen"
+               : >"$stand" ;;
             *) stand_uitleg="**de stand van de vorige run is niet te lezen**: de rotatie begint bij het laagste nummer en terugkerende nummers vallen niet op"
                echo "::warning::De stand van de vorige run is niet te lezen."
                printf 'onbepaald\tstand\tde stand van de vorige run is niet te lezen; deze run legt geen nieuwe stand vast\n' >>"$bevindingen"
                : >"$stand" ;;
           esac
 
-          # Een onleesbare stand mag niet door een lege worden vervangen: dan zou die lege stand het
-          # nieuwste artefact op main worden en waren `terug` en `laatste` voorgoed weg. De meldjob
-          # legt alleen een stand vast als deze true is.
-          if [ "$stand_rc" -le 1 ]; then stand_gelezen=true; else stand_gelezen=false; fi
+          # Een stand die door een tijdelijke storing niet te lezen is, mag niet door een lege worden
+          # vervangen: dan zou die lege stand het nieuwste artefact op main worden en waren `terug` en
+          # `laatste` voorgoed weg. De meldjob legt alleen een stand vast als deze true is.
+          case "$stand_rc" in
+            0 | 1 | 3) stand_gelezen=true ;;
+            *) stand_gelezen=false ;;
+          esac
 
           laatste=$(awk -F'\t' '$1 == "laatste" { n = $2 } END { print n + 0 }' "$stand")
           te_doen=$(LAATSTE="$laatste" .github/scripts/preview-resten.sh kies "$bevindingen" | tr '\n' ' ' | sed 's/ *$//')

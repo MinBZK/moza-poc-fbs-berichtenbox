@@ -136,7 +136,7 @@ jobs:
             [.github/scripts/test-proeftuin-pin-pr.sh]=129
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-proeftuin-pin.sh]=139
-            [.github/scripts/test-preview-resten.sh]=182
+            [.github/scripts/test-preview-resten.sh]=187
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt

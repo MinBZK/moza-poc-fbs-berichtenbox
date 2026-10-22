@@ -24,7 +24,7 @@
 #                               (REPO); klasse is `opruimen`, `geen-pr` of `vreemd-pakket`
 #   kies <bestand>              de nummers die deze run opruimt, roterend (MAX_PER_RUN, LAATSTE)
 #   vorige-stand <doel>         de stand van de vorige run op main, uit het artefact; exit 1 als
-#                               er geen is (REPO)
+#                               er geen is, 3 als het artefact kapot is (REPO)
 #   nieuwe-stand                de stand voor de volgende run (NEEDS)
 #   opruimen <n>...             start cleanup-preview.yml per nummer, na elkaar, en wacht op de
 #                               uitkomst: `<n>\t<conclusie>\t<run-url of reden>` (REPO, KENMERK);
@@ -517,26 +517,31 @@ nieuwe_stand() {
   # Het laatst geprobeerde nummer; een uitgesteld nummer is niet geprobeerd. Probeerde deze run
   # niets, dan blijft de vorige waarde staan.
   #
-  # Viel de opruimjob om (time-out, afbreking), dan is het nummer waarop hij vastliep niet in de
-  # uitkomsten terug te vinden. Verder gaan na het laatst afgeronde nummer zou de volgende run op
-  # precies dat nummer opnieuw laten vastlopen; daarom gaat de rij dan verder na het laatst gekozen
-  # nummer. Wat er wél gelukt is, staat hierboven al in de stand.
+  # Viel de opruimjob om (time-out, afbreking), dan is het eerste gekozen nummer zonder uitkomst
+  # het nummer waarop hij vastliep, of het nummer dat hij nooit bereikte. Dat wordt `laatste`: de
+  # volgende run begint erna, zodat hij niet op hetzelfde nummer opnieuw vastloopt, en het nummer
+  # zelf komt achteraan de rotatie terug. De nummers erna in het venster zijn dan meteen aan de
+  # beurt. Wat er wél gelukt is, staat hierboven al in de stand.
+  laatste=""
+
   case "$(jq -r '.opruimen.result // ""' <<<"$NEEDS")" in
     failure | cancelled)
-      laatste=$(jq -r '.inventaris.outputs.opruimen // ""' <<<"$NEEDS" | tr ' ' '\n' | grep . | tail -1 || true)
-      ;;
-    *)
-      laatste=$(awk -F'\t' 'NF && $2 != "uitgesteld" { n = $1 } END { print n }' <<<"$uitkomsten")
+      laatste=$(awk -F'\t' 'FNR == NR { if (NF) gezien[$1] = 1; next } !($1 in gezien) { print; exit }' \
+        <(printf '%s\n' "$uitkomsten") \
+        <(jq -r '.inventaris.outputs.opruimen // ""' <<<"$NEEDS" | tr ' ' '\n' | grep . || true))
       ;;
   esac
+
+  [ -n "$laatste" ] || laatste=$(awk -F'\t' 'NF && $2 != "uitgesteld" { n = $1 } END { print n }' <<<"$uitkomsten")
 
   [ -n "$laatste" ] || laatste=$(vorige_stand_uit_needs | awk -F'\t' '$1 == "laatste" { n = $2 } END { print n }')
   [ -z "$laatste" ] || printf 'laatste\t%s\n' "$laatste"
 }
 
 # Het meest recente stand-artefact van een run op main. Exit 1 als er geen is (eerste run, of
-# verlopen): dat is een geldige toestand en geen fout. Exit 2 als de lijst of het artefact niet te
-# lezen is; dat moet zichtbaar zijn, want dan vallen de rotatie en de terug-controle stil terug.
+# verlopen): dat is een geldige toestand en geen fout. Exit 2 als de lijst niet op te vragen of het
+# artefact niet te downloaden is: een tijdelijke storing, waarbij de vorige stand moet blijven
+# gelden. Exit 3 als het artefact zelf kapot is (zie hieronder).
 vorige_stand() {
   local doel=${1:-}
   [ -n "$doel" ] && [ -n "${REPO:-}" ] || onbepaald "Gebruik: REPO=… $0 vorige-stand <doelbestand>"
@@ -554,9 +559,18 @@ vorige_stand() {
 
   api "repos/$REPO/actions/artifacts/$id/zip" >"$doel.zip" \
     || onbepaald "Artefact $id is niet te downloaden."
-  python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("stand.tsv"))' \
-    "$doel.zip" >"$doel" 2>/dev/null \
-    || onbepaald "Artefact $id bevat geen leesbare stand."
+  # Een kapot artefact (geen zip, geen stand.tsv) is geen tijdelijke storing: het blijft het
+  # nieuwste tot de retentie verloopt. Als "niet te lezen" zou het elke run het vastleggen blokkeren
+  # en de rotatie bevriezen; daarom een eigen exitcode, die de workflow als "geen stand" behandelt.
+  if ! python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("stand.tsv"))' \
+    "$doel.zip" >"$doel" 2>/dev/null; then
+    rm -f "$doel.zip"
+    : >"$doel"
+    echo "Artefact $id bevat geen leesbare stand." >&2
+
+    return 3
+  fi
+
   rm -f "$doel.zip"
 }
 
