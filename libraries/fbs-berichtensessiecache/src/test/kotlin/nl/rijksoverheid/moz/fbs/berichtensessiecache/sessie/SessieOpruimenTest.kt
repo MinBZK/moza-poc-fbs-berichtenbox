@@ -104,7 +104,7 @@ class SessieOpruimenTest {
         sessiecache.verwijder(ontvanger, berichten[0].magazijnId, berichten[0].berichtId)
 
         assertFalse(bestaat(BerichtenCache.verwijderdKey(ontvanger, berichten[0].sleutel)))
-        assertNietsAchter(berichten)
+        assertNietsAchter(berichten, wachtend = true)
     }
 
     @Test
@@ -127,7 +127,8 @@ class SessieOpruimenTest {
 
         assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
 
-        assertEquals(emptyList<String>(), sleutelsOnder(k))
+        // Alleen de leesbare ontvanger, bij de wachtende index-entry voor de veegtaak.
+        assertEquals(listOf("$k:ontvanger"), sleutelsOnder(k))
     }
 
     @ParameterizedTest(name = "{0} berichten")
@@ -267,7 +268,7 @@ class SessieOpruimenTest {
         berichtenCache.createBericht(nieuw, ontvanger).await().atMost(WACHTTIJD)
 
         assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
-        assertNietsAchter(listOf(nieuw))
+        assertNietsAchter(listOf(nieuw), wachtend = true)
     }
 
     @Test
@@ -293,7 +294,7 @@ class SessieOpruimenTest {
         redis.sortedSet(String::class.java).zadd("$k:sessies", 1.0, "verlopen").await().atMost(WACHTTIJD)
 
         assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
-        assertEquals(emptyList<String>(), sleutelsOnder(k))
+        assertNietsAchter(emptyList(), wachtend = true)
     }
 
     @Test
@@ -305,7 +306,7 @@ class SessieOpruimenTest {
         val start = sessiecache.startSessie(ontvanger)
 
         assertTrue(start.restenOpgeruimd)
-        assertEquals(listOf("$k:sessies", "$k:sessies:plafond"), sleutelsOnder(k).sorted())
+        assertEquals(listOf("$k:ontvanger", "$k:sessies", "$k:sessies:plafond"), sleutelsOnder(k).sorted())
         resten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel))) }
     }
 
@@ -366,14 +367,22 @@ class SessieOpruimenTest {
         ).await().atMost(WACHTTIJD)
     }
 
-    private fun assertNietsAchter(berichten: List<Bericht>) {
-        assertEquals(emptyList<String>(), sleutelsOnder(k))
+    /**
+     * [wachtend]: het wissen gebeurde zonder eigen logregel, dus de ontvanger wacht in de verloopindex
+     * op de veegtaak, en zijn leesbare vorm blijft daarvoor staan tot die veeg.
+     */
+    private fun assertNietsAchter(berichten: List<Bericht>, wachtend: Boolean = false) {
+        assertEquals(if (wachtend) listOf("$k:ontvanger") else emptyList(), sleutelsOnder(k))
+        assertEquals(wachtend, indexScore() != null, "index-entry: ${indexScore()}")
         berichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} achtergebleven") }
         assertEquals(0L, zoekTotaal(ontvanger))
     }
 
     private fun sleutelsOnder(prefix: String): List<String> =
         redis.execute("KEYS", "$prefix:*").await().atMost(WACHTTIJD).map { it.toString() }
+
+    private fun indexScore(): Double? =
+        redis.sortedSet(String::class.java).zscore(RedisSessieRegister.VERLOOP_INDEX, BerichtenCache.kenmerk(ontvanger)).await().atMost(WACHTTIJD)
 
     private fun bestaat(sleutel: String): Boolean = redis.key().exists(sleutel).await().atMost(WACHTTIJD)
 

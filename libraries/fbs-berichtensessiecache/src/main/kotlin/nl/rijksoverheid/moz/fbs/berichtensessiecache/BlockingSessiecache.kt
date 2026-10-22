@@ -23,6 +23,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
@@ -257,9 +258,9 @@ internal class BlockingSessiecache(
      * Alleen de fout-soort in de log: de melding van een Redis- of parse-fout kan een fragment van
      * de invoer bevatten.
      */
-    private fun veegEen(ontvanger: Identificatienummer): Opruiming? =
+    private fun veegEen(kandidaat: VeegKandidaat): Opruiming? =
         try {
-            if (sessies.veeg(ontvanger).await().atMost(timeout)) Opruiming(ontvanger, OpruimUitkomst.GEWIST) else null
+            if (sessies.veeg(kandidaat.kenmerk).await().atMost(timeout)) kandidaat.opruiming(OpruimUitkomst.GEWIST) else null
         } catch (e: Exception) {
             // Een script dat Redis eenmaal kreeg, loopt tot het einde: na een timeout of een interrupt
             // is de uitkomst onbekend. Een foutantwoord breekt het script af vóór de ZREM aan het einde,
@@ -290,18 +291,18 @@ internal class BlockingSessiecache(
             // Ook na een timeout: hangt het script van deze ontvanger structureel, dan kost hij anders
             // elke ronde de volle wachttijd. `XX` in het uitstel laat een al geveegde ontvanger weg. Na
             // een interrupt niet: de pod stopt, en de entry blijft voor een volgende ronde staan.
-            if (!onderbroken) stelUit(ontvanger)
+            if (!onderbroken) stelUit(kandidaat.kenmerk)
 
-            Opruiming(ontvanger, if (onbevestigd) OpruimUitkomst.ONBEVESTIGD else OpruimUitkomst.MISLUKT)
+            kandidaat.opruiming(if (onbevestigd) OpruimUitkomst.ONBEVESTIGD else OpruimUitkomst.MISLUKT)
         }
 
     /**
      * Best-effort: lukt ook dit niet, dan blijft de ontvanger vooraan in de index staan en is de
      * volgende ronde gewoon weer een poging. Een fout hier verandert de uitkomst niet.
      */
-    private fun stelUit(ontvanger: Identificatienummer) {
+    private fun stelUit(kenmerk: String) {
         try {
-            sessies.stelUit(ontvanger).await().atMost(timeout)
+            sessies.stelUit(kenmerk).await().atMost(timeout)
         } catch (e: Exception) {
             log.warnf("Uitstellen van een mislukte opruiming mislukt (%s); de volgende veegronde ziet hem weer vooraan", e.javaClass.simpleName)
         }

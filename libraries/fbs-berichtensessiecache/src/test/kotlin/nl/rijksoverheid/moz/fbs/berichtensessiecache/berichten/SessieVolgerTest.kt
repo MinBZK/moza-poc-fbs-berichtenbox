@@ -5,6 +5,7 @@ import io.smallrye.mutiny.helpers.test.AssertSubscriber
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.TestSessieConfig
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
@@ -418,11 +419,11 @@ class SessieVolgerTest {
 
         override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> = throw UnsupportedOperationException()
 
-        override fun verlopen(max: Int): Uni<List<Identificatienummer>> = throw UnsupportedOperationException()
+        override fun verlopen(max: Int): Uni<List<VeegKandidaat>> = throw UnsupportedOperationException()
 
-        override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> = throw UnsupportedOperationException()
+        override fun veeg(kenmerk: String): Uni<Boolean> = throw UnsupportedOperationException()
 
-        override fun stelUit(ontvanger: Identificatienummer): Uni<Unit> = throw UnsupportedOperationException()
+        override fun stelUit(kenmerk: String): Uni<Unit> = throw UnsupportedOperationException()
     }
 
     private companion object {

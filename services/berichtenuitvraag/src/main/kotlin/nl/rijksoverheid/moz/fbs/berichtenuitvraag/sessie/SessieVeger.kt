@@ -6,7 +6,6 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
-import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
@@ -51,14 +50,14 @@ class SessieVeger(
     @Scheduled(every = "{berichtensessiecache.sessie.veeg-interval}", concurrentExecution = SKIP)
     fun veeg() {
         val einde = System.nanoTime() + budget.toNanos()
-        val gezien = HashSet<Identificatienummer>()
+        val gezien = HashSet<Any>()
 
         try {
             do {
                 var herhaald = 0
 
                 val vol = sessiecache.ruimVerlopenSessiesOp(BATCH) { opruiming ->
-                    val nieuw = gezien.add(opruiming.ontvanger)
+                    val nieuw = gezien.add(identiteit(opruiming))
 
                     if (!nieuw) herhaald++
 
@@ -96,8 +95,22 @@ class SessieVeger(
         }
     }
 
+    private fun identiteit(opruiming: Opruiming): Any = when (opruiming) {
+        is Opruiming.VanOntvanger -> opruiming.ontvanger
+        is Opruiming.ZonderOntvanger -> opruiming.kenmerk
+    }
+
     private fun legVast(opruiming: Opruiming) {
-        sessieLogboek.opgeruimd(opruiming.ontvanger, OpruimAanleiding.VERLOPEN, opruiming.uitkomst)
+        when (opruiming) {
+            is Opruiming.VanOntvanger -> sessieLogboek.opgeruimd(opruiming.ontvanger, OpruimAanleiding.VERLOPEN, opruiming.uitkomst)
+            // Zelfde token als een mislukte logregel: ook hier ontbreekt de regel voor een opruiming.
+            is Opruiming.ZonderOntvanger -> log.errorf(
+                "%s: opruimen (aanleiding=%s, uitkomst=%s) zonder bekende ontvanger; de leesbare vorm was al verlopen, dus er komt geen logregel",
+                SessieLogboek.ALERT_TOKEN,
+                OpruimAanleiding.VERLOPEN.waarde,
+                opruiming.uitkomst,
+            )
+        }
 
         when (opruiming.uitkomst) {
             OpruimUitkomst.GEWIST -> Unit

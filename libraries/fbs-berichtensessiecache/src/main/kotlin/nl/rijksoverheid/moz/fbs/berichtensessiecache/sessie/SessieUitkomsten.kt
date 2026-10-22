@@ -35,12 +35,24 @@ enum class SessieEinde {
 }
 
 /** Het opruimen van één ontvanger wiens laatste sessie verlopen is. */
-data class Opruiming(
-    val ontvanger: Identificatienummer,
-    val uitkomst: OpruimUitkomst,
-) {
-    // Zoals bij SessieStart: toString belandt makkelijk in een log, en de waarde kan een BSN zijn.
-    override fun toString(): String = "Opruiming(ontvanger=${ontvanger.type}:***, uitkomst=$uitkomst)"
+sealed interface Opruiming {
+    val uitkomst: OpruimUitkomst
+
+    /** Het opruimen van [ontvanger]; hoort met hem als betrokkene in het logboek. */
+    data class VanOntvanger(val ontvanger: Identificatienummer, override val uitkomst: OpruimUitkomst) : Opruiming {
+        // Zoals bij SessieStart: toString belandt makkelijk in een log, en de waarde kan een BSN zijn.
+        override fun toString(): String = "Opruiming.VanOntvanger(ontvanger=${ontvanger.type}:***, uitkomst=$uitkomst)"
+    }
+
+    /**
+     * Een opruiming waarvan de leesbare ontvanger niet meer bekend is: die verliep met zijn
+     * vangnet-TTL terwijl de index-entry nog wachtte, of was onleesbaar. Er kan dan geen logregel met
+     * betrokkene komen. [kenmerk] onderscheidt de entry binnen een veegronde; het is een terug te
+     * rekenen hash van de ontvanger, dus niet loggen.
+     */
+    data class ZonderOntvanger(val kenmerk: String, override val uitkomst: OpruimUitkomst) : Opruiming {
+        override fun toString(): String = "Opruiming.ZonderOntvanger(kenmerk=***, uitkomst=$uitkomst)"
+    }
 }
 
 /** Wat het opruimen van een ontvanger wiens laatste sessie verlopen is, heeft gedaan. */

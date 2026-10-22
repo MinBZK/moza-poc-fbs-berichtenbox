@@ -109,7 +109,10 @@ atomair zijn met de berichtgegevens in dezelfde Redis.
 - **Sessie-index per ontvanger:** welke sessies deze ontvanger heeft, met hun verloopmoment
   (bv. een ZSET met score = verloopmoment), zodat "is dit de laatste?" één atomaire vraag is.
 - **Verloopindex, stelselbreed:** per ontvanger het verloopmoment van zijn laatst-verlopende
-  sessie, zodat de uitvraag verlopen sessies actief kan vinden (zie *Opruimen*).
+  sessie, zodat de uitvraag verlopen sessies actief kan vinden (zie *Opruimen*). Het lid is de
+  hash van de ontvanger, niet de ontvanger zelf: de index heeft geen TTL en mag geen lijst van
+  BSN's worden. De leesbare ontvanger staat per ontvanger apart, met de vangnet-TTL van de
+  gegevens, en verdwijnt samen met zijn index-entry; de veegtaak leest hem voor de logregel.
 - **Grens:** hoogstens 5 lopende sessies per ontvanger (instelbaar). Daarboven weigert
   `POST /sessies` met `429` (problem+json); er wordt geen bestaande sessie verdrongen, want dat
   logt een echte gebruiker ongemerkt uit. Precedent: de connection-grens per ontvanger op

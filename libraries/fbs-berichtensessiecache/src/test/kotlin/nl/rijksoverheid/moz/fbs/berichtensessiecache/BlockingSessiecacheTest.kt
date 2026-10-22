@@ -31,6 +31,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -669,33 +671,41 @@ class BlockingSessiecacheTest {
         return gemeld to vol
     }
 
+    /** Een kandidaat met een leesbare ontvanger, zoals de index hem na een start kent. */
+    private fun kandidaat(n: Int): VeegKandidaat = Oin("%020d".format(n)).let { VeegKandidaat(BerichtenCache.kenmerk(it), it) }
+
+    private fun kenmerkVan(opruiming: Opruiming): String = when (opruiming) {
+        is Opruiming.VanOntvanger -> BerichtenCache.kenmerk(opruiming.ontvanger)
+        is Opruiming.ZonderOntvanger -> opruiming.kenmerk
+    }
+
     @Test
     fun `vegen meldt per ontvanger de uitkomst en loopt na een fout of timeout door`() {
         // De gewiste ontvanger staat achteraan: een ronde die op een fout afbreekt, verliest hem.
-        val kandidaten = List(7) { Oin("%020d".format(it + 1)) }
+        val kandidaten = List(7) { kandidaat(it + 1) }
         val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
         every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
-        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().nothing()
-        every { sessies.veeg(kandidaten[1]) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
-        every { sessies.veeg(kandidaten[2]) } returns Uni.createFrom().failure(NumberFormatException("geen getal"))
-        every { sessies.veeg(kandidaten[3]) } throws IllegalArgumentException("synchroon")
-        every { sessies.veeg(kandidaten[4]) } returns Uni.createFrom().item(false)
-        every { sessies.veeg(kandidaten[5]) } returns
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().nothing()
+        every { sessies.veeg(kandidaten[1].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[2].kenmerk) } returns Uni.createFrom().failure(NumberFormatException("geen getal"))
+        every { sessies.veeg(kandidaten[3].kenmerk) } throws IllegalArgumentException("synchroon")
+        every { sessies.veeg(kandidaten[4].kenmerk) } returns Uni.createFrom().item(false)
+        every { sessies.veeg(kandidaten[5].kenmerk) } returns
             Uni.createFrom().failure(IllegalStateException("client", java.util.concurrent.TimeoutException()))
-        every { sessies.veeg(kandidaten[6]) } returns Uni.createFrom().item(true)
+        every { sessies.veeg(kandidaten[6].kenmerk) } returns Uni.createFrom().item(true)
         // Per kandidaat en niet met `any()`: dat bouwt een lege OIN, en die haalt de validatie niet.
-        kandidaten.forEach { every { sessies.stelUit(it) } returns Uni.createFrom().item(Unit) }
+        kandidaten.forEach { every { sessies.stelUit(it.kenmerk) } returns Uni.createFrom().item(Unit) }
 
         val (opruimingen, vol) = snel.veeg()
 
         assertEquals(
             listOf(
-                Opruiming(kandidaten[0], OpruimUitkomst.ONBEVESTIGD),
-                Opruiming(kandidaten[1], OpruimUitkomst.MISLUKT),
-                Opruiming(kandidaten[2], OpruimUitkomst.MISLUKT),
-                Opruiming(kandidaten[3], OpruimUitkomst.MISLUKT),
-                Opruiming(kandidaten[5], OpruimUitkomst.ONBEVESTIGD),
-                Opruiming(kandidaten[6], OpruimUitkomst.GEWIST),
+                Opruiming.VanOntvanger(kandidaten[0].ontvanger!!, OpruimUitkomst.ONBEVESTIGD),
+                Opruiming.VanOntvanger(kandidaten[1].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[2].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[3].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[5].ontvanger!!, OpruimUitkomst.ONBEVESTIGD),
+                Opruiming.VanOntvanger(kandidaten[6].ontvanger!!, OpruimUitkomst.GEWIST),
             ),
             opruimingen,
         )
@@ -704,45 +714,45 @@ class BlockingSessiecacheTest {
         // Ook een onbevestigde schuift naar achteren: hangt zijn script structureel, dan kost hij
         // anders elke ronde de volle wachttijd. Alleen wie gewist is of niet geveegd hoefde, niet.
         kandidaten.forEachIndexed { i, kandidaat ->
-            verify(exactly = if (i in setOf(0, 1, 2, 3, 5)) 1 else 0) { sessies.stelUit(kandidaat) }
+            verify(exactly = if (i in setOf(0, 1, 2, 3, 5)) 1 else 0) { sessies.stelUit(kandidaat.kenmerk) }
         }
     }
 
     @Test
     fun `elke opruiming wordt gemeld voordat de volgende ontvanger geveegd wordt`() {
-        val kandidaten = List(3) { Oin("%020d".format(it + 1)) }
+        val kandidaten = List(3) { kandidaat(it + 1) }
         val volgorde = mutableListOf<String>()
         every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
         kandidaten.forEach { kandidaat ->
-            every { sessies.veeg(kandidaat) } answers {
-                volgorde += "veeg ${kandidaat.waarde}"
+            every { sessies.veeg(kandidaat.kenmerk) } answers {
+                volgorde += "veeg ${kandidaat.kenmerk}"
                 Uni.createFrom().item(true)
             }
         }
 
-        facade.ruimVerlopenSessiesOp { volgorde += "meld ${it.ontvanger.waarde}" }
+        facade.ruimVerlopenSessiesOp { volgorde += "meld ${kenmerkVan(it)}" }
 
-        assertEquals(kandidaten.flatMap { listOf("veeg ${it.waarde}", "meld ${it.waarde}") }, volgorde)
+        assertEquals(kandidaten.flatMap { listOf("veeg ${it.kenmerk}", "meld ${it.kenmerk}") }, volgorde)
     }
 
     @Test
     fun `een fout uit de melding breekt de ronde af en komt door`() {
-        val kandidaten = List(2) { Oin("%020d".format(it + 1)) }
+        val kandidaten = List(2) { kandidaat(it + 1) }
         every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
-        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().item(true)
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().item(true)
 
         assertThrows<IllegalStateException> { facade.ruimVerlopenSessiesOp { throw IllegalStateException("logboek stuk") } }
 
-        verify(exactly = 0) { sessies.veeg(kandidaten[1]) }
+        verify(exactly = 0) { sessies.veeg(kandidaten[1].kenmerk) }
     }
 
     @ParameterizedTest(name = "{0} kandidaten bij max 3")
     @ValueSource(ints = [0, 1, 2, 3])
     fun `vegen meldt een volle batch alleen als er max kandidaten waren, ongeacht het aantal opruimingen`(aantal: Int) {
         // Een kandidaat die een andere pod al veegde, wordt niet gemeld maar telt wel voor de batch.
-        val kandidaten = List(aantal) { Oin("%020d".format(it + 1)) }
+        val kandidaten = List(aantal) { kandidaat(it + 1) }
         every { sessies.verlopen(3) } returns Uni.createFrom().item(kandidaten)
-        kandidaten.forEach { every { sessies.veeg(it) } returns Uni.createFrom().item(false) }
+        kandidaten.forEach { every { sessies.veeg(it.kenmerk) } returns Uni.createFrom().item(false) }
 
         val (opruimingen, vol) = facade.veeg(max = 3)
 
@@ -753,45 +763,89 @@ class BlockingSessiecacheTest {
     @Test
     fun `een interrupt tijdens het vegen meldt de ontvanger als onbevestigd en stopt de ronde`() {
         // De pod stopt: geen MISLUKT met uitstel, maar ook geen stilte, want het script kan gelopen hebben.
-        val kandidaten = List(3) { Oin("%020d".format(it + 1)) }
+        val kandidaten = List(3) { kandidaat(it + 1) }
+        val gemeld = mutableListOf<Opruiming>()
         val gemeldMetVlag = mutableListOf<Boolean>()
         every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
-        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().item(true)
-        every { sessies.veeg(kandidaten[1]) } answers {
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().item(true)
+        every { sessies.veeg(kandidaten[1].kenmerk) } answers {
             Thread.currentThread().interrupt()
             Uni.createFrom().nothing()
         }
 
         val vol = try {
             facade.ruimVerlopenSessiesOp { opruiming ->
+                gemeld += opruiming
                 gemeldMetVlag += Thread.currentThread().isInterrupted
-                assertTrue(opruiming.ontvanger in kandidaten.take(2), "$opruiming")
             }.also { assertTrue(Thread.currentThread().isInterrupted, "de interrupt-vlag hoort hersteld te zijn") }
         } finally {
             Thread.interrupted()
         }
 
         assertFalse(vol)
+        assertEquals(
+            listOf(
+                Opruiming.VanOntvanger(kandidaten[0].ontvanger!!, OpruimUitkomst.GEWIST),
+                Opruiming.VanOntvanger(kandidaten[1].ontvanger!!, OpruimUitkomst.ONBEVESTIGD),
+            ),
+            gemeld,
+        )
         assertEquals(listOf(false, false), gemeldMetVlag, "de melding hoort zonder vlag te lopen")
-        verify(exactly = 0) { sessies.veeg(kandidaten[2]) }
-        kandidaten.forEach { verify(exactly = 0) { sessies.stelUit(it) } }
+        verify(exactly = 0) { sessies.veeg(kandidaten[2].kenmerk) }
+        kandidaten.forEach { verify(exactly = 0) { sessies.stelUit(it.kenmerk) } }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource("GEWIST,true", "MISLUKT,false")
+    fun `een kandidaat zonder leesbare ontvanger wordt geveegd en zonder ontvanger gemeld`(uitkomst: OpruimUitkomst, geveegd: Boolean) {
+        val kandidaat = VeegKandidaat("kenmerk-zonder-ontvanger", null)
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(listOf(kandidaat))
+        every { sessies.veeg(kandidaat.kenmerk) } returns
+            if (geveegd) Uni.createFrom().item(true) else Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.stelUit(kandidaat.kenmerk) } returns Uni.createFrom().item(Unit)
+
+        assertEquals(listOf(Opruiming.ZonderOntvanger(kandidaat.kenmerk, uitkomst)), facade.veeg().first)
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["fout", "timeout", "uitstel"])
+    fun `de veeg-, index- en uitstelpaden loggen de ontvanger niet, ook niet als een foutmelding hem noemt`(geval: String) {
+        val bsn = Bsn("999993653")
+        val kandidaat = VeegKandidaat(BerichtenCache.kenmerk(bsn), bsn)
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        val fout = IllegalStateException("ERR bij ${bsn.waarde} (${kandidaat.kenmerk})", java.util.concurrent.TimeoutException(bsn.waarde))
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(listOf(kandidaat))
+        every { sessies.veeg(kandidaat.kenmerk) } returns when (geval) {
+            "timeout" -> Uni.createFrom().failure(fout)
+            else -> Uni.createFrom().failure(IllegalStateException("ERR bij ${bsn.waarde}"))
+        }
+        every { sessies.stelUit(kandidaat.kenmerk) } returns
+            if (geval == "uitstel") Uni.createFrom().failure(fout) else Uni.createFrom().item(Unit)
+
+        val regels = vangLog(BlockingSessiecache::class.java) { snel.veeg() }
+
+        assertTrue(regels.isNotEmpty(), "het pad hoort te loggen")
+        regels.forEach { regel ->
+            assertFalse(bsn.waarde in regel, "BSN in de log: $regel")
+            assertFalse(kandidaat.kenmerk in regel, "kenmerk in de log: $regel")
+        }
     }
 
     @Test
     fun `een mislukt uitstel na een mislukt opruimen laat de uitkomst MISLUKT en breekt de ronde niet af`() {
-        val kandidaten = List(3) { Oin("%020d".format(it + 1)) }
+        val kandidaten = List(3) { kandidaat(it + 1) }
         every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
-        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
-        every { sessies.veeg(kandidaten[1]) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
-        every { sessies.veeg(kandidaten[2]) } returns Uni.createFrom().item(true)
-        every { sessies.stelUit(kandidaten[0]) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
-        every { sessies.stelUit(kandidaten[1]) } throws IllegalStateException("synchroon")
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[1].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[2].kenmerk) } returns Uni.createFrom().item(true)
+        every { sessies.stelUit(kandidaten[0].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.stelUit(kandidaten[1].kenmerk) } throws IllegalStateException("synchroon")
 
         assertEquals(
             listOf(
-                Opruiming(kandidaten[0], OpruimUitkomst.MISLUKT),
-                Opruiming(kandidaten[1], OpruimUitkomst.MISLUKT),
-                Opruiming(kandidaten[2], OpruimUitkomst.GEWIST),
+                Opruiming.VanOntvanger(kandidaten[0].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[1].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[2].ontvanger!!, OpruimUitkomst.GEWIST),
             ),
             facade.veeg().first,
         )
@@ -838,5 +892,31 @@ class BlockingSessiecacheTest {
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")
+    }
+
+    private fun vangLog(klasse: Class<*>, blok: () -> Unit): List<String> {
+        val regels = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val logger = java.util.logging.Logger.getLogger(klasse.name)
+        val vanger = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) {
+                val oorzaken = generateSequence(record.thrown) { it.cause }.joinToString("") { " | ${it.javaClass.name}: ${it.message}" }
+
+                regels += String.format(record.message, *(record.parameters ?: emptyArray())) + oorzaken
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+
+        logger.addHandler(vanger)
+
+        try {
+            blok()
+        } finally {
+            logger.removeHandler(vanger)
+        }
+
+        return regels
     }
 }

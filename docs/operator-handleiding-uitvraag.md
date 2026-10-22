@@ -249,7 +249,11 @@ Regels die je in de logs kunt zien:
   veegtaak wist de Redis-TTL de gegevens zonder logregel. Controleer Redis (bereikbaar, niet
   alleen-lezen, rechten op `EVAL`).
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
-  vastgelegd. Alert-token; controleer de LDV-verbinding en leg de opruiming handmatig na.
+  vastgelegd. Alert-token; controleer de LDV-verbinding en leg de opruiming handmatig na. Met
+  `zonder bekende ontvanger` in de regel kán er geen logregel komen: de verloopindex noemt alleen
+  een hash van de ontvanger, en de leesbare vorm (`…:ontvanger`, met dezelfde vangnet-TTL als de
+  gegevens) was al verlopen. Dat gebeurt pas als de veegtaak een ontvanger langer dan de
+  vangnet-marge niet kon opruimen; zie dan ook `[ALERT sessie_veger_faalt]`.
 - `WARN Opruimen zonder lopende sessie mislukt (fout=...); de veegtaak ruimt het op`: een
   ophaalronde, aanmelding of verwijdering kruiste met het einde van de laatste sessie, en het
   opruimen daarna faalde. De ontvanger staat gemarkeerd in de verloopindex; de volgende veegronde

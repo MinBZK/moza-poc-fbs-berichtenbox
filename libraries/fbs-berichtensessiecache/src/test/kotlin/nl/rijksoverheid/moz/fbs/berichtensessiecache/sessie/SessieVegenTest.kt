@@ -67,7 +67,7 @@ class SessieVegenTest {
         assertEquals(emptyList<Opruiming>(), veeg())
 
         assertTrue(bestaat("${key(ontvanger)}:list"))
-        assertTrue(ontvanger.toCanonicalString() in indexLeden())
+        assertTrue(lid(ontvanger) in indexLeden())
     }
 
     @Test
@@ -78,10 +78,10 @@ class SessieVegenTest {
 
         Thread.sleep(INACTIVITEIT_MS + 300)
 
-        assertEquals(listOf(Opruiming(ontvanger, uitkomst = OpruimUitkomst.GEWIST)), veeg())
+        assertEquals(listOf(Opruiming.VanOntvanger(ontvanger, OpruimUitkomst.GEWIST)), veeg())
 
         assertEquals(emptyList<String>(), sleutelsOnder(key(ontvanger)))
-        assertFalse(ontvanger.toCanonicalString() in indexLeden())
+        assertFalse(lid(ontvanger) in indexLeden())
     }
 
     @Test
@@ -92,7 +92,7 @@ class SessieVegenTest {
         zetGegevens(ontvanger)
         // Een verlopen sessie naast de lopende, en een index die achterloopt op de lopende.
         redis.sortedSet(String::class.java).zadd("$k:sessies", 1.0, "verlopen").await().atMost(WACHTTIJD)
-        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, ontvanger.toCanonicalString()).await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, lid(ontvanger)).await().atMost(WACHTTIJD)
 
         assertEquals(emptyList<Opruiming>(), veeg())
 
@@ -108,9 +108,9 @@ class SessieVegenTest {
         val ontvanger = nieuweOntvanger()
         zetVerlopen(ontvanger, metGegevens = false)
 
-        assertEquals(listOf(Opruiming(ontvanger, uitkomst = OpruimUitkomst.GEWIST)), veeg())
+        assertEquals(listOf(Opruiming.VanOntvanger(ontvanger, OpruimUitkomst.GEWIST)), veeg())
 
-        assertFalse(ontvanger.toCanonicalString() in indexLeden())
+        assertFalse(lid(ontvanger) in indexLeden())
     }
 
     @Test
@@ -119,7 +119,7 @@ class SessieVegenTest {
         redis.key().del("${key(bsn)}:sessies", "${key(bsn)}:sessies:plafond").await().atMost(WACHTTIJD)
         zetVerlopen(bsn)
 
-        assertEquals(listOf(Opruiming(bsn, uitkomst = OpruimUitkomst.GEWIST)), veeg())
+        assertEquals(listOf(Opruiming.VanOntvanger(bsn, OpruimUitkomst.GEWIST)), veeg())
 
         assertFalse(bestaat("${key(bsn)}:list"))
     }
@@ -142,7 +142,7 @@ class SessieVegenTest {
             pool.shutdownNow()
         }
 
-        val gewist = rondes.flatten().filter { it.uitkomst == OpruimUitkomst.GEWIST }.map { it.ontvanger }
+        val gewist = rondes.flatten().filter { it.uitkomst == OpruimUitkomst.GEWIST }.map { (it as Opruiming.VanOntvanger).ontvanger }
         assertEquals(ontvangers.size, gewist.size, "Dubbel of niet opgeruimd: $rondes")
         assertEquals(ontvangers.toSet(), gewist.toSet())
         assertTrue(rondes.flatten().all { it.uitkomst == OpruimUitkomst.GEWIST })
@@ -161,7 +161,7 @@ class SessieVegenTest {
 
         val tweede = veeg(max = 2)
 
-        assertEquals(ontvangers.toSet(), (eerste + tweede).map { it.ontvanger }.toSet())
+        assertEquals(ontvangers.toSet(), (eerste + tweede).map { (it as Opruiming.VanOntvanger).ontvanger }.toSet())
         assertEquals(emptyList<String>(), indexLeden())
     }
 
@@ -185,12 +185,13 @@ class SessieVegenTest {
         // Een sessiesleutel van het verkeerde type laat het script van deze ontvanger falen.
         beschadigd += "${key(stuk)}:sessies"
         redis.value(String::class.java).set("${key(stuk)}:sessies", "geen-zset").await().atMost(WACHTTIJD)
-        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, stuk.toCanonicalString()).await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, lid(stuk)).await().atMost(WACHTTIJD)
+        redis.value(String::class.java).set("${key(stuk)}:ontvanger", stuk.toCanonicalString()).await().atMost(WACHTTIJD)
 
         val opruimingen = veeg()
 
-        assertEquals(setOf(Opruiming(stuk, uitkomst = OpruimUitkomst.MISLUKT), Opruiming(heel, uitkomst = OpruimUitkomst.GEWIST)), opruimingen.toSet())
-        assertEquals(listOf(stuk.toCanonicalString()), indexLeden())
+        assertEquals(setOf(Opruiming.VanOntvanger(stuk, OpruimUitkomst.MISLUKT), Opruiming.VanOntvanger(heel, OpruimUitkomst.GEWIST)), opruimingen.toSet())
+        assertEquals(listOf(lid(stuk)), indexLeden())
     }
 
     @Test
@@ -200,15 +201,15 @@ class SessieVegenTest {
         // Achter alle mislukkers in de index: zonder uitstel komt hij nooit in een batch van honderd.
         val heel = nieuweOntvanger()
         zetVerlopen(heel)
-        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 2.0, heel.toCanonicalString()).await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 2.0, lid(heel)).await().atMost(WACHTTIJD)
 
         val eerste = veeg(max = AANTAL_MISLUKT)
 
-        assertEquals(stuk.map { Opruiming(it, OpruimUitkomst.MISLUKT) }.toSet(), eerste.toSet())
+        assertEquals(stuk.map { Opruiming.VanOntvanger(it, OpruimUitkomst.MISLUKT) }.toSet(), eerste.toSet())
         val ondergrens = redisTijdMs() + UITSTEL_MS - MARGE_MS
         stuk.forEach { assertTrue(indexScore(it)!! >= ondergrens, "Niet naar achteren geschoven: ${indexScore(it)}") }
 
-        assertEquals(listOf(Opruiming(heel, OpruimUitkomst.GEWIST)), veeg(max = AANTAL_MISLUKT))
+        assertEquals(listOf(Opruiming.VanOntvanger(heel, OpruimUitkomst.GEWIST)), veeg(max = AANTAL_MISLUKT))
         assertFalse(bestaat("${key(heel)}:list"))
         assertEquals(emptyList<Opruiming>(), veeg(max = AANTAL_MISLUKT))
         assertEquals(AANTAL_MISLUKT, indexLeden().size, "De mislukkers horen in de index te blijven")
@@ -219,24 +220,54 @@ class SessieVegenTest {
         val weg = nieuweOntvanger()
         val later = nieuweOntvanger()
         val laterScore = redisTijdMs() + Duration.ofDays(1).toMillis().toDouble()
-        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, laterScore, later.toCanonicalString()).await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, laterScore, lid(later)).await().atMost(WACHTTIJD)
 
-        register.stelUit(weg).await().atMost(WACHTTIJD)
-        register.stelUit(later).await().atMost(WACHTTIJD)
+        register.stelUit(lid(weg)).await().atMost(WACHTTIJD)
+        register.stelUit(lid(later)).await().atMost(WACHTTIJD)
 
         assertNull(indexScore(weg))
         assertEquals(laterScore, indexScore(later))
     }
 
-    @Test
-    fun `een onleesbaar lid wordt uit de index gehaald en niet gemeld`() {
+    @ParameterizedTest(name = "leesbare ontvanger {0}")
+    @ValueSource(strings = ["verlopen", "onleesbaar", "van het verkeerde type"])
+    fun `een kandidaat zonder leesbare ontvanger wordt toch geveegd en zonder ontvanger gemeld`(geval: String) {
+        // Zoals na een veeg die zo lang faalde dat de vangnet-TTL van de leesbare ontvanger verliep.
         val ontvanger = nieuweOntvanger()
+        val ontvangerKey = "${key(ontvanger)}:ontvanger"
         zetVerlopen(ontvanger)
-        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, "ONBEKEND:123").await().atMost(WACHTTIJD)
 
-        assertEquals(listOf(Opruiming(ontvanger, uitkomst = OpruimUitkomst.GEWIST)), veeg())
+        when (geval) {
+            "verlopen" -> redis.key().del(ontvangerKey).await().atMost(WACHTTIJD)
+            "onleesbaar" -> redis.value(String::class.java).set(ontvangerKey, "ONBEKEND:123").await().atMost(WACHTTIJD)
+            else -> {
+                beschadigd += ontvangerKey
+                redis.key().del(ontvangerKey).await().atMost(WACHTTIJD)
+                redis.list(String::class.java).rpush(ontvangerKey, "geen-string").await().atMost(WACHTTIJD)
+            }
+        }
 
-        assertNull(redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, "ONBEKEND:123").await().atMost(WACHTTIJD))
+        assertEquals(listOf(Opruiming.ZonderOntvanger(lid(ontvanger), OpruimUitkomst.GEWIST)), veeg())
+
+        assertEquals(emptyList<String>(), indexLeden())
+        assertFalse(bestaat("${key(ontvanger)}:list"))
+    }
+
+    @Test
+    fun `de index noemt alleen kenmerken, en de leesbare ontvanger staat apart met de vangnet-TTL`() {
+        val bsn = Bsn("999993653")
+        redis.key().del("${key(bsn)}:sessies", "${key(bsn)}:sessies:plafond").await().atMost(WACHTTIJD)
+
+        sessiecache.startSessie(bsn)
+
+        assertEquals(listOf(lid(bsn)), indexLeden())
+        assertTrue(indexLeden().none { bsn.waarde in it }, "BSN leesbaar in de verloopindex")
+        assertEquals(bsn.toCanonicalString(), redis.value(String::class.java).get("${key(bsn)}:ontvanger").await().atMost(WACHTTIJD))
+        assertTrue(pttl("${key(bsn)}:ontvanger") in (MAX_DUUR_MS + 1)..DATA_TTL_MS, "TTL: ${pttl("${key(bsn)}:ontvanger")}")
+
+        sessiecache.beeindigSessie(sessiecache.startSessie(bsn).sessieId, bsn)
+
+        assertTrue(bestaat("${key(bsn)}:ontvanger"), "met een lopende sessie blijft de leesbare ontvanger staan")
     }
 
     @Test
@@ -254,7 +285,7 @@ class SessieVegenTest {
         assertTrue(register.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
 
         assertTrue(indexScore(ontvanger)!! <= redisTijdMs(), "niet wachtend: ${indexScore(ontvanger)}")
-        assertTrue(register.veeg(ontvanger).await().atMost(WACHTTIJD))
+        assertTrue(register.veeg(lid(ontvanger)).await().atMost(WACHTTIJD))
     }
 
     @Test
@@ -290,7 +321,7 @@ class SessieVegenTest {
 
         assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(sessie.sessieId, ontvanger))
 
-        assertFalse(register.veeg(ontvanger).await().atMost(WACHTTIJD))
+        assertFalse(register.veeg(lid(ontvanger)).await().atMost(WACHTTIJD))
         assertNull(indexScore(ontvanger))
     }
 
@@ -304,7 +335,7 @@ class SessieVegenTest {
 
         assertTrue(sessiecache.startSessie(ontvanger).restenOpgeruimd)
 
-        assertFalse(register.veeg(ontvanger).await().atMost(WACHTTIJD))
+        assertFalse(register.veeg(lid(ontvanger)).await().atMost(WACHTTIJD))
     }
 
     @Test
@@ -339,10 +370,15 @@ class SessieVegenTest {
     fun `toString van een opruiming noemt het type maar niet de waarde`() {
         val bsn = Bsn("999993653")
 
-        val tekst = Opruiming(bsn, uitkomst = OpruimUitkomst.GEWIST).toString()
+        val tekst = Opruiming.VanOntvanger(bsn, OpruimUitkomst.GEWIST).toString()
 
         assertFalse("999993653" in tekst, tekst)
         assertTrue("BSN" in tekst, tekst)
+
+        val zonder = Opruiming.ZonderOntvanger(lid(bsn), OpruimUitkomst.GEWIST).toString()
+        val kandidaat = VeegKandidaat(lid(bsn), bsn).toString()
+
+        listOf(zonder, kandidaat).forEach { assertFalse(lid(bsn) in it || "999993653" in it, it) }
     }
 
     private fun veeg(max: Int = 100): List<Opruiming> {
@@ -356,7 +392,8 @@ class SessieVegenTest {
     private fun zetBeschadigd(ontvanger: Identificatienummer) {
         beschadigd += "${key(ontvanger)}:sessies"
         redis.value(String::class.java).set("${key(ontvanger)}:sessies", "geen-zset").await().atMost(WACHTTIJD)
-        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, ontvanger.toCanonicalString()).await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, lid(ontvanger)).await().atMost(WACHTTIJD)
+        redis.value(String::class.java).set("${key(ontvanger)}:ontvanger", ontvanger.toCanonicalString()).await().atMost(WACHTTIJD)
     }
 
     private fun redisTijdMs(): Double {
@@ -370,7 +407,8 @@ class SessieVegenTest {
         val k = key(ontvanger)
         redis.sortedSet(String::class.java).zadd("$k:sessies", 1.0, "verlopen").await().atMost(WACHTTIJD)
         redis.hash(String::class.java).hset("$k:sessies:plafond", "verlopen", "1").await().atMost(WACHTTIJD)
-        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, ontvanger.toCanonicalString()).await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, lid(ontvanger)).await().atMost(WACHTTIJD)
+        redis.value(String::class.java).set("$k:ontvanger", ontvanger.toCanonicalString()).await().atMost(WACHTTIJD)
 
         if (metGegevens) zetGegevens(ontvanger)
     }
@@ -381,11 +419,15 @@ class SessieVegenTest {
 
     private fun key(ontvanger: Identificatienummer) = BerichtenCache.cacheKey(ontvanger)
 
+    private fun lid(ontvanger: Identificatienummer) = BerichtenCache.kenmerk(ontvanger)
+
+    private fun pttl(sleutel: String): Long = redis.key().pttl(sleutel).await().atMost(WACHTTIJD)
+
     private fun indexLeden(): List<String> =
         redis.sortedSet(String::class.java).zrange(VERLOOP_INDEX, 0, -1).await().atMost(WACHTTIJD)
 
     private fun indexScore(ontvanger: Identificatienummer): Double? =
-        redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, ontvanger.toCanonicalString()).await().atMost(WACHTTIJD)
+        redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, lid(ontvanger)).await().atMost(WACHTTIJD)
 
     private fun sleutelsOnder(prefix: String): List<String> =
         redis.execute("KEYS", "$prefix:*").await().atMost(WACHTTIJD).map { it.toString() }
@@ -397,6 +439,10 @@ class SessieVegenTest {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
         const val WACHTTIJD_S = 10L
         const val INACTIVITEIT_MS = 2_000L
+        const val MAX_DUUR_MS = 3_000L
+
+        // Maximale duur plus de standaard vangnet-marge van een uur.
+        const val DATA_TTL_MS = MAX_DUUR_MS + 3_600_000L
         const val AANTAL_GELIJKTIJDIG = 20
         const val AANTAL_MISLUKT = 100
 

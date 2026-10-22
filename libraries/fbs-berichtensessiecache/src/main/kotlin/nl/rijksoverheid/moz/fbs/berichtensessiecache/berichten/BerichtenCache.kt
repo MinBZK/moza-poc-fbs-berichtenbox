@@ -90,11 +90,20 @@ internal interface BerichtenCache {
         }
         private val HEX = HexFormat.of()
 
-        fun cacheKey(ontvanger: Identificatienummer): String {
+        /** Voorvoegsel van elke sleutel onder [cacheKey]; daarachter staat het [kenmerk]. */
+        const val SLEUTEL_PREFIX = "berichtensessiecache:v4:"
+
+        fun cacheKey(ontvanger: Identificatienummer): String = SLEUTEL_PREFIX + kenmerk(ontvanger)
+
+        /**
+         * SHA-256 over de canonieke ontvanger, hex. Een pseudoniem en geen anonimisering: een BSN
+         * is terug te rekenen, dus ook dit hoort niet in een log.
+         */
+        fun kenmerk(ontvanger: Identificatienummer): String {
             val canonical = ontvanger.toCanonicalString()
             val digest = SHA256_DIGEST.get().apply { reset() }
                 .digest(canonical.toByteArray(Charsets.UTF_8))
-            return "berichtensessiecache:v4:${HEX.formatHex(digest)}"
+            return HEX.formatHex(digest)
         }
 
         // v4: de berichthash draagt het magazijn, want een berichtnummer is alleen uniek binnen

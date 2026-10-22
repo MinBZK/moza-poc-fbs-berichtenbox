@@ -8,7 +8,6 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisBerichtenCache
 import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
-import org.jboss.logging.Logger
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Instant
@@ -55,20 +54,34 @@ internal interface SessieRegister {
      * Hoogstens [max] ontvangers wier laatste sessie volgens de verloopindex verlopen is. Alleen een
      * kandidaat: of er echt geen sessie meer loopt, beslist [veeg].
      */
-    fun verlopen(max: Int): Uni<List<Identificatienummer>>
+    fun verlopen(max: Int): Uni<List<VeegKandidaat>>
 
     /**
-     * Wist de gegevens van [ontvanger] en haalt hem uit de verloopindex als er geen lopende sessie
-     * meer is, in één atomaire stap; `true` als déze aanroep dat deed. Van gelijktijdige vegers voor
-     * dezelfde ontvanger krijgt er hooguit één `true`.
+     * Wist de gegevens van de ontvanger met [kenmerk] en haalt hem uit de verloopindex als er geen
+     * lopende sessie meer is, in één atomaire stap; `true` als déze aanroep dat deed. Van
+     * gelijktijdige vegers voor dezelfde ontvanger krijgt er hooguit één `true`.
      */
-    fun veeg(ontvanger: Identificatienummer): Uni<Boolean>
+    fun veeg(kenmerk: String): Uni<Boolean>
 
     /**
-     * Schuift [ontvanger] in de verloopindex het veeg-uitstel naar achteren, na een mislukt [veeg].
-     * Staat hij er niet (meer) in, of ligt zijn verloop al later, dan verandert er niets.
+     * Schuift [kenmerk] in de verloopindex het veeg-uitstel naar achteren, na een mislukt [veeg].
+     * Staat het er niet (meer) in, of ligt zijn verloop al later, dan verandert er niets.
      */
-    fun stelUit(ontvanger: Identificatienummer): Uni<Unit>
+    fun stelUit(kenmerk: String): Uni<Unit>
+}
+
+/**
+ * Een ontvanger uit de verloopindex. [kenmerk] is zijn lid in de index ([BerichtenCache.kenmerk]);
+ * [ontvanger] de leesbare vorm, of `null` als die al verlopen of onleesbaar is, en dan kan het
+ * opruimen niet met betrokkene in het logboek.
+ */
+internal class VeegKandidaat(val kenmerk: String, val ontvanger: Identificatienummer?) {
+
+    fun opruiming(uitkomst: OpruimUitkomst): Opruiming =
+        ontvanger?.let { Opruiming.VanOntvanger(it, uitkomst) } ?: Opruiming.ZonderOntvanger(kenmerk, uitkomst)
+
+    // Een toString belandt makkelijk in een log, en het kenmerk is een terug te rekenen hash.
+    override fun toString(): String = "VeegKandidaat(ontvanger=${ontvanger?.type ?: "onbekend"}:***)"
 }
 
 /**
@@ -113,10 +126,11 @@ internal class RedisSessieRegister(
             config.inactiviteit().toMillis().toString(),
             config.maxDuur().toMillis().toString(),
             config.maxPerOntvanger().toString(),
-            ontvanger.toCanonicalString(),
+            BerichtenCache.kenmerk(ontvanger),
             // Geen sessie leeft langer dan start + maximale duur, dus de laatste start bepaalt hoe
             // lang de administratie en de gegevens moeten blijven staan.
             config.dataTtl.toMillis().toString(),
+            ontvanger.toCanonicalString(),
         )
 
         return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
@@ -139,7 +153,7 @@ internal class RedisSessieRegister(
         val argumenten = listOf(
             hash(sessieId),
             config.inactiviteit().toMillis().toString(),
-            ontvanger.toCanonicalString(),
+            BerichtenCache.kenmerk(ontvanger),
         )
 
         return voerUit(SessieScripts.RAAK, ontvanger, argumenten).map { it.toInteger() == 1 }
@@ -148,52 +162,56 @@ internal class RedisSessieRegister(
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> {
         if (!SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(SessieEinde.ONBEKEND)
 
-        val argumenten = listOf(hash(sessieId), ontvanger.toCanonicalString())
+        val argumenten = listOf(hash(sessieId), BerichtenCache.kenmerk(ontvanger))
 
         return voerUit(SessieScripts.EINDE, ontvanger, argumenten).map { SessieEinde.valueOf(it.toString()) }
     }
 
-    override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> =
-        voerUit(SessieScripts.OPRUIMEN, ontvanger, listOf(ontvanger.toCanonicalString())).map { it.toInteger() == 1 }
+    override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> {
+        val argumenten = listOf(BerichtenCache.kenmerk(ontvanger), ontvanger.toCanonicalString(), config.dataTtl.toMillis().toString())
 
-    override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> =
-        voerUit(SessieScripts.MARKEER, listOf(VERLOOP_INDEX), listOf(ontvanger.toCanonicalString())).replaceWith(Unit)
+        return voerUit(SessieScripts.OPRUIMEN, ontvanger, argumenten).map { it.toInteger() == 1 }
+    }
 
-    override fun verlopen(max: Int): Uni<List<Identificatienummer>> =
-        voerUit(SessieScripts.KANDIDATEN, listOf(VERLOOP_INDEX), listOf(max.toString())).flatMap { antwoord ->
-            val leden = antwoord.map { it.toString() }.associateWith(::leesOntvanger)
-            val onleesbaar = leden.filterValues { it == null }.keys
-            val ontvangers = leden.values.filterNotNull()
+    override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> {
+        val kenmerk = BerichtenCache.kenmerk(ontvanger)
+        val argumenten = listOf(kenmerk, ontvanger.toCanonicalString(), config.dataTtl.toMillis().toString())
 
-            if (onleesbaar.isEmpty()) {
-                Uni.createFrom().item(ontvangers)
-            } else {
-                // Zonder de waarde: een lid dat net niet als ontvanger te lezen is, kan een BSN bevatten.
-                log.warnf("%d onleesbare leden uit de verloopindex verwijderd", onleesbaar.size)
-                redis.sortedSet(String::class.java).zrem(VERLOOP_INDEX, *onleesbaar.toTypedArray()).replaceWith(ontvangers)
-            }
+        return voerUit(SessieScripts.MARKEER, listOf(VERLOOP_INDEX, ontvangerKey(kenmerk)), argumenten).replaceWith(Unit)
+    }
+
+    override fun verlopen(max: Int): Uni<List<VeegKandidaat>> {
+        val argumenten = listOf(max.toString(), BerichtenCache.SLEUTEL_PREFIX, ONTVANGER_SUFFIX)
+
+        return voerUit(SessieScripts.KANDIDATEN, listOf(VERLOOP_INDEX), argumenten).map { antwoord ->
+            antwoord.map { it.toString() }.chunked(2) { (kenmerk, ontvanger) -> VeegKandidaat(kenmerk, leesOntvanger(ontvanger)) }
         }
+    }
 
-    override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> =
-        voerUit(SessieScripts.VEEG, ontvanger, listOf(ontvanger.toCanonicalString())).map { it.toInteger() == 1 }
+    override fun veeg(kenmerk: String): Uni<Boolean> =
+        voerUit(SessieScripts.VEEG, sleutels(kenmerk), listOf(kenmerk)).map { it.toInteger() == 1 }
 
-    override fun stelUit(ontvanger: Identificatienummer): Uni<Unit> {
-        val argumenten = listOf(config.veegUitstel.toMillis().toString(), ontvanger.toCanonicalString())
+    override fun stelUit(kenmerk: String): Uni<Unit> {
+        val argumenten = listOf(config.veegUitstel.toMillis().toString(), kenmerk)
 
         return voerUit(SessieScripts.UITSTEL, listOf(VERLOOP_INDEX), argumenten).replaceWith(Unit)
     }
 
     private fun voerUit(script: String, ontvanger: Identificatienummer, argumenten: List<String>) =
-        voerUit(script, sleutels(ontvanger), argumenten)
+        voerUit(script, sleutels(BerichtenCache.kenmerk(ontvanger)), argumenten)
 
     private fun voerUit(script: String, keys: List<String>, argumenten: List<String>) =
         redis.execute("EVAL", script, keys.size.toString(), *keys.toTypedArray(), *argumenten.toTypedArray())
 
     companion object {
-        private val log = Logger.getLogger(RedisSessieRegister::class.java)
-
-        /** Stelselbreed: per ontvanger het verloop van zijn laatst verlopende sessie, voor het actief opruimen. */
+        /**
+         * Stelselbreed: per ontvanger, onder zijn [BerichtenCache.kenmerk], het verloop van zijn laatst
+         * verlopende sessie, voor het actief opruimen.
+         */
         const val VERLOOP_INDEX = "berichtensessiecache:v4:verloop"
+
+        /** Achter `$k`: de leesbare ontvanger bij een index-entry. */
+        private const val ONTVANGER_SUFFIX = ":ontvanger"
 
         /** 128 bits, base64url zonder opvulling. */
         private const val SESSIE_ID_BYTES = 16
@@ -203,8 +221,8 @@ internal class RedisSessieRegister(
         private val HEX = HexFormat.of()
 
         /** De KEYS van elk script in [SessieScripts], in de volgorde die daar beschreven staat. */
-        fun sleutels(ontvanger: Identificatienummer): List<String> {
-            val k = BerichtenCache.cacheKey(ontvanger)
+        fun sleutels(kenmerk: String): List<String> {
+            val k = BerichtenCache.SLEUTEL_PREFIX + kenmerk
 
             return listOf(
                 "$k:sessies",
@@ -214,8 +232,11 @@ internal class RedisSessieRegister(
                 RedisBerichtenCache.statusKey(k),
                 RedisBerichtenCache.lockKey(k),
                 RedisBerichtenCache.sleutelsKey(k),
+                ontvangerKey(kenmerk),
             )
         }
+
+        fun ontvangerKey(kenmerk: String): String = BerichtenCache.SLEUTEL_PREFIX + kenmerk + ONTVANGER_SUFFIX
 
         private fun nieuweSessieId(): String {
             val bytes = ByteArray(SESSIE_ID_BYTES).also(RANDOM::nextBytes)
@@ -223,9 +244,10 @@ internal class RedisSessieRegister(
             return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
         }
 
-        private fun leesOntvanger(lid: String): Identificatienummer? =
+        // Leeg: verlopen. Onleesbaar telt net zo: de veegtaak ruimt op en meldt het ontbreken.
+        private fun leesOntvanger(waarde: String): Identificatienummer? =
             try {
-                Identificatienummer.fromHeader(lid)
+                waarde.takeIf { it.isNotEmpty() }?.let(Identificatienummer::fromHeader)
             } catch (ignored: DomainValidationException) {
                 null
             }

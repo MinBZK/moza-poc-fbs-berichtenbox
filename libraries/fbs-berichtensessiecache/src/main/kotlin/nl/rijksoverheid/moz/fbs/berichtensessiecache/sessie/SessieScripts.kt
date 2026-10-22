@@ -9,11 +9,17 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  * [RedisSessieRegister.sleutels]):
  * 1. `$k:sessies` — ZSET, lid `sha256(sessie-id)`, score het verloop in ms;
  * 2. `$k:sessies:plafond` — HASH, lid → plafond: start + maximale duur in ms;
- * 3. de stelselbrede verloopindex — ZSET, lid de ontvanger, score zijn laatste verloop in ms;
+ * 3. de stelselbrede verloopindex — ZSET, lid het kenmerk van de ontvanger (de hash uit `$k`),
+ *    score zijn laatste verloop in ms;
  * 4–6. de gegevens onder een vaste naam: `$k:list`, `$k:status`, `$k:lock`;
  * 7. `$k:sleutels` — SET met elke andere gegevenssleutel van de ontvanger: de berichthashes, ook
  *    die van eerdere ophaalrondes, en de tombstones. De hashes vallen buiten de sessie-prefix en
- *    zijn anders alleen via een zoekopdracht te vinden.
+ *    zijn anders alleen via een zoekopdracht te vinden;
+ * 8. `$k:ontvanger` — STRING, de leesbare ontvanger, voor de logregel van de veegtaak.
+ *
+ * De index bevat alleen kenmerken: één stelselbrede sleutel zonder TTL hoort geen lijst van BSN's
+ * te zijn. De leesbare ontvanger staat per ontvanger in `$k:ontvanger`, met de vangnet-TTL, en gaat
+ * weg samen met zijn index-entry. Elk script dat een entry maakt, schrijft hem.
  *
  * Omdat de leden van `$k:sleutels` niet in KEYS staan, gaan deze scripts uit van één Redis-node,
  * zoals het aanmeldscript van de berichtencache.
@@ -57,11 +63,17 @@ internal object SessieScripts {
             return gewist
         end
 
-        -- Of de ontvanger met een verstreken score in de index staat: een opruiming die nog op
-        -- de veegtaak wacht. Wie hem weghaalt, neemt de melding over.
-        local function wachtend(ontvanger, nu)
-            local score = redis.call('ZSCORE', KEYS[3], ontvanger)
+        -- Of het kenmerk met een verstreken score in de index staat: een opruiming die nog op de
+        -- veegtaak wacht. Wie hem weghaalt, neemt de melding over.
+        local function wachtend(kenmerk, nu)
+            local score = redis.call('ZSCORE', KEYS[3], kenmerk)
             return score and tonumber(score) <= nu
+        end
+
+        -- De leesbare ontvanger hoort bij de index-entry en verdwijnt ermee.
+        local function haalUitIndex(kenmerk)
+            redis.call('ZREM', KEYS[3], kenmerk)
+            redis.call('DEL', KEYS[8])
         end
 
         -- Een BEZIG-status houdt zijn korte TTL: die moet na een gecrashte ophaalronde snel vrijkomen.
@@ -83,8 +95,8 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), grens per ontvanger, ontvanger,
-     * vangnet-TTL van de sessie-administratie en de gegevens (ms).
+     * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), grens per ontvanger, kenmerk,
+     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger.
      *
      * Antwoord `{0}` bij de grens, anders `{1, verloop in ms, opgeruimd}`, met opgeruimd 1 als de
      * start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0. Alleen een
@@ -120,13 +132,15 @@ internal object SessieScripts {
         redis.call('HSET', KEYS[2], ARGV[1], plafond)
         redis.call('PEXPIRE', KEYS[1], ARGV[6])
         redis.call('PEXPIRE', KEYS[2], ARGV[6])
+        redis.call('SET', KEYS[8], ARGV[7], 'PX', ARGV[6])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[5])
         return { 1, verloop, opgeruimd }
     """.trimIndent()
 
     /**
-     * ARGV: sessie-hash, inactiviteit (ms), ontvanger. Antwoord 1 als de sessie loopt en verlengd
-     * is, anders 0. Het verloop schuift nooit voorbij start + maximale duur.
+     * ARGV: sessie-hash, inactiviteit (ms), kenmerk. Antwoord 1 als de sessie loopt en verlengd
+     * is, anders 0. Het verloop schuift nooit voorbij start + maximale duur, dus ook niet voorbij
+     * de TTL van `$k:ontvanger` die de laatste start zette.
      */
     val RAAK = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
@@ -147,7 +161,7 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: sessie-hash, ontvanger. Antwoord `ONBEKEND`, `BEEINDIGD` of `OPGERUIMD` (zie
+     * ARGV: sessie-hash, kenmerk. Antwoord `ONBEKEND`, `BEEINDIGD` of `OPGERUIMD` (zie
      * [SessieEinde]).
      *
      * Blijft er geen lopende sessie over, dan wist het script ook bij een onbekend id: er is dan
@@ -175,7 +189,7 @@ internal object SessieScripts {
 
         local wachtte = wachtend(ARGV[2], nu)
         local gewist = purge()
-        redis.call('ZREM', KEYS[3], ARGV[2])
+        haalUitIndex(ARGV[2])
         if bekend or gewist > 0 or wachtte then
             return 'OPGERUIMD'
         end
@@ -183,7 +197,8 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: ontvanger. Antwoord 1 als er geen lopende sessie is en er gegevens gewist zijn, anders 0.
+     * ARGV: kenmerk, leesbare ontvanger, vangnet-TTL (ms). Antwoord 1 als er geen lopende sessie is
+     * en er gegevens gewist zijn, anders 0.
      *
      * Draait ná het schrijven van een ophaalronde of een aanmelding: eindigde de laatste sessie
      * terwijl die liep, dan ruimt dit het geschrevene op, in welke volgorde het ook gebeurde.
@@ -199,6 +214,7 @@ internal object SessieScripts {
         end
 
         if purge() > 0 then
+            redis.call('SET', KEYS[8], ARGV[2], 'PX', ARGV[3])
             redis.call('ZADD', KEYS[3], nu, ARGV[1])
             return 1
         end
@@ -206,22 +222,37 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * Afwijkende KEYS: alleen de verloopindex. ARGV: het maximum aantal. Antwoord de ontvangers wier
-     * laatste sessie volgens de index verlopen is. Een script en geen losse `ZRANGEBYSCORE`, zodat
-     * "nu" dezelfde Redis-tijd is als in [VEEG].
+     * Afwijkende KEYS: alleen de verloopindex. ARGV: het maximum aantal, en het voor- en achterstuk
+     * van de sleutel `$k:ontvanger` rond het kenmerk. Antwoord per kandidaat wiens laatste sessie
+     * volgens de index verlopen is: het kenmerk en de leesbare ontvanger, of een lege tekst als die
+     * er niet meer is. Hier en niet pas in [VEEG]: ook een veeg die faalt of geen antwoord geeft,
+     * hoort met zijn ontvanger in het logboek. Een script en geen losse `ZRANGEBYSCORE`, zodat "nu"
+     * dezelfde Redis-tijd is als in [VEEG]. Een `$k:ontvanger` van het verkeerde type telt als
+     * verdwenen, anders houdt één kapotte sleutel elke ronde tegen.
      */
     val KANDIDATEN = GEDEELD + "\n\n" + """
-        return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', tijdInMs(), 'LIMIT', 0, tonumber(ARGV[1]))
+        local leden = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', tijdInMs(), 'LIMIT', 0, tonumber(ARGV[1]))
+        local antwoord = {}
+        for _, kenmerk in ipairs(leden) do
+            local ontvanger = redis.pcall('GET', ARGV[2] .. kenmerk .. ARGV[3])
+            if type(ontvanger) ~= 'string' then
+                ontvanger = ''
+            end
+            table.insert(antwoord, kenmerk)
+            table.insert(antwoord, ontvanger)
+        end
+        return antwoord
     """.trimIndent()
 
     /**
-     * ARGV: ontvanger. Antwoord 1 als dit script de ontvanger heeft opgeruimd, anders 0.
+     * ARGV: kenmerk. Antwoord 1 als dit script de ontvanger heeft opgeruimd, anders 0.
      *
      * De index is alleen een aanwijzing: tussen [KANDIDATEN] en dit script kan een sessie gestart of
      * geraakt zijn, of een andere pod al geveegd hebben. Pas als hier blijkt dat er echt geen lopende
      * sessie meer is, wordt er gewist en verdwijnt de ontvanger uit de index; zo ruimt precies één
      * pod op en meldt het. Ook als een eerder opruimen na een schrijfactie de gegevens al wiste, is
-     * dit het moment dat de verwerking eindigt, dus dan is het antwoord eveneens 1.
+     * dit het moment dat de verwerking eindigt, dus dan is het antwoord eveneens 1. Een ontvanger
+     * wiens `$k:ontvanger` al verlopen is, wordt net zo opgeruimd.
      */
     val VEEG = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
@@ -240,12 +271,12 @@ internal object SessieScripts {
         end
 
         purge()
-        redis.call('ZREM', KEYS[3], ARGV[1])
+        haalUitIndex(ARGV[1])
         return 1
     """.trimIndent()
 
     /**
-     * Afwijkende KEYS: alleen de verloopindex. ARGV: uitstel (ms), ontvanger. Schuift een ontvanger
+     * Afwijkende KEYS: alleen de verloopindex. ARGV: uitstel (ms), kenmerk. Schuift een ontvanger
      * wiens [VEEG] faalde naar "nu + uitstel", zodat de kandidaten erachter aan de beurt komen.
      * `XX`: wie intussen uit de index verdween, komt er niet terug. `GT`: een later verloop, van een
      * sessie die intussen startte, blijft staan.
@@ -256,12 +287,14 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * Afwijkende KEYS: alleen de verloopindex. ARGV: ontvanger. Zet de ontvanger met score "nu" in de
-     * index als terugval wanneer het opruimen na een schrijfactie zelf faalde; de veegtaak ruimt het
-     * dan op en meldt het. `NX`: een bestaande entry, van een lopende sessie of een al wachtende
-     * opruiming, blijft staan.
+     * Afwijkende KEYS: de verloopindex en `$k:ontvanger`. ARGV: kenmerk, leesbare ontvanger,
+     * vangnet-TTL (ms). Zet de ontvanger met score "nu" in de index als terugval wanneer het opruimen
+     * na een schrijfactie zelf faalde; de veegtaak ruimt het dan op en meldt het. `NX`: een bestaande
+     * entry, van een lopende sessie of een al wachtende opruiming, blijft staan. De leesbare
+     * ontvanger wordt hoe dan ook (opnieuw) gezet: de veegtaak heeft hem nodig.
      */
     val MARKEER = GEDEELD + "\n\n" + """
+        redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
         redis.call('ZADD', KEYS[1], 'NX', tijdInMs(), ARGV[1])
         return 1
     """.trimIndent()

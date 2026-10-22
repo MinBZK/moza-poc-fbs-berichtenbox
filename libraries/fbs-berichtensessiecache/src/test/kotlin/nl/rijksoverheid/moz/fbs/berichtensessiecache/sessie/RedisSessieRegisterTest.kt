@@ -257,11 +257,11 @@ class RedisSessieRegisterTest {
 
         sessiecache.beeindigSessie(id, ontvanger)
 
-        val over = redis.key().exists("$k:status", "$k:list", "$k:lock", "$k:sessies", "$k:sessies:plafond")
+        val over = redis.key().exists("$k:status", "$k:list", "$k:lock", "$k:sessies", "$k:sessies:plafond", "$k:ontvanger")
             .await().atMost(WACHTTIJD)
         assertEquals(0, over)
         val inIndex = redis.sortedSet(String::class.java).zrange(VERLOOP_INDEX, 0, -1).await().atMost(WACHTTIJD)
-        assertFalse(ontvanger.toCanonicalString() in inIndex, "Ontvanger staat nog in de verloopindex")
+        assertFalse(BerichtenCache.kenmerk(ontvanger) in inIndex, "Ontvanger staat nog in de verloopindex")
     }
 
     @Test
@@ -314,7 +314,7 @@ class RedisSessieRegisterTest {
     }
 
     private fun verloopIndexScore(): Double =
-        redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, ontvanger.toCanonicalString())
+        redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, BerichtenCache.kenmerk(ontvanger))
             .await().atMost(WACHTTIJD)!!
 
     private fun alleSleutelsEnWaarden(): List<String> {

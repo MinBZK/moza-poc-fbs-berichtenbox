@@ -28,9 +28,9 @@ internal class MockSessieRegister : SessieRegister {
 
     override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> = Uni.createFrom().item(Unit)
 
-    override fun verlopen(max: Int): Uni<List<Identificatienummer>> = Uni.createFrom().item(emptyList())
+    override fun verlopen(max: Int): Uni<List<VeegKandidaat>> = Uni.createFrom().item(emptyList())
 
-    override fun veeg(ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(false)
+    override fun veeg(kenmerk: String): Uni<Boolean> = Uni.createFrom().item(false)
 
-    override fun stelUit(ontvanger: Identificatienummer): Uni<Unit> = Uni.createFrom().item(Unit)
+    override fun stelUit(kenmerk: String): Uni<Unit> = Uni.createFrom().item(Unit)
 }

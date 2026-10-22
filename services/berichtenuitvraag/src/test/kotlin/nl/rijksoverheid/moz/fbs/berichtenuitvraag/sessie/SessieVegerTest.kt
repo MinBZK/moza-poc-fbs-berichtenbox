@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.MethodSource
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.logging.Handler
@@ -128,6 +129,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
     companion object {
         const val BATCH_DUUR_MS = 300L
+        const val KENMERK = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
         const val VEEG_INTERVAL_MS = 2_000L
 
         @JvmStatic
@@ -145,7 +147,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
         status: StatusCode,
         waarschuwing: String?,
     ) {
-        sessiecache.veegRondes.add(listOf(Opruiming(Bsn("999990019"), uitkomst)))
+        sessiecache.veegRondes.add(listOf(Opruiming.VanOntvanger(Bsn("999990019"), uitkomst)))
 
         val regels = vangLog { veger.veeg() }
 
@@ -166,8 +168,8 @@ class SessieVegerTest : SessieVegerTestBasis() {
     fun `meerdere ontvangers worden elk gelogd en een ronde zonder verlopen sessies logt niets`() {
         sessiecache.veegRondes.add(
             listOf(
-                Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST),
-                Opruiming(Kvk("90000011"), OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST),
+                Opruiming.VanOntvanger(Kvk("90000011"), OpruimUitkomst.MISLUKT),
             ),
         )
 
@@ -183,9 +185,9 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
     @Test
     fun `na een volle batch mislukkers komt de gezonde ontvanger erachter in dezelfde ronde aan de beurt`() {
-        val mislukt = List(SessieVeger.BATCH) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
-        val gezond = Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)
-        val volgende = listOf(Opruiming(Bsn("999993653"), OpruimUitkomst.GEWIST))
+        val mislukt = List(SessieVeger.BATCH) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
+        val gezond = Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST)
+        val volgende = listOf(Opruiming.VanOntvanger(Bsn("999993653"), OpruimUitkomst.GEWIST))
         sessiecache.veegRondes.addAll(listOf(mislukt, listOf(gezond), volgende))
 
         veger.veeg()
@@ -199,7 +201,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
     @Test
     fun `komen dezelfde mislukkers terug, dan stopt de ronde zonder ze opnieuw te loggen`() {
-        sessiecache.veegRonde = { max -> List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) } }
+        sessiecache.veegRonde = { max -> List(max) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) } }
 
         val regels = vangLog { veger.veeg() }
 
@@ -211,9 +213,9 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
     @Test
     fun `een herhaalde ontvanger die nu wel gewist is, komt alsnog in het logboek`() {
-        val mislukt = List(SessieVeger.BATCH) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
-        val herhaald = listOf(Opruiming(Kvk("00000001"), OpruimUitkomst.GEWIST), Opruiming(Kvk("00000002"), OpruimUitkomst.MISLUKT))
-        val nieuw = Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)
+        val mislukt = List(SessieVeger.BATCH) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) }
+        val herhaald = listOf(Opruiming.VanOntvanger(Kvk("00000001"), OpruimUitkomst.GEWIST), Opruiming.VanOntvanger(Kvk("00000002"), OpruimUitkomst.MISLUKT))
+        val nieuw = Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST)
         sessiecache.veegRondes.addAll(listOf(mislukt, herhaald + nieuw + mislukt.drop(3)))
 
         veger.veeg()
@@ -229,7 +231,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
         sessiecache.veegRonde = { max ->
             Thread.sleep(BATCH_DUUR_MS)
             val ronde = aanroepen.getAndIncrement()
-            List(max) { Opruiming(Kvk("%08d".format(ronde * max + it + 1)), OpruimUitkomst.MISLUKT) }
+            List(max) { Opruiming.VanOntvanger(Kvk("%08d".format(ronde * max + it + 1)), OpruimUitkomst.MISLUKT) }
         }
 
         val start = System.nanoTime()
@@ -248,7 +250,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
         sessiecache.veegRonde = { max ->
             if (aanroepen.incrementAndGet() > 1) throw SessiecacheException.Onbereikbaar("redis weg")
 
-            List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
+            List(max) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
         }
 
         veger.veeg()
@@ -257,10 +259,34 @@ class SessieVegerTest : SessieVegerTestBasis() {
         assertEquals(SessieVeger.BATCH, logregels.size)
     }
 
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(OpruimUitkomst::class)
+    fun `een opruiming zonder bekende ontvanger komt niet in het logboek maar geeft het alert`(uitkomst: OpruimUitkomst) {
+        // De leesbare ontvanger verliep met zijn vangnet-TTL: er is geen betrokkene voor een logregel.
+        sessiecache.veegRondes.add(listOf(Opruiming.ZonderOntvanger(KENMERK, uitkomst)))
+
+        val regels = vangLog { veger.veeg() }
+
+        assertTrue(logregels.isEmpty(), logregels.toString())
+        val alert = regels.single { it.contains(SessieLogboek.ALERT_TOKEN) }
+        assertTrue(alert.contains("uitkomst=$uitkomst"), alert)
+        assertTrue(regels.none { it.contains(KENMERK) }, "het kenmerk is een terug te rekenen hash: $regels")
+    }
+
+    @Test
+    fun `een terugkerende opruiming zonder bekende ontvanger stopt de ronde net als een bekende`() {
+        sessiecache.veegRonde = { max -> List(max) { Opruiming.ZonderOntvanger("kenmerk-$it", OpruimUitkomst.MISLUKT) } }
+
+        val regels = vangLog { veger.veeg() }
+
+        assertEquals(2, sessiecache.veegAanroepen.get())
+        assertEquals(SessieVeger.BATCH, regels.count { it.contains(SessieLogboek.ALERT_TOKEN) }, "geen dubbele alerts")
+    }
+
     @Test
     fun `een opruiming staat in het logboek zodra ze gemeld is, ook als de batch daarna afbreekt`() {
         // Zoals een pod die halverwege een batch stopt: wat al gewist is, mag niet op het einde wachten.
-        sessiecache.veegRondes.add(List(3) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) })
+        sessiecache.veegRondes.add(List(3) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) })
         sessiecache.veegFoutNa = 2
         sessiecache.veegFout = SessiecacheException.Onbereikbaar("redis weg")
 
@@ -273,8 +299,8 @@ class SessieVegerTest : SessieVegerTestBasis() {
     @Test
     fun `een volle kandidatenbatch loopt door, ook als er minder opruimingen gemeld zijn`() {
         // Een andere pod veegde een deel van dezelfde kandidaten: die worden hier niet gemeld.
-        val eerste = listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST))
-        val tweede = listOf(Opruiming(Bsn("999993653"), OpruimUitkomst.GEWIST))
+        val eerste = listOf(Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST))
+        val tweede = listOf(Opruiming.VanOntvanger(Bsn("999993653"), OpruimUitkomst.GEWIST))
         sessiecache.veegRondes.addAll(listOf(eerste, tweede))
         sessiecache.veegVol.addAll(listOf(true, false))
 
@@ -286,8 +312,8 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
     @Test
     fun `een batch met evenveel opruimingen als de grens stopt als de kandidatenbatch niet vol was`() {
-        val opruimingen = List(SessieVeger.BATCH) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
-        sessiecache.veegRondes.addAll(listOf(opruimingen, listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST))))
+        val opruimingen = List(SessieVeger.BATCH) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
+        sessiecache.veegRondes.addAll(listOf(opruimingen, listOf(Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST))))
         sessiecache.veegVol.add(false)
 
         veger.veeg()
@@ -300,7 +326,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
     fun `een interrupt beëindigt de ronde na de lopende batch`() {
         sessiecache.veegRonde = { max ->
             Thread.currentThread().interrupt()
-            List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
+            List(max) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
         }
 
         try {
@@ -348,7 +374,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
         assertTrue(logregels.isEmpty())
 
         sessiecache.veegFout = null
-        sessiecache.veegRondes.add(listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)))
+        sessiecache.veegRondes.add(listOf(Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST)))
         veger.veeg()
 
         assertEquals(1, logregels.size)
@@ -373,7 +399,7 @@ class SessieVegerGeplandTest : SessieVegerTestBasis() {
 
     @Test
     fun `de scheduler voert zelf een veegronde uit en de opruiming komt in het logboek`() {
-        sessiecache.veegRondes.add(listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST)))
+        sessiecache.veegRondes.add(listOf(Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.GEWIST)))
 
         val einde = System.nanoTime() + 10_000_000_000L
 
