@@ -23,6 +23,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * [ALARM_NA] keer op rij, dan volgt een foutregel met [ALERT_TOKEN]: zonder veegtaak wist de
  * Redis-TTL alles zonder logregel.
  *
+ * Een ronde kan ook slagen terwijl het opruimen per ontvanger blijft mislukken, bijvoorbeeld op een
+ * alleen-lezen Redis na een failover: de kandidaten zijn dan op te vragen, elke veeg faalt. Daarom
+ * telt de veger ook per ontvanger de mislukte pogingen op rij. Zodra er een ontvanger [ALARM_NA]
+ * keer op rij mislukte, volgt hetzelfde alert, één regel voor alle ontvangers samen, en daarna
+ * gedempt zoals bij de rondes. Een opruiming zonder bekende ontvanger geeft per reeks mislukkingen
+ * maar één keer het ontbrekende logboek aan, en nog eens als ze ten slotte lukt; anders kwam elk
+ * uitstel op elke pod met een nieuwe foutId voor hetzelfde gat. Wat de veger zo onthoudt, is
+ * begrensd ([MAX_GEVOLGD]) en wordt na [VERGEET_NA] zonder nieuwe mislukking vergeten: dan ruimde
+ * een andere pod hem al op.
+ *
  * Eén tick vraagt batches op zolang de kandidatenbatch vol is: na een piek aan verlopen sessies loopt
  * de index zo leeg in plaats van honderd per tick, en een batch vol mislukkers (die de facade naar
  * achteren schuift) houdt de ontvangers erachter niet tegen. Het aantal opruimingen zegt daarover
@@ -48,6 +58,21 @@ class SessieVeger(
 
     private val mislukteRondesOpRij = AtomicInteger()
 
+    private val vergeetNa: Duration = maxOf(veegInterval.multipliedBy(VERGEET_NA_INTERVALLEN), VERGEET_NA)
+
+    /** Per ontvanger (of kenmerk) de reeks mislukte pogingen; de oudst gebruikte valt als eerste weg. */
+    private val reeksen = object : LinkedHashMap<Any, Reeks>(INITIEEL, LAADFACTOR, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Any, Reeks>): Boolean = size > MAX_GEVOLGD
+    }
+
+    /** Rondes op rij waarin een ontvanger vastzat; stuurt de demping van het alert per ontvanger. */
+    private var rondesVastgelopen = 0
+
+    private class Reeks(var aantal: Int, var laatst: Long)
+
+    // Synchronized: de scheduler draait de ronde nooit dubbel, maar de telling per ontvanger hoort ook
+    // een aanroep van buiten de scheduler niet half te zien.
+    @Synchronized
     @Scheduled(every = "{berichtensessiecache.sessie.veeg-interval}", concurrentExecution = SKIP)
     fun veeg() {
         val einde = System.nanoTime() + budget.toNanos()
@@ -58,11 +83,13 @@ class SessieVeger(
                 var herhaald = 0
 
                 val vol = sessiecache.ruimVerlopenSessiesOp(BATCH) { opruiming ->
-                    val nieuw = gezien.add(identiteit(opruiming))
+                    val identiteit = identiteit(opruiming)
+                    val nieuw = gezien.add(identiteit)
 
                     if (!nieuw) herhaald++
 
-                    if (nieuw || opruiming.uitkomst == OpruimUitkomst.GEWIST) legVast(opruiming)
+                    // Eén poging per ronde telt; alleen een herhaling die nu wel gewist is, sluit de reeks af.
+                    if (nieuw || opruiming.uitkomst == OpruimUitkomst.GEWIST) legVast(opruiming, boek(identiteit, opruiming.uitkomst))
                 }
 
                 if (herhaald > 0) {
@@ -78,6 +105,61 @@ class SessieVeger(
         }
 
         mislukteRondesOpRij.set(0)
+        meldVastgelopen()
+    }
+
+    /** Voor tests: begint zonder reeksen, zodat ontvangers uit een eerdere test niet meetellen. */
+    @Synchronized
+    internal fun vergeetMislukkingen() {
+        reeksen.clear()
+        rondesVastgelopen = 0
+    }
+
+    @Synchronized
+    internal fun aantalGevolgd(): Int = reeksen.size
+
+    /** Boekt één poging; antwoordt hoeveel pogingen op rij er nu mislukt zijn, 0 na een geslaagde. */
+    private fun boek(identiteit: Any, uitkomst: OpruimUitkomst): Int {
+        if (uitkomst == OpruimUitkomst.GEWIST) {
+            reeksen.remove(identiteit)
+
+            return 0
+        }
+
+        val nu = System.nanoTime()
+        val reeks = reeksen[identiteit]?.takeIf { nu - it.laatst <= vergeetNa.toNanos() } ?: Reeks(0, nu)
+
+        reeks.aantal++
+        reeks.laatst = nu
+        reeksen[identiteit] = reeks
+
+        return reeks.aantal
+    }
+
+    private fun meldVastgelopen() {
+        val nu = System.nanoTime()
+
+        reeksen.values.removeIf { nu - it.laatst > vergeetNa.toNanos() }
+
+        val vast = reeksen.values.filter { it.aantal >= ALARM_NA }
+
+        if (vast.isEmpty()) {
+            rondesVastgelopen = 0
+
+            return
+        }
+
+        // Zoals bij de rondes: na de eerste melding alleen elke zoveelste ronde, ook als er intussen
+        // een ontvanger bijkomt; anders volgt bij een aanhoudende storing een regel per tick.
+        if (rondesVastgelopen++ % ALARM_HERHALING == 0) {
+            log.errorf(
+                "%s %d ontvanger(s) konden %d of meer pogingen op rij niet opgeruimd worden (langste reeks %d); hun gegevens blijven staan tot de Redis-TTL ze zonder logregel wist",
+                ALERT_TOKEN,
+                vast.size,
+                ALARM_NA,
+                vast.maxOf { it.aantal },
+            )
+        }
     }
 
     private fun rondeMislukt(e: Exception) {
@@ -101,18 +183,21 @@ class SessieVeger(
         is Opruiming.ZonderOntvanger -> opruiming.kenmerk
     }
 
-    private fun legVast(opruiming: Opruiming) {
+    /** [opRij] is het aantal mislukte pogingen op rij na deze, 0 als ze lukte. */
+    private fun legVast(opruiming: Opruiming, opRij: Int) {
         when (opruiming) {
             is Opruiming.VanOntvanger -> sessieLogboek.opgeruimd(opruiming.ontvanger, OpruimAanleiding.VERLOPEN, opruiming.uitkomst)
             // Zelfde token als een mislukte logregel: ook hier ontbreekt de regel voor een opruiming.
-            is Opruiming.ZonderOntvanger -> log.errorf(
-                "%s: opruimen niet in het logboek vastgelegd (foutId=%s, aanleiding=%s, uitkomst=%s, ontvanger.type=onbekend, " +
-                    "oorzaak=zonder bekende ontvanger; de leesbare vorm was al verlopen)",
-                SessieLogboek.ALERT_TOKEN,
-                UUID.randomUUID(),
-                OpruimAanleiding.VERLOPEN.waarde,
-                opruiming.uitkomst,
-            )
+            is Opruiming.ZonderOntvanger -> if (opRij <= 1) {
+                log.errorf(
+                    "%s: opruimen niet in het logboek vastgelegd (foutId=%s, aanleiding=%s, uitkomst=%s, ontvanger.type=onbekend, " +
+                        "oorzaak=zonder bekende ontvanger; de leesbare vorm was verlopen, onleesbaar of hoorde niet bij de index-entry)",
+                    SessieLogboek.ALERT_TOKEN,
+                    UUID.randomUUID(),
+                    OpruimAanleiding.VERLOPEN.waarde,
+                    opruiming.uitkomst,
+                )
+            }
         }
 
         when (opruiming.uitkomst) {
@@ -136,5 +221,18 @@ class SessieVeger(
 
         /** Daarna elke zoveelste mislukte ronde opnieuw, tot er een slaagt. */
         const val ALARM_HERHALING = 10
+
+        /** Zoveel ontvangers met een reeks mislukkingen onthoudt de veger hoogstens. */
+        const val MAX_GEVOLGD = 1_000
+
+        /**
+         * Een reeks zonder nieuwe mislukking zo lang is voorbij. Ruim boven het uitstel na een mislukking
+         * (minstens 30 s) plus een interval, zodat een vastzittende ontvanger zijn reeks niet kwijtraakt.
+         */
+        val VERGEET_NA: Duration = Duration.ofMinutes(5)
+
+        private const val VERGEET_NA_INTERVALLEN = 4L
+        private const val INITIEEL = 16
+        private const val LAADFACTOR = 0.75f
     }
 }

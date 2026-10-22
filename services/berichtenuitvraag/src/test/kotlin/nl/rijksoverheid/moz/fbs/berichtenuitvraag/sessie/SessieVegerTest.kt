@@ -127,11 +127,88 @@ class SessieVegerTest : SessieVegerTestBasis() {
     @Inject
     lateinit var veger: SessieVeger
 
-    /** De teller van mislukte rondes leeft in de bean; een geslaagde, lege ronde zet hem terug. */
+    /**
+     * De teller van mislukte rondes leeft in de bean; een geslaagde, lege ronde zet hem terug. De
+     * mislukkingen per ontvanger ook: tests gebruiken dezelfde ontvangers.
+     */
     @BeforeEach
     fun begintZonderMislukteRondes() {
+        veger.vergeetMislukkingen()
         veger.veeg()
         sessiecache.veegAanroepen.set(0)
+    }
+
+    /** Per ronde hoeveel regels [token] dragen, ronde 1 eerst. */
+    private fun alertsPerRonde(rondes: Int, token: String = SessieVeger.ALERT_TOKEN): List<Int> =
+        List(rondes) { vangLog(SessieVeger::class.java, SessieLogboek::class.java) { veger.veeg() }.count { it.contains(token) } }
+
+    private fun rondesMetAlert(perRonde: List<Int>): List<Int> = perRonde.withIndex().filter { it.value > 0 }.map { it.index + 1 }
+
+    @Test
+    fun `een ontvanger die ronde na ronde mislukt, geeft na drie rondes het alert en daarna gedempt`() {
+        // Zoals een alleen-lezen Redis na een failover: de kandidaten zijn op te vragen, elke veeg faalt.
+        sessiecache.veegRonde = { _ -> listOf(Opruiming.VanOntvanger(Bsn("999990019"), OpruimUitkomst.MISLUKT)) }
+
+        val regels = mutableListOf<String>()
+        val perRonde = List(25) { vangLog { veger.veeg() }.also { regels += it }.count { it.contains(SessieVeger.ALERT_TOKEN) } }
+
+        assertEquals(listOf(3, 13, 23), rondesMetAlert(perRonde))
+        assertEquals(25, logregels.size, "elke poging blijft een logregel")
+        val alert = regels.first { it.contains(SessieVeger.ALERT_TOKEN) }
+        assertTrue(alert.contains("1 ontvanger(s)"), alert)
+        assertTrue(regels.none { it.contains("999990019") }, "de BSN hoort niet in de applicatielog: $regels")
+    }
+
+    @Test
+    fun `veel ontvangers die allemaal blijven mislukken geven samen één alert per keer`() {
+        sessiecache.veegRonde = { max -> List(max) { Opruiming.VanOntvanger(Kvk("%08d".format(it + 1)), OpruimUitkomst.MISLUKT) } }
+
+        val regels = mutableListOf<String>()
+        val perRonde = List(4) { vangLog { veger.veeg() }.also { regels += it }.count { it.contains(SessieVeger.ALERT_TOKEN) } }
+
+        assertEquals(listOf(0, 0, 1, 0), perRonde)
+        assertTrue(regels.single { it.contains(SessieVeger.ALERT_TOKEN) }.contains("${SessieVeger.BATCH} ontvanger(s)"), regels.toString())
+    }
+
+    @Test
+    fun `een geslaagde opruiming tussendoor begint de telling voor die ontvanger opnieuw`() {
+        val ontvanger = Bsn("999990019")
+        listOf(OpruimUitkomst.MISLUKT, OpruimUitkomst.MISLUKT, OpruimUitkomst.GEWIST, OpruimUitkomst.MISLUKT, OpruimUitkomst.ONBEVESTIGD)
+            .forEach { sessiecache.veegRondes.add(listOf(Opruiming.VanOntvanger(ontvanger, it))) }
+
+        assertEquals(emptyList<Int>(), rondesMetAlert(alertsPerRonde(5)))
+    }
+
+    @Test
+    fun `een opruiming zonder bekende ontvanger die blijft mislukken, meldt het ontbrekende logboek één keer en het slot`() {
+        // Zonder demping volgde per poging, per pod, een nieuwe foutId voor hetzelfde gat.
+        listOf(OpruimUitkomst.MISLUKT, OpruimUitkomst.ONBEVESTIGD, OpruimUitkomst.MISLUKT, OpruimUitkomst.MISLUKT, OpruimUitkomst.GEWIST)
+            .forEach { sessiecache.veegRondes.add(listOf(Opruiming.ZonderOntvanger(KENMERK, it))) }
+
+        val regels = mutableListOf<String>()
+        repeat(5) { regels += vangLog { veger.veeg() } }
+
+        val ontbrekend = regels.filter { it.contains(SessieLogboek.ALERT_TOKEN) }
+        assertEquals(2, ontbrekend.size, regels.toString())
+        assertTrue(ontbrekend.first().contains("uitkomst=MISLUKT"), ontbrekend.first())
+        assertTrue(ontbrekend.last().contains("uitkomst=GEWIST"), ontbrekend.last())
+        assertEquals(1, regels.count { it.contains(SessieVeger.ALERT_TOKEN) }, "na drie mislukte pogingen het alert: $regels")
+        assertTrue(regels.none { it.contains(KENMERK) }, "het kenmerk is een terug te rekenen hash: $regels")
+    }
+
+    @Test
+    fun `wat de veger per ontvanger onthoudt, blijft begrensd`() {
+        val ronde = java.util.concurrent.atomic.AtomicInteger()
+        sessiecache.veegRonde = { max ->
+            val n = ronde.getAndIncrement()
+            List(max) { Opruiming.VanOntvanger(Kvk("%08d".format(n * max + it + 1)), OpruimUitkomst.MISLUKT) }
+        }
+        repeat(25) { sessiecache.veegVol.add(false) }
+
+        repeat(25) { veger.veeg() }
+
+        assertEquals(25 * SessieVeger.BATCH, logregels.size)
+        assertEquals(SessieVeger.MAX_GEVOLGD, veger.aantalGevolgd())
     }
 
     companion object {
