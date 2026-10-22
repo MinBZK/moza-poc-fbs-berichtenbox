@@ -111,21 +111,34 @@ function startSessie(ontvanger) {
       await omgevingGeladen;
 
       try {
-        const respons = await fetch(BASIS + '/sessies', { method: 'POST', headers: { 'X-Ontvanger': ontvanger } });
+        let respons;
 
-        if (respons.status === 429) {
-          return { fout: { ok: false, status: 429, melding: 'Te veel open sessies voor deze persona; sluit een ander tabblad.' } };
+        try {
+          respons = await fetch(BASIS + '/sessies', { method: 'POST', headers: { 'X-Ontvanger': ontvanger } });
+        } catch (fout) {
+          return { fout: { ok: false, status: 0, netwerkfout: true, melding: 'geen verbinding: ' + fout } };
         }
+
+        if (respons.status === 429) return { fout: { ok: false, status: 429, melding: teVeelSessiesMelding(respons) } };
 
         if (!respons.ok) return { fout: respons };
 
-        const { sessieId } = await respons.json();
+        // Een antwoord kwam er wel: een onleesbare body is een fout van de uitvraag, geen verbroken verbinding.
+        let sessieId;
+
+        try {
+          ({ sessieId } = await respons.json());
+        } catch (fout) {
+          sessieId = undefined;
+        }
+
+        if (typeof sessieId !== 'string' || sessieId === '') {
+          return { fout: { ok: false, status: respons.status, melding: `sessie gestart, maar het antwoord is onleesbaar (HTTP ${respons.status})` } };
+        }
 
         bewaarSessie(ontvanger, sessieId);
 
         return { sessieId };
-      } catch (fout) {
-        return { fout: { ok: false, status: 0, netwerkfout: true, melding: 'geen verbinding: ' + fout } };
       } finally {
         lopendeStarts.delete(ontvanger);
       }
@@ -137,8 +150,20 @@ function startSessie(ontvanger) {
   return lopendeStarts.get(ontvanger);
 }
 
+// De uitvraag geeft in Retry-After de seconden tot de vroegst verlopende sessie van deze persona.
+function teVeelSessiesMelding(respons) {
+  const seconden = Number.parseInt(respons.headers.get('Retry-After'), 10);
+  const wachten = Number.isFinite(seconden) && seconden > 0
+    ? ` of probeer het over ${Math.ceil(seconden / 60)} minuut${seconden > 60 ? 'en' : ''} opnieuw`
+    : '';
+
+  return `Te veel open sessies voor deze persona; sluit een ander tabblad${wachten}.`;
+}
+
 // Idempotent aan de serverkant (204 ook bij een onbekend id): een mislukte aanroep laat de sessie
-// hooguit tot verlopen staan, dus de uitkomst wordt niet getoond.
+// hooguit tot verlopen staan, dus de gebruiker krijgt er geen melding van. Wel in de console, zodat
+// wie de demo bedient ziet dat er een sessie tegen het plafond blijft staan. Zonder het sessie-id:
+// dat is een geheim.
 async function beeindigSessie(ontvanger) {
   const sessieId = leesSessie(ontvanger);
 
@@ -149,12 +174,14 @@ async function beeindigSessie(ontvanger) {
   await omgevingGeladen;
 
   try {
-    await fetch(BASIS + '/sessies/huidige', {
+    const respons = await fetch(BASIS + '/sessies/huidige', {
       method: 'DELETE',
       headers: { 'X-Ontvanger': ontvanger, 'X-Sessie': sessieId },
     });
+
+    if (!respons.ok) console.warn(`uitloggen van de vorige persona mislukt (HTTP ${respons.status}); de sessie verloopt vanzelf`);
   } catch (fout) {
-    // De sessie verloopt vanzelf.
+    console.warn(`uitloggen van de vorige persona mislukt (geen verbinding: ${fout}); de sessie verloopt vanzelf`);
   }
 }
 
@@ -395,6 +422,7 @@ async function laadLijst(opnieuwNaVerlopen = false) {
   // Zie ophalen(): een wissel van persona maakt dit resultaat waardeloos, en pagina's van twee
   // ontvangers mogen niet in één lijst belanden.
   const ontvanger = huidigeOntvanger();
+  let afgebroken = null;
 
   while (pad && paginas < 100) {
     const respons = await api(pad, {}, ontvanger);
@@ -423,6 +451,10 @@ async function laadLijst(opnieuwNaVerlopen = false) {
         return;
       }
 
+      // Een vervolgpagina strandde (sessie verlopen, storing): toon wat er is, maar zeg dat het
+      // niet alles is. Anders lijkt een halve lijst een volledige.
+      afgebroken = await foutTekst(respons);
+
       break;
     }
 
@@ -440,6 +472,18 @@ async function laadLijst(opnieuwNaVerlopen = false) {
 
   alleBerichten = verzameld;
   herteken();
+
+  if (afgebroken) meldOnvolledig(afgebroken);
+}
+
+// Naast wat de volledigheidsregel al over de organisaties zegt.
+function meldOnvolledig(oorzaak) {
+  const vak = el('volledigheid');
+
+  vak.textContent = [vak.textContent, `Lijst onvolledig geladen (${oorzaak}); klik op Vernieuw om het opnieuw te proberen.`]
+    .filter((deel) => deel)
+    .join(' ');
+  toon(vak, true);
 }
 
 // Uit de lijst zelf, niet uit de voortgangsregels: die beschrijven alleen de ronde die in dit
