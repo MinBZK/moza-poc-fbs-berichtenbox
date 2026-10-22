@@ -71,8 +71,9 @@ internal val SessieConfig.dataTtl: Duration get() = maxDuur().plus(vangnetMarge(
  * De Redis-TTL op de verloopindex, opnieuw gezet bij elke bijwerking ervan. Zo blijft de index niet
  * onbeperkt staan als de veegtaak niet meer draait, en verloopt hij nooit vóór de gegevens waar hij de
  * takenlijst voor is: een schrijfactie zet [dataTtl] vanaf haar eigen moment, en valt hoogstens een
- * [SessieConfig.maxDuur] na de laatste bijwerking van de index (de start of het laatste verzoek van de
- * sessie waarin ze gebeurde). Een schrijfactie na het einde van de laatste sessie zet de index zelf bij.
+ * [SessieConfig.maxDuur] na de start van de sessie waarin ze gebeurde, en die start werkte de index
+ * bij. Een aanmelding schrijft zonder de index bij te werken, dus [dataTtl] alleen is niet genoeg. Een
+ * schrijfactie na het einde van de laatste sessie zet de index zelf bij.
  */
 internal val SessieConfig.indexTtl: Duration get() = dataTtl.plus(maxDuur())
 

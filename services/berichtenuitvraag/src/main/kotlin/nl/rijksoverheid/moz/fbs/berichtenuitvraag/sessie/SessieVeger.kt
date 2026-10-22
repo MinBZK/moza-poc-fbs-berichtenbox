@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * maar één keer het ontbrekende logboek aan, en nog eens als ze ten slotte lukt; anders kwam elk
  * uitstel op elke pod met een nieuwe foutId voor hetzelfde gat. Wat de veger zo onthoudt, is
  * begrensd ([MAX_GEVOLGD]) en wordt na [VERGEET_NA] zonder nieuwe mislukking vergeten: dan ruimde
- * een andere pod hem al op.
+ * meestal een andere pod hem al op.
  *
  * Eén tick vraagt batches op zolang de kandidatenbatch vol is: na een piek aan verlopen sessies loopt
  * de index zo leeg in plaats van honderd per tick, en een batch vol mislukkers (die de facade naar
@@ -151,7 +151,11 @@ class SessieVeger(
 
         // Zoals bij de rondes: na de eerste melding alleen elke zoveelste ronde, ook als er intussen
         // een ontvanger bijkomt; anders volgt bij een aanhoudende storing een regel per tick.
-        if (rondesVastgelopen++ % ALARM_HERHALING == 0) {
+        val melden = rondesVastgelopen % ALARM_HERHALING == 0
+
+        rondesVastgelopen++
+
+        if (melden) {
             log.errorf(
                 "%s %d ontvanger(s) konden %d of meer pogingen op rij niet opgeruimd worden (langste reeks %d); hun gegevens blijven staan tot de Redis-TTL ze zonder logregel wist",
                 ALERT_TOKEN,
@@ -226,8 +230,9 @@ class SessieVeger(
         const val MAX_GEVOLGD = 1_000
 
         /**
-         * Een reeks zonder nieuwe mislukking zo lang is voorbij. Ruim boven het uitstel na een mislukking
-         * (minstens 30 s) plus een interval, zodat een vastzittende ontvanger zijn reeks niet kwijtraakt.
+         * Na zo lang zonder nieuwe mislukking is een reeks voorbij, of na vier veegintervallen als dat
+         * langer is. Ruim boven het uitstel na een mislukking (minstens 30 s) plus een interval, zodat
+         * een vastzittende ontvanger zijn reeks niet kwijtraakt.
          */
         val VERGEET_NA: Duration = Duration.ofMinutes(5)
 
