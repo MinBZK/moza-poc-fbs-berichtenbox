@@ -328,8 +328,14 @@ class LdvUitkomstIntegrationTest {
         val stub = leverAanStub()
         val pollThread = Thread.currentThread()
         // De afnemer onderbreekt de poll-thread terwijl die op het eerste antwoord wacht.
+        // Het antwoord blijft daarna even uit: `HttpClient.send` kijkt alleen naar de vlag zolang
+        // er nog geen antwoord is. Een direct 202 haalt op een trage runner de interrupt in, en
+        // dan geldt de aflevering gewoon als geslaagd.
         stub.statusVoorAanroep = { aanroep ->
-            if (aanroep == 1) pollThread.interrupt()
+            if (aanroep == 1) {
+                pollThread.interrupt()
+                Thread.sleep(ANTWOORD_NA_INTERRUPT.toMillis())
+            }
 
             202
         }
@@ -632,6 +638,7 @@ class LdvUitkomstIntegrationTest {
     private companion object {
         const val MAX_POGINGEN = 3
         const val WEIGER_TRIGGER = "ldv_test_weiger"
+        val ANTWOORD_NA_INTERRUPT: Duration = Duration.ofMillis(500)
 
         /** De SQLState van een kale `RAISE EXCEPTION`. */
         const val SQLSTATE_EIGEN_FOUT = "P0001"
