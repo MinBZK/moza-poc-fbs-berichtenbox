@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Het actief opruimen van ontvangers wier laatste sessie verlopen is, tegen een echte Redis, met de
- * inactiviteit van 2 s uit [KorteSessieRedisTestProfile]. De verloopindex is stelselbreed; elke test
+ * inactiviteit van 4 s uit [KorteSessieRedisTestProfile]. De verloopindex is stelselbreed; elke test
  * begint daarom met een lege index, anders veegt hij ook wat eerdere tests achterlieten, en ruimt
  * na afloop op wat hij bewust van het verkeerde type maakte: een volgende testklasse op dezelfde
  * Redis zou anders op een WRONGTYPE stuiten.
@@ -438,8 +438,8 @@ class SessieVegenTest {
         const val VERLOOP_INDEX = "berichtensessiecache:v4:verloop"
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
         const val WACHTTIJD_S = 10L
-        const val INACTIVITEIT_MS = 2_000L
-        const val MAX_DUUR_MS = 3_000L
+        const val INACTIVITEIT_MS = 4_000L
+        const val MAX_DUUR_MS = 6_000L
 
         // Maximale duur plus de standaard vangnet-marge van een uur.
         const val DATA_TTL_MS = MAX_DUUR_MS + 3_600_000L

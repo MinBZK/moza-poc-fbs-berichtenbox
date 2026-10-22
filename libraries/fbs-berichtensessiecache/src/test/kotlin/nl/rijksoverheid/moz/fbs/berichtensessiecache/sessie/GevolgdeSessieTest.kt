@@ -125,7 +125,7 @@ class GevolgdeSessieTest {
 
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
-        val INACTIVITEIT: Duration = Duration.ofSeconds(2)
+        val INACTIVITEIT: Duration = Duration.ofSeconds(4)
         const val ONBEKENDE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
         private val teller = AtomicLong(System.nanoTime())
     }

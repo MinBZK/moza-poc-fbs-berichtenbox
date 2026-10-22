@@ -131,12 +131,15 @@ class SessieOpruimenTest {
         assertEquals(listOf("$k:ontvanger"), sleutelsOnder(k))
     }
 
+    /** 257: meer dan één schrijfbatch (`redis-batchgrootte`) en meer dan de grootste pagina. */
     @ParameterizedTest(name = "{0} berichten")
-    @ValueSource(ints = [0, 1, 3])
+    @ValueSource(ints = [0, 1, 257])
     fun `uitloggen van de laatste sessie laat niets van de ontvanger achter`(aantal: Int) {
         val sessie = sessiecache.startSessie(ontvanger)
         val berichten = List(aantal) { bericht() }
         vulAlsOpgehaald(berichten)
+        // Positieve controle: zonder deze zou een zoekopdracht die nooit iets vindt ook "leeg" opleveren.
+        assertEquals(aantal.toLong(), zoekTotaal(ontvanger), "de zoekindex kent vooraf elk bericht")
 
         assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(sessie.sessieId, ontvanger))
 
@@ -157,6 +160,8 @@ class SessieOpruimenTest {
         // De tweede ronde vervangt de lijst, niet de hashes van de eerste: die staan er nog.
         assertTrue(bestaat(BerichtenCache.berichtKey(eerste[0].sleutel)))
         assertTrue(bestaat(BerichtenCache.verwijderdKey(ontvanger, tweede[0].sleutel)))
+        // Twee uit de eerste ronde en de aanmelding; het verwijderde bericht staat niet meer in de index.
+        assertEquals(3L, zoekTotaal(ontvanger), "de zoekindex kent vooraf de hashes van beide rondes")
 
         assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(sessie.sessieId, ontvanger))
 

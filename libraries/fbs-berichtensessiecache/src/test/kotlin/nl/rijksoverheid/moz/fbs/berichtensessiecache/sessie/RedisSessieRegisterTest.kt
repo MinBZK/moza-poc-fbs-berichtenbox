@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Het sessieregister tegen een echte Redis, via de facade: starten, aanraken en beëindigen, met de
- * inactiviteit van 2 s en de maximale duur van 3 s uit [KorteSessieRedisTestProfile].
+ * inactiviteit van 4 s en de maximale duur van 6 s uit [KorteSessieRedisTestProfile].
  */
 @QuarkusTest
 @TestProfile(KorteSessieRedisTestProfile::class)
@@ -59,41 +59,41 @@ class RedisSessieRegisterTest {
         val start = sessiecache.startSessie(ontvanger)
 
         assertFalse(start.restenOpgeruimd)
-        assertTussen(voor.plusMillis(1500), start.geldigheid.geldigTot, Instant.now().plusMillis(2500))
-        assertTussen(voor.plusMillis(2500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(3500))
+        assertTussen(voor.plusMillis(INACTIVITEIT_MS - 500), start.geldigheid.geldigTot, Instant.now().plusMillis(INACTIVITEIT_MS + 500))
+        assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(MAX_DUUR_MS + 500))
     }
 
     @Test
     fun `een plafond eerder dan start plus max-duur wordt het plafond, en verlengen gaat er niet voorbij`() {
-        val plafond = Instant.now().plusMillis(1200)
+        val plafond = Instant.now().plusMillis(2000)
 
         val start = sessiecache.startSessie(ontvanger, plafond)
 
         assertEquals(plafond.truncatedTo(ChronoUnit.MILLIS), start.geldigheid.uiterlijkGeldigTot)
-        // De inactiviteit (2 s) reikt verder dan het plafond, dus het verloop is het plafond.
+        // De inactiviteit (4 s) reikt verder dan het plafond, dus het verloop is het plafond.
         assertEquals(start.geldigheid.uiterlijkGeldigTot, start.geldigheid.geldigTot)
         assertEquals(start.geldigheid, sessiecache.raakSessie(start.sessieId, ontvanger))
 
-        Thread.sleep(1400)
+        Thread.sleep(2200)
 
         assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.raakSessie(start.sessieId, ontvanger) }
     }
 
     @ParameterizedTest(name = "plafond {0} na nu")
-    @ValueSource(strings = ["PT3.5S", "PT24H", "PT876000H"])
+    @ValueSource(strings = ["PT6.5S", "PT24H", "PT876000H"])
     fun `een plafond later dan start plus max-duur wordt afgekapt op de maximale duur`(na: String) {
         val voor = Instant.now()
 
         val start = sessiecache.startSessie(ontvanger, voor.plus(Duration.parse(na)))
 
-        assertTussen(voor.plusMillis(2500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(3500))
+        assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(MAX_DUUR_MS + 500))
     }
 
     @Test
     fun `een plafond voorbij wat in milliseconden past, geldt als later dan de maximale duur`() {
         val start = sessiecache.startSessie(ontvanger, Instant.MAX)
 
-        assertTrue(start.geldigheid.uiterlijkGeldigTot < Instant.now().plusMillis(3500), "Niet afgekapt: ${start.geldigheid}")
+        assertTrue(start.geldigheid.uiterlijkGeldigTot < Instant.now().plusMillis(MAX_DUUR_MS + 500), "Niet afgekapt: ${start.geldigheid}")
     }
 
     @ParameterizedTest(name = "plafond {0}")
@@ -129,9 +129,9 @@ class RedisSessieRegisterTest {
     fun `lees verlengt niet, dus een alleen gelezen sessie verloopt na de inactiviteit`() {
         val id = sessiecache.startSessie(ontvanger).sessieId
 
-        Thread.sleep(1200)
+        Thread.sleep(INACTIVITEIT_MS / 2)
         sessiecache.leesSessie(id, ontvanger)
-        Thread.sleep(1000)
+        Thread.sleep(INACTIVITEIT_MS / 2 + 300)
 
         assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.leesSessie(id, ontvanger) }
     }
@@ -176,7 +176,7 @@ class RedisSessieRegisterTest {
         sessiecache.startSessie(ontvanger)
         redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
 
-        Thread.sleep(2300)
+        Thread.sleep(INACTIVITEIT_MS + 300)
         val start = sessiecache.startSessie(ontvanger)
 
         assertTrue(start.restenOpgeruimd)
@@ -298,7 +298,7 @@ class RedisSessieRegisterTest {
     fun `raak na inactiviteit gooit SessieOngeldig`() {
         val id = sessiecache.startSessie(ontvanger).sessieId
 
-        Thread.sleep(2300)
+        Thread.sleep(INACTIVITEIT_MS + 300)
 
         assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.raakSessie(id, ontvanger) }
     }
@@ -307,11 +307,11 @@ class RedisSessieRegisterTest {
     fun `raak verlengt de sessie met de inactiviteit`() {
         val id = sessiecache.startSessie(ontvanger).sessieId
 
-        Thread.sleep(1200)
+        Thread.sleep(INACTIVITEIT_MS / 2)
         sessiecache.raakSessie(id, ontvanger)
-        Thread.sleep(1200)
+        Thread.sleep(INACTIVITEIT_MS / 2 + 500)
 
-        // Zonder verlenging was de sessie na 2 s verlopen.
+        // Zonder verlenging was de sessie na de inactiviteit verlopen.
         assertDoesNotThrow { sessiecache.raakSessie(id, ontvanger) }
     }
 
@@ -319,13 +319,13 @@ class RedisSessieRegisterTest {
     fun `raak verlengt niet voorbij max-duur`() {
         val id = sessiecache.startSessie(ontvanger).sessieId
 
-        Thread.sleep(1500)
+        Thread.sleep(2500)
         sessiecache.raakSessie(id, ontvanger)
-        Thread.sleep(1000)
+        Thread.sleep(2500)
         sessiecache.raakSessie(id, ontvanger)
-        Thread.sleep(700)
+        Thread.sleep(1300)
 
-        // Op 3,2 s: elke aanraking schoof het verloop 2 s op, maar de maximale duur is 3 s.
+        // Op 6,3 s: elke aanraking schoof het verloop 4 s op, maar de maximale duur is 6 s.
         assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.raakSessie(id, ontvanger) }
     }
 
@@ -375,18 +375,18 @@ class RedisSessieRegisterTest {
 
         val fout = assertThrows<SessiecacheException.TeVeelSessies> { sessiecache.startSessie(ontvanger) }
 
-        // De vroegste is nu de tweede (gestart op 400 ms, verloopt op 2,4 s), niet de net verlengde
-        // eerste (2,7 s): het antwoord volgt het verloop, niet de startvolgorde.
+        // De vroegste is nu de tweede (gestart op 400 ms, verloopt op 4,4 s), niet de net verlengde
+        // eerste (4,7 s): het antwoord volgt het verloop, niet de startvolgorde.
         assertTrue(fout.vrijOver.isPositive, "Geen wachttijd: ${fout.vrijOver}")
         assertTrue(Instant.now().plus(fout.vrijOver) < eersteTot, "Niet de vroegste: ${fout.vrijOver}, eerste tot $eersteTot")
-        assertTrue(fout.vrijOver <= Duration.ofSeconds(2), "Langer dan de inactiviteit: ${fout.vrijOver}")
+        assertTrue(fout.vrijOver <= Duration.ofMillis(INACTIVITEIT_MS), "Langer dan de inactiviteit: ${fout.vrijOver}")
     }
 
     @Test
     fun `verlopen sessies tellen niet mee voor de grens`() {
         repeat(5) { sessiecache.startSessie(ontvanger) }
 
-        Thread.sleep(2300)
+        Thread.sleep(INACTIVITEIT_MS + 300)
 
         assertDoesNotThrow { sessiecache.startSessie(ontvanger) }
     }
@@ -522,6 +522,8 @@ class RedisSessieRegisterTest {
         val SESSIE_ID_VORM = Regex("^[A-Za-z0-9_-]{22}$")
         const val ONBEKENDE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
         const val HERHALINGEN = 20
+        const val INACTIVITEIT_MS = 4_000L
+        const val MAX_DUUR_MS = 6_000L
         const val VERLOOP_INDEX = "berichtensessiecache:v4:verloop"
         private val teller = AtomicLong(System.nanoTime())
 
