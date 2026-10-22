@@ -213,9 +213,6 @@ else
 fi
 rm -rf "$TMP"
 
-# --- Een onleesbare lijst leidt niet tot indienen ----------------------------------------------
-# Als lege lijst gelezen zou een mislukte lezing het script een tweede contract laten indienen naast
-# het bestaande.
 # --- Een verificatie die na de accept strandt, levert de volgende run geen tweede contract op ----
 # De state-file staat er dan al; de volgende run beoordeelt het geaccepteerde contract in plaats
 # van er een tweede naast in te dienen.
@@ -255,6 +252,10 @@ else
 fi
 rm -rf "$TMP"
 
+# --- Een onleesbare lijst leidt niet tot indienen ----------------------------------------------
+# Als lege lijst gelezen zou een mislukte lezing het script een tweede contract laten indienen naast
+# het bestaande.
+#
 # De melding telt mee: zonder die check slaagt een geval ook als het script om een heel andere
 # reden stopt, bijvoorbeeld op een aanroep die de stub niet kent.
 for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor"; do
