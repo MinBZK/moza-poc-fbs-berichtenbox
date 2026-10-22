@@ -6,8 +6,9 @@ import java.time.Duration
 
 /**
  * Levensduur van een inlogsessie. Een sessie verloopt na [inactiviteit] zonder verzoek, en hoe dan
- * ook na [maxDuur] vanaf de start — wat het eerst komt. [RedisSessieRegister] weigert bij het
- * opstarten een waarde die nul of negatief is.
+ * ook na [maxDuur] vanaf de start — wat het eerst komt; een [inactiviteit] boven [maxDuur] is dus
+ * toegestaan, maar maakt [maxDuur] de enige grens. Elke consument roept bij het opstarten
+ * [valideer] aan, zodat een ongeldige waarde de pod tegenhoudt met een melding over die waarde.
  */
 @ConfigMapping(prefix = "berichtensessiecache.sessie")
 internal interface SessieConfig {
@@ -29,6 +30,35 @@ internal interface SessieConfig {
     /** Hoe vaak verlopen sessies actief worden opgezocht en opgeruimd. */
     @WithDefault("PT30S")
     fun veegInterval(): Duration
+}
+
+/**
+ * Weigert een duur of grens van nul of minder, met de configuratiesleutel in de melding. Hier en niet
+ * in één consument: welke bean het eerst start, verschilt, en een andere bean zou anders op een
+ * afgeleide regel falen (zoals de hartslag tegen de inactiviteit) met een melding die de oorzaak niet
+ * noemt. Een duur van nul laat elke sessie direct verlopen, of de veegtaak onafgebroken draaien; een
+ * grens van nul weigert elke inlog.
+ */
+internal fun SessieConfig.valideer() {
+    require(inactiviteit().isPositive) {
+        "berichtensessiecache.sessie.inactiviteit (${inactiviteit()}) moet groter zijn dan 0"
+    }
+
+    require(maxDuur().isPositive) {
+        "berichtensessiecache.sessie.max-duur (${maxDuur()}) moet groter zijn dan 0"
+    }
+
+    require(vangnetMarge().isPositive) {
+        "berichtensessiecache.sessie.vangnet-marge (${vangnetMarge()}) moet groter zijn dan 0"
+    }
+
+    require(maxPerOntvanger() > 0) {
+        "berichtensessiecache.sessie.max-per-ontvanger (${maxPerOntvanger()}) moet groter zijn dan 0"
+    }
+
+    require(veegInterval().isPositive) {
+        "berichtensessiecache.sessie.veeg-interval (${veegInterval()}) moet groter zijn dan 0"
+    }
 }
 
 /**

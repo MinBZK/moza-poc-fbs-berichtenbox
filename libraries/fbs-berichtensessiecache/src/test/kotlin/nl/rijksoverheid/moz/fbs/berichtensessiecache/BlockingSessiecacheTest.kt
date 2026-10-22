@@ -31,6 +31,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
@@ -622,14 +623,14 @@ class BlockingSessiecacheTest {
     @Test
     fun `startSessie geeft de gestarte sessie door`() {
         val start = SessieStart(SESSIE_ID, Instant.parse("2026-10-21T12:00:00Z"), restenOpgeruimd = true)
-        every { sessies.start(ontvanger) } returns Uni.createFrom().item(start)
+        every { sessies.start(ontvanger) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
 
         assertSame(start, facade.startSessie(ontvanger))
     }
 
     @Test
     fun `startSessie op de grens gooit TeVeelSessies`() {
-        every { sessies.start(ontvanger) } returns Uni.createFrom().nullItem()
+        every { sessies.start(ontvanger) } returns Uni.createFrom().item(StartUitkomst.LimietBereikt)
 
         assertThrows<SessiecacheException.TeVeelSessies> { facade.startSessie(ontvanger) }
     }

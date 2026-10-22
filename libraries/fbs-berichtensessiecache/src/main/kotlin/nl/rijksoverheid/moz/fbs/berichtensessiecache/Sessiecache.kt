@@ -38,6 +38,13 @@ interface Sessiecache {
          * wijzigen", dus wissen heeft een eigen waarde nodig; het magazijn gebruikt dezelfde.
          */
         const val MAP_WISSEN = ""
+
+        /**
+         * De vorm van elk sessie-id dat [startSessie] uitgeeft: 128 bits, base64url zonder opvulling.
+         * Gelijk aan `components/parameters/SessieHeader` in de spec van de uitvraag. Wat er niet aan
+         * voldoet, kan geen sessie zijn en hoeft Redis niet te zien.
+         */
+        val SESSIE_ID_VORM: Regex = Regex("^[A-Za-z0-9_-]{22}$")
     }
 
     /**

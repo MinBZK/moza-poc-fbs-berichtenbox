@@ -246,6 +246,20 @@ internal class BerichtensessiecacheService(
             .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
             .onFailure().recoverWithUni { e -> markeerNaMisluktOpruimen(ontvanger, e).replaceWith(false) }
 
+    /** Zonder eigen opruimpoging: de aanroeper weet al dat Redis faalt. Een fout hier is al gelogd. */
+    private fun markeerBestEffort(ontvanger: Identificatienummer): Uni<Void> =
+        sessies.markeerVoorVeeg(ontvanger)
+            .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
+            .onFailure().invoke { e ->
+                log.errorf(
+                    "%s Markeren voor de veegtaak na een dubbele cachefout mislukt (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
+                    ALERT_OPRUIMEN_NA_SCHRIJVEN,
+                    e.javaClass.name,
+                )
+            }
+            .onFailure().recoverWithNull()
+            .replaceWithVoid()
+
     private fun markeerNaMisluktOpruimen(ontvanger: Identificatienummer, opruimFout: Throwable): Uni<Void> =
         sessies.markeerVoorVeeg(ontvanger)
             .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
@@ -987,6 +1001,9 @@ internal class BerichtensessiecacheService(
                     )
                 }
             }
+            // Kruiste de ronde met een uitlog, dan kan een deel van wat ze schreef zonder status
+            // blijven staan, en de verloopindex kent de ontvanger dan niet meer.
+            .onFailure().call { _ -> markeerBestEffort(ronde.ontvanger) }
             .onFailure().recoverWithNull()
             // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
             // bewaard zijn: de VOLTOOID-events zijn al geëmit, maar de cache-write

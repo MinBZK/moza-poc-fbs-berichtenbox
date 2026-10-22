@@ -8,6 +8,7 @@ import io.smallrye.mutiny.subscription.MultiEmitter
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieConfig
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.valideer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
@@ -46,6 +47,8 @@ internal class SessieVolger(
     private val log = Logger.getLogger(SessieVolger::class.java)
 
     init {
+        sessieConfig.valideer()
+
         require(hartslag.isPositive) {
             "berichtensessiecache.volg-hartslag ($hartslag) moet groter zijn dan 0"
         }

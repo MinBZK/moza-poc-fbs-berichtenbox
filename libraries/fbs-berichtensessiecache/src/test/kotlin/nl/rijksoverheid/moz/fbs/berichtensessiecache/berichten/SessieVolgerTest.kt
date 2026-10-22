@@ -4,7 +4,7 @@ import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.helpers.test.AssertSubscriber
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.TestSessieConfig
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
@@ -307,6 +307,18 @@ class SessieVolgerTest {
         )
     }
 
+    @ParameterizedTest(name = "inactiviteit {0}")
+    @ValueSource(strings = ["PT0S", "-PT1S"])
+    fun `een inactiviteit van nul of minder noemt de inactiviteit, niet de hartslag`(inactiviteit: String) {
+        // Startte de volger als eerste, dan viel hij eerst over zijn eigen afgeleide regel, met een
+        // melding over de hartslag terwijl de inactiviteit fout staat.
+        val fout = assertThrows<IllegalArgumentException> {
+            SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, TestSessieConfig(inactiviteit = Duration.parse(inactiviteit)))
+        }
+
+        assertTrue(fout.message!!.startsWith("berichtensessiecache.sessie.inactiviteit"), fout.message)
+    }
+
     @Test
     fun `een hartslag net onder de helft van de inactiviteit start wel`() {
         SessieVolger(cache, aanmeldingen, sessies, Duration.ofSeconds(59), Duration.ofHours(1), INACTIVITEIT_TWEE_MINUTEN)
@@ -411,7 +423,7 @@ class SessieVolgerTest {
                 ?: Uni.createFrom().item((sessieId to ontvanger) in lopend)
         }
 
-        override fun start(ontvanger: Identificatienummer): Uni<SessieStart?> = throw UnsupportedOperationException()
+        override fun start(ontvanger: Identificatienummer): Uni<StartUitkomst> = throw UnsupportedOperationException()
 
         override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> = throw UnsupportedOperationException()
 

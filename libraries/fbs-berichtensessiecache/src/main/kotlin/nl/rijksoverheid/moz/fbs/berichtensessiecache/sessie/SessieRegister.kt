@@ -4,7 +4,9 @@ import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.runtime.Startup
 import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheCorruptedException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisBerichtenCache
 import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
@@ -26,8 +28,7 @@ internal const val ALERT_OPRUIMEN_NA_SCHRIJVEN = "[ALERT opruimen_na_schrijven]"
  */
 internal interface SessieRegister {
 
-    /** Start een sessie, of levert `null` als de ontvanger al het maximum aantal lopende sessies heeft. */
-    fun start(ontvanger: Identificatienummer): Uni<SessieStart?>
+    fun start(ontvanger: Identificatienummer): Uni<StartUitkomst>
 
     /** Of [sessieId] een lopende sessie van [ontvanger] is; zo ja, dan is hij nu verlengd. */
     fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean>
@@ -70,6 +71,15 @@ internal interface SessieRegister {
     fun stelUit(kenmerk: String): Uni<Unit>
 }
 
+/** Wat [SessieRegister.start] deed. */
+internal sealed interface StartUitkomst {
+
+    data class Gestart(val start: SessieStart) : StartUitkomst
+
+    /** De ontvanger heeft al het maximum aantal lopende sessies; er is niets gestart en niets gewist. */
+    data object LimietBereikt : StartUitkomst
+}
+
 /**
  * Een ontvanger uit de verloopindex. [kenmerk] is zijn lid in de index ([BerichtenCache.kenmerk]);
  * [ontvanger] de leesbare vorm, of `null` als die al verlopen of onleesbaar is, en dan kan het
@@ -96,30 +106,10 @@ internal class RedisSessieRegister(
 ) : SessieRegister {
 
     init {
-        // Een duur van nul laat elke sessie direct verlopen, of — bij het veeginterval — de veegtaak
-        // onafgebroken draaien; een grens van nul weigert elke inlog.
-        require(config.inactiviteit().isPositive) {
-            "berichtensessiecache.sessie.inactiviteit (${config.inactiviteit()}) moet groter zijn dan 0"
-        }
-
-        require(config.maxDuur().isPositive) {
-            "berichtensessiecache.sessie.max-duur (${config.maxDuur()}) moet groter zijn dan 0"
-        }
-
-        require(config.vangnetMarge().isPositive) {
-            "berichtensessiecache.sessie.vangnet-marge (${config.vangnetMarge()}) moet groter zijn dan 0"
-        }
-
-        require(config.maxPerOntvanger() > 0) {
-            "berichtensessiecache.sessie.max-per-ontvanger (${config.maxPerOntvanger()}) moet groter zijn dan 0"
-        }
-
-        require(config.veegInterval().isPositive) {
-            "berichtensessiecache.sessie.veeg-interval (${config.veegInterval()}) moet groter zijn dan 0"
-        }
+        config.valideer()
     }
 
-    override fun start(ontvanger: Identificatienummer): Uni<SessieStart?> {
+    override fun start(ontvanger: Identificatienummer): Uni<StartUitkomst> {
         val sessieId = nieuweSessieId()
         val argumenten = listOf(
             hash(sessieId),
@@ -135,12 +125,14 @@ internal class RedisSessieRegister(
 
         return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
             if (antwoord.get(0).toInteger() == 0) {
-                null
+                StartUitkomst.LimietBereikt
             } else {
-                SessieStart(
-                    sessieId = sessieId,
-                    uiterlijkGeldigTot = Instant.ofEpochMilli(antwoord.get(1).toLong()),
-                    restenOpgeruimd = antwoord.get(2).toLong() > 0,
+                StartUitkomst.Gestart(
+                    SessieStart(
+                        sessieId = sessieId,
+                        uiterlijkGeldigTot = Instant.ofEpochMilli(antwoord.get(1).toLong()),
+                        restenOpgeruimd = antwoord.get(2).toLong() > 0,
+                    ),
                 )
             }
         }
@@ -148,7 +140,7 @@ internal class RedisSessieRegister(
 
     override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean> {
         // Wat niet de vorm van een uitgegeven id heeft, kan geen sessie zijn; dat hoeft Redis niet te zien.
-        if (!SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(false)
+        if (!Sessiecache.SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(false)
 
         val argumenten = listOf(
             hash(sessieId),
@@ -160,11 +152,16 @@ internal class RedisSessieRegister(
     }
 
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> {
-        if (!SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(SessieEinde.ONBEKEND)
+        if (!Sessiecache.SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(SessieEinde.ONBEKEND)
 
         val argumenten = listOf(hash(sessieId), BerichtenCache.kenmerk(ontvanger))
 
-        return voerUit(SessieScripts.EINDE, ontvanger, argumenten).map { SessieEinde.valueOf(it.toString()) }
+        // Een antwoord dat de enum niet kent, is een script dat niet bij deze code hoort (een half
+        // uitgerolde versie): een eigen, leesbare fout, en geen IllegalArgumentException uit valueOf.
+        return voerUit(SessieScripts.EINDE, ontvanger, argumenten).map { antwoord ->
+            SessieEinde.entries.firstOrNull { it.name == antwoord.toString() }
+                ?: throw CacheCorruptedException.onverwachtScriptantwoord("einde")
+        }
     }
 
     override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> {
@@ -213,9 +210,8 @@ internal class RedisSessieRegister(
         /** Achter `$k`: de leesbare ontvanger bij een index-entry. */
         private const val ONTVANGER_SUFFIX = ":ontvanger"
 
-        /** 128 bits, base64url zonder opvulling. */
+        /** 128 bits; zie [Sessiecache.SESSIE_ID_VORM]. */
         private const val SESSIE_ID_BYTES = 16
-        private val SESSIE_ID_VORM = Regex("^[A-Za-z0-9_-]{22}$")
 
         private val RANDOM = SecureRandom()
         private val HEX = HexFormat.of()

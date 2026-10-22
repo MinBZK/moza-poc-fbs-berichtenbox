@@ -46,7 +46,7 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
         val ontvanger = leesOntvanger(request.headers[ONTVANGER_HEADER].orEmpty())
         val sessieId = request.headers[SESSIE_HEADER]?.singleOrNull()
 
-        if (sessieId == null || !SESSIE_VORM.matches(sessieId)) throw sessieOngeldig()
+        if (sessieId == null || !Sessiecache.SESSIE_ID_VORM.matches(sessieId)) throw sessieOngeldig()
 
         leesUitCache(log, "sessie-raken") { sessiecache.raakSessie(sessieId, ontvanger) }
     }
@@ -77,9 +77,6 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
     private companion object {
         const val ONTVANGER_HEADER = "X-Ontvanger"
         const val SESSIE_HEADER = "X-Sessie"
-
-        // Gelijk aan `components/parameters/SessieHeader` in de spec.
-        val SESSIE_VORM = Regex("^[A-Za-z0-9_-]{22}$")
 
         /** Het pad zonder `quarkus.rest.path`; JAX-RS levert het met of zonder voorloop-slash. */
         fun valtOnderBerichten(pad: String): Boolean {

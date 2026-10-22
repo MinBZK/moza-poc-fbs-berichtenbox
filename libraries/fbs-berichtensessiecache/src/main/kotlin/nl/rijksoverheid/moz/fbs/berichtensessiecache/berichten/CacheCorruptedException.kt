@@ -17,5 +17,8 @@ internal class CacheCorruptedException private constructor(message: String, caus
 
         fun onleesbareWaarde(veld: String, cause: Throwable) =
             CacheCorruptedException("Onleesbare waarde in gecachte hash voor veld '$veld'", cause)
+
+        fun onverwachtScriptantwoord(script: String) =
+            CacheCorruptedException("Onverwacht antwoord van het $script-script")
     }
 }

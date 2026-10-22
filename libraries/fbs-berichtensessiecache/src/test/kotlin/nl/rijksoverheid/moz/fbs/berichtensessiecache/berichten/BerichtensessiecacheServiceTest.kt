@@ -1091,6 +1091,30 @@ class BerichtensessiecacheServiceTest {
         )
     }
 
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `na een dubbele cachefout markeert de ronde de ontvanger alsnog voor de veegtaak`(markerenFaalt: Boolean) {
+        // Kruiste de ronde met een uitlog, dan blijft er anders iets staan dat de veegtaak niet kent.
+        val client = mockk<MagazijnClient>()
+
+        stubAggregatie(client)
+        every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
+        every { berichtenCache.slaRondeOp(cacheKey, any(), any(), any()) } returns Uni.createFrom().failure(RuntimeException("Redis store down"))
+        every { berichtenCache.sluitRondeAf(cacheKey, any(), any()) } returns Uni.createFrom().failure(RuntimeException("Redis status ook down"))
+
+        if (markerenFaalt) every { sessies.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+
+        val regels = vangLog {
+            val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+            assertEquals(1, events.filterIsInstance<OphalenMisluktNaBevraging>().size, "Events: $events")
+        }
+
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
+        assertEquals(if (markerenFaalt) 1 else 0, regels.count { it.contains(ALERT_OPRUIMEN) }, "Log: $regels")
+        assertTrue(regels.none { it.contains(ontvanger.waarde) }, "de BSN hoort niet in de log: $regels")
+    }
+
     @Test
     fun `wachtbudget korter dan de query-timeout faalt fail-fast`() {
         // De wachtrij is voor een bevraging alsnog een zeef als haar budget verstrijkt vóórdat er

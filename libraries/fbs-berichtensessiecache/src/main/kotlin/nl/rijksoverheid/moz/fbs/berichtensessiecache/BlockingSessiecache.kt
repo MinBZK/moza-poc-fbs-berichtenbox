@@ -23,6 +23,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -204,8 +205,10 @@ internal class BlockingSessiecache(
     }
 
     override fun startSessie(ontvanger: Identificatienummer): SessieStart =
-        awaitOrServiceUnavailable { sessies.start(ontvanger) }
-            ?: throw SessiecacheException.TeVeelSessies("Er lopen al te veel sessies voor deze ontvanger.")
+        when (val uitkomst = awaitOrServiceUnavailable { sessies.start(ontvanger) }) {
+            is StartUitkomst.Gestart -> uitkomst.start
+            StartUitkomst.LimietBereikt -> throw SessiecacheException.TeVeelSessies("Er lopen al te veel sessies voor deze ontvanger.")
+        }
 
     override fun raakSessie(sessieId: String, ontvanger: Identificatienummer) {
         val loopt = awaitOrServiceUnavailable { sessies.raak(sessieId, ontvanger) }
@@ -416,7 +419,7 @@ internal class BlockingSessiecache(
         is CacheCorruptedException -> {
             // Eigen message is statisch (PII-veilig); de cause kan een Jackson-fout met
             // JSON-fragment zijn (bv. bijlagen), dus log de cause-klasse, niet de cause zelf.
-            log.errorf("Cache-hash corrupt: %s (oorzaak=%s)", e.message, e.cause?.javaClass?.name ?: "geen")
+            log.errorf("Cache-data corrupt: %s (oorzaak=%s)", e.message, e.cause?.javaClass?.name ?: "geen")
             SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }
         // De pod stopt, of het abonnement viel weg en is al gelogd: per stream geen error erbij.
