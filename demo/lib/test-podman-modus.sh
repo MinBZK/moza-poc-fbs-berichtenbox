@@ -291,7 +291,13 @@ case "$UITVOER" in
   *) fout "zonder XDG_RUNTIME_DIR een onverwachte runtime-map — $UITVOER" ;;
 esac
 
-if [ ! -w "/run/user/$(id -u)" ]; then
+# Welke tak geldt, hangt aan de machine; beide tellen als één assertie, zodat het minimum in CI
+# niet afhangt van of de runner een schrijfbare /run/user/<uid> heeft.
+if [ -w "/run/user/$(id -u)" ]; then
+  [ "$UITVOER" = "/run/user/$(id -u)" ] \
+    && ok "met schrijfbare /run/user/<uid> wordt die de runtime-map" \
+    || fout "met schrijfbare /run/user/<uid> toch een andere runtime-map — $UITVOER"
+else
   [ "$UITVOER" = "/tmp/podman-run-$(id -u)" ] \
     && ok "zonder schrijfbare /run/user/<uid> valt de runtime-map terug op /tmp" \
     || fout "zonder schrijfbare /run/user/<uid> geen terugval op /tmp — $UITVOER"
