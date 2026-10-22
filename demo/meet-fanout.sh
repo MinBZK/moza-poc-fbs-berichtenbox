@@ -23,7 +23,11 @@
 #
 # Tegen een omgeving waar het bedieningspaneel achter een authorization-wall staat (ZAD) komt een
 # aanroep zonder geldige sessie niet bij het paneel aan. Geef dan het sessiecookie van een ingelogde
-# browser mee in CONSOLE_COOKIE; zonder (geldig) cookie stopt de meting bij de eerste ronde.
+# browser mee in CONSOLE_COOKIE; zonder (geldig) cookie stopt de meting vóór de eerste ronde, of vóór
+# de eerstvolgende als het cookie onderweg verloopt.
+#
+# curl leest hier nergens ~/.curlrc (`-q`); een proxy of CA-bundel hoort via de omgeving
+# (`https_proxy`, `CURL_CA_BUNDLE`).
 set -euo pipefail
 
 UITVRAAG="${UITVRAAG:-http://localhost:8086}"
@@ -45,7 +49,7 @@ ONDERNEMERS=(
     "landelijk-concern|KVK:90000003|100"
 )
 
-curl -sf "$UITVRAAG/q/health/ready" > /dev/null \
+curl -q -sf --max-time 30 "$UITVRAAG/q/health/ready" > /dev/null \
     || { echo "FOUT: de uitvraag op $UITVRAAG is niet gezond; draait de stack?" >&2; exit 1; }
 
 # Het cookie als array en niet als losse string: `-H "Cookie: $x"` zonder quotes zou op de spatie
@@ -57,18 +61,23 @@ if [ -n "$CONSOLE_COOKIE" ]; then
     COOKIE_ARG=(-H "Cookie: $CONSOLE_COOKIE")
 fi
 
-VERVAL_ADRES="$CONSOLE/api/demo/sessie/verlopen"
+VERVAL_PAD="/api/demo/sessie/verlopen"
+VERVAL_ADRES="$CONSOLE$VERVAL_PAD"
 
-# Hoe vaak het legen al bevestigd is. Ná een geslaagde ronde staat er altijd een sessie in Redis, dus
-# vanaf de tweede keer betekent "0 gewist" dat het paneel naar een andere Redis kijkt dan de uitvraag.
-BEVESTIGD_GELEEGD=0
-
-# Elke ronde begint met een lege sessiecache, zodat geen ronde de sessie of de lock van de vorige
-# erft. Deze aanroep mag dus niet stil mislukken. Alleen de bevestiging van het paneel zelf
-# (`gewisteKeys`) telt, niet de statuscode alleen: een inlogmuur kan doorverwijzen, wat `curl -f`
-# doorlaat, of de inlogpagina meteen met 200 teruggeven.
+# Elke ronde begint met een lege sessiecache: `_ophalen` leest die cache niet, maar zo begint elke
+# ronde vanuit dezelfde toestand, zonder `:lock` van een eerdere, afgebroken aanvraag voor dezelfde
+# ondernemer. Deze stap mag dus niet stil mislukken, en twee dingen moeten kloppen:
+#   - het paneel bevestigt het legen zelf (`gewisteKeys`). De statuscode alleen bewijst niets: een
+#     inlogmuur kan doorverwijzen, wat `curl -f` doorlaat, of de inlogpagina met 200 teruggeven;
+#   - de gemeten uitvraag ziet daarna geen sessie meer. Pas dat bewijst dat het paneel dezelfde
+#     Redis leegde als waar de uitvraag uit leest.
 vervalcache() {
-    local antwoord body status content_type doel gewist uitleg rc=0 oordeel=0
+    leeg_via_paneel
+    toets_bij_uitvraag "$1" "$2"
+}
+
+leeg_via_paneel() {
+    local antwoord body status content_type doel uitleg rc=0 oordeel=0
 
     # `-q` als eerste argument: anders leest curl de eigen ~/.curlrc, en een `location`, `fail` of
     # `include` daarin verandert wat hier binnenkomt. `--max-time`: een paneel dat niet antwoordt,
@@ -77,7 +86,7 @@ vervalcache() {
         -w '\n%{http_code}|%{content_type}|%{redirect_url}')" || rc=$?
 
     if [ "$rc" -ne 0 ]; then
-        stop_meting "geen antwoord (curl-exitcode $rc)"
+        stop_meting "$VERVAL_ADRES gaf geen (volledig) antwoord (curl-exitcode $rc)"
     fi
 
     # `|` als scheiding en geen tab: opeenvolgende tabs smelten in `read` samen, en dan schuift een
@@ -87,36 +96,66 @@ vervalcache() {
 
     case "$status" in
         2??)
-            gewist="$(lees_antwoord <<< "$body")" || oordeel=$?
+            lees_antwoord <<< "$body" > /dev/null || oordeel=$?
 
             if [ "$oordeel" -eq "$NIET_BEVESTIGD" ]; then
-                stop_meting "HTTP $status${content_type:+ ($content_type)} zonder de bevestiging van het paneel" muur
+                stop_meting "$VERVAL_ADRES gaf HTTP $status${content_type:+ ($content_type)} zonder de bevestiging van het paneel" muur
             elif [ "$oordeel" -ne 0 ]; then
-                stop_meting "HTTP $status, maar python3 kon het antwoord niet controleren (exit $oordeel)"
-            elif [ "$BEVESTIGD_GELEEGD" -gt 0 ] && [ "$gewist" -eq 0 ]; then
-                stop_meting "het paneel wiste 0 sessie-keys ná een geslaagde ronde, dus het kijkt naar een andere Redis dan de uitvraag op $UITVRAAG"
+                stop_meting "$VERVAL_ADRES gaf HTTP $status, maar python3 kon het antwoord niet controleren (exit $oordeel)"
             fi
-
-            BEVESTIGD_GELEEGD=$((BEVESTIGD_GELEEGD + 1))
             ;;
         3??)
             # Zonder query: die van een inlogpagina is lang en zegt de lezer niets, het pad wel.
-            stop_meting "HTTP $status${doel:+, doorverwezen naar ${doel%%\?*}}" muur
+            doel="${doel%%\?*}"
+
+            # Naar hetzelfde pad op een ander adres (http → https, een andere host): dan klopt
+            # CONSOLE niet, en een inlogmuur stuurt nooit daarheen.
+            case "$doel" in
+                *"$VERVAL_PAD") stop_meting "$VERVAL_ADRES gaf HTTP $status, doorverwezen naar $doel: hetzelfde pad op een ander adres, dus CONSOLE klopt niet" ;;
+            esac
+
+            stop_meting "$VERVAL_ADRES gaf HTTP $status${doel:+, doorverwezen naar $doel}" muur
             ;;
         *)
             # Geeft het paneel zelf de fout, dan staat er een uitleg in en is het geen muur.
             uitleg="$(lees_antwoord <<< "$body")" || true
 
             if [ -n "$uitleg" ]; then
-                stop_meting "HTTP $status van het paneel zelf: $uitleg"
+                stop_meting "$VERVAL_ADRES gaf HTTP $status met de uitleg van het paneel: $uitleg"
             fi
 
             case "$status" in
-                401 | 403) stop_meting "HTTP $status" muur ;;
-                *) stop_meting "HTTP $status" ;;
+                401 | 403) stop_meting "$VERVAL_ADRES gaf HTTP $status" muur ;;
+                *) stop_meting "$VERVAL_ADRES gaf HTTP $status" ;;
             esac
             ;;
     esac
+}
+
+# Zonder sessie geeft de uitvraag `409` met `type` `nog-niet-opgehaald`, net als vóór een eerste
+# ophaalronde. Op `type` en niet op `title` of `detail`: alleen de codes liggen in de API vast.
+toets_bij_uitvraag() {
+    local naam="$1" ontvanger="$2" antwoord status type rc=0
+
+    antwoord="$(curl -q -sS --max-time 30 -H "X-Ontvanger: $ontvanger" -H "Accept: application/json" \
+        "$UITVRAAG/api/v1/berichten" -w '\n%{http_code}')" || rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+        stop_meting "de uitvraag op $UITVRAAG gaf na het legen geen (volledig) antwoord (curl-exitcode $rc)"
+    fi
+
+    status="${antwoord##*$'\n'}"
+    type="$(probleemtype <<< "${antwoord%$'\n'*}")" || true
+
+    if [ "$status" = 409 ] && [ "$type" = "urn:fbs:fout:nog-niet-opgehaald" ]; then
+        return 0
+    fi
+
+    if [ "$status" = 200 ]; then
+        stop_meting "de uitvraag op $UITVRAAG ziet na het legen nog een sessie voor $naam, dus het paneel leegde een andere Redis"
+    fi
+
+    stop_meting "de uitvraag op $UITVRAAG gaf na het legen HTTP $status${type:+ ($type)} voor $naam, en niet nog-niet-opgehaald"
 }
 
 # Een eigen exitcode en niet 1: die geeft Python ook bij een traceback, en een ontbrekende python3
@@ -154,9 +193,26 @@ sys.exit(niet_bevestigd)
 ' "$NIET_BEVESTIGD"
 }
 
+# Het `type` van een problem+json-antwoord, of niets.
+probleemtype() {
+    python3 -c '
+import json
+import sys
+
+try:
+    antwoord = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+
+if isinstance(antwoord, dict) and isinstance(antwoord.get("type"), str):
+    print(antwoord["type"])
+'
+}
+
 stop_meting() {
-    echo "FOUT: de sessiecache is niet geleegd via $VERVAL_ADRES: $1." >&2
+    echo "FOUT: het legen van de sessiecache is niet bevestigd: $1." >&2
     echo "      Een ronde hoort met een lege sessiecache te beginnen; de meting stopt." >&2
+    echo "      De rondes tot nu toe staan in $TABEL; $UITVOER is niet bijgewerkt." >&2
 
     if [ "${2:-}" = muur ]; then
         echo "      Staat het bedieningspaneel achter een inlogmuur, geef dan het sessiecookie van een" >&2
@@ -244,11 +300,17 @@ else:
 eerste = min(geslaagd) if geslaagd else ""
 compleet = regels[-1][0] if compleet_gemeten else ""
 
-print(f"{gestart}\t{len(geslaagd)}\t{mislukt}\t{niet_opgehaald}\t{eerste}\t{compleet}")
+# `|` en geen tab, om dezelfde reden als bij het legen: zonder geslaagd magazijn is `eerste` leeg, en
+# met tabs schoof `compleet` dan in de kolom van het eerste bericht.
+print(f"{gestart}|{len(geslaagd)}|{mislukt}|{niet_opgehaald}|{eerste}|{compleet}")
 PY
 }
 
-printf 'ondernemer\tronde\torganisaties\tbevraagd\tgeslaagd\tmislukt\tniet_opgehaald\teerste_ms\tcompleet_ms\n' > "$UITVOER"
+# Eerst in de map van deze run, en pas na de laatste ronde naar UITVOER: een meting die stopt, laat
+# de uitvoer van de vorige dan staan, en een halve tabel is niet voor een hele aan te zien.
+TABEL="$STROMEN/meting.tsv"
+
+printf 'ondernemer\tronde\torganisaties\tbevraagd\tgeslaagd\tmislukt\tniet_opgehaald\teerste_ms\tcompleet_ms\n' > "$TABEL"
 
 echo "Meten over $RONDES ronde(s); uitvoer in $UITVOER, ruwe stromen in $STROMEN"
 
@@ -258,13 +320,13 @@ for regel in "${ONDERNEMERS[@]}"; do
     echo "  $naam ($verwacht organisaties)"
 
     for ronde in $(seq 1 "$RONDES"); do
-        vervalcache
+        vervalcache "$naam" "$ontvanger"
 
         # Eerst in een variabele: bij een `read <<<` uit een commando-substitutie blijft een
         # mislukte ronde onopgemerkt, want dan telt alleen de exitcode van `read`.
         uitkomst="$(meet "$ontvanger" "$STROMEN/$naam-$ronde.tsv")"
 
-        IFS=$'\t' read -r bevraagd geslaagd mislukt niet_opgehaald eerste compleet <<< "$uitkomst"
+        IFS='|' read -r bevraagd geslaagd mislukt niet_opgehaald eerste compleet <<< "$uitkomst"
 
         if [ "$bevraagd" -ne "$verwacht" ]; then
             echo "    WAARSCHUWING: $bevraagd organisaties bevraagd, verwacht $verwacht" >&2
@@ -274,11 +336,13 @@ for regel in "${ONDERNEMERS[@]}"; do
         # houden: een gedegradeerde ronde zou anders het aantal van de hele ondernemer verzetten.
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$naam" "$ronde" "$verwacht" "$bevraagd" "$geslaagd" "$mislukt" "$niet_opgehaald" \
-            "$eerste" "$compleet" >> "$UITVOER"
+            "$eerste" "$compleet" >> "$TABEL"
 
         echo "    ronde $ronde: eerste bericht na ${eerste:-—}ms, compleet na ${compleet:-—}ms ($geslaagd ok, $mislukt mislukt, $niet_opgehaald niet opgehaald)"
     done
 done
+
+cp "$TABEL" "$UITVOER"
 
 echo
 echo "Samenvatting (mediaan over $RONDES ronde(s)):"

@@ -89,7 +89,8 @@ demo/meet-fanout.sh 3        # drie ronden per ondernemer; uitvoer in /tmp/fanou
 
 Het script leest de SSE-stroom van de uitvraag mee en zet er een tijdstempel per regel op. Het geeft
 twee getallen per ondernemer: tijd tot het eerste bericht en tijd tot de lijst compleet is. De
-sessiecache wordt vóór elke ronde geleegd, anders meet de tweede ronde het cache-pad. De uitkomsten
+sessiecache wordt vóór elke ronde geleegd, zodat elke ronde vanuit dezelfde toestand begint; het
+script controleert bij de uitvraag dat er daarna geen sessie meer is. De uitkomsten
 van de eerste meting staan in `docs/plans/2026-08-21-magazijn-simulator-design.md` onder
 "Meting (stap 6)"; die zijn met een volgende meting te vergelijken.
 

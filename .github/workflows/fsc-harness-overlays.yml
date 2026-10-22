@@ -358,9 +358,11 @@ jobs:
 
           echo "== bash-unittests =="
           gedraaid=0
+          gedraaide_suites=" "
           for t in demo/environment/lib/test-*.sh demo/test-*.sh; do
             [ -f "$t" ] || continue
             gedraaid=$((gedraaid + 1))
+            gedraaide_suites="$gedraaide_suites$t "
             echo "-- $t"
             bash "$t" || fail=1
           done
@@ -371,13 +373,17 @@ jobs:
           fi
 
           # Benoemd en niet alleen geteld: de suites onder lib/ houden de teller hierboven boven
-          # nul, dus een verdwenen of buiten `test-*.sh` hernoemde suite zou de stap groen laten.
-          # Deze is de enige bewaking dat de fan-out-meting een niet-geleegde cache weigert.
+          # nul, dus een verdwenen, hernoemde of uit de lus geraakte suite zou de stap groen laten.
+          # Daarom de lijst van wat wérkelijk draaide, niet alleen of het bestand bestaat. Deze
+          # suite is de enige bewaking dat de fan-out-meting een niet-geleegde cache weigert.
           for verplicht in demo/test-meet-fanout.sh; do
-            if [ ! -f "$verplicht" ]; then
-              echo "FOUT: $verplicht ontbreekt; die controle draait nergens meer in de keten."
-              fail=1
-            fi
+            case "$gedraaide_suites" in
+              *" $verplicht "*) ;;
+              *)
+                echo "FOUT: $verplicht draaide niet; die controle draait nergens meer in de keten."
+                fail=1
+                ;;
+            esac
           done
 
           if [ "$fail" -ne 0 ]; then

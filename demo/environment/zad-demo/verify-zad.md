@@ -293,9 +293,9 @@ CONSOLE_COOKIE='<het sessiecookie van je ingelogde browser>' \
 
 **Het cookie is geen franje.** Het script leegt vóór elke ronde de sessiecache via het paneel, en dat
 paneel staat achter de muur: zonder geldig cookie komt die aanroep niet bij het paneel aan. Op ZAD
-stopt de meting dan met `FOUT: de sessiecache is niet geleegd via …/api/demo/sessie/verlopen: HTTP 403.`
-en een regel over `CONSOLE_COOKIE`. Een anders ingestelde muur kan ook doorverwijzen of de inlogpagina
-met 200 teruggeven; het script telt alleen de bevestiging van het paneel zelf als geleegd, dus ook
+stopt de meting dan met `FOUT: het legen van de sessiecache is niet bevestigd: …/api/demo/sessie/verlopen gaf HTTP 403.`,
+gevolgd door een hint over `CONSOLE_COOKIE`. Een anders ingestelde muur kan ook doorverwijzen of de
+inlogpagina met 200 teruggeven; het script telt alleen de bevestiging van het paneel zelf, dus ook
 dan stopt de meting.
 
 Welk cookie: de muur is een **oauth2-proxy**-sidecar, en die zet zijn sessie in `_oauth2_proxy`. De
@@ -309,9 +309,6 @@ is precies wat `CONSOLE_COOKIE` verwacht, en hij klopt ook als de naam ooit vera
 Het is een geldige sessie op jouw rijksaccount: hou hem uit shell-geschiedenis, issues en logs, en
 haal een verse op als de meting stopt met de verwijzing naar `CONSOLE_COOKIE` (hij verloopt, ook
 midden in een meting).
-
-Zonder cookie gaat het niet: het script leegt de cache zelf en stopt zodra het paneel dat niet
-bevestigt.
 
 Verwacht per ondernemer, met de laptopmeting uit
 `docs/plans/2026-08-21-magazijn-simulator-design.md` ernaast:
@@ -337,6 +334,7 @@ Wat wél een bevinding is:
 | Veel meer mislukt dan de tabel, verspreid over alle ondernemers | Kijk eerst naar de simulator: zijn database-pool draagt honderd magazijnen tegelijk, en een te lage waarde laat magazijnen omvallen die op *normaal* staan. |
 | `NIET_OPGEHAALD` bij gezonde magazijnen | De bevraging is niet gestart omdat de gelijktijdigheidsgrens vol bleef; geen storing van die organisatie. In vlagen: het wachtbudget (`MAGAZIJN_WACHTBUDGET_MS`) is te krap voor de piek. Aanhoudend: `MAX_CONCURRENT` is te laag voor wat er tegelijk loopt — draaien er meer metingen of demo's naast elkaar? |
 | `de uitvraag op … is niet gezond` | De meting is niet begonnen; dit zegt niets over de fan-out. |
+| `de uitvraag op … ziet na het legen nog een sessie voor …` | Het paneel bevestigde het legen, maar in een andere Redis dan die van de gemeten uitvraag. Meestal komen `UITVRAAG` en `CONSOLE` uit verschillende deployments (een `pr-<n>` tegen `test`): de console leegt de Redis van zijn eigen deployment. |
 
 Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand uit `$UITVOER` (standaard
 `/tmp/fanout-meting.tsv`) is het bewijsstuk. Leg hem vast waar hij navolgbaar blijft — bij de meting
