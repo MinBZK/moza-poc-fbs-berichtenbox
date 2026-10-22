@@ -720,6 +720,20 @@ gelijk "een teruggekomen nummer dat er niet meer staat, valt uit de stand" "gelu
   "$(nieuwe_stand_van '.inventaris.outputs.stand = "terug\t70"')"
 gelijk "zonder vorige stand en zonder poging: een lege stand" "" \
   "$(nieuwe_stand_van '.opruimen = {"result": "skipped"}')"
+
+# Een opruimjob die omvalt of in zijn time-out loopt: wat al gelukt was, gaat mee, en de rij gaat
+# verder na het laatst gekozen nummer, niet na het laatst afgeronde. Anders loopt de volgende run
+# op hetzelfde nummer opnieuw vast.
+for uitkomst in failure cancelled; do
+  gelijk "een opruimjob die als $uitkomst eindigt, schuift voorbij het gekozen venster" "gelukt	7|laatste	12" \
+    "$(nieuwe_stand_van ".opruimen = {\"result\": \"$uitkomst\", \"outputs\": {\"uitkomsten\": \"7\\tsuccess\\tu\"}}
+      | .inventaris.outputs.opruimen = \"7 9 12\" | .inventaris.outputs.stand = \"laatste\\t3\"")"
+done
+
+gelijk "een omgevallen opruimjob zonder uitkomsten bewaart nog steeds het venster" "laatste	12" \
+  "$(nieuwe_stand_van '.opruimen = {"result": "failure"} | .inventaris.outputs.opruimen = "7 9 12" | .inventaris.outputs.stand = "laatste\t3"')"
+gelijk "een geslaagde opruimjob gaat verder na het laatst afgeronde nummer" "gelukt	7|laatste	9" \
+  "$(nieuwe_stand_van '.opruimen.outputs.uitkomsten = "7\tsuccess\tu\n9\tfailure\tu\n12\tuitgesteld\tbezet" | .inventaris.outputs.opruimen = "7 9 12"')"
 bevinding "geen-pr en vreemd-pakket worden gemeld, een opgeruimd nummer niet" \
   '.inventaris.outputs.bevindingen = "7\topruimen\tomgeving\n9\tgeen-pr\tomgeving\n10\tvreemd-pakket\tvreemd-pakket:x\n14\topruimen\tghcr:a,vreemd-pakket:x\nonbepaald\tgithub\tniet te lezen"
    | .opruimen.outputs.uitkomsten = "7\tsuccess\thttps://x/runs/2\n14\tsuccess\thttps://x/runs/3"' \
@@ -976,8 +990,24 @@ meld(
     "de meldjob bewaart de stand onder de naam die vorige-stand zoekt",
 )
 meld(
-    len(stand_stap) == 1 and "needs.inventaris.result == 'success'" in str(stand_stap[0].get("if", "")),
-    "de stand wordt alleen na een geslaagde inventaris vastgelegd",
+    len(stand_stap) == 1 and "needs.inventaris.result == 'success'" in str(stand_stap[0].get("if", ""))
+    and "needs.inventaris.outputs.stand-gelezen == 'true'" in str(stand_stap[0].get("if", "")),
+    "de stand wordt alleen vastgelegd na een geslaagde inventaris die de vorige stand kon lezen",
+)
+meld(
+    "stand-gelezen" in (jobs["inventaris"].get("outputs") or {})
+    and "stand_gelezen=false" in inventaris_run and "onbepaald\\tstand\\t" in inventaris_run,
+    "een onleesbare vorige stand wordt gemeld en blokkeert het vastleggen",
+)
+
+# De uitkomsten gaan ook mee als de opruiming omvalt of in zijn time-out loopt.
+opruim_stappen = jobs["opruimen"].get("steps") or []
+doorgeven = [s for s in opruim_stappen if s.get("id") == "doorgeven"]
+meld(
+    len(doorgeven) == 1 and "always()" in str(doorgeven[0].get("if", ""))
+    and (jobs["opruimen"].get("outputs") or {}).get("uitkomsten") == "${{ steps.doorgeven.outputs.uitkomsten }}"
+    and any("tee " in str(s.get("run", "")) and "preview-resten.sh opruimen" in str(s.get("run", "")) for s in opruim_stappen),
+    "de uitkomsten worden per nummer weggeschreven en ook na een mislukte opruiming doorgegeven",
 )
 meld("preview-resten.sh vorige-stand" in inventaris_run and "LAATSTE=" in inventaris_run
      and "preview-resten.sh kies" in inventaris_run,

@@ -124,6 +124,7 @@ jobs:
     outputs:
       opruimen: ${{ steps.inventaris.outputs.opruimen }}
       stand: ${{ steps.inventaris.outputs.stand }}
+      stand-gelezen: ${{ steps.inventaris.outputs.stand-gelezen }}
       bevindingen: ${{ steps.inventaris.outputs.bevindingen }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -175,8 +176,14 @@ jobs:
             1) stand_uitleg="geen stand van een vorige run (eerste run, of verlopen)"; : >"$stand" ;;
             *) stand_uitleg="**de stand van de vorige run is niet te lezen**: de rotatie begint bij het laagste nummer en terugkerende nummers vallen niet op"
                echo "::warning::De stand van de vorige run is niet te lezen."
+               printf 'onbepaald\tstand\tde stand van de vorige run is niet te lezen; deze run legt geen nieuwe stand vast\n' >>"$bevindingen"
                : >"$stand" ;;
           esac
+
+          # Een onleesbare stand mag niet door een lege worden vervangen: dan zou die lege stand het
+          # nieuwste artefact op main worden en waren `terug` en `laatste` voorgoed weg. De meldjob
+          # legt alleen een stand vast als deze true is.
+          if [ "$stand_rc" -le 1 ]; then stand_gelezen=true; else stand_gelezen=false; fi
 
           laatste=$(awk -F'\t' '$1 == "laatste" { n = $2 } END { print n + 0 }' "$stand")
           te_doen=$(LAATSTE="$laatste" .github/scripts/preview-resten.sh kies "$bevindingen" | tr '\n' ' ' | sed 's/ *$//')
@@ -184,6 +191,7 @@ jobs:
 
           {
             echo "opruimen=$te_doen"
+            echo "stand-gelezen=$stand_gelezen"
             echo "stand<<EINDE_STAND"
             cat "$stand"
             echo "EINDE_STAND"
@@ -218,13 +226,12 @@ jobs:
       actions: write
       contents: read
     outputs:
-      uitkomsten: ${{ steps.opruimen.outputs.uitkomsten }}
+      uitkomsten: ${{ steps.doorgeven.outputs.uitkomsten }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Ruim op via cleanup-preview.yml
-        id: opruimen
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -233,10 +240,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
-
           # shellcheck disable=SC2086 # NUMMERS is een spatiegescheiden lijst getallen.
-          .github/scripts/preview-resten.sh opruimen $NUMMERS | tee "$uitkomsten"
+          .github/scripts/preview-resten.sh opruimen $NUMMERS | tee "$RUNNER_TEMP/uitkomsten.tsv"
+
+      # Een aparte stap op `always()`: valt de opruiming om of loopt de job in zijn time-out, dan
+      # gaan de uitkomsten van de al afgeronde nummers toch mee. `tee` schrijft elke regel weg zodra
+      # het script hem levert, dus wat gelukt is, staat in het bestand.
+      - name: Geef de uitkomsten door
+        id: doorgeven
+        if: ${{ always() }}
+        run: |
+          uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
+          touch "$uitkomsten"
 
           {
             echo "uitkomsten<<EINDE_UITKOMSTEN"
@@ -364,11 +379,12 @@ jobs:
         run: .github/scripts/preview-resten.sh noodmelding
 
       # De stand voor de volgende run: waar de rotatie verder gaat en welke nummers als opgeruimd
-      # gemeld zijn (zie preview-resten.sh). Alleen na een geslaagde inventaris; anders blijft de
-      # vorige stand gelden, want de volgende run zoekt het nieuwste artefact op main.
+      # gemeld zijn (zie preview-resten.sh). Alleen na een geslaagde inventaris die de vorige stand
+      # kon lezen; anders blijft die vorige stand gelden, want de volgende run zoekt het nieuwste
+      # artefact op main.
       - name: Leg de stand vast
         id: stand
-        if: ${{ always() && needs.inventaris.result == 'success' }}
+        if: ${{ always() && needs.inventaris.result == 'success' && needs.inventaris.outputs.stand-gelezen == 'true' }}
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |

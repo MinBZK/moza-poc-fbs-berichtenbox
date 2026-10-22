@@ -422,16 +422,16 @@ ongetagd() {
   # Doorlopen tot er `max` verwijderbare versies zijn: bewaarde referrers en onleesbare manifests
   # tellen niet mee voor dat plafond, anders zouden blijvende referrers onder de oudste versies de
   # plekken voorgoed bezetten. Het aantal manifest-opvragingen heeft een eigen plafond.
-  local fetch_max=${MANIFEST_MAX:-300} gehaald=0 onderzocht=0 uitgesteld
+  local ophaal_max=${MANIFEST_MAX:-300} gehaald=0 onderzocht=0 uitgesteld
   local referrers=0 onleesbaar=0 verwijderbaar=0 inhoud verwijderen=""
 
-  case "$fetch_max" in
+  case "$ophaal_max" in
     '' | *[!0-9]*) onbepaald "MANIFEST_MAX moet een getal zijn." ;;
   esac
 
   while IFS=$'\t' read -r id digest; do
     [ -n "$id" ] || continue
-    [ "$verwijderbaar" -lt "$max" ] && [ "$gehaald" -lt "$fetch_max" ] || break
+    [ "$verwijderbaar" -lt "$max" ] && [ "$gehaald" -lt "$ophaal_max" ] || break
 
     gehaald=$((gehaald + 1))
     onderzocht=$((onderzocht + 1))
@@ -461,7 +461,7 @@ ongetagd() {
 
   if [ "$uitgesteld" -gt 0 ]; then
     printf '%s\tuitgesteld\t%s\tniet onderzocht: plafond van %s verwijderingen of %s manifests per run\n' \
-      "$pkg" "$uitgesteld" "$max" "$fetch_max"
+      "$pkg" "$uitgesteld" "$max" "$ophaal_max"
   fi
 
   [ -n "$verwijderen" ] || return 0
@@ -516,7 +516,20 @@ nieuwe_stand() {
 
   # Het laatst geprobeerde nummer; een uitgesteld nummer is niet geprobeerd. Probeerde deze run
   # niets, dan blijft de vorige waarde staan.
-  laatste=$(awk -F'\t' 'NF && $2 != "uitgesteld" { n = $1 } END { print n }' <<<"$uitkomsten")
+  #
+  # Viel de opruimjob om (time-out, afbreking), dan is het nummer waarop hij vastliep niet in de
+  # uitkomsten terug te vinden. Verder gaan na het laatst afgeronde nummer zou de volgende run op
+  # precies dat nummer opnieuw laten vastlopen; daarom gaat de rij dan verder na het laatst gekozen
+  # nummer. Wat er wél gelukt is, staat hierboven al in de stand.
+  case "$(jq -r '.opruimen.result // ""' <<<"$NEEDS")" in
+    failure | cancelled)
+      laatste=$(jq -r '.inventaris.outputs.opruimen // ""' <<<"$NEEDS" | tr ' ' '\n' | grep . | tail -1 || true)
+      ;;
+    *)
+      laatste=$(awk -F'\t' 'NF && $2 != "uitgesteld" { n = $1 } END { print n }' <<<"$uitkomsten")
+      ;;
+  esac
+
   [ -n "$laatste" ] || laatste=$(vorige_stand_uit_needs | awk -F'\t' '$1 == "laatste" { n = $2 } END { print n }')
   [ -z "$laatste" ] || printf 'laatste\t%s\n' "$laatste"
 }
