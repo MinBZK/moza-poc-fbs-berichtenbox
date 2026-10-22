@@ -406,13 +406,15 @@ function verwerkOphaalEvent(gebeurtenis, regels, afgekapteMagazijnen) {
   return false;
 }
 
-// Volgende-pagina-pad uit de HAL-links (_links.next); null als dit de laatste pagina is.
-// De href is server-absoluut (/api/v1/berichten?pagina=…); api() zet BASIS (…/api/v1) er weer
+// HAL-hrefs zijn server-absoluut (/api/v1/berichten?pagina=…); api() zet BASIS (…/api/v1) er weer
 // vóór, dus we strippen die prefix.
+const naarApiPad = (href) => href.replace(/^.*\/api\/v1/, '');
+
+// Volgende-pagina-pad uit de HAL-links (_links.next); null als dit de laatste pagina is.
 function volgendePad(lijst) {
   const href = lijst._links && lijst._links.next && lijst._links.next.href;
 
-  return href ? href.replace(/^.*\/api\/v1/, '') : null;
+  return href ? naarApiPad(href) : null;
 }
 
 async function laadLijst(opnieuwNaVerlopen = false) {
@@ -842,12 +844,18 @@ const zonderOnzichtbareTekens = (naam) => naam.replace(/[\p{Cc}\p{Cf}]/gu, '');
 
 // Download via fetch (geen <a href>: dat stuurt de X-Ontvanger-header niet mee). De
 // respons is binair; we maken er een blob-URL van en triggeren de download programmatisch.
-async function downloadBijlage(bericht, bijlageId, naam) {
-  const pad = berichtPad(bericht, `/bijlagen/${encodeURIComponent(bijlageId)}`);
+// Het adres komt uit `_links.self` van de bijlage: de uitvraag belooft die verwijzing, niet de
+// vorm van het pad.
+async function downloadBijlage(bijlage) {
+  const href = bijlage._links && bijlage._links.self && bijlage._links.self.href;
 
-  if (!pad) return;
+  if (!href) {
+    alert('Geen ophaaladres bekend voor deze bijlage — open het bericht opnieuw.');
 
-  const respons = await api(pad);
+    return;
+  }
+
+  const respons = await api(naarApiPad(href));
 
   if (!respons.ok) {
     alert(`Bijlage downloaden mislukt (${await foutTekst(respons)}).`);
@@ -860,7 +868,7 @@ async function downloadBijlage(bericht, bijlageId, naam) {
   const anker = document.createElement('a');
 
   anker.href = url;
-  anker.download = zonderOnzichtbareTekens(naam);
+  anker.download = zonderOnzichtbareTekens(bijlage.naam);
   document.body.appendChild(anker);
   anker.click();
   anker.remove();
@@ -872,14 +880,14 @@ async function downloadBijlage(bericht, bijlageId, naam) {
 // Ontbreekt de magazijnId, dan zou encodeURIComponent(undefined) de tekst "undefined" doorsturen en
 // antwoordt de server met een 400 die naar de server wijst, terwijl de oorzaak hier ligt. Geeft null
 // terug na een melding; de aanroeper stopt dan.
-function berichtPad(bericht, achtervoegsel = '') {
+function berichtPad(bericht) {
   if (!bericht.magazijnId) {
     alert('Geen magazijnId bekend voor dit bericht — haal de lijst opnieuw op.');
 
     return null;
   }
 
-  return `/berichten/${encodeURIComponent(bericht.berichtId)}${achtervoegsel}?magazijnId=${encodeURIComponent(bericht.magazijnId)}`;
+  return `/berichten/${encodeURIComponent(bericht.berichtId)}?magazijnId=${encodeURIComponent(bericht.magazijnId)}`;
 }
 
 async function toonDetail(bericht) {
@@ -1052,7 +1060,7 @@ function renderBijlagen(bericht) {
 
     knop.type = 'button';
     knop.textContent = bijlage.naam;
-    knop.addEventListener('click', () => downloadBijlage(bericht, bijlage.bijlageId, bijlage.naam));
+    knop.addEventListener('click', () => downloadBijlage(bijlage));
     div.appendChild(knop);
   });
 

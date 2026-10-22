@@ -18,3 +18,12 @@ headers {
   X-Sessie: {{sessie}}
   traceparent: 00-{{traceId}}-{{parentSpanId}}-01
 }
+
+script:post-response {
+  // `_links.self` is een absoluut pad; de origin komt uit de omgeving.
+  const href = res.getBody()?.bijlagen?.[0]?._links?.self?.href;
+  // Altijd zetten: een achtergebleven waarde laat "5. Bijlage ophalen" stil de bijlage van
+  // een ander bericht ophalen.
+  const origin = bru.getEnvVar("baseUrlUitvraag").replace(/^(https?:\/\/[^/]+).*$/, "$1");
+  bru.setVar("bijlageUrl", href ? origin + href : undefined);
+}

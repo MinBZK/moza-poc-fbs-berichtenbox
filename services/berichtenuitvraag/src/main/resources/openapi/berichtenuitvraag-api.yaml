@@ -438,7 +438,8 @@ paths:
       summary: Bijlage ophalen (octet-stream, dynamic Content-Type)
       description: |
         Streamt bijlage-bytes rechtstreeks uit het magazijn, met `Content-Type` uit de
-        metadata van de bijlage.
+        metadata van de bijlage. Een afnemer vindt dit adres als `_links.self` bij de
+        bijlage in het berichtdetail.
 
         `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
         mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
@@ -897,7 +898,7 @@ components:
 
     BerichtSamenvatting:
       type: object
-      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, aantalBijlagen, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, aantalBijlagen, magazijnId, _links]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
@@ -924,7 +925,7 @@ components:
 
     Bericht:
       type: object
-      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, magazijnId]
+      required: [berichtId, onderwerp, afzenderNaam, publicatietijdstip, magazijnId, _links]
       properties:
         berichtId: { type: string, format: uuid }
         onderwerp: { type: string }
@@ -959,7 +960,7 @@ components:
         ontbreken wanneer het bericht uit de sessiecache komt (die bewaart per
         bijlage alleen `bijlageId` en `naam`); het werkelijke MIME-type wordt
         meegegeven bij het downloaden van de bijlage zelf.
-      required: [bijlageId, naam]
+      required: [bijlageId, naam, _links]
       properties:
         bijlageId: { type: string, format: uuid }
         naam: { type: string }
@@ -1051,16 +1052,23 @@ components:
 
     Link:
       type: object
+      required: [href]
       properties:
         href: { type: string, format: uri-reference }
 
     BerichtLinks:
       type: object
+      required: [self]
       properties:
         self: { $ref: '#/components/schemas/Link' }
 
     BijlageLinks:
       type: object
+      description: |
+        `self` is het adres waar deze bijlage op te halen is (`GET`, met dezelfde
+        `X-Ontvanger`-header als het bericht). Volg dit adres in plaats van het zelf
+        samen te stellen uit `berichtId`, `bijlageId` en `magazijnId`.
+      required: [self]
       properties:
         self: { $ref: '#/components/schemas/Link' }
 
