@@ -26,7 +26,7 @@ internal class MockBerichtenCache : BerichtenCache {
 
     private val lists = ConcurrentHashMap<String, List<Bericht>>()
     private val statuses = ConcurrentHashMap<String, AggregationStatus>()
-    private val locks = ConcurrentHashMap.newKeySet<String>()
+    private val locks = ConcurrentHashMap<String, String>()
     private val byId = ConcurrentHashMap<BerichtSleutel, Bericht>()
     private val tombstones = ConcurrentHashMap<BerichtSleutel, Identificatienummer>()
 
@@ -48,7 +48,7 @@ internal class MockBerichtenCache : BerichtenCache {
     }
 
     fun simuleerBezig(key: String) {
-        locks.add("$key:lock")
+        locks["$key:lock"] = "gesimuleerd"
         statuses["$key:status"] = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
     }
 
@@ -65,17 +65,35 @@ internal class MockBerichtenCache : BerichtenCache {
         return Uni.createFrom().voidItem()
     }
 
-    override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
-        statuses["$key:status"] = status
+    override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Void> {
+        if (locks["$key:lock"] == ronde) statuses["$key:status"] = status
+
         return Uni.createFrom().voidItem()
     }
 
-    override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
-        val lockAcquired = locks.add("$key:lock")
+    override fun trySetAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
+        val lockAcquired = locks.putIfAbsent("$key:lock", ronde) == null
         if (lockAcquired) {
             statuses["$key:status"] = status
         }
         return Uni.createFrom().item(lockAcquired)
+    }
+
+    override fun slaRondeOp(key: String, berichten: List<Bericht>, status: AggregationStatus, ronde: String): Uni<Boolean> {
+        if (locks["$key:lock"] != ronde) return Uni.createFrom().item(false)
+
+        store(key, berichten)
+        storeAggregationStatus(key, status)
+
+        return Uni.createFrom().item(true)
+    }
+
+    override fun sluitRondeAf(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
+        if (locks["$key:lock"] != ronde) return Uni.createFrom().item(false)
+
+        storeAggregationStatus(key, status)
+
+        return Uni.createFrom().item(true)
     }
 
     override fun getAggregationStatus(key: String): Uni<AggregationStatus?> {

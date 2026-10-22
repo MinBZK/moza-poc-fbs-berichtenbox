@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
+import jakarta.ws.rs.WebApplicationException
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
@@ -203,6 +204,45 @@ class SessieOpruimenTest {
     }
 
     @Test
+    fun `een ronde die een uitlog overleeft schrijft niets in de nieuwe sessie en laat de lock van de volgende ronde staan`() {
+        // Uitloggen en direct weer inloggen terwijl ronde 1 nog loopt: het opruimen wist de lock, dus
+        // een volgende ronde kan hem nemen. Die volgende ronde staat hier als lock met een eigen token:
+        // een tweede echte ronde zou op dezelfde magazijn-stub achter ronde 1 aan wachten.
+        val bsn = Bsn("999993653")
+        val bsnKey = BerichtenCache.cacheKey(bsn)
+        val stubBerichten = MockMagazijnClientFactory.testBerichtenA + MockMagazijnClientFactory.testBerichtenB
+        redis.key().del(*stubBerichten.map { BerichtenCache.berichtKey(it.sleutel) }.toTypedArray()).await().atMost(WACHTTIJD)
+        sessies.ruimOpZonderSessie(bsn).await().atMost(WACHTTIJD)
+        val eersteSessie = sessiecache.startSessie(bsn)
+        val bevraagd = CountDownLatch(1)
+        MockMagazijnClientFactory.bevraagd = bevraagd
+        MockMagazijnClientFactory.tegenhouden = CountDownLatch(1)
+
+        val eersteRonde = sessiecache.ophalen(bsn).collect().asList().subscribeAsCompletionStage()
+
+        assertTrue(bevraagd.await(WACHTTIJD_S, TimeUnit.SECONDS), "ronde 1 kwam niet bij de magazijnen")
+        assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(eersteSessie.sessieId, bsn))
+        val tweedeSessie = sessiecache.startSessie(bsn)
+
+        try {
+            val bezig = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
+            assertTrue(berichtenCache.trySetAggregationStatus(bsnKey, bezig, "ronde-2").await().atMost(WACHTTIJD))
+
+            MockMagazijnClientFactory.tegenhouden?.countDown()
+            val events = eersteRonde.toCompletableFuture().get(RONDE_S, TimeUnit.SECONDS)
+
+            assertTrue(events.none { it is OphalenGereed }, "Ronde 1 hoort niet af te ronden: $events")
+            assertEquals(bezig, berichtenCache.getAggregationStatus(bsnKey).await().atMost(WACHTTIJD))
+            assertEquals("ronde-2", redis.value(String::class.java).get("$bsnKey:lock").await().atMost(WACHTTIJD))
+            assertFalse(bestaat("$bsnKey:list"), "ronde 1 schreef haar lijst in de nieuwe sessie")
+            stubBerichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} van ronde 1 staat er") }
+            assertThrows<WebApplicationException>("de lock van ronde 2 hoort er nog te staan") { sessiecache.ophalen(bsn) }
+        } finally {
+            sessiecache.beeindigSessie(tweedeSessie.sessieId, bsn)
+        }
+    }
+
+    @Test
     fun `aanmelding na uitloggen schrijft niets`() {
         val sessie = sessiecache.startSessie(ontvanger)
         vulAlsOpgehaald(listOf(bericht()))
@@ -296,7 +336,7 @@ class SessieOpruimenTest {
     @Test
     fun `een BEZIG-status houdt bij een tweede start zijn korte TTL`() {
         sessiecache.startSessie(ontvanger)
-        berichtenCache.trySetAggregationStatus(k, AggregationStatus(status = OphalenStatus.BEZIG)).await().atMost(WACHTTIJD)
+        berichtenCache.trySetAggregationStatus(k, AggregationStatus(status = OphalenStatus.BEZIG), "ronde").await().atMost(WACHTTIJD)
 
         sessiecache.startSessie(ontvanger)
 

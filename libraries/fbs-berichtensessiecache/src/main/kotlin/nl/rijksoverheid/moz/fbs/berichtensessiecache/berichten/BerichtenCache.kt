@@ -36,10 +36,36 @@ internal class CacheContentieException(sleutel: BerichtSleutel) :
     RuntimeException("Cache-update afgebroken door gelijktijdige wijziging voor $sleutel")
 
 internal interface BerichtenCache {
+    /** Schrijft [berichten] als de lijst van [key], zonder naar een lopende ronde te kijken. */
     fun store(key: String, berichten: List<Bericht>): Uni<Void>
+
+    /** Schrijft een afsluitende status en geeft de lock vrij, wie hem ook houdt. */
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
-    fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
-    fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean>
+
+    /**
+     * Neemt de lock voor ophaalronde [ronde] en zet de BEZIG-status; `false` als er al een ronde
+     * loopt. [ronde] is uniek per ronde: alleen wie de lock nog met dat token houdt, mag hierna
+     * schrijven ([updateAggregationStatus], [slaRondeOp], [sluitRondeAf]).
+     */
+    fun trySetAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean>
+
+    /** Werkt de BEZIG-status bij, alleen zolang [ronde] de lock houdt. */
+    fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Void>
+
+    /**
+     * Slaat het resultaat van ronde [ronde] op (lijst, berichthashes en [status]) en geeft de lock
+     * vrij, in één transactie die alleen doorgaat als [ronde] de lock dan nog houdt. `false` als dat
+     * niet zo is: de sessie eindigde intussen (het opruimen wist de lock) of de lock verliep. Dan is
+     * er niets geschreven, zodat een latere sessie nooit de resultaten van een eerdere ronde ziet.
+     */
+    fun slaRondeOp(key: String, berichten: List<Bericht>, status: AggregationStatus, ronde: String): Uni<Boolean>
+
+    /**
+     * Schrijft de afsluitende [status] van een mislukte ronde en geeft de lock vrij, alleen als
+     * [ronde] hem nog houdt; `false` als dat niet zo is en er niets geschreven is.
+     */
+    fun sluitRondeAf(key: String, status: AggregationStatus, ronde: String): Uni<Boolean>
+
     fun getAggregationStatus(key: String): Uni<AggregationStatus?>
     fun getPage(key: String, page: Int, pageSize: Int, afzender: String? = null, ontvanger: Identificatienummer? = null, map: String? = null): Uni<BerichtenPagina?>
     fun search(ontvanger: Identificatienummer, q: String, page: Int, pageSize: Int, afzender: String? = null, map: String? = null): Uni<BerichtenPagina>
@@ -211,41 +237,82 @@ internal class RedisBerichtenCache(
     }
 
     override fun store(key: String, berichten: List<Bericht>): Uni<Void> {
-        val listKey = listKey(key)
+        val lijst = LijstOpslag(key, berichten)
+
         if (berichten.isEmpty()) {
-            return redis.key().del(listKey).replaceWithVoid()
+            return redis.key().del(lijst.listKey).replaceWithVoid()
         }
 
-        val sorted = berichten.sortedByDescending { it.publicatietijdstip }
-        val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
-        val sleutelsKey = sleutelsKey(key)
-        val berichtKeys = sorted.map { BerichtenCache.berichtKey(it.sleutel) }
+        return redis.withTransaction { tx -> schrijfLijst(tx, lijst) }
+            .replaceWithVoid()
+            .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache", berichten.size) }
+            .onFailure().invoke { e -> log.errorf(e, "Redis store mislukt voor key=%s", key) }
+    }
+
+    override fun slaRondeOp(key: String, berichten: List<Bericht>, status: AggregationStatus, ronde: String): Uni<Boolean> {
+        val lijst = LijstOpslag(key, berichten)
+        val lockKey = lockKey(key)
+        val statusJson = objectMapper.writeValueAsString(status)
+
+        // WATCH op de lock: wist het opruimen hem tussen de controle en EXEC, of neemt een volgende
+        // ronde hem, dan breekt Redis de transactie af en is er niets geschreven.
+        return redis.withTransaction<Boolean>(
+            { reads -> reads.value(String::class.java).get(lockKey).map { it == ronde } },
+            { eigenaar, tx ->
+                if (eigenaar) {
+                    schrijfLijst(tx, lijst)
+                        .chain { _ -> tx.value(String::class.java).set(statusKey(key), statusJson, SetArgs().px(dataTtl)) }
+                        .chain { _ -> tx.key().del(lockKey) }
+                        .replaceWithVoid()
+                } else {
+                    Uni.createFrom().voidItem()
+                }
+            },
+            lockKey,
+        ).map { resultaat -> !resultaat.discarded() && resultaat.preTransactionResult }
+            .invoke { opgeslagen ->
+                if (opgeslagen) {
+                    log.debugf("Opgeslagen %d berichten in cache", berichten.size)
+                } else {
+                    log.infof("Ophaalronde was de lock kwijt; resultaten niet opgeslagen voor key=%s", key)
+                }
+            }
+            .onFailure().invoke { e -> log.errorf(e, "Redis slaRondeOp mislukt voor key=%s", key) }
+    }
+
+    /** De lijst, de berichthashes en de sleutelset; zonder berichten alleen het wissen van de lijst. */
+    private fun schrijfLijst(tx: ReactiveTransactionalRedisDataSource, lijst: LijstOpslag): Uni<Void> {
+        val txKey = tx.key()
+
+        if (lijst.sorted.isEmpty()) return txKey.del(lijst.listKey).replaceWithVoid()
+
+        val txHash = tx.hash(String::class.java)
 
         // De hashes van een vorige ronde blijven staan en dus ook in de sleutelset: alleen zo kan
         // het opruimen na de laatste sessie ze nog vinden.
-        return redis.withTransaction { tx ->
-            val txList = tx.list(String::class.java)
-            val txKey = tx.key()
-            val txHash = tx.hash(String::class.java)
+        return txKey.del(lijst.listKey)
+            .chain { _ -> tx.list(String::class.java).rpush(lijst.listKey, *lijst.jsonValues.toTypedArray()) }
+            .chain { _ -> txKey.pexpire(lijst.listKey, dataTtl) }
+            .chain { _ ->
+                RedisBatching.inBatches(lijst.sorted, redisBatchgrootte) { bericht ->
+                    val berichtKey = BerichtenCache.berichtKey(bericht.sleutel)
 
-            txKey.del(listKey)
-                .chain { _ -> txList.rpush(listKey, *jsonValues.toTypedArray()) }
-                .chain { _ -> txKey.pexpire(listKey, dataTtl) }
-                .chain { _ ->
-                    RedisBatching.inBatches(sorted, redisBatchgrootte) { bericht ->
-                        val berichtKey = BerichtenCache.berichtKey(bericht.sleutel)
-                        val fields = berichtToHash(bericht)
-
-                        txHash.hset(berichtKey, fields)
-                            .chain { _ -> txKey.pexpire(berichtKey, dataTtl) }
-                            .replaceWithVoid()
-                    }
+                    txHash.hset(berichtKey, berichtToHash(bericht))
+                        .chain { _ -> txKey.pexpire(berichtKey, dataTtl) }
+                        .replaceWithVoid()
                 }
-                .chain { _ -> tx.set(String::class.java).sadd(sleutelsKey, *berichtKeys.toTypedArray()) }
-                .chain { _ -> txKey.pexpire(sleutelsKey, dataTtl) }
-        }.replaceWithVoid()
-            .invoke { _ -> log.debugf("Opgeslagen %d berichten in cache", berichten.size) }
-            .onFailure().invoke { e -> log.errorf(e, "Redis store mislukt voor key=%s", key) }
+            }
+            .chain { _ -> tx.set(String::class.java).sadd(lijst.sleutelsKey, *lijst.berichtKeys.toTypedArray()) }
+            .chain { _ -> txKey.pexpire(lijst.sleutelsKey, dataTtl) }
+            .replaceWithVoid()
+    }
+
+    private inner class LijstOpslag(key: String, berichten: List<Bericht>) {
+        val listKey = listKey(key)
+        val sleutelsKey = sleutelsKey(key)
+        val sorted = berichten.sortedByDescending { it.publicatietijdstip }
+        val jsonValues = sorted.map { objectMapper.writeValueAsString(it) }
+        val berichtKeys = sorted.map { BerichtenCache.berichtKey(it.sleutel) }
     }
 
     override fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
@@ -257,18 +324,24 @@ internal class RedisBerichtenCache(
             .onFailure().invoke { e -> log.errorf(e, "Redis storeAggregationStatus mislukt voor key=%s", key) }
     }
 
-    override fun updateAggregationStatus(key: String, status: AggregationStatus): Uni<Void> {
-        val statusKey = statusKey(key)
+    override fun sluitRondeAf(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
+        val json = objectMapper.writeValueAsString(status)
+
+        return voerLockScriptUit(ZET_STATUS_ALS_EIGENAAR, key, ronde, json, dataTtl.toMillis().toString(), "1")
+            .onFailure().invoke { e -> log.errorf(e, "Redis sluitRondeAf mislukt voor key=%s", key) }
+    }
+
+    override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Void> {
         val json = objectMapper.writeValueAsString(status)
         // Nog-lopende (BEZIG) status: korte vangnet-TTL gelijk aan de lock, zodat een crash de
-        // status niet 12u laat hangen. De terminale GEREED/FOUT-status (storeAggregationStatus)
-        // volgt wél de TTL van de gegevens, omdat die het gecachte resultaat spiegelt.
-        return redis.value(String::class.java).setex(statusKey, aggregationLockTtl.seconds, json)
+        // status niet 12u laat hangen. De terminale GEREED/FOUT-status volgt wél de TTL van de
+        // gegevens, omdat die het gecachte resultaat spiegelt.
+        return voerLockScriptUit(ZET_STATUS_ALS_EIGENAAR, key, ronde, json, aggregationLockTtl.toMillis().toString(), "0")
             .replaceWithVoid()
             .onFailure().invoke { e -> log.errorf(e, "Redis updateAggregationStatus mislukt voor key=%s", key) }
     }
 
-    override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> {
+    override fun trySetAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
         val lockKey = lockKey(key)
         val statusKey = statusKey(key)
 
@@ -276,18 +349,18 @@ internal class RedisBerichtenCache(
         // bestaat zonder TTL (wat bij losse SETNX + EXPIRE zou kunnen optreden als EXPIRE faalt).
         val lockArgs = SetArgs().nx().ex(aggregationLockTtl.seconds)
 
-        return redis.value(String::class.java).setAndChanged(lockKey, "1", lockArgs)
+        return redis.value(String::class.java).setAndChanged(lockKey, ronde, lockArgs)
             .chain { wasSet ->
                 if (wasSet) {
                     // Lazy JSON-serialisatie: alleen serializen als lock daadwerkelijk genomen is.
                     // Bij hoge concurrent-409-druk bespaart dit Jackson-werk voor afgewezen requests.
                     val json = objectMapper.writeValueAsString(status)
-                    // statusKey-fout na geslaagde lock-set: rollback de lock via best-effort DEL,
+                    // statusKey-fout na geslaagde lock-set: rollback de lock via best-effort vrijgeven,
                     // anders blijft de ontvanger op de aggregatie-lock-TTL hangen voor wat een transient
                     // Redis-blip was. De BEZIG-status deelt diezelfde korte vangnet-TTL als de lock.
                     redis.value(String::class.java).setex(statusKey, aggregationLockTtl.seconds, json)
                         .onFailure().call { _ ->
-                            redis.key().del(lockKey)
+                            voerLockScriptUit(GEEF_LOCK_VRIJ, key, ronde)
                                 .onFailure().invoke { delErr ->
                                     // ALERT-marker consistent met service-cleanup voor uniforme alert-routing.
                                     log.fatalf(delErr, "[ALERT cache_doublefail] Lock-rollback na statusKey-fout faalde voor key=%s; lock leunt op TTL", key)
@@ -301,6 +374,11 @@ internal class RedisBerichtenCache(
             }
             .onFailure().invoke { e -> log.errorf(e, "Redis trySetAggregationStatus mislukt voor key=%s", key) }
     }
+
+    /** KEYS: lock, status. ARGV: het ronde-token, daarna wat [script] verwacht. Antwoord 1 als de ronde de lock hield. */
+    private fun voerLockScriptUit(script: String, key: String, ronde: String, vararg argumenten: String): Uni<Boolean> =
+        redis.execute("EVAL", script, "2", lockKey(key), statusKey(key), ronde, *argumenten)
+            .map { it.toInteger() == 1 }
 
     override fun getAggregationStatus(key: String): Uni<AggregationStatus?> {
         val statusKey = statusKey(key)
@@ -996,6 +1074,33 @@ internal class RedisBerichtenCache(
             redis.call('HSET', KEYS[2], unpack(velden))
             registreer()
             return 'hash hersteld'
+        """.trimIndent()
+
+        /**
+         * Schrijft een status voor de ronde die de lock houdt. ARGV: ronde-token, status-JSON, TTL in
+         * ms, en of de lock daarna vrijkomt (1) of blijft (0). Compare-and-set in één script: een
+         * losse GET en SET laat het opruimen en een volgende ronde ertussen.
+         */
+        private val ZET_STATUS_ALS_EIGENAAR = """
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+                return 0
+            end
+
+            redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
+            if ARGV[4] == '1' then
+                redis.call('DEL', KEYS[1])
+            end
+            return 1
+        """.trimIndent()
+
+        /** Geeft de lock alleen vrij als de ronde uit ARGV[1] hem houdt: compare-and-delete. */
+        private val GEEF_LOCK_VRIJ = """
+            if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+                return 0
+            end
+
+            redis.call('DEL', KEYS[1])
+            return 1
         """.trimIndent()
 
         // Stabiel alert-anker (los van vertaalbare proza) voor de Loki-rule die moet alarmeren

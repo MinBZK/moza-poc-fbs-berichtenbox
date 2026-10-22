@@ -238,8 +238,8 @@ class RedisBerichtenCacheIntegrationTest {
     fun `trySetAggregationStatus atomaire lock - eerste aanroep slaagt, tweede faalt`() {
         val status = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
 
-        val first = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
-        val second = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val first = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
+        val second = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertTrue(first)
         assertFalse(second)
@@ -1261,7 +1261,7 @@ class RedisBerichtenCacheIntegrationTest {
     fun `updateAggregationStatus laat lock-key intact`() {
         val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
 
-        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertTrue(lockVerkregen, "Eerste trySet moet slagen")
 
@@ -1269,9 +1269,10 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.updateAggregationStatus(
             cacheKey(),
             bezigStatus.copy(totaalMagazijnen = 3),
+            RONDE,
         ).await().indefinitely()
 
-        val lockNogAanwezig = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        val lockNogAanwezig = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertFalse(lockNogAanwezig, "Lock moet nog aanwezig zijn na updateAggregationStatus")
     }
@@ -1282,19 +1283,19 @@ class RedisBerichtenCacheIntegrationTest {
         // zodat een nieuwe aanroep kan slagen (geen eeuwig-lock na EXPIRE-failure).
         val status = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1)
 
-        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertTrue(lockVerkregen, "Eerste trySet moet slagen")
 
         // Tweede aanroep faalt meteen: lock bestaat nog.
-        val dubbel = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val dubbel = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertFalse(dubbel, "Lock moet geblokkeerd zijn terwijl hij actief is")
 
         // TTL is 2s in RealRedisTestProfile; na 3s is de lock automatisch verdwenen.
         Thread.sleep(3_000)
 
-        val naVerloop = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val naVerloop = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertTrue(naVerloop, "Lock moet na TTL-verloop opnieuw verkregen kunnen worden")
     }
@@ -1303,7 +1304,7 @@ class RedisBerichtenCacheIntegrationTest {
     fun `storeAggregationStatus geeft lock vrij`() {
         val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
 
-        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertTrue(lockVerkregen, "Eerste trySet moet slagen")
 
@@ -1313,9 +1314,70 @@ class RedisBerichtenCacheIntegrationTest {
             AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
         ).await().indefinitely()
 
-        val lockVrij = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        val lockVrij = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertTrue(lockVrij, "Lock moet vrij zijn na storeAggregationStatus")
+    }
+
+    @Test
+    fun `slaRondeOp met de eigen lock schrijft lijst, hashes en status en geeft de lock vrij`() {
+        val berichten = testBerichten()
+        val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
+        berichtenCache.trySetAggregationStatus(cacheKey(), AggregationStatus(status = OphalenStatus.BEZIG), RONDE).await().indefinitely()
+
+        assertTrue(berichtenCache.slaRondeOp(cacheKey(), berichten, gereed, RONDE).await().indefinitely())
+
+        assertEquals(gereed, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertEquals(berichten.size.toLong(), berichtenCache.getPage(cacheKey(), 0, 20).await().indefinitely()!!.totalElements)
+        berichten.forEach { assertTrue(bestaat(BerichtenCache.berichtKey(it.sleutel))) }
+        assertFalse(bestaat("${cacheKey()}:lock"))
+    }
+
+    @ParameterizedTest(name = "lock {0}")
+    @ValueSource(strings = ["weg", "van een andere ronde"])
+    fun `slaRondeOp zonder de eigen lock schrijft niets en laat een andere lock staan`(lock: String) {
+        val berichten = testBerichten()
+        val anderStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
+
+        if (lock != "weg") berichtenCache.trySetAggregationStatus(cacheKey(), anderStatus, ANDERE_RONDE).await().indefinitely()
+
+        val opgeslagen = berichtenCache.slaRondeOp(cacheKey(), berichten, AggregationStatus(status = OphalenStatus.GEREED), RONDE)
+            .await().indefinitely()
+
+        assertFalse(opgeslagen)
+        assertFalse(bestaat("${cacheKey()}:list"))
+        berichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel))) }
+        assertEquals(if (lock == "weg") null else anderStatus, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertEquals(lock != "weg", bestaat("${cacheKey()}:lock"))
+    }
+
+    @Test
+    fun `slaRondeOp met een lege lijst wist de lijst van een vorige ronde`() {
+        berichtenCache.store(cacheKey(), testBerichten()).await().indefinitely()
+        berichtenCache.trySetAggregationStatus(cacheKey(), AggregationStatus(status = OphalenStatus.BEZIG), RONDE).await().indefinitely()
+
+        assertTrue(berichtenCache.slaRondeOp(cacheKey(), emptyList(), AggregationStatus(status = OphalenStatus.GEREED), RONDE).await().indefinitely())
+
+        assertFalse(bestaat("${cacheKey()}:list"))
+        assertEquals(OphalenStatus.GEREED, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely()?.status)
+    }
+
+    @Test
+    fun `sluitRondeAf en updateAggregationStatus schrijven alleen voor de ronde die de lock houdt`() {
+        val bezig = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
+        val fout = AggregationStatus(status = OphalenStatus.FOUT)
+        berichtenCache.trySetAggregationStatus(cacheKey(), bezig, ANDERE_RONDE).await().indefinitely()
+
+        berichtenCache.updateAggregationStatus(cacheKey(), bezig.copy(totaalMagazijnen = 3), RONDE).await().indefinitely()
+
+        assertFalse(berichtenCache.sluitRondeAf(cacheKey(), fout, RONDE).await().indefinitely())
+        assertEquals(bezig, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertTrue(bestaat("${cacheKey()}:lock"))
+
+        assertTrue(berichtenCache.sluitRondeAf(cacheKey(), fout, ANDERE_RONDE).await().indefinitely())
+        assertEquals(fout, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertFalse(bestaat("${cacheKey()}:lock"))
+        assertTrue(pttl("${cacheKey()}:status") in (sessieTtl.toMillis() - 5_000)..sessieTtl.toMillis())
     }
 
     @Test
@@ -1579,7 +1641,11 @@ class RedisBerichtenCacheIntegrationTest {
 
     private fun pttl(sleutel: String): Long = redis.key().pttl(sleutel).await().indefinitely()
 
+    private fun bestaat(sleutel: String): Boolean = redis.key().exists(sleutel).await().indefinitely()
+
     private companion object {
+        const val RONDE = "ronde-1"
+        const val ANDERE_RONDE = "ronde-2"
         const val GELIJKTIJDIG = 10
         const val REEKS = 50
         const val WACHTTIJD_S = 10L
