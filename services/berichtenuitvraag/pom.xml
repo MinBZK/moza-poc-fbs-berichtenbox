@@ -161,7 +161,12 @@
                  pluginManagement; gevoed via api.spec.file / api.base.package. Deze service
                  genereert alleen tag "Uitvraag" — `_ophalen` heeft tag "Ophalen" omdat het
                  SSE retourneert en jaxrs-spec geen Multi<T> genereert (zie OphalenSseResource).
-                 De override merge't in de geërfde `generate`-execution. -->
+                 De override merge't in de geërfde `generate`-execution.
+
+                 Een binaire response wordt hier een StreamingOutput en niet byte[]: de uitvraag
+                 geeft een bijlage door zonder hem eerst in de heap te laden. De hele lijst staat
+                 er, met combine.self="override", zodat de uitkomst niet afhangt van hoe Maven
+                 twee lijsten met dezelfde sleutel samenvoegt. -->
             <plugin>
                 <groupId>org.openapitools</groupId>
                 <artifactId>openapi-generator-maven-plugin</artifactId>
@@ -170,6 +175,10 @@
                         <id>generate</id>
                         <configuration>
                             <apisToGenerate>Uitvraag,Specificatie</apisToGenerate>
+                            <typeMappings combine.self="override">
+                                <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
+                                <typeMapping>File=jakarta.ws.rs.core.StreamingOutput</typeMapping>
+                            </typeMappings>
                         </configuration>
                     </execution>
                 </executions>

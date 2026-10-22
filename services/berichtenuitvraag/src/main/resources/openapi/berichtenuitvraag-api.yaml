@@ -393,6 +393,11 @@ paths:
         metadata van de bijlage. Een afnemer vindt dit adres als `_links.self` bij de
         bijlage in het berichtdetail.
 
+        Breekt het magazijn de overdracht af nadat dit antwoord begonnen is, dan breekt ook
+        dit antwoord af: de verbinding wordt verbroken en de afnemer krijgt een onvolledige
+        download, nooit een `200` met een ingekorte bijlage. Gebeurt dat voordat het antwoord
+        begint, dan volgt een `502`.
+
         `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
         mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
         `image/jpeg`: typen waarvan de weergave geen code uitvoert die bij de DOM of de
@@ -415,6 +420,11 @@ paths:
             Content-Type:
               schema: { type: string }
               description: Werkelijk MIME-type van de bijlage
+            Content-Length:
+              schema: { type: integer, format: int64, minimum: 0 }
+              description: |
+                Aantal bytes van de bijlage, als dat vaststaat. Ontbreekt hij, dan komt het
+                antwoord in delen (`Transfer-Encoding: chunked`).
             Content-Disposition:
               schema: { type: string }
               description: |

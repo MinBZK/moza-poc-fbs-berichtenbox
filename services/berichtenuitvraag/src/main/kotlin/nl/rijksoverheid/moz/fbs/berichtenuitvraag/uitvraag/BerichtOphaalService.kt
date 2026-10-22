@@ -11,19 +11,19 @@ import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
+import java.io.IOException
+import java.io.InputStream
 import java.util.UUID
 
 /**
  * Bericht-detail uit de in-process [Sessiecache]-facade, aangevuld met de berichttekst
  * uit het bronmagazijn; bijlagen als passthrough uit het magazijn. `haalBijlage` levert
- * [BijlageInhoud]: de resource zet mimeType en bestandsnaam op request-properties zodat
- * [BijlageContentTypeFilter] de response-`Content-Type` overrult en de
- * `Content-Disposition` bouwt.
+ * [BijlageInhoud]: de resource zet mimeType, bestandsnaam en lengte op request-properties
+ * zodat [BijlageContentTypeFilter] de response-headers zet.
  *
- * Bijlage-bytes worden volledig in een ByteArray geladen; de magazijn-limiet
- * (`Bijlage.MAX_CONTENT_BYTES`) begrenst het geheugen per request.
- * TODO(#572): vervang door StreamingOutput-passthrough zodra de werkelijke grootte-
- * verdeling het dubbel-bufferen (client-read + JAX-RS-serialize) rechtvaardigt.
+ * Een bijlage gaat niet in zijn geheel door de heap: het magazijn staat er een toe tot 25 MiB,
+ * en dat per gelijktijdige download. `haalBijlage` leest alleen het begin
+ * ([BijlageInhoud.BEGIN_BYTES]); de rest streamt de resource door.
  *
  * Magazijn-fouten zijn op beide paden status-behoudend: een echte 4xx propageert zodat
  * OpenAPI-404 en LDV-audittrail kloppen, 5xx en transport-fouten worden 502. De twee paden
@@ -166,6 +166,9 @@ class BerichtOphaalService(
             throw magazijnFout(502)
         }
 
+        // Bij het doorgeven van de rest gaat de response mee in de BijlageInhoud, die hem dan sluit.
+        var doorgegeven = false
+
         try {
             // Primair mappingpad: bij een `Response`-returntype geeft de REST-client de
             // upstream-status rauw terug (gooit niet), dus elke 4xx/5xx komt hier langs.
@@ -180,37 +183,52 @@ class BerichtOphaalService(
             val mimeType = response.getHeaderString("Content-Type")
                 ?: throw upstreamBadGateway("magazijn-bijlage zonder Content-Type")
 
-            // De body-read kan zelf falen (bv. ProcessingException op een afgekapte/
-            // corrupte stream). Dat is een upstream-storing, niet onze fout → 502;
-            // zonder deze wrap zou het als 500 naar de UncaughtExceptionMapper lekken.
-            val bytes = try {
-                response.readEntity(ByteArray::class.java)
-            } catch (e: ProcessingException) {
-                log.errorf(e, "magazijn-bijlage body-read mislukt (afgekapte/corrupte stream) → 502")
+            // Het begin lezen kan zelf falen (bv. op een afgekapte/corrupte stream). Dat is een
+            // upstream-storing, niet onze fout → 502; zonder deze wrap zou het als 500 naar de
+            // UncaughtExceptionMapper lekken. Het gebeurt nog binnen de @Logboek-methode, dus de
+            // logregel krijgt de fout mee.
+            val (bron, begin) = try {
+                val bron = response.readEntity(InputStream::class.java)
 
-                throw magazijnFout(502)
+                bron to bron.readNBytes(BijlageInhoud.BEGIN_BYTES)
+            } catch (e: ProcessingException) {
+                throw leesfout(e)
+            } catch (e: IOException) {
+                throw leesfout(e)
             }
 
-            return BijlageInhoud(mimeType, bestandsnaam, bytes)
+            // readNBytes geeft alleen bij het einde van de stream minder dan gevraagd.
+            if (begin.size < BijlageInhoud.BEGIN_BYTES) {
+                return BijlageInhoud(mimeType, bestandsnaam, begin.size.toLong(), begin, rest = null, magazijnResponse = null)
+            }
+
+            doorgegeven = true
+
+            return BijlageInhoud(mimeType, bestandsnaam, lengteVan(response), begin, rest = bron, magazijnResponse = response)
         } finally {
             // Een falende close mag de echte fout niet maskeren (vandaar runCatching),
             // maar op warn: een aanhoudend faaltje hier betekent een lekkende connectie-
             // pool en moet in prod zichtbaar zijn, niet onder debug verdwijnen.
-            runCatching { response.close() }
-                .onFailure { log.warnf(it, "kon upstream-response niet sluiten na magazijn-bijlage-read (mogelijk connectie-pool-lek)") }
+            if (!doorgegeven) {
+                runCatching { response.close() }
+                    .onFailure { log.warnf(it, "kon upstream-response niet sluiten na magazijn-bijlage-read (mogelijk connectie-pool-lek)") }
+            }
         }
     }
 
+    private fun leesfout(e: Exception): WebApplicationException {
+        log.errorf(e, "magazijn-bijlage body-read mislukt (afgekapte/corrupte stream) → 502")
+
+        return magazijnFout(502)
+    }
+
     /**
-     * Wat er nodig is om een bijlage uit te leveren. `inhoud` wordt niet defensief
-     * gekopieerd — aanroepers mogen de bytes niet muteren; een kopie per bijlage zou
-     * de heap-druk verdubbelen.
-     *
-     * Bewust geen `data class`: er wordt nergens vergeleken of gedestructureerd, en de
-     * gegenereerde `toString` zou de bestandsnaam — die persoonsgegevens kan bevatten —
-     * in elke logregel zetten waarin het object per ongeluk belandt.
+     * De `Content-Length` van het magazijn, als die een geldig getal is. De client leest nooit meer
+     * dan dat; komt er minder, dan breekt het antwoord af en ziet de afnemer een onvolledige
+     * download.
      */
-    class BijlageInhoud(val mimeType: String, val bestandsnaam: String?, val inhoud: ByteArray)
+    private fun lengteVan(response: Response): Long? =
+        response.getHeaderString("Content-Length")?.trim()?.toLongOrNull()?.takeIf { it >= 0 }
 
     private fun zoekBerichtInCache(xOntvanger: String, magazijnId: String, berichtId: UUID) =
         leesUitCache(log, "cache-bericht-lookup (berichtId=$berichtId magazijnId=$magazijnId)") {

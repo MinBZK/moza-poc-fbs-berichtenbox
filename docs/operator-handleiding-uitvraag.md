@@ -270,6 +270,18 @@ als de rest van Redis (TLS en authenticatie).
   sinds de inline-weergave de bestandsnaam, en die is door de aanleveraar gekozen
   (`aanslag-de-vries.pdf`). De keten logt hem nergens, maar response-header-logging op een ingress
   of outway zou hem alsnog in een log zetten: laat die uit staan voor dit endpoint.
+- **Een bijlage-download streamt.** De uitvraag leest de eerste 64 KiB in en geeft de rest door
+  terwijl die uit het magazijn komt; een bijlage gaat dus niet in zijn geheel door de heap.
+  - **Breekt het magazijn halverwege af**, dan verbreekt de uitvraag de verbinding met de afnemer
+    en logt ze `magazijn-bijlage: overdracht afgebroken nadat het antwoord begonnen was`. In het
+    logboek staat de logregel van `uitvraag-bijlage` dan op `UNSET` met een ERROR-child eronder;
+    `UNSET` zonder ERROR-child is een correct afgeronde verwerking.
+  - **Lukt het vastleggen van die ERROR-child niet**, dan logt de uitvraag
+    `LDV_UITKOMST_ONTBREEKT`, hetzelfde token als het magazijn: de logregel leest dan ten onrechte
+    als geslaagd.
+  - **Een afnemer die een download annuleert**, is geen fout. Dat staat alleen op debug in de log.
+  - **Een proxy tussen afnemer en uitvraag moet het antwoord doorstreamen** in plaats van het
+    eerst helemaal te bufferen, anders verschuift het geheugengebruik alleen naar die proxy.
 - **Gedeeltelijke storing is normaal gedrag.** Valt één magazijn uit, dan levert de uitvraag de
   overige berichten mét een degradatie-melding; dat is geen fout die je moet wegconfigureren.
 - **`quarkus.http.limits.max-body-size` staat op `2M`** als vangnet tegen geheugen-DoS op de
