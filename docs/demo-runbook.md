@@ -75,7 +75,8 @@ Er zijn twee modi met dezelfde compose:
 > kan dat bestand daarna ook niet meer schrijven (eerst `rm -rf demo/generated/`). Het is één
 > idempotent commando; sla het niet over.
 
-Controleer de keten met een rookproef — aanleveren bij beide magazijnen en ophalen via de uitvraag:
+Controleer de keten met een rookproef: aanleveren bij beide magazijnen, ophalen via de uitvraag, en een
+bijlage ophalen via de demo-proxy zoals de browser dat doet:
 
 ```bash
 ./demo/smoke.sh

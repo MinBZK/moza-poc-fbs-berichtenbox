@@ -46,6 +46,18 @@ server {
         proxy_pass ${CONSOLE_UPSTREAM};
     }
 
+    # Een bijlage. De berichtenbox opent die met een gewone <a href>, en die stuurt geen eigen
+    # header mee, terwijl de uitvraag X-Ontvanger eist. Daarom zet de berichtenbox de ontvanger in
+    # het cookie `ontvanger`, en moet de proxy daar weer een header van maken. De proeftuin doet dat
+    # in zijn eigen nginx. Dit adres komt daar niet aan: de catch-all hieronder vangt /api/v1/ eerder
+    # af. Zonder deze location antwoordt de uitvraag op elke bijlage-klik met 400. Doorsturen naar de
+    # proeftuin helpt niet: in de hostnet-modus kent die de naam van de uitvraag niet. Een regex-
+    # location gaat vóór elk gewoon prefix, dus deze wint van /api/v1/.
+    location ~ ^/api/v1/berichten/[^/]+/bijlagen/[^/]+$ {
+        proxy_pass ${UITVRAAG_UPSTREAM};
+        proxy_set_header X-Ontvanger $cookie_ontvanger;
+    }
+
     # De keten. De ophaalronde is een SSE-stream: zonder deze vier regels komt de voortgang per
     # organisatie pas aan het eind binnen en lijkt de pagina te hangen tot het traagste magazijn
     # klaar is. De lange read-timeout dekt een ronde langs tientallen magazijnen.
