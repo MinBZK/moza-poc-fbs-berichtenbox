@@ -1,0 +1,311 @@
+# Spoort preview-resten op die niet meer bij een open PR horen, ruimt ze op en meldt wat blijft.
+#
+# cleanup-preview.yml ruimt een preview op bij het sluiten van de PR. Dat is één gebeurtenis: gaat
+# die mis, komt er geen run tot stand, of valt iets buiten zijn blik, dan blijft het staan zonder dat
+# iemand het merkt. Deze workflow kijkt andersom — wat staat er, en hoort dat nog bij een open PR?
+#
+# Bronnen: de `pr-<n>`-deployments in elk ZAD-project, de GitHub-omgevingen en -deployments van deze
+# repo, de `pr-<n>-`-tags in de eigen ghcr-packages én in packages van deze repo die niet in de
+# opruimlijst staan, en ongetagde versies in de eigen packages.
+#
+# OPRUIMEN GAAT VIA cleanup-preview.yml, per PR-nummer en na elkaar. Geen tweede verwijderroute met
+# eigen aannames: die workflow valideert het nummer, weigert een PR die niet gesloten is, bouwt de
+# namen opnieuw op en meet elke verwijdering na. Alleen ongetagde ghcr-versies ruimt deze workflow
+# zelf op, want die horen bij geen PR; preview-resten.sh beschrijft de voorzorg.
+#
+# MELDEN GAAT VIA ÉÉN ISSUE in deze repo ("Achtergebleven preview-resten"): een rode job op een
+# geplande run ziet niemand, een issue komt in de notificaties van wie de repo volgt. Het issue gaat
+# open zodra er iets blijft staan, wordt alleen bij een gewijzigde stand bijgewerkt, en sluit zodra
+# er niets meer te melden is. Een run die niets aantreft, doet niets.
+#
+# Repo-secrets: dezelfde ZAD_API_KEY_* als cleanup-preview.yml (alleen lezen hier).
+
+name: Preview-resten
+
+on:
+  schedule:
+    # Werkdagen, vóór de werkdag begint: wat er de vorige dag bleef staan, staat dan in het issue.
+    - cron: "17 5 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      opruimen:
+        description: "Ruim gevonden resten op (uit = alleen inventariseren en melden)"
+        required: false
+        type: boolean
+        default: true
+
+permissions: read-all
+
+# Twee runs naast elkaar zouden dezelfde nummers tegelijk laten opruimen.
+concurrency:
+  group: preview-resten
+  cancel-in-progress: false
+
+env:
+  OM_API: https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api
+  # Begrenst de duur van één run: elke ZAD-delete kost minuten. Wat niet past, komt de volgende run.
+  MAX_PER_RUN: "10"
+
+jobs:
+  # Dezelfde legs als `cleanup-preview-zad` in cleanup-preview.yml; test-preview-resten.sh eist dat.
+  # Een project dat daar opgeruimd wordt maar hier niet geteld, zou zijn resten nooit laten zien.
+  zad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - naam: uitvraag
+            project: mpfb-8wh
+            key: ZAD_API_KEY_UITVRAAG
+          - naam: externe-stubs
+            project: mpfpsm-lcl
+            key: ZAD_API_KEY_PROFIEL
+          - naam: magazijnen
+            project: mpfm-w3h
+            key: ZAD_API_KEY_MAGAZIJNEN
+          - naam: stelselregister
+            project: mpfs-rab
+            key: ZAD_API_KEY_STELSELREGISTER
+    # Eén output per leg: bij een matrix wint anders de leg die als laatste klaar is.
+    outputs:
+      nummers-uitvraag: ${{ steps.lijst.outputs.nummers-uitvraag }}
+      nummers-externe-stubs: ${{ steps.lijst.outputs.nummers-externe-stubs }}
+      nummers-magazijnen: ${{ steps.lijst.outputs.nummers-magazijnen }}
+      nummers-stelselregister: ${{ steps.lijst.outputs.nummers-stelselregister }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lees de pr-deployments
+        id: lijst
+        env:
+          ZAD_API_KEY: ${{ secrets[matrix.key] }}
+          ZAD_API_URL: ${{ env.OM_API }}
+          PROJECT: ${{ matrix.project }}
+          NAAM: ${{ matrix.naam }}
+        run: |
+          set -uo pipefail
+
+          # `onleesbaar` en niet leeg: een lege output valt weg en is dan niet te onderscheiden van
+          # een leg die nooit rapporteerde. `geen` is een geslaagde meting zonder pr-deployments.
+          if nummers=$(.github/scripts/preview-resten.sh zad "$PROJECT"); then
+            waarde=$(printf '%s' "$nummers" | tr '\n' ' ' | sed 's/ *$//')
+            echo "nummers-$NAAM=${waarde:-geen}" >> "$GITHUB_OUTPUT"
+            echo "$PROJECT: ${waarde:-geen pr-deployments}"
+          else
+            echo "::warning::De deploymentlijst van $PROJECT is niet te lezen."
+            echo "nummers-$NAAM=onleesbaar" >> "$GITHUB_OUTPUT"
+          fi
+
+  inventaris:
+    needs: zad
+    # Ook als een ZAD-leg omviel: de andere bronnen blijven bruikbaar, en de meldjob noemt de leg.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      deployments: read
+      packages: read
+      pull-requests: read
+    outputs:
+      opruimen: ${{ steps.inventaris.outputs.opruimen }}
+      bevindingen: ${{ steps.inventaris.outputs.bevindingen }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Inventariseer en classificeer
+        id: inventaris
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ZAD_OUTPUTS: ${{ toJSON(needs.zad.outputs) }}
+        run: |
+          set -euo pipefail
+
+          ORG=${GITHUB_REPOSITORY_OWNER,,}
+          export ORG
+          # Eén bron voor de eigen images: dezelfde lijst die de build-jobs in deploy.yml publiceren.
+          PAKKETTEN=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
+          export PAKKETTEN
+
+          resten="$RUNNER_TEMP/resten.tsv"
+          bevindingen="$RUNNER_TEMP/bevindingen.tsv"
+          : >"$bevindingen"
+
+          jq -r 'to_entries[] | select(.key | startswith("nummers-")) | .key as $k
+            | .value | select(. != "onleesbaar" and . != "geen") | split(" ")[]
+            | "\(.)\tzad:\($k | ltrimstr("nummers-"))"' <<<"$ZAD_OUTPUTS" >"$resten"
+
+          if ! .github/scripts/preview-resten.sh github >>"$resten"; then
+            printf 'onbepaald\tgithub\tde GitHub-omgevingen, -deployments of ghcr-tags zijn niet volledig te lezen\n' >>"$bevindingen"
+          fi
+
+          echo "Gevonden resten (nummer, bron):"
+          cat "$resten"
+
+          if ! .github/scripts/preview-resten.sh classificeer "$resten" >>"$bevindingen"; then
+            printf 'onbepaald\tclassificatie\tniet vast te stellen welke resten bij een gesloten PR horen\n' >>"$bevindingen"
+          fi
+
+          te_doen=$(awk -F'\t' '$2 == "opruimen" { print $1 }' "$bevindingen" | head -n "$MAX_PER_RUN" | tr '\n' ' ' | sed 's/ *$//')
+          totaal=$(awk -F'\t' '$2 == "opruimen"' "$bevindingen" | grep -c . || true)
+
+          {
+            echo "opruimen=$te_doen"
+            echo "bevindingen<<EINDE_BEVINDINGEN"
+            cat "$bevindingen"
+            echo "EINDE_BEVINDINGEN"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Inventaris"
+            echo
+            echo "Op te ruimen: ${te_doen:-niets}${totaal:+ ($totaal in totaal, maximaal $MAX_PER_RUN per run)}"
+            echo
+            echo '```'
+            cat "$bevindingen"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  opruimen:
+    needs: inventaris
+    if: >-
+      !cancelled()
+      && needs.inventaris.result == 'success'
+      && needs.inventaris.outputs.opruimen != ''
+      && (github.event_name == 'schedule' || inputs.opruimen)
+    runs-on: ubuntu-latest
+    # Tien opruimingen van elk enkele minuten, plus wachten op een bezette concurrency-groep.
+    timeout-minutes: 180
+    permissions:
+      actions: write
+      contents: read
+    outputs:
+      uitkomsten: ${{ steps.opruimen.outputs.uitkomsten }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Ruim op via cleanup-preview.yml
+        id: opruimen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          KENMERK: resten-${{ github.run_id }}-${{ github.run_attempt }}
+          NUMMERS: ${{ needs.inventaris.outputs.opruimen }}
+        run: |
+          set -euo pipefail
+
+          uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
+
+          # shellcheck disable=SC2086 # NUMMERS is een spatiegescheiden lijst getallen.
+          .github/scripts/preview-resten.sh opruimen $NUMMERS | tee "$uitkomsten"
+
+          {
+            echo "uitkomsten<<EINDE_UITKOMSTEN"
+            cat "$uitkomsten"
+            echo "EINDE_UITKOMSTEN"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Opgeruimd via cleanup-preview.yml"
+            echo
+            echo "| PR | conclusie | run |"
+            echo "| --- | --- | --- |"
+            awk -F'\t' '{ print "| pr-" $1 " | " $2 " | " $3 " |" }' "$uitkomsten"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Ongetagde versies horen bij geen PR, dus de inventaris per nummer ziet ze niet.
+  ongetagd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      uitkomsten: ${{ steps.ongetagd.outputs.uitkomsten }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Ruim ongetagde versies op
+        id: ongetagd
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERWIJDER: ${{ github.event_name == 'schedule' || inputs.opruimen }}
+        run: |
+          set -euo pipefail
+
+          ORG=${GITHUB_REPOSITORY_OWNER,,}
+          export ORG
+          uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
+          : >"$uitkomsten"
+
+          pakketten=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
+
+          for pkg in $pakketten; do
+            if ! .github/scripts/preview-resten.sh ongetagd "$pkg" >>"$uitkomsten"; then
+              printf '%s\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen\n' "$pkg" >>"$uitkomsten"
+            fi
+          done
+
+          {
+            echo "uitkomsten<<EINDE_UITKOMSTEN"
+            cat "$uitkomsten"
+            echo "EINDE_UITKOMSTEN"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Ongetagde ghcr-versies"
+            echo
+            echo '```'
+            cat "$uitkomsten"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  melding:
+    needs: [zad, inventaris, opruimen, ongetagd]
+    # `always()`: juist een omgevallen job hoort in de melding, en een afgebroken run ook.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      # `cancelled()` mag alleen in een `if:` staan; de stap hieronder zet deze waarde om.
+      CANCELLED: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ always() }}
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Merk een afgebroken run
+        if: ${{ cancelled() }}
+        run: echo "CANCELLED=true" >> "$GITHUB_ENV"
+      - name: Werk het issue bij
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEEDS: ${{ toJSON(needs) }}
+          OPRUIMEN: ${{ github.event_name == 'schedule' || inputs.opruimen }}
+        run: |
+          set -euo pipefail
+
+          bevindingen="$RUNNER_TEMP/melding.tsv"
+          .github/scripts/preview-resten.sh bevindingen >"$bevindingen"
+
+          if [ -s "$bevindingen" ]; then
+            echo "Te melden:"
+            cat "$bevindingen"
+          fi
+
+          .github/scripts/preview-resten.sh issue "$bevindingen"
