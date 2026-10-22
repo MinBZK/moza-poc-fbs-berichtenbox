@@ -9,6 +9,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -105,8 +106,10 @@ class SessieVeger(
             is Opruiming.VanOntvanger -> sessieLogboek.opgeruimd(opruiming.ontvanger, OpruimAanleiding.VERLOPEN, opruiming.uitkomst)
             // Zelfde token als een mislukte logregel: ook hier ontbreekt de regel voor een opruiming.
             is Opruiming.ZonderOntvanger -> log.errorf(
-                "%s: opruimen (aanleiding=%s, uitkomst=%s) zonder bekende ontvanger; de leesbare vorm was al verlopen, dus er komt geen logregel",
+                "%s: opruimen niet in het logboek vastgelegd (foutId=%s, aanleiding=%s, uitkomst=%s, ontvanger.type=onbekend, " +
+                    "oorzaak=zonder bekende ontvanger; de leesbare vorm was al verlopen)",
                 SessieLogboek.ALERT_TOKEN,
+                UUID.randomUUID(),
                 OpruimAanleiding.VERLOPEN.waarde,
                 opruiming.uitkomst,
             )

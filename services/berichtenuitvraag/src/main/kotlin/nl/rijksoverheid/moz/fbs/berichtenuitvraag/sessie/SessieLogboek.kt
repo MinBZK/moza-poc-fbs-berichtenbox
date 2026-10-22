@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
+import java.util.UUID
 
 /** Waarom de berichtgegevens van een ontvanger gewist werden; de waarde komt zo in het logboek. */
 enum class OpruimAanleiding(val waarde: String) {
@@ -57,14 +58,21 @@ class SessieLogboek(private val processingHandler: ProcessingHandler) {
         }
     }
 
-    private fun meldOntbrekend(ontvanger: Identificatienummer, aanleiding: OpruimAanleiding, uitkomst: OpruimUitkomst, fout: String) {
+    /**
+     * Het gat valt niet na te leggen: de regel noemt de ontvanger niet, en dat hoort zo. Wat er wel
+     * in staat, is wat de privacy officer nodig heeft om het gat te melden: een eigen `foutId` per
+     * ontbrekende regel (om ze te tellen en naar een melding te verwijzen), het tijdstip van de
+     * logregel, de aanleiding, de uitkomst, het type ontvanger en de klasse van de oorzaak.
+     */
+    private fun meldOntbrekend(ontvanger: Identificatienummer, aanleiding: OpruimAanleiding, uitkomst: OpruimUitkomst, oorzaak: String) {
         log.errorf(
-            "%s: opruimen (aanleiding=%s, uitkomst=%s, ontvanger.type=%s) niet in het logboek vastgelegd: %s",
+            "%s: opruimen niet in het logboek vastgelegd (foutId=%s, aanleiding=%s, uitkomst=%s, ontvanger.type=%s, oorzaak=%s)",
             ALERT_TOKEN,
+            UUID.randomUUID(),
             aanleiding.waarde,
             uitkomst,
             ontvanger.type,
-            fout,
+            oorzaak,
         )
     }
 

@@ -82,6 +82,28 @@ class SessieLogboekTest {
         assertFalse(melding.contains("999990019"), "de BSN hoort niet in de applicatielog: $melding")
     }
 
+    /** Wat de privacy officer nodig heeft om het gat te melden: tellen, en per regel waarom. */
+    @Test
+    fun `het alert draagt per regel een eigen foutId, de uitkomst, het type ontvanger en de klasse van de oorzaak`() {
+        every { handler.enforceWriteAcknowledgement(true) } throws LogboekWriteException("logboek weg")
+
+        val regels = vangLog {
+            logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.VERLOPEN, OpruimUitkomst.ONBEVESTIGD)
+            logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.VERLOPEN, OpruimUitkomst.ONBEVESTIGD)
+        }.filter { it.contains(SessieLogboek.ALERT_TOKEN) }
+
+        val foutIds = regels.map { Regex("foutId=([0-9a-f-]{36})").find(it)?.groupValues?.get(1) }
+
+        assertEquals(2, regels.size, regels.toString())
+        assertTrue(foutIds.all { it != null } && foutIds.toSet().size == 2, "geen eigen foutId per regel: $regels")
+        regels.forEach { regel ->
+            assertTrue(regel.contains("uitkomst=ONBEVESTIGD"), regel)
+            assertTrue(regel.contains("ontvanger.type=BSN"), regel)
+            assertTrue(regel.contains("oorzaak=${LogboekWriteException::class.java.name}"), regel)
+            assertFalse(regel.contains("999990019"), "de BSN hoort niet in de applicatielog: $regel")
+        }
+    }
+
     @Test
     fun `een Error gaat door, maar niet zonder het alert`() {
         every { handler.enforceWriteAcknowledgement(true) } throws NoClassDefFoundError("exporter")
