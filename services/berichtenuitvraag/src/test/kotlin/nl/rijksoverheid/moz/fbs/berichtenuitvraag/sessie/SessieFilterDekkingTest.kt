@@ -43,7 +43,13 @@ class SessieFilterDekkingTest {
     }
 
     /** Eén operatie uit de spec: methode, pad met ingevulde parameters, en of hij de sessie vereist. */
-    class SpecOperatie(val methode: String, val pad: String, val vereistSessie: Boolean, val mediatype: String?) {
+    class SpecOperatie(
+        val methode: String,
+        val pad: String,
+        val vereistSessie: Boolean,
+        val mediatype: String?,
+        val antwoorden: Set<String> = emptySet(),
+    ) {
         override fun toString() = "$methode $pad"
     }
 
@@ -64,7 +70,13 @@ class SessieFilterDekkingTest {
 
             return spec.paths.flatMap { (pad, item) ->
                 item.readOperationsMap().map { (methode, operatie) ->
-                    SpecOperatie(methode.name, pad, vereistSessie(operatie.security ?: standaard), mediatype(operatie))
+                    SpecOperatie(
+                        methode.name,
+                        pad,
+                        vereistSessie(operatie.security ?: standaard),
+                        mediatype(operatie),
+                        operatie.responses.orEmpty().keys,
+                    )
                 }
             }
         }
@@ -110,6 +122,17 @@ class SessieFilterDekkingTest {
     @MethodSource("beveiligd")
     fun `elke operatie met het sessieschema valt onder de sessiecontrole`(operatie: SpecOperatie) {
         assertNotEquals(Sessievereiste.GEEN, SessieFilter.vereiste(operatie.methode, operatie.pad))
+    }
+
+    /**
+     * De sessiecontrole kan op elke operatie met een sessie een 401 geven, en een 503 als de opslag
+     * van de sessies niet antwoordt. Een afnemer die zijn client uit de spec genereert, hoort beide te
+     * kennen, ook op een operatie die zelf niets uit de opslag leest.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("beveiligd")
+    fun `elke operatie met het sessieschema declareert de 401 en de 503 van de sessiecontrole`(operatie: SpecOperatie) {
+        assertTrue("401" in operatie.antwoorden && "503" in operatie.antwoorden, "$operatie declareert ${operatie.antwoorden}")
     }
 
     @ParameterizedTest(name = "{0}")

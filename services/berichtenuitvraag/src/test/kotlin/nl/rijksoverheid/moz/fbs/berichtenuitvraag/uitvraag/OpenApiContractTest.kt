@@ -5,6 +5,7 @@ import com.atlassian.oai.validator.report.LevelResolver
 import com.atlassian.oai.validator.report.ValidationReport
 import com.atlassian.oai.validator.restassured.OpenApiValidationFilter
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.delete
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.patch
@@ -593,6 +594,29 @@ class OpenApiContractTest {
             .statusCode(503)
             .contentType("application/problem+json")
             .header("Retry-After", "30")
+    }
+
+    /** De sessiecontrole raakt de opslag vóór het magazijn: valt die weg, dan een 503 die de spec kent. */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["PATCH", "DELETE"])
+    fun `een onbereikbare opslag in de sessiecontrole levert valide Problem-503 met Retry-After`(methode: String) {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        sessiecache.raakFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("X-Sessie", sessie)
+            .apply { if (methode == "PATCH") contentType("application/merge-patch+json").body("""{"status":"gelezen"}""") }
+            .`when`()
+            .request(methode, "/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(503)
+            .contentType("application/problem+json")
+            .header("Retry-After", "30")
+
+        WireMockBackendsResource.magazijnA.verify(0, anyRequestedFor(urlPathEqualTo("/api/v1/berichten/$id")))
     }
 
     @Test

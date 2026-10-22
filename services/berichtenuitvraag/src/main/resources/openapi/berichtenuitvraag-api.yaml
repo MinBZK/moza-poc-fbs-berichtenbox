@@ -248,8 +248,14 @@ paths:
         `bericht-bijgekomen` toe, ontdubbeld op (`magazijnId`, `berichtId`). Wat vóór
         `volgen-gestart` binnenkwam staat in de lijst, wat erna komt krijg je hier; een
         bericht dat op het grensvlak valt kan in beide zitten, en een `bericht-bijgekomen`
-        kan zelfs vóór `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
-        compleet: verbind opnieuw en doe hetzelfde.
+        kan zelfs vóór `volgen-gestart` binnenkomen.
+
+        Na een verbroken verbinding: verbind opnieuw en voeg weer elk `bericht-bijgekomen` toe,
+        maar lees de lijst dan niet vanzelf opnieuw. `GET /berichten` verlengt de sessie, en een
+        herverbinding is geen activiteit van de gebruiker: een open tabblad op een onbeheerde
+        werkplek met een haperende verbinding hield de sessie anders in leven tot het plafond.
+        Lees de lijst opnieuw bij de volgende actie van de gebruiker; dan is hij weer compleet.
+        Was de gebruiker juist actief toen de verbinding terugkwam, dan mag het meteen.
 
         Eindigt de sessie terwijl de stroom openstaat (uitgelogd, of verlopen), dan komt
         `sessie-verlopen` en eindigt de stroom. Dat kan ook vlak na het verbinden gebeuren:
@@ -393,6 +399,7 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     delete:
       tags: [Uitvraag]
       summary: Bericht verwijderen
@@ -416,6 +423,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /berichten/{berichtId}/bijlagen/{bijlageId}:
     parameters:
@@ -579,7 +587,7 @@ paths:
       summary: Sessie verlengen
       description: |
         Verlengt de inactiviteitstermijn van de sessie uit `X-Sessie`, net zoals elk verzoek
-        onder `/berichten` dat doet, en nooit voorbij `uiterlijkGeldigTot`. Het portaal roept dit
+        onder `/berichten` behalve `_volgen` dat doet, en nooit voorbij `uiterlijkGeldigTot`. Het portaal roept dit
         aan bij activiteit van de gebruiker in een willekeurige dienst, hooguit eens per minuut;
         niet op een timer en niet zolang alleen een verbinding openstaat. Zo bepaalt het portaal
         wanneer de gebruiker inactief is.
@@ -719,7 +727,9 @@ components:
       description: |
         Geen lopende sessie: de `X-Sessie` ontbreekt, is onbekend of verlopen, of hoort bij een
         andere ontvanger (`urn:fbs:fout:sessie-ongeldig`). Die gevallen zijn bewust niet van
-        elkaar te onderscheiden; start een nieuwe sessie.
+        elkaar te onderscheiden; start een nieuwe sessie. Op `DELETE /sessies/huidige` alleen bij
+        een ontbrekende, herhaalde of niet goed gevormde `X-Sessie`: een onbekende of verlopen
+        sessie geeft daar `204`.
       headers:
         WWW-Authenticate:
           description: Altijd `X-Sessie realm="berichtenuitvraag"`, de challenge van het sessieschema.
