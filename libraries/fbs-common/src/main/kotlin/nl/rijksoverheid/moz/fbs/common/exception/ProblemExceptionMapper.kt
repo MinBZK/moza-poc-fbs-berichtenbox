@@ -77,12 +77,15 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
-            problemResponse(
-                status = status,
-                title = title,
-                detail = sanitizeClientDetail(exception.message),
-                foutcode = foutcode,
-                instance = URI.create("urn:uuid:$errorId"),
+            metRetryAfter(
+                exception,
+                problemResponse(
+                    status = status,
+                    title = title,
+                    detail = sanitizeClientDetail(exception.message),
+                    foutcode = foutcode,
+                    instance = URI.create("urn:uuid:$errorId"),
+                ),
             )
         }
     }
@@ -118,9 +121,10 @@ internal fun sanitizeClientDetail(message: String?): String? {
 }
 
 /**
- * Neemt een `Retry-After` van de oorspronkelijke fout over. De mapper bouwt een verse response,
- * dus zonder deze stap gaat de aanwijzing "probeer het over N seconden opnieuw" verloren — terwijl
- * dat juist het verschil is tussen een tijdelijke en een blijvende 5xx.
+ * Neemt een `Retry-After` van de oorspronkelijke fout over, op een 5xx en op een 4xx zoals 429. De
+ * mapper bouwt een verse response, dus zonder deze stap gaat de aanwijzing "probeer het over N
+ * seconden opnieuw" verloren — terwijl dat juist het verschil is tussen een tijdelijke en een
+ * blijvende fout.
  *
  * De waarde wordt gefilterd, niet gekopieerd. Een doorgegeven upstream-fout draagt de header van
  * díé upstream, en die bepaalt dan hoe lang ónze afnemers wegblijven: een Profiel-service die
@@ -128,12 +132,14 @@ internal fun sanitizeClientDetail(message: String?): String? {
  * een waarde die wij nooit gekozen hebben. Alleen een geheel aantal seconden binnen een eigen
  * bovengrens gaat mee. Dat sluit meteen de twee vormen uit die het gedeclareerde schema
  * (`type: integer`) breken: een HTTP-datum, en de komma-samenvoeging die `getHeaderString` maakt
- * van twee gelijknamige headers.
+ * van twee gelijknamige headers. De aanwijzing van een [FbsFoutException] kiezen we zelf; die valt
+ * niet onder de bovengrens.
  */
 private fun metRetryAfter(exception: WebApplicationException, respons: Response): Response {
     val seconden = exception.response?.getHeaderString("Retry-After")?.toIntOrNull() ?: return respons
+    val bovengrens = if (exception is FbsFoutException) Int.MAX_VALUE else MAX_RETRY_AFTER_SECONDEN
 
-    if (seconden !in 0..MAX_RETRY_AFTER_SECONDEN) return respons
+    if (seconden !in 0..bovengrens) return respons
 
     return Response.fromResponse(respons).header("Retry-After", seconden).build()
 }
