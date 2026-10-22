@@ -185,6 +185,12 @@ transitieve libraries, niet uit onze code of config):
 - `LogManager accessed before the "java.util.logging.manager" system property was set`
   — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch,
   geen effect op test- of runtime-gedrag.
+- `OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because
+  bootstrap classpath has been appended`, meestal direct gevolgd door `A Java agent has been loaded
+  dynamically (…byte-buddy-agent…)` — MockK laadt bij zijn eerste mock de byte-buddy-agent en zet zijn
+  eigen klassen op het bootstrap-classpath, opnieuw na elke herstart van Quarkus in een testrun (een
+  nieuwe classloader); met class data sharing (standaard aan sinds JDK 12) meldt de JVM dat. Alleen in test-JVM's, ook op
+  `main`, en weg met `-Xshare:off`; dat kost elke test-JVM opstarttijd en lost niets op, dus niet gedaan.
 - JaCoCo: `Cannot transform ...$$inlined$assertThrows... archive could not be found` — de
   klassen die Kotlin voor een geïnlinede `assertThrows` in een test genereert; alleen
   testklassen, die buiten de meting vallen, dus geen effect op de coverage-gate.
