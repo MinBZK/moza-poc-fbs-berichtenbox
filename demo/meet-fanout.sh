@@ -59,40 +59,63 @@ fi
 
 VERVAL_ADRES="$CONSOLE/api/demo/sessie/verlopen"
 
-# Elke ronde begint met een lege sessiecache. Zonder dat meet de tweede ronde het cache-pad en niet
-# de keten, en dan lijkt de fan-out ineens gratis. Deze aanroep mag dus niet stil mislukken.
-# Alleen de bevestiging van het paneel zelf (`gewisteKeys`) telt als geleegd, geen statuscode: een
-# inlogmuur kan doorverwijzen, wat `curl -f` doorlaat, of de inlogpagina meteen met 200 teruggeven.
-vervalcache() {
-    local antwoord status content_type doel oordeel=0
+# Hoe vaak het legen al bevestigd is. Ná een geslaagde ronde staat er altijd een sessie in Redis, dus
+# vanaf de tweede keer betekent "0 gewist" dat het paneel naar een andere Redis kijkt dan de uitvraag.
+BEVESTIGD_GELEEGD=0
 
-    # `-q` als eerste argument: een `location` of `fail` in de eigen ~/.curlrc zou anders bepalen
-    # welke reden de melding noemt.
-    if ! antwoord="$(curl -q -sS -X POST "$VERVAL_ADRES" ${COOKIE_ARG[@]+"${COOKIE_ARG[@]}"} \
-            -w '\n%{http_code}|%{content_type}|%{redirect_url}')"; then
-        stop_meting "niet bereikbaar"
+# Elke ronde begint met een lege sessiecache, zodat geen ronde de sessie of de lock van de vorige
+# erft. Deze aanroep mag dus niet stil mislukken. Alleen de bevestiging van het paneel zelf
+# (`gewisteKeys`) telt, niet de statuscode alleen: een inlogmuur kan doorverwijzen, wat `curl -f`
+# doorlaat, of de inlogpagina meteen met 200 teruggeven.
+vervalcache() {
+    local antwoord body status content_type doel gewist uitleg rc=0 oordeel=0
+
+    # `-q` als eerste argument: anders leest curl de eigen ~/.curlrc, en een `location`, `fail` of
+    # `include` daarin verandert wat hier binnenkomt. `--max-time`: een paneel dat niet antwoordt,
+    # zou de meting anders zonder melding laten hangen.
+    antwoord="$(curl -q -sS --max-time 60 -X POST "$VERVAL_ADRES" ${COOKIE_ARG[@]+"${COOKIE_ARG[@]}"} \
+        -w '\n%{http_code}|%{content_type}|%{redirect_url}')" || rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+        stop_meting "geen antwoord (curl-exitcode $rc)"
     fi
 
     # `|` als scheiding en geen tab: opeenvolgende tabs smelten in `read` samen, en dan schuift een
-    # leeg Content-Type het doorverwijsadres een veld op.
+    # leeg Content-Type de redirect een veld op.
     IFS='|' read -r status content_type doel <<< "${antwoord##*$'\n'}"
+    body="${antwoord%$'\n'*}"
 
     case "$status" in
         2??)
-            bevestigd <<< "${antwoord%$'\n'*}" || oordeel=$?
+            gewist="$(lees_antwoord <<< "$body")" || oordeel=$?
 
             if [ "$oordeel" -eq "$NIET_BEVESTIGD" ]; then
                 stop_meting "HTTP $status${content_type:+ ($content_type)} zonder de bevestiging van het paneel" muur
             elif [ "$oordeel" -ne 0 ]; then
                 stop_meting "HTTP $status, maar python3 kon het antwoord niet controleren (exit $oordeel)"
+            elif [ "$BEVESTIGD_GELEEGD" -gt 0 ] && [ "$gewist" -eq 0 ]; then
+                stop_meting "het paneel wiste 0 sessie-keys ná een geslaagde ronde, dus het kijkt naar een andere Redis dan de uitvraag op $UITVRAAG"
             fi
+
+            BEVESTIGD_GELEEGD=$((BEVESTIGD_GELEEGD + 1))
             ;;
         3??)
             # Zonder query: die van een inlogpagina is lang en zegt de lezer niets, het pad wel.
             stop_meting "HTTP $status${doel:+, doorverwezen naar ${doel%%\?*}}" muur
             ;;
-        401 | 403) stop_meting "HTTP $status" muur ;;
-        *) stop_meting "HTTP $status" ;;
+        *)
+            # Geeft het paneel zelf de fout, dan staat er een uitleg in en is het geen muur.
+            uitleg="$(lees_antwoord <<< "$body")" || true
+
+            if [ -n "$uitleg" ]; then
+                stop_meting "HTTP $status van het paneel zelf: $uitleg"
+            fi
+
+            case "$status" in
+                401 | 403) stop_meting "HTTP $status" muur ;;
+                *) stop_meting "HTTP $status" ;;
+            esac
+            ;;
     esac
 }
 
@@ -100,7 +123,9 @@ vervalcache() {
 # geeft 127. Zonder onderscheid wijst de melding dan naar de inlogmuur.
 NIET_BEVESTIGD=3
 
-bevestigd() {
+# Bevestigd: print het aantal gewiste keys. Niet bevestigd: exit NIET_BEVESTIGD, en print de uitleg
+# die het paneel bij een eigen fout meegeeft (`{"fout": ...}`), op één regel en ingekort.
+lees_antwoord() {
     python3 -c '
 import json
 import sys
@@ -112,14 +137,26 @@ try:
 except ValueError:
     sys.exit(niet_bevestigd)
 
+if not isinstance(antwoord, dict):
+    sys.exit(niet_bevestigd)
+
+gewist = antwoord.get("gewisteKeys")
+
 # `type(...) is int` en niet isinstance: in Python is True ook een int.
-sys.exit(0 if isinstance(antwoord, dict) and type(antwoord.get("gewisteKeys")) is int else niet_bevestigd)
+if type(gewist) is int:
+    print(gewist)
+    sys.exit(0)
+
+if isinstance(antwoord.get("fout"), str):
+    print(" ".join(antwoord["fout"].split())[:200])
+
+sys.exit(niet_bevestigd)
 ' "$NIET_BEVESTIGD"
 }
 
 stop_meting() {
     echo "FOUT: de sessiecache is niet geleegd via $VERVAL_ADRES: $1." >&2
-    echo "      Zonder lege cache meet elke ronde ná de eerste het cache-pad; de meting stopt." >&2
+    echo "      Een ronde hoort met een lege sessiecache te beginnen; de meting stopt." >&2
 
     if [ "${2:-}" = muur ]; then
         echo "      Staat het bedieningspaneel achter een inlogmuur, geef dan het sessiecookie van een" >&2
@@ -130,7 +167,7 @@ stop_meting() {
 }
 
 # Eén ophaalronde: aanvraag, klok en ontleding in hetzelfde proces. Schrijft de ruwe stroom met een
-# tijdstempel in milliseconden sinds het versturen van de aanvraag, en print de vijf getallen.
+# tijdstempel in milliseconden sinds het versturen van de aanvraag, en print de zes getallen.
 meet() {
     python3 - "$UITVRAAG" "$1" "$2" <<'PY'
 import json

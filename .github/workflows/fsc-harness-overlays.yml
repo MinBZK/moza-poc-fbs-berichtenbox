@@ -370,6 +370,16 @@ jobs:
             fail=1
           fi
 
+          # Benoemd en niet alleen geteld: de suites onder lib/ houden de teller hierboven boven
+          # nul, dus een verdwenen of buiten `test-*.sh` hernoemde suite zou de stap groen laten.
+          # Deze is de enige bewaking dat de fan-out-meting een niet-geleegde cache weigert.
+          for verplicht in demo/test-meet-fanout.sh; do
+            if [ ! -f "$verplicht" ]; then
+              echo "FOUT: $verplicht ontbreekt; die controle draait nergens meer in de keten."
+              fail=1
+            fi
+          done
+
           if [ "$fail" -ne 0 ]; then
             echo "::error::shellcheck of een bash-unittest faalde. Zie de log hierboven."
           fi
