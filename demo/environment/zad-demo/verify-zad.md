@@ -292,8 +292,10 @@ CONSOLE_COOKIE='<het sessiecookie van je ingelogde browser>' \
 ```
 
 **Het cookie is geen franje.** Het script leegt vóór elke ronde de sessiecache via het paneel, en dat
-paneel staat achter de muur: zonder cookie krijgt die aanroep 403 en stopt de meting met "de
-sessiecache legen mislukte".
+paneel staat achter de muur: zonder geldig cookie komt die aanroep niet bij het paneel aan. De muur
+weigert hem, verwijst door naar de inlogpagina of geeft die pagina meteen terug; in elk van die
+gevallen stopt de meting met "de sessiecache is niet geleegd", gevolgd door wat de muur antwoordde.
+Het script telt alleen de bevestiging van het paneel zelf als geleegd, niet een geslaagde statuscode.
 
 Welk cookie: de muur is een **oauth2-proxy**-sidecar, en die zet zijn sessie in `_oauth2_proxy`. De
 sidecar geeft geen `--cookie-name` mee, dus dat is de standaardnaam. Is de sessie groot, dan splitst
@@ -304,7 +306,7 @@ aan en kopieer bij *Request Headers* de waarde van `Cookie`. Die vorm — `naam=
 is precies wat `CONSOLE_COOKIE` verwacht, en hij klopt ook als de naam ooit verandert.
 
 Het is een geldige sessie op jouw rijksaccount: hou hem uit shell-geschiedenis, issues en logs, en
-haal een verse op als je meting stukloopt op een 403 (hij verloopt).
+haal een verse op als de meting op die melding stopt (hij verloopt).
 
 Zonder cookie kan het ook met de hand — `demo/meet-fanout.sh 1` per ondernemer, en tussen de rondes
 in de browser op **Cache verlopen** — maar dan is de meting niet in één handeling te herhalen.

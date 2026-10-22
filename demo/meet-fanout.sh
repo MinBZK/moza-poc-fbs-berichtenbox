@@ -21,9 +21,9 @@
 # Vereist een draaiende demo-stack:  docker compose --profile demo up -d
 # Gebruik:  demo/meet-fanout.sh [aantal-rondes]
 #
-# Tegen een omgeving waar het bedieningspaneel achter een authorization-wall staat (ZAD) geeft een
-# aanroep zonder sessie 403. Geef dan het sessiecookie van een ingelogde browser mee in
-# CONSOLE_COOKIE; zonder dat cookie stopt de meting bij de eerste ronde.
+# Tegen een omgeving waar het bedieningspaneel achter een authorization-wall staat (ZAD) komt een
+# aanroep zonder geldige sessie niet bij het paneel aan. Geef dan het sessiecookie van een ingelogde
+# browser mee in CONSOLE_COOKIE; zonder (geldig) cookie stopt de meting bij de eerste ronde.
 set -euo pipefail
 
 UITVRAAG="${UITVRAAG:-http://localhost:8086}"
@@ -48,10 +48,6 @@ ONDERNEMERS=(
 curl -sf "$UITVRAAG/q/health/ready" > /dev/null \
     || { echo "FOUT: de uitvraag op $UITVRAAG is niet gezond; draait de stack?" >&2; exit 1; }
 
-# Elke ronde begint met een lege sessiecache. Zonder dat meet de tweede ronde het cache-pad en niet
-# de keten, en dan lijkt de fan-out ineens gratis. Deze aanroep mag dus niet stil mislukken: een
-# verkeerd adres of een niet-draaiend bedieningspaneel zou elke ronde ná de eerste onbruikbaar maken
-# zonder dat er iets van te zien is.
 # Het cookie als array en niet als losse string: `-H "Cookie: $x"` zonder quotes zou op de spatie
 # splitsen en curl een half argument geven. De `[@]+`-vorm houdt het geheel ook onder `set -u` goed
 # wanneer er geen cookie is.
@@ -61,10 +57,76 @@ if [ -n "$CONSOLE_COOKIE" ]; then
     COOKIE_ARG=(-H "Cookie: $CONSOLE_COOKIE")
 fi
 
+VERVAL_ADRES="$CONSOLE/api/demo/sessie/verlopen"
+
+# Elke ronde begint met een lege sessiecache. Zonder dat meet de tweede ronde het cache-pad en niet
+# de keten, en dan lijkt de fan-out ineens gratis. Deze aanroep mag dus niet stil mislukken.
+# Alleen de bevestiging van het paneel zelf (`gewisteKeys`) telt als geleegd, geen statuscode: een
+# inlogmuur kan doorverwijzen, wat `curl -f` doorlaat, of de inlogpagina meteen met 200 teruggeven.
 vervalcache() {
-    curl -sS -f -X POST "$CONSOLE/api/demo/sessie/verlopen" \
-        ${COOKIE_ARG[@]+"${COOKIE_ARG[@]}"} > /dev/null \
-        || { echo "FOUT: de sessiecache legen mislukte via $CONSOLE; de meting zou het cache-pad meten." >&2; exit 1; }
+    local antwoord status content_type doel oordeel=0
+
+    # `-q` als eerste argument: een `location` of `fail` in de eigen ~/.curlrc zou anders bepalen
+    # welke reden de melding noemt.
+    if ! antwoord="$(curl -q -sS -X POST "$VERVAL_ADRES" ${COOKIE_ARG[@]+"${COOKIE_ARG[@]}"} \
+            -w '\n%{http_code}|%{content_type}|%{redirect_url}')"; then
+        stop_meting "niet bereikbaar"
+    fi
+
+    # `|` als scheiding en geen tab: opeenvolgende tabs smelten in `read` samen, en dan schuift een
+    # leeg Content-Type het doorverwijsadres een veld op.
+    IFS='|' read -r status content_type doel <<< "${antwoord##*$'\n'}"
+
+    case "$status" in
+        2??)
+            bevestigd <<< "${antwoord%$'\n'*}" || oordeel=$?
+
+            if [ "$oordeel" -eq "$NIET_BEVESTIGD" ]; then
+                stop_meting "HTTP $status${content_type:+ ($content_type)} zonder de bevestiging van het paneel" muur
+            elif [ "$oordeel" -ne 0 ]; then
+                stop_meting "HTTP $status, maar python3 kon het antwoord niet controleren (exit $oordeel)"
+            fi
+            ;;
+        3??)
+            # Zonder query: die van een inlogpagina is lang en zegt de lezer niets, het pad wel.
+            stop_meting "HTTP $status${doel:+, doorverwezen naar ${doel%%\?*}}" muur
+            ;;
+        401 | 403) stop_meting "HTTP $status" muur ;;
+        *) stop_meting "HTTP $status" ;;
+    esac
+}
+
+# Een eigen exitcode en niet 1: die geeft Python ook bij een traceback, en een ontbrekende python3
+# geeft 127. Zonder onderscheid wijst de melding dan naar de inlogmuur.
+NIET_BEVESTIGD=3
+
+bevestigd() {
+    python3 -c '
+import json
+import sys
+
+niet_bevestigd = int(sys.argv[1])
+
+try:
+    antwoord = json.load(sys.stdin)
+except ValueError:
+    sys.exit(niet_bevestigd)
+
+# `type(...) is int` en niet isinstance: in Python is True ook een int.
+sys.exit(0 if isinstance(antwoord, dict) and type(antwoord.get("gewisteKeys")) is int else niet_bevestigd)
+' "$NIET_BEVESTIGD"
+}
+
+stop_meting() {
+    echo "FOUT: de sessiecache is niet geleegd via $VERVAL_ADRES: $1." >&2
+    echo "      Zonder lege cache meet elke ronde ná de eerste het cache-pad; de meting stopt." >&2
+
+    if [ "${2:-}" = muur ]; then
+        echo "      Staat het bedieningspaneel achter een inlogmuur, geef dan het sessiecookie van een" >&2
+        echo "      ingelogde browser mee in CONSOLE_COOKIE — of een verse, als het verlopen is." >&2
+    fi
+
+    exit 1
 }
 
 # Eén ophaalronde: aanvraag, klok en ontleding in hetzelfde proces. Schrijft de ruwe stroom met een

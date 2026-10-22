@@ -328,6 +328,8 @@ jobs:
       - name: shellcheck + bash-unittests
         # De harness is bash, en de bash-tests die er zijn (demo/environment/lib/test-*.sh) draaiden
         # tot nu toe nergens automatisch. Zonder deze stap rot elke test die eraan wordt toegevoegd.
+        # De suites van de demo-scripts ernaast (demo/test-*.sh) draaien hier mee: deze job
+        # shellcheckt die scripts al, en het pad-filter vuurt op elke wijziging eraan.
         #
         # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
         # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die
@@ -356,7 +358,7 @@ jobs:
 
           echo "== bash-unittests =="
           gedraaid=0
-          for t in demo/environment/lib/test-*.sh; do
+          for t in demo/environment/lib/test-*.sh demo/test-*.sh; do
             [ -f "$t" ] || continue
             gedraaid=$((gedraaid + 1))
             echo "-- $t"
