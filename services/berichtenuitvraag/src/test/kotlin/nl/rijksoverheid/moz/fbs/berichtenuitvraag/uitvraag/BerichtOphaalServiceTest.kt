@@ -101,6 +101,7 @@ class BerichtOphaalServiceTest {
         service.haalBericht("BSN:999990019", "magazijn-b", id)
 
         verify { router.forMagazijn("magazijn-b") }
+        verify(exactly = 0) { router.voorBijlagen(any()) }
     }
 
     @Test
@@ -593,14 +594,16 @@ class BerichtOphaalServiceTest {
     // Een 3xx gaat niet als bijlage door: de client volgt geen redirects, dus de body is niet de
     // bijlage.
     @ParameterizedTest
-    @ValueSource(ints = [199, 301, 302, 304, 307])
+    @ValueSource(ints = [199, 300, 301, 302, 304, 307])
     fun `een antwoord dat geen 2xx is, wordt geen bijlage`(status: Int) {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
+
         val resp = mockk<Response>(relaxed = true) {
             every { this@mockk.status } returns status
             every { getHeaderString("Content-Type") } returns "text/html"
         }
+
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
 
@@ -648,4 +651,4 @@ class BerichtOphaalServiceTest {
 }
 
 /** De bytes zoals de afnemer ze krijgt. */
-internal fun BijlageInhoud.bytes(): ByteArray = ByteArrayOutputStream().also { schrijfNaar(it) }.toByteArray()
+internal fun BijlageInhoud.bytes(): ByteArray = volledig ?: ByteArrayOutputStream().also { schrijfNaar(it) { false } }.toByteArray()

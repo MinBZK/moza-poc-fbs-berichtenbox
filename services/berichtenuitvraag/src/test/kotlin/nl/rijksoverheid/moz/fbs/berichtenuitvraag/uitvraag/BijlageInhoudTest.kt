@@ -17,7 +17,12 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.InterruptedIOException
 import java.io.OutputStream
+import java.time.Duration
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 /**
  * Hoe [BijlageInhoud] een bijlage doorgeeft: het begin, dan meteen een flush, dan de rest; een
@@ -35,7 +40,7 @@ class BijlageInhoudTest {
     fun `zonder rest gaat alleen het begin door`() {
         val doel = ByteArrayOutputStream()
 
-        inhoud(byteArrayOf(1, 2, 3), rest = null).schrijfNaar(doel)
+        inhoud(byteArrayOf(1, 2, 3), rest = null).schrijfNaar(doel) { false }
 
         assertArrayEquals(byteArrayOf(1, 2, 3), doel.toByteArray())
     }
@@ -45,7 +50,7 @@ class BijlageInhoudTest {
         val rest = ByteArray(40_000) { it.toByte() }
         val doel = OpnameStream()
 
-        inhoud(byteArrayOf(9, 9), ByteArrayInputStream(rest)).schrijfNaar(doel)
+        inhoud(byteArrayOf(9, 9), ByteArrayInputStream(rest)).schrijfNaar(doel) { false }
 
         assertArrayEquals(byteArrayOf(9, 9) + rest, doel.bytes.toByteArray())
         assertEquals(2, doel.geflushtNa, "de flush hoort direct na het begin te komen")
@@ -58,7 +63,7 @@ class BijlageInhoudTest {
         val doel = ByteArrayOutputStream()
 
         val fout = assertThrows(BijlageOverdrachtAfgebroken::class.java) {
-            inhoud(byteArrayOf(1), FaaltNa(byteArrayOf(2, 3), oorzaak)).schrijfNaar(doel)
+            inhoud(byteArrayOf(1), FaaltNa(byteArrayOf(2, 3), oorzaak)).schrijfNaar(doel) { false }
         }
 
         assertSame(oorzaak, fout.cause)
@@ -74,7 +79,7 @@ class BijlageInhoudTest {
         val doel = FaaltBij(moment)
 
         val fout = assertThrows(IOException::class.java) {
-            inhoud(byteArrayOf(1), ByteArrayInputStream(ByteArray(40_000))).schrijfNaar(doel)
+            inhoud(byteArrayOf(1), ByteArrayInputStream(ByteArray(40_000))).schrijfNaar(doel) { false }
         }
 
         assertFalse(fout is BijlageOverdrachtAfgebroken)
@@ -87,7 +92,9 @@ class BijlageInhoudTest {
         val doel = ByteArrayOutputStream()
 
         bijlage.sluitAlsOngeschreven()
-        bijlage.schrijfNaar(doel)
+
+        // Geen stille terugkeer: die zou het antwoord netjes afronden, zonder bijlage.
+        assertThrows(BijlageNietAfgeleverd::class.java) { bijlage.schrijfNaar(doel) { false } }
 
         assertEquals(0, doel.size())
         verify(exactly = 1) { response.close() }
@@ -97,7 +104,7 @@ class BijlageInhoudTest {
     fun `sluiten na het schrijven doet niets meer`() {
         val bijlage = inhoud(byteArrayOf(1), ByteArrayInputStream(byteArrayOf(2)))
 
-        bijlage.schrijfNaar(ByteArrayOutputStream())
+        bijlage.schrijfNaar(ByteArrayOutputStream()) { false }
         bijlage.sluitAlsOngeschreven()
 
         verify(exactly = 1) { response.close() }
@@ -108,8 +115,9 @@ class BijlageInhoudTest {
         val bijlage = inhoud(byteArrayOf(1), ByteArrayInputStream(byteArrayOf(2)))
         val tweede = ByteArrayOutputStream()
 
-        bijlage.schrijfNaar(ByteArrayOutputStream())
-        bijlage.schrijfNaar(tweede)
+        bijlage.schrijfNaar(ByteArrayOutputStream()) { false }
+
+        assertThrows(BijlageNietAfgeleverd::class.java) { bijlage.schrijfNaar(tweede) { false } }
 
         assertEquals(0, tweede.size())
         verify(exactly = 1) { response.close() }
@@ -120,7 +128,7 @@ class BijlageInhoudTest {
         every { response.close() } throws IllegalStateException("pool-close kapot")
         val doel = ByteArrayOutputStream()
 
-        inhoud(byteArrayOf(1), ByteArrayInputStream(byteArrayOf(2))).schrijfNaar(doel)
+        inhoud(byteArrayOf(1), ByteArrayInputStream(byteArrayOf(2))).schrijfNaar(doel) { false }
 
         assertArrayEquals(byteArrayOf(1, 2), doel.toByteArray())
     }
@@ -130,8 +138,104 @@ class BijlageInhoudTest {
         every { response.close() } throws IllegalStateException("pool-close kapot")
 
         assertThrows(BijlageOverdrachtAfgebroken::class.java) {
-            inhoud(byteArrayOf(1), FaaltNa(byteArrayOf(), IOException("weg"))).schrijfNaar(ByteArrayOutputStream())
+            inhoud(byteArrayOf(1), FaaltNa(byteArrayOf(), IOException("weg"))).schrijfNaar(ByteArrayOutputStream()) { false }
         }
+    }
+
+    @Test
+    fun `een afnemer die weg is, stopt het kopiëren`() {
+        val gelezen = mutableListOf<Int>()
+        val rest = object : InputStream() {
+            private val bron = ByteArrayInputStream(ByteArray(100_000))
+
+            override fun read(): Int = bron.read()
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int = bron.read(b, off, len).also { gelezen.add(it) }
+        }
+
+        var rondes = 0
+
+        assertThrows(BijlageNietAfgeleverd::class.java) {
+            inhoud(byteArrayOf(1), rest).schrijfNaar(ByteArrayOutputStream()) { ++rondes > 2 }
+        }
+
+        assertEquals(2, gelezen.size, "na het signaal leest de uitvraag niets meer uit het magazijn")
+        verify(exactly = 1) { response.close() }
+    }
+
+    @Test
+    fun `een interrupt tijdens het lezen is geen afgebroken overdracht en zet de vlag terug`() {
+        val fout = assertThrows(InterruptedIOException::class.java) {
+            inhoud(byteArrayOf(1), FaaltNa(byteArrayOf(), InterruptedIOException("onderbroken"))).schrijfNaar(ByteArrayOutputStream()) { false }
+        }
+
+        assertEquals(InterruptedIOException::class.java, fout.javaClass, "geen afgebroken overdracht")
+        assertTrue(Thread.interrupted(), "de interrupt-vlag hoort weer gezet te zijn")
+    }
+
+    @Test
+    fun `sluiten tijdens het schrijven laat het sluiten aan de schrijver`() {
+        val leestNu = CountDownLatch(1)
+        val magVerder = CountDownLatch(1)
+        val rest = object : InputStream() {
+            override fun read(): Int = -1
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                leestNu.countDown()
+                magVerder.await(10, TimeUnit.SECONDS)
+
+                return -1
+            }
+        }
+
+        val bijlage = inhoud(byteArrayOf(1), rest)
+        val schrijver = thread { bijlage.schrijfNaar(ByteArrayOutputStream()) { false } }
+
+        assertTrue(leestNu.await(10, TimeUnit.SECONDS))
+        bijlage.sluitAlsOngeschreven()
+
+        verify(exactly = 0) { response.close() }
+
+        magVerder.countDown()
+        schrijver.join(10_000)
+
+        verify(exactly = 1) { response.close() }
+    }
+
+    @Test
+    fun `een write die lang op de afnemer wacht, valt op`() {
+        val schrijftNu = CountDownLatch(1)
+        val magVerder = CountDownLatch(1)
+        val doel = object : OutputStream() {
+            override fun write(b: Int) = Unit
+
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                schrijftNu.countDown()
+                magVerder.await(10, TimeUnit.SECONDS)
+            }
+        }
+
+        val bijlage = inhoud(byteArrayOf(1), rest = null)
+
+        assertFalse(bijlage.wachtLangerDan(Duration.ZERO), "zonder lopende write wacht er niets")
+
+        val schrijver = thread { bijlage.schrijfNaar(doel) { false } }
+
+        assertTrue(schrijftNu.await(10, TimeUnit.SECONDS))
+        Thread.sleep(50)
+        assertTrue(bijlage.wachtLangerDan(Duration.ofMillis(10)))
+        assertFalse(bijlage.wachtLangerDan(Duration.ofMinutes(1)))
+
+        magVerder.countDown()
+        schrijver.join(10_000)
+
+        assertFalse(bijlage.wachtLangerDan(Duration.ZERO), "na de write wacht er niets meer")
+    }
+
+    @Test
+    fun `alleen een bijlage zonder rest is volledig`() {
+        assertArrayEquals(byteArrayOf(1, 2), inhoud(byteArrayOf(1, 2), rest = null).volledig)
+        assertEquals(null, inhoud(byteArrayOf(1, 2), ByteArrayInputStream(byteArrayOf(3))).volledig)
     }
 
     @Test

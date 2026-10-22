@@ -46,8 +46,10 @@
              dus hij trekt een nieuwere jackson stil terug zonder dat de build of CI iets meldt. -->
         <quarkus.platform.version>3.40.1</quarkus.platform.version>
         <openapi-generator.version>7.26.0</openapi-generator.version>
-        <!-- Het type van een binaire response in de gegenereerde API. Een service die zo'n response
-             doorgeeft zonder hem in de heap te laden, zet hier jakarta.ws.rs.core.StreamingOutput. -->
+        <!-- Het type van elk `type: string, format: binary`-schema in de gegenereerde API, ook in een
+             request body of modelveld. Een service die de vorm van zo'n response per antwoord kiest
+             (bijvoorbeeld bytes of een stream), overschrijft deze property in zijn eigen pom met
+             jakarta.ws.rs.core.Response. -->
         <api.binary.type>byte[]</api.binary.type>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert

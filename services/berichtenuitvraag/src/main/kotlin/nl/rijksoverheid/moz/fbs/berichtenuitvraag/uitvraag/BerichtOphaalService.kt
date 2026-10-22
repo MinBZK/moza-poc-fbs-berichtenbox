@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import com.fasterxml.jackson.core.JsonProcessingException
+import io.opentelemetry.api.trace.Span
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
@@ -131,7 +132,7 @@ class BerichtOphaalService(
         // `bijlage` heeft een `Response`-returntype: dán past de Quarkus REST-client
         // géén default exception-mapper toe en geeft elke upstream-status (ook >=400)
         // rauw terug. De statusgebaseerde mapping gebeurt daarom hieronder op
-        // `response.status` (de `>= 400`-tak), níet hier. Dit try/catch dekt alleen de
+        // `response.status` (de niet-2xx-tak), níet hier. Dit try/catch dekt alleen de
         // randgevallen waarin de client tóch gooit: een transport-storing vóór het
         // HTTP-antwoord komt als ProcessingException, en een proxy-/client-laag kan een
         // WebApplicationException gooien. In beide gevallen sluiten we de eventuele
@@ -154,14 +155,20 @@ class BerichtOphaalService(
             // (transport-fout) én elke non-4xx-status (3xx/5xx/onverwacht) → 502.
             // Altijd loggen vóór re-throw.
             if (status == null || status !in 400..499) {
-                log.errorf(e, "magazijn-bijlage upstream-fout (status=%s) → 502", status?.toString() ?: "geen response")
+                log.errorf(
+                    e,
+                    "magazijn-bijlage upstream-fout (status=%s) → 502 (berichtId=%s magazijnId=%s)",
+                    status?.toString() ?: "geen response",
+                    berichtId,
+                    bericht.magazijnId,
+                )
 
                 throw magazijnFout(502)
             }
 
             throw magazijnFout(status)
         } catch (e: ProcessingException) {
-            log.errorf(e, "magazijn-bijlage transport-fout → 502")
+            log.errorf(e, "magazijn-bijlage transport-fout → 502 (berichtId=%s magazijnId=%s)", berichtId, bericht.magazijnId)
 
             throw magazijnFout(502)
         }
@@ -174,7 +181,15 @@ class BerichtOphaalService(
             // upstream-status rauw terug (gooit niet), dus elke niet-2xx komt hier langs.
             // magazijnFout propageert 4xx status-behoudend en mapt de rest (ook een 3xx, die
             // anders als bijlage onder een 200 zou doorgaan) → 502.
-            if (response.status !in 200..299) throw magazijnFout(response.status)
+            if (response.status !in 200..299) {
+                // Een 4xx geeft de afnemer zelf te zien; de rest wordt een 502 die zonder deze regel
+                // nergens de status van het magazijn noemt.
+                if (response.status !in 400..499) {
+                    log.errorf("magazijn-bijlage: magazijn gaf %d → 502 (berichtId=%s magazijnId=%s)", response.status, berichtId, bericht.magazijnId)
+                }
+
+                throw magazijnFout(response.status)
+            }
 
             // Pak de raw Content-Type-header (niet `response.mediaType`, die
             // parsed naar `MediaType?` en geeft null bij een ongeldig MIME-type;
@@ -193,9 +208,9 @@ class BerichtOphaalService(
 
                 bron to bron.readNBytes(BijlageInhoud.BEGIN_BYTES)
             } catch (e: ProcessingException) {
-                throw leesfout(e)
+                throw leesfout(e, berichtId, bericht.magazijnId)
             } catch (e: IOException) {
-                throw leesfout(e)
+                throw leesfout(e, berichtId, bericht.magazijnId)
             }
 
             // readNBytes geeft alleen bij het einde van de stream minder dan gevraagd.
@@ -208,7 +223,7 @@ class BerichtOphaalService(
             return BijlageInhoud(mimeType, bestandsnaam, lengteVan(response), begin, rest = bron, magazijnResponse = response)
         } finally {
             // Een falende close mag de echte fout niet maskeren (vandaar runCatching),
-            // maar op warn: een aanhoudend faaltje hier betekent een lekkende connectie-
+            // maar op warn: een aanhoudend faaltje hier betekent een lekkende connection
             // pool en moet in prod zichtbaar zijn, niet onder debug verdwijnen.
             if (!doorgegeven) {
                 runCatching { response.close() }
@@ -217,8 +232,17 @@ class BerichtOphaalService(
         }
     }
 
-    private fun leesfout(e: Exception): WebApplicationException {
-        log.errorf(e, "magazijn-bijlage body-read mislukt (afgekapte/corrupte stream) → 502")
+    /** De logregel van `getBijlage` krijgt deze fout zelf mee; de `trace_id:span_id` koppelt de twee. */
+    private fun leesfout(e: Exception, berichtId: UUID, magazijnId: String): WebApplicationException {
+        val logregel = Span.current().spanContext
+        log.errorf(
+            e,
+            "magazijn-bijlage body-read mislukt (afgekapte/corrupte stream) → 502 (berichtId=%s magazijnId=%s) [%s:%s]",
+            berichtId,
+            magazijnId,
+            logregel.traceId,
+            logregel.spanId,
+        )
 
         return magazijnFout(502)
     }
@@ -255,7 +279,7 @@ class BerichtOphaalService(
         // bij de client landen.
         410 -> berichtOnbekend()
         in 400..499 -> WebApplicationException("magazijn-bijlage 4xx ($status)", status)
-        else -> upstreamBadGateway("magazijn-bijlage 5xx ($status)")
+        else -> upstreamBadGateway("magazijn-bijlage niet-2xx ($status)")
     }
 
     private companion object {

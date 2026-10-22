@@ -36,6 +36,7 @@ class MagazijnRouter(
     private val register: Magazijnregister,
     private val config: MagazijnRouterConfig,
     private val tlsRegistry: TlsConfigurationRegistry,
+    private val bijlageConfig: BijlageConfig,
 ) {
 
     private val clients = ConcurrentHashMap<String, MagazijnClient>()
@@ -49,6 +50,10 @@ class MagazijnRouter(
      * Een eigen client, en daarmee een eigen connection pool, voor bijlage-downloads. Een gestreamde
      * bijlage houdt zijn connection vast zolang de afnemer leest; in een gedeelde pool zouden trage
      * downloads het openen, bijwerken en verwijderen van berichten bij dat magazijn verdringen.
+     *
+     * Met een idle-timeout van [BijlageConfig.maxStilstand]: de read-timeout stopt zodra de headers
+     * binnen zijn, en zonder deze grens houdt een magazijn dat midden in een bijlage stilvalt zijn
+     * plek in de pool onbeperkt vast.
      */
     fun voorBijlagen(magazijnId: String): MagazijnClient =
         bijlageClients.computeIfAbsent(magazijnId) { id -> bouw(id, voorBijlagen = true) }
@@ -74,7 +79,7 @@ class MagazijnRouter(
 
             if (voorBijlagen) {
                 builder.httpClientOptionsCustomizer { opties ->
-                    opties.idleTimeout = config.bijlageIdleTimeout().toMillis().toInt()
+                    opties.idleTimeout = Math.toIntExact(bijlageConfig.maxStilstand().toMillis())
                     opties.idleTimeoutUnit = TimeUnit.MILLISECONDS
                 }
             }
@@ -126,7 +131,7 @@ class MagazijnRouter(
      * TLS-configuratie vervangt de JVM-default trust-store en vult die niet aan. Dezelfde
      * discriminator als [fscFilterVoor], zodat beide beslissingen op dezelfde vlag rusten.
      *
-     * Losgetrokken van [forMagazijn] zodat de keuze testbaar is zonder de REST-client-builder.
+     * Losgetrokken van [bouw] zodat de keuze testbaar is zonder de REST-client-builder.
      */
     internal fun outwayTlsConfiguratie(inschrijving: Magazijninschrijving): TlsConfiguration? =
         inschrijving.grantHash?.let { tlsRegistry.get(OutwayTls.CONFIG_NAAM).orElse(null) }
@@ -134,7 +139,7 @@ class MagazijnRouter(
     companion object {
         private val log: Logger = Logger.getLogger(MagazijnRouter::class.java)
 
-        // Losgetrokken van forMagazijn() zodat de registratie-beslissing unit-testbaar is
+        // Losgetrokken van bouw() zodat de registratie-beslissing unit-testbaar is
         // zonder de REST-client-builder (die buiten CDI-context een proxy-klasse genereert).
         // Niet elk magazijn draait al achter een FSC-outway; grantHash blijft optioneel
         // totdat de volledige federatie is overgestapt.

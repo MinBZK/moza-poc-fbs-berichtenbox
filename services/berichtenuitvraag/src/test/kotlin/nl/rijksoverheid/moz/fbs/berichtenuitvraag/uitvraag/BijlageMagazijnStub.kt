@@ -9,6 +9,7 @@ import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Een magazijn dat een bijlage in stukken kan geven, kan vasthouden en kan afbreken. WireMock kan
@@ -35,8 +36,8 @@ class BijlageMagazijnStub : QuarkusTestResourceLifecycleManager {
         @Volatile
         var gedrag: (HttpExchange) -> Unit = GEEN_GEDRAG
 
-        /** Per afgehandeld verzoek één [Afloop], zodra de handler klaar is. */
-        val afgehandeld = LinkedBlockingQueue<Afloop>()
+        /** Per afgehandeld verzoek het pad en de [Afloop], zodra de handler klaar is. */
+        private val afgehandeld = LinkedBlockingQueue<Pair<String, Afloop>>()
 
         private lateinit var server: HttpServer
         private lateinit var threads: ExecutorService
@@ -47,13 +48,32 @@ class BijlageMagazijnStub : QuarkusTestResourceLifecycleManager {
         }
 
         /**
+         * Wacht tot het magazijn een verzoek voor [berichtId] heeft afgehandeld, en geeft de afloop;
+         * `null` na [seconden]. Op het eigen bericht, zodat een late afloop van een vorige test niet meetelt.
+         */
+        fun afloopVoor(berichtId: Any, seconden: Long = 10): Afloop? {
+            val tot = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconden)
+
+            while (true) {
+                val over = tot - System.nanoTime()
+
+                if (over <= 0) return null
+
+                val (pad, afloop) = afgehandeld.poll(over, TimeUnit.NANOSECONDS) ?: return null
+
+                if (berichtId.toString() in pad) return afloop
+            }
+        }
+
+        /**
          * Stuurt een `200` met [lengte] als `Content-Length`, of zonder lengte (chunked) als die
          * `null` is, en schrijft daarna [schrijf]. Geeft die met een vaste lengte minder bytes, dan
          * sluit de server de connection zonder de rest.
          */
         fun bijlage(lengte: Long?, schrijf: (OutputStream) -> Unit): (HttpExchange) -> Unit = { exchange ->
             exchange.responseHeaders.add("Content-Type", "application/pdf")
-            exchange.sendResponseHeaders(200, lengte ?: 0)
+            // Bij com.sun.net.httpserver betekent 0 "chunked" en -1 "geen body".
+            exchange.sendResponseHeaders(200, if (lengte == 0L) -1 else lengte ?: 0)
             schrijf(exchange.responseBody)
         }
     }
@@ -65,6 +85,7 @@ class BijlageMagazijnStub : QuarkusTestResourceLifecycleManager {
         stub.executor = threads
 
         stub.createContext("/api/v1/berichten/") { exchange ->
+            val pad = exchange.requestURI.path
             val afloop = try {
                 gedrag(exchange)
                 exchange.close()
@@ -76,12 +97,12 @@ class BijlageMagazijnStub : QuarkusTestResourceLifecycleManager {
             } catch (e: Afbreken) {
                 // Geen close: die zou een chunked antwoord netjes afronden. De server verbreekt de
                 // connection zelf als de handler gooit.
-                afgehandeld.add(Afloop.AFGEBROKEN)
+                afgehandeld.add(pad to Afloop.AFGEBROKEN)
 
                 throw e
             }
 
-            afgehandeld.add(afloop)
+            afgehandeld.add(pad to afloop)
         }
 
         stub.start()

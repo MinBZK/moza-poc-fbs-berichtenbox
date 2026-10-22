@@ -39,58 +39,55 @@ Het geheugen per download is begrensd, ongeacht de grootte van de bijlage.
 
 ### Codegen en endpoint
 
-- **`getBijlage` geeft een `StreamingOutput` terug.**
-  - De parent-pom genereert een binaire response als `${api.binary.type}`, standaard `byte[]`. De
-    uitvraag zet die property op `jakarta.ws.rs.core.StreamingOutput`.
-  - De uitvraag-spec heeft één binair schema (deze response). Het magazijn houdt `byte[]`.
-  - De resource blijft de gegenereerde interface implementeren, dus het endpoint blijft
-    spec-gedreven.
+- **`getBijlage` geeft een `Response` terug, met een `byte[]` of een `StreamingOutput`.**
+  - De parent-pom genereert een binaire response als `${api.binary.type}`, standaard `byte[]`; de
+    uitvraag zet `jakarta.ws.rs.core.Response`. Het magazijn houdt `byte[]`.
+  - Quarkus kiest de writer per antwoord. Een `byte[]` schrijft hij in één keer, zonder een
+    worker-thread vast te houden; een `StreamingOutput` schrijft op de worker-thread, die blokkeert
+    zolang de afnemer niet leest.
+  - **Gekozen boven alleen `StreamingOutput`** (de eerste versie): de security-review van ronde 2
+    wees aan dat een afnemer die niet leest dan ook bij een kleine bijlage een worker vasthoudt.
+    Op `origin/main` deed die dat niet.
   - **Gekozen boven het endpoint buiten codegen halen** (zoals `_ophalen`, en zoals het issue
-    voorstelt): dat zou de compile-time-binding aan de spec voor dit pad opgeven, en dat is
-    hier niet nodig.
-  - **Gekozen boven een volledige `typeMappings`-override in de uitvraag:** dan zou een mapping
-    die later in de parent bijkomt, de uitvraag stil niet bereiken.
+    voorstelt): de resource blijft de gegenereerde interface implementeren, dus het pad blijft
+    aan de spec gebonden.
 
 ### Begin en rest
 
 - **Eerst 1 MiB binnen de methode, dan de rest gestreamd.**
   - `haalBijlage` leest tot 1 MiB in (`BEGIN_BYTES`), nog binnen de `@Logboek`-methode.
-  - Past de bijlage daarin, dan is de magazijn-response meteen gesloten. Dat geldt voor de bijlagen
-    die in de praktijk voorkomen, een paar kilobyte tot een gewone PDF. Een afgekapte stream geeft
-    dan een 502, en de logregel krijgt de fout zelf mee (`ERROR`).
+  - Past de bijlage daarin, en dat geldt voor wat in de praktijk voorkomt, dan is de
+    magazijn-response meteen dicht en gaat ze als `byte[]` de deur uit. Alles gedraagt zich dan als
+    op `origin/main`, en een afgekapte stream geeft een 502 met de logregel op `ERROR`.
   - Alleen wat groter is, streamt daarna door.
-  - **Geheugen per download:** hooguit 1 MiB plus een kopieerbuffer, in plaats van tot 25 MiB.
-  - **Gekozen boven 64 KiB**, de eerste versie: een gestreamde download houdt een worker-thread en
-    een magazijn-connection vast zolang de afnemer leest (zie hieronder). Met 1 MiB doet alleen
-    een uitzonderlijk grote bijlage dat.
+  - **Geheugen per download:** hooguit 1 MiB, kortstondig 2 MiB (`readNBytes` leest in stukken en
+    kopieert die aan het eind naar één array), plus een kopieerbuffer. Op `origin/main` was dat
+    tot 25 MiB.
 - **Na het begin ligt de status vast.**
-  - `schrijfNaar` schrijft het begin en flusht meteen, vóór het eerste stuk van de rest. Daarmee
-    is het antwoord begonnen, en wordt elke fout daarna een gereset connection.
-  - Zonder die flush kon een leesfout binnen de outputbuffer van Quarkus (8 KiB) nog naar de
-    foutafhandeling gaan, met de `Content-Type`, `Content-Disposition` en `Content-Length` van de
-    bijlage nog op het antwoord.
-- **Ook een schrijffout gaat door als exceptie** (`BijlageNietAfgeleverd`).
-  - Normaal terugkeren zou een chunked antwoord netjes afsluiten als de connection nog open staat,
-    bijvoorbeeld na een interrupt tijdens het wachten op de afnemer.
-  - Is de connection al dicht (de afnemer annuleerde), dan logt de uitvraag op debug: geen fout
-    van de verwerking. Staat ze nog open, dan op warn.
-- **`BijlageOverdrachtGestoptMapper`** mapt beide excepties stil.
-  - Het antwoord is dan al begonnen, of de afnemer is weg, dus het bereikt niemand.
+  - `schrijfNaar` schrijft het begin en flusht meteen, vóór het eerste stuk van de rest. Daarmee is
+    het antwoord begonnen, en wordt elke fout daarna een gereset connection.
+  - `BijlageDoorgifte` reset het antwoord zelf voordat ze een fout doorgooit. Zo eindigt een afgebroken
+    overdracht nooit netjes, ook als Quarkus het antwoord anders zou afronden (bijvoorbeeld met een
+    `WriterInterceptor` erbij).
+- **Fouten worden ingedeeld naar oorzaak:**
+  - leesfout bij het magazijn → `BijlageOverdrachtAfgebroken`, op error;
+  - de bewaking reset de download → warn "afnemer las langer dan … niet";
+  - interrupt → warn;
+  - anders, meestal een annulering → debug.
+  - Een write naar een gesloten connection mislukt niet altijd, dus `kopieer` kijkt elke ronde of de
+    afnemer nog verbonden is; anders zou de rest stil uit het magazijn worden leeggelezen.
+- **`BijlageOverdrachtGestoptMapper`** mapt de stop-excepties stil.
+  - Het antwoord is al gereset, dus het bereikt niemand.
   - Zonder de mapper kwam elke afgebroken download nog een keer als "onverwachte exception" op
     error in de log.
-  - Een globale mapper: een `@ServerExceptionMapper` in de resource geldt niet voor wat er na de
-    methode, bij het schrijven, misgaat.
 - **`Content-Length` gaat mee.**
-  - De `ByteArray` gaf hem vanzelf; zonder zou een download chunked worden, zonder voortgang in de
-    browser.
-  - Ligt de hele bijlage al in het begin, dan is dat de lengte daarvan; anders de `Content-Length`
-    van het magazijn, mits een geldig niet-negatief getal.
+  - Ligt de hele bijlage in het begin, dan is dat de lengte daarvan; anders de `Content-Length` van
+    het magazijn, mits een geldig niet-negatief getal.
   - De Vert.x-client leest nooit meer dan die lengte. Komt er minder, dan breekt het antwoord af.
-  - `BijlageContentTypeFilter` zet hem via een derde request-property, net als `Content-Type`, en
-    alleen op een geslaagde response.
-- **Een 3xx van het magazijn is geen bijlage.** `haalBijlage` toetst nu op `200..299` en niet
-  meer op `>= 400`. Een 3xx met een `Content-Type` ging anders als bijlage onder een 200 door,
-  terwijl de klasse-KDoc een 502 belooft.
+  - `BijlageContentTypeFilter` zet hem via een derde request-property, alleen op een geslaagde
+    response.
+- **Een 3xx van het magazijn is geen bijlage.** `haalBijlage` toetst op `200..299`, en logt bij een
+  niet-2xx die geen 4xx is de status van het magazijn.
 
 ### Logboek
 
@@ -100,62 +97,67 @@ Het geheugen per download is begrensd, ongeacht de grootte van de bijlage.
   - De afnemer kreeg al minstens 1 MiB, dus de bijlage is deels verstrekt.
   - Daarmee volgt de uitvraag het besluit van de opdrachtgever uit
     [`2026-09-29-ldv-uitkomst-vastleggen.md`](2026-09-29-ldv-uitkomst-vastleggen.md): liever te veel
-    dan te weinig. Een ERROR-child komt er alleen als vaststaat dat er niets verstrekt is, en een
-    verbroken antwoord blijft als verstrekking staan.
-  - Het geval "zeker niets verstrekt" eindigt hier binnen de methode, als 502 met de logregel zelf
-    op `ERROR`.
+    dan te weinig. Een ERROR-child komt er alleen als vaststaat dat er niets verstrekt is.
+  - Het geval "zeker niets verstrekt" eindigt binnen de methode, als 502 met de logregel zelf op
+    `ERROR`.
   - De eerste versie zette er wél een ERROR-child onder. Dezelfde vorm zou dan in het magazijn
-    "niet verstrekt" betekenen en in de uitvraag "deels verstrekt", en dat is voor een lezer van
-    het logboek niet te onderscheiden. De standaardenreview wees dat aan.
-- **De applicatielog verwijst naar de logregel.**
-  - De errorregel bij een afgebroken overdracht draagt de `trace_id:span_id` van de logregel. De
-    interceptor maakt zijn span current, dus `Span.current()` in de methode is die logregel.
-  - Zo is de oorzaak, die alleen in de applicatielog staat, aan het logboek te koppelen (LDV
-    §3.3.2).
+    "niet verstrekt" betekenen en in de uitvraag "deels verstrekt". De standaardenreview wees dat
+    aan.
+- **De applicatielog verwijst naar de logregel.** De errorregels bij een afgebroken overdracht en
+  bij een leesfout in het begin, en de warn bij een stilgevallen afnemer, dragen de
+  `trace_id:span_id` van de logregel. De interceptor maakt zijn span current, dus `Span.current()`
+  in de methode is die logregel. Zo is de oorzaak aan het logboek te koppelen (LDV §3.3.2).
 
 ### Resources
 
-- **De magazijn-response sluit altijd.**
-  - Na het schrijven, in een `finally`.
-  - Bij het einde van het verzoek via `RoutingContext.addEndHandler`, voor het geval de writer nooit
-    draait (een filter dat gooit).
-  - Meteen in de methode bij een HEAD-verzoek, en als de afnemer al weg is: een end-handler die
-    pas daarna geregistreerd wordt, vuurt nooit.
-  - Sluiten is idempotent (een compare-and-set in `BijlageInhoud`).
-  - De client sluit door de rest te lezen en weg te gooien (`VertxClientInputStream.close` →
-    `discard`). Dat kost bandbreedte maar geen heap.
+- **Een plafond op gestreamde downloads** (`Bijlagestreams`): 20 per pod en 3 per ontvanger.
+  - Daarboven volgt een 503 met `te-veel-gelijktijdige-downloads` en `Retry-After`. De spec
+    declareerde die 503 al.
+  - De plek wordt gereserveerd na het lezen van het begin; pas dan staat vast dat er gestreamd
+    wordt. Een geweigerde download kost dus wel een magazijn-aanroep, maar een kleine bijlage
+    wordt nooit door het plafond tegengehouden.
+  - Zelfde opzet als de plafonds van `_volgen`; dat stuk is niet gedeeld, omdat het in
+    `VolgenSseResource` ingebed zit en de berichten per plafond verschillen.
+- **Een bewaking op de afnemer.** Wacht één write langer dan `berichtenuitvraag.bijlage.max-stilstand`
+  (60 s) op de afnemer, dan reset een Vert.x-timer de download. Zonder die bewaking houdt een
+  afnemer die niet leest de worker vast tot `quarkus.http.idle-timeout` (standaard 30 minuten).
 - **Een eigen client per magazijn voor bijlagen** (`MagazijnRouter.voorBijlagen`), met een eigen
-  connection pool.
-  - Een gestreamde download houdt zijn connection vast zolang de afnemer leest.
-  - In de gedeelde pool zouden trage downloads het openen, bijwerken en verwijderen van berichten
-    bij dat magazijn verdringen.
-- **`magazijn-router.bijlage-idle-timeout` (standaard 60 s)** op die client.
-  - Een connection die zo lang stilligt, gaat dicht: een magazijn dat midden in een bijlage
-    stilvalt, of een half-open connection na het leeglezen.
-  - Zonder die grens hield zo'n connection haar plek in de pool onbeperkt vast.
-  - De grens geldt ook als de afnemer zo lang niet leest. De uitvraag logt dat als een afgebroken
-    overdracht.
-- **Wat een gestreamde download vasthoudt:** zolang de afnemer leest, één worker-thread en één
-  connection uit de bijlage-pool van dat magazijn.
-  - Op `origin/main` hield een trage afnemer in plaats daarvan de hele bijlage in de heap.
-  - De operator-handleiding raadt aan de ingress te laten bufferen (bij nginx de standaard): die
-    neemt een trage afnemer dan over.
+  connection pool en een idle-timeout van dezelfde `max-stilstand`.
+  - Trage downloads verdringen zo het openen, bijwerken en verwijderen van berichten niet.
+  - De read-timeout stopt zodra de headers binnen zijn; zonder de idle-timeout hield een magazijn
+    dat midden in een bijlage stilvalt zijn plek in de pool onbeperkt vast.
+- **De magazijn-response en de plek komen altijd vrij.**
+  - In de `finally` van de writer.
+  - Bij het einde van het verzoek via `RoutingContext.addEndHandler`, voor als de writer nooit draait
+    (HEAD). Op die end-handler alleen valt niet te bouwen: zodra Quarkus de output-stream opent,
+    vuurt hij niet meer.
+  - Meteen in de methode als de afnemer al weg is: een end-handler die pas daarna geregistreerd
+    wordt, vuurt nooit.
+  - Alles is idempotent.
+  - De client sluit door de rest te lezen en weg te gooien (`VertxClientInputStream.close` →
+    `discard`). Dat kost bandbreedte maar geen heap; ook bij een HEAD haalt de uitvraag de bijlage
+    dus bij het magazijn op.
+- **De grenzen worden bij het opstarten gevalideerd** (`Bijlagestreams` is `@Startup`): de
+  stilstand moet groter dan 0 zijn en in een int aan milliseconden passen, en de plafonds moeten
+  positief zijn.
 
 ### Bewust niet
 
-- **Een plafond op het aantal gelijktijdige gestreamde downloads** (zoals bij `_volgen`).
-  - Alleen bijlagen boven 1 MiB streamen, en die zijn in de praktijk zeldzaam.
-  - De eigen pool houdt de andere aanroepen naar het magazijn vrij, en de idle-timeout begrenst
-    een stilgevallen connection.
-  - Een plafond vraagt een eigen foutcode in de spec en per-ontvanger-boekhouding. Dat hoort bij
-    een concrete productieaanleiding.
-  - **Restrisico:** een afnemer die veel grote bijlagen tegelijk heel traag leest, houdt even zoveel
-    worker-threads vast. Daartegen helpt een bufferende ingress.
-- **Een totale deadline per download:** die zou ook een trage maar werkende afnemer afbreken, en de
-  idle-timeout dekt het stilgevallen geval.
+- **Een totale deadline per download:** die zou ook een trage maar werkende afnemer afbreken.
+  - Een afnemer die heel traag maar steeds leest, houdt zijn plek zolang de download duurt.
+  - Het plafond begrenst hoeveel dat er tegelijk zijn.
 - **Een bovengrens op wat het magazijn doorgeeft:** het magazijn begrenst bij het aanleveren, en de
   uitvraag kent het magazijn via het register. `Bijlage.MAX_CONTENT_BYTES` naar `fbs-kern`
   verhuizen raakt het magazijn.
+- **Een 502 bij een gestreamde bijlage zonder `Content-Length`.**
+  - Achter een HTTP/1.0-hop is een afgebroken overdracht zonder lengte niet van een volledige te
+    onderscheiden.
+  - In plaats daarvan staat in de spec en de operator-handleiding dat de proxy HTTP/1.1 moet
+    spreken.
+  - Het eigen magazijn stuurt altijd een lengte.
+- **Een HEAD als HEAD naar het magazijn doorzetten, en een afgebroken download resetten in plaats
+  van leeglezen.** Dat scheelt bandbreedte en het onnodig ophalen van persoonsgegevens, maar vraagt
+  een eigen pad in de client. Op `origin/main` gebeurde hetzelfde.
 - **De werkelijke grootteverdeling van bijlagen eerst meten**, zoals het issue voorstelt.
   - Productie bestaat nog niet, dus die verdeling is er niet.
   - Het begin van 1 MiB houdt het gedrag gelijk voor wat in de praktijk voorkomt, en begrenst het
@@ -168,37 +170,42 @@ Het geheugen per download is begrensd, ongeacht de grootte van de bijlage.
 - **Unit:**
   - **`BerichtOphaalServiceTest`:**
     - een bijlage kleiner dan, gelijk aan en groter dan het begin;
-    - de lengte uit het magazijn: geldig, met spaties, 0, ontbrekend, leeg, geen getal, negatief,
-      overflow;
-    - een leesfout in het begin geeft een 502 en sluit;
-    - een antwoord dat geen 2xx is (1xx, 3xx) geeft een 502;
-    - de bijlage gaat via de eigen client.
+    - de varianten van `Content-Length`;
+    - een leesfout in het begin;
+    - 1xx en 3xx;
+    - de bijlage-client, en dat de berichttekst die niet gebruikt.
   - **`BijlageInhoudTest`:**
-    - het begin, dan de flush, dan de rest;
-    - een leesfout in de rest is een afgebroken overdracht;
-    - een schrijffout bij het begin, bij de flush en in de rest is dat niet;
-    - sluiten vóór, na en dubbel;
-    - een falende close maskeert niets.
-  - **`BijlageContentTypeFilterTest`:** `Content-Length` bij 0, 1 en 25 MiB; geen bij een
-    ontbrekende lengte en op een foutantwoord.
-  - **`MagazijnRouterTest`:** de bijlage-client is een eigen instantie, en per magazijn hergebruikt.
-- **`@QuarkusTest` met een eigen magazijn-stub (`com.sun.net.httpserver`, `BijlageStreamenTest`):**
-  - **Streamt echt:** de afnemer krijgt het begin terwijl het magazijn de rest nog vasthoudt. Met
-    een `ByteArray` faalt dat.
-  - **Groot en byte-gelijk, met en zonder `Content-Length`:** langs de contractvalidator.
-  - **Halverwege afgebroken, met en zonder `Content-Length`:**
-    - de afnemer krijgt een onvolledige download, geen timeout;
-    - de errorregel draagt de `trace_id:span_id` van de logregel;
-    - er komt geen ERROR-child en geen "onverwachte exception".
-    - Zonder lengte houdt alleen de reset een ingekorte 200 tegen.
-  - **Afgebroken in het begin:** een 502 langs de contractvalidator, zonder de headers van de
-    bijlage.
-  - **Een afnemer die afbreekt:** niet op error, geen ERROR-child, en het magazijn wordt vrijgegeven.
-  - **HEAD:** de headers van de bijlage, en de magazijn-response gaat dicht.
-  - **Een afnemer die vertrekt vóór het magazijn antwoordt (HEAD en GET, via een ruwe socket):** de
+    - volgorde;
+    - lezen tegenover schrijven op drie momenten;
+    - een afnemer die weg is;
+    - een interrupt;
+    - sluiten vóór, tijdens, na en dubbel;
+    - de meting van een wachtende write;
+    - `volledig`.
+  - **`BijlagestreamsTest`:** plafond per ontvanger en per pod, een vrijgave die precies één keer
+    werkt, en verkeerde instellingen.
+  - **`BijlageContentTypeFilterTest`** en **`MagazijnRouterTest`.**
+- **`BijlageStreamenTest` (`@QuarkusTest`, met de stub `BijlageMagazijnStub` op `com.sun.net.httpserver`):**
+  - Na elke test staan er nul streams open.
+  - Groottes 0, 1, net onder, op en boven het begin, en groot, met en zonder `Content-Length`;
+    byte-gelijk, langs de contractvalidator, met `API-Version`.
+  - **Streamt echt:** de afnemer krijgt het begin terwijl het magazijn de rest nog vasthoudt.
+  - **Halverwege afgebroken, met en zonder lengte:** een onvolledige download en geen timeout; de
+    errorregel met `trace_id:span_id`, de OIN en geen BSN; de logregel zonder fout en zonder
+    ERROR-child; geen "onverwachte exception".
+  - **Afgebroken in het begin, met en zonder lengte, ook net onder 1 MiB:** een 502 langs de
+    contractvalidator, de logregel krijgt de fout zelf mee.
+  - **Een afnemer die afbreekt:** op debug, en het magazijn wordt vrijgegeven.
+  - **HEAD:** de headers, en de magazijn-response gaat dicht.
+  - **Een afnemer die vertrekt vóór het magazijn antwoordt (HEAD en GET, ruwe socket):** de
     magazijn-response gaat dicht.
-- **`BijlageStilstandTest`:** een magazijn dat midden in een bijlage stilvalt, breekt de download af
-  na de idle-timeout, en niet pas na 100 s.
+- **`BijlageGrenzenTest`** (stilstand 2 s, 2 streams per pod, 1 per ontvanger):
+  - een magazijn dat stilvalt, breekt af tussen de grens en 10 s;
+  - een afnemer die niet leest, wordt na de grens afgebroken, op warn;
+  - het plafond per ontvanger en per pod geeft een 503 langs de validator, en na afloop is er weer
+    plek.
+- **Mutaties nagegaan:** zonder de stille mapper, zonder de bewaking, zonder de opruiming in de
+  `finally` of zonder de closed-controle faalt telkens minstens één test.
 
 ## Verificatie
 

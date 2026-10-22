@@ -42,9 +42,13 @@ class MagazijnRouterTest {
             config = object : MagazijnRouterConfig {
                 override fun connectTimeout(): Duration = Duration.ofSeconds(2)
                 override fun readTimeout(): Duration = Duration.ofSeconds(10)
-                override fun bijlageIdleTimeout(): Duration = Duration.ofSeconds(60)
             },
             tlsRegistry = testTlsRegistry(),
+            bijlageConfig = object : BijlageConfig {
+                override fun maxStilstand(): Duration = Duration.ofSeconds(60)
+                override fun maxStreams(): Int = 20
+                override fun maxStreamsPerOntvanger(): Int = 3
+            },
         )
 
     @Test

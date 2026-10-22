@@ -5,14 +5,16 @@ import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.server.ServerExceptionMapper
 import java.io.IOException
 import java.io.InputStream
+import java.io.InterruptedIOException
 import java.io.OutputStream
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Een bijlage uit het magazijn, klaar om door te geven. Het begin is al gelezen; de rest staat
- * nog in de open magazijn-response en gaat pas bij [schrijfNaar] door, zonder eerst in de heap
- * te belanden. Is de bijlage kleiner dan [BEGIN_BYTES], dan is er geen rest en is de
- * magazijn-response al dicht.
+ * Een bijlage uit het magazijn, klaar om door te geven. Het begin is al gelezen. Is de bijlage
+ * kleiner dan [BEGIN_BYTES], dan is dat de hele bijlage ([volledig]) en is de magazijn-response al
+ * dicht. Anders staat de rest nog in de open magazijn-response en gaat die pas bij [schrijfNaar]
+ * door, zonder eerst in de heap te belanden.
  *
  * Bewust geen `data class`: er wordt nergens vergeleken of gedestructureerd, en de
  * gegenereerde `toString` zou de bestandsnaam — die persoonsgegevens kan bevatten — in elke
@@ -30,25 +32,37 @@ class BijlageInhoud internal constructor(
 
     private val toestand = AtomicReference(Toestand.ONGESCHREVEN)
 
+    /** Sinds wanneer de write naar de afnemer loopt die nu wacht ([System.nanoTime]); `null` als er geen loopt. */
+    @Volatile
+    private var schrijftSinds: Long? = null
+
+    /** De hele bijlage, als die in het begin paste; dan valt er niets te streamen. */
+    val volledig: ByteArray? get() = begin.takeIf { rest == null }
+
     /**
-     * Schrijft de bijlage naar [doel] en sluit daarna de magazijn-response. Een leesfout in de
-     * rest komt als [BijlageOverdrachtAfgebroken]; een schrijffout, omdat de afnemer weg is,
-     * komt ongewijzigd door. Schrijft niets als [sluitAlsOngeschreven] al was aangeroepen: dan
-     * is het verzoek al voorbij.
+     * Schrijft de bijlage naar [doel] en sluit daarna de magazijn-response.
+     * - Een leesfout in de rest komt als [BijlageOverdrachtAfgebroken], behalve een interrupt: die
+     *   komt ongewijzigd door, met de interrupt-vlag weer gezet.
+     * - Een schrijffout, meestal omdat de afnemer weg is, komt ongewijzigd door.
+     * - Meldt [afnemerWeg] dat de afnemer weg is, of was het verzoek al voorbij voordat het schrijven
+     *   begon, dan volgt [BijlageNietAfgeleverd]. Een write naar een gesloten connection mislukt niet
+     *   altijd; zonder deze controle zou de rest stil uit het magazijn worden leeggelezen.
      */
-    fun schrijfNaar(doel: OutputStream) {
-        if (!toestand.compareAndSet(Toestand.ONGESCHREVEN, Toestand.BEZIG)) return
+    fun schrijfNaar(doel: OutputStream, afnemerWeg: () -> Boolean) {
+        if (!toestand.compareAndSet(Toestand.ONGESCHREVEN, Toestand.BEZIG)) {
+            throw BijlageNietAfgeleverd(IOException("het verzoek was al voorbij"))
+        }
 
         try {
-            doel.write(begin)
+            schrijf { doel.write(begin) }
 
             val bron = rest ?: return
 
             // Het begin gaat de deur uit vóór het eerste stuk van de rest. Daarmee is het antwoord
             // begonnen, en wordt een leesfout hierna een verbroken connection in plaats van een
             // foutantwoord onder de headers van de bijlage.
-            doel.flush()
-            kopieer(bron, doel)
+            schrijf { doel.flush() }
+            kopieer(bron, doel, afnemerWeg)
         } finally {
             toestand.set(Toestand.GESLOTEN)
             sluitMagazijnResponse()
@@ -64,19 +78,42 @@ class BijlageInhoud internal constructor(
         if (toestand.compareAndSet(Toestand.ONGESCHREVEN, Toestand.GESLOTEN)) sluitMagazijnResponse()
     }
 
-    private fun kopieer(bron: InputStream, doel: OutputStream) {
+    /** Of de write die nu loopt al langer dan [grens] op de afnemer wacht. */
+    fun wachtLangerDan(grens: Duration): Boolean {
+        val sinds = schrijftSinds ?: return false
+
+        return System.nanoTime() - sinds > grens.toNanos()
+    }
+
+    private fun kopieer(bron: InputStream, doel: OutputStream, afnemerWeg: () -> Boolean) {
         val buffer = ByteArray(KOPIEER_BYTES)
 
         while (true) {
+            if (afnemerWeg()) throw BijlageNietAfgeleverd(IOException("de afnemer is weg"))
+
             val gelezen = try {
                 bron.read(buffer)
+            } catch (e: InterruptedIOException) {
+                Thread.currentThread().interrupt()
+
+                throw e
             } catch (e: IOException) {
                 throw BijlageOverdrachtAfgebroken(e)
             }
 
             if (gelezen < 0) return
 
-            doel.write(buffer, 0, gelezen)
+            schrijf { doel.write(buffer, 0, gelezen) }
+        }
+    }
+
+    private inline fun schrijf(write: () -> Unit) {
+        schrijftSinds = System.nanoTime()
+
+        try {
+            write()
+        } finally {
+            schrijftSinds = null
         }
     }
 
@@ -95,8 +132,9 @@ class BijlageInhoud internal constructor(
         /**
          * Zoveel leest de uitvraag in voordat ze gaat streamen. Een kleinere bijlage, en dat zijn
          * de bijlagen die in de praktijk voorkomen, wordt binnen de methode helemaal gelezen: een
-         * afgekapte stream geeft dan een 502, en de magazijn-connection is meteen weer vrij. Alleen
-         * een grotere bijlage houdt een worker-thread en een connection vast zolang de afnemer leest.
+         * afgekapte stream geeft dan een 502, de magazijn-connection is meteen weer vrij, en het
+         * antwoord gaat de deur uit zonder een worker-thread vast te houden. Alleen een grotere
+         * bijlage houdt een worker-thread en een connection vast zolang de afnemer leest.
          */
         const val BEGIN_BYTES = 1024 * 1024
 
@@ -107,16 +145,18 @@ class BijlageInhoud internal constructor(
 /** Het magazijn brak de overdracht af nadat het antwoord aan de afnemer al begonnen was. */
 class BijlageOverdrachtAfgebroken(oorzaak: IOException) : IOException("overdracht vanuit het magazijn afgebroken", oorzaak)
 
-/** Schrijven naar de afnemer mislukte; meestal omdat die de download afbrak. */
+/** De bijlage kwam niet volledig bij de afnemer; meestal omdat die de download afbrak. */
 class BijlageNietAfgeleverd(oorzaak: IOException) : IOException("bijlage niet volledig bij de afnemer afgeleverd", oorzaak)
 
 /**
- * Dit antwoord bereikt niemand. Beide excepties ontstaan pas nadat [BijlageInhoud.schrijfNaar] het
- * begin geschreven heeft, en een leesfout in de rest pas na de flush daarvan; het antwoord is dan
- * al begonnen, of de afnemer is weg, en Quarkus reset de connection. Zonder deze mapper kwam de
- * fout, die de resource al logde, een tweede keer als "onverwachte exception" op error in de log.
- * Een globale mapper en geen in de resource: die van de resource geldt niet voor wat er na de
- * methode, bij het schrijven, misgaat.
+ * Dit antwoord bereikt niemand. [BijlageDoorgifte] reset het antwoord zelf voordat ze een van deze
+ * excepties doorgooit, en de StreamingOutput-writer van Quarkus doet dat ook zodra de headers al weg
+ * zijn, vóór deze mapper draait. Vandaar geen problem-body: die zou alleen nog naar een gereset of
+ * gesloten antwoord gaan.
+ *
+ * Zonder deze mapper komt de fout, die [BijlageDoorgifte] al logde, een tweede keer als "onverwachte
+ * exception" op error in de log. Een globale mapper en geen in de resource: die van de resource
+ * geldt niet voor wat er na de methode, bij het schrijven, misgaat.
  */
 class BijlageOverdrachtGestoptMapper {
     @ServerExceptionMapper(BijlageOverdrachtAfgebroken::class, BijlageNietAfgeleverd::class)
