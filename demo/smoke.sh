@@ -172,13 +172,23 @@ fanout "KVK:90000003"  100 "landelijk concern"
 fanout "KVK:90000015"  100 "mappen-demo"
 
 echo "6/6 bijlage via de demo-proxy, met de ontvanger alleen in het cookie"
+# Elke curl en grep hier met `|| true`: onder `set -e` stopt een verbindingsfout of een lege grep
+# het script anders zonder melding, en dan komt de FOUT-regel met de oorzaak nooit op het scherm.
+# Een onbereikbare proxy meldt zich zo als HTTP 000.
 detail=/tmp/smoke-detail-a.json
-curl -sf "$DEMO_PROXY/api/v1/berichten/$bericht_a?magazijnId=$AFZENDER_OIN_A" \
-    -H "X-Ontvanger: $ONTVANGER" > "$detail" \
-    || { echo "FOUT: het detail van het bericht bij magazijn A kwam niet via de demo-proxy"; exit 1; }
+rm -f "$detail"
+status=$(curl -s --max-time 10 -o "$detail" -w '%{http_code}' \
+    "$DEMO_PROXY/api/v1/berichten/$bericht_a?magazijnId=$AFZENDER_OIN_A" \
+    -H "X-Ontvanger: $ONTVANGER" || true)
+
+if [[ "$status" != "200" ]]; then
+    echo "FOUT: het detail van het bericht bij magazijn A via de demo-proxy gaf HTTP $status (verwacht 200):"
+    cat "$detail" 2>/dev/null || true
+    exit 1
+fi
 
 bijlage_adres=$(grep -o '"href"[[:space:]]*:[[:space:]]*"[^"]*/bijlagen/[^"]*"' "$detail" \
-    | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)
 
 if [[ -z "$bijlage_adres" ]]; then
     echo "FOUT: het detail noemt geen bijlage-adres in _links.self:"
@@ -187,11 +197,13 @@ if [[ -z "$bijlage_adres" ]]; then
 fi
 
 bijlage=/tmp/smoke-bijlage-a.txt
-status=$(curl -s -o "$bijlage" -w '%{http_code}' "$DEMO_PROXY$bijlage_adres" -H "Cookie: ontvanger=$ONTVANGER")
+rm -f "$bijlage"
+status=$(curl -s --max-time 10 -o "$bijlage" -w '%{http_code}' "$DEMO_PROXY$bijlage_adres" \
+    -H "Cookie: ontvanger=$ONTVANGER" || true)
 
-if [[ "$status" != "200" ]] || ! grep -qF "$bijlage_tekst" "$bijlage"; then
+if [[ "$status" != "200" ]] || ! grep -qF "$bijlage_tekst" "$bijlage" 2>/dev/null; then
     echo "FOUT: de bijlage via de demo-proxy gaf HTTP $status (verwacht 200 met de aangeleverde tekst):"
-    cat "$bijlage"
+    cat "$bijlage" 2>/dev/null || true
     exit 1
 fi
 
