@@ -84,7 +84,7 @@ Controleer de keten met een rookproef — aanleveren bij beide magazijnen en oph
 Meten hoe lang een ondernemer op zijn berichten wacht, per aantal aangesloten organisaties:
 
 ```bash
-demo/meet-fanout.sh 3        # drie ronden per ondernemer; uitvoer in /tmp/fanout-meting.tsv
+demo/meet-fanout.sh 3        # drie ronden per ondernemer; de tabel komt in de map die het script noemt
 ```
 
 Het script leest de SSE-stroom van de uitvraag mee en zet er een tijdstempel per regel op. Het geeft

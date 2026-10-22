@@ -46,8 +46,12 @@ cat > "$TMP/nep.py" <<'PY'
 import http.server
 import json
 import sys
+import time
 
-modusbestand, logbestand, poortbestand, muurcookie = sys.argv[1:5]
+modusbestand, logbestand, poortbestand, cookiebestand = sys.argv[1:5]
+
+with open(cookiebestand, encoding="utf-8") as bestand:
+    muurcookie = bestand.read()
 
 # Over meerdere regels en met een afsluitende newline, zoals een echte inlogpagina: zo toetst elk
 # geval dat hem gebruikt ook dat het script de `-w`-regel op de láátste regel afsplitst.
@@ -81,9 +85,23 @@ STREAM_GEEN_GESLAAGD = stream("FOUT", 0, 1)
 # melding de query weglaat.
 REDIRECT = "/oauth2/start?rd=%2Fapi%2Fdemo%2Fsessie%2Fverlopen"
 
-NOG_NIET_OPGEHAALD = (409, "application/problem+json", b'{"type":"urn:fbs:fout:nog-niet-opgehaald","status":409}')
-OPHALEN_BEZIG = (409, "application/problem+json", b'{"type":"urn:fbs:fout:ophalen-bezig","status":409}')
-LIJST = (200, "application/json", b'{"_embedded":{"berichten":[]}}')
+
+
+def probleem(status, code):
+    body = {"type": f"urn:fbs:fout:{code}", "title": code, "status": status, "detail": "nep"}
+    return (status, "application/problem+json", json.dumps(body).encode())
+
+
+# De antwoorden van de uitvraag in de vorm van haar spec (`Problem`, `BerichtenLijst`).
+NOG_NIET_OPGEHAALD = probleem(409, "nog-niet-opgehaald")
+UITVRAAG_FOUTEN = {
+    "uitvraag-bezig": probleem(409, "ophalen-bezig"),
+    "uitvraag-mislukt": probleem(503, "ophalen-mislukt"),
+    "uitvraag-geen-opslag": probleem(503, "tijdelijk-niet-beschikbaar"),
+    # Een `type` met escape-codes en een regeleinde: een valse FOUT-regel en een gewiste terminal.
+    "uitvraag-escape": (409, "application/problem+json", json.dumps({"type": "urn:x\u001b[2J\nFOUT: vals"}).encode()),
+}
+LIJST = (200, "application/json", b'{"berichten":[],"aantalNietGeleverd":0,"nietGeleverd":[],"afgekapt":false}')
 
 BEVESTIGD = (200, "application/json", b'{"gewisteKeys":2}')
 
@@ -95,6 +113,9 @@ PANEEL = {
     "307": (307, None, b""),
     "302-zonder-adres": (302, None, b""),
     "301-zelfde-pad": (301, None, b""),
+    # Een absolute Location en een Content-Type met escape-codes: die codeert curl niet zelf.
+    "302-escape": (302, None, b""),
+    "inlogpagina-escape": (200, "text/html\u001b]0;TITEL\u0007", INLOGPAGINA),
     "401": (401, "text/html", INLOGPAGINA),
     "403": (403, "text/html; charset=utf-8", INLOGPAGINA),
     "inlogpagina-200": (200, "text/html; charset=utf-8", INLOGPAGINA),
@@ -107,6 +128,10 @@ PANEEL = {
     # De vorm van DemoFoutMapper: een fout van het paneel zelf, met uitleg.
     "paneel-500": (500, "application/json", b'{"fout":"WRONGPASS invalid username-password\\npair","soort":"RedisException"}'),
     "paneel-403": (403, "application/json", b'{"fout":"Niet toegestaan","soort":"ForbiddenException"}'),
+    # Een uitleg die de terminal een titel geeft en het klembord vult (OSC 0 en OSC 52).
+    "paneel-escape": (500, "application/json", json.dumps({"fout": "\u001b]0;TITEL\u0007\u001b]52;c;aGFjaw==\u0007kwaad"}).encode()),
+    # Groter dan de grens van het script; een paneel dat blijft sturen, vult anders het geheugen.
+    "groot": (200, "application/json", b'{"gewisteKeys":2,"opvulling":"' + b"x" * (2 * 1024 * 1024) + b'"}'),
 }
 
 # Ontvangers met een sessie in "de" Redis die de uitvraag leest.
@@ -146,20 +171,26 @@ class Nep(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         ontvanger = self.headers.get("X-Ontvanger", "")
+        pad, _, query = self.path.partition("?")
         modus = self.modus()
 
-        if self.path == "/q/health/ready":
+        if pad == "/q/health/ready":
             self.antwoord(200, "application/json", b'{"status":"UP"}')
-        elif self.path == "/api/v1/berichten/_ophalen":
+        elif pad == "/api/v1/berichten/_ophalen":
             self.spoor("ophalen " + ontvanger)
+
+            if modus == "ophalen-409":
+                self.antwoord(*UITVRAAG_FOUTEN["uitvraag-bezig"])
+                return
+
             sessies.add(ontvanger)
             self.antwoord(200, "text/event-stream", STREAM_GEEN_GESLAAGD if modus == "geen-geslaagd" else STREAM_GESLAAGD)
-        elif self.path == "/api/v1/berichten":
-            self.spoor("berichten " + ontvanger)
+        elif pad == "/api/v1/berichten":
+            self.spoor(f"berichten {ontvanger} {query} {self.headers.get('Accept', '')}")
 
-            if modus == "uitvraag-bezig":
-                self.antwoord(*OPHALEN_BEZIG)
-            elif modus == "andere-redis-vooraf" or ontvanger in sessies:
+            if modus in UITVRAAG_FOUTEN:
+                self.antwoord(*UITVRAAG_FOUTEN[modus])
+            elif ontvanger in sessies:
                 self.antwoord(*LIJST)
             else:
                 self.antwoord(*NOG_NIET_OPGEHAALD)
@@ -181,7 +212,11 @@ class Nep(http.server.BaseHTTPRequestHandler):
         modus = self.modus()
         leegt = True
 
-        if modus == "muur":
+        if modus == "muur-traag" and self.eerdere_legingen() == 0:
+            # Lang genoeg dat de suite de processen kan bekijken terwijl curl nog wacht.
+            time.sleep(1.5)
+
+        if modus in ("muur", "muur-traag"):
             modus = "bevestigd" if cookie == muurcookie else "302"
         elif modus == "eerst-nul":
             # Zoals het echte paneel op een verse stack: de eerste keer is er nog niets te wissen.
@@ -192,7 +227,7 @@ class Nep(http.server.BaseHTTPRequestHandler):
         elif modus.startswith("andere-redis"):
             # Het paneel bevestigt, maar wist in een Redis waar de uitvraag niet uit leest.
             modus, leegt = "bevestigd", False
-        elif modus in ("geen-geslaagd", "uitvraag-bezig"):
+        elif modus in ("geen-geslaagd", "ophalen-409", "zonder-uitvoer") or modus in UITVRAAG_FOUTEN:
             modus = "bevestigd"
         elif modus == "afgekapt":
             # Het paneel wiste, maar het antwoord komt niet heel aan.
@@ -207,6 +242,8 @@ class Nep(http.server.BaseHTTPRequestHandler):
 
         if modus == "301-zelfde-pad":
             location = "https://elders.invalid/api/demo/sessie/verlopen"
+        elif modus == "302-escape":
+            location = "https://elders.invalid/\u001b]8;;https://kwaad.invalid\u0007inloggen"
         elif 300 <= status < 400 and modus != "302-zonder-adres":
             location = REDIRECT
         else:
@@ -225,7 +262,11 @@ PY
 
 MUURCOOKIE="_oauth2_proxy_0=abc; _oauth2_proxy_1=def"
 
-python3 -I "$TMP/nep.py" "$TMP/modus" "$TMP/log" "$TMP/poort" "$MUURCOOKIE" &
+# Via een bestand en niet als argument: de toets op de argumentenlijst hieronder zou het cookie
+# anders bij de nep-server zelf vinden.
+printf '%s' "$MUURCOOKIE" > "$TMP/muurcookie"
+
+python3 -I "$TMP/nep.py" "$TMP/modus" "$TMP/log" "$TMP/poort" "$TMP/muurcookie" &
 NEP_PID=$!
 
 for _ in $(seq 1 100); do
@@ -291,7 +332,7 @@ gestopt() {
         fout "$wat: '$reden' ontbreekt in: $UIT"
     fi
 
-    if grep -q "CONSOLE_COOKIE" <<< "$UIT"; then
+    if grep -qF "Staat het bedieningspaneel achter een inlogmuur" <<< "$UIT"; then
         heeft_hint=ja
     fi
 
@@ -303,12 +344,12 @@ gestopt() {
 }
 
 # --- geslaagd: de lokale demo-stack, zonder muur ---------------------------------------------------
-# Vier ondernemers, twee rondes: elke ronde precies één keer legen, dan de toets bij de uitvraag, en
-# pas dan ophalen.
-verwacht="verlopen berichten ophalen"
+# Vier ondernemers, twee rondes: elke ronde precies één keer legen vóór het ophalen, en de toets bij
+# de uitvraag één keer, vóór de tweede ronde — elke toets is een regel in het logboek van de uitvraag.
+verwacht="verlopen ophalen verlopen berichten ophalen"
 
-for _ in $(seq 2 8); do
-    verwacht="$verwacht verlopen berichten ophalen"
+for _ in $(seq 3 8); do
+    verwacht="$verwacht verlopen ophalen"
 done
 
 for modus in bevestigd eerst-nul; do
@@ -329,6 +370,16 @@ for modus in bevestigd eerst-nul; do
     else
         ok "$modus: een geslaagde meting meldt geen FOUT"
     fi
+
+    # Op de ondernemer van de eerste ronde, met zo min mogelijk gelezen als de toets misgaat, en met
+    # het type dat de uitvraag bij een fout teruggeeft.
+    grep -qxF "berichten BSN:999993653 paginaGrootte=1 application/json, application/problem+json" <<< "$LOG" \
+        && ok "$modus: de toets vraagt één bericht van de vorige ondernemer, en accepteert problem+json" \
+        || fout "$modus: de toets klopt niet: $(grep '^berichten' <<< "$LOG")"
+
+    grep -qF "verwijder die map zodra de uitvoer als bewijsstuk is vastgelegd" <<< "$UIT" \
+        && ok "$modus: de meting meldt dat de ruwe stromen blijven staan" \
+        || fout "$modus: geen melding over de ruwe stromen: $UIT"
 done
 
 # --- geslaagd: een ronde waarin geen enkel magazijn slaagt -----------------------------------------
@@ -375,6 +426,8 @@ GEVALLEN=(
     "paneel-500|$ADRES gaf HTTP 500 met de uitleg van het paneel: WRONGPASS invalid username-password pair.|nee"
     "paneel-403|$ADRES gaf HTTP 403 met de uitleg van het paneel: Niet toegestaan.|nee"
     "afgekapt|$ADRES gaf geen (volledig) antwoord (curl-exitcode 18).|nee"
+    "groot|$ADRES gaf geen (volledig) antwoord (curl-exitcode 63).|nee"
+    "paneel-escape|$ADRES gaf HTTP 500 met de uitleg van het paneel: ?]0;TITEL??]52;c;aGFjaw==?kwaad.|nee"
 )
 
 for geval in "${GEVALLEN[@]}"; do
@@ -417,28 +470,62 @@ for geval in \
 done
 
 # --- afgebroken: het paneel bevestigt, maar de uitvraag ziet nog een sessie ------------------------
-# Dan leegde het paneel een andere Redis dan waar de gemeten uitvraag uit leest. De toets geldt per
-# ondernemer: met een sessie van vóór de meting stopt die al vóór de eerste ronde, anders vóór de
-# tweede ronde van dezelfde ondernemer.
-for geval in "andere-redis-vooraf|0" "andere-redis|1"; do
-    IFS='|' read -r modus opgehaald <<< "$geval"
+# Dan leegde het paneel een andere Redis dan waar de gemeten uitvraag uit leest. De toets valt na de
+# eerste ronde, op de ondernemer van die ronde: daar stond zeker een sessie. Elke soort antwoord van de
+# uitvraag krijgt zijn eigen uitleg.
+GEVALLEN_UITVRAAG=(
+    "andere-redis|ziet na het legen nog een sessie voor kleine-eenmanszaak, dus het paneel leegde een andere Redis."
+    "uitvraag-mislukt|kent na het legen nog een mislukte ronde voor kleine-eenmanszaak, dus het paneel leegde een andere Redis."
+    "uitvraag-bezig|haalt na het legen op voor kleine-eenmanszaak: het paneel leegde een andere Redis, of er haalt tegelijk iemand anders op voor deze persona."
+    "uitvraag-geen-opslag|bereikt haar tijdelijke berichtenopslag niet."
+)
 
-    draai "$modus" "$NEP" "" 2
-    gestopt "$modus" "de uitvraag op $NEP ziet na het legen nog een sessie voor kleine-eenmanszaak, dus het paneel leegde een andere Redis." nee
+for geval in "${GEVALLEN_UITVRAAG[@]}"; do
+    IFS='|' read -r modus reden <<< "$geval"
 
-    [ "$(aantal ophalen)" -eq "$opgehaald" ] && ok "$modus: $opgehaald ophaalronde(s) vóór de stop" \
-        || fout "$modus: $(aantal ophalen) ophaalrondes vóór de stop, verwacht $opgehaald"
+    draai "$modus"
+    gestopt "$modus" "FOUT: het legen van de sessiecache is niet bevestigd: de uitvraag op $NEP $reden" nee
+
+    [ "$(aantal ophalen)" -eq 1 ] && [ "$(aantal berichten)" -eq 1 ] \
+        && ok "$modus: één ronde gemeten, één toets, de tweede ronde begint niet" \
+        || fout "$modus: $(aantal ophalen) ophaalrondes en $(aantal berichten) toetsen, verwacht 1 en 1"
+
+    # De ondernemer heet bij naam; het identificatienummer (hier een BSN) hoort niet in de melding.
+    if grep -qF "999993653" <<< "$UIT"; then
+        fout "$modus: de melding bevat het identificatienummer: $UIT"
+    else
+        ok "$modus: de melding noemt de ondernemer zonder identificatienummer"
+    fi
 done
 
-# De ondernemer heet bij naam; het identificatienummer (hier een BSN) hoort niet in de melding.
-if grep -qF "999993653" <<< "$UIT"; then
-    fout "andere-redis: de melding bevat het identificatienummer: $UIT"
-else
-    ok "andere-redis: de melding noemt de ondernemer zonder identificatienummer"
-fi
+# --- tekst van een server komt zonder escape-codes op de terminal ---------------------------------
+for modus in paneel-escape uitvraag-escape 302-escape inlogpagina-escape; do
+    draai "$modus"
 
-draai uitvraag-bezig
-gestopt "uitvraag-bezig" "de uitvraag op $NEP gaf na het legen HTTP 409 (urn:fbs:fout:ophalen-bezig) voor kleine-eenmanszaak, en niet nog-niet-opgehaald." nee
+    if grep -q $'[\x1b\x07]' <<< "$UIT"; then
+        fout "$modus: de uitvoer bevat escape-codes van de server: $(cat -v <<< "$UIT")"
+    else
+        ok "$modus: de uitvoer bevat geen escape-codes van de server"
+    fi
+
+    # Een regeleinde in het `type` mag geen eigen, valse FOUT-regel opleveren.
+    if grep -q '^FOUT: vals' <<< "$UIT"; then
+        fout "$modus: de server kon een eigen FOUT-regel tonen: $UIT"
+    else
+        ok "$modus: de server kan geen eigen FOUT-regel tonen"
+    fi
+done
+
+# --- afgebroken: de ophaalronde zelf wordt geweigerd ------------------------------------------------
+# De melding draagt het `type` van de uitvraag, en de naam en niet het nummer van de ondernemer.
+draai ophalen-409
+gestopt "ophalen-409" "FOUT: de ophaalronde voor kleine-eenmanszaak gaf HTTP 409 (urn:fbs:fout:ophalen-bezig)" nee
+
+if grep -qF "999993653" <<< "$UIT"; then
+    fout "ophalen-409: de melding bevat het identificatienummer: $UIT"
+else
+    ok "ophalen-409: de melding noemt de ondernemer zonder identificatienummer"
+fi
 
 # --- afgebroken: een muur met een verlopen of verkeerd cookie --------------------------------------
 draai muur "$NEP" "_oauth2_proxy_0=verlopen"
@@ -454,6 +541,73 @@ fi
 
 [ "$(aantal ophalen)" -eq 0 ] && ok "muur met verlopen cookie: er wordt niets opgehaald" \
     || fout "muur met verlopen cookie: er werd toch opgehaald: $LOG"
+
+# --- het cookie gaat niet onversleuteld over de lijn ------------------------------------------------
+# Een http-adres buiten deze machine weigert het script zodra er een cookie is, nog vóór er een
+# aanroep de deur uit gaat.
+draai muur "http://paneel.invalid" "$MUURCOOKIE"
+gestopt "cookie over http" "FOUT: CONSOLE_COOKIE gaat alleen over https mee, en CONSOLE is http://paneel.invalid." nee
+
+[ "$(aantal verlopen)" -eq 0 ] && ok "cookie over http: er gaat niets naar het paneel" \
+    || fout "cookie over http: het paneel kreeg toch een aanroep: $LOG"
+
+# Een regeleinde in het cookie zou curl als extra header versturen.
+draai muur "$NEP" $'abc\r\nX-Ingevoegd: ja'
+gestopt "cookie met regeleinde" "FOUT: CONSOLE_COOKIE bevat een regeleinde; kopieer alleen de waarde van de Cookie-kopregel." nee
+
+[ "$(aantal verlopen)" -eq 0 ] && ok "cookie met regeleinde: er gaat niets naar het paneel" \
+    || fout "cookie met regeleinde: het paneel kreeg toch een aanroep: $LOG"
+
+# --- zonder UITVOER blijft de tabel in de map van de run -------------------------------------------
+# Een vast pad in /tmp kan een andere gebruiker vooraf als symlink of eigen bestand neerzetten.
+printf '%s' zonder-uitvoer > "$TMP/modus"
+curl -q -sf -X POST "$NEP/nep/reset"
+UIT="$(CURL_HOME="$TMP/curl-home" no_proxy=127.0.0.1 NO_PROXY=127.0.0.1 UITVRAAG="$NEP" CONSOLE="$NEP" \
+    TMPDIR="$TMP/streams" bash "$SCRIPT" 1 2>&1)" || true
+tabel="$(sed -n 's/^Meten over 1 ronde(s); uitvoer in \(.*\), ruwe stromen in .*$/\1/p' <<< "$UIT")"
+
+case "$tabel" in
+    "$TMP/streams/fanout-"*/meting.tsv) in_run=ja ;;
+    *) in_run=nee ;;
+esac
+
+if [ "$in_run" = ja ] && [ "$(wc -l < "$tabel" | tr -d ' ')" -eq 5 ]; then
+    ok "zonder UITVOER: de tabel staat in de map van de run, met een kop en vier rondes"
+else
+    fout "zonder UITVOER: geen tabel in de map van de run ('$tabel'): $UIT"
+fi
+
+# --- het cookie staat in geen enkele argumentenlijst -----------------------------------------------
+# Een argument van een proces is voor iedere gebruiker op de machine te lezen. Het paneel antwoordt
+# het eerste legen traag, zodat curl lang genoeg loopt om in de proceslijst te staan. Het patroon via
+# een bestand: als argument van grep zou het zichzelf vinden.
+printf '%s' "${MUURCOOKIE#*; }" > "$TMP/cookie-patroon"
+printf '%s' muur-traag > "$TMP/modus"
+curl -q -sf -X POST "$NEP/nep/reset"
+: > "$TMP/log"
+
+CURL_HOME="$TMP/curl-home" no_proxy=127.0.0.1 NO_PROXY=127.0.0.1 UITVRAAG="$NEP" CONSOLE="$NEP" \
+    CONSOLE_COOKIE="$MUURCOOKIE" UITVOER="$TMP/uit.tsv" TMPDIR="$TMP/streams" \
+    bash "$SCRIPT" 1 > /dev/null 2>&1 &
+meting=$!
+cookie_gezien=0
+curl_gezien=0
+
+while kill -0 "$meting" 2>/dev/null; do
+    ps -eo args > "$TMP/ps.txt" 2>/dev/null || true
+    cookie_gezien=$((cookie_gezien + $(grep -cFf "$TMP/cookie-patroon" "$TMP/ps.txt" || true)))
+    curl_gezien=$((curl_gezien + $(grep -cF "api/demo/sessie/verlopen" "$TMP/ps.txt" || true)))
+    sleep 0.1
+done
+
+wait "$meting" || true
+
+# Zonder curl in de proceslijst meet deze toets niets.
+[ "$curl_gezien" -gt 0 ] && ok "argumentenlijst: de aanroep van het paneel stond in de proceslijst" \
+    || fout "argumentenlijst: de aanroep van het paneel is nooit gezien; deze toets meet niets"
+
+[ "$cookie_gezien" -eq 0 ] && ok "argumentenlijst: het cookie stond in geen enkele" \
+    || fout "argumentenlijst: het cookie stond $cookie_gezien keer in de proceslijst"
 
 # --- afgebroken: niets bereikbaar op het adres van het paneel --------------------------------------
 draai bevestigd "$DICHT"

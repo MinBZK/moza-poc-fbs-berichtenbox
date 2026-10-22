@@ -27,14 +27,39 @@
 # de eerstvolgende als het cookie onderweg verloopt.
 #
 # curl leest hier nergens ~/.curlrc (`-q`); een proxy of CA-bundel hoort via de omgeving
-# (`https_proxy`, `CURL_CA_BUNDLE`).
+# (`https_proxy`, `SSL_CERT_FILE` — die laatste lezen curl én de Python-meting, `CURL_CA_BUNDLE`
+# alleen curl).
+#
+# De tabel komt in de map van de run, die het script aan het begin noemt; met UITVOER=<pad> komt er
+# na de laatste ronde ook een kopie op dat pad.
+#
+# Elke ronde laat in het Logboek Dataverwerkingen van de uitvraag een regel achter met de ondernemer
+# als betrokkene, en de controle op het legen eenmaal per run nog één. Meet dus alleen met de
+# demo-persona's hieronder, nooit met echte ondernemers.
 set -euo pipefail
 
 UITVRAAG="${UITVRAAG:-http://localhost:8086}"
 CONSOLE="${CONSOLE:-http://localhost:8095}"
 CONSOLE_COOKIE="${CONSOLE_COOKIE:-}"
 RONDES="${1:-3}"
-UITVOER="${UITVOER:-/tmp/fanout-meting.tsv}"
+# Geen vaste standaard in /tmp: daar kan een andere gebruiker het pad vooraf als symlink of als eigen
+# bestand neerzetten, en dan schrijft de meting erdoorheen of leest en wijzigt hij het bewijsstuk.
+UITVOER="${UITVOER:-}"
+API="$UITVRAAG/api/v1"
+
+# Het cookie is een geldige sessie op een rijksaccount. Over http zou het onversleuteld over de lijn
+# gaan, en een redirect naar https merkt het script pas op als het al verstuurd is. Een regeleinde
+# erin zou curl als extra header versturen.
+if [ -n "$CONSOLE_COOKIE" ]; then
+    case "$CONSOLE_COOKIE" in
+        *$'\r'* | *$'\n'*) echo "FOUT: CONSOLE_COOKIE bevat een regeleinde; kopieer alleen de waarde van de Cookie-kopregel." >&2; exit 1 ;;
+    esac
+
+    case "$CONSOLE" in
+        https://* | http://localhost | http://localhost[:/]* | http://127.0.0.1 | http://127.0.0.1[:/]*) ;;
+        *) echo "FOUT: CONSOLE_COOKIE gaat alleen over https mee, en CONSOLE is $CONSOLE." >&2; exit 1 ;;
+    esac
+fi
 
 # Eigen map per run. Zonder dat overschrijft een tweede meting de stromen van de eerste, en juist
 # die ruwe stromen zijn nodig om een conclusie later nog na te kunnen rekenen.
@@ -52,37 +77,50 @@ ONDERNEMERS=(
 curl -q -sf --max-time 30 "$UITVRAAG/q/health/ready" > /dev/null \
     || { echo "FOUT: de uitvraag op $UITVRAAG is niet gezond; draait de stack?" >&2; exit 1; }
 
-# Het cookie als array en niet als losse string: `-H "Cookie: $x"` zonder quotes zou op de spatie
-# splitsen en curl een half argument geven. De `[@]+`-vorm houdt het geheel ook onder `set -u` goed
-# wanneer er geen cookie is.
-COOKIE_ARG=()
-
-if [ -n "$CONSOLE_COOKIE" ]; then
-    COOKIE_ARG=(-H "Cookie: $CONSOLE_COOKIE")
-fi
+# Het cookie via een file descriptor en niet als argument: een argument van curl is zolang de
+# aanroep loopt voor iedere gebruiker op de machine te lezen (`ps`, /proc/<pid>/cmdline). `printf` is
+# een builtin, dus ook daar komt het niet in een argumentenlijst. `-q` blijft het eerste argument.
+paneel_curl() {
+    if [ -n "$CONSOLE_COOKIE" ]; then
+        curl -q -H @<(printf 'Cookie: %s\n' "$CONSOLE_COOKIE") "$@"
+    else
+        curl -q "$@"
+    fi
+}
 
 VERVAL_PAD="/api/demo/sessie/verlopen"
 VERVAL_ADRES="$CONSOLE$VERVAL_PAD"
 
+# De ondernemer van de vorige ronde, en of de uitvraag al bevestigde dat het paneel haar Redis leegt.
+VORIGE_NAAM=""
+VORIGE_ONTVANGER=""
+GETOETST=nee
+
 # Elke ronde begint met een lege sessiecache: `_ophalen` leest die cache niet, maar zo begint elke
 # ronde vanuit dezelfde toestand, zonder `:lock` van een eerdere, afgebroken aanvraag voor dezelfde
 # ondernemer. Deze stap mag dus niet stil mislukken, en twee dingen moeten kloppen:
-#   - het paneel bevestigt het legen zelf (`gewisteKeys`). De statuscode alleen bewijst niets: een
+#   - het paneel bevestigt elk legen zelf (`gewisteKeys`). De statuscode alleen bewijst niets: een
 #     inlogmuur kan doorverwijzen, wat `curl -f` doorlaat, of de inlogpagina met 200 teruggeven;
 #   - de gemeten uitvraag ziet daarna geen sessie meer. Pas dat bewijst dat het paneel dezelfde
-#     Redis leegde als waar de uitvraag uit leest.
+#     Redis leegde als waar de uitvraag uit leest. Eén keer per run volstaat, want het paneel wist
+#     alle sessies tegelijk, en elke toets is een verwerking in het logboek van de uitvraag. Op de
+#     ondernemer van de vorige ronde: die had zeker een sessie, dus "geen sessie meer" bewijst iets.
 vervalcache() {
     leeg_via_paneel
-    toets_bij_uitvraag "$1" "$2"
+
+    if [ "$GETOETST" = nee ] && [ -n "$VORIGE_ONTVANGER" ]; then
+        toets_bij_uitvraag "$VORIGE_NAAM" "$VORIGE_ONTVANGER"
+        GETOETST=ja
+    fi
 }
 
 leeg_via_paneel() {
     local antwoord body status content_type doel uitleg rc=0 oordeel=0
 
     # `-q` als eerste argument: anders leest curl de eigen ~/.curlrc, en een `location`, `fail` of
-    # `include` daarin verandert wat hier binnenkomt. `--max-time`: een paneel dat niet antwoordt,
-    # zou de meting anders zonder melding laten hangen.
-    antwoord="$(curl -q -sS --max-time 60 -X POST "$VERVAL_ADRES" ${COOKIE_ARG[@]+"${COOKIE_ARG[@]}"} \
+    # `include` daarin verandert wat hier binnenkomt. `--max-time` en `--max-filesize`: een paneel dat
+    # niet antwoordt of blijft sturen, zou de meting anders laten hangen of het geheugen laten vullen.
+    antwoord="$(paneel_curl -sS --max-time 60 --max-filesize 1M -X POST "$VERVAL_ADRES" \
         -w '\n%{http_code}|%{content_type}|%{redirect_url}')" || rc=$?
 
     if [ "$rc" -ne 0 ]; then
@@ -93,6 +131,8 @@ leeg_via_paneel() {
     # leeg Content-Type de redirect een veld op.
     IFS='|' read -r status content_type doel <<< "${antwoord##*$'\n'}"
     body="${antwoord%$'\n'*}"
+    content_type="$(leesbaar "$content_type")"
+    doel="$(leesbaar "$doel")"
 
     case "$status" in
         2??)
@@ -133,12 +173,16 @@ leeg_via_paneel() {
 }
 
 # Zonder sessie geeft de uitvraag `409` met `type` `nog-niet-opgehaald`, net als vóór een eerste
-# ophaalronde. Op `type` en niet op `title` of `detail`: alleen de codes liggen in de API vast.
+# ophaalronde. Op `type` en niet op `title` of `detail`: alleen de codes liggen in de API vast. Dat een
+# geleegde sessie déze code geeft, is wel gedrag van de uitvraag en geen vastgelegd contract — de spec
+# omschrijft hem als "nog geen ophaalronde geweest". Verandert dat, dan stopt de meting hier luid.
+# `paginaGrootte=1`: gaat de toets mis, dan wordt er zo min mogelijk van de ondernemer gelezen.
 toets_bij_uitvraag() {
     local naam="$1" ontvanger="$2" antwoord status type rc=0
 
-    antwoord="$(curl -q -sS --max-time 30 -H "X-Ontvanger: $ontvanger" -H "Accept: application/json" \
-        "$UITVRAAG/api/v1/berichten" -w '\n%{http_code}')" || rc=$?
+    antwoord="$(curl -q -sS --max-time 30 --max-filesize 1M -H "X-Ontvanger: $ontvanger" \
+        -H "Accept: application/json, application/problem+json" \
+        "$API/berichten?paginaGrootte=1" -w '\n%{http_code}')" || rc=$?
 
     if [ "$rc" -ne 0 ]; then
         stop_meting "de uitvraag op $UITVRAAG gaf na het legen geen (volledig) antwoord (curl-exitcode $rc)"
@@ -147,15 +191,33 @@ toets_bij_uitvraag() {
     status="${antwoord##*$'\n'}"
     type="$(probleemtype <<< "${antwoord%$'\n'*}")" || true
 
-    if [ "$status" = 409 ] && [ "$type" = "urn:fbs:fout:nog-niet-opgehaald" ]; then
-        return 0
-    fi
+    case "$status|$type" in
+        "409|urn:fbs:fout:nog-niet-opgehaald")
+            return 0
+            ;;
+        "200|"*)
+            stop_meting "de uitvraag op $UITVRAAG ziet na het legen nog een sessie voor $naam, dus het paneel leegde een andere Redis"
+            ;;
+        "503|urn:fbs:fout:ophalen-mislukt")
+            stop_meting "de uitvraag op $UITVRAAG kent na het legen nog een mislukte ronde voor $naam, dus het paneel leegde een andere Redis"
+            ;;
+        "409|urn:fbs:fout:ophalen-bezig")
+            stop_meting "de uitvraag op $UITVRAAG haalt na het legen op voor $naam: het paneel leegde een andere Redis, of er haalt tegelijk iemand anders op voor deze persona"
+            ;;
+        "503|urn:fbs:fout:tijdelijk-niet-beschikbaar")
+            stop_meting "de uitvraag op $UITVRAAG bereikt haar tijdelijke berichtenopslag niet"
+            ;;
+        *)
+            stop_meting "de uitvraag op $UITVRAAG gaf na het legen HTTP $status${type:+ ($type)} voor $naam, en niet nog-niet-opgehaald"
+            ;;
+    esac
+}
 
-    if [ "$status" = 200 ]; then
-        stop_meting "de uitvraag op $UITVRAAG ziet na het legen nog een sessie voor $naam, dus het paneel leegde een andere Redis"
-    fi
-
-    stop_meting "de uitvraag op $UITVRAAG gaf na het legen HTTP $status${type:+ ($type)} voor $naam, en niet nog-niet-opgehaald"
+# Tekst uit een antwoord gaat naar de terminal van wie meet. Zonder dit kan een server daar met
+# escape-codes een link vervalsen, het klembord vullen of een valse FOUT-regel tonen — net op het
+# moment dat de melding om een vers cookie vraagt.
+leesbaar() {
+    printf '%s' "$1" | LC_ALL=C tr -c '[:print:]' '?'
 }
 
 # Een eigen exitcode en niet 1: die geeft Python ook bij een traceback, en een ontbrekende python3
@@ -186,8 +248,9 @@ if type(gewist) is int:
     print(gewist)
     sys.exit(0)
 
+# Alleen afdrukbare tekens: zie `leesbaar` hierboven, en isprintable() weert ook C1- en bidi-tekens.
 if isinstance(antwoord.get("fout"), str):
-    print(" ".join(antwoord["fout"].split())[:200])
+    print("".join(c if c.isprintable() else "?" for c in " ".join(antwoord["fout"].split()))[:200])
 
 sys.exit(niet_bevestigd)
 ' "$NIET_BEVESTIGD"
@@ -205,14 +268,14 @@ except ValueError:
     sys.exit(0)
 
 if isinstance(antwoord, dict) and isinstance(antwoord.get("type"), str):
-    print(antwoord["type"])
+    print("".join(c if c.isprintable() else "?" for c in antwoord["type"])[:200])
 '
 }
 
 stop_meting() {
     echo "FOUT: het legen van de sessiecache is niet bevestigd: $1." >&2
     echo "      Een ronde hoort met een lege sessiecache te beginnen; de meting stopt." >&2
-    echo "      De rondes tot nu toe staan in $TABEL; $UITVOER is niet bijgewerkt." >&2
+    echo "      De rondes tot nu toe staan in $TABEL${UITVOER:+; $UITVOER is niet bijgewerkt}." >&2
 
     if [ "${2:-}" = muur ]; then
         echo "      Staat het bedieningspaneel achter een inlogmuur, geef dan het sessiecookie van een" >&2
@@ -225,17 +288,24 @@ stop_meting() {
 # Eén ophaalronde: aanvraag, klok en ontleding in hetzelfde proces. Schrijft de ruwe stroom met een
 # tijdstempel in milliseconden sinds het versturen van de aanvraag, en print de zes getallen.
 meet() {
-    python3 - "$UITVRAAG" "$1" "$2" <<'PY'
+    python3 - "$API" "$1" "$2" "$3" <<'PY'
 import json
 import sys
 import time
 import urllib.error
 import urllib.request
 
-uitvraag, ontvanger, bestand = sys.argv[1:4]
+# De naam voor de meldingen, het identificatienummer alleen voor de aanvraag.
+api, naam, ontvanger, bestand = sys.argv[1:5]
+
+
+def leesbaar(tekst):
+    """Tekst van de server zonder escape-codes, voor de terminal; zie `leesbaar` in het script."""
+    return "".join(c if c.isprintable() else "?" for c in str(tekst))[:200]
+
 
 verzoek = urllib.request.Request(
-    f"{uitvraag}/api/v1/berichten/_ophalen",
+    f"{api}/berichten/_ophalen",
     headers={"X-Ontvanger": ontvanger, "Accept": "text/event-stream"},
     method="GET",
 )
@@ -258,12 +328,22 @@ try:
                 except json.JSONDecodeError:
                     print(f"WAARSCHUWING: onleesbare SSE-regel na {verstreken} ms", file=sys.stderr)
 
+except urllib.error.HTTPError as fout:
+    # Vóór de stroom: het `type` zegt wat er misging, de reden-tekst van de status niet.
+    try:
+        probleem = json.loads(fout.read())
+        soort = probleem.get("type") if isinstance(probleem, dict) else None
+    except ValueError:
+        soort = None
+
+    print(f"FOUT: de ophaalronde voor {naam} gaf HTTP {fout.code}" + (f" ({leesbaar(soort)})" if isinstance(soort, str) else ""), file=sys.stderr)
+    sys.exit(1)
 except (urllib.error.URLError, TimeoutError) as fout:
-    print(f"FOUT: de ophaalronde voor {ontvanger} mislukte: {fout}", file=sys.stderr)
+    print(f"FOUT: de ophaalronde voor {naam} mislukte: {leesbaar(fout)}", file=sys.stderr)
     sys.exit(1)
 
 if not regels:
-    print(f"FOUT: geen enkel event ontvangen voor {ontvanger}; de stroom staat in {bestand}", file=sys.stderr)
+    print(f"FOUT: geen enkel event ontvangen voor {naam}; de stroom staat in {bestand}", file=sys.stderr)
     sys.exit(1)
 
 # Het slotevent draagt de tellingen van de uitvraag zelf. Ontbreekt het, dan is de stroom vroegtijdig
@@ -293,7 +373,7 @@ if compleet_gemeten:
             file=sys.stderr,
         )
 else:
-    print(f"WAARSCHUWING: de stroom eindigde niet met 'ophalen-gereed' maar met '{laatste.get('event')}'", file=sys.stderr)
+    print(f"WAARSCHUWING: de stroom eindigde niet met 'ophalen-gereed' maar met '{leesbaar(laatste.get('event'))}'", file=sys.stderr)
 
 # Een leeg veld en geen nul: nul is de béste denkbare uitkomst en zou als zodanig in de mediaan
 # meetellen, terwijl 'geen enkel bericht' juist de slechtste is.
@@ -306,13 +386,13 @@ print(f"{gestart}|{len(geslaagd)}|{mislukt}|{niet_opgehaald}|{eerste}|{compleet}
 PY
 }
 
-# Eerst in de map van deze run, en pas na de laatste ronde naar UITVOER: een meting die stopt, laat
-# de uitvoer van de vorige dan staan, en een halve tabel is niet voor een hele aan te zien.
+# In de map van deze run, en pas na de laatste ronde naar UITVOER: een meting die stopt, laat de
+# uitvoer van de vorige dan staan, en een halve tabel is niet voor een hele aan te zien.
 TABEL="$STROMEN/meting.tsv"
 
 printf 'ondernemer\tronde\torganisaties\tbevraagd\tgeslaagd\tmislukt\tniet_opgehaald\teerste_ms\tcompleet_ms\n' > "$TABEL"
 
-echo "Meten over $RONDES ronde(s); uitvoer in $UITVOER, ruwe stromen in $STROMEN"
+echo "Meten over $RONDES ronde(s); uitvoer in ${UITVOER:-$TABEL}, ruwe stromen in $STROMEN"
 
 for regel in "${ONDERNEMERS[@]}"; do
     IFS='|' read -r naam ontvanger verwacht <<< "$regel"
@@ -324,7 +404,9 @@ for regel in "${ONDERNEMERS[@]}"; do
 
         # Eerst in een variabele: bij een `read <<<` uit een commando-substitutie blijft een
         # mislukte ronde onopgemerkt, want dan telt alleen de exitcode van `read`.
-        uitkomst="$(meet "$ontvanger" "$STROMEN/$naam-$ronde.tsv")"
+        uitkomst="$(meet "$naam" "$ontvanger" "$STROMEN/$naam-$ronde.tsv")"
+        VORIGE_NAAM="$naam"
+        VORIGE_ONTVANGER="$ontvanger"
 
         IFS='|' read -r bevraagd geslaagd mislukt niet_opgehaald eerste compleet <<< "$uitkomst"
 
@@ -342,12 +424,14 @@ for regel in "${ONDERNEMERS[@]}"; do
     done
 done
 
-cp "$TABEL" "$UITVOER"
+if [ -n "$UITVOER" ]; then
+    cp "$TABEL" "$UITVOER"
+fi
 
 echo
 echo "Samenvatting (mediaan over $RONDES ronde(s)):"
 
-python3 - "$UITVOER" <<'PY'
+python3 - "$TABEL" <<'PY'
 import statistics
 import sys
 from collections import defaultdict
@@ -387,3 +471,8 @@ for naam, metingen in per_ondernemer.items():
         f"{mediaan([m[5] for m in metingen]):>8s}ms"
     )
 PY
+
+# Bewust niet opgeruimd: de ruwe stromen zijn het bewijs om een conclusie later na te rekenen. Ze
+# horen wel niet langer te blijven staan dan nodig.
+echo
+echo "De ruwe stromen blijven in $STROMEN staan; verwijder die map zodra de uitvoer als bewijsstuk is vastgelegd."
