@@ -76,13 +76,21 @@ case "${methode} ${url}" in
   "POST "*"/v1/contracts")
     touch "${dir}/ingediend"
     echo '{"content_hash":"nieuw-contract"}' ;;
-  "PUT "*) echo '{}' ;;
+  "PUT "*)
+    touch "${dir}/geaccepteerd"
+    echo '{}' ;;
   "GET "*"/v1/contracts?"*)
     pagina=1
     case "$url" in *"cursor="*) pagina="${url##*cursor=c}" ;; esac
 
     # faal-<n>: pagina n geeft steeds een HTTP-fout. faal-eenmalig-na: de eerste lezing ná indienen
     # faalt, de volgende niet — een manager die even hapert terwijl het script pollt.
+    # faal-na-accept: elke lezing ná de accept faalt — de verificatie van stap 4 strandt.
+    if [ -f "${dir}/geaccepteerd" ] && [ -f "${dir}/faal-na-accept" ]; then
+      echo "curl: (22) The requested URL returned error: 503" >&2
+      exit 22
+    fi
+
     if [ -f "${dir}/faal-${pagina}" ]; then
       echo "curl: (22) The requested URL returned error: 503" >&2
       exit 22
@@ -131,9 +139,9 @@ draai() {
 aantal() { grep -c "^$1 " "${TMP}/stub/aanroepen.log" 2>/dev/null || true; }
 
 # --- Een tweede run met een bestaand contract dient niets in ------------------------------------
-# Leeg, één pagina en meer pagina's. De oude lijst-aanroep las alleen de eerste pagina: stond het
-# eigen contract daar niet meer op, dan diende elke run een nieuw in. Een lege lijst is wél een
-# reden om opnieuw op te zetten — die moet zich blijven onderscheiden van een onleesbare lijst.
+# Leeg, één pagina en meer pagina's. Wie alleen de eerste pagina leest, ziet een eigen contract
+# verderop niet en dient elke run een nieuw in. Een lege lijst is wél een reden om opnieuw op te
+# zetten — die moet zich blijven onderscheiden van een onleesbare lijst.
 for geval in leeg een-pagina meer-paginas; do
   opzet
   met_state bestaand
@@ -206,8 +214,47 @@ fi
 rm -rf "$TMP"
 
 # --- Een onleesbare lijst leidt niet tot indienen ----------------------------------------------
-# Vroeger werd een mislukte lijst een WARN en daarna een lege lijst; het script diende dan een
-# tweede contract in naast het bestaande.
+# Als lege lijst gelezen zou een mislukte lezing het script een tweede contract laten indienen naast
+# het bestaande.
+# --- Een verificatie die na de accept strandt, levert de volgende run geen tweede contract op ----
+# De state-file staat er dan al; de volgende run beoordeelt het geaccepteerde contract in plaats
+# van er een tweede naast in te dienen.
+opzet
+pagina 1 ja
+jq -c --argjson c "$(contract "$NIEUW" "$THUMB")" '.contracts += [$c]' "${TMP}/stub/pagina-1.json" \
+  > "${TMP}/stub/pagina-1.na.json"
+touch "${TMP}/stub/faal-na-accept"
+draai
+rc_eerste=$RC
+rm "${TMP}/stub/faal-na-accept"
+draai
+
+if [ "$rc_eerste" -eq 0 ] || [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 1 ] \
+   || ! grep -q "GRANT-HASH: grant-${NIEUW}" <<<"$UIT"; then
+  fout "gestrande verificatie (exit ${rc_eerste} dan ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
+else
+  echo "OK: na een gestrande verificatie neemt de volgende run het contract over zonder nieuw indienen"
+fi
+rm -rf "$TMP"
+
+# --- Een vastgelegd contract dat niet geldig is, wordt opnieuw opgezet -------------------------
+# Ook zonder accept-handtekening in de lijst: de state-poort geldt voor beide takken van stap 1.
+opzet
+jq -nc --argjson c "$(contract bestaand "$THUMB")" \
+  '{ contracts: [ $c | del(.signatures) | .state = "CONTRACT_STATE_PROPOSED" ], pagination: { next_cursor: "" } }' \
+  > "${TMP}/stub/pagina-1.json"
+jq -c --argjson c "$(contract "$NIEUW" "$THUMB")" '.contracts += [$c]' "${TMP}/stub/pagina-1.json" \
+  > "${TMP}/stub/pagina-1.na.json"
+met_state bestaand
+draai
+
+if [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 1 ] || ! grep -q "GRANT-HASH: grant-${NIEUW}" <<<"$UIT"; then
+  fout "ongeldig vastgelegd contract niet vervangen (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
+else
+  echo "OK: een vastgelegd contract dat niet geldig is, wordt vervangen door een nieuw"
+fi
+rm -rf "$TMP"
+
 # De melding telt mee: zonder die check slaagt een geval ook als het script om een heel andere
 # reden stopt, bijvoorbeeld op een aanroep die de stub niet kent.
 for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor"; do

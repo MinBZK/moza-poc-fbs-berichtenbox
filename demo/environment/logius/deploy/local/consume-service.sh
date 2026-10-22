@@ -116,7 +116,17 @@ if [ -f "$STATE_FILE" ]; then
             echo "consume: state-file-contract $SAVED draagt de accept-handtekening, maar manager-state is $CSTATE (niet CONTRACT_STATE_VALID) — opnieuw opzetten." ;;
         esac ;;
       unknown)
-        if printf '%s' "$LIST" | grep -qF "$SAVED"; then
+        # Dezelfde state-poort als hierboven: de state-file wordt al ná de accept geschreven, dus
+        # hij kan wijzen naar een contract dat de verificatie van die run niet doorkwam.
+        CSTATE=$(fsc_contract_state "$LIST" "$SAVED")
+        case "$CSTATE" in
+          valid|contract_state_valid|unknown) ;;
+          *)
+            echo "consume: state-file-contract $SAVED heeft manager-state $CSTATE (niet CONTRACT_STATE_VALID) — opnieuw opzetten."
+            SAVED="" ;;
+        esac
+
+        if [ -n "$SAVED" ] && printf '%s' "$LIST" | grep -qF "$SAVED"; then
           GRANT=$(fsc_grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
           [ "$GRANT" != "unknown" ] || {
             echo "FAIL: contract $SAVED aanwezig, maar kon geen grant-hash lezen (afwijkende JSON-vorm?)." >&2
