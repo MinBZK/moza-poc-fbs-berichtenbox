@@ -8,6 +8,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -41,6 +42,7 @@ class MagazijnRouterTest {
             config = object : MagazijnRouterConfig {
                 override fun connectTimeout(): Duration = Duration.ofSeconds(2)
                 override fun readTimeout(): Duration = Duration.ofSeconds(10)
+                override fun bijlageIdleTimeout(): Duration = Duration.ofSeconds(60)
             },
             tlsRegistry = testTlsRegistry(),
         )
@@ -60,6 +62,25 @@ class MagazijnRouterTest {
         val tweede = router.forMagazijn(oinA)
 
         assertSame(eerste, tweede)
+    }
+
+    @Test
+    fun `voorBijlagen geeft een eigen client, en hergebruikt die per magazijnId`() {
+        val router = routerMet(oinA to "http://localhost:8081")
+
+        val bijlagen = router.voorBijlagen(oinA)
+
+        assertNotSame(router.forMagazijn(oinA), bijlagen, "een eigen client, dus een eigen connection pool")
+        assertSame(bijlagen, router.voorBijlagen(oinA))
+    }
+
+    @Test
+    fun `voorBijlagen gooit 502 bij een onbekende magazijnId`() {
+        val router = routerMet(oinA to "http://localhost:8081")
+
+        val fout = assertThrows(WebApplicationException::class.java) { router.voorBijlagen(onbekendeOin) }
+
+        assertEquals(502, fout.response.status)
     }
 
     @Test

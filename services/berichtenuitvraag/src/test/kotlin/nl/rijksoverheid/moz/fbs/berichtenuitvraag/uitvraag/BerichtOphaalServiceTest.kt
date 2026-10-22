@@ -32,6 +32,7 @@ class BerichtOphaalServiceTest {
     private val magazijn: MagazijnClient = mockk()
     private val router: MagazijnRouter = mockk {
         every { forMagazijn(any()) } returns magazijn
+        every { voorBijlagen(any()) } returns magazijn
     }
     private val afzendernamen: Afzendernamen = mockk {
         every { naamVoor(any<Bericht>()) } returns "Magazijn A"
@@ -566,8 +567,8 @@ class BerichtOphaalServiceTest {
     @CsvSource(
         nullValues = ["NULL"],
         value = [
-            "70000, 70000",
-            "' 70000 ', 70000",
+            "2000000, 2000000",
+            "' 2000000 ', 2000000",
             "0, 0",
             "NULL, NULL",
             "'', NULL",
@@ -579,7 +580,7 @@ class BerichtOphaalServiceTest {
     fun `de lengte van een grotere bijlage komt uit een geldige Content-Length`(contentLength: String?, verwacht: Long?) {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
-        val resp = streamendeResponse(ByteArrayInputStream(ByteArray(70_000)), contentLength)
+        val resp = streamendeResponse(ByteArrayInputStream(ByteArray(BijlageInhoud.BEGIN_BYTES + 1)), contentLength)
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
 
@@ -589,13 +590,50 @@ class BerichtOphaalServiceTest {
         bijlage.sluitAlsOngeschreven()
     }
 
+    // Een 3xx gaat niet als bijlage door: de client volgt geen redirects, dus de body is niet de
+    // bijlage.
+    @ParameterizedTest
+    @ValueSource(ints = [199, 301, 302, 304, 307])
+    fun `een antwoord dat geen 2xx is, wordt geen bijlage`(status: Int) {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val resp = mockk<Response>(relaxed = true) {
+            every { this@mockk.status } returns status
+            every { getHeaderString("Content-Type") } returns "text/html"
+        }
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+        }
+
+        assertEquals(502, ex.response.status)
+        verify(exactly = 1) { resp.close() }
+    }
+
+    @Test
+    fun `een bijlage gaat via de eigen client voor bijlagen`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
+        stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
+
+        service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+
+        verify(exactly = 1) { router.voorBijlagen("magazijn-a") }
+        verify(exactly = 0) { router.forMagazijn(any()) }
+    }
+
     @Test
     fun `een leesfout in het begin geeft een 502 en sluit de magazijn-response`() {
         val berichtId = UUID.randomUUID()
         val bijlageId = UUID.randomUUID()
+
         val afgekapt = object : InputStream() {
             override fun read(): Int = throw java.io.IOException("verbinding verbroken")
         }
+
         val resp = streamendeResponse(afgekapt, contentLength = "100000")
         stubBerichtLookup(berichtId)
         every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp

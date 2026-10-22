@@ -40,33 +40,52 @@ class MagazijnRouter(
 
     private val clients = ConcurrentHashMap<String, MagazijnClient>()
 
+    private val bijlageClients = ConcurrentHashMap<String, MagazijnClient>()
+
     fun forMagazijn(magazijnId: String): MagazijnClient =
-        clients.computeIfAbsent(magazijnId) { id ->
-            val inschrijving = inschrijvingVoor(id)
+        clients.computeIfAbsent(magazijnId) { id -> bouw(id, voorBijlagen = false) }
 
-            // Builder-fouten (RestClientDefinitionException e.d.) zijn een config-/
-            // topologie-probleem, geen bug in deze service. Zonder deze wrap ontsnapt
-            // de raw exception langs mapUpstreamFout naar een 500 die on-call ten
-            // onrechte de uitvraag-service in stuurt; map daarom expliciet → 502.
-            // Catch op Exception (niet Throwable): Error-types (OutOfMemoryError,
-            // LinkageError) moeten omhoog propageren naar het JVM-vangnet, niet als
-            // upstream-storing gemaskeerd worden.
-            try {
-                val builder = QuarkusRestClientBuilder.newBuilder()
-                    .baseUri(inschrijving.url)
-                    .connectTimeout(config.connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
-                    .readTimeout(config.readTimeout().toMillis(), TimeUnit.MILLISECONDS)
+    /**
+     * Een eigen client, en daarmee een eigen connection pool, voor bijlage-downloads. Een gestreamde
+     * bijlage houdt zijn connection vast zolang de afnemer leest; in een gedeelde pool zouden trage
+     * downloads het openen, bijwerken en verwijderen van berichten bij dat magazijn verdringen.
+     */
+    fun voorBijlagen(magazijnId: String): MagazijnClient =
+        bijlageClients.computeIfAbsent(magazijnId) { id -> bouw(id, voorBijlagen = true) }
 
-                fscFilterVoor(inschrijving)?.let { builder.register(it) }
-                outwayTlsConfiguratie(inschrijving)?.let { builder.tlsConfiguration(it) }
+    private fun bouw(id: String, voorBijlagen: Boolean): MagazijnClient {
+        val inschrijving = inschrijvingVoor(id)
 
-                builder.build(MagazijnClient::class.java)
-            } catch (e: Exception) {
-                log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, inschrijving.url)
+        // Builder-fouten (RestClientDefinitionException e.d.) zijn een config-/
+        // topologie-probleem, geen bug in deze service. Zonder deze wrap ontsnapt
+        // de raw exception langs mapUpstreamFout naar een 500 die on-call ten
+        // onrechte de uitvraag-service in stuurt; map daarom expliciet → 502.
+        // Catch op Exception (niet Throwable): Error-types (OutOfMemoryError,
+        // LinkageError) moeten omhoog propageren naar het JVM-vangnet, niet als
+        // upstream-storing gemaskeerd worden.
+        try {
+            val builder = QuarkusRestClientBuilder.newBuilder()
+                .baseUri(inschrijving.url)
+                .connectTimeout(config.connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
+                .readTimeout(config.readTimeout().toMillis(), TimeUnit.MILLISECONDS)
 
-                throw upstreamBadGateway("magazijn-client-configuratie ongeldig voor '$id'", e)
+            fscFilterVoor(inschrijving)?.let { builder.register(it) }
+            outwayTlsConfiguratie(inschrijving)?.let { builder.tlsConfiguration(it) }
+
+            if (voorBijlagen) {
+                builder.httpClientOptionsCustomizer { opties ->
+                    opties.idleTimeout = config.bijlageIdleTimeout().toMillis().toInt()
+                    opties.idleTimeoutUnit = TimeUnit.MILLISECONDS
+                }
             }
+
+            return builder.build(MagazijnClient::class.java)
+        } catch (e: Exception) {
+            log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, inschrijving.url)
+
+            throw upstreamBadGateway("magazijn-client-configuratie ongeldig voor '$id'", e)
         }
+    }
 
     private fun inschrijvingVoor(id: String): Magazijninschrijving {
         // magazijnId == afzender-OIN (register-conventie). Specifiek

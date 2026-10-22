@@ -18,4 +18,13 @@ interface MagazijnRouterConfig {
 
     @WithDefault("PT10S")
     fun readTimeout(): Duration
+
+    /**
+     * Hoe lang een connection van de bijlage-client stil mag liggen. De read-timeout stopt zodra de
+     * headers binnen zijn; zonder deze grens houdt een magazijn dat midden in een bijlage stilvalt,
+     * of een half-open connection, zijn plek in de pool onbeperkt vast. Ligt de overdracht stil
+     * omdat de afnemer niet leest, dan gaat ze na deze tijd ook dicht.
+     */
+    @WithDefault("PT60S")
+    fun bijlageIdleTimeout(): Duration
 }

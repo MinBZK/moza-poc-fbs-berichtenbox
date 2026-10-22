@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -41,7 +43,7 @@ class BijlageInhoudTest {
     @Test
     fun `met rest gaat eerst het begin door, geflusht, en dan de rest`() {
         val rest = ByteArray(40_000) { it.toByte() }
-        val doel = OpnameStroom()
+        val doel = OpnameStream()
 
         inhoud(byteArrayOf(9, 9), ByteArrayInputStream(rest)).schrijfNaar(doel)
 
@@ -64,16 +66,15 @@ class BijlageInhoudTest {
         verify(exactly = 1) { response.close() }
     }
 
-    @Test
-    fun `een schrijffout is geen afgebroken overdracht`() {
-        val doel = object : OutputStream() {
-            override fun write(b: Int) = throw IOException("afnemer weg")
-
-            override fun write(b: ByteArray, off: Int, len: Int) = throw IOException("afnemer weg")
-        }
+    // Het onderscheid tussen lezen en schrijven zit in het kopiëren van de rest; daarom ook een
+    // schrijffout ná de flush, en niet alleen op het begin.
+    @ParameterizedTest
+    @EnumSource(Schrijfmoment::class)
+    fun `een schrijffout is geen afgebroken overdracht`(moment: Schrijfmoment) {
+        val doel = FaaltBij(moment)
 
         val fout = assertThrows(IOException::class.java) {
-            inhoud(byteArrayOf(1), ByteArrayInputStream(byteArrayOf(2))).schrijfNaar(doel)
+            inhoud(byteArrayOf(1), ByteArrayInputStream(ByteArray(40_000))).schrijfNaar(doel)
         }
 
         assertFalse(fout is BijlageOverdrachtAfgebroken)
@@ -147,8 +148,27 @@ class BijlageInhoudTest {
         override fun read(b: ByteArray, off: Int, len: Int): Int = bron.read(b, off, len).takeIf { it >= 0 } ?: throw fout
     }
 
+    enum class Schrijfmoment { BEGIN, FLUSH, REST }
+
+    /** Gooit bij [moment]: bij het begin, bij de flush daarna, of bij de eerste write van de rest. */
+    private class FaaltBij(private val moment: Schrijfmoment) : OutputStream() {
+        private var geflusht = false
+
+        override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            if (moment == Schrijfmoment.BEGIN || (moment == Schrijfmoment.REST && geflusht)) throw IOException("afnemer weg")
+        }
+
+        override fun flush() {
+            if (moment == Schrijfmoment.FLUSH) throw IOException("afnemer weg")
+
+            geflusht = true
+        }
+    }
+
     /** Onthoudt hoeveel bytes er bij de eerste flush geschreven waren. */
-    private class OpnameStroom : OutputStream() {
+    private class OpnameStream : OutputStream() {
         val bytes = ByteArrayOutputStream()
         var geflushtNa: Int? = null
 

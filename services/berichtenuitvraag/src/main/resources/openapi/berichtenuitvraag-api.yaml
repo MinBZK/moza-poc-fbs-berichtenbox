@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -393,10 +393,11 @@ paths:
         metadata van de bijlage. Een afnemer vindt dit adres als `_links.self` bij de
         bijlage in het berichtdetail.
 
-        Breekt het magazijn de overdracht af nadat dit antwoord begonnen is, dan breekt ook
-        dit antwoord af: de verbinding wordt verbroken en de afnemer krijgt een onvolledige
-        download, nooit een `200` met een ingekorte bijlage. Gebeurt dat voordat het antwoord
-        begint, dan volgt een `502`.
+        Breekt het magazijn de overdracht af voordat dit antwoord begint, dan volgt een `502`.
+        Gebeurt dat later, dan is de status `200` al verstuurd en breekt de overdracht af: de
+        verbinding wordt verbroken in plaats van netjes afgesloten. Een afnemer herkent dat aan
+        minder bytes dan `Content-Length` aangeeft, of zonder `Content-Length` aan een overdracht
+        die niet normaal eindigt. Een overdracht die normaal eindigt, is altijd volledig.
 
         `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
         mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
@@ -423,8 +424,8 @@ paths:
             Content-Length:
               schema: { type: integer, format: int64, minimum: 0 }
               description: |
-                Aantal bytes van de bijlage, als dat vaststaat. Ontbreekt hij, dan komt het
-                antwoord in delen (`Transfer-Encoding: chunked`).
+                Aantal bytes van de bijlage, als dat vaststaat. Ontbreekt hij, dan is de lengte
+                vooraf niet bekend (bij HTTP/1.1: `Transfer-Encoding: chunked`).
             Content-Disposition:
               schema: { type: string }
               description: |

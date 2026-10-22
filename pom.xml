@@ -46,6 +46,9 @@
              dus hij trekt een nieuwere jackson stil terug zonder dat de build of CI iets meldt. -->
         <quarkus.platform.version>3.40.1</quarkus.platform.version>
         <openapi-generator.version>7.26.0</openapi-generator.version>
+        <!-- Het type van een binaire response in de gegenereerde API. Een service die zo'n response
+             doorgeeft zonder hem in de heap te laden, zet hier jakarta.ws.rs.core.StreamingOutput. -->
+        <api.binary.type>byte[]</api.binary.type>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
              zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
@@ -232,7 +235,7 @@
                                 </configOptions>
                                 <typeMappings>
                                     <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
-                                    <typeMapping>File=byte[]</typeMapping>
+                                    <typeMapping>File=${api.binary.type}</typeMapping>
                                 </typeMappings>
                                 <generateSupportingFiles>false</generateSupportingFiles>
                                 <generateApiTests>false</generateApiTests>

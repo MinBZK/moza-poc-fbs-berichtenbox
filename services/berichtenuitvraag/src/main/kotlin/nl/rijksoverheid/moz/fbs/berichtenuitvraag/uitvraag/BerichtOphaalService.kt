@@ -120,7 +120,7 @@ class BerichtOphaalService(
         // client, i.p.v. te lekken via een 502).
         val bericht = zoekBerichtInCache(xOntvanger, magazijnId, berichtId)
             ?: throw berichtOnbekend()
-        val magazijn = magazijnRouter.forMagazijn(bericht.magazijnId)
+        val magazijn = magazijnRouter.voorBijlagen(bericht.magazijnId)
 
         // De naam komt uit hetzelfde bericht-detail, niet uit de `Content-Disposition`
         // van het magazijn: die is daar al gesaneerd en gecodeerd, en terugparsen zou
@@ -171,9 +171,10 @@ class BerichtOphaalService(
 
         try {
             // Primair mappingpad: bij een `Response`-returntype geeft de REST-client de
-            // upstream-status rauw terug (gooit niet), dus elke 4xx/5xx komt hier langs.
-            // magazijnFout propageert 4xx status-behoudend en mapt 5xx/onverwacht → 502.
-            if (response.status >= 400) throw magazijnFout(response.status)
+            // upstream-status rauw terug (gooit niet), dus elke niet-2xx komt hier langs.
+            // magazijnFout propageert 4xx status-behoudend en mapt de rest (ook een 3xx, die
+            // anders als bijlage onder een 200 zou doorgaan) → 502.
+            if (response.status !in 200..299) throw magazijnFout(response.status)
 
             // Pak de raw Content-Type-header (niet `response.mediaType`, die
             // parsed naar `MediaType?` en geeft null bij een ongeldig MIME-type;
