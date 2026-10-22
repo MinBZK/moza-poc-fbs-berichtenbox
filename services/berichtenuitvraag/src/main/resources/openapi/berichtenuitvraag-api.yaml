@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -28,6 +28,7 @@ info:
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
     | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open (`_volgen`): voor deze ontvanger, of in totaal. De dienst telt per instantie, dus de grens is geen vast aantal voor de hele keten. Geen storing | Niet meteen opnieuw verbinden, maar na `Retry-After`. Staat de berichtenbox van deze ondernemer al in andere vensters open, dan helpt er één sluiten |
+    | `urn:fbs:fout:te-veel-gelijktijdige-downloads` | 503 | Er lopen te veel grote bijlage-downloads tegelijk, voor deze ontvanger of in totaal. De dienst telt per instantie. Geen storing | Na `Retry-After` opnieuw; een andere download van deze ondernemer afronden helpt bij het plafond per ontvanger |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
@@ -393,6 +394,20 @@ paths:
         metadata van de bijlage. Een afnemer vindt dit adres als `_links.self` bij de
         bijlage in het berichtdetail.
 
+        Breekt het magazijn de overdracht af voordat dit antwoord begint, dan volgt een `502`.
+        Gebeurt dat later, dan is de status `200` al verstuurd en eindigt de overdracht zonder
+        normaal einde (bij HTTP/1.1 wordt de verbinding gesloten, bij HTTP/2 de stream gereset).
+        Een afnemer herkent dat aan minder bytes dan `Content-Length` aangeeft, of zonder
+        `Content-Length` aan een overdracht die niet normaal eindigt. Een overdracht die normaal
+        eindigt, is volledig; zonder `Content-Length` geldt dat alleen bij HTTP/1.1 en hoger, want
+        bij HTTP/1.0 eindigt zo'n antwoord altijd met het sluiten van de verbinding. Ligt de
+        overdracht langer dan een instelbare tijd stil (standaard een minuut), ook doordat de
+        afnemer niet leest, dan breekt ze op dezelfde manier af.
+
+        Een bijlage van 1 MiB of meer houdt een plek bezet zolang ze loopt. Lopen er te veel
+        tegelijk, voor deze ontvanger of in totaal, dan volgt een `503` met
+        `te-veel-gelijktijdige-downloads` en `Retry-After`. De dienst telt dat per instantie.
+
         `Content-Disposition` draagt de bestandsnaam en bepaalt of een browser de bijlage
         mag tonen. `inline` geldt uitsluitend voor `application/pdf`, `image/png` en
         `image/jpeg`: typen waarvan de weergave geen code uitvoert die bij de DOM of de
@@ -415,6 +430,11 @@ paths:
             Content-Type:
               schema: { type: string }
               description: Werkelijk MIME-type van de bijlage
+            Content-Length:
+              schema: { type: integer, format: int64, minimum: 0 }
+              description: |
+                Aantal bytes van de bijlage, als dat vaststaat. Ontbreekt hij, dan is de lengte
+                vooraf niet bekend (bij HTTP/1.1: `Transfer-Encoding: chunked`).
             Content-Disposition:
               schema: { type: string }
               description: |

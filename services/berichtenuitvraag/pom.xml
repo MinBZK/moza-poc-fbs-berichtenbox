@@ -20,6 +20,9 @@
              parent-pluginManagement: spec-pad en het wortelpakket van deze service. -->
         <api.spec.file>${project.basedir}/src/main/resources/openapi/berichtenuitvraag-api.yaml</api.spec.file>
         <api.base.package>nl.rijksoverheid.moz.fbs.berichtenuitvraag</api.base.package>
+        <!-- Een bijlage gaat als byte[] of als StreamingOutput de deur uit, afhankelijk van haar
+             grootte (UitvraagResource.getBijlage); de spec heeft geen ander binair schema. -->
+        <api.binary.type>jakarta.ws.rs.core.Response</api.binary.type>
     </properties>
 
     <dependencies>
