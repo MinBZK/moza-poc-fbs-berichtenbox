@@ -71,6 +71,30 @@ skinparam rectangle<<BerichtenUitvraagSysteem.Magazijnregister>> {
   roundCorner 20
   shadowing false
 }
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieLogboek>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieVeger>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.Sessiefilter>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
+skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.SessiesAPI>> {
+  BackgroundColor #1168bd
+  FontColor #ffffff
+  BorderColor #0b4884
+  shadowing false
+}
 skinparam rectangle<<BerichtenUitvraagSysteem.BerichtenUitvraagService.TokenValidatie>> {
   BackgroundColor #1168bd
   FontColor #ffffff
@@ -95,9 +119,21 @@ rectangle "Berichten Uitvraag Service\n<size:10>[Container: Quarkus / Kotlin]</s
   rectangle "==Berichtenlijst Service\n<size:10>[Component: CDI Bean]</size>\n\nLevert per map een berichtenlijst" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService
   rectangle "==Bericht Ophaal Service\n<size:10>[Component: CDI Bean]</size>\n\nHaalt berichten en bijlagen op uit cache en berichtenmagazijn" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService
   rectangle "==Bericht Beheer Service\n<size:10>[Component: CDI Bean]</size>\n\nVerplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService
+  rectangle "==Sessiefilter\n<size:10>[Component: JAX-RS Filter]</size>\n\nLaat een verzoek alleen door met een lopende sessie (X-Sessie) van de ontvanger; weigert standaard, op elk pad behalve het starten van een sessie, het aanmelden en de specificatie. Elk verzoek verlengt de sessie, behalve opvragen en volgen" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.Sessiefilter>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.Sessiefilter
+  rectangle "==Sessies API\n<size:10>[Component: JAX-RS Resource]</size>\n\nStart, opvragen, verlengen en beëindigen van een inlogsessie. Het portaal is de klok: het verlengt bij activiteit, beëindigt bij uitloggen en bij zijn eigen time-out, en geeft bij de start zijn plafond mee" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.SessiesAPI>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.SessiesAPI
+  rectangle "==SessieVeger\n<size:10>[Component: Quarkus Scheduler]</size>\n\nGeplande taak op elke pod: ruimt de gegevens op van ontvangers wier laatste sessie verlopen is" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieVeger>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieVeger
+  rectangle "==SessieLogboek\n<size:10>[Component: CDI Bean]</size>\n\nLegt elk wissen van berichtgegevens vast in het Logboek Dataverwerkingen (uitloggen, verlopen, een start die resten wist), met de ontvanger als betrokkene; een mislukte logregel wordt een alert, het wissen gaat door" <<BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieLogboek>> as BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieLogboek
 }
 
+BerichtenUitvraagSysteem.BerichtenUitvraagService.SessiesAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Start, leest, verlengt en beëindigt sessies\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieVeger .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Ruimt verlopen sessies op, in batches\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichtenlijst op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt berichtstatus bij in cache\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor bijlage-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor write-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Berichten-API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
+Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.SessiesAPI : "<color:#707070>Start de inlogsessie bij het inloggen, verlengt haar bij activiteit en beëindigt haar bij uitloggen of time-out\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst met kopgegevens op, en berichtinhoud of bijlagen per geopend bericht\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Beheert berichtstatus\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichtenlijst met kopgegevens op, en berichtinhoud of bijlagen per geopend bericht\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
@@ -106,9 +142,8 @@ BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService : "<color:#707070>Berichtenlijst per map\n<color:#707070><size:8>[CDI]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService : "<color:#707070>Berichten en bijlagen ophalen\n<color:#707070><size:8>[CDI]</size>"
 BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService : "<color:#707070>Berichtstatus en mappenbeheer\n<color:#707070><size:8>[CDI]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichten op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenlijstService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Haalt berichtenlijst op\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Werkt berichtstatus bij in cache\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtOphaalService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor bijlage-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
-BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtBeheerService .[#707070,thickness=2].> BerichtenUitvraagSysteem.Magazijnregister : "<color:#707070>Zoekt het magazijn-endpoint op voor write-routering\n<color:#707070><size:8>[CDI (in-process)]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.Sessiefilter .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.BerichtenUitvraagAPI : "<color:#707070>Laat verzoeken met een lopende sessie door\n<color:#707070><size:8>[JAX-RS]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.SessiesAPI .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieLogboek : "<color:#707070>Legt het wissen bij uitloggen of een verse start vast\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieVeger .[#707070,thickness=2].> BerichtenUitvraagSysteem.BerichtenUitvraagService.SessieLogboek : "<color:#707070>Legt elke opruiming vast zodra ze gebeurd is\n<color:#707070><size:8>[CDI]</size>"
+BerichtenUitvraagSysteem.BerichtenUitvraagService.Sessiefilter .[#707070,thickness=2].> BerichtenUitvraagSysteem.Berichtensessiecache : "<color:#707070>Controleert de sessie en verlengt haar\n<color:#707070><size:8>[CDI (in-process facade)]</size>"
 @enduml
