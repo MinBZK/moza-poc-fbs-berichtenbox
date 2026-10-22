@@ -551,6 +551,18 @@ gestopt "cookie over http" "FOUT: CONSOLE_COOKIE gaat alleen over https mee, en 
 [ "$(aantal verlopen)" -eq 0 ] && ok "cookie over http: er gaat niets naar het paneel" \
     || fout "cookie over http: het paneel kreeg toch een aanroep: $LOG"
 
+# Een adres dat met localhost begint maar via inloggegevens naar een andere host gaat, en een host
+# die alleen met localhost begint.
+for adres in "http://localhost:@paneel.invalid/" "http://localhost.paneel.invalid" "https://x@paneel.invalid"; do
+    draai muur "$adres" "$MUURCOOKIE"
+
+    if [ "$RC" -ne 0 ] && grep -q "^FOUT: CONSOLE" <<< "$UIT" && [ "$(aantal verlopen)" -eq 0 ]; then
+        ok "cookie naar $adres: geweigerd vóór de eerste aanroep"
+    else
+        fout "cookie naar $adres: niet geweigerd (exit $RC): $UIT"
+    fi
+done
+
 # Een regeleinde in het cookie zou curl als extra header versturen.
 draai muur "$NEP" $'abc\r\nX-Ingevoegd: ja'
 gestopt "cookie met regeleinde" "FOUT: CONSOLE_COOKIE bevat een regeleinde; kopieer alleen de waarde van de Cookie-kopregel." nee

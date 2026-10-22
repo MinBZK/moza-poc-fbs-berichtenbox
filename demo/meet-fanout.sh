@@ -55,8 +55,23 @@ if [ -n "$CONSOLE_COOKIE" ]; then
         *$'\r'* | *$'\n'*) echo "FOUT: CONSOLE_COOKIE bevat een regeleinde; kopieer alleen de waarde van de Cookie-kopregel." >&2; exit 1 ;;
     esac
 
+    # De host exact, en geen `@`: in `http://localhost:@elders/` leest curl `localhost:` als
+    # inloggegevens en stuurt het naar `elders` — een patroon op het begin van de URL ziet dat niet.
+    console_host="${CONSOLE#*://}"
+    console_host="${console_host%%/*}"
+
+    case "$console_host" in
+        *@*) echo "FOUT: CONSOLE bevat een @ in het adres; curl leest dat als inloggegevens, niet als host." >&2; exit 1 ;;
+    esac
+
     case "$CONSOLE" in
-        https://* | http://localhost | http://localhost[:/]* | http://127.0.0.1 | http://127.0.0.1[:/]*) ;;
+        https://*) ;;
+        http://*)
+            case "${console_host%:*}" in
+                localhost | 127.0.0.1) ;;
+                *) echo "FOUT: CONSOLE_COOKIE gaat alleen over https mee, en CONSOLE is $CONSOLE." >&2; exit 1 ;;
+            esac
+            ;;
         *) echo "FOUT: CONSOLE_COOKIE gaat alleen over https mee, en CONSOLE is $CONSOLE." >&2; exit 1 ;;
     esac
 fi
