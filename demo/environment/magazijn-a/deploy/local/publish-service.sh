@@ -114,7 +114,14 @@ else
 fi
 
 echo "publish: servicePublication-contract indienen (idempotent)..."
-if fsc_tb "$MANAGER/v1/services/publications" | grep -q "\"$SERVICE_NAME\""; then
+# Eerst lezen, dan zoeken: in één `if fsc_tb … | grep` valt een mislukte lezing in de else-tak, en
+# dan staat er een tweede publicatiecontract naast het bestaande.
+PUBLICATIES=$(fsc_tb "$MANAGER/v1/services/publications") || {
+  echo "FAIL: kon de publicaties niet ophalen: $(fsc_last_error)" >&2
+  exit 1
+}
+
+if printf '%s' "$PUBLICATIES" | grep -q "\"$SERVICE_NAME\""; then
   echo "  al gepubliceerd, skip contract."
 else
   # UUID + timestamp zijn host-lokaal (geen container-context nodig) -> host-builtins i.p.v. toolbox-exec.

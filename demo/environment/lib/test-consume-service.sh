@@ -80,6 +80,20 @@ case "${methode} ${url}" in
   "GET "*"/v1/contracts?"*)
     pagina=1
     case "$url" in *"cursor="*) pagina="${url##*cursor=c}" ;; esac
+
+    # faal-<n>: pagina n geeft steeds een HTTP-fout. faal-eenmalig-na: de eerste lezing ná indienen
+    # faalt, de volgende niet — een manager die even hapert terwijl het script pollt.
+    if [ -f "${dir}/faal-${pagina}" ]; then
+      echo "curl: (22) The requested URL returned error: 503" >&2
+      exit 22
+    fi
+
+    if [ -f "${dir}/ingediend" ] && [ -f "${dir}/faal-eenmalig-na" ]; then
+      rm "${dir}/faal-eenmalig-na"
+      echo "curl: (56) Recv failure: Connection reset by peer" >&2
+      exit 56
+    fi
+
     if [ -f "${dir}/ingediend" ] && [ -f "${dir}/pagina-${pagina}.na.json" ]; then
       cat "${dir}/pagina-${pagina}.na.json"
     else
@@ -116,22 +130,42 @@ draai() {
 
 aantal() { grep -c "^$1 " "${TMP}/stub/aanroepen.log" 2>/dev/null || true; }
 
-# --- Een bestaand contract op pagina 2 wordt herkend -------------------------------------------
-# De oude lijst-aanroep las alleen de eerste pagina (default honderd rijen). Stond het eigen
-# contract daar niet meer op, dan diende elke run een nieuw in.
-opzet
-pagina 1 nee "$(vreemd v1)" "$(vreemd v2)"
-pagina 2 nee "$(contract bestaand "$THUMB")"
-pagina 3 ja
-met_state bestaand
-draai
+# --- Een tweede run met een bestaand contract dient niets in ------------------------------------
+# Leeg, één pagina en meer pagina's. De oude lijst-aanroep las alleen de eerste pagina: stond het
+# eigen contract daar niet meer op, dan diende elke run een nieuw in. Een lege lijst is wél een
+# reden om opnieuw op te zetten — die moet zich blijven onderscheiden van een onleesbare lijst.
+for geval in leeg een-pagina meer-paginas; do
+  opzet
+  met_state bestaand
 
-if [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 0 ] || ! grep -q "GRANT-HASH: grant-bestaand" <<<"$UIT"; then
-  fout "bestaand contract op pagina 2 niet herkend (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
-else
-  echo "OK: een bestaand contract op pagina 2 wordt herkend, er wordt niets ingediend"
-fi
-rm -rf "$TMP"
+  case "$geval" in
+    leeg)
+      pagina 1 ja
+      jq -c --argjson c "$(contract "$NIEUW" "$THUMB")" '.contracts += [$c]' "${TMP}/stub/pagina-1.json" \
+        > "${TMP}/stub/pagina-1.na.json"
+      verwacht_posts=1 verwacht_grant="grant-${NIEUW}" ;;
+    een-pagina)
+      pagina 1 nee "$(vreemd v1)" "$(contract bestaand "$THUMB")"
+      pagina 2 ja
+      verwacht_posts=0 verwacht_grant=grant-bestaand ;;
+    meer-paginas)
+      pagina 1 nee "$(vreemd v1)" "$(vreemd v2)"
+      pagina 2 nee "$(contract bestaand "$THUMB")"
+      pagina 3 ja
+      verwacht_posts=0 verwacht_grant=grant-bestaand ;;
+  esac
+
+  draai
+
+  if [ "$RC" -ne 0 ] || [ "$(aantal POST)" != "$verwacht_posts" ] \
+     || ! grep -q "GRANT-HASH: ${verwacht_grant}" <<<"$UIT"; then
+    fout "${geval}: verwacht ${verwacht_posts} POST('s) en ${verwacht_grant} (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
+  else
+    echo "OK: ${geval}: ${verwacht_posts} contract(en) ingediend, grant ${verwacht_grant}"
+  fi
+
+  rm -rf "$TMP"
+done
 
 # --- Een nieuw contract dat pas op pagina 2 verschijnt, wordt geaccepteerd ---------------------
 # Zelfde gat aan de andere kant: de poll na indienen zocht alleen op pagina 1 en meldde dan "niet
@@ -152,25 +186,59 @@ else
 fi
 rm -rf "$TMP"
 
+# --- Een haperende manager tijdens de poll breekt de run niet af --------------------------------
+# Het contract is dan al ingediend. Afbreken zou het half ondertekend en zonder state-file achterlaten,
+# en de volgende run zou er een tweede naast indienen.
+opzet
+pagina 1 ja
+jq -c --argjson c "$(contract "$NIEUW" "$THUMB")" '.contracts += [$c]' "${TMP}/stub/pagina-1.json" \
+  > "${TMP}/stub/pagina-1.na.json"
+touch "${TMP}/stub/faal-eenmalig-na"
+draai
+state="${TMP}/logius/contracts/.bootstrap-state/${OIN}-${OIN}-${DIENST}.hash"
+
+if [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 1 ] || ! grep -q "CONSUME OK" <<<"$UIT" \
+   || [ "$(cat "$state" 2>/dev/null)" != "$NIEUW" ]; then
+  fout "haperende poll niet overleefd (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
+else
+  echo "OK: een eenmalige leesfout tijdens de poll wordt overgeslagen; het contract wordt afgerond"
+fi
+rm -rf "$TMP"
+
 # --- Een onleesbare lijst leidt niet tot indienen ----------------------------------------------
 # Vroeger werd een mislukte lijst een WARN en daarna een lege lijst; het script diende dan een
 # tweede contract in naast het bestaande.
-for geval in "geen-lijst" "eindeloze-cursor"; do
+# De melding telt mee: zonder die check slaagt een geval ook als het script om een heel andere
+# reden stopt, bijvoorbeeld op een aanroep die de stub niet kent.
+for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor"; do
   opzet
   met_state bestaand
 
   case "$geval" in
-    geen-lijst) echo '{"error":"onverwacht"}' > "${TMP}/stub/pagina-1.json" ;;
+    geen-lijst)
+      echo '{"error":"onverwacht"}' > "${TMP}/stub/pagina-1.json"
+      melding='geen veld "contracts"' ;;
+    http-fout)
+      pagina 1 ja
+      touch "${TMP}/stub/faal-1"
+      melding='returned error: 503' ;;
+    fout-op-pagina-2)
+      # Een half gelezen lijst mist misschien juist het eigen contract; die is dus net zo onbruikbaar.
+      pagina 1 nee "$(vreemd v1)"
+      touch "${TMP}/stub/faal-2"
+      melding='returned error: 503' ;;
     eindeloze-cursor)
       # Elke pagina verwijst naar zichzelf: de lus moet dan op zijn bovengrens afbreken.
       jq -nc --argjson c "$(vreemd v1)" '{ contracts: [$c], pagination: { next_cursor: "c1" } }' \
-        > "${TMP}/stub/pagina-1.json" ;;
+        > "${TMP}/stub/pagina-1.json"
+      melding='afgebroken' ;;
   esac
 
   draai
 
-  if [ "$RC" -eq 0 ] || [ "$(aantal POST)" != 0 ]; then
-    fout "${geval}: verwacht een harde fout zonder indienen (exit ${RC}, POST's: $(aantal POST))"
+  if [ "$RC" -eq 0 ] || [ "$(aantal POST)" != 0 ] \
+     || ! grep -q "kon de contractenlijst niet ophalen: .*${melding}" <<<"$UIT"; then
+    fout "${geval}: verwacht een harde fout met '${melding}' zonder indienen (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
   else
     echo "OK: ${geval}: het script faalt zonder een contract in te dienen (exit ${RC})"
   fi
