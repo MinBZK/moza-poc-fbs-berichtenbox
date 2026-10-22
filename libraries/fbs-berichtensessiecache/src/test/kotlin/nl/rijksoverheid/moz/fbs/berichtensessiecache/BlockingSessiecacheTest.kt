@@ -485,6 +485,26 @@ class BlockingSessiecacheTest {
         verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
     }
 
+    @Test
+    fun `een mislukt markeren voor de veeg geeft het alert zonder de ontvanger, ook als de fout hem noemt`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            Uni.createFrom().failure(IllegalStateException("ERR bij ${ontvanger.waarde} (${BerichtenCache.kenmerk(ontvanger)})"))
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+        }
+
+        assertEquals(1, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+        regels.forEach { regel ->
+            assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel")
+            assertFalse(BerichtenCache.kenmerk(ontvanger) in regel, "kenmerk in de log: $regel")
+        }
+    }
+
     // --- volg ---
 
     @Test

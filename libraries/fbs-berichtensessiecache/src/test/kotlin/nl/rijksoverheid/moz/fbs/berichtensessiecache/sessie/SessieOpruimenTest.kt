@@ -311,6 +311,39 @@ class SessieOpruimenTest {
     }
 
     @Test
+    fun `elke sleutel van een ontvanger draagt de vangnet-TTL, ook de sessie-administratie na een tweede start`() {
+        // Een sleutel zonder TTL overleeft een mislukt opruimen voorgoed; precies wat het vangnet voorkomt.
+        sessiecache.startSessie(ontvanger)
+        val berichten = List(2) { bericht() }
+        vulAlsOpgehaald(berichten)
+        berichtenCache.createBericht(bericht(), ontvanger).await().atMost(WACHTTIJD)
+        berichtenCache.delete(berichten[0].sleutel, ontvanger).await().atMost(WACHTTIJD)
+        berichtenCache.updateBerichtMetadata(berichten[1].sleutel, ontvanger, "gelezen", "archief").await().atMost(WACHTTIJD)
+
+        Thread.sleep(1_500)
+        sessiecache.startSessie(ontvanger)
+
+        val sleutels = sleutelsOnder(k)
+        val soorten = sleutels.map { it.removePrefix("$k:").let { soort -> if (soort.startsWith("verwijderd:")) "verwijderd" else soort } }
+
+        assertEquals(setOf("list", "status", "sleutels", "verwijderd", "sessies", "sessies:plafond", "ontvanger"), soorten.toSet(), "Sleutels: $sleutels")
+
+        val hashes = redis.set(String::class.java).smembers("$k:sleutels").await().atMost(WACHTTIJD)
+            .filter { it.startsWith(BerichtenCache.BERICHT_PREFIX) && bestaat(it) }
+
+        // Het bijgewerkte en het aangemelde bericht; de hash van het verwijderde is weg.
+        assertEquals(2, hashes.size, "Hashes: $hashes")
+
+        (sleutels + hashes).forEach { assertTrue(pttl(it) in 1..DATA_TTL_MS, "$it zonder vangnet-TTL: ${pttl(it)} ms") }
+
+        // De tweede start zette de administratie op zijn eigen plafond; zonder dat viel de nieuwe sessie
+        // na de eerste vangnet-TTL weg.
+        listOf("$k:sessies", "$k:sessies:plafond", "$k:ontvanger").forEach {
+            assertTrue(pttl(it) > MAX_DUUR_MS, "$it niet opgetrokken: ${pttl(it)} ms")
+        }
+    }
+
+    @Test
     fun `start naast een lopende sessie trekt de TTL op tot voorbij het plafond van de nieuwe sessie`() {
         sessiecache.startSessie(ontvanger)
         val berichten = List(2) { bericht() }

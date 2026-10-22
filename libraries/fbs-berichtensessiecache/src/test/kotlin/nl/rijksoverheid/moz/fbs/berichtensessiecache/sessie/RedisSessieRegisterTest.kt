@@ -113,6 +113,48 @@ class RedisSessieRegisterTest {
     }
 
     @Test
+    fun `een start gelijktijdig met het einde van de laatste sessie laat een geldige sessie met index-entry achter`() {
+        // Welke van de twee eerst gaat, verschilt per herhaling; in beide volgordes moet de nieuwe
+        // sessie bruikbaar zijn en de veegtaak haar kennen, en zijn de oude gegevens weg of nog van
+        // een lopende sessie, nooit half.
+        val pool = Executors.newFixedThreadPool(2)
+        val volgordes = mutableSetOf<SessieEinde>()
+
+        try {
+            repeat(HERHALINGEN) {
+                val ontvanger = nieuweOntvanger()
+                val k = BerichtenCache.cacheKey(ontvanger)
+                val eerste = sessiecache.startSessie(ontvanger)
+                redis.list(String::class.java).rpush("$k:list", "{}").await().atMost(WACHTTIJD)
+                val poort = CyclicBarrier(2)
+
+                val einde = pool.submit<SessieEinde> {
+                    poort.await(10, TimeUnit.SECONDS)
+                    sessiecache.beeindigSessie(eerste.sessieId, ontvanger)
+                }
+                val start = pool.submit<SessieStart> {
+                    poort.await(10, TimeUnit.SECONDS)
+                    sessiecache.startSessie(ontvanger)
+                }
+                val uitkomst = einde.get(10, TimeUnit.SECONDS)
+                val nieuw = start.get(10, TimeUnit.SECONDS)
+
+                volgordes += uitkomst
+                assertDoesNotThrow { sessiecache.raakSessie(nieuw.sessieId, ontvanger) }
+                val score = redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, BerichtenCache.kenmerk(ontvanger)).await().atMost(WACHTTIJD)
+                assertTrue(score != null && score > redisTijdMs(), "Geen lopende index-entry: $score")
+                assertTrue(redis.key().exists("$k:ontvanger").await().atMost(WACHTTIJD))
+                assertFalse(nieuw.restenOpgeruimd, "Er was geen verlopen rest om op te ruimen")
+                assertEquals(uitkomst == SessieEinde.BEEINDIGD, redis.key().exists("$k:list").await().atMost(WACHTTIJD), "Uitkomst $uitkomst")
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        assertTrue(volgordes.all { it == SessieEinde.OPGERUIMD || it == SessieEinde.BEEINDIGD }, "Uitkomsten: $volgordes")
+    }
+
+    @Test
     fun `start naast een lopende sessie laat de gegevens staan`() {
         val k = BerichtenCache.cacheKey(ontvanger)
         sessiecache.startSessie(ontvanger)
@@ -313,6 +355,12 @@ class RedisSessieRegisterTest {
         ids.forEach { id -> assertTrue(inhoud.none { it.contains(id) }, "Sessie-id in klare tekst in Redis") }
     }
 
+    private fun redisTijdMs(): Double {
+        val tijd = redis.execute("TIME").await().atMost(WACHTTIJD)
+
+        return tijd.get(0).toLong() * 1000.0 + tijd.get(1).toLong() / 1000
+    }
+
     private fun verloopIndexScore(): Double =
         redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, BerichtenCache.kenmerk(ontvanger))
             .await().atMost(WACHTTIJD)!!
@@ -355,6 +403,7 @@ class RedisSessieRegisterTest {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
         val SESSIE_ID_VORM = Regex("^[A-Za-z0-9_-]{22}$")
         const val ONBEKENDE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
+        const val HERHALINGEN = 20
         const val VERLOOP_INDEX = "berichtensessiecache:v4:verloop"
         private val teller = AtomicLong(System.nanoTime())
 
