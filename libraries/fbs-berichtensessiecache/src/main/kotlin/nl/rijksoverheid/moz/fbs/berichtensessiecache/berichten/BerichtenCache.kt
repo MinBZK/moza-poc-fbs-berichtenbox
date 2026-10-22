@@ -283,10 +283,10 @@ internal class RedisBerichtenCache(
                 if (opgeslagen) {
                     log.debugf("Opgeslagen %d berichten in cache", berichten.size)
                 } else {
-                    log.infof("Ophaalronde was de lock kwijt; resultaten niet opgeslagen voor key=%s", key)
+                    log.infof("Ophaalronde was de lock kwijt (sessie-einde of verlopen lock); resultaten niet opgeslagen")
                 }
             }
-            .onFailure().invoke { e -> log.errorf(e, "Redis slaRondeOp mislukt voor key=%s", key) }
+            .onFailure().invoke { e -> log.errorf("Redis slaRondeOp mislukt (fout=%s)", e.javaClass.name) }
     }
 
     /** De lijst, de berichthashes en de sleutelset; zonder berichten alleen het wissen van de lijst. */
@@ -337,7 +337,7 @@ internal class RedisBerichtenCache(
         val json = objectMapper.writeValueAsString(status)
 
         return voerLockScriptUit(ZET_STATUS_ALS_EIGENAAR, key, ronde, json, dataTtl.toMillis().toString(), "1")
-            .onFailure().invoke { e -> log.errorf(e, "Redis sluitRondeAf mislukt voor key=%s", key) }
+            .onFailure().invoke { e -> log.errorf("Redis sluitRondeAf mislukt (fout=%s)", e.javaClass.name) }
     }
 
     override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Void> {

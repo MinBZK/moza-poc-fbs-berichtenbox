@@ -1049,7 +1049,7 @@ internal class BerichtensessiecacheService(
 
             if (!vrijgegeven) {
                 // De lock werd nooit genomen, verliep, of verdween met het opruimen bij een sessie-einde.
-                log.infof("Geen lock vrij te geven na fout (errorId=%s) voor key=%s: %s", errorId, ronde.cacheKey, oorzaak)
+                log.infof("Geen lock vrij te geven na fout (errorId=%s): %s", errorId, oorzaak)
 
                 return
             }
