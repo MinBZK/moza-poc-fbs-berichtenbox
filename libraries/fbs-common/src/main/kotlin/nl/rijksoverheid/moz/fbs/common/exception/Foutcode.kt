@@ -38,10 +38,9 @@ enum class Foutcode(val code: String, val uitleg: String) {
     BERICHT_ONBEKEND("bericht-onbekend", "Dit bericht is niet (meer) beschikbaar."),
 
     /**
-     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone leeft — die
-     * krijgt bij het verwijderen de sessie-TTL mee en schuift daarna niet mee met leesverkeer — en
-     * alleen voor verwijderingen die via deze keten liepen. Het uitblijven van deze code bewijst
-     * dus niet dat er niets verwijderd is.
+     * De ontvanger verwijderde dit bericht zelf. Alleen bekend tot zijn laatste sessie eindigt (dan
+     * wordt de tombstone met de rest van zijn gegevens gewist), en alleen voor verwijderingen die
+     * via deze keten liepen. Het uitblijven van deze code bewijst dus niet dat er niets verwijderd is.
      */
     BERICHT_VERWIJDERD("bericht-verwijderd", "Dit bericht is verwijderd."),
 

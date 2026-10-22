@@ -741,7 +741,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `createBericht zonder lijst begint er een met alleen dat bericht, met de sessie-TTL`() {
+    fun `createBericht zonder lijst begint er een met alleen dat bericht, met de vangnet-TTL`() {
         val nieuw = testBerichten()[0]
 
         berichtenCache.createBericht(nieuw, ontvanger).await().indefinitely()
@@ -752,7 +752,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         // Zonder TTL blijft een hash met gegevens van de ontvanger voor altijd in Redis staan.
         listOf(listKey(), BerichtenCache.berichtKey(nieuw.sleutel)).forEach { sleutel ->
-            assertTrue(pttl(sleutel) in 1..sessieTtl.toMillis(), "$sleutel zonder sessie-TTL: ${pttl(sleutel)}")
+            assertTrue(pttl(sleutel) in 1..sessieTtl.toMillis(), "$sleutel zonder vangnet-TTL: ${pttl(sleutel)}")
         }
     }
 

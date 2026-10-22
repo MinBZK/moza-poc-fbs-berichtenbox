@@ -39,17 +39,16 @@ info:
 
     ### Wat `bericht-verwijderd` wel en niet zegt
 
-    De keten weet van een verwijdering zolang het spoor ervan leeft — dat krijgt bij het
-    verwijderen de sessie-bewaartermijn mee en schuift daarna niet mee met leesverkeer — en
-    alleen van verwijderingen die via deze API liepen. Drie gevolgen:
+    De keten weet van een verwijdering tot de laatste sessie van de ondernemer eindigt (dan
+    wordt alles gewist, ook het spoor van de verwijdering), en alleen van verwijderingen die via
+    deze API liepen. Drie gevolgen:
 
-    - Zodra dat spoor verlopen is, wordt het antwoord weer `bericht-onbekend`, ook als de sessie
-      dan nog loopt. Het uitblijven van `bericht-verwijderd` is dus géén bewijs dat er niets
-      verwijderd is.
+    - In een nieuwe sessie, na het einde van de vorige, is het antwoord weer `bericht-onbekend`.
+      Het uitblijven van `bericht-verwijderd` is dus géén bewijs dat er niets verwijderd is.
     - Haalt de organisatie het bericht in haar eigen magazijn weg, dan verdwijnt het bij de
       volgende ophaalronde uit de lijst zonder dat deze code verschijnt.
     - Op `PATCH` komt de code niet uit dat spoor maar rechtstreeks uit het magazijn, dat de
-      verwijdering persistent kent. Daar geldt de bewaartermijn dus niet.
+      verwijdering persistent kent. Daar speelt het einde van de sessie dus geen rol.
 
     Het downloaden van een bijlage begint met dezelfde opzoeking als het ophalen van het bericht
     zelf en geeft dus dezelfde 410. Wat daar níét kan, is een verwijdering die alleen het magazijn
@@ -119,7 +118,7 @@ paths:
       tags: [Uitvraag]
       summary: Berichtenlijst
       description: |
-        De berichten van de lopende sessie van de ontvanger: wat de laatste ophaalronde
+        De berichten van de ontvanger, gedeeld door zijn lopende sessies: wat de laatste ophaalronde
         opleverde, plus wat er daarna is aangemeld. Bron is de sessiecache. De volgorde is
         geen contract: na het ophalen nieuwste eerst, een later aangemeld bericht achteraan.
 
@@ -760,9 +759,8 @@ components:
     Gone:
       description: |
         De ondernemer verwijderde dit bericht zelf (`urn:fbs:fout:bericht-verwijderd`). Op de
-        ophaalpaden alleen bekend zolang het spoor van die verwijdering leeft (de
-        sessie-bewaartermijn vanaf het verwijderen) en alleen voor verwijderingen die via deze API
-        liepen; daarbuiten is het antwoord een gewone 404. Op `PATCH` komt de code uit het
+        ophaalpaden alleen bekend tot de laatste sessie van de ondernemer eindigt, en alleen voor
+        verwijderingen die via deze API liepen; daarbuiten is het antwoord een gewone 404. Op `PATCH` komt de code uit het
         magazijn, dat de verwijdering persistent kent.
       content:
         application/problem+json:

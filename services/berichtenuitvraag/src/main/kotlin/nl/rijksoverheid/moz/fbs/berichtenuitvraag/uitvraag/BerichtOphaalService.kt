@@ -65,7 +65,7 @@ class BerichtOphaalService(
      *
      * Een 404 laat de cache-entry bewust staan. Zelfherstel zou een schrijfactie op een
      * leespad zijn en zou een routeringsfout maskeren als "bericht bestaat niet meer"; de
-     * TTL ruimt de entry op. De logregel hieronder is wat het onderscheid mogelijk maakt.
+     * volgende ophaalronde of het opruimen na de laatste sessie ruimt de entry op. De logregel hieronder is wat het onderscheid mogelijk maakt.
      */
     private fun haalInhoud(xOntvanger: String, berichtId: UUID, magazijnId: String): String {
         val magazijn = magazijnRouter.forMagazijn(magazijnId)

@@ -31,7 +31,7 @@ enum class OpruimAanleiding(val waarde: String) {
  *
  * Gooit niet als het schrijven mislukt. Het wissen is dan al gebeurd en valt niet terug te draaien;
  * een fout zou alleen het verzoek laten mislukken dat het wissen veroorzaakte. In plaats daarvan
- * een foutregel met [ALERT_TOKEN], zonder ontvanger. Alleen een Error gaat door, na diezelfde regel.
+ * een foutregel met [ALERT_TOKEN], zonder de waarde van de ontvanger. Alleen een Error gaat door, na diezelfde regel.
  */
 @ApplicationScoped
 class SessieLogboek(private val processingHandler: ProcessingHandler) {

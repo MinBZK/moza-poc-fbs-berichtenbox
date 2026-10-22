@@ -136,12 +136,11 @@ atomair zijn met de berichtgegevens in dezelfde Redis.
 
 - **Sessie-id:** 128 bits uit een cryptografisch veilige generator, URL-veilig gecodeerd. In
   Redis staat alleen `sha256(id)`, zodat een dump geen bruikbare sessies oplevert.
-- **Sessierecord** per sessie: de ontvanger, het startmoment en het uiterlijke verloopmoment
-  `min(laatste activiteit + inactiviteit, start + max-duur)`. De ontvanger staat er voluit in,
-  omdat het opruimen bij verlopen hem nodig heeft voor het logboek (zie *Logboek*); de
-  bericht-hashes bewaren hem nu ook al, dus dit is geen nieuwe blootstelling.
-- **Sessie-index per ontvanger:** welke sessies deze ontvanger heeft, met hun verloopmoment
-  (bv. een ZSET met score = verloopmoment), zodat "is dit de laatste?" één atomaire vraag is.
+- **Sessies per ontvanger** (zoals gebouwd): een ZSET `$k:sessies` met als lid `sha256(id)` en
+  als score het verloopmoment `min(laatste activiteit + inactiviteit, plafond)`, plus een HASH
+  `$k:sessies:plafond` met het plafond per sessie. Zo is "is dit de laatste?" één atomaire vraag.
+  Er is geen sessierecord met de ontvanger erin: de ontvanger zit gehasht in de sleutel (`$k`), en
+  leesbaar alleen in `$k:ontvanger` naast de verloopindex (zie hieronder).
 - **Verloopindex, stelselbreed:** per ontvanger het verloopmoment van zijn laatst-verlopende
   sessie, zodat de uitvraag verlopen sessies actief kan vinden (zie *Opruimen*). Het lid is de
   hash van de ontvanger, niet de ontvanger zelf: de index heeft geen TTL en mag geen lijst van
@@ -191,19 +190,21 @@ start van een sessie zonder andere lopende sessie (resten van een vorige keer).
 - Weg: `:list`, `:status`, `:lock`, `:verwijderd:*`-tombstones, de sessie-index, de
   sessierecords en **alle** `bericht:v4:*`-hashes van die ontvanger, ook die uit eerdere
   ophaalrondes. Daarmee verdwijnen ook de RediSearch-entries.
-- De hashes vallen niet onder de sessie-prefix en zijn nu alleen via de `:list` of een FT.SEARCH op
-  het `ontvanger`-veld te vinden. Hoe de builder ze betrouwbaar en atomair vindt (bijhouden in een
-  eigen set per ontvanger bij `store` en aanmelden, of anders) is aan de builder; eis is dat
-  opruimen niet halverwege blijft steken en geen half-gevulde sessie achterlaat.
+- De hashes vallen niet onder de sessie-prefix. Gebouwd: elke schrijfactie zet de hash en de
+  tombstone in een set per ontvanger (`$k:sleutels`), en het opruimscript wist die set in stukken
+  van 1000 binnen één Lua-aanroep, zodat opruimen niet halverwege blijft steken.
 - **Uitloggen tijdens een ophaalronde:** een ronde die na het opruimen afrondt, laat niets
-  achter (geen list, geen GEREED-status, geen hashes): de controle ná het schrijven ruimt het op.
-  De SSE-stream van die ronde eindigt.
+  achter (geen list, geen GEREED-status, geen hashes). De ronde schrijft alleen zolang ze haar
+  eigen lock houdt (zie *Na de review*); het opruimen wist de lock, dus ze schrijft niets weg. De
+  SSE-stream van die ronde eindigt zonder `ophalen-gereed`. Dat geldt ook als de gebruiker direct
+  opnieuw inlogt en een nieuwe ronde start: de oude ronde kan die niet overschrijven.
 - **Aanmelden na uitloggen:** werkt al goed zolang `:status` mee wordt opgeruimd —
   `schrijfBericht` weigert zonder status (`GeenLijstInCache`, uitvraag antwoordt `202`).
-- **Falen:** mislukt opruimen, dan logt de uitvraag een waarschuwing met correlation-id, zonder
-  BSN en zonder ontvanger-hash (een hash van een BSN is terug te rekenen). De ontvanger blijft in
-  de verloopindex, dus de volgende veegronde probeert het opnieuw; de Redis-TTL is het laatste
-  vangnet. Mislukt het uitloggen zelf, dan krijgt de gebruiker `503` en herhaalt de client het
+- **Falen:** mislukt opruimen, dan logt de uitvraag een waarschuwing met alleen de foutklasse,
+  zonder BSN en zonder ontvanger-hash (een hash van een BSN is terug te rekenen). Een
+  correlation-id is er niet: de veegtaak draait buiten een verzoek. De ontvanger blijft in de
+  verloopindex, een veeginterval naar achteren, dus een volgende veegronde probeert het opnieuw;
+  de Redis-TTL is het laatste vangnet. Mislukt het uitloggen zelf, dan krijgt de gebruiker `503` en herhaalt de client het
   verzoek; een herhaling van een uitlog die al gewist had, geeft `204`.
 
 ### `_volgen`
@@ -280,6 +281,52 @@ het verwerkingsregister (AVG art. 30) en in de DPIA, met:
 
 - Een sessie-id is een credential: nooit in logs, URL's, LDV of foutmeldingen.
 - BSN niet in applicatie-logs (bestaande regel).
+
+## Na de review
+
+Wat er na de review van PR #393 is veranderd ten opzichte van het ontwerp hierboven, of daar
+preciezer is gemaakt. De secties hierboven zijn waar nodig al bijgewerkt; dit is het overzicht.
+
+**Bibliotheek**
+
+- **Eigen lock per ophaalronde.** De lock draagt per ronde een eigen token. Een ronde schrijft
+  haar resultaat (lijst, hashes, sleutelset, status) in één transactie, en alleen als ze haar
+  lock nog houdt. Eindigde de laatste sessie intussen, of startte na een nieuwe inlog een nieuwe
+  ronde, dan schrijft de oude ronde niets. Een ronde die langer duurt dan `aggregation-lock-ttl`
+  slaat daardoor ook niets op.
+- **Geen leesbaar BSN in de verloopindex.** Het lid is het kenmerk (de hash) van de ontvanger;
+  de leesbare vorm staat apart in `$k:ontvanger`, met de vangnet-TTL. Is die al verlopen, dan
+  meldt de veegtaak de opruiming als `Opruiming.ZonderOntvanger`, met het alert
+  `LDV_OPRUIMEN_ONTBREEKT` in plaats van een logregel.
+- **Veegtaak.** Elke opruiming gaat direct naar het logboek, niet pas na de batch. Een tick
+  vraagt batches van 100 op zolang de batch vol is, binnen een half interval. Een ontvanger
+  waarvan het opruimen mislukt of geen antwoord krijgt, schuift een interval (minstens 30 s) naar
+  achteren. Drie mislukte rondes op rij geven `[ALERT sessie_veger_faalt]`.
+- **Plafond van het portaal en de hartslag.** `startSessie` neemt het plafond van het portaal mee,
+  `leesSessie` leest zonder te verlengen, en de hartslag van `_volgen` verlengt niet meer (zie
+  *Het portaal is de klok*).
+
+**Uitvraag**
+
+- `GET /sessies/huidige` en `POST /sessies/huidige/_verlengen`; `Location` op de 201;
+  `Retry-After` op de 429; `WWW-Authenticate` op elke 401.
+- Het `SessieFilter` weigert standaard en kent vier vereisten: geen sessie (`POST /sessies`,
+  `/aanmeldingen`, `/openapi.json`), alleen de vorm (`DELETE /sessies/huidige`), een lopende sessie
+  zonder verlengen (`GET /sessies/huidige`, `_volgen`) en verlengen (al het andere). Een
+  ontbrekende of krom gevormde `X-Sessie` op `DELETE` geeft daardoor `401`, niet `400`.
+- `LDV_OPRUIMEN_ONTBREEKT` draagt een `foutId`, de aanleiding, de uitkomst, het type ontvanger en
+  de klasse van de oorzaak. Een 429 is in het logboek geen `Error`, en de logregel van een uitlog
+  draagt `fbs.sessie.einde.uitkomst`.
+
+**Wat het logboek wel en niet ziet**
+
+Elk wissen door de sessiescripts komt in het logboek: ook het opruimen na een schrijfactie die
+kruiste met het einde van de laatste sessie, via de verloopindex. Twee uitzonderingen, en beide
+geven eerst een alert-token:
+
+- de vangnet-TTL, die zonder logregel wist. Dat gebeurt alleen als het actief opruimen langer dan
+  de vangnet-marge uitbleef, na `[ALERT opruimen_na_schrijven]` of `[ALERT sessie_veger_faalt]`;
+- een logregel die niet te schrijven was (`LDV_OPRUIMEN_ONTBREEKT`).
 
 ## Demo en frontends
 

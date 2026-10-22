@@ -264,7 +264,7 @@ internal class BlockingSessiecache(
     }
 
     /**
-     * Per ontvanger een eigen wachttijd en een eigen vangnet: een fout of een trage ontvanger mag de
+     * Per ontvanger een eigen timeout en een eigen vangnet: een fout of een trage ontvanger mag de
      * ontvangers erachter niet tegenhouden. `null` als er voor deze ontvanger nog een sessie loopt of
      * een andere pod al veegde.
      *
@@ -302,7 +302,7 @@ internal class BlockingSessiecache(
             }
 
             // Ook na een timeout: hangt het script van deze ontvanger structureel, dan kost hij anders
-            // elke ronde de volle wachttijd. `XX` in het uitstel laat een al geveegde ontvanger weg. Na
+            // elke ronde de volle timeout. `XX` in het uitstel laat een al geveegde ontvanger weg. Na
             // een interrupt niet: de pod stopt, en de entry blijft voor een volgende ronde staan.
             if (!onderbroken) stelUit(kandidaat.kenmerk)
 

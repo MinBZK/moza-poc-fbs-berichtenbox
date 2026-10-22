@@ -196,7 +196,7 @@ services:
       MAGAZIJN_OIN: "00000000000000100000"
       # Downstreams (aanmeld=echte uitvraag-webhook, notificatie) lopen via Toxiproxy zodat fase 5
       # ze per knop kan uitschakelen. Transparant bij normaal bedrijf. De aanmeld-levering laat een
-      # nieuw bericht live in de sessiecache belanden (mits actieve sessie), zodat 'Vernieuw' werkt.
+      # nieuw bericht live in de sessiecache belanden (mits de lijst van de ontvanger opgehaald is), zodat 'Vernieuw' werkt.
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080

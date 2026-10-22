@@ -172,7 +172,7 @@ internal class BerichtensessiecacheService(
         log.debugf("Ophalen berichten uit cache: page=%d, pageSize=%d", page, pageSize)
         val key = BerichtenCache.cacheKey(ontvanger)
 
-        // Cache-miss (null: nog nooit opgehaald óf TTL verlopen) en "opgehaald, 0 berichten"
+        // Cache-miss (null: nog nooit opgehaald, of opgeruimd met de laatste sessie) en "opgehaald, 0 berichten"
         // collapsen bewust naar dezelfde lege pagina. Het onderscheid loopt via een aparte
         // bron: de caller raadpleegt getAggregationStatus om "nog ophalen / niets in cache"
         // te onderscheiden van een afgeronde lege ophaling.

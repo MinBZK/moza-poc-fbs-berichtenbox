@@ -43,10 +43,10 @@ sealed class SessiecacheException(message: String, cause: Throwable? = null) : R
     class GeenLijstInCache(message: String) : SessiecacheException(message)
 
     /**
-     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone leeft — die
-     * krijgt bij het verwijderen de sessie-TTL mee en schuift daarna niet mee met leesverkeer —
-     * en daarna is het weer een gewone misser. Wordt nooit gegooid voor een bericht van een
-     * andere ontvanger: die krijgt de misser die hij ook voor een onbekend bericht zou krijgen.
+     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone bestaat: die
+     * hoort bij de gegevens van de ontvanger en verdwijnt met het opruimen na zijn laatste sessie.
+     * In een volgende sessie is het weer een gewone misser. Wordt nooit gegooid voor een bericht van
+     * een andere ontvanger: die krijgt de misser die hij ook voor een onbekend bericht zou krijgen.
      */
     class BerichtVerwijderd(message: String) : SessiecacheException(message)
 

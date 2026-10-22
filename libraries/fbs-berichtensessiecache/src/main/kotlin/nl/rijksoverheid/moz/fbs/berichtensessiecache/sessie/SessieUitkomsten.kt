@@ -73,10 +73,10 @@ enum class OpruimUitkomst {
     MISLUKT,
 
     /**
-     * Geen antwoord binnen de wachttijd, of de veegronde werd onderbroken. Het opruimen kan in Redis
-     * alsnog zijn uitgevoerd, of niet. Liep het niet, dan staat de ontvanger nog in de verloopindex
-     * (na een timeout net als bij [MISLUKT] een veeginterval naar achteren) en meldt een latere
-     * ronde het opruimen alsnog.
+     * Geen antwoord binnen de timeout (`facade-await-timeout-seconds`), of de veegronde werd
+     * onderbroken. Het opruimen kan in Redis alsnog zijn uitgevoerd, of niet. Liep het niet, dan staat
+     * de ontvanger nog in de verloopindex (na een timeout net als bij [MISLUKT] een veeginterval naar
+     * achteren) en meldt een latere ronde het opruimen alsnog.
      */
     ONBEVESTIGD,
 }

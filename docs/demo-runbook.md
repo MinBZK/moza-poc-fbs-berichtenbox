@@ -386,8 +386,8 @@ uit) en de omliggende diensten (Redis, profielservice, notificatie, uitvraag/aan
 een proxy die deze omgeving niet heeft, staan er niet: op ZAD krijgen de magazijnen hun gedrag uit
 de simulator.
 
-**Tabblad Scenario's** — *Cache verlopen* (wist alle sessies en berichthashes; een open berichtenbox krijgt
-401, start een nieuwe sessie en haalt zelf opnieuw op, een losse `GET /berichten` geeft 401 tot je een nieuwe sessie start), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
+**Tabblad Scenario's** — *Cache verlopen* (wist alle sessies en berichthashes. Een open `_volgen`-stream krijgt
+bij de eerstvolgende hartslag `sessie-verlopen`; elk gewoon verzoek krijgt 401. De berichtenbox start bij de volgende actie een nieuwe sessie en haalt opnieuw op; een losse `GET /berichten` geeft 401 tot je een nieuwe sessie start), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
 
@@ -479,7 +479,7 @@ volgen in fase 7.
 | 10 | Notificatieservice weg | *Notificatie uit* → *Random berichten opvoeren* → bericht verschijnt tóch via Vernieuw (aanmeld slaagt; notificatie retryt) |
 | 11 | Uitvraagsysteem eruit | *Uitvraag/aanmeld uit* → *Random berichten opvoeren* → bericht verschijnt níet bij Vernieuw; reset → outbox levert alsnog af |
 | 12 | Redis weg | *Redis uit* → `GET /berichten` geeft 502 problem+json (geen kale 500); *Cache verlopen* blijft werken |
-| 13 | Ontdubbeling | Persona **eerst Ophalen** (actieve sessie!) → Scenario's → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht |
+| 13 | Ontdubbeling | Persona **eerst Ophalen** (opgehaalde lijst!) → Scenario's → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht |
 | 14 | Load/stress | **Fase 7** — k6-script, nog te bouwen |
 | 15 | Niet alles opgehaald | Persona Grootbedrijf → **Ophalen**. De Autoriteit Persoonsgegevens noemt meer berichten dan ze levert (simulator-modus `ONVOLLEDIG`): boven de lijst staat "Niet alles opgehaald bij: Autoriteit Persoonsgegevens (27 van 507)", en die melding blijft na **Vernieuw** en op een volgende pagina staan |
 
@@ -562,7 +562,7 @@ leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's
   tussen Ophalen en een vervolgactie, dan is de sessie verlopen (401), ook als de berichtenbox openstaat:
   een open `_volgen`-verbinding houdt de sessie niet in leven. Realistisch (flow 6), maar hou er rekening
   mee tijdens het presenteren.
-- **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
+- **Ontdubbeling en de live-push** vereisen een opgehaalde lijst: laat de persona eerst **Ophalen**.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.
 - **Na een reset loopt de Berichtenbox een halve minuut achter.** Zet je een organisatie terug op

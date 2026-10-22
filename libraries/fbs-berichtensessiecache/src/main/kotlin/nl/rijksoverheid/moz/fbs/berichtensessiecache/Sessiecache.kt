@@ -108,8 +108,8 @@ interface Sessiecache {
     ): Bericht?
 
     /**
-     * Idempotente cache-invalidate: "niet in cache" is geen fout (TTL kan verlopen
-     * zijn, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
+     * Idempotente cache-invalidate: "niet in cache" is geen fout (het opruimen na de laatste
+     * sessie wiste de lijst al, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
      */
     fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID)
 

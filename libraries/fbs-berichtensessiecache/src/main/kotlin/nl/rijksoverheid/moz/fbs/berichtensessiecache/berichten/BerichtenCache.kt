@@ -114,7 +114,7 @@ internal interface BerichtenCache {
         const val BERICHT_PREFIX = "bericht:v4:"
 
         /**
-         * Key van de tombstone die een zelf-verwijderd bericht achterlaat, onder de sessie-key van
+         * Key van de tombstone die een zelf-verwijderd bericht achterlaat, onder de cache-key van
          * de ontvanger. Twee redenen voor die vorm. De eigenaar zit in de key en niet in de waarde,
          * dus is de tombstone eigenaar-gescopeerd zonder dat er een identificatienummer in Redis
          * belandt — [cacheKey] is een SHA-256. En de key valt buiten [BERICHT_PREFIX], het
@@ -168,8 +168,9 @@ internal class RedisBerichtenCache(
 ) : BerichtenCache {
     private val log = Logger.getLogger(RedisBerichtenCache::class.java)
 
-    // Vast, niet verschuivend met leesverkeer: het wissen is een actieve stap bij het einde van de
-    // laatste sessie, deze TTL is alleen het vangnet als dat mislukt.
+    // Gezet bij elke schrijfactie, en opgetrokken door een sessiestart naast een lopende sessie;
+    // leesverkeer verlengt niets. Het wissen is een actieve stap bij het einde van de laatste
+    // sessie, deze TTL is alleen het vangnet als dat mislukt.
     private val dataTtl: Duration = sessieConfig.dataTtl
 
     @PostConstruct
@@ -693,11 +694,11 @@ internal class RedisBerichtenCache(
 
     override fun updateBerichtMetadata(sleutel: BerichtSleutel, ontvanger: Identificatienummer, status: String?, map: String?): Uni<Bericht?> {
         // Merge-PATCH: alleen de meegegeven velden worden bijgewerkt; ontbrekende velden blijven
-        // onveranderd. De sessie-`list` bevat volledige JSON-blobs die het ongefilterde `getPage`
-        // direct deserialiseert — een HSET-alleen update laat die list stale (oude status/map
-        // zichtbaar in `GET /berichten` tot TTL). We schrijven daarom óók de matchende list-entry
-        // terug, onder hetzelfde optimistic locking als `delete` (WATCH op list- en bericht-key):
-        // een concurrente `createBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
+        // onveranderd. De lijst van de ontvanger bevat volledige JSON-blobs die het ongefilterde
+        // `getPage` direct deserialiseert — een HSET-alleen update laat die list stale (oude
+        // status/map zichtbaar in `GET /berichten` tot de volgende ophaalronde). We schrijven daarom
+        // óók de matchende list-entry terug, onder hetzelfde optimistic locking als `delete`
+        // (WATCH op list- en bericht-key): een concurrente `createBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
         // we geen lost-update veroorzaken. Bij afbreken herhalen we tot een klein plafond; daarna
         // laten we de cache met rust en levert de operatie een retriable 503 op zodat de client
         // opnieuw kan proberen.
@@ -784,7 +785,7 @@ internal class RedisBerichtenCache(
             }
     }
 
-    /** Vervangt het blob van [sleutel] in de sessie-list door [updatedJson]; overige entries blijven. */
+    /** Vervangt het blob van [sleutel] in de berichtenlijst van de ontvanger door [updatedJson]; overige entries blijven. */
     private fun herbouwLijst(entries: List<String>, sleutel: BerichtSleutel, updatedJson: String): List<String> =
         entries.map { json -> if (blobMatcht(json, sleutel, "update")) updatedJson else json }
 
@@ -906,7 +907,7 @@ internal class RedisBerichtenCache(
     }
 
     override fun delete(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void> {
-        // Idempotent cache-invalidate. De sessie-`list` bevat JSON-blobs (gevuld via
+        // Idempotent cache-invalidate. De lijst van de ontvanger bevat JSON-blobs (gevuld via
         // `createBericht.rpush`) die `getPage` direct deserialiseert — dus na DEL op de hash
         // blijft het bericht zonder list-prune zichtbaar in `GET /berichten`.
         //
@@ -1021,7 +1022,7 @@ internal class RedisBerichtenCache(
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         /**
-         * KEYS: sessie-lijst, berichthash, sleutelset. ARGV: berichtId, magazijnId, JSON voor de
+         * KEYS: berichtenlijst van de ontvanger, berichthash, sleutelset. ARGV: berichtId, magazijnId, JSON voor de
          * lijst, TTL in ms, daarna de hash-velden als veld/waarde-paren. Een treffer vraagt beide:
          * hetzelfde nummer van een ander magazijn is een ander bericht. Elke geschreven hash gaat de
          * sleutelset in, zodat het opruimen na de laatste sessie hem vindt.
