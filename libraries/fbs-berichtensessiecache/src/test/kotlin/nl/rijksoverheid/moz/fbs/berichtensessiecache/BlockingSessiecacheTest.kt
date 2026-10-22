@@ -386,6 +386,7 @@ class BlockingSessiecacheTest {
 
         every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
             Uni.createFrom().failure(RuntimeException("redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().item(Unit)
 
         assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, MAGAZIJN, id) }
     }
@@ -506,6 +507,70 @@ class BlockingSessiecacheTest {
             assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel")
             assertFalse(BerichtenCache.kenmerk(ontvanger) in regel, "kenmerk in de log: $regel")
         }
+    }
+
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `schrijfBericht waarvan het schrijven zelf geen antwoord geeft, markeert voor de veeg en is Onbereikbaar`(markerenFaalt: Boolean) {
+        // Het aanmeldscript kan in Redis gedraaid hebben terwijl het antwoord wegviel; na een uitlog
+        // vindt de herlevering geen status meer, dus alleen de veegtaak kan het geschrevene nog vinden.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("verbinding weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            if (markerenFaalt) Uni.createFrom().failure(IllegalStateException("nog steeds weg")) else Uni.createFrom().item(Unit)
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+
+            assertEquals("verbinding weg", fout.cause?.message, "de oorspronkelijke fout hoort door te komen")
+        }
+
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
+        verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+        assertEquals(if (markerenFaalt) 1 else 0, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+        regels.forEach { regel -> assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel") }
+    }
+
+    @Test
+    fun `schrijfBericht dat de validator afwijst, markeert niets`() {
+        // Een invoerfout: er is niets geschreven, dus ook niets voor de veegtaak.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().failure(IllegalArgumentException("te lang"))
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verify(exactly = 0) { sessies.markeerVoorVeeg(ontvanger) }
+    }
+
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `verwijder waarvan het antwoord uitblijft, markeert voor de veeg en is Onbereikbaar`(markerenFaalt: Boolean) {
+        // De tombstone kan al geschreven zijn terwijl de opruimcontrole erna nooit liep.
+        val id = UUID.randomUUID()
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
+            Uni.createFrom().failure(IllegalStateException("verbinding weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            if (markerenFaalt) Uni.createFrom().failure(IllegalStateException("nog steeds weg")) else Uni.createFrom().item(Unit)
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, MAGAZIJN, id) }
+        }
+
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
+        assertEquals(if (markerenFaalt) 1 else 0, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+    }
+
+    @Test
+    fun `een geslaagde verwijdering markeert niets`() {
+        val id = UUID.randomUUID()
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().voidItem()
+
+        facade.verwijder(ontvanger, MAGAZIJN, id)
+
+        verify(exactly = 0) { sessies.markeerVoorVeeg(ontvanger) }
     }
 
     // --- volg ---

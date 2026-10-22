@@ -145,7 +145,13 @@ internal class BlockingSessiecache(
     override fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID) {
         if (!ingeschreven(magazijnId)) return
 
-        awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
+        try {
+            awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
+        } catch (e: SessiecacheException) {
+            // Een timeout kan de keten afbreken ná de tombstone en vóór de opruimcontrole erna.
+            markeerVoorVeeg(ontvanger, "Verwijderen niet bevestigd")
+            throw e
+        }
     }
 
     override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> = service.haalBerichtenOp(ontvanger)
@@ -174,6 +180,11 @@ internal class BlockingSessiecache(
             // Defensieve limiet overschreden (BerichtValidator): invoerfout van de
             // aanleverende caller, geen infrastructuurfout.
             throw SessiecacheException.OngeldigeInvoer(e.message ?: "Ongeldig bericht.", e)
+        } catch (e: SessiecacheException) {
+            // Het aanmeldscript kan in Redis gedraaid hebben terwijl het antwoord wegviel, en het kijkt
+            // niet naar sessies. Zonder markering zou het geschrevene dan onzichtbaar blijven staan.
+            markeerVoorVeeg(ontvanger, "Aanmelding niet bevestigd")
+            throw e
         }
 
         // De statuscontrole hierboven en het schrijven zijn twee stappen; eindigde de laatste sessie
@@ -183,7 +194,7 @@ internal class BlockingSessiecache(
         } catch (e: SessiecacheException) {
             // De herlevering die op deze fout volgt, vindt na een uitlog geen status meer en ruimt dus
             // niets op; alleen de veegtaak kan het geschrevene dan nog vinden.
-            markeerVoorVeeg(ontvanger)
+            markeerVoorVeeg(ontvanger, "Opruimen na een aanmelding mislukt")
             throw e
         }
 
@@ -321,14 +332,20 @@ internal class BlockingSessiecache(
         }
     }
 
-    /** Best-effort: de aanleveraar krijgt hoe dan ook de oorspronkelijke fout en levert opnieuw. */
-    private fun markeerVoorVeeg(ontvanger: Identificatienummer) {
+    /**
+     * Best-effort, na een schrijfactie waarvan niet vaststaat of een opruimcontrole erachter liep: de
+     * aanroeper krijgt hoe dan ook de oorspronkelijke fout. Staat de ontvanger al in de verloopindex,
+     * met een lopende sessie of al wachtend, dan verandert dit niets. [wat] noemt in het alert welke
+     * stap faalde.
+     */
+    private fun markeerVoorVeeg(ontvanger: Identificatienummer, wat: String) {
         try {
             sessies.markeerVoorVeeg(ontvanger).await().atMost(timeout)
         } catch (e: Exception) {
             log.errorf(
-                "%s Opruimen na een aanmelding mislukt en ook het markeren voor de veegtaak (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
+                "%s %s en ook het markeren voor de veegtaak (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
                 ALERT_OPRUIMEN_NA_SCHRIJVEN,
+                wat,
                 e.javaClass.name,
             )
         }
