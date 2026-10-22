@@ -54,13 +54,28 @@ class SessieResource(
 
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         val start = try {
-            leesUitCache(log, "sessie-start") { sessiecache.startSessie(ontvanger, sessieStartVerzoek?.uiterlijkGeldigTot) }
+            leesUitCache(log, "sessie-start") {
+                try {
+                    sessiecache.startSessie(ontvanger, sessieStartVerzoek?.uiterlijkGeldigTot)
+                } catch (e: SessiecacheException.Onbereikbaar) {
+                    // De start kan in Redis al resten gewist hebben. Een volgende start ziet dan de
+                    // sessie die niemand kent lopen en meldt niets, dus dit is de enige kans op een logregel.
+                    sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START, OpruimUitkomst.ONBEVESTIGD)
+                    throw e
+                }
+            }
         } catch (e: FbsFoutException) {
-            // Een bedoelde weigering, geen storing: in het logboek staat "Error" voor wat misging.
-            if (e.foutcode == Foutcode.TE_VEEL_SESSIES) logboekContext.expectException(e, StatusCode.UNSET)
+            // Een bedoelde weigering of een fout van de afnemer, geen storing: in het logboek staat
+            // "Error" voor wat misging. De regel zegt wel dat er geen sessie begon.
+            if (e.foutcode in WEIGERINGEN) {
+                logboekContext.expectException(e, StatusCode.UNSET)
+                Span.current().setAttribute(START_UITKOMST_ATTRIBUUT, GEWEIGERD)
+            }
 
             throw e
         }
+
+        Span.current().setAttribute(START_UITKOMST_ATTRIBUUT, GESTART)
 
         if (start.restenOpgeruimd) sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START)
 
@@ -116,5 +131,14 @@ class SessieResource(
     companion object {
         /** Wat een einde deed: `onbekend` (niets), `beeindigd` (andere sessies lopen nog) of `opgeruimd`. */
         const val EINDE_UITKOMST_ATTRIBUUT = "fbs.sessie.einde.uitkomst"
+
+        /** Of een start een sessie opleverde: `gestart`, of `geweigerd` (te veel sessies of een ongeldig verzoek). */
+        const val START_UITKOMST_ATTRIBUUT = "fbs.sessie.start.uitkomst"
+
+        private const val GESTART = "gestart"
+        private const val GEWEIGERD = "geweigerd"
+
+        /** De start is bewust niet gedaan: de grens, of een verzoek dat niet kon, zoals een plafond in het verleden. */
+        private val WEIGERINGEN = setOf(Foutcode.TE_VEEL_SESSIES, Foutcode.ONGELDIG_VERZOEK)
     }
 }

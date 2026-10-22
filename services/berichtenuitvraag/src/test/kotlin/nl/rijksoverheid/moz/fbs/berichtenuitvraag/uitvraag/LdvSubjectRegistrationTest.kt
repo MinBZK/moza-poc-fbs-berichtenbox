@@ -216,13 +216,78 @@ class LdvSubjectRegistrationTest {
     }
 
     @Test
+    fun `een start met een plafond in het verleden krijgt een logregel zonder status Error`() {
+        // Een fout van de afnemer, geen storing: net als de weigering boven de grens.
+        vangLogregels()
+
+        given()
+            .contentType("application/json")
+            .header("X-Ontvanger", "BSN:999990019")
+            .body("""{"uiterlijkGeldigTot":"2020-01-01T00:00:00Z"}""")
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(400)
+
+        val start = verzoekSpans.getValue("uitvraag-sessie-start").toSpanData()
+
+        assertNotEquals(StatusCode.ERROR, start.status.statusCode, "400 als Error gelogd: ${start.status}")
+        assertEquals(listOf(sessieRegel("uitvraag-sessie-start")), logregels.toList())
+    }
+
+    /** Wie de logregel van een start leest, ziet of er een sessie begon: ook een weigering heeft een regel. */
+    @ParameterizedTest(name = "{0} sessies vooraf, plafond {1}: {2} {3}")
+    @CsvSource("0, , 201, gestart", "4, , 201, gestart", "5, , 429, geweigerd", "0, 2020-01-01T00:00:00Z, 400, geweigerd")
+    fun `de logregel van een start noemt of hij gestart of geweigerd is`(aantal: Int, plafond: String?, status: Int, uitkomst: String) {
+        repeat(aantal) { sessiecache.sessieVoor() }
+        vangLogregels()
+
+        given()
+            .contentType("application/json")
+            .header("X-Ontvanger", "BSN:999990019")
+            .apply { plafond?.let { body("""{"uiterlijkGeldigTot":"$it"}""") } }
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(status)
+
+        val start = verzoekSpans.getValue("uitvraag-sessie-start")
+
+        assertEquals(uitkomst, start.getAttribute(AttributeKey.stringKey(SessieResource.START_UITKOMST_ATTRIBUUT)))
+    }
+
+    @Test
     fun `een start die op een storing strandt, blijft wel een Error`() {
         sessiecache.startSessieFout = SessiecacheException.Onbereikbaar("Redis weg")
         vangLogregels()
 
         given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(503)
 
-        assertEquals(StatusCode.ERROR, verzoekSpans.getValue("uitvraag-sessie-start").toSpanData().status.statusCode)
+        val start = verzoekSpans.getValue("uitvraag-sessie-start")
+
+        assertEquals(StatusCode.ERROR, start.toSpanData().status.statusCode)
+        assertEquals(null, start.getAttribute(AttributeKey.stringKey(SessieResource.START_UITKOMST_ATTRIBUUT)), "onbekend of er iets startte")
+    }
+
+    @Test
+    fun `een start zonder antwoord van de opslag legt het opruimen als onbevestigd vast`() {
+        // De start kan in Redis resten gewist hebben; een volgende start ziet de spooksessie en meldt niets.
+        sessiecache.startSessieFout = SessiecacheException.Onbereikbaar("Redis antwoordt niet")
+        vangLogregels()
+
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(503)
+
+        assertEquals(listOf(sessieRegel(SessieLogboek.NAAM).copy(status = StatusCode.ERROR)), logregels.filter { it.naam == SessieLogboek.NAAM })
+        verify { opruimSpan.setAttribute(SessieLogboek.AANLEIDING_ATTRIBUUT, "nieuwe-start") }
+        verify { opruimSpan.setAttribute(SessieLogboek.UITKOMST_ATTRIBUUT, "onbevestigd") }
+    }
+
+    @Test
+    fun `een start met een andere fout dan onbereikbaar legt geen opruimen vast`() {
+        sessiecache.startSessieFout = SessiecacheException.Onleesbaar("kapot")
+        vangLogregels()
+
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies")
+
+        assertEquals(emptyList<Logregel>(), logregels.filter { it.naam == SessieLogboek.NAAM })
     }
 
     /** Lezen en verlengen raken alleen de sessie-administratie; net als het verlengen door een berichtenverzoek geen logregel. */

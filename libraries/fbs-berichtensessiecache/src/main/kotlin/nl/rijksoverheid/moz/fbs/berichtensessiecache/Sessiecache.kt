@@ -170,8 +170,9 @@ interface Sessiecache {
      * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
      *
      * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
-     * gebeurde, dan staat er een sessie die niemand kent. Die verloopt na de inactiviteitsduur, en
-     * dan meldt de veegtaak het opruimen; een gewiste rest gaat zo niet ongemeld verloren.
+     * gebeurde, dan staat er een sessie die niemand kent, en kan de start al resten gewist hebben.
+     * Een volgende start ziet die spooksessie lopen en meldt dan niets, dus de aanroeper legt zo'n
+     * start als onbevestigd opruimen vast, net als een uitlog zonder antwoord.
      */
     fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant? = null): SessieStart
 
