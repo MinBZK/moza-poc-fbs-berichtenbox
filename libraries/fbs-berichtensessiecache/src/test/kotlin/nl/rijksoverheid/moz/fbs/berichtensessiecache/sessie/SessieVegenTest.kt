@@ -230,7 +230,7 @@ class SessieVegenTest {
     }
 
     @ParameterizedTest(name = "leesbare ontvanger {0}")
-    @ValueSource(strings = ["verlopen", "onleesbaar", "van het verkeerde type"])
+    @ValueSource(strings = ["verlopen", "onleesbaar", "van het verkeerde type", "van een andere ontvanger"])
     fun `een kandidaat zonder leesbare ontvanger wordt toch geveegd en zonder ontvanger gemeld`(geval: String) {
         // Zoals na een veeg die zo lang faalde dat de vangnet-TTL van de leesbare ontvanger verliep.
         val ontvanger = nieuweOntvanger()
@@ -240,6 +240,9 @@ class SessieVegenTest {
         when (geval) {
             "verlopen" -> redis.key().del(ontvangerKey).await().atMost(WACHTTIJD)
             "onleesbaar" -> redis.value(String::class.java).set(ontvangerKey, "ONBEKEND:123").await().atMost(WACHTTIJD)
+            // Handwerk of een herstelscript: een geldige ontvanger, maar niet die van dit kenmerk. Die
+            // hoort niet als betrokkene in het logboek.
+            "van een andere ontvanger" -> redis.value(String::class.java).set(ontvangerKey, Bsn("999993653").toCanonicalString()).await().atMost(WACHTTIJD)
             else -> {
                 beschadigd += ontvangerKey
                 redis.key().del(ontvangerKey).await().atMost(WACHTTIJD)
@@ -251,6 +254,57 @@ class SessieVegenTest {
 
         assertEquals(emptyList<String>(), indexLeden())
         assertFalse(bestaat("${key(ontvanger)}:list"))
+    }
+
+    @Test
+    fun `een leesbare ontvanger die niet bij het kenmerk hoort, meldt dat zonder BSN en zonder kenmerk`() {
+        val ontvanger = nieuweOntvanger()
+        val ander = Bsn("999993653")
+        zetVerlopen(ontvanger)
+        redis.value(String::class.java).set("${key(ontvanger)}:ontvanger", ander.toCanonicalString()).await().atMost(WACHTTIJD)
+
+        val regels = vangLog(RedisSessieRegister::class.java) { veeg() }
+
+        assertEquals(1, regels.count { it.contains("hoort niet bij zijn index-entry") }, "Log: $regels")
+        regels.forEach { regel ->
+            assertFalse(ander.waarde in regel || ontvanger.waarde in regel, "ontvanger in de log: $regel")
+            assertFalse(lid(ontvanger) in regel || lid(ander) in regel, "kenmerk in de log: $regel")
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["start", "raak", "einde naast een andere sessie", "opruimen na schrijven", "markeren", "uitstellen", "veeg naast een lopende sessie"])
+    fun `elke bijwerking van de verloopindex geeft hem de vangnet-TTL plus de maximale duur, ook een index zonder TTL`(bijwerking: String) {
+        // De index is een takenlijst voor het logboek en hoort niet onbeperkt te blijven staan als de
+        // veegtaak niet meer draait; hij mag ook niet eerder verlopen dan de gegevens waar hij naar wijst.
+        val ontvanger = nieuweOntvanger()
+        val sessie = sessiecache.startSessie(ontvanger)
+        redis.key().persist(VERLOOP_INDEX).await().atMost(WACHTTIJD)
+
+        when (bijwerking) {
+            "start" -> sessiecache.startSessie(nieuweOntvanger())
+            "raak" -> sessiecache.raakSessie(sessie.sessieId, ontvanger)
+            "einde naast een andere sessie" -> sessiecache.beeindigSessie(sessiecache.startSessie(ontvanger).sessieId, ontvanger)
+            "opruimen na schrijven" -> {
+                val zonderSessie = nieuweOntvanger()
+
+                zetGegevens(zonderSessie)
+                redis.key().persist(VERLOOP_INDEX).await().atMost(WACHTTIJD)
+                assertTrue(register.ruimOpZonderSessie(zonderSessie).await().atMost(WACHTTIJD))
+            }
+            "markeren" -> register.markeerVoorVeeg(nieuweOntvanger()).await().atMost(WACHTTIJD)
+            "uitstellen" -> register.stelUit(lid(ontvanger)).await().atMost(WACHTTIJD)
+            else -> {
+                // Een index die achterloopt op de lopende sessie: de veeg zet hem op diens verloop.
+                redis.sortedSet(String::class.java).zadd(VERLOOP_INDEX, 1.0, lid(ontvanger)).await().atMost(WACHTTIJD)
+                redis.key().persist(VERLOOP_INDEX).await().atMost(WACHTTIJD)
+                assertFalse(register.veeg(lid(ontvanger)).await().atMost(WACHTTIJD))
+            }
+        }
+
+        val ttl = pttl(VERLOOP_INDEX)
+
+        assertTrue(ttl in (DATA_TTL_MS + 1)..INDEX_TTL_MS, "TTL van de verloopindex: $ttl")
     }
 
     @Test
@@ -381,6 +435,30 @@ class SessieVegenTest {
         listOf(zonder, kandidaat).forEach { assertFalse(lid(bsn) in it || "999993653" in it, it) }
     }
 
+    private fun vangLog(klasse: Class<*>, blok: () -> Unit): List<String> {
+        val regels = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val logger = java.util.logging.Logger.getLogger(klasse.name)
+        val vanger = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) {
+                regels += String.format(record.message, *(record.parameters ?: emptyArray()))
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+
+        logger.addHandler(vanger)
+
+        try {
+            blok()
+        } finally {
+            logger.removeHandler(vanger)
+        }
+
+        return regels
+    }
+
     private fun veeg(max: Int = 100): List<Opruiming> {
         val gemeld = mutableListOf<Opruiming>()
         sessiecache.ruimVerlopenSessiesOp(max) { gemeld += it }
@@ -443,6 +521,9 @@ class SessieVegenTest {
 
         // Maximale duur plus de standaard vangnet-marge van een uur.
         const val DATA_TTL_MS = MAX_DUUR_MS + 3_600_000L
+
+        // De verloopindex leeft een maximale duur langer dan de gegevens.
+        const val INDEX_TTL_MS = DATA_TTL_MS + MAX_DUUR_MS
         const val AANTAL_GELIJKTIJDIG = 20
         const val AANTAL_MISLUKT = 100
 

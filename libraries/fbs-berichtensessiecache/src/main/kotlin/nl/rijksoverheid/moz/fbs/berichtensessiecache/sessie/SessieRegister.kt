@@ -11,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheCorruptedExc
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisBerichtenCache
 import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import org.jboss.logging.Logger
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Duration
@@ -94,8 +95,8 @@ internal sealed interface StartUitkomst {
 
 /**
  * Een ontvanger uit de verloopindex. [kenmerk] is zijn lid in de index ([BerichtenCache.kenmerk]);
- * [ontvanger] de leesbare vorm, of `null` als die al verlopen of onleesbaar is, en dan kan het
- * opruimen niet met betrokkene in het logboek.
+ * [ontvanger] de leesbare vorm, of `null` als die al verlopen of onleesbaar is of niet bij [kenmerk]
+ * hoort, en dan kan het opruimen niet met betrokkene in het logboek.
  */
 internal class VeegKandidaat(val kenmerk: String, val ontvanger: Identificatienummer?) {
 
@@ -117,9 +118,13 @@ internal class RedisSessieRegister(
     private val config: SessieConfig,
 ) : SessieRegister {
 
+    private val log = Logger.getLogger(RedisSessieRegister::class.java)
+
     init {
         config.valideer()
     }
+
+    private val indexTtlMs: String = config.indexTtl.toMillis().toString()
 
     override fun start(ontvanger: Identificatienummer, plafond: Instant?): Uni<StartUitkomst> {
         val sessieId = nieuweSessieId()
@@ -135,6 +140,7 @@ internal class RedisSessieRegister(
             ontvanger.toCanonicalString(),
             // Begrensd, want toEpochMilli loopt over op een moment ver buiten het bereik van ms.
             plafond?.coerceIn(Instant.EPOCH, VERSTE_PLAFOND)?.toEpochMilli()?.toString().orEmpty(),
+            indexTtlMs,
         )
 
         return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
@@ -164,6 +170,7 @@ internal class RedisSessieRegister(
             hash(sessieId),
             config.inactiviteit().toMillis().toString(),
             BerichtenCache.kenmerk(ontvanger),
+            indexTtlMs,
         )
 
         return voerUit(SessieScripts.RAAK, ontvanger, argumenten).map(::leesGeldigheid)
@@ -178,7 +185,7 @@ internal class RedisSessieRegister(
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> {
         if (!Sessiecache.SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(SessieEinde.ONBEKEND)
 
-        val argumenten = listOf(hash(sessieId), BerichtenCache.kenmerk(ontvanger))
+        val argumenten = listOf(hash(sessieId), BerichtenCache.kenmerk(ontvanger), indexTtlMs)
 
         // Een antwoord dat de enum niet kent, is een script dat niet bij deze code hoort (een half
         // uitgerolde versie): een eigen, leesbare fout, en geen IllegalArgumentException uit valueOf.
@@ -189,14 +196,14 @@ internal class RedisSessieRegister(
     }
 
     override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> {
-        val argumenten = listOf(BerichtenCache.kenmerk(ontvanger), ontvanger.toCanonicalString(), config.dataTtl.toMillis().toString())
+        val argumenten = listOf(BerichtenCache.kenmerk(ontvanger), ontvanger.toCanonicalString(), config.dataTtl.toMillis().toString(), indexTtlMs)
 
         return voerUit(SessieScripts.OPRUIMEN, ontvanger, argumenten).map { it.toInteger() == 1 }
     }
 
     override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> {
         val kenmerk = BerichtenCache.kenmerk(ontvanger)
-        val argumenten = listOf(kenmerk, ontvanger.toCanonicalString(), config.dataTtl.toMillis().toString())
+        val argumenten = listOf(kenmerk, ontvanger.toCanonicalString(), config.dataTtl.toMillis().toString(), indexTtlMs)
 
         return voerUit(SessieScripts.MARKEER, listOf(VERLOOP_INDEX, ontvangerKey(kenmerk)), argumenten).replaceWith(Unit)
     }
@@ -205,15 +212,30 @@ internal class RedisSessieRegister(
         val argumenten = listOf(max.toString(), BerichtenCache.SLEUTEL_PREFIX, ONTVANGER_SUFFIX)
 
         return voerUit(SessieScripts.KANDIDATEN, listOf(VERLOOP_INDEX), argumenten).map { antwoord ->
-            antwoord.map { it.toString() }.chunked(2) { (kenmerk, ontvanger) -> VeegKandidaat(kenmerk, leesOntvanger(ontvanger)) }
+            antwoord.map { it.toString() }.chunked(2) { (kenmerk, ontvanger) -> VeegKandidaat(kenmerk, ontvangerBij(kenmerk, ontvanger)) }
         }
     }
 
+    /**
+     * De leesbare ontvanger, alleen als hij bij [kenmerk] hoort. Een andere (door handwerk, een
+     * herstelscript of een fout in de sleutelopbouw) zou als verkeerde betrokkene in het logboek
+     * komen; dan liever zonder betrokkene en met het alert dat daarbij hoort.
+     */
+    private fun ontvangerBij(kenmerk: String, waarde: String): Identificatienummer? {
+        val ontvanger = leesOntvanger(waarde) ?: return null
+
+        if (BerichtenCache.kenmerk(ontvanger) == kenmerk) return ontvanger
+
+        log.error("Leesbare ontvanger hoort niet bij zijn index-entry; het opruimen gaat door zonder betrokkene in het logboek")
+
+        return null
+    }
+
     override fun veeg(kenmerk: String): Uni<Boolean> =
-        voerUit(SessieScripts.VEEG, sleutels(kenmerk), listOf(kenmerk)).map { it.toInteger() == 1 }
+        voerUit(SessieScripts.VEEG, sleutels(kenmerk), listOf(kenmerk, indexTtlMs)).map { it.toInteger() == 1 }
 
     override fun stelUit(kenmerk: String): Uni<Unit> {
-        val argumenten = listOf(config.veegUitstel.toMillis().toString(), kenmerk)
+        val argumenten = listOf(config.veegUitstel.toMillis().toString(), kenmerk, indexTtlMs)
 
         return voerUit(SessieScripts.UITSTEL, listOf(VERLOOP_INDEX), argumenten).replaceWith(Unit)
     }

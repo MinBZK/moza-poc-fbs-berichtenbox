@@ -51,9 +51,9 @@ sealed interface Opruiming {
 
     /**
      * Een opruiming waarvan de leesbare ontvanger niet meer bekend is: die verliep met zijn
-     * vangnet-TTL terwijl de index-entry nog wachtte, of was onleesbaar. Er kan dan geen logregel met
-     * betrokkene komen. [kenmerk] onderscheidt de entry binnen een veegronde; het is een terug te
-     * rekenen hash van de ontvanger, dus niet loggen.
+     * vangnet-TTL terwijl de index-entry nog wachtte, was onleesbaar, of hoorde niet bij de entry.
+     * Er kan dan geen logregel met betrokkene komen. [kenmerk] onderscheidt de entry binnen een
+     * veegronde; het is een terug te rekenen hash van de ontvanger, dus niet loggen.
      */
     data class ZonderOntvanger(val kenmerk: String, override val uitkomst: OpruimUitkomst) : Opruiming {
         override fun toString(): String = "Opruiming.ZonderOntvanger(kenmerk=***, uitkomst=$uitkomst)"

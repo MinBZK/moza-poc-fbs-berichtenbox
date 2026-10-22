@@ -68,6 +68,15 @@ internal fun SessieConfig.valideer() {
 internal val SessieConfig.dataTtl: Duration get() = maxDuur().plus(vangnetMarge())
 
 /**
+ * De Redis-TTL op de verloopindex, opnieuw gezet bij elke bijwerking ervan. Zo blijft de index niet
+ * onbeperkt staan als de veegtaak niet meer draait, en verloopt hij nooit vóór de gegevens waar hij de
+ * takenlijst voor is: een schrijfactie zet [dataTtl] vanaf haar eigen moment, en valt hoogstens een
+ * [SessieConfig.maxDuur] na de laatste bijwerking van de index (de start of het laatste verzoek van de
+ * sessie waarin ze gebeurde). Een schrijfactie na het einde van de laatste sessie zet de index zelf bij.
+ */
+internal val SessieConfig.indexTtl: Duration get() = dataTtl.plus(maxDuur())
+
+/**
  * Hoe ver een ontvanger wiens opruimen mislukte in de verloopindex naar achteren schuift. Zonder
  * uitstel blijft hij vooraan staan en krijgt elke pod bij elke ronde dezelfde mislukkers, terwijl
  * gezonde ontvangers erachter wachten tot de Redis-TTL. Minstens één interval, zodat de ronde die

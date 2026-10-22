@@ -17,9 +17,11 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  *    zijn anders alleen via een zoekopdracht te vinden;
  * 8. `$k:ontvanger` — STRING, de leesbare ontvanger, voor de logregel van de veegtaak.
  *
- * De index bevat alleen kenmerken: één stelselbrede sleutel zonder TTL hoort geen lijst van BSN's
- * te zijn. De leesbare ontvanger staat per ontvanger in `$k:ontvanger`, met de vangnet-TTL, en gaat
- * weg samen met zijn index-entry. Elk script dat een entry maakt, schrijft hem.
+ * De index bevat alleen kenmerken: één stelselbrede sleutel hoort geen lijst van BSN's te zijn. De
+ * leesbare ontvanger staat per ontvanger in `$k:ontvanger`, met de vangnet-TTL, en gaat weg samen met
+ * zijn index-entry. Elk script dat een entry maakt, schrijft hem. Elk script dat de index bijwerkt,
+ * zet ook zijn TTL opnieuw (het laatste ARGV, zie [indexTtl]): draait de veegtaak niet meer, dan
+ * blijft de index niet onbeperkt staan.
  *
  * Omdat de leden van `$k:sleutels` niet in KEYS staan, gaan deze scripts uit van één Redis-node,
  * zoals het aanmeldscript van de berichtencache.
@@ -76,6 +78,11 @@ internal object SessieScripts {
             redis.call('DEL', KEYS[8])
         end
 
+        -- Na elke bijwerking van de index: zie indexTtl.
+        local function houdIndexAan(ttl)
+            redis.call('PEXPIRE', KEYS[3], ttl)
+        end
+
         -- Een BEZIG-status houdt zijn korte TTL: die moet na een gecrashte ophaalronde snel vrijkomen.
         local function trekTtlOp(ttl)
             redis.call('PEXPIRE', KEYS[4], ttl)
@@ -96,8 +103,8 @@ internal object SessieScripts {
 
     /**
      * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), grens per ontvanger, kenmerk,
-     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger, en het
-     * plafond dat de aanroeper meegaf (ms), of een lege tekst.
+     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger, het plafond
+     * dat de aanroeper meegaf (ms) of een lege tekst, en de TTL van de index (ms).
      *
      * Antwoord:
      * - `{1, verloop, opgeruimd, plafond}` bij een start, met verloop en plafond in ms en opgeruimd 1
@@ -149,11 +156,12 @@ internal object SessieScripts {
         redis.call('PEXPIRE', KEYS[2], ARGV[6])
         redis.call('SET', KEYS[8], ARGV[7], 'PX', ARGV[6])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[5])
+        houdIndexAan(ARGV[9])
         return { 1, verloop, opgeruimd, plafond }
     """.trimIndent()
 
     /**
-     * ARGV: sessie-hash, inactiviteit (ms), kenmerk. Antwoord `{1, verloop, plafond}` (ms) als de
+     * ARGV: sessie-hash, inactiviteit (ms), kenmerk, TTL van de index (ms). Antwoord `{1, verloop, plafond}` (ms) als de
      * sessie loopt en verlengd is, anders `{0}`. Het verloop schuift nooit voorbij het plafond, dus
      * ook niet voorbij de TTL van `$k:ontvanger` die de laatste start zette.
      */
@@ -172,6 +180,7 @@ internal object SessieScripts {
         local verloop = math.min(nu + tonumber(ARGV[2]), plafond)
         redis.call('ZADD', KEYS[1], verloop, ARGV[1])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[3])
+        houdIndexAan(ARGV[4])
         return { 1, verloop, plafond }
     """.trimIndent()
 
@@ -196,7 +205,7 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: sessie-hash, kenmerk. Antwoord `ONBEKEND`, `BEEINDIGD` of `OPGERUIMD` (zie
+     * ARGV: sessie-hash, kenmerk, TTL van de index (ms). Antwoord `ONBEKEND`, `BEEINDIGD` of `OPGERUIMD` (zie
      * [SessieEinde]).
      *
      * Blijft er geen lopende sessie over, dan wist het script ook bij een onbekend id: er is dan
@@ -216,6 +225,7 @@ internal object SessieScripts {
             -- score laat de veegtaak deze ontvanger tot een inactiviteitsduur te laat vinden.
             local laatste = redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')
             redis.call('ZADD', KEYS[3], laatste[2], ARGV[2])
+            houdIndexAan(ARGV[3])
             if bekend then
                 return 'BEEINDIGD'
             end
@@ -232,8 +242,8 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: kenmerk, leesbare ontvanger, vangnet-TTL (ms). Antwoord 1 als er geen lopende sessie is
-     * en er gegevens gewist zijn, anders 0.
+     * ARGV: kenmerk, leesbare ontvanger, vangnet-TTL (ms), TTL van de index (ms). Antwoord 1 als er
+     * geen lopende sessie is en er gegevens gewist zijn, anders 0.
      *
      * Draait ná het schrijven van een ophaalronde of een aanmelding: eindigde de laatste sessie
      * terwijl die liep, dan ruimt dit het geschrevene op, in welke volgorde het ook gebeurde.
@@ -251,6 +261,7 @@ internal object SessieScripts {
         if purge() > 0 then
             redis.call('SET', KEYS[8], ARGV[2], 'PX', ARGV[3])
             redis.call('ZADD', KEYS[3], nu, ARGV[1])
+            houdIndexAan(ARGV[4])
             return 1
         end
         return 0
@@ -280,7 +291,7 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: kenmerk. Antwoord 1 als dit script de ontvanger heeft opgeruimd, anders 0.
+     * ARGV: kenmerk, TTL van de index (ms). Antwoord 1 als dit script de ontvanger heeft opgeruimd, anders 0.
      *
      * De index is alleen een aanwijzing: tussen [KANDIDATEN] en dit script kan een sessie gestart of
      * geraakt zijn, of een andere pod al geveegd hebben. Pas als hier blijkt dat er echt geen lopende
@@ -302,6 +313,7 @@ internal object SessieScripts {
             -- Zonder GT: de index liep achter op een lopende sessie en moet naar diens verloop.
             local laatste = redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')
             redis.call('ZADD', KEYS[3], laatste[2], ARGV[1])
+            houdIndexAan(ARGV[2])
             return 0
         end
 
@@ -311,19 +323,20 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * Afwijkende KEYS: alleen de verloopindex. ARGV: uitstel (ms), kenmerk. Schuift een ontvanger
+     * Afwijkende KEYS: alleen de verloopindex. ARGV: uitstel (ms), kenmerk, TTL van de index (ms). Schuift een ontvanger
      * wiens [VEEG] faalde naar "nu + uitstel", zodat de kandidaten erachter aan de beurt komen.
      * `XX`: wie intussen uit de index verdween, komt er niet terug. `GT`: een later verloop, van een
      * sessie die intussen startte, blijft staan.
      */
     val UITSTEL = GEDEELD + "\n\n" + """
         redis.call('ZADD', KEYS[1], 'XX', 'GT', tijdInMs() + tonumber(ARGV[1]), ARGV[2])
+        redis.call('PEXPIRE', KEYS[1], ARGV[3])
         return 1
     """.trimIndent()
 
     /**
      * Afwijkende KEYS: de verloopindex en `$k:ontvanger`. ARGV: kenmerk, leesbare ontvanger,
-     * vangnet-TTL (ms). Zet de ontvanger met score "nu" in de index als terugval wanneer het opruimen
+     * vangnet-TTL (ms), TTL van de index (ms). Zet de ontvanger met score "nu" in de index als terugval wanneer het opruimen
      * na een schrijfactie zelf faalde; de veegtaak ruimt het dan op en meldt het. `NX`: een bestaande
      * entry, van een lopende sessie of een al wachtende opruiming, blijft staan. De leesbare
      * ontvanger wordt hoe dan ook (opnieuw) gezet: de veegtaak heeft hem nodig.
@@ -331,6 +344,7 @@ internal object SessieScripts {
     val MARKEER = GEDEELD + "\n\n" + """
         redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
         redis.call('ZADD', KEYS[1], 'NX', tijdInMs(), ARGV[1])
+        redis.call('PEXPIRE', KEYS[1], ARGV[4])
         return 1
     """.trimIndent()
 }
