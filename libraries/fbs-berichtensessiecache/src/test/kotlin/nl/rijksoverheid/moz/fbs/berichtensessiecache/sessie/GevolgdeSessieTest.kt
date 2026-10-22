@@ -12,18 +12,16 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * `_volgen` op een inlogsessie, tegen een echte Redis en via de facade: de hartslag raakt de sessie,
- * en een sessie die niet meer loopt, sluit de stream. Duren uit [GevolgdeSessieRedisTestProfile]:
- * inactiviteit 2 s, hartslag 0,5 s.
+ * `_volgen` op een inlogsessie, tegen een echte Redis en via de facade: de hartslag controleert de
+ * sessie zonder hem te verlengen, en een sessie die niet meer loopt, sluit de stream. Duren uit
+ * [GevolgdeSessieRedisTestProfile]: inactiviteit 2 s, hartslag 0,5 s.
  */
 @QuarkusTest
 @TestProfile(GevolgdeSessieRedisTestProfile::class)
@@ -60,21 +58,47 @@ class GevolgdeSessieTest {
     }
 
     @Test
-    fun `hartslag houdt sessie langer dan inactiviteit in leven`() {
-        // Twee sessies tegelijk gestart; alleen de gevolgde wordt geraakt. Zonder die tweede zou de
-        // test ook slagen als sessies hier gewoon niet verliepen.
-        val gevolgd = sessiecache.startSessie(ontvanger).sessieId
-        val ongevolgd = sessiecache.startSessie(ontvanger).sessieId
+    fun `een gevolgde sessie verloopt door inactiviteit en de stream eindigt met SessieVerlopen`() {
+        // Een open connection is geen activiteit van de gebruiker: zonder verzoeken verloopt de sessie,
+        // ook met hartslagen, en de stream merkt dat binnen één hartslag.
+        val sessie = sessiecache.startSessie(ontvanger).sessieId
         zetGereed()
-        val volgend = volg(gevolgd)
+        val volgend = volg(sessie)
 
-        Thread.sleep(INACTIVITEIT.multipliedBy(2).toMillis())
+        volgend.awaitCompletion(INACTIVITEIT.plus(WACHTTIJD))
 
-        assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.raakSessie(ongevolgd, ontvanger) }
-        assertDoesNotThrow { sessiecache.raakSessie(gevolgd, ontvanger) }
-        assertFalse(SessieGebeurtenis.SessieVerlopen in volgend.items, "stream meldde verlopen: ${volgend.items}")
+        assertEquals(SessieGebeurtenis.SessieVerlopen, volgend.items.last())
         assertTrue(volgend.items.count { it == SessieGebeurtenis.Hartslag } >= 2, "te weinig hartslagen: ${volgend.items}")
+        assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.leesSessie(sessie, ontvanger) }
+    }
 
+    @Test
+    fun `volgen verlengt de sessie niet, ook het openen niet`() {
+        val sessie = sessiecache.startSessie(ontvanger).sessieId
+        zetGereed()
+        val voor = sessiecache.leesSessie(sessie, ontvanger)
+
+        Thread.sleep(200)
+        val volgend = volg(sessie)
+        wachtTot("twee hartslagen") { volgend.items.count { it == SessieGebeurtenis.Hartslag } >= 2 }
+
+        assertEquals(voor, sessiecache.leesSessie(sessie, ontvanger))
+        volgend.cancel()
+    }
+
+    @Test
+    fun `een verzoek in de sessie verlengt hem wel, ook terwijl hij gevolgd wordt`() {
+        val sessie = sessiecache.startSessie(ontvanger).sessieId
+        zetGereed()
+        val voor = sessiecache.leesSessie(sessie, ontvanger)
+        val volgend = volg(sessie)
+        wachtTot("VolgenGestart") { SessieGebeurtenis.VolgenGestart in volgend.items }
+
+        Thread.sleep(200)
+        val na = sessiecache.raakSessie(sessie, ontvanger)
+
+        assertTrue(na.geldigTot.isAfter(voor.geldigTot), "niet verlengd: $voor -> $na")
+        assertEquals(voor.uiterlijkGeldigTot, na.uiterlijkGeldigTot)
         volgend.cancel()
     }
 

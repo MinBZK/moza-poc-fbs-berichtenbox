@@ -5,8 +5,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnClien
 
 /**
  * Echte Redis met een inactiviteit van 2 s en een hartslag van 0,5 s, zodat binnen een test te zien
- * is dat een gevolgde sessie de inactiviteit overleeft en een ongevolgde niet. De maximale duur ligt
- * ruim boven de looptijd van een test: het plafond mag hier niet de oorzaak van een verloop zijn.
+ * is dat een gevolgde sessie toch door inactiviteit verloopt, en dat de stream dat binnen een hartslag
+ * merkt. De maximale duur ligt ruim boven de looptijd van een test: het plafond mag hier niet de
+ * oorzaak van een verloop zijn.
  */
 class GevolgdeSessieRedisTestProfile : QuarkusTestProfile {
 

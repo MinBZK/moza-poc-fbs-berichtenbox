@@ -21,6 +21,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.ALERT_OPRUIMEN_NA_SC
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
@@ -31,6 +32,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -197,24 +199,32 @@ internal class BlockingSessiecache(
     }
 
     override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> {
-        raakSessie(sessieId, ontvanger)
+        leesSessie(sessieId, ontvanger)
         requireGereedStatus(ontvanger)
         awaitOrServiceUnavailable { volger.actief() }
 
         return volger.volg(ontvanger, sessieId)
     }
 
-    override fun startSessie(ontvanger: Identificatienummer): SessieStart =
-        when (val uitkomst = awaitOrServiceUnavailable { sessies.start(ontvanger) }) {
+    override fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant?): SessieStart =
+        when (val uitkomst = awaitOrServiceUnavailable { sessies.start(ontvanger, uiterlijkGeldigTot) }) {
             is StartUitkomst.Gestart -> uitkomst.start
-            StartUitkomst.LimietBereikt -> throw SessiecacheException.TeVeelSessies("Er lopen al te veel sessies voor deze ontvanger.")
+            is StartUitkomst.LimietBereikt -> throw SessiecacheException.TeVeelSessies(
+                "Er lopen al te veel sessies voor deze ontvanger.",
+                uitkomst.vrijOver,
+            )
+            StartUitkomst.PlafondVerstreken -> throw SessiecacheException.OngeldigeInvoer(
+                "uiterlijkGeldigTot ligt niet in de toekomst.",
+            )
         }
 
-    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer) {
-        val loopt = awaitOrServiceUnavailable { sessies.raak(sessieId, ontvanger) }
+    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid =
+        awaitOrServiceUnavailable { sessies.raak(sessieId, ontvanger) } ?: throw sessieOngeldig()
 
-        if (!loopt) throw SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
-    }
+    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid =
+        awaitOrServiceUnavailable { sessies.lees(sessieId, ontvanger) } ?: throw sessieOngeldig()
+
+    private fun sessieOngeldig() = SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
 
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
         awaitOrServiceUnavailable { sessies.beeindig(sessieId, ontvanger) }

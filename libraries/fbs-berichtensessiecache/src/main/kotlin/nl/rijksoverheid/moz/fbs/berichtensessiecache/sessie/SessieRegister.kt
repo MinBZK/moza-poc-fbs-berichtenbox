@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.runtime.Startup
 import io.smallrye.mutiny.Uni
+import io.vertx.mutiny.redis.client.Response
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
@@ -12,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.HexFormat
@@ -28,10 +30,14 @@ internal const val ALERT_OPRUIMEN_NA_SCHRIJVEN = "[ALERT opruimen_na_schrijven]"
  */
 internal interface SessieRegister {
 
-    fun start(ontvanger: Identificatienummer): Uni<StartUitkomst>
+    /** [plafond] is het uiterste einde dat de aanroeper zelf oplegt; `null` laat alleen de maximale duur gelden. */
+    fun start(ontvanger: Identificatienummer, plafond: Instant? = null): Uni<StartUitkomst>
 
-    /** Of [sessieId] een lopende sessie van [ontvanger] is; zo ja, dan is hij nu verlengd. */
-    fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean>
+    /** De geldigheid als [sessieId] een lopende sessie van [ontvanger] is, nu verlengd; anders `null`. */
+    fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?>
+
+    /** Als [raak], maar zonder te verlengen. */
+    fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?>
 
     fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde>
 
@@ -76,8 +82,14 @@ internal sealed interface StartUitkomst {
 
     data class Gestart(val start: SessieStart) : StartUitkomst
 
-    /** De ontvanger heeft al het maximum aantal lopende sessies; er is niets gestart en niets gewist. */
-    data object LimietBereikt : StartUitkomst
+    /**
+     * De ontvanger heeft al het maximum aantal lopende sessies; er is niets gestart en niets gewist.
+     * [vrijOver] is de tijd tot de vroegst verlopende van die sessies verloopt.
+     */
+    data class LimietBereikt(val vrijOver: Duration) : StartUitkomst
+
+    /** Het meegegeven plafond lag niet in de toekomst; er is niets gestart en niets gewist. */
+    data object PlafondVerstreken : StartUitkomst
 }
 
 /**
@@ -109,7 +121,7 @@ internal class RedisSessieRegister(
         config.valideer()
     }
 
-    override fun start(ontvanger: Identificatienummer): Uni<StartUitkomst> {
+    override fun start(ontvanger: Identificatienummer, plafond: Instant?): Uni<StartUitkomst> {
         val sessieId = nieuweSessieId()
         val argumenten = listOf(
             hash(sessieId),
@@ -121,26 +133,32 @@ internal class RedisSessieRegister(
             // lang de administratie en de gegevens moeten blijven staan.
             config.dataTtl.toMillis().toString(),
             ontvanger.toCanonicalString(),
+            // Begrensd, want toEpochMilli loopt over op een moment ver buiten het bereik van ms.
+            plafond?.coerceIn(Instant.EPOCH, VERSTE_PLAFOND)?.toEpochMilli()?.toString().orEmpty(),
         )
 
         return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
-            if (antwoord.get(0).toInteger() == 0) {
-                StartUitkomst.LimietBereikt
-            } else {
-                StartUitkomst.Gestart(
+            when (antwoord.get(0).toInteger()) {
+                0 -> StartUitkomst.LimietBereikt(Duration.ofMillis(antwoord.get(1).toLong()))
+                1 -> StartUitkomst.Gestart(
                     SessieStart(
                         sessieId = sessieId,
-                        uiterlijkGeldigTot = Instant.ofEpochMilli(antwoord.get(1).toLong()),
+                        geldigheid = SessieGeldigheid(
+                            geldigTot = Instant.ofEpochMilli(antwoord.get(1).toLong()),
+                            uiterlijkGeldigTot = Instant.ofEpochMilli(antwoord.get(3).toLong()),
+                        ),
                         restenOpgeruimd = antwoord.get(2).toLong() > 0,
                     ),
                 )
+                2 -> StartUitkomst.PlafondVerstreken
+                else -> throw CacheCorruptedException.onverwachtScriptantwoord("start")
             }
         }
     }
 
-    override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean> {
+    override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> {
         // Wat niet de vorm van een uitgegeven id heeft, kan geen sessie zijn; dat hoeft Redis niet te zien.
-        if (!Sessiecache.SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().item(false)
+        if (!Sessiecache.SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().nullItem()
 
         val argumenten = listOf(
             hash(sessieId),
@@ -148,7 +166,13 @@ internal class RedisSessieRegister(
             BerichtenCache.kenmerk(ontvanger),
         )
 
-        return voerUit(SessieScripts.RAAK, ontvanger, argumenten).map { it.toInteger() == 1 }
+        return voerUit(SessieScripts.RAAK, ontvanger, argumenten).map(::leesGeldigheid)
+    }
+
+    override fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> {
+        if (!Sessiecache.SESSIE_ID_VORM.matches(sessieId)) return Uni.createFrom().nullItem()
+
+        return voerUit(SessieScripts.LEES, ontvanger, listOf(hash(sessieId))).map(::leesGeldigheid)
     }
 
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> {
@@ -210,6 +234,9 @@ internal class RedisSessieRegister(
         /** Achter `$k`: de leesbare ontvanger bij een index-entry. */
         private const val ONTVANGER_SUFFIX = ":ontvanger"
 
+        /** Verder dan dit valt niets meer in ms uit te drukken; elk plafond hierbuiten is toch later dan de maximale duur. */
+        private val VERSTE_PLAFOND: Instant = Instant.ofEpochMilli(Long.MAX_VALUE)
+
         /** 128 bits; zie [Sessiecache.SESSIE_ID_VORM]. */
         private const val SESSIE_ID_BYTES = 16
 
@@ -245,6 +272,14 @@ internal class RedisSessieRegister(
             try {
                 waarde.takeIf { it.isNotEmpty() }?.let(Identificatienummer::fromHeader)
             } catch (ignored: DomainValidationException) {
+                null
+            }
+
+        /** Het antwoord van [SessieScripts.RAAK] en [SessieScripts.LEES]. */
+        private fun leesGeldigheid(antwoord: Response): SessieGeldigheid? =
+            if (antwoord.get(0).toInteger() == 1) {
+                SessieGeldigheid(Instant.ofEpochMilli(antwoord.get(1).toLong()), Instant.ofEpochMilli(antwoord.get(2).toLong()))
+            } else {
                 null
             }
 

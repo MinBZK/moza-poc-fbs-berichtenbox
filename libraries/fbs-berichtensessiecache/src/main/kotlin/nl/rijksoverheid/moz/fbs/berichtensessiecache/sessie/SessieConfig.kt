@@ -34,10 +34,9 @@ internal interface SessieConfig {
 
 /**
  * Weigert een duur of grens van nul of minder, met de configuratiesleutel in de melding. Hier en niet
- * in één consument: welke bean het eerst start, verschilt, en een andere bean zou anders op een
- * afgeleide regel falen (zoals de hartslag tegen de inactiviteit) met een melding die de oorzaak niet
- * noemt. Een duur van nul laat elke sessie direct verlopen, of de veegtaak onafgebroken draaien; een
- * grens van nul weigert elke inlog.
+ * in één consument: elke bean die de configuratie gebruikt, roept dit aan, zodat de pod met een
+ * melding over de waarde zelf stopt, welke bean ook het eerst start. Een duur van nul laat elke
+ * sessie direct verlopen, of de veegtaak onafgebroken draaien; een grens van nul weigert elke inlog.
  */
 internal fun SessieConfig.valideer() {
     require(inactiviteit().isPositive) {

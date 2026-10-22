@@ -96,16 +96,31 @@ internal object SessieScripts {
 
     /**
      * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), grens per ontvanger, kenmerk,
-     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger.
+     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger, en het
+     * plafond dat de aanroeper meegaf (ms), of een lege tekst.
      *
-     * Antwoord `{0}` bij de grens, anders `{1, verloop in ms, opgeruimd}`, met opgeruimd 1 als de
-     * start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0. Alleen een
-     * start zonder andere lopende sessie wist: die begint met een vers beeld. Een start naast een
-     * lopende sessie trekt de TTL van de bestaande gegevens op, anders verlopen ze vóór het plafond
-     * van de nieuwe sessie.
+     * Antwoord:
+     * - `{1, verloop, opgeruimd, plafond}` bij een start, met verloop en plafond in ms en opgeruimd 1
+     *   als de start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0;
+     * - `{0, wachttijd}` bij de grens, met de tijd in ms tot de vroegst verlopende sessie verloopt;
+     * - `{2}` als het meegegeven plafond niet in de toekomst ligt. Er is dan niets veranderd.
+     *
+     * Het plafond is het vroegste van start + maximale duur en het meegegeven plafond: de sessie van
+     * het portaal eindigt niet later dan het portaal zegt. Alleen een start zonder andere lopende
+     * sessie wist: die begint met een vers beeld. Een start naast een lopende sessie trekt de TTL van
+     * de bestaande gegevens op, anders verlopen ze vóór het plafond van de nieuwe sessie.
      */
     val START = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
+        local plafond = nu + tonumber(ARGV[3])
+        local gevraagd = tonumber(ARGV[8])
+        if gevraagd then
+            if gevraagd <= nu then
+                return { 2 }
+            end
+            plafond = math.min(plafond, gevraagd)
+        end
+
         ruimVerlopenOp(nu)
 
         local leeg = redis.call('ZCARD', KEYS[1]) == 0
@@ -119,14 +134,14 @@ internal object SessieScripts {
         end
 
         if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[4]) then
-            return { 0 }
+            local vroegste = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+            return { 0, tonumber(vroegste[2]) - nu }
         end
 
         if not leeg then
             trekTtlOp(ARGV[6])
         end
 
-        local plafond = nu + tonumber(ARGV[3])
         local verloop = math.min(nu + tonumber(ARGV[2]), plafond)
         redis.call('ZADD', KEYS[1], verloop, ARGV[1])
         redis.call('HSET', KEYS[2], ARGV[1], plafond)
@@ -134,30 +149,50 @@ internal object SessieScripts {
         redis.call('PEXPIRE', KEYS[2], ARGV[6])
         redis.call('SET', KEYS[8], ARGV[7], 'PX', ARGV[6])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[5])
-        return { 1, verloop, opgeruimd }
+        return { 1, verloop, opgeruimd, plafond }
     """.trimIndent()
 
     /**
-     * ARGV: sessie-hash, inactiviteit (ms), kenmerk. Antwoord 1 als de sessie loopt en verlengd
-     * is, anders 0. Het verloop schuift nooit voorbij start + maximale duur, dus ook niet voorbij
-     * de TTL van `$k:ontvanger` die de laatste start zette.
+     * ARGV: sessie-hash, inactiviteit (ms), kenmerk. Antwoord `{1, verloop, plafond}` (ms) als de
+     * sessie loopt en verlengd is, anders `{0}`. Het verloop schuift nooit voorbij het plafond, dus
+     * ook niet voorbij de TTL van `$k:ontvanger` die de laatste start zette.
      */
     val RAAK = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
         local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
         if not score or tonumber(score) <= nu then
-            return 0
+            return { 0 }
         end
 
         local plafond = tonumber(redis.call('HGET', KEYS[2], ARGV[1]))
         if not plafond then
-            return 0
+            return { 0 }
         end
 
         local verloop = math.min(nu + tonumber(ARGV[2]), plafond)
         redis.call('ZADD', KEYS[1], verloop, ARGV[1])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[3])
-        return 1
+        return { 1, verloop, plafond }
+    """.trimIndent()
+
+    /**
+     * ARGV: sessie-hash. Hetzelfde antwoord als [RAAK], maar zonder te verlengen: alleen lezen. Een
+     * script en geen losse `ZSCORE`, zodat "loopt nog" met dezelfde Redis-tijd beslist wordt als bij
+     * [RAAK].
+     */
+    val LEES = GEDEELD + "\n\n" + """
+        local nu = tijdInMs()
+        local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+        if not score or tonumber(score) <= nu then
+            return { 0 }
+        end
+
+        local plafond = tonumber(redis.call('HGET', KEYS[2], ARGV[1]))
+        if not plafond then
+            return { 0 }
+        end
+
+        return { 1, tonumber(score), plafond }
     """.trimIndent()
 
     /**

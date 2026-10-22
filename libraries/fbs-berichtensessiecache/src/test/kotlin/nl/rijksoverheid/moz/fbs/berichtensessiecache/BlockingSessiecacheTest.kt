@@ -29,6 +29,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
@@ -50,6 +51,7 @@ import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
@@ -106,6 +108,7 @@ class BlockingSessiecacheTest {
         const val ONBEKEND_MAGAZIJN = "00000009999999999999"
         const val SESSIE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
         const val TIMEOUT_MELDING = "Cache niet bereikbaar. Probeer het later opnieuw"
+        val GELDIGHEID = SessieGeldigheid(Instant.parse("2026-10-21T12:00:00Z"), Instant.parse("2026-10-21T23:45:00Z"))
 
         @JvmStatic
         fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
@@ -528,14 +531,16 @@ class BlockingSessiecacheTest {
         every { volger.volg(ontvanger, SESSIE_ID) } returns stream
 
         assertSame(stream, facade.volg(ontvanger, SESSIE_ID))
-        verify(exactly = 1) { sessies.raak(SESSIE_ID, ontvanger) }
+        // Alleen lezen: een open berichtenbox is geen activiteit van de gebruiker.
+        verify(exactly = 1) { sessies.lees(SESSIE_ID, ontvanger) }
+        verify(exactly = 0) { sessies.raak(SESSIE_ID, ontvanger) }
     }
 
     @Test
     fun `volg zonder lopende sessie gooit SessieOngeldig, vóór de stream en vóór de cache`() {
         // Synchroon, zoals elke andere ongeldige sessie: een stream die meteen SessieVerlopen meldt,
         // zou de afnemer een 200 geven op een verzoek dat niet mocht.
-        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(false)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().nullItem()
 
         assertThrows<SessiecacheException.SessieOngeldig> { facade.volg(ontvanger, SESSIE_ID) }
         verify(exactly = 0) { service.getAggregationStatus(ontvanger) }
@@ -544,7 +549,7 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `volg bij een storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
-        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
 
         assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
         verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
@@ -580,7 +585,7 @@ class BlockingSessiecacheTest {
     }
 
     private fun stubLopendeSessie() {
-        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(true)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(GELDIGHEID)
     }
 
     @Test
@@ -642,24 +647,60 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `startSessie geeft de gestarte sessie door`() {
-        val start = SessieStart(SESSIE_ID, Instant.parse("2026-10-21T12:00:00Z"), restenOpgeruimd = true)
-        every { sessies.start(ontvanger) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
+        val start = SessieStart(SESSIE_ID, GELDIGHEID, restenOpgeruimd = true)
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
 
         assertSame(start, facade.startSessie(ontvanger))
     }
 
     @Test
-    fun `startSessie op de grens gooit TeVeelSessies`() {
-        every { sessies.start(ontvanger) } returns Uni.createFrom().item(StartUitkomst.LimietBereikt)
+    fun `startSessie geeft het plafond van de aanroeper door aan het register`() {
+        val plafond = Instant.parse("2026-10-21T13:00:00Z")
+        val start = SessieStart(SESSIE_ID, GELDIGHEID, restenOpgeruimd = false)
+        every { sessies.start(ontvanger, plafond) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
 
-        assertThrows<SessiecacheException.TeVeelSessies> { facade.startSessie(ontvanger) }
+        assertSame(start, facade.startSessie(ontvanger, plafond))
+    }
+
+    @Test
+    fun `startSessie op de grens gooit TeVeelSessies met de tijd tot er een plek vrijkomt`() {
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().item(StartUitkomst.LimietBereikt(Duration.ofSeconds(42)))
+
+        val fout = assertThrows<SessiecacheException.TeVeelSessies> { facade.startSessie(ontvanger) }
+
+        assertEquals(Duration.ofSeconds(42), fout.vrijOver)
+    }
+
+    @Test
+    fun `startSessie met een verstreken plafond gooit OngeldigeInvoer`() {
+        val plafond = Instant.parse("2020-01-01T00:00:00Z")
+        every { sessies.start(ontvanger, plafond) } returns Uni.createFrom().item(StartUitkomst.PlafondVerstreken)
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.startSessie(ontvanger, plafond) }
     }
 
     @Test
     fun `raakSessie zonder lopende sessie gooit SessieOngeldig`() {
-        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(false)
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().nullItem()
 
         assertThrows<SessiecacheException.SessieOngeldig> { facade.raakSessie(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `raakSessie en leesSessie geven de geldigheid van een lopende sessie door`() {
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(GELDIGHEID)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(GELDIGHEID)
+
+        assertEquals(GELDIGHEID, facade.raakSessie(SESSIE_ID, ontvanger))
+        assertEquals(GELDIGHEID, facade.leesSessie(SESSIE_ID, ontvanger))
+    }
+
+    @Test
+    fun `leesSessie zonder lopende sessie gooit SessieOngeldig en verlengt niets`() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().nullItem()
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.leesSessie(SESSIE_ID, ontvanger) }
+        verify(exactly = 0) { sessies.raak(SESSIE_ID, ontvanger) }
     }
 
     @Test
@@ -673,12 +714,14 @@ class BlockingSessiecacheTest {
     fun `een Redis-storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
         // Een storing als ongeldige sessie melden zou elke ingelogde gebruiker uitloggen.
         val storing = IllegalStateException("redis connection reset")
-        every { sessies.start(ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().failure(storing)
         every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
         every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
 
         assertThrows<SessiecacheException.Onbereikbaar> { facade.startSessie(ontvanger) }
         assertThrows<SessiecacheException.Onbereikbaar> { facade.raakSessie(SESSIE_ID, ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.leesSessie(SESSIE_ID, ontvanger) }
         assertThrows<SessiecacheException.Onbereikbaar> { facade.beeindigSessie(SESSIE_ID, ontvanger) }
     }
 

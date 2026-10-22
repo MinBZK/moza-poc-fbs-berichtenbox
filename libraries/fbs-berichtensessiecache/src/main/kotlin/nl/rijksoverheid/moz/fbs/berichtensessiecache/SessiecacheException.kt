@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache
 
+import java.time.Duration
+
 /**
  * Foutsemantiek van de synchrone [Sessiecache]-facade als gesloten hiërarchie.
  *
@@ -54,6 +56,10 @@ sealed class SessiecacheException(message: String, cause: Throwable? = null) : R
      */
     class SessieOngeldig(message: String) : SessiecacheException(message)
 
-    /** De ontvanger heeft al het maximum aantal lopende sessies; een nieuwe start wordt geweigerd. */
-    class TeVeelSessies(message: String) : SessiecacheException(message)
+    /**
+     * De ontvanger heeft al het maximum aantal lopende sessies; een nieuwe start wordt geweigerd.
+     * [vrijOver] is de tijd tot de vroegst verlopende van die sessies verloopt, als er in die sessie
+     * niets meer gebeurt; een verzoek erin schuift het op, dus het is een aanwijzing en geen belofte.
+     */
+    class TeVeelSessies(message: String, val vrijOver: Duration) : SessiecacheException(message)
 }

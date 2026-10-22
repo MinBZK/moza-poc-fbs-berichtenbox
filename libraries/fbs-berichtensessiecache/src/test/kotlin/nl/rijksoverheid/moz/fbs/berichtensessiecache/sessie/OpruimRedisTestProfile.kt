@@ -23,7 +23,5 @@ class OpruimRedisTestProfile : QuarkusTestProfile {
         "berichtensessiecache.sessie.max-duur" to "PT20S",
         "berichtensessiecache.sessie.vangnet-marge" to "PT1S",
         "berichtensessiecache.aggregation-lock-ttl" to "PT5S",
-        // Onder de helft van de inactiviteit, anders weigert SessieVolger te starten.
-        "berichtensessiecache.volg-hartslag" to "PT1S",
     )
 }

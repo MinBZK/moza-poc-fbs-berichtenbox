@@ -6,9 +6,7 @@ import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.subscription.Cancellable
 import io.smallrye.mutiny.subscription.MultiEmitter
 import jakarta.enterprise.context.ApplicationScoped
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieConfig
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.valideer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
@@ -16,8 +14,10 @@ import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en raakt de
- * inlogsessie op elke hartslag, zodat een bezoeker die alleen kijkt zijn sessie niet verliest.
+ * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en controleert op
+ * elke hartslag of de inlogsessie nog loopt. Alleen lezen: een open connection is geen activiteit van
+ * de gebruiker en houdt de sessie dus niet in leven. Verloopt de sessie, dan merkt de stream dat
+ * hoogstens een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen].
  *
  * De volgorde bij het starten is wat "niets missen" waarmaakt: eerst de luisteraar registreren,
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].
@@ -38,31 +38,20 @@ internal class SessieVolger(
     // onder de 60 s van een nginx-proxy.
     @param:ConfigProperty(name = "berichtensessiecache.volg-hartslag", defaultValue = "PT20S")
     private val hartslag: Duration,
-    // Een open stream verlengt de sessie zolang hij loopt. Deze grens dwingt periodiek een nieuwe
-    // aanvraag af, zodat een vergeten tabblad de sessie niet eindeloos vasthoudt.
+    // Begrenst hoe lang één connection openstaat, zodat een stream die zijn einde mist (een
+    // half-open connection achter een proxy) geen luisteraar en hartslag eindeloos vasthoudt.
     @param:ConfigProperty(name = "berichtensessiecache.volg-max-duur", defaultValue = "PT1H")
     private val maxDuur: Duration,
-    sessieConfig: SessieConfig,
 ) {
     private val log = Logger.getLogger(SessieVolger::class.java)
 
     init {
-        sessieConfig.valideer()
-
         require(hartslag.isPositive) {
             "berichtensessiecache.volg-hartslag ($hartslag) moet groter zijn dan 0"
         }
 
         require(maxDuur > hartslag) {
             "berichtensessiecache.volg-max-duur ($maxDuur) moet groter zijn dan berichtensessiecache.volg-hartslag ($hartslag)"
-        }
-
-        // Zo laat één gemiste of vertraagde slag een gevolgde sessie niet verlopen.
-        val inactiviteit = sessieConfig.inactiviteit()
-
-        require(hartslag < inactiviteit.dividedBy(2)) {
-            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan de helft van " +
-                "berichtensessiecache.sessie.inactiviteit ($inactiviteit)"
         }
     }
 
@@ -100,10 +89,10 @@ internal class SessieVolger(
             aanmeldingen.actief()
                 // De facade controleerde de sessie al; dit vangt een einde tussen die controle en
                 // VolgenGestart, zodat SessieVerlopen dan het enige item is.
-                .chain { _ -> sessies.raak(sessieId, ontvanger) }
+                .chain { _ -> sessies.lees(sessieId, ontvanger) }
                 .subscribe().with(
-                    { loopt ->
-                        if (loopt) {
+                    { geldigheid ->
+                        if (geldigheid != null) {
                             emitter.emit(SessieGebeurtenis.VolgenGestart)
                             hartslagen.set(startHartslag(sessieId, ontvanger, emitter))
 
@@ -119,7 +108,7 @@ internal class SessieVolger(
     }
 
     /**
-     * Een mislukte aanraking breekt de stream af en meldt geen [SessieGebeurtenis.SessieVerlopen]:
+     * Een mislukte controle breekt de stream af en meldt geen [SessieGebeurtenis.SessieVerlopen]:
      * een storing in Redis is geen einde van de sessie, en de afnemer die opnieuw verbindt, krijgt
      * een eerlijke 503 in plaats van een uitlog.
      */
@@ -130,7 +119,9 @@ internal class SessieVolger(
     ): Cancellable =
         Multi.createFrom().ticks().every(hartslag)
             .onOverflow().drop()
-            .onItem().transformToUniAndConcatenate { _ -> sessies.raak(sessieId, ontvanger) }
+            // Naar een Boolean: een Multi laat een null-item vallen, en dan zou het einde van de sessie
+            // nooit aankomen.
+            .onItem().transformToUniAndConcatenate { _ -> sessies.lees(sessieId, ontvanger).map { it != null } }
             .subscribe().with(
                 { loopt -> if (loopt) emitter.emit(SessieGebeurtenis.Hartslag) else beeindig(emitter) },
                 { fout ->

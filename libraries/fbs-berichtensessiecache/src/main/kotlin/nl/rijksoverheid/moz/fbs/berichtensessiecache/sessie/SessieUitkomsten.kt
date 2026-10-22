@@ -4,22 +4,27 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.time.Instant
 
 /**
+ * Hoe lang een lopende sessie geldig is. [geldigTot] is het verloop bij inactiviteit: elk verzoek in
+ * de sessie schuift het op, nooit voorbij [uiterlijkGeldigTot]. Dat is het harde plafond van de
+ * sessie: start + maximale duur, of het eerdere plafond dat de start meekreeg.
+ */
+data class SessieGeldigheid(val geldigTot: Instant, val uiterlijkGeldigTot: Instant)
+
+/**
  * Een gestarte sessie.
  *
  * [sessieId] is een credential: alleen de houder mag het zien, dus niet loggen en niet in een URL.
- * [uiterlijkGeldigTot] is het verloop als er verder niets gebeurt; elk verzoek in de sessie schuift
- * het op, tot de maximale duur. [restenOpgeruimd] meldt dat de start gegevens van een eerdere,
- * verlopen sessie heeft gewist, of een opruiming overnam die nog op de veegtaak wachtte — dat
- * wissen hoort in het logboek.
+ * [restenOpgeruimd] meldt dat de start gegevens van een eerdere, verlopen sessie heeft gewist, of een
+ * opruiming overnam die nog op de veegtaak wachtte — dat wissen hoort in het logboek.
  */
 data class SessieStart(
     val sessieId: String,
-    val uiterlijkGeldigTot: Instant,
+    val geldigheid: SessieGeldigheid,
     val restenOpgeruimd: Boolean,
 ) {
     // Een data class zet elk veld in toString, en een toString belandt makkelijk in een log.
     override fun toString(): String =
-        "SessieStart(sessieId=***, uiterlijkGeldigTot=$uiterlijkGeldigTot, restenOpgeruimd=$restenOpgeruimd)"
+        "SessieStart(sessieId=***, geldigheid=$geldigheid, restenOpgeruimd=$restenOpgeruimd)"
 }
 
 /** Wat het beëindigen van een sessie heeft gedaan. */

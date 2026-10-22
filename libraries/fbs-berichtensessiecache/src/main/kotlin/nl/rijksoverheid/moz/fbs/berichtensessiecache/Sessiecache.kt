@@ -9,8 +9,10 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -133,9 +135,13 @@ interface Sessiecache {
     /**
      * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat: elk bericht
      * dat via [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
-     * periodieke hartslag raakt de sessie (zie [raakSessie]) en houdt hem zo in leven. Eindigt de
-     * sessie, uitgelogd of verlopen, dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit.
+     * periodieke hartslag controleert of de sessie nog loopt (zie [leesSessie]). Eindigt de sessie,
+     * uitgelogd of verlopen, dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit.
      * Zie [SessieGebeurtenis] voor het verloop.
+     *
+     * Het volgen verlengt de sessie niet, ook het openen niet: inactiviteit is inactiviteit van de
+     * gebruiker, en een open tabblad op een onbeheerde werkplek zou de gegevens anders tot het
+     * plafond bereikbaar houden. Verlengen doen de verzoeken van de gebruiker zelf ([raakSessie]).
      *
      * Synchroon en vóór de stream: [SessiecacheException.SessieOngeldig] als [sessieId] geen lopende
      * sessie van [ontvanger] is, daarna net als [lijst] de eis van een afgeronde ophaling met
@@ -154,6 +160,11 @@ interface Sessiecache {
      * eerst de gegevens van een eerdere, verlopen sessie gewist: een sessie begint met een vers
      * beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
      *
+     * [uiterlijkGeldigTot] is het plafond van de sessie van de aanroeper (het portaal): de sessie
+     * eindigt dan op het vroegste van dat moment en start + `berichtensessiecache.sessie.max-duur`.
+     * Ligt het niet in de toekomst (volgens de klok van de opslag), dan [SessiecacheException.OngeldigeInvoer]
+     * en is er niets gestart of gewist.
+     *
      * Gooit [SessiecacheException.TeVeelSessies] wanneer [ontvanger] al het maximum aantal lopende
      * sessies heeft (`berichtensessiecache.sessie.max-per-ontvanger`); er wordt geen bestaande
      * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
@@ -162,15 +173,18 @@ interface Sessiecache {
      * gebeurde, dan staat er een sessie die niemand kent. Die verloopt na de inactiviteitsduur, en
      * dan meldt de veegtaak het opruimen; een gewiste rest gaat zo niet ongemeld verloren.
      */
-    fun startSessie(ontvanger: Identificatienummer): SessieStart
+    fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant? = null): SessieStart
 
     /**
      * Controleert dat [sessieId] een lopende sessie van [ontvanger] is en verlengt hem met de
-     * inactiviteitsduur, nooit voorbij de maximale duur vanaf de start. Gooit
+     * inactiviteitsduur, nooit voorbij het plafond; antwoordt de geldigheid na het verlengen. Gooit
      * [SessiecacheException.SessieOngeldig] voor een onbekende, verlopen of andermans sessie — die
      * drie zijn voor de aanroeper bewust niet te onderscheiden.
      */
-    fun raakSessie(sessieId: String, ontvanger: Identificatienummer)
+    fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid
+
+    /** Als [raakSessie], maar zonder te verlengen: alleen lezen. */
+    fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid
 
     /**
      * Beëindigt de sessie [sessieId] van [ontvanger]. Loopt er daarna geen sessie meer voor hem,

@@ -21,7 +21,5 @@ class KortVangnetRedisTestProfile : QuarkusTestProfile {
         "berichtensessiecache.sessie.max-duur" to "PT2S",
         "berichtensessiecache.sessie.vangnet-marge" to "PT1S",
         "berichtensessiecache.sessie.max-per-ontvanger" to "2",
-        // Onder de helft van de inactiviteit, anders weigert SessieVolger te starten.
-        "berichtensessiecache.volg-hartslag" to "PT0.4S",
     )
 }
