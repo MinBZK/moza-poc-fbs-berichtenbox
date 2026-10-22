@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
@@ -78,6 +79,20 @@ class SessieLogboekTest {
         val melding = regels.single { it.contains(SessieLogboek.ALERT_TOKEN) }
 
         assertTrue(melding.contains("aanleiding=uitgelogd"), melding)
+        assertFalse(melding.contains("999990019"), "de BSN hoort niet in de applicatielog: $melding")
+    }
+
+    @Test
+    fun `een Error gaat door, maar niet zonder het alert`() {
+        every { handler.enforceWriteAcknowledgement(true) } throws NoClassDefFoundError("exporter")
+
+        val regels = vangLog {
+            assertThrows<NoClassDefFoundError> { logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.VERLOPEN) }
+        }
+
+        val melding = regels.single { it.contains(SessieLogboek.ALERT_TOKEN) }
+
+        assertTrue(melding.contains("aanleiding=verlopen"), melding)
         assertFalse(melding.contains("999990019"), "de BSN hoort niet in de applicatielog: $melding")
     }
 

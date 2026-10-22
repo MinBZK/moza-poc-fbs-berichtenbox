@@ -241,8 +241,13 @@ Regels die je in de logs kunt zien:
   sessie blijft in de index, maar schuift `veeg-interval` (minstens 30 s) naar achteren, zodat de
   ontvangers erachter niet hoeven te wachten. Daarna probeert de veegtaak het opnieuw. Houdt dit
   aan, dan ruimt uiteindelijk de Redis-TTL op.
-- `WARN Opruimen verlopen sessie niet bevestigd; de gegevens zijn mogelijk gewist, anders vangt de Redis-TTL ze op`:
-  geen antwoord van Redis; de uitkomst is onzeker.
+- `WARN Opruimen verlopen sessie niet bevestigd; de gegevens zijn mogelijk gewist, anders probeert een volgende ronde het opnieuw`:
+  geen antwoord van Redis, of de pod stopte tijdens het opruimen; de uitkomst is onzeker. Staat de
+  sessie nog in de index, dan schuift hij net als bij een fout naar achteren en volgt een nieuwe poging.
+- `ERROR [ALERT sessie_veger_faalt]`: drie veegrondes op rij konden de verlopen sessies niet eens
+  opvragen (daarna elke tiende mislukte ronde opnieuw, tot er een slaagt). Alert-token: zonder
+  veegtaak wist de Redis-TTL de gegevens zonder logregel. Controleer Redis (bereikbaar, niet
+  alleen-lezen, rechten op `EVAL`).
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
   vastgelegd. Alert-token; controleer de LDV-verbinding en leg de opruiming handmatig na.
 - `WARN Opruimen zonder lopende sessie mislukt (fout=...); de veegtaak ruimt het op`: een

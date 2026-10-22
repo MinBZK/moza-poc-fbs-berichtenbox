@@ -178,19 +178,27 @@ interface Sessiecache {
     fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
 
     /**
-     * Ruimt hoogstens [max] ontvangers op wier laatste sessie verlopen is, en meldt per ontvanger
-     * het resultaat; elk wissen hoort in het logboek. Bedoeld voor een periodieke taak, en veilig om
-     * op meerdere pods tegelijk te draaien: per ontvanger beslist één atomaire stap, dus een
-     * opruiming wordt precies één keer gemeld. Wie in de tussentijd een sessie startte of raakte,
-     * blijft staan en verschijnt niet in het resultaat.
+     * Ruimt hoogstens [max] ontvangers op wier laatste sessie verlopen is, en geeft elke opruiming
+     * aan [meld] zodra ze gebeurd is, niet pas na de hele batch: stopt de pod halverwege, dan is wat
+     * al gewist is ook al gemeld. Elk wissen hoort in het logboek. Bedoeld voor een periodieke taak,
+     * en veilig om op meerdere pods tegelijk te draaien: per ontvanger beslist één atomaire stap,
+     * dus een opruiming wordt precies één keer gemeld. Wie in de tussentijd een sessie startte of
+     * raakte, blijft staan en wordt niet gemeld.
      *
      * Per ontvanger is de uitkomst [OpruimUitkomst.GEWIST], [OpruimUitkomst.MISLUKT] (de ontvanger
      * blijft in de index, een veeginterval naar achteren; een latere ronde probeert opnieuw) of
-     * [OpruimUitkomst.ONBEVESTIGD] (geen antwoord binnen de wachttijd: de gegevens zijn mogelijk
-     * gewist, en anders vangt de Redis-TTL ze op). Een fout bij één ontvanger breekt de ronde niet
-     * af. Een resultaat van precies [max] betekent dat er mogelijk meer verlopen sessies wachten.
+     * [OpruimUitkomst.ONBEVESTIGD] (geen antwoord: de gegevens zijn mogelijk gewist; de ontvanger
+     * schuift net zo naar achteren). Een fout bij één ontvanger breekt de ronde niet af; een
+     * interrupt wel, na de melding van die ontvanger als [OpruimUitkomst.ONBEVESTIGD], en met de
+     * interrupt-vlag weer gezet.
+     *
+     * Antwoordt of de batch kandidaten vol was: dan wachten er mogelijk meer. Dat zegt meer dan het
+     * aantal meldingen, want een kandidaat die een andere pod al veegde of die weer een sessie heeft,
+     * wordt niet gemeld. Na een interrupt `false`.
+     *
      * Gooit [SessiecacheException.Onbereikbaar] als de verlopen sessies niet op te vragen zijn, en
-     * [SessiecacheException.OngeldigeInvoer] voor een [max] kleiner dan 1.
+     * [SessiecacheException.OngeldigeInvoer] voor een [max] kleiner dan 1. Een fout uit [meld] breekt
+     * de ronde af en komt ongewijzigd door.
      */
-    fun ruimVerlopenSessiesOp(max: Int = 100): List<Opruiming>
+    fun ruimVerlopenSessiesOp(max: Int = 100, meld: (Opruiming) -> Unit): Boolean
 }

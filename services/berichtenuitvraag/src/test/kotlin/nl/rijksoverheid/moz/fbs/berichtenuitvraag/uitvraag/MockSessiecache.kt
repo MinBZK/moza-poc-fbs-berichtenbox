@@ -92,6 +92,16 @@ class MockSessiecache : Sessiecache {
     /** Neemt het over van [veegRondes]: krijgt het gevraagde maximum en levert zelf de ronde. */
     @Volatile
     var veegRonde: ((Int) -> List<Opruiming>)? = null
+
+    /**
+     * Per veegronde of de kandidatenbatch vol was; zonder waarde geldt een ronde met `max`
+     * opruimingen als vol, zoals bij één pod zonder kandidaten die al weg zijn.
+     */
+    val veegVol = ConcurrentLinkedQueue<Boolean>()
+
+    /** Meldt na zoveel opruimingen [veegFout] in plaats van de rest: een ronde die halverwege afbreekt. */
+    @Volatile
+    var veegFoutNa: Int? = null
     var veegFout: SessiecacheException? = null
     val veegAanroepen = AtomicInteger()
     val geraakteSessies = CopyOnWriteArrayList<String>()
@@ -108,6 +118,8 @@ class MockSessiecache : Sessiecache {
         beeindigFout = null
         veegRondes.clear()
         veegRonde = null
+        veegVol.clear()
+        veegFoutNa = null
         veegFout = null
         veegAanroepen.set(0)
         geraakteSessies.clear()
@@ -248,11 +260,22 @@ class MockSessiecache : Sessiecache {
         return if (sessies.containsValue(ontvanger)) SessieEinde.BEEINDIGD else SessieEinde.OPGERUIMD
     }
 
-    override fun ruimVerlopenSessiesOp(max: Int): List<Opruiming> {
+    override fun ruimVerlopenSessiesOp(max: Int, meld: (Opruiming) -> Unit): Boolean {
         veegAanroepen.incrementAndGet()
-        veegFout?.let { throw it }
 
-        return veegRonde?.invoke(max) ?: veegRondes.poll().orEmpty()
+        val foutNa = veegFoutNa
+
+        if (foutNa == null) veegFout?.let { throw it }
+
+        val opruimingen = veegRonde?.invoke(max) ?: veegRondes.poll().orEmpty()
+
+        opruimingen.forEachIndexed { i, opruiming ->
+            if (i == foutNa) throw checkNotNull(veegFout)
+
+            meld(opruiming)
+        }
+
+        return veegVol.poll() ?: (opruimingen.size == max)
     }
 
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {

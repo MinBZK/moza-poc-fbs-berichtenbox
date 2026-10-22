@@ -38,6 +38,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import java.net.URI
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -660,6 +661,14 @@ class BlockingSessiecacheTest {
 
     // --- verlopen sessies vegen ---
 
+    /** Een veegronde met de meldingen in volgorde, en of de kandidatenbatch vol was. */
+    private fun BlockingSessiecache.veeg(max: Int = 100): Pair<List<Opruiming>, Boolean> {
+        val gemeld = mutableListOf<Opruiming>()
+        val vol = ruimVerlopenSessiesOp(max) { gemeld += it }
+
+        return gemeld to vol
+    }
+
     @Test
     fun `vegen meldt per ontvanger de uitkomst en loopt na een fout of timeout door`() {
         // De gewiste ontvanger staat achteraan: een ronde die op een fout afbreekt, verliest hem.
@@ -677,7 +686,7 @@ class BlockingSessiecacheTest {
         // Per kandidaat en niet met `any()`: dat bouwt een lege OIN, en die haalt de validatie niet.
         kandidaten.forEach { every { sessies.stelUit(it) } returns Uni.createFrom().item(Unit) }
 
-        val opruimingen = snel.ruimVerlopenSessiesOp()
+        val (opruimingen, vol) = snel.veeg()
 
         assertEquals(
             listOf(
@@ -690,11 +699,82 @@ class BlockingSessiecacheTest {
             ),
             opruimingen,
         )
+        assertFalse(vol)
 
-        // Alleen een mislukker schuift naar achteren: na een timeout is hij mogelijk al weg.
+        // Ook een onbevestigde schuift naar achteren: hangt zijn script structureel, dan kost hij
+        // anders elke ronde de volle wachttijd. Alleen wie gewist is of niet geveegd hoefde, niet.
         kandidaten.forEachIndexed { i, kandidaat ->
-            verify(exactly = if (i in 1..3) 1 else 0) { sessies.stelUit(kandidaat) }
+            verify(exactly = if (i in setOf(0, 1, 2, 3, 5)) 1 else 0) { sessies.stelUit(kandidaat) }
         }
+    }
+
+    @Test
+    fun `elke opruiming wordt gemeld voordat de volgende ontvanger geveegd wordt`() {
+        val kandidaten = List(3) { Oin("%020d".format(it + 1)) }
+        val volgorde = mutableListOf<String>()
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        kandidaten.forEach { kandidaat ->
+            every { sessies.veeg(kandidaat) } answers {
+                volgorde += "veeg ${kandidaat.waarde}"
+                Uni.createFrom().item(true)
+            }
+        }
+
+        facade.ruimVerlopenSessiesOp { volgorde += "meld ${it.ontvanger.waarde}" }
+
+        assertEquals(kandidaten.flatMap { listOf("veeg ${it.waarde}", "meld ${it.waarde}") }, volgorde)
+    }
+
+    @Test
+    fun `een fout uit de melding breekt de ronde af en komt door`() {
+        val kandidaten = List(2) { Oin("%020d".format(it + 1)) }
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().item(true)
+
+        assertThrows<IllegalStateException> { facade.ruimVerlopenSessiesOp { throw IllegalStateException("logboek stuk") } }
+
+        verify(exactly = 0) { sessies.veeg(kandidaten[1]) }
+    }
+
+    @ParameterizedTest(name = "{0} kandidaten bij max 3")
+    @ValueSource(ints = [0, 1, 2, 3])
+    fun `vegen meldt een volle batch alleen als er max kandidaten waren, ongeacht het aantal opruimingen`(aantal: Int) {
+        // Een kandidaat die een andere pod al veegde, wordt niet gemeld maar telt wel voor de batch.
+        val kandidaten = List(aantal) { Oin("%020d".format(it + 1)) }
+        every { sessies.verlopen(3) } returns Uni.createFrom().item(kandidaten)
+        kandidaten.forEach { every { sessies.veeg(it) } returns Uni.createFrom().item(false) }
+
+        val (opruimingen, vol) = facade.veeg(max = 3)
+
+        assertEquals(emptyList<Opruiming>(), opruimingen)
+        assertEquals(aantal == 3, vol)
+    }
+
+    @Test
+    fun `een interrupt tijdens het vegen meldt de ontvanger als onbevestigd en stopt de ronde`() {
+        // De pod stopt: geen MISLUKT met uitstel, maar ook geen stilte, want het script kan gelopen hebben.
+        val kandidaten = List(3) { Oin("%020d".format(it + 1)) }
+        val gemeldMetVlag = mutableListOf<Boolean>()
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0]) } returns Uni.createFrom().item(true)
+        every { sessies.veeg(kandidaten[1]) } answers {
+            Thread.currentThread().interrupt()
+            Uni.createFrom().nothing()
+        }
+
+        val vol = try {
+            facade.ruimVerlopenSessiesOp { opruiming ->
+                gemeldMetVlag += Thread.currentThread().isInterrupted
+                assertTrue(opruiming.ontvanger in kandidaten.take(2), "$opruiming")
+            }.also { assertTrue(Thread.currentThread().isInterrupted, "de interrupt-vlag hoort hersteld te zijn") }
+        } finally {
+            Thread.interrupted()
+        }
+
+        assertFalse(vol)
+        assertEquals(listOf(false, false), gemeldMetVlag, "de melding hoort zonder vlag te lopen")
+        verify(exactly = 0) { sessies.veeg(kandidaten[2]) }
+        kandidaten.forEach { verify(exactly = 0) { sessies.stelUit(it) } }
     }
 
     @Test
@@ -713,22 +793,22 @@ class BlockingSessiecacheTest {
                 Opruiming(kandidaten[1], OpruimUitkomst.MISLUKT),
                 Opruiming(kandidaten[2], OpruimUitkomst.GEWIST),
             ),
-            facade.ruimVerlopenSessiesOp(),
+            facade.veeg().first,
         )
     }
 
     @Test
-    fun `vegen zonder kandidaten levert een lege lijst`() {
+    fun `vegen zonder kandidaten meldt niets en geen volle batch`() {
         every { sessies.verlopen(3) } returns Uni.createFrom().item(emptyList())
 
-        assertEquals(emptyList<Opruiming>(), facade.ruimVerlopenSessiesOp(max = 3))
+        assertEquals(emptyList<Opruiming>() to false, facade.veeg(max = 3))
     }
 
     @Test
     fun `vegen waarbij de kandidaten niet op te vragen zijn is Onbereikbaar`() {
         every { sessies.verlopen(100) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
 
-        assertThrows<SessiecacheException.Onbereikbaar> { facade.ruimVerlopenSessiesOp() }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.veeg() }
     }
 
     // --- timeouts ---

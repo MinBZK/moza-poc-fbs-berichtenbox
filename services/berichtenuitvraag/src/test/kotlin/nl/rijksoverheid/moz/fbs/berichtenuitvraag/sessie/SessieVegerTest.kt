@@ -119,6 +119,13 @@ class SessieVegerTest : SessieVegerTestBasis() {
     @Inject
     lateinit var veger: SessieVeger
 
+    /** De teller van mislukte rondes leeft in de bean; een geslaagde, lege ronde zet hem terug. */
+    @BeforeEach
+    fun begintZonderMislukteRondes() {
+        veger.veeg()
+        sessiecache.veegAanroepen.set(0)
+    }
+
     companion object {
         const val BATCH_DUUR_MS = 300L
         const val VEEG_INTERVAL_MS = 2_000L
@@ -127,7 +134,7 @@ class SessieVegerTest : SessieVegerTestBasis() {
         fun gevallen(): List<Arguments> = listOf(
             Arguments.of(OpruimUitkomst.GEWIST, StatusCode.OK, null),
             Arguments.of(OpruimUitkomst.MISLUKT, StatusCode.ERROR, "volgende ronde probeert opnieuw"),
-            Arguments.of(OpruimUitkomst.ONBEVESTIGD, StatusCode.ERROR, "Redis-TTL"),
+            Arguments.of(OpruimUitkomst.ONBEVESTIGD, StatusCode.ERROR, "mogelijk gewist"),
         )
     }
 
@@ -248,6 +255,85 @@ class SessieVegerTest : SessieVegerTestBasis() {
 
         assertEquals(2, aanroepen.get())
         assertEquals(SessieVeger.BATCH, logregels.size)
+    }
+
+    @Test
+    fun `een opruiming staat in het logboek zodra ze gemeld is, ook als de batch daarna afbreekt`() {
+        // Zoals een pod die halverwege een batch stopt: wat al gewist is, mag niet op het einde wachten.
+        sessiecache.veegRondes.add(List(3) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) })
+        sessiecache.veegFoutNa = 2
+        sessiecache.veegFout = SessiecacheException.Onbereikbaar("redis weg")
+
+        val regels = vangLog { veger.veeg() }
+
+        assertEquals(listOf("00000001", "00000002"), logregels.map { it.waarde })
+        assertEquals(1, regels.count { it.contains("volgende ronde probeert opnieuw") }, regels.toString())
+    }
+
+    @Test
+    fun `een volle kandidatenbatch loopt door, ook als er minder opruimingen gemeld zijn`() {
+        // Een andere pod veegde een deel van dezelfde kandidaten: die worden hier niet gemeld.
+        val eerste = listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST))
+        val tweede = listOf(Opruiming(Bsn("999993653"), OpruimUitkomst.GEWIST))
+        sessiecache.veegRondes.addAll(listOf(eerste, tweede))
+        sessiecache.veegVol.addAll(listOf(true, false))
+
+        veger.veeg()
+
+        assertEquals(2, sessiecache.veegAanroepen.get())
+        assertEquals(listOf("999990019", "999993653"), logregels.map { it.waarde })
+    }
+
+    @Test
+    fun `een batch met evenveel opruimingen als de grens stopt als de kandidatenbatch niet vol was`() {
+        val opruimingen = List(SessieVeger.BATCH) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
+        sessiecache.veegRondes.addAll(listOf(opruimingen, listOf(Opruiming(Bsn("999990019"), OpruimUitkomst.GEWIST))))
+        sessiecache.veegVol.add(false)
+
+        veger.veeg()
+
+        assertEquals(1, sessiecache.veegAanroepen.get())
+        assertEquals(SessieVeger.BATCH, logregels.size)
+    }
+
+    @Test
+    fun `een interrupt beëindigt de ronde na de lopende batch`() {
+        sessiecache.veegRonde = { max ->
+            Thread.currentThread().interrupt()
+            List(max) { Opruiming(Kvk("%08d".format(it + 1)), OpruimUitkomst.GEWIST) }
+        }
+
+        try {
+            veger.veeg()
+
+            assertTrue(Thread.currentThread().isInterrupted, "de interrupt-vlag hoort te blijven staan")
+        } finally {
+            Thread.interrupted()
+        }
+
+        assertEquals(1, sessiecache.veegAanroepen.get())
+        assertEquals(SessieVeger.BATCH, logregels.size)
+    }
+
+    @Test
+    fun `aanhoudend mislukte rondes geven een alert na drie op rij, daarna elke tiende, en een geslaagde ronde begint opnieuw`() {
+        sessiecache.veegFout = SessiecacheException.Onbereikbaar("redis weg bij 999990019")
+
+        val eersteReeks = vangLog { repeat(25) { veger.veeg() } }
+
+        val alerts = eersteReeks.filter { it.contains(SessieVeger.ALERT_TOKEN) }
+        assertEquals(listOf("3", "13", "23"), alerts.map { it.substringAfter("] ").substringBefore(" ") }, eersteReeks.toString())
+        assertEquals(22, eersteReeks.count { it.contains("volgende ronde probeert opnieuw") }, eersteReeks.toString())
+        assertTrue(eersteReeks.none { it.contains("999990019") }, "de foutmelding hoort niet in de applicatielog")
+
+        sessiecache.veegFout = null
+        veger.veeg()
+        sessiecache.veegFout = SessiecacheException.Onbereikbaar("redis weg")
+
+        val naHerstel = vangLog { repeat(3) { veger.veeg() } }
+
+        assertEquals(1, naHerstel.count { it.contains(SessieVeger.ALERT_TOKEN) }, naHerstel.toString())
+        assertTrue(naHerstel.last().contains(SessieVeger.ALERT_TOKEN), naHerstel.toString())
     }
 
     @Test

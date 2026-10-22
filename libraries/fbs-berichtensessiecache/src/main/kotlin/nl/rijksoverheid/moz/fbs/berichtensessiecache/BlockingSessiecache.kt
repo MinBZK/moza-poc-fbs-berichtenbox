@@ -215,42 +215,89 @@ internal class BlockingSessiecache(
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
         awaitOrServiceUnavailable { sessies.beeindig(sessieId, ontvanger) }
 
-    override fun ruimVerlopenSessiesOp(max: Int): List<Opruiming> {
+    override fun ruimVerlopenSessiesOp(max: Int, meld: (Opruiming) -> Unit): Boolean {
         // Redis leest een negatieve LIMIT als "alles": dat maakt van een begrensde ronde een onbegrensde.
         if (max < 1) throw SessiecacheException.OngeldigeInvoer("max ($max) moet minstens 1 zijn.")
 
-        return awaitOrServiceUnavailable { sessies.verlopen(max) }.mapNotNull(::veegEen)
+        val kandidaten = awaitOrServiceUnavailable { sessies.verlopen(max) }
+
+        for (kandidaat in kandidaten) {
+            // De pod stopt: geen volgende ontvanger meer beginnen, de index bewaart hem.
+            if (Thread.currentThread().isInterrupted) return false
+
+            val opruiming = veegEen(kandidaat) ?: continue
+
+            if (!Thread.currentThread().isInterrupted) {
+                meld(opruiming)
+
+                continue
+            }
+
+            // De pod stopt. Deze melding mag niet op de vlag stranden, want het wissen kan al gebeurd
+            // zijn; daarna stopt de ronde en pakt een volgende de rest van de index op.
+            Thread.interrupted()
+
+            try {
+                meld(opruiming)
+            } finally {
+                Thread.currentThread().interrupt()
+            }
+
+            return false
+        }
+
+        return kandidaten.size == max
     }
 
     /**
      * Per ontvanger een eigen wachttijd en een eigen vangnet: een fout of een trage ontvanger mag de
-     * opruimingen die al gebeurd zijn niet uit het resultaat laten vallen, anders komen die nooit in
-     * het logboek. `null` als er voor deze ontvanger nog een sessie loopt of een andere pod al veegde.
+     * ontvangers erachter niet tegenhouden. `null` als er voor deze ontvanger nog een sessie loopt of
+     * een andere pod al veegde.
+     *
+     * Alleen de fout-soort in de log: de melding van een Redis- of parse-fout kan een fragment van
+     * de invoer bevatten.
      */
     private fun veegEen(ontvanger: Identificatienummer): Opruiming? =
         try {
             if (sessies.veeg(ontvanger).await().atMost(timeout)) Opruiming(ontvanger, OpruimUitkomst.GEWIST) else null
         } catch (e: Exception) {
-            // Een script dat Redis eenmaal kreeg, loopt tot het einde: na een timeout is de uitkomst
-            // onbekend. Een foutantwoord breekt het script af vóór de ZREM aan het einde, dus dan
-            // staat de ontvanger nog in de index voor een volgende ronde. Mutiny's eigen
+            // Een script dat Redis eenmaal kreeg, loopt tot het einde: na een timeout of een interrupt
+            // is de uitkomst onbekend. Een foutantwoord breekt het script af vóór de ZREM aan het einde,
+            // dus dan staat de ontvanger nog in de index voor een volgende ronde. Mutiny's eigen
             // TimeoutException (van `atMost`) is geen subklasse van die uit de JDK.
-            val onbevestigd = generateSequence<Throwable>(e) { it.cause }
-                .any { it is io.smallrye.mutiny.TimeoutException || it is java.util.concurrent.TimeoutException }
+            val keten = generateSequence<Throwable>(e) { it.cause }.toList()
+            val onderbroken = keten.any { it is InterruptedException }
+            val onbevestigd = onderbroken ||
+                keten.any { it is io.smallrye.mutiny.TimeoutException || it is java.util.concurrent.TimeoutException }
 
-            if (onbevestigd) {
-                log.warnf(e, "Opruimen van een verlopen sessie niet bevestigd binnen %s; de gegevens zijn mogelijk gewist", timeout)
-                Opruiming(ontvanger, OpruimUitkomst.ONBEVESTIGD)
-            } else {
-                log.errorf(e, "Opruimen van een verlopen sessie mislukt; een volgende veegronde probeert het opnieuw")
-                stelUit(ontvanger)
-                Opruiming(ontvanger, OpruimUitkomst.MISLUKT)
+            when {
+                onderbroken -> {
+                    // Mutiny zet de vlag meestal al; hier expliciet, want de aanroeper stopt erop.
+                    Thread.currentThread().interrupt()
+                    log.infof("Opruimen van een verlopen sessie onderbroken (fout=%s); de veegronde stopt", e.javaClass.name)
+                }
+                onbevestigd -> log.warnf(
+                    "Opruimen van een verlopen sessie niet bevestigd binnen %s (fout=%s); de gegevens zijn mogelijk gewist",
+                    timeout,
+                    e.javaClass.name,
+                )
+                else -> log.errorf(
+                    "Opruimen van een verlopen sessie mislukt (fout=%s); een volgende veegronde probeert het opnieuw",
+                    e.javaClass.name,
+                )
             }
+
+            // Ook na een timeout: hangt het script van deze ontvanger structureel, dan kost hij anders
+            // elke ronde de volle wachttijd. `XX` in het uitstel laat een al geveegde ontvanger weg. Na
+            // een interrupt niet: de pod stopt, en de entry blijft voor een volgende ronde staan.
+            if (!onderbroken) stelUit(ontvanger)
+
+            Opruiming(ontvanger, if (onbevestigd) OpruimUitkomst.ONBEVESTIGD else OpruimUitkomst.MISLUKT)
         }
 
     /**
      * Best-effort: lukt ook dit niet, dan blijft de ontvanger vooraan in de index staan en is de
-     * volgende ronde gewoon weer een poging. Een fout hier verandert de uitkomst MISLUKT niet.
+     * volgende ronde gewoon weer een poging. Een fout hier verandert de uitkomst niet.
      */
     private fun stelUit(ontvanger: Identificatienummer) {
         try {

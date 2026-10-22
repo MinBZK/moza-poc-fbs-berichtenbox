@@ -122,7 +122,7 @@ object AanmeldCloudEventFuzzer {
             override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
                 throw UnsupportedOperationException()
 
-            override fun ruimVerlopenSessiesOp(max: Int): List<Opruiming> = throw UnsupportedOperationException()
+            override fun ruimVerlopenSessiesOp(max: Int, meld: (Opruiming) -> Unit): Boolean = throw UnsupportedOperationException()
         }
 
         val dedup = object : AanmeldDeduplicatie {

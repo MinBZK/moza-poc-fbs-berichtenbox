@@ -30,7 +30,7 @@ enum class OpruimAanleiding(val waarde: String) {
  *
  * Gooit niet als het schrijven mislukt. Het wissen is dan al gebeurd en valt niet terug te draaien;
  * een fout zou alleen het verzoek laten mislukken dat het wissen veroorzaakte. In plaats daarvan
- * een foutregel met [ALERT_TOKEN], zonder ontvanger.
+ * een foutregel met [ALERT_TOKEN], zonder ontvanger. Alleen een Error gaat door, na diezelfde regel.
  */
 @ApplicationScoped
 class SessieLogboek(private val processingHandler: ProcessingHandler) {
@@ -42,18 +42,30 @@ class SessieLogboek(private val processingHandler: ProcessingHandler) {
         aanleiding: OpruimAanleiding,
         uitkomst: OpruimUitkomst = OpruimUitkomst.GEWIST,
     ) {
+        var afgehandeld = false
+
         try {
             schrijf(ontvanger, aanleiding, uitkomst)
+            afgehandeld = true
         } catch (e: Exception) {
-            log.errorf(
-                "%s: opruimen (aanleiding=%s, uitkomst=%s, ontvanger.type=%s) niet in het logboek vastgelegd: %s",
-                ALERT_TOKEN,
-                aanleiding.waarde,
-                uitkomst,
-                ontvanger.type,
-                e.javaClass.name,
-            )
+            afgehandeld = true
+            meldOntbrekend(ontvanger, aanleiding, uitkomst, e.javaClass.name)
+        } finally {
+            // Een Error (zoals een NoClassDefFoundError uit de exporter) gaat hier bewust door, maar
+            // niet zonder het alert: anders ontbreekt de logregel zonder dat iemand het ziet.
+            if (!afgehandeld) meldOntbrekend(ontvanger, aanleiding, uitkomst, "onverwachte Error")
         }
+    }
+
+    private fun meldOntbrekend(ontvanger: Identificatienummer, aanleiding: OpruimAanleiding, uitkomst: OpruimUitkomst, fout: String) {
+        log.errorf(
+            "%s: opruimen (aanleiding=%s, uitkomst=%s, ontvanger.type=%s) niet in het logboek vastgelegd: %s",
+            ALERT_TOKEN,
+            aanleiding.waarde,
+            uitkomst,
+            ontvanger.type,
+            fout,
+        )
     }
 
     private fun schrijf(ontvanger: Identificatienummer, aanleiding: OpruimAanleiding, uitkomst: OpruimUitkomst) {

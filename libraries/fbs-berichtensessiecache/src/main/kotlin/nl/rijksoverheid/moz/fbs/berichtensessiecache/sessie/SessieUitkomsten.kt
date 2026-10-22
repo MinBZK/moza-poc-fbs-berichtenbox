@@ -56,9 +56,10 @@ enum class OpruimUitkomst {
     MISLUKT,
 
     /**
-     * Geen antwoord binnen de wachttijd. Het opruimen kan in Redis alsnog zijn uitgevoerd, of niet;
-     * staan de gegevens er nog, dan wist de Redis-TTL ze uiterlijk na de maximale duur plus de
-     * vangnet-marge.
+     * Geen antwoord binnen de wachttijd, of de veegronde werd onderbroken. Het opruimen kan in Redis
+     * alsnog zijn uitgevoerd, of niet. Liep het niet, dan staat de ontvanger nog in de verloopindex
+     * (na een timeout net als bij [MISLUKT] een veeginterval naar achteren) en meldt een latere
+     * ronde het opruimen alsnog.
      */
     ONBEVESTIGD,
 }
