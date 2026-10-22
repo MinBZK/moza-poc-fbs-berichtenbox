@@ -3,8 +3,11 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.sdk.trace.ReadableSpan
+import io.opentelemetry.sdk.trace.SdkTracerProvider
 import io.quarkus.test.junit.QuarkusMock
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
@@ -20,12 +23,15 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie.SessieLogboek
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie.SessieResource
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -88,6 +94,13 @@ class LdvSubjectRegistrationTest {
     private val opruimSpan = mockk<Span>(relaxed = true)
 
     /**
+     * De span van elke logregel van een verzoek, op naam. Een echte span en geen mock: de resource
+     * schrijft via `Span.current()`, en alleen een echte span wordt door de interceptor current.
+     */
+    private val verzoekSpans = ConcurrentHashMap<String, ReadableSpan>()
+    private val tracer = SdkTracerProvider.builder().build().get("ldv-test")
+
+    /**
      * Vervangt de [ProcessingHandler] van de wrapper, zodat elke logregel zichtbaar wordt: die van
      * de `@Logboek`-interceptor en die van [SessieLogboek], die buiten de interceptor schrijft. De
      * context wordt bij het schrijven gekopieerd, want de interceptor zet hem daarna terug.
@@ -99,7 +112,11 @@ class LdvSubjectRegistrationTest {
             val naam = firstArg<String>()
             gestarteSpans += naam
 
-            if (naam == SessieLogboek.NAAM) opruimSpan else Span.getInvalid()
+            if (naam == SessieLogboek.NAAM) {
+                opruimSpan
+            } else {
+                tracer.spanBuilder(naam).startSpan().also { verzoekSpans[naam] = it as ReadableSpan }
+            }
         }
 
         every { handler.addLogboekContextToSpan(any(), any(), any()) } answers {
@@ -119,7 +136,7 @@ class LdvSubjectRegistrationTest {
     fun `een start zonder resten levert precies de logregel van de start`() {
         vangLogregels()
 
-        given().header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(201)
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(201)
 
         assertEquals(listOf("uitvraag-sessie-start"), gestarteSpans.toList())
         assertEquals(listOf(sessieRegel("uitvraag-sessie-start")), logregels.toList())
@@ -130,7 +147,7 @@ class LdvSubjectRegistrationTest {
         vangLogregels()
         sessiecache.restenBijVolgendeStart = true
 
-        given().header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(201)
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(201)
 
         assertEquals(listOf("uitvraag-sessie-start", SessieLogboek.NAAM), gestarteSpans.toList())
         assertEquals(
@@ -160,6 +177,64 @@ class LdvSubjectRegistrationTest {
         assertEquals(opruimen + sessieRegel("uitvraag-sessie-einde"), logregels.toList())
 
         if (opgeruimd) verify { opruimSpan.setAttribute(SessieLogboek.AANLEIDING_ATTRIBUUT, "uitgelogd") }
+    }
+
+    /**
+     * Zonder authenticatie kan iedereen een einde voor een willekeurige ontvanger aanvragen. De
+     * logregel van het einde zegt daarom wat het deed: een onbekende sessie wiste niets.
+     */
+    @ParameterizedTest(name = "{0} sessies vooraf: {1}")
+    @CsvSource("0, onbekend", "1, opgeruimd", "2, beeindigd")
+    fun `de logregel van een einde noemt wat het einde deed`(aantal: Int, uitkomst: String) {
+        val sessies = (1..aantal).map { sessiecache.sessieVoor() }
+        vangLogregels()
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessies.firstOrNull() ?: "A".repeat(22))
+            .delete("/api/v1/sessies/huidige")
+            .then()
+            .statusCode(204)
+
+        val einde = verzoekSpans.getValue("uitvraag-sessie-einde")
+
+        assertEquals(uitkomst, einde.getAttribute(AttributeKey.stringKey(SessieResource.EINDE_UITKOMST_ATTRIBUUT)))
+    }
+
+    /** Een bedoelde weigering is geen storing: in het logboek betekent "Error" dat er iets misging. */
+    @Test
+    fun `een start boven de grens krijgt een logregel zonder status Error`() {
+        repeat(5) { sessiecache.sessieVoor() }
+        vangLogregels()
+
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(429)
+
+        val start = verzoekSpans.getValue("uitvraag-sessie-start").toSpanData()
+
+        assertNotEquals(StatusCode.ERROR, start.status.statusCode, "429 als Error gelogd: ${start.status}")
+        assertEquals(listOf(sessieRegel("uitvraag-sessie-start")), logregels.toList())
+    }
+
+    @Test
+    fun `een start die op een storing strandt, blijft wel een Error`() {
+        sessiecache.startSessieFout = SessiecacheException.Onbereikbaar("Redis weg")
+        vangLogregels()
+
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(503)
+
+        assertEquals(StatusCode.ERROR, verzoekSpans.getValue("uitvraag-sessie-start").toSpanData().status.statusCode)
+    }
+
+    /** Lezen en verlengen raken alleen de sessie-administratie; net als het verlengen door een berichtenverzoek geen logregel. */
+    @Test
+    fun `opvragen en verlengen van de sessie leveren geen logregel`() {
+        val sessie = sessiecache.sessieVoor()
+        vangLogregels()
+
+        given().header("X-Ontvanger", "BSN:999990019").header("X-Sessie", sessie).get("/api/v1/sessies/huidige").then().statusCode(200)
+        given().header("X-Ontvanger", "BSN:999990019").header("X-Sessie", sessie).post("/api/v1/sessies/huidige/_verlengen").then().statusCode(200)
+
+        assertEquals(emptyList<String>(), gestarteSpans.toList())
     }
 
     @Test

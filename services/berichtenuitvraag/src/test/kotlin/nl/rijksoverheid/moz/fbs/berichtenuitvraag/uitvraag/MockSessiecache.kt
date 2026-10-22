@@ -14,8 +14,10 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -105,6 +107,16 @@ class MockSessiecache : Sessiecache {
     var veegFout: SessiecacheException? = null
     val veegAanroepen = AtomicInteger()
     val geraakteSessies = CopyOnWriteArrayList<String>()
+    val gelezenSessies = CopyOnWriteArrayList<String>()
+
+    /** De geldigheid per lopende sessie; een raak schuift [SessieGeldigheid.geldigTot] op, tot het plafond. */
+    val geldigheden = ConcurrentHashMap<String, SessieGeldigheid>()
+
+    /** Het plafond dat elke start meekreeg, in volgorde; `null` voor een start zonder body. */
+    val startPlafonds = CopyOnWriteArrayList<Instant?>()
+
+    /** Wat [SessiecacheException.TeVeelSessies.vrijOver] bij de grens meldt. */
+    var vrijOverBijGrens: Duration = Duration.ofSeconds(90)
 
     /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
     fun sessieVoor(ontvanger: String = "BSN:999990019"): String =
@@ -123,6 +135,10 @@ class MockSessiecache : Sessiecache {
         veegFout = null
         veegAanroepen.set(0)
         geraakteSessies.clear()
+        gelezenSessies.clear()
+        geldigheden.clear()
+        startPlafonds.clear()
+        vrijOverBijGrens = Duration.ofSeconds(90)
         berichten.clear()
         schrijfFouten.clear()
         schrijfAanroepen.clear()
@@ -229,33 +245,60 @@ class MockSessiecache : Sessiecache {
         return volgGebeurtenissen
     }
 
-    override fun startSessie(ontvanger: Identificatienummer): SessieStart {
+    override fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant?): SessieStart {
         startSessieFout?.let { throw it }
+        startPlafonds += uiterlijkGeldigTot
 
         // Dezelfde grens als de echte facade, zodat de 429 van de uitvraag hier ook uit de grens komt.
         if (sessies.values.count { it == ontvanger } >= MAX_SESSIES_PER_ONTVANGER) {
-            throw SessiecacheException.TeVeelSessies("Te veel sessies tegelijk.")
+            throw SessiecacheException.TeVeelSessies("Te veel sessies tegelijk.", vrijOverBijGrens)
+        }
+
+        if (uiterlijkGeldigTot != null && !uiterlijkGeldigTot.isAfter(Instant.now())) {
+            throw SessiecacheException.OngeldigeInvoer("uiterlijkGeldigTot ligt niet in de toekomst.")
         }
 
         val sessieId = UUID.randomUUID().toString().replace("-", "").take(SESSIE_ID_LENGTE)
+        val nu = Instant.now()
+        val plafond = listOfNotNull(nu.plusSeconds(MAX_DUUR_SECONDEN), uiterlijkGeldigTot).min()
         sessies[sessieId] = ontvanger
+        geldigheden[sessieId] = SessieGeldigheid(minOf(nu.plusSeconds(INACTIVITEIT_SECONDEN), plafond), plafond)
         val resten = restenBijVolgendeStart
         restenBijVolgendeStart = false
 
-        return SessieStart(sessieId, Instant.now().plusSeconds(900), restenOpgeruimd = resten)
+        return SessieStart(sessieId, geldigheden.getValue(sessieId), restenOpgeruimd = resten)
     }
 
-    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer) {
+    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid {
         geraakteSessies += sessieId
         raakFout?.let { throw it }
 
+        val huidig = lopend(sessieId, ontvanger)
+        val verlengd = huidig.copy(geldigTot = minOf(Instant.now().plusSeconds(INACTIVITEIT_SECONDEN), huidig.uiterlijkGeldigTot))
+        geldigheden[sessieId] = verlengd
+
+        return verlengd
+    }
+
+    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid {
+        gelezenSessies += sessieId
+        raakFout?.let { throw it }
+
+        return lopend(sessieId, ontvanger)
+    }
+
+    private fun lopend(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid {
         if (sessies[sessieId] != ontvanger) throw SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
+
+        return geldigheden.getValue(sessieId)
     }
 
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde {
         beeindigFout?.let { throw it }
 
         if (!sessies.remove(sessieId, ontvanger)) return SessieEinde.ONBEKEND
+
+        geldigheden.remove(sessieId)
 
         return if (sessies.containsValue(ontvanger)) SessieEinde.BEEINDIGD else SessieEinde.OPGERUIMD
     }
@@ -298,6 +341,10 @@ private const val SESSIE_ID_LENGTE = 22
 
 // Gelijk aan de default van `berichtensessiecache.sessie.max-per-ontvanger`.
 private const val MAX_SESSIES_PER_ONTVANGER = 5
+
+// Gelijk aan de defaults van `berichtensessiecache.sessie.inactiviteit` en `max-duur`.
+private const val INACTIVITEIT_SECONDEN = 900L
+private const val MAX_DUUR_SECONDEN = 43_200L
 
 /**
  * Activeert [MockSessiecache] als alternative voor de echte facade. Redis blijft

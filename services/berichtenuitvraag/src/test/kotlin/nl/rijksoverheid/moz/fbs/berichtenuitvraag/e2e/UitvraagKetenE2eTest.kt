@@ -67,7 +67,7 @@ class UitvraagKetenE2eTest {
 
     /** Logt in zoals een berichtenbox dat doet: één sessie per ontvanger, gestart via `POST /sessies`. */
     private fun sessie(bsn: String): String = sessies.getOrPut(bsn) {
-        given()
+        given().contentType("application/json")
             .header("X-Ontvanger", "BSN:$bsn")
             .`when`().post("/api/v1/sessies")
             .then()

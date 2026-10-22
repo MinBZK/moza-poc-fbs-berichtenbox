@@ -7,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import org.jboss.logging.Logger
+import java.time.Duration
 
 /**
  * Uniforme upstream-fout-mapping voor calls naar de sessiecache-facade én het magazijn.
@@ -150,9 +151,25 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
     is SessiecacheException.BerichtVerwijderd -> cacheFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE)
     is SessiecacheException.SessieOngeldig -> cacheFout(Foutcode.SESSIE_ONGELDIG, Response.Status.UNAUTHORIZED)
     // 429 en geen 409: de grens is een tijdelijke toestand die verdwijnt zodra een andere sessie
-    // eindigt of verloopt.
-    is SessiecacheException.TeVeelSessies -> cacheFout(Foutcode.TE_VEEL_SESSIES, Response.Status.TOO_MANY_REQUESTS)
+    // eindigt of verloopt. Retry-After zegt wanneer dat op zijn laatst is, zodat een generieke
+    // client die op een 429 opnieuw probeert, niet blijft hameren.
+    is SessiecacheException.TeVeelSessies -> FbsFoutException(
+        Foutcode.TE_VEEL_SESSIES,
+        Response.Status.TOO_MANY_REQUESTS,
+        message.orEmpty(),
+        this,
+        retryAfterSeconden = retryAfterSeconden(vrijOver),
+    )
 }
+
+/** Naar boven afgerond en minstens 1: een `Retry-After: 0` nodigt uit tot direct opnieuw proberen. */
+internal fun retryAfterSeconden(wachttijd: Duration): Int {
+    val seconden = wachttijd.plusNanos(NANOS_PER_SECONDE - 1).seconds
+
+    return seconden.coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+}
+
+private const val NANOS_PER_SECONDE = 1_000_000_000L
 
 /** Cache-fout met kenmerk; de message van de cache blijft het detail. */
 private fun SessiecacheException.cacheFout(foutcode: Foutcode, status: Response.Status) =

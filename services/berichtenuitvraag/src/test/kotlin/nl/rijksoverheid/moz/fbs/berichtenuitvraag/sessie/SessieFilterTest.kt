@@ -24,10 +24,12 @@ import java.net.Socket
 import java.util.UUID
 
 /**
- * De sessiecontrole vóór elk pad onder `/berichten`. Eén antwoord voor elk soort ongeldige sessie,
- * zodat een aanroeper niet kan aftasten welke id's ooit bestonden. Een ontbrekende, dubbele of
+ * De sessiecontrole vóór elk pad dat een lopende sessie vereist: alles onder `/berichten`, en het
+ * opvragen en verlengen van de sessie zelf. Eén antwoord voor elk soort ongeldige sessie, zodat een
+ * aanroeper niet kan aftasten welke id's ooit bestonden. Een ontbrekende, dubbele of
  * elfproef-falende `X-Ontvanger` is een 400 van het filter zelf, want zonder geldige ontvanger
- * valt er geen sessie te toetsen.
+ * valt er geen sessie te toetsen. Het uitloggen staat in [SessieResourceTest]: dat geeft op een
+ * onbekende sessie bewust 204.
  */
 @QuarkusTest
 @TestProfile(MockSessiecacheProfile::class)
@@ -41,8 +43,11 @@ class SessieFilterTest {
         sessiecache.reset()
     }
 
-    /** Elk pad onder `/berichten` uit de spec, met een verzoek dat zonder de sessiecontrole zou slagen. */
-    class Route(val methode: Method, val pad: String, val body: String? = null) {
+    /**
+     * Elk pad uit de spec dat een lopende sessie vereist, met een verzoek dat zonder de
+     * sessiecontrole zou slagen. [verlengt]: of het verzoek de sessie verlengt of alleen leest.
+     */
+    class Route(val methode: Method, val pad: String, val body: String? = null, val verlengt: Boolean = true) {
         override fun toString() = "$methode $pad"
 
         fun stuur(verzoek: RequestSpecification): Response {
@@ -54,6 +59,7 @@ class SessieFilterTest {
 
     companion object {
         private const val ONTVANGER = "BSN:999990019"
+        private const val CHALLENGE = "X-Sessie realm=\"berichtenuitvraag\""
         private const val MAGAZIJN = "00000001003214345000"
         private val ID = UUID.fromString("0b0e5a52-8a8f-4d5f-9d2e-2f7f7a0c1d11")
 
@@ -61,12 +67,15 @@ class SessieFilterTest {
         fun routes(): List<Route> = listOf(
             Route(Method.GET, "/api/v1/berichten"),
             Route(Method.GET, "/api/v1/berichten/_ophalen"),
-            Route(Method.GET, "/api/v1/berichten/_volgen"),
+            // Alleen lezen: een open berichtenbox is geen activiteit van de gebruiker.
+            Route(Method.GET, "/api/v1/berichten/_volgen", verlengt = false),
             Route(Method.GET, "/api/v1/berichten/_zoeken?q=rente"),
             Route(Method.GET, "/api/v1/berichten/$ID?magazijnId=$MAGAZIJN"),
             Route(Method.PATCH, "/api/v1/berichten/$ID?magazijnId=$MAGAZIJN", """{"status":"gelezen"}"""),
             Route(Method.DELETE, "/api/v1/berichten/$ID?magazijnId=$MAGAZIJN"),
             Route(Method.GET, "/api/v1/berichten/$ID/bijlagen/${UUID.randomUUID()}?magazijnId=$MAGAZIJN"),
+            Route(Method.GET, "/api/v1/sessies/huidige", verlengt = false),
+            Route(Method.POST, "/api/v1/sessies/huidige/_verlengen"),
         )
 
         @JvmStatic
@@ -113,6 +122,7 @@ class SessieFilterTest {
             .then()
             .statusCode(401)
             .contentType("application/problem+json")
+            .header("WWW-Authenticate", CHALLENGE)
             .body("type", equalTo("urn:fbs:fout:sessie-ongeldig"))
 
         assertTrue(sessiecache.verwijderAanroepen.isEmpty() && sessiecache.werkBijAanroepen == 0, "geen schrijfactie zonder sessie")
@@ -126,12 +136,13 @@ class SessieFilterTest {
         route.stuur(given().header("X-Ontvanger", ONTVANGER).header("X-Sessie", vanAnder))
             .then()
             .statusCode(401)
+            .header("WWW-Authenticate", CHALLENGE)
             .body("type", equalTo("urn:fbs:fout:sessie-ongeldig"))
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("routes")
-    fun `met een geldige sessie wordt die sessie geraakt en gaat het verzoek door`(route: Route) {
+    fun `met een geldige sessie gaat het verzoek door, en wordt de sessie verlengd of alleen gelezen`(route: Route) {
         val sessie = sessiecache.sessieVoor(ONTVANGER)
         // Geen gegevens en geen magazijn in deze test: een 4xx/5xx van verderop is prima, een 401 niet.
         val status = route.stuur(given().header("X-Ontvanger", ONTVANGER).header("X-Sessie", sessie))
@@ -140,7 +151,14 @@ class SessieFilterTest {
             .statusCode()
 
         assertNotEquals(401, status, "$route werd geweigerd met een geldige sessie")
-        assertEquals(listOf(sessie), sessiecache.geraakteSessies.toList())
+
+        if (route.verlengt) {
+            assertEquals(listOf(sessie), sessiecache.geraakteSessies.toList())
+            assertTrue(sessiecache.gelezenSessies.isEmpty(), "gelezen: ${sessiecache.gelezenSessies}")
+        } else {
+            assertEquals(listOf(sessie), sessiecache.gelezenSessies.toList())
+            assertTrue(sessiecache.geraakteSessies.isEmpty(), "$route verlengde de sessie")
+        }
     }
 
     @ParameterizedTest(name = "{0}")
@@ -176,7 +194,7 @@ class SessieFilterTest {
             .contentType("application/problem+json")
             .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
 
-        assertTrue(sessiecache.geraakteSessies.isEmpty(), omschrijving)
+        assertTrue(sessiecache.geraakteSessies.isEmpty() && sessiecache.gelezenSessies.isEmpty(), omschrijving)
     }
 
     @ParameterizedTest(name = "{0}")
@@ -187,9 +205,10 @@ class SessieFilterTest {
         route.stuur(given().header("X-Ontvanger", ONTVANGER).header("X-Sessie", sessie).header("X-Sessie", sessie))
             .then()
             .statusCode(401)
+            .header("WWW-Authenticate", CHALLENGE)
             .body("type", equalTo("urn:fbs:fout:sessie-ongeldig"))
 
-        assertTrue(sessiecache.geraakteSessies.isEmpty())
+        assertTrue(sessiecache.geraakteSessies.isEmpty() && sessiecache.gelezenSessies.isEmpty())
     }
 
     @Test

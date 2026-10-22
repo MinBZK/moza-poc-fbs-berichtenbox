@@ -1,0 +1,23 @@
+meta {
+  name: 3. Geldigheid van de sessie
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrlUitvraag}}/sessies/huidige
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  X-Sessie: {{sessie}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+docs {
+  Geeft 200 met `geldigTot` en `uiterlijkGeldigTot`, zonder het sessie-id. Leest alleen: de sessie
+  wordt hier niet verlengd. Een sessie die niet (meer) loopt, geeft 401 `sessie-ongeldig` met
+  `WWW-Authenticate`.
+}

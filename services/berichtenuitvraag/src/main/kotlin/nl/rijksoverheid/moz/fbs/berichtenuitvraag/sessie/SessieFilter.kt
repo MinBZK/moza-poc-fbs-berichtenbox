@@ -7,6 +7,7 @@ import jakarta.ws.rs.container.ContainerRequestFilter
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.leesUitCache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.splitOntvanger
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
@@ -15,14 +16,39 @@ import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 
+/** Wat een verzoek aan de sessie moet laten zien voordat het door mag. */
+enum class Sessievereiste {
+    /** Geen sessie: het verzoek komt niet van een ingelogde gebruiker, of start juist een sessie. */
+    GEEN,
+
+    /** Een goed gevormde `X-Sessie`, maar of die sessie loopt, maakt niet uit: uitloggen is idempotent. */
+    ALLEEN_VORM,
+
+    /** Een lopende sessie, zonder hem te verlengen: dit verzoek is geen activiteit van de gebruiker. */
+    LOPEND,
+
+    /** Een lopende sessie, en het verzoek verlengt hem: een verzoek van de gebruiker. */
+    VERLENGEN,
+}
+
 /**
- * Laat een verzoek onder `/berichten` alleen door met een lopende sessie van de ontvanger uit
- * `X-Ontvanger`, en raakt die sessie (verlengt hem). Eén plek, zodat geen endpoint onder
- * `/berichten` de controle kan vergeten — ook de SSE-endpoints buiten de codegen niet.
+ * De sessie die het filter bij dit verzoek vaststelde. [geldigheid] is `null` bij
+ * [Sessievereiste.ALLEEN_VORM]: dan is niet nagevraagd of hij loopt.
+ */
+class HuidigeSessie(val sessieId: String, val geldigheid: SessieGeldigheid?) {
+    // Het id is een credential; een toString belandt makkelijk in een log.
+    override fun toString(): String = "HuidigeSessie(sessieId=***, geldigheid=$geldigheid)"
+}
+
+/**
+ * De sessiecontrole van de hele API. Weigert standaard: elk pad vereist een lopende sessie van de
+ * ontvanger uit `X-Ontvanger`, behalve de expliciete vrijstellingen in [vereiste]. Een nieuw
+ * endpoint is zo beschermd zonder dat iemand eraan hoeft te denken, ook een SSE-endpoint buiten de
+ * codegen.
  *
- * Een filter en geen controle per resource: de gegenereerde Bean Validation zou een ontbrekende of
- * krom gevormde `X-Sessie` als 400 weigeren, terwijl de aanroeper elk soort ongeldige sessie als
- * dezelfde 401 hoort te zien. Dit filter draait vóór die validatie.
+ * Een filter en geen controle per resource: zonder sessie verdient elk endpoint dezelfde 401, en
+ * de gegenereerde validatie zou een kromme `X-Ontvanger` anders pas na deze controle zien. Het
+ * filter draait vóór die validatie.
  *
  * Faalt dicht: de controle telt de headerwaarden zelf. `getHeaderString` voegt herhaalde waarden
  * samen met een komma, terwijl `@HeaderParam` de eerste neemt; wie twee keer `X-Ontvanger` stuurt,
@@ -32,7 +58,9 @@ import org.jboss.logging.Logger
  * `X-Sessie` (anders 401). Post-matching, zodat het pad het pad is waarop de router het verzoek al
  * heeft gematcht; een omweg als `/aanmeldingen/../berichten` komt hier dus als `/berichten` binnen.
  *
- * De sessie-id is een credential en komt in geen enkele logregel of foutmelding.
+ * Wat het vaststelde, staat voor de resource onder [HUIDIGE_SESSIE]; de sessie-id staat sinds het
+ * securityschema niet meer als parameter in de gegenereerde interfaces. De sessie-id is een
+ * credential en komt in geen enkele logregel of foutmelding.
  */
 @Provider
 @Priority(Priorities.AUTHENTICATION)
@@ -41,14 +69,22 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
     private val log = Logger.getLogger(SessieFilter::class.java)
 
     override fun filter(request: ContainerRequestContext) {
-        if (!valtOnderBerichten(request.uriInfo.path)) return
+        val vereiste = vereiste(request.method, request.uriInfo.path)
+
+        if (vereiste == Sessievereiste.GEEN) return
 
         val ontvanger = leesOntvanger(request.headers[ONTVANGER_HEADER].orEmpty())
         val sessieId = request.headers[SESSIE_HEADER]?.singleOrNull()
 
         if (sessieId == null || !Sessiecache.SESSIE_ID_VORM.matches(sessieId)) throw sessieOngeldig()
 
-        leesUitCache(log, "sessie-raken") { sessiecache.raakSessie(sessieId, ontvanger) }
+        val geldigheid = when (vereiste) {
+            Sessievereiste.VERLENGEN -> leesUitCache(log, "sessie-raken") { sessiecache.raakSessie(sessieId, ontvanger) }
+            Sessievereiste.LOPEND -> leesUitCache(log, "sessie-lezen") { sessiecache.leesSessie(sessieId, ontvanger) }
+            Sessievereiste.ALLEEN_VORM, Sessievereiste.GEEN -> null
+        }
+
+        request.setProperty(HUIDIGE_SESSIE, HuidigeSessie(sessieId, geldigheid))
     }
 
     private fun leesOntvanger(waarden: List<String>): Identificatienummer {
@@ -74,15 +110,39 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
     private fun sessieOngeldig() =
         FbsFoutException(Foutcode.SESSIE_ONGELDIG, Response.Status.UNAUTHORIZED, Foutcode.SESSIE_ONGELDIG.uitleg)
 
-    private companion object {
+    companion object {
         const val ONTVANGER_HEADER = "X-Ontvanger"
         const val SESSIE_HEADER = "X-Sessie"
 
-        /** Het pad zonder `quarkus.rest.path`; JAX-RS levert het met of zonder voorloop-slash. */
-        fun valtOnderBerichten(pad: String): Boolean {
+        /** Request-property met de [HuidigeSessie]; staat er bij elk verzoek dat een sessie vereist. */
+        const val HUIDIGE_SESSIE = "nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie.HuidigeSessie"
+
+        /**
+         * Wat een verzoek moet laten zien, op [methode] en het pad zonder `quarkus.rest.path` (dat
+         * JAX-RS met of zonder voorloop-slash levert). Alles wat hier niet als uitzondering staat,
+         * verlengt de sessie: dat is de veilige standaard voor een nieuw endpoint.
+         */
+        fun vereiste(methode: String, pad: String): Sessievereiste {
             val relatief = pad.removePrefix("/")
 
-            return relatief == "berichten" || relatief.startsWith("berichten/")
+            return when {
+                relatief in VRIJGESTELD -> Sessievereiste.GEEN
+                relatief == "sessies/huidige" && methode == "DELETE" -> Sessievereiste.ALLEEN_VORM
+                // Alleen lezen: de geldigheid opvragen, en een open berichtenbox die meeluistert.
+                // Geen van beide is activiteit van de gebruiker.
+                relatief == "sessies/huidige" && methode in LEESMETHODES -> Sessievereiste.LOPEND
+                relatief == "berichten/_volgen" -> Sessievereiste.LOPEND
+                else -> Sessievereiste.VERLENGEN
+            }
         }
+
+        /**
+         * Paden zonder sessie: een sessie starten, de aanmelding van een magazijn (geen gebruiker), en
+         * het OpenAPI-document. Bij `sessies` volstaat het pad, want daar bestaat alleen `POST`.
+         */
+        private val VRIJGESTELD = setOf("sessies", "aanmeldingen", "openapi.json")
+
+        // JAX-RS beantwoordt een HEAD met de GET-resource; die verlengt dus evenmin.
+        private val LEESMETHODES = setOf("GET", "HEAD")
     }
 }

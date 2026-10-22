@@ -22,6 +22,10 @@ script:post-response {
 }
 
 docs {
-  Geeft 201 met `sessieId`; de waarde komt automatisch in de omgevingsvariabele `sessie` en gaat
-  als `X-Sessie` mee op de requests onder `/berichten`. Te veel gelijktijdige sessies geeft 429.
+  Geeft 201 met `sessieId`, `geldigTot` (verloop bij inactiviteit) en `uiterlijkGeldigTot`
+  (het harde plafond), en `Location: /api/v1/sessies/huidige`. Het id komt automatisch in de
+  omgevingsvariabele `sessie` en gaat als `X-Sessie` mee op elk verzoek dat een sessie vereist.
+
+  Zonder body geldt alleen de maximale duur van de uitvraag; met een plafond van het portaal zie
+  "Sessie starten met plafond". Te veel gelijktijdige sessies geeft 429 met `Retry-After`.
 }

@@ -23,8 +23,12 @@ class SecurityHeadersQuarkusTest {
 
     private val strikteCsp = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+    // Het test-endpoint valt, zoals elk pad dat niet vrijgesteld is, onder de sessiecontrole.
     private fun headerWaarden(pad: String, naam: String): List<String> =
         given()
+            .apply {
+                if (pad.startsWith("/api/v1/test-only/")) header("X-Ontvanger", "BSN:999990019").header("X-Sessie", sessiecache.sessieVoor())
+            }
             .`when`()
             .get(pad)
             .then()
