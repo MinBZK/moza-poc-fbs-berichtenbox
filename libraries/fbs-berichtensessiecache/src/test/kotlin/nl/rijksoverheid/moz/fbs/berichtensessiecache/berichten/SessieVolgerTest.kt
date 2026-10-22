@@ -57,6 +57,7 @@ class SessieVolgerTest {
         val berichten = List(aantal) { bericht(ontvanger) }
         berichten.forEach { meldAan(it) }
 
+        volgend.wachtTot { items -> items.count { it is SessieGebeurtenis.BerichtBijgekomen } == aantal }
         val bijgekomen = volgend.items.filterIsInstance<SessieGebeurtenis.BerichtBijgekomen>()
         assertEquals(berichten, bijgekomen.map { it.bericht })
     }
@@ -82,6 +83,8 @@ class SessieVolgerTest {
         meldAan(nieuw)
 
         listOf(eerste, tweede).forEach { volgend ->
+            // Het doorsturen loopt asynchroon; zonder wachten valt de controle soms vóór de aflevering.
+            volgend.wachtTot { items -> items.any { it is SessieGebeurtenis.BerichtBijgekomen } }
             assertEquals(SessieGebeurtenis.BerichtBijgekomen(nieuw), volgend.zonderHartslag().last())
         }
     }
