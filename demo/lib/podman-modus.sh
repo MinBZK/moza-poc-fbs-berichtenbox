@@ -134,15 +134,23 @@ modus_compose_kiezen() {
 
 # modus_engine_bereikbaar: stopt als de engine waarop compose landt niet antwoordt. Anders leest
 # elke volgende controle de stilte als een uitkomst: geen containers van het project, geen images.
-# De docker-CLI als die er is, want die spreekt net als compose DOCKER_HOST aan; `podman` leest
-# die variabele niet.
+# Bij podman met `--url`, want `podman` leest DOCKER_HOST niet en slaagt lokaal ook als de socket
+# weg is. Dat geldt ook voor `docker info` waar `docker` een shim naar podman is (podman-docker).
 modus_engine_bereikbaar() {
-    local log engine=podman
+    local log
+    local -a probe
 
-    command -v docker >/dev/null 2>&1 && engine=docker
+    if [ "${PODMAN_RUNTIME:-0}" -eq 1 ] && command -v podman >/dev/null 2>&1; then
+        probe=(podman --url "$DOCKER_HOST" info)
+    elif command -v docker >/dev/null 2>&1; then
+        probe=(docker info)
+    else
+        probe=(podman info)
+    fi
+
     log="$(mktemp -t engine.XXXXXX)"
 
-    if ! "$engine" info >"$log" 2>&1; then
+    if ! "${probe[@]}" >"$log" 2>&1; then
         echo "FOUT: de engine antwoordt niet${DOCKER_HOST:+ ($DOCKER_HOST)}: $(tail -1 "$log")" >&2
         echo "      Start Docker of podman (macOS: \`podman machine start\`) en probeer het opnieuw." >&2
         rm -f "$log"

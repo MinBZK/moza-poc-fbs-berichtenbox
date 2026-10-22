@@ -67,6 +67,12 @@ EOF
 
 cat >"$met/podman" <<'EOF'
 #!/bin/sh
+# `podman --url <socket> info` faalt met STUB_URL_FAAL: de socket waar compose mee praat antwoordt niet.
+if [ "$1" = --url ]; then
+  [ "$3" = info ] || exit 0
+  [ -n "${STUB_URL_FAAL:-}" ] && { echo "unable to connect to Podman socket: $2: no such file or directory" >&2; exit 125; }
+  exit 0
+fi
 case "$1 $2" in
   "image exists") exit 1 ;;
   "pull -q") [ -n "${STUB_PULL_FAAL:-}" ] && { echo "toomanyrequests: rate limit" >&2; exit 125; }; exit 0 ;;
@@ -176,6 +182,15 @@ verwacht "een engine die niet antwoordt, stopt met de melding van de engine" 1 "
 case "$UITVOER" in
   *BEREIKBAAR*) fout "na een onbereikbare engine loopt het script door — $UITVOER" ;;
   *) ok "na een onbereikbare engine stopt het script" ;;
+esac
+
+# `docker` als shim naar podman (podman-docker) slaagt lokaal, ook als de socket in DOCKER_HOST weg is.
+STUB_ENV="$PODMAN_SOCK STUB_URL_FAAL=1" geval "$met" 'modus_engine; modus_engine_bereikbaar; echo BEREIKBAAR'
+verwacht "bij podman telt de socket in DOCKER_HOST, niet een slagende docker info" 1 "no such file or directory"
+
+case "$UITVOER" in
+  *BEREIKBAAR*) fout "een weggevallen podman-socket laat de start door — $UITVOER" ;;
+  *) ok "een weggevallen podman-socket stopt de start" ;;
 esac
 
 # --- modus_poortgrens ---

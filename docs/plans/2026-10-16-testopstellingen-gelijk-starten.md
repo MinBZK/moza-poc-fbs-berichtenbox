@@ -283,7 +283,7 @@ vond één functionele fout, twee documentatiefouten van belang en een reeks kle
 
 ### Verificatie
 
-- `demo/lib/test-podman-modus.sh` 86 asserties (was 62), `demo/lib/test-opstellingen.sh` 39, alle
+- `demo/lib/test-podman-modus.sh` 88 asserties (was 62), `demo/lib/test-opstellingen.sh` 39, alle
   suites onder `demo/environment/lib/` groen; shellcheck schoon. De unittest-stap van
   `ci-scripts.yml` lokaal nagespeeld: groen, met beide demo/lib-suites erin.
 - Mutaties: met de oude poortregel in hostnet falen zes asserties; zonder de hostnet-overlay in
@@ -293,3 +293,15 @@ vond één functionele fout, twee documentatiefouten van belang en een reeks kle
 - SELinux-guard op de drie demo-lagen, inclusief `compose.proeftuin-lokaal.yaml`: 17/17 met `:z`.
 - Niet hier getoetst: een volledige start naast een draaiende stack op een echte Linux-host, en de
   weigering aan de kant van `federatie.sh` (de peer-kant van het `.modus`-contract wel).
+
+### Aanvulling: tweede test op Linux
+
+- **De bereikbaarheidscontrole toetst de socket van compose.** `docker info` slaagde ook als de
+  podman-socket in `DOCKER_HOST` weg was: `docker` was een shim naar `podman` (zoals
+  `podman-docker` op Fedora/RHEL), en `podman` leest `DOCKER_HOST` niet. Bij podman toetst
+  `modus_engine_bereikbaar` nu `podman --url "$DOCKER_HOST" info`; `docker info` blijft voor een
+  echte Docker-engine. Een nieuw geval in de suite faalt op de oude controle.
+- Een `crun: mount devpts`-fout direct na het starten van de socket bleek de parallelle create van
+  compose op podman; die pakt #390 aan.
+- Bewust niet: poort 443 van de hostnet-router (uit de haproxy-configuratie, niet uit de render)
+  in de poortcontrole. Twee peers botsen eerder al op 5432, en de demo-stack bindt 443 niet.
