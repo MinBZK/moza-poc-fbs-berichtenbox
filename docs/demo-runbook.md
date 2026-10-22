@@ -362,8 +362,8 @@ Na een refresh staat die stand er direct weer.
 **Tabblad Demo**
 - *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg,
   laadt de basisvulling opnieuw en wist als laatste de sessies; in één klik terug naar de
-  begintoestand. Een open berichtenbox krijgt bij zijn volgende hartslag `sessie-verlopen` en haalt
-  zelf opnieuw op.
+  begintoestand. Een open berichtenbox krijgt bij zijn volgende hartslag `sessie-verlopen`, meldt
+  dat, en start bij de volgende actie een nieuwe sessie en ophaalronde.
 - *Berichtenbox verversen* — herlaadt het frame. Bewust een knop: verversen zet de berichtenbox
   terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
@@ -472,7 +472,7 @@ volgen in fase 7.
 | 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit*. Veel: persona Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → Ophalen → n−2 FOUT + partiële lijst |
 | 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → Ophalen |
 | 5 | Nieuwe berichten tijdens de sessie | Persona haalt op → *Random berichten opvoeren* → **Vernieuw** toont de nieuwe berichten |
-| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → de open berichtenbox krijgt `sessie-verlopen` en haalt zelf opnieuw op. Wachten (demo-inactiviteit is `PT2M`) werkt alleen zonder open berichtenbox: de hartslag houdt de sessie in leven. Daarna geeft de volgende actie 401 (sessie weg) |
+| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → de open berichtenbox krijgt `sessie-verlopen` en meldt dat; de volgende actie start een nieuwe sessie en ophaalronde. Wachten werkt ook met een open berichtenbox: na de demo-inactiviteit (`PT2M`) zonder actie verloopt de sessie, want de hartslag van `_volgen` verlengt haar niet. Zonder open berichtenbox geeft de volgende actie 401 (sessie weg) |
 | 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open een RVO-bericht (uit de cache) → bijlage-download faalt |
 | 8 | Foutieve aanlevering | Scenario's → *Ongeldig bericht aanbieden* → 400 RFC 9457 problem+json in de melding |
 | 9 | Profielservice weg | *Profielservice uit* → Ophalen kan de magazijnenlijst niet resolven |
@@ -558,9 +558,10 @@ leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's
   de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
   en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).
   Dat staat op DEBUG en de demo draait onder het dev-profiel, dus het staat al aan.
-- **Demo-inactiviteitstermijn is 2 minuten** (`BERICHTENSESSIECACHE_SESSIE_INACTIVITEIT`). Staat er geen
-  berichtenbox open en pauzeer je langer tussen Ophalen en een vervolgactie, dan is de sessie verlopen (401); een open berichtenbox houdt hem met
-  zijn hartslag in leven. Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
+- **Demo-inactiviteitstermijn is 2 minuten** (`BERICHTENSESSIECACHE_SESSIE_INACTIVITEIT`). Pauzeer je langer
+  tussen Ophalen en een vervolgactie, dan is de sessie verlopen (401), ook als de berichtenbox openstaat:
+  een open `_volgen`-verbinding houdt de sessie niet in leven. Realistisch (flow 6), maar hou er rekening
+  mee tijdens het presenteren.
 - **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.

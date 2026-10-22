@@ -29,8 +29,9 @@ Zo werkt het straks met echte authenticatie, en zo bouwen we het nu al:
   - **15 minuten zonder activiteit** (`berichtensessiecache.sessie.inactiviteit=PT15M`);
   - **12 uur na het starten**, wat de activiteit ook is (`berichtensessiecache.sessie.max-duur=PT12H`).
   Wat het eerst komt, telt. Beide instelbaar.
-- **Activiteit** = elk verzoek binnen die sessie, inclusief de hartslag van een open
-  `_volgen`-verbinding.
+- **Activiteit** = elk verzoek van de gebruiker binnen die sessie, en een verlenging door het
+  portaal (`_verlengen`). Een open `_volgen`-verbinding en haar hartslag tellen niet: inactiviteit
+  is inactiviteit van de gebruiker (zie *Het portaal is de klok*).
 - Een sessie start altijd met een **vers beeld**: is er bij de start geen andere lopende sessie
   van dezelfde gebruiker, dan worden eventuele resten (van een verlopen sessie) eerst opgeruimd.
 - Een verzoek zonder geldige sessie wordt geweigerd. Geen terugval op het oude gedrag.
@@ -56,6 +57,26 @@ De controle per verzoek en het opruimen blijven ongewijzigd. Daarom zijn starten
 beëindigen drie losse operaties op de `Sessiecache`-facade: de bron van de sessie kan wisselen
 zonder dat de cache iets merkt.
 
+### Het portaal is de klok
+
+Besluit van de opdrachtgever. Het portaal opent straks sessies naar meer diensten dan FBS. Heeft
+elke dienst een eigen inactiviteitstimer, dan logt de gebruiker op verschillende momenten uit, en
+merkt hij dat pas bij zijn volgende klik in die ene dienst. Daarom bepaalt het portaal wanneer de
+gebruiker inactief of uitgelogd is; de timers van FBS zijn alleen een vangnet.
+
+- Het portaal roept `POST /sessies/huidige/_verlengen` aan bij activiteit van de gebruiker in
+  welke dienst ook, hooguit eens per minuut. Berichtenverzoeken aan FBS verlengen zelf ook: dat
+  zijn verzoeken van de gebruiker.
+- Het portaal stuurt `DELETE /sessies/huidige` bij uitloggen en bij zijn eigen time-out.
+- Bij `POST /sessies` geeft het portaal het plafond van zijn eigen sessie mee
+  (`uiterlijkGeldigTot`); FBS neemt het vroegste van dat moment en start + `max-duur`.
+- De defaults blijven (`inactiviteit` PT15M, `max-duur` PT12H). In een koppeling met een portaal
+  staat `inactiviteit` ruimer dan de termijn van het portaal plus zijn verleng-interval, zodat FBS
+  niet vóór het portaal verloopt (zie de operator-handleiding).
+- Een open `_volgen`-verbinding houdt de sessie niet in leven. Een tabblad dat op een onbeheerde
+  werkplek openstaat, hield de berichtgegevens anders bereikbaar tot het plafond van 12 uur (ASVS
+  V3.3.2, BIO: inactiviteit van de gebruiker).
+
 ### De demo
 
 In de demo is geen inlog. Per tab geldt het kiezen van een persona als inloggen en het wisselen
@@ -71,16 +92,29 @@ wissen. Een gesloten tab wacht gewoon de inactiviteitstermijn af.
 
 ### Uitvraag-API (OpenAPI-first, `berichtenuitvraag-api.yaml`)
 
-- `POST /api/v1/sessies` met `X-Ontvanger` → `201`, body met de sessie-id en het uiterlijke
-  verloopmoment. De id is een geheim: niet in een `Location`-header of een ander pad.
+- `POST /api/v1/sessies` met `X-Ontvanger` en een optionele body met het plafond van de
+  portaalsessie (`uiterlijkGeldigTot`) → `201`, body met de sessie-id, `geldigTot` (verloop bij
+  inactiviteit) en `uiterlijkGeldigTot` (het harde plafond), en `Location: /api/v1/sessies/huidige`.
+  De id is een geheim en staat in geen pad; `/sessies/huidige` draagt geen geheim. Boven de grens
+  `429` met `Retry-After` tot de vroegst verlopende sessie.
+- `GET /api/v1/sessies/huidige` → `200` met `geldigTot` en `uiterlijkGeldigTot`, zonder de sessie
+  te verlengen. `POST /api/v1/sessies/huidige/_verlengen` → `200` met dezelfde body, na het
+  verlengen. Beide `401` op een sessie die niet loopt.
 - `DELETE /api/v1/sessies/huidige` met `X-Ontvanger` + `X-Sessie` → `204`. Idempotent: een
-  onbekende of al verlopen sessie geeft ook `204`.
+  onbekende of al verlopen sessie geeft ook `204`; alleen een ontbrekende of krom gevormde
+  `X-Sessie` geeft `401`.
+- `X-Sessie` staat in de spec als `securitySchemes.sessie` (`apiKey` in de header), met een
+  `security`-blok op elke operatie die hem vereist. Elke `401` draagt
+  `WWW-Authenticate: X-Sessie realm="berichtenuitvraag"`; bij de overstap naar een token wordt dat
+  `Bearer realm="…", error="invalid_token"`.
 - Alle `/api/v1/berichten…`-endpoints (lijst, detail, PATCH, DELETE, bijlage, `_ophalen`,
   `_volgen`, `_zoeken`) eisen `X-Ontvanger` + `X-Sessie`. Ontbreekt de sessie, is hij onbekend of
   verlopen, of hoort hij bij een andere ontvanger: `401` als `application/problem+json`. De
   aanroeper kan een verlopen sessie niet onderscheiden van een vervalste (geen informatie lekken).
-- Uitgezonderd: `POST /api/v1/aanmeldingen` (magazijn → uitvraag, geen gebruiker) en
-  `/api/v1/openapi.json`.
+- Uitgezonderd: `POST /api/v1/sessies`, `POST /api/v1/aanmeldingen` (magazijn → uitvraag, geen
+  gebruiker) en `/api/v1/openapi.json`. Het `SessieFilter` weigert standaard: elk ander pad
+  vereist een sessie, ook een endpoint dat later bijkomt. Een test leidt uit de spec af dat
+  filter en `security`-blokken dezelfde verzameling beschrijven.
 - `X-Ontvanger` blijft in de verzoeken en wordt tegen de sessie gecontroleerd. Zo spiegelt het
   hoe straks het token beide draagt.
 
@@ -117,9 +151,13 @@ atomair zijn met de berichtgegevens in dezelfde Redis.
   `POST /sessies` met `429` (problem+json); er wordt geen bestaande sessie verdrongen, want dat
   logt een echte gebruiker ongemerkt uit. Precedent: de connection-grens per ontvanger op
   `_volgen`.
-- **Facade** krijgt `startSessie(ontvanger)`, `raakSessie(id, ontvanger)` (controleren +
-  verlengen; faalt met een eigen exceptie die de uitvraag naar `401` vertaalt) en
-  `beeindigSessie(id, ontvanger)`. Bestaande leesmethodes gaan pas door na `raakSessie`.
+- **Facade** krijgt `startSessie(ontvanger, uiterlijkGeldigTot?)`, `raakSessie(id, ontvanger)`
+  (controleren + verlengen; faalt met een eigen exceptie die de uitvraag naar `401` vertaalt),
+  `leesSessie(id, ontvanger)` (alleen controleren) en `beeindigSessie(id, ontvanger)`. Beide
+  geven de geldigheid terug. Bestaande leesmethodes gaan pas door na `raakSessie`.
+- **Plafond per sessie:** `$k:sessies:plafond` bewaart per sessie haar plafond, het vroegste van
+  start + `max-duur` en het plafond dat de start meekreeg. Een meegegeven plafond dat volgens de
+  Redis-klok niet in de toekomst ligt, weigert de start zonder iets te wissen.
 
 ### Levensduur van de berichtgegevens
 
@@ -170,9 +208,15 @@ start van een sessie zonder andere lopende sessie (resten van een vorige keer).
 
 ### `_volgen`
 
-De hartslag (`volg-hartslag`, PT20S) wordt een `raakSessie`. Eindigt de sessie (uitgelogd elders
-in dezelfde sessie, verlopen), dan stuurt de stream `SessieVerlopen` en sluit. De opstartcontrole
-"hartslag < ttl/2" wordt "hartslag < inactiviteit/2".
+De hartslag (`volg-hartslag`, PT20S) controleert alleen of de sessie nog loopt (`leesSessie`); hij
+verlengt haar niet, en het openen van de stream evenmin. Eindigt de sessie (uitgelogd elders in
+dezelfde sessie, verlopen), dan stuurt de stream bij de volgende hartslag `SessieVerlopen` en
+sluit. De afnemer verbindt dan niet vanzelf opnieuw: een herstart van de stream die de sessie zo
+toch levend houdt, is precies wat dit voorkomt. De opstartcontrole "hartslag < inactiviteit/2"
+vervalt: de hartslag houdt de sessie niet meer open.
+
+Eerder raakte de hartslag de sessie. Dat hield een open tabblad op een onbeheerde werkplek tot het
+plafond van 12 uur ingelogd (zie *Het portaal is de klok*).
 
 ### Logboek Dataverwerkingen
 
@@ -202,6 +246,35 @@ nieuwe verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitv
   herhaalde uitlog niets meer ziet. De uitvraag legt het opruimen dan vast met uitkomst
   `onbevestigd` en antwoordt `503`. Een start die op een time-out stuit, laat hooguit een sessie
   achter die niemand kent; die verloopt en de veegtaak meldt het opruimen.
+
+- **Bedoelde weigering:** een `429 te-veel-sessies` op de start krijgt een logregel zonder status
+  `Error` (`LogboekContext.expectException`): `Error` betekent in het logboek dat er iets misging.
+- **Einde zonder effect:** de logregel van `DELETE /sessies/huidige` draagt
+  `fbs.sessie.einde.uitkomst` (`onbekend`, `beeindigd` of `opgeruimd`). Zolang er geen
+  authenticatie is, kan iedereen een einde voor een willekeurige ontvanger aanvragen; aan
+  `onbekend` is te zien dat zo'n regel niets deed.
+- **Opvragen en verlengen** (`GET /sessies/huidige`, `_verlengen`) krijgen geen eigen logregel,
+  net als het verlengen door elk ander verzoek in de sessie: ze raken alleen de
+  sessie-administratie, niet de berichtgegevens.
+- **Gat in het logboek:** lukt het schrijven van een opruimregel niet, dan volgt
+  `LDV_OPRUIMEN_ONTBREEKT` met een eigen `foutId`, de aanleiding, de uitkomst, het type ontvanger
+  en de klasse van de oorzaak, zonder BSN. Naleggen kan dus niet; de operator meldt het gat aan de
+  privacy officer, met tijdvenster en aantal.
+
+### Verwerkingsregister en DPIA
+
+De verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` hoort in
+het verwerkingsregister (AVG art. 30) en in de DPIA, met:
+
+- **Doel:** de tijdelijke kopie van de berichtgegevens van een ontvanger precies zo lang bewaren als
+  hij een lopende inlogsessie heeft, en elk wissen ervan verantwoorden.
+- **Bewaartermijnen:** 15 minuten na het laatste verzoek of de laatste verlenging (`inactiviteit`),
+  hoogstens 12 uur na de start (`max-duur`, of het eerdere plafond van het portaal); de Redis-TTL
+  van 13 uur (`max-duur` + `vangnet-marge`) is alleen een vangnet als het actief wissen faalt.
+- **Verloopindex:** één stelselbrede sorted set zonder TTL met per ontvanger alleen een hash
+  (`sha256` van de ontvanger, terug te rekenen voor wie de ontvanger kent) en het verloopmoment
+  van zijn laatste sessie. De leesbare ontvanger staat per ontvanger apart, met de vangnet-TTL, en
+  verdwijnt samen met zijn index-entry.
 
 ### Logging en privacy
 

@@ -223,13 +223,13 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek. Een open berichtenbox houdt hem in leven via de `_volgen`-hartslag |
-| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik |
+| `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek of verlenging (`_verlengen`). Een open `_volgen`-verbinding houdt hem niet in leven. Gekoppeld aan een portaal: zie *Koppeling met een portaal* |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik. Geeft het portaal bij de start een eerder plafond mee, dan geldt dat |
 | `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat vast op `max-duur` + marge en wordt nooit verlengd. Het is alleen een vangnet voor een mislukt opruimen; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend |
 | `berichtensessiecache.sessie.max-per-ontvanger` (`SESSIE_MAX_PER_ONTVANGER`) | `5` | Maximum aantal gelijktijdige sessies per ontvanger; daarboven weigert `POST /sessies` met 429 |
 | `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt. Eén ronde haalt batches van 100 op zolang die vol zijn, binnen een budget van een half interval; een ontvanger waarvan het opruimen mislukt, schuift een interval (minstens 30 s) naar achteren |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de sessiegegevens-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
-| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Raakt de inlogsessie van een open berichtenbox, zodat die niet door inactiviteit verloopt, en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.sessie.inactiviteit` blijven, anders start de pod niet |
+| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt, zonder hem te verlengen; een verlopen sessie sluit de stream hoogstens een hartslag later. Houdt ook proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s) |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
 
@@ -249,8 +249,12 @@ Regels die je in de logs kunt zien:
   veegtaak wist de Redis-TTL de gegevens zonder logregel. Controleer Redis (bereikbaar, niet
   alleen-lezen, rechten op `EVAL`).
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
-  vastgelegd. Alert-token; controleer de LDV-verbinding en leg de opruiming handmatig na. Met
-  `zonder bekende ontvanger` in de regel kán er geen logregel komen: de verloopindex noemt alleen
+  vastgelegd. Alert-token. De regel draagt een eigen `foutId`, de aanleiding, de uitkomst, het type
+  ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger: naleggen kan dus niet.
+  Controleer de LDV-verbinding, en **meld het gat aan de privacy officer**, met het tijdvenster
+  (eerste en laatste regel) en het aantal regels (verschillende `foutId`'s). De verantwoording
+  (AVG art. 5(2)) heeft dan een gat dat niet te herstellen is; dat hoort vastgelegd te worden. Met
+  `ontvanger.type=onbekend` kán er hoe dan ook geen logregel komen: de verloopindex noemt alleen
   een hash van de ontvanger, en de leesbare vorm (`…:ontvanger`, met dezelfde vangnet-TTL als de
   gegevens) was al verlopen. Dat gebeurt pas als de veegtaak een ontvanger langer dan de
   vangnet-marge niet kon opruimen; zie dan ook `[ALERT sessie_veger_faalt]`.
@@ -264,6 +268,51 @@ Regels die je in de logs kunt zien:
   regel noemt alleen fouttypes: welke ontvanger het betreft, staat bewust niet in de log.
 - Een uitlog waarop Redis niet op tijd antwoordt, geeft de gebruiker `503` en komt als opruiming
   met uitkomst `onbevestigd` in het logboek: het wissen kan al gebeurd zijn.
+
+In het logboek zelf:
+
+- Een start boven de grens (`429 te-veel-sessies`) staat als logregel zonder status `Error`: het is
+  een bedoelde weigering, geen storing.
+- De logregel van een uitlog (`uitvraag-sessie-einde`) draagt `fbs.sessie.einde.uitkomst`:
+  `opgeruimd`, `beeindigd` (er lopen nog andere sessies) of `onbekend` (de sessie bestond niet en
+  er is niets gewist). Zolang er geen authenticatie is, kan iedereen een uitlog voor een
+  willekeurige ontvanger aanvragen; zo'n regel is aan `onbekend` te herkennen.
+- Opvragen (`GET /sessies/huidige`) en verlengen (`_verlengen`) leveren geen eigen logregel, net als
+  het verlengen door elk ander verzoek in de sessie.
+
+### Verwerkingsregister en DPIA
+
+De verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` hoort in het
+verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
+
+- **Doel:** de tijdelijke kopie van de berichtgegevens van een ontvanger alleen bewaren zolang hij een
+  lopende inlogsessie heeft, en elk wissen ervan verantwoorden.
+- **Bewaartermijnen:** 15 minuten na het laatste verzoek of de laatste verlenging (`inactiviteit`),
+  hoogstens 12 uur na de start (`max-duur`, of het eerdere plafond van het portaal); de Redis-TTL van
+  13 uur (`max-duur` + `vangnet-marge`) is alleen een vangnet als het actief wissen faalt. Wijk je in
+  een omgeving af van de defaults, neem dan die waarden op.
+- **Wat de verloopindex bewaart:** één stelselbrede sleutel zonder TTL
+  (`berichtensessiecache:v4:verloop`) met per ontvanger een hash van zijn identificatienummer en het
+  verloopmoment van zijn laatste sessie. Die hash is terug te rekenen door wie de ontvanger kent. De
+  leesbare ontvanger staat per ontvanger apart (`…:ontvanger`), met de vangnet-TTL, en verdwijnt samen
+  met zijn index-entry.
+
+### Koppeling met een portaal
+
+Het portaal is de klok: het bepaalt wanneer de gebruiker inactief of uitgelogd is, voor alle diensten
+waarnaar het sessies opent. De inactiviteitstermijn en het plafond van de uitvraag zijn dan alleen
+een vangnet, en mogen niet vóór die van het portaal verlopen:
+
+- Zet `berichtensessiecache.sessie.inactiviteit` ruimer dan de inactiviteitstermijn van het portaal
+  plus het interval waarmee het portaal verlengt. Voorbeeld: portaal 15 minuten, verlengen hooguit
+  eens per minuut, uitvraag `PT20M`. Met de default van `PT15M` kan de uitvraag een sessie laten
+  verlopen die het portaal nog als actief ziet.
+- Het portaal roept `POST /sessies/huidige/_verlengen` aan bij activiteit van de gebruiker, en stuurt
+  `DELETE /sessies/huidige` bij uitloggen en bij zijn eigen time-out. Bij `POST /sessies` geeft het
+  zijn eigen plafond mee (`uiterlijkGeldigTot`); de uitvraag neemt het vroegste van dat moment en
+  start + `max-duur`.
+- Een `401 sessie-ongeldig` terwijl het portaal de gebruiker nog als ingelogd ziet, wijst op een
+  `inactiviteit` die te krap staat, of op een portaal dat niet (meer) verlengt.
 
 ### Overgang naar sessiegebonden opslag
 
