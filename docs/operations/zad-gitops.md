@@ -192,6 +192,11 @@ uit.
   blijft de preview op de eerste build hangen terwijl de deploy-check groen is
   (`imagePullPolicy: Always` werkt pas bij een herstart). Bij PR-sluiten ruimt
   `cleanup-preview-images` alle `pr-<n>-*`-versies in ghcr op.
+- **`main-<sha7>`-tags hebben een bewaartermijn.** `preview-resten.yml` verwijdert ze zodra ze
+  ouder zijn dan de laatste geslaagde uitrol van main, ouder dan 14 dagen en niet bij de 10
+  nieuwste van hun package horen. Wat `test` en de `fsc-*`-peers draaien, blijft dus staan. Een
+  oudere tag terugzetten met `update-image` kan alleen als hij er nog is; anders eerst opnieuw
+  bouwen.
 - De ghcr-images (`ghcr.io/minbzk/fbs-*`) zijn **public**; ZAD trekt ze via de
   pull-through-mirror `rcr.rijksapps.nl/ghcr-rig/minbzk/*`. Een 404 op een bestaande,
   publieke tag wijst op de mirror/registry-config aan ZAD-zijde, niet op onze push.

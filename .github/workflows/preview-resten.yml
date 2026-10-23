@@ -14,9 +14,11 @@
 # buiten hun bewaartermijn ruimt deze workflow zelf op, want die horen bij geen PR; preview-resten.sh
 # beschrijft de voorzorg.
 #
-# NOOIT NAAST EEN UITROL. Vóór elke opruiming kijkt de workflow of er een run van deploy.yml of
-# cleanup-preview.yml loopt; zo ja, dan schuift de rest door naar de volgende run. Een delete die
-# een lopende uitrol doorkruist, laat die uitrol op `superseded` stranden.
+# NOOIT NAAST EEN UITROL. Vóór elke opruiming via cleanup-preview.yml kijkt de workflow of er een run
+# van deploy.yml of cleanup-preview.yml loopt; zo ja, dan schuift de rest door naar de volgende run.
+# Een delete die een lopende uitrol doorkruist, laat die uitrol op `superseded` stranden. De
+# ghcr-opruiming hieronder raakt geen ZAD-deployment en geen versie die een lopende uitrol nodig
+# heeft, en hoeft daar niet op te wachten.
 #
 # Per run hoogstens MAX_PER_RUN nummers, roterend gekozen zodat een nummer dat blijft mislukken de
 # rest niet blokkeert. Wat niet aan de beurt kwam, staat in de melding: het staat er immers nog.
@@ -282,6 +284,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      # De laatste geslaagde uitrol van main, als ondergrens van wat weg mag.
+      actions: read
       contents: read
       packages: write
     outputs:
@@ -294,6 +298,7 @@ jobs:
         id: main-tags
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
           VERWIJDER: ${{ github.event_name == 'schedule' || inputs.opruimen }}
           # Plafond over alle packages samen, naast dat van `ongetagd`: de eerste runs werken een
           # achterstand van honderden versies per package weg, en blijven zo binnen de API-limiet.
@@ -302,23 +307,16 @@ jobs:
           set -euo pipefail
 
           ORG=${GITHUB_REPOSITORY_OWNER,,}
-          export ORG
+          # Niet vast te stellen wat er draait: dan faalt de job vóór er iets weg is, en meldt de
+          # meldjob hem.
+          UITGEROLD=$(.github/scripts/preview-resten.sh uitgerold)
+          export ORG UITGEROLD
+          echo "Laatste geslaagde uitrol van main: $UITGEROLD"
           uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
-          : >"$uitkomsten"
-          budget=$MAIN_TAGS_PER_RUN
+          PAKKETTEN=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
+          export PAKKETTEN
 
-          pakketten=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
-
-          for pkg in $pakketten; do
-            if ! uit=$(VERWIJDER_MAX="$budget" .github/scripts/preview-resten.sh main-tags "$pkg"); then
-              uit=$(printf '%s\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen' "$pkg")
-            fi
-
-            printf '%s\n' "$uit" >>"$uitkomsten"
-
-            gebruikt=$(awk -F'\t' '$2 == "verwijderd" || $2 == "mislukt" { s += $3 } END { print s + 0 }' <<<"$uit")
-            budget=$((budget > gebruikt ? budget - gebruikt : 0))
-          done
+          PLAFOND=$MAIN_TAGS_PER_RUN .github/scripts/preview-resten.sh per-package main-tags >"$uitkomsten"
 
           {
             echo "uitkomsten<<EINDE_UITKOMSTEN"
@@ -366,22 +364,10 @@ jobs:
           ORG=${GITHUB_REPOSITORY_OWNER,,}
           export ORG
           uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
-          : >"$uitkomsten"
-          budget=$ONGETAGD_PER_RUN
+          PAKKETTEN=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
+          export PAKKETTEN
 
-          pakketten=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
-
-          for pkg in $pakketten; do
-            if ! uit=$(VERWIJDER_MAX="$budget" .github/scripts/preview-resten.sh ongetagd "$pkg"); then
-              uit=$(printf '%s\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen' "$pkg")
-            fi
-
-            printf '%s\n' "$uit" >>"$uitkomsten"
-
-            # Elke poging telt mee, ook een geweigerde: die kost evengoed een API-aanroep.
-            gebruikt=$(awk -F'\t' '$2 == "verwijderd" || $2 == "mislukt" { s += $3 } END { print s + 0 }' <<<"$uit")
-            budget=$((budget > gebruikt ? budget - gebruikt : 0))
-          done
+          PLAFOND=$ONGETAGD_PER_RUN .github/scripts/preview-resten.sh per-package ongetagd >"$uitkomsten"
 
           {
             echo "uitkomsten<<EINDE_UITKOMSTEN"

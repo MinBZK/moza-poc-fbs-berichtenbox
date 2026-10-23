@@ -97,7 +97,7 @@ chmod +x "$werkmap/stub"
 ln -s stub "$werkmap/gh"
 ln -s stub "$werkmap/curl"
 
-export PREVIEW_GH="$werkmap/gh" PREVIEW_CURL="$werkmap/curl" PREVIEW_WACHT=0
+export PREVIEW_GH="$werkmap/gh" PREVIEW_CURL="$werkmap/curl" PREVIEW_WACHT=0 PREVIEW_PAUZE=0
 # Vast "nu": 2026-10-22T00:00:00Z.
 export PREVIEW_NU=1792627200
 
@@ -684,7 +684,7 @@ main_versies() {
 # Twaalf oude main-versies (101-112, juli) en één van eergisteren (120): de tien nieuwste zijn 120 en
 # 112-104, dus 101-103 vallen buiten de termijn. Daarnaast oude versies die nooit weg mogen: een
 # main-tag naast een PR-tag (90), een ongetagde (91), en tags die op main lijken maar het niet zijn
-# (92: geen sha, 93: acht tekens). Over twee pagina's, zoals `--paginate` ze levert.
+# (92: geen sha, 93: acht tekens). Over twee pagina's, nieuwste eerst, zoals `--paginate` ze levert.
 main_fixtures() {
   local i pagina1 pagina2 versies=()
 
@@ -696,50 +696,56 @@ main_fixtures() {
   done
 
   pagina2=$(main_versies "${versies[@]}" 120 2026-10-20T00:00:00Z '["main-abcdef0"]')
-  antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$pagina1
-$pagina2"
+  antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$pagina2
+$pagina1"
 }
 
 opnieuw
 main_fixtures
-ORG=o draai main-tags p
+ORG=o UITGEROLD=main-abcdef0 draai main-tags p
 gelijk "zonder VERWIJDER worden de main-versies buiten de termijn alleen geteld" "0|p	te-verwijderen	3	alleen geïnventariseerd" "$RC|$UITVOER"
 bevat_niet "en niets verwijderd" "DELETE" "$(aanroepen)"
 
 opnieuw
 main_fixtures
 antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":90},{"id":104},{"id":120}]'
-ORG=o VERWIJDER=true draai main-tags p
+ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true draai main-tags p
 gelijk "de main-versies buiten de termijn worden verwijderd en nagemeten" "0|p	verwijderd	3	" "$RC|$UITVOER"
 gelijk "precies die versies, oudste eerst; een gedeelde, ongetagde of vreemde tag blijft" "101 102 103" "$(deletes)"
 
 opnieuw
 main_fixtures
 antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":103}]'
-ORG=o VERWIJDER=true VERWIJDER_MAX=2 draai main-tags p
+ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true VERWIJDER_MAX=2 draai main-tags p
 gelijk "het plafond verwijdert de oudste eerst" "101 102" "$(deletes)"
 gelijk "en meldt de rest als uitgesteld" "p	uitgesteld	1	plafond van 2 verwijderingen per run
 p	verwijderd	2	" "$UITVOER"
 
 opnieuw
 main_fixtures
-ORG=o VERWIJDER=true VERWIJDER_MAX=0 draai main-tags p
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[]'
+ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true VERWIJDER_MAX=3 draai main-tags p
+gelijk "een plafond gelijk aan het aantal stelt niets uit" "p	verwijderd	3	" "$UITVOER"
+
+opnieuw
+main_fixtures
+ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true VERWIJDER_MAX=0 draai main-tags p
 gelijk "een opgebruikt plafond verwijdert niets en vraagt niets na" "0|p	uitgesteld	3	plafond van 0 verwijderingen per run|1" \
   "$RC|$UITVOER|$(grep -c 'versions?per_page' "$werkmap/aanroepen")"
 
-ORG=o VERWIJDER=true VERWIJDER_MAX=veel draai main-tags p
+ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true VERWIJDER_MAX=veel draai main-tags p
 gelijk "een plafond dat geen getal is, is onbepaald" 2 "$RC"
 
 opnieuw
 main_fixtures
-ORG=o VERWIJDER=true draai main-tags p
+ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true draai main-tags p
 gelijk "wat na het verwijderen nog in de lijst staat, is mislukt" "p	verwijderd	0"$'\t'"
 p	mislukt	3	staan na het verwijderen nog in de lijst (0 weigeringen)" "$UITVOER"
 
 opnieuw
 main_fixtures
 antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' 'stuk'
-ORG=o VERWIJDER=true draai main-tags p
+ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true draai main-tags p
 gelijk "een lijst die na het verwijderen niet te lezen is, is onbepaald" 2 "$RC"
 
 # Na weken zonder merge zijn alle main-versies oud; de tien nieuwste blijven, want daar draait `test`
@@ -752,7 +758,7 @@ antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "
   7 2026-07-07T00:00:00Z '["main-0000007"]' 8 2026-07-08T00:00:00Z '["main-0000008"]' \
   9 2026-07-09T00:00:00Z '["main-0000009"]' 10 2026-07-10T00:00:00Z '["main-000000a"]' \
   11 2026-07-11T00:00:00Z '["main-000000b"]')"
-ORG=o VERWIJDER=true draai main-tags p
+ORG=o UITGEROLD=main-000000b VERWIJDER=true draai main-tags p
 gelijk "zonder recente merge blijven de tien nieuwste staan" "1" "$(deletes)"
 
 # Een versie met een extra tag blijft staan en neemt dus geen plek onder de tien in: met de nieuwste
@@ -765,7 +771,7 @@ antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "
   7 2026-07-07T00:00:00Z '["main-0000007"]' 8 2026-07-08T00:00:00Z '["main-0000008"]' \
   9 2026-07-09T00:00:00Z '["main-0000009"]' 10 2026-07-10T00:00:00Z '["main-000000a"]' \
   11 2026-07-11T00:00:00Z '["main-000000b","v1"]')"
-ORG=o VERWIJDER=true draai main-tags p
+ORG=o UITGEROLD=main-000000b VERWIJDER=true draai main-tags p
 gelijk "een gedeelde nieuwste neemt geen plek onder de tien in: niets te doen, niets nagevraagd" "0||1" \
   "$RC|$UITVOER|$(grep -c 'versions?per_page' "$werkmap/aanroepen")"
 
@@ -779,15 +785,151 @@ antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "
   15 2026-10-21T00:00:00Z '["main-0000015"]' 16 2026-10-21T00:00:00Z '["main-0000016"]' \
   17 2026-10-21T00:00:00Z '["main-0000017"]' 18 2026-10-21T00:00:00Z '["main-0000018"]' \
   19 2026-10-21T00:00:00Z '["main-0000019"]' 20 2026-10-21T00:00:00Z '["main-0000020"]')"
-ORG=o draai main-tags p
+ORG=o UITGEROLD=main-0000020 draai main-tags p
 gelijk "precies veertien dagen oud telt mee, een seconde jonger niet" "p	te-verwijderen	1	alleen geïnventariseerd" "$UITVOER"
 
 opnieuw
-ORG=o draai main-tags p
+ORG=o UITGEROLD=main-abcdef0 draai main-tags p
 gelijk "een onleesbare versielijst is onbepaald" 2 "$RC"
 
-draai main-tags p
+UITGEROLD=main-abcdef0 draai main-tags p
 gelijk "zonder ORG is main-tags onbepaald" 2 "$RC"
+
+# De laatst uitgerolde versie is de ondergrens: de bouw-jobs pushen vóór de uitrol, dus na een reeks
+# rode uitrollen staan er nieuwere versies waar niets op draait. Uitgerold is 102 (main-0000066);
+# alleen 101 is ouder, ook al vallen 102 en 103 buiten de tien nieuwste en de termijn.
+opnieuw
+main_fixtures
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":102}]'
+ORG=o UITGEROLD=main-0000066 VERWIJDER=true draai main-tags p
+gelijk "niets vanaf de uitgerolde versie gaat weg" "0|101" "$RC|$(deletes)"
+
+# Uitgerold op een versie met een extra tag: die is nog steeds de grens.
+opnieuw
+main_fixtures
+ORG=o UITGEROLD=main-0000000 VERWIJDER=true draai main-tags p
+gelijk "een uitgerolde versie met een extra tag is ook de grens" "0||" "$RC|$UITVOER|$(deletes)"
+
+opnieuw
+main_fixtures
+ORG=o UITGEROLD=main-1234567 VERWIJDER=true draai main-tags p
+gelijk "een uitgerolde versie die niet in het package staat, is onbepaald" "2|" "$RC|$(deletes)"
+bevat "met de tag in de melding" "main-1234567 staat niet in p" "$FOUTEN"
+
+for uitgerold in '' main-abcdef main-ABCDEF0 'main-abcdef0 '; do
+  opnieuw
+  main_fixtures
+  ORG=o UITGEROLD="$uitgerold" VERWIJDER=true draai main-tags p
+  gelijk "UITGEROLD '$uitgerold' is onbepaald, zonder iets op te vragen" "2|" "$RC|$(aanroepen)"
+done
+
+# --- per-package --------------------------------------------------------------------------------
+# pkg_fixture <package>: twaalf oude main-versies, waarvan de oudste twee buiten de tien nieuwste
+# vallen. De nieuwste draagt in elk package de uitgerolde tag, zoals na een push naar main.
+pkg_fixture() {
+  local i versies=()
+
+  for i in $(seq 1 11); do
+    versies+=("$i" "2026-07-$((i + 10))T00:00:00Z" "[\"main-$(printf '%07x' "$i")\"]")
+  done
+
+  antwoord gh "api orgs/o/packages/container/$1/versions?per_page=100 --paginate" \
+    "$(main_versies 12 2026-07-30T00:00:00Z '["main-ffffff0"]' "${versies[@]}")"
+}
+
+# per_package_draai <PLAFOND> <soort>
+per_package_draai() {
+  RC=0
+  UITVOER=$(ORG=o UITGEROLD=main-ffffff0 VERWIJDER=true PAKKETTEN="a b c" PLAFOND="$1" bash "$SCRIPT" per-package "$2" 2>"$werkmap/stderr") || RC=$?
+  FOUTEN=$(cat "$werkmap/stderr")
+}
+
+opnieuw
+for pkg in a b c; do
+  pkg_fixture "$pkg"
+  antwoord_daarna gh "api orgs/o/packages/container/$pkg/versions?per_page=100 --paginate" '[]'
+done
+per_package_draai 3 main-tags
+gelijk "het plafond geldt voor alle packages samen" "0|a	verwijderd	2	
+b	uitgesteld	1	plafond van 1 verwijderingen per run
+b	verwijderd	1	
+c	uitgesteld	2	plafond van 0 verwijderingen per run" "$RC|$UITVOER"
+
+# Een geweigerde verwijdering kost evengoed een aanroep.
+opnieuw
+for pkg in a b c; do
+  pkg_fixture "$pkg"
+done
+antwoord_daarna gh 'api orgs/o/packages/container/b/versions?per_page=100 --paginate' '[]'
+per_package_draai 3 main-tags
+bevat "een geweigerde verwijdering telt mee voor het plafond" "a	mislukt	2	" "$UITVOER"
+bevat "en laat de volgende minder over" "b	uitgesteld	1	plafond van 1 verwijderingen per run" "$UITVOER"
+
+# Package b is niet te lezen: een onbepaald-regel, en c verwijdert daarna niets meer.
+opnieuw
+for pkg in a c; do
+  pkg_fixture "$pkg"
+  antwoord_daarna gh "api orgs/o/packages/container/$pkg/versions?per_page=100 --paginate" '[]'
+done
+per_package_draai 100 main-tags
+gelijk "een package dat omvalt, wordt gemeld en stopt het verwijderen" "0|a	verwijderd	2	
+b	onbepaald		de versies zijn niet te lezen of te beoordelen
+c	uitgesteld	2	plafond van 0 verwijderingen per run" "$RC|$UITVOER"
+bevat_niet "c krijgt geen DELETE" "container/c/versions/1 -X DELETE" "$(aanroepen)"
+
+# Het package valt om ná zijn verwijderingen (de nameting faalt): ook dan verwijdert de rest niets.
+opnieuw
+for pkg in a b c; do
+  pkg_fixture "$pkg"
+done
+antwoord_daarna gh 'api orgs/o/packages/container/a/versions?per_page=100 --paginate' 'stuk'
+per_package_draai 100 main-tags
+gelijk "na een package dat halverwege omviel, verwijdert niemand meer" "a	onbepaald		de versies zijn niet te lezen of te beoordelen
+b	uitgesteld	2	plafond van 0 verwijderingen per run
+c	uitgesteld	2	plafond van 0 verwijderingen per run" "$UITVOER"
+
+opnieuw
+pkg_fixture a
+antwoord_daarna gh 'api orgs/o/packages/container/a/versions?per_page=100 --paginate' '[]'
+RC=0
+UITVOER=$(ORG=o UITGEROLD=main-ffffff0 PAKKETTEN=a PLAFOND=10 bash "$SCRIPT" per-package main-tags 2>/dev/null) || RC=$?
+gelijk "zonder VERWIJDER wordt per package alleen geteld" "0|a	te-verwijderen	2	alleen geïnventariseerd" "$RC|$UITVOER"
+
+opnieuw
+ongetagd_fixtures
+RC=0
+UITVOER=$(ORG=o GH_TOKEN=t PAKKETTEN=p PLAFOND=10 bash "$SCRIPT" per-package ongetagd 2>/dev/null) || RC=$?
+gelijk "per-package draait ook ongetagd" "0|p	te-verwijderen	2	alleen geïnventariseerd" "$RC|$UITVOER"
+
+per_package_draai veel main-tags
+gelijk "een PLAFOND dat geen getal is, is onbepaald" 2 "$RC"
+per_package_draai 3 opruimen
+gelijk "een ander subcommando dan main-tags of ongetagd is onbepaald" 2 "$RC"
+RC=0
+ORG=o PLAFOND=3 bash "$SCRIPT" per-package main-tags >/dev/null 2>&1 || RC=$?
+gelijk "zonder PAKKETTEN is per-package onbepaald" 2 "$RC"
+
+# --- uitgerold -----------------------------------------------------------------------------------
+readonly RUNS_URL='api repos/r/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=1'
+
+opnieuw
+antwoord gh "$RUNS_URL" '{"workflow_runs":[{"head_sha":"abcdef0123456789abcdef0123456789abcdef01"}]}'
+REPO=r draai uitgerold
+gelijk "de tag van de laatste geslaagde uitrol" "0|main-abcdef0" "$RC|$UITVOER"
+
+for runs in '{"workflow_runs":[]}' '{"workflow_runs":[{"head_sha":null}]}' '{"workflow_runs":[{"head_sha":"abc"}]}' 'stuk'; do
+  opnieuw
+  antwoord gh "$RUNS_URL" "$runs"
+  REPO=r draai uitgerold
+  gelijk "geen bruikbare uitrol in '$runs' is onbepaald" "2|" "$RC|$UITVOER"
+done
+
+opnieuw
+REPO=r draai uitgerold
+gelijk "een onleesbare runlijst is onbepaald" 2 "$RC"
+
+draai uitgerold
+gelijk "zonder REPO is uitgerold onbepaald" 2 "$RC"
 
 # --- bevindingen --------------------------------------------------------------------------------
 GOED='{
@@ -1171,10 +1313,32 @@ meld(
     "ongetagd draait na main-tags, ook als die omviel",
 )
 main_run = " ".join(str(s.get("run", "")) for s in (jobs.get("main-tags") or {}).get("steps") or [])
+opruimen_expr = next((str((s.get("env") or {}).get("OPRUIMEN")) for s in melding.get("steps") or []
+                      if "OPRUIMEN" in (s.get("env") or {})), None)
+for job, plafond in (("main-tags", "MAIN_TAGS_PER_RUN"), ("ongetagd", "ONGETAGD_PER_RUN")):
+    stappen = [s for s in (jobs.get(job) or {}).get("steps") or [] if s.get("id") == job]
+    stap = stappen[0] if len(stappen) == 1 else {}
+    meld(
+        f"PLAFOND=${plafond} .github/scripts/preview-resten.sh per-package {job} >\"$uitkomsten\"" in str(stap.get("run", ""))
+        and plafond in (stap.get("env") or {})
+        and ((jobs.get(job) or {}).get("permissions") or {}).get("packages") == "write",
+        f"{job} ruimt alle packages op binnen één plafond",
+    )
+    # Een run die alleen inventariseert, verwijdert ook hier niets.
+    meld(
+        opruimen_expr is not None and str((stap.get("env") or {}).get("VERWIJDER")) == opruimen_expr,
+        f"{job} verwijdert alleen als de run opruimt",
+    )
+    meld(
+        ((jobs.get(job) or {}).get("outputs") or {}).get("uitkomsten") == f"${{{{ steps.{job}.outputs.uitkomsten }}}}"
+        and 'echo "uitkomsten<<EINDE_UITKOMSTEN"' in str(stap.get("run", "")),
+        f"{job} geeft zijn uitkomsten door aan de meldjob",
+    )
 meld(
-    "preview-resten.sh main-tags" in main_run and 'VERWIJDER_MAX="$budget"' in main_run
-    and ((jobs.get("main-tags") or {}).get("permissions") or {}).get("packages") == "write",
-    "main-tags ruimt per package op binnen één gedeeld plafond",
+    "UITGEROLD=$(.github/scripts/preview-resten.sh uitgerold)" in main_run
+    and main_run.index("preview-resten.sh uitgerold") < main_run.index("per-package main-tags")
+    and ((jobs.get("main-tags") or {}).get("permissions") or {}).get("actions") == "read",
+    "main-tags stelt eerst de laatste uitrol vast, met leesrecht op de runs",
 )
 
 nood = [s for s in melding.get("steps") or [] if "noodmelding" in str(s.get("run", ""))]

@@ -11,8 +11,9 @@ Elke push naar main bouwt alle eigen images en tagt ze `main-<sha7>`. Niets ruim
 2026-10-23 stonden er per package tot 215, de oudste van 2026-07-01, met een aanwas van ongeveer
 zeventig per maand.
 
-In gebruik is alleen de nieuwste: `test` en de `fsc-*`-peers rollen bij elke push de nieuwe tag uit.
-Na een mislukte uitrol kan een component op een eerdere versie blijven staan.
+In gebruik is de tag van de laatste geslaagde uitrol: `test` en de `fsc-*`-peers rollen bij elke
+push de nieuwe tag uit. Maar de bouw-jobs pushen vóór de uitrol. Is de uitrol rood, dan komt er wel
+een versie bij, maar draait er niets op. Van 17 tot 20 augustus gebeurde dat 13 keer op rij.
 
 De groei kost ook iets. De `ongetagd`-stap in `preview-resten.yml` vraagt van elke getagde versie het
 mediatype op, zodra er iets op te ruimen valt. Die stap wordt dus met elke merge trager, en zou op
@@ -25,18 +26,30 @@ den duur zijn time-out van 30 minuten halen.
   aannames bij.
 - **Volgorde.** `main-tags` draait vóór `ongetagd`. Elke versie die hier weggaat, scheelt daar een
   aanvraag. `ongetagd` draait ook als `main-tags` omviel.
-- **Selectie.** Een versie gaat alleen weg als hij aan drie voorwaarden voldoet:
+- **Selectie.** Een versie gaat alleen weg als hij aan vier voorwaarden voldoet:
   - Hij draagt uitsluitend tags van de vorm `main-[0-9a-f]{7}`. Een versie met daarnaast een
     andere tag blijft staan, net als een tag die alleen op een main-tag lijkt.
+  - Hij is ouder dan de laatst uitgerolde versie.
   - Hij is minstens 14 dagen oud.
   - Hij hoort niet bij de 10 nieuwste van die versies in het package.
-- **Waarom die twee grenzen.**
-  - Het aantal beschermt wat `test` draait, ook na weken zonder merge.
-  - De termijn houdt recente versies bij de hand om naar terug te gaan.
+- **De laatst uitgerolde versie.** Dat is de tag van de nieuwste geslaagde push-run van `deploy.yml`
+  op main (subcommando `uitgerold`).
+  - Een telling alleen zou na genoeg rode uitrollen precies de versie van `test` laten vallen; de
+    reviewers vonden dat gat.
+  - Ontbreekt die tag in een package, dan is niet vast te stellen wat er draait. Dat package wordt
+    dan `onbepaald`, en er gaat niets weg.
+- **Waarom de andere grenzen.**
+  - Het aantal en de termijn houden recente versies bij de hand om naar terug te gaan.
   - Wat ouder is, is uit de commit opnieuw te bouwen.
 - **Plafond.** Hoogstens 150 verwijderingen per run, over alle packages samen, naast de 100 van
   `ongetagd`. De achterstand bij invoering was 955 versies. Die is in ongeveer zeven werkdagen weg,
   binnen de API-limiet van `GITHUB_TOKEN`.
+  - De lus over de packages staat in het script (`per-package`), niet in de workflow; zo is hij te
+    testen.
+  - Een package dat omvalt, kan al verwijderd hebben. Daarna verwijdert de rest van de run niets
+    meer.
+  - Tussen twee verwijderingen zit een seconde, vanwege de secundaire limiet van GitHub op
+    schrijvende aanroepen per minuut.
 - **Melden.**
   - Een geweigerde verwijdering wordt gemeld als `main-tags-mislukt`.
   - Een package dat niet te lezen is, wordt gemeld als `onbepaald`.
