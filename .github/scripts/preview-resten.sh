@@ -24,7 +24,7 @@
 #                               (REPO); klasse is `opruimen`, `geen-pr` of `vreemd-pakket`
 #   kies <bestand>              de nummers die deze run opruimt, roterend (MAX_PER_RUN, LAATSTE)
 #   vorige-stand <doel>         de stand van de vorige run op main, uit het artefact; exit 1 als
-#                               er geen is, 3 als het artefact kapot is (REPO)
+#                               er geen is, 3 als het artefact kapot is (REPO, GITHUB_RUN_ID)
 #   nieuwe-stand                de stand voor de volgende run (NEEDS)
 #   opruimen <n>...             start cleanup-preview.yml per nummer, na elkaar, en wacht op de
 #                               uitkomst: `<n>\t<conclusie>\t<run-url of reden>` (REPO, KENMERK);
@@ -36,7 +36,7 @@
 #   issue <bevindingen>         houdt het meld-issue bij (REPO, RUN_URL)
 #   noodmelding                 minimaal issue als de melding zelf mislukte (REPO, RUN_URL)
 #
-# Exitcodes: 0 = gelukt, 2 = niet vast te stellen.
+# Exitcodes: 0 = gelukt, 2 = niet vast te stellen; vorige-stand kent daarnaast 1 en 3 (zie daar).
 
 set -euo pipefail
 
@@ -232,14 +232,19 @@ kies() {
 # vergrendelt het project. Een delete die daar tussenkomt, neemt de wachtstap van de uitrol over en
 # laat die als `superseded` eindigen (MinBZK/MijnOverheidZakelijk#1075). Niet vast te stellen geldt
 # als bezet: een uitgestelde opruiming komt de volgende run terug, een gestrande uitrol niet.
+#
+# Per status gevraagd en niet uit de laatste zoveel runs gefilterd: een uitrol die lang in zijn
+# concurrency-groep wacht, zakt anders onder nieuwere runs weg uit beeld.
 bezet() {
-  local workflow aantal
+  local workflow status aantal
 
   for workflow in deploy.yml cleanup-preview.yml; do
-    aantal=$("$GH" run list --repo "$REPO" --workflow "$workflow" --limit 20 --json status \
-      | jq '[.[] | select(.status != "completed")] | length') || return 0
+    for status in queued in_progress waiting requested pending; do
+      aantal=$("$GH" run list --repo "$REPO" --workflow "$workflow" --status "$status" --limit 1 --json status \
+        | jq 'if type == "array" then length else error("geen lijst") end') || return 0
 
-    [ "$aantal" -eq 0 ] 2>/dev/null || return 0
+      [ "$aantal" -eq 0 ] 2>/dev/null || return 0
+    done
   done
 
   return 1
@@ -542,6 +547,9 @@ nieuwe_stand() {
 # verlopen): dat is een geldige toestand en geen fout. Exit 2 als de lijst niet op te vragen of het
 # artefact niet te downloaden is: een tijdelijke storing, waarbij de vorige stand moet blijven
 # gelden. Exit 3 als het artefact zelf kapot is (zie hieronder).
+#
+# Het artefact van de eigen run telt niet mee: bij "Re-run all jobs" houdt de run zijn id, en de
+# stand van de eerste poging is dan niet de vorige maar dezelfde.
 vorige_stand() {
   local doel=${1:-}
   [ -n "$doel" ] && [ -n "${REPO:-}" ] || onbepaald "Gebruik: REPO=… $0 vorige-stand <doelbestand>"
@@ -550,28 +558,38 @@ vorige_stand() {
   lijst=$(api "repos/$REPO/actions/artifacts?name=$STAND_ARTEFACT&per_page=100") \
     || onbepaald "De artefacten van $REPO zijn niet op te vragen."
 
-  id=$(jq -er '.artifacts | if type == "array" then . else error("geen lijst") end
-    | map(select(.expired == false and .workflow_run.head_branch == "main"))
+  id=$(jq -er --arg run "${GITHUB_RUN_ID:-}" '.artifacts | if type == "array" then . else error("geen lijst") end
+    | map(select(.expired == false and .workflow_run.head_branch == "main"
+        and (.workflow_run.id | tostring) != $run))
     | sort_by(.created_at) | last | .id // ""' <<<"$lijst" 2>/dev/null) \
     || onbepaald "De artefactlijst van $REPO is onleesbaar."
 
   [ -n "$id" ] || return 1
 
-  api "repos/$REPO/actions/artifacts/$id/zip" >"$doel.zip" \
-    || onbepaald "Artefact $id is niet te downloaden."
   # Een kapot artefact (geen zip, geen stand.tsv) is geen tijdelijke storing: het blijft het
   # nieuwste tot de retentie verloopt. Als "niet te lezen" zou het elke run het vastleggen blokkeren
   # en de rotatie bevriezen; daarom een eigen exitcode, die de workflow als "geen stand" behandelt.
-  if ! python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("stand.tsv"))' \
-    "$doel.zip" >"$doel" 2>/dev/null; then
-    rm -f "$doel.zip"
-    : >"$doel"
-    echo "Artefact $id bevat geen leesbare stand." >&2
+  # Een afgebroken download komt wél met exit 0 binnen en leest dan ook als kapot; één herhaling
+  # scheidt die hik van een artefact dat het blijvend is, zodat de stand er niet om verloren gaat.
+  local poging
 
-    return 3
-  fi
+  for poging in 1 2; do
+    api "repos/$REPO/actions/artifacts/$id/zip" >"$doel.zip" \
+      || onbepaald "Artefact $id is niet te downloaden."
+
+    if python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read("stand.tsv"))' \
+      "$doel.zip" >"$doel" 2>/dev/null; then
+      rm -f "$doel.zip"
+
+      return 0
+    fi
+  done
 
   rm -f "$doel.zip"
+  : >"$doel"
+  echo "Artefact $id bevat ook na $poging pogingen geen leesbare stand." >&2
+
+  return 3
 }
 
 # Wat er na een run is blijven staan of niet vast te stellen was, als regels

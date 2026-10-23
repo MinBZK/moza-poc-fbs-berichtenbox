@@ -410,3 +410,6 @@ jobs:
           path: ${{ runner.temp }}/stand/stand.tsv
           retention-days: 30
           if-no-files-found: error
+          # Bij "Re-run all jobs" bestaat het artefact van de eerste poging al onder deze naam; zonder
+          # overschrijven faalt de upload en gaat de nieuwe stand verloren.
+          overwrite: true

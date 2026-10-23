@@ -387,11 +387,21 @@ opruim_fixtures() {
   vrij cleanup-preview.yml
 }
 
-readonly RUNS_DEPLOY='run list --repo o/r --workflow deploy.yml --limit 20 --json status'
-readonly RUNS_CLEANUP='run list --repo o/r --workflow cleanup-preview.yml --limit 20 --json status'
+# runs <workflow> <status>: de opvraging van bezet() voor één status.
+runs() {
+  printf 'run list --repo o/r --workflow %s --status %s --limit 1 --json status' "$1" "$2"
+}
+
+RUNS_DEPLOY="$(runs deploy.yml in_progress)"
+RUNS_CLEANUP="$(runs cleanup-preview.yml in_progress)"
+readonly RUNS_DEPLOY RUNS_CLEANUP
 
 vrij() {
-  antwoord gh "run list --repo o/r --workflow $1 --limit 20 --json status" '[{"status":"completed"},{"status":"completed"}]'
+  local status
+
+  for status in queued in_progress waiting requested pending; do
+    antwoord gh "$(runs "$1" "$status")" '[]'
+  done
 }
 
 opnieuw
@@ -423,10 +433,10 @@ gelijk "en start geen tweede opruiming naast de eerste" 1 "$(grep -c 'workflow r
 
 # Een lopende uitrol vergrendelt het project in Operations Manager; een delete die daartussen komt,
 # laat die uitrol op `superseded` stranden.
-for status in in_progress queued waiting; do
+for status in queued in_progress waiting requested pending; do
   opnieuw
   opruim_fixtures
-  antwoord gh "$RUNS_DEPLOY" "[{\"status\":\"completed\"},{\"status\":\"$status\"}]"
+  antwoord gh "$(runs deploy.yml "$status")" "[{\"status\":\"$status\"}]"
   REPO=o/r KENMERK=resten-99-1 draai opruimen 7 8
   gelijk "een uitrol die $status is, stelt alle nummers uit" "7	uitgesteld	er liep een uitrol of opruiming
 8	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
@@ -444,6 +454,20 @@ opruim_fixtures
 antwoord gh "$RUNS_CLEANUP" '{"geen":"lijst"}'
 REPO=o/r KENMERK=resten-99-1 draai opruimen 7
 gelijk "een onleesbare runlijst geldt ook als bezet" "7	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
+
+# `null` heeft in jq lengte 0; als "geen runs" gelezen zou dat een lopende uitrol verbergen.
+opnieuw
+opruim_fixtures
+antwoord gh "$RUNS_CLEANUP" 'null'
+REPO=o/r KENMERK=resten-99-1 draai opruimen 7
+gelijk "een runlijst die null is, geldt ook als bezet" "7	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
+
+# Een lopende opruiming in cleanup-preview.yml houdt net zo goed tegen als een uitrol.
+opnieuw
+opruim_fixtures
+antwoord gh "$(runs cleanup-preview.yml queued)" '[{"status":"queued"}]'
+REPO=o/r KENMERK=resten-99-1 draai opruimen 7
+gelijk "een wachtende opruiming stelt ook uit" "7	uitgesteld	er liep een uitrol of opruiming" "$UITVOER"
 
 # De controle staat vóór elke start, niet alleen vóór de eerste: begint er halverwege een uitrol,
 # dan wacht de rest.
@@ -904,6 +928,24 @@ antwoord gh "$ARTEFACTEN" "$ARTEFACT_LIJST"
 antwoord gh 'api repos/o/r/actions/artifacts/2/zip' 'dit is geen zip'
 REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
 gelijk "een artefact dat geen zip is, is kapot (exit 3)" 3 "$RC"
+gelijk "na precies één herhaalde download" 2 "$(grep -c 'artifacts/2/zip' "$werkmap/aanroepen")"
+
+# Een afgebroken download (exit 0, halve zip) die de tweede keer wel lukt: de stand blijft behouden.
+opnieuw
+antwoord gh "$ARTEFACTEN" "$ARTEFACT_LIJST"
+antwoord gh 'api repos/o/r/actions/artifacts/2/zip' 'PK half'
+cp "$werkmap/stand.zip" "$werkmap/fix/$(printf '%s' 'gh api repos/o/r/actions/artifacts/2/zip' | sha256sum | cut -c1-32).daarna"
+REPO=o/r draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "een download die de tweede keer lukt, levert de stand" "0|gelukt	7|laatste	9" "$RC|$(paste -sd'|' - <"$werkmap/gelezen.tsv")"
+
+# Bij "Re-run all jobs" is het nieuwste artefact op main dat van de eigen eerste poging.
+opnieuw
+antwoord gh "$ARTEFACTEN" '{"artifacts":[
+  {"id":5,"expired":false,"created_at":"2026-10-22T05:20:00Z","workflow_run":{"head_branch":"main","id":77}},
+  {"id":2,"expired":false,"created_at":"2026-10-21T05:20:00Z","workflow_run":{"head_branch":"main","id":76}}]}'
+antwoord_bestand gh 'api repos/o/r/actions/artifacts/2/zip' "$werkmap/stand.zip"
+REPO=o/r GITHUB_RUN_ID=77 draai vorige-stand "$werkmap/gelezen.tsv"
+gelijk "het artefact van de eigen run telt niet als vorige stand" "0|gelukt	7|laatste	9" "$RC|$(paste -sd'|' - <"$werkmap/gelezen.tsv")"
 
 # --- noodmelding --------------------------------------------------------------------------------
 opnieuw
@@ -1009,6 +1051,11 @@ meld(
     and (upload[0].get("with") or {}).get("name") == artefact.group(1)
     and str((upload[0].get("with") or {}).get("path", "")).endswith("/stand.tsv"),
     "de meldjob bewaart de stand onder de naam die vorige-stand zoekt",
+)
+# Een herhaalde run vindt het artefact van zijn eerste poging al onder die naam.
+meld(
+    len(upload) == 1 and (upload[0].get("with") or {}).get("overwrite") is True,
+    "de stand overschrijft het artefact van een eerdere poging van dezelfde run",
 )
 meld(
     len(stand_stap) == 1 and "needs.inventaris.result == 'success'" in str(stand_stap[0].get("if", ""))
