@@ -409,10 +409,11 @@ jobs:
             fail=1
           fi
 
-          # Benoemd en niet alleen geteld: de suites onder lib/ houden de teller hierboven boven
-          # nul, dus een verdwenen, hernoemde of uit de lus geraakte suite zou de stap groen laten.
-          # Daarom de lijst van wat wérkelijk draaide, niet alleen of het bestand bestaat. Deze
-          # suite is de enige bewaking dat de fan-out-meting een niet-geleegde cache weigert.
+          # Benoemd en niet alleen geteld: de suites onder demo/environment/lib/ houden de teller
+          # hierboven boven nul, dus een verdwenen, hernoemde of uit de lus geraakte suite zou de
+          # stap groen laten. Daarom de lijst van wat wérkelijk draaide, niet alleen of het bestand
+          # bestaat. Deze suite is de enige bewaking dat de fan-out-meting een niet-geleegde cache
+          # weigert.
           for verplicht in demo/test-meet-fanout.sh; do
             case "$gedraaide_suites" in
               *" $verplicht "*) ;;
