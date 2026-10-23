@@ -44,6 +44,12 @@ den duur zijn time-out van 30 minuten halen.
   of met een extra tag; de ZAD-gids beschrijft dat. De grens uit de gerenderde manifesten van
   `rig-cluster-application-test` halen dekt dit wel, maar vraagt toegang tot die repo vanuit de
   workflow. Dat weegt nu niet op tegen een terugzetting die zelden voorkomt.
+- **Verhouding tot ADR 0022.** De ADR (MinBZK/MijnOverheidZakelijk#310) laat de bewaartermijn van
+  artefacten open als punt O3b, en noemt de per-commit-images het middel om met nog niet uitgebracht
+  werk mee te lopen. Deze termijn sluit daarop aan voor `main-<sha>`. Er zijn bij invoering geen
+  afnemers die deze images zelf uitrollen. Wie later één build langer wil vastzetten, gebruikt een
+  (pre-)release-tag; een versie met zo'n tag wordt nooit verwijderd. Besluit O3b anders, dan volgen
+  `MAIN_BEWAAR_AANTAL` en `MAIN_BEWAAR_SECONDEN` dat besluit.
 - **Waarom de andere grenzen.**
   - Het aantal en de termijn houden recente versies bij de hand om naar terug te gaan.
   - Wat ouder is, is uit de commit opnieuw te bouwen.
