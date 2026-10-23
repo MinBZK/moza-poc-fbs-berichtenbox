@@ -20,8 +20,8 @@ import org.jboss.logging.Logger
  * idempotentie, leidt het bron-magazijn af uit de afzender en schrijft het bericht
  * in de sessiecache van de ontvanger.
  *
- * Alleen ontvangers met een actieve sessie worden bijgewerkt; ontbreekt die, dan
- * is dat het normale geval (de meeste ontvangers hebben geen open sessie) en wordt
+ * Alleen ontvangers met een opgehaalde lijst worden bijgewerkt; ontbreekt die, dan
+ * is dat het normale geval (de meeste ontvangers zijn niet ingelogd) en wordt
  * het event geaccepteerd-maar-overgeslagen i.p.v. als fout teruggemeld — anders zou
  * de publicatie-stream zinloos blijven herafleveren.
  *
@@ -49,7 +49,7 @@ class AanmeldService(
         }
 
         // Houd de idempotentie-marker alléén aan wanneer er ook echt een bericht is
-        // geschreven. Geen actieve sessie (de meeste events) en transiente fouten
+        // geschreven. Geen opgehaalde lijst (de meeste events) en transiente fouten
         // schrijven niets; de marker dan vrijgeven voorkomt dat Redis volloopt met
         // markers voor no-ops en laat een latere her-aflevering opnieuw verwerken.
         // Best-effort: faalt het vrijgeven, log het (een structureel falende DEL zou
@@ -67,7 +67,7 @@ class AanmeldService(
         }
     }
 
-    /** `true` als het bericht geschreven is; `false` bij geen actieve sessie (no-op). */
+    /** `true` als het bericht geschreven is; `false` bij geen opgehaalde lijst (no-op). */
     private fun schrijf(event: GepubliceerdBerichtEvent): Boolean {
         // AVG art. 30: leg de ontvanger als data-subject vast nu we daadwerkelijk
         // diens berichtgegevens verwerken (niet bij duplicaat/validatiefout).
@@ -91,10 +91,10 @@ class AanmeldService(
             sessiecache.schrijfBericht(event.ontvanger, bericht)
 
             return true
-        } catch (ignored: SessiecacheException.GeenActieveSessie) {
-            // Geen actieve sessie is het normale geval (de meeste ontvangers hebben er geen):
+        } catch (ignored: SessiecacheException.GeenLijstInCache) {
+            // Geen opgehaalde lijst is het normale geval (de meeste ontvangers zijn niet ingelogd):
             // geaccepteerd-maar-overgeslagen, geen fout. Bewust geen detail loggen.
-            log.debug("Geen actieve sessie voor ontvanger; aanmelding overgeslagen")
+            log.debug("Geen opgehaalde lijst voor ontvanger; aanmelding overgeslagen")
 
             return false
         } catch (e: SessiecacheException) {

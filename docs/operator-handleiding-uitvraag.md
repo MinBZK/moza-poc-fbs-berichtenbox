@@ -221,20 +221,186 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 
 ## Cache-levensduur
 
+De env-var tussen haakjes geldt in de profielen `prod`, `staging` en `acceptatie`. Daarbuiten (dev,
+compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIECACHE_SESSIE_INACTIVITEIT`.
+
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.ttl` | `PT12H` | Sliding TTL: elke succesvolle read verlengt hem. Dekt een halve werkdag zonder herhaalde ophaal-flow; verlagen bij geheugendruk op Redis |
-| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de cache-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger 12 uur te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
-| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Verlengt de sessie van een open berichtenbox en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.ttl` blijven, anders start de pod niet |
+| `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek of verlenging (`_verlengen`). Een open `_volgen`-verbinding houdt hem niet in leven. Gekoppeld aan een portaal: zie *Koppeling met een portaal* |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik. Geeft het portaal bij de start een eerder plafond mee, dan geldt dat |
+| `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat op `max-duur` + marge. Hij wordt opnieuw gezet bij elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering) en opgetrokken door een sessiestart naast een lopende sessie; leesverkeer verlengt hem niet. Gegevens blijven bij een mislukt opruimen dus tot `max-duur` + marge na de laatste schrijfactie staan, niet na de eerste ophaalronde. Het is alleen een vangnet; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend |
+| `berichtensessiecache.sessie.max-per-ontvanger` (`SESSIE_MAX_PER_ONTVANGER`) | `5` | Maximum aantal gelijktijdige sessies per ontvanger; daarboven weigert `POST /sessies` met 429 |
+| `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt. Eén ronde haalt batches van 100 op zolang die vol zijn, binnen een budget van een half interval; een ontvanger waarvan het opruimen mislukt, schuift een interval (minstens 30 s) naar achteren |
+| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op (`INFO Ophaalronde was de lock kwijt …`). Dezelfde regel verschijnt als de laatste sessie tijdens de ronde eindigde |
+| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt, zonder hem te verlengen; een verlopen sessie sluit de stream hoogstens een hartslag later. Houdt ook proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s) |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
+
+Elk actief opruimen van berichtgegevens (uitloggen, verlopen, vegen, een start die resten wist)
+komt als verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` in
+het Logboek Dataverwerkingen. Ook het opruimen na een schrijfactie die kruiste met het einde van de
+laatste sessie: dat zet de ontvanger in de verloopindex, en de veegtaak legt het vast. Twee
+uitzonderingen, en beide geven eerst een alert-token in de log:
+
+- het verlopen van de vangnet-TTL, dat zonder logregel wist. Dat gebeurt alleen als het actief
+  opruimen langer dan de vangnet-marge uitbleef: na `[ALERT opruimen_na_schrijven]` of bij een
+  veegtaak die blijft falen, als geheel of voor een ontvanger (`[ALERT sessie_veger_faalt]`);
+- een opruiming die niet in het logboek kon worden geschreven (`LDV_OPRUIMEN_ONTBREEKT`).
+
+Regels die je in de logs kunt zien. De eerste twee komen van de veegtaak (`SessieVeger`); bij een
+fout of timeout per ontvanger logt de sessiecache (`BlockingSessiecache`) daarnaast een eigen regel
+met de foutklasse:
+
+- `WARN Opruimen verlopen sessie mislukt; volgende ronde probeert opnieuw`: Redis gaf een fout; de
+  sessie blijft in de index, maar schuift `veeg-interval` (minstens 30 s) naar achteren, zodat de
+  ontvangers erachter niet hoeven te wachten. Daarna probeert de veegtaak het opnieuw. Houdt dit
+  aan, dan ruimt uiteindelijk de Redis-TTL op. Ernaast staat `ERROR Opruimen van een verlopen sessie
+  mislukt (fout=…); een volgende veegronde probeert het opnieuw`, met de foutklasse.
+- `WARN Opruimen verlopen sessie niet bevestigd; de gegevens zijn mogelijk gewist, anders probeert een volgende ronde het opnieuw`:
+  geen antwoord van Redis, of de pod stopte tijdens het opruimen; de uitkomst is onzeker. Staat de
+  sessie nog in de index, dan schuift hij net als bij een fout naar achteren en volgt een nieuwe poging.
+  Ernaast staat `WARN Opruimen van een verlopen sessie niet bevestigd binnen … (fout=…)`, of bij een
+  stoppende pod `INFO Opruimen van een verlopen sessie onderbroken (fout=…); de veegronde stopt`.
+- `WARN Uitstellen van een mislukte opruiming mislukt (…)`: ook het naar achteren schuiven faalde;
+  de volgende veegronde ziet dezelfde ontvanger weer vooraan. Valt samen met een Redis-storing.
+- `WARN Veegronde gestopt: … ontvangers kwamen in dezelfde ronde terug`: het naar achteren schuiven
+  mislukte (bijvoorbeeld een alleen-lezen Redis tijdens een failover), dus de ronde kreeg dezelfde
+  ontvangers opnieuw. Ze stopt dan na die batch in plaats van ze tot het einde van haar budget te
+  herhalen; de volgende ronde probeert opnieuw. Houdt het aan, dan volgt het alert per ontvanger
+  hieronder.
+- `WARN Verlopen sessies opruimen mislukt (…); volgende ronde probeert opnieuw`: de veegtaak kon
+  de verlopen sessies niet eens opvragen. Eén keer is een hik; op rij leidt het tot het alert
+  hieronder.
+- `ERROR [ALERT sessie_veger_faalt]`, in twee vormen, beide per pod. Alert-token: zonder werkende
+  veegtaak wist de Redis-TTL de gegevens zonder logregel. Controleer Redis (bereikbaar, niet
+  alleen-lezen, rechten op `EVAL`), en bij één vastzittende ontvanger de sleutels van die
+  ontvanger (bijvoorbeeld een sleutel van het verkeerde type na handwerk).
+  - `… veegrondes op rij mislukt (…)`: drie veegrondes op rij konden de verlopen sessies niet eens
+    opvragen. Daarna elke tiende mislukte ronde opnieuw, tot er een slaagt.
+  - `… ontvanger(s) konden 3 of meer pogingen op rij niet opgeruimd worden (langste reeks …)`: de
+    kandidaten zijn wel op te vragen, maar het opruimen van een of meer ontvangers blijft mislukken,
+    bijvoorbeeld op een alleen-lezen Redis. Eén regel voor alle vastzittende ontvangers samen,
+    daarna elke tiende ronde opnieuw zolang er een vastzit. De regel noemt alleen aantallen. Na een
+    mislukking schuift een ontvanger minstens 30 s op, dus drie pogingen duren een paar minuten.
+- `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
+  vastgelegd. Alert-token. De regel draagt een eigen `foutId`, de aanleiding, de uitkomst, het type
+  ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger: naleggen kan dus niet.
+  Controleer de LDV-verbinding, en **meld het gat aan de privacy officer**, met het tijdvenster
+  (eerste en laatste regel) en het aantal regels (verschillende `foutId`'s). De verantwoording
+  (AVG art. 5(2)) heeft dan een gat dat niet te herstellen is; dat hoort vastgelegd te worden. Met
+  `ontvanger.type=onbekend` kán er hoe dan ook geen logregel komen: de verloopindex noemt alleen
+  een hash van de ontvanger, en de leesbare vorm (`…:ontvanger`, met dezelfde vangnet-TTL als de
+  gegevens) was al verlopen, onleesbaar, of hoorde niet bij de index-entry. Dat laatste meldt ook
+  `ERROR Leesbare ontvanger hoort niet bij zijn index-entry`: wijst op handwerk of een
+  herstelscript in Redis. Een opruiming zonder bekende ontvanger die blijft mislukken, geeft per pod
+  één regel bij de eerste mislukte poging en één bij de opruiming die ten slotte lukt, niet bij elk
+  uitstel; tel per pod dus hoogstens twee `foutId`'s per gat. Het verlopen gebeurt pas als de
+  veegtaak een ontvanger langer dan de vangnet-marge niet kon opruimen; zie dan ook
+  `[ALERT sessie_veger_faalt]`.
+- `WARN Opruimen zonder lopende sessie mislukt (fout=...); de veegtaak ruimt het op`: een
+  ophaalronde, aanmelding of verwijdering kruiste met het einde van de laatste sessie, en het
+  opruimen daarna faalde. De ontvanger staat gemarkeerd in de verloopindex; de volgende veegronde
+  ruimt op en legt het vast. Geen actie nodig, tenzij het aanhoudt (dan is Redis instabiel).
+- `ERROR [ALERT opruimen_na_schrijven]`: een schrijfactie kon de veegtaak niet waarschuwen. De
+  regel begint met wat er misging: `Opruimen na een aanmelding mislukt`, `Aanmelding niet
+  bevestigd` of `Verwijderen niet bevestigd` (Redis antwoordde niet op het schrijven zelf, dat dus
+  toch gelukt kan zijn), of `Opruimen zonder lopende sessie mislukt`; en daarna dat ook het
+  markeren voor de veegtaak faalde. Eventueel geschreven gegevens blijven onzichtbaar staan tot de
+  Redis-TTL ze wist, en dat wissen komt niet in het logboek. Alert-token; controleer de
+  bereikbaarheid van Redis. Tijdens een Redis-storing kan het per mislukte aanmelding verschijnen.
+  De regel noemt alleen fouttypes: welke ontvanger het betreft, staat bewust niet in de log.
+- Een uitlog of start waarop Redis niet op tijd antwoordt, geeft de gebruiker `503` en komt als
+  opruiming met uitkomst `onbevestigd` in het logboek (aanleiding `uitgelogd` of `nieuwe-start`):
+  het wissen kan al gebeurd zijn.
+
+In het logboek zelf:
+
+- De logregel van een start (`uitvraag-sessie-start`) draagt `fbs.sessie.start.uitkomst`:
+  `gestart`, of `geweigerd` bij een start boven de grens (`429 te-veel-sessies`) of een ongeldig
+  verzoek (`400`, zoals een plafond in het verleden). Een weigering staat zonder status `Error`: het
+  is een bedoelde weigering of een fout van de afnemer, geen storing. Bij een storing (`503`)
+  ontbreekt het attribuut, want dan is niet bekend of er een sessie begon.
+- De logregel van een uitlog (`uitvraag-sessie-einde`) draagt `fbs.sessie.einde.uitkomst`:
+  `opgeruimd`, `beeindigd` (er lopen nog andere sessies) of `onbekend` (de sessie bestond niet en
+  er is niets gewist). Zolang er geen authenticatie is, kan iedereen een uitlog voor een
+  willekeurige ontvanger aanvragen; zo'n regel is aan `onbekend` te herkennen.
+- Opvragen (`GET /sessies/huidige`) en verlengen (`_verlengen`) leveren geen eigen logregel, net als
+  het verlengen door elk ander verzoek in de sessie.
+
+### Verwerkingsregister en DPIA
+
+De verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` hoort in het
+verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
+
+- **Doel:** de tijdelijke kopie van de berichtgegevens van een ontvanger alleen bewaren zolang hij een
+  lopende inlogsessie heeft, en elk wissen ervan verantwoorden.
+- **Bewaartermijnen:** 15 minuten na het laatste verzoek of de laatste verlenging (`inactiviteit`),
+  hoogstens 12 uur na de start (`max-duur`, of het eerdere plafond van het portaal); de Redis-TTL van
+  13 uur (`max-duur` + `vangnet-marge`) is alleen een vangnet als het actief wissen faalt. Wijk je in
+  een omgeving af van de defaults, neem dan die waarden op.
+- **Grondslag:** dezelfde als die van de berichtenuitvraag zelf: de sessie-administratie en het
+  logboek ervan horen bij het tonen van de berichten, niet bij een eigen doel. Stel met de privacy
+  officer de concrete wettelijke grondslag vast (naar verwachting een taak van algemeen belang, AVG
+  art. 6(1)(e)).
+- **Gegevenscategorieën:** het identificatienummer van de ontvanger (BSN, RSIN, KVK-nummer of OIN;
+  voor een BSN geldt UAVG art. 46); de metadata van zijn berichten (afzender, onderwerp,
+  publicatietijdstip, leesstatus, map, namen van bijlagen; de berichttekst blijft in het
+  magazijn); de sessie-administratie (een hash per sessie-id, met verloop en plafond, en dus
+  wanneer iemand van de onderneming actief was); en de verloopindex hieronder.
+- **Logregels over in- en uitloggen:** het logboek krijgt per ontvanger, met hem als betrokkene,
+  `uitvraag-sessie-start`, `uitvraag-sessie-einde` en `uitvraag-sessie-opruimen`. Daarmee legt het
+  vast wanneer er voor die ontvanger werd in- en uitgelogd en wanneer zijn gegevens gewist zijn.
+  Die regels volgen de bewaartermijn van het logboek, niet de termijnen hierboven; neem ze zo op in
+  het register.
+- **Wat de verloopindex bewaart:** één stelselbrede sleutel (`berichtensessiecache:v4:verloop`) met
+  per ontvanger zijn kenmerk en het verloopmoment van zijn laatste sessie. Het kenmerk is SHA-256
+  zonder geheim over het identificatienummer: een pseudoniem, geen anonimisering. Er zijn zo'n 10⁸
+  geldige BSN's, dus wie de index kan lezen, rekent met een woordenboek elk kenmerk in minuten
+  terug; behandel de index als persoonsgegeven. De sleutel heeft een TTL van `max-duur` +
+  `vangnet-marge` + `max-duur` (standaard 25 uur), die elke bijwerking opnieuw zet. Draait de
+  veegtaak niet meer, dan verdwijnt de index dus uiterlijk zo lang na de laatste sessieactiviteit;
+  hij verloopt nooit vóór de gegevens waar hij naar wijst. De leesbare ontvanger staat per
+  ontvanger apart (`…:ontvanger`), met de vangnet-TTL, en verdwijnt samen met zijn index-entry.
+
+### Koppeling met een portaal
+
+Het portaal is de klok: het bepaalt wanneer de gebruiker inactief of uitgelogd is, voor alle diensten
+waarnaar het sessies opent. De inactiviteitstermijn en het plafond van de uitvraag zijn dan alleen
+een vangnet, en mogen niet vóór die van het portaal verlopen:
+
+- Zet `berichtensessiecache.sessie.inactiviteit` ruimer dan de inactiviteitstermijn van het portaal
+  plus het interval waarmee het portaal verlengt. Voorbeeld: portaal 15 minuten, verlengen hooguit
+  eens per minuut, uitvraag `PT20M`. Met de default van `PT15M` kan de uitvraag een sessie laten
+  verlopen die het portaal nog als actief ziet.
+- Het portaal roept `POST /sessies/huidige/_verlengen` aan bij activiteit van de gebruiker, en stuurt
+  `DELETE /sessies/huidige` bij uitloggen en bij zijn eigen time-out. Bij `POST /sessies` geeft het
+  zijn eigen plafond mee (`uiterlijkGeldigTot`); de uitvraag neemt het vroegste van dat moment en
+  start + `max-duur`.
+- Een `401 sessie-ongeldig` terwijl het portaal de gebruiker nog als ingelogd ziet, wijst op een
+  `inactiviteit` die te krap staat, of op een portaal dat niet (meer) verlengt.
+
+### Overgang naar sessiegebonden opslag
+
+- **Leeg de berichtenopslag bij de eerste uitrol**, vóór of tijdens het uitrollen: verwijder alle
+  sleutels onder `bericht:v4:*` en `berichtensessiecache:*`. Het is alleen een cache; de magazijnen
+  blijven de bron, en de berichtenbox haalt na het inloggen alles opnieuw op. Een berichthash van
+  vóór de overgang staat niet in de `:sleutels`-set van zijn ontvanger, dus het opruimen bij
+  uitloggen of verlopen vindt hem niet en hij blijft staan tot zijn oude TTL afloopt.
+- **Volgorde:** de PR in `moza-poc` (de berichtenbox die sessies start) wordt eerst gemerged; pas
+  daarna gaat de gepinde berichtenbox in `compose.yaml` mee. Een berichtenbox zonder sessies krijgt
+  `401` op elk pad onder `/berichten`.
+- **Redis standalone of Sentinel, geen Cluster.** De sessiescripts wissen sleutels van één
+  ontvanger die niet als `KEYS` worden meegegeven en dus over hash-slots heen kunnen liggen.
+- **Zet geen entity- of response-body-logging aan op `/sessies`.** Het antwoord van
+  `POST /sessies` bevat het sessie-id, en de `toString` van het gegenereerde `Sessie`-model ook; het
+  id is een credential.
 
 ## Open berichtenboxen (`_volgen`)
 
 Elke open berichtenbox houdt één SSE-verbinding open. Een aanmelding die op de ene pod binnenkomt,
 bereikt een berichtenbox op een andere pod via Redis pub/sub (kanaal
 `berichtensessiecache:v4:aanmeldingen`); elke pod heeft daar precies één abonnement op, dus één
-extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de sessiesleutel, het
+extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de cache-key van de ontvanger, het
 `berichtId` en de `magazijnId` (de OIN van de organisatie, geen persoonsgegeven). Die sleutel is een SHA-256 zonder geheim over het identificatienummer en dus een
 pseudoniem van de ontvanger, geen anonimisering: het kanaal hoort dezelfde bescherming te krijgen
 als de rest van Redis (TLS en authenticatie).
@@ -243,7 +409,7 @@ als de rest van Redis (TLS en authenticatie).
 |---|---|---|---|
 | `berichtenuitvraag.volgen.max-connections` | `VOLGEN_MAX_CONNECTIONS` | `2000` | Plafond op open verbindingen per pod. Daarboven krijgt een berichtenbox een 503 met `Retry-After`; de lijst blijft bruikbaar, alleen het vanzelf binnenkomen valt weg. Verhogen of een replica bijzetten wanneer `Plafond van … gevolgde sessies op deze pod bereikt` in de log verschijnt |
 | `berichtenuitvraag.volgen.max-connections-per-ontvanger` | `VOLGEN_MAX_CONNECTIONS_PER_ONTVANGER` | `5` | Plafond per ontvanger **per pod**, zodat één aanroeper het pod-plafond niet voor iedereen opmaakt. Genoeg voor een paar tabbladen en apparaten tegelijk. Met meerdere replica's kan één ontvanger tot dit aantal × het aantal pods streams open hebben: de teller staat in het geheugen van elke pod, niet in Redis. De logregel `Plafond van … open berichtenboxen per ontvanger op deze pod bereikt` noemt dan ook één pod |
-| `berichtensessiecache.volg-max-duur` | — | `PT1H` | Maximale duur van één stream; daarna verbindt de berichtenbox opnieuw. Voorkomt dat een vergeten tabblad de sessie en de berichten erin onbeperkt vasthoudt |
+| `berichtensessiecache.volg-max-duur` | — | `PT1H` | Maximale duur van één stream; daarna verbindt de berichtenbox opnieuw en gaat de verbinding opnieuw langs het sessiefilter en de plafonds. De stream verlengt de sessie niet: een verlopen sessie sluit hem al bij de eerstvolgende hartslag |
 | `berichtensessiecache.aanmeldingen-controle` | — | `PT30S` | Hoe vaak het abonnement op aanmeldingen zich opnieuw bewijst. Komen twee probes op rij niet terug, dan verbinden alle open berichtenboxen op die pod opnieuw en bouwt de pod een nieuw abonnement; één gemiste probe logt alleen `Probe op het aanmeldkanaal gemist` op INFO. Korter = sneller herstel na een stil weggevallen verbinding, ten koste van een extra `PUBLISH` per pod per tussenpoos |
 
 - **Beide plafonds op `_volgen` tellen per pod.** Het totaal beschermt het geheugen van die pod;

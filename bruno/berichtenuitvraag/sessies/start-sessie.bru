@@ -1,0 +1,31 @@
+meta {
+  name: 1. Sessie starten
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrlUitvraag}}/sessies
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+script:post-response {
+  if (res.status === 201) {
+    bru.setEnvVar("sessie", res.body.sessieId);
+  }
+}
+
+docs {
+  Geeft 201 met `sessieId`, `geldigTot` (verloop bij inactiviteit) en `uiterlijkGeldigTot`
+  (het harde plafond), en `Location: /api/v1/sessies/huidige`. Het id komt automatisch in de
+  omgevingsvariabele `sessie` en gaat als `X-Sessie` mee op elk verzoek dat een sessie vereist.
+
+  Zonder body geldt alleen de maximale duur van de uitvraag; met een plafond van het portaal zie
+  "Sessie starten met plafond". Te veel gelijktijdige sessies geeft 429 met `Retry-After`.
+}

@@ -1,0 +1,40 @@
+package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
+
+import io.smallrye.mutiny.Uni
+import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.inject.Alternative
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
+import java.util.UUID
+
+/**
+ * Sessieregister voor de profielen zonder echte Redis. Daar draait een ophaalronde of aanmelding
+ * zonder voorafgaande sessie; dit register gedraagt zich alsof er altijd een loopt, zodat die
+ * tests over het ophalen gaan en niet over het opruimen erna.
+ */
+@Alternative
+@ApplicationScoped
+internal class MockSessieRegister : SessieRegister {
+
+    override fun start(ontvanger: Identificatienummer, plafond: Instant?): Uni<StartUitkomst> =
+        Uni.createFrom().item(StartUitkomst.Gestart(SessieStart(UUID.randomUUID().toString(), geldigheid(), false)))
+
+    override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> = Uni.createFrom().item(geldigheid())
+
+    override fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> = Uni.createFrom().item(geldigheid())
+
+    private fun geldigheid() = SessieGeldigheid(Instant.now().plusSeconds(900), Instant.now().plusSeconds(43_200))
+
+    override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> =
+        Uni.createFrom().item(SessieEinde.BEEINDIGD)
+
+    override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(false)
+
+    override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> = Uni.createFrom().item(Unit)
+
+    override fun verlopen(max: Int): Uni<List<VeegKandidaat>> = Uni.createFrom().item(emptyList())
+
+    override fun veeg(kenmerk: String): Uni<Boolean> = Uni.createFrom().item(false)
+
+    override fun stelUit(kenmerk: String): Uni<Unit> = Uni.createFrom().item(Unit)
+}

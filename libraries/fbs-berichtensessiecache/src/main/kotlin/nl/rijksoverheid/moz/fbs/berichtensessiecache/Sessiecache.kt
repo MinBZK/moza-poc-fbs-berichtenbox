@@ -6,7 +6,13 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -34,6 +40,13 @@ interface Sessiecache {
          * wijzigen", dus wissen heeft een eigen waarde nodig; het magazijn gebruikt dezelfde.
          */
         const val MAP_WISSEN = ""
+
+        /**
+         * De vorm van elk sessie-id dat [startSessie] uitgeeft: 128 bits, base64url zonder opvulling.
+         * Gelijk aan `components/parameters/SessieHeader` in de spec van de uitvraag. Wat er niet aan
+         * voldoet, kan geen sessie zijn en hoeft Redis niet te zien.
+         */
+        val SESSIE_ID_VORM: Regex = Regex("^[A-Za-z0-9_-]{22}$")
     }
 
     /**
@@ -95,8 +108,8 @@ interface Sessiecache {
     ): Bericht?
 
     /**
-     * Idempotente cache-invalidate: "niet in cache" is geen fout (TTL kan verlopen
-     * zijn, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
+     * Idempotente cache-invalidate: "niet in cache" is geen fout (het opruimen na de laatste
+     * sessie wiste de lijst al, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
      */
     fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID)
 
@@ -105,29 +118,109 @@ interface Sessiecache {
      * magazijnen en vult de cache; retourneert een SSE-compatible event-stream
      * met per-magazijn voortgang en een afsluitend GEREED/FOUT-event. Gooit 409
      * wanneer er al een ophaling loopt voor deze ontvanger (atomaire Redis-lock).
+     * Eindigt de laatste sessie terwijl de ronde loopt, dan wist de ronde wat ze
+     * schreef en eindigt de stream zonder afsluitend event.
      */
     fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent>
 
     /**
-     * Schrijft één bericht bij in een bestaande, actieve sessie (aanmeld-pad).
+     * Schrijft één bericht bij in de al opgehaalde lijst van [ontvanger] (aanmeld-pad).
      * Gooit 400 wanneer `bericht.ontvanger` niet overeenkomt met [ontvanger] of
      * wanneer het bericht de defensieve limieten overschrijdt; 404 wanneer er
-     * geen actieve sessie is voor deze ontvanger.
+     * geen opgehaalde lijst is voor deze ontvanger, ook als de laatste sessie eindigde
+     * terwijl het bericht geschreven werd — het is dan weer gewist.
      */
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
 
     /**
-     * Volgt de sessie van [ontvanger] terwijl de berichtenbox openstaat: elk bericht dat via
-     * [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
-     * periodieke hartslag houdt de sessie in leven. Zie [SessieGebeurtenis] voor het verloop.
+     * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat: elk bericht
+     * dat via [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
+     * periodieke hartslag controleert of de sessie nog loopt (zie [leesSessie]). Eindigt de sessie,
+     * uitgelogd of verlopen, dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit.
+     * Zie [SessieGebeurtenis] voor het verloop.
      *
-     * Vereist net als [lijst] een afgeronde ophaling en gooit dezelfde [SessiecacheException]s,
-     * synchroon en vóór de stream. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór de
-     * stream een [SessiecacheException.Onbereikbaar]. Een storing daarna beëindigt de stream met een
-     * fout; de afnemer verbindt dan opnieuw.
+     * Het volgen verlengt de sessie niet, ook het openen niet: inactiviteit is inactiviteit van de
+     * gebruiker, en een open tabblad op een onbeheerde werkplek zou de gegevens anders tot het
+     * plafond bereikbaar houden. Verlengen doen de verzoeken van de gebruiker zelf ([raakSessie]).
+     *
+     * Synchroon en vóór de stream: [SessiecacheException.SessieOngeldig] als [sessieId] geen lopende
+     * sessie van [ontvanger] is, daarna net als [lijst] de eis van een afgeronde ophaling met
+     * dezelfde [SessiecacheException]s. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór
+     * de stream een [SessiecacheException.Onbereikbaar]. Een storing daarna, ook bij het raken van de
+     * sessie, beëindigt de stream met een fout en niet met [SessieGebeurtenis.SessieVerlopen]; de
+     * afnemer verbindt dan opnieuw.
      *
      * De stream eindigt ook uit zichzelf na `berichtensessiecache.volg-max-duur`, zonder
      * [SessieGebeurtenis.SessieVerlopen]: de sessie loopt dan nog, en de afnemer verbindt opnieuw.
      */
-    fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis>
+    fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis>
+
+    /**
+     * Start een inlogsessie voor [ontvanger]. Loopt er voor hem nog geen andere sessie, dan worden
+     * eerst de gegevens van een eerdere, verlopen sessie gewist: een sessie begint met een vers
+     * beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
+     *
+     * [uiterlijkGeldigTot] is het plafond van de sessie van de aanroeper (het portaal): de sessie
+     * eindigt dan op het vroegste van dat moment en start + `berichtensessiecache.sessie.max-duur`.
+     * Ligt het niet in de toekomst (volgens de klok van de opslag), dan [SessiecacheException.OngeldigeInvoer]
+     * en is er niets gestart of gewist.
+     *
+     * Gooit [SessiecacheException.TeVeelSessies] wanneer [ontvanger] al het maximum aantal lopende
+     * sessies heeft (`berichtensessiecache.sessie.max-per-ontvanger`); er wordt geen bestaande
+     * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
+     *
+     * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
+     * gebeurde, dan staat er een sessie die niemand kent, en kan de start al resten gewist hebben.
+     * Een volgende start ziet die spooksessie lopen en meldt dan niets, dus de aanroeper legt zo'n
+     * start als onbevestigd opruimen vast, net als een uitlog zonder antwoord.
+     */
+    fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant? = null): SessieStart
+
+    /**
+     * Controleert dat [sessieId] een lopende sessie van [ontvanger] is en verlengt hem met de
+     * inactiviteitsduur, nooit voorbij het plafond; antwoordt de geldigheid na het verlengen. Gooit
+     * [SessiecacheException.SessieOngeldig] voor een onbekende, verlopen of andermans sessie — die
+     * drie zijn voor de aanroeper bewust niet te onderscheiden.
+     */
+    fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid
+
+    /** Als [raakSessie], maar zonder te verlengen: alleen lezen. */
+    fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid
+
+    /**
+     * Beëindigt de sessie [sessieId] van [ontvanger]. Loopt er daarna geen sessie meer voor hem,
+     * dan worden zijn gegevens gewist ([SessieEinde.OPGERUIMD]) — ook bij een onbekende of al
+     * verlopen sessie, als er nog gegevens stonden: elk wissen hoort gemeld te worden.
+     * Idempotent: een onbekende of verlopen sessie is geen fout; zonder iets te wissen is de
+     * uitkomst [SessieEinde.ONBEKEND].
+     *
+     * Bij [SessiecacheException.Onbereikbaar] kan het wissen al gebeurd zijn, en dan ziet een
+     * herhaalde aanroep niets meer: de aanroeper legt die uitlog dan als onbevestigd vast.
+     */
+    fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
+
+    /**
+     * Ruimt hoogstens [max] ontvangers op wier laatste sessie verlopen is, en geeft elke opruiming
+     * aan [meld] zodra ze gebeurd is, niet pas na de hele batch: stopt de pod halverwege, dan is wat
+     * al gewist is ook al gemeld. Elk wissen hoort in het logboek. Bedoeld voor een periodieke taak,
+     * en veilig om op meerdere pods tegelijk te draaien: per ontvanger beslist één atomaire stap,
+     * dus een opruiming wordt precies één keer gemeld. Wie in de tussentijd een sessie startte of
+     * raakte, blijft staan en wordt niet gemeld.
+     *
+     * Per ontvanger is de uitkomst [OpruimUitkomst.GEWIST], [OpruimUitkomst.MISLUKT] (de ontvanger
+     * blijft in de index, een veeginterval naar achteren; een latere ronde probeert opnieuw) of
+     * [OpruimUitkomst.ONBEVESTIGD] (geen antwoord: de gegevens zijn mogelijk gewist; de ontvanger
+     * schuift net zo naar achteren). Een fout bij één ontvanger breekt de ronde niet af; een
+     * interrupt wel, na de melding van die ontvanger als [OpruimUitkomst.ONBEVESTIGD], en met de
+     * interrupt-vlag weer gezet.
+     *
+     * Antwoordt of de batch kandidaten vol was: dan wachten er mogelijk meer. Dat zegt meer dan het
+     * aantal meldingen, want een kandidaat die een andere pod al veegde of die weer een sessie heeft,
+     * wordt niet gemeld. Na een interrupt `false`.
+     *
+     * Gooit [SessiecacheException.Onbereikbaar] als de verlopen sessies niet op te vragen zijn, en
+     * [SessiecacheException.OngeldigeInvoer] voor een [max] kleiner dan 1. Een fout uit [meld] breekt
+     * de ronde af en komt ongewijzigd door.
+     */
+    fun ruimVerlopenSessiesOp(max: Int = 100, meld: (Opruiming) -> Unit): Boolean
 }

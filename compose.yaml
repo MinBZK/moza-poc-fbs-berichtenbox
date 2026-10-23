@@ -196,7 +196,7 @@ services:
       MAGAZIJN_OIN: "00000000000000100000"
       # Downstreams (aanmeld=echte uitvraag-webhook, notificatie) lopen via Toxiproxy zodat fase 5
       # ze per knop kan uitschakelen. Transparant bij normaal bedrijf. De aanmeld-levering laat een
-      # nieuw bericht live in de sessiecache belanden (mits actieve sessie), zodat 'Vernieuw' werkt.
+      # nieuw bericht live in de sessiecache belanden (mits de lijst van de ontvanger opgehaald is), zodat 'Vernieuw' werkt.
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
@@ -365,9 +365,9 @@ services:
       # uitvraag is dat een vreemde origin: zonder deze regels een 403 "CORS Rejected". Lezen
       # merkt er niets van, omdat een browser bij een GET naar zijn eigen origin geen Origin stuurt.
       QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095,http://localhost:8096,http://127.0.0.1:8096,http://${DEMO_HOST:-localhost}:8096,http://localhost:8097,http://127.0.0.1:8097,http://${DEMO_HOST:-localhost}:8097"
-      # Korte cache-TTL voor de demo (sliding verval na ~2 min inactiviteit). Alleen demo;
-      # prod houdt PT12H. De property heeft geen min-validatie.
-      BERICHTENSESSIECACHE_TTL: PT2M
+      # Korte inactiviteitstermijn voor de demo: een sessie verloopt na ~2 min zonder verzoek.
+      # Alleen demo; prod houdt PT15M.
+      BERICHTENSESSIECACHE_SESSIE_INACTIVITEIT: PT2M
       # Extra register-entries voor de gesimuleerde magazijnen, gegenereerd in demo/generated/.
       # SmallRye leest dit absolute pad als additionele config-bron en merge't het bij de baked A/B.
       SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties

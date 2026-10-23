@@ -1,0 +1,40 @@
+meta {
+  name: 2. Sessie starten met plafond
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrlUitvraag}}/sessies
+  body: json
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+body:json {
+  {
+    "uiterlijkGeldigTot": "{{plafondPortaal}}"
+  }
+}
+
+script:pre-request {
+  // Het plafond van de portaalsessie: hier een uur vanaf nu.
+  bru.setVar("plafondPortaal", new Date(Date.now() + 60 * 60 * 1000).toISOString());
+}
+
+script:post-response {
+  if (res.status === 201) {
+    bru.setEnvVar("sessie", res.body.sessieId);
+  }
+}
+
+docs {
+  Zoals "Sessie starten", maar met het plafond van de portaalsessie in `uiterlijkGeldigTot`. De
+  sessie eindigt dan uiterlijk op dat moment, of eerder als de maximale duur van de uitvraag eerder
+  verstrijkt; `uiterlijkGeldigTot` in het antwoord is het plafond dat geldt. Een moment dat niet in
+  de toekomst ligt, of een onleesbare body, geeft 400.
+}

@@ -38,10 +38,9 @@ enum class Foutcode(val code: String, val uitleg: String) {
     BERICHT_ONBEKEND("bericht-onbekend", "Dit bericht is niet (meer) beschikbaar."),
 
     /**
-     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone leeft — die
-     * krijgt bij het verwijderen de sessie-TTL mee en schuift daarna niet mee met leesverkeer — en
-     * alleen voor verwijderingen die via deze keten liepen. Het uitblijven van deze code bewijst
-     * dus niet dat er niets verwijderd is.
+     * De ontvanger verwijderde dit bericht zelf. Alleen bekend tot zijn laatste sessie eindigt (dan
+     * wordt de tombstone met de rest van zijn gegevens gewist), en alleen voor verwijderingen die
+     * via deze keten liepen. Het uitblijven van deze code bewijst dus niet dat er niets verwijderd is.
      */
     BERICHT_VERWIJDERD("bericht-verwijderd", "Dit bericht is verwijderd."),
 
@@ -68,8 +67,14 @@ enum class Foutcode(val code: String, val uitleg: String) {
         "Er staan te veel berichtenboxen tegelijk open. Probeer het straks opnieuw.",
     ),
 
-    /** Geen actieve sessie voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
-    GEEN_ACTIEVE_SESSIE("geen-actieve-sessie", "Er is geen actieve sessie voor deze ontvanger."),
+    /** Geen opgehaalde lijst voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
+    GEEN_LIJST_IN_CACHE("geen-lijst-in-cache", "Er zijn voor deze ontvanger nog geen berichten opgehaald."),
+
+    /** De sessie uit `X-Sessie` ontbreekt, is onbekend, verlopen of van een andere ontvanger: opnieuw inloggen. */
+    SESSIE_ONGELDIG("sessie-ongeldig", "Uw sessie is verlopen of ongeldig. Log opnieuw in."),
+
+    /** Deze ontvanger heeft het maximum aantal gelijktijdige sessies bereikt; een andere sessie beëindigen helpt. */
+    TE_VEEL_SESSIES("te-veel-sessies", "U bent op te veel plekken tegelijk ingelogd."),
 
     /** De opgevraagde resource bestaat niet — een onbekend pad, niet een onbekend bericht. */
     NIET_GEVONDEN("niet-gevonden", "Niet gevonden."),

@@ -34,9 +34,13 @@ class DualWriteFaultTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    /** Een lopende sessie van de standaard-ontvanger; zonder die weigert de sessiecontrole elk berichtenpad. */
+    private lateinit var sessie: String
+
     @BeforeEach
     fun reset() {
         sessiecache.reset()
+        sessie = sessiecache.sessieVoor()
         WireMockBackendsResource.magazijnA.resetAll()
     }
 
@@ -79,6 +83,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -99,6 +104,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{}""")
             .`when`()
@@ -124,6 +130,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -148,6 +155,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -176,6 +184,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -199,6 +208,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -218,6 +228,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -240,6 +251,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -260,6 +272,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -271,7 +284,7 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `PATCH compensatie-invalidate-faal blijft 502 (cache stale tot TTL)`() {
+    fun `PATCH compensatie-invalidate-faal blijft 502 (cache stale tot de volgende ophaalronde)`() {
         // Cache-PATCH faalt én de compensatie-invalidate faalt ook. De operatie
         // blijft 502; de cache mag stale blijven tot de TTL verloopt.
         val id = UUID.randomUUID()
@@ -282,6 +295,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`()
@@ -302,6 +316,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -322,6 +337,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -340,6 +356,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -349,7 +366,7 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `DELETE cache-faal en compensatie-faal blijft 502 (cache stale tot TTL)`() {
+    fun `DELETE cache-faal en compensatie-faal blijft 502 (cache stale tot de volgende ophaalronde)`() {
         val id = UUID.randomUUID()
         seedBericht(id)
         stubMagazijnDeleteOk(id)
@@ -358,6 +375,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
@@ -375,6 +393,7 @@ class DualWriteFaultTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .`when`()
             .delete("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
