@@ -112,8 +112,8 @@ for p in logius magazijn-a; do
 done
 
 # 2. PKI per peer (vereist cfssl; zie <peer>/pki/README.md)
-(cd logius/pki && ./init-ca.sh && ./issue.sh && ./verify.sh)
-(cd magazijn-a/pki && ./init-ca.sh && ./issue.sh && ./verify.sh)
+(cd logius/pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh)
+(cd magazijn-a/pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh)
 
 # 3. Eén group-CA over alle peers — DESTRUCTIEF op de doel-peers, zie de kop van het script
 ./federatie/deel-groep-ca.sh --check      # toont wat er zou gebeuren
@@ -186,7 +186,7 @@ Die smoke vereist dat het magazijn zijn events door de outway stuurt:
 export NOTIFICATIE_GRANT_HASH="$(fsc_compose_env_lees demo/generated/fsc-grants.env NOTIFICATIE_GRANT_HASH)"
 
 MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 \
-  NOTIFICATIE_URL=http://127.20.2.5:8443/events OUTWAY_HOST=127.20.2.5 demo/podman-up.sh
+  NOTIFICATIE_URL=http://127.20.2.5:8443/events OUTWAY_HOST=127.20.2.5 demo/up.sh
 ```
 
 **Zet URL, grant-hash en outway-host altijd samen.** De hash komt uit `fsc-grants.env`, de andere
@@ -247,7 +247,7 @@ FSC_UPSTREAM_URL=http://127.0.0.1:8090 \
 ./contracts/fbs-contracten.sh
 
 # 3. de demo-stack met de uitvraag door de outway van logius
-MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 ../../podman-up.sh
+MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 ../../up.sh
 
 ./smoke-keten.sh
 ```

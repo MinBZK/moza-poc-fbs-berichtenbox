@@ -14,7 +14,7 @@
 # Voorwaarden:
 #   - de federatie draait en de contracten staan -> ./federatie.sh up && contracts/fbs-contracten.sh
 #   - de demo-stack draait met het magazijn door de outway:
-#       MODUS=hostnet NOTIFICATIE_URL=http://127.20.2.5:8443/events demo/podman-up.sh
+#       MODUS=hostnet NOTIFICATIE_URL=http://127.20.2.5:8443/events demo/up.sh
 #
 # Linux + podman: gebruikt `podman` en `curl`.
 set -euo pipefail
@@ -151,7 +151,7 @@ fi
 # NA de probe, niet ervoor: die gaat zelf door outway en inway en schrijft dus in beide logboeken.
 # Stond de nulmeting ervóór, dan telde die rij als "nieuw" en kon assert 2 nooit rood worden — ook
 # niet als het magazijn buiten de outway om levert, wat deze smoke juist moet uitsluiten.
-if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/docker-compose.yaml")"; then
+if PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/compose.yaml")"; then
   txids() {  # <db> <richting>
     podman exec "${PROJECT}-postgres-1" psql -U postgres -d "$1" -tA \
       -c "SELECT transaction_id FROM transactionlog.records

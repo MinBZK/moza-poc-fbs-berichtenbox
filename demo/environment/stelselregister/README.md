@@ -13,8 +13,8 @@ pki/maak-keten.sh            # maakt wat ontbreekt
 pki/maak-keten.sh --roteer   # nieuw ondertekencertificaat onder dezelfde root
 ```
 
-`demo/podman-up.sh` roept het script zelf aan. Wie de stack met `docker compose` start, draait
-het één keer vooraf; zonder keystore start de container `stelselregister` niet.
+`demo/up.sh` roept het script zelf aan. Wie de stack met de hand via `docker compose` start,
+draait het één keer vooraf; zonder keystore start de container `stelselregister` niet.
 
 De uitgever in het certificaat is standaard de test-OIN `00000000000000001000` (Logius in deze
 omgeving). Een andere waarde gaat via `STELSELDOCUMENT_UITGEVER_OIN` en moet dan ook bij de dienst
