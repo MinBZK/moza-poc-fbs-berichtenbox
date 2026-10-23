@@ -12,9 +12,9 @@ directorystructuur-beslissing.
 cd pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh && cd -
 cp deploy/local/.env.example deploy/local/.env
 printf 'HOST_UID=%s\nHOST_GID=%s\n' "$(id -u)" "$(id -g)" >> deploy/local/.env
-docker compose -f deploy/local/docker-compose.yaml up -d
+./deploy/local/up.sh           # kiest docker, bridge of hostnet; zie deploy/local/README.md
 ./deploy/local/run-smokes.sh   # verwacht: "ALLE SMOKES GROEN."
-docker compose -f deploy/local/docker-compose.yaml down -v
+./deploy/local/up.sh down -v
 ```
 
 ## ZAD
