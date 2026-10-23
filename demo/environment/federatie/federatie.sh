@@ -19,7 +19,7 @@
 #   3. elke peer heeft zijn deploy/local/.env
 #   4. net.ipv4.ip_unprivileged_port_start = 0    -> anders faalt de router op `bind :443`
 #
-# Linux + podman: gebruikt `ss` (iproute2) en `podman`. Niet draaibaar op macOS.
+# Linux + podman: gebruikt `ss` (iproute2) en `podman`. Op andere systemen weigert `up`; zie hieronder.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -31,6 +31,31 @@ ENVDIR="$(cd "${HERE}/.." && pwd)"
 . "${HERE}/peers.env"
 
 fsc_errlog_init
+
+# De peers krijgen hier elk een eigen loopback-adres in één gedeelde netns; in bridge heeft elk
+# compose-project een eigen netwerk en bestaat dat adresplan niet. De modus-keuze van de losse
+# harnessen (deploy/local/up.sh) geldt hier dus niet, en een opgegeven andere modus zou anders
+# zwijgend genegeerd worden.
+if [ -n "${MODUS:-}" ] && [ "$MODUS" != "hostnet" ]; then
+  echo "FOUT: de federatie draait alleen in hostnet (een gedeelde netns); MODUS=${MODUS} kan hier niet." >&2
+  echo "      Een losse peer in ${MODUS}: demo/environment/<peer>/deploy/local/up.sh." >&2
+  exit 2
+fi
+
+# De peers delen de netns van de host en binden elk op een eigen 127.20.x-adres. Op macOS draaien
+# de containers in de VM van podman machine en niet op de host; daar bestaat dat adresplan niet en
+# blijven de containers op "Created" staan. Afbreken, stoppen en de status mogen wél, zodat
+# overblijfselen van zo'n poging op te ruimen zijn.
+if [ "$(uname -s)" != "Linux" ]; then
+  case "${1:-}" in
+    up|start|restart)
+      echo "FOUT: de federatie draait alleen op Linux (een gedeelde netns op de host); dit is $(uname -s)." >&2
+      echo "      Een losse peer kan hier wel: demo/environment/<peer>/deploy/local/up.sh." >&2
+      echo "      Overblijfselen van een eerdere poging ruim je op met '$0 down'." >&2
+      exit 2
+      ;;
+  esac
+fi
 
 ANNOUNCE_TIMEOUT="${ANNOUNCE_TIMEOUT:-120}"
 ANNOUNCE_INTERVAL="${ANNOUNCE_INTERVAL:-5}"
@@ -49,16 +74,16 @@ verwacht_peers() {
 # compose_project <peer>: de projectnaam van die peer. Faalt hard bij een ontbrekende `name:` —
 # een lege projectnaam maakt elk container-filter betekenisloos en dus elke controle die daarop
 # leunt stil.
-compose_project() { fsc_compose_project "${ENVDIR}/$1/deploy/local/docker-compose.yaml"; }
+compose_project() { fsc_compose_project "${ENVDIR}/$1/deploy/local/compose.yaml"; }
 
 # dc <peer> <compose-commando...>: docker compose voor die peer, met de vier -f-bestanden.
 dc() {
   local peer="$1" lokaal="${ENVDIR}/$1/deploy/local"; shift
   local f args=()
 
-  for f in "${lokaal}/docker-compose.yaml" \
-           "${lokaal}/docker-compose.podman.yaml" \
-           "${lokaal}/docker-compose.podman-hostnet.yaml" \
+  for f in "${lokaal}/compose.yaml" \
+           "${lokaal}/compose.podman.yaml" \
+           "${lokaal}/compose.podman-hostnet.yaml" \
            "${HERE}/compose/${peer}.yaml"; do
     [ -r "$f" ] || { echo "FAIL: compose-bestand ontbreekt of onleesbaar: $f" >&2; return 1; }
     args+=(-f "$f")
@@ -238,8 +263,34 @@ diagnose_announce() {
     || echo "  (directory-DB onbereikbaar — draait de gastheer-stack?)" >&2
 }
 
+# modus_bestand <peer>: waar deploy/local/up.sh de modus van die peer vastlegt. De federatie zet er
+# `federatie` in, zodat de losse up.sh deze peer niet zonder de vierde laag hercreëert; andersom
+# weigert de federatie een peer die al los draait.
+modus_bestand() { echo "${ENVDIR}/$1/deploy/local/.modus"; }
+
+markeer_peers() {
+  local peer bestand vastgelegd
+
+  for peer in $(fsc_alle_peers); do
+    bestand="$(modus_bestand "$peer")"
+    vastgelegd="$(head -n1 "$bestand" 2>/dev/null || true)"
+
+    if [ -n "$vastgelegd" ] && [ "$vastgelegd" != "federatie" ]; then
+      echo "FAIL: ${peer} draait los in ${vastgelegd} (${bestand})." >&2
+      echo "      Breek hem eerst af: demo/environment/${peer}/deploy/local/up.sh down -v" >&2
+      exit 1
+    fi
+  done
+
+  for peer in $(fsc_alle_peers); do
+    printf 'federatie\n' >"$(modus_bestand "$peer")"
+  done
+}
+
 case "${1:-}" in
   up)
+    markeer_peers
+
     echo "federatie: gastheer-stack (${GASTHEER}) — postgres, router, directory + peer..."
     up_met_retry "$GASTHEER"
 
@@ -285,6 +336,11 @@ case "${1:-}" in
       echo "FEDERATIE NIET SCHOON NEER — ruim handmatig op voor je opnieuw 'up' draait." >&2
       exit 1
     }
+
+    for peer in $(fsc_alle_peers); do
+      rm -f "$(modus_bestand "$peer")"
+    done
+
     echo "FEDERATIE NEER."
     ;;
 
@@ -349,6 +405,11 @@ case "${1:-}" in
       fsc_warn_errlog "podman ps faalde voor ${peer}"
     done
     echo
+    if [ "$(uname -s)" != "Linux" ]; then
+      echo "listeners: niet getoond, want de federatie draait alleen op Linux."
+      exit 0
+    fi
+
     echo "listeners in de gedeelde netns:"
     # Stderr apart houden: gevouwen in de lijst zou een foutregel hieronder als wildcard-bind lezen.
     # Eerst ontdubbelen, dán op poort ordenen. `sort -u -t: -k2 -n` vergelijkt alléén de sleutel,

@@ -1,8 +1,8 @@
 # Federatie-overlay voor de peer `magazijn-a`, bovenop zijn eigen drie compose-bestanden:
 #
-#   docker compose -f magazijn-a/deploy/local/docker-compose.yaml \
-#                  -f magazijn-a/deploy/local/docker-compose.podman.yaml \
-#                  -f magazijn-a/deploy/local/docker-compose.podman-hostnet.yaml \
+#   docker compose -f magazijn-a/deploy/local/compose.yaml \
+#                  -f magazijn-a/deploy/local/compose.podman.yaml \
+#                  -f magazijn-a/deploy/local/compose.podman-hostnet.yaml \
 #                  -f federatie/compose/magazijn-a.yaml up -d
 #
 # Deze peer is GAST: postgres, router, directory en directory-ui komen uit de logius-stack
