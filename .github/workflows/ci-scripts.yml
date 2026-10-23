@@ -140,7 +140,7 @@ jobs:
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-proeftuin-pin.sh]=139
             [.github/scripts/test-selinux-label-guard.sh]=22
-            [demo/lib/test-podman-modus.sh]=128
+            [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
           )
 

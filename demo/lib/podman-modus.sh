@@ -50,10 +50,13 @@ modus_gereedschap() {
 # erbij te voegen. Overleeft het bestand een herstart van de container, dan faalt dat met `cannot
 # re-exec process to join the existing user namespace` — een melding die niet naar het bestand
 # wijst. Verweesd is: geen geldige pid, een pid die niet bestaat, of een proces dat niet van deze
-# gebruiker is of geen podman-proces (een hergebruikte pid). Ruim in twijfel níét op: een levende
+# gebruiker is of geen pauzeproces (een hergebruikte pid). Ruim in twijfel níét op: een levende
 # pause.pid weghalen zet een draaiende stack in een user namespace die podman niet meer terugvindt.
-# Daarom telt elk eigen proces waarvan de naam met `podman` begint als levend, ook als het niet
-# precies `podman pause` heet.
+#
+# Beslissend is de user namespace: het pauzeproces zit altijd in een andere dan de aanroeper, een
+# hergebruikte pid normaal niet. Op de naam alleen gaat het mis, want met catatonit geïnstalleerd
+# voert podman `catatonit -P` uit als pauzeproces. De naam blijft het tweede vangnet: onder
+# `podman unshare` deelt de aanroeper de userns van het pauzeproces.
 modus_pause_pid_verweesd() {
     local pid comm
 
@@ -69,10 +72,14 @@ modus_pause_pid_verweesd() {
 
     [ "$(stat -c %u "/proc/$pid" 2>/dev/null || true)" = "$(id -u)" ] || return 0
 
+    # Niet te lezen telt als een andere userns, en dus als levend.
+    [ "$(readlink "/proc/$pid/ns/user" 2>/dev/null || true)" = "$(readlink /proc/self/ns/user 2>/dev/null || true)" ] \
+        || return 1
+
     comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
 
     case "$comm" in
-        podman*) return 1 ;;
+        podman* | catatonit) return 1 ;;
     esac
 
     return 0
@@ -95,13 +102,18 @@ modus_runtime_dir() {
 # modus_pause_pid_opruimen: verwijdert een verweesde pause.pid. Alleen op Linux: buiten Linux
 # draait podman in een VM en ligt het bestand daar.
 modus_pause_pid_opruimen() {
-    local bestand
+    local bestand pid
     bestand="$(modus_runtime_dir)/libpod/tmp/pause.pid"
+    pid="$(head -n1 "$bestand" 2>/dev/null || true)"
 
-    if modus_pause_pid_verweesd "$bestand"; then
-        echo "Verweesde $bestand opgeruimd (pid $(head -n1 "$bestand" 2>/dev/null || true) is niet het pauzeproces van podman)."
-        rm -f "$bestand"
-    fi
+    modus_pause_pid_verweesd "$bestand" || return 0
+
+    # Een andere sessie kan intussen een nieuw pauzeproces hebben gestart; zijn pid weghalen zou
+    # precies de schade aanrichten die de controle hierboven voorkomt.
+    [ "$(head -n1 "$bestand" 2>/dev/null || true)" = "$pid" ] || return 0
+
+    echo "Verweesde $bestand opgeruimd (pid $pid is niet het pauzeproces van podman)."
+    rm -f "$bestand"
 }
 
 # modus_socket_status <pad>: 0 als er een API antwoordt, 1 als er niemand luistert (geen socket, of
@@ -129,18 +141,22 @@ modus_socket_status() {
     return 2
 }
 
-# modus_engine_is_podman <pad>: vraagt het de engine zelf. Het pad zegt niets: podman-docker
-# publiceert podman op /run/docker.sock, en een symlink kan elke naam dragen. Zonder curl blijft
-# alleen het pad over. De uitvoer eerst vangen en dan matchen: in een pijp naar `grep -q` kan de
-# schrijver onder `pipefail` op SIGPIPE falen, en dan valt de uitkomst willekeurig om.
+# modus_engine_is_podman <pad>: 0 als de engine podman is, 1 als hij iets anders is, 2 als dat niet
+# vast te stellen is. Het pad zegt niets: podman-docker publiceert podman op /run/docker.sock, en een
+# symlink kan elke naam dragen. Dus de engine zelf vragen: podman zet `Libpod-Api-Version` op elk
+# antwoord, Docker niet. Via `/_ping` en niet `/version`: die laatste wacht op de storage-lock zolang
+# er een pull of create loopt, en loopt dan in de time-out. Zonder curl blijft alleen het pad over.
 modus_engine_is_podman() {
-    local versie
+    local koppen
 
     if command -v curl >/dev/null 2>&1; then
-        versie="$(curl -sS --max-time 5 --unix-socket "$1" http://d/version 2>/dev/null || true)"
+        koppen="$(curl -sS --max-time 5 -o /dev/null -D - --unix-socket "$1" http://d/_ping 2>/dev/null)" \
+            || return 2
 
-        case "$versie" in
-            *'"Podman Engine"'*) return 0 ;;
+        # Header-namen zijn hoofdletterongevoelig. Eerst vangen en dan matchen: in een pijp naar
+        # `grep -q` kan de schrijver onder `pipefail` op SIGPIPE falen.
+        case "$(printf '%s' "$koppen" | tr '[:upper:]' '[:lower:]')" in
+            *'libpod-api-version:'*) return 0 ;;
         esac
 
         return 1
@@ -169,8 +185,13 @@ modus_eigen_socket() {
 # `… down` dezelfde socket vindt. `setsid` maakt hem los van de aanroepende shell, die hem anders
 # bij afsluiten meeneemt. Het log blijft staan: zonder die uitvoer is een mislukte start (subuid,
 # storage.conf, bezette socket) niet te diagnosticeren.
+#
+# Zonder CONTAINER_HOST en CONTAINER_CONNECTION: met een van beide gezet is podman een remote client,
+# en die kent `system service` niet (`accepts at most 1 arg(s), received 2`). Wie de podman-CLI
+# naar dezelfde socket als compose wijst, zoals `federatie.sh` vraagt, liep daar anders op stuk.
 modus_podman_service() {
     local sock="$1" service_log
+    local -a service=(env -u CONTAINER_HOST -u CONTAINER_CONNECTION podman system service --time=0 "unix://$sock")
 
     echo "Podman-API antwoordt niet op $sock — service starten…"
     mkdir -p "$(dirname "$sock")"
@@ -182,9 +203,9 @@ modus_podman_service() {
     service_log="$(mktemp -t podman-service.XXXXXX)"
 
     if command -v setsid >/dev/null 2>&1; then
-        setsid podman system service --time=0 "unix://$sock" >"$service_log" 2>&1 &
+        setsid "${service[@]}" >"$service_log" 2>&1 &
     else
-        podman system service --time=0 "unix://$sock" >"$service_log" 2>&1 &
+        "${service[@]}" >"$service_log" 2>&1 &
     fi
 
     for _ in $(seq 1 20); do
@@ -266,11 +287,18 @@ modus_engine() {
                     ;;
             esac
 
-            if modus_engine_is_podman "$sock"; then
-                PODMAN_RUNTIME=1
-            else
-                PODMAN_RUNTIME=0
-            fi
+            status=0
+            modus_engine_is_podman "$sock" || status=$?
+
+            case "$status" in
+                0) PODMAN_RUNTIME=1 ;;
+                1) PODMAN_RUNTIME=0 ;;
+                *)
+                    # Docker aannemen zou de podman-overlays en de seriële start overslaan.
+                    echo "Niet vast te stellen welke engine er op DOCKER_HOST=$DOCKER_HOST draait; probeer het zo opnieuw." >&2
+                    exit 1
+                    ;;
+            esac
             ;;
         *)
             # tcp:// en ssh:// worden niet bevraagd; dan blijft alleen het adres over.
@@ -373,9 +401,16 @@ modus_compose_kiezen() {
 # elke volgende controle de stilte als een uitkomst: geen containers van het project, geen images.
 # Bij podman met `--url`, want `podman` leest DOCKER_HOST niet en slaagt lokaal ook als de socket
 # weg is. Dat geldt ook voor `docker info` waar `docker` een shim naar podman is (podman-docker).
+#
+# Een `unix://`-socket heeft modus_engine al met `/_ping` gecontroleerd; dit dekt wat die niet kan
+# pingen: Docker zonder DOCKER_HOST (de socket hangt dan aan een context) en `tcp://`/`ssh://`.
 modus_engine_bereikbaar() {
     local log
     local -a probe
+
+    case "${DOCKER_HOST:-}" in
+        unix://*) return 0 ;;
+    esac
 
     if [ "${PODMAN_RUNTIME:-0}" -eq 1 ] && command -v podman >/dev/null 2>&1; then
         probe=(podman --url "$DOCKER_HOST" info)

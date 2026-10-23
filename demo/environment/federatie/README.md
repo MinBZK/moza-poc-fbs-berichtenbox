@@ -305,23 +305,27 @@ Drie dingen om te weten:
 - **`write /proc/<pid>/uid_map: Operation not permitted`** is het gevolg van dezelfde race: een
   volgende `up` naast een container die na de eerste fout op `Created` bleef staan. Met het seriële
   aanmaken komt de eerste fout niet meer voor, en de retry ruimt `Created`-achterblijvers op vóór
-  hij opnieuw begint. Zie je hem toch, meld het dan in MinBZK/MijnOverheidZakelijk#975 met de
-  podman- en crun-versie (`podman version`, `crun --version`).
-- **Limiet voor anonieme pulls bereikt** (`toomanyrequests`): `federatie.sh up` stopt dan zonder
-  retry. Log in met `docker login docker.io` — compose stuurt de gegevens uit `~/.docker/config.json`
-  mee, niet die uit podmans eigen `auth.json`; zonder docker-CLI schrijft
-  `podman login --authfile ~/.docker/config.json docker.io` hetzelfde bestand.
+  hij opnieuw begint. Zie je hem toch, maak dan een issue aan in MinBZK/MijnOverheidZakelijk met de
+  podman- en crun-versie (`podman version`, `crun --version`), en verwijs naar #975.
+- **Limiet voor pulls bereikt** (`toomanyrequests`, of `429 (Too Many Requests)`): `federatie.sh up`
+  stopt dan zonder retry en toont de regel met de weigering. Log in bij die registry met
+  `docker login <registry>` (Docker Hub: `docker.io`) — compose stuurt de gegevens uit
+  `~/.docker/config.json` mee, niet die uit podmans eigen `auth.json`; zonder docker-CLI schrijft
+  `podman login --authfile ~/.docker/config.json <registry>` hetzelfde bestand.
 - **Een verweesde `pause.pid`** (na een herstart van de container) liet elke podman-aanroep falen op
   `cannot re-exec process to join the existing user namespace`. `federatie.sh` (bij elk commando
   behalve `status`), de losse `up.sh` en `demo/up.sh` ruimen dat bestand zelf op als het proces
-  erin niet meer het pauzeproces van podman is, en melden dat.
+  erin niet meer het pauzeproces van podman is, en melden dat. Het pauzeproces herkennen ze aan
+  zijn eigen user namespace, want de naam verschilt: `podman pause`, of `catatonit` als dat
+  geïnstalleerd is.
 - **Een podman-API-socket waarop niemand luistert** wordt vooraf herkend. Is het de eigen rootless
   socket (`<runtime-map>/podman/podman.sock`), dan wordt de service opnieuw gestart; elke andere
   socket, ook een rootful `/run/podman/podman.sock`, blijft staan en het script meldt dat de engine
   niet antwoordt. Antwoordt de socket wel maar niet binnen vijf seconden, dan stopt het script ook:
   een bezette service is niet dood. Valt hij tijdens `up` weg (`error during connect`), dan
   stopt `federatie.sh` met de instructie `down` en daarna `up` te draaien; dan start het de service
-  zelf.
+  zelf. Of de engine podman is, leest het script uit de headers van `/_ping` en niet uit
+  `/version`: dat laatste wacht op de storage-lock zolang er elders een pull loopt.
 - **compose en de podman-CLI praten met dezelfde engine.** compose volgt `DOCKER_HOST`, de
   podman-CLI `CONTAINER_HOST`; `federatie.sh` zet de tweede gelijk aan de eerste, zodat de controles
   na `up` naar dezelfde containers kijken. Staan ze allebei en verschillen ze, dan stopt het script.

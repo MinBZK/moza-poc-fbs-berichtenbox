@@ -59,26 +59,25 @@ cat >"$stubs/uname" <<'EOF'
 echo Linux
 EOF
 
-# `curl --unix-socket <pad> <url>`: de engine antwoordt; `/version` noemt Docker als er een marker
-# `<pad>.docker` naast de socket staat, en anders podman.
+# `curl --unix-socket <pad> <url>`: de engine antwoordt op `/_ping`. Met `-D` komen de headers mee:
+# die van Docker als er een marker `<pad>.docker` naast de socket staat, en anders die van podman.
 cat >"$stubs/curl" <<'EOF'
 #!/bin/sh
+koppen=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --unix-socket) sock="$2"; shift ;;
-    http://*) url="$1" ;;
+    -D) koppen=1; shift ;;
   esac
   shift
 done
-case "$url" in
-  */version)
-    if [ -e "$sock.docker" ]; then
-      printf '{"Components":[{"Name":"Engine"}]}'
-    else
-      printf '{"Components":[{"Name":"Podman Engine"}]}'
-    fi ;;
-  *) printf OK ;;
-esac
+if [ -z "$koppen" ]; then
+  printf OK
+elif [ -e "$sock.docker" ]; then
+  printf 'HTTP/1.1 200 OK\r\nServer: Docker/27.3.1 (linux)\r\n\r\n'
+else
+  printf 'HTTP/1.1 200 OK\r\nLibpod-Api-Version: 5.4.2\r\n\r\n'
+fi
 EOF
 
 chmod +x "$stubs/docker" "$stubs/podman" "$stubs/uname" "$stubs/curl"

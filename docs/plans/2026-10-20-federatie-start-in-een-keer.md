@@ -37,8 +37,8 @@ tweede of derde poging slaagt en een warme start nooit faalt.
 ## Ontwerpkeuzes
 
 1. **Images parallel ophalen, containers serieel aanmaken.** `compose pull --policy missing`, dan
-   per service `compose create --no-recreate` in afhankelijkheidsvolgorde, dan `up -d` (zie de
-   correctie onder Uitkomst: `--parallel 1` serialiseert niet). Het ophalen raakt geen ID-mapping en hoeft dus niet serieel;
+   per service `compose create` in afhankelijkheidsvolgorde, dan `up -d` (zie de correctie onder
+   Uitkomst: `--parallel 1` serialiseert niet; zonder `--no-recreate`, zie Tweede review). Het ophalen raakt geen ID-mapping en hoeft dus niet serieel;
    `--policy missing` houdt een warme start offline en snel. Alleen op podman: Docker kent de race
    niet en houdt zijn parallelle start. Geldt voor `federatie.sh` én `peer-stack.sh`, want de losse
    peers dragen dezelfde `keep-id`-overlays.
@@ -88,8 +88,9 @@ runs slaagden daarmee, maar dat was geluk: ze duurden even lang als parallel, en
 faalde een warme run alsnog op de race. In de compose-uitvoer stonden inway, outway en toolbox
 tegelijk op `Creating`. Ook `COMPOSE_PARALLEL_LIMIT=1` beperkt het aanmaken bij `up` in docker
 compose v2.32 niet; de eerdere "0 van 5" daarmee kwam door de seriële pulls die de creates
-toevallig uit elkaar trokken. Ontwerpkeuze 1 is daarom vervangen door: per service `create
---no-recreate`, in de volgorde van `config --services` (afhankelijkheden eerst), en daarna `up -d`.
+toevallig uit elkaar trokken. Ontwerpkeuze 1 is daarom vervangen door: per service `create`, in de
+volgorde van `config --services` (afhankelijkheden eerst), en daarna `up -d`. De eerste versie
+daarvan gebruikte `create --no-recreate`; die vlag is bij de tweede review weer weggehaald.
 
 Gemeten met de definitieve versie (warm; de ID-mapped kopie verdwijnt met de laatste container, dus
 elke start na `down` loopt de race opnieuw):
@@ -169,3 +170,57 @@ Verificatie na deze ronde: 98 asserties (CI-minimum mee opgehoogd), vier mutatie
 gevangen, shellcheck schoon. Live: zes van zes `federatie.sh up` in één poging (18 s), `status`
 zonder bijwerkingen, een ongelijke `CONTAINER_HOST` geweigerd, smoke groen, beide losse peers gezond
 (16–17 s).
+
+## Derde review (PR #390, Linux-test op overlay)
+
+De review bevestigt de fix op een tweede host: op overlay faalde de parallelle create in 2 van 9
+runs (`crun: mount devpts`), met #390 in 0 van 10. Per bevinding:
+
+- **Hoog — catatonit als pauzeproces.** Met catatonit geïnstalleerd voert podman `catatonit -P`
+  uit als pauzeproces; de comm is dan `catatonit` en de naamcontrole verwijderde een levende
+  pause.pid. Nu beslist eerst de user namespace: een eigen proces in een andere userns dan de
+  aanroeper telt als levend. De naamcontrole blijft als tweede vangnet, met `catatonit` erbij:
+  onder `podman unshare` deelt de aanroeper de userns van het pauzeproces (hier nagegaan), en dan
+  zou de userns-controle alleen een levende pause.pid weghalen. Een userns die niet te lezen is,
+  telt als anders. Tests: een proces met comm `catatonit`, een proces in een andere userns (stub
+  op `readlink`), en de eigenaarscontrole via een stub op `id -u`. Die laatste vervangt het geval
+  met `/proc/1`, dat als root niet draaide (zie Laag, CI-minimum).
+- **Medium — herstart faalt met `CONTAINER_HOST`.** Hier nagespeeld: `accepts at most 1 arg(s),
+  received 2`. `podman system service` draait nu via `env -u CONTAINER_HOST -u
+  CONTAINER_CONNECTION`.
+- **Medium — trage `/version` maakt van podman Docker.** Het engine-type komt nu uit de headers
+  van `/_ping`: podman zet `Libpod-Api-Version` op elk antwoord (hier nagegaan op podman 5.4.2),
+  Docker niet. `/_ping` wacht niet op de storage-lock. Faalt ook dat verzoek, dan is de engine
+  onbekend en stopt het script met die melding, in plaats van Docker aan te nemen.
+- **Medium — conflict met #386.** Al opgelost door de merge van 23-10 (`0e5f440c`): het minimum
+  staat in `ci-scripts.yml` (128, gelijk aan de telling), niet meer in `fsc-harness-overlays.yml`.
+  `modus_engine_bereikbaar` toetst sinds `ddf493a4` (#386) via `podman --url`, dus de shim speelt
+  niet meer. Volledig overbodig is hij niet: `modus_engine` pingt geen Docker zonder DOCKER_HOST
+  (een context) en geen `tcp://`/`ssh://`. Hij slaat nu alleen een `unix://`-socket over, want die
+  heeft `modus_engine` al met `/_ping` gecontroleerd.
+- **Medium — ongeteste bedrading in `federatie.sh`.** `federatie.sh` voert zijn commando alleen bij
+  directe aanroep uit, zodat `test-federatie-helpers.sh` de functies kan sourcen. Nieuwe gevallen:
+  `zelfde_engine` (leeg, gelijk, afwijkend, overgenomen), `engine_voor_compose` (Docker geweigerd),
+  `up_met_retry` (stopt na één poging bij het pull-limiet en bij een dode API, probeert een
+  gewone fout `UP_POGINGEN` keer). De verse machine (socketpad zonder bestand) krijgt een geval in
+  `test-podman-modus.sh`.
+- **Laag:**
+  - Pull-limiet: het advies noemt de registry niet meer vast (`docker login <registry>`, met Docker
+    Hub als voorbeeld), en `Too Many Requests` telt ook als limiet.
+  - pause.pid: vlak vóór de `rm` wordt de inhoud opnieuw gelezen; heeft een andere sessie er
+    intussen een nieuwe pid in gezet, dan blijft het bestand staan.
+  - De Kotlin-flakefix blijft in deze PR, omdat hij de CI van deze stapel groen houdt, maar de
+    PR-body noemt hem nu. De afnemer houdt het antwoord vast met een `CountDownLatch` tot de
+    pollronde voorbij is, in plaats van 500 ms te wachten.
+  - Docs en PR-body: tellingen, `docker login` in plaats van `podman login`, de verwijzing naar
+    `--no-recreate` in Ontwerpkeuzes en Uitkomst, en de README verwijst niet meer naar #975 als
+    meldpunt.
+
+Verificatie na deze ronde: `test-podman-modus.sh` 138 asserties (CI-minimum mee opgehoogd),
+`test-opstellingen.sh` 39 (zijn curl-stub antwoordt nu ook met headers), `test-federatie-helpers.sh`
+groen met 17 nieuwe gevallen. Tien mutaties op de nieuwe kern van `podman-modus.sh` en het weghalen
+van de stop bij het pull-limiet in `federatie.sh` worden alle gevangen. shellcheck schoon.
+`LdvUitkomstIntegrationTest` 12 van 12 groen. Live: de echte pause.pid telt als levend, de engine
+wordt via `/_ping` als podman herkend, `federatie.sh up` met `UP_POGINGEN=1` slaagt zonder
+foutregels (41 s), `smoke-federatie.sh` groen, `down` ruimt alles op. Catatonit is niet live
+nagespeeld; die zit op geen van beide testhosts, en is alleen met de unittest gedekt.

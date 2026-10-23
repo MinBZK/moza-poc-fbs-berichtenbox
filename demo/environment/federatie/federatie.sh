@@ -22,7 +22,7 @@
 # Linux + podman: gebruikt `ss` (iproute2) en `podman`. Op andere systemen weigert `up`; zie hieronder.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVDIR="$(cd "${HERE}/.." && pwd)"
 
 # shellcheck source=../lib/fsc-harness.sh
@@ -217,11 +217,12 @@ up_met_retry() {
     fi
 
     if fsc_pull_limiet_bereikt "$log"; then
-      echo "FAIL: de registry weigert het ophalen van images voor '${peer}': limiet voor anonieme pulls bereikt." >&2
+      echo "FAIL: een registry weigert het ophalen van images voor '${peer}': limiet voor pulls bereikt." >&2
       # compose stuurt de inloggegevens uit ~/.docker/config.json mee, niet die uit podmans auth.json.
-      echo "      Log in met \`docker login docker.io\` (zonder docker-CLI:" >&2
-      echo "      \`podman login --authfile ~/.docker/config.json docker.io\`), of wacht tot de limiet" >&2
-      echo "      verloopt, en draai dan opnieuw '$0 up'." >&2
+      # Welke registry het is, staat in de regel hieronder; niet elke registry is Docker Hub.
+      echo "      Log in bij die registry met \`docker login <registry>\` (Docker Hub: docker.io; zonder" >&2
+      echo "      docker-CLI: \`podman login --authfile ~/.docker/config.json <registry>\`), of wacht tot" >&2
+      echo "      de limiet verloopt, en draai dan opnieuw '$0 up'." >&2
       fsc_pull_limiet_regel "$log" >&2; rm -f "$log"; return 1
     fi
 
@@ -327,6 +328,9 @@ markeer_peers() {
     printf 'federatie\n' >"$(modus_bestand "$peer")"
   done
 }
+
+# Alleen uitvoeren bij directe aanroep, zodat test-federatie-helpers.sh de functies kan sourcen.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
 
 case "${1:-}" in
   up)

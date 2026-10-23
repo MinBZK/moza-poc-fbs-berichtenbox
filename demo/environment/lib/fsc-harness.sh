@@ -382,10 +382,12 @@ fsc_podman_api_dood() {
 }
 
 # fsc_pull_limiet_regel <logbestand>: de eerste regel waarin een registry het ophalen weigerde op
-# zijn limiet voor anonieme pulls; exit 1 als die er niet is. Eén patroon voor herkennen én tonen,
-# zodat een aangepaste formulering niet tot een herkende fout zonder bewijsregel leidt.
+# zijn limiet voor pulls; exit 1 als die er niet is. Eén patroon voor herkennen én tonen, zodat een
+# aangepaste formulering niet tot een herkende fout zonder bewijsregel leidt. Behalve de foutcode
+# uit de registry-API (`toomanyrequests`) ook de kale HTTP-status, zoals podman die doorgeeft:
+# `invalid status code from registry 429 (Too Many Requests)`.
 fsc_pull_limiet_regel() {
-  grep -m1 -E 'toomanyrequests|pull rate limit' "$1"
+  grep -m1 -E 'toomanyrequests|pull rate limit|Too Many Requests' "$1"
 }
 
 # fsc_pull_limiet_bereikt <logbestand>: 0 als het pull-limiet bereikt is. Een herhaling haalt die
