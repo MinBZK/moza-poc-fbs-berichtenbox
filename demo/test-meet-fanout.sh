@@ -19,8 +19,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$HERE/meet-fanout.sh"
 
 fails=0
+asserties=0
 
 ok() {
+    asserties=$((asserties + 1))
     echo "OK: $1"
 }
 
@@ -672,3 +674,4 @@ if [ "$fails" -ne 0 ]; then
 fi
 
 echo "GROEN: alle meet-fanout-tests geslaagd."
+echo "ASSERTIES=$asserties"

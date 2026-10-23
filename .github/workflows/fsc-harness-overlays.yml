@@ -361,10 +361,9 @@ jobs:
           persist-credentials: false
       - name: shellcheck + bash-unittests
         # De harness is bash, en zijn bash-tests (demo/environment/lib/test-*.sh) draaien nergens
-        # anders. Zonder deze stap rot elke test die eraan wordt toegevoegd. De suites van de
-        # demo-scripts ernaast (demo/test-*.sh) draaien hier mee: deze job shellcheckt die scripts
-        # al, en het pad-filter vuurt op elke wijziging eraan. De suites onder demo/lib/ (de
-        # modus-keuze) draaien in ci-scripts.yml, want dat is een required check.
+        # anders. Zonder deze stap rot elke test die eraan wordt toegevoegd. De suites onder
+        # demo/lib/ (de modus-keuze) en naast de demo-scripts (demo/test-*.sh) draaien in
+        # ci-scripts.yml, want dat is een required check.
         #
         # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
         # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die
@@ -395,11 +394,9 @@ jobs:
 
           echo "== bash-unittests =="
           gedraaid=0
-          gedraaide_suites=" "
-          for t in demo/environment/lib/test-*.sh demo/test-*.sh; do
+          for t in demo/environment/lib/test-*.sh; do
             [ -f "$t" ] || continue
             gedraaid=$((gedraaid + 1))
-            gedraaide_suites="$gedraaide_suites$t "
             echo "-- $t"
             bash "$t" || fail=1
           done
@@ -408,21 +405,6 @@ jobs:
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
             fail=1
           fi
-
-          # Benoemd en niet alleen geteld: de suites onder demo/environment/lib/ houden de teller
-          # hierboven boven nul, dus een verdwenen, hernoemde of uit de lus geraakte suite zou de
-          # stap groen laten. Daarom de lijst van wat wérkelijk draaide, niet alleen of het bestand
-          # bestaat. Deze suite is de enige bewaking dat de fan-out-meting een niet-geleegde cache
-          # weigert.
-          for verplicht in demo/test-meet-fanout.sh; do
-            case "$gedraaide_suites" in
-              *" $verplicht "*) ;;
-              *)
-                echo "FOUT: $verplicht draaide niet; die controle draait nergens meer in de keten."
-                fail=1
-                ;;
-            esac
-          done
 
           if [ "$fail" -ne 0 ]; then
             echo "::error::shellcheck of een bash-unittest faalde. Zie de log hierboven."

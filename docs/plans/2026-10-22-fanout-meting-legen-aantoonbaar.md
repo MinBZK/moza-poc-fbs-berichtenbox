@@ -221,18 +221,24 @@ ronde, zonder `paginaGrootte`, met het nummer in een melding van `meet()`, zonde
 weigering van de ophaalronde, zonder schoning van de servertekst, zonder groottegrens, met een
 regeleinde in het cookie en met een vaste standaard voor `UITVOER` wordt de suite rood.
 
-CI: de job `harness-scripts` in `fsc-harness-overlays.yml` shellcheckt `demo/*.sh` al en draait
-op een wijziging daarin; zijn testlus krijgt `demo/test-*.sh` erbij, en een benoemde controle dat
-`demo/test-meet-fanout.sh` ook wérkelijk gedraaid heeft — de suites onder `lib/` houden de bestaande
-"minstens één suite"-teller anders altijd boven nul, en een bestand dat bestaat maar uit de lus
-geraakt is, draait niet. `ci-scripts.yml` is bedoeld voor de scripts die de CI zelf sturen, en past
-daar niet.
+CI: de suite draait in `ci-scripts.yml`, de required check. Eerst stond hij in de job
+`harness-scripts` van `fsc-harness-overlays.yml`, met als reden dat `ci-scripts.yml` voor de
+scripts is die de CI zelf sturen. Main heeft dat sindsdien losgelaten: de suites onder `demo/lib/`
+draaien daar omdat ze de enige toets van de modus-keuze zijn. Voor deze suite geldt hetzelfde — hij
+is de enige bewaking dat de meting een niet-geleegde cache weigert — en `fsc-harness-overlays.yml`
+staat achter een pad-filter en is niet required. In `ci-scripts.yml` krijgt de suite wat elke suite
+daar krijgt: een `ASSERTIES=`-regel met een ondergrens in `VERWACHTE_ASSERTIES`, en een plek in de
+benoemde set. `demo/meet-fanout.sh` krijgt er dezelfde shellcheck-gate als zijn suite.
+
+Wat de eerste plek wél had: een controle dat de suite wérkelijk draaide, niet alleen dat het
+bestand bestaat. Een bestand dat bestaat maar buiten de `find` geraakt is, draait niet, en een
+bestaans-check ziet dat niet. Die controle gaat mee, en vervangt in `ci-scripts.yml` de
+bestaans-check op twee plekken: bij elke sleutel van `VERWACHTE_ASSERTIES`, en bij de benoemde set.
+Alleen bij de sleutels volstaat niet — wie de suite uit de `find` haalt én zijn sleutel schrapt,
+houdt een bestaand bestand over dat niet draait.
 
 Bewust niet in deze wijziging:
 
-- een ondergrens voor het aantal asserties per suite in die job, zoals `ci-scripts.yml` die heeft.
-  De bestaande suites onder `demo/environment/lib/` missen die ook; dat is een eigen wijziging aan
-  de job;
 - een HTTP-contracttest op `/api/demo/sessie/verlopen` in `PaneelContractTest`. Een `@Mock`-dubbel
   van `SessieService` vervangt hem voor élke `@QuarkusTest` van de module, ook voor de leeg- en
   herstelknoppen die op `null` (Redis weg) leunen. De vorm is met de hand tegen het echte paneel
@@ -250,7 +256,8 @@ Bewust niet in deze wijziging:
    toelichting van het script bijwerken (niet alleen 403); `meet()` met `|`; de tabel pas na de
    laatste ronde naar `UITVOER`.
 2. `demo/test-meet-fanout.sh` met de nep-server.
-3. `fsc-harness-overlays.yml`: testlus uitbreiden, benoemde controle dat de suite draaide.
+3. `ci-scripts.yml`: de suite in de testlus, `VERWACHTE_ASSERTIES` en de benoemde set; shellcheck
+   over het script en zijn suite; elke sleutel van `VERWACHTE_ASSERTIES` moet gedraaid hebben.
 4. `SessieResource`: KDoc; `SessieResourceTest` met de consistentietest.
 5. `demo/environment/zad-demo/verify-zad.md`: wat de operator op ZAD ziet, de handmatige route
    zonder cookie weg (die kon niet werken: het script leegt zelf en stopt zonder bevestiging), een
@@ -259,6 +266,8 @@ Bewust niet in deze wijziging:
 ## Verificatie
 
 - `bash demo/test-meet-fanout.sh`
+- de stap `shellcheck + bash-unittests` van `ci-scripts.yml` lokaal, ook met de suite buiten de
+  `find` (moet rood)
 - `shellcheck -x -S warning demo/meet-fanout.sh demo/test-meet-fanout.sh` (via de
   koalaman-container)
 - `./mvnw clean test -pl demo/demo-console -am`
