@@ -428,8 +428,13 @@ for job_naam, job in deploy.items():
         if "zad-actions/deploy" not in str(stap.get("uses", "")):
             continue
 
-        # `test` en de `fsc-*`-peers zijn vaste deployments en worden nooit opgeruimd.
-        if str((stap.get("with") or {}).get("deployment-name", "")).startswith("pr-"):
+        # `test` en de `fsc-*`-peers zijn vaste deployments en worden nooit opgeruimd. Alleen een
+        # letterlijke vaste naam valt daarbuiten: een naam uit een expressie kan bij uitvoering
+        # alsnog `pr-<n>` opleveren, en telt dus als preview.
+        doel_naam = str((stap.get("with") or {}).get("deployment-name", ""))
+        vast = "${{" not in doel_naam and (doel_naam == "test" or re.fullmatch(r"fsc-[a-z0-9-]+", doel_naam))
+
+        if not vast:
             preview_uitrollen.append((job_naam, stap.get("with") or {}))
 
 meld(len(preview_uitrollen) == len(opruim_legs), "elke opruim-leg hoort bij precies één preview-uitrol")

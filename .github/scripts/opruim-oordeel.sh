@@ -13,6 +13,7 @@
 #
 # Contract: alle invoer via de omgeving, diagnostiek op stdout, de exitcode is het oordeel.
 #   CANCELLED github.cancelled() — of de RUN is afgebroken
+#   ZAD_LEGS  de namen van de matrix-legs van cleanup-preview-zad, gescheiden door spaties
 #   NEEDS     toJSON(needs), met per job zijn `result` en `outputs`:
 #     doel                    outputs.pr
 #     cleanup-preview-zad     outputs.bestond-<project>: true | false | onbekend, per matrix-leg
@@ -109,24 +110,25 @@ beoordeel() {
 
   # Wat er aangetroffen en verwijderd is. Een ZAD-leg met 'onbekend' heeft de delete gedraaid en de
   # afwezigheid daarna bewezen; die telt dus als werk.
-  local zad comments deployments omgeving versies werk=()
+  #
+  # Per verwachte leg en niet over wat er toevallig binnenkwam: een leg die niets rapporteerde, mag
+  # niet wegvallen, want als die wél verwijderde, leest het geheel als "niets te doen".
+  local comments deployments omgeving versies werk=() naam waarde
 
-  zad=$(jq -r '.["cleanup-preview-zad"].outputs // {} | to_entries[]
-    | select(.key | startswith("bestond-")) | "\(.key | ltrimstr("bestond-"))=\(.value)"' <<<"$NEEDS") \
-    || mislukt "NEEDS is geen bruikbare toJSON(needs)-uitvoer — de uitkomst is onbepaald."
+  [ -n "${ZAD_LEGS// /}" ] \
+    || mislukt "ZAD_LEGS is leeg — het contract met cleanup-preview.yml is verbroken."
 
-  [ -n "$zad" ] \
-    || mislukt "cleanup-preview-zad meldde voor geen enkel project of er een preview stond — het contract met cleanup-preview.yml is verbroken."
+  for naam in $ZAD_LEGS; do
+    waarde=$(veld cleanup-preview-zad "outputs.bestond-$naam") \
+      || mislukt "NEEDS is geen bruikbare toJSON(needs)-uitvoer — de uitkomst is onbepaald."
 
-  local naam waarde
-
-  while IFS='=' read -r naam waarde; do
     case "$waarde" in
       true | onbekend) werk+=("ZAD-deployment in $naam") ;;
       false) ;;
+      '') mislukt "cleanup-preview-zad meldde voor $naam niet of er een preview stond — het contract met cleanup-preview.yml is verbroken." ;;
       *) mislukt "cleanup-preview-zad meldde '$waarde' voor $naam in plaats van true/false/onbekend." ;;
     esac
-  done <<<"$zad"
+  done
 
   lees_aantal cleanup-preview-github comments
   lees_aantal cleanup-preview-github deployments
@@ -162,7 +164,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 
   # `set -u` beëindigt de shell op een ontbrekende variabele zónder de ERR-trap te draaien, dus
   # zonder annotatie. Het contract met de workflow wordt daarom expliciet gecontroleerd.
-  for naam in CANCELLED NEEDS; do
+  for naam in CANCELLED NEEDS ZAD_LEGS; do
     [ -n "${!naam+gezet}" ] \
       || mislukt "Omgevingsvariabele $naam ontbreekt — het contract met cleanup-preview.yml is verbroken."
   done

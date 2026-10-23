@@ -496,11 +496,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      contents: read
       packages: write
     # Wat er verwijderd is, voor opruim-oordeel.
     outputs:
       versies: ${{ steps.sweep.outputs.versies }}
     steps:
+      # Voor ghcr-pakket-bestaat.sh; ook hier pakt een `pull_request_target`-checkout de
+      # basisbranch, niet de PR-code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
       - name: Verwijder de ghcr-versies van deze PR
         id: sweep
         env:
@@ -516,7 +523,6 @@ jobs:
           fail=0
           blijvers=""
           verwijderd=0
-          pakketten=""
 
           # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
@@ -530,16 +536,14 @@ jobs:
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100" 2>"$RUNNER_TEMP/fout"); then
               # Een package dat nog nooit gepusht is (een nieuw image waarvan de eerste build nog
               # niet draaide), is een geldige toestand en hoort geen rode job op te leveren. Een
-              # 404 alleen bewijst dat niet — die krijg je ook bij een typefout of te weinig
-              # rechten. Pas als de packagelijst van de organisatie met HTTP 200 terugkomt, onze
-              # andere packages wél toont en deze niet, is "bestaat niet" aangetoond.
+              # 404 alleen bewijst dat niet; ghcr-pakket-bestaat.sh beslist, en alleen zijn
+              # "bestaat niet" slaat het package over.
               if grep -qF 'HTTP 404' "$RUNNER_TEMP/fout"; then
-                if [ -z "$pakketten" ]; then
-                  pakketten=$(gh api --paginate "orgs/$ORG/packages?package_type=container&per_page=100" --jq '.[].name') || pakketten=""
-                fi
+                rc=0
+                .github/scripts/ghcr-pakket-bestaat.sh "$ORG" "$pkg" || rc=$?
 
-                if grep -qxF fbs-berichtenuitvraag <<<"$pakketten" && ! grep -qxF "$pkg" <<<"$pakketten"; then
-                  echo "$pkg: package bestaat (nog) niet in ghcr; niets op te ruimen."
+                if [ "$rc" -eq 1 ]; then
+                  echo "$pkg: niets op te ruimen."
                   continue
                 fi
               fi
@@ -657,4 +661,7 @@ jobs:
         if: ${{ always() }}
         env:
           NEEDS: ${{ toJSON(needs) }}
+          # De matrix-legs van cleanup-preview-zad: een leg die niets rapporteert, maakt het oordeel
+          # dan rood in plaats van weg te vallen. test-opruim-oordeel.sh houdt de twee gelijk.
+          ZAD_LEGS: uitvraag externe-stubs magazijnen stelselregister
         run: .github/scripts/opruim-oordeel.sh

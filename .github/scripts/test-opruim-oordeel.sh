@@ -30,6 +30,8 @@ LEEG='{
   "cleanup-preview-images": {"result": "success", "outputs": {"versies": "0"}}
 }'
 
+LEGS='uitvraag externe-stubs magazijnen stelselregister'
+
 # $1 omschrijving, $2 verwachte exitcode, $3 verwacht patroon, $4 jq-bewerking op LEEG, $5 CANCELLED.
 verwacht() {
   local omschrijving=$1 code=$2 patroon=$3 bewerking=$4 geannuleerd=${5:-false}
@@ -38,7 +40,7 @@ verwacht() {
   needs=$(jq -c "$bewerking" <<<"$LEEG")
   : >"$werkmap/samenvatting"
   uitvoer=$(
-    export CANCELLED="$geannuleerd" NEEDS="$needs" GITHUB_STEP_SUMMARY="$werkmap/samenvatting"
+    export CANCELLED="$geannuleerd" NEEDS="$needs" GITHUB_STEP_SUMMARY="$werkmap/samenvatting" ZAD_LEGS="$LEGS"
     beoordeel 2>&1
   ) || rc=$?
 
@@ -141,25 +143,37 @@ verwacht "een aantal dat geen getal is, is 'mislukt'" 1 "meldde 'drie' als versi
   '."cleanup-preview-images".outputs.versies = "drie"'
 verwacht "een negatief aantal is 'mislukt'" 1 "meldde '-1' als comments" \
   '."cleanup-preview-github".outputs.comments = "-1"'
-verwacht "een ZAD-job zonder enige bestond-output is 'mislukt'" 1 "voor geen enkel project" \
+verwacht "een ZAD-job zonder enige bestond-output is 'mislukt'" 1 "voor uitvraag niet" \
   '."cleanup-preview-zad".outputs = {}'
+# Eén zwijgende leg naast een die wél verwijderde: zonder controle per leg leest dit als "gelukt",
+# en zonder die andere leg als "niets te doen".
+verwacht "een ZAD-leg zonder bestond-output is 'mislukt'" 1 "voor stelselregister niet" \
+  'del(."cleanup-preview-zad".outputs."bestond-stelselregister")
+   | ."cleanup-preview-zad".outputs."bestond-uitvraag" = "true"'
+verwacht "een lege bestond-output is 'mislukt'" 1 "voor magazijnen niet" \
+  '."cleanup-preview-zad".outputs."bestond-magazijnen" = ""'
 verwacht "een onbekende ZAD-stand is 'mislukt'" 1 "meldde 'misschien' voor uitvraag" \
   '."cleanup-preview-zad".outputs."bestond-uitvraag" = "misschien"'
 
 # --- G. het omgevingscontract ---------------------------------------------------------------------
-uitvoer=$(CANCELLED=false NEEDS='geen json' bash "$HERE/opruim-oordeel.sh" 2>&1) && rc=0 || rc=$?
+uitvoer=$(CANCELLED=false NEEDS='geen json' ZAD_LEGS="$LEGS" bash "$HERE/opruim-oordeel.sh" 2>&1) && rc=0 || rc=$?
 [ "$rc" = 1 ] && [[ $uitvoer == *"geen bruikbare toJSON(needs)"* ]] \
   && ok "een NEEDS die geen JSON is, is 'mislukt'" \
   || mislukt_test "een NEEDS die geen JSON is: rc=$rc, $uitvoer"
 
-for ontbreekt in CANCELLED NEEDS; do
-  uitvoer=$(env -u "$ontbreekt" CANCELLED=false NEEDS="$LEEG" bash -c "unset $ontbreekt; '$HERE/opruim-oordeel.sh'" 2>&1) && rc=0 || rc=$?
+for ontbreekt in CANCELLED NEEDS ZAD_LEGS; do
+  uitvoer=$(env -u "$ontbreekt" CANCELLED=false NEEDS="$LEEG" ZAD_LEGS="$LEGS" bash -c "unset $ontbreekt; '$HERE/opruim-oordeel.sh'" 2>&1) && rc=0 || rc=$?
   [ "$rc" = 1 ] && [[ $uitvoer == *"$ontbreekt ontbreekt"* ]] \
     && ok "zonder $ontbreekt meldt het script het verbroken contract" \
     || mislukt_test "zonder $ontbreekt: rc=$rc, $uitvoer"
 done
 
-uitvoer=$(CANCELLED=false NEEDS="$LEEG" bash "$HERE/opruim-oordeel.sh" 2>&1) && rc=0 || rc=$?
+uitvoer=$(CANCELLED=false NEEDS="$LEEG" ZAD_LEGS=' ' bash "$HERE/opruim-oordeel.sh" 2>&1) && rc=0 || rc=$?
+[ "$rc" = 1 ] && [[ $uitvoer == *"ZAD_LEGS is leeg"* ]] \
+  && ok "een lege ZAD_LEGS meldt het verbroken contract" \
+  || mislukt_test "lege ZAD_LEGS: rc=$rc, $uitvoer"
+
+uitvoer=$(CANCELLED=false NEEDS="$LEEG" ZAD_LEGS="$LEGS" bash "$HERE/opruim-oordeel.sh" 2>&1) && rc=0 || rc=$?
 [ "$rc" = 0 ] && [[ $uitvoer == *"niets te doen"* ]] \
   && ok "directe aanroep geeft hetzelfde oordeel als de functie" \
   || mislukt_test "directe aanroep: rc=$rc, $uitvoer"
@@ -221,6 +235,10 @@ zad = jobs.get("cleanup-preview-zad") or {}
 legs = [leg.get("naam") for leg in zad.get("strategy", {}).get("matrix", {}).get("include") or []]
 verwacht = {f"bestond-{naam}": f"${{{{ steps.bestaat.outputs.bestond-{naam} }}}}" for naam in legs}
 meld(bool(legs) and (zad.get("outputs") or {}) == verwacht, "cleanup-preview-zad heeft per matrix-leg een bestond-output")
+meld(
+    len(aanroep) == 1 and str((aanroep[0].get("env") or {}).get("ZAD_LEGS", "")).split() == legs,
+    "ZAD_LEGS van opruim-oordeel noemt precies de matrix-legs",
+)
 bestaat = stap(zad, "bestaat")
 meld(
     (bestaat.get("env") or {}).get("NAAM") == "${{ matrix.naam }}"
