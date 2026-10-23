@@ -9,6 +9,11 @@ import jakarta.ws.rs.core.MediaType
 @Produces(MediaType.APPLICATION_JSON)
 class SessieResource(private val sessieService: SessieService) {
 
+    /**
+     * `gewisteKeys` heeft twee lezers: `bediening.js` toont het aantal, en `demo/meet-fanout.sh` eist
+     * het als geheel getal voordat een ronde mag beginnen — een inlogmuur kan met 200 antwoorden,
+     * maar niet met dit veld. Hernoem of hertype je het, pas dan beide mee aan.
+     */
     @POST
     @Path("/verlopen")
     fun verlopen(): Map<String, Int> = mapOf("gewisteKeys" to sessieService.laatSessiesVerlopen())
