@@ -178,7 +178,7 @@ for magazijn in $MAGAZIJNEN; do
   # Beide peers horen dezelfde transactie te loggen: bij de consumer uitgaand, bij de provider
   # inkomend. Dat is de fsc-logging-keten over de peer-grens.
   echo "== 4. verantwoording =="
-  if ! PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/docker-compose.yaml")"; then
+  if ! PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/compose.yaml")"; then
     fout "projectnaam van de gastheer niet af te leiden"
   else
     txids() {  # <db> <richting>
