@@ -70,8 +70,10 @@ api() { fsc_contract_api "$MANAGER" "$CERT" "$KEY" "$CA" "$ADRES" "$@"; }
 # De lijst is cursor-gepagineerd met een default van honderd en een maximum van duizend, en bevat
 # álles: publicatiecontracten, ingetrokken en afgewezen contracten, van alle peers. In een langlevend
 # deployment groeit dat monotoon, en zodra ons eigen contract van pagina 1 valt zou de consumer elke
-# ronde een nieuw indienen. fsc_contracten_paginas leest daarom door tot de cursor leeg is; een
-# ruime limiet scheelt daarbij rondjes. Boven duizend geeft de manager een 400.
+# ronde een nieuw indienen. fsc_contracten_paginas leest daarom door tot de cursor leeg is. De
+# manager (OpenFSC v2.5.2) bladert in de praktijk niet door, dus de limiet is het hele leesbare
+# venster: zijn er meer contracten, dan faalt het lezen met "mogelijk afgekapt" in plaats van stil
+# het eigen contract te missen. Boven duizend geeft de manager een 400.
 CONTRACT_LIMIET="$(fsc_getal_hoogstens FSC_CONTRACT_LIMIET "${FSC_CONTRACT_LIMIET:-1000}" 1000)"
 
 DIENSTEN_JSON="$(fsc_lijst_naar_json FSC_DIENSTEN "$DIENSTEN")" || exit 2

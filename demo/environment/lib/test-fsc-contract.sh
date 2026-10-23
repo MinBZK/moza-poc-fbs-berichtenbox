@@ -647,11 +647,109 @@ else
   echo "OK: een niet-JSON respons breekt de lus af"
 fi
 
-# De rem tegen een manager die eindeloos een cursor blijft zetten. Zonder die rem hangt een
-# bootstrap-lus hier zonder ooit iets te melden.
+# assert_paginas_faalt <omschrijving> <basis-url> <verwachte-reden> <body>...: de lus moet afbreken,
+# met deze reden in ERRLOG.
+assert_paginas_faalt() {
+  local desc="$1" basis="$2" reden="$3"
+
+  shift 3
+  PAGINAS="$(printf '%s\n' "$@")"
+  printf '0' >"$TELLER_BESTAND"
+
+  if fsc_contracten_paginas pagina_ophaler "$basis" >/dev/null 2>&1; then
+    echo "FAIL: $desc — de lus slaagde" >&2
+    fails=$((fails + 1))
+  elif [[ "$(fsc_last_error)" != *"$reden"* ]]; then
+    echo "FAIL: $desc — reden '$(fsc_last_error)', verwacht '${reden}'" >&2
+    fails=$((fails + 1))
+  else
+    echo "OK: $desc"
+  fi
+}
+
+# Zo gedraagt OpenFSC v2.5.2 zich bij meer rijen dan `limit`: een volle pagina mét cursor, en daarna
+# niets. Als einde gelezen mist de lijst wat erachter stond, misschien juist het eigen contract.
+assert_paginas_faalt "een volle pagina gevolgd door een lege is mogelijk afgekapt" \
+  "https://manager/v1/contracts?limit=2" "mogelijk afgekapt" \
+  '{"contracts":[{"hash":"h1"},{"hash":"h2"}],"pagination":{"next_cursor":"c1"}}' \
+  '{"contracts":[],"pagination":{"next_cursor":""}}'
+
+# De limit staat niet altijd achteraan in de URL.
+assert_paginas_faalt "de limit wordt ook midden in de query herkend" \
+  "https://manager/v1/contracts?limit=2&sort_order=SORT_ORDER_DESCENDING" "mogelijk afgekapt" \
+  '{"contracts":[{"hash":"h1"},{"hash":"h2"}],"pagination":{"next_cursor":"c1"}}' \
+  '{"contracts":[],"pagination":{"next_cursor":""}}'
+
+# Zonder bruikbare limit is een volle pagina niet te herkennen; dan geldt een lege slotpagina gewoon
+# als einde.
+for basis in "https://manager/v1/contracts" "https://manager/v1/contracts?limit=abc" \
+  "https://manager/v1/contracts?limit=0"; do
+  PAGINAS="$(printf '%s\n' \
+    '{"contracts":[{"hash":"h1"},{"hash":"h2"}],"pagination":{"next_cursor":"c1"}}' \
+    '{"contracts":[],"pagination":{"next_cursor":""}}')"
+  printf '0' >"$TELLER_BESTAND"
+
+  if fsc_contracten_paginas pagina_ophaler "$basis" >/dev/null; then
+    echo "OK: zonder bruikbare limit (${basis#*contracts}) eindigt een lege slotpagina gewoon"
+  else
+    echo "FAIL: zonder bruikbare limit (${basis#*contracts}): $(fsc_last_error)" >&2
+    fails=$((fails + 1))
+  fi
+done
+
+# Een `contracts` die geen lijst is, faalt met een reden in plaats van een lege melding.
+assert_paginas_faalt "een contracts-veld dat geen lijst is, geeft een reden" \
+  "https://manager/v1/contracts?limit=1000" "geen lijst" '{"contracts":true}'
+
+# Een manager die wél doorbladert: een volle pagina met een gevulde opvolger is gewoon meer lijst.
+PAGINAS="$(printf '%s\n' \
+  '{"contracts":[{"hash":"h1"},{"hash":"h2"}],"pagination":{"next_cursor":"c1"}}' \
+  '{"contracts":[{"hash":"h3"}],"pagination":{"next_cursor":"c2"}}' \
+  '{"contracts":[],"pagination":{"next_cursor":""}}')"
+printf '0' >"$TELLER_BESTAND"
+uit="$(fsc_contracten_paginas pagina_ophaler "https://manager/v1/contracts?limit=2")" || uit=""
+
+if [ "$(printf '%s' "$uit" | jq -r '[.contracts[]?.hash] | join(",")' 2>/dev/null)" = "h1,h2,h3" ]; then
+  echo "OK: een volle pagina met een gevulde opvolger leest gewoon door"
+else
+  echo "FAIL: een volle pagina met een gevulde opvolger: '${uit}' ($(fsc_last_error))" >&2
+  fails=$((fails + 1))
+fi
+
+# Oplopend herhaalt v2.5.2 de laatste rij op elke volgende pagina. Zonder deze controle draait de lus
+# tot de bovengrens en levert hij intussen dubbele contracten op.
+assert_paginas_faalt "een pagina die al gelezen rijen herhaalt, breekt direct af" \
+  "https://manager/v1/contracts?limit=1000" "al gelezen" \
+  '{"contracts":[{"hash":"h1"}],"pagination":{"next_cursor":"c1"}}' \
+  '{"contracts":[{"hash":"h1"}],"pagination":{"next_cursor":"c1"}}'
+
+# Een lijst boven de 128 KiB, de grens voor één procesargument. Echte contracten halen die bij een
+# paar honderd stuks; zo'n lijst moet gewoon samengevoegd worden.
+GROOT="$(jq -nc '{contracts: [range(600) as $i | {hash: "g\($i)", opvulling: ("x" * 300)}], pagination: {next_cursor: "c1"}}')"
+PAGINAS="$(printf '%s\n' "$GROOT" '{"contracts":[],"pagination":{"next_cursor":""}}')"
+printf '0' >"$TELLER_BESTAND"
+uit="$(fsc_contracten_paginas pagina_ophaler "https://manager/v1/contracts?limit=1000")" || uit=""
+
+if [ "$(printf '%s' "$uit" | jq '.contracts | length' 2>/dev/null)" = 600 ]; then
+  echo "OK: een lijst boven de 128 KiB wordt samengevoegd"
+else
+  echo "FAIL: een lijst boven de 128 KiB: $(fsc_last_error)" >&2
+  fails=$((fails + 1))
+fi
+
+# Rijen zonder hash tellen niet als herhaling: anders zou elke tweede pagina met zo'n rij afbreken.
+assert_paginas "rijen zonder hash zijn geen herhaling" "h1,,h2" 3 \
+  '{"contracts":[{"hash":"h1"},{"x":1}],"pagination":{"next_cursor":"c1"}}' \
+  '{"contracts":[{"hash":"h2"}],"pagination":{"next_cursor":"c2"}}' \
+  '{"contracts":[],"pagination":{"next_cursor":""}}'
+
+# De rem tegen een manager die eindeloos een cursor blijft zetten, met telkens nieuwe rijen. Zonder
+# die rem hangt een bootstrap-lus hier zonder ooit iets te melden.
 eeuwige_ophaler() {
-  printf '%s' "$(( $(cat "$TELLER_BESTAND") + 1 ))" >"$TELLER_BESTAND"
-  printf '%s' '{"contracts":[{"hash":"h"}],"pagination":{"next_cursor":"altijd-meer"}}'
+  local n
+  n=$(( $(cat "$TELLER_BESTAND") + 1 ))
+  printf '%s' "$n" >"$TELLER_BESTAND"
+  printf '{"contracts":[{"hash":"h%s"}],"pagination":{"next_cursor":"altijd-meer"}}' "$n"
 }
 
 printf '0' >"$TELLER_BESTAND"
@@ -661,6 +759,9 @@ if fsc_contracten_paginas eeuwige_ophaler "https://manager/v1/contracts" >/dev/n
   fails=$((fails + 1))
 elif [ "$(paginas_geteld)" -gt 200 ]; then
   echo "FAIL: de rem greep pas na $(paginas_geteld) aanroepen in" >&2
+  fails=$((fails + 1))
+elif [[ "$(fsc_last_error)" != *"nog een cursor"* ]]; then
+  echo "FAIL: een eindeloze cursor brak af om een andere reden: $(fsc_last_error)" >&2
   fails=$((fails + 1))
 else
   echo "OK: een eindeloze cursor wordt na $(paginas_geteld) pagina's afgebroken"
