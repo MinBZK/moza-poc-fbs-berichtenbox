@@ -13,11 +13,11 @@
 # deze repository" te concluderen: deploy.yml pusht elke image met het GITHUB_TOKEN van deze
 # repository, en dat kan alleen naar een package waar deze repository schrijfrechten op heeft — en
 # dus ook leesrechten. Een package dat hier onzichtbaar is, draagt daarom geen versies van ons.
-# Wordt die toegang later ingetrokken, dan is dat een beheerhandeling op het package, geen stille
-# storing.
+# Wordt die toegang ingetrokken nadat er al versies staan, dan blijven die hier ongezien achter;
+# dat valt op doordat de volgende push van deploy.yml naar dat package faalt.
 #
 # Gebruik:
-#   GH_TOKEN=... ghcr-pakket-bestaat.sh <organisatie> <package> [referentie, standaard fbs-berichtenuitvraag]
+#   GH_TOKEN=... ghcr-package-bestaat.sh <organisatie> <package> [referentie, standaard fbs-berichtenuitvraag]
 
 set -euo pipefail
 
@@ -28,9 +28,9 @@ onbepaald() {
 }
 
 main() {
-  local org=${1:-} pakket=${2:-} referentie=${3:-fbs-berichtenuitvraag}
+  local org=${1:-} package=${2:-} referentie=${3:-fbs-berichtenuitvraag}
 
-  [ -n "$org" ] && [ -n "$pakket" ] \
+  [ -n "$org" ] && [ -n "$package" ] \
     || onbepaald "Gebruik: $0 <organisatie> <package> [referentie]"
 
   local lijst uitkomst
@@ -43,7 +43,7 @@ main() {
   # Drie uitkomsten in plaats van `jq -e`: daarbij is een parsefout niet te onderscheiden van
   # 'false'. Zonder het referentiepackage is de lijst geen bewijs: dan ziet dit token niet wat het
   # zou moeten zien.
-  uitkomst=$(jq -rs --arg p "$pakket" --arg r "$referentie" '
+  uitkomst=$(jq -rs --arg p "$package" --arg r "$referentie" '
     if length == 0 or any(.[]; type != "array") then "onleesbaar"
     else (add | map(objects | .name)) as $namen
       | if ($namen | index($r)) == null then "onleesbaar"
@@ -54,22 +54,22 @@ main() {
 
   case "$uitkomst" in
     ja)
-      echo "$pakket bestaat in ghcr."
+      echo "$package bestaat in ghcr."
 
       return 0
       ;;
     nee)
-      echo "$pakket bestaat (nog) niet in ghcr."
+      echo "$package bestaat (nog) niet in ghcr."
 
       return 1
       ;;
     *)
-      onbepaald "De packagelijst van $org is onleesbaar of mist '$referentie'; of $pakket bestaat, is onbekend."
+      onbepaald "De packagelijst van $org is onleesbaar of mist '$referentie'; of $package bestaat, is onbekend."
       ;;
   esac
 }
 
-# Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.
+# Alleen uitvoeren bij directe aanroep, zodat sourcen geen aanroep naar GitHub doet.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   main "$@"
 fi

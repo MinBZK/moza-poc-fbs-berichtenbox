@@ -502,8 +502,8 @@ jobs:
     outputs:
       versies: ${{ steps.sweep.outputs.versies }}
     steps:
-      # Voor ghcr-pakket-bestaat.sh; ook hier pakt een `pull_request_target`-checkout de
-      # basisbranch, niet de PR-code.
+      # Voor ghcr-package-bestaat.sh. Onder `pull_request_target` pakt de checkout dezelfde ref als
+      # waarvan deze workflow draait (zie de kop), nooit de PR-code.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -536,11 +536,11 @@ jobs:
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100" 2>"$RUNNER_TEMP/fout"); then
               # Een package dat nog nooit gepusht is (een nieuw image waarvan de eerste build nog
               # niet draaide), is een geldige toestand en hoort geen rode job op te leveren. Een
-              # 404 alleen bewijst dat niet; ghcr-pakket-bestaat.sh beslist, en alleen zijn
+              # 404 alleen bewijst dat niet; ghcr-package-bestaat.sh beslist, en alleen zijn
               # "bestaat niet" slaat het package over.
               if grep -qF 'HTTP 404' "$RUNNER_TEMP/fout"; then
                 rc=0
-                .github/scripts/ghcr-pakket-bestaat.sh "$ORG" "$pkg" || rc=$?
+                .github/scripts/ghcr-package-bestaat.sh "$ORG" "$pkg" || rc=$?
 
                 if [ "$rc" -eq 1 ]; then
                   echo "$pkg: niets op te ruimen."

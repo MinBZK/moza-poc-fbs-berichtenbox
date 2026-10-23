@@ -128,7 +128,7 @@ jobs:
             [.github/scripts/test-preview-klaarzetten.sh]=97
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
-            [.github/scripts/test-ghcr-pakket-bestaat.sh]=29
+            [.github/scripts/test-ghcr-package-bestaat.sh]=29
             [.github/scripts/test-images-gepubliceerd.sh]=35
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=22

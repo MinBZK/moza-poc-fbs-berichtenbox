@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unittests voor ghcr-pakket-bestaat.sh, en voor de aansluiting op cleanup-preview.yml. Geen
+# Unittests voor ghcr-package-bestaat.sh, en voor de aansluiting op cleanup-preview.yml. Geen
 # netwerk: een gh-stub op het pad geeft een geregisseerd antwoord.
 #
 # De exitcode is het hele contract. Een 1 laat de ghcr-opruiming een package overslaan, dus alleen
@@ -9,7 +9,7 @@ set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 readonly REPO_ROOT
-readonly SCRIPT="$REPO_ROOT/.github/scripts/ghcr-pakket-bestaat.sh"
+readonly SCRIPT="$REPO_ROOT/.github/scripts/ghcr-package-bestaat.sh"
 readonly CLEANUP_YML="$REPO_ROOT/.github/workflows/cleanup-preview.yml"
 
 asserties=0
@@ -130,9 +130,9 @@ gelijk "zonder organisatie is het niet vast te stellen" 2 "$RC"
 
 # --- entrypoint ----------------------------------------------------------------------------------
 if [ -x "$SCRIPT" ]; then
-  ok "ghcr-pakket-bestaat.sh is uitvoerbaar"
+  ok "ghcr-package-bestaat.sh is uitvoerbaar"
 else
-  fout "ghcr-pakket-bestaat.sh is niet uitvoerbaar; de workflow roept hem zonder 'bash' aan"
+  fout "ghcr-package-bestaat.sh is niet uitvoerbaar; de workflow roept hem zonder 'bash' aan"
 fi
 
 uitvoer=$(bash -c "source '$SCRIPT'" 2>&1)
@@ -165,7 +165,7 @@ sweep = next((i for i, s in enumerate(stappen) if s.get("id") == "sweep"), None)
 checkout = next((i for i, s in enumerate(stappen) if "actions/checkout" in str(s.get("uses", ""))), None)
 run = str(stappen[sweep].get("run", "")) if sweep is not None else ""
 
-meld("ghcr-pakket-bestaat.sh" in run, "de ghcr-opruiming beslist met het script over een 404")
+meld("ghcr-package-bestaat.sh" in run, "de ghcr-opruiming beslist met het script over een 404")
 meld(checkout is not None and sweep is not None and checkout < sweep, "en checkt het script vóór de sweep uit")
 meld((job.get("permissions") or {}).get("contents") == "read",
      "met contents: read, anders mag de checkout niet lezen")
@@ -174,7 +174,7 @@ meld((job.get("permissions") or {}).get("contents") == "read",
 # als "bestaat niet" lezen.
 meld(re.search(r'if \[ "\$rc" -eq 1 \]; then\s+echo [^\n]*\n\s+continue', run) is not None,
      "alleen exitcode 1 slaat een package over")
-meld(re.search(r'ghcr-pakket-bestaat\.sh[^\n]*\|\| rc=\$\?', run) is not None,
+meld(re.search(r'ghcr-package-bestaat\.sh[^\n]*\|\| rc=\$\?', run) is not None,
      "de exitcode wordt opgevangen, niet door set -e afgebroken")
 PY
 )
