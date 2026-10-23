@@ -27,13 +27,15 @@ trap 'rm -rf "$werkmap"' EXIT
 stubs="$werkmap/stubs"
 mkdir -p "$stubs"
 
-# Elke compose-aanroep komt als één regel in STUB_LOG; `config` levert een lege render, `ps -aq`
-# geeft STUB_PS (de containers die het project al heeft).
+# Elke compose-aanroep komt als één regel in STUB_LOG; `version` meldt docker compose v2,
+# `config --services` één service, `config` een lege render, en `ps -aq` geeft STUB_PS (de
+# containers die het project al heeft).
 cat >"$stubs/docker" <<'EOF'
 #!/bin/sh
 [ "$1" = compose ] || exit 0
-[ "$2" = version ] && exit 0
+case " $* " in *" version "*) echo "Docker Compose version v2.32.4"; exit 0 ;; esac
 echo "$*" >>"$STUB_LOG"
+case " $* " in *" --services "*) echo proefdienst; exit 0 ;; esac
 for arg in "$@"; do
   case "$arg" in
     config) echo "services: {}"; exit 0 ;;
@@ -57,19 +59,50 @@ cat >"$stubs/uname" <<'EOF'
 echo Linux
 EOF
 
-chmod +x "$stubs/docker" "$stubs/podman" "$stubs/uname"
+# `curl --unix-socket <pad> <url>`: de engine antwoordt op `/_ping`. Met `-D` komen de headers mee:
+# die van Docker als er een marker `<pad>.docker` naast de socket staat, en anders die van podman.
+cat >"$stubs/curl" <<'EOF'
+#!/bin/sh
+koppen=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --unix-socket) sock="$2"; shift ;;
+    -D) koppen=1; shift ;;
+  esac
+  shift
+done
+if [ -z "$koppen" ]; then
+  printf OK
+elif [ -e "$sock.docker" ]; then
+  printf 'HTTP/1.1 200 OK\r\nServer: Docker/27.3.1 (linux)\r\n\r\n'
+else
+  printf 'HTTP/1.1 200 OK\r\nLibpod-Api-Version: 5.4.2\r\n\r\n'
+fi
+EOF
 
+chmod +x "$stubs/docker" "$stubs/podman" "$stubs/uname" "$stubs/curl"
+
+# Echte socketbestanden: modus_engine eist dat er op DOCKER_HOST iets antwoordt, en vraagt het de
+# engine zelf of hij podman is.
+for sock in "$werkmap/podman/podman.sock" "$werkmap/docker/docker.sock"; do
+  mkdir -p "$(dirname "$sock")"
+  python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$sock"
+done
+
+touch "$werkmap/docker/docker.sock.docker"
 PODMAN_SOCK="unix://$werkmap/podman/podman.sock"
-DOCKER_SOCK="unix:///var/run/docker.sock"
+DOCKER_SOCK="unix://$werkmap/docker/docker.sock"
 grens="$werkmap/poortgrens"
 echo 0 >"$grens"
 
 # draai <script> <args…>: draait het script met de stubs voorop PATH; zet STATUS, UITVOER en
-# AANROEP (de laatste compose-aanroep, zonder het `compose`-voorvoegsel).
+# AANROEP (de laatste compose-aanroep, zonder het `compose`-voorvoegsel). XDG_RUNTIME_DIR wijst naar
+# de werkmap: modus_engine ruimt daar een verweesde pause.pid van podman op, en dat mag niet die van
+# de machine zelf zijn.
 draai() {
   : >"$werkmap/log"
   STATUS=0
-  UITVOER="$(env PATH="$stubs:$PATH" STUB_LOG="$werkmap/log" DOCKER_HOST="${ENGINE:-$PODMAN_SOCK}" \
+  UITVOER="$(env PATH="$stubs:$PATH" XDG_RUNTIME_DIR="$werkmap" STUB_LOG="$werkmap/log" DOCKER_HOST="${ENGINE:-$PODMAN_SOCK}" \
                MODUS_POORTGRENS_BESTAND="$grens" WACHTTIJD=5 ${STUB_ENV:-} bash "$@" 2>&1 </dev/null)" \
     || STATUS=$?
   AANROEP="$(tail -n1 "$werkmap/log" | sed 's/^compose //')"
