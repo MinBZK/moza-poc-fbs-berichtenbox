@@ -122,11 +122,13 @@ jobs:
           declare -A VERWACHTE_ASSERTIES=(
             [.github/scripts/test-wijzigingsfilter.sh]=111
             [.github/scripts/test-uitrol-poort.sh]=100
+            [.github/scripts/test-opruim-oordeel.sh]=62
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
-            [.github/scripts/test-preview-klaarzetten.sh]=78
+            [.github/scripts/test-preview-klaarzetten.sh]=97
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
+            [.github/scripts/test-ghcr-package-bestaat.sh]=29
             [.github/scripts/test-images-gepubliceerd.sh]=35
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=22
