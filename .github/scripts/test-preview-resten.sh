@@ -921,7 +921,7 @@ ORG=o PLAFOND=3 bash "$SCRIPT" per-package main-tags >/dev/null 2>&1 || RC=$?
 gelijk "zonder PAKKETTEN is per-package onbepaald" 2 "$RC"
 
 # --- uitgerold -----------------------------------------------------------------------------------
-readonly RUNS_URL='api repos/r/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=20'
+readonly RUNS_URL='api repos/r/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=100'
 
 # De lijst staat op aanmaakmoment, nieuwste eerst. De tweede run is ouder maar later herstart, en
 # heeft dus zijn eigen, oudere versie uitgerold over die van de eerste heen.

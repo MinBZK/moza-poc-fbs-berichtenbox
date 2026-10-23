@@ -562,18 +562,21 @@ verwijder_versies() {
 
 # De tag van de laatste geslaagde uitrol van main: van de geslaagde push-runs van deploy.yml op main
 # de laatst gestarte. Een geslaagde run heeft elk project uitgerold (uitrol-poort bewaakt dat); een
-# rode run kan deels uitgerold hebben, maar alleen nieuwere versies, en die blijven in `main_tags`
-# toch staan. Op startmoment en niet op aanmaakmoment: een herstarte oudere run rolt zijn eigen,
-# oudere versie uit, staat in de lijst op zijn aanmaakmoment, maar krijgt een nieuw startmoment.
+# rode run op een nieuwe commit kan deels uitgerold hebben, maar alleen een nieuwere versie, en die
+# blijft in `main_tags` toch staan. Op startmoment en niet op aanmaakmoment: een herstarte oudere run
+# rolt zijn eigen, oudere versie uit, staat in de lijst op zijn aanmaakmoment, maar krijgt een nieuw
+# startmoment. Honderd runs dekt het venster van dertig dagen waarin GitHub een herstart toestaat.
 #
-# Wat iemand met de hand terugzet (`zadctl deployment update-image`), staat in geen enkele run. Zo'n
-# versie is alleen beschermd zolang ze bij de nieuwste of binnen de termijn valt, of als ze een extra
-# tag krijgt: een versie met een andere tag dan `main-<sha7>` blijft altijd staan.
+# Niet gedekt, en alleen beschermd zolang de versie bij de nieuwste of binnen de termijn valt:
+# - wat iemand met de hand terugzet (`zadctl deployment update-image`), want dat staat in geen run;
+# - een herstart van een oudere run die nog loopt of mislukt, want die is niet `success`. Loopt hij
+#   nog, dan is dat een venster van minuten; daarna staat de versie weer bovenaan.
+# Een versie met een andere tag dan `main-<sha7>` blijft altijd staan; zo houd je er een vast.
 uitgerold() {
   [ -n "${REPO:-}" ] || onbepaald "Gebruik: REPO=… $0 uitgerold"
 
   local sha
-  sha=$(api "repos/$REPO/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=20" \
+  sha=$(api "repos/$REPO/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=100" \
     | jq -er '.workflow_runs | max_by(.run_started_at) | .head_sha | select(test("^[0-9a-f]{40}$"))') \
     || onbepaald "De laatste geslaagde uitrol van main is niet vast te stellen."
 
