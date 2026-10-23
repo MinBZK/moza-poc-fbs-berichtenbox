@@ -1,0 +1,70 @@
+# Overlay op compose.yaml — nodig zodra je de harness onder ROOTLESS PODMAN draait.
+#
+#   docker compose -f deploy/local/compose.yaml \
+#                  -f deploy/local/compose.podman.yaml up -d
+#
+# Rootless podman mapt host-UID 1000 op container-UID 0. De UID uit `user:` is daardoor een
+# subuid (~100999) die de 0600-privékeys niet mag lezen, en elke container die `/pki` mount faalt
+# bij boot met `permission denied`. `keep-id` mapt de host-UID op zichzelf, zodat de owner-bit
+# weer klopt en de keys dicht kunnen blijven.
+#
+# Waarom een aparte overlay en niet in de basis: `userns_mode` is platformspecifiek. Docker
+# accepteert alleen een lege waarde of `host` en weigert te starten op `keep-id`. De basis blijft
+# daarom Docker-draaibaar; podman-gebruikers stapelen dit bestand erop. Onder Docker heb je deze
+# overlay niet nodig — daar is de UID uit `user:` al de host-UID.
+#
+# Daarnaast `:z` op elke bind-mount. Op Fedora/RHEL met SELinux enforcing mag een container
+# zonder dat label de gemounte bestanden niet lezen (`permission denied` op `/pki` of de
+# haproxy-config), ook al kloppen de bestandsrechten. `:z` en niet `:Z`: de federatie mount
+# dezelfde group-CA in meerdere peers, en een privé-label zou alleen de laatst gestarte peer
+# toegang geven. Compose voegt volumes samen op doelpad, dus de regel hieronder vervangt die uit
+# de basis. Elke overlay die een mount vervangt (hostnet, federatie) draagt het label ook; de
+# overlay-guard in CI controleert dat op de gerenderde merge.
+services:
+  postgres:
+    volumes:
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro,z
+
+  router:
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro,z
+
+  manager-directory:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"
+
+  manager-logius:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"
+
+  outway-logius:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"
+
+  inway-logius:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"
+
+  toolbox:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"
+
+  directory-ui:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"
+
+  controller-logius:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"
+
+  txlog-logius:
+    userns_mode: "keep-id"
+    volumes:
+      - "${PKI_DIR:?zet PKI_DIR in .env}:/pki:ro,z"

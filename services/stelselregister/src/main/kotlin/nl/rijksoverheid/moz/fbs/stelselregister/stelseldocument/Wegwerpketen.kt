@@ -4,7 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.security.SecureRandom
 import java.time.Instant
-import java.util.Base64
+import java.util.HexFormat
 import java.util.concurrent.TimeUnit
 
 /**
@@ -66,8 +66,12 @@ object Wegwerpketen {
     internal val ROOT: List<String> = listOf("-genkeypair", "-alias", ROOT_ALIAS) + P256 +
         listOf("-dname", "CN=Wegwerp-root stelseldocument") + CA + listOf("-validity", "3650", "-startdate", GISTEREN)
 
+    /**
+     * Hexadecimaal, zodat het wachtwoord nooit met `-` begint: de launcher van `keytool` geeft elk
+     * argument dat met `-J` begint als optie aan de JVM, ook de waarde van `-storepass`.
+     */
     internal fun nieuwWachtwoord(): String =
-        Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(WACHTWOORD_BYTES).also(SecureRandom()::nextBytes))
+        HexFormat.of().formatHex(ByteArray(WACHTWOORD_BYTES).also(SecureRandom()::nextBytes))
 
     /**
      * De uitvoer gaat naar een bestand en niet naar een pipe: lezen tot het einde van een pipe
