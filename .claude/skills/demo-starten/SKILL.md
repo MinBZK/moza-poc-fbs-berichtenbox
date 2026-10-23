@@ -74,7 +74,7 @@ onbereikbaar is.
 | Gewijzigd | Wat er moet |
 |-----------|-------------|
 | Kotlin of resources in een service | jib-rebuild van dat ene image (stap 1, met `-pl services/<naam>`) → `demo/up.sh compose up -d <service>` |
-| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | `python3 demo/genereer-magazijnen.py` → `demo/up.sh compose up -d --force-recreate magazijn-simulator berichtenuitvraag` |
+| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | `DEMO_MAGAZIJNEN=<n> demo/up.sh` → `demo/up.sh compose up -d --force-recreate magazijn-simulator berichtenuitvraag`. Niet `python3 demo/genereer-magazijnen.py` los: dat schrijft containernamen, en die resolven in `hostnet` niet |
 
 ## Opruimen
 

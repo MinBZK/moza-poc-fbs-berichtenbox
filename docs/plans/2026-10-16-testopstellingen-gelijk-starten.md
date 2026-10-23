@@ -239,3 +239,69 @@ opstellingen buiten de PR-beschrijving.
   (`fsc_lokale_engine`); een gezette `DOCKER_HOST` blijft staan. Nagespeeld met een `uname`- en
   `podman machine`-stub: zonder `DOCKER_HOST` landt compose op de podman-socket.
   Daarna op macOS (bridge): `logius/deploy/local/run-smokes.sh` volledig groen.
+
+## Aanvulling 2026-10-22: review en test op Linux (PR-review)
+
+Een review met een live test op een Linux-host (rootless podman in een container, geen systemd)
+vond één functionele fout, twee documentatiefouten van belang en een reeks kleinere punten.
+
+### Ontwerpkeuzes
+
+- **Poortcontrole in hostnet.** In hostnet staan er geen `published:`-regels in de render, dus vond
+  de controle niets. De luisterpoorten staan daar in de configuratie van de services zelf:
+  `127.0.0.1:<poort>` in adres-env's, commando's en JDBC-URL's, `*PORT`-variabelen en
+  `--port <poort>`. In een gedeelde netns wijst elk `127.0.0.1:<poort>` in de render naar een
+  eigen listener (er is geen ander netwerk om naar te verwijzen), dus die verzameling is de
+  poortbezetting van de stack. Een postgres zonder eigen poort luistert op 5432; die staat in de
+  peers alleen als `POSTGRES_PORT` bij de managers en valt daarmee onder de `*PORT`-regel.
+- **Een geforceerde bridge** gaat langs dezelfde probe als de automatische keuze (bridge-netwerk,
+  naamresolutie, healthchecks) en stopt met de oorzaak in plaats van door te starten.
+- **Eén startadres:** `http://127.0.0.1:8097/bediening/`. Het kale paneel op 8095 is een
+  debugadres; daar blijft het frame leeg.
+- **Opnieuw genereren** gaat via `demo/up.sh` (dat genereert voor de vastgelegde modus) en daarna
+  een `--force-recreate` van simulator en uitvraag; een losse `genereer-magazijnen.py` schrijft
+  containernamen die in hostnet niet resolven.
+- **De suite onder `demo/lib/` draait in `ci-scripts.yml`** (required) in plaats van in
+  `fsc-harness-overlays.yml`. Daarmee telt `gedraaid` in de overlays-workflow weer alleen de
+  harness-suites.
+- De `ip_unprivileged_port_start`-controle verhuist naar de bibliotheek (`modus_poortgrens`),
+  zodat hij met een fixture te toetsen is. Een nieuwe suite `demo/lib/test-opstellingen.sh`
+  draait de echte `peer-stack.sh` en `demo/up.sh` tegen stubs en toetst per modus de
+  compose-bestanden voor `up`, `down` en `ps`, en het `.modus`-contract met de federatie.
+
+### Stappen
+
+1. `modus_poorten_vrij`: hostnet-poorten uit de render; tests bijwerken.
+2. `modus_bepalen`: geforceerde bridge via `modus_kan_bridge`; healthcheck-probe toont de oorzaak.
+3. `demo/up.sh`: engine bereikbaar vóór de image-controle; `demo-personas` in `DEMO_IMAGES` en
+   de podman-overlay; eindadres 8097.
+4. Docs: startadres, opnieuw genereren, peer-README's (terug naar bridge, compose-eis), taalgrens.
+5. SELinux: `:z` in `compose.proeftuin-lokaal.yaml`, en die laag in de guard-job.
+6. Tests: socket zoeken/starten, poortgrens, compose-bestanden per modus, `.modus`-contract;
+   demo-gevallen met `docker bridge hostnet`.
+7. CI: demo/lib-suites in `ci-scripts.yml`.
+
+### Verificatie
+
+- `demo/lib/test-podman-modus.sh` 88 asserties (was 62), `demo/lib/test-opstellingen.sh` 39, alle
+  suites onder `demo/environment/lib/` groen; shellcheck schoon. De unittest-stap van
+  `ci-scripts.yml` lokaal nagespeeld: groen, met beide demo/lib-suites erin.
+- Mutaties: met de oude poortregel in hostnet falen zes asserties; zonder de hostnet-overlay in
+  `peer-stack.sh` falen `ps`, `down` en `up` in hostnet.
+- De echte hostnet-renders van logius en magazijn-a met een listener op 127.0.0.1:5432 (de
+  postgres van een draaiende demo-stack): beide stoppen vooraf met `in gebruik: 5432`.
+- SELinux-guard op de drie demo-lagen, inclusief `compose.proeftuin-lokaal.yaml`: 17/17 met `:z`.
+- Niet hier getoetst: een volledige start naast een draaiende stack op een echte Linux-host, en de
+  weigering aan de kant van `federatie.sh` (de peer-kant van het `.modus`-contract wel).
+
+### Aanvulling: tweede test op Linux
+
+- **De bereikbaarheidscontrole toetst de socket van compose.** `docker info` slaagde ook als de
+  podman-socket in `DOCKER_HOST` weg was: `docker` was een shim naar `podman` (zoals
+  `podman-docker` op Fedora/RHEL), en `podman` leest `DOCKER_HOST` niet. Bij podman toetst
+  `modus_engine_bereikbaar` nu `podman --url "$DOCKER_HOST" info`; `docker info` blijft voor een
+  echte Docker-engine. Een nieuw geval in de suite faalt op de oude controle.
+- Een `crun: mount devpts`-fout direct na het starten van de socket bleek de parallelle create van
+  compose op podman; die pakt #390 aan.
+- Bewust niet: poort 443 van de hostnet-router (uit de haproxy-configuratie, niet uit de render)
+  in de poortcontrole. Twee peers botsen eerder al op 5432, en de demo-stack bindt 443 niet.

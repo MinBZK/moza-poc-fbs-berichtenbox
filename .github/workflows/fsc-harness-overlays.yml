@@ -31,10 +31,10 @@ on:
     types: [opened, synchronize, reopened]
     # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
     # zonder dat de guard zelf ooit gedraaid heeft.
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
   push:
     branches: [main]
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
@@ -295,7 +295,11 @@ jobs:
 
           fail=0
 
-          for lagen in "compose.podman.yaml" "compose.podman.yaml compose.podman-hostnet.yaml"; do
+          # De proeftuin-lokaal-overlay start niet via demo/up.sh, maar wordt onder podman op
+          # dezelfde lagen gezet en mount dan een checkout die het label net zo goed nodig heeft.
+          for lagen in "compose.podman.yaml" \
+                       "compose.podman.yaml compose.podman-hostnet.yaml" \
+                       "compose.podman.yaml compose.proeftuin-lokaal.yaml"; do
             args=(-f compose.yaml)
             for f in $lagen; do args+=(-f "$f"); done
 
@@ -356,8 +360,9 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck + bash-unittests
-        # De harness is bash, en zijn bash-tests (demo/environment/lib/ en de modus-keuze in
-        # demo/lib/) draaien nergens anders. Zonder deze stap rot elke test die eraan wordt toegevoegd.
+        # De harness is bash, en zijn bash-tests (demo/environment/lib/test-*.sh) draaien nergens
+        # anders. Zonder deze stap rot elke test die eraan wordt toegevoegd. De suites onder
+        # demo/lib/ (de modus-keuze) draaien in ci-scripts.yml, want dat is een required check.
         #
         # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
         # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die
@@ -388,37 +393,11 @@ jobs:
 
           echo "== bash-unittests =="
           gedraaid=0
-          # De modus-keuze voor beide opstellingen hangt aan één suite. Zonder eis op naam en aantal
-          # valt hij weg (verwijderd, hernoemd, uitgehold) terwijl de telling op de overige suites
-          # groen blijft. Verlaag je het minimum, dan is dat een zichtbare diff.
-          verplicht=demo/lib/test-podman-modus.sh
-          verplicht_minimum=102
-
-          if [ ! -f "$verplicht" ]; then
-            echo "FOUT: $verplicht ontbreekt."
-            fail=1
-          fi
-
-          for t in demo/environment/lib/test-*.sh demo/lib/test-*.sh; do
+          for t in demo/environment/lib/test-*.sh; do
             [ -f "$t" ] || continue
             gedraaid=$((gedraaid + 1))
             echo "-- $t"
-
-            if ! uitvoer=$(bash "$t" 2>&1); then
-              fail=1
-            fi
-
-            printf '%s\n' "$uitvoer"
-
-            if [ "$t" = "$verplicht" ]; then
-              gemeten=$(sed -n 's/^ASSERTIES=//p' <<<"$uitvoer" | tail -1)
-              geteld=$(grep -c '^OK: ' <<<"$uitvoer" || true)
-
-              if ! [[ "${gemeten:-}" =~ ^[0-9]+$ ]] || [ "$gemeten" -lt "$verplicht_minimum" ] || [ "$geteld" -lt "$gemeten" ]; then
-                echo "FOUT: $t leverde ASSERTIES=${gemeten:-<geen>} met $geteld geslaagd, verwacht minstens $verplicht_minimum."
-                fail=1
-              fi
-            fi
+            bash "$t" || fail=1
           done
 
           if [ "$gedraaid" -eq 0 ]; then

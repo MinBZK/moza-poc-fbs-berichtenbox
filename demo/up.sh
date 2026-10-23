@@ -77,6 +77,7 @@ DEMO_IMAGES=(
     localhost/fbs-demo/fbs-berichtenmagazijn:demo
     localhost/fbs-demo/fbs-berichtenuitvraag:demo
     localhost/fbs-demo/fbs-demo-console:demo
+    localhost/fbs-demo/fbs-demo-personas:demo
     localhost/fbs-demo/fbs-magazijn-simulator:demo
     localhost/fbs-demo/fbs-stelselregister:demo
 )
@@ -149,6 +150,7 @@ case "$COMMANDO" in
 esac
 
 modus_render_controleren "${C[@]}"
+modus_engine_bereikbaar
 modus_poorten_vrij "${C[@]}"
 
 echo "[2/4] artefacten genereren"
@@ -379,19 +381,14 @@ vereis_draaiend "${INFRA[@]}" "${SERVICES[@]}"
 # authenticatie, en POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases). Een probe
 # op een ander adres zou dus per definitie aflopen op een timeout en de start laten falen terwijl
 # de stack gezond draait. DEMO_HOST stuurt alleen de CORS-allowlist en de URL's hieronder; om er
-# van een andere machine bij te kunnen heb je een tunnel nodig, bijvoorbeeld
-# `ssh -L 8095:127.0.0.1:8095 <host>`.
+# van een andere machine bij te kunnen heb je een tunnel naar de demo-proxy nodig, bijvoorbeeld
+# `ssh -L 8097:127.0.0.1:8097 <host>`, of DEMO_BEDIENING_BIND (zie docs/demo-runbook.md §5b).
 if [ "$DEMO_HOST" != "localhost" ]; then
-    echo "Let op: het bedieningspaneel luistert alleen op 127.0.0.1. DEMO_HOST zet de CORS-allowlist;"
-    echo "       tunnel poort 8095 (en 8086) als je er vanaf ${DEMO_HOST} bij wilt."
+    echo "Let op: DEMO_HOST zet alleen de CORS-allowlist; de demo zelf (poort 8097) luistert op"
+    echo "       ${DEMO_BEDIENING_BIND:-127.0.0.1}. Tunnel 8097, of zie DEMO_BEDIENING_BIND in docs/demo-runbook.md §5b."
 fi
 
 echo
-# Bewust de loopback-URL en niet ${DEMO_HOST}: het bedieningspaneel bindt alleen op 127.0.0.1, dus
-# een kopieerbare regel met een ander adres wijst naar iets dat niet bestaat.
-echo "Draait ($MODUS). Bedieningspaneel: http://127.0.0.1:8095/"
-echo "                 Berichtenbox:    http://127.0.0.1:8095/berichtenbox.html"
-
-if [ "$DEMO_HOST" != "localhost" ]; then
-    echo "                 (vanaf ${DEMO_HOST}: tunnel eerst 8095 en 8086 naar deze machine)"
-fi
+# Bewust de loopback-URL en niet ${DEMO_HOST}: de demo-proxy bindt standaard alleen op 127.0.0.1,
+# dus een kopieerbare regel met een ander adres wijst naar iets dat niet bestaat.
+echo "Draait ($MODUS). Demo: http://127.0.0.1:8097/bediening/"

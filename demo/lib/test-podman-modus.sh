@@ -30,7 +30,7 @@ met="$werkmap/met-podman"
 zonder="$werkmap/zonder-podman"
 mkdir -p "$basis" "$met" "$zonder"
 
-for gereedschap in bash mktemp tail head seq cat id mkdir rm grep sed sort dirname timeout python3 stat; do
+for gereedschap in bash mktemp tail head seq cat id mkdir rm grep sed sort dirname timeout python3 stat awk; do
   pad="$(command -v "$gereedschap")" || { echo "gereedschap $gereedschap ontbreekt voor de test" >&2; exit 1; }
   ln -s "$pad" "$basis/$gereedschap"
 done
@@ -75,20 +75,32 @@ EOF
 
 cat >"$basis/docker" <<'EOF'
 #!/bin/sh
-# `docker compose version` slaagt; `docker compose … config` levert STUB_RENDER of faalt, en
-# `docker compose … ps` geeft STUB_PS.
+# `docker compose version` slaagt; `docker compose … config` levert STUB_RENDER (of de inhoud van
+# STUB_RENDER_BESTAND) of faalt, en `docker compose … ps` geeft STUB_PS. `docker info` faalt met
+# STUB_INFO_FAAL.
+if [ "$1" = info ]; then
+  [ -n "${STUB_INFO_FAAL:-}" ] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
+  exit 0
+fi
 [ "$1" = compose ] || exit 0
 shift
 case "$1" in version) exit 0 ;; esac
 for arg in "$@"; do last="$arg"; [ "$arg" = ps ] && { printf '%s' "${STUB_PS:-}"; exit 0; }; done
 if [ "$last" = config ]; then
   [ -n "${STUB_RENDER_FAAL:-}" ] && { echo "yaml: unknown tag !reset" >&2; exit 15; }
+  [ -n "${STUB_RENDER_BESTAND:-}" ] && { cat "$STUB_RENDER_BESTAND"; exit 0; }
   printf '%s\n' "${STUB_RENDER:-services: {}}"
 fi
 EOF
 
 cat >"$met/podman" <<'EOF'
 #!/bin/sh
+# `podman --url <socket> info` faalt met STUB_URL_FAAL: de socket waar compose mee praat antwoordt niet.
+if [ "$1" = --url ]; then
+  [ "$3" = info ] || exit 0
+  [ -n "${STUB_URL_FAAL:-}" ] && { echo "unable to connect to Podman socket: $2: no such file or directory" >&2; exit 125; }
+  exit 0
+fi
 case "$1 $2" in
   "image exists") exit 1 ;;
   "pull -q") [ -n "${STUB_PULL_FAAL:-}" ] && { echo "toomanyrequests: rate limit" >&2; exit 125; }; exit 0 ;;
@@ -149,8 +161,10 @@ maak_socket "$werkmap/docker/docker.sock"
 touch "$werkmap/docker/docker.sock.docker"
 PODMAN_SOCK="DOCKER_HOST=unix://$werkmap/podman/podman.sock"
 DOCKER_SOCK="DOCKER_HOST=unix://$werkmap/docker/docker.sock"
-BEPAAL_DEMO='modus_engine; modus_bepalen bridge hostnet; echo "MODUS=$MODUS"'
-BEPAAL_PEER='MODUS_DOCKER_TOEGESTAAN=1; modus_engine; modus_bepalen docker bridge hostnet; echo "MODUS=$MODUS"'
+# Beide opstellingen (demo/up.sh en peer-stack.sh) staan Docker toe en kennen dezelfde drie modi.
+BEPAAL='MODUS_DOCKER_TOEGESTAAN=1; modus_engine; modus_bepalen docker bridge hostnet; echo "MODUS=$MODUS"'
+# De federatie kent alleen hostnet; daarmee is een modus buiten de lijst te toetsen.
+BEPAAL_BEPERKT='modus_engine; modus_bepalen bridge hostnet; echo "MODUS=$MODUS"'
 
 # --- modus_engine ---
 
@@ -437,12 +451,69 @@ for faal in pull create; do
   fi
 done
 
+# Rootless podman op Linux zonder DOCKER_HOST: de socket onder XDG_RUNTIME_DIR, of zelf starten.
+socketmap="$werkmap/run-met-socket"
+maak_socket "$socketmap/podman/podman.sock"
+
+STUB_ENV="XDG_RUNTIME_DIR=$socketmap" geval "$met" 'modus_engine; echo "DH=$DOCKER_HOST PR=$PODMAN_RUNTIME"'
+verwacht "zonder DOCKER_HOST wordt de bestaande podman-socket gebruikt" 0 "DH=unix://$socketmap/podman/podman.sock PR=1"
+
+case "$UITVOER" in
+  *"service starten"*) fout "een bestaande socket wordt toch opnieuw gestart — $UITVOER" ;;
+  *) ok "een bestaande socket wordt niet opnieuw gestart" ;;
+esac
+
+STUB_ENV="XDG_RUNTIME_DIR=$werkmap/run-zonder-socket STUB_SERVICE_FAAL=1" geval "$met" 'modus_engine; echo "DH=$DOCKER_HOST"'
+verwacht "een podman-service die niet start, stopt met de socket erbij" 1 "kwam niet omhoog ($werkmap/run-zonder-socket/podman/podman.sock)"
+
+# --- modus_engine_bereikbaar ---
+
+STUB_ENV="$PODMAN_SOCK" geval "$met" 'modus_engine; modus_engine_bereikbaar; echo BEREIKBAAR'
+verwacht "een engine die antwoordt, laat de start door" 0 "BEREIKBAAR"
+
+STUB_ENV="$DOCKER_SOCK STUB_INFO_FAAL=1" geval "$met" 'MODUS_DOCKER_TOEGESTAAN=1; modus_engine; modus_engine_bereikbaar; echo BEREIKBAAR'
+verwacht "een engine die niet antwoordt, stopt met de melding van de engine" 1 "Cannot connect to the Docker daemon"
+
+case "$UITVOER" in
+  *BEREIKBAAR*) fout "na een onbereikbare engine loopt het script door — $UITVOER" ;;
+  *) ok "na een onbereikbare engine stopt het script" ;;
+esac
+
+# `docker` als shim naar podman (podman-docker) slaagt lokaal, ook als de socket in DOCKER_HOST weg is.
+STUB_ENV="$PODMAN_SOCK STUB_URL_FAAL=1" geval "$met" 'modus_engine; modus_engine_bereikbaar; echo BEREIKBAAR'
+verwacht "bij podman telt de socket in DOCKER_HOST, niet een slagende docker info" 1 "no such file or directory"
+
+case "$UITVOER" in
+  *BEREIKBAAR*) fout "een weggevallen podman-socket laat de start door — $UITVOER" ;;
+  *) ok "een weggevallen podman-socket stopt de start" ;;
+esac
+
+# --- modus_poortgrens ---
+
+for geval_grens in "0:0" "443:0" "444:1" "1024:1" "abc:1" ":1"; do
+  waarde="${geval_grens%%:*}"
+  verwacht_status="${geval_grens##*:}"
+  grensbestand="$werkmap/poortgrens"
+  printf '%s\n' "$waarde" >"$grensbestand"
+
+  STUB_ENV="MODUS_POORTGRENS_BESTAND=$grensbestand" geval "$met" 'modus_poortgrens; echo GRENS-OK'
+
+  if [ "$verwacht_status" -eq 0 ]; then
+    verwacht "ip_unprivileged_port_start=$waarde laat hostnet toe" 0 "GRENS-OK"
+  else
+    verwacht "ip_unprivileged_port_start='$waarde' wordt geweigerd" 1 "ip_unprivileged_port_start <= 443"
+  fi
+done
+
+STUB_ENV="MODUS_POORTGRENS_BESTAND=$werkmap/bestaat-niet" geval "$met" 'modus_poortgrens; echo GRENS-OK'
+verwacht "een onleesbare poortgrens wordt geweigerd als onbekend" 1 "(nu: onbekend)"
+
 # --- modus_bepalen: automatisch ---
 
-STUB_ENV="$PODMAN_SOCK" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK" geval "$met" "$BEPAAL"
 verwacht "werkende bridge met naamresolutie → bridge" 0 "MODUS=bridge"
 
-STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1" geval "$met" "$BEPAAL"
 verwacht "geen bridge-netwerk → hostnet, met de oorzaak" 0 "MODUS=hostnet"
 
 case "$UITVOER" in
@@ -450,13 +521,13 @@ case "$UITVOER" in
   *) fout "de netavark-melding ontbreekt — $UITVOER" ;;
 esac
 
-STUB_ENV="$PODMAN_SOCK STUB_GETENT_FAAL=1" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_GETENT_FAAL=1" geval "$met" "$BEPAAL"
 verwacht "bridge zonder naamresolutie → hostnet" 0 "MODUS=hostnet"
 
-STUB_ENV="$PODMAN_SOCK STUB_RUN_FAAL=1" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_RUN_FAAL=1" geval "$met" "$BEPAAL"
 verwacht "bridge waarop geen container start → hostnet" 0 "MODUS=hostnet"
 
-STUB_ENV="$PODMAN_SOCK STUB_HEALTH=starting" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_HEALTH=starting" geval "$met" "$BEPAAL"
 verwacht "werkende bridge, maar healthchecks lopen niet vanzelf → hostnet" 0 "MODUS=hostnet"
 
 case "$UITVOER" in
@@ -464,48 +535,63 @@ case "$UITVOER" in
   *) fout "de healthcheck-oorzaak ontbreekt — $UITVOER" ;;
 esac
 
-STUB_ENV="$PODMAN_SOCK STUB_HEALTH=starting STUB_OS=Darwin" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_HEALTH=starting STUB_OS=Darwin" geval "$met" "$BEPAAL"
 verwacht "buiten Linux geen healthcheck-probe: bridge" 0 "MODUS=bridge"
 
-STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1 STUB_OS=Darwin" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1 STUB_OS=Darwin" geval "$met" "$BEPAAL"
 verwacht "buiten Linux nooit automatisch hostnet, ook zonder bridge" 0 "MODUS=bridge"
 
-STUB_ENV="$PODMAN_SOCK STUB_PULL_FAAL=1" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_PULL_FAAL=1" geval "$met" "$BEPAAL"
 verwacht "een onbereikbaar probe-image stopt in plaats van hostnet te kiezen" 1 "Modus niet vast te stellen"
 
-STUB_ENV="$DOCKER_SOCK" geval "$met" "$BEPAAL_DEMO"
-verwacht "demo-stack op een andere engine: bridge, zonder probe" 0 "MODUS=bridge"
+STUB_ENV="$DOCKER_SOCK STUB_NET_FAAL=1" geval "$met" "$BEPAAL"
+verwacht "op Docker: docker, zonder probe" 0 "MODUS=docker"
 
-STUB_ENV="$DOCKER_SOCK STUB_NET_FAAL=1" geval "$met" "$BEPAAL_PEER"
-verwacht "peer op Docker: docker, zonder probe" 0 "MODUS=docker"
+STUB_ENV="$DOCKER_SOCK" geval "$met" "$BEPAAL_BEPERKT"
+verwacht "een opstelling zonder docker-modus op Docker: bridge, zonder probe" 0 "MODUS=bridge"
 
-STUB_ENV="" geval "$zonder" "$BEPAAL_PEER"
-verwacht "peer zonder podman: docker" 0 "MODUS=docker"
+STUB_ENV="" geval "$zonder" "$BEPAAL"
+verwacht "zonder podman: docker" 0 "MODUS=docker"
 
 # --- modus_bepalen: opgegeven ---
 
-STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1 MODUS=bridge" geval "$met" "$BEPAAL_DEMO"
-verwacht "een opgegeven modus wordt niet overruled door de probe" 0 "MODUS=bridge"
+# Een opgegeven bridge valt niet terug op hostnet, maar stopt met de oorzaak van de probe.
+STUB_ENV="$PODMAN_SOCK STUB_NET_FAAL=1 MODUS=bridge" geval "$met" "$BEPAAL"
+verwacht "MODUS=bridge zonder bridge-netwerk wordt geweigerd" 2 "MODUS=bridge kan hier niet werken"
 
-STUB_ENV="$PODMAN_SOCK MODUS=bridge STUB_HEALTH=starting" geval "$met" "$BEPAAL_DEMO"
-verwacht "MODUS=bridge zonder lopende healthchecks wordt geweigerd" 2 "blijft de start hangen"
+case "$UITVOER" in
+  *"failed to set autoconf sysctl"*) ok "de geweigerde bridge noemt de netavark-melding" ;;
+  *) fout "de geweigerde bridge noemt de oorzaak niet — $UITVOER" ;;
+esac
 
-STUB_ENV="$PODMAN_SOCK MODUS=hostnet STUB_HEALTH=starting" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK STUB_GETENT_FAAL=1 MODUS=bridge" geval "$met" "$BEPAAL"
+verwacht "MODUS=bridge zonder naamresolutie wordt geweigerd" 2 "resolven niet"
+
+STUB_ENV="$PODMAN_SOCK STUB_RUN_FAAL=1 MODUS=bridge" geval "$met" "$BEPAAL"
+verwacht "MODUS=bridge waarop geen container start, noemt de podman-melding" 2 "crun: permission denied"
+
+STUB_ENV="$PODMAN_SOCK MODUS=bridge STUB_HEALTH=starting" geval "$met" "$BEPAAL"
+verwacht "MODUS=bridge zonder lopende healthchecks wordt geweigerd" 2 "healthchecks niet vanzelf"
+
+STUB_ENV="$PODMAN_SOCK MODUS=bridge STUB_NET_FAAL=1 STUB_OS=Darwin" geval "$met" "$BEPAAL"
+verwacht "buiten Linux geen probe voor een opgegeven bridge" 0 "MODUS=bridge"
+
+STUB_ENV="$PODMAN_SOCK MODUS=hostnet STUB_HEALTH=starting" geval "$met" "$BEPAAL"
 verwacht "MODUS=hostnet heeft geen healthchecks nodig" 0 "MODUS=hostnet"
 
-STUB_ENV="$PODMAN_SOCK MODUS=docker" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK MODUS=docker" geval "$met" "$BEPAAL_BEPERKT"
 verwacht "een modus die deze opstelling niet kent, wordt geweigerd" 2 "kies uit: bridge hostnet"
 
-STUB_ENV="$PODMAN_SOCK MODUS=Hostnet" geval "$met" "$BEPAAL_PEER"
+STUB_ENV="$PODMAN_SOCK MODUS=Hostnet" geval "$met" "$BEPAAL"
 verwacht "modusnamen zijn hoofdlettergevoelig" 2 "MODUS='Hostnet' bestaat hier niet"
 
-STUB_ENV="$PODMAN_SOCK MODUS=docker" geval "$met" "$BEPAAL_PEER"
+STUB_ENV="$PODMAN_SOCK MODUS=docker" geval "$met" "$BEPAAL"
 verwacht "MODUS=docker terwijl compose op podman landt" 2 "compose landt op podman"
 
-STUB_ENV="$DOCKER_SOCK MODUS=hostnet" geval "$met" "$BEPAAL_PEER"
+STUB_ENV="$DOCKER_SOCK MODUS=hostnet" geval "$met" "$BEPAAL"
 verwacht "een podman-modus terwijl compose op Docker landt" 2 "compose landt op Docker"
 
-STUB_ENV="$PODMAN_SOCK MODUS=hostnet STUB_OS=Darwin" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK MODUS=hostnet STUB_OS=Darwin" geval "$met" "$BEPAAL"
 verwacht "hostnet buiten Linux wordt geweigerd" 2 "werkt alleen op Linux"
 
 # --- modus_render_controleren ---
@@ -559,7 +645,44 @@ STUB_ENV="STUB_RENDER=published:\"$luisteraar\" STUB_PS=abc123" geval "$met" "$P
 verwacht "met eigen containers van het project geen poortcontrole" 0 "POORTEN-OK"
 
 STUB_ENV="STUB_RENDER=services:{}" geval "$met" "$POORTEN"
-verwacht "zonder gepubliceerde poorten (hostnet) niets te controleren" 0 "POORTEN-OK"
+verwacht "zonder poorten in de render niets te controleren" 0 "POORTEN-OK"
+
+# In hostnet publiceert niets; de poorten staan in de configuratie van de services zelf. Per vorm
+# één render met de bezette poort, plus één met alleen vrije poorten.
+render="$werkmap/render.yaml"
+
+hostnet_render() {
+  printf '%s\n' "services:" "  svc:" "    network_mode: host" "$@" >"$render"
+}
+
+hostnet_render "    environment:" "      LISTEN_ADDRESS: 127.0.0.1:$luisteraar"
+STUB_ENV="MODUS=hostnet STUB_RENDER_BESTAND=$render" geval "$met" "$POORTEN"
+verwacht "hostnet: een bezet listen-adres stopt de start" 1 "in gebruik: $luisteraar"
+
+hostnet_render "    environment:" "      DB_URL: jdbc:postgresql://127.0.0.1:$luisteraar/db"
+STUB_ENV="MODUS=hostnet STUB_RENDER_BESTAND=$render" geval "$met" "$POORTEN"
+verwacht "hostnet: een bezette poort in een URL stopt de start" 1 "in gebruik: $luisteraar"
+
+hostnet_render "    environment:" "      PGPORT: \"$luisteraar\""
+STUB_ENV="MODUS=hostnet STUB_RENDER_BESTAND=$render" geval "$met" "$POORTEN"
+verwacht "hostnet: een bezette *PORT-variabele stopt de start" 1 "in gebruik: $luisteraar"
+
+hostnet_render "    command:" "      - --port" "      - \"$luisteraar\""
+STUB_ENV="MODUS=hostnet STUB_RENDER_BESTAND=$render" geval "$met" "$POORTEN"
+verwacht "hostnet: een bezette --port stopt de start" 1 "in gebruik: $luisteraar"
+
+hostnet_render "    command:" "      - -listen=127.0.0.1:$luisteraar"
+STUB_ENV="MODUS=hostnet STUB_RENDER_BESTAND=$render" geval "$met" "$POORTEN"
+verwacht "hostnet: een bezette poort in een commando-argument stopt de start" 1 "in gebruik: $luisteraar"
+
+hostnet_render "    environment:" "      CORS_ORIGINS: http://127.0.0.1:$luisteraar" \
+               "      LISTEN_ADDRESS: 127.0.0.1:$vrij" "      PGPORT: \"$vrij\""
+STUB_ENV="MODUS=hostnet STUB_RENDER_BESTAND=$render" geval "$met" "$POORTEN"
+verwacht "hostnet: een CORS-origin is geen listener, en vrije poorten laten de start door" 0 "POORTEN-OK"
+
+# Een gepubliceerde poort telt in hostnet niet: daar bindt geen container op de host.
+STUB_ENV="MODUS=hostnet STUB_RENDER=published:\"$luisteraar\"" geval "$met" "$POORTEN"
+verwacht "hostnet: een published-regel telt niet als listener" 0 "POORTEN-OK"
 
 # --- modus_onthouden / modus_teruglezen / modus_voor_start ---
 
@@ -645,7 +768,7 @@ verwacht "up met een MODUS die afwijkt van een draaiende stack wordt geweigerd" 
 
 # Het probe-image hoort ook bij een opgegeven bridge eerst opgehaald te worden: anders leest een
 # registry-fout als 'geen healthchecks' en wordt de gebruiker naar hostnet gestuurd.
-STUB_ENV="$PODMAN_SOCK MODUS=bridge STUB_PULL_FAAL=1" geval "$met" "$BEPAAL_DEMO"
+STUB_ENV="$PODMAN_SOCK MODUS=bridge STUB_PULL_FAAL=1" geval "$met" "$BEPAAL"
 verwacht "MODUS=bridge met een onbereikbaar probe-image noemt die oorzaak" 1 "probe-image"
 
 case "$UITVOER" in
