@@ -201,7 +201,7 @@ else
     rm -f "$GRANTS"
     echo "grant-hashes uit een eerdere run verwijderd (${GRANTS})." >&2
     echo "  Let op: compose leest env_file bij het AANMAKEN van een container, dus een al draaiende" >&2
-    echo "  uitvraag of magazijn houdt de oude grant-hash tot je hem hercreëert (demo/podman-up.sh)." >&2
+    echo "  uitvraag of magazijn houdt de oude grant-hash tot je hem hercreëert (demo/up.sh)." >&2
   fi
 
   echo "FBS-CONTRACTEN ROOD: ${FOUTEN} van $((GEDAAN + FOUTEN)) mislukt." >&2

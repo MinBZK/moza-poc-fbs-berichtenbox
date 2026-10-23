@@ -1,7 +1,8 @@
 # Overlay om de proeftuin uit een lokale checkout te draaien in plaats van uit het gepubliceerde
 # image. Bedoeld voor werk aan de koppeling: je bouwt de site met `npx @11ty/eleventy` en ziet het
 # resultaat meteen in de demo, zonder hun image te hoeven bouwen (dat vraagt hun volledige
-# npm-keten). Serveert dezelfde nginx-config als hun image, uit dezelfde template.
+# npm-keten). Serveert dezelfde nginx-config als hun image, uit dezelfde template. `:z` voor een host
+# met SELinux enforcing, net als in compose.podman.yaml; Docker accepteert het label ook.
 #
 #   PROEFTUIN_PAD=~/projects/moza-poc \
 #     docker compose -f compose.yaml -f compose.proeftuin-lokaal.yaml --profile demo up -d proeftuin
@@ -15,5 +16,5 @@ services:
       BACKEND_KETEN: http://berichtenuitvraag:8086
       BACKEND_DEMO: http://demo-console:8095
     volumes:
-      - ${PROEFTUIN_PAD:-../moza-poc}/_site:/usr/share/nginx/html:ro
-      - ${PROEFTUIN_PAD:-../moza-poc}/container/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${PROEFTUIN_PAD:-../moza-poc}/_site:/usr/share/nginx/html:ro,z
+      - ${PROEFTUIN_PAD:-../moza-poc}/container/default.conf.template:/etc/nginx/templates/default.conf.template:ro,z

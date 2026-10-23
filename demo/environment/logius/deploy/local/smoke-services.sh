@@ -7,7 +7,11 @@
 # falen in plaats van onder een groene announce te verdwijnen.
 set -euo pipefail
 
-COMPOSE=(docker compose -f "$(dirname "$0")/docker-compose.yaml")
+# shellcheck source=../../../lib/fsc-harness.sh
+source "$(dirname "$0")/../../../lib/fsc-harness.sh"
+fsc_lokale_engine
+
+COMPOSE=(docker compose -f "$(dirname "$0")/compose.yaml")
 
 echo "smoke: containerstatus controleren..."
 
@@ -26,7 +30,7 @@ done < <( { "${COMPOSE[@]}" config --services; awk '{print $1}' <<<"$status"; } 
   | grep -v '^$' | sort -u)
 
 if [ "${#verwacht[@]}" -eq 0 ]; then
-  echo "FAIL: geen services gevonden — klopt het pad naar docker-compose.yaml?" >&2
+  echo "FAIL: geen services gevonden — klopt het pad naar compose.yaml?" >&2
   exit 1
 fi
 

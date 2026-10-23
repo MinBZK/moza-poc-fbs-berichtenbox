@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Deze workflow start containers en wordt daarom alleen op verzoek gedraaid.
 
-De route is `bouwen → genereren → starten → rookproef`. De volledige rondleiding staat in
+De route is `bouwen → starten → rookproef`. De volledige rondleiding staat in
 [`docs/demo-runbook.md`](../../../docs/demo-runbook.md); hier staat de kortste weg plus wat de
 scripts zélf niet vertellen.
 
@@ -20,7 +20,7 @@ melding wijst niet naar de overgeslagen bouwstap.
 
 ```bash
 ./mvnw clean package -DskipTests \
-  -pl services/berichtenmagazijn,services/berichtenuitvraag,demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
+  -pl services/berichtenmagazijn,services/berichtenuitvraag,services/stelselregister,demo/demo-console,demo/demo-personas,demo/magazijn-simulator -am \
   -Dquarkus.container-image.build=true \
   -Dquarkus.container-image.group=fbs-demo -Dquarkus.container-image.tag=demo
 ```
@@ -28,34 +28,18 @@ melding wijst niet naar de overgeslagen bouwstap.
 Op Apple Silicon hoort `-Dquarkus.jib.platforms=linux/arm64` erbij: jib bouwt standaard amd64,
 want de ZAD-cluster is amd64.
 
-## 2. Genereer de stub-artefacten
+## 2. Start de stack
 
 ```bash
-python3 demo/genereer-magazijnen.py
+demo/up.sh
 ```
 
-Eén getal levert het magazijnregister, de set van de simulator en de vier ondernemers (3, 15, 45 en
-100 aangesloten organisaties). Alles landt in `demo/generated/` en is git-ignored.
+Op Docker en op podman hetzelfde commando: het script kiest zelf de modus (`docker`, `bridge` of
+`hostnet`), genereert de stub-artefacten en de sleutelketen van het stelselregister, en wacht tot
+elke service gezond is. Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> —
+de berichtenbox uit de proeftuin met het bedieningspaneel ernaast.
 
-## 3. Start de stack
-
-Docker:
-
-```bash
-docker compose --profile demo up -d
-```
-
-Podman:
-
-```bash
-demo/podman-prepare.sh bridge     # of: hostnet
-demo/podman-up.sh                 # kiest zelf de werkbare netwerkmodus
-```
-
-Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de berichtenbox uit de
-proeftuin met het bedieningspaneel ernaast.
-
-## 4. Rijd de keten door
+## 3. Rijd de keten door
 
 ```bash
 demo/smoke.sh
@@ -69,8 +53,8 @@ onbereikbaar is.
 ## De valkuilen die niet in de scripts staan
 
 - **In `hostnet` binden de containers op loopback, en dat is niet te overrulen.** `DEMO_BIND` geldt
-  alleen in bridge-modus; in een gedeelde netns is een wildcard-bind de hele machine. Wil je de
-  demo van buiten laten zien, dan is bridge-modus met `DEMO_BIND=0.0.0.0 DEMO_HOST=<adres>` de
+  alleen in `docker` en `bridge`; in een gedeelde netns is een wildcard-bind de hele machine. Wil je de
+  demo van buiten laten zien, dan is `docker` of `bridge` met `DEMO_BIND=0.0.0.0 DEMO_HOST=<adres>` de
   route, of een forwarder op de externe interface.
 - **Een kale HTTP 400 zonder body is Host-validatie, geen netwerkfout.** Benader je de demo op een
   ander adres dan de allowlist kent, dan weigert Quarkus het verzoek voordat er iets van de
@@ -89,11 +73,11 @@ onbereikbaar is.
 
 | Gewijzigd | Wat er moet |
 |-----------|-------------|
-| Kotlin of resources in een service | jib-rebuild van dat ene image (stap 1, met `-pl services/<naam>`) → `docker compose --profile demo up -d <service>` |
-| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | Regenereren (stap 2) → `docker compose --profile demo up -d --force-recreate magazijn-simulator berichtenuitvraag` |
+| Kotlin of resources in een service | jib-rebuild van dat ene image (stap 1, met `-pl services/<naam>`) → `demo/up.sh compose up -d <service>` |
+| `demo/genereer-magazijnen.py` of `DEMO_MAGAZIJNEN` | `DEMO_MAGAZIJNEN=<n> demo/up.sh` → `demo/up.sh compose up -d --force-recreate magazijn-simulator berichtenuitvraag`. Niet `python3 demo/genereer-magazijnen.py` los: dat schrijft containernamen, en die resolven in `hostnet` niet |
 
 ## Opruimen
 
 ```bash
-docker compose --profile demo down -v
+demo/up.sh down -v        # met de compose-bestanden van de laatste start
 ```
