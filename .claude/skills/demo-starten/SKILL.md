@@ -50,6 +50,9 @@ magazijn A én B en controleert dat beide via de uitvraag terugkomen — dat is 
 is by design degradatie-tolerant, dus met alleen A's bericht is de proef ook groen terwijl B
 onbereikbaar is.
 
+De laatste stap haalt de bijlage van A's bericht op via de demo-proxy (`:8097`), met de ontvanger
+alleen in een cookie, zoals de browser dat doet bij een klik op een bijlage.
+
 ## De valkuilen die niet in de scripts staan
 
 - **In `hostnet` binden de containers op loopback, en dat is niet te overrulen.** `DEMO_BIND` geldt
