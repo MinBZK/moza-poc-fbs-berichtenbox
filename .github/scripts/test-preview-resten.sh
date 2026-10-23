@@ -668,11 +668,133 @@ opnieuw
 ORG=o GH_TOKEN=t draai ongetagd p
 gelijk "een onleesbare versielijst is onbepaald" 2 "$RC"
 
+# --- main-tags ----------------------------------------------------------------------------------
+# main_versies <id> <created_at> <tags-json> ...: een versielijst, per drie argumenten één versie.
+main_versies() {
+  local uit=""
+
+  while [ "$#" -ge 3 ]; do
+    uit="$uit{\"id\":$1,\"name\":\"sha256:$1\",\"created_at\":\"$2\",\"metadata\":{\"container\":{\"tags\":$3}}},"
+    shift 3
+  done
+
+  printf '[%s]' "${uit%,}"
+}
+
+# Twaalf oude main-versies (101-112, juli) en één van eergisteren (120): de tien nieuwste zijn 120 en
+# 112-104, dus 101-103 vallen buiten de termijn. Daarnaast oude versies die nooit weg mogen: een
+# main-tag naast een PR-tag (90), een ongetagde (91), en tags die op main lijken maar het niet zijn
+# (92: geen sha, 93: acht tekens). Over twee pagina's, zoals `--paginate` ze levert.
+main_fixtures() {
+  local i pagina1 pagina2 versies=()
+
+  pagina1=$(main_versies 90 2026-06-01T00:00:00Z '["main-0000000","pr-7-x"]' 91 2026-06-01T00:00:00Z '[]' \
+    92 2026-06-01T00:00:00Z '["main-1"]' 93 2026-06-01T00:00:00Z '["main-abc12345"]')
+
+  for i in $(seq 101 112); do
+    versies+=("$i" "2026-07-$((i - 100 + 10))T00:00:00Z" "[\"main-$(printf '%07x' "$i")\"]")
+  done
+
+  pagina2=$(main_versies "${versies[@]}" 120 2026-10-20T00:00:00Z '["main-abcdef0"]')
+  antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$pagina1
+$pagina2"
+}
+
+opnieuw
+main_fixtures
+ORG=o draai main-tags p
+gelijk "zonder VERWIJDER worden de main-versies buiten de termijn alleen geteld" "0|p	te-verwijderen	3	alleen geïnventariseerd" "$RC|$UITVOER"
+bevat_niet "en niets verwijderd" "DELETE" "$(aanroepen)"
+
+opnieuw
+main_fixtures
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":90},{"id":104},{"id":120}]'
+ORG=o VERWIJDER=true draai main-tags p
+gelijk "de main-versies buiten de termijn worden verwijderd en nagemeten" "0|p	verwijderd	3	" "$RC|$UITVOER"
+gelijk "precies die versies, oudste eerst; een gedeelde, ongetagde of vreemde tag blijft" "101 102 103" "$(deletes)"
+
+opnieuw
+main_fixtures
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' '[{"id":103}]'
+ORG=o VERWIJDER=true VERWIJDER_MAX=2 draai main-tags p
+gelijk "het plafond verwijdert de oudste eerst" "101 102" "$(deletes)"
+gelijk "en meldt de rest als uitgesteld" "p	uitgesteld	1	plafond van 2 verwijderingen per run
+p	verwijderd	2	" "$UITVOER"
+
+opnieuw
+main_fixtures
+ORG=o VERWIJDER=true VERWIJDER_MAX=0 draai main-tags p
+gelijk "een opgebruikt plafond verwijdert niets en vraagt niets na" "0|p	uitgesteld	3	plafond van 0 verwijderingen per run|1" \
+  "$RC|$UITVOER|$(grep -c 'versions?per_page' "$werkmap/aanroepen")"
+
+ORG=o VERWIJDER=true VERWIJDER_MAX=veel draai main-tags p
+gelijk "een plafond dat geen getal is, is onbepaald" 2 "$RC"
+
+opnieuw
+main_fixtures
+ORG=o VERWIJDER=true draai main-tags p
+gelijk "wat na het verwijderen nog in de lijst staat, is mislukt" "p	verwijderd	0"$'\t'"
+p	mislukt	3	staan na het verwijderen nog in de lijst (0 weigeringen)" "$UITVOER"
+
+opnieuw
+main_fixtures
+antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' 'stuk'
+ORG=o VERWIJDER=true draai main-tags p
+gelijk "een lijst die na het verwijderen niet te lezen is, is onbepaald" 2 "$RC"
+
+# Na weken zonder merge zijn alle main-versies oud; de tien nieuwste blijven, want daar draait `test`
+# op. Elf versies: alleen de oudste gaat.
+opnieuw
+antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$(main_versies \
+  1 2026-07-01T00:00:00Z '["main-0000001"]' 2 2026-07-02T00:00:00Z '["main-0000002"]' \
+  3 2026-07-03T00:00:00Z '["main-0000003"]' 4 2026-07-04T00:00:00Z '["main-0000004"]' \
+  5 2026-07-05T00:00:00Z '["main-0000005"]' 6 2026-07-06T00:00:00Z '["main-0000006"]' \
+  7 2026-07-07T00:00:00Z '["main-0000007"]' 8 2026-07-08T00:00:00Z '["main-0000008"]' \
+  9 2026-07-09T00:00:00Z '["main-0000009"]' 10 2026-07-10T00:00:00Z '["main-000000a"]' \
+  11 2026-07-11T00:00:00Z '["main-000000b"]')"
+ORG=o VERWIJDER=true draai main-tags p
+gelijk "zonder recente merge blijven de tien nieuwste staan" "1" "$(deletes)"
+
+# Een versie met een extra tag blijft staan en neemt dus geen plek onder de tien in: met de nieuwste
+# gedeeld blijven er tien andere staan, en gaat er niets weg.
+opnieuw
+antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$(main_versies \
+  1 2026-07-01T00:00:00Z '["main-0000001"]' 2 2026-07-02T00:00:00Z '["main-0000002"]' \
+  3 2026-07-03T00:00:00Z '["main-0000003"]' 4 2026-07-04T00:00:00Z '["main-0000004"]' \
+  5 2026-07-05T00:00:00Z '["main-0000005"]' 6 2026-07-06T00:00:00Z '["main-0000006"]' \
+  7 2026-07-07T00:00:00Z '["main-0000007"]' 8 2026-07-08T00:00:00Z '["main-0000008"]' \
+  9 2026-07-09T00:00:00Z '["main-0000009"]' 10 2026-07-10T00:00:00Z '["main-000000a"]' \
+  11 2026-07-11T00:00:00Z '["main-000000b","v1"]')"
+ORG=o VERWIJDER=true draai main-tags p
+gelijk "een gedeelde nieuwste neemt geen plek onder de tien in: niets te doen, niets nagevraagd" "0||1" \
+  "$RC|$UITVOER|$(grep -c 'versions?per_page' "$werkmap/aanroepen")"
+
+# De grens van veertien dagen: precies veertien dagen oud telt mee, een seconde jonger niet. Tien
+# jongere versies houden de bescherming van de nieuwste buiten beeld.
+opnieuw
+antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$(main_versies \
+  1 2026-10-08T00:00:00Z '["main-0000001"]' 2 2026-10-08T00:00:01Z '["main-0000002"]' \
+  11 2026-10-21T00:00:00Z '["main-0000011"]' 12 2026-10-21T00:00:00Z '["main-0000012"]' \
+  13 2026-10-21T00:00:00Z '["main-0000013"]' 14 2026-10-21T00:00:00Z '["main-0000014"]' \
+  15 2026-10-21T00:00:00Z '["main-0000015"]' 16 2026-10-21T00:00:00Z '["main-0000016"]' \
+  17 2026-10-21T00:00:00Z '["main-0000017"]' 18 2026-10-21T00:00:00Z '["main-0000018"]' \
+  19 2026-10-21T00:00:00Z '["main-0000019"]' 20 2026-10-21T00:00:00Z '["main-0000020"]')"
+ORG=o draai main-tags p
+gelijk "precies veertien dagen oud telt mee, een seconde jonger niet" "p	te-verwijderen	1	alleen geïnventariseerd" "$UITVOER"
+
+opnieuw
+ORG=o draai main-tags p
+gelijk "een onleesbare versielijst is onbepaald" 2 "$RC"
+
+draai main-tags p
+gelijk "zonder ORG is main-tags onbepaald" 2 "$RC"
+
 # --- bevindingen --------------------------------------------------------------------------------
 GOED='{
   "zad": {"result": "success", "outputs": {"nummers-uitvraag": "7", "nummers-magazijnen": "geen"}},
   "inventaris": {"result": "success", "outputs": {"opruimen": "7", "bevindingen": "7\topruimen\tomgeving,zad:uitvraag"}},
   "opruimen": {"result": "success", "outputs": {"uitkomsten": "7\tsuccess\thttps://x/runs/2"}},
+  "main-tags": {"result": "success", "outputs": {"uitkomsten": "p\tverwijderd\t3\t"}},
   "ongetagd": {"result": "success", "outputs": {"uitkomsten": "p\tverwijderd\t2\t"}}
 }'
 
@@ -691,6 +813,15 @@ bevinding "een onleesbaar ZAD-project wordt gemeld" '.zad.outputs."nummers-magaz
 bevinding "een omgevallen ZAD-leg wordt gemeld" '.zad.result = "failure"' 'onbepaald	zad	de job eindigde als failure'
 bevinding "een omgevallen inventaris wordt gemeld" '.inventaris.result = "failure"' 'onbepaald	inventaris	de job eindigde als failure'
 bevinding "een ontbrekende ongetagd-job wordt gemeld" 'del(.ongetagd)' 'onbepaald	ongetagd	de job eindigde als ontbreekt'
+bevinding "een omgevallen main-tags-job wordt gemeld" '."main-tags".result = "failure"' 'onbepaald	main-tags	de job eindigde als failure'
+bevinding "een geweigerde main-versie wordt gemeld" \
+  '."main-tags".outputs.uitkomsten = "p\tverwijderd\t1\t\np\tmislukt\t2\tstaan na het verwijderen nog in de lijst (2 weigeringen)"' \
+  'main-tags-mislukt	p	2 main-versie(s) staan na het verwijderen nog in de lijst (2 weigeringen)'
+bevinding "een onleesbaar package bij main-tags wordt gemeld" \
+  '."main-tags".outputs.uitkomsten = "p\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen"' \
+  'onbepaald	ghcr-main:p	de versies zijn niet te lezen of te beoordelen'
+bevinding "een achterstand aan main-versies is stil" \
+  '."main-tags".outputs.uitkomsten = "p\tuitgesteld\t40\tplafond van 150 verwijderingen per run\np\tverwijderd\t150\t"' ''
 bevinding "een overgeslagen opruiming met werk meldt de job én het nummer dat er nog staat" '.opruimen = {"result": "skipped"}' \
   'onbepaald	opruimen	de job eindigde als skipped; voor 7 is niet vastgesteld of de opruiming lukte
 wacht-op-opruiming	pr-7	niet aan de beurt (maximaal 10 per run); 1 nummer(s) wachten nog'
@@ -1030,6 +1161,21 @@ meld(
 meld((melding.get("permissions") or {}).get("issues") == "write", "de meldjob mag het issue bijwerken")
 meld((jobs.get("opruimen", {}).get("permissions") or {}).get("actions") == "write", "de opruimjob mag cleanup-preview.yml starten")
 meld((jobs["zad"].get("permissions") or {}) == {"contents": "read"}, "de ZAD-inventaris krijgt alleen leesrecht op de code")
+
+# `ongetagd` vraagt per getagde versie het mediatype op; na `main-tags` zijn dat er minder. Ook na
+# een omgevallen `main-tags` moet hij draaien.
+ongetagd_job = jobs.get("ongetagd") or {}
+meld(
+    ongetagd_job.get("needs") in ("main-tags", ["main-tags"])
+    and str(ongetagd_job.get("if", "")).replace(" ", "") == "${{!cancelled()}}",
+    "ongetagd draait na main-tags, ook als die omviel",
+)
+main_run = " ".join(str(s.get("run", "")) for s in (jobs.get("main-tags") or {}).get("steps") or [])
+meld(
+    "preview-resten.sh main-tags" in main_run and 'VERWIJDER_MAX="$budget"' in main_run
+    and ((jobs.get("main-tags") or {}).get("permissions") or {}).get("packages") == "write",
+    "main-tags ruimt per package op binnen één gedeeld plafond",
+)
 
 nood = [s for s in melding.get("steps") or [] if "noodmelding" in str(s.get("run", ""))]
 melden = [s for s in melding.get("steps") or [] if "preview-resten.sh issue" in str(s.get("run", ""))]

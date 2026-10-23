@@ -10,8 +10,9 @@
 #
 # OPRUIMEN GAAT VIA cleanup-preview.yml, per PR-nummer en na elkaar. Geen tweede verwijderroute met
 # eigen aannames: die workflow valideert het nummer, weigert een PR die niet gesloten is, bouwt de
-# namen opnieuw op en meet elke verwijdering na. Alleen ongetagde ghcr-versies ruimt deze workflow
-# zelf op, want die horen bij geen PR; preview-resten.sh beschrijft de voorzorg.
+# namen opnieuw op en meet elke verwijdering na. Alleen ongetagde ghcr-versies en `main-<sha>`-versies
+# buiten hun bewaartermijn ruimt deze workflow zelf op, want die horen bij geen PR; preview-resten.sh
+# beschrijft de voorzorg.
 #
 # NOOIT NAAST EEN UITROL. Vóór elke opruiming kijkt de workflow of er een run van deploy.yml of
 # cleanup-preview.yml loopt; zo ja, dan schuift de rest door naar de volgende run. Een delete die
@@ -276,8 +277,70 @@ jobs:
             awk -F'\t' '{ print "| pr-" $1 " | " $2 " | " $3 " |" }' "$uitkomsten"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # De bewaartermijn van `main-<sha>`-versies; preview-resten.sh beschrijft welke blijven staan.
+  main-tags:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      uitkomsten: ${{ steps.main-tags.outputs.uitkomsten }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Ruim oude main-versies op
+        id: main-tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERWIJDER: ${{ github.event_name == 'schedule' || inputs.opruimen }}
+          # Plafond over alle packages samen, naast dat van `ongetagd`: de eerste runs werken een
+          # achterstand van honderden versies per package weg, en blijven zo binnen de API-limiet.
+          MAIN_TAGS_PER_RUN: "150"
+        run: |
+          set -euo pipefail
+
+          ORG=${GITHUB_REPOSITORY_OWNER,,}
+          export ORG
+          uitkomsten="$RUNNER_TEMP/uitkomsten.tsv"
+          : >"$uitkomsten"
+          budget=$MAIN_TAGS_PER_RUN
+
+          pakketten=$(python3 -c 'import json, sys, yaml; wf = yaml.safe_load(open(sys.argv[1])); print(" ".join(sorted(n for namen in json.loads(wf["env"]["EIGEN_IMAGES"]).values() for n in namen)))' .github/workflows/deploy.yml)
+
+          for pkg in $pakketten; do
+            if ! uit=$(VERWIJDER_MAX="$budget" .github/scripts/preview-resten.sh main-tags "$pkg"); then
+              uit=$(printf '%s\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen' "$pkg")
+            fi
+
+            printf '%s\n' "$uit" >>"$uitkomsten"
+
+            gebruikt=$(awk -F'\t' '$2 == "verwijderd" || $2 == "mislukt" { s += $3 } END { print s + 0 }' <<<"$uit")
+            budget=$((budget > gebruikt ? budget - gebruikt : 0))
+          done
+
+          {
+            echo "uitkomsten<<EINDE_UITKOMSTEN"
+            cat "$uitkomsten"
+            echo "EINDE_UITKOMSTEN"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### main-versies buiten de bewaartermijn"
+            echo
+            echo '```'
+            cat "$uitkomsten"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Ongetagde versies horen bij geen PR, dus de inventaris per nummer ziet ze niet.
+  #
+  # Na `main-tags`: deze job vraagt van elke getagde versie het mediatype op, dus elke main-versie
+  # die daar weggaat, scheelt hier een aanroep. Ook als `main-tags` omviel; de meldjob noemt dat.
   ongetagd:
+    needs: main-tags
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -335,7 +398,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   melding:
-    needs: [zad, inventaris, opruimen, ongetagd]
+    needs: [zad, inventaris, opruimen, main-tags, ongetagd]
     # `always()`: juist een omgevallen job hoort in de melding, en een afgebroken run ook.
     if: ${{ always() }}
     runs-on: ubuntu-latest
