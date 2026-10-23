@@ -91,6 +91,11 @@ Twee dingen moeten daarvoor staan, en beide horen bij elkaar:
 
 ### Inbound data-pad — profiel-service (lokaal bewezen, ZAD-apply is handmatig vervolgwerk)
 
+> **Op `test` wijst de `endpoint_url` van `profiel-service` bewust naar
+> `https://toxiproxy-profiel-test-mpfpsm-lcl.rig.prd1.gn2.quattro.rijksapps.nl`**, niet rechtstreeks
+> naar `profiel-test-…`: de storingsknop "Profielservice uit" van de demo werkt via die proxy. Zet hem
+> niet "terug"; de reden staat in `demo/environment/zad-demo/README.md` §6.
+
 Lokaal bewezen in `deploy/local/` (`publish-service.sh` + `smoke-discover.sh` +
 `consume-service.sh`, zie `docs/plans/2026-08-12-logius-profiel-service-fsc-publicatie.md`):
 `logius` publiceert de dienst `profiel-service` op zijn eigen inway en heeft een geldig,

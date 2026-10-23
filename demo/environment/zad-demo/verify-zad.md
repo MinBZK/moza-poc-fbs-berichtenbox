@@ -235,7 +235,7 @@ Toxiproxy-component op de tag zónder digest te zetten en meteen weer terug:
 
 ```bash
 zadctl -p mpfb-8wh --strict deployment update-image test -c toxiproxy-redis \
-  --image ghcr.io/shopify/toxiproxy:2.12.0
+  --image ghcr.io/shopify/toxiproxy:2.13.0
 zadctl -p mpfb-8wh --strict deployment update-image test -c toxiproxy-redis \
   --image "<de volledige waarde van TOXIPROXY_IMAGE uit deploy.yml>"
 ```

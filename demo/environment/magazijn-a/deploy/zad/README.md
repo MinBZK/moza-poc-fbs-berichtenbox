@@ -32,9 +32,10 @@ niet uit `test` gekloond worden**, ongeacht hoe `clone-from` zich gedraagt. De p
 singleton (één deployment, één aanmelding van de federatie-OIN); previews van de app draaien
 zonder peer. `fsc-magazijna` is zelf nooit een kloon-bron.
 
-De app-component `magazijna` blijft in `test`. De inway bereikt haar cross-deployment via de
-ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
-`MAGAZIJNA_UPSTREAM_URL` in `upsert-peer.sh`.
+De app-component `magazijna` blijft in `test`. De inway bereikt haar cross-deployment op haar
+cluster-interne Service-adres, met een `cross-domain-access`-regel tussen beide —
+`ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie `MAGAZIJNA_UPSTREAM_URL` in
+`upsert-peer.sh` en de omzetting in `cutover-interne-upstream.md`.
 
 ## Inhoud
 
@@ -43,6 +44,7 @@ ingress-URL — `ZAD_MAGAZIJNA_DEPLOYMENT` (default `test`) bepaalt welke, zie
 | `upsert-peer.sh` | `validate`/`plan`/`apply` tegen de ZAD v2 Operations Manager API — lokaal/handmatig hulpmiddel voor de eenmalige component-creatie (env/ports/certs) en voor debugging. |
 | `cert-manifest.md` | Runbook: welk cert-bestand op welk `/etc/fsc/...`-pad, per component (UI-only bijlagen). |
 | `verify-zad.md` | Runbook: announce/publiceren/discover ná een geslaagde apply, + de acceptatiecriteria. |
+| `cutover-interne-upstream.md` | Draaiboek: de dienst van het publieke adres van de app naar haar cluster-interne adres, met netwerkregels, verificatie aan het transactielogboek en terugrollen. |
 | `../../../federatie/contracts/zad-runbook.md` | Runbook: het contract-bootstrap-component (`magazijna-fscbootstrap`, rol provider) neerzetten — env, cert-attachments, verificatie. |
 | `../../../../../.github/workflows/deploy.yml` (root) | `deploy-test-magazijnen`-job: de DOORLOPENDE image-tag-updates (elke push naar main). Twee stappen — `magazijna`/`magazijnb` op deployment `test`, de zes `magazijna-fsc*`-componenten op `fsc-magazijna`. Niet de eenmalige creatie (die doet `upsert-peer.sh`). |
 
@@ -114,8 +116,8 @@ omdat het de reden is dat deze peer twee paden gebruikt en niet één: liveness 
 | `ZAD_MGR_SCHEMA` / `ZAD_TXLOG_SCHEMA` | `manager` / `txlog` | `search_path`-schema voor de migratie-teller van manager resp. txlog (isolatie). Moeten sporen met `postgres-init.sql` (dat die twee aanmaakt). Leeg = geen search_path. |
 | `ZAD_CTL_SCHEMA` | _(leeg)_ | De controller draait **zonder** search_path — die maakt z'n eigen `controller`-schema aan; mét search_path loopt migratie #1 dirty vast. Alleen zetten als je weet wat je doet. |
 | `ZAD_POSTGRES_IMAGE` | `docker.io/library/postgres:17` | Image voor de `magazijna-fscpg`-component. |
-| `ZAD_MAGAZIJNA_DEPLOYMENT` | `test` | Deployment waarin de `magazijna`-app draait. Staat los van `ZAD_DEPLOYMENT` (de peer-deployment) — de peer praat cross-deployment via de ingress-URL. |
-| `ZAD_MAGAZIJNA_UPSTREAM_URL` | `https://magazijna-<magazijna-deployment>-<project>.<base-domain>` | Volledige override van de endpoint-URL naar de `magazijna`-app; standaard afgeleid uit `ZAD_MAGAZIJNA_DEPLOYMENT`/`ZAD_PROJECT`. |
+| `ZAD_MAGAZIJNA_DEPLOYMENT` | `test` | Deployment waarin de `magazijna`-app draait. Staat los van `ZAD_DEPLOYMENT` (de peer-deployment) — de peer praat cross-deployment met het cluster-interne adres van de app. |
+| `ZAD_MAGAZIJNA_UPSTREAM_URL` | `http://<magazijna-deployment>-magazijna.rig-prd-<project>.svc.cluster.local:8090` | Volledige override van de endpoint-URL naar de `magazijna`-app; standaard afgeleid uit `ZAD_MAGAZIJNA_DEPLOYMENT`/`ZAD_PROJECT`. |
 
 `deploy.yml`'s `deploy-test-magazijnen`-job gebruikt voor zijn image-tag-updates het bestaande
 secret `ZAD_API_KEY_MAGAZIJNEN` — dezelfde key als voor `magazijna`/`magazijnb`, geen
