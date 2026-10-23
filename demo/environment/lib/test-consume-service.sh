@@ -260,7 +260,8 @@ rm -rf "$TMP"
 #
 # De melding telt mee: zonder die check slaagt een geval ook als het script om een heel andere
 # reden stopt, bijvoorbeeld op een aanroep die de stub niet kent.
-for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor" "afgekapte-lijst"; do
+for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor" "afgekapte-lijst" \
+  "afgekapt-zonder-state"; do
   opzet
   met_state bestaand
 
@@ -286,6 +287,15 @@ for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor" "afg
       # Zo gedraagt OpenFSC v2.5.2 zich bij meer contracten dan de `limit` van het script: een volle
       # eerste pagina mét cursor, en daarachter niets. Het eigen contract kan op het afgekapte deel
       # staan.
+      jq -nc --argjson c "$(vreemd v)" \
+        '{ contracts: [range(1000) as $i | $c | .hash = "v\($i)"], pagination: { next_cursor: "c2" } }' \
+        > "${TMP}/stub/pagina-1.json"
+      pagina 2 ja
+      melding='mogelijk afgekapt' ;;
+    afgekapt-zonder-state)
+      # Zonder state-file slaat het script stap 1 over; ook dan mag het niet indienen op een lijst die
+      # het daarna niet kan lezen.
+      rm -rf "${TMP}/logius/contracts/.bootstrap-state"
       jq -nc --argjson c "$(vreemd v)" \
         '{ contracts: [range(1000) as $i | $c | .hash = "v\($i)"], pagination: { next_cursor: "c2" } }' \
         > "${TMP}/stub/pagina-1.json"

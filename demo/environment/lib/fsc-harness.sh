@@ -316,7 +316,9 @@ fsc_contracten_paginas() {
 
     # Geen jq-vangnet met `//`: een respons die geen contractenlijst is, moet hier hard stuk in
     # plaats van als lege pagina door te glippen. De aanroepers melden dat met hun eigen tekst.
-    pagina="$(printf '%s' "$body" | jq -e '.contracts' 2>"$ERRLOG")" || {
+    pagina="$(printf '%s' "$body" \
+      | jq -e '.contracts | if type == "array" or . == null then . else error("veld \"contracts\" is geen lijst") end' \
+        2>"$ERRLOG")" || {
       # jq zwijgt bij een ontbrekend of null veld; zonder deze regel eindigt de melding van de
       # aanroeper op een lege reden.
       [ -s "$ERRLOG" ] || echo "respons zonder contractenlijst (geen veld \"contracts\")" >"$ERRLOG"

@@ -143,6 +143,11 @@ if [ -f "$STATE_FILE" ]; then
 fi
 
 # --- 2. Contract opstellen + indienen -----------------------------------------------------------
+# De lijst moet vóór het indienen volledig te lezen zijn, ook zonder state-file. De poll hierna leest
+# hem opnieuw om het nieuwe contract te zien; lukt dat niet (bv. een afgekapte lijst), dan blijft er
+# een half ondertekend contract staan, en elke herhaling voegt er een toe.
+[ -n "${LIST+gezet}" ] || LIST=$(manager_contracts_of_stop) || exit 1
+
 IV=$(fsc_new_iv)
 fsc_validity
 

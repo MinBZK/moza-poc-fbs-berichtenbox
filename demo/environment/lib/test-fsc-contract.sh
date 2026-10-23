@@ -680,6 +680,27 @@ assert_paginas_faalt "de limit wordt ook midden in de query herkend" \
   '{"contracts":[{"hash":"h1"},{"hash":"h2"}],"pagination":{"next_cursor":"c1"}}' \
   '{"contracts":[],"pagination":{"next_cursor":""}}'
 
+# Zonder bruikbare limit is een volle pagina niet te herkennen; dan geldt een lege slotpagina gewoon
+# als einde.
+for basis in "https://manager/v1/contracts" "https://manager/v1/contracts?limit=abc" \
+  "https://manager/v1/contracts?limit=0"; do
+  PAGINAS="$(printf '%s\n' \
+    '{"contracts":[{"hash":"h1"},{"hash":"h2"}],"pagination":{"next_cursor":"c1"}}' \
+    '{"contracts":[],"pagination":{"next_cursor":""}}')"
+  printf '0' >"$TELLER_BESTAND"
+
+  if fsc_contracten_paginas pagina_ophaler "$basis" >/dev/null; then
+    echo "OK: zonder bruikbare limit (${basis#*contracts}) eindigt een lege slotpagina gewoon"
+  else
+    echo "FAIL: zonder bruikbare limit (${basis#*contracts}): $(fsc_last_error)" >&2
+    fails=$((fails + 1))
+  fi
+done
+
+# Een `contracts` die geen lijst is, faalt met een reden in plaats van een lege melding.
+assert_paginas_faalt "een contracts-veld dat geen lijst is, geeft een reden" \
+  "https://manager/v1/contracts?limit=1000" "geen lijst" '{"contracts":true}'
+
 # Een manager die wél doorbladert: een volle pagina met een gevulde opvolger is gewoon meer lijst.
 PAGINAS="$(printf '%s\n' \
   '{"contracts":[{"hash":"h1"},{"hash":"h2"}],"pagination":{"next_cursor":"c1"}}' \
