@@ -123,7 +123,7 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=112
+            [.github/scripts/test-wijzigingsfilter.sh]=113
             [.github/scripts/test-uitrol-poort.sh]=100
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
@@ -139,6 +139,7 @@ jobs:
             [.github/scripts/test-proeftuin-pin-pr.sh]=129
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-proeftuin-pin.sh]=139
+            [.github/scripts/test-preview-resten.sh]=197
             [.github/scripts/test-selinux-label-guard.sh]=22
             [demo/lib/test-podman-modus.sh]=88
             [demo/lib/test-opstellingen.sh]=39
