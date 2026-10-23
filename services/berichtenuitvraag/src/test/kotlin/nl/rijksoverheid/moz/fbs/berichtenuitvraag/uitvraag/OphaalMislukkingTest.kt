@@ -1,6 +1,5 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
-import io.opentelemetry.api.trace.StatusCode
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGeslaagd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevragingGestart
@@ -12,6 +11,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktVoorBevraging
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -20,14 +21,14 @@ import org.junit.jupiter.params.provider.ValueSource
 import kotlin.reflect.KClass
 
 /**
- * Pint de LDV-status-mapping (AVG art. 30-audittrail) per event-type: een refactor
- * van de SSE-resource mag een mislukte of deels mislukte ophaling niet stil als
- * OK in het verwerkingenlogboek laten belanden.
+ * Pint per event-type of een ophaalronde als mislukt in het verwerkingenlogboek komt (AVG art.
+ * 30-audittrail): een refactor van de SSE-resource mag een mislukte of deels mislukte ophaling niet
+ * stil als geslaagd laten staan.
  */
-class LogboekStatusVoorTest {
+class OphaalMislukkingTest {
 
     companion object {
-        /** Alle soorten die géén eindstatus zetten — de audittrail mag pas op het finale event kantelen. */
+        /** Alle soorten die geen uitkomst bepalen — alleen het slotevent bepaalt of de ronde mislukt is. */
         @JvmStatic
         fun tussentijdseEvents(): List<MagazijnEvent> = listOf(
             MagazijnBevragingGestart(magazijnId = "00000001001234567890", naam = "Magazijn A"),
@@ -47,7 +48,7 @@ class LogboekStatusVoorTest {
             ),
         )
 
-        /** Elk fout-eindbericht logt ERROR, ongeacht of het ophalen of het opslaan strandde. */
+        /** Elk fout-eindbericht is een mislukking, ongeacht of het ophalen of het opslaan strandde. */
         @JvmStatic
         fun fouteindEvents(): List<MagazijnEvent> = listOf(
             OphalenMisluktVoorBevraging(foutmelding = "Interne fout bij opslaan resultaten (ref: abc)", referentie = "abc"),
@@ -63,41 +64,36 @@ class LogboekStatusVoorTest {
     }
 
     @Test
-    fun `volledig geslaagde ophaling logt OK`() {
+    fun `volledig geslaagde ophaling is geen mislukking`() {
         val gereed = OphalenGereed(totaalBerichten = 2, geslaagd = 2, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 2)
 
-        assertEquals(StatusCode.OK, logboekStatusVoor(gereed))
+        assertNull(mislukkingVan(gereed))
     }
 
     @Test
-    fun `ophaling zonder magazijnen logt OK`() {
+    fun `ophaling zonder magazijnen is geen mislukking`() {
         val leeg = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 0, nietOpgehaald = 0, totaalMagazijnen = 0)
 
-        assertEquals(StatusCode.OK, logboekStatusVoor(leeg))
+        assertNull(mislukkingVan(leeg))
     }
 
     @Test
-    fun `partial failure (mislukt groter dan 0) logt ERROR`() {
+    fun `partial failure (mislukt groter dan 0) is een mislukking met de aantallen`() {
         val deelsMislukt = OphalenGereed(totaalBerichten = 1, geslaagd = 1, mislukt = 1, nietOpgehaald = 0, totaalMagazijnen = 2)
 
-        assertEquals(StatusCode.ERROR, logboekStatusVoor(deelsMislukt))
+        assertEquals("1 van 2 organisaties mislukt", mislukkingVan(deelsMislukt)?.message)
     }
 
     @Test
-    fun `volledig mislukte ophaling logt ERROR`() {
+    fun `volledig mislukte ophaling is een mislukking met de aantallen`() {
         val allesMislukt = OphalenGereed(totaalBerichten = 0, geslaagd = 0, mislukt = 2, nietOpgehaald = 0, totaalMagazijnen = 2)
 
-        assertEquals(StatusCode.ERROR, logboekStatusVoor(allesMislukt))
+        assertEquals("2 van 2 organisaties mislukt", mislukkingVan(allesMislukt)?.message)
     }
 
-    /**
-     * Niet-bevraagde organisaties zijn geen verwerkingsfout: de uitvraag had te veel werk tegelijk
-     * en heeft die organisaties overgeslagen. Wat de ondernemer wél en niet kreeg staat in de
-     * tellers van het slotevent; deze status zegt alleen of de verwerking zelf goed verliep.
-     */
     @ParameterizedTest
     @ValueSource(ints = [1, 2])
-    fun `niet-opgehaalde organisaties logt OK zolang er niets misging`(nietOpgehaald: Int) {
+    fun `niet-opgehaalde organisaties zijn geen mislukking zolang er niets misging`(nietOpgehaald: Int) {
         val gedeeltelijk = OphalenGereed(
             totaalBerichten = 3,
             geslaagd = 2,
@@ -106,33 +102,41 @@ class LogboekStatusVoorTest {
             totaalMagazijnen = 2 + nietOpgehaald,
         )
 
-        assertEquals(StatusCode.OK, logboekStatusVoor(gedeeltelijk))
+        assertNull(mislukkingVan(gedeeltelijk))
     }
 
-    /** Een echte mislukking blijft ERROR, ook als er daarnaast overgeslagen organisaties zijn. */
+    /** Een echte mislukking blijft een mislukking, ook als er daarnaast overgeslagen organisaties zijn. */
     @Test
-    fun `mislukking naast niet-opgehaalde organisaties logt ERROR`() {
+    fun `mislukking naast niet-opgehaalde organisaties is een mislukking`() {
         val gemengd = OphalenGereed(totaalBerichten = 1, geslaagd = 1, mislukt = 1, nietOpgehaald = 1, totaalMagazijnen = 3)
 
-        assertEquals(StatusCode.ERROR, logboekStatusVoor(gemengd))
+        assertNotNull(mislukkingVan(gemengd))
     }
 
     @ParameterizedTest
     @MethodSource("fouteindEvents")
-    fun `elk fout-eindbericht logt ERROR`(event: MagazijnEvent) {
-        assertEquals(StatusCode.ERROR, logboekStatusVoor(event))
+    fun `elk fout-eindbericht is een mislukking met alleen de soort`(event: MagazijnEvent) {
+        val mislukking = mislukkingVan(event)
+
+        assertEquals(event.javaClass.simpleName, mislukking?.message)
+
+        // De samenvatting gaat het logboek in en bij een inzageverzoek naar buiten; de foutmelding
+        // en referentie uit de keten horen daar niet in.
+        val samenvatting = mislukking?.message.orEmpty()
+
+        assertFalse("abc" in samenvatting || "opslaan" in samenvatting, "de samenvatting draagt de foutmelding mee: $samenvatting")
     }
 
     @ParameterizedTest
     @MethodSource("tussentijdseEvents")
-    fun `tussentijdse events wijzigen de status niet`(event: MagazijnEvent) {
-        assertNull(logboekStatusVoor(event))
+    fun `tussentijdse events zijn geen mislukking`(event: MagazijnEvent) {
+        assertNull(mislukkingVan(event))
     }
 
     /**
-     * De `when` in [logboekStatusVoor] vangt alle bevragings-events in één tak af, dus een
+     * De `when` in [mislukkingVan] vangt alle bevragings-events in één tak af, dus een
      * nieuw soort daaronder compileert zonder dat iemand een keuze maakt. Deze guard dwingt
-     * af dat elk nieuw bevragings-type hierboven expliciet als "verandert de status niet"
+     * af dat elk nieuw bevragings-type hierboven expliciet als "bepaalt de uitkomst niet"
      * wordt opgevoerd.
      */
     @Test

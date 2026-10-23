@@ -262,7 +262,7 @@ class OphalenSseTest {
     fun `_ophalen geeft een OPHALEN_FOUT-event ongemaskeerd door`() {
         // Het fout-eindevent (bv. cache-write-faal ná de magazijn-rondgang) moet de
         // client bereiken inclusief de referentie, zodat de UI "haal opnieuw op" kan
-        // tonen; de bijbehorende LDV-ERROR-mapping is gepind in LogboekStatusVoorTest.
+        // tonen; de bijbehorende uitkomst in het logboek is gepind in OphalenLogboekUitkomstTest.
         sessiecache.ophalenEvents = Multi.createFrom().items(
             MagazijnBevragingGestart(magazijnId = "magazijn-a", naam = "Magazijn A"),
             OphalenMisluktNaBevraging(
