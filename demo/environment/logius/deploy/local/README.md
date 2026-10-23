@@ -238,6 +238,10 @@ Vijf beperkingen:
   (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren — behalve
   onder de hostnet-overlay, waar de hele stack de poortruimte van je machine deelt (zie
   [Podman zonder bridge-netwerk](#podman-zonder-bridge-netwerk)).
+- **`consume-service.sh` faalt met "de lijst is mogelijk afgekapt"** → de manager heeft duizend
+  contracten of meer. OpenFSC v2.5.2 bladert niet door (de pagina na een cursor is leeg), dus het
+  script ziet alleen de eerste duizend en weigert te beslissen of het eigen contract ertussen staat.
+  In deze harness: opruimen met `down -v` en opnieuw opzetten.
 - **Smoke faalt** → `docker compose -f deploy/local/docker-compose.yaml logs
   manager-directory manager-logius controller-logius` voor de mesh-logs. Blijft de announce-smoke
   hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan éérst

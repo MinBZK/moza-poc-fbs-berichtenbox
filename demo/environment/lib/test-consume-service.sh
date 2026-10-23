@@ -4,9 +4,11 @@
 # een lijst die het niet kon lezen?
 #
 # Het script praat met de manager via `docker compose exec toolbox curl`. Een `docker` vooraan op
-# PATH speelt die manager na: hij levert de lijst in pagina's per cursor, zoals OpenFSC v2.5.2 dat
-# doet, en houdt bij welke muterende aanroepen er binnenkwamen. Het script draait in een kopie van
-# de mappenstructuur, zodat state-file en outway-certificaat per geval vers zijn.
+# PATH speelt die manager na: hij levert de lijst in pagina's per cursor, en houdt bij welke
+# muterende aanroepen er binnenkwamen. Dat is een manager die wél doorbladert; het gedrag van
+# OpenFSC v2.5.2, waar de pagina na een volle eerste pagina leeg is, speelt het geval
+# "afgekapte-lijst" na. Het script draait in een kopie van de mappenstructuur, zodat state-file en
+# outway-certificaat per geval vers zijn.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -258,7 +260,7 @@ rm -rf "$TMP"
 #
 # De melding telt mee: zonder die check slaagt een geval ook als het script om een heel andere
 # reden stopt, bijvoorbeeld op een aanroep die de stub niet kent.
-for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor"; do
+for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor" "afgekapte-lijst"; do
   opzet
   met_state bestaand
 
@@ -276,10 +278,19 @@ for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor"; do
       touch "${TMP}/stub/faal-2"
       melding='returned error: 503' ;;
     eindeloze-cursor)
-      # Elke pagina verwijst naar zichzelf: de lus moet dan op zijn bovengrens afbreken.
+      # Elke pagina verwijst naar zichzelf: de lus moet afbreken op de herhaling.
       jq -nc --argjson c "$(vreemd v1)" '{ contracts: [$c], pagination: { next_cursor: "c1" } }' \
         > "${TMP}/stub/pagina-1.json"
-      melding='afgebroken' ;;
+      melding='al gelezen contracten — afgebroken' ;;
+    afgekapte-lijst)
+      # Zo gedraagt OpenFSC v2.5.2 zich bij meer contracten dan de `limit` van het script: een volle
+      # eerste pagina mét cursor, en daarachter niets. Het eigen contract kan op het afgekapte deel
+      # staan.
+      jq -nc --argjson c "$(vreemd v)" \
+        '{ contracts: [range(1000) as $i | $c | .hash = "v\($i)"], pagination: { next_cursor: "c2" } }' \
+        > "${TMP}/stub/pagina-1.json"
+      pagina 2 ja
+      melding='mogelijk afgekapt' ;;
   esac
 
   draai
