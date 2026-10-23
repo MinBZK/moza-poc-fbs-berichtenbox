@@ -34,10 +34,16 @@ den duur zijn time-out van 30 minuten halen.
   - Hij hoort niet bij de 10 nieuwste van die versies in het package.
 - **De laatst uitgerolde versie.** Dat is de tag van de nieuwste geslaagde push-run van `deploy.yml`
   op main (subcommando `uitgerold`).
-  - Een telling alleen zou na genoeg rode uitrollen precies de versie van `test` laten vallen; de
-    reviewers vonden dat gat.
+  - Een telling alleen zou na genoeg rode uitrollen precies de versie van `test` laten vallen.
+  - Op startmoment en niet op aanmaakmoment: een herstarte oudere run rolt zijn eigen, oudere versie
+    uit.
   - Ontbreekt die tag in een package, dan is niet vast te stellen wat er draait. Dat package wordt
     dan `onbepaald`, en er gaat niets weg.
+- **Niet gedekt: met de hand terugzetten.** Een versie die iemand met `zadctl deployment update-image`
+  terugzet, staat in geen enkele run. Die is alleen beschermd binnen de 10 nieuwste of de 14 dagen,
+  of met een extra tag; de ZAD-gids beschrijft dat. De grens uit de gerenderde manifesten van
+  `rig-cluster-application-test` halen dekt dit wel, maar vraagt toegang tot die repo vanuit de
+  workflow. Dat weegt nu niet op tegen een terugzetting die zelden voorkomt.
 - **Waarom de andere grenzen.**
   - Het aantal en de termijn houden recente versies bij de hand om naar terug te gaan.
   - Wat ouder is, is uit de commit opnieuw te bouwen.

@@ -407,6 +407,13 @@ ongetagd() {
   local aantal
   aantal=$(grep -c . <<<"$kandidaten")
 
+  # Een opgebruikt plafond onderzoekt niets; het token en de mediatypes zouden alleen tijd kosten.
+  if [ "${VERWIJDER:-false}" = true ] && [ "$max" -eq 0 ]; then
+    printf '%s\tuitgesteld\t%s\tniet onderzocht: plafond van 0 verwijderingen of %s manifests per run\n' \
+      "$pkg" "$aantal" "${MANIFEST_MAX:-300}"
+    return 0
+  fi
+
   token=$("$CURL" -sSf --max-time 30 --retry 3 -u "x:$GH_TOKEN" \
     "$REGISTRY/token?scope=repository:$ORG/$pkg:pull" | jq -er .token) || {
     printf '%s\tbewaard\t%s\tgeen registry-token; niet vast te stellen of het kinderen van een index zijn\n' "$pkg" "$aantal"
@@ -504,13 +511,21 @@ per_package() {
     '' | *[!0-9]*) onbepaald "PLAFOND moet een getal zijn." ;;
   esac
 
+  local fouten reden
+  fouten=$(mktemp)
+
   for pkg in $PAKKETTEN; do
     # Als eigen proces en niet als functie: binnen `if !` staat errexit uit, en een functie die daar
     # halverwege faalt, zou doorlopen.
-    if ! uit=$(VERWIJDER_MAX="$budget" bash "${BASH_SOURCE[0]}" "$soort" "$pkg"); then
-      uit=$(printf '%s\tonbepaald\t\tde versies zijn niet te lezen of te beoordelen' "$pkg")
+    if ! uit=$(VERWIJDER_MAX="$budget" bash "${BASH_SOURCE[0]}" "$soort" "$pkg" 2>"$fouten"); then
+      # De laatste regel is de reden waarmee het script stopte; een ontbrekende uitgerolde versie
+      # vraagt een ander onderzoek dan een onleesbare lijst.
+      reden=$(tail -n 1 "$fouten" | tr '\t' ' ')
+      uit=$(printf '%s\tonbepaald\t\t%s' "$pkg" "${reden:-onbekende fout}")
       budget=0
     fi
+
+    cat "$fouten" >&2
 
     [ -z "$uit" ] || printf '%s\n' "$uit"
 
@@ -518,6 +533,8 @@ per_package() {
     gebruikt=$(awk -F'\t' '$2 == "verwijderd" || $2 == "mislukt" { s += $3 } END { print s + 0 }' <<<"$uit")
     budget=$((budget > gebruikt ? budget - gebruikt : 0))
   done
+
+  rm -f "$fouten"
 }
 
 # Verwijdert de versies met de gegeven ids (één per regel) en meet na wat er weg is:
@@ -543,15 +560,21 @@ verwijder_versies() {
   fi
 }
 
-# De tag van de laatste geslaagde uitrol van main: de nieuwste push-run van deploy.yml op main die
-# slaagde. Een geslaagde run heeft elk project uitgerold (uitrol-poort bewaakt dat); een rode run kan
-# deels uitgerold hebben, maar alleen nieuwere versies, en die blijven in `main_tags` toch staan.
+# De tag van de laatste geslaagde uitrol van main: van de geslaagde push-runs van deploy.yml op main
+# de laatst gestarte. Een geslaagde run heeft elk project uitgerold (uitrol-poort bewaakt dat); een
+# rode run kan deels uitgerold hebben, maar alleen nieuwere versies, en die blijven in `main_tags`
+# toch staan. Op startmoment en niet op aanmaakmoment: een herstarte oudere run rolt zijn eigen,
+# oudere versie uit, staat in de lijst op zijn aanmaakmoment, maar krijgt een nieuw startmoment.
+#
+# Wat iemand met de hand terugzet (`zadctl deployment update-image`), staat in geen enkele run. Zo'n
+# versie is alleen beschermd zolang ze bij de nieuwste of binnen de termijn valt, of als ze een extra
+# tag krijgt: een versie met een andere tag dan `main-<sha7>` blijft altijd staan.
 uitgerold() {
   [ -n "${REPO:-}" ] || onbepaald "Gebruik: REPO=… $0 uitgerold"
 
   local sha
-  sha=$(api "repos/$REPO/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=1" \
-    | jq -er '.workflow_runs[0].head_sha | select(test("^[0-9a-f]{40}$"))') \
+  sha=$(api "repos/$REPO/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=20" \
+    | jq -er '.workflow_runs | max_by(.run_started_at) | .head_sha | select(test("^[0-9a-f]{40}$"))') \
     || onbepaald "De laatste geslaagde uitrol van main is niet vast te stellen."
 
   printf 'main-%s\n' "${sha:0:7}"

@@ -591,6 +591,7 @@ ongetagd_fixtures
 ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=0 draai ongetagd p
 gelijk "een opgebruikt plafond verwijdert niets" "" "$(deletes)"
 gelijk "en stelt alles uit" "0|p	uitgesteld	2	niet onderzocht: plafond van 0 verwijderingen of 300 manifests per run" "$RC|$UITVOER"
+bevat_niet "zonder token of mediatype op te vragen" "curl" "$(aanroepen)"
 
 ORG=o GH_TOKEN=t VERWIJDER=true VERWIJDER_MAX=veel draai ongetagd p
 gelijk "een plafond dat geen getal is, is onbepaald" 2 "$RC"
@@ -748,8 +749,8 @@ antwoord_daarna gh 'api orgs/o/packages/container/p/versions?per_page=100 --pagi
 ORG=o UITGEROLD=main-abcdef0 VERWIJDER=true draai main-tags p
 gelijk "een lijst die na het verwijderen niet te lezen is, is onbepaald" 2 "$RC"
 
-# Na weken zonder merge zijn alle main-versies oud; de tien nieuwste blijven, want daar draait `test`
-# op. Elf versies: alleen de oudste gaat.
+# Na weken zonder merge zijn alle main-versies oud; de tien nieuwste blijven toch, als versies om naar
+# terug te gaan. Elf versies: alleen de oudste gaat.
 opnieuw
 antwoord gh 'api orgs/o/packages/container/p/versions?per_page=100 --paginate' "$(main_versies \
   1 2026-07-01T00:00:00Z '["main-0000001"]' 2 2026-07-02T00:00:00Z '["main-0000002"]' \
@@ -873,7 +874,7 @@ for pkg in a c; do
 done
 per_package_draai 100 main-tags
 gelijk "een package dat omvalt, wordt gemeld en stopt het verwijderen" "0|a	verwijderd	2	
-b	onbepaald		de versies zijn niet te lezen of te beoordelen
+b	onbepaald		De versies van b zijn niet op te vragen.
 c	uitgesteld	2	plafond van 0 verwijderingen per run" "$RC|$UITVOER"
 bevat_niet "c krijgt geen DELETE" "container/c/versions/1 -X DELETE" "$(aanroepen)"
 
@@ -884,9 +885,19 @@ for pkg in a b c; do
 done
 antwoord_daarna gh 'api orgs/o/packages/container/a/versions?per_page=100 --paginate' 'stuk'
 per_package_draai 100 main-tags
-gelijk "na een package dat halverwege omviel, verwijdert niemand meer" "a	onbepaald		de versies zijn niet te lezen of te beoordelen
+gelijk "na een package dat halverwege omviel, verwijdert niemand meer" "a	onbepaald		De versies van a zijn na het verwijderen niet op te vragen.
 b	uitgesteld	2	plafond van 0 verwijderingen per run
 c	uitgesteld	2	plafond van 0 verwijderingen per run" "$UITVOER"
+
+# De reden van het omvallen gaat mee in de melding: een ontbrekende uitgerolde versie vraagt een
+# ander onderzoek dan een onleesbare lijst.
+opnieuw
+pkg_fixture a
+RC=0
+UITVOER=$(ORG=o UITGEROLD=main-1234567 VERWIJDER=true PAKKETTEN=a PLAFOND=10 bash "$SCRIPT" per-package main-tags 2>"$werkmap/stderr") || RC=$?
+gelijk "een ontbrekende uitgerolde versie staat als reden in de melding" \
+  "0|a	onbepaald		De uitgerolde versie main-1234567 staat niet in a; niet vast te stellen wat er draait." "$RC|$UITVOER"
+bevat "en de foutuitvoer van het package blijft zichtbaar in het log" "main-1234567 staat niet in a" "$(cat "$werkmap/stderr")"
 
 opnieuw
 pkg_fixture a
@@ -910,12 +921,22 @@ ORG=o PLAFOND=3 bash "$SCRIPT" per-package main-tags >/dev/null 2>&1 || RC=$?
 gelijk "zonder PAKKETTEN is per-package onbepaald" 2 "$RC"
 
 # --- uitgerold -----------------------------------------------------------------------------------
-readonly RUNS_URL='api repos/r/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=1'
+readonly RUNS_URL='api repos/r/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=20'
+
+# De lijst staat op aanmaakmoment, nieuwste eerst. De tweede run is ouder maar later herstart, en
+# heeft dus zijn eigen, oudere versie uitgerold over die van de eerste heen.
+opnieuw
+antwoord gh "$RUNS_URL" '{"workflow_runs":[
+  {"head_sha":"abcdef0123456789abcdef0123456789abcdef01","run_started_at":"2026-10-21T10:00:00Z"},
+  {"head_sha":"1234567890abcdef1234567890abcdef12345678","run_started_at":"2026-10-21T12:00:00Z"},
+  {"head_sha":"fedcba9876543210fedcba9876543210fedcba98","run_started_at":"2026-10-20T09:00:00Z"}]}'
+REPO=r draai uitgerold
+gelijk "de laatst gestarte geslaagde run wint, ook als hij ouder is" "0|main-1234567" "$RC|$UITVOER"
 
 opnieuw
-antwoord gh "$RUNS_URL" '{"workflow_runs":[{"head_sha":"abcdef0123456789abcdef0123456789abcdef01"}]}'
+antwoord gh "$RUNS_URL" '{"workflow_runs":[{"head_sha":"abcdef0123456789abcdef0123456789abcdef01","run_started_at":"2026-10-21T10:00:00Z"}]}'
 REPO=r draai uitgerold
-gelijk "de tag van de laatste geslaagde uitrol" "0|main-abcdef0" "$RC|$UITVOER"
+gelijk "de tag van de enige geslaagde uitrol" "0|main-abcdef0" "$RC|$UITVOER"
 
 for runs in '{"workflow_runs":[]}' '{"workflow_runs":[{"head_sha":null}]}' '{"workflow_runs":[{"head_sha":"abc"}]}' 'stuk'; do
   opnieuw

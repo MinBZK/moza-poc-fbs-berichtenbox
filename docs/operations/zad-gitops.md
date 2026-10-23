@@ -194,9 +194,15 @@ uit.
   `cleanup-preview-images` alle `pr-<n>-*`-versies in ghcr op.
 - **`main-<sha7>`-tags hebben een bewaartermijn.** `preview-resten.yml` verwijdert ze zodra ze
   ouder zijn dan de laatste geslaagde uitrol van main, ouder dan 14 dagen en niet bij de 10
-  nieuwste van hun package horen. Wat `test` en de `fsc-*`-peers draaien, blijft dus staan. Een
-  oudere tag terugzetten met `update-image` kan alleen als hij er nog is; anders eerst opnieuw
-  bouwen.
+  nieuwste van hun package horen. Wat de deploy-workflow uitrolde, blijft dus staan; wat je met de
+  hand terugzet (`update-image` op een oudere tag), niet. Wil je zo'n versie houden, geef haar dan
+  een extra tag: een versie met een andere tag dan `main-<sha7>` wordt nooit verwijderd.
+
+  ```bash
+  docker buildx imagetools create --tag ghcr.io/minbzk/<package>:behouden-<reden> ghcr.io/minbzk/<package>:main-<sha7>
+  ```
+
+  Een tag die al weg is, terugzetten kan niet; bouw die commit dan opnieuw.
 - De ghcr-images (`ghcr.io/minbzk/fbs-*`) zijn **public**; ZAD trekt ze via de
   pull-through-mirror `rcr.rijksapps.nl/ghcr-rig/minbzk/*`. Een 404 op een bestaande,
   publieke tag wijst op de mirror/registry-config aan ZAD-zijde, niet op onze push.
