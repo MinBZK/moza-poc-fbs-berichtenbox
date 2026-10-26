@@ -102,9 +102,25 @@ laag voor de gelijktijdige belasting en helpt een groter budget alleen om het ui
 
 Het slotevent van de ronde telt deze organisaties in `nietOpgehaald`, apart van `mislukt`, en de
 regel `Ophaalronde afgerond in … ms` doet hetzelfde. Zoek je naar storingen, kijk dan naar
-`mislukt`; `nietOpgehaald` is een capaciteitscijfer. Om dezelfde reden blijft de verwerking in het
-Logboek Dataverwerkingen op `OK` zolang `mislukt` nul is: overgeslagen organisaties zijn een keuze
-van deze service, geen verwerking die misging.
+`mislukt`; `nietOpgehaald` is een capaciteitscijfer. Om dezelfde reden krijgt de logregel van een
+ophaalronde in het Logboek Dataverwerkingen alleen een ERROR-child als `mislukt` groter dan nul is of
+de ronde zelf strandde: overgeslagen organisaties zijn een keuze van deze service, geen verwerking
+die misging. Een gestarte ronde staat zelf op `UNSET`, want haar logregel is al weggeschreven voordat
+de ronde loopt.
+
+Een weigering staat ook op `UNSET`, zonder ERROR-child: een `409` omdat er nog niet of nog steeds
+wordt opgehaald, een onbekend bericht, een verzoek dat niet aan de regels voldoet (een `X-Ontvanger`
+buiten het patroon, een `paginaGrootte` buiten 1–200). De verwerking is dan correct afgerond, met een
+weigering (LDV §3.2.2.3). Op `ERROR` staat alleen een 5xx: daar faalde de verwerking zelf.
+
+**Leesregel: een logregel op `UNSET` zonder ERROR-child is correct afgerond — geslaagd of geweigerd;
+het antwoord van de dienst zegt welke.** Een ERROR-child van een ophaalronde heeft als
+`exception.type` `…uitvraag.OphaalrondeMislukt`, met in `exception.message` `<n> van <m> organisaties
+mislukt` of de soort eindfout (`OphalenMisluktVoorBevraging`, `OphalenMisluktNaBevraging`). Bij een
+afgebroken stream is het `…common.LdvFoutSamenvatting`, met de klassenaam van de fout. Kon de
+ERROR-child niet worden opgeslagen, dan logt de uitvraag `LDV_UITKOMST_ONTBREEKT` op ERROR met
+`ontvanger.type`, en bij een mislukte schrijfactie ook de `trace_id:span_id` van de logregel. Zie
+verder de [magazijn-handleiding](operator-handleiding.md#uitkomst-van-een-verwerking-in-het-logboek).
 
 **Let op bij een grote fan-out.** Een ophaalronde duurt in het slechtste geval
 `⌈organisaties ÷ max-parallel-per-ronde⌉ × (max-wachttijd-ms ÷ 1000 + magazijn-query-timeout-seconds)`.

@@ -1,6 +1,5 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
-import io.opentelemetry.api.trace.StatusCode
 import io.smallrye.common.annotation.Blocking
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.subscription.MultiEmitter
@@ -14,13 +13,13 @@ import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.MediaType
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
+import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenFout
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
+import nl.rijksoverheid.moz.fbs.common.LdvFoutSamenvatting
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import org.jboss.resteasy.reactive.ResponseHeader
@@ -45,12 +44,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 class OphalenSseResource(
     private val sessiecache: Sessiecache,
     private val logboekContext: LogboekContext,
+    processingHandler: ProcessingHandler,
 ) {
     private val log = Logger.getLogger(OphalenSseResource::class.java)
 
+    private val ophaalUitkomst = OphaalUitkomst(processingHandler)
+
     @GET
     @Blocking
-    @Logboek(name = "uitvraag-ophalen-sse", processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
+    @Logboek(name = OPHALEN_ACTIE, processingActivityId = ProcessingActivities.UITVRAAG_LEZEN)
     @Produces(MediaType.SERVER_SENT_EVENTS)
     // De ApiVersionFilter (een ContainerResponseFilter) komt bij een streaming Multi niet aan de
     // beurt: de headers zijn dan al verstuurd. Hier staat de waarde er vóór de eerste byte.
@@ -64,13 +66,14 @@ class OphalenSseResource(
     ): Multi<MagazijnEvent> {
         registreerLdvSubject(logboekContext, xOntvanger)
 
+        val logregel = logregelVanDezeActie(logboekContext, OPHALEN_ACTIE, ProcessingActivities.UITVRAAG_LEZEN)
         val ontvangerId = Identificatienummer.fromHeader(xOntvanger)
         val aggregation = sessiecache.ophalen(ontvangerId)
 
         // SSE-stream is een observer: stuurt events door zolang de client verbonden is.
         // Client disconnect stopt alleen de emitter, de aggregatie loopt onafhankelijk door.
         return Multi.createFrom().emitter { emitter ->
-            koppelAggregatieAanEmitter(aggregation, emitter, ontvangerId)
+            koppelAggregatieAanEmitter(aggregation, emitter, ontvangerId, logregel)
         }
     }
 
@@ -78,20 +81,26 @@ class OphalenSseResource(
         aggregation: Multi<MagazijnEvent>,
         emitter: MultiEmitter<in MagazijnEvent>,
         ontvangerId: Identificatienummer,
+        logregel: Logregel,
     ) {
         // Markeert of de stream normaal eindigde (completion of fout). Blijft false bij
         // client-disconnect vóór het finale event, zodat onTermination dat kan loggen.
         val streamAfgerond = AtomicBoolean(false)
+        // ontvanger.type, geen waarde (PII).
+        val kenmerken = "ophaalronde, ontvanger.type=${ontvangerId.type}"
 
+        // De uitkomst hoort bij de verwerking en niet bij de connection: ook als de client al weg
+        // is, wordt een mislukte ronde vastgelegd.
         aggregation.subscribe().with(
             { event ->
-                registreerLogboekStatus(event)
+                mislukkingVan(event)?.let { ophaalUitkomst.legVast(logregel, it, kenmerken) }
 
                 if (!emitter.isCancelled) emitter.emit(event)
             },
             { error ->
                 streamAfgerond.set(true)
                 logStreamFout(error, ontvangerId)
+                ophaalUitkomst.legVast(logregel, LdvFoutSamenvatting.van(error), kenmerken)
 
                 if (!emitter.isCancelled) emitter.fail(error)
             },
@@ -117,11 +126,6 @@ class OphalenSseResource(
         }
     }
 
-    /** Zet logboek-status op basis van het finale event; tussentijdse events wijzigen niets. */
-    private fun registreerLogboekStatus(event: MagazijnEvent) {
-        logboekStatusVoor(event)?.let { logboekContext.status = it }
-    }
-
     /**
      * Async-aggregatie-fouten ná SSE-stream-open hebben geen JAX-RS-mapper-
      * pad meer (response-headers zijn al verzonden); zonder log hier verdwijnt
@@ -131,7 +135,6 @@ class OphalenSseResource(
      * met BSN bevatten (precedent: ProfielServiceFoutExceptionMapper).
      */
     private fun logStreamFout(error: Throwable, ontvangerId: Identificatienummer) {
-        logboekContext.status = StatusCode.ERROR
         val errorId = UUID.randomUUID()
 
         log.errorf(
@@ -144,21 +147,5 @@ class OphalenSseResource(
     }
 }
 
-/**
- * Bepaalt de LDV-status (AVG art. 30-audittrail) voor een stream-event: alleen het
- * finale event telt — GEREED zonder mislukkingen is OK, elke (deel)mislukking ERROR;
- * tussentijdse events leveren `null` (geen wijziging). Pure functie, los van de
- * resource, zodat de audit-invariant per event-type gepind kan worden in een unit-test.
- * De `when` is uitputtend over de sealed hiërarchie: een nieuw soort voortgangsbericht
- * dwingt hier een bewuste keuze af in plaats van stil in een `else` te verdwijnen.
- *
- * `nietOpgehaald` telt bewust niet mee. Die organisaties zijn niet bevraagd omdat de uitvraag
- * zelf te veel werk tegelijk had; de verwerking die hier gelogd wordt is dan gewoon goed
- * verlopen, alleen over minder organisaties. Wat de ondernemer wél en niet gekregen heeft staat
- * in de tellers van het slotevent, niet in deze status.
- */
-internal fun logboekStatusVoor(event: MagazijnEvent): StatusCode? = when (event) {
-    is OphalenGereed -> if (event.mislukt == 0) StatusCode.OK else StatusCode.ERROR
-    is OphalenFout -> StatusCode.ERROR
-    is MagazijnBevraging -> null
-}
+/** De naam van de logregel; ook die van een latere uitkomst-logregel eronder. */
+private const val OPHALEN_ACTIE = "uitvraag-ophalen-sse"
