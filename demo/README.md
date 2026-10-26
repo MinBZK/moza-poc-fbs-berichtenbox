@@ -19,6 +19,7 @@ verwacht.
 | `genereer-magazijnen.py` | Genereert uit één getal n: het register, de set van de simulator en de vier ondernemers (3, 15, 45 en 100 aangesloten organisaties) |
 | `smoke.sh` | Rookproef over de demo-stack |
 | `meet-fanout.sh` | Meet per ondernemer de tijd tot het eerste bericht en tot de complete lijst, uit de SSE-stroom van de uitvraag |
+| `grote-bijlage.sh` | Levert een bericht met een bijlage van opgegeven grootte (tot 25 MiB) aan bij het magazijn en haalt de bijlage via de uitvraag terug, byte voor byte vergeleken. Standaard tegen de dev-modes van magazijn en uitvraag |
 | `podman-prepare.sh`, `podman-up.sh` | Demo-stack draaien onder Podman |
 
 De demo-runbook staat in [`../docs/demo-runbook.md`](../docs/demo-runbook.md).
