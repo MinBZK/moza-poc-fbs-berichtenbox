@@ -39,8 +39,9 @@ interne-PKI op `fsc-magazijna-magazijna-fscmgr:9443` — geen mesh-omweg meer no
 - **UI (aanbevolen — werkt nu end-to-end)**: via de extern gepubliceerde magazijna-fscctl-beheer-UI
   (`LISTEN_ADDRESS_UI`, extern op `https://magazijna-fscctl-<deployment>-mpfm-w3h.<base-domain>:443`)
   een dienst aanmaken met naam `berichtenmagazijn`, `endpoint_url` = de waarde
-  uit `upsert-peer.sh`'s `MAGAZIJNA_UPSTREAM_URL` (de ingress-URL van de app cross-deployment, bv.
-  `https://magazijna-test-mpfm-w3h.<base-domain>`) en `inway_address` = de geregistreerde magazijna-fscinway
+  uit `upsert-peer.sh`'s `MAGAZIJNA_UPSTREAM_URL` (het cluster-interne adres van de app, bv.
+  `http://test-magazijna.rig-prd-mpfm-w3h.svc.cluster.local:8090`; vraagt de netwerkregels uit
+  `cutover-interne-upstream.md`, stap 1) en `inway_address` = de geregistreerde magazijna-fscinway
   `SELF_ADDRESS`. De controller praat achter de schermen intern met de manager (`:9443`) die het
   contract ondertekent.
 

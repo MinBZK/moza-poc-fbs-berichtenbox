@@ -7,7 +7,7 @@ import jakarta.inject.Inject
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -59,7 +59,7 @@ class AanleverResourceIntegrationTest {
             .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
-            .header("API-Version", `is`("0.4.0"))
+            .header("API-Version", `is`("0.5.0"))
             .header("X-Frame-Options", `is`("DENY"))
             .header("X-Content-Type-Options", `is`("nosniff"))
             .header("Strict-Transport-Security", containsString("max-age=31536000"))
@@ -99,7 +99,7 @@ class AanleverResourceIntegrationTest {
             .contentType("application/problem+json")
             // API-Version en security-headers horen óók op fout-responses te staan;
             // anders is het contract voor clients die op die headers steunen inconsistent.
-            .header("API-Version", `is`("0.4.0"))
+            .header("API-Version", `is`("0.5.0"))
             .header("X-Content-Type-Options", `is`("nosniff"))
             .body("status", `is`(400))
             .body("title", `is`("Bad Request"))

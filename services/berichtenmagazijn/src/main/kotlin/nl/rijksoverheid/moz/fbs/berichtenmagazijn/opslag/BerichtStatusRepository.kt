@@ -6,7 +6,7 @@ import jakarta.persistence.Tuple
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
-import nl.rijksoverheid.moz.fbs.common.exception.requireValid
+import nl.rijksoverheid.moz.fbs.kern.exception.requireValid
 import java.time.Instant
 import java.util.UUID
 

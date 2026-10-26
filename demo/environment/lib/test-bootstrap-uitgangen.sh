@@ -119,6 +119,68 @@ assert_config "limiet boven het maximum" FSC_PROVIDER_OIN=1 FSC_DIENSTEN=d FSC_C
   FSC_PROVIDER_CERT=/dev/null FSC_PROVIDER_KEY=/dev/null FSC_PROVIDER_CA=/dev/null
 
 echo
+echo "== bootstrap.sh: de coördinatie van de twee helften =="
+
+# draai_bootstrap <consumer-uitgangen> <provider-uitgangen>: draait een kopie van bootstrap.sh naast
+# gestubde helften. Elke helft geeft per aanroep de volgende uitgang uit zijn reeks; de laatste
+# blijft herhalen. Echoot "<exit> <aantal provider-aanroepen>".
+draai_bootstrap() {
+  local tmp rc=0 helft aanroepen
+  tmp="$(mktemp -d)"
+  cp "${CONTRACTS}/bootstrap.sh" "$tmp/"
+  printf '%s\n' $1 > "${tmp}/bootstrap-consumer.reeks"
+  printf '%s\n' $2 > "${tmp}/bootstrap-provider.reeks"
+
+  for helft in bootstrap-consumer bootstrap-provider; do
+    cat > "${tmp}/${helft}.sh" <<'STUB'
+#!/usr/bin/env bash
+reeks="${0%.sh}.reeks"
+echo x >> "${0%.sh}.aanroepen"
+uitgang="$(head -1 "$reeks")"
+if [ "$(wc -l < "$reeks")" -gt 1 ]; then tail -n +2 "$reeks" > "${reeks}.t" && mv "${reeks}.t" "$reeks"; fi
+exit "$uitgang"
+STUB
+    chmod +x "${tmp}/${helft}.sh"
+  done
+
+  FSC_LIBDIR="$HERE" FSC_CONSUMER_OIN="$CONS" FSC_SERVICE_NAME=berichtenmagazijn \
+  FSC_SYNC_TIMEOUT=2 FSC_SYNC_INTERVAL=1 \
+    "${tmp}/bootstrap.sh" >/dev/null 2>&1 || rc=$?
+
+  aanroepen=0
+  [ -f "${tmp}/bootstrap-provider.aanroepen" ] && aanroepen="$(wc -l < "${tmp}/bootstrap-provider.aanroepen" | tr -d ' ')"
+  rm -rf "$tmp"
+  printf '%s %s' "$rc" "$aanroepen"
+}
+
+# assert_bootstrap <desc> <verwachte exit> <verwachte provider-aanroepen> <consumer> <provider>
+assert_bootstrap() {
+  local uit
+  uit="$(draai_bootstrap "$4" "$5")"
+  assert_uitgang "$1" "$2" "${uit% *}"
+
+  if [ "${uit#* }" = "$3" ]; then
+    echo "OK: $1 ($3 provider-aanroep(en))"
+  else
+    echo "FAIL: $1 — verwacht $3 provider-aanroep(en), kreeg ${uit#* }" >&2
+    fails=$((fails + 1))
+  fi
+}
+
+assert_bootstrap "contract bestaat al: provider niet nodig" 0 0 "0" "0"
+assert_bootstrap "provider tekent meteen" 0 1 "3 0" "0"
+
+# De race: het contract kruist via de mesh-sync, dus vlak na het indienen heeft de provider het
+# nog niet. Dit gaf exit 3 en een rode bootstrap, terwijl een tweede poging slaagde.
+assert_bootstrap "contract komt pas bij de tweede poging binnen" 0 2 "3 0" "3 0"
+assert_bootstrap "contract komt nooit binnen: fout na de wachttijd" 1 3 "3" "3"
+
+# Alleen 3 is het herhalen waard; een fout van de provider is meteen het antwoord.
+assert_bootstrap "provider-fout: geen herhaling" 1 1 "3" "1"
+assert_bootstrap "configuratiefout van de provider gaat door als 2" 2 1 "3" "2"
+assert_bootstrap "consumer ziet het contract pas na even wachten geldig" 0 1 "3 3 0" "0"
+
+echo
 if [ "$fails" -ne 0 ]; then
   echo "ROOD: ${fails} test(s) gefaald." >&2
   exit 1

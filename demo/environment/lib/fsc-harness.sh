@@ -4,6 +4,21 @@
 # GROUP_ID) staat in elk script zelf — hier alleen het generieke idioom. bash 3.2-compatibel
 # (macOS-default, zie smoke-services.sh): geen associative arrays, geen mapfile, geen ${var^^}.
 
+# --- engine -----------------------------------------------------------------------------------
+
+# fsc_lokale_engine: laat `docker compose` dezelfde engine aanspreken als deploy/local/up.sh. Dat
+# script kiest de socket zelf (op macOS die van podman machine) en zet hem alleen voor zichzelf; een
+# los gestarte smoke sprak anders de standaardengine van de docker-CLI aan, vond daar geen
+# containers en meldde `service "postgres" is not running`. Een gezette DOCKER_HOST blijft staan.
+# Alleen voor de lokale harnessen: in een ZAD-container is er geen engine om te kiezen.
+fsc_lokale_engine() {
+  # shellcheck source=../../lib/podman-modus.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/../../lib/podman-modus.sh"
+  # shellcheck disable=SC2034  # gelezen door modus_engine.
+  MODUS_DOCKER_TOEGESTAAN=1
+  modus_engine
+}
+
 # --- ERRLOG-levenscyclus --------------------------------------------------------------------
 
 # fsc_errlog_init: mktemp + trap, zet de globale $ERRLOG. Aanroepen ná `set -euo pipefail`.
@@ -63,9 +78,10 @@ fsc_last_error() {
 
 # fsc_tb <curl-args...>: curl binnen de toolbox-container, met de internal-client-cert van de
 # caller. Leest $COMPOSE/$CERT/$KEY/$CA uit de caller-scope (peer-specifiek, hier niet gezet).
+# stdin dicht: met opgevangen uitvoer sluit `compose exec` (v5) pas af als stdin sluit.
 fsc_tb() {
   "${COMPOSE[@]}" exec -T toolbox curl -sS --fail-with-body \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" "$@" 2>"$ERRLOG"
+    --cert "$CERT" --key "$KEY" --cacert "$CA" "$@" </dev/null 2>"$ERRLOG"
 }
 
 # --- contract-bootstrap-helpers (consume-service.sh) ------------------------------------------
@@ -363,4 +379,20 @@ fsc_compose_project() {
 # overslaan en de gebruiker naar de verkeerde oorzaak sturen.
 fsc_podman_api_dood() {
   grep -qE 'Cannot connect to the Docker daemon|error during connect|dial unix .*(connection refused|no such file)' "$1"
+}
+
+# fsc_pull_limiet_regel <logbestand>: de eerste regel waarin een registry het ophalen weigerde op
+# zijn limiet voor pulls; exit 1 als die er niet is. Eén patroon voor herkennen én tonen, zodat een
+# aangepaste formulering niet tot een herkende fout zonder bewijsregel leidt. Behalve de foutcode
+# uit de registry-API (`toomanyrequests`) ook de kale HTTP-status, zoals podman die doorgeeft:
+# `invalid status code from registry 429 (Too Many Requests)`.
+fsc_pull_limiet_regel() {
+  grep -m1 -E 'toomanyrequests|pull rate limit|Too Many Requests' "$1"
+}
+
+# fsc_pull_limiet_bereikt <logbestand>: 0 als het pull-limiet bereikt is. Een herhaling haalt die
+# limiet alleen sneller, dus dit hoort te stoppen met de handeling die hem opheft in plaats van te
+# retryen.
+fsc_pull_limiet_bereikt() {
+  fsc_pull_limiet_regel "$1" >/dev/null
 }

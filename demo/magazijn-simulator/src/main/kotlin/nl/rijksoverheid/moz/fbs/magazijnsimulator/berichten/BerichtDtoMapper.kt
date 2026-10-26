@@ -14,7 +14,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.PaginationLinks
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtStatus
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtenPagina
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Bericht as BerichtDto
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BijlageMetadata as BijlageMetadataDomein
@@ -98,7 +98,7 @@ object BerichtDtoMapper {
         links = BijlageLinks().apply { self = link(bijlageHref(berichtId, meta.bijlageId, basis)) }
     }
 
-    private fun naarIdentificatienummer(identificatie: Identificatie): IdentificatienummerDto =
+    private fun naarIdentificatienummer(identificatie: Identificatienummer): IdentificatienummerDto =
         IdentificatienummerDto().apply {
             type = IdentificatienummerDto.TypeEnum.valueOf(identificatie.type.name)
             waarde = identificatie.waarde

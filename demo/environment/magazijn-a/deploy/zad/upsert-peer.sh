@@ -127,11 +127,14 @@ DIRECTORY_MANAGER_HOST="${ZAD_DIRECTORY_MANAGER_HOST:-dirmgr-test-mft-tp9.${BASE
 # Peer en app-component `magazijna` delen het project (`mpfm-w3h`) maar NIET de deployment: de app
 # draait in `test` (door deploy.yml beheerd, bron van de PR-preview-clones), de peer in
 # `fsc-magazijna`. De upstream-URL wijst dus naar de APP-deployment, niet naar `${DEPLOYMENT}`;
-# een volledige override kan via ZAD_MAGAZIJNA_UPSTREAM_URL. Dit is GEEN inway-env-var
+# een volledige override kan via ZAD_MAGAZIJNA_UPSTREAM_URL. Die URL is GEEN inway-env-var
 # (OpenFSC kent geen "upstream" op de inway) maar de endpoint_url die bij de service-publicatie op
 # de magazijna-fscctl Administration-API wordt meegegeven — zie verify-zad.md, stap (b).
+# Standaard is het het cluster-interne Service-adres (plain HTTP, de app luistert niet met TLS):
+# zo verlaat federatieverkeer het cluster niet. Het vraagt een cross-domain-access-regel tussen
+# inway en app, zie cutover-interne-upstream.md.
 MAGAZIJNA_DEPLOYMENT="${ZAD_MAGAZIJNA_DEPLOYMENT:-test}"
-MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-https://magazijna-${MAGAZIJNA_DEPLOYMENT}-${PROJECT}.${BASE_DOMAIN}}"
+MAGAZIJNA_UPSTREAM_URL="${ZAD_MAGAZIJNA_UPSTREAM_URL:-http://${MAGAZIJNA_DEPLOYMENT}-magazijna.rig-prd-${PROJECT}.svc.cluster.local:8090}"
 
 # --- env-blobs (KEY=value, newline-sep, plain). TLS_*-paden = de bijlage-mounts (UI, ontwerp A). ---
 MGZMGR_ENV="$(printf '%s\n' \
@@ -287,7 +290,7 @@ if [ "${MODE}" = plan ]; then
   echo "Extern (mesh, :443): magazijna-fscmgr=${MGZMGR_HOST_DISPLAY} magazijna-fscinway=${MGZINWAY_HOST_DISPLAY}"
   echo "Intern (cluster-Service-DNS): ${MGZMGR_SVC}:9443/:9444  ${MGZCTL_SVC}:9443/:9444  ${MGZTXLOG_SVC}:8443  db=${MGZPG_SVC}:5432  (magazijna-fscctl-UI: ${MGZCTL_HOST_DISPLAY}:443)"
   echo "Directory-manager (repo A, extern): ${DIRECTORY_MANAGER_HOST}"
-  echo "Upstream naar de app (ingress-URL, cross-deployment): ${MAGAZIJNA_UPSTREAM_URL}"
+  echo "Upstream naar de app (cluster-intern, cross-deployment): ${MAGAZIJNA_UPSTREAM_URL}"
   exit 0
 fi
 

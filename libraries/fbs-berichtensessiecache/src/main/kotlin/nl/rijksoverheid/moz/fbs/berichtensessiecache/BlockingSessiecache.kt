@@ -17,8 +17,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger

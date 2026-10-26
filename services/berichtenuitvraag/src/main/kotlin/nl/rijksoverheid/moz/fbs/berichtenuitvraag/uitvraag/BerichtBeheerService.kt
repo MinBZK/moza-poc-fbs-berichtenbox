@@ -9,7 +9,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.util.UUID
 

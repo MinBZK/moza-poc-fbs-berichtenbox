@@ -5,6 +5,8 @@ import io.quarkus.panache.common.Page
 import io.quarkus.panache.common.Sort
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.transaction.Transactional
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import java.time.Instant
 import java.util.UUID
 
@@ -51,7 +53,7 @@ class BerichtRepository(
      */
     fun lijst(
         magazijnDbId: Long,
-        ontvanger: Identificatie,
+        ontvanger: Identificatienummer,
         afzender: String?,
         page: Int,
         pageSize: Int,
@@ -121,7 +123,7 @@ class BerichtRepository(
      * het bericht bestond niet in dit magazijn, hoorde bij een andere ontvanger, of was al weg.
      */
     @Transactional
-    fun softDelete(magazijnDbId: Long, berichtId: UUID, ontvanger: Identificatie, tijdstip: Instant): Boolean {
+    fun softDelete(magazijnDbId: Long, berichtId: UUID, ontvanger: Identificatienummer, tijdstip: Instant): Boolean {
         val rijen = update(
             "verwijderdOp = ?1 where magazijn.id = ?2 and berichtId = ?3 and ontvangerType = ?4 " +
                 "and ontvangerWaarde = ?5 and verwijderdOp is null",
@@ -172,8 +174,8 @@ class BerichtRepository(
         return rijen.map { rij ->
             Bericht(
                 berichtId = rij.berichtId,
-                afzender = Identificatie(IdentificatieType.OIN, rij.afzender),
-                ontvanger = Identificatie(rij.ontvangerType, rij.ontvangerWaarde),
+                afzender = Oin(rij.afzender),
+                ontvanger = Identificatienummer.of(rij.ontvangerType, rij.ontvangerWaarde),
                 onderwerp = rij.onderwerp,
                 inhoud = rij.inhoud,
                 tijdstipOntvangst = rij.tijdstipOntvangst,

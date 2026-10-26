@@ -2,9 +2,11 @@
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
 # demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
-# handtekening controleert. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped'
-# en dat telt als succes voor branch protection. Vandaar een eigen, lichte workflow: shellcheck,
-# actionlint en de bash-unittests, zonder de docker build van de FSC-harness.
+# handtekening controleert. De suites onder demo/lib/ toetsen de modus-keuze waarmee elke lokale
+# opstelling start; die horen bij een required check, en draaien daarom hier. Een fout daarin is
+# stil — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
+# Vandaar een eigen, lichte workflow: shellcheck, actionlint en de bash-unittests, zonder de docker
+# build van de FSC-harness.
 name: CI-scripts
 
 # Op een PR bewust ZONDER pad-filter. Twee redenen. Ten eerste kruiscontroleren de unittests de
@@ -27,7 +29,7 @@ on:
     types: [checks_requested]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**']
+    paths: ['.github/scripts/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**', 'demo/lib/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-*.yaml']
 
 permissions:
   contents: read
@@ -101,15 +103,16 @@ jobs:
           # zijn script meegecontroleerd krijgt.
           #
           # .claude/hooks/ hoort erbij: die scripts draaien op elke machine van het team, en een
-          # fout erin blokkeert of verstomt een guard zonder dat iemand het merkt.
-          scripts=$(find .github/scripts .claude/hooks -name '*.sh' | wc -l)
+          # fout erin blokkeert of verstomt een guard zonder dat iemand het merkt. demo/lib/ hoort
+          # erbij omdat zijn suites hier draaien: de bibliotheek die ze toetsen, haalt dezelfde gate.
+          scripts=$(find .github/scripts .claude/hooks demo/lib -name '*.sh' | wc -l)
 
           # `xargs -r` draait shellcheck niet bij een lege lijst; zonder deze guard zou die stilte
           # dan als geslaagd tellen in plaats van als "niets gemeten".
           if [ "$scripts" -eq 0 ]; then
             echo "FOUT: geen enkel script onder .github/scripts/ of .claude/hooks/ — deze stap meet niets."
             fail=1
-          elif ! find .github/scripts .claude/hooks -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
+          elif ! find .github/scripts .claude/hooks demo/lib -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
             fail=1
           fi
 
@@ -120,13 +123,14 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=111
+            [.github/scripts/test-wijzigingsfilter.sh]=112
             [.github/scripts/test-uitrol-poort.sh]=100
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
             [.github/scripts/test-preview-klaarzetten.sh]=78
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
+            [.github/scripts/test-images-gepubliceerd.sh]=35
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=22
             [.github/scripts/test-fuzz-basis-modules.sh]=16
@@ -135,6 +139,9 @@ jobs:
             [.github/scripts/test-proeftuin-pin-pr.sh]=129
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-proeftuin-pin.sh]=139
+            [.github/scripts/test-selinux-label-guard.sh]=22
+            [demo/lib/test-podman-modus.sh]=138
+            [demo/lib/test-opstellingen.sh]=39
           )
 
           # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt
@@ -189,7 +196,7 @@ jobs:
                 fail=1
               fi
             fi
-          done < <(find .github/scripts -name 'test-*.sh' | sort)
+          done < <(find .github/scripts demo/lib -name 'test-*.sh' | sort)
 
           # Zonder deze guard meldt de stap groen zodra er geen `test-*.sh` meer onder
           # .github/scripts/ staat — verwijderd, of buiten dat pad of die naamvorm gebracht.
@@ -201,12 +208,15 @@ jobs:
 
           # En een benoemde set, geen aantal: een suite die mét zijn VERWACHTE_ASSERTIES-sleutel
           # verdwijnt laat de guards hierboven tevreden, en een vervangende stub die één `OK:`
-          # print haalt elke telling. Deze drie dragen elk een controle die nergens anders in de
-          # keten wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf.
+          # print haalt elke telling. Deze dragen elk een controle die nergens anders in de keten
+          # wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf, en de twee onder
+          # demo/lib/ zijn de enige toets van de modus-keuze.
           for verplicht in .github/scripts/test-wijzigingsfilter.sh \
                            .github/scripts/test-uitrol-poort.sh \
                            .github/scripts/test-demo-grens.sh \
-                           .github/scripts/test-jdk-handtekening.sh; do
+                           .github/scripts/test-jdk-handtekening.sh \
+                           demo/lib/test-podman-modus.sh \
+                           demo/lib/test-opstellingen.sh; do
             if [ ! -f "$verplicht" ]; then
               echo "FOUT: $verplicht ontbreekt; die controle draait nergens meer in de keten."
               fail=1

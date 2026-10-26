@@ -28,6 +28,7 @@ branch-state laat Surefire stale `.class`-bestanden draaien, wat misleidende fou
 ongewijzigde code.
 
 ```bash
+./mvnw clean test -pl libraries/fbs-kern -am                  # pure JVM
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
 ./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker
@@ -90,6 +91,43 @@ DB_JDBC_URL=jdbc:postgresql://localhost:5433/berichtenmagazijn \
 `docker compose up -d`); `-Ddebug=5006` voorkomt een conflict op de debug-poort van de eerste
 dev-mode. Voor meer dan twee magazijnen is de demo-stack handiger dan losse dev-modes.
 
+## Lokale opstellingen starten
+
+Er zijn drie lokale opstellingen. Twee ervan start je op dezelfde manier: met één `up.sh` dat zelf
+de modus kiest (`docker`, `bridge` of `hostnet`), die vastlegt voor de vervolgcommando's, en met de
+oorzaak stopt als een modus op deze machine niet kan werken. `MODUS=<modus>` forceert.
+
+| Opstelling | Wat | Starten | Draait op |
+|---|---|---|---|
+| Demo-stack | De hele keten met berichtenbox en bedieningspaneel | `demo/up.sh` | Docker, of podman (Linux, podman machine) |
+| FSC-peer | Eén peer (`logius` of `magazijn-a`) met eigen directory | `demo/environment/<peer>/deploy/local/up.sh` | Docker, of podman (Linux, podman machine) |
+| Federatie | De peers samen: contracten, data-pad, discovery | `demo/environment/federatie/federatie.sh up` | Alleen Linux met podman; altijd `hostnet` |
+
+Elk `up.sh` kent dezelfde commando's: zonder argument starten, `ps` voor de status,
+`compose <args…>` voor elk ander compose-commando, `down` (met `-v` voor de volumes) om af te
+breken. De federatie heeft er `stop`, `start`, `restart <service>` en `status` bij.
+
+Wat je vooraf nodig hebt:
+
+- **Demo-stack:** de images, gebouwd met jib ([`demo-runbook.md`](demo-runbook.md) §2). De
+  stub-artefacten en de sleutelketen van het stelselregister maakt het script zelf.
+- **FSC-peer:** de PKI van die peer (`cfssl`) en een `deploy/local/.env` — zie de README in
+  `deploy/local/` van de peer.
+- **Federatie:** het draaiboek in [`demo/environment/federatie/README.md`](../demo/environment/federatie/README.md):
+  `.env` en PKI van elke peer, één gedeelde group-CA (`deel-groep-ca.sh`), en
+  `net.ipv4.ip_unprivileged_port_start` op 443 of lager.
+
+Gemeenschappelijk: `docker compose` v2.24.4 of nieuwer (tegen podman praat die met de
+podman-socket), en `timeout` — op macOS uit coreutils (`brew install coreutils`).
+
+Een losse peer en de federatie gebruiken dezelfde containers en sluiten elkaar daarom uit; het
+script weigert de ene zolang de andere draait. De demo-stack en een losse peer gebruiken deels
+dezelfde poorten (8081, 8090, 8091, en in hostnet ook 5432) en draaien dus evenmin naast elkaar;
+`up.sh` noemt bij een eerste start de poorten die al bezet zijn, in elke modus, voordat er een
+container start. Alleen de infra, zonder services, om die zelf in dev-mode te draaien: `docker
+compose up -d` (zie [Tests draaien](#tests-draaien) en
+[een tweede magazijn draaien](#een-tweede-magazijn-draaien)).
+
 ## De demo draaien met de proeftuin als berichtenbox
 
 De berichtenbox die de ondernemer ziet komt uit de proeftuin (`MinBZK/moza-poc`) en draait als
@@ -101,7 +139,7 @@ meldt compose `denied: requested access to the resource is denied` op `fbs-demo/
 melding wijst niet naar de overgeslagen bouwstap.
 
 ```bash
-docker compose --profile demo up -d
+demo/up.sh
 ```
 
 Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de berichtenbox met het
@@ -117,8 +155,7 @@ overlay; die neemt een hele referentie, want hun nog niet gemergde werk staat in
 ghcr-repository:
 
 ```bash
-PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 \
-  docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo up -d proeftuin
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 demo/up.sh compose up -d proeftuin
 ```
 
 De rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
@@ -147,7 +184,7 @@ BACKEND_KETEN=https://uitvraag-test-mpfb-8wh.$Z \
 BACKEND_KETEN_HOST=uitvraag-test-mpfb-8wh.$Z \
 BACKEND_PERSONAS=https://demopersonas-test-mpfm-w3h.$Z \
 BACKEND_PERSONAS_HOST=demopersonas-test-mpfm-w3h.$Z \
-  docker compose --profile demo up -d proeftuin
+  demo/up.sh compose up -d proeftuin
 ```
 
 Zet `BACKEND_KETEN` altijd expliciet, en let op het verschil tussen leeg zetten en weglaten.

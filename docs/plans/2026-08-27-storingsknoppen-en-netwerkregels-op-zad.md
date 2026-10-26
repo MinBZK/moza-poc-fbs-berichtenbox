@@ -1,4 +1,4 @@
-**Status:** Uitgevoerd; de keten op `test` gaat door de proxies zodra de nieuwe console daar staat. Zie "Wat er staat" onderaan.
+**Status:** Uitgevoerd; sinds 2026-10-21 loopt ook de keten op `test` door de proxies. Zie "Wat er staat" onderaan.
 
 # Storingsknoppen en cluster-intern verkeer op ZAD — ontwerp
 
@@ -193,7 +193,7 @@ elke ronde afgeweken noemen en hem blijven herbouwen.
 | Netwerkregels per preview in `deploy.yml`/`cleanup-preview.yml`, runbook | Uitgevoerd |
 | De vier Toxiproxy-componenten op `test`, met netwerkregels | Uitgevoerd |
 | Geverifieerd op de preview: eigen proxies, eigen upstreams, eigen NetworkPolicy | Uitgevoerd |
-| De keten op `test` door de proxies leiden | Na de merge, zie het runbook |
+| De keten op `test` door de proxies leiden | Uitgevoerd (2026-10-21) |
 
 De cache-verval-knop werkt, op `test` en op een preview. Eén ding kwam er bij de verificatie
 bovenop dat hier niet stond: de Redis op ZAD eist een wachtwoord, en de console kende de property
@@ -203,3 +203,16 @@ netwerkregel deed wat hij moest.
 Dat wachtwoord is de enige waarde die met de hand gelijk gehouden moet worden: hij staat in de
 `user-env-vars` van zowel `uitvraag` als `democonsole`, en de API geeft hem niet terug. Loopt hij
 uiteen, dan faalt alleen deze knop, en pas op het moment dat iemand hem gebruikt.
+
+De keten op `test` omhangen leverde twee dingen op die het ontwerp niet voorzag.
+
+**Op `test` loopt profiel door FSC.** De uitvraag in `test` draagt een deployment-override die
+`PROFIEL_SERVICE_URL` naar `logius-fscoutway` wijst, met grant-hash en outway-TLS erbij. Een alias
+komt daar niet doorheen, en de override verzetten zou FSC uit de keten halen. De proxy staat daarom
+áchter de inway: de `endpoint_url` van `profiel-service` in `logius-fscctl` wijst naar
+`toxiproxy-profiel-test`. Getoetst met "Profielservice uit": ophalen gaf `503 Profiel-service
+tijdelijk niet beschikbaar`, en na "Alles normaal" slaagde het weer.
+
+**Aliassen worden per deployment samengevoegd.** `magazijna` en `magazijnb` delen `AANMELD_URL` en
+`NOTIFICATIE_URL`, en een verschil tussen die twee laat de uitrol falen. Na de eerste van de twee
+aanroepen is dat zo; de tweede trekt het gelijk.

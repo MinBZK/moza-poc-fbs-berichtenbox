@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals

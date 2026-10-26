@@ -4,12 +4,14 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtPatch
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
 import java.util.UUID
 
@@ -111,6 +113,31 @@ class UitvraagDtoMapperTest {
         assertEquals(bijlageId, api.bijlagen.single().bijlageId)
         assertEquals("factuur.pdf", api.bijlagen.single().naam)
         assertEquals("/api/v1/berichten/$id?magazijnId=magazijn-a", api.links.self.href)
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 3])
+    fun `toApiBericht geeft elke bijlage een eigen self-link naar het ophaal-adres`(aantal: Int) {
+        val id = UUID.randomUUID()
+        val bijlagen = (1..aantal).map { BijlageSamenvatting(UUID.randomUUID(), "bijlage-$it.pdf") }
+        val domein = Bericht(
+            berichtId = id,
+            afzender = "00000001003214345000",
+            afzenderNaam = "Magazijn A",
+            ontvanger = Bsn("999990019"),
+            onderwerp = "Onderwerp",
+            publicatietijdstip = Instant.parse("2026-05-26T10:00:00Z"),
+            magazijnId = "magazijn-a",
+            aantalBijlagen = aantal,
+            bijlagen = bijlagen,
+        )
+
+        val api = UitvraagDtoMapper.toApiBericht(domein, afzenderNaam = "Belastingdienst", inhoud = null)
+
+        assertEquals(
+            bijlagen.map { "/api/v1/berichten/$id/bijlagen/${it.bijlageId}?magazijnId=magazijn-a" },
+            api.bijlagen.map { it.links.self.href },
+        )
     }
 
     @Test

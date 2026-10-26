@@ -9,8 +9,8 @@ import jakarta.ws.rs.Produces
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.core.MediaType
 import nl.rijksoverheid.moz.fbs.common.fsc.ProfielFscOutwayHeadersFilter
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.IdentificatienummerType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 import org.eclipse.microprofile.faulttolerance.Retry
 import org.eclipse.microprofile.rest.client.annotation.RegisterProvider
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient
@@ -89,7 +89,7 @@ data class PartijRequest(
     /**
      * Zonder deze override drukt de gegenereerde `toString()` het identificatienummer voluit
      * af — voor een burger het BSN — zodra dit object in een logregel, foutmelding of
-     * assertie belandt. [nl.rijksoverheid.moz.fbs.common.identificatie.Bsn] maskeert om
+     * assertie belandt. [nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn] maskeert om
      * dezelfde reden.
      */
     override fun toString(): String = "PartijRequest(identificatieType=$identificatieType)"

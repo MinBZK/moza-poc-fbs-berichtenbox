@@ -4,7 +4,7 @@
 # `localhost/` voor.
 #
 # `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`, en verder wordt
-# alleen `0.0.0.0` ondersteund — `demo/podman-up.sh` controleert elke service over 127.0.0.1 en een
+# alleen `0.0.0.0` ondersteund — `demo/up.sh` controleert elke service over 127.0.0.1 en een
 # specifiek adres laat die controles aflopen. Zonder die binding staat de hele demo op élke
 # interface van de machine: Redis zonder wachtwoord, vier PostgreSQL-instanties met
 # demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
@@ -240,7 +240,7 @@ services:
   # Netwerk-storingssimulator tussen de uitvraag en zijn afhankelijkheden. Proxies vast uit
   # /proxies.json; de demo-console voegt runtime toxics toe via de admin-API (:8474).
   toxiproxy:
-    image: ghcr.io/shopify/toxiproxy:2.12.0
+    image: ghcr.io/shopify/toxiproxy:2.13.0
     environment:
       TZ: Europe/Amsterdam
     profiles: [demo]

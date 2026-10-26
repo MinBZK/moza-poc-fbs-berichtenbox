@@ -3,7 +3,7 @@ package nl.rijksoverheid.moz.fbs.magazijnregister
 import io.quarkus.runtime.StartupEvent
 import io.smallrye.config.PropertiesConfigSource
 import io.smallrye.config.SmallRyeConfigBuilder
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue

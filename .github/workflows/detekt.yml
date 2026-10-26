@@ -98,7 +98,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           verify-signature: true
@@ -158,57 +158,63 @@ jobs:
           exit "$fout"
         env:
           WORKFLOW_BESTAND: .github/workflows/detekt.yml
+      - name: Upload SARIF — fbs-kern
+        if: ${{ always() && hashFiles('libraries/fbs-kern/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: libraries/fbs-kern/target/detekt.sarif
+          category: detekt-fbs-kern
       - name: Upload SARIF — fbs-common
         if: ${{ always() && hashFiles('libraries/fbs-common/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: libraries/fbs-common/target/detekt.sarif
           category: detekt-fbs-common
       - name: Upload SARIF — fbs-magazijnregister
         if: ${{ always() && hashFiles('libraries/fbs-magazijnregister/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: libraries/fbs-magazijnregister/target/detekt.sarif
           category: detekt-fbs-magazijnregister
       - name: Upload SARIF — fbs-berichtensessiecache
         if: ${{ always() && hashFiles('libraries/fbs-berichtensessiecache/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: libraries/fbs-berichtensessiecache/target/detekt.sarif
           category: detekt-fbs-berichtensessiecache
       - name: Upload SARIF — berichtenmagazijn
         if: ${{ always() && hashFiles('services/berichtenmagazijn/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: services/berichtenmagazijn/target/detekt.sarif
           category: detekt-berichtenmagazijn
       - name: Upload SARIF — berichtenuitvraag
         if: ${{ always() && hashFiles('services/berichtenuitvraag/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: services/berichtenuitvraag/target/detekt.sarif
           category: detekt-berichtenuitvraag
       - name: Upload SARIF — stelselregister
         if: ${{ always() && hashFiles('services/stelselregister/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: services/stelselregister/target/detekt.sarif
           category: detekt-stelselregister
       - name: Upload SARIF — demo-console
         if: ${{ always() && hashFiles('demo/demo-console/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: demo/demo-console/target/detekt.sarif
           category: detekt-demo-console
       - name: Upload SARIF — demo-personas
         if: ${{ always() && hashFiles('demo/demo-personas/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: demo/demo-personas/target/detekt.sarif
           category: detekt-demo-personas
       - name: Upload SARIF — magazijn-simulator
         if: ${{ always() && hashFiles('demo/magazijn-simulator/target/detekt.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: demo/magazijn-simulator/target/detekt.sarif
           category: detekt-magazijn-simulator

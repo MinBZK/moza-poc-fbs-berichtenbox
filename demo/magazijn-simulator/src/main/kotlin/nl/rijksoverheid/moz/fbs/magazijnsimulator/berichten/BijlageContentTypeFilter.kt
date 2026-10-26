@@ -5,6 +5,8 @@ import jakarta.ws.rs.container.ContainerResponseContext
 import jakarta.ws.rs.container.ContainerResponseFilter
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.bijlage.BijlageContentDisposition
+import nl.rijksoverheid.moz.fbs.kern.bijlage.BijlageMediaType
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.PROBLEM_JSON
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.onverwachteFoutProblem
 import org.jboss.logging.Logger
@@ -55,7 +57,7 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
 
         if (responseContext.status !in GESLAAGD) return
 
-        val geparsed = bijlageMediaType(mimeType)
+        val geparsed = BijlageMediaType.parse(mimeType)
 
         if (geparsed == null) {
             val foutId = UUID.randomUUID()

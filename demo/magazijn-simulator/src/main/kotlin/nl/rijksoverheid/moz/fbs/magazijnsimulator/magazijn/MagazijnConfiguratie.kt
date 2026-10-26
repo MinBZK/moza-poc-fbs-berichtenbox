@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn
 
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragVerdeling
@@ -20,8 +21,6 @@ data class MagazijnInstelling(val naam: String, val gedrag: Gedrag)
  */
 object MagazijnConfiguratie {
 
-    private val OIN_PATROON = Regex("^[0-9]{20}$")
-
     fun valideer(entries: Map<String, MagazijnSimulatorConfig.Inschrijving>): Map<String, MagazijnInstelling> {
         // `check` en niet `require`, net als de controles hieronder: dit zijn alle fouten in de
         // configuratie van de omgeving, geen fouten van een aanroeper. Twee exception-types voor
@@ -31,16 +30,14 @@ object MagazijnConfiguratie {
         }
 
         return entries.entries.associate { (key, entry) ->
-            check(OIN_PATROON.matches(key)) {
-                "Ongeldige OIN-key in magazijn-simulator-config: '$key' moet precies 20 cijfers zijn " +
-                    "(magazijnsimulator.magazijnen.\"$key\".naam)"
-            }
-
-            // Dezelfde invariant die `Identificatie` op elke OIN afdwingt: een nummer van louter
-            // nullen is geen organisatie, en het is de waarde die je krijgt als een generator zijn
-            // veld niet heeft ingevuld.
-            check(key.any { it != '0' }) {
-                "Ongeldige OIN-key in magazijn-simulator-config: '$key' kan niet geheel uit nullen bestaan"
+            // Dezelfde regel als op elke aangeleverde afzender, zodat de simulator geen magazijn
+            // inschrijft waarvan het echte stelsel de OIN zou weigeren. De key mag in de melding: een
+            // OIN is publiek.
+            runCatching { Oin(key) }.onFailure { fout ->
+                error(
+                    "Ongeldige OIN-key in magazijn-simulator-config: '$key' — ${fout.message} " +
+                        "(magazijnsimulator.magazijnen.\"$key\".naam)",
+                )
             }
 
             val naam = entry.naam().trim()

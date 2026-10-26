@@ -26,7 +26,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResult
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.circuitActieVoor
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.common.profiel.ProfielServiceFoutException
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger

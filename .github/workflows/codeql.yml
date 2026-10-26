@@ -51,14 +51,14 @@ jobs:
       # Zonder cache haalde deze workflow de volledige dependency-boom bij élke run opnieuw op,
       # terwijl test.yml, detekt.yml en deploy.yml diezelfde artefacten al hergebruiken. Het
       # herstellen van de cache kost een fractie van wat dat downloaden kostte.
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           verify-signature: true
           java-version: 21
           cache: maven
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: ${{ matrix.language }}
       # Eigen bouwstap in plaats van `autobuild`. Die draait `clean package -DskipTests`, en
@@ -84,8 +84,8 @@ jobs:
       # niet bereikt) en staat er als vangrail: wie de fase ooit optrekt, krijgt de
       # testcompilatie dan niet ongemerkt terug.
       #
-      # `-T` draait de reactor parallel. De module-graaf is breed — alleen `fbs-common` is
-      # upstream van de rest — dus het kritieke pad loopt via `fbs-common` naar het zwaarste
+      # `-T` draait de reactor parallel. De module-graaf is breed — alleen `fbs-kern` en
+      # `fbs-common` zijn upstream van de rest — dus het kritieke pad loopt via die twee naar het zwaarste
       # component, in plaats van via de som van alle modules. De winst blijft beperkt doordat
       # de extractie CPU-gebonden is en de runner weinig kernen heeft: modules die naast elkaar
       # draaien concurreren om dezelfde kernen. Om diezelfde reden helpt een hogere waarde dan
@@ -163,7 +163,7 @@ jobs:
               || { echo "::error::Geen enkele Maven-module onder $root/ — deze controle meet niets."; exit 1; }
           done
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: "/language:${{ matrix.language }}"
       # De repo heeft nul CodeQL-bevindingen, dus het aantal bevindingen kan niet aantonen dat

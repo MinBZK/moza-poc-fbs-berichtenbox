@@ -1,7 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld
 
 import jakarta.enterprise.context.ApplicationScoped
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 
 /**

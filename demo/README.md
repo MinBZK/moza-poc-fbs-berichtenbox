@@ -19,18 +19,20 @@ verwacht.
 | `genereer-magazijnen.py` | Genereert uit één getal n: het register, de set van de simulator en de vier ondernemers (3, 15, 45 en 100 aangesloten organisaties) |
 | `smoke.sh` | Rookproef over de demo-stack |
 | `meet-fanout.sh` | Meet per ondernemer de tijd tot het eerste bericht en tot de complete lijst, uit de SSE-stroom van de uitvraag |
-| `podman-prepare.sh`, `podman-up.sh` | Demo-stack draaien onder Podman |
+| `up.sh` | Demo-stack draaien op Docker of podman (`up`, `down`, `ps`, `compose …`); kiest zelf de modus. `podman-up.sh` is de vorige naam en verwijst ernaar; `podman-prepare.sh` maakt de stub-artefacten per modus en wordt door `up.sh` aangeroepen |
+| `lib/podman-modus.sh` | De modus-keuze (docker, bridge, hostnet) die `up.sh` en de FSC-peer-harnessen (`environment/<peer>/deploy/local/up.sh`) delen, met zijn tests |
 
 De demo-runbook staat in [`../docs/demo-runbook.md`](../docs/demo-runbook.md).
 
 ## De grens
 
-Een module onder `demo/` mag afhangen van het stelsel en van elkaar; andersom niet. `demo-console`
-hangt aan `demo-personas` en verder aan niets uit de reactor: de wegwerp-modules erven de
-productie-stack (LDV-wrapper, JAX-RS-filters) bewust niet. De prijs is duplicatie: de
-elfproef-validatie staat lokaal in `demo-personas/src/main/kotlin/…/Identificatiecheck.kt`,
-naast het gezaghebbende `libraries/fbs-common/…/identificatie/Identificatienummer.kt`. Wie de
-elfproef wijzigt, wijzigt beide.
+Een module onder `demo/` mag afhangen van het stelsel en van elkaar; andersom niet. De
+wegwerp-modules erven de productie-stack (LDV-wrapper, JAX-RS-filters, opstartcontroles) bewust
+niet, en hangen dus niet aan `libraries/fbs-common`. De regels die ze met het stelsel delen —
+identificatienummers en de weergave van bijlagen — komen uit `libraries/fbs-kern`: die module
+bevat geen beans, filters of opstartcontroles, dus er valt niets ongewenst mee te erven. Zo weigert
+de demo precies de nummers die het echte magazijn weigert, zonder een kopie die uit de pas kan
+lopen.
 
 `.github/scripts/demo-grens.sh` bewaakt de richting: het faalt zodra een pom van het stelsel — de
 modules onder `services/` en `libraries/`, én de root-pom waar ze allemaal van erven — de naam van

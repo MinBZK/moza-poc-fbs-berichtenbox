@@ -35,8 +35,14 @@
         <!-- Bewust GEEN fbs-common, net als demo-console: de JAX-RS-filters daarin (met name
              LogboekContextDefaultFilter) worden door CDI opgepikt en vereisen de LDV-wrapper.
              Het logboek is per organisatie; honderd gesimuleerde magazijnen zouden honderd
-             logboeken suggereren die niet bestaan. Wat de simulator wél nodig heeft — een
-             OIN-controle en de API-Version-header — is hier lokaal en klein gehouden. -->
+             logboeken suggereren die niet bestaan. De regels die het echte magazijn afdwingt
+             (identificatienummers, bijlage-weergave) komen uit fbs-kern, dat geen beans bevat;
+             de bedrading eromheen (mappers, API-Version-header) staat hier lokaal. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-kern</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
@@ -130,10 +136,21 @@
             </plugin>
 
             <!-- Config (spec-pad, pakket, jaxrs-spec-opties) staat in de parent
-                 pluginManagement; gevoed via api.spec.file / api.base.package. -->
+                 pluginManagement; gevoed via api.spec.file / api.base.package. Alleen de tags
+                 die de simulator nabootst: `Specificatie` (het OpenAPI-document van het
+                 magazijn) zou per gesimuleerd magazijn hetzelfde document opleveren en voegt
+                 voor een demo niets toe. -->
             <plugin>
                 <groupId>org.openapitools</groupId>
                 <artifactId>openapi-generator-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>generate</id>
+                        <configuration>
+                            <apisToGenerate>Aanlever,Berichten</apisToGenerate>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- ApiInfo-generatie: config staat in de parent pluginManagement. -->

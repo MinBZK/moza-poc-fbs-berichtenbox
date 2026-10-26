@@ -16,8 +16,8 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldBerichtData
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldCloudEvent
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldOntvanger
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AfzenderMagazijnIndex
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import java.time.Instant

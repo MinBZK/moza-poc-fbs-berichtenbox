@@ -10,9 +10,9 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
-import nl.rijksoverheid.moz.fbs.common.identificatie.Bsn
-import nl.rijksoverheid.moz.fbs.common.identificatie.Identificatienummer
-import nl.rijksoverheid.moz.fbs.common.identificatie.Oin
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
@@ -90,7 +90,7 @@ class BerichtenOphalenIntegrationTest {
             .then()
             .statusCode(200)
             .contentType("application/json")
-            .header("API-Version", `is`("0.4.0"))
+            .header("API-Version", `is`("0.5.0"))
             .body("totalElements", `is`(2))
             .body("berichten", hasSize<Any>(2))
             .body("berichten[0].onderwerp", notNullValue())

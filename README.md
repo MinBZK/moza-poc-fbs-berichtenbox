@@ -42,7 +42,8 @@ De belangrijkste paden:
 | `services/berichtenmagazijn/`         | Magazijn-service (PostgreSQL + Flyway, Aanlever-API)                             |
 | `services/berichtenuitvraag/`         | Uitvraag-service (frontend-API, aggregatie, SSE)                                 |
 | `services/stelselregister/`           | Publiceert het magazijnregister als ondertekend stelseldocument                  |
-| `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, identificatienummers (BSN/RSIN/KvK/OIN), Profiel-client |
+| `libraries/fbs-kern/`                 | Regels zonder beans voor stelsel én demo: identificatienummers, bijlagen         |
+| `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, Profiel-client                       |
 | `libraries/fbs-magazijnregister/`     | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)                    |
 | `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                           |
 | `bruno/`                              | Bruno-collecties met voorbeeldrequests per service                                |
@@ -86,11 +87,11 @@ De `compile`-fase vóór `quarkus:dev` zorgt dat de gedeelde modules onder `libr
 en faalt de resolution van bijvoorbeeld `fbs-common-<versie>.jar` zolang die niet in de
 lokale Maven-repository staat.
 
-| Service              | API                                              | OpenAPI                                 |
-|----------------------|--------------------------------------------------|-----------------------------------------|
-| berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/openapi.json`    |
-| berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/openapi.json`    |
-| stelselregister      | `http://localhost:8094/api/v1/stelseldocument`   | `http://localhost:8094/openapi.json`    |
+| Service              | API                                              | OpenAPI                                        |
+|----------------------|--------------------------------------------------|------------------------------------------------|
+| berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/api/v1/openapi.json`    |
+| berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/api/v1/openapi.json`    |
+| stelselregister      | `http://localhost:8094/api/v1/stelseldocument`   | `http://localhost:8094/openapi.json`           |
 
 De uitvraag verwacht in dev óók een magazijn B op 8091. Draai je alleen A, dan meldt het ophalen
 een gedeeltelijke storing — dat is correct gedrag, geen defect. Zie
@@ -98,9 +99,9 @@ een gedeeltelijke storing — dat is correct gedrag, geen defect. Zie
 
 ## Demo-stack
 
-Voor demonstraties draait de volledige keten in containers — images bouwen met jib, stubs
-genereren, `docker compose --profile demo up -d`, en een bedieningspaneel op
-<http://localhost:8095>. Het [demo-runbook](docs/demo-runbook.md) beschrijft de opzet, de
+Voor demonstraties draait de volledige keten in containers: images bouwen met jib en starten met
+`demo/up.sh`, dat op Docker en podman zelf de werkbare modus kiest. Daarna staat de demo op
+<http://127.0.0.1:8097/bediening/>. Het [demo-runbook](docs/demo-runbook.md) beschrijft de opzet, de
 persona's, alle knoppen en de scenario's stap voor stap.
 
 Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie Postgres-instanties

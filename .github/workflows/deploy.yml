@@ -123,6 +123,19 @@ permissions: read-all
 
 env:
   REGISTRY: ghcr.io
+  # De eigen images, per build-job die ze publiceert (`build` op zijn matrix-waarde). Elke build-job
+  # vraagt als laatste stap het register naar precies deze namen; een `BUILD SUCCESS` zegt niet dat
+  # er iets gepubliceerd is. Elke componentenlijst hieronder mag alleen namen uit deze lijst noemen —
+  # test-images-gepubliceerd.sh bewaakt dat, en dat elke sleutel door één controlestap gelezen wordt.
+  EIGEN_IMAGES: >-
+    {
+      "berichtenuitvraag": ["fbs-berichtenuitvraag"],
+      "berichtenmagazijn": ["fbs-berichtenmagazijn"],
+      "stelselregister": ["fbs-stelselregister"],
+      "externe-stubs": ["fbs-externe-stubs", "fbs-demo-profiel"],
+      "contract-bootstrap": ["fbs-fsc-contract-bootstrap"],
+      "demo-images": ["fbs-demo-console", "fbs-demo-personas", "fbs-magazijn-simulator"]
+    }
   PROJECT_UITVRAAG: mpfb-8wh
   PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
@@ -196,7 +209,7 @@ env:
   # Alleen amd64: ZAD draait daarop, en compose houdt de multi-arch-tag voor wie op arm werkt.
   # Verdwijnt de dubbele child upstream, of komt de Quay-dedupe (PROJQUAY-10068) in een release, dan
   # kan de digest hier weg en volstaat de tag.
-  TOXIPROXY_IMAGE: 'ghcr.io/shopify/toxiproxy:2.12.0@sha256:a3e244375123dad8849091bcc59775e188624d3f602db01901f9af855682fef8'
+  TOXIPROXY_IMAGE: 'ghcr.io/shopify/toxiproxy:2.13.0@sha256:9941f0357759e6c9bfe0ad45e20c415100505113da0f5c436cfd0a4d27579fdc'
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -453,7 +466,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           # Expliciet aan, ook al verifieert de action Temurin sinds v6 standaard: een wissel naar
@@ -485,6 +498,21 @@ jobs:
             -Dquarkus.container-image.group="$GROUP" \
             -Dquarkus.container-image.tag="$TAG" \
             -Dquarkus.container-image.username="$GHCR_USER"
+
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)[matrix.service], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
   # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
@@ -579,6 +607,21 @@ jobs:
           echo "Fan-out geverifieerd: Landelijk Concern kent $scopes organisaties."
           docker push "$DEMO_IMG"
 
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)['externe-stubs'], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
   # interne manager-API heeft daar geen route en de tenant-baseline-NetworkPolicy laat alleen
   # verkeer binnen hetzelfde deployment toe. Eén image, twee rollen — welke, leest het entrypoint
@@ -616,6 +659,21 @@ jobs:
           docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)['contract-bootstrap'], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+
   # De drie demo-modules met een eigen image: het bedieningspaneel, de personadienst en de
   # magazijn-simulator. Alle drie componenten van `test` in het magazijnen-project, dus ze rollen
   # mee met de rest van de keten,
@@ -646,7 +704,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           verify-signature: true
@@ -667,6 +725,21 @@ jobs:
             -Dquarkus.container-image.group="$GROUP" \
             -Dquarkus.container-image.tag="$TAG" \
             -Dquarkus.container-image.username="$GHCR_USER"
+
+      # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
+      - name: Controleer de publicatie
+        env:
+          OWNER: ${{ needs.meta.outputs.owner }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          NAMEN: ${{ join(fromJSON(env.EIGEN_IMAGES)['demo-images'], ' ') }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+          read -ra namen <<<"$NAMEN"
+          .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # De vier toetsende workflows draaien als aangeroepen (`workflow_call`) job ín deze workflow,
   # zodat de deploy er met `needs:` aan kan hangen. Vóór #173 draaiden ze zelfstandig en wachtte

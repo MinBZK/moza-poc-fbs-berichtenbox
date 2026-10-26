@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.Identificatie
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.IdentificatieType
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -13,7 +12,7 @@ import java.time.Instant
  */
 class DemoBijlageTest {
 
-    private val ontvanger = Identificatie(IdentificatieType.BSN, "999993653")
+    private val ontvanger = Bsn("999993653")
 
     private fun eersteBijlage() = DemoBerichten
         .voor("00000009000000000001", ontvanger, aantal = 4, bijlageElke = 4, nu = Instant.parse("2026-01-01T12:00:00Z"))
