@@ -1,6 +1,7 @@
 # Een uitrol die half lukt, is niet groen — implementatieplan
 
-**Status:** Concept
+**Status:** In uitvoering — upstream uitgebracht in zad-actions v4.4.0 (2026-10-23), stap A in
+dezelfde PR als dit plan (#382); stap B volgt na een week meten op `test`.
 
 **Doel:** een deploy-job in `deploy.yml` faalt zodra Operations Manager meldt dat de uitrol wel is
 uitgevoerd maar dat componenten ongezond zijn. Nu gaat zo'n job groen, en ziet niemand het tot een
@@ -82,6 +83,13 @@ is een eigen vervolg, buiten dit plan: [MinBZK/MijnOverheidZakelijk#1327](https:
 
 PR vanaf een fork; wij hebben geen schrijfrechten op de repo.
 
+**Uitgevoerd:** gemerged als zad-actions#77, uitgebracht in
+[v4.4.0](https://github.com/RijksICTGilde/zad-actions/releases/tag/v4.4.0) (commit `4217cea`). Twee
+verschillen met het ontwerp hierboven: een annotatie noemt ook de `summary` van een waarschuwing
+(daar zet de CLI de reden van een geweigerde goedkeuring of een `partial`-status), en elke tekst wordt
+gecodeerd zoals workflow-commando's dat eisen, zodat een kubelet-melding met een regeleinde geen eigen
+`::`-commando kan worden. De release zet ook `astral-sh/setup-uv` van v6 naar v7.
+
 ### 2. Deze repo, na de release van zad-actions
 
 In twee stappen, omdat `test` hierdoor vaak rood wordt (zie Afweging):
@@ -89,7 +97,31 @@ In twee stappen, omdat `test` hierdoor vaak rood wordt (zie Afweging):
 **Stap A: meten.** De pin van `zad-actions/deploy` in `deploy.yml` naar de nieuwe release (SHA +
 versie-comment), zonder de input. De nieuwe versie maakt van elke waarschuwing al een
 `::warning::`-annotatie, ook na een overname. Een week lang tellen per job hoe vaak dat gebeurt en
-of een tweede poging met dezelfde tag het oplost.
+of een tweede poging met dezelfde tag het oplost. `zad-actions/cleanup` in `cleanup-preview.yml`
+gaat mee naar dezelfde release, zodat beide pins één versie blijven noemen.
+
+Tellen, vanaf de dag van de merge (`<datum>`): één regel per ongezond component per test-job, met de
+run erbij om een herhaling te kunnen opzoeken.
+
+```bash
+repo=MinBZK/moza-poc-fbs-berichtenbox
+gh run list --repo "$repo" --workflow "Deploy ZAD" --branch main --event push \
+  --created ">=<datum>" --limit 200 --json databaseId --jq '.[].databaseId' |
+while read -r run; do
+  gh api "repos/$repo/actions/runs/$run/jobs?per_page=100" \
+    --jq '.jobs[] | select(.name | startswith("deploy-test")) | "\(.id)\t\(.name)"' |
+  while IFS=$'\t' read -r job naam; do
+    gh api "repos/$repo/check-runs/$job/annotations" \
+      --jq '.[] | select(.annotation_level == "warning")
+                | select(.message | test("^Details: [^ ]+ \\([a-z_]+\\): ")) | .message' |
+      sed "s|^Details: |$run $naam: |"
+  done
+done
+```
+
+Het filter pakt alleen de `Details`-regels in de vorm `<component> (<failure_type>): …`; de
+logregels die de action na een overname meestuurt, beginnen met spaties en vallen erbuiten. GitHub
+bewaart per stap hooguit tien warning-annotaties. Noemt een job er tien, lees dan het log.
 
 **Stap B: afdwingen.**
 - `fail-on-warnings: 'true'` op alle tien aanroepen.
@@ -103,18 +135,22 @@ of een tweede poging met dezelfde tag het oplost.
   deploy-stap, of een kopie van een oude, stil terug op de default `false`. Het verwachte aantal
   asserties in `VERWACHTE_ASSERTIES` (`ci-scripts.yml`) groeit mee.
 
-**Doc, met stap A:** `docs/operations/zad-gitops.md`, bij de valkuilen:
+**Doc, met stap A:** `docs/operations/zad-gitops.md`, een nieuw blok "Gelukt, maar ongezond" vóór
+de valkuilen:
 - `gh run rerun --failed` draait een groene deploy-job niet opnieuw. Na een storing die de
   waarschuwing van een groene job verborg: op een PR de hele run opnieuw draaien.
 - Op `main` alleen de nieuwste run opnieuw draaien. Een push-tag heeft geen poging-suffix
   (`main-<sha7>`), en de concurrency-groepen `zad-*-test` zetten jobs achter elkaar, niet op
   volgorde van commit. Een oudere run rolt `test` dus groen terug naar oude images; de volgende
-  push herstelt `test` vanzelf.
-- Na stap B is een ongezonde uitrol rood, en volstaat `rerun --failed` voor de rode job.
+  uitrol naar `test` herstelt een uitgeschakeld component vanzelf.
 - Bij de overname-faalgevallen: een overname wordt nu ook op waarschuwingen beoordeeld.
 
-Dependabot volgt de actions-groep, maar de pin bijwerken en de input zetten kan pas als de nieuwe
-versie er is; stap A doet de bump daarom bewust zelf, als menselijke PR met een preview.
+**Doc, met stap B:** in hetzelfde blok wordt "de job blijft groen" een rode job, en volstaat
+`rerun --failed` voor die job.
+
+Dependabot bood dezelfde bump aan in #406, maar een bot-PR rolt niet uit (`skip-bot-prs`), dus die
+levert geen preview met de nieuwe action op. Stap A doet de bump daarom bewust zelf, als menselijke
+PR met een preview; #406 vervalt met de merge.
 
 ## Afweging
 
