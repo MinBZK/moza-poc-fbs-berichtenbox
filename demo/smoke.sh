@@ -12,12 +12,18 @@
 # is meegegenereerd of een uitvraag die nog met het oude register draait, geeft gewoon een kleinere
 # lijst.
 #
+# Stap 6 haalt de bijlage van het bericht bij magazijn A op zoals de berichtenbox dat doet: via de
+# demo-proxy, met het adres uit `_links.self` en de ontvanger alleen in het cookie. Een <a href>
+# stuurt geen header mee, dus de proxy moet hem uit dat cookie maken. Rechtstreeks bij de uitvraag
+# is dat niet te zien.
+#
 # Vereist een draaiende stack:  docker compose --profile demo up -d
 set -euo pipefail
 
 MAGAZIJN_A="${MAGAZIJN_A:-http://localhost:8090}"
 MAGAZIJN_B="${MAGAZIJN_B:-http://localhost:8091}"
 UITVRAAG="${UITVRAAG:-http://localhost:8086}"
+DEMO_PROXY="${DEMO_PROXY:-http://localhost:8097}"
 BSN="${BSN:-999993653}"
 ONTVANGER="BSN:$BSN"
 
@@ -28,7 +34,7 @@ ONTVANGER="BSN:$BSN"
 AFZENDER_OIN_A="${AFZENDER_OIN_A:-00000000000000100000}"
 AFZENDER_OIN_B="${AFZENDER_OIN_B:-00000001823288444000}"
 
-echo "1/5 health"
+echo "1/6 health"
 for url in "$MAGAZIJN_A" "$MAGAZIJN_B" "$UITVRAAG"; do
     curl -sf "$url/q/health/ready" > /dev/null \
         || { echo "FOUT: $url niet gezond"; exit 1; }
@@ -37,8 +43,10 @@ done
 # Levert één bericht aan bij het opgegeven magazijn. Het magazijn kent het berichtId zelf toe;
 # de aanlever-request bevat er geen. We herkennen ons bericht daarom aan een uniek onderwerp.
 # Niet in een command-substitution aanroepen: een `exit` in een subshell stopt het script niet.
+# Het toegekende berichtId komt daarom in de globale `toegekend`. Een vijfde argument is een
+# JSON-array met bijlagen.
 lever_aan() {
-    local label="$1" basis="$2" oin="$3" onderwerp="$4"
+    local label="$1" basis="$2" oin="$3" onderwerp="$4" bijlagen="${5:-[]}"
     local respons="/tmp/smoke-aanlever-$label.json" status berichtId
 
     status=$(curl -s -o "$respons" -w '%{http_code}' \
@@ -48,7 +56,8 @@ lever_aan() {
               \"afzender\": \"$oin\",
               \"ontvanger\": {\"type\": \"BSN\", \"waarde\": \"$BSN\"},
               \"onderwerp\": \"$onderwerp\",
-              \"inhoud\": \"Aangemaakt door demo/smoke.sh\"
+              \"inhoud\": \"Aangemaakt door demo/smoke.sh\",
+              \"bijlagen\": $bijlagen
             }")
 
     if [[ "$status" != "201" ]]; then
@@ -60,19 +69,48 @@ lever_aan() {
     berichtId=$(grep -o '"berichtId"[[:space:]]*:[[:space:]]*"[^"]*"' "$respons" \
         | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
     echo "    magazijn $label kende berichtId $berichtId toe"
+    toegekend="$berichtId"
 }
 
 stempel=$(date +%s)
 onderwerp_a="Rookproef demo-stack A $stempel"
 onderwerp_b="Rookproef demo-stack B $stempel"
 
-echo "2/5 bericht aanleveren bij magazijn A"
-lever_aan A "$MAGAZIJN_A" "$AFZENDER_OIN_A" "$onderwerp_a"
+# Een echte PDF van één pagina met de tekst ongecomprimeerd erin, zodat stap 6 hem met grep
+# terugvindt. Het magazijn neemt alleen application/pdf aan. De tekst mag geen haakjes of
+# backslash bevatten: die vragen escaping in een PDF-string. De xref telt bytes, vandaar LC_ALL=C.
+pdf_met_tekst() {
+    local LC_ALL=C
+    local stream="BT /F1 12 Tf 72 770 Td ($1) Tj ET"
+    local objecten=(
+        "<< /Type /Catalog /Pages 2 0 R >>"
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
+        "<< /Length ${#stream} >>"$'\nstream\n'"$stream"$'\nendstream'
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    )
+    local pdf=$'%PDF-1.4\n' xref="" i
 
-echo "3/5 bericht aanleveren bij magazijn B"
+    for i in "${!objecten[@]}"; do
+        printf -v xref '%s%010d 00000 n \n' "$xref" "${#pdf}"
+        pdf+="$((i + 1)) 0 obj"$'\n'"${objecten[$i]}"$'\nendobj\n'
+    done
+
+    printf '%sxref\n0 %d\n0000000000 65535 f \n%strailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n' \
+        "$pdf" $((${#objecten[@]} + 1)) "$xref" $((${#objecten[@]} + 1)) "${#pdf}"
+}
+
+bijlage_tekst="Rookproef-bijlage $stempel"
+bijlage_a="[{\"naam\": \"rookproef.pdf\", \"mimeType\": \"application/pdf\", \"inhoud\": \"$(pdf_met_tekst "$bijlage_tekst" | base64 | tr -d '\n')\"}]"
+
+echo "2/6 bericht aanleveren bij magazijn A, met een bijlage"
+lever_aan A "$MAGAZIJN_A" "$AFZENDER_OIN_A" "$onderwerp_a" "$bijlage_a"
+bericht_a="$toegekend"
+
+echo "3/6 bericht aanleveren bij magazijn B"
 lever_aan B "$MAGAZIJN_B" "$AFZENDER_OIN_B" "$onderwerp_b"
 
-echo "4/5 ophalen via uitvraag"
+echo "4/6 ophalen via uitvraag"
 # De sessiecache vult zich pas na een ophaal-ronde; GET /berichten leest alleen de cache.
 stream=/tmp/smoke-ophalen.txt
 curl -sf -N --max-time 30 "$UITVRAAG/api/v1/berichten/_ophalen" \
@@ -124,7 +162,7 @@ for onderwerp in "$onderwerp_a" "$onderwerp_b"; do
         || { echo "FOUT: '$onderwerp' niet gevonden in de uitvraag"; exit 1; }
 done
 
-echo "5/5 fan-out van de ondernemers"
+echo "5/6 fan-out van de ondernemers"
 
 # De ondernemers halen op bij 3, 15, 45 en 100 organisaties; de kleinere zitten volledig in de
 # grotere. Dat is de hele reden dat de simulator bestaat, en het is precies het soort ding dat stil
@@ -157,4 +195,40 @@ fanout "KVK:90000001"  45  "grootbedrijf"
 fanout "KVK:90000003"  100 "landelijk concern"
 fanout "KVK:90000015"  100 "mappen-demo"
 
-echo "OK: keten werkt end-to-end via beide magazijnen, en de ondernemers halen op bij 3/15/45/100 organisaties"
+echo "6/6 bijlage via de demo-proxy, met de ontvanger alleen in het cookie"
+# Elke curl en grep hier met `|| true`: onder `set -e` stopt een verbindingsfout of een lege grep
+# het script anders zonder melding, en dan komt de FOUT-regel met de oorzaak nooit op het scherm.
+# Een onbereikbare proxy meldt zich zo als HTTP 000.
+detail=/tmp/smoke-detail-a.json
+rm -f "$detail"
+status=$(curl -s --max-time 10 -o "$detail" -w '%{http_code}' \
+    "$DEMO_PROXY/api/v1/berichten/$bericht_a?magazijnId=$AFZENDER_OIN_A" \
+    -H "X-Ontvanger: $ONTVANGER" || true)
+
+if [[ "$status" != "200" ]]; then
+    echo "FOUT: het detail van het bericht bij magazijn A via de demo-proxy gaf HTTP $status (verwacht 200):"
+    cat "$detail" 2>/dev/null || true
+    exit 1
+fi
+
+bijlage_adres=$(grep -o '"href"[[:space:]]*:[[:space:]]*"[^"]*/bijlagen/[^"]*"' "$detail" \
+    | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)
+
+if [[ -z "$bijlage_adres" ]]; then
+    echo "FOUT: het detail noemt geen bijlage-adres in _links.self:"
+    cat "$detail"
+    exit 1
+fi
+
+bijlage=/tmp/smoke-bijlage-a.pdf
+rm -f "$bijlage"
+status=$(curl -s --max-time 10 -o "$bijlage" -w '%{http_code}' "$DEMO_PROXY$bijlage_adres" \
+    -H "Cookie: ontvanger=$ONTVANGER" || true)
+
+if [[ "$status" != "200" ]] || ! grep -qF "$bijlage_tekst" "$bijlage" 2>/dev/null; then
+    echo "FOUT: de bijlage via de demo-proxy gaf HTTP $status (verwacht 200 met de aangeleverde tekst):"
+    cat "$bijlage" 2>/dev/null || true
+    exit 1
+fi
+
+echo "OK: keten werkt end-to-end via beide magazijnen, de ondernemers halen op bij 3/15/45/100 organisaties, en een bijlage komt via de demo-proxy binnen"
