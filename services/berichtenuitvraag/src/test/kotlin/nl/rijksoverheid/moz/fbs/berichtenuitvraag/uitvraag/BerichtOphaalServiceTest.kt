@@ -17,6 +17,12 @@ import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.ValueSource
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.UUID
 
 class BerichtOphaalServiceTest {
@@ -26,6 +32,7 @@ class BerichtOphaalServiceTest {
     private val magazijn: MagazijnClient = mockk()
     private val router: MagazijnRouter = mockk {
         every { forMagazijn(any()) } returns magazijn
+        every { voorBijlagen(any()) } returns magazijn
     }
     private val afzendernamen: Afzendernamen = mockk {
         every { naamVoor(any<Bericht>()) } returns "Magazijn A"
@@ -59,7 +66,7 @@ class BerichtOphaalServiceTest {
     private fun stubBijlageResponse(berichtId: UUID, bijlageId: UUID, bytes: ByteArray, mimeType: String = "application/pdf") {
         val mockResp = mockk<Response> {
             every { status } returns 200
-            every { readEntity(ByteArray::class.java) } returns bytes
+            every { readEntity(InputStream::class.java) } returns ByteArrayInputStream(bytes)
             every { getHeaderString("Content-Type") } returns mimeType
             every { close() } returns Unit
         }
@@ -94,6 +101,7 @@ class BerichtOphaalServiceTest {
         service.haalBericht("BSN:999990019", "magazijn-b", id)
 
         verify { router.forMagazijn("magazijn-b") }
+        verify(exactly = 0) { router.voorBijlagen(any()) }
     }
 
     @Test
@@ -186,7 +194,7 @@ class BerichtOphaalServiceTest {
         val bytes = byteArrayOf(1, 2, 3, 4, 5)
         val mockResp = mockk<Response> {
             every { status } returns 200
-            every { readEntity(ByteArray::class.java) } returns bytes
+            every { readEntity(InputStream::class.java) } returns ByteArrayInputStream(bytes)
             every { getHeaderString("Content-Type") } returns "application/pdf"
             every { close() } returns Unit
         }
@@ -196,7 +204,7 @@ class BerichtOphaalServiceTest {
         val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
 
         assertEquals("application/pdf", bijlage.mimeType)
-        assertArrayEquals(bytes, bijlage.inhoud)
+        assertArrayEquals(bytes, bijlage.bytes())
     }
 
     @Test
@@ -228,7 +236,7 @@ class BerichtOphaalServiceTest {
         val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
 
         assertEquals(null, bijlage.bestandsnaam)
-        assertArrayEquals(byteArrayOf(1), bijlage.inhoud)
+        assertArrayEquals(byteArrayOf(1), bijlage.bytes())
     }
 
     @Test
@@ -266,7 +274,7 @@ class BerichtOphaalServiceTest {
         val bytes = byteArrayOf(1, 2, 3)
         val mockResp = mockk<Response> {
             every { status } returns 200
-            every { readEntity(ByteArray::class.java) } returns bytes
+            every { readEntity(InputStream::class.java) } returns ByteArrayInputStream(bytes)
             every { getHeaderString("Content-Type") } returns "not-a-mime-type"
             every { close() } returns Unit
         }
@@ -409,7 +417,7 @@ class BerichtOphaalServiceTest {
         val mockResp = mockk<Response> {
             every { status } returns 200
             every { getHeaderString("Content-Type") } returns "application/pdf"
-            every { readEntity(ByteArray::class.java) } throws ProcessingException("stream afgekapt")
+            every { readEntity(InputStream::class.java) } throws ProcessingException("stream afgekapt")
             every { close() } returns Unit
         }
         stubBerichtLookup(berichtId)
@@ -475,7 +483,7 @@ class BerichtOphaalServiceTest {
         val bytes = byteArrayOf(9, 8, 7)
         val mockResp = mockk<Response> {
             every { status } returns 200
-            every { readEntity(ByteArray::class.java) } returns bytes
+            every { readEntity(InputStream::class.java) } returns ByteArrayInputStream(bytes)
             every { getHeaderString("Content-Type") } returns "application/pdf"
             every { close() } throws RuntimeException("pool-close kapot")
         }
@@ -486,7 +494,7 @@ class BerichtOphaalServiceTest {
 
         // Falende close mag de geslaagde read niet kapotmaken: bytes komen normaal terug.
         assertEquals("application/pdf", bijlage.mimeType)
-        assertArrayEquals(bytes, bijlage.inhoud)
+        assertArrayEquals(bytes, bijlage.bytes())
         verify { mockResp.close() }
     }
 
@@ -509,4 +517,138 @@ class BerichtOphaalServiceTest {
         assertEquals(502, ex.response.status)
         verify { upstreamResp.close() }
     }
+
+    private fun streamendeResponse(inhoud: InputStream, contentLength: String?) = mockk<Response> {
+        every { status } returns 200
+        every { getHeaderString("Content-Type") } returns "application/pdf"
+        every { getHeaderString("Content-Length") } returns contentLength
+        every { readEntity(InputStream::class.java) } returns inhoud
+        every { close() } returns Unit
+    }
+
+    // De grens van het begin: eronder is alles al gelezen en de response dicht; erop en erboven
+    // blijft hij open voor de rest. Precies op de grens weet de service nog niet dat het einde er
+    // is, dus die streamt — met een lege rest.
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, BijlageInhoud.BEGIN_BYTES - 1])
+    fun `een bijlage die in het begin past, sluit de magazijn-response meteen en kent haar lengte`(grootte: Int) {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val bytes = ByteArray(grootte) { it.toByte() }
+        val resp = streamendeResponse(ByteArrayInputStream(bytes), contentLength = null)
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
+
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+
+        verify(exactly = 1) { resp.close() }
+        assertEquals(grootte.toLong(), bijlage.lengte)
+        assertArrayEquals(bytes, bijlage.bytes())
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [BijlageInhoud.BEGIN_BYTES, BijlageInhoud.BEGIN_BYTES + 1, 3 * BijlageInhoud.BEGIN_BYTES])
+    fun `een grotere bijlage houdt de magazijn-response open tot hij geschreven is`(grootte: Int) {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val bytes = ByteArray(grootte) { (it % 251).toByte() }
+        val resp = streamendeResponse(ByteArrayInputStream(bytes), contentLength = grootte.toString())
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
+
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+
+        verify(exactly = 0) { resp.close() }
+        assertEquals(grootte.toLong(), bijlage.lengte)
+        assertArrayEquals(bytes, bijlage.bytes())
+        verify(exactly = 1) { resp.close() }
+    }
+
+    @ParameterizedTest(name = "Content-Length [{0}] → {1}")
+    @CsvSource(
+        nullValues = ["NULL"],
+        value = [
+            "2000000, 2000000",
+            "' 2000000 ', 2000000",
+            "0, 0",
+            "NULL, NULL",
+            "'', NULL",
+            "abc, NULL",
+            "-1, NULL",
+            "99999999999999999999, NULL",
+        ],
+    )
+    fun `de lengte van een grotere bijlage komt uit een geldige Content-Length`(contentLength: String?, verwacht: Long?) {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        val resp = streamendeResponse(ByteArrayInputStream(ByteArray(BijlageInhoud.BEGIN_BYTES + 1)), contentLength)
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
+
+        val bijlage = service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+
+        assertEquals(verwacht, bijlage.lengte)
+        bijlage.sluitAlsOngeschreven()
+    }
+
+    // Een 3xx gaat niet als bijlage door: de client volgt geen redirects, dus de body is niet de
+    // bijlage.
+    @ParameterizedTest
+    @ValueSource(ints = [199, 300, 301, 302, 304, 307])
+    fun `een antwoord dat geen 2xx is, wordt geen bijlage`(status: Int) {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+
+        val resp = mockk<Response>(relaxed = true) {
+            every { this@mockk.status } returns status
+            every { getHeaderString("Content-Type") } returns "text/html"
+        }
+
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+        }
+
+        assertEquals(502, ex.response.status)
+        verify(exactly = 1) { resp.close() }
+    }
+
+    @Test
+    fun `een bijlage gaat via de eigen client voor bijlagen`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+        stubBerichtLookup(berichtId)
+        stubBijlageResponse(berichtId, bijlageId, byteArrayOf(1))
+
+        service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+
+        verify(exactly = 1) { router.voorBijlagen("magazijn-a") }
+        verify(exactly = 0) { router.forMagazijn(any()) }
+    }
+
+    @Test
+    fun `een leesfout in het begin geeft een 502 en sluit de magazijn-response`() {
+        val berichtId = UUID.randomUUID()
+        val bijlageId = UUID.randomUUID()
+
+        val afgekapt = object : InputStream() {
+            override fun read(): Int = throw java.io.IOException("verbinding verbroken")
+        }
+
+        val resp = streamendeResponse(afgekapt, contentLength = "100000")
+        stubBerichtLookup(berichtId)
+        every { magazijn.bijlage("BSN:999990019", berichtId, bijlageId) } returns resp
+
+        val ex = assertThrows(WebApplicationException::class.java) {
+            service.haalBijlage("BSN:999990019", "magazijn-a", berichtId, bijlageId)
+        }
+
+        assertEquals(502, ex.response.status)
+        verify(exactly = 1) { resp.close() }
+    }
 }
+
+/** De bytes zoals de afnemer ze krijgt. */
+internal fun BijlageInhoud.bytes(): ByteArray = volledig ?: ByteArrayOutputStream().also { schrijfNaar(it) { false } }.toByteArray()

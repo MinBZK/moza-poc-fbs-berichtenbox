@@ -36,37 +36,61 @@ class MagazijnRouter(
     private val register: Magazijnregister,
     private val config: MagazijnRouterConfig,
     private val tlsRegistry: TlsConfigurationRegistry,
+    private val bijlageConfig: BijlageConfig,
 ) {
 
     private val clients = ConcurrentHashMap<String, MagazijnClient>()
 
+    private val bijlageClients = ConcurrentHashMap<String, MagazijnClient>()
+
     fun forMagazijn(magazijnId: String): MagazijnClient =
-        clients.computeIfAbsent(magazijnId) { id ->
-            val inschrijving = inschrijvingVoor(id)
+        clients.computeIfAbsent(magazijnId) { id -> bouw(id, voorBijlagen = false) }
 
-            // Builder-fouten (RestClientDefinitionException e.d.) zijn een config-/
-            // topologie-probleem, geen bug in deze service. Zonder deze wrap ontsnapt
-            // de raw exception langs mapUpstreamFout naar een 500 die on-call ten
-            // onrechte de uitvraag-service in stuurt; map daarom expliciet → 502.
-            // Catch op Exception (niet Throwable): Error-types (OutOfMemoryError,
-            // LinkageError) moeten omhoog propageren naar het JVM-vangnet, niet als
-            // upstream-storing gemaskeerd worden.
-            try {
-                val builder = QuarkusRestClientBuilder.newBuilder()
-                    .baseUri(inschrijving.url)
-                    .connectTimeout(config.connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
-                    .readTimeout(config.readTimeout().toMillis(), TimeUnit.MILLISECONDS)
+    /**
+     * Een eigen client, en daarmee een eigen connection pool, voor bijlage-downloads. Een gestreamde
+     * bijlage houdt zijn connection vast zolang de afnemer leest; in een gedeelde pool zouden trage
+     * downloads het openen, bijwerken en verwijderen van berichten bij dat magazijn verdringen.
+     *
+     * Met een idle-timeout van [BijlageConfig.maxStilstand]: de read-timeout stopt zodra de headers
+     * binnen zijn, en zonder deze grens houdt een magazijn dat midden in een bijlage stilvalt zijn
+     * plek in de pool onbeperkt vast.
+     */
+    fun voorBijlagen(magazijnId: String): MagazijnClient =
+        bijlageClients.computeIfAbsent(magazijnId) { id -> bouw(id, voorBijlagen = true) }
 
-                fscFilterVoor(inschrijving)?.let { builder.register(it) }
-                outwayTlsConfiguratie(inschrijving)?.let { builder.tlsConfiguration(it) }
+    private fun bouw(id: String, voorBijlagen: Boolean): MagazijnClient {
+        val inschrijving = inschrijvingVoor(id)
 
-                builder.build(MagazijnClient::class.java)
-            } catch (e: Exception) {
-                log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, inschrijving.url)
+        // Builder-fouten (RestClientDefinitionException e.d.) zijn een config-/
+        // topologie-probleem, geen bug in deze service. Zonder deze wrap ontsnapt
+        // de raw exception langs mapUpstreamFout naar een 500 die on-call ten
+        // onrechte de uitvraag-service in stuurt; map daarom expliciet → 502.
+        // Catch op Exception (niet Throwable): Error-types (OutOfMemoryError,
+        // LinkageError) moeten omhoog propageren naar het JVM-vangnet, niet als
+        // upstream-storing gemaskeerd worden.
+        try {
+            val builder = QuarkusRestClientBuilder.newBuilder()
+                .baseUri(inschrijving.url)
+                .connectTimeout(config.connectTimeout().toMillis(), TimeUnit.MILLISECONDS)
+                .readTimeout(config.readTimeout().toMillis(), TimeUnit.MILLISECONDS)
 
-                throw upstreamBadGateway("magazijn-client-configuratie ongeldig voor '$id'", e)
+            fscFilterVoor(inschrijving)?.let { builder.register(it) }
+            outwayTlsConfiguratie(inschrijving)?.let { builder.tlsConfiguration(it) }
+
+            if (voorBijlagen) {
+                builder.httpClientOptionsCustomizer { opties ->
+                    opties.idleTimeout = Math.toIntExact(bijlageConfig.maxStilstand().toMillis())
+                    opties.idleTimeoutUnit = TimeUnit.MILLISECONDS
+                }
             }
+
+            return builder.build(MagazijnClient::class.java)
+        } catch (e: Exception) {
+            log.errorf(e, "Magazijn-routering: kon REST-client niet bouwen voor magazijnId=%s url=%s", id, inschrijving.url)
+
+            throw upstreamBadGateway("magazijn-client-configuratie ongeldig voor '$id'", e)
         }
+    }
 
     private fun inschrijvingVoor(id: String): Magazijninschrijving {
         // magazijnId == afzender-OIN (register-conventie). Specifiek
@@ -107,7 +131,7 @@ class MagazijnRouter(
      * TLS-configuratie vervangt de JVM-default trust-store en vult die niet aan. Dezelfde
      * discriminator als [fscFilterVoor], zodat beide beslissingen op dezelfde vlag rusten.
      *
-     * Losgetrokken van [forMagazijn] zodat de keuze testbaar is zonder de REST-client-builder.
+     * Losgetrokken van [bouw] zodat de keuze testbaar is zonder de REST-client-builder.
      */
     internal fun outwayTlsConfiguratie(inschrijving: Magazijninschrijving): TlsConfiguration? =
         inschrijving.grantHash?.let { tlsRegistry.get(OutwayTls.CONFIG_NAAM).orElse(null) }
@@ -115,7 +139,7 @@ class MagazijnRouter(
     companion object {
         private val log: Logger = Logger.getLogger(MagazijnRouter::class.java)
 
-        // Losgetrokken van forMagazijn() zodat de registratie-beslissing unit-testbaar is
+        // Losgetrokken van bouw() zodat de registratie-beslissing unit-testbaar is
         // zonder de REST-client-builder (die buiten CDI-context een proxy-klasse genereert).
         // Niet elk magazijn draait al achter een FSC-outway; grantHash blijft optioneel
         // totdat de volledige federatie is overgestapt.

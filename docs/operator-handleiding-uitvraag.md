@@ -286,6 +286,40 @@ als de rest van Redis (TLS en authenticatie).
   sinds de inline-weergave de bestandsnaam, en die is door de aanleveraar gekozen
   (`aanslag-de-vries.pdf`). De keten logt hem nergens, maar response-header-logging op een ingress
   of outway zou hem alsnog in een log zetten: laat die uit staan voor dit endpoint.
+- **Een bijlage-download streamt vanaf 1 MiB.** Een kleinere bijlage leest de uitvraag helemaal in
+  en geeft ze daarna in één keer door, zoals altijd. Een grotere geeft ze door terwijl ze uit het
+  magazijn komt, zodat ze niet in haar geheel door de heap gaat.
+  - **Wat een gestreamde download vasthoudt:** zolang de afnemer leest, één worker-thread en één
+    connection naar het magazijn. Bijlagen hebben per magazijn een eigen client met een eigen
+    connection pool, zodat downloads het openen, bijwerken en verwijderen van berichten niet
+    verdringen.
+  - **`berichtenuitvraag.bijlage.max-streams` (20) en `…max-streams-per-ontvanger` (3)** begrenzen
+    hoeveel gestreamde downloads er op een pod tegelijk lopen. Daarboven krijgt de afnemer een 503
+    met `te-veel-gelijktijdige-downloads` en `Retry-After`, en logt de uitvraag het plafond (warn
+    voor de pod, info per ontvanger). Houd `max-streams` ruim onder de worker-pool
+    (`quarkus.thread-pool.max-threads`) en onder de pool van 50 connections per magazijn.
+  - **`berichtenuitvraag.bijlage.max-stilstand` (60 s)** begrenst een overdracht die stilligt:
+    - aan de kant van het magazijn sluit de bijlage-client een connection die zo lang niets
+      ontvangt (de read-timeout stopt zodra de headers binnen zijn);
+    - aan de kant van de afnemer reset de uitvraag een download waarvan één write zo lang wacht. Ze
+      logt dan `afnemer las langer dan … niet; download afgebroken` op warn.
+    - Een afnemer die heel traag maar wel steeds leest, valt hier niet onder; die houdt zijn plek
+      zolang de download duurt.
+  - **Breekt het magazijn halverwege af**, dan verbreekt de uitvraag de connection met de afnemer.
+    Ze logt dan `magazijn-bijlage: overdracht afgebroken nadat het antwoord begonnen was` op error,
+    met `berichtId`, `magazijnId` en de `trace_id:span_id` van de logregel.
+  - **In het logboek** blijft de logregel van `uitvraag-bijlage` dan op `UNSET`, zonder ERROR-child:
+    de afnemer kreeg al een deel van de bijlage, en een verstrekking staat er liever te veel dan te
+    weinig in. Dezelfde regel als bij het magazijn, zie
+    [Uitkomst van een verwerking in het logboek](operator-handleiding.md#uitkomst-van-een-verwerking-in-het-logboek).
+    Breekt het magazijn al af voordat het antwoord begint, dan krijgt de afnemer een 502 en staat de
+    logregel zelf op `ERROR`.
+  - **Een afnemer die een download annuleert**, is geen fout van de verwerking: dat staat op debug
+    in de log, en de logregel blijft zonder ERROR-child.
+  - **Een proxy tussen afnemer en uitvraag moet HTTP/1.1 spreken naar de uitvraag** (bij nginx
+    `proxy_http_version 1.1`; de standaard is 1.0). Bij HTTP/1.0 eindigt een antwoord zonder
+    `Content-Length` met het sluiten van de connection, en dan is een afgebroken overdracht niet van
+    een volledige te onderscheiden.
 - **Gedeeltelijke storing is normaal gedrag.** Valt één magazijn uit, dan levert de uitvraag de
   overige berichten mét een degradatie-melding; dat is geen fout die je moet wegconfigureren.
 - **`quarkus.http.limits.max-body-size` staat op `2M`** als vangnet tegen geheugen-DoS op de

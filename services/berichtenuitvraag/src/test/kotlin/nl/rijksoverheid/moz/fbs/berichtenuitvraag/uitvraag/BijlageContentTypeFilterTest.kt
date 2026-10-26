@@ -61,6 +61,38 @@ class BijlageContentTypeFilterTest {
         assertEquals("inline", resp.headers.getFirst("Content-Disposition"))
     }
 
+    // 0 is een lege bijlage, en die heeft óók een lengte; 25 MiB is het plafond van het magazijn.
+    @ParameterizedTest
+    @ValueSource(longs = [0, 1, 26_214_400])
+    fun `een vaste lengte wordt de Content-Length`(lengte: Long) {
+        val req = FakeRequestCtx("application/pdf", lengte = lengte)
+        val resp = FakeResponseCtx()
+
+        filter.filter(req, resp)
+
+        assertEquals(lengte.toString(), resp.headers.getFirst("Content-Length"))
+    }
+
+    @Test
+    fun `zonder vaste lengte komt er geen Content-Length`() {
+        val req = FakeRequestCtx("application/pdf")
+        val resp = FakeResponseCtx()
+
+        filter.filter(req, resp)
+
+        assertNull(resp.headers.getFirst("Content-Length"))
+    }
+
+    @Test
+    fun `een foutantwoord krijgt de lengte van de bijlage niet`() {
+        val req = FakeRequestCtx("application/pdf", lengte = 1024)
+        val resp = FakeResponseCtx(502, contentType = "application/problem+json")
+
+        filter.filter(req, resp)
+
+        assertNull(resp.headers.getFirst("Content-Length"))
+    }
+
     @Test
     fun `onparsebaar MIME-type valt terug op octet-stream + attachment`() {
         val req = FakeRequestCtx("not-a-mime-type")
@@ -149,10 +181,15 @@ class BijlageContentTypeFilterTest {
         assertEquals(null, resp.headers.getFirst("Content-Disposition"))
     }
 
-    private class FakeRequestCtx(private val mime: String?, private val naam: String? = null) : StubRequestCtx() {
+    private class FakeRequestCtx(
+        private val mime: String?,
+        private val naam: String? = null,
+        private val lengte: Long? = null,
+    ) : StubRequestCtx() {
         override fun getProperty(name: String?): Any? = when (name) {
             BIJLAGE_MIME_TYPE_PROPERTY -> mime
             BIJLAGE_NAAM_PROPERTY -> naam
+            BIJLAGE_LENGTE_PROPERTY -> lengte
             else -> null
         }
     }
