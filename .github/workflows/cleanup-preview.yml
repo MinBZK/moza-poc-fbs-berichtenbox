@@ -54,6 +54,13 @@
 
 name: Cleanup ZAD preview
 
+# Het kenmerk in de runnaam is hoe preview-resten.yml de run terugvindt die hij startte: een
+# `workflow_dispatch` geeft geen run-id terug. Alleen weergave; er wordt niets mee uitgevoerd.
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch'
+    && format('Cleanup ZAD preview pr-{0} {1}', inputs.pr, inputs.aanvraag)
+    || format('Cleanup ZAD preview pr-{0}', github.event.pull_request.number) }}
+
 on:
   # GEEN `branches`-filter: zie de toelichting bovenaan. Alleen `closed` — een gesloten PR is het
   # enige moment waarop een preview overbodig wordt (heropenen deployt opnieuw via deploy.yml).
@@ -65,6 +72,11 @@ on:
         description: "PR-nummer waarvan de preview opgeruimd moet worden (bv. 195)"
         required: true
         type: string
+      aanvraag:
+        description: "Kenmerk van de aanvrager, alleen voor de runnaam (preview-resten.yml zet dit; handmatig leeg laten)"
+        required: false
+        type: string
+        default: ""
 
 # Least-privilege default; elke job die schrijft declareert zijn eigen scopes.
 permissions: read-all
@@ -477,7 +489,7 @@ jobs:
 
   # Ruimt alle GETAGDE versies van de PR op: één ghcr-versie per commit, niet alleen de laatste.
   # Ongetagde child-manifests (multi-arch, attestations) vallen per definitie buiten een tag-prefix
-  # en blijven staan; die horen bij het opruimen op termijn. De
+  # en blijven staan; die ruimt preview-resten.yml op. De
   # tags van deze PR zijn te herkennen aan de prefix `pr-<n>-`; het afsluitende koppelteken
   # is essentieel, anders zou het sluiten van PR 16 de images van PR 168 meenemen.
   #
@@ -490,7 +502,8 @@ jobs:
   # RACE bij sluiten tijdens een lopende build: deze job serialiseert niet tegen de build-jobs in
   # deploy.yml (die hebben elk hun eigen groep, anders blokkeren ze elkaar). Sluit iemand de PR
   # vlak na een push, dan kan de sweep vóór die build af zijn en blijft één ghcr-versie achter.
-  # Gevolg is één weesversie, geen kapotte deploy; herdraaien via workflow_dispatch ruimt hem op.
+  # Gevolg is één weesversie, geen kapotte deploy; preview-resten.yml vindt hem en start deze
+  # workflow daarvoor opnieuw.
   cleanup-preview-images:
     needs: doel
     runs-on: ubuntu-latest

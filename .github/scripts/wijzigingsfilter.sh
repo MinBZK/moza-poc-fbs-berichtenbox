@@ -31,10 +31,11 @@ NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabo
 # in plaats van stilzwijgend drie previews per PR te kosten.
 #
 # cleanup-preview.yml hoort hier omdat zijn PR-versie nóóit draait: die workflow hangt aan
-# `pull_request_target` en gebruikt dus altijd de versie op de default branch. deploy.yml hoort er
+# `pull_request_target` en gebruikt dus altijd de versie op de default branch. Voor preview-resten.yml
+# geldt hetzelfde: die draait op een rooster of handmatig, en dus vanaf main. deploy.yml hoort er
 # juist NIET bij — dat bestand bepaalt de uitrol zelf, dus daar is de preview het enige bewijs dat
 # de wijziging klopt (een pin-bump van de zad-actions is een wijziging aan dát bestand).
-GEEN_PREVIEW_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image|proeftuin-pin|ci-scripts|cleanup-preview'
+GEEN_PREVIEW_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image|proeftuin-pin|ci-scripts|cleanup-preview|preview-resten'
 
 # shellcheck disable=SC2034  # alleen door de kruiscontrole in test-wijzigingsfilter.sh gelezen
 UITROL_RELEVANT='deploy'

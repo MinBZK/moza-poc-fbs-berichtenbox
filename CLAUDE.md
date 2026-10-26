@@ -199,8 +199,9 @@ Wat je hoe dan ook moet weten:
   teruggedraaid. Reactiveren en schalen gaat via OM, dat commit naar de Git-repo die Argo volgt.
 - **Projecten (project-id = OM-project):** `berichtenuitvraag` = `mpfb-8wh`,
   `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`, `stelselregister` = `mpfs-rab`. Deployment-namen: `test` (baseline,
-  push→main) en `pr-<n>` (previews). Een id wijzigen moet in `.github/workflows/deploy.yml` én in de
-  matrix van `.github/workflows/cleanup-preview.yml`.
+  push→main) en `pr-<n>` (previews). Een id wijzigen moet in `.github/workflows/deploy.yml`, in de
+  matrix van `.github/workflows/cleanup-preview.yml` én in de `zad`-matrix van
+  `.github/workflows/preview-resten.yml` (`test-preview-resten.sh` eist dat die laatste twee gelijk zijn).
 - **`DELETE /api/v2/projects/{p}/{d}` is DESTRUCTIEF.** Het draait Argo `prune`+`Delete` en, voor
   projecten met de `postgresql-database`-service, `database_cleanup` → DB-data weg (geverifieerd
   2026-07-02 op magazijnen `mpfm-w3h`). Doe het nooit zonder de gids erbij — en niet om een door
@@ -251,6 +252,7 @@ Wat je hoe dan ook moet weten:
 | `.github/scripts/pin-pr-teststubs.sh`  | Gedeelde harness van de twee pin-suites (`gh`/`git`-stubs met faal-schakelaars, asserties, opzet per geval). Bewust niet `test-*.sh`: `ci-scripts.yml` draait elk `test-*.sh` als suite. Zelftest ernaast in `test-pin-pr-teststubs.sh` — zonder die suite zou één regel in de harness beide pin-suites betekenisloos maken zonder dat een telling daalt |
 | `.github/scripts/zad-taak-lib.sh`      | Gedeeld wachten op een taak van Operations Manager (`cross-domain-preview.sh` en `preview-klaarzetten.sh`): een mislukte opvraging wordt herhaald, twintig op rij of een 401/403 breekt af, de grens van twee minuten per taak blijft. Wordt gesourcet; wat een eindtoestand betekent blijft per script |
 | `.github/workflows/cleanup-preview.yml` | Opruimen van een preview (ZAD-deployments, GitHub-omgeving/-deployments, comment, ghcr-versies); `workflow_dispatch` op PR-nummer |
+| `.github/workflows/preview-resten.yml` | Werkdagelijkse controle op preview-resten die niet bij een open PR horen: ruimt op via `cleanup-preview.yml`, verwijdert losse ongetagde ghcr-versies, en houdt wat blijft staan bij in één issue in deze repo ("Achtergebleven preview-resten") |
 
 
 ## Omgevingsvariabelen
