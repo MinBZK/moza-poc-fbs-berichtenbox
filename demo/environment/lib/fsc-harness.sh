@@ -300,11 +300,26 @@ fsc_manager_contracts() {
 # contract bestaat. Vandaar doorlezen tot de cursor leeg is, in plaats van er conclusies aan te
 # verbinden.
 #
+# WAAROM EEN VOLLE PAGINA NIET MAG EINDIGEN. Doorbladeren werkt in v2.5.2 niet: gemeten tegen de
+# lokale logius-harness geeft de pagina na een cursor in de standaardvolgorde (aflopend) altijd
+# niets terug, ook als er nog rijen zijn; oplopend komt de laatste rij steeds opnieuw. Alleen de
+# eerste pagina is dus betrouwbaar, en de aanroepers vragen daarom `limit=1000`. Was die pagina vol
+# en levert de cursor niets op, dan valt "einde" niet te onderscheiden van "afgekapt" — en een
+# afgekapte lijst mist misschien juist het eigen contract. Dat is een fout, ook al geeft het een
+# vals alarm bij precies `limit` contracten. Een pagina die al gelezen rijen herhaalt, breekt de lus
+# direct af in plaats van pas op de bovengrens.
+#
 # De uitkomst is bewust weer een `{"contracts":[...]}`-object en geen kale array: alle jq erachter
 # (fsc_contract_beoordeling, fsc_contract_voor_combinatie, fsc_grant_actief) toetst dat veld en de
 # vorm ervan, en die controles horen te blijven gelden.
 fsc_contracten_paginas() {
-  local ophaler="$1" basis="$2" cursor="" url body pagina alle="[]" ronde=0
+  local ophaler="$1" basis="$2" cursor="" url body pagina alle="[]" ronde=0 limiet="" aantal vol=0
+
+  # Zonder `limit` in de basis-URL is een volle pagina niet te herkennen; dan geldt alleen de rest.
+  case "$basis" in
+    *[?\&]limit=*) limiet="${basis##*limit=}"; limiet="${limiet%%&*}" ;;
+  esac
+  case "$limiet" in '' | *[!0-9]* | 0) limiet="" ;; esac
 
   while :; do
     if [ -n "$cursor" ]; then
@@ -317,8 +332,35 @@ fsc_contracten_paginas() {
 
     # Geen jq-vangnet met `//`: een respons die geen contractenlijst is, moet hier hard stuk in
     # plaats van als lege pagina door te glippen. De aanroepers melden dat met hun eigen tekst.
-    pagina="$(printf '%s' "$body" | jq -e '.contracts' 2>"$ERRLOG")" || return 1
-    alle="$(jq -cn --argjson a "$alle" --argjson b "$pagina" '$a + $b')" || return 1
+    pagina="$(printf '%s' "$body" \
+      | jq -e '.contracts | if type == "array" or . == null then . else error("veld \"contracts\" is geen lijst") end' \
+        2>"$ERRLOG")" || {
+      # jq zwijgt bij een ontbrekend of null veld; zonder deze regel eindigt de melding van de
+      # aanroeper op een lege reden.
+      [ -s "$ERRLOG" ] || echo "respons zonder contractenlijst (geen veld \"contracts\")" >"$ERRLOG"
+      return 1
+    }
+    aantal="$(printf '%s' "$pagina" | jq 'length')" || return 1
+
+    if [ "$vol" -eq 1 ] && [ "$aantal" -eq 0 ]; then
+      echo "de vorige pagina was vol (${limiet} rijen) en de cursor leverde niets op — de lijst is mogelijk afgekapt" >"$ERRLOG"
+      return 1
+    fi
+
+    # De lijsten via stdin en niet via `--argjson`: één argument mag hoogstens 128 KiB zijn, en echte
+    # contracten zijn groot genoeg om dat bij een paar honderd stuks te halen.
+    if printf '%s\n%s' "$alle" "$pagina" | jq -se \
+      '(.[0] | [.[].hash | select(. != null)]) as $gezien | any(.[1][].hash; . != null and IN($gezien[]))' >/dev/null; then
+      echo "de cursor leverde een pagina met al gelezen contracten — afgebroken" >"$ERRLOG"
+      return 1
+    fi
+
+    alle="$(printf '%s\n%s' "$alle" "$pagina" | jq -cs '.[0] + .[1]' 2>"$ERRLOG")" || return 1
+    vol=0
+
+    if [ -n "$limiet" ] && [ "$aantal" -ge "$limiet" ]; then
+      vol=1
+    fi
 
     cursor="$(printf '%s' "$body" | jq -r '.pagination.next_cursor? // .next_cursor? // ""')" || return 1
     [ -n "$cursor" ] || break
@@ -334,7 +376,7 @@ fsc_contracten_paginas() {
     fi
   done
 
-  jq -cn --argjson c "$alle" '{contracts: $c}'
+  printf '%s' "$alle" | jq -c '{contracts: .}'
 }
 
 # fsc_component_adres <net> <component>: het adres van een component binnen het /24 van een peer,

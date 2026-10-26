@@ -27,9 +27,9 @@ OIDC-login-voorziening — dat blijft buiten scope voor deze peer-harness. Bouwt
 - Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
   `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
   faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
-- **jq** (host-side) — `consume-service.sh` leest het grant-hash uit `content.grants[]`
-  daarmee; zonder jq faalt het script expliciet in plaats van het verkeerde (contract-)hash
-  af te geven.
+- **jq** (host-side) — `consume-service.sh` voegt de pagina's van de contractenlijst ermee samen
+  en leest er het grant-hash uit `content.grants[]` mee; zonder jq faalt het script meteen in
+  plaats van een contract te missen of het verkeerde (contract-)hash af te geven.
 
 ## Draaiboek
 
@@ -279,6 +279,10 @@ Vijf beperkingen:
   (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren — behalve
   onder de hostnet-overlay, waar de hele stack de poortruimte van je machine deelt (zie
   [Podman zonder bridge-netwerk](#podman-zonder-bridge-netwerk)).
+- **`consume-service.sh` faalt met "de lijst is mogelijk afgekapt"** → de manager heeft duizend
+  contracten of meer. OpenFSC v2.5.2 bladert niet door (de pagina na een cursor is leeg), dus het
+  script ziet alleen de eerste duizend en weigert te beslissen of het eigen contract ertussen staat.
+  In deze harness: opruimen met `./deploy/local/up.sh down -v` en opnieuw opzetten.
 - **Smoke faalt** → `./deploy/local/up.sh compose logs
   manager-directory manager-logius controller-logius` voor de mesh-logs. Blijft de announce-smoke
   hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan éérst
