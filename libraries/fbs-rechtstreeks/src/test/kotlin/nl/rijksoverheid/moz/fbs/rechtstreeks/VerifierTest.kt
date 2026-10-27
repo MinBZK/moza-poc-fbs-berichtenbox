@@ -54,7 +54,7 @@ class VerifierTest {
     @Test
     fun `een presentatie van precies de maximale lengte wordt nog aangenomen`() {
         val challenge = opzet.challenge(verifier)
-        val jwe = AfwijzingTest.opgevuld(opzet, challenge, Verifier.MAX_PRESENTATIE_TEKENS - 3..Verifier.MAX_PRESENTATIE_TEKENS)
+        val jwe = opzet.opgevuld(challenge, Verifier.MAX_PRESENTATIE_TEKENS - 3..Verifier.MAX_PRESENTATIE_TEKENS)
 
         verifier.voltooiMetCredential(challenge.nonce, jwe, Opzet.CLIENT)
     }
@@ -160,19 +160,13 @@ class VerifierTest {
         assertEquals("verzoek", verifier.ontsleutel(uitgegeven.sessie, TestApp.jweDir("verzoek", aes)))
     }
 
-    private val sleutels = mutableMapOf<Sessie, ByteArray>()
-
-    private fun aes(sessie: Sessie): ByteArray = sleutels.getValue(sessie)
-
     @Test
     fun `een verzoek onder een andere sleutel, of te groot, wordt afgewezen`() {
-        val (uitgegeven, sleutel) = opzet.sessie(verifier)
+        val (uitgegeven, aes) = opzet.sessie(verifier)
         val sessie = uitgegeven.sessie
-
-        sleutels[sessie] = sleutel
         val anderSleutel = TestApp.jweDir("verzoek", TestApp.aesSleutel())
-        val leeg = TestApp.jweDir("", aes(sessie)).length
-        val teGroot = TestApp.jweDir("a".repeat((Verifier.MAX_VERZOEK_TEKENS - leeg) * 3 / 4 + 4), aes(sessie))
+        val leeg = TestApp.jweDir("", aes).length
+        val teGroot = TestApp.jweDir("a".repeat((Verifier.MAX_VERZOEK_TEKENS - leeg) * 3 / 4 + 4), aes)
 
         assertEquals(Afwijzing.VERSLEUTELING_ONGELDIG, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, anderSleutel) }.reden)
         assertTrue(teGroot.length > Verifier.MAX_VERZOEK_TEKENS)

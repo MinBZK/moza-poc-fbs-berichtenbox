@@ -20,8 +20,8 @@ class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
  * magazijn kan zo nooit per ongeluk een presentatie zonder vastgestelde identiteit aannemen.
  *
  * Elke afwijzing is een [AfgewezenException]; de aanroeper antwoordt daarop `401`, ongeacht de
- * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`. Verloopt
- * de eigen [VerifierSleutel] binnen [NONCE_GELDIG], dan gooit [maakChallenge] een
+ * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`.
+ * Verloopt de eigen [VerifierSleutel] binnen [NONCE_GELDIG], dan gooit [maakChallenge] een
  * [IllegalStateException]: een configuratiefout, die als `500` hoort te eindigen. `client` is de herkomst van het verzoek en
  * telt mee voor de quota van de opslag.
  */
@@ -76,8 +76,9 @@ class Verifier(
         val geldig = minOf(SESSIE_GELDIG, Duration.between(nu, credential.exp))
         val thumbprint = Jose.thumbprint(credential.appSleutel)
 
-        // Het quotum hangt aan de app-sleutel, niet aan het adres: achter één kantooradres of
-        // CGNAT werken veel ondernemers, en een sessie met credential vraagt al een geldig bewijs.
+        // Het quotum per magazijn hangt aan de app-sleutel, want achter één kantooradres of CGNAT
+        // werken veel ondernemers; een ruim plafond per adres over alle magazijnen samen houdt één
+        // aanvaller met veel bewijzen binnen de perken.
         return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger, thumbprint), geldig, nu, thumbprint, client)
     }
 
@@ -179,7 +180,6 @@ class Verifier(
         if (!klopt) throw AfgewezenException(Afwijzing.NONCEHANDTEKENING_ONGELDIG)
     }
 
-    @Suppress("LongParameterList") // Zes waarden die samen één uitgifte beschrijven; een klasse ervoor voegt niets toe.
     private fun geefUit(
         aesSleutel: ByteArray,
         identiteit: Identiteit,

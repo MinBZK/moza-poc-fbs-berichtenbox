@@ -166,16 +166,22 @@ class GeheugenOpslagTest {
 
     @Test
     fun `sessies hebben een plafond per houder en per client over alle Verifiers samen`() {
-        val opslag = GeheugenOpslag(opzet.klok, maxPerClientOverVerifiers = 2, maxSessiesPerClientOverVerifiers = 3)
+        val opslag = GeheugenOpslag(opzet.klok, maxSessiesPerHouderOverVerifiers = 2, maxSessiesPerClientOverVerifiers = 3)
 
-        opslag.bewaar(sessie("m1", "a"), "sleutel", "kantoor")
+        // Eerder vrij, maar van een ander: telt niet mee voor de wachttijd.
+        opslag.bewaar(sessie("m9", "vroeg", Duration.ofSeconds(5)), "ander", "ander")
+        opslag.bewaar(sessie("m1", "a", Duration.ofSeconds(40)), "sleutel", "kantoor")
         opslag.bewaar(sessie("m2", "b"), "sleutel", "kantoor")
 
-        assertThrows<OpslagVolException> { opslag.bewaar(sessie("m3", "c"), "sleutel", "elders") }
+        val perHouder = assertThrows<OpslagVolException> { opslag.bewaar(sessie("m3", "c"), "sleutel", "elders") }
+
+        assertEquals(Duration.ofSeconds(40), perHouder.opnieuwNa)
 
         opslag.bewaar(sessie("m3", "d"), "andere sleutel", "kantoor")
 
-        assertThrows<OpslagVolException> { opslag.bewaar(sessie("m4", "e"), "derde sleutel", "kantoor") }
+        val perClient = assertThrows<OpslagVolException> { opslag.bewaar(sessie("m4", "e"), "derde sleutel", "kantoor") }
+
+        assertEquals(Duration.ofSeconds(40), perClient.opnieuwNa)
 
         opslag.bewaar(sessie("m4", "f"), "derde sleutel", "elders")
     }
@@ -195,7 +201,10 @@ class GeheugenOpslagTest {
 
     @ParameterizedTest(name = "{0}")
     @ValueSource(
-        strings = ["maxChallenges", "maxChallengesPerClient", "maxSessies", "maxSessiesPerHouder", "maxPerClientOverVerifiers", "maxSessiesPerClientOverVerifiers"],
+        strings = [
+            "maxChallenges", "maxChallengesPerClient", "maxSessies", "maxSessiesPerHouder",
+            "maxPerClientOverVerifiers", "maxSessiesPerHouderOverVerifiers", "maxSessiesPerClientOverVerifiers",
+        ],
     )
     fun `een grens van nul wordt geweigerd`(grens: String) {
         assertThrows<IllegalArgumentException> {
@@ -206,6 +215,7 @@ class GeheugenOpslagTest {
                 maxSessies = if (grens == "maxSessies") 0 else 1,
                 maxSessiesPerHouder = if (grens == "maxSessiesPerHouder") 0 else 1,
                 maxPerClientOverVerifiers = if (grens == "maxPerClientOverVerifiers") 0 else 1,
+                maxSessiesPerHouderOverVerifiers = if (grens == "maxSessiesPerHouderOverVerifiers") 0 else 1,
                 maxSessiesPerClientOverVerifiers = if (grens == "maxSessiesPerClientOverVerifiers") 0 else 1,
             )
         }

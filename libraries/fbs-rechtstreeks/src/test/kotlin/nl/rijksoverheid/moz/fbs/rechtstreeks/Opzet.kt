@@ -100,6 +100,21 @@ class Opzet(private val willekeur: java.security.SecureRandom = java.security.Se
     fun versleuteld(challenge: Challenge, presentatie: Map<String, Any>): String =
         TestApp.jweEcdh(JsonUtil.toJson(presentatie), challenge.tijdelijk)
 
+    /**
+     * Een geldige presentatie, opgevuld tot de JWE een lengte in [lengtes] heeft. Niet elke lengte
+     * is te maken: base64url zonder opvulling kent geen lengte van 1 modulo 4, dus een bereik van
+     * vier tekens volstaat altijd.
+     */
+    fun opgevuld(challenge: Challenge, lengtes: IntRange): String {
+        val basis = presentatie(challenge)
+        val leeg = TestApp.jweEcdh(JsonUtil.toJson(basis + ("opvulling" to "")), challenge.tijdelijk).length
+        val opvulling = (lengtes.first - leeg) * 3 / 4
+
+        return (-3..6).asSequence()
+            .map { TestApp.jweEcdh(JsonUtil.toJson(basis + ("opvulling" to "a".repeat(opvulling + it))), challenge.tijdelijk) }
+            .first { it.length in lengtes }
+    }
+
     /** Een volledige sessie met credential; geeft de sessie en de AES-sleutel van de app. */
     fun sessie(verifier: Verifier, claims: Map<String, Any> = vcClaims()): Pair<UitgegevenSessie, ByteArray> {
         val challenge = challenge(verifier)

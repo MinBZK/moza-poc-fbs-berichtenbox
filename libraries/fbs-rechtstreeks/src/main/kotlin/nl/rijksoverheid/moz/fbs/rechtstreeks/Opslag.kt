@@ -73,12 +73,11 @@ interface SessieOpslag {
  * Begrensde opslag in het geheugen, voor een dienst met één instantie (simulator, App Manager).
  *
  * Quota gelden per Verifier, zodat een browser die bij 100 gesimuleerde magazijnen tegelijk een
- * challenge vraagt, per magazijn één keer telt; plafonds over alle Verifiers samen, per client en per
- * houder, houden de simulator binnen de perken. Het plafond per client voor sessies is ruim, zodat
- * een kantooradres of CGNAT met veel ondernemers past, maar één adres het totaal niet vult. Het
- * totaal beschermt het geheugen. Wie met veel adressen
- * tegelijk komt, kan dat totaal vullen; daartegen helpt alleen een stateless nonce (zie
- * [ChallengeOpslag]).
+ * challenge vraagt, per magazijn één keer telt. Plafonds over alle Verifiers samen houden de
+ * simulator binnen de perken: per client voor challenges en sessies, en per houder voor sessies.
+ * Het plafond per client voor sessies is ruim, zodat een kantooradres of CGNAT met veel
+ * ondernemers past. Het totaal beschermt het geheugen; met de standaardwaarden vullen 25 adressen
+ * het, en daartegen helpt alleen een stateless nonce (zie [ChallengeOpslag]).
  *
  * De aanroeper bepaalt `client`. Achter een ingress is dat het adres dat de vertrouwde proxy
  * doorgeeft (Quarkus: `quarkus.http.proxy.proxy-address-forwarding` met `trusted-proxies`), nooit
@@ -89,9 +88,10 @@ class GeheugenOpslag(
     private val klok: Clock,
     private val maxChallenges: Int = 10_000,
     private val maxChallengesPerClient: Int = 20,
-    private val maxSessies: Int = 10_000,
+    private val maxSessies: Int = 50_000,
     private val maxSessiesPerHouder: Int = 20,
     private val maxPerClientOverVerifiers: Int = 200,
+    private val maxSessiesPerHouderOverVerifiers: Int = 2_000,
     private val maxSessiesPerClientOverVerifiers: Int = 2_000,
 ) : ChallengeOpslag, SessieOpslag {
 
@@ -102,6 +102,7 @@ class GeheugenOpslag(
             maxSessies,
             maxSessiesPerHouder,
             maxPerClientOverVerifiers,
+            maxSessiesPerHouderOverVerifiers,
             maxSessiesPerClientOverVerifiers,
         )
 
@@ -147,7 +148,9 @@ class GeheugenOpslag(
 
         if (bijVerifier.size >= maxSessiesPerHouder) throw OpslagVolException(wachttijd(bijVerifier.map { it.sessie.verlooptOp }, nu))
 
-        if (vanHouder.size >= maxPerClientOverVerifiers) throw OpslagVolException(wachttijd(vanHouder.map { it.sessie.verlooptOp }, nu))
+        if (vanHouder.size >= maxSessiesPerHouderOverVerifiers) {
+            throw OpslagVolException(wachttijd(vanHouder.map { it.sessie.verlooptOp }, nu))
+        }
 
         if (vanClient.size >= maxSessiesPerClientOverVerifiers) {
             throw OpslagVolException(wachttijd(vanClient.map { it.sessie.verlooptOp }, nu))

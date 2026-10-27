@@ -288,8 +288,8 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    eHerkenning-machtiging in het VC komt, blijft open; de demo slaat dat over, net als het
    inloggen.
 
-8. **Sessie: 15 minuten vast, niet te verlengen; een self-signed sessie bij de App Manager 10
-   minuten.** De standaard zegt niets over de levensduur. Een
+8. **Sessie: 15 minuten vast, niet te verlengen; een self-signed sessie bij de App Manager
+   10 minuten.** De standaard zegt niets over de levensduur. Een
    korte, vaste geldigheid is het eenvoudigst, en een nieuwe sessie kost twee verzoeken. Een
    sessie duurt nooit langer dan het VC: `expires_in` is het minimum van 900 seconden en de tijd
    tot `exp`, en een VC dat binnen 60 seconden verloopt, levert geen sessie op (de app ververst

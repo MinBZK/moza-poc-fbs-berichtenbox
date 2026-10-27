@@ -87,21 +87,6 @@ class AfwijzingTest {
 
         private fun geval(naam: String, reden: Afwijzing, scenario: Scenario): Arguments = arguments(named(naam, scenario), reden)
 
-        /**
-         * Een geldige presentatie, opgevuld tot de JWE een lengte in [lengtes] heeft. Niet elke lengte
-         * is te maken: base64url zonder opvulling kent geen lengte van 1 modulo 4, dus een bereik van
-         * vier tekens volstaat altijd.
-         */
-        fun opgevuld(opzet: Opzet, challenge: Opzet.Challenge, lengtes: IntRange): String {
-            val basis = opzet.presentatie(challenge)
-            val leeg = TestApp.jweEcdh(JsonUtil.toJson(basis + ("opvulling" to "")), challenge.tijdelijk).length
-            val opvulling = (lengtes.first - leeg) * 3 / 4
-
-            return (-3..6).asSequence()
-                .map { TestApp.jweEcdh(JsonUtil.toJson(basis + ("opvulling" to "a".repeat(opvulling + it))), challenge.tijdelijk) }
-                .first { it.length in lengtes }
-        }
-
         private fun vcMetHeader(opzet: Opzet, header: Map<String, Any>): String =
             TestApp.jws(header, opzet.vcClaims(), opzet.appManager.private)
 
@@ -152,6 +137,11 @@ class AfwijzingTest {
             geval("cnf naast de curve", Afwijzing.APPSLEUTEL_ONGELDIG, metCredential { put("cnf", mapOf("jwk" to NAAST_DE_CURVE)) }),
             geval("cnf met x groter dan het veld", Afwijzing.APPSLEUTEL_ONGELDIG, metCredential {
                 put("cnf", mapOf("jwk" to TestApp.jwk(it.app.public as ECPublicKey).apply { put("x", TE_GROOT) }))
+            }),
+            geval("cnf met x van 32 bytes, maar groter dan p", Afwijzing.APPSLEUTEL_ONGELDIG, metCredential {
+                val jwk = TestApp.jwk(it.app.public as ECPublicKey).apply { put("x", TestApp.b64url.encodeToString(ByteArray(32) { -1 })) }
+
+                put("cnf", mapOf("jwk" to jwk))
             }),
             geval("cnf met y met voorloopnul", Afwijzing.APPSLEUTEL_ONGELDIG, metCredential {
                 val jwk = TestApp.jwk(it.app.public as ECPublicKey)
@@ -283,7 +273,7 @@ class AfwijzingTest {
             }),
             geval("geen JWE", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, _ -> "geen.jwe" }),
             geval("presentatie geen JSON", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, c -> TestApp.jweEcdh("geen json", c.tijdelijk) }),
-            geval("presentatie één teken te groot", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c -> opgevuld(o, c, Verifier.MAX_PRESENTATIE_TEKENS + 1..Verifier.MAX_PRESENTATIE_TEKENS + 4) }),
+            geval("presentatie net te groot", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c -> o.opgevuld(c, Verifier.MAX_PRESENTATIE_TEKENS + 1..Verifier.MAX_PRESENTATIE_TEKENS + 4) }),
             geval("zip in de header", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
                 TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("zip" to "DEF"))
             }),
