@@ -8,9 +8,10 @@ disable-model-invocation: true
 
 Deze workflow heeft zij-effecten (push, PR openen) en wordt daarom alleen op verzoek gedraaid.
 
-De volgorde is niet vrijblijvend: stap 1 vóór stap 3 scheelt een tweede CI-ronde, omdat `main`
-branch-protection met `strict: true` heeft. Loopt de branch achter, dan draait CI en moet daarna
-alsnog gesynct worden — inclusief de trage deploy-preview.
+Stap 1 vóór stap 3: zo verify je tegen de actuele `main` en zie je conflicten en semantische
+botsingen (hernoemde of verwijderde symbolen) lokaal in plaats van in CI. Up-to-date zijn is voor
+het mergen zelf niet nodig: `main` heeft een merge queue (`strict: false`) die de combinatie met
+`main` opnieuw toetst.
 
 ## 1. Sync met main
 
@@ -19,8 +20,7 @@ git fetch origin
 git rebase origin/main
 ```
 
-Zijn er conflicten, los die dan eerst op. Doorgaan met een achterlopende branch kost een volledige
-tweede CI-ronde.
+Zijn er conflicten, los die dan eerst op.
 
 ## 2. Bepaal wat er geraakt is
 
