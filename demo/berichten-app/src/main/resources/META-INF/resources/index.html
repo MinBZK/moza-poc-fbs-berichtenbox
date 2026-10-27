@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Berichten-app</title>
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+<main>
+  <h1>Berichten-app</h1>
+  <p>
+    Deze app haalt berichten rechtstreeks bij de magazijnen op. Daarvoor activeert u hem eerst: u kiest
+    bij de App Manager een ondernemer, en de app krijgt een bewijs op een sleutel die deze browser
+    niet kan prijsgeven.
+  </p>
+  <p id="status" role="status" aria-live="polite">Laden…</p>
+  <p id="fout" class="fout" role="alert"></p>
+  <div class="knoppen">
+    <button id="activeren" type="button">Activeren</button>
+    <button id="vernieuwen" type="button" disabled>Bewijs vernieuwen</button>
+    <button id="vergeten" type="button">Vergeten</button>
+  </div>
+</main>
+</body>
+</html>

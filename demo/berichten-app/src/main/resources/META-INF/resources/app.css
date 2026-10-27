@@ -1,0 +1,43 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  color: #1b1b1b;
+  background: #fff;
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.knoppen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: 2px solid #154273;
+  border-radius: 4px;
+  background: #154273;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:focus-visible {
+  outline: 3px solid #ffb612;
+  outline-offset: 2px;
+}
+
+.fout {
+  color: #a90000;
+}
