@@ -30,6 +30,7 @@ COPY libraries/fbs-kern/pom.xml libraries/fbs-kern/pom.xml
 COPY libraries/fbs-common/pom.xml libraries/fbs-common/pom.xml
 COPY libraries/fbs-magazijnregister/pom.xml libraries/fbs-magazijnregister/pom.xml
 COPY libraries/fbs-berichtensessiecache/pom.xml libraries/fbs-berichtensessiecache/pom.xml
+COPY libraries/fbs-rechtstreeks/pom.xml libraries/fbs-rechtstreeks/pom.xml
 COPY services/berichtenmagazijn/pom.xml services/berichtenmagazijn/pom.xml
 COPY services/berichtenuitvraag/pom.xml services/berichtenuitvraag/pom.xml
 COPY services/stelselregister/pom.xml services/stelselregister/pom.xml

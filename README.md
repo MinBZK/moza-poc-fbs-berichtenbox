@@ -46,6 +46,7 @@ De belangrijkste paden:
 | `libraries/fbs-common/`               | Gedeelde JAX-RS filters, exception mappers, Profiel-client                       |
 | `libraries/fbs-magazijnregister/`     | Koppeling afzender-OIN ↔ magazijn (`Magazijnregister`-facade)                    |
 | `libraries/fbs-berichtensessiecache/` | In-process sessiecache op Redis (`Sessiecache`-facade)                           |
+| `libraries/fbs-rechtstreeks/`         | Verifier-kant van rechtstreeks ophalen: challenge, credential, magazijnsessie    |
 | `bruno/`                              | Bruno-collecties met voorbeeldrequests per service                                |
 | `demo/`                               | Demonstratiecode — draait nooit in productie; zie [`demo/README.md`](demo/README.md) |
 | `demo/demo-console/`                  | Demo-bedieningspaneel (Maven-module)                                             |
