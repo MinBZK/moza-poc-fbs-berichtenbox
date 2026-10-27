@@ -60,6 +60,7 @@ class UitgegevenStelseldocumentTest {
             override fun wachtwoord() = Optional.of(String(Testketens.geldig.wachtwoord))
             override fun alias() = Wegwerpketen.ALIAS
         }
+        override fun appManagers() = emptyMap<String, StelseldocumentConfig.AppManager>()
     }
 
     private fun uitgegeven(config: StelseldocumentConfig = config()) =

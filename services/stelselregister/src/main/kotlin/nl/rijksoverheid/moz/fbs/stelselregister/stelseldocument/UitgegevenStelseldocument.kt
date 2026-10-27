@@ -26,6 +26,9 @@ class UitgegevenStelseldocument(
     private val log = Logger.getLogger(UitgegevenStelseldocument::class.java)
     private val huidige = AtomicReference<Uitgifte?>()
 
+    /** Bij de eerste uitgifte gelezen en gecontroleerd, zodat een onbruikbare sleutel de start blokkeert. */
+    private val appManagers by lazy { AppManager.uit(config.appManagers()) }
+
     private val ondertekenaar by lazy {
         // Via de Oin-constructor: een uitgever die geen OIN is, hoort de start te blokkeren.
         StelseldocumentOndertekenaar(Oin(config.uitgeverOin()).waarde, config.omgeving(), config.geldigheid())
@@ -46,7 +49,7 @@ class UitgegevenStelseldocument(
                 "een afnemer weigert een document dat langer geldt"
         }
 
-        val onversleuteld = onversleuteld(Stelseldocument.uit(register))
+        val onversleuteld = onversleuteld(Stelseldocument.uit(register, appManagers))
 
         if (onversleuteld.isNotEmpty()) {
             log.warnf(
@@ -93,7 +96,7 @@ class UitgegevenStelseldocument(
 
         sleutelbron.waarschuwBijNaderendVerloop(nu)
 
-        val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register), sleutel, nu)
+        val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register, appManagers), sleutel, nu)
         val vorige = huidige.get()
 
         if (vorige != null && uitgifte.uitgegevenOp.isBefore(vorige.uitgegevenOp)) {
@@ -121,12 +124,13 @@ class UitgegevenStelseldocument(
 
         huidige.set(uitgifte)
         log.infof(
-            "Stelseldocument uitgegeven: kid=%s version=%s iat=%s exp=%s organisaties=%d sleutel=%s",
+            "Stelseldocument uitgegeven: kid=%s version=%s iat=%s exp=%s organisaties=%d app-managers=%d sleutel=%s",
             uitgifte.kid,
             uitgifte.versie,
             uitgifte.uitgegevenOp,
             uitgifte.verlooptOp,
             uitgifte.aantalOrganisaties,
+            appManagers.size,
             sleutel.herkomst,
         )
     }

@@ -12,8 +12,8 @@ ze staan onderaan bij de afwijkingen.
 
 | | |
 |---|---|
-| Versie van dit document | 0.1 |
-| Gelezen tekst van de standaard | draft-00, zoals gepubliceerd op 2026-10-08 |
+| Versie van dit document | 0.2 |
+| Gelezen tekst van de standaard | draft-00, zoals gepubliceerd op 2026-10-08; voor de App Managers [FSC voor Burgers](https://docs.fsc4b.nl/specs/protocol/), werkversie 13 oktober 2026, waar draft-00 nu naar doorverwijst |
 | Stelselbeheerder | Logius |
 | Dienst | `services/stelselregister` |
 | Machineleesbare beschrijving | `/openapi.json` van de dienst |
@@ -71,7 +71,7 @@ sleutelset wil terugvinden; bij de verificatie speelt het geen rol.
 | `version` | kenmerk van de inhoud; gelijk bij gelijke inhoud. Zie "Versienummering" |
 | `environment` | de omgeving waarvoor het document is uitgegeven |
 | `organizations` | de deelnemende organisaties, gesorteerd op OIN: `oin`, `name`, `magazijn_url` |
-| `app_managers` | de toegelaten app-beheerders; nog leeg |
+| `app_managers` | de App Managers die apps een credential mogen uitgeven, gesorteerd op OIN: `oin`, `name`, `public_keys`. Zie "App Managers" |
 | `document_types` | de soorten documenten in dit stelsel; nu alleen `bericht` |
 
 `magazijn_url` is het publieke adres van het berichtenmagazijn van de organisatie. De standaard
@@ -79,6 +79,32 @@ toont in zijn voorbeeld een `discovery_url` naar een vindbaarheidsconfiguratie; 
 in FBS nog niet, en het veld draagt daarom de naam van wat het werkelijk is.
 
 De veldnamen zijn Engels en snake_case omdat ze uit de standaard komen.
+
+### App Managers
+
+Een App Manager bevestigt de identiteit van de gebruiker van een app en geeft daarover een
+credential uit (FSC voor Burgers 4.3.1). Een magazijn vertrouwt een credential alleen via deze
+lijst:
+
+- `public_keys` zijn de sleutels waarmee de App Manager tekent, gesorteerd op `kid`. Elke sleutel
+  heeft een `kid`, een `exp` (seconden sinds 1970) en een `jwk`: een publieke EC-sleutel op P-256
+  met precies `kty`, `crv`, `x` en `y`. Tijdens een sleutelwissel staan er twee.
+- Een magazijn zoekt de sleutel van een credential op met `iss` (de OIN hierboven) en de `kid` uit
+  de header van het credential. Een sleutel die niet in deze lijst staat, ook niet een die in het
+  credential zelf meekomt, wordt nooit gebruikt.
+- De sleutel moet geldig zijn geweest op `iat` van het credential (4.6.2). Zo blijft een
+  credential bruikbaar tot zijn eigen `exp`, ook als de sleutel inmiddels verlopen is.
+- De scope van een credential voor FBS is `nl.rijksoverheid.moz.fbs.berichten`. Hoe de sleutel van
+  de App Manager wordt opgezocht, laat de standaard per scope aan het toepassingsprofiel (4.3.3);
+  voor deze scope is dat de regel hierboven.
+
+De stelselbeheerder neemt een App Manager op via configuratie van de dienst
+(`stelseldocument.app-managers."<OIN>".naam` en `.sleutels."<kid>".{x,y,geldig-tot}`). Een sleutel
+die geen punt op P-256 is, of een coördinaat die niet precies 32 bytes is, blokkeert de start.
+
+De demo-App Manager authenticeert niemand: wie een persona kiest, krijgt een credential. Hij hoort
+daarom alleen in een document met `environment: demo`; een magazijn buiten de demo weigert een
+document waarin hij staat.
 
 ## Versienummering
 
@@ -195,7 +221,7 @@ onbruikbaar maakt, ook als een andere omgeving ooit dezelfde root en OIN zou kri
 | Verwijzing naar een vindbaarheidsconfiguratie per organisatie (4.1.1.2) | ontbreekt; `magazijn_url` wijst naar het magazijn zelf |
 | Het profiel specificeert hoe intrekking en verloopdatum van organisatiesleutels in het document staan (4.5, 4.6) | niet gespecificeerd; er zijn nog geen organisatiesleutels |
 | Toegestane legalisatiemethoden en vertrouwde legalisators aanwijzen en opnemen (2.2.7, 4.1.2) | ontbreekt |
-| App Managers (toegestaan in 4.1.1.1; aanwijzen volgens 2.2.7 en 4.1.2) | het veld bestaat en is leeg |
+| App Managers (toegestaan in 4.1.1.1; aanwijzen volgens 2.2.7 en 4.1.2) | ingevuld met `oin`, `name` en `public_keys`; een lijst sleutels met `kid` en `exp` in plaats van één `public_key`, voor een sleutelwissel met overlap (4.6) |
 | Deelname-eisen stellen en handhaven, kwaliteit van diensten meten (2.2.3, 4.1.2) | organisatorisch; niet in deze dienst |
 | Endpoints gebruiken TLS 1.3 of hoger (3.5) | de dienst termineert zelf geen TLS; de versie is een eis aan de ingress van de omgeving en wordt hier niet afgedwongen |
 

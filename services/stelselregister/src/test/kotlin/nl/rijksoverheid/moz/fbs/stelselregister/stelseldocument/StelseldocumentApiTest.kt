@@ -72,6 +72,20 @@ class StelseldocumentApiTest {
     }
 
     @Test
+    fun `het document bevat de geconfigureerde App Manager met zijn sleutel`() {
+        val payload = Afnemer.payload(given().get(pad).then().statusCode(200).extract().asString())
+        val appManager = payload.path("app_managers")[0]
+        val sleutel = appManager.path("public_keys")[0]
+
+        assertEquals(1, payload.path("app_managers").size())
+        assertEquals("00000000000000001100", appManager.path("oin").asText())
+        assertEquals("Demo-App Manager", appManager.path("name").asText())
+        assertEquals("app-manager-1", sleutel.path("kid").asText())
+        assertEquals(Instant.parse("2030-01-01T00:00:00Z").epochSecond, sleutel.path("exp").asLong())
+        assertEquals("PdzXYrW5QJGuvJKZB38Di5QGJMkze7gSsETqjY1lJpo", sleutel.path("jwk").path("x").asText())
+    }
+
+    @Test
     fun `een HEAD levert dezelfde headers zonder body`() {
         given()
             .`when`().head(pad)

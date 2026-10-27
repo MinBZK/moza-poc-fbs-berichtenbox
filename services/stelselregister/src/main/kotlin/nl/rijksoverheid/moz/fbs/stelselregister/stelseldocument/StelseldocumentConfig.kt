@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.stelselregister.stelseldocument
 import io.smallrye.config.ConfigMapping
 import io.smallrye.config.WithDefault
 import java.time.Duration
+import java.time.Instant
 import java.util.Optional
 
 @ConfigMapping(prefix = "stelseldocument")
@@ -30,6 +31,33 @@ interface StelseldocumentConfig {
     fun verversen(): Duration
 
     fun keystore(): Keystore
+
+    /**
+     * De App Managers die credentials mogen uitgeven, op OIN:
+     * `stelseldocument.app-managers."<OIN>".naam` en
+     * `stelseldocument.app-managers."<OIN>".sleutels."<kid>".{x,y,geldig-tot}`. Zonder App Managers
+     * is de lijst in het document leeg.
+     */
+    fun appManagers(): Map<String, AppManager>
+
+    interface AppManager {
+
+        fun naam(): String
+
+        fun sleutels(): Map<String, Sleutel>
+    }
+
+    interface Sleutel {
+
+        /** JWK-coördinaat `x` van het P-256-punt, base64url. */
+        fun x(): String
+
+        /** JWK-coördinaat `y` van het P-256-punt, base64url. */
+        fun y(): String
+
+        /** Komt als `exp` bij de sleutel in het document. */
+        fun geldigTot(): Instant
+    }
 
     interface Keystore {
 
