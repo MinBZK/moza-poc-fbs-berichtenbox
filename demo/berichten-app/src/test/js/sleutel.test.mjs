@@ -8,8 +8,9 @@ test('de private key van de app is niet te exporteren, in geen enkel formaat', a
 
   assert.equal(privateKey.extractable, false);
 
+  // De spec noemt de fout InvalidAccessError; Node 22 noemt hem InvalidAccessException.
   for (const formaat of ['pkcs8', 'jwk']) {
-    await assert.rejects(crypto.subtle.exportKey(formaat, privateKey), { name: 'InvalidAccessError' });
+    await assert.rejects(crypto.subtle.exportKey(formaat, privateKey), { name: /^InvalidAccess(Error|Exception)$/ });
   }
 });
 
