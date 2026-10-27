@@ -29,7 +29,7 @@ oplossingsrichting voor keten-brede authenticatie en autorisatie binnen MOZa.
 - **Rechtstreeks ophalen** (views `RechtstreeksOphalen`, `RechtstreeksOphalenBurger` en
   `RechtstreeksOphalenOndernemer`) — alleen het Stelselregister is gebouwd. De Berichten-app, de
   App Manager en het rechtstreeks ophalen bij een magazijn volgens BK Connect zijn doelbeeld.
-  De variant is HTTPS-JWT (`CreateSession`) uit FSC voor Burgers, de opvolger van BK Connect;
+  De variant is HTTPS-JWT (`CreateSession`) uit FSC voor Burgers, waar BK Connect nu naar doorverwijst;
   het ontwerp staat in `docs/plans/2026-10-27-rechtstreeks-ophalen-design.md`. Voor ondernemers is
   bovendien open hoe de eHerkenning-machtiging, inclusief ketenmachtiging, in het credential
   meekomt, zodat het magazijn kan zien namens welke onderneming iemand handelt.
