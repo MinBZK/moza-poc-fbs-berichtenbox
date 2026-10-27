@@ -25,14 +25,21 @@ class AfgewezenMapper : ExceptionMapper<AfgewezenException> {
     }
 }
 
+/** Een volle opslag wijst op een te krap quotum of op iemand die hem vult; de operator hoort dat te zien. */
 @Provider
 class OpslagVolMapper : ExceptionMapper<OpslagVolException> {
 
-    override fun toResponse(fout: OpslagVolException): Response = Response.status(Response.Status.SERVICE_UNAVAILABLE)
-        .type(PROBLEM)
-        .header("Retry-After", fout.opnieuwNa.seconds.coerceAtLeast(1))
-        .entity("""{"type":"urn:fbs:fout:tijdelijk-niet-beschikbaar","title":"Tijdelijk niet beschikbaar","status":503}""")
-        .build()
+    private val log = Logger.getLogger(OpslagVolMapper::class.java)
+
+    override fun toResponse(fout: OpslagVolException): Response {
+        log.warnf("Opslag vol; opnieuw over %d s", fout.opnieuwNa.seconds)
+
+        return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+            .type(PROBLEM)
+            .header("Retry-After", fout.opnieuwNa.seconds.coerceAtLeast(1))
+            .entity("""{"type":"urn:fbs:fout:tijdelijk-niet-beschikbaar","title":"Tijdelijk niet beschikbaar","status":503}""")
+            .build()
+    }
 }
 
 private val PROBLEM = MediaType("application", "problem+json")

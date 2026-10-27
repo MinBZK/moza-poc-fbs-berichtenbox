@@ -1,11 +1,10 @@
 package nl.rijksoverheid.moz.fbs.appmanager
 
-import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.vertx.core.http.HttpServerRequest
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.CookieParam
-import jakarta.ws.rs.FormParam
 import jakarta.ws.rs.GET
 import jakarta.ws.rs.HeaderParam
 import jakarta.ws.rs.POST
@@ -16,20 +15,15 @@ import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.NewCookie
 import jakarta.ws.rs.core.Response
-import jakarta.ws.rs.core.UriInfo
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Afwijzing
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Identiteit
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Sessie
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Verifier
+import org.jboss.logging.Logger
 import java.net.URI
-
-/** Stap 20 van `CreateSession`; de veldnamen in de JSON komen uit de standaard. */
-data class CompleteVerzoek(
-    val nonce: String?,
-    @param:JsonProperty("encrypted_challenge_result") val versleuteldResultaat: String?,
-)
+import java.net.URLDecoder
 
 /**
  * Activeren volgens FSC voor Burgers 4.4.1, met de persona-keuze in plaats van DigiD:
@@ -39,6 +33,9 @@ data class CompleteVerzoek(
  * 3. de keuze van een persona, die een `registration_token` oplevert, versleuteld onder de
  *    sessiesleutel en in het fragment van de vaste terug-URL;
  * 4. `/credential`, dat op dat token een credential uitgeeft voor de sleutel van die sessie.
+ *
+ * Bodies worden hier zelf gelezen in plaats van door JAX-RS: een kapotte invoer hoort een `400` of
+ * `401` te geven, geen `500` uit de parser van het framework.
  */
 @Path("/")
 class ActiverenResource(
@@ -50,18 +47,24 @@ class ActiverenResource(
     private val json: ObjectMapper,
 ) {
 
+    private val log = Logger.getLogger(ActiverenResource::class.java)
+
     @POST
     @Path("v1/challenge")
     @Produces(JOSE)
     fun challenge(@Context verzoek: HttpServerRequest): String = verifier.maakChallenge(client(verzoek))
 
+    /** Stap 20 van `CreateSession`; de veldnamen komen uit de standaard. */
     @POST
     @Path("v1/complete")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(JOSE)
-    fun complete(antwoord: CompleteVerzoek?, @Context verzoek: HttpServerRequest): String {
-        val nonce = antwoord?.nonce ?: throw AfgewezenException(Afwijzing.PRESENTATIE_ONVOLLEDIG)
-        val presentatie = antwoord.versleuteldResultaat ?: throw AfgewezenException(Afwijzing.PRESENTATIE_ONVOLLEDIG)
+    fun complete(body: String, @Context verzoek: HttpServerRequest): String {
+        val velden = leesJson(body)
+        val nonce = velden?.get("nonce")?.takeIf(JsonNode::isTextual)?.asText()
+        val presentatie = velden?.get("encrypted_challenge_result")?.takeIf(JsonNode::isTextual)?.asText()
+
+        if (nonce == null || presentatie == null) throw AfgewezenException(Afwijzing.PRESENTATIE_ONVOLLEDIG)
 
         return verifier.voltooiSelfSigned(nonce, presentatie, client(verzoek)).antwoord
     }
@@ -75,7 +78,7 @@ class ActiverenResource(
     @Produces(MediaType.TEXT_HTML)
     fun registreer(@QueryParam("session_token") sessieToken: String?, @CookieParam(COOKIE) koppeling: String?): Response {
         if (sessieToken != null) {
-            val sessie = appSessie(sessieToken)
+            val (sessie, _) = appSessie(sessieToken)
             val id = registraties.koppel(sessieToken, sessie.verlooptOp) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
 
             return Response.seeOther(URI.create(REGISTER_APP)).cookie(cookie(id, maxAge = -1)).build()
@@ -92,18 +95,27 @@ class ActiverenResource(
     @POST
     @Path("register_app/kies")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    fun kies(@FormParam("persona") personaId: String?, @CookieParam(COOKIE) koppeling: String?, @Context uri: UriInfo): Response {
+    fun kies(body: String, @CookieParam(COOKIE) koppeling: String?, @Context verzoek: HttpServerRequest): Response {
+        val personaId = formulierveld(body, "persona")
         val persona = personas.alle().firstOrNull { it.id == personaId }
             ?: return Response.status(Response.Status.BAD_REQUEST).entity("onbekende persona").type(MediaType.TEXT_PLAIN).build()
-        val sessie = appSessie(koppeling?.let(registraties::neemKoppeling) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND))
-        val app = sessie.identiteit as Identiteit.AppSleutel
-        val token = registraties.registreer(persona.ontvanger, app.thumbprint, config.registratieGeldig())
+        val sessieToken = koppeling?.let(registraties::sessieToken) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        val (sessie, app) = appSessie(sessieToken)
 
-        val bericht = json.writeValueAsString(
-            mapOf("sub" to "registration_token", "iss" to uri.baseUri.toString(), "registration_token" to token),
-        )
+        // Eerst registreren en versleutelen, dan pas de koppeling verbruiken: een volle opslag of een
+        // net verlopen sessie laat de gebruiker zo opnieuw proberen in plaats van vast te lopen.
+        val token = registraties.registreer(persona.ontvanger, app.thumbprint, client(verzoek), config.registratieGeldig())
 
-        val terug = URI.create("${config.terugUrl()}#registration_token=${verifier.versleutel(sessie, bericht)}")
+        val versleuteld = try {
+            verifier.versleutel(sessie, registratiebericht(token))
+        } catch (fout: AfgewezenException) {
+            registraties.vergeet(token)
+            throw fout
+        }
+
+        registraties.neemKoppeling(koppeling) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+
+        val terug = URI.create("${config.terugUrl()}#registration_token=$versleuteld")
 
         return Response.seeOther(terug).cookie(cookie("", maxAge = 0)).build()
     }
@@ -113,31 +125,41 @@ class ActiverenResource(
     @Path("credential")
     @Consumes(JOSE)
     @Produces(JOSE)
-    fun credential(@HeaderParam("Authorization") sessieToken: String?, lichaam: String): String {
-        val sessie = appSessie(sessieToken ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND))
-        val app = sessie.identiteit as Identiteit.AppSleutel
-        val tekst = verifier.ontsleutel(sessie, lichaam)
-        val verzoek = runCatching { json.readTree(tekst) }.getOrNull()
+    fun credential(@HeaderParam("Authorization") sessieToken: String?, body: String): String {
+        val (sessie, app) = appSessie(sessieToken ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND))
+        val verzoek = leesJson(verifier.ontsleutel(sessie, body))
 
         val klopt = verzoek != null && verzoek.path("sub").asText() == "registration_token" && verzoek.path("iss").asText() == APP_ISS
-        val registratie = verzoek?.path("registration_token")?.asText()?.takeIf { klopt }?.let(registraties::registratie)
+
+        if (verzoek == null || !klopt) throw AfgewezenException(Afwijzing.PRESENTATIE_ONVOLLEDIG)
+
+        val registratie = registraties.registratie(verzoek.path("registration_token").asText())
+            ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
 
         // Alleen de sleutel die bij het activeren de persona koos: een gestolen token levert zo geen
-        // credential op een andere sleutel op.
-        if (registratie == null || registratie.thumbprint != app.thumbprint) throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        // credential op een andere sleutel op. Een poging daartoe hoort in de log op te vallen.
+        if (registratie.thumbprint != app.thumbprint) {
+            log.warnf("Een registration_token is aangeboden met een andere sleutel (thumbprint %s)", app.thumbprint)
+
+            throw AfgewezenException(Afwijzing.APPSLEUTEL_ONGELDIG)
+        }
 
         return verifier.versleutel(sessie, uitgifte.teken(app.publicKey, registratie.ontvanger))
     }
 
-    private fun appSessie(token: String): Sessie {
+    private fun registratiebericht(token: String): String =
+        json.writeValueAsString(mapOf("sub" to "registration_token", "iss" to config.issuerUrl(), "registration_token" to token))
+
+    private fun appSessie(token: String): Pair<Sessie, Identiteit.AppSleutel> {
         val sessie = verifier.sessie(token)
+        val app = sessie.identiteit as? Identiteit.AppSleutel ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
 
-        if (sessie.identiteit !is Identiteit.AppSleutel) throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
-
-        return sessie
+        return sessie to app
     }
 
-    /** Het adres van de verbinding; achter een proxy het adres dat de vertrouwde proxy doorgeeft. */
+    private fun leesJson(tekst: String): JsonNode? = runCatching { json.readTree(tekst) }.getOrNull()?.takeIf(JsonNode::isObject)
+
+    /** Het IP-adres van de aanroeper; achter een proxy het adres dat de vertrouwde proxy doorgeeft. */
     private fun client(verzoek: HttpServerRequest): String = verzoek.remoteAddress()?.hostAddress() ?: "onbekend"
 
     private fun cookie(waarde: String, maxAge: Int): NewCookie = NewCookie.Builder(COOKIE)
@@ -158,5 +180,11 @@ class ActiverenResource(
 
         /** Vaste `iss` van de app in het `registration_token`-verzoek (4.4.1, stap 19). */
         const val APP_ISS = "bk-connect://app/"
+
+        /** Eén veld uit een formulier, of `null` als het ontbreekt of de encoding kapot is. */
+        fun formulierveld(body: String, naam: String): String? = body.split('&')
+            .map { it.split('=', limit = 2) }
+            .firstOrNull { it[0] == naam && it.size == 2 }
+            ?.let { runCatching { URLDecoder.decode(it[1], Charsets.UTF_8) }.getOrNull() }
     }
 }

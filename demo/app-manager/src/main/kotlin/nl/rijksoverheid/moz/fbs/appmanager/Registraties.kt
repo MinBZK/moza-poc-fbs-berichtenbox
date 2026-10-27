@@ -8,7 +8,7 @@ import java.time.Duration
 import java.time.Instant
 
 /** Een gekozen persona, gebonden aan de sleutel van de app die erom vroeg. */
-class Registratie(val ontvanger: String, val thumbprint: String, val verlooptOp: Instant) {
+class Registratie(val ontvanger: String, val thumbprint: String, val client: String, val verlooptOp: Instant) {
     override fun toString(): String = "Registratie(thumbprint=$thumbprint, verlooptOp=$verlooptOp)"
 }
 
@@ -64,16 +64,30 @@ class Registraties(private val klok: Clock) {
         return koppelingen.remove(koppeling)?.sessieToken
     }
 
+    /**
+     * Een nieuwe registratie vervangt die van dezelfde sleutel: een app heeft er hoogstens één. Per
+     * client is het aantal begrensd, want een self-signed sessie kost niets.
+     */
     @Synchronized
-    fun registreer(ontvanger: String, thumbprint: String, geldig: Duration): String {
+    fun registreer(ontvanger: String, thumbprint: String, client: String, geldig: Duration): String {
         ruimOp()
+        registraties.values.removeIf { it.thumbprint == thumbprint }
+
+        if (registraties.values.count { it.client == client } >= MAX_PER_CLIENT) throw OpslagVolException(Duration.ofSeconds(OPNIEUW_NA_SECONDEN))
+
         vereisRuimte(registraties.size)
 
         val token = token()
 
-        registraties[token] = Registratie(ontvanger, thumbprint, klok.instant().plus(geldig))
+        registraties[token] = Registratie(ontvanger, thumbprint, client, klok.instant().plus(geldig))
 
         return token
+    }
+
+    /** Voor een registratie waarvan het token de app nooit bereikte. */
+    @Synchronized
+    fun vergeet(token: String) {
+        registraties.remove(token)
     }
 
     @Synchronized
@@ -102,6 +116,7 @@ class Registraties(private val klok: Clock) {
 
     private companion object {
         const val MAX_AANTAL = 10_000
+        const val MAX_PER_CLIENT = 50
         const val OPNIEUW_NA_SECONDEN = 60L
         const val TOKEN_LENGTE = 32
         const val TOKEN_TEKENS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"

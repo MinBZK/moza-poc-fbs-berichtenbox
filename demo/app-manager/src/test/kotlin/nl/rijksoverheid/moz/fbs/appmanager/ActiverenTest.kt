@@ -8,6 +8,7 @@ import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.rechtstreeks.TestApp
 import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.not
 import org.jose4j.json.JsonUtil
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -87,6 +88,7 @@ class ActiverenTest {
             val bericht = JsonUtil.parseJson(TestApp.ontsleutelDir(jwe, aes))
 
             assertEquals("registration_token", bericht["sub"])
+            assertEquals("https://app-manager.test/", bericht["iss"])
 
             return bericht["registration_token"] as String
         }
@@ -173,6 +175,18 @@ class ActiverenTest {
     }
 
     @Test
+    fun `een formulier met kapotte encoding geeft 400, geen 500`() {
+        val app = App().maakSessie()
+        val koppeling = given().redirects().follow(false).queryParam("session_token", app.sessieToken)
+            .get("/register_app").then().extract().cookie(ActiverenResource.COOKIE)
+
+        listOf("persona=%zz", "persona=%2", "persona=vandijk&x=%zz", "", "persona").forEach { body ->
+            given().redirects().follow(false).cookie(ActiverenResource.COOKIE, koppeling).contentType(ContentType.URLENC).body(body)
+                .post("/register_app/kies").then().statusCode(if (body.startsWith("persona=vandijk")) 303 else 400)
+        }
+    }
+
+    @Test
     fun `een onbekende persona geeft 400 en laat de koppeling staan`() {
         val app = App().maakSessie()
         val koppeling = given().redirects().follow(false).queryParam("session_token", app.sessieToken)
@@ -190,6 +204,10 @@ class ActiverenTest {
         given().contentType(ContentType.JSON).body("{}").post("/v1/complete").then().statusCode(401)
         given().contentType(ContentType.JSON).body(mapOf("nonce" to "x", "encrypted_challenge_result" to "y")).post("/v1/complete")
             .then().statusCode(401)
+
+        listOf("""{"nonce":{},"encrypted_challenge_result":"y"}""", """{"nonce":["x"]}""", "[]", "\"tekst\"", "{kapot").forEach { body ->
+            given().contentType(ContentType.JSON).body(body).post("/v1/complete").then().statusCode(401).contentType("application/problem+json")
+        }
     }
 
     @Test
@@ -201,5 +219,6 @@ class ActiverenTest {
             .then().statusCode(200)
             .header("Access-Control-Allow-Origin", containsString("app.test"))
             .header("Access-Control-Allow-Headers", containsString("Authorization"))
+            .header("Access-Control-Allow-Credentials", not("true"))
     }
 }

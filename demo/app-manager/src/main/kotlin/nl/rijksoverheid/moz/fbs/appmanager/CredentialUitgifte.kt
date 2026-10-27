@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.appmanager
 
+import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
 import org.jose4j.json.JsonUtil
 import org.jose4j.jws.AlgorithmIdentifiers
@@ -13,6 +14,7 @@ import java.time.Duration
  * app in `cnf`, de ontvanger die de gebruiker koos, en een korte geldigheid. FBS zet `ontvanger` in
  * plaats van `bsn`, `given_name` en `family_name`; zie het ontwerp.
  */
+@Startup
 @ApplicationScoped
 class CredentialUitgifte(
     private val config: AppManagerConfig,
@@ -21,13 +23,19 @@ class CredentialUitgifte(
 ) {
 
     init {
-        require(config.credentialGeldig() <= MAXIMALE_LOOPTIJD) {
-            "app-manager.credential-geldig (${config.credentialGeldig()}) mag niet langer zijn dan $MAXIMALE_LOOPTIJD: een magazijn weigert dat credential"
+        require(config.credentialGeldig() in MINIMALE_LOOPTIJD..MAXIMALE_LOOPTIJD) {
+            "app-manager.credential-geldig (${config.credentialGeldig()}) moet tussen $MINIMALE_LOOPTIJD en $MAXIMALE_LOOPTIJD liggen: " +
+                "een magazijn weigert een credential daarbuiten"
         }
     }
 
     fun teken(appSleutel: ECPublicKey, ontvanger: String): String {
-        val nu = klok.instant().epochSecond
+        val moment = klok.instant()
+
+        // Een magazijn toetst de sleutel op `iat`; met een verlopen sleutel getekend is het credential waardeloos.
+        check(moment.isBefore(config.sleutelGeldigTot())) { "de sleutel van de App Manager is verlopen op ${config.sleutelGeldigTot()}" }
+
+        val nu = moment.epochSecond
 
         val claims = mapOf(
             "cnf" to mapOf("jwk" to mapOf("kty" to "EC", "crv" to "P-256", "x" to Ondertekensleutel.x(appSleutel), "y" to Ondertekensleutel.y(appSleutel))),
@@ -51,5 +59,8 @@ class CredentialUitgifte(
 
     private companion object {
         val MAXIMALE_LOOPTIJD: Duration = Duration.ofHours(24)
+
+        /** Een magazijn weigert een credential dat binnen een minuut verloopt. */
+        val MINIMALE_LOOPTIJD: Duration = Duration.ofMinutes(2)
     }
 }

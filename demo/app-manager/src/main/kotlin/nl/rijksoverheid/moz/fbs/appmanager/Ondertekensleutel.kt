@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.appmanager
 
 import io.quarkus.runtime.LaunchMode
+import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Produces
 import jakarta.inject.Singleton
@@ -26,6 +27,7 @@ import java.util.Base64
  * bestand terug op een wegwerpsleutel. Die terugval hangt aan de launch mode en niet aan het
  * profiel, zodat een uitgerold image nooit met een wegwerpsleutel tekent.
  */
+@Startup
 @ApplicationScoped
 class Ondertekensleutel(private val config: AppManagerConfig) {
 
@@ -70,7 +72,7 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
         private val BLOK = Regex("-----BEGIN ([A-Z ]+)-----([^-]+)-----END \\1-----")
         private const val COORDINAAT_BYTES = 32
 
-        /** Leest een PEM met een PKCS#8-private key en de bijbehorende publieke sleutel (SPKI). */
+        /** Leest een PEM met een private key (PKCS#8) en de bijbehorende public key (SPKI). */
         fun leesPem(pem: String): KeyPair {
             val blokken = BLOK.findAll(pem).associate { it.groupValues[1] to Base64.getMimeDecoder().decode(it.groupValues[2]) }
             val privaat = blokken["PRIVATE KEY"] ?: error("geen PRIVATE KEY-blok in de sleutel van de App Manager")
