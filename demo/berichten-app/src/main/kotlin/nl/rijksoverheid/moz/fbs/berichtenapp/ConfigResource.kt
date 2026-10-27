@@ -15,5 +15,8 @@ class ConfigResource(private val config: BerichtenAppConfig) {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     fun config(): Map<String, Any> =
-        mapOf("appManager" to mapOf("url" to config.appManagerUrl(), "oin" to config.appManagerOin()))
+        mapOf(
+            "appManager" to mapOf("url" to config.appManagerUrl(), "oin" to config.appManagerOin()),
+            "stelselregister" to mapOf("url" to config.stelselregisterUrl()),
+        )
 }

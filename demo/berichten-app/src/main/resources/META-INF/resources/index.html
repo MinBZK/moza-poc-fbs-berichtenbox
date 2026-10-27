@@ -21,7 +21,17 @@
     <button id="activeren" type="button" disabled>Activeren</button>
     <button id="vernieuwen" type="button" disabled>Bewijs vernieuwen</button>
     <button id="wissen" type="button" disabled>Activering wissen</button>
+    <button id="ophalen" type="button" disabled>Berichten ophalen</button>
   </div>
+  <section aria-labelledby="kop-berichten">
+    <h2 id="kop-berichten">Berichten</h2>
+    <p id="overzicht" role="status" aria-live="polite"></p>
+    <ul id="berichten"></ul>
+    <div id="niet-bereikt" hidden>
+      <h3>Niet bereikt</h3>
+      <ul id="mislukt"></ul>
+    </div>
+  </section>
 </main>
 </body>
 </html>

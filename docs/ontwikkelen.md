@@ -66,6 +66,15 @@ credential van die ondernemer, op een sleutel die de browser niet kan exporteren
 houdt registraties in het geheugen: na een herstart werkt **Bewijs vernieuwen** niet meer en
 activeer je opnieuw.
 
+**Berichten ophalen** leest de magazijnen uit het stelseldocument (`berichten-app.stelselregister-url`,
+in ontwikkelmodus `http://localhost:8094/`) en haalt bij elk tegelijk op via de tweede ingang. Lokaal
+de hele keten doorlopen vraagt nog drie dingen die met de compose-bedrading komen: een stelselregister
+dat de gesimuleerde magazijnen noemt met een adres dat de browser bereikt, een simulator die de
+sleutel van de App Manager vertrouwt (`simulator.rechtstreeks.app-managers."<OIN>".sleutels."<kid>"`,
+met de coördinaten die de App Manager bij de start logt), en die magazijn-origins in
+`berichten-app.magazijnen`. De tests doorlopen de keten wel: `BerichtenAppTest` in de simulator draait
+het ophalen tegen twee gesimuleerde magazijnen en een onbekend magazijn.
+
 ## Kwaliteitsgates
 
 Er zijn twee gates, elk gebonden aan een andere Maven-fase:

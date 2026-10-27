@@ -23,7 +23,7 @@ class PaginaTest {
         val richtlijnen = csp.split(';').map(String::trim).associate { it.substringBefore(' ') to it.substringAfter(' ', "") }
 
         assertEquals("'self'", richtlijnen["script-src"])
-        assertEquals("'self' https://app-manager.test/", richtlijnen["connect-src"])
+        assertEquals("'self' https://app-manager.test/ https://stelselregister.test/ https://magazijn-a.test https://simulator.test", richtlijnen["connect-src"])
         assertEquals("'none'", richtlijnen["default-src"])
         assertEquals("'none'", richtlijnen["frame-ancestors"])
         assertEquals("'none'", richtlijnen["form-action"])
@@ -43,11 +43,12 @@ class PaginaTest {
         given().get("/config.json").then().statusCode(200)
             .body("appManager.url", equalTo("https://app-manager.test/"))
             .body("appManager.oin", equalTo(BerichtenAppConfig.DEMO_APP_MANAGER_OIN))
+            .body("stelselregister.url", equalTo("https://stelselregister.test/"))
     }
 
     @Test
     fun `de scripts en de meegeleverde jose komen als JavaScript van deze origin`() {
-        listOf("/js/app.js", "/js/activeren.js", "/js/sleutelkluis.js", "/vendor/jose-6.2.13/index.js").forEach { pad ->
+        listOf("/js/app.js", "/js/activeren.js", "/js/ophalen.js", "/js/sleutelkluis.js", "/vendor/jose-6.2.13/index.js").forEach { pad ->
             given().get(pad).then().statusCode(200).contentType(containsString("javascript"))
         }
     }

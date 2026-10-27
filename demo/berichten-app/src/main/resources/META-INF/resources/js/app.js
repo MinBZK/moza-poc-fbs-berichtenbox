@@ -1,17 +1,18 @@
-// De pagina: activeren, het bewijs vernieuwen en de activering wissen. Tekst uit tokens en
-// credentials gaat alleen via textContent de pagina in.
+// De pagina: activeren, het bewijs vernieuwen, de activering wissen en berichten ophalen. Tekst uit
+// tokens, credentials en magazijnen gaat alleen via textContent de pagina in.
 import { errors } from '../vendor/jose-6.2.13/index.js';
 import * as kluis from './sleutelkluis.js';
 import {
   ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
 } from './activeren.js';
+import { StelseldocumentFout, haalAllesOp, leesStelseldocument } from './ophalen.js';
 
 // Het session_token van het activeren overleeft zo de navigatie naar de App Manager, maar niet het
 // sluiten van het tabblad. In de kluis staat het samen met de AES-sleutel (niet te exporteren),
 // zodat een tabblad bij terugkomst ziet of een ander tabblad intussen een eigen activering begon.
 const ACTIVATIE_SESSIE = 'activatie-sessie';
 const ACTIVATIE = 'activatie';
-const KNOPPEN = ['activeren', 'vernieuwen', 'wissen'];
+const KNOPPEN = ['activeren', 'vernieuwen', 'wissen', 'ophalen'];
 
 const OPNIEUW_ACTIVEREN = 'Kies Activeren om opnieuw te beginnen.';
 const OPSLAG_GEWEIGERD = 'Deze browser staat de app geen opslag toe. Gebruik een gewoon venster (geen privévenster) of sta sitegegevens toe, en herlaad de pagina.';
@@ -27,11 +28,13 @@ let ingesteld = false;
 async function laadConfig() {
   try {
     const antwoord = await fetch('config.json');
+
     if (!antwoord.ok) console.error(`config.json gaf HTTP ${antwoord.status}`);
 
-    const { appManager } = antwoord.ok ? await antwoord.json() : {};
+    const config = antwoord.ok ? await antwoord.json() : {};
+    const { appManager, stelselregister } = config;
 
-    if (typeof appManager?.url === 'string' && typeof appManager?.oin === 'string') return appManager;
+    if (typeof appManager?.url === 'string' && typeof appManager?.oin === 'string' && typeof stelselregister?.url === 'string') return config;
   } catch (fout) {
     console.error(fout);
   }
@@ -137,6 +140,54 @@ async function vernieuw(appManager) {
   }
 }
 
+/** Bij elk magazijn uit het stelseldocument tegelijk, met het bewijs uit de kluis. */
+async function haalBerichtenOp(stelselregister) {
+  const credential = await kluis.haal('credential');
+
+  if (!credential || leesCredential(credential).verlooptOp <= new Date()) {
+    throw new Melding('Er is geen geldig bewijs. Kies Bewijs vernieuwen.');
+  }
+
+  let antwoord;
+
+  try {
+    antwoord = await fetch(new URL('api/v1/stelseldocument', stelselregister.url), { headers: { Accept: 'application/jose' } });
+  } catch (fout) {
+    throw new Melding('Het stelselregister is niet te bereiken. Probeer het later opnieuw.', { cause: fout });
+  }
+
+  if (!antwoord.ok) throw new Melding(`Het stelselregister gaf geen lijst van magazijnen (HTTP ${antwoord.status}). Probeer het later opnieuw.`);
+
+  const magazijnen = leesStelseldocument(await antwoord.text());
+  const uitkomst = await haalAllesOp(magazijnen, { sleutelpaar: await kluis.sleutelpaar(), credential });
+
+  uitkomst.mislukt.forEach(({ naam, oin, oorzaak }) => console.warn(`Magazijn ${naam} (${oin}) niet opgehaald`, oorzaak));
+  toonBerichten(uitkomst, magazijnen.length);
+}
+
+function toonBerichten({ berichten, mislukt }, aantal) {
+  element('berichten').replaceChildren(
+    ...berichten.map((bericht) => regel(`${datum(bericht.publicatietijdstip)} · ${bericht.magazijn} · ${bericht.onderwerp}`)),
+  );
+  element('mislukt').replaceChildren(...mislukt.map((magazijn) => regel(`${magazijn.naam}: ${magazijn.reden}`)));
+  element('niet-bereikt').hidden = mislukt.length === 0;
+  element('overzicht').textContent = `${berichten.length} bericht(en) uit ${aantal - mislukt.length} van de ${aantal} magazijnen.`;
+}
+
+function regel(tekst) {
+  const item = document.createElement('li');
+
+  item.textContent = tekst;
+
+  return item;
+}
+
+function datum(tijdstip) {
+  const moment = new Date(tijdstip);
+
+  return Number.isNaN(moment.getTime()) ? '(geen datum)' : moment.toLocaleString('nl-NL');
+}
+
 async function wis() {
   await kluis.wis();
   sessionStorage.removeItem(ACTIVATIE_SESSIE);
@@ -154,7 +205,9 @@ async function toon() {
     const registratie = await kluis.haal('registratie');
     const credential = await kluis.haal('credential');
 
-    zetKnoppen({ activeren: true, vernieuwen: Boolean(registratie), wissen: true });
+    const geldig = credential && leesCredential(credential).verlooptOp > new Date();
+
+    zetKnoppen({ activeren: true, vernieuwen: Boolean(registratie), wissen: true, ophalen: Boolean(geldig) });
     element('status').textContent = statustekst(registratie, credential);
   } catch (fout) {
     console.error(fout);
@@ -197,6 +250,8 @@ function melding(fout) {
   if (fout instanceof VerbindingFout) return 'Geen verbinding met de App Manager. Controleer uw verbinding en probeer het opnieuw.';
 
   if (fout instanceof kluis.KluisFout) return OPSLAG_GEWEIGERD;
+
+  if (fout instanceof StelseldocumentFout) return 'De lijst van magazijnen is niet te lezen. Probeer het later opnieuw.';
 
   if (fout instanceof ActiverenFout && fout.status === 401) return 'De App Manager wees het verzoek af. Probeer het opnieuw.';
 
@@ -264,10 +319,10 @@ function start() {
   });
 
   bezig(null, 'Laden…', async () => {
-    let appManager;
+    let config;
 
     try {
-      appManager = await laadConfig();
+      config = await laadConfig();
     } catch (fout) {
       // Het fragment is al weg; na herladen moet de gebruiker de persona dus opnieuw kiezen.
       if (fragment) throw new Melding(`${fout.message} Daarna moet u opnieuw activeren.`);
@@ -275,7 +330,10 @@ function start() {
       throw fout;
     }
 
+    const { appManager, stelselregister } = config;
+
     koppel('activeren', 'Bezig met activeren…', () => activeer(appManager));
+    koppel('ophalen', 'Bezig met ophalen…', () => haalBerichtenOp(stelselregister));
     koppel('vernieuwen', 'Bezig met vernieuwen…', () => vernieuw(appManager));
     element('wissen').addEventListener('click', () => {
       if (confirm('De sleutel en het bewijs van deze browser worden verwijderd. Daarna moet u opnieuw activeren.')) {

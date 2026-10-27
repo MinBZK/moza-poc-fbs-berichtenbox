@@ -11,7 +11,10 @@ import java.net.URI
 class ConfigControle(config: BerichtenAppConfig) {
 
     init {
-        controleerAppManagerUrl(config.appManagerUrl(), LaunchMode.current().isDevOrTest)
+        val ontwikkel = LaunchMode.current().isDevOrTest
+
+        controleerAdres("berichten-app.app-manager-url", config.appManagerUrl(), ontwikkel)
+        controleerAdres("berichten-app.stelselregister-url", config.stelselregisterUrl(), ontwikkel)
 
         require(OIN.matches(config.appManagerOin())) { "berichten-app.app-manager-oin (${config.appManagerOin()}) is geen OIN van 20 cijfers" }
     }
@@ -20,19 +23,19 @@ class ConfigControle(config: BerichtenAppConfig) {
         private val OIN = Regex("\\d{20}")
 
         /**
-         * Absoluut, zonder query of fragment, en eindigend op `/`: de app plakt er de paden van de
-         * standaard achter. Buiten ontwikkel- en testmodus https, want de app stuurt er het
-         * `session_token` heen.
+         * Absoluut, zonder query of fragment, en eindigend op `/`: de app plakt er de paden achter.
+         * Buiten ontwikkel- en testmodus https: de app stuurt er tokens heen of leest er het
+         * vertrouwen uit.
          */
-        fun controleerAppManagerUrl(adres: String, ontwikkel: Boolean) {
+        fun controleerAdres(naam: String, adres: String, ontwikkel: Boolean) {
             val uri = runCatching { URI.create(adres) }.getOrNull()
             val vorm = uri != null && uri.isAbsolute && uri.host != null && uri.rawQuery == null && uri.rawFragment == null
 
             require(vorm && adres.endsWith("/")) {
-                "berichten-app.app-manager-url ($adres) moet een absolute URL zijn die op / eindigt, zonder query of fragment"
+                "$naam ($adres) moet een absolute URL zijn die op / eindigt, zonder query of fragment"
             }
 
-            require(ontwikkel || uri.scheme == "https") { "berichten-app.app-manager-url ($adres) moet https zijn" }
+            require(ontwikkel || uri.scheme == "https") { "$naam ($adres) moet https zijn" }
         }
     }
 }

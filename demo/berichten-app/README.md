@@ -7,6 +7,8 @@ De app-kant van rechtstreeks ophalen, als webpagina. Het ontwerp staat in
   IndexedDB.
 - `js/activeren.js`: `CreateSession` met een self-signed certificaat en het activeren bij de App
   Manager. Zonder DOM, zodat de tests onder Node dezelfde code draaien.
+- `js/ophalen.js`: de magazijnen uit het stelseldocument, per magazijn een sessie en de
+  berichtenlijst, alles samen, en wie niet antwoordde. Ook zonder DOM.
 - `js/app.js`: de pagina.
 
 ## Meegeleverde `jose`

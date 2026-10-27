@@ -1,5 +1,5 @@
-// De app-kant van CreateSession met een self-signed certificaat en van het activeren bij de App
-// Manager (FSC voor Burgers 4.3.4 en 4.4.1). Zonder DOM en zonder opslag: wie aanroept, geeft
+// De app-kant van CreateSession (FSC voor Burgers 4.3.4): met een self-signed certificaat bij de
+// App Manager (activeren, 4.4.1) en met een credential bij een magazijn. Zonder DOM en zonder opslag: wie aanroept, geeft
 // sleutels en fetch mee, zodat dezelfde code in de browser en in de tests onder Node draait.
 import { CompactEncrypt, CompactSign, compactDecrypt, decodeJwt } from '../vendor/jose-6.2.13/index.js';
 
@@ -20,22 +20,57 @@ export class ActiverenFout extends Error {
 }
 
 /**
- * De App Manager was niet te bereiken; de oorzaak (een TypeError van fetch) staat in `cause`. Een
- * CORS-weigering ziet de browser hetzelfde, dus ook een verkeerd ingestelde App Manager komt hier.
+ * De App Manager of een magazijn was niet te bereiken; de oorzaak (een TypeError van fetch) staat
+ * in `cause`. Een CORS-weigering ziet de browser hetzelfde, dus ook een verkeerd ingestelde dienst
+ * komt hier.
  */
 export class VerbindingFout extends Error {
   name = 'VerbindingFout';
 }
 
 /**
- * Opent een sessie met een self-signed certificaat: de Verifier leert de public key van de app en
- * ziet dat de app de private key bezit. Geeft het sessietoken en de AES-sleutel van de sessie
- * terug. Die sleutel is niet te exporteren; de ruwe bytes gaan alleen versleuteld in de
- * presentatie mee.
+ * Opent een sessie bij de App Manager met een self-signed certificaat: de App Manager leert de
+ * public key van de app en ziet dat de app de private key bezit.
  */
 export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.fetch }) {
-  const challenge = await tekstVan(await verbind(fetch, new URL('v1/challenge', basis), { method: 'POST' }), 'challenge');
-  // TODO(#1216): de handtekening toetsen aan de sleutel van de App Manager uit het stelseldocument;
+  const jwk = await publiekeJwk(sleutelpaar.publicKey);
+  const certificaat = await teken({ sub: 'certificate_type_self_signed', cnf: { jwk } }, sleutelpaar.privateKey);
+
+  return openSessie({
+    challenge: new URL('v1/challenge', basis),
+    complete: new URL('v1/complete', basis),
+    oin,
+    sleutelpaar,
+    soort: 'certificate_type_self_signed',
+    certificaat,
+    fetch,
+  });
+}
+
+/**
+ * Opent een magazijnsessie met het credential van de App Manager. [basis] is het API-adres van het
+ * magazijn, eindigend op `/` (`<magazijn_url>/api/v1/`).
+ */
+export function maakMagazijnsessie({ basis, oin, sleutelpaar, credential, fetch = globalThis.fetch }) {
+  return openSessie({
+    challenge: new URL('rechtstreeks/challenge', basis),
+    complete: new URL('rechtstreeks/complete', basis),
+    oin,
+    sleutelpaar,
+    soort: 'app_manager_jwt_certificate',
+    certificaat: credential,
+    fetch,
+  });
+}
+
+/**
+ * Stap 1 tot en met 26 van `CreateSession`. Geeft het sessietoken en de AES-sleutel van de sessie
+ * terug. Die sleutel is niet te exporteren; de ruwe bytes gaan alleen versleuteld in de
+ * presentatie mee, naar de tijdelijke sleutel van de Verifier.
+ */
+async function openSessie({ challenge: challengeUrl, complete: completeUrl, oin, sleutelpaar, soort, certificaat, fetch }) {
+  const challenge = await tekstVan(await verbind(fetch, challengeUrl, { method: 'POST' }), 'challenge');
+  // TODO(#1216): de handtekening toetsen aan de sleutel van de Verifier uit het stelseldocument;
   // tot dan rust de herkomst van de challenge op TLS.
   const claims = decodeJwt(challenge);
 
@@ -48,12 +83,11 @@ export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.f
   );
   const ruw = crypto.getRandomValues(new Uint8Array(AES_BYTES));
   const aesSleutel = await crypto.subtle.importKey('raw', ruw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-  const jwk = await publiekeJwk(sleutelpaar.publicKey);
 
   const presentatie = JSON.stringify({
     app_nonce_signature: await teken({ sub: 'challenge_response', aud: oin, nonce: claims.nonce }, sleutelpaar.privateKey),
-    certificate_type: 'certificate_type_self_signed',
-    certificate: await teken({ sub: 'certificate_type_self_signed', cnf: { jwk } }, sleutelpaar.privateKey),
+    certificate_type: soort,
+    certificate: certificaat,
     session_aes_key: base64Tekst(ruw),
   });
 
@@ -63,7 +97,7 @@ export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.f
     .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A256GCM' })
     .encrypt(tijdelijk);
 
-  const antwoord = await tekstVan(await verbind(fetch, new URL('v1/complete', basis), {
+  const antwoord = await tekstVan(await verbind(fetch, completeUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nonce: claims.nonce, encrypted_challenge_result: versleuteld }),
@@ -74,6 +108,14 @@ export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.f
   if (typeof sessieToken !== 'string') throw new ActiverenFout('geen sessietoken in het antwoord');
 
   return { sessieToken, aesSleutel };
+}
+
+/** Een versleuteld antwoord binnen een sessie, ontsleuteld en gelezen als JSON. */
+export async function haalVersleuteld({ adres, sessieToken, aesSleutel, fetch = globalThis.fetch }) {
+  const url = new URL(adres);
+  const antwoord = await tekstVan(await verbind(fetch, url, { headers: { Authorization: sessieToken } }), url.pathname);
+
+  return JSON.parse(await ontsleutel(antwoord, aesSleutel));
 }
 
 /** Waar de gebruiker heen gaat om een persona te kiezen (4.4.1, stap 7). */
