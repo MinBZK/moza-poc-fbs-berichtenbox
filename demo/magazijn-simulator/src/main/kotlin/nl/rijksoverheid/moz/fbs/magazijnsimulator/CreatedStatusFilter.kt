@@ -23,6 +23,9 @@ class CreatedStatusFilter : ContainerResponseFilter {
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         if (MagazijnPad.isBeheerPad(requestContext.uriInfo.path)) return
 
+        // challenge en complete antwoorden 200, zoals de standaard: er ontstaat geen resource met een eigen adres.
+        if (requestContext.uriInfo.path.startsWith("/rechtstreeks/")) return
+
         if (requestContext.method == "POST" && responseContext.status == HTTP_OK) {
             responseContext.status = HTTP_CREATED
         }
