@@ -12,7 +12,8 @@ import java.time.Duration
 /**
  * Tekent het Verifiable Credential (FSC voor Burgers 4.3.1, stap 28 van 4.4.1): de sleutel van de
  * app in `cnf`, de ontvanger die de gebruiker koos, en een korte geldigheid. FBS zet `ontvanger` in
- * plaats van `bsn`, `given_name` en `family_name`; zie het ontwerp.
+ * plaats van `bsn`, `given_name` en `family_name`: niet elke ontvanger is een burger, en het
+ * magazijn heeft geen naam nodig.
  */
 @Startup
 @ApplicationScoped

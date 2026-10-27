@@ -66,21 +66,7 @@ class OnderdelenTest {
 
     @Test
     fun `een credential van meer dan 24 uur wordt bij de start geweigerd`(@TempDir map: Path) {
-        val paar = paar()
-        val bestand = map.resolve("sleutel.pem")
-
-        Files.writeString(bestand, pem("PRIVATE KEY", paar.private.encoded) + pem("PUBLIC KEY", paar.public.encoded))
-
-        val config = object : AppManagerConfig {
-            override fun oin() = AppManagerConfig.DEMO_OIN
-            override fun kid() = "k"
-            override fun sleutelPad() = Optional.of(bestand.toString())
-            override fun sleutelGeldigTot(): Instant = Instant.MAX
-            override fun issuerUrl() = "https://app-manager.test/"
-            override fun terugUrl() = "https://app.test/"
-            override fun credentialGeldig(): Duration = Duration.ofHours(25)
-            override fun registratieGeldig(): Duration = Duration.ofDays(1)
-        }
+        val config = config(pemBestand(map), credentialGeldig = Duration.ofHours(25))
 
         assertThrows(IllegalArgumentException::class.java) { CredentialUitgifte(config, Ondertekensleutel(config), Clock.systemUTC()) }
     }
@@ -116,7 +102,12 @@ class OnderdelenTest {
         assertEquals("12", antwoord.headers.getFirst("Retry-After").toString())
     }
 
-    private fun config(pad: String?, credentialGeldig: Duration = Duration.ofHours(1), geldigTot: Instant = Instant.MAX) = object : AppManagerConfig {
+    private fun config(
+        pad: String?,
+        credentialGeldig: Duration = Duration.ofHours(1),
+        geldigTot: Instant = Instant.MAX,
+        registratieGeldig: Duration = Duration.ofDays(1),
+    ) = object : AppManagerConfig {
         override fun oin() = AppManagerConfig.DEMO_OIN
         override fun kid() = "k"
         override fun sleutelPad() = Optional.ofNullable(pad)
@@ -124,7 +115,7 @@ class OnderdelenTest {
         override fun issuerUrl() = "https://app-manager.test/"
         override fun terugUrl() = "https://app.test/"
         override fun credentialGeldig() = credentialGeldig
-        override fun registratieGeldig(): Duration = Duration.ofDays(1)
+        override fun registratieGeldig() = registratieGeldig
     }
 
     private fun pemBestand(map: Path): String {
@@ -168,22 +159,58 @@ class OnderdelenTest {
     }
 
     @Test
-    fun `een nieuwe registratie vervangt die van dezelfde sleutel, en per client is het aantal begrensd`() {
-        val registraties = Registraties(VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z")))
+    fun `een bevestigde registratie vervangt die van dezelfde sleutel, en bij een dubbele submit wint er één`() {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+        val registraties = Registraties(klok)
         val eerste = registraties.registreer("KVK:90000014", "zelfde", "c", Duration.ofHours(1))
-        val tweede = registraties.registreer("KVK:90000014", "zelfde", "c", Duration.ofHours(1))
 
+        assertTrue(registraties.bevestig(registraties.koppel("s1", klok.nu.plusSeconds(60))!!, eerste))
+
+        val koppeling = registraties.koppel("s2", klok.nu.plusSeconds(60))!!
+        val a = registraties.registreer("KVK:90000014", "zelfde", "c", Duration.ofHours(1))
+        val b = registraties.registreer("KVK:90000014", "zelfde", "c", Duration.ofHours(1))
+
+        assertTrue(registraties.bevestig(koppeling, a))
+        assertFalse(registraties.bevestig(koppeling, b))
+        assertEquals("zelfde", registraties.registratie(a)?.thumbprint)
+        assertNull(registraties.registratie(b))
         assertNull(registraties.registratie(eerste))
-        assertEquals("zelfde", registraties.registratie(tweede)?.thumbprint)
+    }
+
+    @Test
+    fun `per client is het aantal registraties begrensd, met de echte wachttijd`() {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+        val registraties = Registraties(klok)
+        val vroegste = registraties.registreer("KVK:90000014", "tp-vroeg", "c", Duration.ofMinutes(10))
 
         repeat(49) { registraties.registreer("KVK:90000014", "tp$it", "c", Duration.ofHours(1)) }
 
-        assertThrows(OpslagVolException::class.java) { registraties.registreer("KVK:90000014", "nog een", "c", Duration.ofHours(1)) }
+        val fout = assertThrows(OpslagVolException::class.java) { registraties.registreer("KVK:90000014", "nog een", "c", Duration.ofHours(1)) }
+
+        assertEquals(Duration.ofMinutes(10), fout.opnieuwNa)
 
         registraties.registreer("KVK:90000014", "van een ander", "d", Duration.ofHours(1))
-        registraties.vergeet(tweede)
+        registraties.vergeet(vroegste)
+        registraties.registreer("KVK:90000014", "weer ruimte", "c", Duration.ofHours(1))
+    }
 
-        assertNull(registraties.registratie(tweede))
+    @Test
+    fun `de sleutel voor een quotum is het IPv4-adres, of het IPv6-prefix van 64 bits`() {
+        assertEquals("192.0.2.1", ActiverenResource.clientSleutel("192.0.2.1"))
+        assertEquals(ActiverenResource.clientSleutel("2001:db8:1:2::1"), ActiverenResource.clientSleutel("2001:db8:1:2:ffff::9"))
+        assertFalse(ActiverenResource.clientSleutel("2001:db8:1:2::1") == ActiverenResource.clientSleutel("2001:db8:1:3::1"))
+        assertEquals("onbekend", ActiverenResource.clientSleutel(null))
+    }
+
+    @Test
+    fun `een sleutel die binnen de levensduur van een nonce verloopt, of een onbegrensde registratie, blokkeert de start`() {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, geldigTot = klok.nu.plusSeconds(1)), klok) }
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, registratieGeldig = Duration.ZERO), klok) }
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, registratieGeldig = Duration.ofDays(31)), klok) }
+
+        ConfigControle(config(pad = null), klok)
     }
 
     @Test

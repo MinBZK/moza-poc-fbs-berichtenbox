@@ -41,11 +41,14 @@ interface AppManagerConfig {
      */
     fun terugUrl(): String
 
-    /** Hoe lang een credential geldt: tussen een minuut en 24 uur, de grenzen die een magazijn toetst. */
+    /**
+     * Hoe lang een credential geldt: tussen twee minuten en 24 uur. Een magazijn weigert er een dat
+     * binnen een minuut verloopt; de tweede minuut is speling voor het ophalen.
+     */
     @WithDefault("PT1H")
     fun credentialGeldig(): Duration
 
-    /** Hoe lang een `registration_token` een vers credential oplevert. */
+    /** Hoe lang een `registration_token` een vers credential oplevert; hooguit 30 dagen. */
     @WithDefault("P1D")
     fun registratieGeldig(): Duration
 

@@ -10,6 +10,7 @@ import org.jboss.logging.Logger
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.GeneralSecurityException
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
@@ -53,7 +54,11 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
     private fun laad(launchMode: LaunchMode): KeyPair {
         val pad = config.sleutelPad().orElse(null) ?: return wegwerp(launchMode)
 
-        return leesPem(Files.readString(Path.of(pad)))
+        return try {
+            leesPem(Files.readString(Path.of(pad)))
+        } catch (fout: GeneralSecurityException) {
+            throw IllegalStateException("app-manager.sleutel-pad ($pad) bevat geen bruikbare EC-sleutel", fout)
+        }
     }
 
     private fun wegwerp(launchMode: LaunchMode): KeyPair {
@@ -89,17 +94,17 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
         }
 
         private fun horenBijElkaar(paar: KeyPair): Boolean {
-            val proef = "app-manager".toByteArray()
+            val testbericht = "app-manager".toByteArray()
 
             val handtekening = Signature.getInstance("SHA256withECDSA").run {
                 initSign(paar.private)
-                update(proef)
+                update(testbericht)
                 sign()
             }
 
             return Signature.getInstance("SHA256withECDSA").run {
                 initVerify(paar.public)
-                update(proef)
+                update(testbericht)
                 verify(handtekening)
             }
         }

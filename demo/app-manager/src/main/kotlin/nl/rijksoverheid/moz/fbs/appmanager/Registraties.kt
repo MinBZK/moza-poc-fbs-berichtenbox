@@ -56,32 +56,49 @@ class Registraties(private val klok: Clock) {
         return koppelingen[koppeling]?.sessieToken
     }
 
-    /** Het `session_token` achter een koppeling; daarna is de koppeling weg. */
-    @Synchronized
-    fun neemKoppeling(koppeling: String): String? {
-        ruimOp()
-
-        return koppelingen.remove(koppeling)?.sessieToken
-    }
-
     /**
-     * Een nieuwe registratie vervangt die van dezelfde sleutel: een app heeft er hoogstens één. Per
-     * client is het aantal begrensd, want een self-signed sessie kost niets.
+     * Een voorlopige registratie; pas [bevestig] maakt hem de enige van zijn sleutel. Per client is
+     * het aantal begrensd, want een self-signed sessie kost niets.
      */
     @Synchronized
     fun registreer(ontvanger: String, thumbprint: String, client: String, geldig: Duration): String {
-        ruimOp()
-        registraties.values.removeIf { it.thumbprint == thumbprint }
+        val nu = klok.instant()
 
-        if (registraties.values.count { it.client == client } >= MAX_PER_CLIENT) throw OpslagVolException(Duration.ofSeconds(OPNIEUW_NA_SECONDEN))
+        ruimOp()
+
+        val vanClient = registraties.values.filter { it.client == client }
+
+        if (vanClient.size >= MAX_PER_CLIENT) {
+            throw OpslagVolException(Duration.between(nu, maxOf(vanClient.minOf { it.verlooptOp }, nu.plusSeconds(1))))
+        }
 
         vereisRuimte(registraties.size)
 
         val token = token()
 
-        registraties[token] = Registratie(ontvanger, thumbprint, client, klok.instant().plus(geldig))
+        registraties[token] = Registratie(ontvanger, thumbprint, client, nu.plus(geldig))
 
         return token
+    }
+
+    /**
+     * Verbruikt de koppeling en maakt [token] de enige registratie van zijn sleutel, in één stap. Bij
+     * een dubbele submit wint zo precies één verzoek; het andere krijgt `false` en zijn registratie
+     * verdwijnt, in plaats van dat het de registratie van het winnende verzoek verdringt.
+     */
+    @Synchronized
+    fun bevestig(koppeling: String, token: String): Boolean {
+        val nieuw = registraties[token]
+
+        if (koppelingen.remove(koppeling) == null || nieuw == null) {
+            registraties.remove(token)
+
+            return false
+        }
+
+        registraties.entries.removeIf { it.key != token && it.value.thumbprint == nieuw.thumbprint }
+
+        return true
     }
 
     /** Voor een registratie waarvan het token de app nooit bereikte. */

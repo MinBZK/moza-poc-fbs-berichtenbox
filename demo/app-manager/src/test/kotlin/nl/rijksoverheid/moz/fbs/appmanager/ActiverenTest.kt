@@ -180,10 +180,14 @@ class ActiverenTest {
         val koppeling = given().redirects().follow(false).queryParam("session_token", app.sessieToken)
             .get("/register_app").then().extract().cookie(ActiverenResource.COOKIE)
 
-        listOf("persona=%zz", "persona=%2", "persona=vandijk&x=%zz", "", "persona").forEach { body ->
+        listOf("persona=%zz", "persona=%2", "", "persona").forEach { body ->
             given().redirects().follow(false).cookie(ActiverenResource.COOKIE, koppeling).contentType(ContentType.URLENC).body(body)
-                .post("/register_app/kies").then().statusCode(if (body.startsWith("persona=vandijk")) 303 else 400)
+                .post("/register_app/kies").then().statusCode(400)
         }
+
+        // Een kapot ander veld stoort niet, en de koppeling heeft al die pogingen overleefd.
+        given().redirects().follow(false).cookie(ActiverenResource.COOKIE, koppeling).contentType(ContentType.URLENC).body("persona=vandijk&x=%zz")
+            .post("/register_app/kies").then().statusCode(303)
     }
 
     @Test

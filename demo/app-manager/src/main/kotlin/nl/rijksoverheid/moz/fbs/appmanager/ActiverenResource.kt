@@ -22,6 +22,8 @@ import nl.rijksoverheid.moz.fbs.rechtstreeks.Identiteit
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Sessie
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Verifier
 import org.jboss.logging.Logger
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.URI
 import java.net.URLDecoder
 
@@ -102,18 +104,18 @@ class ActiverenResource(
         val sessieToken = koppeling?.let(registraties::sessieToken) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
         val (sessie, app) = appSessie(sessieToken)
 
-        // Eerst registreren en versleutelen, dan pas de koppeling verbruiken: een volle opslag of een
-        // net verlopen sessie laat de gebruiker zo opnieuw proberen in plaats van vast te lopen.
+        // Eerst registreren, dan pas de koppeling verbruiken: bij een volle opslag kan de gebruiker zo
+        // opnieuw kiezen in plaats van vast te lopen.
         val token = registraties.registreer(persona.ontvanger, app.thumbprint, client(verzoek), config.registratieGeldig())
 
         val versleuteld = try {
             verifier.versleutel(sessie, registratiebericht(token))
-        } catch (fout: AfgewezenException) {
+        } catch (fout: RuntimeException) {
             registraties.vergeet(token)
             throw fout
         }
 
-        registraties.neemKoppeling(koppeling) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        if (!registraties.bevestig(koppeling, token)) throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
 
         val terug = URI.create("${config.terugUrl()}#registration_token=$versleuteld")
 
@@ -159,8 +161,7 @@ class ActiverenResource(
 
     private fun leesJson(tekst: String): JsonNode? = runCatching { json.readTree(tekst) }.getOrNull()?.takeIf(JsonNode::isObject)
 
-    /** Het IP-adres van de aanroeper; achter een proxy het adres dat de vertrouwde proxy doorgeeft. */
-    private fun client(verzoek: HttpServerRequest): String = verzoek.remoteAddress()?.hostAddress() ?: "onbekend"
+    private fun client(verzoek: HttpServerRequest): String = clientSleutel(verzoek.remoteAddress()?.hostAddress())
 
     private fun cookie(waarde: String, maxAge: Int): NewCookie = NewCookie.Builder(COOKIE)
         .value(waarde)
@@ -180,6 +181,21 @@ class ActiverenResource(
 
         /** Vaste `iss` van de app in het `registration_token`-verzoek (4.4.1, stap 19). */
         const val APP_ISS = "bk-connect://app/"
+
+        /**
+         * Wie een quotum draagt: het IP-adres van de aanroeper, voor IPv6 per /64, want één aansluiting
+         * krijgt daar een hele /64 en zou anders elk quotum omzeilen. Achter een proxy is het het
+         * adres dat de vertrouwde proxy doorgeeft.
+         */
+        fun clientSleutel(adres: String?): String {
+            val ip = adres?.let { runCatching { InetAddress.getByName(it) }.getOrNull() } ?: return "onbekend"
+
+            if (ip !is Inet6Address) return ip.hostAddress
+
+            return ip.address.copyOf(IPV6_PREFIX_BYTES).joinToString(":", postfix = "::/64") { "%02x".format(it) }
+        }
+
+        private const val IPV6_PREFIX_BYTES = 8
 
         /** Eén veld uit een formulier, of `null` als het ontbreekt of de encoding kapot is. */
         fun formulierveld(body: String, naam: String): String? = body.split('&')

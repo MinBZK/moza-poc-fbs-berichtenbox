@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Verifier
 import java.net.URI
 import java.time.Clock
+import java.time.Duration
 
 /**
  * Toetst de configuratie bij de start, zodat een fout niet pas bij het eerste verzoek opvalt, of
@@ -21,12 +22,17 @@ class ConfigControle(config: AppManagerConfig, klok: Clock) {
         controleerAdres("app-manager.terug-url", config.terugUrl(), ontwikkel)
         controleerAdres("app-manager.issuer-url", config.issuerUrl(), ontwikkel)
 
+        require(config.registratieGeldig() > Duration.ZERO && config.registratieGeldig() <= MAXIMALE_REGISTRATIE) {
+            "app-manager.registratie-geldig (${config.registratieGeldig()}) moet positief zijn en hooguit $MAXIMALE_REGISTRATIE"
+        }
+
         require(config.sleutelGeldigTot().isAfter(klok.instant().plus(Verifier.NONCE_GELDIG))) {
             "app-manager.sleutel-geldig-tot (${config.sleutelGeldigTot()}) ligt binnen de levensduur van een nonce; elke challenge zou geweigerd worden"
         }
     }
 
     companion object {
+        private val MAXIMALE_REGISTRATIE: Duration = Duration.ofDays(30)
 
         /** Absoluut, zonder fragment, en https buiten ontwikkel- en testmodus. */
         fun controleerAdres(naam: String, adres: String, ontwikkel: Boolean) {
