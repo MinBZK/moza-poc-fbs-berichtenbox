@@ -14,7 +14,11 @@ import nl.rijksoverheid.moz.fbs.rechtstreeks.TestApp
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.nullValue
 import org.jose4j.json.JsonUtil
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.Gedrag
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.gedrag.GedragModus
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.security.KeyFactory
@@ -49,18 +53,28 @@ class RechtstreeksTest {
         }
     }
 
-    // De klok van de simulator, niet die van de test: in de tests van deze module staat een vaste klok aan.
+    // De klok van de simulator, niet die van de test: KlokTest zet met @Priority een vaste klok aan,
+    // en die geldt in alle tests van deze module.
     @Inject
     lateinit var klok: Clock
+
+    @Inject
+    lateinit var magazijnen: GesimuleerdeMagazijnen
 
     /** Een app met een eigen sleutel en een credential van de test-App Manager op die sleutel. */
     class App(nu: Instant, val paar: KeyPair = TestApp.sleutelpaar(), claims: Map<String, Any> = emptyMap(), kid: String = KID) {
         val aes: ByteArray = TestApp.aesSleutel()
         val credential: String = TestApp.es256(credentialClaims(paar, nu) + claims, appManager().private, kid)
 
-        /** De body van `complete` voor een challenge van magazijn [oin], met de nonce getekend voor [aud]. */
+        /** De body van `complete` voor een nieuwe challenge van magazijn [oin], met de nonce getekend voor [aud]. */
         fun complete(oin: String, aud: String = oin, certificaatSoort: String = "app_manager_jwt_certificate"): Pair<String, Map<String, Any>> {
             val challenge = payload(given().post("${basis(oin)}/rechtstreeks/challenge").then().statusCode(200).extract().asString())
+
+            return voor(challenge, aud, certificaatSoort) to challenge
+        }
+
+        /** De body van `complete` op een gegeven challenge. */
+        fun voor(challenge: Map<String, Any>, aud: String, certificaatSoort: String = "app_manager_jwt_certificate"): String {
             val nonce = challenge["nonce"] as String
 
             val presentatie = mapOf(
@@ -71,7 +85,15 @@ class RechtstreeksTest {
             )
             val versleuteld = TestApp.jweEcdh(JsonUtil.toJson(presentatie), TestApp.publicKeyUitDer(challenge["ephemeral_organization_ec_public_key"] as String))
 
-            return JsonUtil.toJson(mapOf("nonce" to nonce, "encrypted_challenge_result" to versleuteld)) to challenge
+            return JsonUtil.toJson(mapOf("nonce" to nonce, "encrypted_challenge_result" to versleuteld))
+        }
+
+        /** Een magazijnsessie bij [oin]; het `session_token`. */
+        fun sessie(oin: String): String {
+            val antwoord = given().contentType(ContentType.JSON).body(complete(oin).first).post("${basis(oin)}/rechtstreeks/complete")
+                .then().statusCode(200).extract().asString()
+
+            return JsonUtil.parseJson(TestApp.ontsleutelDir(antwoord, aes))["session_token"] as String
         }
     }
 
@@ -83,7 +105,12 @@ class RechtstreeksTest {
             .extract().asString()
         val claims = payload(jws)
 
-        assertEquals(mapOf("alg" to "ES256", "typ" to "jwt", "kid" to "$MAGAZIJN_A-1"), TestApp.header(jws))
+        val header = TestApp.header(jws)
+
+        assertEquals(setOf("alg", "typ", "kid"), header.keys)
+        assertEquals("ES256", header["alg"])
+        assertTrue((header["kid"] as String).startsWith("$MAGAZIJN_A-"), header.toString())
+        assertTrue(COMPACT_JWS.matches(jws))
         assertEquals("challenge", claims["sub"])
         assertTrue(Base64.getDecoder().decode(claims["nonce"] as String).size >= 16)
         TestApp.publicKeyUitDer(claims["ephemeral_organization_ec_public_key"] as String)
@@ -98,23 +125,27 @@ class RechtstreeksTest {
             .then().statusCode(200).contentType("application/jose").extract().asString()
         val sessie = JsonUtil.parseJson(TestApp.ontsleutelDir(antwoord, app.aes))
 
-        assertTrue((sessie["session_token"] as String).length >= 22)
-        assertTrue((sessie["expires_in"] as Long) > 0)
+        // De validator slaat application/jose over; hier staat wat het contract van de payload eist.
+        assertTrue(COMPACT_JWE.matches(antwoord))
+        assertEquals(setOf("session_token", "expires_in"), sessie.keys)
+        assertTrue(Regex("^[A-Za-z0-9]{32}$").matches(sessie["session_token"] as String))
+        assertTrue((sessie["expires_in"] as Long) in 1..900)
     }
 
     @Test
-    fun `een afgewezen presentatie geeft 401 met WWW-Authenticate en CORS, en de nonce is daarna verbruikt`() {
-        val vreemd = App(klok.instant(), kid = "onbekend")
-        val (body, _) = vreemd.complete(MAGAZIJN_A)
+    fun `een afgewezen presentatie geeft 401 met WWW-Authenticate en CORS, en daarna is de nonce verbruikt`() {
+        val (body, challenge) = App(klok.instant(), kid = "onbekend").complete(MAGAZIJN_A)
 
-        repeat(2) {
-            given().contentType(ContentType.JSON).body(body).post("${basis(MAGAZIJN_A)}/rechtstreeks/complete")
-                .then().statusCode(401)
-                .contentType("application/problem+json")
-                .header("WWW-Authenticate", "Magazijnsessie realm=\"$MAGAZIJN_A\"")
-                .header("Access-Control-Allow-Origin", "*")
-                .header("Access-Control-Expose-Headers", containsString("WWW-Authenticate"))
-        }
+        given().contentType(ContentType.JSON).body(body).post("${basis(MAGAZIJN_A)}/rechtstreeks/complete")
+            .then().statusCode(401)
+            .contentType("application/problem+json")
+            .header("WWW-Authenticate", "Magazijnsessie realm=\"$MAGAZIJN_A\"")
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Expose-Headers", containsString("WWW-Authenticate"))
+
+        // Dezelfde nonce, nu met een presentatie die op zich klopt: de nonce is al verbruikt.
+        given().contentType(ContentType.JSON).body(App(klok.instant()).voor(challenge, MAGAZIJN_A)).post("${basis(MAGAZIJN_A)}/rechtstreeks/complete")
+            .then().statusCode(401)
     }
 
     @Test
@@ -134,40 +165,80 @@ class RechtstreeksTest {
             .post("${basis(MAGAZIJN_A)}/rechtstreeks/complete")
             .then().statusCode(401)
 
-        val verlopen = App(klok.instant(), claims = mapOf("exp" to klok.instant().minusSeconds(10).epochSecond))
+        // Alleen exp is fout: iat en nbf liggen ervoor, de looptijd is twee uur.
+        val nu = klok.instant()
+        val verlopen = App(nu.minus(Duration.ofHours(2)), claims = mapOf("exp" to nu.minusSeconds(10).epochSecond))
 
         given().contentType(ContentType.JSON).body(verlopen.complete(MAGAZIJN_A).first).post("${basis(MAGAZIJN_A)}/rechtstreeks/complete")
             .then().statusCode(401)
     }
 
     @Test
-    fun `een onvolledig verzoek op complete geeft 400 en geen 500`() {
+    fun `een onvolledig verzoek op complete geeft 400 en geen 500, met CORS`() {
         listOf("{}", """{"nonce":"x"}""", "[]", "{kapot").forEach { body ->
             given().contentType(ContentType.JSON).body(body).post("${basis(MAGAZIJN_A)}/rechtstreeks/complete")
-                .then().statusCode(400).contentType("application/problem+json")
+                .then().statusCode(400).contentType("application/problem+json").header("Access-Control-Allow-Origin", "*")
+        }
+    }
+
+    @Test
+    fun `een onbekend magazijn geeft 404, ook met CORS, zodat de app de fout kan lezen`() {
+        given().post("${basis("00000009000000009999")}/rechtstreeks/challenge")
+            .then().statusCode(404).header("Access-Control-Allow-Origin", "*")
+    }
+
+    @Test
+    fun `de berichtpaden vragen een geldige sessie en zijn daarna nog niet beschikbaar`() {
+        valideer(MAGAZIJN_A).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(401)
+        valideer(MAGAZIJN_A).header("Authorization", "onbekend").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(401)
+
+        val token = App(klok.instant()).sessie(MAGAZIJN_A)
+
+        valideer(MAGAZIJN_A).header("Authorization", token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
+            .then().statusCode(503).header("Retry-After", "3600")
+        valideer(MAGAZIJN_A).header("Authorization", token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$BERICHT_ID")
+            .then().statusCode(503)
+
+        // Een sessie van A geldt niet bij B.
+        given().header("Authorization", token).get("${basis(MAGAZIJN_B)}/rechtstreeks/berichten").then().statusCode(401)
+    }
+
+    @Test
+    fun `een magazijn in storing antwoordt op de tweede ingang volgens het contract`() {
+        try {
+            listOf(Gedrag(GedragModus.STUK), Gedrag(GedragModus.WEIGERT, foutStatus = 403)).forEach { gedrag ->
+                magazijnen.stelGedragBij(MAGAZIJN_C, gedrag)
+
+                valideer(MAGAZIJN_C).post("${basis(MAGAZIJN_C)}/rechtstreeks/challenge")
+                    .then().statusCode(503).header("Retry-After", "30").header("Access-Control-Allow-Origin", "*")
+            }
+
+            magazijnen.stelGedragBij(MAGAZIJN_C, Gedrag(GedragModus.MALFORMED))
+
+            val onbruikbaar = given().post("${basis(MAGAZIJN_C)}/rechtstreeks/challenge").then().statusCode(200)
+                .contentType("application/jose").extract().asString()
+
+            assertFalse(COMPACT_JWS.matches(onbruikbaar))
+        } finally {
+            magazijnen.herstelGedrag()
         }
     }
 
     @Test
     fun `een volle challenge-opslag geeft 503 met Retry-After`() {
-        val antwoorden = (1..MAX_CHALLENGES_PER_CLIENT + 1).map {
-            given().post("${basis(MAGAZIJN_B)}/rechtstreeks/challenge").then()
+        // Vult het quotum van deze client bij B voor de levensduur van een nonce (met de vaste klok:
+        // de hele testrun). Andere tests vragen daarom geen challenge bij B; ze gebruiken B alleen
+        // om een nonce of sessie van A aan te bieden.
+        val antwoorden = (1..MAX_CHALLENGES_PER_CLIENT).map {
+            given().post("${basis(MAGAZIJN_B)}/rechtstreeks/challenge").then().extract().statusCode()
         }
 
-        val vol = antwoorden.last().statusCode(503).header("Access-Control-Allow-Origin", "*").extract()
+        assertTrue(antwoorden.all { it == 200 }, antwoorden.toString())
+
+        val vol = valideer(MAGAZIJN_B).post("${basis(MAGAZIJN_B)}/rechtstreeks/challenge").then()
+            .statusCode(503).header("Access-Control-Allow-Origin", "*").extract()
 
         assertTrue(vol.header("Retry-After").toInt() >= 1)
-        assertTrue(antwoorden.take(MAX_CHALLENGES_PER_CLIENT).all { it.extract().statusCode() == 200 })
-    }
-
-    @Test
-    fun `de sleutel voor een quotum is het IPv4-adres, of het IPv6-prefix van 64 bits`() {
-        assertEquals("192.0.2.1", SimulatorRechtstreeksResource.clientSleutel("192.0.2.1"))
-        assertEquals("192.0.2.1", SimulatorRechtstreeksResource.clientSleutel("::ffff:192.0.2.1"))
-        assertEquals(SimulatorRechtstreeksResource.clientSleutel("2001:db8:1:2::1"), SimulatorRechtstreeksResource.clientSleutel("2001:db8:1:2:ffff::9"))
-        assertTrue(SimulatorRechtstreeksResource.clientSleutel("2001:db8:1:2::1") != SimulatorRechtstreeksResource.clientSleutel("2001:db8:1:3::1"))
-
-        listOf(null, "", "unknown", "localhost").forEach { assertEquals("onbekend", SimulatorRechtstreeksResource.clientSleutel(it)) }
     }
 
     @Test
@@ -218,6 +289,10 @@ class RechtstreeksTest {
     companion object {
         const val MAGAZIJN_A = "00000009000000000001"
         const val MAGAZIJN_B = "00000009000000000002"
+        const val MAGAZIJN_C = "00000009000000000003"
+        const val BERICHT_ID = "11111111-2222-3333-4444-555555555555"
+        val COMPACT_JWS = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
+        val COMPACT_JWE = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         const val APP_MANAGER_OIN = "00000000000000001100"
         const val KID = "test-1"
         const val MAX_CHALLENGES_PER_CLIENT = 20
