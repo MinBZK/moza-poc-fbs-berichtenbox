@@ -23,4 +23,6 @@ cp package/LICENSE.md src/main/resources/META-INF/resources/vendor/jose-6.2.13/
 
 Meegeleverd en niet van een CDN: de CSP staat alleen script van deze origin toe, en een script van
 buiten zou kunnen tekenen met de sleutel van de app. Bij een nieuwe versie: de map vervangen, de
-importpaden in `js/` en `src/test/js/` aanpassen, en de hash hierboven bijwerken.
+importpaden in `js/`, `src/test/js/` en `PaginaTest` aanpassen, en de hash hierboven bijwerken.
+Dependabot ziet deze map niet: een advisory voor `jose` volg je via
+<https://github.com/panva/jose/security/advisories>.

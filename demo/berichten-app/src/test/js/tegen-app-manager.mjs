@@ -14,7 +14,9 @@ const sleutelpaar = await maakSleutelpaar();
 const activatie = await maakSessie({ basis, oin, sleutelpaar });
 
 const omwisseling = await fetch(registratieAdres(basis, activatie.sessieToken), { redirect: 'manual' });
-const cookie = omwisseling.headers.get('set-cookie').split(';')[0];
+const cookie = omwisseling.headers.get('set-cookie')?.split(';')[0];
+
+if (omwisseling.status !== 303 || !cookie) throw new Error(`register_app gaf ${omwisseling.status} zonder koppelcookie`);
 
 const keuze = await fetch(new URL('register_app/kies', basis), {
   method: 'POST',
@@ -22,6 +24,8 @@ const keuze = await fetch(new URL('register_app/kies', basis), {
   headers: { Cookie: cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
   body: new URLSearchParams({ persona }).toString(),
 });
+
+if (keuze.status !== 303) throw new Error(`register_app/kies gaf ${keuze.status} in plaats van 303`);
 
 const terug = new URL(keuze.headers.get('location'));
 const registratieToken = await leesRegistratie(terug.hash, activatie.aesSleutel, issuer);

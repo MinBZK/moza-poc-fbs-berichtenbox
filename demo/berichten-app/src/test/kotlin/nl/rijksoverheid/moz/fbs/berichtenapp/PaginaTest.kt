@@ -17,6 +17,8 @@ class PaginaTest {
             .header("Referrer-Policy", "no-referrer")
             .header("X-Content-Type-Options", "nosniff")
             .header("X-Frame-Options", "DENY")
+            .header("Cross-Origin-Opener-Policy", "same-origin")
+            .header("Strict-Transport-Security", "max-age=31536000")
             .extract().header("Content-Security-Policy")
         val richtlijnen = csp.split(';').map(String::trim).associate { it.substringBefore(' ') to it.substringAfter(' ', "") }
 

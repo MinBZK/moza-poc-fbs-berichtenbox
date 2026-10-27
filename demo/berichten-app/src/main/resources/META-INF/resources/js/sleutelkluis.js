@@ -2,6 +2,9 @@
 // script op deze origin kan ermee tekenen of ontsleutelen, maar de private key niet uitlezen.
 const DATABASE = 'berichten-app';
 const OPSLAG = 'kluis';
+const SLEUTELPAAR = 'sleutelpaar';
+
+let lopend = null;
 
 /**
  * De root app key: ECDSA op P-256 voor ES256, met `extractable: false`, zodat `exportKey` op de
@@ -11,17 +14,37 @@ export function maakSleutelpaar() {
   return crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
 }
 
-/** Het sleutelpaar van deze browser; bij het eerste gebruik gemaakt. */
-export async function sleutelpaar() {
-  const bestaand = await haal('sleutelpaar');
+/**
+ * Het sleutelpaar van deze browser; bij het eerste gebruik gemaakt. Twee aanroepen tegelijk krijgen
+ * hetzelfde paar: anders kan de App Manager de identiteit aan een sleutel binden die de kluis niet
+ * bewaart, en weigert hij later elk vernieuwen.
+ */
+export function sleutelpaar() {
+  lopend ??= haalOfMaak().catch((fout) => {
+    lopend = null;
+    throw fout;
+  });
+
+  return lopend;
+}
+
+async function haalOfMaak() {
+  const bestaand = await haal(SLEUTELPAAR);
 
   if (bestaand) return bestaand;
 
   const nieuw = await maakSleutelpaar();
 
-  await bewaar('sleutelpaar', nieuw);
+  try {
+    await transactie('readwrite', (opslag) => opslag.add(nieuw, SLEUTELPAAR));
 
-  return nieuw;
+    return nieuw;
+  } catch (fout) {
+    // Een ander tabblad was eerder: diens sleutel geldt.
+    if (fout?.name === 'ConstraintError') return haal(SLEUTELPAAR);
+
+    throw fout;
+  }
 }
 
 export function haal(naam) {
@@ -37,8 +60,9 @@ export function verwijder(naam) {
 }
 
 /** Sleutel, tokens en credential weg: de browser moet daarna opnieuw activeren. */
-export function wis() {
-  return transactie('readwrite', (opslag) => opslag.clear());
+export async function wis() {
+  lopend = null;
+  await transactie('readwrite', (opslag) => opslag.clear());
 }
 
 function open() {
@@ -48,6 +72,7 @@ function open() {
     verzoek.onupgradeneeded = () => verzoek.result.createObjectStore(OPSLAG);
     verzoek.onsuccess = () => gelukt(verzoek.result);
     verzoek.onerror = () => mislukt(verzoek.error);
+    verzoek.onblocked = () => mislukt(new Error('De opslag is bezet door een ander tabblad met een oudere versie.'));
   });
 }
 

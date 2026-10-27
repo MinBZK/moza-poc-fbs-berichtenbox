@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CompactEncrypt, CompactSign } from '../../main/resources/META-INF/resources/vendor/jose-6.2.13/index.js';
+import { CompactEncrypt, CompactSign, compactDecrypt } from '../../main/resources/META-INF/resources/vendor/jose-6.2.13/index.js';
 import {
   ActiverenFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
 } from '../../main/resources/META-INF/resources/js/activeren.js';
@@ -67,14 +67,18 @@ test('een registratiebericht onder een andere sleutel wordt geweigerd', async ()
 });
 
 test('zonder registration_token in het fragment is er niets te lezen', async () => {
-  for (const fragment of ['', '#', '#iets=anders', '#registration_token=']) {
-    assert.equal(await leesRegistratie(fragment, await aesSleutel(), BASIS), null);
+  for (const fragment of ['', '#', '#iets=anders', '#registration_token=', '#xregistration_token=r1']) {
+    await assert.rejects(leesRegistratie(fragment, await aesSleutel(), BASIS), ActiverenFout);
   }
 });
 
 test('een challenge die geen challenge is, wordt geweigerd voordat er iets naar complete gaat', async () => {
   const sleutelpaar = await maakSleutelpaar();
-  const onzinClaims = [{ sub: 'iets anders', nonce: 'n', ephemeral_organization_ec_public_key: 'k' }, { sub: 'challenge', nonce: 7 }];
+  const onzinClaims = [
+    { sub: 'iets anders', nonce: 'n', ephemeral_organization_ec_public_key: 'k' },
+    { sub: 'challenge', nonce: 7, ephemeral_organization_ec_public_key: 'k' },
+    { sub: 'challenge', nonce: 'n' },
+  ];
 
   for (const claims of onzinClaims) {
     const jws = await new CompactSign(encoder.encode(JSON.stringify(claims)))
@@ -113,11 +117,49 @@ test('het verzoek om een credential draagt het sessietoken in Authorization en i
   assert.equal(opties.body.includes('geheim'), false);
 });
 
-test('van een credential toont de app de ontvanger en het verloopmoment', async () => {
+async function credentialMet(claims) {
   const { privateKey } = await maakSleutelpaar();
-  const credential = await new CompactSign(encoder.encode(JSON.stringify({ ontvanger: 'KVK:90000014', exp: 1_800_000_000 })))
-    .setProtectedHeader({ alg: 'ES256' })
-    .sign(privateKey);
+
+  return new CompactSign(encoder.encode(JSON.stringify(claims))).setProtectedHeader({ alg: 'ES256' }).sign(privateKey);
+}
+
+test('van een credential toont de app de ontvanger en het verloopmoment', async () => {
+  const credential = await credentialMet({ ontvanger: 'KVK:90000014', exp: 1_800_000_000 });
 
   assert.deepEqual(leesCredential(credential), { ontvanger: 'KVK:90000014', verlooptOp: new Date(1_800_000_000_000) });
+});
+
+test('een credential zonder ontvanger of verloopmoment is onbruikbaar', async () => {
+  const varianten = [{ exp: 1_800_000_000 }, { ontvanger: 'KVK:90000014' }, { ontvanger: 'KVK:90000014', exp: 'morgen' }, { ontvanger: 7, exp: 1 }];
+
+  for (const claims of varianten) {
+    await assert.rejects(async () => leesCredential(await credentialMet(claims)), ActiverenFout);
+  }
+});
+
+test('een antwoord op complete zonder sessietoken wordt geweigerd', async () => {
+  const app = await maakSleutelpaar();
+  const verifier = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const spki = Buffer.from(await crypto.subtle.exportKey('spki', verifier.publicKey)).toString('base64');
+  const challenge = await new CompactSign(encoder.encode(JSON.stringify({ sub: 'challenge', nonce: 'n', ephemeral_organization_ec_public_key: spki })))
+    .setProtectedHeader({ alg: 'ES256' })
+    .sign(app.privateKey);
+
+  // De Verifier zou het antwoord onder de AES-sleutel uit de presentatie versleutelen; die haalt
+  // deze nep-Verifier uit het complete-verzoek.
+  const fetch = async (adres, opties) => {
+    if (new URL(adres).pathname === '/v1/challenge') return new Response(challenge);
+
+    const { encrypted_challenge_result: jwe } = JSON.parse(opties.body);
+    const { plaintext } = await compactDecrypt(jwe, verifier.privateKey);
+    const ruw = Buffer.from(JSON.parse(new TextDecoder().decode(plaintext)).session_aes_key, 'base64');
+    const sleutel = await crypto.subtle.importKey('raw', ruw, 'AES-GCM', false, ['encrypt']);
+    const antwoord = await new CompactEncrypt(encoder.encode(JSON.stringify({ expires_in: 600 })))
+      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+      .encrypt(sleutel);
+
+    return new Response(antwoord);
+  };
+
+  await assert.rejects(maakSessie({ basis: BASIS, oin: '00000000000000001100', sleutelpaar: app, fetch }), ActiverenFout);
 });

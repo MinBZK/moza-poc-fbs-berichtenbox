@@ -25,7 +25,14 @@ set -uo pipefail
 
 pad=$(jq -r '.tool_input.file_path // .tool_input.path // empty')
 
-if [[ -z "$pad" || "$pad" != *.kt ]]; then
+# De browsercode van de Berichten-app heeft eigen tests; die tellen als Kotlin-edit van die module.
+browsercode=false
+
+if [[ "$pad" == *demo/berichten-app/src/* && ( "$pad" == *.js || "$pad" == *.mjs ) ]]; then
+    browsercode=true
+fi
+
+if [[ -z "$pad" || ( "$pad" != *.kt && "$browsercode" != true ) ]]; then
     exit 0
 fi
 
@@ -77,6 +84,10 @@ if [[ "$snel" != true || "${FBS_HOOK_TESTS:-1}" == "0" ]]; then
     case "$module" in
         libraries/fbs-berichtensessiecache | services/* | demo/magazijn-simulator)
             echo "  (start Testcontainers; Docker of Podman moet draaien)"
+            ;;
+        demo/berichten-app)
+            # BerichtenAppTest hangt via een bestandspad aan deze JS, niet via de reactor.
+            echo "  ./mvnw clean test -pl demo/app-manager -am   (draait deze browsercode tegen de App Manager)"
             ;;
     esac
 

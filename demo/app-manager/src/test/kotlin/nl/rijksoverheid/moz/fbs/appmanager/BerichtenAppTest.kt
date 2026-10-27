@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.URL
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
@@ -44,9 +45,18 @@ class BerichtenAppTest {
     }
 
     private fun node(vararg argumenten: String): String {
-        val proces = ProcessBuilder(listOf("node") + argumenten).redirectErrorStream(true).start()
+        val log = Files.createTempFile("node", ".log")
+
+        // Naar een bestand, niet naar een pipe: een volle pipe-buffer laat node blokkeren tot de
+        // tijdslimiet afloopt.
+        val proces = ProcessBuilder(listOf("node") + argumenten).redirectErrorStream(true).redirectOutput(log.toFile()).start()
         val klaar = proces.waitFor(TIJDSLIMIET_SECONDEN, TimeUnit.SECONDS)
-        val uitvoer = proces.inputStream.bufferedReader().readText()
+
+        if (!klaar) proces.destroyForcibly()
+
+        val uitvoer = Files.readString(log)
+
+        Files.delete(log)
 
         assertTrue(klaar && proces.exitValue() == 0, "node faalde:\n$uitvoer")
 

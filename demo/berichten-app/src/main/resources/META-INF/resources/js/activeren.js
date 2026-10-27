@@ -77,13 +77,13 @@ export function registratieAdres(basis, sessieToken) {
 }
 
 /**
- * Het `registration_token` uit het fragment van de terug-URL, of `null` als het er niet in staat.
- * Het bericht moet van [issuer] komen: een bericht van een ander adres is niet van onze App Manager.
+ * Het `registration_token` uit het fragment van de terug-URL. Het bericht moet van [issuer] komen:
+ * een bericht van een ander adres is niet van onze App Manager.
  */
 export async function leesRegistratie(fragment, aesSleutel, issuer) {
   const jwe = new URLSearchParams(fragment.replace(/^#/, '')).get('registration_token');
 
-  if (!jwe) return null;
+  if (!jwe) throw new ActiverenFout('geen registration_token in het fragment');
 
   const bericht = JSON.parse(await ontsleutel(jwe, aesSleutel));
 
@@ -113,9 +113,14 @@ export async function haalCredential({ basis, sessieToken, aesSleutel, registrat
   return ontsleutel(antwoord, aesSleutel);
 }
 
-/** Wat de app van een credential laat zien. De handtekening toetst het magazijn. */
+/**
+ * Wat de app van een credential laat zien; gooit als het geen bruikbaar credential is. De
+ * handtekening toetst het magazijn.
+ */
 export function leesCredential(credential) {
   const { ontvanger, exp } = decodeJwt(credential);
+
+  if (typeof ontvanger !== 'string' || !Number.isFinite(exp)) throw new ActiverenFout('onbruikbaar credential');
 
   return { ontvanger, verlooptOp: new Date(exp * 1000) };
 }
