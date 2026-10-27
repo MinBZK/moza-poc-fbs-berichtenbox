@@ -1,15 +1,14 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 
-import io.netty.util.NetUtil
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest
-import jakarta.ws.rs.WebApplicationException
-import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.RechtstreeksOphalenApi
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.model.CompleteVerzoek
-import java.net.Inet6Address
-import java.net.InetAddress
+import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
+import nl.rijksoverheid.moz.fbs.rechtstreeks.Afwijzing
+import org.jboss.logging.Logger
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * De tweede ingang van een gesimuleerd magazijn: een magazijnsessie op een credential van een App
@@ -28,33 +27,40 @@ class SimulatorRechtstreeksResource(
     override fun voltooiSessie(completeVerzoek: CompleteVerzoek): String =
         verifier().voltooiMetCredential(completeVerzoek.nonce, completeVerzoek.encryptedChallengeResult, client()).antwoord
 
-    // TODO(#1215): berichten lezen binnen de magazijnsessie.
     override fun getRechtstreeksBerichten(page: Int, pageSize: Int): String = nogNiet()
 
     override fun getRechtstreeksBericht(berichtId: UUID): String = nogNiet()
 
     private fun verifier() = verifiers.voor(context.magazijn.oin)
 
-    private fun client(): String = clientSleutel(verzoek.current?.request()?.remoteAddress()?.hostAddress())
+    /**
+     * Wel de sessie toetsen: een app zonder geldige sessie hoort de `401` te krijgen waarop hij
+     * opnieuw begint, ook nu de berichten nog niet te lezen zijn.
+     * TODO(#1215): berichten lezen binnen de magazijnsessie.
+     */
+    private fun nogNiet(): Nothing {
+        val token = verzoek.current?.request()?.getHeader("Authorization") ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
 
-    private fun nogNiet(): Nothing = throw WebApplicationException(Response.Status.NOT_IMPLEMENTED)
+        verifier().sessie(token)
 
-    companion object {
+        throw NogNietBeschikbaarException()
+    }
 
-        /**
-         * Wie een quotum draagt: het IP-adres van de aanroeper, voor IPv6 per /64, want één
-         * aansluiting krijgt daar een hele /64. Alleen een IP-literal; op een naam zou
-         * `InetAddress` een DNS-lookup doen.
-         */
-        fun clientSleutel(adres: String?): String {
-            val bytes = adres?.let(NetUtil::createByteArrayFromIpAddressString) ?: return "onbekend"
-            val ip = InetAddress.getByAddress(bytes)
+    private fun client(): String {
+        val request = verzoek.current?.request()
+        val sleutel = ClientAdres.bepaal(request?.remoteAddress()?.hostAddress(), request?.getHeader("X-Forwarded-For"), verifiers.vertrouwdeProxies)
 
-            if (ip !is Inet6Address) return ip.hostAddress
-
-            return ip.address.copyOf(IPV6_PREFIX_BYTES).joinToString(":", postfix = "::/64") { "%02x".format(it) }
+        // Iedereen zonder herkenbaar adres deelt één quotum; meestal wijst dat op een proxy die niet
+        // als vertrouwd staat ingesteld. Eén keer melden is genoeg om dat te vinden.
+        if (sleutel == ClientAdres.ONBEKEND && onbekendGemeld.compareAndSet(false, true)) {
+            log.warnf("Rechtstreeks ophalen: client-adres niet te bepalen (peer %s); deze aanroepers delen één quotum", request?.remoteAddress()?.hostAddress())
         }
 
-        private const val IPV6_PREFIX_BYTES = 8
+        return sleutel
+    }
+
+    private companion object {
+        val log: Logger = Logger.getLogger(SimulatorRechtstreeksResource::class.java)
+        val onbekendGemeld = AtomicBoolean(false)
     }
 }

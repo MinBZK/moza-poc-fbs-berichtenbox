@@ -165,10 +165,12 @@
                         </configuration>
                     </execution>
                     <!-- De tweede ingang (rechtstreeks ophalen) uit zijn eigen contract, in een eigen
-                         pakket. Alleen het verzoekmodel van complete: de rest van de payloads is
-                         versleuteld en dus tekst, en de gedeelde modellen (BerichtenLijst, Bericht,
-                         Problem) komen uit de eerste generatie. Een eigen execution erft de
-                         configuratie van `generate` niet; vandaar de herhaalde opties. -->
+                         pakket. Alleen het verzoekmodel van complete: de antwoorden zijn versleuteld
+                         en dus tekst. De schemaMappings wijzen de gedeelde modellen (BerichtenLijst,
+                         Bericht, Problem) naar de eerste generatie, zodat een volgende generatie ze
+                         niet dubbel aanmaakt zodra de berichtpaden ze in hun signatuur gebruiken.
+                         Een eigen execution erft de configuratie van `generate` niet; vandaar de
+                         herhaalde opties. -->
                     <execution>
                         <id>generate-rechtstreeks</id>
                         <goals><goal>generate</goal></goals>

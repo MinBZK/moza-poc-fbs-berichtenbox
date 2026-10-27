@@ -9,11 +9,16 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.OpslagVolException
 import org.jboss.logging.Logger
+import java.time.Duration
+import java.util.UUID
+
+/** De berichtpaden van de tweede ingang bestaan in het contract, maar de simulator vult ze nog niet. */
+class NogNietBeschikbaarException : RuntimeException("berichten lezen via de tweede ingang volgt nog")
 
 /**
  * Elke afwijzing is voor de app dezelfde `401`, zonder detail over welke controle faalde; alleen
- * de log krijgt de reden. `WWW-Authenticate` is verplicht bij een `401` en draagt de OIN als realm,
- * zodat de app weet bij welk magazijn hij opnieuw moet beginnen.
+ * de log krijgt de reden, met het correlatie-id uit `instance`. `WWW-Authenticate` is verplicht bij
+ * een `401` en draagt de OIN als realm, zodat de app weet bij welk magazijn hij opnieuw begint.
  */
 @Provider
 class AfgewezenMapper(private val context: MagazijnContext) : ExceptionMapper<AfgewezenException> {
@@ -21,13 +26,19 @@ class AfgewezenMapper(private val context: MagazijnContext) : ExceptionMapper<Af
     private val log = Logger.getLogger(AfgewezenMapper::class.java)
 
     override fun toResponse(fout: AfgewezenException): Response {
-        val oin = context.magazijnOfNiets?.oin
+        val oin = context.magazijn.oin
+        val foutId = UUID.randomUUID()
 
-        log.infof("Rechtstreeks verzoek bij magazijn %s afgewezen: %s", oin, fout.reden)
+        // De oorzaak is in de library al teruggebracht tot een klassenaam: veilig om te loggen.
+        log.infof("Rechtstreeks verzoek bij magazijn %s afgewezen (%s): %s %s", oin, foutId, fout.reden, fout.cause?.message.orEmpty())
 
-        return Response.fromResponse(problemResponse(Response.Status.UNAUTHORIZED.statusCode, "Unauthorized", foutcode = Foutcode.GEEN_TOEGANG))
+        return Response.fromResponse(problemResponse(UNAUTHORIZED, "Unauthorized", foutId = foutId, foutcode = Foutcode.GEEN_TOEGANG))
             .header("WWW-Authenticate", "Magazijnsessie realm=\"$oin\"")
             .build()
+    }
+
+    private companion object {
+        const val UNAUTHORIZED = 401
     }
 }
 
@@ -38,14 +49,42 @@ class OpslagVolMapper(private val context: MagazijnContext) : ExceptionMapper<Op
     private val log = Logger.getLogger(OpslagVolMapper::class.java)
 
     override fun toResponse(fout: OpslagVolException): Response {
-        val seconden = fout.opnieuwNa.seconds.coerceAtLeast(1)
+        val foutId = UUID.randomUUID()
+        val seconden = naarBoven(fout.opnieuwNa)
 
-        log.warnf("Opslag voor rechtstreeks ophalen vol bij magazijn %s; opnieuw over %d s", context.magazijnOfNiets?.oin, seconden)
+        log.warnf("Opslag voor rechtstreeks ophalen vol bij magazijn %s (%s); opnieuw over %d s", context.magazijn.oin, foutId, seconden)
 
-        return Response.fromResponse(
-            problemResponse(Response.Status.SERVICE_UNAVAILABLE.statusCode, "Service Unavailable", foutcode = Foutcode.TIJDELIJK_NIET_BESCHIKBAAR),
-        )
-            .header("Retry-After", seconden)
-            .build()
+        return tijdelijkNietBeschikbaar(foutId, seconden)
     }
 }
+
+/** Geen storing, dus op info en zonder stacktrace: een app vraagt hier gewoon om. */
+@Provider
+class NogNietBeschikbaarMapper(private val context: MagazijnContext) : ExceptionMapper<NogNietBeschikbaarException> {
+
+    private val log = Logger.getLogger(NogNietBeschikbaarMapper::class.java)
+
+    override fun toResponse(fout: NogNietBeschikbaarException): Response {
+        val foutId = UUID.randomUUID()
+
+        log.infof("Rechtstreeks berichtenpad bij magazijn %s gevraagd (%s); nog niet beschikbaar", context.magazijn.oin, foutId)
+
+        return tijdelijkNietBeschikbaar(foutId, NOG_NIET_OPNIEUW_NA)
+    }
+
+    private companion object {
+        const val NOG_NIET_OPNIEUW_NA = 3600L
+    }
+}
+
+private fun tijdelijkNietBeschikbaar(foutId: UUID, seconden: Long): Response = Response.fromResponse(
+    problemResponse(SERVICE_UNAVAILABLE, "Service Unavailable", foutId = foutId, foutcode = Foutcode.TIJDELIJK_NIET_BESCHIKBAAR),
+)
+    .header("Retry-After", seconden)
+    .build()
+
+/** Naar boven: een poging die een halve seconde te vroeg komt, krijgt weer een `503`. */
+internal fun naarBoven(duur: Duration): Long = ((duur.toMillis() + MILLIS_PER_SECONDE - 1) / MILLIS_PER_SECONDE).coerceAtLeast(1)
+
+private const val SERVICE_UNAVAILABLE = 503
+private const val MILLIS_PER_SECONDE = 1000L

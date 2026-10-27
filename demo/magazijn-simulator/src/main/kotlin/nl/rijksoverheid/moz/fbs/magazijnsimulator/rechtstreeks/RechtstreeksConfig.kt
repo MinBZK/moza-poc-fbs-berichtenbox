@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 
 import io.smallrye.config.ConfigMapping
 import java.time.Instant
+import java.util.Optional
 
 /**
  * De App Managers waarvan de gesimuleerde magazijnen een credential aannemen, per OIN, elk met
@@ -13,6 +14,12 @@ import java.time.Instant
 interface RechtstreeksConfig {
 
     fun appManagers(): Map<String, AppManager>
+
+    /**
+     * Netwerken (`adres/prefix`) van de proxies waarvan de laatste waarde in `X-Forwarded-For` het
+     * client-adres is. Leeg: het adres van de directe peer.
+     */
+    fun vertrouwdeProxies(): Optional<List<String>>
 
     interface AppManager {
         fun sleutels(): Map<String, Sleutel>

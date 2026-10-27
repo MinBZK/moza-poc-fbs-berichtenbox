@@ -36,6 +36,11 @@ import org.jboss.logging.Logger
  * Het magazijn is op dit punt al gekozen door
  * [nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPadFilter]; een verzoek dat daar is
  * afgebroken komt hier niet langs.
+ *
+ * **Ook op de tweede ingang (rechtstreeks ophalen)**, want een magazijn in storing is dat voor elke
+ * app. Daar volgt het antwoord wel het contract van die ingang: een storing is een `503` met
+ * `Retry-After` (ook bij `WEIGERT`, want een `403` kent dat contract niet), en een onbruikbaar
+ * antwoord is een `200` met `application/jose` dat geen JWS of JWE is.
  */
 @Provider
 class GedragFilter(
@@ -51,11 +56,12 @@ class GedragFilter(
         // magazijn dat hier komt, kan dus alleen het beheerpad zijn.
         val magazijn = context.magazijnOfNiets ?: return
         val gedrag = magazijn.gedrag
+        val rechtstreeks = requestContext.uriInfo.path.startsWith(RECHTSTREEKS)
 
         if (gedrag.modus == GedragModus.NORMAAL && gedrag.latencyP50Ms == 0) return
 
         if (!wacht(uitvoering.vertragingMs(magazijn.oin, gedrag))) {
-            requestContext.abortWith(afgebroken())
+            requestContext.abortWith(afgebroken(rechtstreeks))
 
             return
         }
@@ -67,21 +73,21 @@ class GedragFilter(
         // overzicht tegen. Het antwoord komt dus te laat én zegt dat er niets te halen viel.
         if (gedrag.modus == GedragModus.UIT) {
             meld(magazijn.oin, gedrag, gedrag.foutStatus)
-            requestContext.abortWith(storing(gedrag))
+            requestContext.abortWith(storing(gedrag, rechtstreeks))
 
             return
         }
 
         if (gedrag.modus == GedragModus.MALFORMED) {
             meld(magazijn.oin, gedrag, Response.Status.OK.statusCode)
-            requestContext.abortWith(onbruikbaarAntwoord())
+            requestContext.abortWith(onbruikbaarAntwoord(rechtstreeks))
 
             return
         }
 
         if (uitvoering.valtOm(magazijn.oin, gedrag)) {
             meld(magazijn.oin, gedrag, gedrag.foutStatus)
-            requestContext.abortWith(storing(gedrag))
+            requestContext.abortWith(storing(gedrag, rechtstreeks))
         }
     }
 
@@ -120,10 +126,13 @@ class GedragFilter(
     }
 
     /** Niet het gesimuleerde gedrag maar de simulator zelf: het wachten van dit verzoek is onderbroken. */
-    private fun afgebroken(): Response = problemResponse(
-        status = Response.Status.SERVICE_UNAVAILABLE.statusCode,
-        title = "Service Unavailable",
-        detail = "De simulator kon dit verzoek niet afmaken",
+    private fun afgebroken(rechtstreeks: Boolean): Response = metRetryAfter(
+        problemResponse(
+            status = Response.Status.SERVICE_UNAVAILABLE.statusCode,
+            title = "Service Unavailable",
+            detail = "De simulator kon dit verzoek niet afmaken",
+        ),
+        rechtstreeks,
     )
 
     /**
@@ -134,16 +143,27 @@ class GedragFilter(
      * voor de circuit breaker — en die zonder deze modus in een demo nooit geraakt wordt, terwijl
      * juist die eerder een echte fout opleverde.
      */
-    private fun onbruikbaarAntwoord(): Response = Response.ok()
-        .type(MediaType.APPLICATION_JSON_TYPE)
-        .entity(ONBRUIKBARE_BODY)
-        .build()
+    private fun onbruikbaarAntwoord(rechtstreeks: Boolean): Response = if (rechtstreeks) {
+        Response.ok().type(JOSE).entity(ONBRUIKBARE_JOSE).build()
+    } else {
+        Response.ok().type(MediaType.APPLICATION_JSON_TYPE).entity(ONBRUIKBARE_BODY).build()
+    }
 
-    private fun storing(gedrag: Gedrag): Response = problemResponse(
-        status = gedrag.foutStatus,
-        title = Response.Status.fromStatusCode(gedrag.foutStatus)?.reasonPhrase ?: "Error",
-        detail = "Dit magazijn is ingesteld op ${gedrag.modus.name.lowercase()}",
-    )
+    private fun storing(gedrag: Gedrag, rechtstreeks: Boolean): Response {
+        val status = if (rechtstreeks) Response.Status.SERVICE_UNAVAILABLE.statusCode else gedrag.foutStatus
+
+        return metRetryAfter(
+            problemResponse(
+                status = status,
+                title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error",
+                detail = "Dit magazijn is ingesteld op ${gedrag.modus.name.lowercase()}",
+            ),
+            rechtstreeks,
+        )
+    }
+
+    private fun metRetryAfter(antwoord: Response, rechtstreeks: Boolean): Response =
+        if (rechtstreeks) Response.fromResponse(antwoord).header("Retry-After", OPNIEUW_NA_SECONDEN).build() else antwoord
 
     private companion object {
         /**
@@ -152,5 +172,10 @@ class GedragFilter(
          * kunnen tonen.
          */
         const val ONBRUIKBARE_BODY = """{"berichten": "dit is geen lijst"}"""
+
+        const val RECHTSTREEKS = "/rechtstreeks/"
+        const val JOSE = "application/jose"
+        const val ONBRUIKBARE_JOSE = "dit-is-geen-jose"
+        const val OPNIEUW_NA_SECONDEN = 30
     }
 }
