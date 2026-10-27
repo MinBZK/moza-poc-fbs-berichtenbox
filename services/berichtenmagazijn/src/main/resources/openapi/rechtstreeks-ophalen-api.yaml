@@ -600,7 +600,8 @@ components:
     ServiceUnavailable:
       description: |
         Tijdelijk niet beschikbaar (`urn:fbs:fout:tijdelijk-niet-beschikbaar`), ook als er te veel
-        openstaande challenges zijn.
+        openstaande challenges zijn. Op `complete` kan de nonce dan al verbruikt zijn: begin na
+        `Retry-After` opnieuw bij `challenge`.
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'

@@ -43,6 +43,12 @@
             <artifactId>fbs-kern</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- De Verifier-kant van rechtstreeks ophalen: dezelfde code die het echte magazijn straks gebruikt. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-rechtstreeks</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
@@ -113,6 +119,14 @@
             <artifactId>quarkus-jacoco</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- De app-kant van het protocol, op de JCA, uit de tests van de library. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-rechtstreeks</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -150,6 +164,42 @@
                             <apisToGenerate>Aanlever,Berichten</apisToGenerate>
                         </configuration>
                     </execution>
+                    <!-- De tweede ingang (rechtstreeks ophalen) uit zijn eigen contract, in een eigen
+                         pakket. Alleen het verzoekmodel van complete: de antwoorden zijn versleuteld
+                         en dus tekst. De schemaMappings wijzen de gedeelde modellen (BerichtenLijst,
+                         Bericht, Problem) naar de eerste generatie, zodat een volgende generatie ze
+                         niet dubbel aanmaakt zodra de berichtpaden ze in hun signatuur gebruiken.
+                         Een eigen execution erft de configuratie van `generate` niet; vandaar de
+                         herhaalde opties. -->
+                    <execution>
+                        <id>generate-rechtstreeks</id>
+                        <goals><goal>generate</goal></goals>
+                        <configuration>
+                            <inputSpec>${api.spec.dir}/rechtstreeks-ophalen-api.yaml</inputSpec>
+                            <generatorName>jaxrs-spec</generatorName>
+                            <output>${project.build.directory}/generated-sources/openapi</output>
+                            <apiPackage>${api.base.package}.rechtstreeks.api</apiPackage>
+                            <modelPackage>${api.base.package}.rechtstreeks.api.model</modelPackage>
+                            <apisToGenerate>RechtstreeksOphalen</apisToGenerate>
+                            <modelsToGenerate>CompleteVerzoek</modelsToGenerate>
+                            <schemaMappings>
+                                <schemaMapping>Problem=${api.base.package}.api.model.Problem</schemaMapping>
+                                <schemaMapping>BerichtenLijst=${api.base.package}.api.model.BerichtenLijst</schemaMapping>
+                                <schemaMapping>Bericht=${api.base.package}.api.model.Bericht</schemaMapping>
+                            </schemaMappings>
+                            <configOptions>
+                                <interfaceOnly>true</interfaceOnly>
+                                <returnResponse>false</returnResponse>
+                                <useJakartaEe>true</useJakartaEe>
+                                <useSwaggerAnnotations>false</useSwaggerAnnotations>
+                                <useTags>true</useTags>
+                                <openApiNullable>false</openApiNullable>
+                            </configOptions>
+                            <generateSupportingFiles>false</generateSupportingFiles>
+                            <generateApiTests>false</generateApiTests>
+                            <generateModelTests>false</generateModelTests>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
@@ -181,6 +231,7 @@
                                     <directory>${api.spec.dir}</directory>
                                     <includes>
                                         <include>berichtenmagazijn-api.yaml</include>
+                                        <include>rechtstreeks-ophalen-api.yaml</include>
                                     </includes>
                                 </resource>
                             </resources>
