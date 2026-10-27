@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.net.URI
 import java.time.Clock
 
 /**
@@ -93,8 +94,39 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         assertEquals("Inhoud van een demo-bericht.", bericht["inhoud"])
         assertEquals(
             "/magazijn/$MAGAZIJN_A/api/v1/rechtstreeks/berichten/$berichtId",
-            java.net.URI.create(((bericht["_links"] as Map<*, *>)["self"] as Map<*, *>)["href"] as String).path,
+            URI.create(((bericht["_links"] as Map<*, *>)["self"] as Map<*, *>)["href"] as String).path,
         )
+    }
+
+    @Test
+    fun `een bericht met bijlage is hetzelfde model als op de eerste ingang, en de bijlagelink geeft nog 404`() {
+        val berichtId = leverAan(ONTVANGER, "Met bijlage", bijlage = true)
+        val sessie = Sessie()
+
+        val versleuteld = sessie.lees(
+            given().header("Authorization", sessie.token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$berichtId")
+                .then().statusCode(200).extract().asString(),
+        )
+        val eersteIngang = given().header("X-Ontvanger", ONTVANGER).get("${basis(MAGAZIJN_A)}/berichten/$berichtId")
+            .then().statusCode(200).extract().asString()
+
+        assertEquals(JsonUtil.parseJson(eersteIngang.replace("/api/v1/berichten", "/api/v1/rechtstreeks/berichten")), versleuteld)
+
+        // TODO(#1215): het bijlagepad van de tweede ingang; tot dan geeft de link 404, zoals de spec zegt.
+        val bijlage = ((versleuteld["bijlagen"] as List<*>).single() as Map<*, *>)
+        val link = URI.create((((bijlage["_links"] as Map<*, *>)["self"] as Map<*, *>)["href"] as String)).path
+
+        assertTrue(link.startsWith("/magazijn/$MAGAZIJN_A/api/v1/rechtstreeks/berichten/$berichtId/bijlagen/"), link)
+        given().header("Authorization", sessie.token).get(link).then().statusCode(404).header("Access-Control-Allow-Origin", "*")
+    }
+
+    @Test
+    fun `een bericht voor dezelfde ontvanger bij een ander magazijn is via deze sessie niet te zien`() {
+        val bijB = leverAan(ONTVANGER, "Bij magazijn B", magazijn = MAGAZIJN_B)
+        val sessie = Sessie()
+
+        assertEquals(0, (sessie.lijst()["berichten"] as List<*>).size)
+        given().header("Authorization", sessie.token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$bijB").then().statusCode(404)
     }
 
     @Test
@@ -115,9 +147,12 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
                 .extract()
 
             // Alles behalve het id in de tekst en het correlatie-id: daaraan mag niets verschillen.
-            val body = JsonUtil.parseJson(antwoord.asString()).filterKeys { it != "instance" }.mapValues { (k, v) -> if (k == "detail") (v as String).replace(id, "<id>") else v }
+            val body = JsonUtil.parseJson(antwoord.asString())
+                .filterKeys { it != "instance" }
+                .mapValues { (naam, waarde) -> if (naam == "detail") (waarde as String).replace(id, "<id>") else waarde }
+            val headers = antwoord.headers().asList().map { it.name }.filterNot { it.equals("Date", ignoreCase = true) }.toSet()
 
-            body to antwoord.headers().asList().map { it.name }.filterNot { it.equals("Date", ignoreCase = true) }.toSet()
+            body to headers
         }
 
         assertEquals(1, antwoorden.toSet().size, antwoorden.toString())
@@ -170,22 +205,23 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         valideer().header("Authorization", token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$berichtId").then().statusCode(200)
     }
 
-    private fun leverAan(ontvanger: String, onderwerp: String): String {
+    private fun leverAan(ontvanger: String, onderwerp: String, magazijn: String = MAGAZIJN_A, bijlage: Boolean = false): String {
         val (type, waarde) = ontvanger.split(':')
+        val bijlagen = if (bijlage) """, "bijlagen": [{"naam": "bijlage.pdf", "mimeType": "application/pdf", "inhoud": "cGRm"}]""" else ""
 
         return given()
             .contentType(ContentType.JSON)
             .body(
                 """
                 {
-                  "afzender": "$MAGAZIJN_A",
+                  "afzender": "$magazijn",
                   "ontvanger": {"type": "$type", "waarde": "$waarde"},
                   "onderwerp": "$onderwerp",
-                  "inhoud": "Inhoud van een demo-bericht."
+                  "inhoud": "Inhoud van een demo-bericht."$bijlagen
                 }
                 """.trimIndent(),
             )
-            .post("${basis(MAGAZIJN_A)}/aanleveringen")
+            .post("${basis(magazijn)}/aanleveringen")
             .then().statusCode(201)
             .extract().path("berichtId")
     }
@@ -204,7 +240,7 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
     )
 
     private companion object {
-        const val ONTVANGER = "KVK:90000014"
+        const val ONTVANGER = RechtstreeksTest.ONTVANGER
         const val ANDERE_ONTVANGER = "KVK:90000001"
     }
 }

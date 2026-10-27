@@ -60,10 +60,7 @@ class BerichtService(
         return bericht
     }
 
-    /**
-     * Voor de tweede ingang: andermans, verwijderd en onbekend zijn allemaal hetzelfde `404`, zodat
-     * een app niet kan aftasten welke bericht-id's bestaan.
-     */
+    /** Voor de tweede ingang; zie [nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtRepository.zoekVoorOntvanger]. */
     fun haalOpVoorOntvanger(berichtId: UUID, ontvanger: Identificatienummer): Bericht =
         repository.zoekVoorOntvanger(magazijnDbId(), berichtId, ontvanger) ?: throw nietGevonden(berichtId)
 

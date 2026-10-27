@@ -241,7 +241,7 @@ class RechtstreeksTest {
 
     @Test
     fun `de eerste ingang blijft zonder CORS`() {
-        given().header("Origin", "https://app.test").header("X-Ontvanger", "KVK:90000014").get("${basis(MAGAZIJN_A)}/berichten")
+        given().header("Origin", "https://app.test").header("X-Ontvanger", ONTVANGER).get("${basis(MAGAZIJN_A)}/berichten")
             .then().statusCode(200).header("Access-Control-Allow-Origin", nullValue())
         given().header("Origin", "https://app.test")
             .header("Access-Control-Request-Method", "GET")
@@ -274,6 +274,7 @@ class RechtstreeksTest {
         const val MAGAZIJN_A = "00000009000000000001"
         const val MAGAZIJN_B = "00000009000000000002"
         const val MAGAZIJN_C = "00000009000000000003"
+        const val ONTVANGER = "KVK:90000014"
         val COMPACT_JWS = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         val COMPACT_JWE = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         const val APP_MANAGER_OIN = "00000000000000001100"
@@ -312,7 +313,7 @@ class RechtstreeksTest {
                 "iat" to nu.epochSecond,
                 "nbf" to nu.epochSecond,
                 "exp" to nu.plus(Duration.ofHours(1)).epochSecond,
-                "ontvanger" to "KVK:90000014",
+                "ontvanger" to ONTVANGER,
             )
 
         fun payload(jws: String): Map<String, Any> = JsonUtil.parseJson(String(Base64.getUrlDecoder().decode(jws.split('.')[1])))

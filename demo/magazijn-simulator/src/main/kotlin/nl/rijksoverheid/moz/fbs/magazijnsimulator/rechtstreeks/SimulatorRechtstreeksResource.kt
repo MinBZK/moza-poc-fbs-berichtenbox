@@ -47,14 +47,14 @@ class SimulatorRechtstreeksResource(
         verifier().voltooiMetCredential(completeVerzoek.nonce, completeVerzoek.encryptedChallengeResult, client()).antwoord
 
     override fun getRechtstreeksBerichten(page: Int, pageSize: Int): String {
-        val (verifier, sessie, ontvanger) = sessie()
+        val (verifier, sessie, ontvanger) = magazijnsessie()
         val pagina = berichten.lijst(ontvanger = ontvanger, afzender = null, page = page, pageSize = pageSize)
 
         return verifier.versleutel(sessie, json.writeValueAsString(BerichtDtoMapper.naarBerichtenLijst(pagina, null, basis())))
     }
 
     override fun getRechtstreeksBericht(berichtId: UUID): String {
-        val (verifier, sessie, ontvanger) = sessie()
+        val (verifier, sessie, ontvanger) = magazijnsessie()
 
         val bericht = berichten.haalOpVoorOntvanger(berichtId, ontvanger)
 
@@ -63,14 +63,16 @@ class SimulatorRechtstreeksResource(
 
     private fun verifier() = verifiers.voor(context.magazijn.oin)
 
+    private data class Magazijnsessie(val verifier: Verifier, val sessie: Sessie, val ontvanger: Identificatienummer)
+
     /** De sessie uit `Authorization`, met de ontvanger die het credential vaststelde. */
-    private fun sessie(): Triple<Verifier, Sessie, Identificatienummer> {
+    private fun magazijnsessie(): Magazijnsessie {
         val verifier = verifier()
         val token = verzoek.current?.request()?.getHeader("Authorization") ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
         val sessie = verifier.sessie(token)
         val identiteit = sessie.identiteit as? Identiteit.Ontvanger ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
 
-        return Triple(verifier, sessie, identiteit.ontvanger)
+        return Magazijnsessie(verifier, sessie, identiteit.ontvanger)
     }
 
     /** De links in de payload wijzen naar de paden van deze ingang. */
@@ -91,6 +93,7 @@ class SimulatorRechtstreeksResource(
     }
 
     private companion object {
+        // Gelijk aan de @Path van RechtstreeksOphalenApi; de linktest in RechtstreeksBerichtenTest bewaakt de koppeling.
         const val RECHTSTREEKS = "rechtstreeks"
 
         val log: Logger = Logger.getLogger(SimulatorRechtstreeksResource::class.java)
