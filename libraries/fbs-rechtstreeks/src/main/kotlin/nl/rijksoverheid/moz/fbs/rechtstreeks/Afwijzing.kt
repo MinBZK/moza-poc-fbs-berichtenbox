@@ -10,13 +10,14 @@ enum class Afwijzing {
     NONCE_ONBEKEND,
     PRESENTATIE_ONLEESBAAR,
     PRESENTATIE_ONVOLLEDIG,
+    TIJDELIJKE_SLEUTEL_ONGELDIG,
     AES_SLEUTEL_ONGELDIG,
     CERTIFICAATSOORT_ONJUIST,
     HEADER_NIET_TOEGESTAAN,
-    UITGEVER_ONBEKEND,
+    APP_MANAGER_ONBEKEND,
     HANDTEKENING_ONGELDIG,
     CREDENTIAL_ONVOLLEDIG,
-    UITGEVERSLEUTEL_VERLOPEN,
+    APP_MANAGER_SLEUTEL_VERLOPEN,
     CREDENTIAL_NIET_GELDIG,
     SCOPE_ONJUIST,
     ONTVANGER_ONGELDIG,
@@ -32,6 +33,13 @@ enum class Afwijzing {
  */
 class AfgewezenException(val reden: Afwijzing, cause: Throwable? = null) :
     RuntimeException(reden.name, cause)
+
+/**
+ * Een afwijzing die van [oorzaak] alleen het type bewaart. De melding van een JOSE-library kan een
+ * stuk van de ontvangen invoer bevatten, zoals een ontvanger, en die hoort niet in een stacktrace.
+ */
+internal fun afgewezen(reden: Afwijzing, oorzaak: Throwable): AfgewezenException =
+    AfgewezenException(reden, IllegalStateException(oorzaak.javaClass.name))
 
 /** De opslag van challenges of sessies is vol; de aanroeper antwoordt `503` met `Retry-After`. */
 class OpslagVolException(val opnieuwNa: Duration) :

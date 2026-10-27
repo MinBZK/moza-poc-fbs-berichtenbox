@@ -197,29 +197,37 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    - **JOSE.** Gebouwd op `jose4j` (in de Quarkus-BOM), dat JWS `ES256`, JWE `ECDH-ES` en
      `dir`/`A256GCM` kan. Het stelselregister gebruikt `jose4j` alleen in zijn tests, als
      onafhankelijke controle van zijn eigen handtekening; hier wordt het een productie-dependency.
-     De tests van de library controleren daarom met vaste testvectoren en met `java.security`
-     rechtstreeks.
+     De tests van de library spelen de app daarom met de JCA (`java.security`, `javax.crypto`)
+     in plaats van jose4j, en toetsen de Concat KDF van die testapp aan de vector uit RFC 7518
+     bijlage C.
    - **Strikt.** Per stap staan de toegestane algoritmen vast (`AlgorithmConstraints`). Een
      sleutel komt nooit uit een header (`jwk`, `jku`, `x5u`, `x5c`) en een header met `crit`
      wordt geweigerd. Voor elke publieke EC-sleutel van buiten wordt gecontroleerd dat het punt
-     op de curve ligt. Alle tijdcontroles (VC, nonce, sessie) gebruiken dezelfde marge van 60
-     seconden, zoals stap 6 van het toepassingsprofiel.
+     op de curve ligt, en een publieke JWK telt alleen `kty`, `crv`, `x` en `y`. Omdat jose4j
+     headerwaarden zonder controle naar tekst cast, staat ook het type van elke headerwaarde vast;
+     anders wordt een getal in `kid` een `500` in plaats van een `401`. De tijden van het VC krijgen
+     een marge van 60 seconden voor klokverschil met de App Manager, zoals stap 6 van het
+     toepassingsprofiel; nonce en sessie lopen op de eigen klok en hebben geen marge.
    - **Zonder CDI.** De kern is gewone Kotlin, zoals `fbs-kern`; de diensten bedraden hem zelf.
-     JSON gaat door een `ObjectMapper` die de dienst meegeeft, zodat `non_null` ook geldt voor wat
-     versleuteld over de lijn gaat.
+     De library leest JSON met jose4j; wat versleuteld terug moet, krijgt hij als tekst van de
+     dienst, die het met zijn eigen `ObjectMapper` maakt, zodat `non_null` ook daar geldt.
    - **Opslag.** Nonces en sessies staan achter een interface, met als sleutel de OIN van het
      magazijn plus de nonce of het token. De opslag in het geheugen is begrensd: een maximum aantal
-     openstaande nonces, totaal en per client-IP (daarboven `503` met `Retry-After`), en
-     opruimen na verloop en na gebruik. Het quotum per IP zorgt dat een site die zijn bezoekers
-     challenges laat aanvragen alleen zichzelf blokkeert. Dat is genoeg voor de simulator en de
-     App Manager, die met één instantie draaien. Het echte magazijn draait met meer replica's.
+     openstaande nonces en sessies, totaal en per magazijn en client-IP (daarboven `503` met
+     `Retry-After`), en opruimen bij elke aanroep. Het quotum geldt per magazijn, zodat één browser
+     bij 100 gesimuleerde magazijnen tegelijk een challenge kan vragen. Het totaal beschermt het
+     geheugen, maar wie met veel adressen tegelijk komt, kan het vullen; daartegen helpt alleen de
+     stateless nonce hieronder. Voor de simulator en de App Manager, die met één instantie draaien,
+     is dat aanvaardbaar. Het echte magazijn draait met meer replica's.
      Daar komt geen database-write per anonieme challenge: de nonce wordt stateless. De tijdelijke
      private key gaat, versleuteld en geauthenticeerd met een inpaksleutel, mee in de nonce (die
      daarom tot 256 tekens mag zijn), met een korte lijst van verbruikte nonces die alle
      replica's delen (TTL ten minste 120 seconden). De inpaksleutel staat alleen in het geheugen,
      rouleert elke paar minuten en wordt na twee keer de levensduur van een nonce vernietigd.
      Zo blijft de forward secrecy van de tijdelijke sleutels beperkt tot dat venster. Sessies
-     bewaren de AES-sleutel versleuteld, in een opslag met TTL zonder back-up.
+     bewaren de AES-sleutel versleuteld, in een opslag met TTL zonder back-up. Daarvoor krijgen
+     de opslag-interfaces dan de nonce en de serialisatie van een sessie in handen (`TODO(#1215)`
+     in `ChallengeOpslag`).
    - **Logging.** De library logt nooit claims uit een VC en nooit de waarde van `ontvanger`, ook
      niet bij een afwijzing. Intern logt hij alleen welke controle faalde.
 

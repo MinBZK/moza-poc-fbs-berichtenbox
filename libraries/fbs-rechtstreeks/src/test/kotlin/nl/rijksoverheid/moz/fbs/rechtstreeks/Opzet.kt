@@ -27,22 +27,23 @@ class Opzet {
 
     val opslag = GeheugenOpslag(klok)
     val magazijnSleutel: KeyPair = TestApp.sleutelpaar()
+    var magazijnSleutelGeldigTot: Instant = nu.plus(Duration.ofDays(30))
     val appManager: KeyPair = TestApp.sleutelpaar()
     var appManagerGeldigTot: Instant = nu.plus(Duration.ofDays(30))
     val app: KeyPair = TestApp.sleutelpaar()
 
-    val uitgevers = UitgeverSleutels { iss, kid ->
+    val appManagers = AppManagerSleutels { iss, kid ->
         if (iss == APP_MANAGER_OIN && kid == APP_MANAGER_KID) {
-            UitgeverSleutel(appManager.public as ECPublicKey, appManagerGeldigTot)
+            AppManagerSleutel(appManager.public as ECPublicKey, appManagerGeldigTot)
         } else {
             null
         }
     }
 
-    fun verifier(oin: String = MAGAZIJN_OIN): Verifier = Verifier(
+    fun verifier(oin: String = MAGAZIJN_OIN, opslag: GeheugenOpslag = this.opslag): Verifier = Verifier(
         oin = oin,
-        sleutel = VerifierSleutel(MAGAZIJN_KID, magazijnSleutel.private as ECPrivateKey),
-        uitgevers = uitgevers,
+        sleutel = VerifierSleutel(MAGAZIJN_KID, magazijnSleutel.private as ECPrivateKey, magazijnSleutelGeldigTot),
+        appManagers = appManagers,
         scope = SCOPE,
         challenges = opslag,
         sessies = opslag,
@@ -75,7 +76,7 @@ class Opzet {
     class Challenge(val nonce: String, val tijdelijk: ECPublicKey, val claims: Map<String, Any>, val compact: String)
 
     /** Vraagt een challenge op en controleert hem zoals een app dat doet. */
-    fun challenge(verifier: Verifier, client: String = "client"): Challenge {
+    fun challenge(verifier: Verifier, client: String = CLIENT): Challenge {
         val compact = verifier.maakChallenge(client)
         val claims = TestApp.verifieerJws(compact, magazijnSleutel.public)
         val tijdelijk = TestApp.publicKeyUitDer(claims["ephemeral_organization_ec_public_key"] as String)
@@ -98,6 +99,15 @@ class Opzet {
     fun versleuteld(challenge: Challenge, presentatie: Map<String, Any>): String =
         TestApp.jweEcdh(JsonUtil.toJson(presentatie), challenge.tijdelijk)
 
+    /** Een volledige sessie met credential; geeft de sessie en de AES-sleutel van de app. */
+    fun sessie(verifier: Verifier, claims: Map<String, Any> = vcClaims()): Pair<UitgegevenSessie, ByteArray> {
+        val challenge = challenge(verifier)
+        val aes = TestApp.aesSleutel()
+        val presentatie = presentatie(challenge, vc(claims), aesSleutel = aes)
+
+        return verifier.voltooiMetCredential(challenge.nonce, versleuteld(challenge, presentatie), CLIENT) to aes
+    }
+
     companion object {
         const val MAGAZIJN_OIN = "00000001234567890001"
         const val ANDER_MAGAZIJN_OIN = "00000001234567890002"
@@ -106,5 +116,6 @@ class Opzet {
         const val APP_MANAGER_KID = "app-manager-1"
         const val SCOPE = "nl.rijksoverheid.moz.fbs.berichten"
         const val ONTVANGER = "KVK:55667788"
+        const val CLIENT = "192.0.2.1"
     }
 }

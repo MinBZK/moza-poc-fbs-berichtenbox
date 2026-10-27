@@ -21,8 +21,13 @@ import java.security.spec.ECParameterSpec
 
 /**
  * De JOSE-regels van de standaard (3.1, 3.4), op één plek: per soort bericht staan algoritme en
- * toegestane headervelden vast. Een header met een ander veld wordt geweigerd, dus ook elke
- * manier om een sleutel mee te sturen (`jwk`, `jku`, `x5u`, `x5c`) en `crit`.
+ * toegestane headervelden vast. Een header met een ander veld wordt geweigerd, dus ook elke manier
+ * om een verificatiesleutel of certificaat mee te sturen (`jwk`, `jku`, `x5u`, `x5c`) en `crit`;
+ * alleen de `epk` van `ECDH-ES` mag.
+ *
+ * jose4j cast headerwaarden zonder controle naar het verwachte type. Een getal waar tekst hoort,
+ * zou daarom als `ClassCastException` ontsnappen en bij de aanroeper een `500` worden in plaats
+ * van een `401`. Daarom staat ook het type van elke headerwaarde vast.
  */
 internal object Jose {
 
@@ -31,6 +36,9 @@ internal object Jose {
     private val HEADER_JWS = setOf("alg", "typ", "kid")
     private val HEADER_JWE_ECDH = setOf("alg", "enc", "epk", "apu", "apv", "kid", "typ", "cty")
     private val HEADER_JWE_DIR = setOf("alg", "enc", "kid", "typ", "cty")
+
+    /** De leden van een publieke EC-JWK die tellen; de rest (`alg`, `use`, `key_ops`, `ext`) negeren we. */
+    private val JWK_LEDEN = listOf("kty", "crv", "x", "y")
 
     private val ALLEEN_ES256 = AlgorithmConstraints(ConstraintType.PERMIT, AlgorithmIdentifiers.ECDSA_USING_P256_CURVE_AND_SHA256)
     private val ALLEEN_ECDH_ES = AlgorithmConstraints(ConstraintType.PERMIT, KeyManagementAlgorithmIdentifiers.ECDH_ES)
@@ -48,14 +56,14 @@ internal object Jose {
     }
 
     /** Een JWS die nog niet geverifieerd is: header gecontroleerd, payload ongelezen. */
-    fun leesJws(compact: String): JsonWebSignature {
+    fun leesJws(compact: String, reden: Afwijzing): JsonWebSignature {
         val jws = try {
             JsonWebSignature().apply { compactSerialization = compact }
         } catch (e: JoseException) {
-            throw AfgewezenException(Afwijzing.PRESENTATIE_ONLEESBAAR, e)
+            throw afgewezen(reden, e)
         }
 
-        controleerHeader(jws, HEADER_JWS)
+        controleerHeader(jws, HEADER_JWS, reden)
         jws.setAlgorithmConstraints(ALLEEN_ES256)
 
         return jws
@@ -68,29 +76,33 @@ internal object Jose {
         val klopt = try {
             jws.verifySignature()
         } catch (e: JoseException) {
-            throw AfgewezenException(reden, e)
+            throw afgewezen(reden, e)
+        } catch (e: ClassCastException) {
+            // Vangnet naast de typecontrole op de header: jose4j cast headerwaarden zonder controle.
+            throw afgewezen(reden, e)
         }
 
         if (!klopt) throw AfgewezenException(reden)
 
-        return jsonObject(jws.payload, Afwijzing.PRESENTATIE_ONLEESBAAR)
+        return jsonObject(jws.unverifiedPayload, reden)
     }
 
-    /** Ontsleutelt een JWE met `ECDH-ES` en `A256GCM` naar [tijdelijkeSleutel]. */
+    /** Ontsleutelt een JWE met `ECDH-ES` en `A256GCM` met de private [tijdelijkeSleutel] van de challenge. */
     fun ontsleutelEcdh(compact: String, tijdelijkeSleutel: Key): String {
-        val jwe = leesJwe(compact, HEADER_JWE_ECDH, ALLEEN_ECDH_ES)
-        val epk = jwe.headers.getObjectHeaderValue("epk")
-        val epkMap = (epk as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v }
-            ?: throw AfgewezenException(Afwijzing.HEADER_NIET_TOEGESTAAN)
+        val jwe = leesJwe(compact, HEADER_JWE_ECDH, ALLEEN_ECDH_ES, Afwijzing.PRESENTATIE_ONLEESBAAR)
+        val epk = jwe.headers.getObjectHeaderValue("epk") as? Map<*, *>
+            ?: throw AfgewezenException(Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG)
 
-        ecSleutel(epkMap, Afwijzing.PRESENTATIE_ONLEESBAAR)
+        // Alleen de controle telt: een epk naast P-256 wordt geweigerd vóór de sleutelafspraak,
+        // zodat een invalid-curve-aanval niet van de JOSE-library afhangt.
+        ecSleutel(epk, Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG)
 
         return plaintext(jwe, tijdelijkeSleutel, Afwijzing.PRESENTATIE_ONLEESBAAR)
     }
 
     /** Ontsleutelt een JWE met `dir` en `A256GCM` onder de sessiesleutel. */
     fun ontsleutelDir(compact: String, aesSleutel: ByteArray): String {
-        val jwe = leesJwe(compact, HEADER_JWE_DIR, ALLEEN_DIR)
+        val jwe = leesJwe(compact, HEADER_JWE_DIR, ALLEEN_DIR, Afwijzing.VERSLEUTELING_ONGELDIG)
 
         return plaintext(jwe, AesKey(aesSleutel), Afwijzing.VERSLEUTELING_ONGELDIG)
     }
@@ -107,15 +119,17 @@ internal object Jose {
     /**
      * Leest een publieke EC-sleutel uit een JWK: alleen P-256, zonder private deel, en met een
      * punt dat op de curve ligt. Een punt ernaast kan bij ECDH een deel van de private key van de
-     * ontvanger prijsgeven (invalid-curve-aanval).
+     * ontvanger prijsgeven (invalid-curve-aanval). Alleen [JWK_LEDEN] gaan naar jose4j, als tekst.
      */
-    fun ecSleutel(jwk: Map<String, Any?>, reden: Afwijzing): ECPublicKey {
+    fun ecSleutel(jwk: Map<*, *>, reden: Afwijzing): ECPublicKey {
         if (jwk.containsKey("d")) throw AfgewezenException(reden)
 
+        val leden = JWK_LEDEN.associateWith { jwk[it] as? String ?: throw AfgewezenException(reden) }
+
         val sleutel = try {
-            JsonWebKey.Factory.newJwk(jwk)
+            JsonWebKey.Factory.newJwk(leden)
         } catch (e: JoseException) {
-            throw AfgewezenException(reden, e)
+            throw afgewezen(reden, e)
         }
 
         val ec = sleutel as? EllipticCurveJsonWebKey ?: throw AfgewezenException(reden)
@@ -132,7 +146,7 @@ internal object Jose {
     fun jsonObject(tekst: String, reden: Afwijzing): Map<String, Any> = try {
         JsonUtil.parseJson(tekst)
     } catch (e: JoseException) {
-        throw AfgewezenException(reden, e)
+        throw afgewezen(reden, e)
     }
 
     internal fun opCurve(sleutel: ECPublicKey): Boolean {
@@ -146,14 +160,19 @@ internal object Jose {
         return y.pow(2).mod(p) == (x.pow(3) + curve.a * x + curve.b).mod(p)
     }
 
-    private fun leesJwe(compact: String, toegestaan: Set<String>, algoritme: AlgorithmConstraints): JsonWebEncryption {
+    private fun leesJwe(
+        compact: String,
+        toegestaan: Set<String>,
+        algoritme: AlgorithmConstraints,
+        reden: Afwijzing,
+    ): JsonWebEncryption {
         val jwe = try {
             JsonWebEncryption().apply { compactSerialization = compact }
         } catch (e: JoseException) {
-            throw AfgewezenException(Afwijzing.PRESENTATIE_ONLEESBAAR, e)
+            throw afgewezen(reden, e)
         }
 
-        controleerHeader(jwe, toegestaan)
+        controleerHeader(jwe, toegestaan, reden)
         jwe.setAlgorithmConstraints(algoritme)
         jwe.setContentEncryptionAlgorithmConstraints(ALLEEN_A256GCM)
 
@@ -166,13 +185,20 @@ internal object Jose {
         return try {
             jwe.plaintextString
         } catch (e: JoseException) {
-            throw AfgewezenException(reden, e)
+            throw afgewezen(reden, e)
+        } catch (e: ClassCastException) {
+            // Vangnet naast de typecontrole op de header: jose4j cast headerwaarden zonder controle.
+            throw afgewezen(reden, e)
         }
     }
 
-    private fun controleerHeader(structuur: JsonWebStructure, toegestaan: Set<String>) {
-        val velden = jsonObject(structuur.headers.fullHeaderAsJsonString, Afwijzing.PRESENTATIE_ONLEESBAAR).keys
+    private fun controleerHeader(structuur: JsonWebStructure, toegestaan: Set<String>, reden: Afwijzing) {
+        val header = jsonObject(structuur.headers.fullHeaderAsJsonString, reden)
 
-        if (!toegestaan.containsAll(velden)) throw AfgewezenException(Afwijzing.HEADER_NIET_TOEGESTAAN)
+        if (!toegestaan.containsAll(header.keys)) throw AfgewezenException(Afwijzing.HEADER_NIET_TOEGESTAAN)
+
+        val typesKloppen = header.all { (naam, waarde) -> if (naam == "epk") waarde is Map<*, *> else waarde is String }
+
+        if (!typesKloppen) throw AfgewezenException(Afwijzing.HEADER_NIET_TOEGESTAAN)
     }
 }

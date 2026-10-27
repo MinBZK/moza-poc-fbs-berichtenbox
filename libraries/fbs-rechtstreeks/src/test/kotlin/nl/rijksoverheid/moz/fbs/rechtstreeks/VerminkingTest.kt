@@ -1,18 +1,14 @@
 package nl.rijksoverheid.moz.fbs.rechtstreeks
 
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
-import java.security.interfaces.ECPrivateKey
-import java.security.interfaces.ECPublicKey
-import java.security.spec.ECPoint
-import java.math.BigInteger
 import kotlin.random.Random
 
 /**
- * Eigenschap: één verminkt teken in de presentatie of in het credential levert nooit een sessie
- * op, en altijd een [AfgewezenException]; nooit een andere exception die als `500` zou eindigen.
+ * Eigenschap: één verminkt teken in een versleutelde of getekende invoer levert nooit een sessie of
+ * een geldig verzoek op, en altijd een [AfgewezenException]; nooit een andere exception die bij de
+ * aanroeper als `500` zou eindigen. Faalt een geval, dan staat de verminkte invoer in de melding.
  */
 class VerminkingTest {
 
@@ -27,12 +23,14 @@ class VerminkingTest {
         return tekst.substring(0, plek) + vervanging + tekst.substring(plek + 1)
     }
 
-    private fun verwachtAfwijzing(actie: () -> Unit) {
+    private fun verwachtAfwijzing(invoer: String, actie: (String) -> Unit) {
         try {
-            actie()
-            fail("verminkt verzoek leverde een sessie op")
+            actie(invoer)
+            fail<Unit>("verminkte invoer werd aangenomen: $invoer")
         } catch (e: AfgewezenException) {
-            assertTrue(e.reden in Afwijzing.entries)
+            // Zo hoort het.
+        } catch (e: RuntimeException) {
+            fail<Unit>("verminkte invoer gaf ${e.javaClass.name} in plaats van een afwijzing: $invoer", e)
         }
     }
 
@@ -44,7 +42,7 @@ class VerminkingTest {
         val challenge = opzet.challenge(verifier)
         val versleuteld = opzet.versleuteld(challenge, opzet.presentatie(challenge))
 
-        verwachtAfwijzing { verifier.voltooiMetCredential(challenge.nonce, verminkt(versleuteld, Random(seed))) }
+        verwachtAfwijzing(verminkt(versleuteld, Random(seed))) { verifier.voltooiMetCredential(challenge.nonce, it, Opzet.CLIENT) }
     }
 
     @ParameterizedTest(name = "seed {0}")
@@ -59,43 +57,31 @@ class VerminkingTest {
 
         presentatie[veld] = verminkt(presentatie[veld] as String, random)
 
-        verwachtAfwijzing { verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie)) }
+        verwachtAfwijzing(presentatie[veld] as String) {
+            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
+        }
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = ["negatief", "gelijk aan p", "naast de curve"])
-    fun `een punt buiten P-256 ligt niet op de curve`(geval: String) {
-        val echt = TestApp.sleutelpaar().public as ECPublicKey
-        val p = (Jose.P256.curve.field as java.security.spec.ECFieldFp).p
-        val punt = when (geval) {
-            "negatief" -> ECPoint(BigInteger.ONE.negate(), echt.w.affineY)
-            "gelijk aan p" -> ECPoint(p, echt.w.affineY)
-            else -> ECPoint(echt.w.affineX, echt.w.affineY.add(BigInteger.ONE))
+    @ParameterizedTest(name = "seed {0}")
+    @ValueSource(longs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    fun `een verminkt self-signed certificaat wordt afgewezen`(seed: Long) {
+        val opzet = Opzet()
+        val verifier = opzet.verifier()
+        val challenge = opzet.challenge(verifier)
+        val presentatie = opzet.presentatie(challenge, verminkt(opzet.selfSigned(), Random(seed)), Verifier.CERTIFICAAT_SELF_SIGNED)
+
+        verwachtAfwijzing(presentatie["certificate"] as String) {
+            verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
         }
-        val sleutel = object : ECPublicKey {
-            override fun getW() = punt
-
-            override fun getParams() = Jose.P256
-
-            override fun getAlgorithm() = "EC"
-
-            override fun getFormat() = "X.509"
-
-            override fun getEncoded() = ByteArray(0)
-        }
-
-        assertTrue(Jose.opCurve(echt))
-        assertTrue(!Jose.opCurve(sleutel))
     }
 
-    @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = ["secp384r1"])
-    fun `een Verifier-sleutel buiten P-256 wordt geweigerd`(curve: String) {
-        val sleutel = TestApp.sleutelpaar(curve).private as ECPrivateKey
+    @ParameterizedTest(name = "seed {0}")
+    @ValueSource(longs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    fun `een verminkt verzoek binnen de sessie wordt afgewezen`(seed: Long) {
+        val opzet = Opzet()
+        val verifier = opzet.verifier()
+        val (uitgegeven, aes) = opzet.sessie(verifier)
 
-        org.junit.jupiter.api.assertThrows<IllegalArgumentException> { VerifierSleutel("k", sleutel) }
-        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
-            VerifierSleutel(" ", TestApp.sleutelpaar().private as ECPrivateKey)
-        }
+        verwachtAfwijzing(verminkt(TestApp.jweDir("""{"page":0}""", aes), Random(seed))) { verifier.ontsleutel(uitgegeven.sessie, it) }
     }
 }

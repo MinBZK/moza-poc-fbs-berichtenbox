@@ -21,11 +21,12 @@ class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
  *
  * Elke afwijzing is een [AfgewezenException]; de aanroeper antwoordt daarop `401`, ongeacht de
  * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`.
+ * `client` is overal de herkomst van het verzoek en telt mee voor de quota van de opslag.
  */
 class Verifier(
     private val oin: String,
     private val sleutel: VerifierSleutel,
-    uitgevers: UitgeverSleutels,
+    appManagers: AppManagerSleutels,
     scope: String,
     private val challenges: ChallengeOpslag,
     private val sessies: SessieOpslag,
@@ -33,21 +34,23 @@ class Verifier(
     private val willekeur: SecureRandom = SecureRandom(),
 ) {
 
-    private val credentials = CredentialControle(uitgevers, scope)
+    private val credentials = CredentialControle(appManagers, scope)
 
-    /**
-     * Stap 2 tot en met 9: een nonce en een tijdelijk sleutelpaar, de challenge getekend met de
-     * sleutel van deze Verifier. [client] is de herkomst van het verzoek (bijvoorbeeld het IP-adres)
-     * en telt mee voor het quotum.
-     */
+    /** Stap 2 tot en met 9: een nonce en een tijdelijk sleutelpaar, de challenge getekend met de sleutel van deze Verifier. */
     fun maakChallenge(client: String): String {
+        val nu = klok.instant()
+
+        // Een app weigert een verlopen sleutel (4.6.1); tekenen zou alleen onverklaarbare afwijzingen opleveren.
+        check(nu.isBefore(sleutel.geldigTot)) { "de sleutel ${sleutel.kid} is verlopen; de challenge zou door elke app geweigerd worden" }
+
         val nonce = Base64.getEncoder().encodeToString(ByteArray(NONCE_BYTES).also(willekeur::nextBytes))
+
         val tijdelijk = KeyPairGenerator.getInstance("EC").run {
             initialize(Jose.P256, willekeur)
             generateKeyPair()
         }
 
-        challenges.bewaar(oin, nonce, client, tijdelijk.private as ECPrivateKey, klok.instant().plus(NONCE_GELDIG))
+        challenges.bewaar(oin, nonce, client, tijdelijk.private as ECPrivateKey, nu.plus(NONCE_GELDIG))
 
         return Jose.teken(
             mapOf(
@@ -60,27 +63,29 @@ class Verifier(
     }
 
     /** Stap 20 tot en met 26 voor een magazijn: alleen een credential van een App Manager. */
-    fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String): UitgegevenSessie {
+    fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
         val nu = klok.instant()
         val presentatie = openPresentatie(nonce, versleuteldePresentatie, CERTIFICAAT_APP_MANAGER)
         val credential = credentials.controleer(presentatie.certificaat, nu)
 
         controleerNonceHandtekening(presentatie.nonceHandtekening, credential.appSleutel, nonce)
 
-        val resterend = Duration.between(nu, credential.exp)
+        val geldig = minOf(SESSIE_GELDIG, Duration.between(nu, credential.exp))
 
-        return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger), minOf(SESSIE_GELDIG, resterend), nu)
+        return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger), geldig, nu, client)
     }
 
     /** Stap 20 tot en met 26 voor de App Manager: alleen een self-signed certificaat (4.4.1, stap 2). */
-    fun voltooiSelfSigned(nonce: String, versleuteldePresentatie: String): UitgegevenSessie {
+    fun voltooiSelfSigned(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
         val nu = klok.instant()
         val presentatie = openPresentatie(nonce, versleuteldePresentatie, CERTIFICAAT_SELF_SIGNED)
         val appSleutel = selfSignedSleutel(presentatie.certificaat)
 
         controleerNonceHandtekening(presentatie.nonceHandtekening, appSleutel, nonce)
 
-        return geefUit(presentatie.aesSleutel, Identiteit.AppSleutel(appSleutel, Jose.thumbprint(appSleutel)), SESSIE_GELDIG, nu)
+        val identiteit = Identiteit.AppSleutel(appSleutel, Jose.thumbprint(appSleutel))
+
+        return geefUit(presentatie.aesSleutel, identiteit, SESSIE_GELDIG, nu, client)
     }
 
     /** De sessie bij [token]; een onbekend of verlopen token wordt afgewezen. */
@@ -91,7 +96,11 @@ class Verifier(
     fun versleutel(sessie: Sessie, payload: String): String = Jose.versleutelDir(payload, sessie.aesSleutel)
 
     /** Ontsleutelt een verzoek dat de app onder de sessiesleutel versleutelde. */
-    fun ontsleutel(sessie: Sessie, jwe: String): String = Jose.ontsleutelDir(jwe, sessie.aesSleutel)
+    fun ontsleutel(sessie: Sessie, jwe: String): String {
+        if (jwe.length > MAX_VERZOEK_TEKENS) throw AfgewezenException(Afwijzing.VERSLEUTELING_ONGELDIG)
+
+        return Jose.ontsleutelDir(jwe, sessie.aesSleutel)
+    }
 
     private class Presentatie(val nonceHandtekening: String, val certificaat: String, val aesSleutel: ByteArray)
 
@@ -99,6 +108,10 @@ class Verifier(
         // De nonce is na deze regel verbruikt, ook als een controle hieronder faalt: herhaald
         // proberen met dezelfde challenge levert dus niets op.
         val tijdelijkeSleutel = challenges.neem(oin, nonce) ?: throw AfgewezenException(Afwijzing.NONCE_ONBEKEND)
+
+        // Een echte presentatie is een paar kilobyte; groter is alleen werk voor de ontsleuteling.
+        if (versleuteld.length > MAX_PRESENTATIE_TEKENS) throw AfgewezenException(Afwijzing.PRESENTATIE_ONLEESBAAR)
+
         val velden = Jose.jsonObject(Jose.ontsleutelEcdh(versleuteld, tijdelijkeSleutel), Afwijzing.PRESENTATIE_ONLEESBAAR)
 
         val nonceHandtekening = velden["app_nonce_signature"] as? String
@@ -119,7 +132,7 @@ class Verifier(
         val sleutel = try {
             Base64.getDecoder().decode(tekst)
         } catch (e: IllegalArgumentException) {
-            throw AfgewezenException(Afwijzing.AES_SLEUTEL_ONGELDIG, e)
+            throw afgewezen(Afwijzing.AES_SLEUTEL_ONGELDIG, e)
         }
 
         // 256 bit, zoals A256GCM vraagt; de 16 bytes uit 4.3.4.1 spreken 3.4 en stap 13 tegen.
@@ -129,7 +142,7 @@ class Verifier(
     }
 
     private fun selfSignedSleutel(certificaat: String): ECPublicKey {
-        val jws = Jose.leesJws(certificaat)
+        val jws = Jose.leesJws(certificaat, Afwijzing.APPSLEUTEL_ONGELDIG)
         val ongeverifieerd = Jose.jsonObject(jws.unverifiedPayload, Afwijzing.APPSLEUTEL_ONGELDIG)
         val appSleutel = CredentialControle.appSleutel(ongeverifieerd)
         val claims = Jose.verifieer(jws, appSleutel, Afwijzing.HANDTEKENING_ONGELDIG)
@@ -140,16 +153,17 @@ class Verifier(
     }
 
     private fun controleerNonceHandtekening(compact: String, appSleutel: ECPublicKey, nonce: String) {
-        val claims = Jose.verifieer(Jose.leesJws(compact), appSleutel, Afwijzing.NONCEHANDTEKENING_ONGELDIG)
+        val jws = Jose.leesJws(compact, Afwijzing.NONCEHANDTEKENING_ONGELDIG)
+        val claims = Jose.verifieer(jws, appSleutel, Afwijzing.NONCEHANDTEKENING_ONGELDIG)
         val klopt = claims["sub"] == "challenge_response" && claims["aud"] == oin && claims["nonce"] == nonce
 
         if (!klopt) throw AfgewezenException(Afwijzing.NONCEHANDTEKENING_ONGELDIG)
     }
 
-    private fun geefUit(aesSleutel: ByteArray, identiteit: Identiteit, geldig: Duration, nu: Instant): UitgegevenSessie {
+    private fun geefUit(aesSleutel: ByteArray, identiteit: Identiteit, geldig: Duration, nu: Instant, client: String): UitgegevenSessie {
         val sessie = Sessie(oin, sessietoken(), aesSleutel, identiteit, nu.plus(geldig))
 
-        sessies.bewaar(sessie)
+        sessies.bewaar(sessie, client)
 
         val antwoord = JsonUtil.toJson(mapOf("session_token" to sessie.token, "expires_in" to geldig.seconds))
 
@@ -169,6 +183,12 @@ class Verifier(
 
         /** Hoe lang een sessie ten hoogste duurt; niet te verlengen. */
         val SESSIE_GELDIG: Duration = Duration.ofMinutes(15)
+
+        /** Gelijk aan `maxLength` van `encrypted_challenge_result` in het contract. */
+        const val MAX_PRESENTATIE_TEKENS = 65_536
+
+        /** Bovengrens voor een verzoek binnen de sessie; ruim boven wat een app versleuteld stuurt. */
+        const val MAX_VERZOEK_TEKENS = 65_536
 
         private const val NONCE_BYTES = 16
         private const val AES_BYTES = 32
