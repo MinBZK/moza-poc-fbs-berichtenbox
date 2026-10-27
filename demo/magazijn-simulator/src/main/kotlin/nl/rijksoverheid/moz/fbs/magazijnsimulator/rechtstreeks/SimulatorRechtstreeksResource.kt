@@ -48,7 +48,8 @@ class SimulatorRechtstreeksResource(
 
     private fun client(): String {
         val request = verzoek.current?.request()
-        val sleutel = ClientAdres.bepaal(request?.remoteAddress()?.hostAddress(), request?.getHeader("X-Forwarded-For"), verifiers.vertrouwdeProxies)
+        val forwarded = request?.headers()?.getAll("X-Forwarded-For").orEmpty()
+        val sleutel = ClientAdres.bepaal(request?.remoteAddress()?.hostAddress(), forwarded, verifiers.vertrouwdeProxies)
 
         // Iedereen zonder herkenbaar adres deelt één quotum; meestal wijst dat op een proxy die niet
         // als vertrouwd staat ingesteld. Eén keer melden is genoeg om dat te vinden.

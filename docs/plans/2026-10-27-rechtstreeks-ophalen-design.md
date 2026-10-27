@@ -230,10 +230,11 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
        daartegen helpt alleen de stateless nonce hieronder.
 
      Het client-adres komt achter een ingress van de vertrouwde proxy: de láátste waarde van
-     `X-Forwarded-For`, en alleen als het verzoek van een geconfigureerd proxy-netwerk komt. Niet
-     `quarkus.http.proxy.proxy-address-forwarding`, dat de eerste waarde neemt; die kiest de client
-     zelf zolang de router de header aanvult, wat de OpenShift-router standaard doet. Zonder
-     vertrouwde proxy deelt iedereen het adres van de proxy. Een IPv6-adres telt per /64. Een verlopen sessie weigert de Verifier ook als een lopend verzoek hem nog vasthoudt; de
+     `X-Forwarded-For` over alle regels van die header, en alleen als het verzoek van een
+     geconfigureerd proxy-netwerk komt. Niet `quarkus.http.proxy.proxy-address-forwarding`, dat
+     de eerste waarde neemt. Die kiest de client zelf: de OpenShift-router laat een meegestuurde
+     header staan en zet het echte adres in een eigen regel erachter. Zonder vertrouwde proxy deelt
+     iedereen het adres van de proxy. Een IPv6-adres telt per /64. Een verlopen sessie weigert de Verifier ook als een lopend verzoek hem nog vasthoudt; de
      sleutel wordt niet gewist, want dan zou zo'n verzoek onder nullen versleutelen. Voor de
      simulator en de App Manager, die met één instantie draaien, is dit aanvaardbaar. Het echte
      magazijn draait met meer replica's.
