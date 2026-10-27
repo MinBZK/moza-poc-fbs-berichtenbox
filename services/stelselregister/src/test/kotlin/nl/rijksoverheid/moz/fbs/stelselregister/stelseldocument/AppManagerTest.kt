@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
@@ -45,27 +46,27 @@ class AppManagerTest {
     @Test
     fun `een App Manager staat met zijn sleutels als JWK in het document`() {
         val sleutel = sleutel("app-manager-1")
-        val beheerder = payload(Stelseldocument(emptyList(), listOf(appManager(sleutels = arrayOf(sleutel))))).path("app_managers")[0]
+        val appManager = payload(Stelseldocument(emptyList(), listOf(appManager(sleutels = arrayOf(sleutel))))).path("app_managers")[0]
 
-        assertEquals(listOf("oin", "name", "public_keys"), beheerder.fieldNames().asSequence().toList())
-        assertEquals("00000000000000001100", beheerder.path("oin").asText())
+        assertEquals(listOf("oin", "name", "public_keys"), appManager.fieldNames().asSequence().toList())
+        assertEquals("00000000000000001100", appManager.path("oin").asText())
 
-        val jwk = beheerder.path("public_keys")[0]
+        val jwk = appManager.path("public_keys")[0]
 
         assertEquals("app-manager-1", jwk.path("kid").asText())
         assertEquals(geldigTot.epochSecond, jwk.path("exp").asLong())
         assertEquals(
             mapOf("kty" to "EC", "crv" to "P-256", "x" to sleutel.x, "y" to sleutel.y),
-            jwk.path("jwk").fields().asSequence().associate { it.key to it.value.asText() },
+            jwk.path("jwk").properties().associate { it.key to it.value.asText() },
         )
     }
 
     @ParameterizedTest(name = "{0} App Managers")
     @ValueSource(ints = [0, 1, 3])
     fun `App Managers staan op OIN en hun sleutels op kid gesorteerd`(aantal: Int) {
-        val beheerders = (aantal downTo 1).map { appManager("%020d".format(it), sleutel("b"), sleutel("a")) }
+        val appManagers = (aantal downTo 1).map { appManager("%020d".format(it), sleutel("b"), sleutel("a")) }
 
-        val lijst = payload(Stelseldocument(emptyList(), beheerders)).path("app_managers")
+        val lijst = payload(Stelseldocument(emptyList(), appManagers)).path("app_managers")
 
         assertEquals((1..aantal).map { "%020d".format(it) }, lijst.map { it.path("oin").asText() })
         lijst.forEach { assertEquals(listOf("a", "b"), it.path("public_keys").map { sleutel -> sleutel.path("kid").asText() }) }
@@ -81,6 +82,8 @@ class AppManagerTest {
             Stelseldocument(emptyList(), listOf(appManager(sleutels = arrayOf(sleutel("k2"), sleutel)))),
             Stelseldocument(emptyList(), listOf(appManager(sleutels = arrayOf(AppManagerSleutel(sleutel.kid, sleutel.x, sleutel.y, geldigTot.plusSeconds(1)))))),
             Stelseldocument(emptyList(), listOf(appManager("00000000000000001200", sleutel))),
+            Stelseldocument(emptyList(), listOf(AppManager("00000000000000001100", "Andere naam", listOf(sleutel)))),
+            Stelseldocument(emptyList(), listOf(appManager(sleutels = arrayOf(sleutel("x").let { AppManagerSleutel(sleutel.kid, it.x, it.y, geldigTot) })))),
         ).map { it.versie }
 
         varianten.forEach { assertNotEquals(basis, it) }
@@ -100,14 +103,14 @@ class AppManagerTest {
         assertThrows(IllegalArgumentException::class.java) { appManager(sleutels = arrayOf(sleutel("k"), sleutel("k"))) }
     }
 
-    @ParameterizedTest(name = "x van {0} bytes")
+    @ParameterizedTest(name = "{0} bytes")
     @ValueSource(ints = [31, 33])
-    fun `een coördinaat die niet precies 32 bytes is, wordt geweigerd`(lengte: Int) {
+    fun `een coördinaat die niet precies 32 bytes is, wordt geweigerd, voor x en voor y`(lengte: Int) {
         val goed = sleutel()
+        val fout = b64url.encodeToString(ByteArray(lengte) { 1 })
 
-        assertThrows(IllegalArgumentException::class.java) {
-            AppManagerSleutel("k", b64url.encodeToString(ByteArray(lengte) { 1 }), goed.y, geldigTot)
-        }
+        assertThrows(IllegalArgumentException::class.java) { AppManagerSleutel("k", fout, goed.y, geldigTot) }
+        assertThrows(IllegalArgumentException::class.java) { AppManagerSleutel("k", goed.x, fout, geldigTot) }
     }
 
     @Test
@@ -121,11 +124,30 @@ class AppManagerTest {
         assertThrows(IllegalArgumentException::class.java) { AppManagerSleutel("k", "!!!", goed.y, geldigTot) }
     }
 
+    /** (0, √b) ligt op P-256; met x + p ligt hij er modulo p nog steeds op, en weigert alleen de veldcontrole hem. */
     @Test
-    fun `een coördinaat gelijk aan p ligt buiten het veld`() {
+    fun `een coördinaat gelijk aan of groter dan p ligt buiten het veld`() {
         val p = BigInteger("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16)
-        val goed = sleutel()
+        val y0 = BigInteger("66485c780e2f83d72433bd5d84a06bb6541c2af31dae871728bf856a174f93f4", 16)
 
-        assertThrows(IllegalArgumentException::class.java) { AppManagerSleutel("k", coordinaat(p), goed.y, geldigTot) }
+        AppManagerSleutel("k", coordinaat(BigInteger.ZERO), coordinaat(y0), geldigTot)
+
+        assertThrows(IllegalArgumentException::class.java) { AppManagerSleutel("k", coordinaat(p), coordinaat(y0), geldigTot) }
+    }
+
+    /**
+     * Het laatste teken van 32 bytes in base64url draagt twee ongebruikte bits. Het teken direct
+     * erna in het alfabet geeft dezelfde bytes, maar is niet de canonieke schrijfwijze.
+     */
+    @Test
+    fun `een niet-canonieke schrijfwijze van dezelfde bytes wordt geweigerd`() {
+        val alfabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        val goed = sleutel()
+        val laatste = alfabet.indexOf(goed.x.last())
+        val zelfdeBytes = goed.x.dropLast(1) + alfabet[laatste + 1]
+
+        assertEquals(0, laatste % 4)
+        assertTrue(Base64.getUrlDecoder().decode(zelfdeBytes).contentEquals(Base64.getUrlDecoder().decode(goed.x)))
+        assertThrows(IllegalArgumentException::class.java) { AppManagerSleutel("k", zelfdeBytes, goed.y, geldigTot) }
     }
 }

@@ -83,28 +83,36 @@ De veldnamen zijn Engels en snake_case omdat ze uit de standaard komen.
 ### App Managers
 
 Een App Manager bevestigt de identiteit van de gebruiker van een app en geeft daarover een
-credential uit (FSC voor Burgers 4.3.1). Een magazijn vertrouwt een credential alleen via deze
-lijst:
+credential uit (FSC voor Burgers 4.3.1). Met deze lijst is het document ook een bron van vertrouwen
+voor magazijnen: een magazijn voert dezelfde zes verificatiestappen uit als een app, en vertrouwt
+een credential alleen via deze lijst.
 
 - `public_keys` zijn de sleutels waarmee de App Manager tekent, gesorteerd op `kid`. Elke sleutel
   heeft een `kid`, een `exp` (seconden sinds 1970) en een `jwk`: een publieke EC-sleutel op P-256
-  met precies `kty`, `crv`, `x` en `y`. Tijdens een sleutelwissel staan er twee.
+  met precies `kty`, `crv`, `x` en `y`. Tijdens een sleutelwissel staat er meer dan één.
 - Een magazijn zoekt de sleutel van een credential op met `iss` (de OIN hierboven) en de `kid` uit
-  de header van het credential. Een sleutel die niet in deze lijst staat, ook niet een die in het
-  credential zelf meekomt, wordt nooit gebruikt.
-- De sleutel moet geldig zijn geweest op `iat` van het credential (4.6.2). Zo blijft een
-  credential bruikbaar tot zijn eigen `exp`, ook als de sleutel inmiddels verlopen is.
+  de header van het credential. Een credential zonder `kid`, of met een sleutel die niet in deze
+  lijst staat, wordt geweigerd; een sleutel die in het credential zelf meekomt, wordt nooit gebruikt.
+- Het credential is een JWS met `alg` exact `ES256`. De JWK draagt geen `alg`; een magazijn neemt
+  het algoritme dus nooit uit de header over.
+- De sleutel moet geldig zijn geweest op `iat` van het credential (4.6.2): `iat` ligt vóór `exp` van
+  de sleutel. Omdat een aanvaller met een gelekte sleutel `iat` zelf kiest, gelden daarnaast:
+  `nbf` niet vóór `iat` en hooguit 60 seconden vooruit, `exp` van het credential nog niet voorbij,
+  en `exp − iat` ten hoogste 24 uur. Een verlopen sleutel is daarmee uiterlijk 24 uur na zijn `exp`
+  waardeloos.
 - De scope van een credential voor FBS is `nl.rijksoverheid.moz.fbs.berichten`. Hoe de sleutel van
   de App Manager wordt opgezocht, laat de standaard per scope aan het toepassingsprofiel (4.3.3);
   voor deze scope is dat de regel hierboven.
 
-De stelselbeheerder neemt een App Manager op via configuratie van de dienst
-(`stelseldocument.app-managers."<OIN>".naam` en `.sleutels."<kid>".{x,y,geldig-tot}`). Een sleutel
-die geen punt op P-256 is, of een coördinaat die niet precies 32 bytes is, blokkeert de start.
+Een gelekte sleutel van een App Manager trekt de stelselbeheerder in door hem uit de configuratie
+te halen en de dienst te herstarten. Een magazijn gebruikt hem daarna niet meer, ook niet voor al
+uitgegeven credentials, zodra het een nieuw exemplaar heeft: uiterlijk 24 uur plus het
+verversinterval. Hoe een App Manager in de configuratie komt, staat in de
+[operator-handleiding](operator-handleiding-stelselregister.md).
 
-De demo-App Manager authenticeert niemand: wie een persona kiest, krijgt een credential. Hij hoort
-daarom alleen in een document met `environment: demo`; een magazijn buiten de demo weigert een
-document waarin hij staat.
+**De demo-App Manager** (OIN `00000000000000001100`) authenticeert niemand: wie een persona kiest,
+krijgt een credential. Een afnemer weigert een document waarin die OIN in `app_managers` staat en
+`environment` niet `demo` is.
 
 ## Versienummering
 

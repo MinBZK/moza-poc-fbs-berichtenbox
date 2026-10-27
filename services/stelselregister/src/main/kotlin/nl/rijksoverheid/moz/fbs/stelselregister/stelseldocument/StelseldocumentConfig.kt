@@ -38,16 +38,16 @@ interface StelseldocumentConfig {
      * `stelseldocument.app-managers."<OIN>".sleutels."<kid>".{x,y,geldig-tot}`. Zonder App Managers
      * is de lijst in het document leeg.
      */
-    fun appManagers(): Map<String, AppManager>
+    fun appManagers(): Map<String, AppManagerConfig>
 
-    interface AppManager {
+    interface AppManagerConfig {
 
         fun naam(): String
 
-        fun sleutels(): Map<String, Sleutel>
+        fun sleutels(): Map<String, SleutelConfig>
     }
 
-    interface Sleutel {
+    interface SleutelConfig {
 
         /** JWK-coördinaat `x` van het P-256-punt, base64url. */
         fun x(): String

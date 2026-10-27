@@ -26,7 +26,7 @@ class UitgegevenStelseldocument(
     private val log = Logger.getLogger(UitgegevenStelseldocument::class.java)
     private val huidige = AtomicReference<Uitgifte?>()
 
-    /** Bij de eerste uitgifte gelezen en gecontroleerd, zodat een onbruikbare sleutel de start blokkeert. */
+    /** Bij de start gelezen en gecontroleerd, zodat een onbruikbare sleutel de start blokkeert. */
     private val appManagers by lazy { AppManager.uit(config.appManagers()) }
 
     private val ondertekenaar by lazy {
@@ -95,6 +95,7 @@ class UitgegevenStelseldocument(
         val nu = clock.instant()
 
         sleutelbron.waarschuwBijNaderendVerloop(nu)
+        waarschuwBijVerlopendeAppManagers(nu)
 
         val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register, appManagers), sleutel, nu)
         val vorige = huidige.get()
@@ -135,7 +136,28 @@ class UitgegevenStelseldocument(
         )
     }
 
+    /**
+     * Verloopt de laatste sleutel van een App Manager, dan weigert elk magazijn zijn nieuwe
+     * credentials. Het stelselregister is de enige plek die dat vooraf ziet; daarom waarschuwt het
+     * vanaf dertig dagen ervoor, bij elke uitgifte.
+     */
+    private fun waarschuwBijVerlopendeAppManagers(nu: java.time.Instant) {
+        appManagers.forEach { appManager ->
+            val laatste = appManager.sleutels.maxOf { it.geldigTot }
+
+            if (laatste.isBefore(nu.plus(WAARSCHUWEN_BINNEN))) {
+                log.warnf(
+                    "De laatste sleutel van App Manager %s verloopt op %s; neem vóór die datum een nieuwe sleutel op",
+                    appManager.oin,
+                    laatste,
+                )
+            }
+        }
+    }
+
     companion object {
+        private val WAARSCHUWEN_BINNEN: Duration = Duration.ofDays(30)
+
         /** De langste geldigheid die een afnemer accepteert. */
         val MAX_GELDIGHEID: Duration = Duration.ofHours(24)
 

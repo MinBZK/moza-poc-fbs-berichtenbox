@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FBS Stelselregister API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Publiceert welke organisaties aan het Federatief Berichtenstelsel (FBS) deelnemen en waar hun
     berichtenmagazijn staat, als **stelseldocument**: één document, ondertekend door de
@@ -264,8 +264,9 @@ components:
           type: array
           description: |
             De App Managers die apps een credential mogen uitgeven, gesorteerd op OIN. Een magazijn
-            accepteert een credential alleen als `iss` hier staat en `kid` een van de sleutels
-            aanwijst.
+            accepteert een credential alleen als `iss` hier staat, `kid` een van de sleutels
+            aanwijst en die sleutel op `iat` van het credential geldig was; de volledige regels
+            staan in het toepassingsprofiel.
           items:
             $ref: '#/components/schemas/AppManager'
         document_types:

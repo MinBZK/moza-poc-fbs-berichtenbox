@@ -50,6 +50,7 @@ class UitgegevenStelseldocumentTest {
         uitgever: String = "00000000000000001000",
         geldigheid: Duration = Duration.ofHours(24),
         verversen: Duration = Duration.ofHours(1),
+        appManagers: Map<String, StelseldocumentConfig.AppManagerConfig> = emptyMap(),
     ) = object : StelseldocumentConfig {
         override fun uitgeverOin() = uitgever
         override fun omgeving() = "test"
@@ -60,13 +61,32 @@ class UitgegevenStelseldocumentTest {
             override fun wachtwoord() = Optional.of(String(Testketens.geldig.wachtwoord))
             override fun alias() = Wegwerpketen.ALIAS
         }
-        override fun appManagers() = emptyMap<String, StelseldocumentConfig.AppManager>()
+        override fun appManagers() = appManagers
     }
 
     private fun uitgegeven(config: StelseldocumentConfig = config()) =
         UitgegevenStelseldocument(register, Sleutelbron(config, klok, LaunchMode.NORMAL), config, klok)
 
     private val startup = mockk<StartupEvent>()
+
+    @Test
+    fun `een App Manager met een onbruikbare sleutel blokkeert de start`() {
+        val sleutel = mockk<StelseldocumentConfig.SleutelConfig> {
+            every { x() } returns "PdzXYrW5QJGuvJKZB38Di5QGJMkze7gSsETqjY1lJpo"
+            every { y() } returns "PdzXYrW5QJGuvJKZB38Di5QGJMkze7gSsETqjY1lJpo"
+            every { geldigTot() } returns Instant.parse("2030-01-01T00:00:00Z")
+        }
+        val appManager = mockk<StelseldocumentConfig.AppManagerConfig> {
+            every { naam() } returns "Test-App Manager"
+            every { sleutels() } returns mapOf("k1" to sleutel)
+        }
+
+        val fout = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            uitgegeven(config(appManagers = mapOf("00000000000000001100" to appManager))).bijOpstart(startup)
+        }
+
+        assertTrue(fout.message.orEmpty().contains("geen punt op P-256"), fout.message)
+    }
 
     @Test
     fun `voor de start is er geen document`() {

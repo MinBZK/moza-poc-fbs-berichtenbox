@@ -63,14 +63,13 @@ class Stelseldocument(organisaties: Collection<Organisatie>, appManagers: Collec
                 .put("magazijn_url", organisatie.magazijnUrl)
         }
 
-        val beheerders = doel.putArray("app_managers")
+        val lijstAppManagers = doel.putArray("app_managers")
 
         appManagers.forEach { appManager ->
-            val beheerder = beheerders.addObject()
+            val sleutels = lijstAppManagers.addObject()
                 .put("oin", appManager.oin)
                 .put("name", appManager.naam)
-
-            val sleutels = beheerder.putArray("public_keys")
+                .putArray("public_keys")
 
             appManager.sleutels.forEach { sleutel ->
                 sleutels.addObject()

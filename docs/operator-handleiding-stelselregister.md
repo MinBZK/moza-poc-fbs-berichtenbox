@@ -17,7 +17,7 @@ geheim is de ondertekensleutel.
 | `STELSELDOCUMENT_KEYSTORE_WACHTWOORD` | ja | wachtwoord van de keystore; zonder backslash, zodat het ongewijzigd door een env-var komt |
 | `STELSELDOCUMENT_KEYSTORE_ALIAS` | nee | alias van de ondertekensleutel; standaard `stelseldocument` |
 | `MAGAZIJN_A_URL`, `MAGAZIJN_B_URL` | ja | de **publieke** adressen van de twee vaste magazijnen, nooit die van een outway |
-| `SMALLRYE_CONFIG_LOCATIONS` | nee | extra registerregels (`magazijnen."<OIN>".{url,naam}`), zoals de gesimuleerde magazijnen van de demo |
+| `SMALLRYE_CONFIG_LOCATIONS` | nee | extra registerregels (`magazijnen."<OIN>".{url,naam}`), zoals de gesimuleerde magazijnen van de demo, en de App Managers (zie hieronder) |
 | `HTTP_TLS_TERMINATION` | bij een ingress | `mesh` als de ingress TLS termineert; anders verwacht de dienst zelf een TLS-keystore |
 | `SECURITY_TXT_URL` | nee | doel van `/.well-known/security.txt`; standaard het centrale bestand van het NCSC |
 
@@ -25,6 +25,21 @@ Geldigheid (`stelseldocument.geldigheid`, 24 uur) en ververs-interval
 (`stelseldocument.verversen`, 1 uur) zijn instelbaar; de geldigheid moet langer zijn dan het
 interval en mag niet boven de 24 uur uitkomen, anders start de dienst niet. Een afnemer weigert
 een document dat langer geldt.
+
+**App Managers** komen uit een propertiesbestand via `SMALLRYE_CONFIG_LOCATIONS`, niet uit
+env-vars: een env-var zet de `kid` om naar kleine letters, en een `kid` met `-` of `.` is dan niet
+te schrijven.
+
+```properties
+stelseldocument.app-managers."<OIN>".naam=<weergavenaam>
+stelseldocument.app-managers."<OIN>".sleutels."<kid>".x=<base64url, 32 bytes>
+stelseldocument.app-managers."<OIN>".sleutels."<kid>".y=<base64url, 32 bytes>
+stelseldocument.app-managers."<OIN>".sleutels."<kid>".geldig-tot=2027-01-01T00:00:00Z
+```
+
+Neem bij een sleutelwissel de nieuwe sleutel op naast de oude, en haal de oude pas weg als hij
+24 uur verlopen is. Zet de demo-App Manager (`00000000000000001100`) alleen in een document met
+`STELSELDOCUMENT_OMGEVING=demo`: hij authenticeert niemand.
 
 **Draai de dienst met precies één replica.** Elke instantie ondertekent op haar eigen moment, en
 een afnemer weigert een exemplaar met een oudere `iat` dan het laatste dat hij accepteerde. Met
@@ -55,6 +70,10 @@ melding in de log noemt de oorzaak:
 | `is een CA-certificaat` | onder de alias staat een CA-certificaat in plaats van een eindcertificaat |
 | `mist het sleutelgebruik digitalSignature` | het certificaat is niet voor ondertekenen uitgegeven |
 | `draagt in subject.serialNumber` | de OIN in het certificaat is niet `STELSELDOCUMENT_UITGEVER_OIN`, of het subject heeft geen of meer dan één `serialNumber` |
+| `geen punt op P-256` | een App Manager-sleutel ligt niet op de curve; `x` en `y` horen niet bij elkaar |
+| `een coördinaat is 32 bytes` of `binnen het veld van P-256` | `x` of `y` van een App Manager-sleutel is geen canonieke base64url van 32 bytes |
+| `heeft een kid dubbel`, `ten minste één sleutel`, `heeft een naam nodig` | een App Manager is onvolledig geconfigureerd |
+| `OIN` bij een App Manager | de sleutel onder `app-managers` is geen OIN van 20 cijfers |
 
 De terugval op een wegwerpketen hangt aan de manier waarop de applicatie gebouwd is, niet aan het
 profiel waarmee hij start. Een uitgerold image ondertekent dus nooit met een wegwerpsleutel, ook
@@ -65,12 +84,15 @@ niet met `QUARKUS_PROFILE=dev`.
 - **Readiness** (`/q/health/ready`, check `stelseldocument`) is `UP` zolang er een onverlopen
   document klaarstaat. De check zegt niets over de sleutel: het pad is publiek bereikbaar.
 - **Bij elke uitgifte** staat er een regel `Stelseldocument uitgegeven` in de log met `kid`,
-  `version`, `iat`, `exp`, het aantal organisaties en de herkomst van de sleutel
+  `version`, `iat`, `exp`, het aantal organisaties en App Managers en de herkomst van de sleutel
   (`KEYSTORE` of `WEGWERP`). `WEGWERP` hoort in een uitgerolde omgeving nooit voor te komen.
 - **Vanaf dertig dagen voor het verlopen** van de certificaatketen waarschuwt de dienst bij elke
   uitgifte, dus elk uur (`De certificaatketen van de ondertekensleutel ... verloopt over`). Koppel
   daar een melding aan. Er is geen uitloop: een document geldt nooit langer dan de keten, dus op
   het moment van verlopen gaat de dienst direct naar `503`.
+- **Vanaf dertig dagen voor het verlopen** van de laatste sleutel van een App Manager waarschuwt
+  de dienst bij elke uitgifte (`De laatste sleutel van App Manager ... verloopt op`). Daarna
+  weigert elk magazijn de nieuwe credentials van die App Manager; neem tijdig een nieuwe sleutel op.
 - **Mislukt het verversen**, dan staat er een `ERROR` `Het stelseldocument is niet ververst`, met
   erbij of er nog een geldend exemplaar is. Zonder geldend exemplaar geeft de dienst `503` en
   meldt hij zich niet meer gereed.

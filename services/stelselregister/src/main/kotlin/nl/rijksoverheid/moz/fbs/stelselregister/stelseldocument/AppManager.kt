@@ -21,28 +21,41 @@ class AppManagerSleutel(val kid: String, val x: String, val y: String, val geldi
         require(opP256(coordinaat(x), coordinaat(y))) { "sleutel $kid is geen punt op P-256" }
     }
 
-    private companion object {
-        val P256: ECParameterSpec = AlgorithmParameters.getInstance("EC").run {
+    internal companion object {
+        private val P256: ECParameterSpec = AlgorithmParameters.getInstance("EC").run {
             init(ECGenParameterSpec("secp256r1"))
             getParameterSpec(ECParameterSpec::class.java)
         }
 
-        /** RFC 7518 §6.2.1.2: precies de veldlengte, base64url zonder opvulling. */
+        val P: BigInteger = (P256.curve.field as ECFieldFp).p
+
+        /**
+         * RFC 7518 §6.2.1.2: precies de veldlengte, in canonieke base64url zonder opvulling. Het
+         * document publiceert de geconfigureerde tekst letterlijk; een tweede schrijfwijze van
+         * dezelfde bytes zou een strikte JOSE-library bij een afnemer laten weigeren.
+         */
         fun coordinaat(waarde: String): BigInteger {
             val bytes = Base64.getUrlDecoder().decode(waarde)
 
-            require(bytes.size == 32 && !waarde.endsWith("=")) { "een coördinaat is 32 bytes, base64url zonder opvulling" }
+            require(bytes.size == 32 && BASE64URL.encodeToString(bytes) == waarde) {
+                "een coördinaat is 32 bytes, in canonieke base64url zonder opvulling"
+            }
 
-            return BigInteger(1, bytes)
+            val getal = BigInteger(1, bytes)
+
+            require(getal < P) { "een coördinaat ligt binnen het veld van P-256" }
+
+            return getal
         }
 
         /** Een sleutel naast de curve zou een afnemer alleen afwijzingen opleveren; hier valt hij bij de start op. */
         fun opP256(x: BigInteger, y: BigInteger): Boolean {
             val curve = P256.curve
-            val p = (curve.field as ECFieldFp).p
 
-            return x < p && y < p && y.pow(2).mod(p) == (x.pow(3) + curve.a * x + curve.b).mod(p)
+            return y.pow(2).mod(P) == (x.pow(3) + curve.a * x + curve.b).mod(P)
         }
+
+        private val BASE64URL = Base64.getUrlEncoder().withoutPadding()
     }
 }
 
@@ -62,7 +75,7 @@ class AppManager(val oin: String, val naam: String, sleutels: Collection<AppMana
 
     companion object {
 
-        fun uit(config: Map<String, StelseldocumentConfig.AppManager>): List<AppManager> = config.map { (oin, appManager) ->
+        fun uit(config: Map<String, StelseldocumentConfig.AppManagerConfig>): List<AppManager> = config.map { (oin, appManager) ->
             AppManager(
                 oin = oin,
                 naam = appManager.naam(),
