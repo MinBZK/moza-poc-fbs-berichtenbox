@@ -61,6 +61,13 @@ class BerichtService(
     }
 
     /**
+     * Voor de tweede ingang: andermans, verwijderd en onbekend zijn allemaal hetzelfde `404`, zodat
+     * een app niet kan aftasten welke bericht-id's bestaan.
+     */
+    fun haalOpVoorOntvanger(berichtId: UUID, ontvanger: Identificatienummer): Bericht =
+        repository.zoekVoorOntvanger(magazijnDbId(), berichtId, ontvanger) ?: throw nietGevonden(berichtId)
+
+    /**
      * De autorisatie hangt aan het bericht, niet aan de bijlage: eerst het bericht ophalen (404 of
      * 403), dan pas de bijlage zoeken. Een bestaande bijlage-id onder een ánder bericht levert
      * daardoor ook een 404 op, in plaats van bytes uit een bericht van iemand anders.

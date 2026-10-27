@@ -102,6 +102,20 @@ class BerichtRepository(
             ?.let { verrijk(listOf(it)).first() }
 
     /**
+     * Een actief bericht van [ontvanger], of `null`; de ontvanger zit in de query zelf. Voor de tweede
+     * ingang, die op andermans bericht hetzelfde antwoordt als op een onbekend bericht: beide gevallen
+     * lopen zo hetzelfde pad, ook in de responstijd.
+     */
+    fun zoekVoorOntvanger(magazijnDbId: Long, berichtId: UUID, ontvanger: Identificatienummer): Bericht? =
+        find(
+            "magazijn.id = ?1 and berichtId = ?2 and ontvangerType = ?3 and ontvangerWaarde = ?4 and verwijderdOp is null",
+            magazijnDbId,
+            berichtId,
+            ontvanger.type,
+            ontvanger.waarde,
+        ).firstResult()?.let { verrijk(listOf(it)).first() }
+
+    /**
      * Een bericht inclusief soft-deleted, met de verwijder-markering erbij. De aanroeper heeft dat
      * onderscheid nodig om 403 en 404 in de goede volgorde te kunnen geven: bestaan van andermans
      * bericht mag niet uit een statuscode af te leiden zijn.

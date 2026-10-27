@@ -106,13 +106,36 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
 
         val sessie = Sessie()
 
-        listOf(vanEenAnder, verwijderd, "11111111-2222-3333-4444-555555555555").forEach { id ->
-            valideer().header("Authorization", sessie.token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$id")
+        val antwoorden = listOf(vanEenAnder, verwijderd, "11111111-2222-3333-4444-555555555555").map { id ->
+            val antwoord = valideer().header("Authorization", sessie.token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$id")
                 .then().statusCode(404)
                 .contentType("application/problem+json")
                 .body("type", containsString("bericht-onbekend"))
                 .header("Access-Control-Allow-Origin", "*")
+                .extract()
+
+            // Alles behalve het id in de tekst en het correlatie-id: daaraan mag niets verschillen.
+            val body = JsonUtil.parseJson(antwoord.asString()).filterKeys { it != "instance" }.mapValues { (k, v) -> if (k == "detail") (v as String).replace(id, "<id>") else v }
+
+            body to antwoord.headers().asList().map { it.name }.filterNot { it.equals("Date", ignoreCase = true) }.toSet()
         }
+
+        assertEquals(1, antwoorden.toSet().size, antwoorden.toString())
+    }
+
+    @Test
+    fun `een meegestuurde X-Ontvanger verandert niets aan wiens berichten de sessie ziet`() {
+        val vanEenAnder = leverAan(ANDERE_ONTVANGER, "Niet voor jou")
+        val sessie = Sessie()
+
+        val lijst = sessie.lees(
+            given().header("Authorization", sessie.token).header("X-Ontvanger", ANDERE_ONTVANGER)
+                .get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(200).extract().asString(),
+        )
+
+        assertEquals(0, (lijst["berichten"] as List<*>).size)
+        given().header("Authorization", sessie.token).header("X-Ontvanger", ANDERE_ONTVANGER)
+            .get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$vanEenAnder").then().statusCode(404)
     }
 
     @Test

@@ -2,16 +2,12 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest
-import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.core.Context
-import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriBuilder
 import jakarta.ws.rs.core.UriInfo
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten.BerichtDtoMapper
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten.BerichtService
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.SimulatorFout
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.RechtstreeksOphalenApi
@@ -60,11 +56,7 @@ class SimulatorRechtstreeksResource(
     override fun getRechtstreeksBericht(berichtId: UUID): String {
         val (verifier, sessie, ontvanger) = sessie()
 
-        val bericht = try {
-            berichten.haalOp(berichtId, ontvanger)
-        } catch (fout: ForbiddenException) {
-            throw nietVanDezeOntvanger(berichtId, fout)
-        }
+        val bericht = berichten.haalOpVoorOntvanger(berichtId, ontvanger)
 
         return verifier.versleutel(sessie, json.writeValueAsString(BerichtDtoMapper.naarBericht(bericht, basis())))
     }
@@ -83,17 +75,6 @@ class SimulatorRechtstreeksResource(
 
     /** De links in de payload wijzen naar de paden van deze ingang. */
     private fun basis(): UriBuilder = MagazijnPad.basisUri(uriInfo, context.magazijn.oin).path(RECHTSTREEKS)
-
-    /**
-     * De eerste ingang antwoordt op andermans bericht `403`; hier is dat `404`, zoals het contract
-     * zegt, zodat een app niet kan aftasten welke bericht-id's bestaan.
-     */
-    private fun nietVanDezeOntvanger(berichtId: UUID, oorzaak: ForbiddenException): SimulatorFout {
-        // De log houdt het verschil met een echt onbekend bericht vast; de ontvanger zelf blijft eruit.
-        log.infof("Rechtstreeks: bericht %s hoort niet bij de ontvanger van de sessie (%s)", berichtId, oorzaak.javaClass.simpleName)
-
-        return SimulatorFout(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht $berichtId bestaat niet in magazijn ${context.magazijn.oin}")
-    }
 
     private fun client(): String {
         val request = verzoek.current?.request()
