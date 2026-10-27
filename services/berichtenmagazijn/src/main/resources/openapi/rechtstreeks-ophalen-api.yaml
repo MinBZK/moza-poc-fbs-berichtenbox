@@ -1,0 +1,632 @@
+openapi: 3.0.3
+info:
+  title: FBS Berichtenmagazijn — Rechtstreeks ophalen
+  # Gelijk aan berichtenmagazijn-api.yaml: beide ingangen delen basisadres en `API-Version`.
+  version: 0.5.0
+  description: |
+    Tweede ingang van het berichtenmagazijn: een app van de ontvanger haalt hier zelf berichten op,
+    zonder berichten-uitvraag ertussen. Volgt de variant HTTPS-JWT (`CreateSession`, 4.3.4) van
+    [FSC voor Burgers](https://docs.fsc4b.nl/specs/protocol/), werkversie 13 oktober 2026, waar BK
+    Connect draft-00 nu naar doorverwijst. Ontwerp, afwijkingen van die standaard en van de API
+    Design Rules:
+    [rechtstreeks-ophalen-design.md](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/plans/2026-10-27-rechtstreeks-ophalen-design.md).
+
+    Aanleveren loopt alleen via de eerste ingang (`berichtenmagazijn-api.yaml`, via FSC met
+    `X-Ontvanger`). Deze ingang levert dezelfde berichten langs een andere weg.
+
+    ## Verloop
+
+    1. `POST /rechtstreeks/challenge` — het magazijn geeft een nonce en een tijdelijke public key,
+       getekend met zijn eigen sleutel. De app controleert die handtekening met de sleutel uit
+       `public_keys` van dit magazijn in het stelseldocument die de `kid` aanwijst, en die nog
+       niet verlopen is.
+    2. `POST /rechtstreeks/complete` — de app stuurt een Verifiable Presentation, versleuteld naar
+       de tijdelijke public key. Daarin: het Verifiable Credential van de App Manager, de nonce
+       getekend met de sleutel van de app, en een AES-sleutel voor de sessie. Het magazijn
+       antwoordt met een sessietoken, versleuteld met die AES-sleutel.
+    3. `GET /rechtstreeks/berichten` en `GET /rechtstreeks/berichten/{berichtId}` met het
+       sessietoken in `Authorization` — het antwoord is versleuteld met de AES-sleutel van de
+       sessie.
+
+    Wat getekend of versleuteld over de lijn gaat, staat hier als `CompactJws` of `CompactJwe`.
+    Het schema van de inhoud staat ernaast onder `x-payload`.
+
+    De ontvanger komt uit het Verifiable Credential en dus uit de sessie, nooit uit het verzoek.
+    Persoonsgegevens staan daarom niet in URL, header of toegangslog.
+
+    ## Foutantwoorden
+
+    Elk foutantwoord is `application/problem+json` (RFC 9457), onversleuteld; het bevat geen
+    persoonsgegevens. De `type`-kenmerken zijn die van de eerste ingang.
+
+    | `type` | Status | Situatie |
+    |---|---|---|
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 406, 415 | Het verzoek zelf klopt niet; bij `complete` alleen de buitenste envelop |
+    | `urn:fbs:fout:geen-toegang` | 401 | Presentatie afgewezen, nonce onbekend, verlopen of al gebruikt, of sessie onbekend of verlopen |
+    | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht bestaat niet, is verwijderd, of hoort niet bij de ontvanger van de sessie |
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het pad bestaat (nog) niet, zoals het bijlagepad waar een bijlagelink naar wijst |
+    | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Tijdelijk niet beschikbaar, ook als er te veel openstaande challenges zijn; `Retry-After` zegt wanneer opnieuw |
+    | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
+
+    Alles wat bij `complete` ná het ontsleutelen misgaat, geeft dezelfde `401` met dezelfde body:
+    het antwoord verraadt niet welke controle faalde, en ook niet of het ontsleutelen lukte. Bij
+    een `401` op `berichten` begint de app opnieuw bij stap 1.
+
+    Anders dan de eerste ingang onderscheidt deze ingang "bestaat niet", "is verwijderd" en "hoort
+    bij een ander" niet: alle drie zijn `404`. De app is de eindgebruiker zelf, en die hoeft het bestaan van
+    andermans bericht niet te kunnen afleiden.
+
+    ## Bereikbaar vanuit de browser
+
+    Alle paden onder `/rechtstreeks` zijn bedoeld voor een app op een andere origin:
+
+    - elk antwoord, ook een foutantwoord, draagt `Access-Control-Allow-Origin: *` en
+      `Access-Control-Expose-Headers: API-Version, WWW-Authenticate, Retry-After`;
+    - een preflight (`OPTIONS`) krijgt zonder sessietoken `204` met
+      `Access-Control-Allow-Methods: GET, POST`,
+      `Access-Control-Allow-Headers: Authorization, Content-Type` en
+      `Access-Control-Max-Age: 600`;
+    - er gaan geen credentials mee: toegang hangt aan het sessietoken in `Authorization`, niet
+      aan een cookie.
+
+    De eerste ingang blijft zonder CORS.
+  contact:
+    name: MijnOverheid Zakelijk
+    email: moza@minbzk.nl
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+  license:
+    name: EUPL-1.2
+    url: https://eupl.eu/1.2/nl/
+  x-api-id: nl.rijksoverheid.moz.fbs.berichtenmagazijn-rechtstreeks
+  x-summary: Rechtstreeks ophalen van berichten door de app van de ontvanger
+
+# ADR nlgov:servers-use-https — bewust afgeweken, zoals in berichtenmagazijn-api.yaml: de host
+# verschilt per omgeving, en voor de simulator per gesimuleerd magazijn
+# (`/magazijn/<OIN>/api/v1`). De app bouwt het adres uit `magazijn_url` in het stelseldocument.
+servers:
+  - url: /api/v1
+    description: Versioned API base path
+
+# Elke tag een eigen subtree. Zou het basispad van een tag de routes van een andere afvangen, dan
+# laat de generator dat basispad vallen en antwoordt Quarkus REST met 405 (zie het commentaar
+# boven `tags` in berichtenmagazijn-api.yaml). De standaard zet `challenge` en `complete` op
+# `/v1/…` van een sessie-dienst uit de vindbaarheidsconfiguratie; die laag bestaat in FBS niet.
+tags:
+  - name: RechtstreeksOphalen
+    description: Sessie opzetten en berichten ophalen door de app van de ontvanger
+  - name: Specificatie
+    description: Het OpenAPI-document van het magazijn, op de plek waar de API Design Rules het verwachten.
+
+paths:
+  /rechtstreeks/challenge:
+    post:
+      tags: [RechtstreeksOphalen]
+      summary: Nonce en tijdelijke sleutel van het magazijn opvragen
+      operationId: maakChallenge
+      description: |
+        Stap 2 tot en met 9 van `CreateSession` (4.3.4.2). Zonder body. Het magazijn maakt een
+        nonce van ten minste 16 willekeurige bytes en een tijdelijk P-256-sleutelpaar; de nonce
+        is 60 seconden bruikbaar, één keer. Het antwoord is een JWS, getekend met de sleutel van
+        dit magazijn, met als payload `Challenge`. Het antwoord is `200`, niet `201`: er ontstaat
+        geen resource met een eigen adres.
+
+        Header: `alg` `ES256`, `typ` `jwt`, `kid` van de sleutel van dit magazijn in
+        `public_keys` van het stelseldocument. De app gebruikt alleen die sleutel, controleert
+        dat hij niet verlopen is (4.6.1), en neemt nooit een sleutel uit de header.
+
+        Het aantal openstaande challenges is begrensd. Is de grens bereikt, dan volgt `503` met
+        `Retry-After`.
+      security: []
+      responses:
+        '200':
+          description: Getekende challenge
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            access-control-allow-origin:
+              $ref: '#/components/headers/AccessControlAllowOrigin'
+            access-control-expose-headers:
+              $ref: '#/components/headers/AccessControlExposeHeaders'
+          content:
+            application/jose:
+              schema:
+                $ref: '#/components/schemas/CompactJws'
+              x-payload:
+                $ref: '#/components/schemas/Challenge'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /rechtstreeks/complete:
+    post:
+      tags: [RechtstreeksOphalen]
+      summary: Verifiable Presentation aanbieden en een magazijnsessie krijgen
+      operationId: voltooiSessie
+      description: |
+        Stap 20 tot en met 26 van `CreateSession` (4.3.4.2). Het magazijn ontsleutelt
+        `encrypted_challenge_result` met de tijdelijke private key die bij `nonce` hoort, en
+        controleert de Verifiable Presentation volgens 4.3.4.1:
+
+        - `certificate_type` is `app_manager_jwt_certificate`;
+        - het Verifiable Credential in `certificate` is getekend met de sleutel die `iss` en `kid`
+          aanwijzen in `app_managers` van een geverifieerd stelseldocument, en die sleutel was
+          geldig op `iat` (4.6.2);
+        - het credential is nu geldig (`nbf`, `exp`, met 60 seconden marge), `iat` ligt niet in de
+          toekomst, `nbf` niet vóór `iat`, `exp` ten hoogste 24 uur na `iat` en ten minste
+          60 seconden na nu; het heeft de scope van deze dienst en een geldige `ontvanger`;
+        - `app_nonce_signature` is getekend met de sleutel uit `cnf.jwk` van het credential, met
+          `sub` `challenge_response`, `aud` de OIN van dit magazijn en de nonce;
+        - `session_aes_key` is 32 bytes na base64-decoding.
+
+        Alleen `ES256` (JWS), `ECDH-ES` met `A256GCM` (deze JWE) en `dir` met `A256GCM` (het
+        antwoord) worden geaccepteerd; een header met `jwk`, `jku`, `x5u`, `x5c` of `crit` wordt
+        geweigerd. Daarna is de nonce verbruikt, ook als een controle faalde.
+
+        Het antwoord is een JWE, versleuteld met `session_aes_key`, met als payload
+        `MagazijnsessieUitgegeven`. Dat de app het kan ontsleutelen, bewijst dat dit magazijn de
+        presentatie heeft geopend. Ook hier `200`, niet `201`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteVerzoek'
+      responses:
+        '200':
+          description: Magazijnsessie, versleuteld met de AES-sleutel uit de presentatie
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            access-control-allow-origin:
+              $ref: '#/components/headers/AccessControlAllowOrigin'
+            access-control-expose-headers:
+              $ref: '#/components/headers/AccessControlExposeHeaders'
+          content:
+            application/jose:
+              schema:
+                $ref: '#/components/schemas/CompactJwe'
+              x-payload:
+                $ref: '#/components/schemas/MagazijnsessieUitgegeven'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /rechtstreeks/berichten:
+    get:
+      tags: [RechtstreeksOphalen]
+      summary: Berichtenlijst van de ontvanger uit de magazijnsessie
+      operationId: getRechtstreeksBerichten
+      description: |
+        Zelfde lijst als `GET /berichten` van de eerste ingang, voor de ontvanger uit de
+        magazijnsessie. Het antwoord is een JWE, versleuteld met de AES-sleutel van de sessie,
+        met als payload `BerichtenLijst`. De paginering en de `self` van elk bericht wijzen naar
+        paden onder `/rechtstreeks`.
+      parameters:
+        - $ref: './berichtenmagazijn-api.yaml#/components/parameters/PageParam'
+        - $ref: './berichtenmagazijn-api.yaml#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Berichtenlijst, versleuteld met de AES-sleutel van de sessie
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            access-control-allow-origin:
+              $ref: '#/components/headers/AccessControlAllowOrigin'
+            access-control-expose-headers:
+              $ref: '#/components/headers/AccessControlExposeHeaders'
+          content:
+            application/jose:
+              schema:
+                $ref: '#/components/schemas/CompactJwe'
+              x-payload:
+                $ref: './berichtenmagazijn-api.yaml#/components/schemas/BerichtenLijst'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /rechtstreeks/berichten/{berichtId}:
+    get:
+      tags: [RechtstreeksOphalen]
+      summary: Bericht van de ontvanger uit de magazijnsessie, met inhoud
+      operationId: getRechtstreeksBericht
+      description: |
+        Zelfde bericht als `GET /berichten/{berichtId}` van de eerste ingang, als het hoort bij de
+        ontvanger uit de magazijnsessie. Het antwoord is een JWE, versleuteld met de AES-sleutel
+        van de sessie, met als payload `Bericht`. De `self` wijst naar dit pad; de links naar
+        bijlagen wijzen naar `/rechtstreeks/berichten/{berichtId}/bijlagen/{bijlageId}`; zolang
+        dat pad er niet is, geeft het `404` met `urn:fbs:fout:niet-gevonden`.
+      # TODO(#1215): het bijlagepad, en status bijwerken en verwijderen via deze ingang.
+      parameters:
+        - $ref: './berichtenmagazijn-api.yaml#/components/parameters/BerichtIdPath'
+      responses:
+        '200':
+          description: Bericht, versleuteld met de AES-sleutel van de sessie
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoStore'
+            access-control-allow-origin:
+              $ref: '#/components/headers/AccessControlAllowOrigin'
+            access-control-expose-headers:
+              $ref: '#/components/headers/AccessControlExposeHeaders'
+          content:
+            application/jose:
+              schema:
+                $ref: '#/components/schemas/CompactJwe'
+              x-payload:
+                $ref: './berichtenmagazijn-api.yaml#/components/schemas/Bericht'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  # Deze ingang deelt basisadres en OpenAPI-document met de eerste. Alleen de tag
+  # `RechtstreeksOphalen` wordt uit dit bestand gegenereerd.
+  # TODO(#1215): de paden hierboven opnemen in het gepubliceerde document van het magazijn.
+  /openapi.json:
+    get:
+      tags: [Specificatie]
+      summary: OpenAPI-document van het magazijn
+      description: |
+        Het document van het magazijn, als JSON, op `/openapi.json` onder het basisadres
+        (ADR `/core/publish-openapi`). Vrij op te halen, ook vanuit een browser op een ander
+        domein.
+      operationId: getOpenApiDocument
+      security: []
+      responses:
+        '200':
+          description: Het OpenAPI-document
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            # Kleine letters: de ADR-linter zoekt de header op precies deze sleutel.
+            access-control-allow-origin:
+              $ref: '#/components/headers/AccessControlAllowOrigin'
+          content:
+            application/json:
+              schema:
+                type: object
+                description: OpenAPI-document (OpenAPI 3).
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  headers:
+    API-Version:
+      required: true
+      description: Versie van de API; gelijk voor beide ingangen van het magazijn.
+      schema:
+        type: string
+        example: "0.5.0"
+    CacheControlNoStore:
+      required: true
+      description: Een challenge is eenmalig en de andere antwoorden zijn met de sessiesleutel versleuteld; ze horen in geen enkele cache.
+      schema:
+        type: string
+        enum: [no-store]
+    AccessControlAllowOrigin:
+      required: true
+      description: Altijd `*`, zonder credentials, zodat de app vanaf elke origin kan lezen.
+      schema:
+        type: string
+        enum: ['*']
+    AccessControlExposeHeaders:
+      required: true
+      description: De headers die de app moet kunnen lezen.
+      schema:
+        type: string
+        enum: ['API-Version, WWW-Authenticate, Retry-After']
+
+  schemas:
+    CompactJws:
+      type: string
+      description: JWS in compacte serialisatie (RFC 7515), drie base64url-delen.
+      pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+      maxLength: 65536
+
+    CompactJwe:
+      type: string
+      description: |
+        JWE in compacte serialisatie (RFC 7516), vijf base64url-delen. Bij `dir` en `ECDH-ES` is
+        het tweede deel (de versleutelde sleutel) leeg.
+      pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+      maxLength: 16777216
+
+    Challenge:
+      type: object
+      description: Payload van de challenge (4.3.4.2, stap 9). Veldnamen uit de standaard.
+      required: [sub, nonce, ephemeral_organization_ec_public_key]
+      properties:
+        sub:
+          type: string
+          enum: [challenge]
+        nonce:
+          type: string
+          description: Ten minste 16 willekeurige bytes, base64. Voor de app ondoorzichtig.
+          minLength: 24
+          maxLength: 256
+        ephemeral_organization_ec_public_key:
+          type: string
+          format: byte
+          description: Tijdelijke P-256 public key, base64 van DER (SubjectPublicKeyInfo).
+
+    CompleteVerzoek:
+      type: object
+      description: Stap 20 van `CreateSession`. Veldnamen uit de standaard.
+      required: [nonce, encrypted_challenge_result]
+      properties:
+        nonce:
+          type: string
+          description: De nonce uit de challenge, ongewijzigd.
+          pattern: '^[A-Za-z0-9+/_=-]{24,256}$'
+        encrypted_challenge_result:
+          type: string
+          description: |
+            De Verifiable Presentation als JWE (compact, `alg` `ECDH-ES`, `enc` `A256GCM`),
+            versleuteld naar de tijdelijke public key uit de challenge.
+          pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+          maxLength: 65536
+          x-payload:
+            $ref: '#/components/schemas/VerifiablePresentation'
+
+    VerifiablePresentation:
+      type: object
+      description: |
+        Payload van `encrypted_challenge_result` (4.3.4.1). Het magazijn ziet hem pas na
+        ontsleutelen.
+      required: [app_nonce_signature, certificate_type, certificate, session_aes_key]
+      properties:
+        app_nonce_signature:
+          type: string
+          description: JWS (ES256) met `sub` `challenge_response`, `aud` de OIN van het magazijn en `nonce`, getekend met de sleutel van de app.
+        certificate_type:
+          type: string
+          enum: [app_manager_jwt_certificate]
+          description: Het magazijn accepteert alleen een credential van een App Manager; `certificate_type_self_signed` is voor het activeren bij de App Manager.
+        certificate:
+          type: string
+          description: Het Verifiable Credential als JWS.
+          x-payload:
+            $ref: '#/components/schemas/VerifiableCredential'
+        session_aes_key:
+          type: string
+          format: byte
+          description: AES-sleutel van 256 bit, base64. De standaard noemt in 4.3.4.1 16 bytes; zie de afwijkingen in het ontwerp.
+
+    VerifiableCredential:
+      type: object
+      description: |
+        Payload van het Verifiable Credential (4.3.1), getekend door de App Manager (`ES256`, `kid`
+        van een sleutel uit `app_managers` in het stelseldocument). FBS vervangt `bsn`,
+        `given_name` en `family_name` door alleen `ontvanger`: meer heeft het magazijn niet nodig.
+      required: [cnf, scope, iss, iat, nbf, exp, ontvanger]
+      properties:
+        cnf:
+          type: object
+          description: Public key van de app (RFC 7800).
+          required: [jwk]
+          properties:
+            jwk:
+              $ref: '#/components/schemas/EcPublicJwk'
+        scope:
+          type: string
+          enum: [nl.rijksoverheid.moz.fbs.berichten]
+        iss:
+          type: string
+          description: OIN van de App Manager.
+          pattern: '^[0-9]{20}$'
+        iat:
+          type: integer
+          format: int64
+        nbf:
+          type: integer
+          format: int64
+        exp:
+          type: integer
+          format: int64
+          description: Ten hoogste 24 uur na `iat`.
+        ontvanger:
+          type: string
+          description: |
+            Ontvanger in de vorm `<TYPE>:<WAARDE>`, zoals de `X-Ontvanger`-header van de eerste
+            ingang, zonder `OIN`: een OIN wijst een afzender aan, geen ontvanger.
+          pattern: '^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8})$'
+
+    EcPublicJwk:
+      type: object
+      description: Publieke EC-sleutel op P-256 als JWK (RFC 7517). Een private deel (`d`) is niet toegestaan.
+      required: [kty, crv, x, y]
+      properties:
+        kty:
+          type: string
+          enum: [EC]
+        crv:
+          type: string
+          enum: [P-256]
+        x:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+        y:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+      not:
+        required: [d]
+
+    MagazijnsessieUitgegeven:
+      type: object
+      description: Payload van het antwoord op `complete`.
+      required: [session_token, expires_in]
+      properties:
+        session_token:
+          type: string
+          description: Gaat ongewijzigd in de `Authorization`-header, zonder schema-voorvoegsel (4.4.1, stap 20).
+          pattern: '^[A-Za-z0-9]{32}$'
+        expires_in:
+          type: integer
+          description: |
+            Seconden tot de sessie verloopt: 900, of minder als het Verifiable Credential eerder
+            verloopt. Een sessie wordt niet verlengd.
+          minimum: 1
+          maximum: 900
+
+  responses:
+    BadRequest:
+      description: Het verzoek is syntactisch onjuist of mist verplichte velden.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        access-control-allow-origin:
+          $ref: '#/components/headers/AccessControlAllowOrigin'
+        access-control-expose-headers:
+          $ref: '#/components/headers/AccessControlExposeHeaders'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
+    Unauthorized:
+      description: |
+        `complete`: de presentatie is afgewezen, of de nonce is onbekend, verlopen of al gebruikt.
+        Andere paden: de magazijnsessie is onbekend of verlopen. Zonder detail over welke controle
+        faalde.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        access-control-allow-origin:
+          $ref: '#/components/headers/AccessControlAllowOrigin'
+        access-control-expose-headers:
+          $ref: '#/components/headers/AccessControlExposeHeaders'
+        WWW-Authenticate:
+          required: true
+          description: |
+            Verplicht bij een 401 (RFC 9110). Een signaal, geen instructie voor de vorm van het
+            token: de app begint opnieuw bij `POST /rechtstreeks/challenge` en stuurt het nieuwe
+            token zonder voorvoegsel.
+          schema:
+            type: string
+            example: Magazijnsessie realm="00000001234567890001"
+      content:
+        application/problem+json:
+          schema:
+            $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
+    NotFound:
+      description: Het bericht bestaat niet, is verwijderd, of hoort niet bij de ontvanger van de sessie (`urn:fbs:fout:bericht-onbekend`).
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        access-control-allow-origin:
+          $ref: '#/components/headers/AccessControlAllowOrigin'
+        access-control-expose-headers:
+          $ref: '#/components/headers/AccessControlExposeHeaders'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
+    NotAcceptable:
+      description: De server kan geen antwoord leveren dat bij de `Accept`-header past (`application/jose`, of `application/problem+json` bij fouten).
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        access-control-allow-origin:
+          $ref: '#/components/headers/AccessControlAllowOrigin'
+        access-control-expose-headers:
+          $ref: '#/components/headers/AccessControlExposeHeaders'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
+    UnsupportedMediaType:
+      description: De `Content-Type` van het verzoek is niet `application/json`.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        access-control-allow-origin:
+          $ref: '#/components/headers/AccessControlAllowOrigin'
+        access-control-expose-headers:
+          $ref: '#/components/headers/AccessControlExposeHeaders'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
+    InternalServerError:
+      description: Interne fout in het magazijn. Het antwoord bevat `instance` met de correlatie-id.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        access-control-allow-origin:
+          $ref: '#/components/headers/AccessControlAllowOrigin'
+        access-control-expose-headers:
+          $ref: '#/components/headers/AccessControlExposeHeaders'
+      content:
+        application/problem+json:
+          schema:
+            $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: |
+        Tijdelijk niet beschikbaar (`urn:fbs:fout:tijdelijk-niet-beschikbaar`), ook als er te veel
+        openstaande challenges zijn.
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+        access-control-allow-origin:
+          $ref: '#/components/headers/AccessControlAllowOrigin'
+        access-control-expose-headers:
+          $ref: '#/components/headers/AccessControlExposeHeaders'
+        Retry-After:
+          required: true
+          description: Seconden tot een nieuwe poging zin heeft.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
+
+  securitySchemes:
+    magazijnsessie:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        Het `session_token` uit het antwoord op `complete`, zonder schema-voorvoegsel, zoals de
+        standaard het voorschrijft (4.4.1, stap 20). Geldig tot `expires_in` uit dat antwoord.
+
+security:
+  - magazijnsessie: []
