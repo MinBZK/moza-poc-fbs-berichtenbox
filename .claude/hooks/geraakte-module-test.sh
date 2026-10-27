@@ -47,6 +47,7 @@ for kandidaat in \
     services/stelselregister \
     demo/demo-console \
     demo/demo-personas \
+    demo/app-manager \
     demo/magazijn-simulator; do
 
     if [[ "$pad" == *"$kandidaat/"* ]]; then
