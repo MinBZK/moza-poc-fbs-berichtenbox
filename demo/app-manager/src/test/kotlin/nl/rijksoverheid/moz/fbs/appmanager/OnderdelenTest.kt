@@ -164,21 +164,40 @@ class OnderdelenTest {
         val registraties = Registraties(klok)
         val eerste = registraties.registreer("KVK:90000014", "zelfde", "c", Duration.ofHours(1))
 
-        assertTrue(registraties.bevestig(registraties.koppel("s1", klok.nu.plusSeconds(60))!!, eerste))
+        assertEquals("terug-0", registraties.bevestig(registraties.koppel("s1", klok.nu.plusSeconds(60))!!, eerste, "terug-0"))
 
         val koppeling = registraties.koppel("s2", klok.nu.plusSeconds(60))!!
         val a = registraties.registreer("KVK:90000014", "zelfde", "c", Duration.ofHours(1))
         val b = registraties.registreer("KVK:90000014", "zelfde", "c", Duration.ofHours(1))
 
-        assertTrue(registraties.bevestig(koppeling, a))
-        assertFalse(registraties.bevestig(koppeling, b))
+        assertEquals("terug-a", registraties.bevestig(koppeling, a, "terug-a"))
+        assertEquals("terug-a", registraties.bevestig(koppeling, b, "terug-b"))
+        assertEquals("terug-a", registraties.afgerond(koppeling))
         assertEquals("zelfde", registraties.registratie(a)?.thumbprint)
         assertNull(registraties.registratie(b))
         assertNull(registraties.registratie(eerste))
+
+        klok.nu = klok.nu.plusSeconds(61)
+
+        assertNull(registraties.afgerond(koppeling))
     }
 
     @Test
-    fun `per client is het aantal registraties begrensd, met de echte wachttijd`() {
+    fun `een koppeling blijft staan als de registratie al weg is`() {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+        val registraties = Registraties(klok)
+        val koppeling = registraties.koppel("s", klok.nu.plusSeconds(60))!!
+        val token = registraties.registreer("KVK:90000014", "tp", "c", Duration.ofHours(1))
+
+        registraties.vergeet(token)
+
+        assertNull(registraties.bevestig(koppeling, token, "terug"))
+        assertEquals("s", registraties.sessieToken(koppeling))
+        assertNull(registraties.afgerond(koppeling))
+    }
+
+    @Test
+    fun `per client is het aantal registraties begrensd, met een vaste wachttijd`() {
         val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
         val registraties = Registraties(klok)
         val vroegste = registraties.registreer("KVK:90000014", "tp-vroeg", "c", Duration.ofMinutes(10))
@@ -187,7 +206,7 @@ class OnderdelenTest {
 
         val fout = assertThrows(OpslagVolException::class.java) { registraties.registreer("KVK:90000014", "nog een", "c", Duration.ofHours(1)) }
 
-        assertEquals(Duration.ofMinutes(10), fout.opnieuwNa)
+        assertEquals(Duration.ofSeconds(60), fout.opnieuwNa)
 
         registraties.registreer("KVK:90000014", "van een ander", "d", Duration.ofHours(1))
         registraties.vergeet(vroegste)
@@ -199,18 +218,24 @@ class OnderdelenTest {
         assertEquals("192.0.2.1", ActiverenResource.clientSleutel("192.0.2.1"))
         assertEquals(ActiverenResource.clientSleutel("2001:db8:1:2::1"), ActiverenResource.clientSleutel("2001:db8:1:2:ffff::9"))
         assertFalse(ActiverenResource.clientSleutel("2001:db8:1:2::1") == ActiverenResource.clientSleutel("2001:db8:1:3::1"))
-        assertEquals("onbekend", ActiverenResource.clientSleutel(null))
+        assertEquals("192.0.2.1", ActiverenResource.clientSleutel("::ffff:192.0.2.1"))
+
+        listOf(null, "", "unknown", "_verborgen", "localhost", "999.0.0.1").forEach {
+            assertEquals("onbekend", ActiverenResource.clientSleutel(it))
+        }
     }
 
     @Test
-    fun `een sleutel die binnen de levensduur van een nonce verloopt, of een onbegrensde registratie, blokkeert de start`() {
+    fun `een sleutel die binnen de levensduur van een nonce verloopt, of een registratieduur van niets of meer dan 30 dagen, blokkeert de start`() {
         val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
 
         assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, geldigTot = klok.nu.plusSeconds(1)), klok) }
         assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, registratieGeldig = Duration.ZERO), klok) }
-        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, registratieGeldig = Duration.ofDays(31)), klok) }
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, registratieGeldig = Duration.ofSeconds(-1)), klok) }
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, registratieGeldig = Duration.ofDays(30).plusSeconds(1)), klok) }
 
         ConfigControle(config(pad = null), klok)
+        ConfigControle(config(pad = null, registratieGeldig = Duration.ofDays(30)), klok)
     }
 
     @Test

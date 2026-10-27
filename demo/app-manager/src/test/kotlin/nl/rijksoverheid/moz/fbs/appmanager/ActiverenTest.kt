@@ -156,7 +156,7 @@ class ActiverenTest {
     }
 
     @Test
-    fun `een koppeling werkt voor één keuze, en zonder koppeling is er geen keuzepagina`() {
+    fun `een koppeling levert één keuze op, ook bij een dubbele submit, en zonder koppeling is er geen keuzepagina`() {
         val app = App().maakSessie()
         val koppeling = given().redirects().follow(false).queryParam("session_token", app.sessieToken)
             .get("/register_app").then().statusCode(303).extract().cookie(ActiverenResource.COOKIE)
@@ -166,10 +166,16 @@ class ActiverenTest {
             .header("Content-Security-Policy", containsString("form-action 'self' https://app.test"))
             .body(containsString("Garage Van Dijk B.V."))
 
-        given().redirects().follow(false).cookie(ActiverenResource.COOKIE, koppeling).formParam("persona", "vandijk")
-            .post("/register_app/kies").then().statusCode(303)
-        given().redirects().follow(false).cookie(ActiverenResource.COOKIE, koppeling).formParam("persona", "vandijk")
-            .post("/register_app/kies").then().statusCode(401)
+        val eerste = given().redirects().follow(false).cookie(ActiverenResource.COOKIE, koppeling).formParam("persona", "vandijk")
+            .post("/register_app/kies").then().statusCode(303).extract().header("Location")
+
+        // De browser toont het antwoord op het laatste verzoek; dat moet het token van de eerste keuze dragen.
+        listOf("vandijk", "pietersen").forEach { persona ->
+            given().redirects().follow(false).cookie(ActiverenResource.COOKIE, koppeling).formParam("persona", persona)
+                .post("/register_app/kies").then().statusCode(303).header("Location", eerste)
+        }
+
+        given().cookie(ActiverenResource.COOKIE, koppeling).get("/register_app").then().statusCode(401)
         given().get("/register_app").then().statusCode(401)
         given().cookie(ActiverenResource.COOKIE, "onbekend").get("/register_app").then().statusCode(401)
     }

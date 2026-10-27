@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.appmanager
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.netty.util.NetUtil
 import io.vertx.core.http.HttpServerRequest
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.CookieParam
@@ -101,26 +102,30 @@ class ActiverenResource(
         val personaId = formulierveld(body, "persona")
         val persona = personas.alle().firstOrNull { it.id == personaId }
             ?: return Response.status(Response.Status.BAD_REQUEST).entity("onbekende persona").type(MediaType.TEXT_PLAIN).build()
+        koppeling?.let(registraties::afgerond)?.let { return doorverwijzing(it) }
+
         val sessieToken = koppeling?.let(registraties::sessieToken) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
         val (sessie, app) = appSessie(sessieToken)
 
         // Eerst registreren, dan pas de koppeling verbruiken: bij een volle opslag kan de gebruiker zo
         // opnieuw kiezen in plaats van vast te lopen.
         val token = registraties.registreer(persona.ontvanger, app.thumbprint, client(verzoek), config.registratieGeldig())
+        var terug: String? = null
 
-        val versleuteld = try {
-            verifier.versleutel(sessie, registratiebericht(token))
-        } catch (fout: RuntimeException) {
-            registraties.vergeet(token)
-            throw fout
+        try {
+            val versleuteld = verifier.versleutel(sessie, registratiebericht(token))
+
+            terug = registraties.bevestig(koppeling, token, "${config.terugUrl()}#registration_token=$versleuteld")
+        } finally {
+            // Elk fouttype, ook een checked exceptie uit de JOSE-laag: het token bereikte de app niet.
+            if (terug == null) registraties.vergeet(token)
         }
 
-        if (!registraties.bevestig(koppeling, token)) throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
-
-        val terug = URI.create("${config.terugUrl()}#registration_token=$versleuteld")
-
-        return Response.seeOther(terug).cookie(cookie("", maxAge = 0)).build()
+        return doorverwijzing(terug ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND))
     }
+
+    private fun doorverwijzing(terug: String): Response =
+        Response.seeOther(URI.create(terug)).cookie(cookie("", maxAge = 0)).build()
 
     /** Stap 20 tot en met 28: het credential voor de sleutel van deze sessie, als die bij de registratie hoort. */
     @POST
@@ -188,7 +193,9 @@ class ActiverenResource(
          * adres dat de vertrouwde proxy doorgeeft.
          */
         fun clientSleutel(adres: String?): String {
-            val ip = adres?.let { runCatching { InetAddress.getByName(it) }.getOrNull() } ?: return "onbekend"
+            // Alleen een IP-literal: InetAddress.getByName zou op een naam een DNS-lookup doen.
+            val bytes = adres?.let(NetUtil::createByteArrayFromIpAddressString) ?: return "onbekend"
+            val ip = InetAddress.getByAddress(bytes)
 
             if (ip !is Inet6Address) return ip.hostAddress
 
