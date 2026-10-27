@@ -33,7 +33,7 @@ internal class CredentialControle(
 
         if (!iat.isBefore(appManager.geldigTot)) throw AfgewezenException(Afwijzing.APP_MANAGER_SLEUTEL_VERLOPEN)
 
-        // Uit `nbf` niet vóór `iat` en `nbf` niet in de toekomst volgt dat ook `iat` niet in de toekomst ligt.
+        // Uit `nbf` niet vóór `iat` en `nbf` hooguit [MARGE] vooruit volgt dat ook `iat` hooguit [MARGE] vooruit ligt.
         val geldig = !nbf.isBefore(iat) &&
             !nbf.isAfter(nu.plus(MARGE)) &&
             !exp.isAfter(iat.plus(MAXIMALE_LOOPTIJD)) &&

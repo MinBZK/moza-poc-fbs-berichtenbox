@@ -28,11 +28,14 @@ enum class Afwijzing {
 }
 
 /**
- * Een verzoek is afgewezen. Log [reden], niet de exception zelf: de oorzaak kan uit een
- * JOSE-library komen, en die neemt soms een stuk van de ontvangen inhoud op in haar melding.
+ * Een verzoek is afgewezen; [reden] zegt welke controle faalde. Een oorzaak zet alleen de library
+ * zelf, via [afgewezen], zodat er nooit een ruwe melding met invoer in een stacktrace belandt.
  */
-class AfgewezenException(val reden: Afwijzing, cause: Throwable? = null) :
-    RuntimeException(reden.name, cause)
+class AfgewezenException internal constructor(val reden: Afwijzing, cause: Throwable?) :
+    RuntimeException(reden.name, cause) {
+
+    constructor(reden: Afwijzing) : this(reden, null)
+}
 
 /**
  * Een afwijzing die van [oorzaak] alleen het type bewaart. De melding van een JOSE-library kan een

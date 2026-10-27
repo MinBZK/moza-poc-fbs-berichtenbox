@@ -50,6 +50,10 @@ class GeheugenOpslagTest {
     fun `het quotum per client raakt alleen die client bij die Verifier`(quotum: Int) {
         val opslag = GeheugenOpslag(opzet.klok, maxChallengesPerClient = quotum)
 
+        // Eerder vrij dan die van de veelvraat, maar van een ander of bij een andere Verifier: telt niet.
+        opslag.bewaar("m", "vroeg", "ander", sleutel, opzet.nu.plusSeconds(5))
+        opslag.bewaar("m2", "v2", "veelvraat", sleutel, opzet.nu.plusSeconds(3))
+
         repeat(quotum) { opslag.bewaar("m", "n$it", "veelvraat", sleutel, opzet.nu.plusSeconds(60L - it)) }
 
         val fout = assertThrows<OpslagVolException> { opslag.bewaar("m", "x", "veelvraat", sleutel, opzet.nu.plusSeconds(60)) }
@@ -57,8 +61,8 @@ class GeheugenOpslagTest {
         // De eerste challenge van díe client komt vrij na 60 − (quotum − 1) seconden.
         assertEquals(Duration.ofSeconds(60L - (quotum - 1)), fout.opnieuwNa)
 
-        opslag.bewaar("m", "y", "ander", sleutel, opzet.nu.plusSeconds(60))
-        opslag.bewaar("m2", "z", "veelvraat", sleutel, opzet.nu.plusSeconds(60))
+        opslag.bewaar("m", "y", "derde", sleutel, opzet.nu.plusSeconds(60))
+        opslag.bewaar("m3", "z", "veelvraat", sleutel, opzet.nu.plusSeconds(60))
     }
 
     @Test
@@ -66,6 +70,28 @@ class GeheugenOpslagTest {
         val verifiers = (1..100).map { opzet.verifier("%020d".format(it)) }
 
         verifiers.forEach { it.maakChallenge(Opzet.CLIENT) }
+    }
+
+    @Test
+    fun `over alle Verifiers samen heeft een client een plafond`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxPerClientOverVerifiers = 3)
+
+        repeat(3) { opslag.bewaar("m$it", "n", "c", sleutel, opzet.nu.plusSeconds(60L - it)) }
+
+        val fout = assertThrows<OpslagVolException> { opslag.bewaar("m9", "n", "c", sleutel, opzet.nu.plusSeconds(60)) }
+
+        assertEquals(Duration.ofSeconds(58), fout.opnieuwNa)
+
+        opslag.bewaar("m9", "n", "ander", sleutel, opzet.nu.plusSeconds(60))
+    }
+
+    @Test
+    fun `de wachttijd is ten minste een seconde`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxChallenges = 1)
+
+        opslag.bewaar("m", "a", "c", sleutel, opzet.nu.plusMillis(500))
+
+        assertEquals(Duration.ofSeconds(1), assertThrows<OpslagVolException> { opslag.bewaar("m", "b", "c2", sleutel, opzet.nu.plusSeconds(60)) }.opnieuwNa)
     }
 
     @Test
@@ -120,32 +146,36 @@ class GeheugenOpslagTest {
     }
 
     @Test
-    fun `het sessiequotum per client raakt alleen die client bij die Verifier`() {
-        val opslag = GeheugenOpslag(opzet.klok, maxSessiesPerClient = 2)
+    fun `het sessiequotum per houder raakt alleen die houder bij die Verifier`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxSessiesPerHouder = 2)
 
-        opslag.bewaar(sessie("m", "a"), "c")
-        opslag.bewaar(sessie("m", "b"), "c")
+        opslag.bewaar(sessie("m", "vroeg", Duration.ofSeconds(5)), "ander")
+        opslag.bewaar(sessie("m", "a", Duration.ofSeconds(30)), "h")
+        opslag.bewaar(sessie("m", "b"), "h")
 
-        assertThrows<OpslagVolException> { opslag.bewaar(sessie("m", "c"), "c") }
+        val fout = assertThrows<OpslagVolException> { opslag.bewaar(sessie("m", "c"), "h") }
+
+        assertEquals(Duration.ofSeconds(30), fout.opnieuwNa)
 
         opslag.bewaar(sessie("m", "d"), "ander")
-        opslag.bewaar(sessie("m2", "e"), "c")
+        opslag.bewaar(sessie("m2", "e"), "h")
     }
 
     @Test
-    fun `een verlopen sessie verdwijnt en zijn AES-sleutel wordt gewist`() {
+    fun `een verlopen sessie verdwijnt, maar zijn sleutel blijft heel voor wie hem nog vasthoudt`() {
         val opslag = GeheugenOpslag(opzet.klok)
         val verlopen = sessie("m", "t", Duration.ofSeconds(1))
+        val kopie = verlopen.aesSleutel.copyOf()
 
         opslag.bewaar(verlopen, "c")
         opzet.nu = opzet.nu.plusSeconds(1)
 
         assertNull(opslag.zoek("m", "t"))
-        assertTrue(verlopen.aesSleutel.all { it == 0.toByte() })
+        assertTrue(kopie.contentEquals(verlopen.aesSleutel))
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = ["maxChallenges", "maxChallengesPerClient", "maxSessies", "maxSessiesPerClient"])
+    @ValueSource(strings = ["maxChallenges", "maxChallengesPerClient", "maxSessies", "maxSessiesPerHouder", "maxPerClientOverVerifiers"])
     fun `een grens van nul wordt geweigerd`(grens: String) {
         assertThrows<IllegalArgumentException> {
             GeheugenOpslag(
@@ -153,7 +183,8 @@ class GeheugenOpslagTest {
                 maxChallenges = if (grens == "maxChallenges") 0 else 1,
                 maxChallengesPerClient = if (grens == "maxChallengesPerClient") 0 else 1,
                 maxSessies = if (grens == "maxSessies") 0 else 1,
-                maxSessiesPerClient = if (grens == "maxSessiesPerClient") 0 else 1,
+                maxSessiesPerHouder = if (grens == "maxSessiesPerHouder") 0 else 1,
+                maxPerClientOverVerifiers = if (grens == "maxPerClientOverVerifiers") 0 else 1,
             )
         }
     }

@@ -13,7 +13,7 @@ import java.time.ZoneOffset
 import java.util.Base64
 
 /** Een stelsel in het klein: een App Manager, een app met een credential, en Verifiers die de klok delen. */
-class Opzet {
+class Opzet(private val willekeur: java.security.SecureRandom = java.security.SecureRandom()) {
 
     var nu: Instant = Instant.parse("2026-10-27T10:00:00Z")
 
@@ -48,6 +48,7 @@ class Opzet {
         challenges = opslag,
         sessies = opslag,
         klok = klok,
+        willekeur = willekeur,
     )
 
     fun vcClaims(): MutableMap<String, Any> = mutableMapOf(
@@ -105,7 +106,7 @@ class Opzet {
         val aes = TestApp.aesSleutel()
         val presentatie = presentatie(challenge, vc(claims), aesSleutel = aes)
 
-        return verifier.voltooiMetCredential(challenge.nonce, versleuteld(challenge, presentatie), CLIENT) to aes
+        return verifier.voltooiMetCredential(challenge.nonce, versleuteld(challenge, presentatie)) to aes
     }
 
     companion object {

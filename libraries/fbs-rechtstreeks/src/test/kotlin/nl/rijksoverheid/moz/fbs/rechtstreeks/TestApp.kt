@@ -29,12 +29,13 @@ import javax.crypto.spec.SecretKeySpec
  */
 object TestApp {
 
-    private val random = SecureRandom()
+    /** Te vervangen door een gezaaide bron, zodat een test zijn invoer kan herhalen. */
+    var random: SecureRandom = SecureRandom()
     val b64url: Base64.Encoder = Base64.getUrlEncoder().withoutPadding()
     private val b64urlDecoder = Base64.getUrlDecoder()
 
     fun sleutelpaar(curve: String = "secp256r1"): KeyPair = KeyPairGenerator.getInstance("EC").run {
-        initialize(ECGenParameterSpec(curve))
+        initialize(ECGenParameterSpec(curve), random)
         generateKeyPair()
     }
 
@@ -57,7 +58,7 @@ object TestApp {
         val invoer = "${deel(JsonUtil.toJson(header))}.${deel(JsonUtil.toJson(claims))}"
 
         val handtekening = Signature.getInstance("SHA256withECDSAinP1363Format").run {
-            initSign(sleutel)
+            initSign(sleutel, random)
             update(invoer.toByteArray(Charsets.US_ASCII))
             sign()
         }
@@ -66,8 +67,11 @@ object TestApp {
     }
 
     /** Een JWS met `alg` `none`: zonder handtekening. */
-    fun jwsZonderHandtekening(claims: Map<String, Any>): String =
-        "${deel(JsonUtil.toJson(mapOf("alg" to "none")))}.${deel(JsonUtil.toJson(claims))}."
+    fun jwsZonderHandtekening(claims: Map<String, Any>, kid: String? = null): String {
+        val header = mapOf("alg" to "none") + (kid?.let { mapOf("kid" to it) } ?: emptyMap())
+
+        return "${deel(JsonUtil.toJson(header))}.${deel(JsonUtil.toJson(claims))}."
+    }
 
     /** Een JWS met `HS256` en [geheim] als HMAC-sleutel: de klassieke verwarring met een publieke sleutel. */
     fun jwsHs256(claims: Map<String, Any>, geheim: ByteArray, kid: String? = null): String {
@@ -106,8 +110,9 @@ object TestApp {
 
     /**
      * JWE met `ECDH-ES` naar RFC 7518 §4.6, standaard met `A256GCM`. Met [alg] `ECDH-ES+A128KW`
-     * wordt een inhoudssleutel ingepakt. [header] voegt velden toe of overschrijft ze; een eigen
-     * `epk` daarin vervangt alleen de header, de sleutelafspraak blijft met het eigen tijdelijke paar.
+     * wordt een CEK ingepakt. [header] voegt velden toe of overschrijft ze; een eigen `epk` daarin
+     * vervangt alleen de header, de key agreement blijft met het eigen tijdelijke paar. [epkExtra]
+     * voegt leden toe aan de echte `epk`.
      */
     fun jweEcdh(
         payload: String,
@@ -115,6 +120,7 @@ object TestApp {
         header: Map<String, Any> = emptyMap(),
         alg: String = "ECDH-ES",
         enc: String = "A256GCM",
+        epkExtra: Map<String, Any?> = emptyMap(),
     ): String {
         val tijdelijk = sleutelpaar()
 
@@ -124,26 +130,27 @@ object TestApp {
             generateSecret()
         }
 
-        val volledigeHeader = mapOf("alg" to alg, "enc" to enc, "epk" to jwk(tijdelijk.public as ECPublicKey)) + header
-        val inhoudsbits = if (enc == "A128GCM") 128 else 256
+        val epk = jwk(tijdelijk.public as ECPublicKey) + epkExtra
+        val volledigeHeader = mapOf("alg" to alg, "enc" to enc, "epk" to epk) + header
+        val cekBits = if (enc == "A128GCM") 128 else 256
 
         if (alg == "ECDH-ES+A128KW") {
             val kek = concatKdf(z, alg, 128)
-            val inhoudssleutel = aesSleutel(inhoudsbits / 8)
+            val cek = aesSleutel(cekBits / 8)
 
             val ingepakt = Cipher.getInstance("AESWrap").run {
                 init(Cipher.WRAP_MODE, SecretKeySpec(kek, "AES"))
-                wrap(SecretKeySpec(inhoudssleutel, "AES"))
+                wrap(SecretKeySpec(cek, "AES"))
             }
 
-            return aesGcm(deel(JsonUtil.toJson(volledigeHeader)), payload, inhoudssleutel, b64url.encodeToString(ingepakt))
+            return aesGcm(deel(JsonUtil.toJson(volledigeHeader)), payload, cek, b64url.encodeToString(ingepakt))
         }
 
-        return aesGcm(deel(JsonUtil.toJson(volledigeHeader)), payload, concatKdf(z, enc, inhoudsbits), versleuteldeSleutel = "")
+        return aesGcm(deel(JsonUtil.toJson(volledigeHeader)), payload, concatKdf(z, enc, cekBits), versleuteldeSleutel = "")
     }
 
-    fun jweDir(payload: String, sleutel: ByteArray): String =
-        aesGcm(deel(JsonUtil.toJson(mapOf("alg" to "dir", "enc" to "A256GCM"))), payload, sleutel, versleuteldeSleutel = "")
+    fun jweDir(payload: String, sleutel: ByteArray, header: Map<String, Any> = emptyMap()): String =
+        aesGcm(deel(JsonUtil.toJson(mapOf("alg" to "dir", "enc" to "A256GCM") + header)), payload, sleutel, versleuteldeSleutel = "")
 
     fun ontsleutelDir(compact: String, sleutel: ByteArray): String {
         val delen = compact.split('.')

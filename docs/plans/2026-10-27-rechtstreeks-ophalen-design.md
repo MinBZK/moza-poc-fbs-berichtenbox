@@ -203,22 +203,36 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    - **Strikt.** Per stap staan de toegestane algoritmen vast (`AlgorithmConstraints`). Een
      sleutel komt nooit uit een header (`jwk`, `jku`, `x5u`, `x5c`) en een header met `crit`
      wordt geweigerd. Voor elke publieke EC-sleutel van buiten wordt gecontroleerd dat het punt
-     op de curve ligt, en een publieke JWK telt alleen `kty`, `crv`, `x` en `y`. Omdat jose4j
+     op de curve ligt. In `cnf.jwk` tellen alleen `kty`, `crv`, `x` en `y`; een `epk` mag niets
+     anders bevatten, omdat jose4j hem bij de key agreement zelf opnieuw inleest. Omdat jose4j
      headerwaarden zonder controle naar tekst cast, staat ook het type van elke headerwaarde vast;
-     anders wordt een getal in `kid` een `500` in plaats van een `401`. De tijden van het VC krijgen
-     een marge van 60 seconden voor klokverschil met de App Manager, zoals stap 6 van het
-     toepassingsprofiel; nonce en sessie lopen op de eigen klok en hebben geen marge.
+     anders wordt een getal in `kid` een `500` in plaats van een `401`. `nbf` (en daarmee `iat`) mag
+     60 seconden vooruit liggen, voor klokverschil met de App Manager (stap 6 van het
+     toepassingsprofiel); van `exp` moet juist nog ten minste 60 seconden resteren. Nonce en sessie
+     lopen op de eigen klok en hebben geen marge.
    - **Zonder CDI.** De kern is gewone Kotlin, zoals `fbs-kern`; de diensten bedraden hem zelf.
-     De library leest JSON met jose4j; wat versleuteld terug moet, krijgt hij als tekst van de
-     dienst, die het met zijn eigen `ObjectMapper` maakt, zodat `non_null` ook daar geldt.
+     De library leest JSON met jose4j. Wat versleuteld terug moet, krijgt hij als tekst van de
+     dienst, die het met zijn eigen `ObjectMapper` maakt, zodat `non_null` ook daar geldt; alleen
+     het antwoord op `complete` bouwt hij zelf.
    - **Opslag.** Nonces en sessies staan achter een interface, met als sleutel de OIN van het
-     magazijn plus de nonce of het token. De opslag in het geheugen is begrensd: een maximum aantal
-     openstaande nonces en sessies, totaal en per magazijn en client-IP (daarboven `503` met
-     `Retry-After`), en opruimen bij elke aanroep. Het quotum geldt per magazijn, zodat één browser
-     bij 100 gesimuleerde magazijnen tegelijk een challenge kan vragen. Het totaal beschermt het
-     geheugen, maar wie met veel adressen tegelijk komt, kan het vullen; daartegen helpt alleen de
-     stateless nonce hieronder. Voor de simulator en de App Manager, die met één instantie draaien,
-     is dat aanvaardbaar. Het echte magazijn draait met meer replica's.
+     magazijn plus de nonce of het token. De opslag in het geheugen is begrensd, met `503` en
+     `Retry-After` daarboven, en ruimt bij elke aanroep op:
+     - challenges per magazijn en client-adres, zodat één browser bij 100 gesimuleerde magazijnen
+       tegelijk een challenge kan vragen, met een plafond per client over alle magazijnen samen;
+     - sessies met credential per app-sleutel, niet per adres: achter één kantooradres of CGNAT
+       werken veel ondernemers, en zo'n sessie vraagt al een geldig bewijs;
+     - self-signed sessies (activeren) per adres, en korter geldig (10 minuten), omdat ze niets
+       kosten;
+     - een totaal dat het geheugen beschermt. Wie met veel adressen tegelijk komt, kan het vullen;
+       daartegen helpt alleen de stateless nonce hieronder.
+
+     Het client-adres komt achter een ingress van de vertrouwde proxy
+     (`quarkus.http.proxy.proxy-address-forwarding` met `trusted-proxies`), nooit uit een header
+     die de client zelf zet; anders deelt iedereen het adres van de proxy. Een IPv6-adres telt per
+     /64. Een verlopen sessie weigert de Verifier ook als een lopend verzoek hem nog vasthoudt; de
+     sleutel wordt niet gewist, want dan zou zo'n verzoek onder nullen versleutelen. Voor de
+     simulator en de App Manager, die met één instantie draaien, is dit aanvaardbaar. Het echte
+     magazijn draait met meer replica's.
      Daar komt geen database-write per anonieme challenge: de nonce wordt stateless. De tijdelijke
      private key gaat, versleuteld en geauthenticeerd met een inpaksleutel, mee in de nonce (die
      daarom tot 256 tekens mag zijn), met een korte lijst van verbruikte nonces die alle
@@ -227,9 +241,10 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
      Zo blijft de forward secrecy van de tijdelijke sleutels beperkt tot dat venster. Sessies
      bewaren de AES-sleutel versleuteld, in een opslag met TTL zonder back-up. Daarvoor krijgen
      de opslag-interfaces dan de nonce en de serialisatie van een sessie in handen (`TODO(#1215)`
-     in `ChallengeOpslag`).
-   - **Logging.** De library logt nooit claims uit een VC en nooit de waarde van `ontvanger`, ook
-     niet bij een afwijzing. Intern logt hij alleen welke controle faalde.
+     in `ChallengeOpslag` en `SessieOpslag`).
+   - **Logging.** De library logt zelf niets. Een afwijzing draagt alleen een `Afwijzing`-reden, en
+     van een oorzaak uit jose4j alleen het type: jose4j neemt soms invoer letterlijk op in zijn
+     melding. De aanroeper logt de reden, nooit claims of de waarde van `ontvanger`.
 
 5. **Een eigen contract naast de magazijn-spec:
    `services/berichtenmagazijn/src/main/resources/openapi/rechtstreeks-ophalen-api.yaml`.** Zou

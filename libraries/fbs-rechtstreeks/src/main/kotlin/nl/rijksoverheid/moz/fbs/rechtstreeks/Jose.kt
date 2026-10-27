@@ -27,7 +27,9 @@ import java.security.spec.ECParameterSpec
  *
  * jose4j cast headerwaarden zonder controle naar het verwachte type. Een getal waar tekst hoort,
  * zou daarom als `ClassCastException` ontsnappen en bij de aanroeper een `500` worden in plaats
- * van een `401`. Daarom staat ook het type van elke headerwaarde vast.
+ * van een `401`. Daarom staat ook het type van elke headerwaarde vast, en mag `epk` alleen
+ * `kty`, `crv`, `x` en `y` bevatten: jose4j leest de `epk` bij de key agreement opnieuw in, en
+ * een extra lid zoals `x5c` kan dan nog een andere exception opleveren.
  */
 internal object Jose {
 
@@ -37,7 +39,7 @@ internal object Jose {
     private val HEADER_JWE_ECDH = setOf("alg", "enc", "epk", "apu", "apv", "kid", "typ", "cty")
     private val HEADER_JWE_DIR = setOf("alg", "enc", "kid", "typ", "cty")
 
-    /** De leden van een publieke EC-JWK die tellen; de rest (`alg`, `use`, `key_ops`, `ext`) negeren we. */
+    /** De leden van een publieke EC-JWK die tellen; in `cnf.jwk` negeren we de rest (`alg`, `use`, `key_ops`, `ext`). */
     private val JWK_LEDEN = listOf("kty", "crv", "x", "y")
 
     private val ALLEEN_ES256 = AlgorithmConstraints(ConstraintType.PERMIT, AlgorithmIdentifiers.ECDSA_USING_P256_CURVE_AND_SHA256)
@@ -78,7 +80,7 @@ internal object Jose {
         } catch (e: JoseException) {
             throw afgewezen(reden, e)
         } catch (e: ClassCastException) {
-            // Vangnet naast de typecontrole op de header: jose4j cast headerwaarden zonder controle.
+            // Vangnet naast de typecontrole op header en epk: jose4j cast waarden zonder controle.
             throw afgewezen(reden, e)
         }
 
@@ -93,8 +95,10 @@ internal object Jose {
         val epk = jwe.headers.getObjectHeaderValue("epk") as? Map<*, *>
             ?: throw AfgewezenException(Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG)
 
-        // Alleen de controle telt: een epk naast P-256 wordt geweigerd vóór de sleutelafspraak,
-        // zodat een invalid-curve-aanval niet van de JOSE-library afhangt.
+        if (!JWK_LEDEN.containsAll(epk.keys)) throw AfgewezenException(Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG)
+
+        // Alleen de controle telt: een epk naast P-256 wordt geweigerd vóór de key agreement, zodat
+        // een invalid-curve-aanval niet van de JOSE-library afhangt.
         ecSleutel(epk, Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG)
 
         return plaintext(jwe, tijdelijkeSleutel, Afwijzing.PRESENTATIE_ONLEESBAAR)
@@ -187,7 +191,7 @@ internal object Jose {
         } catch (e: JoseException) {
             throw afgewezen(reden, e)
         } catch (e: ClassCastException) {
-            // Vangnet naast de typecontrole op de header: jose4j cast headerwaarden zonder controle.
+            // Vangnet naast de typecontrole op header en epk: jose4j cast waarden zonder controle.
             throw afgewezen(reden, e)
         }
     }

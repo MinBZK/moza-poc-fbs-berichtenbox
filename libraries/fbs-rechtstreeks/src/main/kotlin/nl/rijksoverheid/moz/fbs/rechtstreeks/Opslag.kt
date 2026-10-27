@@ -10,8 +10,8 @@ import java.time.Instant
 /** Wie een magazijnsessie heeft: een ontvanger uit een credential, of alleen een app-sleutel. */
 sealed interface Identiteit {
 
-    /** Uit een gecontroleerd credential van een App Manager. */
-    class Ontvanger(val ontvanger: Identificatienummer) : Identiteit {
+    /** Uit een gecontroleerd credential van een App Manager; [appSleutel] is de thumbprint van `cnf.jwk`. */
+    class Ontvanger(val ontvanger: Identificatienummer, val appSleutel: String) : Identiteit {
         override fun toString(): String = "Ontvanger(type=${ontvanger.type})"
     }
 
@@ -43,18 +43,26 @@ class Sessie internal constructor(
  */
 interface ChallengeOpslag {
 
-    /** Gooit [OpslagVolException] als er te veel openstaan, in totaal of voor [client] bij [verifier]. */
+    /** Gooit [OpslagVolException] als er te veel openstaan, in totaal of voor [client]. */
     fun bewaar(verifier: String, nonce: String, client: String, sleutel: ECPrivateKey, verlooptOp: Instant)
 
     /** Haalt de sleutel op en verwijdert hem; `null` als hij onbekend, verlopen of al gebruikt is. */
     fun neem(verifier: String, nonce: String): ECPrivateKey?
 }
 
-/** Opgezette sessies, per Verifier, zodat een token van het ene magazijn niet bij een ander werkt. */
+/**
+ * Opgezette sessies, per Verifier, zodat een token van het ene magazijn niet bij een ander werkt.
+ *
+ * TODO(#1215): voor een dienst met meer replica's moet een sessie geserialiseerd kunnen worden, met
+ * de AES-sleutel ingepakt.
+ */
 interface SessieOpslag {
 
-    /** Gooit [OpslagVolException] als er te veel sessies zijn, in totaal of voor [client] bij deze Verifier. */
-    fun bewaar(sessie: Sessie, client: String)
+    /**
+     * Gooit [OpslagVolException] als er te veel sessies zijn, in totaal of voor [houder] bij deze
+     * Verifier. [houder] is wie het quotum draagt: bij een credential de app-sleutel, anders de client.
+     */
+    fun bewaar(sessie: Sessie, houder: String)
 
     /** De sessie, of `null` als hij onbekend of verlopen is. */
     fun zoek(verifier: String, token: String): Sessie?
@@ -63,29 +71,35 @@ interface SessieOpslag {
 /**
  * Begrensde opslag in het geheugen, voor een dienst met één instantie (simulator, App Manager).
  *
- * De quota gelden per Verifier en client: een browser die bij 100 gesimuleerde magazijnen tegelijk
- * een challenge vraagt, telt per magazijn één keer. Het totaal beschermt het geheugen. Wie met veel
- * client-adressen tegelijk komt, kan dat totaal vullen; daartegen helpt alleen een stateless nonce
- * (zie [ChallengeOpslag]). De aanroeper leidt `client` af uit het verbindingsadres, niet uit een
- * header die de client zelf zet, en voegt IPv6-adressen samen per /64.
+ * Quota gelden per Verifier, zodat een browser die bij 100 gesimuleerde magazijnen tegelijk een
+ * challenge vraagt, per magazijn één keer telt; een plafond per client over alle Verifiers samen
+ * houdt de simulator binnen de perken. Het totaal beschermt het geheugen. Wie met veel adressen
+ * tegelijk komt, kan dat totaal vullen; daartegen helpt alleen een stateless nonce (zie
+ * [ChallengeOpslag]).
+ *
+ * De aanroeper bepaalt `client`. Achter een ingress is dat het adres dat de vertrouwde proxy
+ * doorgeeft (Quarkus: `quarkus.http.proxy.proxy-address-forwarding` met `trusted-proxies`), nooit
+ * een header die de client zelf kan zetten; anders deelt iedereen het adres van de proxy. Een
+ * IPv6-adres telt per /64.
  */
 class GeheugenOpslag(
     private val klok: Clock,
     private val maxChallenges: Int = 10_000,
     private val maxChallengesPerClient: Int = 20,
     private val maxSessies: Int = 10_000,
-    private val maxSessiesPerClient: Int = 20,
+    private val maxSessiesPerHouder: Int = 20,
+    private val maxPerClientOverVerifiers: Int = 200,
 ) : ChallengeOpslag, SessieOpslag {
 
     init {
-        require(minOf(maxChallenges, maxChallengesPerClient, maxSessies, maxSessiesPerClient) > 0) {
-            "elke grens moet groter dan nul zijn"
-        }
+        val grenzen = listOf(maxChallenges, maxChallengesPerClient, maxSessies, maxSessiesPerHouder, maxPerClientOverVerifiers)
+
+        require(grenzen.all { it > 0 }) { "elke grens moet groter dan nul zijn" }
     }
 
-    private class Openstaand(val client: String, val sleutel: ECPrivateKey, val verlooptOp: Instant)
+    private class Openstaand(val verifier: String, val client: String, val sleutel: ECPrivateKey, val verlooptOp: Instant)
 
-    private class Bewaard(val client: String, val sessie: Sessie)
+    private class Bewaard(val houder: String, val sessie: Sessie)
 
     private val challenges = HashMap<Pair<String, String>, Openstaand>()
     private val sessies = HashMap<Pair<String, String>, Bewaard>()
@@ -93,14 +107,17 @@ class GeheugenOpslag(
     @Synchronized
     override fun bewaar(verifier: String, nonce: String, client: String, sleutel: ECPrivateKey, verlooptOp: Instant) {
         val nu = ruimOp()
-        val vanClient = challenges.filter { (plek, waarde) -> plek.first == verifier && waarde.client == client }.values
+        val vanClient = challenges.values.filter { it.client == client }
+        val bijVerifier = vanClient.filter { it.verifier == verifier }
 
         // Bij een vol quotum telt wanneer een challenge van díe client vrijkomt, niet de eerste van iemand anders.
-        if (vanClient.size >= maxChallengesPerClient) throw OpslagVolException(wachttijd(vanClient.map { it.verlooptOp }, nu))
+        if (bijVerifier.size >= maxChallengesPerClient) throw OpslagVolException(wachttijd(bijVerifier.map { it.verlooptOp }, nu))
+
+        if (vanClient.size >= maxPerClientOverVerifiers) throw OpslagVolException(wachttijd(vanClient.map { it.verlooptOp }, nu))
 
         if (challenges.size >= maxChallenges) throw OpslagVolException(wachttijd(challenges.values.map { it.verlooptOp }, nu))
 
-        challenges[verifier to nonce] = Openstaand(client, sleutel, verlooptOp)
+        challenges[verifier to nonce] = Openstaand(verifier, client, sleutel, verlooptOp)
     }
 
     @Synchronized
@@ -111,15 +128,15 @@ class GeheugenOpslag(
     }
 
     @Synchronized
-    override fun bewaar(sessie: Sessie, client: String) {
+    override fun bewaar(sessie: Sessie, houder: String) {
         val nu = ruimOp()
-        val vanClient = sessies.values.filter { it.client == client && it.sessie.verifier == sessie.verifier }
+        val vanHouder = sessies.values.filter { it.houder == houder && it.sessie.verifier == sessie.verifier }
 
-        if (vanClient.size >= maxSessiesPerClient) throw OpslagVolException(wachttijd(vanClient.map { it.sessie.verlooptOp }, nu))
+        if (vanHouder.size >= maxSessiesPerHouder) throw OpslagVolException(wachttijd(vanHouder.map { it.sessie.verlooptOp }, nu))
 
         if (sessies.size >= maxSessies) throw OpslagVolException(wachttijd(sessies.values.map { it.sessie.verlooptOp }, nu))
 
-        sessies[sessie.verifier to sessie.token] = Bewaard(client, sessie)
+        sessies[sessie.verifier to sessie.token] = Bewaard(houder, sessie)
     }
 
     @Synchronized
@@ -130,22 +147,16 @@ class GeheugenOpslag(
     }
 
     /**
-     * Verwijdert wat verlopen is, bij elke aanroep: een tijdelijke private key of sessiesleutel hoort
-     * na zijn tijd niet in het geheugen te blijven, ook als er geen nieuw verkeer komt dat hem verdringt.
+     * Verwijdert wat verlopen is, bij elke aanroep, zodat een tijdelijke private key of sessiesleutel
+     * niet in het geheugen blijft wachten op nieuw verkeer. De sleutel zelf wordt niet gewist: een
+     * verzoek dat de sessie al had, gebruikt hem misschien nog, en een gewiste sleutel zou het
+     * antwoord onder nullen versleutelen. [Verifier] weigert een verlopen sessie zelf.
      */
     private fun ruimOp(): Instant {
         val nu = klok.instant()
 
         challenges.values.removeIf { !it.verlooptOp.isAfter(nu) }
-
-        sessies.values.removeIf { bewaard ->
-            val verlopen = !bewaard.sessie.verlooptOp.isAfter(nu)
-
-            // Best effort: een kopie die de JVM elders hield, blijft buiten bereik.
-            if (verlopen) bewaard.sessie.aesSleutel.fill(0)
-
-            verlopen
-        }
+        sessies.values.removeIf { !it.sessie.verlooptOp.isAfter(nu) }
 
         return nu
     }

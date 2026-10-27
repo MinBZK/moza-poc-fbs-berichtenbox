@@ -20,8 +20,10 @@ class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
  * magazijn kan zo nooit per ongeluk een presentatie zonder vastgestelde identiteit aannemen.
  *
  * Elke afwijzing is een [AfgewezenException]; de aanroeper antwoordt daarop `401`, ongeacht de
- * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`.
- * `client` is overal de herkomst van het verzoek en telt mee voor de quota van de opslag.
+ * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`. Is de
+ * eigen [VerifierSleutel] verlopen, dan gooit [maakChallenge] een [IllegalStateException]: een
+ * configuratiefout, die als `500` hoort te eindigen. `client` is de herkomst van het verzoek en
+ * telt mee voor de quota van de opslag.
  */
 class Verifier(
     private val oin: String,
@@ -40,8 +42,9 @@ class Verifier(
     fun maakChallenge(client: String): String {
         val nu = klok.instant()
 
-        // Een app weigert een verlopen sleutel (4.6.1); tekenen zou alleen onverklaarbare afwijzingen opleveren.
-        check(nu.isBefore(sleutel.geldigTot)) { "de sleutel ${sleutel.kid} is verlopen; de challenge zou door elke app geweigerd worden" }
+        check(nu.plus(NONCE_GELDIG).isBefore(sleutel.geldigTot)) {
+            "de sleutel ${sleutel.kid} verloopt binnen de levensduur van een nonce; de challenge zou door elke app geweigerd worden"
+        }
 
         val nonce = Base64.getEncoder().encodeToString(ByteArray(NONCE_BYTES).also(willekeur::nextBytes))
 
@@ -63,7 +66,7 @@ class Verifier(
     }
 
     /** Stap 20 tot en met 26 voor een magazijn: alleen een credential van een App Manager. */
-    fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
+    fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String): UitgegevenSessie {
         val nu = klok.instant()
         val presentatie = openPresentatie(nonce, versleuteldePresentatie, CERTIFICAAT_APP_MANAGER)
         val credential = credentials.controleer(presentatie.certificaat, nu)
@@ -71,8 +74,11 @@ class Verifier(
         controleerNonceHandtekening(presentatie.nonceHandtekening, credential.appSleutel, nonce)
 
         val geldig = minOf(SESSIE_GELDIG, Duration.between(nu, credential.exp))
+        val appSleutel = Jose.thumbprint(credential.appSleutel)
 
-        return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger), geldig, nu, client)
+        // Het quotum hangt aan de app-sleutel, niet aan het adres: achter één kantooradres of
+        // CGNAT werken veel ondernemers, en een sessie met credential vraagt al een geldig bewijs.
+        return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger, appSleutel), geldig, nu, appSleutel)
     }
 
     /** Stap 20 tot en met 26 voor de App Manager: alleen een self-signed certificaat (4.4.1, stap 2). */
@@ -85,21 +91,34 @@ class Verifier(
 
         val identiteit = Identiteit.AppSleutel(appSleutel, Jose.thumbprint(appSleutel))
 
-        return geefUit(presentatie.aesSleutel, identiteit, SESSIE_GELDIG, nu, client)
+        return geefUit(presentatie.aesSleutel, identiteit, ACTIVATIE_GELDIG, nu, client)
     }
 
     /** De sessie bij [token]; een onbekend of verlopen token wordt afgewezen. */
     fun sessie(token: String): Sessie =
         sessies.zoek(oin, token) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
 
-    /** Versleutelt een antwoord onder de sessiesleutel (`dir`, `A256GCM`). */
-    fun versleutel(sessie: Sessie, payload: String): String = Jose.versleutelDir(payload, sessie.aesSleutel)
+    /**
+     * Versleutelt een antwoord onder de sessiesleutel (`dir`, `A256GCM`). Een sessie die verliep
+     * terwijl het verzoek liep, wordt afgewezen: de app begint dan opnieuw.
+     */
+    fun versleutel(sessie: Sessie, payload: String): String {
+        vereisLopend(sessie)
+
+        return Jose.versleutelDir(payload, sessie.aesSleutel)
+    }
 
     /** Ontsleutelt een verzoek dat de app onder de sessiesleutel versleutelde. */
     fun ontsleutel(sessie: Sessie, jwe: String): String {
+        vereisLopend(sessie)
+
         if (jwe.length > MAX_VERZOEK_TEKENS) throw AfgewezenException(Afwijzing.VERSLEUTELING_ONGELDIG)
 
         return Jose.ontsleutelDir(jwe, sessie.aesSleutel)
+    }
+
+    private fun vereisLopend(sessie: Sessie) {
+        if (!klok.instant().isBefore(sessie.verlooptOp)) throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
     }
 
     private class Presentatie(val nonceHandtekening: String, val certificaat: String, val aesSleutel: ByteArray)
@@ -160,10 +179,10 @@ class Verifier(
         if (!klopt) throw AfgewezenException(Afwijzing.NONCEHANDTEKENING_ONGELDIG)
     }
 
-    private fun geefUit(aesSleutel: ByteArray, identiteit: Identiteit, geldig: Duration, nu: Instant, client: String): UitgegevenSessie {
+    private fun geefUit(aesSleutel: ByteArray, identiteit: Identiteit, geldig: Duration, nu: Instant, houder: String): UitgegevenSessie {
         val sessie = Sessie(oin, sessietoken(), aesSleutel, identiteit, nu.plus(geldig))
 
-        sessies.bewaar(sessie, client)
+        sessies.bewaar(sessie, houder)
 
         val antwoord = JsonUtil.toJson(mapOf("session_token" to sessie.token, "expires_in" to geldig.seconds))
 
@@ -183,6 +202,12 @@ class Verifier(
 
         /** Hoe lang een sessie ten hoogste duurt; niet te verlengen. */
         val SESSIE_GELDIG: Duration = Duration.ofMinutes(15)
+
+        /**
+         * Hoe lang een self-signed sessie duurt: lang genoeg om in te loggen bij de App Manager. Korter
+         * dan [SESSIE_GELDIG], omdat zo'n sessie niets kost en anders langer opslag bezet houdt.
+         */
+        val ACTIVATIE_GELDIG: Duration = Duration.ofMinutes(10)
 
         /** Gelijk aan `maxLength` van `encrypted_challenge_result` in het contract. */
         const val MAX_PRESENTATIE_TEKENS = 65_536

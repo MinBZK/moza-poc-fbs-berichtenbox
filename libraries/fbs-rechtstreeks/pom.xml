@@ -52,6 +52,20 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- jose4j logt via slf4j; in een dienst levert Quarkus de provider. In de tests van deze
+                 library is er geen, en dan is NOP precies goed. Zonder deze instelling meldt slf4j
+                 dat bij elke run als waarschuwing. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <!-- Dezelfde versie die Maven hier anders zelf kiest. -->
+                <version>3.6.0</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <slf4j.internal.verbosity>ERROR</slf4j.internal.verbosity>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>

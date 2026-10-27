@@ -82,12 +82,13 @@ class VerifierTest {
             put("key_ops", listOf("verify"))
             put("ext", true)
         }
+
         val claims = opzet.vcClaims().apply { put("cnf", mapOf("jwk" to jwk)) }
 
         opzet.sessie(verifier, claims)
     }
 
-    /** Een grens die nog net binnen valt, met de verwachte `expires_in`. */
+    /** Past claims of opzet aan tot een grens die nog net binnen valt. */
     fun interface Grensgeval {
         fun pasToe(opzet: Opzet, claims: MutableMap<String, Any>)
     }
@@ -110,7 +111,7 @@ class VerifierTest {
 
         opzet.nu = opzet.nu.plusSeconds(59)
 
-        verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)), Opzet.CLIENT)
+        verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)))
     }
 
     @Test
@@ -176,7 +177,7 @@ class VerifierTest {
         }
 
         val fout = assertThrows<AfgewezenException> {
-            ander.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
+            ander.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie))
         }
 
         assertEquals(Afwijzing.NONCE_ONBEKEND, fout.reden)
@@ -187,10 +188,10 @@ class VerifierTest {
     fun `een nonce werkt één keer, hoe de eerste poging ook afliep`(eerste: (Opzet, Opzet.Challenge) -> String) {
         val challenge = opzet.challenge(verifier)
 
-        runCatching { verifier.voltooiMetCredential(challenge.nonce, eerste(opzet, challenge), Opzet.CLIENT) }
+        runCatching { verifier.voltooiMetCredential(challenge.nonce, eerste(opzet, challenge)) }
 
         val tweede = assertThrows<AfgewezenException> {
-            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)), Opzet.CLIENT)
+            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)))
         }
 
         assertEquals(Afwijzing.NONCE_ONBEKEND, tweede.reden)
@@ -203,21 +204,101 @@ class VerifierTest {
         opzet.nu = opzet.nu.plusSeconds(60)
 
         val fout = assertThrows<AfgewezenException> {
-            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)), Opzet.CLIENT)
+            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)))
         }
 
         assertEquals(Afwijzing.NONCE_ONBEKEND, fout.reden)
     }
 
-    @Test
-    fun `de reden van een afwijzing staat in de melding, de inhoud van het verzoek nergens in de stacktrace`() {
+    /**
+     * jose4j neemt een onbekende `kty` of `crv` letterlijk op in zijn melding. Zonder het strippen van
+     * de oorzaak zou de waarde hier in de stacktrace staan.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invoerInMelding")
+    fun `invoer uit het verzoek komt nergens in de stacktrace`(maakJwe: (Opzet, Opzet.Challenge) -> String, reden: Afwijzing) {
         val challenge = opzet.challenge(verifier)
-        val kapot = TestApp.jweEcdh("""{"ontvanger": BSN:999993653}""", challenge.tijdelijk)
 
-        val fout = assertThrows<AfgewezenException> { verifier.voltooiMetCredential(challenge.nonce, kapot, Opzet.CLIENT) }
+        val fout = assertThrows<AfgewezenException> { verifier.voltooiMetCredential(challenge.nonce, maakJwe(opzet, challenge)) }
 
-        assertEquals("PRESENTATIE_ONLEESBAAR", fout.message)
+        assertEquals(reden, fout.reden)
+        assertEquals(reden.name, fout.message)
         assertFalse(fout.stackTraceToString().contains("999993653"))
+    }
+
+    @Test
+    fun `een verzoek onder de sessiesleutel met een extra headerveld wordt afgewezen`() {
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+
+        listOf(mapOf("zip" to "DEF"), mapOf("kid" to 1), mapOf("jku" to "https://aanvaller.example")).forEach { header ->
+            val fout = assertThrows<AfgewezenException> { verifier.ontsleutel(uitgegeven.sessie, TestApp.jweDir("{}", aes, header)) }
+
+            assertEquals(Afwijzing.HEADER_NIET_TOEGESTAAN, fout.reden)
+        }
+    }
+
+    @Test
+    fun `een verzoek van precies de maximale lengte wordt nog aangenomen`() {
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+        val leeg = TestApp.jweDir("", aes).length
+        val opvulling = (Verifier.MAX_VERZOEK_TEKENS - leeg) * 3 / 4
+        val jwe = TestApp.jweDir("a".repeat(opvulling), aes)
+
+        assertTrue(jwe.length in (Verifier.MAX_VERZOEK_TEKENS - 3)..Verifier.MAX_VERZOEK_TEKENS)
+        assertEquals("a".repeat(opvulling), verifier.ontsleutel(uitgegeven.sessie, jwe))
+    }
+
+    @Test
+    fun `een sessie die verloopt terwijl het verzoek loopt, wordt niet meer gebruikt om te versleutelen`() {
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+        val sessie = verifier.sessie(uitgegeven.sessie.token)
+
+        opzet.nu = sessie.verlooptOp
+
+        // Een willekeurige andere aanroep ruimt de verlopen sessie op terwijl dit verzoek hem nog vasthoudt.
+        verifier.maakChallenge("ander")
+
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.versleutel(sessie, "{}") }.reden)
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes)) }.reden)
+    }
+
+    @Test
+    fun `het sessiequotum hangt aan de app-sleutel, niet aan het adres`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxSessiesPerHouder = 2)
+        val krap = opzet.verifier(opslag = opslag)
+
+        opzet.sessie(krap)
+        opzet.sessie(krap)
+
+        val challenge = opzet.challenge(krap, "ander adres")
+
+        assertThrows<OpslagVolException> { krap.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge))) }
+
+        // De nonce is ook bij een volle opslag verbruikt.
+        val fout = assertThrows<AfgewezenException> {
+            krap.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)))
+        }
+
+        assertEquals(Afwijzing.NONCE_ONBEKEND, fout.reden)
+
+        val andereApp = TestApp.sleutelpaar()
+        val claims = opzet.vcClaims().apply { put("cnf", mapOf("jwk" to TestApp.jwk(andereApp.public as ECPublicKey))) }
+        val tweede = opzet.challenge(krap)
+        val presentatie = opzet.presentatie(tweede, opzet.vc(claims)).apply {
+            put("app_nonce_signature", opzet.nonceHandtekening(tweede.nonce, sleutel = andereApp.private))
+        }
+
+        krap.voltooiMetCredential(tweede.nonce, opzet.versleuteld(tweede, presentatie))
+    }
+
+    @Test
+    fun `een self-signed sessie duurt tien minuten`() {
+        val challenge = opzet.challenge(verifier)
+        val presentatie = opzet.presentatie(challenge, opzet.selfSigned(), Verifier.CERTIFICAAT_SELF_SIGNED)
+
+        val uitgegeven = verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
+
+        assertEquals(opzet.nu.plus(Duration.ofMinutes(10)), uitgegeven.sessie.verlooptOp)
     }
 
     @Test
@@ -274,7 +355,31 @@ class VerifierTest {
             arguments(named("AES-sleutel te kort", { o: Opzet, c: Opzet.Challenge ->
                 o.versleuteld(c, o.presentatie(c).apply { put("session_aes_key", "kort") })
             })),
+            arguments(named("presentatie te groot", { _: Opzet, _: Opzet.Challenge -> "a".repeat(Verifier.MAX_PRESENTATIE_TEKENS + 1) })),
             arguments(named("geslaagd", { o: Opzet, c: Opzet.Challenge -> o.versleuteld(c, o.presentatie(c)) })),
+        )
+
+        @JvmStatic
+        fun invoerInMelding(): List<Arguments> = listOf(
+            arguments(
+                named("kty in cnf.jwk", { o: Opzet, c: Opzet.Challenge ->
+                    val jwk = TestApp.jwk(o.app.public as ECPublicKey).apply { put("kty", "BSN:999993653") }
+
+                    o.versleuteld(c, o.presentatie(c, o.vc(o.vcClaims().apply { put("cnf", mapOf("jwk" to jwk)) })))
+                }),
+                Afwijzing.APPSLEUTEL_ONGELDIG,
+            ),
+            arguments(
+                named("crv in epk", { o: Opzet, c: Opzet.Challenge ->
+                    val jwe = TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk)
+                    val header = TestApp.header(jwe).toMutableMap()
+
+                    header["epk"] = (header["epk"] as Map<*, *>).entries.associate { (k, v) -> k.toString() to v } + ("crv" to "BSN:999993653")
+
+                    TestApp.b64url.encodeToString(JsonUtil.toJson(header).toByteArray()) + jwe.substring(jwe.indexOf('.'))
+                }),
+                Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG,
+            ),
         )
     }
 }

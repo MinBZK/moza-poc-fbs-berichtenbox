@@ -51,22 +51,22 @@ class AfwijzingTest {
         private fun metCredential(aanpassing: MutableMap<String, Any>.(Opzet) -> Unit) = Scenario { opzet, verifier, challenge ->
             val claims = opzet.vcClaims().apply { aanpassing(opzet) }
 
-            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge, opzet.vc(claims))), Opzet.CLIENT)
+            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge, opzet.vc(claims))))
         }
 
         private fun metCertificaat(certificaat: (Opzet) -> String) = Scenario { opzet, verifier, challenge ->
-            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge, certificaat(opzet))), Opzet.CLIENT)
+            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge, certificaat(opzet))))
         }
 
         private fun metPresentatie(aanpassing: Opzet.(MutableMap<String, Any>, Opzet.Challenge) -> Unit) =
             Scenario { opzet, verifier, challenge ->
                 val presentatie = opzet.presentatie(challenge).apply { opzet.aanpassing(this, challenge) }
 
-                verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
+                verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie))
             }
 
         private fun metJwe(jwe: (Opzet, Opzet.Challenge) -> String) = Scenario { opzet, verifier, challenge ->
-            verifier.voltooiMetCredential(challenge.nonce, jwe(opzet, challenge), Opzet.CLIENT)
+            verifier.voltooiMetCredential(challenge.nonce, jwe(opzet, challenge))
         }
 
         private fun selfSigned(soort: String = Verifier.CERTIFICAAT_SELF_SIGNED, aanpassing: Opzet.(MutableMap<String, Any>) -> String) =
@@ -143,7 +143,8 @@ class AfwijzingTest {
             geval("kid als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metCertificaat { vcMetHeader(it, mapOf("alg" to "ES256", "kid" to 1)) }),
             geval("alg als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metCertificaat { vcMetHeader(it, mapOf("alg" to 1, "kid" to Opzet.APP_MANAGER_KID)) }),
             geval("alg ES384", Afwijzing.HANDTEKENING_ONGELDIG, metCertificaat { vcMetHeader(it, mapOf("alg" to "ES384", "kid" to Opzet.APP_MANAGER_KID)) }),
-            geval("alg none", Afwijzing.APP_MANAGER_ONBEKEND, metCertificaat { TestApp.jwsZonderHandtekening(it.vcClaims()) }),
+            // none, HS256 en ES384 weigert jose4j ook zelf; de constraint op ES256 is verdediging in de diepte.
+            geval("alg none", Afwijzing.HANDTEKENING_ONGELDIG, metCertificaat { TestApp.jwsZonderHandtekening(it.vcClaims(), Opzet.APP_MANAGER_KID) }),
             geval("alg HS256 met de publieke sleutel als geheim", Afwijzing.HANDTEKENING_ONGELDIG, metCertificaat {
                 TestApp.jwsHs256(it.vcClaims(), it.appManager.public.encoded, Opzet.APP_MANAGER_KID)
             }),
@@ -188,7 +189,7 @@ class AfwijzingTest {
                     p["certificate"] = selfSigned()
                 }),
                 geval("onbekende nonce", Afwijzing.NONCE_ONBEKEND, Scenario { opzet, verifier, challenge ->
-                    verifier.voltooiMetCredential("b25iZWtlbmRlIG5vbmNl", opzet.versleuteld(challenge, opzet.presentatie(challenge)), Opzet.CLIENT)
+                    verifier.voltooiMetCredential("b25iZWtlbmRlIG5vbmNl", opzet.versleuteld(challenge, opzet.presentatie(challenge)))
                 }),
             )
 
@@ -232,14 +233,24 @@ class AfwijzingTest {
 
                 TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("epk" to TestApp.jwk(p384, crv = "P-384", lengte = 48)))
             }),
-            geval("epk met x5c als tekst", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c ->
-                val epk = TestApp.jwk(TestApp.sleutelpaar().public as ECPublicKey).apply { put("x5c", "abc") }
-
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("epk" to epk))
+            geval("epk met x5c als tekst", Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG, metJwe { o, c ->
+                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, epkExtra = mapOf("x5c" to "abc"))
+            }),
+            geval("epk met x5c null", Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG, metJwe { o, c ->
+                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, epkExtra = mapOf("x5c" to null))
+            }),
+            geval("epk met x5c [null]", Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG, metJwe { o, c ->
+                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, epkExtra = mapOf("x5c" to listOf(null)))
+            }),
+            geval("epk met kid", Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG, metJwe { o, c ->
+                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, epkExtra = mapOf("kid" to "1"))
             }),
             geval("geen JWE", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, _ -> "geen.jwe" }),
             geval("presentatie geen JSON", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, c -> TestApp.jweEcdh("geen json", c.tijdelijk) }),
             geval("presentatie te groot", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, _ -> "a".repeat(Verifier.MAX_PRESENTATIE_TEKENS + 1) }),
+            geval("zip in de header", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
+                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("zip" to "DEF"))
+            }),
         )
 
         private fun activeren(): List<Arguments> = listOf(
@@ -256,13 +267,27 @@ class AfwijzingTest {
 
                 verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
             }),
+            geval("magazijn zonder App Managers", Afwijzing.APP_MANAGER_ONBEKEND, Scenario { opzet, _, _ ->
+                val zonder = Verifier(
+                    Opzet.MAGAZIJN_OIN,
+                    VerifierSleutel(Opzet.MAGAZIJN_KID, opzet.magazijnSleutel.private as java.security.interfaces.ECPrivateKey, opzet.magazijnSleutelGeldigTot),
+                    AppManagerSleutels.GEEN,
+                    Opzet.SCOPE,
+                    opzet.opslag,
+                    opzet.opslag,
+                    opzet.klok,
+                )
+                val eigen = opzet.challenge(zonder)
+
+                zonder.voltooiMetCredential(eigen.nonce, opzet.versleuteld(eigen, opzet.presentatie(eigen)))
+            }),
             geval("credential bij de App Manager", Afwijzing.CERTIFICAATSOORT_ONJUIST, Scenario { opzet, verifier, challenge ->
                 verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)), Opzet.CLIENT)
             }),
             geval("self-signed bij een magazijn", Afwijzing.CERTIFICAATSOORT_ONJUIST, Scenario { opzet, verifier, challenge ->
                 val presentatie = opzet.presentatie(challenge, opzet.selfSigned(), Verifier.CERTIFICAAT_SELF_SIGNED)
 
-                verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
+                verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie))
             }),
         )
     }
