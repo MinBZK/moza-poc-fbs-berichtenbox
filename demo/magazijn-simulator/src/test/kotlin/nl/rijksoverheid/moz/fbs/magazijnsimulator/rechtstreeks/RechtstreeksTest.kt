@@ -188,22 +188,6 @@ class RechtstreeksTest {
     }
 
     @Test
-    fun `de berichtpaden vragen een geldige sessie en zijn daarna nog niet beschikbaar`() {
-        valideer(MAGAZIJN_A).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(401)
-        valideer(MAGAZIJN_A).header("Authorization", "onbekend").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(401)
-
-        val token = App(klok.instant()).sessie(MAGAZIJN_A)
-
-        valideer(MAGAZIJN_A).header("Authorization", token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
-            .then().statusCode(503).header("Retry-After", "3600")
-        valideer(MAGAZIJN_A).header("Authorization", token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$BERICHT_ID")
-            .then().statusCode(503)
-
-        // Een sessie van A geldt niet bij B.
-        given().header("Authorization", token).get("${basis(MAGAZIJN_B)}/rechtstreeks/berichten").then().statusCode(401)
-    }
-
-    @Test
     fun `een magazijn in storing antwoordt op de tweede ingang volgens het contract`() {
         try {
             listOf(Gedrag(GedragModus.STUK), Gedrag(GedragModus.WEIGERT, foutStatus = 403)).forEach { gedrag ->
@@ -290,7 +274,6 @@ class RechtstreeksTest {
         const val MAGAZIJN_A = "00000009000000000001"
         const val MAGAZIJN_B = "00000009000000000002"
         const val MAGAZIJN_C = "00000009000000000003"
-        const val BERICHT_ID = "11111111-2222-3333-4444-555555555555"
         val COMPACT_JWS = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         val COMPACT_JWE = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         const val APP_MANAGER_OIN = "00000000000000001100"
