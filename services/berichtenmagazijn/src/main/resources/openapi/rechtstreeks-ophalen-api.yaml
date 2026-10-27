@@ -17,8 +17,9 @@ info:
     ## Verloop
 
     1. `POST /rechtstreeks/challenge` — het magazijn geeft een nonce en een tijdelijke public key,
-       getekend met zijn eigen sleutel. De app controleert die handtekening met de `public_key`
-       van dit magazijn uit het stelseldocument.
+       getekend met zijn eigen sleutel. De app controleert die handtekening met de sleutel uit
+       `public_keys` van dit magazijn in het stelseldocument die de `kid` aanwijst, en die nog
+       niet verlopen is.
     2. `POST /rechtstreeks/complete` — de app stuurt een Verifiable Presentation, versleuteld naar
        de tijdelijke public key. Daarin: het Verifiable Credential van de App Manager, de nonce
        getekend met de sleutel van de app, en een AES-sleutel voor de sessie. Het magazijn
@@ -42,7 +43,8 @@ info:
     |---|---|---|
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 406, 415 | Het verzoek zelf klopt niet; bij `complete` alleen de buitenste envelop |
     | `urn:fbs:fout:geen-toegang` | 401 | Presentatie afgewezen, nonce onbekend, verlopen of al gebruikt, of sessie onbekend of verlopen |
-    | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht bestaat niet, of hoort niet bij de ontvanger van de sessie |
+    | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht bestaat niet, is verwijderd, of hoort niet bij de ontvanger van de sessie |
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het pad bestaat (nog) niet, zoals het bijlagepad waar een bijlagelink naar wijst |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Tijdelijk niet beschikbaar, ook als er te veel openstaande challenges zijn; `Retry-After` zegt wanneer opnieuw |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
 
@@ -50,8 +52,8 @@ info:
     het antwoord verraadt niet welke controle faalde, en ook niet of het ontsleutelen lukte. Bij
     een `401` op `berichten` begint de app opnieuw bij stap 1.
 
-    Anders dan de eerste ingang onderscheidt deze ingang "bestaat niet" niet van "hoort bij een
-    ander": beide zijn `404`. De app is de eindgebruiker zelf, en die hoeft het bestaan van
+    Anders dan de eerste ingang onderscheidt deze ingang "bestaat niet", "is verwijderd" en "hoort
+    bij een ander" niet: alle drie zijn `404`. De app is de eindgebruiker zelf, en die hoeft het bestaan van
     andermans bericht niet te kunnen afleiden.
 
     ## Bereikbaar vanuit de browser
@@ -103,12 +105,14 @@ paths:
       operationId: maakChallenge
       description: |
         Stap 2 tot en met 9 van `CreateSession` (4.3.4.2). Zonder body. Het magazijn maakt een
-        nonce van 16 willekeurige bytes en een tijdelijk P-256-sleutelpaar, en onthoudt beide
-        60 seconden, voor één keer gebruik. Het antwoord is een JWS, getekend met de sleutel van
-        dit magazijn, met als payload `Challenge`.
+        nonce van ten minste 16 willekeurige bytes en een tijdelijk P-256-sleutelpaar; de nonce
+        is 60 seconden bruikbaar, één keer. Het antwoord is een JWS, getekend met de sleutel van
+        dit magazijn, met als payload `Challenge`. Het antwoord is `200`, niet `201`: er ontstaat
+        geen resource met een eigen adres.
 
-        Header: `alg` `ES256`, `typ` `jwt`, `kid` van de sleutel van dit magazijn in het
-        stelseldocument. De app gebruikt alleen die sleutel, nooit een sleutel uit de header.
+        Header: `alg` `ES256`, `typ` `jwt`, `kid` van de sleutel van dit magazijn in
+        `public_keys` van het stelseldocument. De app gebruikt alleen die sleutel, controleert
+        dat hij niet verlopen is (4.6.1), en neemt nooit een sleutel uit de header.
 
         Het aantal openstaande challenges is begrensd. Is de grens bereikt, dan volgt `503` met
         `Retry-After`.
@@ -152,9 +156,11 @@ paths:
 
         - `certificate_type` is `app_manager_jwt_certificate`;
         - het Verifiable Credential in `certificate` is getekend met de sleutel die `iss` en `kid`
-          aanwijzen in `app_managers` van een geverifieerd stelseldocument; het is nu geldig
-          (`nbf`, `exp`, met 60 seconden marge), niet langer dan 24 uur uitgegeven, heeft de scope
-          van deze dienst en bevat een geldige `ontvanger`;
+          aanwijzen in `app_managers` van een geverifieerd stelseldocument, en die sleutel was
+          geldig op `iat` (4.6.2);
+        - het credential is nu geldig (`nbf`, `exp`, met 60 seconden marge), `iat` ligt niet in de
+          toekomst, `nbf` niet vóór `iat`, `exp` ten hoogste 24 uur na `iat` en ten minste
+          60 seconden na nu; het heeft de scope van deze dienst en een geldige `ontvanger`;
         - `app_nonce_signature` is getekend met de sleutel uit `cnf.jwk` van het credential, met
           `sub` `challenge_response`, `aud` de OIN van dit magazijn en de nonce;
         - `session_aes_key` is 32 bytes na base64-decoding.
@@ -165,7 +171,7 @@ paths:
 
         Het antwoord is een JWE, versleuteld met `session_aes_key`, met als payload
         `MagazijnsessieUitgegeven`. Dat de app het kan ontsleutelen, bewijst dat dit magazijn de
-        presentatie heeft geopend.
+        presentatie heeft geopend. Ook hier `200`, niet `201`.
       security: []
       requestBody:
         required: true
@@ -255,8 +261,9 @@ paths:
         Zelfde bericht als `GET /berichten/{berichtId}` van de eerste ingang, als het hoort bij de
         ontvanger uit de magazijnsessie. Het antwoord is een JWE, versleuteld met de AES-sleutel
         van de sessie, met als payload `Bericht`. De `self` wijst naar dit pad; de links naar
-        bijlagen wijzen naar `/rechtstreeks/berichten/{berichtId}/bijlagen/{bijlageId}`.
-        TODO(#1215): dat bijlagepad, en status bijwerken en verwijderen via deze ingang.
+        bijlagen wijzen naar `/rechtstreeks/berichten/{berichtId}/bijlagen/{bijlageId}`; zolang
+        dat pad er niet is, geeft het `404` met `urn:fbs:fout:niet-gevonden`.
+      # TODO(#1215): het bijlagepad, en status bijwerken en verwijderen via deze ingang.
       parameters:
         - $ref: './berichtenmagazijn-api.yaml#/components/parameters/BerichtIdPath'
       responses:
@@ -323,21 +330,25 @@ paths:
 components:
   headers:
     API-Version:
+      required: true
       description: Versie van de API; gelijk voor beide ingangen van het magazijn.
       schema:
         type: string
         example: "0.5.0"
     CacheControlNoStore:
+      required: true
       description: Een challenge is eenmalig en de andere antwoorden zijn met de sessiesleutel versleuteld; ze horen in geen enkele cache.
       schema:
         type: string
         enum: [no-store]
     AccessControlAllowOrigin:
+      required: true
       description: Altijd `*`, zonder credentials, zodat de app vanaf elke origin kan lezen.
       schema:
         type: string
         enum: ['*']
     AccessControlExposeHeaders:
+      required: true
       description: De headers die de app moet kunnen lezen.
       schema:
         type: string
@@ -353,8 +364,8 @@ components:
     CompactJwe:
       type: string
       description: |
-        JWE in compacte serialisatie (RFC 7516), vijf base64url-delen. Bij `dir` is het tweede
-        deel (de versleutelde sleutel) leeg.
+        JWE in compacte serialisatie (RFC 7516), vijf base64url-delen. Bij `dir` en `ECDH-ES` is
+        het tweede deel (de versleutelde sleutel) leeg.
       pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
       maxLength: 16777216
 
@@ -368,8 +379,9 @@ components:
           enum: [challenge]
         nonce:
           type: string
-          format: byte
-          description: 16 willekeurige bytes, base64.
+          description: Ten minste 16 willekeurige bytes, base64. Voor de app ondoorzichtig.
+          minLength: 24
+          maxLength: 256
         ephemeral_organization_ec_public_key:
           type: string
           format: byte
@@ -383,14 +395,13 @@ components:
         nonce:
           type: string
           description: De nonce uit de challenge, ongewijzigd.
-          minLength: 1
-          maxLength: 64
+          pattern: '^[A-Za-z0-9+/_=-]{24,256}$'
         encrypted_challenge_result:
           type: string
           description: |
             De Verifiable Presentation als JWE (compact, `alg` `ECDH-ES`, `enc` `A256GCM`),
             versleuteld naar de tijdelijke public key uit de challenge.
-          minLength: 1
+          pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
           maxLength: 65536
           x-payload:
             $ref: '#/components/schemas/VerifiablePresentation'
@@ -471,8 +482,10 @@ components:
           enum: [P-256]
         x:
           type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
         y:
           type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
       not:
         required: [d]
 
@@ -533,7 +546,7 @@ components:
           schema:
             $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
     NotFound:
-      description: Het bericht bestaat niet, of hoort niet bij de ontvanger van de sessie (`urn:fbs:fout:bericht-onbekend`).
+      description: Het bericht bestaat niet, is verwijderd, of hoort niet bij de ontvanger van de sessie (`urn:fbs:fout:bericht-onbekend`).
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
@@ -596,6 +609,7 @@ components:
         access-control-expose-headers:
           $ref: '#/components/headers/AccessControlExposeHeaders'
         Retry-After:
+          required: true
           description: Seconden tot een nieuwe poging zin heeft.
           schema:
             type: integer

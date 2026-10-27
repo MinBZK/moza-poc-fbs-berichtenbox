@@ -85,11 +85,19 @@ sequenceDiagram
   de public key die in het bewijs komt, nog vóór iemand weet wie de gebruiker is.
 - In de standaard logt de gebruiker in met DigiD. In de demo kiest hij een persona; de App
   Manager neemt die als vastgestelde identiteit. Dat is de enige ingekorte stap in het
-  activeren, en hij past bij het uitstellen van authenticatie in de hele PoC.
+  activeren: keten-brede authenticatie is uitgesteld.
 - De "universal link" van een mobiele app is hier een redirect naar **één vaste terug-URL uit de
   configuratie** van de App Manager. Er is geen parameter waarmee een aanroeper hem kan kiezen;
   anders kan een aanvaller een slachtoffer laten activeren en het `registration_token` naar zich
   toe laten sturen.
+- Tokens blijven uit URL's die gelogd worden. Een aanvaller kan een slachtoffer naar
+  `/register_app` lokken met zijn eigen `session_token`; lekt het `registration_token` dat
+  daarna terugkomt, dan zet hij de identiteit van het slachtoffer op zijn eigen sleutel. Daarom:
+  - de App Manager wisselt `?session_token=` bij de eerste `GET` om voor een `HttpOnly`-cookie
+    en stuurt met een `303` door naar een adres zonder token; het token werkt één keer;
+  - het `registration_token` komt terug in het fragment (`#registration_token=…`), dat de server
+    van de app nooit ziet, en de app wist het meteen met `history.replaceState`;
+  - App Manager en app zetten `Referrer-Policy: no-referrer`.
 - De pagina van de Berichten-app verdwijnt tijdens de navigatie. De app bewaart de AES-sleutel
   daarom vooraf als niet-exporteerbare AES-GCM-`CryptoKey` in IndexedDB, en het `session_token`
   in `sessionStorage`.
@@ -100,7 +108,8 @@ sequenceDiagram
   Manager onthoudt bij het eerste activeren de thumbprint (RFC 7638) van de root app key, en
   geeft op dat token alleen een VC uit voor diezelfde sleutel. Zonder die regel kan wie het token
   te pakken krijgt, een VC met de identiteit van het slachtoffer op een eigen sleutel laten zetten.
-  De standaard legt die binding niet vast; we melden dat als aanvulling.
+  De standaard legt die binding en de bescherming van de tokens hierboven niet vast; we melden
+  dat als aanvulling.
 - De paden van de App Manager volgen de standaard letterlijk (`/v1/challenge`, `/v1/complete`,
   `/register_app`, `/credential`). Het is een demo-dienst en geen API van het stelsel.
 
@@ -112,9 +121,9 @@ sequenceDiagram
     participant App as Berichten-app
     participant M as Magazijn
     App->>M: POST /rechtstreeks/challenge
-    Note over M: nonce (16 bytes) + tijdelijk sleutelpaar, 60 s geldig
+    Note over M: nonce (≥16 bytes) + tijdelijk sleutelpaar, 60 s geldig
     M-->>App: JWS {sub: challenge, nonce, ephemeral_organization_ec_public_key}, getekend met de magazijnsleutel
-    Note over App: controleer de handtekening met public_key uit het stelseldocument
+    Note over App: controleer de handtekening met de sleutel uit public_keys (kid) in het stelseldocument
     Note over App: maak AES-sleutel (256 bit) en de Verifiable Presentation
     App->>M: POST /rechtstreeks/complete {nonce, encrypted_challenge_result: JWE(ECDH-ES)}
     Note over M: ontsleutel, controleer VC, cnf-binding, aud, nonce
@@ -150,17 +159,18 @@ samen, sorteert ze op publicatietijdstip en toont welke magazijnen niet of te la
 |---|---|
 | Handtekening van de App Manager op het VC, met de sleutel die `iss` en `kid` aanwijzen in een geverifieerd stelseldocument | Een zelfgemaakt bewijs van identiteit |
 | Alleen de afgesproken algoritmen; geen sleutel uit een JWS- of JWE-header; punt op de curve voor `cnf.jwk` en `epk` | Een aanvaller die zijn eigen sleutel of een zwak algoritme meestuurt; invalid-curve-aanvallen |
-| `nbf`/`exp` van het VC, en `exp − iat` ten hoogste 24 uur | Een oud bewijs, en een bewijs dat met een gelekte App Manager-sleutel ver vooruit is uitgegeven |
+| `nbf`/`exp` van het VC; `iat` niet in de toekomst, `nbf` niet vóór `iat`, `exp − iat` ten hoogste 24 uur; sleutel van de App Manager geldig op `iat` (4.6.2) | Een oud bewijs, en een bewijs dat met een gelekte App Manager-sleutel ver vooruit is uitgegeven |
+| Het magazijn accepteert alleen `app_manager_jwt_certificate`; de library heeft voor de twee certificaattypen aparte ingangen | Een self-signed presentatie, zonder vastgestelde identiteit, bij een magazijn |
 | `scope` van het VC | Een bewijs voor een andere dienst dat hier wordt aangeboden |
 | Nonce getekend met de sleutel uit `cnf.jwk` | Een gestolen VC zonder de sleutel uit de browser: het VC is niet overdraagbaar |
 | `registration_token` gebonden aan de thumbprint van de root app key | Een gestolen token dat een VC op een andere sleutel oplevert |
 | `aud` in de getekende nonce, gelijk aan de OIN van het aangesproken magazijn | Een magazijn dat de presentatie doorspeelt aan een ander magazijn |
 | Nonce eenmalig, 60 seconden, en verbruikt ook als een controle faalt | Een opgenomen `complete`-verzoek opnieuw afspelen; sleutelherstel door herhaald proberen |
 | Nonces en sessies opgeslagen per OIN van het magazijn | In de simulator: een token of nonce van magazijn A dat bij magazijn B werkt |
-| Challenge getekend met de magazijnsleutel uit het stelseldocument | Een nepmagazijn dat zich als een echt voordoet |
+| Challenge getekend met een niet-verlopen magazijnsleutel uit het stelseldocument | Een nepmagazijn dat zich als een echt voordoet |
 | Presentatie versleuteld naar een tijdelijke sleutel | Meelezen van VC en AES-sleutel, ook als TLS ergens onderweg wordt opengebroken |
 | Antwoorden versleuteld met de AES-sleutel van de sessie | Een gestolen sessietoken waarmee je alleen ciphertext krijgt |
-| Vaste terug-URL bij het activeren | Een aanvaller die het `registration_token` van een slachtoffer naar zich toe laat sturen |
+| Vaste terug-URL, tokens in fragment en cookie, `no-referrer` | Een aanvaller die het `registration_token` van een slachtoffer naar zich toe laat sturen of uit een log haalt |
 
 Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van de app draait
 (XSS). Dat kan tekenen zolang de pagina open staat. Ontwerpkeuze 12 gaat daarover.
@@ -199,14 +209,17 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
      versleuteld over de lijn gaat.
    - **Opslag.** Nonces en sessies staan achter een interface, met als sleutel de OIN van het
      magazijn plus de nonce of het token. De opslag in het geheugen is begrensd: een maximum aantal
-     openstaande nonces (daarboven `503` met `Retry-After`), en opruimen na verloop en na
-     gebruik. Dat is genoeg voor de simulator en de App Manager, die met één instantie draaien.
-     Het echte magazijn draait met meer replica's. Daar komt geen database-write per anonieme
-     challenge: de nonce wordt stateless (de tijdelijke private key gaat versleuteld en
-     geauthenticeerd met een serversleutel mee in de challenge), met alleen een korte lijst van
-     verbruikte nonces. Sessies daar bewaren de AES-sleutel versleuteld, in een opslag met TTL
-     zonder back-up, zodat de forward secrecy van de tijdelijke sleutels niet via een back-up
-     verloren gaat.
+     openstaande nonces, totaal en per client-IP (daarboven `503` met `Retry-After`), en
+     opruimen na verloop en na gebruik. Het quotum per IP zorgt dat een site die zijn bezoekers
+     challenges laat aanvragen alleen zichzelf blokkeert. Dat is genoeg voor de simulator en de
+     App Manager, die met één instantie draaien. Het echte magazijn draait met meer replica's.
+     Daar komt geen database-write per anonieme challenge: de nonce wordt stateless. De tijdelijke
+     private key gaat, versleuteld en geauthenticeerd met een inpaksleutel, mee in de nonce (die
+     daarom tot 256 tekens mag zijn), met een korte lijst van verbruikte nonces die alle
+     replica's delen (TTL ten minste 120 seconden). De inpaksleutel staat alleen in het geheugen,
+     rouleert elke paar minuten en wordt na twee keer de levensduur van een nonce vernietigd.
+     Zo blijft de forward secrecy van de tijdelijke sleutels beperkt tot dat venster. Sessies
+     bewaren de AES-sleutel versleuteld, in een opslag met TTL zonder back-up.
    - **Logging.** De library logt nooit claims uit een VC en nooit de waarde van `ontvanger`, ook
      niet bij een afwijzing. Intern logt hij alleen welke controle faalde.
 
@@ -220,7 +233,9 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    `berichtenmagazijn-api.yaml`. In PR 3 genereert de simulator alleen de tag
    `RechtstreeksOphalen` uit dit bestand, met de bestaande modellen via `schemaMappings` (anders
    overschrijft de tweede generatie die van de eerste), en kopieert de contracttest beide
-   spec-bestanden.
+   spec-bestanden. `challenge` en `complete` antwoorden `200`, zoals de standaard: er ontstaat
+   geen resource met een eigen adres. De `CreatedStatusFilter` van simulator en `fbs-common`
+   maakt van elke geslaagde `POST` een `201` en slaat daarom `/rechtstreeks/` over.
 
 6. **Paden onder `/api/v1/rechtstreeks/`.** De standaard zet `challenge` en `complete` op
    `/v1/challenge` en `/v1/complete` van een sessie-dienst die een app via de
@@ -237,7 +252,9 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    onderneming heet met een KVK-nummer of RSIN, een eenmanszaak soms met een BSN. We nemen
    `ontvanger` op in dezelfde vorm als de `X-Ontvanger`-header (`<TYPE>:<WAARDE>`, zoals
    `KVK:12345678`, zonder `OIN`). Dan beslist het magazijn met de bestaande regels
-   (`Identificatienummer`, `BerichtAutorisatie`). Een naam neemt het VC niet op: het magazijn heeft
+   (`Identificatienummer`, `BerichtAutorisatie`). Waar de eerste ingang `403` of `410` geeft,
+   geeft deze ingang `404`: de app is de eindgebruiker zelf, en die hoeft niet te kunnen afleiden
+   dat andermans bericht bestaat. Een naam neemt het VC niet op: het magazijn heeft
    hem niet nodig, en bij een eenmanszaak is het de naam van een persoon die anders naar tot 100
    organisaties gaat. De scope is `nl.rijksoverheid.moz.fbs.berichten`. De sleutel van de App
    Manager zoekt een Verifier op met `iss` en `kid` in `app_managers` van het stelseldocument;
@@ -248,7 +265,8 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
 8. **Sessie: 15 minuten vast, niet te verlengen.** De standaard zegt niets over de levensduur. Een
    korte, vaste geldigheid is het eenvoudigst, en een nieuwe sessie kost twee verzoeken. Een
    sessie duurt nooit langer dan het VC: `expires_in` is het minimum van 900 seconden en de tijd
-   tot `exp`. Krijgt de app een `401`, dan begint hij opnieuw bij de challenge. Het token is 32
+   tot `exp`, en een VC dat binnen 60 seconden verloopt, levert geen sessie op (de app ververst
+   het eerst, 4.3.4.1). Krijgt de app een `401`, dan begint hij opnieuw bij de challenge. Het token is 32
    willekeurige alfanumerieke tekens (de eis is ten minste 22, 4.3.4.2 stap 26) en gaat zonder
    schema in `Authorization` (4.4.1 stap 20). In de code heet dit de **magazijnsessie**, met
    opzet anders dan de inlogsessie van de uitvraag (#943, `X-Sessie`). Die twee hebben niets met
@@ -265,7 +283,9 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
     challenge van een magazijn kunnen controleren (4.3.4.2, stap 10–12), en elke publieke sleutel
     moet een verloopdatum hebben (4.6). Elke organisatie en elke App Manager krijgt daarom een
     lijst `public_keys`, elk met `kid` en `exp`, zodat een nieuwe sleutel kan overlappen met de
-    oude. Voor de simulator maakt `genereer-magazijnen.py` per OIN een sleutelpaar: de public keys
+    oude; het voorbeeld in 4.1.1.1 noemt één `public_key`. De app kiest de magazijnsleutel op de
+    `kid` uit de challenge en controleert dat hij niet verlopen is (4.6.1). Het magazijn toetst de
+    sleutel van de App Manager op het moment `iat` van het VC (4.6.2). Voor de simulator maakt `genereer-magazijnen.py` per OIN een sleutelpaar: de public keys
     gaan in het register, de private keys in de set van de simulator. In het magazijnregister is
     het veld optioneel, zodat de uitvraag, die het niet gebruikt, geen sleutels hoeft te
     configureren.
@@ -273,9 +293,12 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
 11. **Waar het vertrouwen vandaan komt.** Een magazijn accepteert een VC alleen van een App
     Manager uit een stelseldocument dat het zelf heeft geverifieerd, met de zes stappen uit het
     toepassingsprofiel (vastgelegde root, `environment`, tijd). De demo-App Manager authenticeert
-    niemand. Hij staat daarom alleen in documenten met `environment: demo`, en het echte magazijn
-    weigert in `%prod`, `%staging` en `%acceptatie` op te starten als het een App Manager accepteert
-    met de OIN van de demo. Dat volgt het patroon van de bestaande `*_UNSAFE_*`-kleppen. Een App
+    niemand. Hij staat daarom alleen in documenten met `environment: demo`. Het echte magazijn haalt
+    het stelseldocument op terwijl het draait, dus de controle hoort bij elke verversing, niet bij
+    het opstarten: in `%prod`, `%staging` en `%acceptatie` weigert het een document met de OIN van
+    de demo-App Manager of met een andere `environment`. Het houdt dan het vorige exemplaar en
+    meldt dat met een alert-token, naar het voorbeeld van `LdvEndpointValidator` en
+    `RedisVerbindingValidator`, die zonder klep weigeren. Een App
     Manager die uit het document verdwijnt, blijft geaccepteerd tot het magazijn een nieuw
     exemplaar heeft opgehaald: uiterlijk 24 uur plus het verversinterval.
 
@@ -288,9 +311,11 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
     - de app draait op een eigen host, niet op een pad naast het bedieningspaneel of de proeftuin;
     - alles uit magazijnen en het stelseldocument gaat via `textContent` de pagina in, nooit via
       `innerHTML`;
-    - een strikte CSP: `default-src 'none'; script-src 'self'; style-src 'self'; connect-src
-      https:; frame-ancestors 'none'; base-uri 'none'; form-action 'none';
-      require-trusted-types-for 'script'`, zonder inline script;
+    - een strikte CSP als response-header (in een `<meta>` werkt `frame-ancestors` niet):
+      `default-src 'none'; script-src 'self'; style-src 'self'; connect-src <stelselregister>
+      <App Manager> <magazijnen>; frame-ancestors 'none'; base-uri 'none'; form-action 'none';
+      require-trusted-types-for 'script'`, zonder inline script. `connect-src` komt per omgeving
+      uit de configuratie; de lokale stack draait op `http://localhost`;
     - JOSE in de browser via `jose` (panva), als ESM-bestand met een vaste versie meegeleverd in
       de module, niet van een CDN. Die library kan JWS en JWE `ECDH-ES` met WebCrypto-sleutels,
       ook niet-exporteerbare;
@@ -323,12 +348,14 @@ Deze tabel gaat als terugkoppeling naar de auteurs, net als die in het toepassin
 |---|---|---|
 | VC bevat `bsn`, `given_name`, `family_name` (4.3.1, 4.3.1.1 stap 3) | Alleen `ontvanger` (`<TYPE>:<WAARDE>`) | Niet elke ontvanger is een burger; het magazijn heeft geen naam nodig |
 | Sleutel van de App Manager opzoeken per scope (4.3.3, alleen voor `nl.vorijk.oauth_scope.blauwe_knop` uitgewerkt) | Eigen scope `nl.rijksoverheid.moz.fbs.berichten`; opzoeken met `iss` en `kid` in `app_managers` | De regel komt in het toepassingsprofiel (PR 2) |
-| Identificatie met DigiD bij activeren (4.4.1, stap 6–7) | Keuze van een persona | Authenticatie is in de hele PoC uitgesteld |
+| Identificatie met DigiD bij activeren (4.4.1, stap 6–7) | Keuze van een persona | Keten-brede authenticatie is uitgesteld |
 | Universal link terug naar de app (4.4.1, stap 14) | Redirect naar één vaste terug-URL van de Berichten-app | Web, geen mobiele app |
 | `registration_token` is niet aan de sleutel van de app gebonden (4.4.1) | Gebonden aan de thumbprint van de root app key | Aanvulling: anders is een gestolen token een VC op elke sleutel |
+| `session_token` in de query van `/register_app` (4.4.1 stap 3), `registration_token` in de query van de universal link (stap 14) | Eenmalig, direct omgewisseld voor een cookie; `registration_token` in het fragment; `no-referrer` | Aanvulling: anders lekken ze via logs, geschiedenis en `Referer` |
+| `public_key` per organisatie (voorbeeld in 4.1.1.1) | Lijst `public_keys` met `kid` en `exp` | Sleutelwissel met overlap; verloopdatum per sleutel (4.6) |
 | `challenge`/`complete` op `/v1/…` van een sessie-dienst uit de vindbaarheidsconfiguratie (4.2, 4.3.4.2) | Onder `<magazijn_url>/api/v1/rechtstreeks/` | Geen vindbaarheidsconfiguratie; zie ontwerpkeuze 6 |
 | `session_aes_key` van 16 bytes (4.3.4.1) | 32 bytes | De standaard spreekt zichzelf tegen; zie ontwerpkeuze 9 |
-| Hybride ML-KEM-768 met ECIES (3.3) | Alleen `ECDH-ES` | WebCrypto kent geen ML-KEM. 3.3 noemt hybride ML-KEM eerst een ZOU MOETEN en daarna een MOET; dat melden we als tegenstrijdigheid |
+| Hybride ML-KEM-768 met ECIES ZOU MOETEN (3.3) | Alleen `ECDH-ES` | WebCrypto kent geen ML-KEM |
 | Revocatie van VC's met een Token Status List, en van de sleutels van Issuers en Verifiers (4.5) | Niet; een VC is ten hoogste 24 uur geldig, een sleutel verdwijnt met een nieuw stelseldocument | Buiten de eerste sprint |
 | TLS 1.3 (3.5) | Eis aan de ingress, niet in de dienst afgedwongen | Zoals bij het stelselregister |
 | Vorm en levensduur van het antwoord op `complete` en van de sessie | JWE met `session_token` en `expires_in`; 15 minuten, niet langer dan het VC | De standaard noemt het token, niet de vorm van het antwoord |
@@ -341,6 +368,7 @@ Deze tabel gaat als terugkoppeling naar de auteurs, net als die in het toepassin
 | `/encryption/jwe`: `application/jose+json`, `RSA-OAEP` met `A256GCM`, `typ` `JWE`, sleutel uit een X.509-certificaat | `application/jose` (compact), `ECDH-ES` en `dir` met `A256GCM`; de JWE op `complete` zit in een JSON-envelop | Opgelegd door FSC voor Burgers (3.4, 4.3.4.2 stap 20) |
 | camelCase, Nederlands | Engelse veldnamen in snake_case, ook in `MagazijnsessieUitgegeven` | De standaard gebruikt die vorm; één stijl binnen het protocol |
 | `Authorization` met een schema (RFC 9110, RFC 6750) | Token zonder schema | Opgelegd door de standaard (4.4.1 stap 20) |
+| `/core/naming-resources`: zelfstandige naamwoorden als resource | `challenge` en `complete` | Namen uit de standaard (4.3.4.2 stap 2 en 20) |
 | `/core/publish-openapi` | `/api/v1/openapi.json` beschrijft de tweede ingang nog niet | Twee bronbestanden tot het magazijn de ingang levert (ontwerpkeuze 5) |
 | `servers` met een absolute https-URL | Relatief `/api/v1` | Zoals de andere API's in deze repository |
 
@@ -389,9 +417,9 @@ magazijn, dus de Verifier-library komt eerst.
 | **0. Ontwerp + contract** | Dit document, `rechtstreeks-ophalen-api.yaml`, gekozen variant in de architectuur | #1213 (keuze vastleggen) | Review; Spectral op de spec; proefgeneratie |
 | **1. Verifier-library** | `libraries/fbs-rechtstreeks`: challenge maken, presentatie en VC controleren (beide certificaattypen), sessies, begrensde opslag in het geheugen | #1213, #1215 | Unit- en property-based tests met een Kotlin-testclient in de rol van app: elke rij uit "Wat elke controle tegenhoudt" als afwijzing, plus een token van magazijn A bij magazijn B |
 | **2. Sleutel + demo-App Manager** | `demo/app-manager` (activeren volgens 4.4.1, persona-keuze, VC uitgeven en verversen, binding van het `registration_token`, vaste terug-URL); App Manager en sleutels in het stelseldocument en het toepassingsprofiel; `demo/berichten-app` met de sleutel en het activeren | #1213, #1214 | Een VC per persona; een VC met een andere sleutel faalt; een `registration_token` met een andere sleutel faalt; de sleutel is niet te exporteren (browsertest) |
-| **3. Magazijnsessie in de simulator** | Sleutel per gesimuleerd magazijn (register, stelseldocument, `genereer-magazijnen.py`); `challenge`/`complete`; CORS met preflight | #1215 | Geldig VC geeft een sessie; ongeldig VC, verkeerde handtekening, verkeerde `aud` of hergebruikte nonce geeft `401`; volle nonce-opslag geeft `503`; CORS-headers ook op `401`; contracttest op alle statussen |
-| **4. Berichten lezen in de simulator** | `GET /rechtstreeks/berichten` en `/{berichtId}`, versleuteld, alleen voor de ontvanger uit de sessie | #1215 (deels) | Alleen de berichten van de eigen ontvanger; een bericht van een ander geeft `404`; een verlopen of onbekende sessie geeft `401`; het 200-antwoord valideert na ontsleutelen tegen het `x-payload`-schema |
-| **5. Berichten-app: ophalen en samenvoegen** | Stelseldocument ophalen en controleren, parallel bij elk magazijn ophalen, samenvoegen en sorteren, niet-reagerende magazijnen tonen | #1216 | Eén gesorteerde lijst voor een persona; een gestopt magazijn wordt bij naam getoond; de CSP staat geen inline script toe |
+| **3. Magazijnsessie in de simulator** | Sleutel per gesimuleerd magazijn (register, stelseldocument, `genereer-magazijnen.py`); `challenge`/`complete`; CORS met preflight | #1215 | Geldig VC geeft een sessie; ongeldig VC, verkeerde handtekening, verkeerde `aud` of hergebruikte nonce geeft `401`; volle nonce-opslag geeft `503`; CORS-headers ook op `401`; contracttest op alle statussen, plus de compacte string tegen het patroon van `CompactJws`/`CompactJwe` en de payload na verifiëren tegen het `x-payload`-schema (de validator slaat `application/jose` over); `challenge` en `complete` geven `200` |
+| **4. Berichten lezen in de simulator** | `GET /rechtstreeks/berichten` en `/{berichtId}`, versleuteld, alleen voor de ontvanger uit de sessie | #1215 (deels) | Alleen de berichten van de eigen ontvanger; een bericht van een ander of een verwijderd bericht geeft `404`; een verlopen of onbekende sessie geeft `401`; het 200-antwoord valideert na ontsleutelen tegen het `x-payload`-schema |
+| **5. Berichten-app: ophalen en samenvoegen** | Stelseldocument ophalen en controleren, parallel bij elk magazijn ophalen, samenvoegen en sorteren, niet-reagerende magazijnen tonen | #1216 | Eén gesorteerde lijst voor een persona; een gestopt magazijn wordt bij naam getoond; de CSP staat geen inline script toe en noemt in `connect-src` alleen de geconfigureerde adressen |
 
 Na PR 0 kunnen PR 1 en de pagina-kant van PR 5 tegelijk beginnen; PR 5 eerst tegen een stub van
 het contract. #1215 gaat na PR 4 niet dicht (bijlagen, status en het echte magazijn volgen); daar
@@ -403,9 +431,11 @@ Geen afhankelijkheid: #943 gaat over de inlogsessie tussen portaal en uitvraag, 
 gebruikt de uitvraag niet. Wel drie raakvlakken:
 
 - **Naam.** "Magazijnsessie" en `Authorization`, niet "sessie" en `X-Sessie`.
-- **`WWW-Authenticate`.** PR #393 zet die header per dienst, met een responsfilter in de
-  uitvraag; in `fbs-common` voegt hij alleen sessie-foutcodes en `Retry-After` op een 4xx toe. Het
-  echte magazijn krijgt dus een eigen filter voor zijn `401`. De simulator hangt bewust niet aan
+- **`fbs-common`.** PR #393 zet `WWW-Authenticate` per dienst, met een responsfilter in de
+  uitvraag. In `fbs-common` voegt hij sessie-foutcodes en `Retry-After` op een 4xx toe, en laat
+  `CreatedStatusFilter` actiepaden (laatste segment begint met `_`) overslaan. Het echte magazijn
+  krijgt een eigen filter voor zijn `401`, en `/rechtstreeks/` komt als tweede uitzondering in
+  `CreatedStatusFilter`. De simulator hangt bewust niet aan
   `fbs-common`.
 - **Proeftuin-berichtenbox.** Kiezen we die later toch, dan raakt de knop dezelfde code als de
   moza-poc-kant van #393.
