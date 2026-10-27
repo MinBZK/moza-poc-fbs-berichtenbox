@@ -1,8 +1,9 @@
 // De pagina: activeren, het bewijs vernieuwen en de activering wissen. Tekst uit tokens en
 // credentials gaat alleen via textContent de pagina in.
+import { errors } from '../vendor/jose-6.2.13/index.js';
 import * as kluis from './sleutelkluis.js';
 import {
-  ActiverenFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
+  ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
 } from './activeren.js';
 
 // Het session_token van het activeren overleeft zo de navigatie naar de App Manager, maar niet het
@@ -23,20 +24,22 @@ let vertrokken = false;
 let ingesteld = false;
 
 async function laadConfig() {
-  const antwoord = await fetch('config.json');
+  try {
+    const antwoord = await fetch('config.json');
+    const { appManager } = antwoord.ok ? await antwoord.json() : {};
 
-  if (!antwoord.ok) throw new Melding('De app kan haar instellingen niet laden. Probeer het later opnieuw.');
-
-  const { appManager } = await antwoord.json();
-
-  if (typeof appManager?.url !== 'string' || typeof appManager?.oin !== 'string') {
-    throw new Melding('De instellingen van de app zijn onvolledig.');
+    if (typeof appManager?.url === 'string' && typeof appManager?.oin === 'string') return appManager;
+  } catch (fout) {
+    console.error(fout);
   }
 
-  return appManager;
+  throw new Melding('De app kan haar instellingen niet laden. Herlaad de pagina of probeer het later opnieuw.');
 }
 
-function opslagBeschikbaar() {
+/** WebCrypto bestaat alleen in een secure context; sessionStorage en IndexedDB kunnen uit staan. */
+function browserGeschikt() {
+  if (!globalThis.isSecureContext || !globalThis.crypto?.subtle) return false;
+
   try {
     sessionStorage.setItem('opslagtest', '1');
     sessionStorage.removeItem('opslagtest');
@@ -47,15 +50,19 @@ function opslagBeschikbaar() {
   }
 }
 
-/** Terug van de App Manager: het token uit het fragment halen en er een bewijs mee ophalen. */
-async function rondActiverenAf(appManager) {
-  if (!new URLSearchParams(location.hash.slice(1)).has('registration_token')) return;
+/** Het fragment waarmee de App Manager terugstuurt, meteen uit adresbalk en geschiedenis. */
+function neemFragment() {
+  if (!new URLSearchParams(location.hash.slice(1)).has('registration_token')) return null;
 
   const fragment = location.hash;
 
-  // Het token hoort niet in de geschiedenis van de browser te blijven staan.
   history.replaceState(null, '', location.pathname + location.search);
 
+  return fragment;
+}
+
+/** Terug van de App Manager: het token uit het fragment halen en er een bewijs mee ophalen. */
+async function rondActiverenAf(appManager, fragment) {
   const sessieToken = sessionStorage.getItem(ACTIVATIE_SESSIE);
   const activatie = await kluis.haal(ACTIVATIE);
 
@@ -71,10 +78,8 @@ async function rondActiverenAf(appManager) {
   const { aesSleutel } = activatie;
   const registratieToken = await leesRegistratie(fragment, aesSleutel, appManager.url);
 
-  // Eerst het token bewaren, en het bewijs van een eventuele vorige persona weg: mislukt het
-  // ophalen hierna, dan haalt "Bewijs vernieuwen" het alsnog.
-  await kluis.bewaar('registratie', registratieToken);
-  await kluis.verwijder('credential');
+  // Eerst het token bewaren: mislukt het ophalen hierna, dan haalt "Bewijs vernieuwen" het alsnog.
+  await kluis.vervangRegistratie(registratieToken);
 
   let credential;
 
@@ -97,8 +102,8 @@ async function activeer(appManager) {
   sessionStorage.setItem(ACTIVATIE_SESSIE, sessieToken);
   await kluis.bewaar(ACTIVATIE, { sessieToken, aesSleutel });
 
-  vertrokken = true;
   location.assign(registratieAdres(appManager.url, sessieToken));
+  vertrokken = true;
 }
 
 /** Een vers bewijs zonder opnieuw te kiezen: een nieuwe sessie, hetzelfde registration_token. */
@@ -130,13 +135,18 @@ async function vernieuw(appManager) {
 }
 
 async function wis() {
-  if (!confirm('De sleutel en het bewijs van deze browser worden verwijderd. Daarna moet u opnieuw activeren.')) return;
-
   await kluis.wis();
   sessionStorage.removeItem(ACTIVATIE_SESSIE);
 }
 
 async function toon() {
+  if (!ingesteld) {
+    zetKnoppen({});
+    element('status').textContent = '';
+
+    return;
+  }
+
   try {
     const registratie = await kluis.haal('registratie');
     const credential = await kluis.haal('credential');
@@ -173,15 +183,25 @@ function zetKnoppen(aan) {
 function melding(fout) {
   if (fout instanceof Melding) return fout.message;
 
-  if (fout instanceof ActiverenFout && fout.status === 401) return `De App Manager herkent deze activering niet. ${OPNIEUW_ACTIVEREN}`;
+  if (fout instanceof VerbindingFout) return 'Geen verbinding met de App Manager. Controleer uw verbinding en probeer het opnieuw.';
+
+  if (fout instanceof kluis.KluisFout) return 'De opslag van deze browser werkt niet mee. Probeer het opnieuw, of kies Activering wissen.';
+
+  if (fout instanceof ActiverenFout && fout.status === 401 && fout.stap === 'credential') {
+    return `De App Manager herkent deze activering niet. ${OPNIEUW_ACTIVEREN}`;
+  }
+
+  if (fout instanceof ActiverenFout && fout.status === 401) return 'De App Manager wees het verzoek af. Probeer het opnieuw.';
 
   if (fout instanceof ActiverenFout && fout.status === 503) return 'De App Manager is even te druk. Probeer het over een minuut opnieuw.';
 
   if (fout instanceof ActiverenFout && fout.status) return 'De App Manager gaf een fout. Probeer het later opnieuw.';
 
-  if (fout instanceof TypeError) return 'Geen verbinding met de App Manager. Controleer uw verbinding en probeer het opnieuw.';
+  if (fout instanceof ActiverenFout || fout instanceof errors.JOSEError || fout instanceof SyntaxError) {
+    return `Het antwoord van de App Manager is niet te lezen. ${OPNIEUW_ACTIVEREN}`;
+  }
 
-  return `Het antwoord van de App Manager is niet te lezen. ${OPNIEUW_ACTIVEREN}`;
+  return 'Er ging iets mis in de app. Herlaad de pagina en probeer het opnieuw.';
 }
 
 function meld(fout) {
@@ -190,7 +210,7 @@ function meld(fout) {
 }
 
 /** Eén actie tegelijk: een dubbele klik start geen tweede activering. */
-async function bezig(tekst, actie) {
+async function bezig(knop, tekst, actie) {
   zetKnoppen({});
   element('fout').textContent = '';
   element('status').textContent = tekst;
@@ -200,26 +220,52 @@ async function bezig(tekst, actie) {
   } catch (fout) {
     meld(fout);
   } finally {
-    if (!vertrokken) await toon();
+    if (!vertrokken) {
+      await toon();
+
+      // De knop met focus ging tijdens de actie uit; zet de focus terug voor wie met het toetsenbord werkt.
+      if (knop && !knop.disabled) knop.focus();
+    }
   }
 }
 
+function koppel(id, tekst, actie) {
+  const knop = element(id);
+
+  knop.addEventListener('click', () => bezig(knop, tekst, actie));
+}
+
 function start() {
-  if (!opslagBeschikbaar()) {
-    element('status').textContent = 'Deze browser staat geen opslag toe voor deze pagina; de app werkt zo niet.';
+  if (!browserGeschikt()) {
+    element('status').textContent = 'Deze browser biedt deze pagina geen veilige opslag of cryptografie; de app werkt zo niet.';
 
     return;
   }
 
-  bezig('Laden…', async () => {
+  // Vóór alles: ook als de instellingen niet laden, hoort het token niet in de geschiedenis.
+  const fragment = neemFragment();
+
+  // Terug met de knop Vorige komt de pagina uit de cache, nog in de toestand van het vertrek.
+  addEventListener('pageshow', (gebeurtenis) => {
+    if (!gebeurtenis.persisted) return;
+
+    vertrokken = false;
+    toon();
+  });
+
+  bezig(null, 'Laden…', async () => {
     const appManager = await laadConfig();
 
-    element('activeren').addEventListener('click', () => bezig('Bezig met activeren…', () => activeer(appManager)));
-    element('vernieuwen').addEventListener('click', () => bezig('Bezig met vernieuwen…', () => vernieuw(appManager)));
-    element('wissen').addEventListener('click', () => bezig('Bezig met wissen…', wis));
+    koppel('activeren', 'Bezig met activeren…', () => activeer(appManager));
+    koppel('vernieuwen', 'Bezig met vernieuwen…', () => vernieuw(appManager));
+    element('wissen').addEventListener('click', () => {
+      if (confirm('De sleutel en het bewijs van deze browser worden verwijderd. Daarna moet u opnieuw activeren.')) {
+        bezig(element('wissen'), 'Bezig met wissen…', wis);
+      }
+    });
     ingesteld = true;
 
-    await rondActiverenAf(appManager);
+    if (fragment) await rondActiverenAf(appManager, fragment);
   });
 }
 

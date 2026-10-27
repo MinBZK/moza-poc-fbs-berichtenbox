@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse: vertel na een Kotlin-edit wat er moet draaien, en draai het waar dat snel kan.
+# PostToolUse: vertel na een Kotlin-edit (of een edit in de browsercode van de Berichten-app) wat er moet draaien, en draai het waar dat snel kan.
 #
 # De vorige versie van deze hook noemde één module met een hardgecodeerd pad. Die module is
 # hernoemd en de hook is daarna stilletjes nooit meer gevuurd. Daarom leidt deze versie de module

@@ -23,10 +23,14 @@ class JavascriptTest {
         assertTrue(bestanden.isNotEmpty(), "geen JS-tests gevonden")
 
         val uitvoer = node(listOf("--test", "--test-reporter=tap") + bestanden)
-        val geslaagd = Regex("^# pass (\\d+)$", RegexOption.MULTILINE).find(uitvoer)?.groupValues?.get(1)?.toInt() ?: 0
+        val geslaagd = telling(uitvoer, "pass")
 
         assertTrue(geslaagd >= bestanden.size, "te weinig geslaagde JS-tests ($geslaagd):\n$uitvoer")
+        assertTrue(telling(uitvoer, "skip") == 0 && telling(uitvoer, "todo") == 0, "overgeslagen JS-tests:\n$uitvoer")
     }
+
+    private fun telling(uitvoer: String, soort: String): Int =
+        Regex("^# $soort (\\d+)$", RegexOption.MULTILINE).find(uitvoer)?.groupValues?.get(1)?.toInt() ?: 0
 
     private fun node(argumenten: List<String>): String {
         val log = Files.createTempFile("node", ".log")

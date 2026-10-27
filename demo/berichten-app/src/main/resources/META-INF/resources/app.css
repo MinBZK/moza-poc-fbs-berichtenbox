@@ -33,11 +33,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Geel op wit haalt geen 3:1; de donkere ring eromheen wel. */
+/* Geel op wit haalt geen 3:1; de donkere ring om het geel heen wel. */
 button:focus-visible {
   outline: 3px solid #ffb612;
   outline-offset: 2px;
-  box-shadow: 0 0 0 5px #1b1b1b;
+  box-shadow: 0 0 0 8px #1b1b1b;
 }
 
 .fout {

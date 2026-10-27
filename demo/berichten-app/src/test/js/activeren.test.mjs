@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CompactEncrypt, CompactSign, compactDecrypt } from '../../main/resources/META-INF/resources/vendor/jose-6.2.13/index.js';
 import {
-  ActiverenFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
+  ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
 } from '../../main/resources/META-INF/resources/js/activeren.js';
 import { maakSleutelpaar } from '../../main/resources/META-INF/resources/js/sleutelkluis.js';
 
@@ -91,16 +91,27 @@ test('een challenge die geen challenge is, wordt geweigerd voordat er iets naar 
   }
 });
 
-test('een fout van de App Manager komt terug met zijn status', async () => {
+test('een App Manager die niet te bereiken is, geeft een VerbindingFout met de oorzaak', async () => {
+  const fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+
+  await assert.rejects(
+    maakSessie({ basis: BASIS, oin: '00000000000000001100', sleutelpaar: await maakSleutelpaar(), fetch }),
+    (fout) => fout instanceof VerbindingFout && fout.cause instanceof TypeError,
+  );
+});
+
+test('een fout van de App Manager komt terug met zijn status en de stap', async () => {
   const { fetch } = nepFetch({ '/v1/challenge': [503, ''], '/credential': [401, ''] });
 
   await assert.rejects(
     maakSessie({ basis: BASIS, oin: '00000000000000001100', sleutelpaar: await maakSleutelpaar(), fetch }),
-    { name: 'ActiverenFout', status: 503 },
+    { name: 'ActiverenFout', status: 503, stap: 'challenge' },
   );
   await assert.rejects(
     haalCredential({ basis: BASIS, sessieToken: 's', aesSleutel: await aesSleutel(), registratieToken: 'r', fetch }),
-    { name: 'ActiverenFout', status: 401 },
+    { name: 'ActiverenFout', status: 401, stap: 'credential' },
   );
 });
 

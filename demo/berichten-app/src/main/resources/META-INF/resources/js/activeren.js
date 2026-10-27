@@ -11,12 +11,17 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export class ActiverenFout extends Error {
-  constructor(melding, status) {
+  constructor(melding, status, stap) {
     super(melding);
     this.name = 'ActiverenFout';
     this.status = status;
+    this.stap = stap;
   }
 }
+
+/** De App Manager was niet te bereiken; de oorzaak (een TypeError van fetch) staat in `cause`. */
+export class VerbindingFout extends Error {}
+
 
 /**
  * Opent een sessie met een self-signed certificaat: de Verifier leert de public key van de app en
@@ -25,7 +30,7 @@ export class ActiverenFout extends Error {
  * presentatie mee.
  */
 export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.fetch }) {
-  const challenge = await tekstVan(await fetch(new URL('v1/challenge', basis), { method: 'POST' }), 'challenge');
+  const challenge = await tekstVan(await verbind(fetch, new URL('v1/challenge', basis), { method: 'POST' }), 'challenge');
   // TODO(#1216): de handtekening toetsen aan de sleutel van de App Manager uit het stelseldocument;
   // tot dan rust de herkomst van de challenge op TLS.
   const claims = decodeJwt(challenge);
@@ -54,7 +59,7 @@ export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.f
     .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A256GCM' })
     .encrypt(tijdelijk);
 
-  const antwoord = await tekstVan(await fetch(new URL('v1/complete', basis), {
+  const antwoord = await tekstVan(await verbind(fetch, new URL('v1/complete', basis), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nonce: claims.nonce, encrypted_challenge_result: versleuteld }),
@@ -104,7 +109,7 @@ export async function haalCredential({ basis, sessieToken, aesSleutel, registrat
     .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
     .encrypt(aesSleutel);
 
-  const antwoord = await tekstVan(await fetch(new URL('credential', basis), {
+  const antwoord = await tekstVan(await verbind(fetch, new URL('credential', basis), {
     method: 'POST',
     headers: { Authorization: sessieToken, 'Content-Type': 'application/jose' },
     body: verzoek,
@@ -147,8 +152,16 @@ async function ontsleutel(jwe, aesSleutel) {
   return decoder.decode(plaintext);
 }
 
+async function verbind(fetch, adres, opties) {
+  try {
+    return await fetch(adres, opties);
+  } catch (fout) {
+    throw new VerbindingFout(`${adres.pathname} niet bereikbaar`, { cause: fout });
+  }
+}
+
 async function tekstVan(antwoord, stap) {
-  if (!antwoord.ok) throw new ActiverenFout(`${stap} mislukt (HTTP ${antwoord.status})`, antwoord.status);
+  if (!antwoord.ok) throw new ActiverenFout(`${stap} mislukt (HTTP ${antwoord.status})`, antwoord.status, stap);
 
   return antwoord.text();
 }
