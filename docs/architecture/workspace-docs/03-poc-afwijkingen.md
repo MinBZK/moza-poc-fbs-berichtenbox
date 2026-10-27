@@ -28,7 +28,8 @@ oplossingsrichting voor keten-brede authenticatie en autorisatie binnen MOZa.
   berichtenmagazijn (één `vereisOntvanger`-check, geen externe PDP).
 - **Rechtstreeks ophalen** (views `RechtstreeksOphalen`, `RechtstreeksOphalenBurger` en
   `RechtstreeksOphalenOndernemer`) — alleen het Stelselregister is gebouwd. De Berichten-app, de
-  App Manager en het rechtstreeks ophalen bij een magazijn volgens BK Connect zijn doelbeeld;
-  welke variant daarvoor geldt (HTTPS-JWT of OpenID4VP) is nog niet gekozen. Voor ondernemers is
+  App Manager en het rechtstreeks ophalen bij een magazijn volgens BK Connect zijn doelbeeld.
+  De variant is HTTPS-JWT (`CreateSession`) uit FSC voor Burgers, de opvolger van BK Connect;
+  het ontwerp staat in `docs/plans/2026-10-27-rechtstreeks-ophalen-design.md`. Voor ondernemers is
   bovendien open hoe de eHerkenning-machtiging, inclusief ketenmachtiging, in het credential
   meekomt, zodat het magazijn kan zien namens welke onderneming iemand handelt.

@@ -195,8 +195,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         appManager -> digiD "Authenticatie burgers" "SAML 2.0"
         appManager -> eHerkenning "Authenticatie en machtigingen zakelijke gebruikers" "SAML 2.0"
         berichtenApp -> stelselregister "Haalt het stelseldocument op en verifieert de handtekening tot de vastgelegde root" "HTTPS (JWS, publiek, zonder FSC)"
-        berichtenApp -> magazijnOphaalBeheerApi "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
-        berichtenApp -> eigenMagazijn "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
+        berichtenApp -> magazijnOphaalBeheerApi "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens FSC voor Burgers, variant HTTPS-JWT (CreateSession)"
+        berichtenApp -> eigenMagazijn "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens FSC voor Burgers, variant HTTPS-JWT (CreateSession)"
 
         // Drie componentrelaties (ophalen, sessiecache-aggregatie, beheer) lopen naar hetzelfde magazijn.
         // Structurizr leidt daaruit per elementenpaar hooguit één systeemlijn af, die dan willekeurig de

@@ -190,7 +190,7 @@ onbruikbaar maakt, ook als een andere omgeving ooit dezelfde root en OIN zou kri
 
 | Eis | Stand |
 |---|---|
-| Het toepassingsprofiel specificeert de diensten en wie ze levert, de implementatievariant en alle aanvullende afspraken (2.2.2) | alleen het stelseldocument is beschreven. De dienst waar het om gaat is de ophaal-API van het magazijn (`berichtenmagazijn-api.yaml`); een variant (HTTPS-JWT of OpenID4VP) is nog niet gekozen |
+| Het toepassingsprofiel specificeert de diensten en wie ze levert, de implementatievariant en alle aanvullende afspraken (2.2.2) | alleen het stelseldocument is beschreven. De dienst waar het om gaat is de ophaal-API van het magazijn (`berichtenmagazijn-api.yaml`); de variant is HTTPS-JWT, met de tweede ingang in `rechtstreeks-ophalen-api.yaml`; zie `docs/plans/2026-10-27-rechtstreeks-ophalen-design.md` |
 | Publieke sleutel per organisatie in het stelseldocument (2.2.6.4, 4.1.1.2, 4.1.3) | ontbreekt. Een app kan een organisatie daardoor nog niet verifiëren; volgt met de sleutels van de magazijnen |
 | Verwijzing naar een vindbaarheidsconfiguratie per organisatie (4.1.1.2) | ontbreekt; `magazijn_url` wijst naar het magazijn zelf |
 | Het profiel specificeert hoe intrekking en verloopdatum van organisatiesleutels in het document staan (4.5, 4.6) | niet gespecificeerd; er zijn nog geen organisatiesleutels |
