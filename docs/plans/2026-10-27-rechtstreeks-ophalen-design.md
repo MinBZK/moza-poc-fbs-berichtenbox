@@ -220,7 +220,10 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
      - challenges per magazijn en client-adres, zodat één browser bij 100 gesimuleerde magazijnen
        tegelijk een challenge kan vragen, met een plafond per client over alle magazijnen samen;
      - sessies met credential per app-sleutel, niet per adres: achter één kantooradres of CGNAT
-       werken veel ondernemers, en zo'n sessie vraagt al een geldig bewijs;
+       werken veel ondernemers, en zo'n sessie vraagt al een geldig bewijs. Dat werkt alleen als
+       een bewijs iets kost (inloggen met DigiD); bij de demo-App Manager kost het niets. Daarom
+       houden plafonds over alle magazijnen samen, per app-sleutel en (ruim) per adres, één
+       aanvaller met veel bewijzen binnen de perken;
      - self-signed sessies (activeren) per adres, en korter geldig (10 minuten), omdat ze niets
        kosten;
      - een totaal dat het geheugen beschermt. Wie met veel adressen tegelijk komt, kan het vullen;
@@ -285,7 +288,8 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    eHerkenning-machtiging in het VC komt, blijft open; de demo slaat dat over, net als het
    inloggen.
 
-8. **Sessie: 15 minuten vast, niet te verlengen.** De standaard zegt niets over de levensduur. Een
+8. **Sessie: 15 minuten vast, niet te verlengen; een self-signed sessie bij de App Manager 10
+   minuten.** De standaard zegt niets over de levensduur. Een
    korte, vaste geldigheid is het eenvoudigst, en een nieuwe sessie kost twee verzoeken. Een
    sessie duurt nooit langer dan het VC: `expires_in` is het minimum van 900 seconden en de tijd
    tot `exp`, en een VC dat binnen 60 seconden verloopt, levert geen sessie op (de app ververst
@@ -381,7 +385,7 @@ Deze tabel gaat als terugkoppeling naar de auteurs, net als die in het toepassin
 | Hybride ML-KEM-768 met ECIES ZOU MOETEN (3.3) | Alleen `ECDH-ES` | WebCrypto kent geen ML-KEM |
 | Revocatie van VC's met een Token Status List, en van de sleutels van Issuers en Verifiers (4.5) | Niet; een VC is ten hoogste 24 uur geldig, een sleutel verdwijnt met een nieuw stelseldocument | Buiten de eerste sprint |
 | TLS 1.3 (3.5) | Eis aan de ingress, niet in de dienst afgedwongen | Zoals bij het stelselregister |
-| Vorm en levensduur van het antwoord op `complete` en van de sessie | JWE met `session_token` en `expires_in`; 15 minuten, niet langer dan het VC | De standaard noemt het token, niet de vorm van het antwoord |
+| Vorm en levensduur van het antwoord op `complete` en van de sessie | JWE met `session_token` en `expires_in`; 15 minuten, niet langer dan het VC; self-signed bij de App Manager 10 minuten | De standaard noemt het token, niet de vorm van het antwoord |
 | Levensduur van een nonce | 60 seconden, eenmalig | De standaard noemt geen levensduur |
 
 ## Afwijkingen van de API Design Rules

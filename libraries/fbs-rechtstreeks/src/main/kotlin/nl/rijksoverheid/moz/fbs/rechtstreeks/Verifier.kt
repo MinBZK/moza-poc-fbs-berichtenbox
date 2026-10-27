@@ -20,9 +20,9 @@ class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
  * magazijn kan zo nooit per ongeluk een presentatie zonder vastgestelde identiteit aannemen.
  *
  * Elke afwijzing is een [AfgewezenException]; de aanroeper antwoordt daarop `401`, ongeacht de
- * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`. Is de
- * eigen [VerifierSleutel] verlopen, dan gooit [maakChallenge] een [IllegalStateException]: een
- * configuratiefout, die als `500` hoort te eindigen. `client` is de herkomst van het verzoek en
+ * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`. Verloopt
+ * de eigen [VerifierSleutel] binnen [NONCE_GELDIG], dan gooit [maakChallenge] een
+ * [IllegalStateException]: een configuratiefout, die als `500` hoort te eindigen. `client` is de herkomst van het verzoek en
  * telt mee voor de quota van de opslag.
  */
 class Verifier(
@@ -66,7 +66,7 @@ class Verifier(
     }
 
     /** Stap 20 tot en met 26 voor een magazijn: alleen een credential van een App Manager. */
-    fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String): UitgegevenSessie {
+    fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
         val nu = klok.instant()
         val presentatie = openPresentatie(nonce, versleuteldePresentatie, CERTIFICAAT_APP_MANAGER)
         val credential = credentials.controleer(presentatie.certificaat, nu)
@@ -74,11 +74,11 @@ class Verifier(
         controleerNonceHandtekening(presentatie.nonceHandtekening, credential.appSleutel, nonce)
 
         val geldig = minOf(SESSIE_GELDIG, Duration.between(nu, credential.exp))
-        val appSleutel = Jose.thumbprint(credential.appSleutel)
+        val thumbprint = Jose.thumbprint(credential.appSleutel)
 
         // Het quotum hangt aan de app-sleutel, niet aan het adres: achter één kantooradres of
         // CGNAT werken veel ondernemers, en een sessie met credential vraagt al een geldig bewijs.
-        return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger, appSleutel), geldig, nu, appSleutel)
+        return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger, thumbprint), geldig, nu, thumbprint, client)
     }
 
     /** Stap 20 tot en met 26 voor de App Manager: alleen een self-signed certificaat (4.4.1, stap 2). */
@@ -91,7 +91,7 @@ class Verifier(
 
         val identiteit = Identiteit.AppSleutel(appSleutel, Jose.thumbprint(appSleutel))
 
-        return geefUit(presentatie.aesSleutel, identiteit, ACTIVATIE_GELDIG, nu, client)
+        return geefUit(presentatie.aesSleutel, identiteit, ACTIVATIE_GELDIG, nu, client, client)
     }
 
     /** De sessie bij [token]; een onbekend of verlopen token wordt afgewezen. */
@@ -179,10 +179,18 @@ class Verifier(
         if (!klopt) throw AfgewezenException(Afwijzing.NONCEHANDTEKENING_ONGELDIG)
     }
 
-    private fun geefUit(aesSleutel: ByteArray, identiteit: Identiteit, geldig: Duration, nu: Instant, houder: String): UitgegevenSessie {
+    @Suppress("LongParameterList") // Zes waarden die samen één uitgifte beschrijven; een klasse ervoor voegt niets toe.
+    private fun geefUit(
+        aesSleutel: ByteArray,
+        identiteit: Identiteit,
+        geldig: Duration,
+        nu: Instant,
+        houder: String,
+        client: String,
+    ): UitgegevenSessie {
         val sessie = Sessie(oin, sessietoken(), aesSleutel, identiteit, nu.plus(geldig))
 
-        sessies.bewaar(sessie, houder)
+        sessies.bewaar(sessie, houder, client)
 
         val antwoord = JsonUtil.toJson(mapOf("session_token" to sessie.token, "expires_in" to geldig.seconds))
 

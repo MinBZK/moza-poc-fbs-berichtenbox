@@ -10,8 +10,8 @@ import java.time.Instant
 /** Wie een magazijnsessie heeft: een ontvanger uit een credential, of alleen een app-sleutel. */
 sealed interface Identiteit {
 
-    /** Uit een gecontroleerd credential van een App Manager; [appSleutel] is de thumbprint van `cnf.jwk`. */
-    class Ontvanger(val ontvanger: Identificatienummer, val appSleutel: String) : Identiteit {
+    /** Uit een gecontroleerd credential van een App Manager; [thumbprint] is die van `cnf.jwk`. */
+    class Ontvanger(val ontvanger: Identificatienummer, val thumbprint: String) : Identiteit {
         override fun toString(): String = "Ontvanger(type=${ontvanger.type})"
     }
 
@@ -59,10 +59,11 @@ interface ChallengeOpslag {
 interface SessieOpslag {
 
     /**
-     * Gooit [OpslagVolException] als er te veel sessies zijn, in totaal of voor [houder] bij deze
-     * Verifier. [houder] is wie het quotum draagt: bij een credential de app-sleutel, anders de client.
+     * Gooit [OpslagVolException] als er te veel sessies zijn: in totaal, voor [houder] (per Verifier
+     * en over alle Verifiers samen), of voor [client] over alle Verifiers samen. [houder] is wie het
+     * quotum draagt: bij een credential de app-sleutel, anders de client.
      */
-    fun bewaar(sessie: Sessie, houder: String)
+    fun bewaar(sessie: Sessie, houder: String, client: String)
 
     /** De sessie, of `null` als hij onbekend of verlopen is. */
     fun zoek(verifier: String, token: String): Sessie?
@@ -72,8 +73,10 @@ interface SessieOpslag {
  * Begrensde opslag in het geheugen, voor een dienst met één instantie (simulator, App Manager).
  *
  * Quota gelden per Verifier, zodat een browser die bij 100 gesimuleerde magazijnen tegelijk een
- * challenge vraagt, per magazijn één keer telt; een plafond per client over alle Verifiers samen
- * houdt de simulator binnen de perken. Het totaal beschermt het geheugen. Wie met veel adressen
+ * challenge vraagt, per magazijn één keer telt; plafonds over alle Verifiers samen, per client en per
+ * houder, houden de simulator binnen de perken. Het plafond per client voor sessies is ruim, zodat
+ * een kantooradres of CGNAT met veel ondernemers past, maar één adres het totaal niet vult. Het
+ * totaal beschermt het geheugen. Wie met veel adressen
  * tegelijk komt, kan dat totaal vullen; daartegen helpt alleen een stateless nonce (zie
  * [ChallengeOpslag]).
  *
@@ -89,17 +92,25 @@ class GeheugenOpslag(
     private val maxSessies: Int = 10_000,
     private val maxSessiesPerHouder: Int = 20,
     private val maxPerClientOverVerifiers: Int = 200,
+    private val maxSessiesPerClientOverVerifiers: Int = 2_000,
 ) : ChallengeOpslag, SessieOpslag {
 
     init {
-        val grenzen = listOf(maxChallenges, maxChallengesPerClient, maxSessies, maxSessiesPerHouder, maxPerClientOverVerifiers)
+        val grenzen = listOf(
+            maxChallenges,
+            maxChallengesPerClient,
+            maxSessies,
+            maxSessiesPerHouder,
+            maxPerClientOverVerifiers,
+            maxSessiesPerClientOverVerifiers,
+        )
 
         require(grenzen.all { it > 0 }) { "elke grens moet groter dan nul zijn" }
     }
 
     private class Openstaand(val verifier: String, val client: String, val sleutel: ECPrivateKey, val verlooptOp: Instant)
 
-    private class Bewaard(val houder: String, val sessie: Sessie)
+    private class Bewaard(val houder: String, val client: String, val sessie: Sessie)
 
     private val challenges = HashMap<Pair<String, String>, Openstaand>()
     private val sessies = HashMap<Pair<String, String>, Bewaard>()
@@ -128,15 +139,23 @@ class GeheugenOpslag(
     }
 
     @Synchronized
-    override fun bewaar(sessie: Sessie, houder: String) {
+    override fun bewaar(sessie: Sessie, houder: String, client: String) {
         val nu = ruimOp()
-        val vanHouder = sessies.values.filter { it.houder == houder && it.sessie.verifier == sessie.verifier }
+        val vanHouder = sessies.values.filter { it.houder == houder }
+        val bijVerifier = vanHouder.filter { it.sessie.verifier == sessie.verifier }
+        val vanClient = sessies.values.filter { it.client == client }
 
-        if (vanHouder.size >= maxSessiesPerHouder) throw OpslagVolException(wachttijd(vanHouder.map { it.sessie.verlooptOp }, nu))
+        if (bijVerifier.size >= maxSessiesPerHouder) throw OpslagVolException(wachttijd(bijVerifier.map { it.sessie.verlooptOp }, nu))
+
+        if (vanHouder.size >= maxPerClientOverVerifiers) throw OpslagVolException(wachttijd(vanHouder.map { it.sessie.verlooptOp }, nu))
+
+        if (vanClient.size >= maxSessiesPerClientOverVerifiers) {
+            throw OpslagVolException(wachttijd(vanClient.map { it.sessie.verlooptOp }, nu))
+        }
 
         if (sessies.size >= maxSessies) throw OpslagVolException(wachttijd(sessies.values.map { it.sessie.verlooptOp }, nu))
 
-        sessies[sessie.verifier to sessie.token] = Bewaard(houder, sessie)
+        sessies[sessie.verifier to sessie.token] = Bewaard(houder, client, sessie)
     }
 
     @Synchronized

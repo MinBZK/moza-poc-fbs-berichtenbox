@@ -44,16 +44,17 @@ class JoseTest {
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = ["x negatief", "x gelijk aan p", "y negatief", "y gelijk aan p", "naast de curve"])
+    @ValueSource(strings = ["x min p", "x plus p", "y min p", "y plus p", "naast de curve"])
     fun `een punt buiten P-256 ligt niet op de curve`(geval: String) {
         val echt = TestApp.sleutelpaar().public as ECPublicKey
         val p = (Jose.P256.curve.field as ECFieldFp).p
 
         val punt = when (geval) {
-            "x negatief" -> ECPoint(BigInteger.ONE.negate(), echt.w.affineY)
-            "x gelijk aan p" -> ECPoint(p, echt.w.affineY)
-            "y negatief" -> ECPoint(echt.w.affineX, BigInteger.ONE.negate())
-            "y gelijk aan p" -> ECPoint(echt.w.affineX, p)
+            // Modulo p liggen deze punten op de curve; alleen de bereikcontrole weigert ze.
+            "x min p" -> ECPoint(echt.w.affineX.subtract(p), echt.w.affineY)
+            "x plus p" -> ECPoint(echt.w.affineX.add(p), echt.w.affineY)
+            "y min p" -> ECPoint(echt.w.affineX, echt.w.affineY.subtract(p))
+            "y plus p" -> ECPoint(echt.w.affineX, echt.w.affineY.add(p))
             else -> ECPoint(echt.w.affineX, echt.w.affineY.add(BigInteger.ONE))
         }
 

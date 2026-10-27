@@ -106,7 +106,7 @@ class Opzet(private val willekeur: java.security.SecureRandom = java.security.Se
         val aes = TestApp.aesSleutel()
         val presentatie = presentatie(challenge, vc(claims), aesSleutel = aes)
 
-        return verifier.voltooiMetCredential(challenge.nonce, versleuteld(challenge, presentatie)) to aes
+        return verifier.voltooiMetCredential(challenge.nonce, versleuteld(challenge, presentatie), CLIENT) to aes
     }
 
     companion object {

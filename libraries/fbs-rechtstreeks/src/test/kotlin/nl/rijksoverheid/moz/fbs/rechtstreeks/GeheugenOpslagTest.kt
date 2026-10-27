@@ -76,6 +76,9 @@ class GeheugenOpslagTest {
     fun `over alle Verifiers samen heeft een client een plafond`() {
         val opslag = GeheugenOpslag(opzet.klok, maxPerClientOverVerifiers = 3)
 
+        // Eerder vrij, maar van een ander: telt niet mee voor de wachttijd van c.
+        opslag.bewaar("m5", "vroeg", "ander", sleutel, opzet.nu.plusSeconds(5))
+
         repeat(3) { opslag.bewaar("m$it", "n", "c", sleutel, opzet.nu.plusSeconds(60L - it)) }
 
         val fout = assertThrows<OpslagVolException> { opslag.bewaar("m9", "n", "c", sleutel, opzet.nu.plusSeconds(60)) }
@@ -127,12 +130,12 @@ class GeheugenOpslagTest {
     fun `sessies zijn per Verifier, verlopen, en begrensd`() {
         val opslag = GeheugenOpslag(opzet.klok, maxSessies = 1)
 
-        opslag.bewaar(sessie("m1", "t", Duration.ofSeconds(30)), "c")
+        opslag.bewaar(sessie("m1", "t", Duration.ofSeconds(30)), "c", "c")
 
         assertNotNull(opslag.zoek("m1", "t"))
         assertNull(opslag.zoek("m2", "t"))
 
-        val fout = assertThrows<OpslagVolException> { opslag.bewaar(sessie("m1", "u"), "c2") }
+        val fout = assertThrows<OpslagVolException> { opslag.bewaar(sessie("m1", "u"), "c2", "c2") }
 
         assertEquals(Duration.ofSeconds(30), fout.opnieuwNa)
 
@@ -140,7 +143,7 @@ class GeheugenOpslagTest {
 
         assertNull(opslag.zoek("m1", "t"))
 
-        opslag.bewaar(sessie("m1", "u"), "c2")
+        opslag.bewaar(sessie("m1", "u"), "c2", "c2")
 
         assertNotNull(opslag.zoek("m1", "u"))
     }
@@ -149,16 +152,32 @@ class GeheugenOpslagTest {
     fun `het sessiequotum per houder raakt alleen die houder bij die Verifier`() {
         val opslag = GeheugenOpslag(opzet.klok, maxSessiesPerHouder = 2)
 
-        opslag.bewaar(sessie("m", "vroeg", Duration.ofSeconds(5)), "ander")
-        opslag.bewaar(sessie("m", "a", Duration.ofSeconds(30)), "h")
-        opslag.bewaar(sessie("m", "b"), "h")
+        opslag.bewaar(sessie("m", "vroeg", Duration.ofSeconds(5)), "ander", "ander")
+        opslag.bewaar(sessie("m", "a", Duration.ofSeconds(30)), "h", "h")
+        opslag.bewaar(sessie("m", "b"), "h", "h")
 
-        val fout = assertThrows<OpslagVolException> { opslag.bewaar(sessie("m", "c"), "h") }
+        val fout = assertThrows<OpslagVolException> { opslag.bewaar(sessie("m", "c"), "h", "h") }
 
         assertEquals(Duration.ofSeconds(30), fout.opnieuwNa)
 
-        opslag.bewaar(sessie("m", "d"), "ander")
-        opslag.bewaar(sessie("m2", "e"), "h")
+        opslag.bewaar(sessie("m", "d"), "ander", "ander")
+        opslag.bewaar(sessie("m2", "e"), "h", "h")
+    }
+
+    @Test
+    fun `sessies hebben een plafond per houder en per client over alle Verifiers samen`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxPerClientOverVerifiers = 2, maxSessiesPerClientOverVerifiers = 3)
+
+        opslag.bewaar(sessie("m1", "a"), "sleutel", "kantoor")
+        opslag.bewaar(sessie("m2", "b"), "sleutel", "kantoor")
+
+        assertThrows<OpslagVolException> { opslag.bewaar(sessie("m3", "c"), "sleutel", "elders") }
+
+        opslag.bewaar(sessie("m3", "d"), "andere sleutel", "kantoor")
+
+        assertThrows<OpslagVolException> { opslag.bewaar(sessie("m4", "e"), "derde sleutel", "kantoor") }
+
+        opslag.bewaar(sessie("m4", "f"), "derde sleutel", "elders")
     }
 
     @Test
@@ -167,7 +186,7 @@ class GeheugenOpslagTest {
         val verlopen = sessie("m", "t", Duration.ofSeconds(1))
         val kopie = verlopen.aesSleutel.copyOf()
 
-        opslag.bewaar(verlopen, "c")
+        opslag.bewaar(verlopen, "c", "c")
         opzet.nu = opzet.nu.plusSeconds(1)
 
         assertNull(opslag.zoek("m", "t"))
@@ -175,7 +194,9 @@ class GeheugenOpslagTest {
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = ["maxChallenges", "maxChallengesPerClient", "maxSessies", "maxSessiesPerHouder", "maxPerClientOverVerifiers"])
+    @ValueSource(
+        strings = ["maxChallenges", "maxChallengesPerClient", "maxSessies", "maxSessiesPerHouder", "maxPerClientOverVerifiers", "maxSessiesPerClientOverVerifiers"],
+    )
     fun `een grens van nul wordt geweigerd`(grens: String) {
         assertThrows<IllegalArgumentException> {
             GeheugenOpslag(
@@ -185,6 +206,7 @@ class GeheugenOpslagTest {
                 maxSessies = if (grens == "maxSessies") 0 else 1,
                 maxSessiesPerHouder = if (grens == "maxSessiesPerHouder") 0 else 1,
                 maxPerClientOverVerifiers = if (grens == "maxPerClientOverVerifiers") 0 else 1,
+                maxSessiesPerClientOverVerifiers = if (grens == "maxSessiesPerClientOverVerifiers") 0 else 1,
             )
         }
     }

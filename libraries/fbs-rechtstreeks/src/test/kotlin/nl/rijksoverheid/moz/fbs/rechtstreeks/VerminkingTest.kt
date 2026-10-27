@@ -14,8 +14,9 @@ import kotlin.random.Random
 class VerminkingTest {
 
     /**
-     * Alle willekeur uit één zaad: sleutels, nonce, IV en handtekeningen van app en Verifier. Zo is
-     * een gefaald geval met dezelfde seed te herhalen.
+     * De willekeur van de app en van de nonce en tijdelijke sleutel van de Verifier uit één zaad,
+     * zodat de verminkte invoer met dezelfde seed te herhalen is. Alleen de handtekening op de
+     * challenge komt uit jose4j zelf; die hoort niet bij de verminkte invoer.
      */
     private fun opzet(seed: Long): Opzet {
         val bron = java.security.SecureRandom.getInstance("SHA1PRNG").apply { setSeed(seed) }
@@ -60,7 +61,7 @@ class VerminkingTest {
         val challenge = opzet.challenge(verifier)
         val versleuteld = opzet.versleuteld(challenge, opzet.presentatie(challenge))
 
-        verwachtAfwijzing(verminkt(versleuteld, Random(seed))) { verifier.voltooiMetCredential(challenge.nonce, it) }
+        verwachtAfwijzing(verminkt(versleuteld, Random(seed))) { verifier.voltooiMetCredential(challenge.nonce, it, Opzet.CLIENT) }
     }
 
     @ParameterizedTest(name = "seed {0}")
@@ -76,7 +77,7 @@ class VerminkingTest {
         presentatie[veld] = verminkt(presentatie[veld] as String, random)
 
         verwachtAfwijzing(presentatie[veld] as String) {
-            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie))
+            verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
         }
     }
 

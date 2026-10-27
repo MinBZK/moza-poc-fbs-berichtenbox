@@ -18,6 +18,7 @@ import java.security.Key
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECFieldFp
 import java.security.spec.ECParameterSpec
+import java.util.Base64
 
 /**
  * De JOSE-regels van de standaard (3.1, 3.4), op één plek: per soort bericht staan algoritme en
@@ -34,6 +35,8 @@ import java.security.spec.ECParameterSpec
 internal object Jose {
 
     val P256: ECParameterSpec = EllipticCurves.P256
+
+    private const val P256_BYTES = 32
 
     private val HEADER_JWS = setOf("alg", "typ", "kid")
     private val HEADER_JWE_ECDH = setOf("alg", "enc", "epk", "apu", "apv", "kid", "typ", "cty")
@@ -130,6 +133,10 @@ internal object Jose {
 
         val leden = JWK_LEDEN.associateWith { jwk[it] as? String ?: throw AfgewezenException(reden) }
 
+        // RFC 7518 §6.2.1.2: x en y hebben precies de veldlengte. Een groter getal laat de JDK een
+        // kale RuntimeException gooien in plaats van een JoseException.
+        if (!coordinaat(leden.getValue("x")) || !coordinaat(leden.getValue("y"))) throw AfgewezenException(reden)
+
         val sleutel = try {
             JsonWebKey.Factory.newJwk(leden)
         } catch (e: JoseException) {
@@ -141,6 +148,12 @@ internal object Jose {
         if (ec.curveName != EllipticCurves.P_256 || !opCurve(ec.ecPublicKey)) throw AfgewezenException(reden)
 
         return ec.ecPublicKey
+    }
+
+    private fun coordinaat(waarde: String): Boolean = try {
+        Base64.getUrlDecoder().decode(waarde).size == P256_BYTES
+    } catch (ignored: IllegalArgumentException) {
+        false
     }
 
     /** RFC 7638-thumbprint (SHA-256, base64url) van een publieke EC-sleutel. */
