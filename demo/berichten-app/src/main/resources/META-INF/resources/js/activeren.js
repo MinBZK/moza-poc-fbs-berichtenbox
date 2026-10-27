@@ -19,9 +19,13 @@ export class ActiverenFout extends Error {
   }
 }
 
-/** De App Manager was niet te bereiken; de oorzaak (een TypeError van fetch) staat in `cause`. */
-export class VerbindingFout extends Error {}
-
+/**
+ * De App Manager was niet te bereiken; de oorzaak (een TypeError van fetch) staat in `cause`. Een
+ * CORS-weigering ziet de browser hetzelfde, dus ook een verkeerd ingestelde App Manager komt hier.
+ */
+export class VerbindingFout extends Error {
+  name = 'VerbindingFout';
+}
 
 /**
  * Opent een sessie met een self-signed certificaat: de Verifier leert de public key van de app en

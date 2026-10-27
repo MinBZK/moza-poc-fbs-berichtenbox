@@ -14,6 +14,7 @@ const ACTIVATIE = 'activatie';
 const KNOPPEN = ['activeren', 'vernieuwen', 'wissen'];
 
 const OPNIEUW_ACTIVEREN = 'Kies Activeren om opnieuw te beginnen.';
+const OPSLAG_GEWEIGERD = 'Deze browser staat de app geen opslag toe. Gebruik een gewoon venster (geen privévenster) of sta sitegegevens toe, en herlaad de pagina.';
 
 /** Een fout met een tekst die de gebruiker zo te zien krijgt. */
 class Melding extends Error {}
@@ -26,6 +27,8 @@ let ingesteld = false;
 async function laadConfig() {
   try {
     const antwoord = await fetch('config.json');
+    if (!antwoord.ok) console.error(`config.json gaf HTTP ${antwoord.status}`);
+
     const { appManager } = antwoord.ok ? await antwoord.json() : {};
 
     if (typeof appManager?.url === 'string' && typeof appManager?.oin === 'string') return appManager;
@@ -155,6 +158,14 @@ async function toon() {
     element('status').textContent = statustekst(registratie, credential);
   } catch (fout) {
     console.error(fout);
+
+    if (fout instanceof kluis.KluisFout) {
+      zetKnoppen({});
+      element('status').textContent = OPSLAG_GEWEIGERD;
+
+      return;
+    }
+
     zetKnoppen({ activeren: true, wissen: true });
     element('status').textContent = 'De opgeslagen activering is niet te lezen. Kies Activering wissen en activeer opnieuw.';
   }
@@ -185,11 +196,7 @@ function melding(fout) {
 
   if (fout instanceof VerbindingFout) return 'Geen verbinding met de App Manager. Controleer uw verbinding en probeer het opnieuw.';
 
-  if (fout instanceof kluis.KluisFout) return 'De opslag van deze browser werkt niet mee. Probeer het opnieuw, of kies Activering wissen.';
-
-  if (fout instanceof ActiverenFout && fout.status === 401 && fout.stap === 'credential') {
-    return `De App Manager herkent deze activering niet. ${OPNIEUW_ACTIVEREN}`;
-  }
+  if (fout instanceof kluis.KluisFout) return OPSLAG_GEWEIGERD;
 
   if (fout instanceof ActiverenFout && fout.status === 401) return 'De App Manager wees het verzoek af. Probeer het opnieuw.';
 
@@ -223,8 +230,11 @@ async function bezig(knop, tekst, actie) {
     if (!vertrokken) {
       await toon();
 
-      // De knop met focus ging tijdens de actie uit; zet de focus terug voor wie met het toetsenbord werkt.
-      if (knop && !knop.disabled) knop.focus();
+      // De knop met focus ging tijdens de actie uit; zet de focus terug voor wie met het toetsenbord
+      // werkt. Bleef die knop uit (vernieuwen zonder registratie), dan naar Activeren.
+      const terug = knop?.disabled ? element('activeren') : knop;
+
+      if (terug && !terug.disabled) terug.focus();
     }
   }
 }
@@ -254,7 +264,16 @@ function start() {
   });
 
   bezig(null, 'Laden…', async () => {
-    const appManager = await laadConfig();
+    let appManager;
+
+    try {
+      appManager = await laadConfig();
+    } catch (fout) {
+      // Het fragment is al weg; na herladen moet de gebruiker de persona dus opnieuw kiezen.
+      if (fragment) throw new Melding(`${fout.message} Daarna moet u opnieuw activeren.`);
+
+      throw fout;
+    }
 
     koppel('activeren', 'Bezig met activeren…', () => activeer(appManager));
     koppel('vernieuwen', 'Bezig met vernieuwen…', () => vernieuw(appManager));

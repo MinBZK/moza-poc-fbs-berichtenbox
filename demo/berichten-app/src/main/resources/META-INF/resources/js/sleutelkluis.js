@@ -7,7 +7,9 @@ const SLEUTELPAAR = 'sleutelpaar';
 let lopend = null;
 
 /** Een fout van de opslag in de browser, los van de App Manager. */
-export class KluisFout extends Error {}
+export class KluisFout extends Error {
+  name = 'KluisFout';
+}
 
 /**
  * De root app key: ECDSA op P-256 voor ES256, met `extractable: false`, zodat `exportKey` op de
@@ -95,8 +97,17 @@ async function transactie(modus, actie) {
 
   try {
     return await new Promise((gelukt, mislukt) => {
-      const tx = database.transaction(OPSLAG, modus);
-      const verzoek = actie(tx.objectStore(OPSLAG));
+      let tx;
+      let verzoek;
+
+      try {
+        tx = database.transaction(OPSLAG, modus);
+        verzoek = actie(tx.objectStore(OPSLAG));
+      } catch (fout) {
+        mislukt(new KluisFout('de opslag weigerde de bewerking', { cause: fout }));
+
+        return;
+      }
 
       tx.oncomplete = () => gelukt(verzoek.result);
       // Pas bij abort staat de fout op de transactie; in onerror is tx.error nog null. Een
