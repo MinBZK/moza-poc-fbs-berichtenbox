@@ -34,7 +34,9 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-rechtstreeks -am          # pure JVM
 ./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
-./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
+./mvnw clean test -pl demo/app-manager -am                     # @QuarkusTest, geen Docker; node voor de koppeltest met de Berichten-app
+./mvnw clean test -pl demo/berichten-app -am                   # @QuarkusTest plus de browsercode onder Node (node op het PATH)
+./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers); node voor BerichtenAppTest
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
@@ -43,6 +45,36 @@ ongewijzigde code.
 
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
 (Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten.
+
+Drie modules hebben Node nodig (`node` op het `PATH`, versie 20 of nieuwer). De Berichten-app
+draait de tests van haar browsercode met `node --test`. De App Manager en de magazijn-simulator
+draaien diezelfde code elk in een `BerichtenAppTest` tegen zichzelf (activeren, en ophalen bij
+meerdere magazijnen): dat is de toets dat browser en Verifier-library elkaars JWS en JWE lezen.
+Zonder Node falen die tests; ze slaan niet over.
+
+### Rechtstreeks ophalen: activeren in de browser
+
+App Manager en Berichten-app draaien in ontwikkelmodus al op elkaars adressen (8093 en 8099):
+
+```bash
+./mvnw install -pl demo/app-manager,demo/berichten-app -am -DskipTests
+./mvnw quarkus:dev -pl demo/app-manager     # zonder -am: anders start de personadienst
+./mvnw quarkus:dev -pl demo/berichten-app   # in een tweede terminal
+```
+
+Open `http://localhost:8099/`, kies **Activeren** en daarna een persona. Terug in de app staat het
+credential van die ondernemer, op een sleutel die de browser niet kan exporteren. De App Manager
+houdt registraties in het geheugen: na een herstart werkt **Bewijs vernieuwen** niet meer en
+activeer je opnieuw.
+
+**Berichten ophalen** leest de magazijnen uit het stelseldocument (`berichten-app.stelselregister-url`,
+in ontwikkelmodus `http://localhost:8094/`) en haalt bij elk tegelijk op via de tweede ingang. Lokaal
+de hele keten doorlopen vraagt nog drie dingen die met de compose-bedrading komen: een stelselregister
+dat de gesimuleerde magazijnen noemt met een adres dat de browser bereikt, een simulator die de
+sleutel van de App Manager vertrouwt (`simulator.rechtstreeks.app-managers."<OIN>".sleutels."<kid>"`,
+met de coördinaten die de App Manager bij de start logt), en die magazijn-origins in
+`berichten-app.magazijnen`. De tests doorlopen de keten wel: `BerichtenAppTest` in de simulator draait
+het ophalen tegen twee gesimuleerde magazijnen en een onbekend magazijn.
 
 ## Kwaliteitsgates
 
