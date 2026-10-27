@@ -188,22 +188,6 @@ class RechtstreeksTest {
     }
 
     @Test
-    fun `de berichtpaden vragen een geldige sessie en zijn daarna nog niet beschikbaar`() {
-        valideer(MAGAZIJN_A).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(401)
-        valideer(MAGAZIJN_A).header("Authorization", "onbekend").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(401)
-
-        val token = App(klok.instant()).sessie(MAGAZIJN_A)
-
-        valideer(MAGAZIJN_A).header("Authorization", token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
-            .then().statusCode(503).header("Retry-After", "3600")
-        valideer(MAGAZIJN_A).header("Authorization", token).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$BERICHT_ID")
-            .then().statusCode(503)
-
-        // Een sessie van A geldt niet bij B.
-        given().header("Authorization", token).get("${basis(MAGAZIJN_B)}/rechtstreeks/berichten").then().statusCode(401)
-    }
-
-    @Test
     fun `een magazijn in storing antwoordt op de tweede ingang volgens het contract`() {
         try {
             listOf(Gedrag(GedragModus.STUK), Gedrag(GedragModus.WEIGERT, foutStatus = 403)).forEach { gedrag ->
@@ -257,7 +241,7 @@ class RechtstreeksTest {
 
     @Test
     fun `de eerste ingang blijft zonder CORS`() {
-        given().header("Origin", "https://app.test").header("X-Ontvanger", "KVK:90000014").get("${basis(MAGAZIJN_A)}/berichten")
+        given().header("Origin", "https://app.test").header("X-Ontvanger", ONTVANGER).get("${basis(MAGAZIJN_A)}/berichten")
             .then().statusCode(200).header("Access-Control-Allow-Origin", nullValue())
         given().header("Origin", "https://app.test")
             .header("Access-Control-Request-Method", "GET")
@@ -290,7 +274,7 @@ class RechtstreeksTest {
         const val MAGAZIJN_A = "00000009000000000001"
         const val MAGAZIJN_B = "00000009000000000002"
         const val MAGAZIJN_C = "00000009000000000003"
-        const val BERICHT_ID = "11111111-2222-3333-4444-555555555555"
+        const val ONTVANGER = "KVK:90000014"
         val COMPACT_JWS = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         val COMPACT_JWE = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         const val APP_MANAGER_OIN = "00000000000000001100"
@@ -329,7 +313,7 @@ class RechtstreeksTest {
                 "iat" to nu.epochSecond,
                 "nbf" to nu.epochSecond,
                 "exp" to nu.plus(Duration.ofHours(1)).epochSecond,
-                "ontvanger" to "KVK:90000014",
+                "ontvanger" to ONTVANGER,
             )
 
         fun payload(jws: String): Map<String, Any> = JsonUtil.parseJson(String(Base64.getUrlDecoder().decode(jws.split('.')[1])))

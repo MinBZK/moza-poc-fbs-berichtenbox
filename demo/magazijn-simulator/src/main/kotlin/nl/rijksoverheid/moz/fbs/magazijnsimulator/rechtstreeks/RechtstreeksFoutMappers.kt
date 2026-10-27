@@ -12,9 +12,6 @@ import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.UUID
 
-/** De berichtpaden van de tweede ingang bestaan in het contract, maar de simulator vult ze nog niet. */
-class NogNietBeschikbaarException : RuntimeException("berichten lezen via de tweede ingang volgt nog")
-
 /**
  * Elke afwijzing is voor de app dezelfde `401`, zonder detail over welke controle faalde; alleen
  * de log krijgt de reden, met het correlatie-id uit `instance`. `WWW-Authenticate` is verplicht bij
@@ -55,25 +52,6 @@ class OpslagVolMapper(private val context: MagazijnContext) : ExceptionMapper<Op
         log.warnf("Opslag voor rechtstreeks ophalen vol bij magazijn %s (%s); opnieuw over %d s", context.magazijn.oin, foutId, seconden)
 
         return tijdelijkNietBeschikbaar(foutId, seconden)
-    }
-}
-
-/** Geen storing, dus op info en zonder stacktrace: een app vraagt hier gewoon om. */
-@Provider
-class NogNietBeschikbaarMapper(private val context: MagazijnContext) : ExceptionMapper<NogNietBeschikbaarException> {
-
-    private val log = Logger.getLogger(NogNietBeschikbaarMapper::class.java)
-
-    override fun toResponse(fout: NogNietBeschikbaarException): Response {
-        val foutId = UUID.randomUUID()
-
-        log.infof("Rechtstreeks berichtenpad bij magazijn %s gevraagd (%s); nog niet beschikbaar", context.magazijn.oin, foutId)
-
-        return tijdelijkNietBeschikbaar(foutId, NOG_NIET_OPNIEUW_NA)
-    }
-
-    private companion object {
-        const val NOG_NIET_OPNIEUW_NA = 3600L
     }
 }
 
