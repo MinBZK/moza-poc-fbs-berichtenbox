@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FBS Stelselregister API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Publiceert welke organisaties aan het Federatief Berichtenstelsel (FBS) deelnemen en waar hun
     berichtenmagazijn staat, als **stelseldocument**: één document, ondertekend door de
@@ -262,9 +262,13 @@ components:
             $ref: '#/components/schemas/Organisatie'
         app_managers:
           type: array
-          description: De toegelaten app-beheerders. Nog leeg.
+          description: |
+            De App Managers die apps een credential mogen uitgeven, gesorteerd op OIN. Een magazijn
+            accepteert een credential alleen als `iss` hier staat, `kid` een van de sleutels
+            aanwijst en die sleutel op `iat` van het credential geldig was; de volledige regels
+            staan in het toepassingsprofiel.
           items:
-            type: object
+            $ref: '#/components/schemas/AppManager'
         document_types:
           type: array
           description: De soorten documenten die in dit stelsel worden uitgewisseld
@@ -288,6 +292,63 @@ components:
           type: string
           format: uri
           description: Het publieke adres van het berichtenmagazijn van deze organisatie
+
+    AppManager:
+      type: object
+      required: [oin, name, public_keys]
+      additionalProperties: false
+      properties:
+        oin:
+          type: string
+          description: Organisatie-identificatienummer van de App Manager; komt als `iss` in een credential
+          pattern: '^[0-9]{20}$'
+        name:
+          type: string
+          description: Weergavenaam van de App Manager
+          minLength: 1
+        public_keys:
+          type: array
+          description: |
+            De sleutels waarmee de App Manager credentials tekent, gesorteerd op `kid`. Meer dan één
+            tijdens een sleutelwissel.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AppManagerSleutel'
+
+    AppManagerSleutel:
+      type: object
+      required: [kid, exp, jwk]
+      additionalProperties: false
+      properties:
+        kid:
+          type: string
+          description: Sleutel-id; komt als `kid` in de header van een credential
+          minLength: 1
+        exp:
+          type: integer
+          format: int64
+          description: |
+            Moment waarop de sleutel verloopt, in seconden sinds 1970-01-01T00:00:00Z. Een
+            credential is bruikbaar als de sleutel op `iat` van dat credential nog niet verlopen
+            was (FSC voor Burgers 4.6.2).
+        jwk:
+          type: object
+          description: De publieke sleutel als JWK (RFC 7517), EC op P-256
+          required: [kty, crv, x, y]
+          additionalProperties: false
+          properties:
+            kty:
+              type: string
+              enum: [EC]
+            crv:
+              type: string
+              enum: [P-256]
+            x:
+              type: string
+              pattern: '^[A-Za-z0-9_-]{43}$'
+            y:
+              type: string
+              pattern: '^[A-Za-z0-9_-]{43}$'
 
     Documentsoort:
       type: object

@@ -16,10 +16,17 @@ data class Organisatie(val oin: String, val naam: String, val magazijnUrl: Strin
  * De veldnamen in de JSON zijn Engels en snake_case: ze komen uit BK Connect en zijn daarmee
  * contract met afnemers, geen eigen keuze.
  */
-class Stelseldocument(organisaties: Collection<Organisatie>) {
+class Stelseldocument(organisaties: Collection<Organisatie>, appManagers: Collection<AppManager> = emptyList()) {
 
     /** Gesorteerd op OIN, zodat gelijke inhoud altijd dezelfde bytes en dus dezelfde [versie] geeft. */
     val organisaties: List<Organisatie> = organisaties.sortedBy { it.oin }
+
+    /** Gesorteerd op OIN, om dezelfde reden; de sleutels per App Manager staan op `kid`. */
+    val appManagers: List<AppManager> = appManagers.sortedBy { it.oin }
+
+    init {
+        require(this.appManagers.map { it.oin }.toSet().size == this.appManagers.size) { "een App Manager staat dubbel in het document" }
+    }
 
     /**
      * Kenmerk van de inhoud: verandert alleen als een afnemer iets anders te zien krijgt. Uitgever,
@@ -56,7 +63,26 @@ class Stelseldocument(organisaties: Collection<Organisatie>) {
                 .put("magazijn_url", organisatie.magazijnUrl)
         }
 
-        doel.putArray("app_managers")
+        val lijstAppManagers = doel.putArray("app_managers")
+
+        appManagers.forEach { appManager ->
+            val sleutels = lijstAppManagers.addObject()
+                .put("oin", appManager.oin)
+                .put("name", appManager.naam)
+                .putArray("public_keys")
+
+            appManager.sleutels.forEach { sleutel ->
+                sleutels.addObject()
+                    .put("kid", sleutel.kid)
+                    .put("exp", sleutel.geldigTot.epochSecond)
+                    .putObject("jwk")
+                    .put("kty", "EC")
+                    .put("crv", "P-256")
+                    .put("x", sleutel.x)
+                    .put("y", sleutel.y)
+            }
+        }
+
         doel.putArray("document_types").addObject().put("name", DOCUMENTSOORT_BERICHT)
     }
 
@@ -70,8 +96,9 @@ class Stelseldocument(organisaties: Collection<Organisatie>) {
          * De grant-hash van een inschrijving gaat er bewust niet in: dat is routeringsinformatie
          * van de eigen FSC-outway en zegt een app niets.
          */
-        fun uit(register: Magazijnregister): Stelseldocument = Stelseldocument(
+        fun uit(register: Magazijnregister, appManagers: Collection<AppManager> = emptyList()): Stelseldocument = Stelseldocument(
             register.alle().map { Organisatie(oin = it.oin.waarde, naam = it.naam, magazijnUrl = it.url.toString()) },
+            appManagers,
         )
     }
 }

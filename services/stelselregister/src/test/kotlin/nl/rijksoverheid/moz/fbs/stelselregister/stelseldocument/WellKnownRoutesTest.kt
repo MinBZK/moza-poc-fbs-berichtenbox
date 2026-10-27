@@ -105,6 +105,7 @@ class WellKnownRoutesTest {
                 override fun geldigheid() = error("niet gebruikt")
                 override fun verversen() = error("niet gebruikt")
                 override fun keystore() = error("niet gebruikt")
+                override fun appManagers() = error("niet gebruikt")
             },
             Clock.systemUTC(),
             LaunchMode.TEST,

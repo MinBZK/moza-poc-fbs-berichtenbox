@@ -26,6 +26,9 @@ class UitgegevenStelseldocument(
     private val log = Logger.getLogger(UitgegevenStelseldocument::class.java)
     private val huidige = AtomicReference<Uitgifte?>()
 
+    /** Bij de start gelezen en gecontroleerd, zodat een onbruikbare sleutel de start blokkeert. */
+    private val appManagers by lazy { AppManager.uit(config.appManagers()) }
+
     private val ondertekenaar by lazy {
         // Via de Oin-constructor: een uitgever die geen OIN is, hoort de start te blokkeren.
         StelseldocumentOndertekenaar(Oin(config.uitgeverOin()).waarde, config.omgeving(), config.geldigheid())
@@ -46,7 +49,7 @@ class UitgegevenStelseldocument(
                 "een afnemer weigert een document dat langer geldt"
         }
 
-        val onversleuteld = onversleuteld(Stelseldocument.uit(register))
+        val onversleuteld = onversleuteld(Stelseldocument.uit(register, appManagers))
 
         if (onversleuteld.isNotEmpty()) {
             log.warnf(
@@ -92,8 +95,9 @@ class UitgegevenStelseldocument(
         val nu = clock.instant()
 
         sleutelbron.waarschuwBijNaderendVerloop(nu)
+        waarschuwBijVerlopendeAppManagers(nu)
 
-        val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register), sleutel, nu)
+        val uitgifte = ondertekenaar.onderteken(Stelseldocument.uit(register, appManagers), sleutel, nu)
         val vorige = huidige.get()
 
         if (vorige != null && uitgifte.uitgegevenOp.isBefore(vorige.uitgegevenOp)) {
@@ -121,17 +125,39 @@ class UitgegevenStelseldocument(
 
         huidige.set(uitgifte)
         log.infof(
-            "Stelseldocument uitgegeven: kid=%s version=%s iat=%s exp=%s organisaties=%d sleutel=%s",
+            "Stelseldocument uitgegeven: kid=%s version=%s iat=%s exp=%s organisaties=%d app-managers=%d sleutel=%s",
             uitgifte.kid,
             uitgifte.versie,
             uitgifte.uitgegevenOp,
             uitgifte.verlooptOp,
             uitgifte.aantalOrganisaties,
+            appManagers.size,
             sleutel.herkomst,
         )
     }
 
+    /**
+     * Verloopt de laatste sleutel van een App Manager, dan weigert elk magazijn zijn nieuwe
+     * credentials. Het stelselregister is de enige plek die dat vooraf ziet; daarom waarschuwt het
+     * vanaf dertig dagen ervoor, bij elke uitgifte.
+     */
+    private fun waarschuwBijVerlopendeAppManagers(nu: java.time.Instant) {
+        appManagers.forEach { appManager ->
+            val laatste = appManager.sleutels.maxOf { it.geldigTot }
+
+            if (laatste.isBefore(nu.plus(WAARSCHUWEN_BINNEN))) {
+                log.warnf(
+                    "De laatste sleutel van App Manager %s verloopt op %s; neem vóór die datum een nieuwe sleutel op",
+                    appManager.oin,
+                    laatste,
+                )
+            }
+        }
+    }
+
     companion object {
+        private val WAARSCHUWEN_BINNEN: Duration = Duration.ofDays(30)
+
         /** De langste geldigheid die een afnemer accepteert. */
         val MAX_GELDIGHEID: Duration = Duration.ofHours(24)
 
