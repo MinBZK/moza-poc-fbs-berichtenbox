@@ -34,6 +34,8 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-rechtstreeks -am          # pure JVM
 ./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
+./mvnw clean test -pl demo/app-manager -am                     # @QuarkusTest, geen Docker; node voor de koppeltest met de Berichten-app
+./mvnw clean test -pl demo/berichten-app -am                   # @QuarkusTest plus de browsercode onder Node (node op het PATH)
 ./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
@@ -43,6 +45,26 @@ ongewijzigde code.
 
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
 (Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten.
+
+Twee modules hebben Node nodig (`node` op het `PATH`, versie 20 of nieuwer). De Berichten-app
+draait de tests van haar browsercode met `node --test`. De App Manager draait diezelfde code in
+`BerichtenAppTest` tegen zichzelf: dat is de toets dat browser en Verifier-library elkaars JWS en
+JWE lezen. Zonder Node falen beide tests; ze slaan niet over.
+
+### Rechtstreeks ophalen: activeren in de browser
+
+App Manager en Berichten-app draaien in ontwikkelmodus al op elkaars adressen (8093 en 8099):
+
+```bash
+./mvnw install -pl demo/app-manager,demo/berichten-app -am -DskipTests
+./mvnw quarkus:dev -pl demo/app-manager     # zonder -am: anders start de personadienst
+./mvnw quarkus:dev -pl demo/berichten-app   # in een tweede terminal
+```
+
+Open `http://localhost:8099/`, kies **Activeren** en daarna een persona. Terug in de app staat het
+credential van die ondernemer, op een sleutel die de browser niet kan exporteren. De App Manager
+houdt registraties in het geheugen: na een herstart werkt **Bewijs vernieuwen** niet meer en
+activeer je opnieuw.
 
 ## Kwaliteitsgates
 

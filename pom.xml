@@ -27,6 +27,8 @@
         <module>services/stelselregister</module>
         <module>demo/demo-console</module>
         <module>demo/demo-personas</module>
+        <module>demo/app-manager</module>
+        <module>demo/berichten-app</module>
         <module>demo/magazijn-simulator</module>
     </modules>
 
