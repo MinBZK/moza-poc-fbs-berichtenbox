@@ -7,6 +7,7 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.GesimuleerdeMagazijnen
 import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.nullValue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -90,6 +91,8 @@ class GedragKetenTest : MagazijnTestBasis() {
             .then()
             .statusCode(403)
             .contentType(PROBLEM_JSON)
+            // Retry-After hoort bij de tweede ingang; de eerste ingang houdt zijn eigen antwoord.
+            .header("Retry-After", nullValue())
     }
 
     /**

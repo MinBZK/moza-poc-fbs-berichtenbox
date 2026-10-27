@@ -8,27 +8,36 @@ import java.net.InetAddress
  * Wie een quotum van rechtstreeks ophalen draagt: het IP-adres van de aanroeper, voor IPv6 per /64,
  * want één aansluiting krijgt daar een hele /64.
  *
- * Achter een vertrouwde proxy geldt de láátste waarde van `X-Forwarded-For`: die zette de proxy
- * zelf. Alles ervóór kan de client verzinnen, en de OpenShift-router vult de header standaard aan
- * in plaats van hem te vervangen. Daarom niet `quarkus.http.proxy.proxy-address-forwarding`, dat de
- * eerste waarde neemt.
+ * Achter een vertrouwde proxy geldt de láátste waarde van `X-Forwarded-For`, over alle regels van
+ * die header samen: die waarde zette de proxy zelf. Alles ervóór kan de client verzinnen, en de
+ * OpenShift-router (HAProxy) laat een meegestuurde header staan en zet het echte adres in een eigen
+ * regel erachter. Daarom niet `quarkus.http.proxy.proxy-address-forwarding`, dat de eerste waarde
+ * neemt.
  */
 object ClientAdres {
 
     const val ONBEKEND = "onbekend"
 
-    fun bepaal(peer: String?, xForwardedFor: String?, vertrouwd: List<Netwerk>): String {
+    /** [xForwardedFor] bevat elke regel van de header, in volgorde. */
+    fun bepaal(peer: String?, xForwardedFor: List<String>, vertrouwd: List<Netwerk>): String {
         val direct = ip(peer)
-        val achterProxy = direct != null && xForwardedFor != null && vertrouwd.any { it.bevat(direct) }
-        val adres = if (achterProxy) ip(xForwardedFor.substringAfterLast(',').trim()) else direct
+        val laatste = xForwardedFor.lastOrNull()?.substringAfterLast(',')?.trim()
+        val achterProxy = direct != null && laatste != null && vertrouwd.any { it.bevat(direct) }
+        val adres = if (achterProxy) ip(zonderPoort(laatste)) else direct
 
         return sleutel(adres)
     }
 
-    /** De sleutel voor één adres; alleen een IP-literal telt, want op een naam zou `InetAddress` een DNS-lookup doen. */
-    fun clientSleutel(adres: String?): String = sleutel(ip(adres))
-
+    /** Alleen een IP-literal telt: op een naam zou `InetAddress` een DNS-lookup doen. */
     private fun ip(tekst: String?): InetAddress? = tekst?.let(NetUtil::createByteArrayFromIpAddressString)?.let(InetAddress::getByAddress)
+
+    /** Sommige proxies zetten de poort erbij: `192.0.2.1:5678` of `[2001:db8::1]:443`. */
+    private fun zonderPoort(tekst: String?): String? = when {
+        tekst == null -> null
+        tekst.startsWith("[") -> tekst.substringAfter('[').substringBefore(']')
+        tekst.count { it == ':' } == 1 -> tekst.substringBefore(':')
+        else -> tekst
+    }
 
     private fun sleutel(ip: InetAddress?): String {
         if (ip == null) return ONBEKEND
