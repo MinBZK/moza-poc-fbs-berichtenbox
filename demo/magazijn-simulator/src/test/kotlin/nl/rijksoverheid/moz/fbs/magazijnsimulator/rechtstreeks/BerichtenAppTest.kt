@@ -23,6 +23,7 @@ import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
+import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
@@ -50,6 +51,7 @@ class BerichtenAppTest : MagazijnTestBasis() {
         val magazijnen = listOf(MAGAZIJN_A to "Magazijn A", MAGAZIJN_C to "Magazijn C", ONBEKEND to "Onbekend").map { (oin, naam) ->
             mapOf("oin" to oin, "naam" to naam, "url" to "${server.toString().trimEnd('/')}/magazijn/$oin")
         }
+
         val sleutel = Base64.getEncoder().encodeToString(appManager().private.encoded)
 
         val uitvoer = node(SCRIPT, ObjectMapper().writeValueAsString(magazijnen), sleutel, APP_MANAGER_OIN, KID, ONTVANGER, "${klok.instant().epochSecond}")
@@ -59,7 +61,7 @@ class BerichtenAppTest : MagazijnTestBasis() {
         assertEquals(setOf("Bij A", "Bij C", "Ook bij C"), berichten.map { (it as Map<*, *>)["onderwerp"] }.toSet())
         assertEquals(setOf("Magazijn A", "Magazijn C"), berichten.map { (it as Map<*, *>)["magazijn"] }.toSet())
 
-        val tijden = berichten.map { (it as Map<*, *>)["publicatietijdstip"] as String }
+        val tijden = berichten.map { Instant.parse((it as Map<*, *>)["publicatietijdstip"] as String) }
 
         assertEquals(tijden.sortedDescending(), tijden)
         assertEquals(listOf(mapOf("oin" to ONBEKEND, "reden" to "gaf een fout (404)")), resultaat["mislukt"])

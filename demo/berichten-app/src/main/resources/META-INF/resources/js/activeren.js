@@ -1,6 +1,7 @@
 // De app-kant van CreateSession (FSC voor Burgers 4.3.4): met een self-signed certificaat bij de
-// App Manager (activeren, 4.4.1) en met een credential bij een magazijn. Zonder DOM en zonder opslag: wie aanroept, geeft
-// sleutels en fetch mee, zodat dezelfde code in de browser en in de tests onder Node draait.
+// App Manager (activeren, 4.4.1) en met een credential bij een magazijn. Zonder DOM en zonder
+// opslag: wie aanroept, geeft sleutels en fetch mee, zodat dezelfde code in de browser en in de
+// tests onder Node draait.
 import { CompactEncrypt, CompactSign, compactDecrypt, decodeJwt } from '../vendor/jose-6.2.13/index.js';
 
 /** Vaste `iss` van de app in het verzoek om een credential (4.4.1, stap 19). */
@@ -10,6 +11,7 @@ const AES_BYTES = 32;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/** Een afwijzing of onverwacht antwoord van de App Manager of een magazijn, met status en stap. */
 export class ActiverenFout extends Error {
   constructor(melding, status, stap) {
     super(melding);

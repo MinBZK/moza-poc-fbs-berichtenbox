@@ -5,7 +5,7 @@ import * as kluis from './sleutelkluis.js';
 import {
   ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
 } from './activeren.js';
-import { StelseldocumentFout, haalAllesOp, leesStelseldocument } from './ophalen.js';
+import { StelseldocumentFout, WACHTTIJD_MS, haalAllesOp, leesStelseldocument } from './ophalen.js';
 
 // Het session_token van het activeren overleeft zo de navigatie naar de App Manager, maar niet het
 // sluiten van het tabblad. In de kluis staat het samen met de AES-sleutel (niet te exporteren),
@@ -132,6 +132,7 @@ async function vernieuw(appManager) {
     if (fout instanceof ActiverenFout && fout.status === 401) {
       await kluis.verwijder('registratie');
       await kluis.verwijder('credential');
+      leegBerichten();
 
       throw new Melding(`Uw activering is niet meer geldig. ${OPNIEUW_ACTIVEREN}`);
     }
@@ -142,6 +143,8 @@ async function vernieuw(appManager) {
 
 /** Bij elk magazijn uit het stelseldocument tegelijk, met het bewijs uit de kluis. */
 async function haalBerichtenOp(stelselregister) {
+  leegBerichten();
+
   const credential = await kluis.haal('credential');
 
   if (!credential || leesCredential(credential).verlooptOp <= new Date()) {
@@ -151,7 +154,10 @@ async function haalBerichtenOp(stelselregister) {
   let antwoord;
 
   try {
-    antwoord = await fetch(new URL('api/v1/stelseldocument', stelselregister.url), { headers: { Accept: 'application/jose' } });
+    antwoord = await fetch(new URL('api/v1/stelseldocument', stelselregister.url), {
+      headers: { Accept: 'application/jose' },
+      signal: AbortSignal.timeout(WACHTTIJD_MS),
+    });
   } catch (fout) {
     throw new Melding('Het stelselregister is niet te bereiken. Probeer het later opnieuw.', { cause: fout });
   }
@@ -169,9 +175,31 @@ function toonBerichten({ berichten, mislukt }, aantal) {
   element('berichten').replaceChildren(
     ...berichten.map((bericht) => regel(`${datum(bericht.publicatietijdstip)} · ${bericht.magazijn} · ${bericht.onderwerp}`)),
   );
+
   element('mislukt').replaceChildren(...mislukt.map((magazijn) => regel(`${magazijn.naam}: ${magazijn.reden}`)));
   element('niet-bereikt').hidden = mislukt.length === 0;
-  element('overzicht').textContent = `${berichten.length} bericht(en) uit ${aantal - mislukt.length} van de ${aantal} magazijnen.`;
+  element('overzicht').textContent = overzicht(berichten.length, mislukt, aantal);
+}
+
+function overzicht(aantalBerichten, mislukt, aantal) {
+  if (aantal === 0) return 'Het stelseldocument noemt geen magazijnen.';
+
+  const tekst = `${aantalBerichten} bericht(en) uit ${aantal - mislukt.length} van de ${aantal} magazijnen.`;
+
+  // Weigert elk magazijn het bewijs, dan ligt het aan het bewijs en niet aan de magazijnen.
+  if (mislukt.length === aantal && mislukt.every((magazijn) => magazijn.reden === 'weigerde het bewijs')) {
+    return `${tekst} Geen enkel magazijn nam het bewijs aan; kies Bewijs vernieuwen en probeer het opnieuw.`;
+  }
+
+  return tekst;
+}
+
+/** Een lijst die bij een eerdere ondernemer of een eerder bewijs hoort, blijft niet staan. */
+function leegBerichten() {
+  element('berichten').replaceChildren();
+  element('mislukt').replaceChildren();
+  element('niet-bereikt').hidden = true;
+  element('overzicht').textContent = '';
 }
 
 function regel(tekst) {
@@ -191,6 +219,7 @@ function datum(tijdstip) {
 async function wis() {
   await kluis.wis();
   sessionStorage.removeItem(ACTIVATIE_SESSIE);
+  leegBerichten();
 }
 
 async function toon() {

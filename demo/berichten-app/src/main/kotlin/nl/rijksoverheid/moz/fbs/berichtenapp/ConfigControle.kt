@@ -15,12 +15,25 @@ class ConfigControle(config: BerichtenAppConfig) {
 
         controleerAdres("berichten-app.app-manager-url", config.appManagerUrl(), ontwikkel)
         controleerAdres("berichten-app.stelselregister-url", config.stelselregisterUrl(), ontwikkel)
+        config.magazijnen().ifPresent { controleerOrigins("berichten-app.magazijnen", it, ontwikkel) }
 
         require(OIN.matches(config.appManagerOin())) { "berichten-app.app-manager-oin (${config.appManagerOin()}) is geen OIN van 20 cijfers" }
     }
 
     companion object {
         private val OIN = Regex("\\d{20}")
+        private val ORIGIN = Regex("^[a-z][a-z0-9+.-]*://[A-Za-z0-9.-]+(:[0-9]{1,5})?$")
+
+        /**
+         * Origins (`scheme://host[:port]`), gescheiden door witruimte. Ze gaan letterlijk de CSP in:
+         * een pad, `*` of `;` zou `connect-src` verruimen of een richtlijn toevoegen.
+         */
+        fun controleerOrigins(naam: String, waarde: String, ontwikkel: Boolean) {
+            waarde.split(Regex("\\s+")).filter(String::isNotEmpty).forEach { origin ->
+                require(ORIGIN.matches(origin)) { "$naam: $origin is geen origin (scheme://host[:port])" }
+                require(ontwikkel || origin.startsWith("https://")) { "$naam: $origin moet https zijn" }
+            }
+        }
 
         /**
          * Absoluut, zonder query of fragment, en eindigend op `/`: de app plakt er de paden achter.

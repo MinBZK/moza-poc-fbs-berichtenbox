@@ -36,7 +36,7 @@ ongewijzigde code.
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
 ./mvnw clean test -pl demo/app-manager -am                     # @QuarkusTest, geen Docker; node voor de koppeltest met de Berichten-app
 ./mvnw clean test -pl demo/berichten-app -am                   # @QuarkusTest plus de browsercode onder Node (node op het PATH)
-./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
+./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers); node voor BerichtenAppTest
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
@@ -46,10 +46,11 @@ ongewijzigde code.
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
 (Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten.
 
-Twee modules hebben Node nodig (`node` op het `PATH`, versie 20 of nieuwer). De Berichten-app
-draait de tests van haar browsercode met `node --test`. De App Manager draait diezelfde code in
-`BerichtenAppTest` tegen zichzelf: dat is de toets dat browser en Verifier-library elkaars JWS en
-JWE lezen. Zonder Node falen beide tests; ze slaan niet over.
+Drie modules hebben Node nodig (`node` op het `PATH`, versie 20 of nieuwer). De Berichten-app
+draait de tests van haar browsercode met `node --test`. De App Manager en de magazijn-simulator
+draaien diezelfde code elk in een `BerichtenAppTest` tegen zichzelf (activeren, en ophalen bij
+meerdere magazijnen): dat is de toets dat browser en Verifier-library elkaars JWS en JWE lezen.
+Zonder Node falen die tests; ze slaan niet over.
 
 ### Rechtstreeks ophalen: activeren in de browser
 
