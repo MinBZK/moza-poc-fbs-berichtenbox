@@ -26,8 +26,8 @@ import java.util.logging.LogRecord
 import java.util.logging.Logger
 
 /**
- * De logregel van het opruimen, rechtstreeks en los van een verzoek. Het schrijven via de
- * interceptor en binnen een verzoek toetst `LdvSubjectRegistrationTest`.
+ * De logregel van het opruimen, los van een verzoek: zo schrijft ook de veegtaak hem. Het
+ * schrijven via de interceptor en binnen een verzoek toetst `LdvSubjectRegistrationTest`.
  */
 class SessieLogboekTest {
 
@@ -42,8 +42,9 @@ class SessieLogboekTest {
         fun gevallen(): List<Arguments> = listOf(
             Arguments.of(OpruimAanleiding.UITGELOGD, OpruimUitkomst.GEWIST, StatusCode.OK),
             Arguments.of(OpruimAanleiding.NIEUWE_START, OpruimUitkomst.GEWIST, StatusCode.OK),
-            Arguments.of(OpruimAanleiding.UITGELOGD, OpruimUitkomst.ONBEVESTIGD, StatusCode.ERROR),
-            Arguments.of(OpruimAanleiding.NIEUWE_START, OpruimUitkomst.ONBEVESTIGD, StatusCode.ERROR),
+            Arguments.of(OpruimAanleiding.VERLOPEN, OpruimUitkomst.GEWIST, StatusCode.OK),
+            Arguments.of(OpruimAanleiding.VERLOPEN, OpruimUitkomst.MISLUKT, StatusCode.ERROR),
+            Arguments.of(OpruimAanleiding.VERLOPEN, OpruimUitkomst.ONBEVESTIGD, StatusCode.ERROR),
         )
     }
 
@@ -87,8 +88,8 @@ class SessieLogboekTest {
         every { handler.enforceWriteAcknowledgement(true) } throws LogboekWriteException("logboek weg")
 
         val regels = vangLog {
-            logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.NIEUWE_START, OpruimUitkomst.ONBEVESTIGD)
-            logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.NIEUWE_START, OpruimUitkomst.ONBEVESTIGD)
+            logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.VERLOPEN, OpruimUitkomst.ONBEVESTIGD)
+            logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.VERLOPEN, OpruimUitkomst.ONBEVESTIGD)
         }.filter { it.contains(SessieLogboek.ALERT_TOKEN) }
 
         val foutIds = regels.map { Regex("foutId=([0-9a-f-]{36})").find(it)?.groupValues?.get(1) }
@@ -108,12 +109,12 @@ class SessieLogboekTest {
         every { handler.enforceWriteAcknowledgement(true) } throws NoClassDefFoundError("exporter")
 
         val regels = vangLog {
-            assertThrows<NoClassDefFoundError> { logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.NIEUWE_START) }
+            assertThrows<NoClassDefFoundError> { logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.VERLOPEN) }
         }
 
         val melding = regels.single { it.contains(SessieLogboek.ALERT_TOKEN) }
 
-        assertTrue(melding.contains("aanleiding=nieuwe-start"), melding)
+        assertTrue(melding.contains("aanleiding=verlopen"), melding)
         assertFalse(melding.contains("999990019"), "de BSN hoort niet in de applicatielog: $melding")
     }
 

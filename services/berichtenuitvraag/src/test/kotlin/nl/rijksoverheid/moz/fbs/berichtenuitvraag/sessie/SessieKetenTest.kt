@@ -9,26 +9,42 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Een sessie door de hele keten: HTTP, filter, facade en een echte Redis ([SessieKetenProfile]).
- * Zonder ophaalronde antwoordt `GET /berichten` met een 409 als de sessie loopt, en met een 401 als
- * ze beëindigd is.
+ * Het verlopen van een sessie, door de hele keten: HTTP, filter, facade en een echte Redis.
+ * Inactiviteit 4 s en een maximale duur van een minuut uit [KorteSessieKetenProfile], zodat verlopen
+ * binnen een test te zien is. Elke controle dat een sessie nog loopt, heeft minstens anderhalve
+ * seconde speling. Zonder ophaalronde antwoordt `GET /berichten` met een 409 als de sessie loopt, en
+ * met een 401 als ze verlopen is.
  */
 @QuarkusTest
-@TestProfile(SessieKetenProfile::class)
+@TestProfile(KorteSessieKetenProfile::class)
 class SessieKetenTest {
 
     // Uniek per test: de Redis-container wordt gedeeld tussen de tests van dit profiel.
     private val ontvanger = "OIN:" + teller.incrementAndGet().toString().padStart(20, '0').takeLast(20)
 
     @Test
-    fun `een lopende sessie laat het verzoek door`() {
+    fun `een verzoek houdt de sessie langer dan de inactiviteit in leven`() {
         val sessie = start()
 
+        Thread.sleep(2_000)
+        berichten(sessie).then().statusCode(409)
+        Thread.sleep(2_500)
+
+        // Zonder verlenging was de sessie na 4 s verlopen.
         berichten(sessie).then().statusCode(409)
     }
 
     @Test
-    fun `een beeindigde sessie geeft 401`() {
+    fun `zonder verzoek verloopt de sessie na de inactiviteit`() {
+        val sessie = start()
+
+        Thread.sleep(4_300)
+
+        berichten(sessie).then().statusCode(401)
+    }
+
+    @Test
+    fun `een beeindigde sessie is niet meer te verlengen`() {
         val sessie = start()
 
         given().header("X-Ontvanger", ontvanger).header("X-Sessie", sessie).delete("/api/v1/sessies/huidige")
@@ -49,11 +65,13 @@ class SessieKetenTest {
     }
 }
 
-/** Echte facade en Redis (Redis Stack voor de index-bootstrap). */
-class SessieKetenProfile : QuarkusTestProfile {
+/** Echte facade en Redis (Redis Stack voor de index-bootstrap), met sessieduren van seconden. */
+class KorteSessieKetenProfile : QuarkusTestProfile {
 
     override fun getConfigOverrides(): Map<String, String> = mapOf(
         "quarkus.redis.devservices.enabled" to "true",
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
+        "berichtensessiecache.sessie.inactiviteit" to "PT4S",
+        "berichtensessiecache.sessie.max-duur" to "PT1M",
     )
 }

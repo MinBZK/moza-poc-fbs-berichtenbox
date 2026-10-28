@@ -23,8 +23,8 @@ enum class Sessievereiste {
     /** Een goed gevormde `X-Sessie`, maar of die sessie loopt, maakt niet uit: uitloggen is idempotent. */
     ALLEEN_VORM,
 
-    /** Een lopende sessie: een verzoek van de gebruiker. */
-    LOPEND,
+    /** Een lopende sessie, en het verzoek verlengt hem: een verzoek van de gebruiker. */
+    VERLENGEN,
 }
 
 /** De sessie die het filter bij dit verzoek vaststelde. */
@@ -71,7 +71,7 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
 
         if (sessieId == null || !Sessiecache.SESSIE_ID_VORM.matches(sessieId)) throw sessieOngeldig()
 
-        if (vereiste == Sessievereiste.LOPEND) leesUitCache(log, "sessie-lezen") { sessiecache.leesSessie(sessieId, ontvanger) }
+        if (vereiste == Sessievereiste.VERLENGEN) leesUitCache(log, "sessie-raken") { sessiecache.raakSessie(sessieId, ontvanger) }
 
         request.setProperty(HUIDIGE_SESSIE, HuidigeSessie(sessieId))
     }
@@ -109,7 +109,7 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
         /**
          * Wat een verzoek moet laten zien, op [methode] en het pad zonder `quarkus.rest.path` (dat
          * JAX-RS met of zonder voorloop-slash levert). Alles wat hier niet als uitzondering staat,
-         * vereist een lopende sessie: dat is de veilige standaard voor een nieuw endpoint.
+         * verlengt de sessie: dat is de veilige standaard voor een nieuw endpoint.
          */
         fun vereiste(methode: String, pad: String): Sessievereiste {
             val relatief = pad.removePrefix("/")
@@ -117,7 +117,7 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
             return when {
                 relatief in VRIJGESTELD -> Sessievereiste.GEEN
                 relatief == "sessies/huidige" && methode == "DELETE" -> Sessievereiste.ALLEEN_VORM
-                else -> Sessievereiste.LOPEND
+                else -> Sessievereiste.VERLENGEN
             }
         }
 

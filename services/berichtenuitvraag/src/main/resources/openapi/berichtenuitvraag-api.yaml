@@ -103,9 +103,9 @@ tags:
       verdwijnen pas met de laatste sessie. Het sessie-id gaat als `X-Sessie` mee en bewijst dat
       er een lopende sessie is.
 
-      Een sessie loopt tot het portaal haar bij uitloggen beëindigt (`DELETE /sessies/huidige`).
-      Wordt ze nooit beëindigd, dan verdwijnen de sessie en de gegevens pas na een bewaartermijn
-      van de dienst.
+      Een sessie verloopt als er een tijd lang geen verzoek in gebeurt, en uiterlijk na een
+      maximale duur sinds de start. Elk verzoek met `X-Sessie` verlengt haar, nooit voorbij dat
+      plafond. Het portaal beëindigt haar bij uitloggen (`DELETE /sessies/huidige`).
   - name: Specificatie
     description: Dit OpenAPI-document, op de plek waar de API Design Rules het verwachten.
 
@@ -234,6 +234,11 @@ paths:
         meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
         hoeft na te vragen.
 
+        Een open verbinding houdt de sessie niet in leven: inactiviteit is inactiviteit van de
+        gebruiker. Een open tabblad op een onbeheerde werkplek hield de gegevens anders
+        bereikbaar tot het plafond van de sessie. Het openen verlengt haar wel, zoals elk
+        verzoek met `X-Sessie`.
+
         Volgorde en volledigheid: de stroom bevat hoogstens één `volgen-gestart`, meestal als
         eerste. Lees op dat moment de lijst (`GET /berichten`) en voeg elk
         `bericht-bijgekomen` toe, ontdubbeld op (`magazijnId`, `berichtId`). Wat vóór
@@ -242,7 +247,7 @@ paths:
         kan zelfs vóór `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
         compleet: verbind opnieuw en doe hetzelfde.
 
-        Eindigt de sessie terwijl de stroom openstaat (uitgelogd), dan komt
+        Eindigt de sessie terwijl de stroom openstaat (uitgelogd, of verlopen), dan komt
         `sessie-verlopen` en eindigt de stroom. Dat kan ook vlak na het verbinden gebeuren:
         dan is `sessie-verlopen` het enige dat komt en blijft `volgen-gestart` uit. Een sessie
         die bij het verbinden al ongeldig is, geeft geen stroom maar een `401`.
@@ -893,13 +898,29 @@ components:
 
     Sessie:
       type: object
-      required: [sessieId]
+      required: [sessieId, geldigTot, uiterlijkGeldigTot]
       properties:
         sessieId:
           type: string
           pattern: '^[A-Za-z0-9_-]{22}$'
           description: Geheim; stuur het als `X-Sessie`-header mee. Niet loggen, niet in een URL.
+        geldigTot: { $ref: '#/components/schemas/GeldigTot' }
+        uiterlijkGeldigTot: { $ref: '#/components/schemas/UiterlijkGeldigTot' }
         _links: { $ref: '#/components/schemas/SessieLinks' }
+
+    GeldigTot:
+      type: string
+      format: date-time
+      description: |
+        Het moment waarop de sessie verloopt als er niets meer in gebeurt. Elk verzoek dat de
+        sessie verlengt, schuift het op, nooit voorbij `uiterlijkGeldigTot`.
+
+    UiterlijkGeldigTot:
+      type: string
+      format: date-time
+      description: |
+        Het harde plafond: de sessie eindigt dan, wat er ook gebeurt. Start plus de maximale
+        duur van deze dienst.
 
     SessieLinks:
       type: object
@@ -1115,7 +1136,8 @@ components:
     Hartslag:
       type: object
       description: |
-        De verbinding leeft, en de sessie liep op dat moment nog.
+        De verbinding leeft, en de sessie liep op dat moment nog. Een hartslag verlengt de
+        sessie niet.
       required: [event]
       properties:
         event: { type: string, enum: [hartslag] }

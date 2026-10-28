@@ -654,7 +654,7 @@ class OpenApiContractTest {
     fun `een onbereikbare opslag in de sessiecontrole levert valide Problem-503 met Retry-After`(methode: String) {
         val id = UUID.randomUUID()
         seedBericht(id)
-        sessiecache.leesFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
+        sessiecache.raakFout = SessiecacheException.Onbereikbaar("Cache niet bereikbaar.")
 
         given()
             .filter(validator)
@@ -766,7 +766,8 @@ class OpenApiContractTest {
             .then()
             .statusCode(201)
             .header("Location", "/api/v1/sessies/huidige")
-            .body("sessieId", notNullValue())
+            .body("geldigTot", notNullValue())
+            .body("uiterlijkGeldigTot", notNullValue())
             .body("_links.self.href", equalTo("/api/v1/sessies/huidige"))
     }
 

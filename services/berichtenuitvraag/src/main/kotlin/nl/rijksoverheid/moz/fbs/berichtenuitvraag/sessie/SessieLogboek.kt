@@ -15,6 +15,7 @@ import java.util.UUID
 /** Waarom de berichtgegevens van een ontvanger gewist werden; de waarde komt zo in het logboek. */
 enum class OpruimAanleiding(val waarde: String) {
     UITGELOGD("uitgelogd"),
+    VERLOPEN("verlopen"),
     NIEUWE_START("nieuwe-start"),
 }
 
@@ -22,9 +23,11 @@ enum class OpruimAanleiding(val waarde: String) {
  * Legt in het logboek vast dat de berichtgegevens van een ontvanger gewist zijn, als eigen logregel
  * naast die van het verzoek dat het wissen veroorzaakte.
  *
- * Zonder `@Logboek`-interceptor: die schrijft de logregel van het verzoek zelf. Deze regel wordt een
- * kind van de logregel van dat verzoek ([Context.current]); de request-scoped [LogboekContext] blijft
- * onaangeroerd, zodat de logregel van het verzoek zelf zijn eigen naam en activiteit houdt.
+ * Zonder `@Logboek`-interceptor: die leest de trace-context uit de HTTP-headers en faalt buiten een
+ * verzoek, terwijl het opruimen van verlopen sessies juist buiten een verzoek gebeurt. Binnen een
+ * verzoek wordt de regel een kind van de logregel van dat verzoek ([Context.current]); de
+ * request-scoped [LogboekContext] blijft onaangeroerd, zodat de logregel van het verzoek zelf zijn
+ * eigen naam en activiteit houdt.
  *
  * Gooit niet als het schrijven mislukt. Het wissen is dan al gebeurd en valt niet terug te draaien;
  * een fout zou alleen het verzoek laten mislukken dat het wissen veroorzaakte. In plaats daarvan
@@ -88,7 +91,7 @@ class SessieLogboek(private val processingHandler: ProcessingHandler) {
                 actionName = NAAM
                 dataSubjectType = ontvanger.type.name
                 dataSubjectId = ontvanger.waarde
-                // Alleen GEWIST is zeker gebeurd; bij ONBEVESTIGD hoort de regel niet als geslaagd te lezen.
+                // Alleen GEWIST is zeker gebeurd; bij MISLUKT en ONBEVESTIGD hoort de regel niet als geslaagd te lezen.
                 status = if (uitkomst == OpruimUitkomst.GEWIST) StatusCode.OK else StatusCode.ERROR
             }
 

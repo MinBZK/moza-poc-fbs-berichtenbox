@@ -170,7 +170,7 @@ internal class RedisBerichtenCache(
 
     // Gezet bij elke schrijfactie, en opgetrokken door een sessiestart naast een lopende sessie;
     // leesverkeer verlengt niets. Het wissen is een actieve stap bij het einde van de laatste
-    // sessie, deze TTL is het vangnet als dat mislukt of als niemand uitlogt.
+    // sessie, deze TTL is alleen het vangnet als dat mislukt.
     private val dataTtl: Duration = sessieConfig.dataTtl
 
     @PostConstruct

@@ -28,7 +28,7 @@ import org.jboss.logging.Logger
  * Wist een start of een einde de gegevens van de ontvanger, dan volgt naast de logregel van het
  * verzoek een tweede via [SessieLogboek]: het wissen is een eigen verwerking.
  *
- * De controle van de sessie bij elk verzoek krijgt geen eigen logregel: ze leest alleen de
+ * Het verlengen door elk verzoek in de sessie krijgt geen eigen logregel: het raakt alleen de
  * sessie-administratie, niet de gegevens van de ontvanger. De controle zelf doet [SessieFilter];
  * hier staat alleen wat het vaststelde.
  */
@@ -60,7 +60,7 @@ class SessieResource(
 
         if (start.restenOpgeruimd) sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START)
 
-        return Sessie(start.sessieId).links(links())
+        return Sessie(start.sessieId, start.geldigheid.geldigTot, start.geldigheid.uiterlijkGeldigTot).links(links())
     }
 
     @Logboek(name = "uitvraag-sessie-einde", processingActivityId = ProcessingActivities.UITVRAAG_SESSIE)
@@ -73,8 +73,8 @@ class SessieResource(
             try {
                 sessiecache.beeindigSessie(sessieId, ontvanger)
             } catch (e: SessiecacheException.Onbereikbaar) {
-                // Het script kan al gewist hebben; een herhaalde uitlog ziet dan niets meer, dus dit is
-                // de enige kans op een logregel.
+                // Het script kan al gewist en de ontvanger uit de verloopindex gehaald hebben; een
+                // herhaalde uitlog ziet dan niets meer, dus dit is de enige kans op een logregel.
                 sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD, OpruimUitkomst.ONBEVESTIGD)
                 throw e
             }
