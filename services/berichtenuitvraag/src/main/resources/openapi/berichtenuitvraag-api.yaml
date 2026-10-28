@@ -162,11 +162,20 @@ paths:
         worden opgehaald.
 
         Levert een organisatie meer berichten dan de uitvraag ophaalt, dan draagt het
-        `magazijn-bevraging-voltooid`-event `afgekapt: true` (en `totaalBeschikbaar`
-        als het magazijn een totaal meldde). De status blijft `OK`: de opgehaalde
-        berichten zijn er wél. Toon dat signaal, ook in een samenvattende regel —
+        `magazijn-bevraging-voltooid`-event `afgekapt: true`. De status blijft `OK`: de
+        opgehaalde berichten zijn er wél. Toon dat signaal, ook in een samenvattende regel —
         anders lijkt een afgekapte lijst een volledige lijst en kan de ontvanger niet
-        weten wat hij mist.
+        weten wat hij mist. `ophalen-gereed` telt een afgekapte organisatie mee in
+        `geslaagd` en noemt haar niet apart: verzamel ze uit de `magazijn-bevraging-voltooid`-events,
+        of lees ze na de ronde uit `afgekapt` van `GET /berichten`.
+
+        Opnieuw ophalen verhelpt een afkap niet. De oorzaak is de grens van de uitvraag of de
+        levering van de organisatie zelf, en een nieuwe ronde levert in de regel hetzelfde op.
+        Presenteer een afgekapte organisatie dus niet als "niet geleverd", en raad geen nieuwe
+        poging aan.
+
+        `totaalBeschikbaar` staat bij elke `OK` waarvoor de organisatie een bruikbaar totaal
+        meldde, ook zonder afkap; dan is het gelijk aan `aantalBerichten`.
 
         Een map bestaat alleen als eigenschap van een bericht, en de berichtenlijst is pas
         na `ophalen-gereed` op te vragen. Daarom draagt elk `magazijn-bevraging-voltooid`-event
@@ -861,7 +870,8 @@ components:
       description: |
         Uitkomst van de bevraging van één organisatie.
 
-        * `OK` — de organisatie heeft geantwoord; haar berichten zitten in deze ophaalronde.
+        * `OK` — de organisatie heeft geantwoord; haar berichten zitten in deze ophaalronde, bij
+          `afgekapt: true` niet allemaal.
         * `FOUT` — de organisatie kon niet geraadpleegd worden.
         * `TIMEOUT` — de organisatie antwoordde niet binnen de tijd.
         * `NIET_OPGEHAALD` — de organisatie is niet bevraagd: de uitvraag had te veel
@@ -911,7 +921,10 @@ components:
         totaalBeschikbaar:
           type: integer
           format: int64
-          description: Wat de organisatie zelf als totaal meldde. Ontbreekt als ze geen bruikbaar totaal gaf.
+          minimum: 0
+          description: |
+            Wat de organisatie zelf als totaal meldde. Groter dan `aantalBerichten` bij
+            `afgekapt: true`, anders gelijk. Ontbreekt als ze geen bruikbaar totaal gaf.
         mappen:
           type: array
           description: |
@@ -1038,7 +1051,11 @@ components:
 
     AantalGeslaagd:
       type: integer
-      description: Organisaties die antwoordden (`OK`).
+      description: |
+        Organisaties die antwoordden (`OK`), ook die met `afgekapt: true`: geslaagd betekent hier
+        niet dat ze alles leverden. Welke organisaties afgekapt waren, staat in hun
+        `magazijn-bevraging-voltooid`-event, en na een geslaagde ronde in `afgekapt` van
+        `GET /berichten`. Toon ze in de samenvattende regel.
 
     AantalMislukt:
       type: integer
