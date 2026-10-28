@@ -228,6 +228,23 @@ OM uitgeschakeld component" hieronder). Twee valkuilen bij het herdraaien:
   blijft de preview op de eerste build hangen terwijl de deploy-check groen is
   (`imagePullPolicy: Always` werkt pas bij een herstart). Bij PR-sluiten ruimt
   `cleanup-preview-images` alle `pr-<n>-*`-versies in ghcr op.
+- **`main-<sha7>`-tags hebben een bewaartermijn.** `preview-resten.yml` verwijdert ze zodra ze
+  ouder zijn dan de laatste geslaagde uitrol van main, ouder dan 14 dagen en niet bij de 10
+  nieuwste van hun package horen. Wat de deploy-workflow uitrolde, blijft dus staan; wat je met de
+  hand terugzet (`update-image` op een oudere tag), niet. Wil je zo'n versie houden, hang er dan een
+  tweede tag aan: een versie met een andere tag dan `main-<sha7>` wordt nooit verwijderd.
+
+  ```bash
+  docker buildx imagetools create --prefer-index=false \
+    --tag ghcr.io/minbzk/<package>:behouden-<reden> ghcr.io/minbzk/<package>:main-<sha7>
+  ```
+
+  `--prefer-index=false` is nodig: zonder maakt `imagetools` van een enkel manifest een nieuwe
+  index met de tag erop, en blijft de versie zelf onbeschermd. Een getagde index laat bovendien de
+  opruiming van ongetagde versies in dat package stilvallen. Controleer daarom met
+  `docker buildx imagetools inspect` dat beide tags dezelfde digest tonen. `crane tag` werkt ook.
+
+  Een tag die al weg is, terugzetten kan niet; bouw die commit dan opnieuw.
 - De ghcr-images (`ghcr.io/minbzk/fbs-*`) zijn **public**; ZAD trekt ze via de
   pull-through-mirror `rcr.rijksapps.nl/ghcr-rig/minbzk/*`. Een 404 op een bestaande,
   publieke tag wijst op de mirror/registry-config aan ZAD-zijde, niet op onze push.
