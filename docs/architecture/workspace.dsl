@@ -132,8 +132,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst" "CDI Bean"
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haalt berichten en bijlagen op uit cache en berichtenmagazijn" "CDI Bean"
                         uitvraagBeheerService = component "Bericht Beheer Service" "Verplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" "CDI Bean"
-                        sessieFilter = component "Sessiefilter" "Laat een verzoek alleen door met een lopende sessie (X-Sessie) van de ontvanger; weigert standaard, op elk pad behalve het starten van een sessie, het aanmelden en de specificatie. Elk verzoek verlengt de sessie" "JAX-RS Filter"
-                        sessieResource = component "Sessies API" "Start en beëindigen van een inlogsessie" "JAX-RS Resource"
+                        sessieFilter = component "Sessiefilter" "Laat een verzoek alleen door met een lopende sessie (X-Sessie) van de ontvanger; weigert standaard, op elk pad behalve het starten van een sessie, het aanmelden en de specificatie. Elk verzoek verlengt de sessie, behalve opvragen en volgen" "JAX-RS Filter"
+                        sessieResource = component "Sessies API" "Start, opvragen, verlengen en beëindigen van een inlogsessie. Het portaal is de klok: het verlengt bij activiteit, beëindigt bij uitloggen en bij zijn eigen time-out, en geeft bij de start zijn plafond mee" "JAX-RS Resource"
                         sessieVeger = component "SessieVeger" "Geplande taak op elke pod: ruimt de gegevens op van ontvangers wier laatste sessie verlopen is" "Quarkus Scheduler"
                         sessieLogboek = component "SessieLogboek" "Legt elk wissen van berichtgegevens vast in het Logboek Dataverwerkingen (uitloggen, verlopen, een start die resten wist), met de ontvanger als betrokkene; een mislukte logregel wordt een alert, het wissen gaat door" "CDI Bean"
 
@@ -165,7 +165,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldVerwerker -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
                     sessieFilter -> sessiecacheFacade "Controleert de sessie en verlengt haar" "CDI (in-process facade)"
-                    sessieResource -> sessiecacheFacade "Start en beëindigt sessies" "CDI (in-process facade)"
+                    sessieResource -> sessiecacheFacade "Start, leest, verlengt en beëindigt sessies" "CDI (in-process facade)"
                     sessieVeger -> sessiecacheFacade "Ruimt verlopen sessies op, in batches" "CDI (in-process facade)"
                     uitvraagOphaalService -> sessiecacheFacade "Haalt berichten op" "CDI (in-process facade)"
                     uitvraagBerichtenlijst -> sessiecacheFacade "Haalt berichtenlijst op" "CDI (in-process facade)"
@@ -200,7 +200,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
         interactielaag -> uitvraagResource "Berichten-API-aanroepen namens burger of ondernemer" "Digikoppeling REST API via FSC (JWT bearer token)"
-        interactielaag -> sessieResource "Start de inlogsessie bij het inloggen en beëindigt haar bij uitloggen" "Digikoppeling REST API via FSC (JWT bearer token)"
+        interactielaag -> sessieResource "Start de inlogsessie bij het inloggen, verlengt haar bij activiteit en beëindigt haar bij uitloggen of time-out" "Digikoppeling REST API via FSC (JWT bearer token)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"

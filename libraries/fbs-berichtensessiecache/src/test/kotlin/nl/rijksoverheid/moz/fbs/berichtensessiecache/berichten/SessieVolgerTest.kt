@@ -5,7 +5,7 @@ import io.smallrye.mutiny.helpers.test.AssertSubscriber
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
@@ -400,7 +400,7 @@ class SessieVolgerTest {
             return Uni.createFrom().item(GELDIGHEID.takeIf { (sessieId to ontvanger) in lopend })
         }
 
-        override fun start(ontvanger: Identificatienummer): Uni<SessieStart> = throw UnsupportedOperationException()
+        override fun start(ontvanger: Identificatienummer, plafond: Instant?): Uni<StartUitkomst> = throw UnsupportedOperationException()
 
         override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> = throw UnsupportedOperationException()
 

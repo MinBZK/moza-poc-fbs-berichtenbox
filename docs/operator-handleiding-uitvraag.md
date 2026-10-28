@@ -226,8 +226,8 @@ compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIEC
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek. Een open `_volgen`-verbinding houdt hem niet in leven |
-| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik |
+| `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek of verlenging (`_verlengen`). Een open `_volgen`-verbinding houdt hem niet in leven. Gekoppeld aan een portaal: zie *Koppeling met een portaal* |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik. Geeft het portaal bij de start een eerder plafond mee, dan geldt dat |
 | `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat op `max-duur` + marge. Hij wordt opnieuw gezet bij elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering) en opgetrokken door een sessiestart naast een lopende sessie; leesverkeer verlengt hem niet. Gegevens blijven bij een mislukt opruimen dus tot `max-duur` + marge na de laatste schrijfactie staan, niet na de eerste ophaalronde. Het is alleen een vangnet; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend |
 | `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt. Eén ronde haalt batches van 100 op zolang die vol zijn, binnen een budget van een half interval; een ontvanger waarvan het opruimen mislukt, schuift een interval (minstens 30 s) naar achteren |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op (`INFO Ophaalronde was de lock kwijt …`). Dezelfde regel verschijnt als de laatste sessie tijdens de ronde eindigde |
@@ -314,11 +314,16 @@ met de foutklasse:
 
 In het logboek zelf:
 
+- De logregel van een start (`uitvraag-sessie-start`) draagt `fbs.sessie.start.uitkomst`:
+  `gestart`, of `geweigerd` bij een ongeldig verzoek (`400`, zoals een plafond in het verleden). Een
+  weigering staat zonder status `Error`: het is een fout van de afnemer, geen storing. Bij een
+  storing (`503`) ontbreekt het attribuut, want dan is niet bekend of er een sessie begon.
 - De logregel van een uitlog (`uitvraag-sessie-einde`) draagt `fbs.sessie.einde.uitkomst`:
   `opgeruimd`, `beeindigd` (er lopen nog andere sessies) of `onbekend` (de sessie bestond niet en
   er is niets gewist). Zolang er geen authenticatie is, kan iedereen een uitlog voor een
   willekeurige ontvanger aanvragen; zo'n regel is aan `onbekend` te herkennen.
-- Het verlengen door een verzoek in de sessie levert geen eigen logregel.
+- Opvragen (`GET /sessies/huidige`) en verlengen (`_verlengen`) leveren geen eigen logregel, net als
+  het verlengen door elk ander verzoek in de sessie.
 
 ### Verwerkingsregister en DPIA
 
@@ -327,9 +332,10 @@ verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
 
 - **Doel:** de tijdelijke kopie van de berichtgegevens van een ontvanger alleen bewaren zolang hij een
   lopende inlogsessie heeft, en elk wissen ervan verantwoorden.
-- **Bewaartermijnen:** 15 minuten na het laatste verzoek (`inactiviteit`), hoogstens 12 uur na de
-  start (`max-duur`); de Redis-TTL van 13 uur (`max-duur` + `vangnet-marge`) is alleen een vangnet
-  als het actief wissen faalt. Wijk je in een omgeving af van de defaults, neem dan die waarden op.
+- **Bewaartermijnen:** 15 minuten na het laatste verzoek of de laatste verlenging (`inactiviteit`),
+  hoogstens 12 uur na de start (`max-duur`, of het eerdere plafond van het portaal); de Redis-TTL van
+  13 uur (`max-duur` + `vangnet-marge`) is alleen een vangnet als het actief wissen faalt. Wijk je in
+  een omgeving af van de defaults, neem dan die waarden op.
 - **Grondslag:** dezelfde als die van de berichtenuitvraag zelf: de sessie-administratie en het
   logboek ervan horen bij het tonen van de berichten, niet bij een eigen doel. Stel met de privacy
   officer de concrete wettelijke grondslag vast (naar verwachting een taak van algemeen belang, AVG
@@ -353,6 +359,23 @@ verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
   veegtaak niet meer, dan verdwijnt de index dus uiterlijk zo lang na de laatste sessieactiviteit;
   hij verloopt nooit vóór de gegevens waar hij naar wijst. De leesbare ontvanger staat per
   ontvanger apart (`…:ontvanger`), met de vangnet-TTL, en verdwijnt samen met zijn index-entry.
+
+### Koppeling met een portaal
+
+Het portaal is de klok: het bepaalt wanneer de gebruiker inactief of uitgelogd is, voor alle diensten
+waarnaar het sessies opent. De inactiviteitstermijn en het plafond van de uitvraag zijn dan alleen
+een vangnet, en mogen niet vóór die van het portaal verlopen:
+
+- Zet `berichtensessiecache.sessie.inactiviteit` ruimer dan de inactiviteitstermijn van het portaal
+  plus het interval waarmee het portaal verlengt. Voorbeeld: portaal 15 minuten, verlengen hooguit
+  eens per minuut, uitvraag `PT20M`. Met de default van `PT15M` kan de uitvraag een sessie laten
+  verlopen die het portaal nog als actief ziet.
+- Het portaal roept `POST /sessies/huidige/_verlengen` aan bij activiteit van de gebruiker, en stuurt
+  `DELETE /sessies/huidige` bij uitloggen en bij zijn eigen time-out. Bij `POST /sessies` geeft het
+  zijn eigen plafond mee (`uiterlijkGeldigTot`); de uitvraag neemt het vroegste van dat moment en
+  start + `max-duur`.
+- Een `401 sessie-ongeldig` terwijl het portaal de gebruiker nog als ingelogd ziet, wijst op een
+  `inactiviteit` die te krap staat, of op een portaal dat niet (meer) verlengt.
 
 ### Overgang naar sessiegebonden opslag
 

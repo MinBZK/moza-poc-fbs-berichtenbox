@@ -16,8 +16,8 @@ import java.util.UUID
 @ApplicationScoped
 internal class MockSessieRegister : SessieRegister {
 
-    override fun start(ontvanger: Identificatienummer): Uni<SessieStart> =
-        Uni.createFrom().item(SessieStart(UUID.randomUUID().toString(), geldigheid(), false))
+    override fun start(ontvanger: Identificatienummer, plafond: Instant?): Uni<StartUitkomst> =
+        Uni.createFrom().item(StartUitkomst.Gestart(SessieStart(UUID.randomUUID().toString(), geldigheid(), false)))
 
     override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> = Uni.createFrom().item(geldigheid())
 

@@ -30,12 +30,14 @@ import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.not
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.notNullValue
+import org.hamcrest.Matchers.nullValue
 import org.hamcrest.Matchers.startsWith
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
@@ -769,6 +771,70 @@ class OpenApiContractTest {
             .body("geldigTot", notNullValue())
             .body("uiterlijkGeldigTot", notNullValue())
             .body("_links.self.href", equalTo("/api/v1/sessies/huidige"))
+            .body("_links.verlengen.href", equalTo("/api/v1/sessies/huidige/_verlengen"))
+    }
+
+    @Test
+    fun `POST sessies met een plafond levert valide Sessie met 201`() {
+        val plafond = Instant.now().plusSeconds(600).truncatedTo(ChronoUnit.SECONDS)
+
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/json")
+            .body("""{"uiterlijkGeldigTot":"$plafond"}""")
+            .`when`()
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(201)
+            .body("uiterlijkGeldigTot", equalTo(plafond.toString()))
+    }
+
+    @Test
+    fun `POST sessies met een plafond in het verleden levert valide Problem-400`() {
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .contentType("application/json")
+            .body("""{"uiterlijkGeldigTot":"2020-01-01T00:00:00Z"}""")
+            .`when`()
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(400)
+            .contentType("application/problem+json")
+            .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+    }
+
+    @Test
+    fun `GET sessies-huidige levert valide SessieGeldigheid zonder sessieId`() {
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("X-Sessie", sessie)
+            .`when`()
+            .get("/api/v1/sessies/huidige")
+            .then()
+            .statusCode(200)
+            .header("API-Version", notNullValue())
+            .body("geldigTot", notNullValue())
+            .body("uiterlijkGeldigTot", notNullValue())
+            .body("sessieId", nullValue())
+            .body("_links.self.href", equalTo("/api/v1/sessies/huidige"))
+    }
+
+    @Test
+    fun `POST sessies-huidige-verlengen levert valide SessieGeldigheid met 200`() {
+        given()
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .header("X-Sessie", sessie)
+            .`when`()
+            .post("/api/v1/sessies/huidige/_verlengen")
+            .then()
+            // Een actie op een bestaande sessie, geen aanmaak: dus geen 201.
+            .statusCode(200)
+            .body("geldigTot", notNullValue())
+            .body("sessieId", nullValue())
     }
 
     @Test
@@ -790,6 +856,8 @@ class OpenApiContractTest {
         "GET, /api/v1/berichten",
         "GET, /api/v1/berichten/_zoeken?q=rente",
         "GET, /api/v1/berichten/_volgen",
+        "GET, /api/v1/sessies/huidige",
+        "POST, /api/v1/sessies/huidige/_verlengen",
     )
     fun `een onbekende sessie levert valide Problem-401 met WWW-Authenticate`(methode: String, pad: String) {
         given()
@@ -806,7 +874,7 @@ class OpenApiContractTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["/api/v1/berichten"])
+    @ValueSource(strings = ["/api/v1/sessies/huidige", "/api/v1/sessies/huidige/_verlengen", "/api/v1/berichten"])
     fun `een beeindigde sessie levert valide Problem-401 met WWW-Authenticate`(pad: String) {
         sessiecache.beeindigSessie(sessie, Bsn("999990019"))
 
@@ -815,7 +883,7 @@ class OpenApiContractTest {
             .header("X-Ontvanger", ontvanger)
             .header("X-Sessie", sessie)
             .`when`()
-            .get(pad)
+            .request(if (pad.endsWith("_verlengen")) "POST" else "GET", pad)
             .then()
             .statusCode(401)
             .header("WWW-Authenticate", "X-Sessie realm=\"berichtenuitvraag\"")
@@ -831,6 +899,8 @@ class OpenApiContractTest {
         "GET, /api/v1/berichten, ontbreekt",
         "GET, /api/v1/berichten, krom",
         "GET, /api/v1/berichten, herhaald",
+        "GET, /api/v1/sessies/huidige, ontbreekt",
+        "POST, /api/v1/sessies/huidige/_verlengen, herhaald",
         "DELETE, /api/v1/sessies/huidige, ontbreekt",
         "DELETE, /api/v1/sessies/huidige, krom",
         "DELETE, /api/v1/sessies/huidige, herhaald",

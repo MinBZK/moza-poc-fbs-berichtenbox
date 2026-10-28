@@ -20,6 +20,7 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.HexFormat
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
@@ -60,6 +61,57 @@ class RedisSessieRegisterTest {
         assertFalse(start.restenOpgeruimd)
         assertTussen(voor.plusMillis(INACTIVITEIT_MS - 500), start.geldigheid.geldigTot, Instant.now().plusMillis(INACTIVITEIT_MS + 500))
         assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(MAX_DUUR_MS + 500))
+    }
+
+    @Test
+    fun `een plafond eerder dan start plus max-duur wordt het plafond, en verlengen gaat er niet voorbij`() {
+        val plafond = Instant.now().plusMillis(2000)
+
+        val start = sessiecache.startSessie(ontvanger, plafond)
+
+        assertEquals(plafond.truncatedTo(ChronoUnit.MILLIS), start.geldigheid.uiterlijkGeldigTot)
+        // De inactiviteit (4 s) reikt verder dan het plafond, dus het verloop is het plafond.
+        assertEquals(start.geldigheid.uiterlijkGeldigTot, start.geldigheid.geldigTot)
+        assertEquals(start.geldigheid, sessiecache.raakSessie(start.sessieId, ontvanger))
+
+        Thread.sleep(2200)
+
+        assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.raakSessie(start.sessieId, ontvanger) }
+    }
+
+    @ParameterizedTest(name = "plafond {0} na nu")
+    @ValueSource(strings = ["PT6.5S", "PT24H", "PT876000H"])
+    fun `een plafond later dan start plus max-duur wordt afgekapt op de maximale duur`(na: String) {
+        val voor = Instant.now()
+
+        val start = sessiecache.startSessie(ontvanger, voor.plus(Duration.parse(na)))
+
+        assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(MAX_DUUR_MS + 500))
+    }
+
+    @Test
+    fun `een plafond voorbij wat in milliseconden past, geldt als later dan de maximale duur`() {
+        val start = sessiecache.startSessie(ontvanger, Instant.MAX)
+
+        assertTrue(start.geldigheid.uiterlijkGeldigTot < Instant.now().plusMillis(MAX_DUUR_MS + 500), "Niet afgekapt: ${start.geldigheid}")
+    }
+
+    @ParameterizedTest(name = "plafond {0}")
+    @ValueSource(strings = ["nu", "-PT1S", "1970-01-01T00:00:00Z", "MIN"])
+    fun `een plafond dat niet in de toekomst ligt, weigert en laat sessies en gegevens staan`(plafond: String) {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
+        val moment = when (plafond) {
+            "nu" -> Instant.now()
+            "MIN" -> Instant.MIN
+            else -> if (plafond.startsWith("-")) Instant.now().plus(Duration.parse(plafond)) else Instant.parse(plafond)
+        }
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { sessiecache.startSessie(ontvanger, moment) }
+
+        // Geen sessie en geen opruiming: een geweigerde start wist geen resten.
+        assertTrue(redis.key().exists("$k:status").await().atMost(WACHTTIJD))
+        assertFalse(redis.key().exists("$k:sessies").await().atMost(WACHTTIJD))
     }
 
     @Test
