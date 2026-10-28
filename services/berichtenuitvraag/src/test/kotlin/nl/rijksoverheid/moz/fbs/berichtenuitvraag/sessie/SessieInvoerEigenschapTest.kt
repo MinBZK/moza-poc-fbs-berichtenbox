@@ -108,7 +108,7 @@ class SessieInvoerEigenschapTest {
         const val GEVALLEN = 400
         private val teller = AtomicLong(System.nanoTime())
 
-        // Uniek per geval: de sessies van een ontvanger blijven over de tests heen in Redis lopen.
+        // Uniek per geval: de grens van vijf sessies per ontvanger telt over de tests heen mee.
         fun nieuweOntvanger() = "OIN:" + teller.incrementAndGet().toString().padStart(20, '0').takeLast(20)
 
         val ONGELDIGE_ONTVANGERS = listOf("", "BSN:123", "BSN:999990018", "FOO:1", "BSN 999990019", "OIN:1:2")

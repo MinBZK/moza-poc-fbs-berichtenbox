@@ -5,6 +5,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
@@ -13,19 +14,24 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertDoesNotThrow
+import org.junit.jupiter.api.assertThrows
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Het vangnet zelf, tegen een echte Redis met een vangnet-TTL van drie seconden uit
- * [KortVangnetRedisTestProfile]: wat er gebeurt als niemand actief opruimt. De verloopindex is
- * stelselbreed; elke test begint daarom met een lege index.
+ * [KortVangnetRedisTestProfile]: wat er gebeurt als niemand actief opruimt, en de grens per
+ * ontvanger op een andere waarde dan de standaard. De verloopindex is stelselbreed; elke test begint
+ * daarom met een lege index.
  */
 @QuarkusTest
 @TestProfile(KortVangnetRedisTestProfile::class)
@@ -74,6 +80,19 @@ class VangnetVerloopTest {
         assertEquals(emptyList<String>(), indexLeden())
     }
 
+    @Test
+    fun `de grens per ontvanger volgt de configuratie`() {
+        val ontvanger = nieuweOntvanger()
+        val eerste = sessiecache.startSessie(ontvanger)
+        sessiecache.startSessie(ontvanger)
+
+        assertThrows<SessiecacheException.TeVeelSessies> { sessiecache.startSessie(ontvanger) }
+
+        sessiecache.beeindigSessie(eerste.sessieId, ontvanger)
+
+        assertDoesNotThrow { sessiecache.startSessie(ontvanger) }
+    }
+
     private fun bericht(ontvanger: Identificatienummer) = Bericht(
         berichtId = UUID.randomUUID(),
         afzender = WireMockMagazijnResource.OIN_A,
@@ -99,5 +118,8 @@ class VangnetVerloopTest {
         // Maximale duur plus marge uit het profiel; de marge hierna dekt de traagheid van de test zelf.
         const val DATA_TTL_MS = 3_000L
         const val MARGE_MS = 700L
+        private val teller = AtomicLong(System.nanoTime())
+
+        fun nieuweOntvanger() = Oin(teller.incrementAndGet().toString().padStart(20, '0').takeLast(20))
     }
 }

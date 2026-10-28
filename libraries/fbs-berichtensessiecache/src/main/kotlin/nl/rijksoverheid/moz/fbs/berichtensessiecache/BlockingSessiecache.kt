@@ -220,6 +220,10 @@ internal class BlockingSessiecache(
     override fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant?): SessieStart =
         when (val uitkomst = awaitOrServiceUnavailable { sessies.start(ontvanger, uiterlijkGeldigTot) }) {
             is StartUitkomst.Gestart -> uitkomst.start
+            is StartUitkomst.LimietBereikt -> throw SessiecacheException.TeVeelSessies(
+                "Er lopen al te veel sessies voor deze ontvanger.",
+                uitkomst.vrijOver,
+            )
             StartUitkomst.PlafondVerstreken -> throw SessiecacheException.OngeldigeInvoer(
                 "uiterlijkGeldigTot ligt niet in de toekomst.",
             )

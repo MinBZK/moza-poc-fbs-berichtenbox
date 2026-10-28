@@ -23,16 +23,20 @@ internal interface SessieConfig {
     @WithDefault("PT1H")
     fun vangnetMarge(): Duration
 
+    /** Lopende sessies per ontvanger; daarboven weigert een start in plaats van een bestaande sessie te verdringen. */
+    @WithDefault("5")
+    fun maxPerOntvanger(): Int
+
     /** Hoe vaak verlopen sessies actief worden opgezocht en opgeruimd. */
     @WithDefault("PT30S")
     fun veegInterval(): Duration
 }
 
 /**
- * Weigert een duur van nul of minder, met de configuratiesleutel in de melding. Hier en niet
+ * Weigert een duur of grens van nul of minder, met de configuratiesleutel in de melding. Hier en niet
  * in één consument: elke bean die de configuratie gebruikt, roept dit aan, zodat de pod met een
  * melding over de waarde zelf stopt, welke bean ook het eerst start. Een duur van nul laat elke
- * sessie direct verlopen, of de veegtaak onafgebroken draaien.
+ * sessie direct verlopen, of de veegtaak onafgebroken draaien; een grens van nul weigert elke inlog.
  */
 internal fun SessieConfig.valideer() {
     require(inactiviteit().isPositive) {
@@ -45,6 +49,10 @@ internal fun SessieConfig.valideer() {
 
     require(vangnetMarge().isPositive) {
         "berichtensessiecache.sessie.vangnet-marge (${vangnetMarge()}) moet groter zijn dan 0"
+    }
+
+    require(maxPerOntvanger() > 0) {
+        "berichtensessiecache.sessie.max-per-ontvanger (${maxPerOntvanger()}) moet groter zijn dan 0"
     }
 
     require(veegInterval().isPositive) {

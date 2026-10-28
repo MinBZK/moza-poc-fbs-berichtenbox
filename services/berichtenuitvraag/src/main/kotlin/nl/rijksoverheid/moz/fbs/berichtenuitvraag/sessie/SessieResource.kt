@@ -132,13 +132,13 @@ class SessieResource(
         /** Wat een einde deed: `onbekend` (niets), `beeindigd` (andere sessies lopen nog) of `opgeruimd`. */
         const val EINDE_UITKOMST_ATTRIBUUT = "fbs.sessie.einde.uitkomst"
 
-        /** Of een start een sessie opleverde: `gestart`, of `geweigerd` (een ongeldig verzoek). */
+        /** Of een start een sessie opleverde: `gestart`, of `geweigerd` (te veel sessies of een ongeldig verzoek). */
         const val START_UITKOMST_ATTRIBUUT = "fbs.sessie.start.uitkomst"
 
         private const val GESTART = "gestart"
         private const val GEWEIGERD = "geweigerd"
 
-        /** De start is bewust niet gedaan: een verzoek dat niet kon, zoals een plafond in het verleden. */
-        private val WEIGERINGEN = setOf(Foutcode.ONGELDIG_VERZOEK)
+        /** De start is bewust niet gedaan: de grens, of een verzoek dat niet kon, zoals een plafond in het verleden. */
+        private val WEIGERINGEN = setOf(Foutcode.TE_VEEL_SESSIES, Foutcode.ONGELDIG_VERZOEK)
     }
 }

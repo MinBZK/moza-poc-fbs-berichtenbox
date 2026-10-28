@@ -14,6 +14,7 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.HexFormat
@@ -82,6 +83,12 @@ internal sealed interface StartUitkomst {
 
     data class Gestart(val start: SessieStart) : StartUitkomst
 
+    /**
+     * De ontvanger heeft al het maximum aantal lopende sessies; er is niets gestart en niets gewist.
+     * [vrijOver] is de tijd tot de vroegst verlopende van die sessies verloopt.
+     */
+    data class LimietBereikt(val vrijOver: Duration) : StartUitkomst
+
     /** Het meegegeven plafond lag niet in de toekomst; er is niets gestart en niets gewist. */
     data object PlafondVerstreken : StartUitkomst
 }
@@ -125,6 +132,7 @@ internal class RedisSessieRegister(
             hash(sessieId),
             config.inactiviteit().toMillis().toString(),
             config.maxDuur().toMillis().toString(),
+            config.maxPerOntvanger().toString(),
             BerichtenCache.kenmerk(ontvanger),
             // Geen sessie leeft langer dan start + maximale duur, dus de laatste start bepaalt hoe
             // lang de administratie en de gegevens moeten blijven staan.
@@ -137,6 +145,7 @@ internal class RedisSessieRegister(
 
         return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
             when (antwoord.get(0).toInteger()) {
+                0 -> StartUitkomst.LimietBereikt(Duration.ofMillis(antwoord.get(1).toLong()))
                 1 -> StartUitkomst.Gestart(
                     SessieStart(
                         sessieId = sessieId,

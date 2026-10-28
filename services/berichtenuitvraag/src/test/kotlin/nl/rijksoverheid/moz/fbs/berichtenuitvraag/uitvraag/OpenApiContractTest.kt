@@ -36,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
+import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -803,6 +804,23 @@ class OpenApiContractTest {
             .statusCode(400)
             .contentType("application/problem+json")
             .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+    }
+
+    @Test
+    fun `POST sessies boven de grens levert valide Problem-429 met Retry-After`() {
+        repeat(4) { sessiecache.sessieVoor(ontvanger) }
+        sessiecache.vrijOverBijGrens = Duration.ofMillis(89_100)
+
+        given().contentType("application/json")
+            .filter(validator)
+            .header("X-Ontvanger", ontvanger)
+            .`when`()
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(429)
+            .contentType("application/problem+json")
+            .header("Retry-After", "90")
+            .body("type", equalTo("urn:fbs:fout:te-veel-sessies"))
     }
 
     @Test

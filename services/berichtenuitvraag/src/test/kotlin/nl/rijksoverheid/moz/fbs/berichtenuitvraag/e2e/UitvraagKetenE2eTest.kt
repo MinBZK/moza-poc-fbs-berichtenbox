@@ -88,7 +88,7 @@ class UitvraagKetenE2eTest {
             .extract().path<String>("sessieId")
     }
 
-    /** Elke test begint met een vers beeld. */
+    /** Elke test begint met een vers beeld; zonder uitloggen liepen ook de sessie-grenzen per ontvanger vol. */
     @AfterEach
     fun uitloggen() {
         sessies.forEach { (bsn, sessieId) ->
@@ -959,7 +959,7 @@ private const val ZOEK_TREFFERS = 20
 private const val TRAAG_MAGAZIJN_MS = 3_000
 private const val RONDE_S = 20L
 
-// Eén ontvanger per aantal: de Profiel-cache houdt anders iets van het vorige geval vast.
+// Eén ontvanger per aantal: de Profiel-cache en de sessiegrens houden anders iets van het vorige geval vast.
 private val BSN_PER_AANTAL = mapOf(0 to "999990068", 1 to "999990081", 257 to "999990093")
 
 /**

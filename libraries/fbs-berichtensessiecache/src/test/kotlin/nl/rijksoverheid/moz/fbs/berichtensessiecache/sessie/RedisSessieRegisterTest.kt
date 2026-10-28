@@ -184,6 +184,31 @@ class RedisSessieRegisterTest {
     }
 
     @Test
+    fun `gelijktijdige starts houden zich aan de grens`() {
+        val aantal = 10
+        val poort = CyclicBarrier(aantal)
+        val pool = Executors.newFixedThreadPool(aantal)
+
+        val uitkomsten = try {
+            (1..aantal)
+                .map {
+                    pool.submit<Boolean> {
+                        poort.await()
+                        runCatching { sessiecache.startSessie(ontvanger) }
+                            .onFailure { if (it !is SessiecacheException.TeVeelSessies) throw it }
+                            .isSuccess
+                    }
+                }
+                .map { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        assertEquals(5, uitkomsten.count { it })
+        assertEquals(5, uitkomsten.count { !it })
+    }
+
+    @Test
     fun `een start gelijktijdig met het einde van de laatste sessie laat een geldige sessie met index-entry achter`() {
         // Welke van de twee eerst gaat, verschilt per herhaling; in beide volgordes moet de nieuwe
         // sessie bruikbaar zijn en de veegtaak haar kennen, en zijn de oude gegevens weg of nog van
@@ -327,6 +352,43 @@ class RedisSessieRegisterTest {
 
         val verloopB = redis.sortedSet(String::class.java).zscore("$k:sessies", sha256(b)).await().atMost(WACHTTIJD)!!
         assertEquals(verloopB, verloopIndexScore())
+    }
+
+    @Test
+    fun `zesde start gooit TeVeelSessies en na een einde lukt het weer`() {
+        val ids = (1..5).map { sessiecache.startSessie(ontvanger).sessieId }
+
+        assertThrows<SessiecacheException.TeVeelSessies> { sessiecache.startSessie(ontvanger) }
+
+        sessiecache.beeindigSessie(ids.first(), ontvanger)
+
+        assertDoesNotThrow { sessiecache.startSessie(ontvanger) }
+    }
+
+    @Test
+    fun `TeVeelSessies meldt de tijd tot de vroegst verlopende sessie`() {
+        val eerste = sessiecache.startSessie(ontvanger)
+        Thread.sleep(400)
+        repeat(4) { sessiecache.startSessie(ontvanger) }
+        Thread.sleep(300)
+        val eersteTot = sessiecache.raakSessie(eerste.sessieId, ontvanger).geldigTot
+
+        val fout = assertThrows<SessiecacheException.TeVeelSessies> { sessiecache.startSessie(ontvanger) }
+
+        // De vroegste is nu de tweede (gestart op 400 ms, verloopt op 4,4 s), niet de net verlengde
+        // eerste (4,7 s): het antwoord volgt het verloop, niet de startvolgorde.
+        assertTrue(fout.vrijOver.isPositive, "Geen wachttijd: ${fout.vrijOver}")
+        assertTrue(Instant.now().plus(fout.vrijOver) < eersteTot, "Niet de vroegste: ${fout.vrijOver}, eerste tot $eersteTot")
+        assertTrue(fout.vrijOver <= Duration.ofMillis(INACTIVITEIT_MS), "Langer dan de inactiviteit: ${fout.vrijOver}")
+    }
+
+    @Test
+    fun `verlopen sessies tellen niet mee voor de grens`() {
+        repeat(5) { sessiecache.startSessie(ontvanger) }
+
+        Thread.sleep(INACTIVITEIT_MS + 300)
+
+        assertDoesNotThrow { sessiecache.startSessie(ontvanger) }
     }
 
     @ParameterizedTest

@@ -73,6 +73,9 @@ enum class Foutcode(val code: String, val uitleg: String) {
     /** De sessie uit `X-Sessie` ontbreekt, is onbekend, verlopen of van een andere ontvanger: opnieuw inloggen. */
     SESSIE_ONGELDIG("sessie-ongeldig", "Uw sessie is verlopen of ongeldig. Log opnieuw in."),
 
+    /** Deze ontvanger heeft het maximum aantal gelijktijdige sessies bereikt; een andere sessie beëindigen helpt. */
+    TE_VEEL_SESSIES("te-veel-sessies", "U bent op te veel plekken tegelijk ingelogd."),
+
     /** De opgevraagde resource bestaat niet — een onbekend pad, niet een onbekend bericht. */
     NIET_GEVONDEN("niet-gevonden", "Niet gevonden."),
 

@@ -201,9 +201,23 @@ class LdvSubjectRegistrationTest {
         assertEquals(uitkomst, einde.getAttribute(AttributeKey.stringKey(SessieResource.EINDE_UITKOMST_ATTRIBUUT)))
     }
 
+    /** Een bedoelde weigering is geen storing: in het logboek betekent "Error" dat er iets misging. */
+    @Test
+    fun `een start boven de grens krijgt een logregel zonder status Error`() {
+        repeat(5) { sessiecache.sessieVoor() }
+        vangLogregels()
+
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(429)
+
+        val start = verzoekSpans.getValue("uitvraag-sessie-start").toSpanData()
+
+        assertNotEquals(StatusCode.ERROR, start.status.statusCode, "429 als Error gelogd: ${start.status}")
+        assertEquals(listOf(sessieRegel("uitvraag-sessie-start")), logregels.toList())
+    }
+
     @Test
     fun `een start met een plafond in het verleden krijgt een logregel zonder status Error`() {
-        // Een fout van de afnemer, geen storing: in het logboek betekent "Error" dat er iets misging.
+        // Een fout van de afnemer, geen storing: net als de weigering boven de grens.
         vangLogregels()
 
         given()
@@ -222,7 +236,7 @@ class LdvSubjectRegistrationTest {
 
     /** Wie de logregel van een start leest, ziet of er een sessie begon: ook een weigering heeft een regel. */
     @ParameterizedTest(name = "{0} sessies vooraf, plafond {1}: {2} {3}")
-    @CsvSource("0, , 201, gestart", "4, , 201, gestart", "0, 2020-01-01T00:00:00Z, 400, geweigerd")
+    @CsvSource("0, , 201, gestart", "4, , 201, gestart", "5, , 429, geweigerd", "0, 2020-01-01T00:00:00Z, 400, geweigerd")
     fun `de logregel van een start noemt of hij gestart of geweigerd is`(aantal: Int, plafond: String?, status: Int, uitkomst: String) {
         repeat(aantal) { sessiecache.sessieVoor() }
         vangLogregels()

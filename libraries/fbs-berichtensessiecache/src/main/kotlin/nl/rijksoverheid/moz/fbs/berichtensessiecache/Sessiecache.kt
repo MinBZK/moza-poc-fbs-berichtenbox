@@ -165,6 +165,10 @@ interface Sessiecache {
      * Ligt het niet in de toekomst (volgens de klok van de opslag), dan [SessiecacheException.OngeldigeInvoer]
      * en is er niets gestart of gewist.
      *
+     * Gooit [SessiecacheException.TeVeelSessies] wanneer [ontvanger] al het maximum aantal lopende
+     * sessies heeft (`berichtensessiecache.sessie.max-per-ontvanger`); er wordt geen bestaande
+     * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
+     *
      * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
      * gebeurde, dan staat er een sessie die niemand kent, en kan de start al resten gewist hebben.
      * Een volgende start ziet die spooksessie lopen en meldt dan niets, dus de aanroeper legt zo'n
