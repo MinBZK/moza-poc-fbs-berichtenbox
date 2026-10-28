@@ -23,7 +23,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
-- **Caching:** sessiecache-specifiek (library `fbs-berichtensessiecache`, in-process in `berichtenuitvraag`): Redis (sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via de interne `BerichtenCache`-laag — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. Consumers gebruiken uitsluitend de publieke `Sessiecache`-facade. Berichtenmagazijn heeft geen cache.
+- **Caching:** sessiecache-specifiek (library `fbs-berichtensessiecache`, in-process in `berichtenuitvraag`): Redis (sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via de interne `BerichtenCache`-laag — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. De inlogsessies staan in dezelfde Redis; een sessie die niet uitgelogd wordt, verdwijnt met de TTL `berichtensessiecache.sessie.max-duur` na de laatste start. Consumers gebruiken uitsluitend de publieke `Sessiecache`-facade. Berichtenmagazijn heeft geen cache.
 - **Persistentie:** berichtenmagazijn-specifiek: PostgreSQL 18 + Hibernate ORM Panache. Tests via Quarkus Dev Services (Testcontainers); dev via `compose.yaml`. Geen H2. Het Logboek Dataverwerkingen (LDV) schrijft daarnaast naar zijn eigen PostgreSQL — elke service naar de database van zijn eigen deployment (`LDV_DBMS=postgresql`, default; `clickhouse` blijft een werkend alternatief).
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
@@ -31,8 +31,9 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 ## Architectuurprincipes
 
 - **OpenAPI-first:** De OpenAPI spec per service (`berichtenuitvraag-api.yaml`, `berichtenmagazijn-api.yaml`, `stelselregister-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze. De sessiecache en het magazijnregister zijn interne libraries zonder eigen API-spec: hun CDI-facades (`Sessiecache`, `Magazijnregister`) zijn daar het contract.
-- **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
+- **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/`, `sessie/` — niet technisch (`controller/`, `service/`).
 - **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`. Spec valideren met Spectral-linter (zie Tooling).
+- **Sessies:** `POST /api/v1/sessies` start een sessie, `DELETE /api/v1/sessies/huidige` beëindigt hem; de sessie loopt tot dat uitloggen. `SessieFilter` weigert standaard: elk pad onder `/api/v1` vereist `X-Sessie`, behalve een expliciete vrijstellingslijst. Het filter faalt dicht, ook bij een ontbrekende of herhaalde header. Het sessie-id staat nooit in logs of URL's.
 - **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
 - **ExceptionMappers in fbs-common:** `ProblemExceptionMapper` (WebApplicationException, maskeert 5xx met correlation-id), `ConstraintViolationExceptionMapper` (Bean Validation), `DomainValidationExceptionMapper` (domein-invarianten), `JsonProcessingExceptionMapper`/`MismatchedInputExceptionMapper` (Jackson, zonder originalMessage lek), `UncaughtExceptionMapper` (vangnet voor alle overige `Exception`s, 500 + correlation-id). Gedeelde response-helpers: `problemResponse(...)` en `maskedServerErrorProblem(...)` in `ProblemResponses.kt`.
 - **BSN/PII-handling:** elfproef-validatie via `Bsn`/`Rsin` (in `fbs-kern`). BSN nooit in URL of spec — alleen via header (`X-Ontvanger: BSN:<waarde>`). BSN nooit in applicatie-logs (`.type` mag, `.waarde` niet). LDV's `dataSubjectId` mag de waarde bevatten zolang het endpoint TLS gebruikt (BIO 13.2.1, afgedwongen door `fbs-common/LdvEndpointValidator` in `%prod`/`%staging`/`%acceptatie`).
@@ -184,6 +185,15 @@ transitieve libraries, niet uit onze code of config):
 - `LogManager accessed before the "java.util.logging.manager" system property was set`
   — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch,
   geen effect op test- of runtime-gedrag.
+- `OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because
+  bootstrap classpath has been appended`, meestal direct gevolgd door `A Java agent has been loaded
+  dynamically (…byte-buddy-agent…)` — MockK laadt bij zijn eerste mock de byte-buddy-agent en zet zijn
+  eigen klassen op het bootstrap-classpath, opnieuw na elke herstart van Quarkus in een testrun (een
+  nieuwe classloader); met class data sharing (standaard aan sinds JDK 12) meldt de JVM dat. Alleen in test-JVM's, ook op
+  `main`, en weg met `-Xshare:off`; dat kost elke test-JVM opstarttijd en lost niets op, dus niet gedaan.
+- JaCoCo: `Cannot transform ...$$inlined$assertThrows... archive could not be found` — de
+  klassen die Kotlin voor een geïnlinede `assertThrows` in een test genereert; alleen
+  testklassen, die buiten de meting vallen, dus geen effect op de coverage-gate.
 
 ## ZAD deploy & GitOps (debug)
 

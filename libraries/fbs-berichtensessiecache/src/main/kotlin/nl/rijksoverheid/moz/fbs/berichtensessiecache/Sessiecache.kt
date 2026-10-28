@@ -6,6 +6,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.util.UUID
 
@@ -34,6 +36,13 @@ interface Sessiecache {
          * wijzigen", dus wissen heeft een eigen waarde nodig; het magazijn gebruikt dezelfde.
          */
         const val MAP_WISSEN = ""
+
+        /**
+         * De vorm van elk sessie-id dat [startSessie] uitgeeft: 128 bits, base64url zonder opvulling.
+         * Gelijk aan `components/parameters/SessieHeader` in de spec van de uitvraag. Wat er niet aan
+         * voldoet, kan geen sessie zijn en hoeft Redis niet te zien.
+         */
+        val SESSIE_ID_VORM: Regex = Regex("^[A-Za-z0-9_-]{22}$")
     }
 
     /**
@@ -109,25 +118,52 @@ interface Sessiecache {
     fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent>
 
     /**
-     * Schrijft één bericht bij in een bestaande, actieve sessie (aanmeld-pad).
+     * Schrijft één bericht bij in de al opgehaalde lijst van [ontvanger] (aanmeld-pad).
      * Gooit 400 wanneer `bericht.ontvanger` niet overeenkomt met [ontvanger] of
      * wanneer het bericht de defensieve limieten overschrijdt; 404 wanneer er
-     * geen actieve sessie is voor deze ontvanger.
+     * geen opgehaalde lijst is voor deze ontvanger.
      */
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
 
     /**
-     * Volgt de sessie van [ontvanger] terwijl de berichtenbox openstaat: elk bericht dat via
-     * [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
-     * periodieke hartslag houdt de sessie in leven. Zie [SessieGebeurtenis] voor het verloop.
+     * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat: elk bericht
+     * dat via [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
+     * periodieke hartslag controleert of de sessie nog loopt (zie [leesSessie]) en verlengt zolang de
+     * gegevens van de ontvanger. Eindigt de sessie, dan meldt de stream [SessieGebeurtenis.SessieVerlopen]
+     * en sluit. Zie [SessieGebeurtenis] voor het verloop.
      *
-     * Vereist net als [lijst] een afgeronde ophaling en gooit dezelfde [SessiecacheException]s,
-     * synchroon en vóór de stream. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór de
-     * stream een [SessiecacheException.Onbereikbaar]. Een storing daarna beëindigt de stream met een
-     * fout; de afnemer verbindt dan opnieuw.
+     * Synchroon en vóór de stream: [SessiecacheException.SessieOngeldig] als [sessieId] geen lopende
+     * sessie van [ontvanger] is, daarna net als [lijst] de eis van een afgeronde ophaling met
+     * dezelfde [SessiecacheException]s. Ontvangt deze pod geen aanmeldingen, dan is dat eveneens vóór
+     * de stream een [SessiecacheException.Onbereikbaar]. Een storing daarna, ook bij het raken van de
+     * sessie, beëindigt de stream met een fout en niet met [SessieGebeurtenis.SessieVerlopen]; de
+     * afnemer verbindt dan opnieuw.
      *
      * De stream eindigt ook uit zichzelf na `berichtensessiecache.volg-max-duur`, zonder
      * [SessieGebeurtenis.SessieVerlopen]: de sessie loopt dan nog, en de afnemer verbindt opnieuw.
      */
-    fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis>
+    fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis>
+
+    /**
+     * Start een inlogsessie voor [ontvanger]. Een ontvanger kan meerdere sessies tegelijk hebben.
+     *
+     * De sessie verloopt niet uit zichzelf: ze loopt tot [beeindigSessie]. Wordt ze nooit beëindigd,
+     * dan verdwijnt ze met de TTL op de sessie-administratie (`berichtensessiecache.sessie.max-duur`
+     * na de laatste start van de ontvanger).
+     */
+    fun startSessie(ontvanger: Identificatienummer): SessieStart
+
+    /**
+     * Controleert dat [sessieId] een lopende sessie van [ontvanger] is. Gooit
+     * [SessiecacheException.SessieOngeldig] voor een onbekende, verlopen of andermans sessie — die
+     * drie zijn voor de aanroeper bewust niet te onderscheiden.
+     */
+    fun leesSessie(sessieId: String, ontvanger: Identificatienummer)
+
+    /**
+     * Beëindigt de sessie [sessieId] van [ontvanger]; zijn andere sessies lopen door.
+     * Idempotent: een onbekende of verlopen sessie is geen fout, de uitkomst is dan
+     * [SessieEinde.ONBEKEND].
+     */
+    fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
 }

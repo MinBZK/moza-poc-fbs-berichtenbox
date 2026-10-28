@@ -17,6 +17,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
@@ -36,6 +39,7 @@ internal class BlockingSessiecache(
     private val service: BerichtensessiecacheService,
     private val volger: SessieVolger,
     private val register: Magazijnregister,
+    private val sessies: SessieRegister,
     // Begrenzing op de blocking-await van de facade over élk lees-/schrijfpad van het
     // Sessiecache-contract (de paden raken een lokale/naast-de-pod Redis, geen remote
     // magazijn-RTT — vandaar dezelfde 5s-ondergrens als cache-await-timeout-seconds).
@@ -150,11 +154,11 @@ internal class BlockingSessiecache(
             throw SessiecacheException.OngeldigeInvoer("Bericht hoort bij geen ingeschreven magazijn.")
         }
 
-        // Aanmeld-pad mag alleen bestaande, actieve sessies bijwerken: als er geen
+        // Aanmeld-pad mag alleen een al opgehaalde lijst bijwerken: als er geen
         // aggregatie heeft plaatsgevonden voor deze ontvanger, hoort er ook geen cache te zijn.
         awaitOrServiceUnavailable { service.getAggregationStatus(ontvanger) }
-            ?: throw SessiecacheException.GeenActieveSessie(
-                "Geen actieve sessie voor deze ontvanger; bericht niet toegevoegd.",
+            ?: throw SessiecacheException.GeenLijstInCache(
+                "Geen opgehaalde lijst voor deze ontvanger; bericht niet toegevoegd.",
             )
 
         val geschreven = try {
@@ -170,12 +174,25 @@ internal class BlockingSessiecache(
         return geschreven
     }
 
-    override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+    override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> {
+        leesSessie(sessieId, ontvanger)
         requireGereedStatus(ontvanger)
         awaitOrServiceUnavailable { volger.actief() }
 
-        return volger.volg(ontvanger)
+        return volger.volg(ontvanger, sessieId)
     }
+
+    override fun startSessie(ontvanger: Identificatienummer): SessieStart =
+        awaitOrServiceUnavailable { sessies.start(ontvanger) }
+
+    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer) {
+        if (!awaitOrServiceUnavailable { sessies.lees(sessieId, ontvanger) }) throw sessieOngeldig()
+    }
+
+    private fun sessieOngeldig() = SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
+
+    override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
+        awaitOrServiceUnavailable { sessies.beeindig(sessieId, ontvanger) }
 
     /**
      * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en
@@ -246,8 +263,9 @@ internal class BlockingSessiecache(
     private fun vertaalCacheFout(e: Throwable): Exception = when (e) {
         // Cache-operatie hing langer dan de facade-await-timeout — log warn met cause zodat
         // operations niet alleen het onbereikbaar-pad ziet maar ook welke await het was. Silent
-        // discard verbergt prestatie-regressies in Redis.
-        is java.util.concurrent.TimeoutException -> {
+        // discard verbergt prestatie-regressies in Redis. `atMost` gooit Mutiny's eigen
+        // TimeoutException, en die is geen subklasse van die uit de JDK.
+        is java.util.concurrent.TimeoutException, is io.smallrye.mutiny.TimeoutException -> {
             log.warnf(e, "Cache-operatie overschreed timeout van %s; onbereikbaar naar caller", timeout)
             SessiecacheException.Onbereikbaar("Cache niet bereikbaar. Probeer het later opnieuw", e)
         }
@@ -271,7 +289,7 @@ internal class BlockingSessiecache(
         is CacheCorruptedException -> {
             // Eigen message is statisch (PII-veilig); de cause kan een Jackson-fout met
             // JSON-fragment zijn (bv. bijlagen), dus log de cause-klasse, niet de cause zelf.
-            log.errorf("Cache-hash corrupt: %s (oorzaak=%s)", e.message, e.cause?.javaClass?.name ?: "geen")
+            log.errorf("Cache-data corrupt: %s (oorzaak=%s)", e.message, e.cause?.javaClass?.name ?: "geen")
             SessiecacheException.Onleesbaar("Cache-data niet leesbaar.", e)
         }
         // De pod stopt, of het abonnement viel weg en is al gelogd: per stream geen error erbij.

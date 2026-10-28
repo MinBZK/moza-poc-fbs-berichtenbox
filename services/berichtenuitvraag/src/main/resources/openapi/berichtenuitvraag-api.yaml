@@ -28,6 +28,7 @@ info:
     | `urn:fbs:fout:ophalen-mislukt` | 503 | De vorige ophaalronde strandde | "Probeer het opnieuw" — `_ophalen` opnieuw aanroepen |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | De tijdelijke berichtenopslag was niet bereikbaar | "Probeer het straks nog eens", na `Retry-After` |
     | `urn:fbs:fout:te-veel-open-berichtenboxen` | 503 | Er staan te veel berichtenboxen tegelijk open (`_volgen`): voor deze ontvanger, of in totaal. De dienst telt per instantie, dus de grens is geen vast aantal voor de hele keten. Geen storing | Niet meteen opnieuw verbinden, maar na `Retry-After`. Staat de berichtenbox van deze ondernemer al in andere vensters open, dan helpt er één sluiten |
+    | `urn:fbs:fout:sessie-ongeldig` | 401 | De `X-Sessie` ontbreekt, is onbekend, verlopen of hoort bij een andere ontvanger | "Uw sessie is verlopen of ongeldig. Log opnieuw in." |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad bestaat niet — geen uitspraak over een bericht | — |
     | `urn:fbs:fout:ongeldig-verzoek` | 400, 415, … | Het verzoek zelf klopt niet | Fout bij de afnemer |
     | `urn:fbs:fout:geen-toegang` | 401, 403 | Ontbrekende of ontoereikende toegang | — |
@@ -93,8 +94,17 @@ tags:
     description: |
       CloudEvents-webhook waarop de Publicatie Stream van een magazijn een nieuw
       gepubliceerd bericht aanmeldt. Werkt de sessiecache bij voor ontvangers met
-      een actieve sessie. Wordt buiten codegen afgehandeld (custom media type +
+      een opgehaalde berichtenlijst. Wordt buiten codegen afgehandeld (custom media type +
       202-respons).
+  - name: Sessies
+    description: |
+      Inlogsessies. Een sessie start bij het inloggen. Het sessie-id gaat als `X-Sessie` mee en
+      bewijst dat er een lopende sessie is. Een ontvanger kan meerdere sessies tegelijk hebben;
+      de berichten in de sessiecache staan per ontvanger, niet per sessie, dus twee sessies van
+      dezelfde ontvanger zien dezelfde berichten.
+
+      Een sessie loopt tot het portaal haar bij uitloggen beëindigt (`DELETE /sessies/huidige`).
+      Wordt ze nooit beëindigd, dan verdwijnt ze pas na een bewaartermijn van de dienst.
   - name: Specificatie
     description: Dit OpenAPI-document, op de plek waar de API Design Rules het verwachten.
 
@@ -104,7 +114,7 @@ paths:
       tags: [Uitvraag]
       summary: Berichtenlijst
       description: |
-        De berichten van de lopende sessie van de ontvanger: wat de laatste ophaalronde
+        De berichten van de ontvanger, gedeeld door zijn lopende sessies: wat de laatste ophaalronde
         opleverde, plus wat er daarna is aangemeld. Bron is de sessiecache. De volgorde is
         geen contract: na het ophalen nieuwste eerst, een later aangemeld bericht achteraan.
 
@@ -125,6 +135,8 @@ paths:
         `nietGeleverd` en `afgekapt`: hetzelfde als de events van `_ophalen` meldden, maar
         ook nog na verversen, bladeren of terugkomen binnen de sessie.
       operationId: getBerichten
+      security:
+        - sessie: []
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: pagina
@@ -154,6 +166,8 @@ paths:
       tags: [Ophalen]
       summary: Vul cache voor alle mappen (Server-Sent Events)
       operationId: ophalenBerichten
+      security:
+        - sessie: []
       description: |
         Start het ophalen van berichten uit de aangesloten magazijnen en vult de
         sessiecache. Antwoordt met Server-Sent Events met per-magazijn voortgang
@@ -185,8 +199,8 @@ paths:
         tel hem nooit als geslaagd. Negeer een `event` dat je niet kent. Een afnemer die
         zich hieraan houdt, breekt niet op een latere toevoeging.
 
-        Foutsemantiek: header-validatie, een al lopende ophaling (`409`) en een
-        onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
+        Foutsemantiek: header-validatie, een ongeldige sessie (`401`), een al lopende
+        ophaling (`409`) en een onbereikbare cache (`503`) falen vóór de stream. Zodra de SSE-stream is
         opgezet staat de HTTP-status op `200` vast; een storing daarna uit zich
         niet in een afwijkende status maar in het uitblijven van het afsluitende
         `ophalen-gereed`-event (en de per-magazijn fout-events) — de client
@@ -212,10 +226,12 @@ paths:
       tags: [Volgen]
       summary: Nieuwe berichten volgen terwijl de berichtenbox openstaat (Server-Sent Events)
       operationId: volgenBerichten
+      security:
+        - sessie: []
       description: |
         Houdt een verbinding open waarover elk bericht dat tijdens de sessie binnenkomt
         meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
-        hoeft na te vragen. Zolang de verbinding openstaat, blijft de sessie in leven.
+        hoeft na te vragen.
 
         Volgorde en volledigheid: de stroom bevat hoogstens één `volgen-gestart`, meestal als
         eerste. Lees op dat moment de lijst (`GET /berichten`) en voeg elk
@@ -225,18 +241,24 @@ paths:
         kan zelfs vóór `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
         compleet: verbind opnieuw en doe hetzelfde.
 
-        Blijkt de sessie bij het verbinden al verlopen, dan is `sessie-verlopen` het enige
-        dat komt; `volgen-gestart` blijft dan uit.
+        Eindigt de sessie terwijl de stroom openstaat (uitgelogd), dan komt
+        `sessie-verlopen` en eindigt de stroom. Dat kan ook vlak na het verbinden gebeuren:
+        dan is `sessie-verlopen` het enige dat komt en blijft `volgen-gestart` uit. Een sessie
+        die bij het verbinden al ongeldig is, geeft geen stroom maar een `401`.
 
-        Een `hartslag` komt periodiek, ook als er niets gebeurt. Blijft hij twee keer uit,
-        dan is de verbinding stuk zonder dat de client dat merkt: sluit haar en verbind
-        opnieuw. Na `sessie-verlopen` eindigt de stroom; start dan eerst een nieuwe
-        ophaalronde. Eindigt de stroom zonder `sessie-verlopen`, verbind dan opnieuw.
+        Een `hartslag` komt periodiek, ook als er niets gebeurt; bij elke hartslag is
+        gecontroleerd dat de sessie nog loopt. Blijft hij twee keer uit, dan is de verbinding
+        stuk zonder dat de client dat merkt: sluit haar en verbind opnieuw. Na
+        `sessie-verlopen` eindigt de stroom; verbind dan niet vanzelf opnieuw, maar meld de
+        gebruiker dat de sessie verlopen is en start bij zijn volgende actie een nieuwe sessie
+        en een nieuwe ophaalronde. Eindigt de stroom zonder `sessie-verlopen`, verbind dan
+        opnieuw.
 
         Uitbreidbaarheid: negeer een `event` dat je niet kent.
 
         Foutsemantiek, allemaal vóór de stream: een ongeldige `X-Ontvanger` geeft `400`.
-        Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
+        Een ontbrekende, onbekende of verlopen `X-Sessie`, of een sessie van een andere
+        ontvanger, geeft `401` met `sessie-ongeldig`. Zonder afgeronde ophaalronde komt er, net als bij `GET /berichten`, een `409`
         (`nog-niet-opgehaald` of `ophalen-bezig`), na een mislukte een `503`. Staan er te
         veel berichtenboxen tegelijk open, voor deze ontvanger of in totaal, dan komt er een
         `503` met `te-veel-open-berichtenboxen`. De dienst telt dat per instantie; reken dus
@@ -273,6 +295,8 @@ paths:
         de eerste 20 treffers, nieuwste eerst, zonder paginering. Wie over de volledige set
         wil zoeken, haalt die op via `GET /berichten` en zoekt zelf.
       operationId: zoekenBerichten
+      security:
+        - sessie: []
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - name: q
@@ -303,6 +327,8 @@ paths:
       summary: Bericht ophalen
       description: Volledig bericht inclusief inhoud en bijlage-metadata.
       operationId: getBerichtById
+      security:
+        - sessie: []
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
@@ -330,6 +356,8 @@ paths:
         Werk status (`gelezen`/`ongelezen`) en/of `map` van een bericht bij. Idempotent.
         `"map": ""` haalt het bericht uit zijn map, terug naar Postvak IN.
       operationId: updateBerichtMetadata
+      security:
+        - sessie: []
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
@@ -355,12 +383,15 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     delete:
       tags: [Uitvraag]
       summary: Bericht verwijderen
       description: |
         Verwijder een bericht. Idempotent.
       operationId: verwijderBericht
+      security:
+        - sessie: []
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
@@ -376,6 +407,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/BadGateway' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /berichten/{berichtId}/bijlagen/{bijlageId}:
     parameters:
@@ -404,6 +436,8 @@ paths:
         afweging als het magazijn maakt, zodat een rechtstreekse magazijn-afname
         hetzelfde antwoord geeft.
       operationId: getBijlage
+      security:
+        - sessie: []
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
         - $ref: '#/components/parameters/MagazijnIdQuery'
@@ -437,6 +471,58 @@ paths:
         '502': { $ref: '#/components/responses/BadGateway' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /sessies:
+    post:
+      tags: [Sessies]
+      summary: Sessie starten
+      description: |
+        Start een inlogsessie voor de ontvanger. Het `sessieId` in het antwoord is een geheim:
+        het gaat als `X-Sessie` mee op elk verzoek dat een sessie vereist. Het staat in geen
+        URL: de `Location`-header wijst naar `/sessies/huidige`, de sessie die bij de
+        meegestuurde `X-Sessie` hoort.
+      operationId: startSessie
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '201':
+          description: Sessie gestart
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+            Location:
+              description: Altijd `/api/v1/sessies/huidige`; het pad draagt geen geheim.
+              schema: { type: string, format: uri-reference }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sessie' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /sessies/huidige:
+    delete:
+      tags: [Sessies]
+      summary: Sessie beëindigen
+      description: |
+        Beëindigt de sessie uit `X-Sessie` (uitloggen). Idempotent: ook een al verlopen of
+        onbekende sessie geeft `204`. Alleen een ontbrekende, herhaalde of niet goed gevormde
+        `X-Sessie` geeft `401`: dan is er geen sessie aangewezen.
+
+        Het portaal roept dit aan bij het uitloggen van de gebruiker.
+      operationId: beeindigSessie
+      security:
+        - sessie: []
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '204':
+          description: Sessie beëindigd
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
   /aanmeldingen:
     post:
       tags: [Aanmeld]
@@ -445,7 +531,7 @@ paths:
         Ontvangt een CloudEvent (`nl.rijksoverheid.fbs.bericht.gepubliceerd`) van de
         Publicatie Stream van een magazijn (structured content mode, NL GOV
         CloudEvents-profiel) en werkt daarmee de sessiecache bij voor de ontvanger.
-        Alleen ontvangers met een actieve sessie worden bijgewerkt; ontbreekt die,
+        Alleen ontvangers met een opgehaalde berichtenlijst worden bijgewerkt; ontbreekt die,
         dan wordt het event geaccepteerd maar overgeslagen. Idempotent op het
         CloudEvents `id`.
       operationId: meldBerichtAan
@@ -458,7 +544,7 @@ paths:
         '202':
           description: |
             Event geaccepteerd. De cache is bijgewerkt, of bewust overgeslagen
-            (geen actieve sessie / duplicaat). Geen response-body.
+            (geen opgehaalde berichtenlijst / duplicaat). Geen response-body.
           headers:
             API-Version: { $ref: '#/components/headers/API-Version' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -524,6 +610,17 @@ components:
         die niet in het magazijnregister staat levert 502 op; een bekend
         magazijn dat het bericht niet kent, handelt zelf af (404/403).
 
+  securitySchemes:
+    sessie:
+      type: apiKey
+      in: header
+      name: X-Sessie
+      description: |
+        Geheim sessie-id uit `POST /sessies`. Ontbreekt de header, staat hij er meer dan één
+        keer, is hij niet goed gevormd, of is de sessie onbekend, verlopen of van een andere
+        ontvanger, dan volgt `401` met `sessie-ongeldig`. Alleen `DELETE /sessies/huidige` geeft
+        bij een onbekende of verlopen sessie `204`: uitloggen is idempotent.
+
   headers:
     API-Version:
       description: Volledige API-versie (semver, major.minor.patch); komt overeen met `info.version`.
@@ -538,7 +635,16 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Unauthorized:
-      description: Niet geauthenticeerd
+      description: |
+        Geen lopende sessie: de `X-Sessie` ontbreekt, is onbekend of verlopen, of hoort bij een
+        andere ontvanger (`urn:fbs:fout:sessie-ongeldig`). Die gevallen zijn bewust niet van
+        elkaar te onderscheiden; start een nieuwe sessie. Op `DELETE /sessies/huidige` alleen bij
+        een ontbrekende, herhaalde of niet goed gevormde `X-Sessie`: een onbekende of verlopen
+        sessie geeft daar `204`.
+      headers:
+        WWW-Authenticate:
+          description: Altijd `X-Sessie realm="berichtenuitvraag"`, de challenge van het sessieschema.
+          schema: { type: string }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -579,7 +685,7 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
       description: |
-        Sessie-conflict. Op leespaden: de cache is nog niet gevuld (`_ophalen`
+        Ophaal-conflict. Op leespaden: de cache is nog niet gevuld (`_ophalen`
         nog niet voltooid of nog bezig) — roep eerst `GET /berichten/_ophalen`
         aan en probeer daarna opnieuw. Op `_ophalen` zelf: er loopt al een
         ophaling voor deze ontvanger.
@@ -784,6 +890,21 @@ components:
       type: string
       enum: [gelezen, ongelezen]
       nullable: true
+
+    Sessie:
+      type: object
+      required: [sessieId]
+      properties:
+        sessieId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22}$'
+          description: Geheim; stuur het als `X-Sessie`-header mee. Niet loggen, niet in een URL.
+        _links: { $ref: '#/components/schemas/SessieLinks' }
+
+    SessieLinks:
+      type: object
+      properties:
+        self: { $ref: '#/components/schemas/Link' }
 
     Link:
       type: object
@@ -993,14 +1114,17 @@ components:
 
     Hartslag:
       type: object
-      description: De verbinding en de sessie leven nog.
+      description: |
+        De verbinding leeft, en de sessie liep op dat moment nog.
       required: [event]
       properties:
         event: { type: string, enum: [hartslag] }
 
     SessieVerlopen:
       type: object
-      description: De sessie bestaat niet meer; de stroom eindigt. Start een nieuwe ophaalronde.
+      description: |
+        De sessie bestaat niet meer; de stroom eindigt. Verbind niet vanzelf opnieuw: meld het de
+        gebruiker, en start bij zijn volgende actie een nieuwe sessie en een nieuwe ophaalronde.
       required: [event]
       properties:
         event: { type: string, enum: [sessie-verlopen] }

@@ -16,7 +16,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
  * 202-respons zonder body laten zich niet schoon uit `jaxrs-spec` genereren. Het
  * pad staat wél in `berichtenuitvraag-api.yaml` als contractbron.
  *
- * 202 dekt zowel "cache bijgewerkt" als bewust-overgeslagen (geen actieve sessie /
+ * 202 dekt zowel "cache bijgewerkt" als bewust-overgeslagen (geen opgehaalde lijst /
  * duplicaat): voor de publicatie-stream is het event in alle drie de gevallen
  * succesvol afgeleverd. Fouten (400/503) lopen via de fbs-common ExceptionMappers.
  *

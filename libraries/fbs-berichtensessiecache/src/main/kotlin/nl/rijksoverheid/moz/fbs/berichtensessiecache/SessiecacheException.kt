@@ -34,8 +34,11 @@ sealed class SessiecacheException(message: String, cause: Throwable? = null) : R
     /** Ongeldige invoer in een facade-call (lege patch, ontvanger-mismatch, limiet-overschrijding). */
     class OngeldigeInvoer(message: String, cause: Throwable? = null) : SessiecacheException(message, cause)
 
-    /** Geen actieve sessie voor de ontvanger (aanmeld-schrijfpad). */
-    class GeenActieveSessie(message: String) : SessiecacheException(message)
+    /**
+     * Er staat voor de ontvanger geen opgehaalde lijst in de cache om een aangemeld bericht in bij
+     * te schrijven: er is nog niet opgehaald, of de lijst is verlopen.
+     */
+    class GeenLijstInCache(message: String) : SessiecacheException(message)
 
     /**
      * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone leeft — die
@@ -44,4 +47,10 @@ sealed class SessiecacheException(message: String, cause: Throwable? = null) : R
      * andere ontvanger: die krijgt de misser die hij ook voor een onbekend bericht zou krijgen.
      */
     class BerichtVerwijderd(message: String) : SessiecacheException(message)
+
+    /**
+     * Het sessie-id is geen lopende sessie van deze ontvanger: onbekend, verlopen of van een ander.
+     * Eén geval, zodat een aanroeper niet kan aftasten welke id's ooit bestonden.
+     */
+    class SessieOngeldig(message: String) : SessiecacheException(message)
 }

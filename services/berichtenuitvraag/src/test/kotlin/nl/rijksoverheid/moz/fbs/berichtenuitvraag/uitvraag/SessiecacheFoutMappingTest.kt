@@ -35,8 +35,9 @@ class SessiecacheFoutMappingTest {
         assertEquals(503, SessiecacheException.Onbereikbaar("x").naApiFout().response.status)
         assertEquals(500, SessiecacheException.Onleesbaar("x").naApiFout().response.status)
         assertEquals(400, SessiecacheException.OngeldigeInvoer("x").naApiFout().response.status)
-        assertEquals(404, SessiecacheException.GeenActieveSessie("x").naApiFout().response.status)
+        assertEquals(404, SessiecacheException.GeenLijstInCache("x").naApiFout().response.status)
         assertEquals(410, SessiecacheException.BerichtVerwijderd("x").naApiFout().response.status)
+        assertEquals(401, SessiecacheException.SessieOngeldig("x").naApiFout().response.status)
     }
 
     @Test
@@ -48,8 +49,9 @@ class SessiecacheFoutMappingTest {
             SessiecacheException.Onbereikbaar("x") to Foutcode.TIJDELIJK_NIET_BESCHIKBAAR,
             SessiecacheException.Onleesbaar("x") to Foutcode.INTERNE_FOUT,
             SessiecacheException.OngeldigeInvoer("x") to Foutcode.ONGELDIG_VERZOEK,
-            SessiecacheException.GeenActieveSessie("x") to Foutcode.GEEN_ACTIEVE_SESSIE,
+            SessiecacheException.GeenLijstInCache("x") to Foutcode.GEEN_LIJST_IN_CACHE,
             SessiecacheException.BerichtVerwijderd("x") to Foutcode.BERICHT_VERWIJDERD,
+            SessiecacheException.SessieOngeldig("x") to Foutcode.SESSIE_ONGELDIG,
         )
 
         kenmerken.forEach { (uitkomst, verwacht) ->
@@ -72,8 +74,9 @@ class SessiecacheFoutMappingTest {
             SessiecacheException.Onbereikbaar("x"),
             SessiecacheException.Onleesbaar("x"),
             SessiecacheException.OngeldigeInvoer("x"),
-            SessiecacheException.GeenActieveSessie("x"),
+            SessiecacheException.GeenLijstInCache("x"),
             SessiecacheException.BerichtVerwijderd("x"),
+            SessiecacheException.SessieOngeldig("x"),
         )
 
         gevallen.forEach { geval ->
@@ -96,8 +99,9 @@ class SessiecacheFoutMappingTest {
         assertFalse(SessiecacheException.NogNietGevuld("x").isStoring())
         assertFalse(SessiecacheException.OphalenBezig("x").isStoring())
         assertFalse(SessiecacheException.OngeldigeInvoer("x").isStoring())
-        assertFalse(SessiecacheException.GeenActieveSessie("x").isStoring())
+        assertFalse(SessiecacheException.GeenLijstInCache("x").isStoring())
         assertFalse(SessiecacheException.BerichtVerwijderd("x").isStoring())
+        assertFalse(SessiecacheException.SessieOngeldig("x").isStoring())
     }
 
     /**

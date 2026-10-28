@@ -25,6 +25,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -36,6 +39,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -68,8 +72,9 @@ class BlockingSessiecacheTest {
 
         override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
     }
-    private val facade = BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 5)
     private val ontvanger = Bsn("999990019")
+    private val sessies = mockk<SessieRegister>()
+    private val facade = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 5)
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
     private val legePagina = BerichtenPagina(emptyList(), 0, 20, 0L, 0)
@@ -89,6 +94,8 @@ class BlockingSessiecacheTest {
         const val MAGAZIJN = "00000001003214345000"
         const val MAGAZIJN_B = "00000001823288444000"
         const val ONBEKEND_MAGAZIJN = "00000009999999999999"
+        const val SESSIE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
+        const val TIMEOUT_MELDING = "Cache niet bereikbaar. Probeer het later opnieuw"
 
         @JvmStatic
         fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
@@ -391,14 +398,14 @@ class BlockingSessiecacheTest {
     }
 
     @Test
-    fun `schrijfBericht zonder actieve sessie geeft GeenActieveSessie`() {
+    fun `schrijfBericht zonder opgehaalde lijst geeft GeenLijstInCache`() {
         stubStatus(null)
 
-        assertThrows<SessiecacheException.GeenActieveSessie> { facade.schrijfBericht(ontvanger, testBericht()) }
+        assertThrows<SessiecacheException.GeenLijstInCache> { facade.schrijfBericht(ontvanger, testBericht()) }
     }
 
     @Test
-    fun `schrijfBericht met actieve sessie levert het gevalideerde bericht`() {
+    fun `schrijfBericht met opgehaalde lijst levert het gevalideerde bericht`() {
         stubStatus(gereed)
         val bericht = testBericht()
 
@@ -434,50 +441,78 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `volg kent dezelfde gating als lijst, vóór de stream`() {
+        stubLopendeSessie()
         stubStatus(null)
-        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger) }
+        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger, SESSIE_ID) }
 
         stubStatus(AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
-        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger) }
+        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger, SESSIE_ID) }
 
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
-    fun `volg geeft de stream van de volger door bij een afgeronde ophaling`() {
+    fun `volg geeft de stream van de volger door bij een lopende sessie en een afgeronde ophaling`() {
+        stubLopendeSessie()
         stubStatus(gereed)
         val stream = Multi.createFrom().item<SessieGebeurtenis>(SessieGebeurtenis.VolgenGestart)
         every { volger.actief() } returns Uni.createFrom().voidItem()
-        every { volger.volg(ontvanger) } returns stream
+        every { volger.volg(ontvanger, SESSIE_ID) } returns stream
 
-        assertSame(stream, facade.volg(ontvanger))
+        assertSame(stream, facade.volg(ontvanger, SESSIE_ID))
+        verify(exactly = 1) { sessies.lees(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `volg zonder lopende sessie gooit SessieOngeldig, vóór de stream en vóór de cache`() {
+        // Synchroon, zoals elke andere ongeldige sessie: een stream die meteen SessieVerlopen meldt,
+        // zou de afnemer een 200 geven op een verzoek dat niet mocht.
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(false)
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { service.getAggregationStatus(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
+    }
+
+    @Test
+    fun `volg bij een storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
     fun `volg zonder werkend abonnement is Onbereikbaar, vóór de stream`() {
         // Anders valt de mislukking pas op een geopende stream: de afnemer ziet een lege, sluitende
         // 200 in plaats van een storing waarop hij kan wachten.
+        stubLopendeSessie()
         stubStatus(gereed)
         every { volger.actief() } returns Uni.createFrom().failure(IllegalStateException("probe kwam niet terug"))
 
-        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
     fun `volg op een stoppende pod is ook Onbereikbaar, vóór de stream`() {
         // Een gewone uitrol: de afnemer krijgt een 503 en verbindt bij een andere pod. De facade
         // logt dit niet als error per stream; dat de pod stopt, meldt hij zelf één keer.
+        stubLopendeSessie()
         stubStatus(gereed)
         every { volger.actief() } returns Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
 
-        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
 
         assertTrue(fout.cause is AbonnementGesloten)
         // Eigen melding, en daarmee aantoonbaar een eigen tak: het vangnet voor onbekende fouten
         // geeft ook Onbereikbaar, maar logt er een error met stack bij.
         assertEquals("Nieuwe berichten volgen kan nu niet. Probeer het straks opnieuw.", fout.message)
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
+    }
+
+    private fun stubLopendeSessie() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(true)
     }
 
     @Test
@@ -535,12 +570,74 @@ class BlockingSessiecacheTest {
         assertThrows<SessiecacheException.Onbereikbaar> { facade.lijst(ontvanger) }
     }
 
+    // --- sessies ---
+
+    @Test
+    fun `startSessie geeft de gestarte sessie door`() {
+        val start = SessieStart(SESSIE_ID)
+        every { sessies.start(ontvanger) } returns Uni.createFrom().item(start)
+
+        assertSame(start, facade.startSessie(ontvanger))
+    }
+
+    @Test
+    fun `leesSessie zonder lopende sessie gooit SessieOngeldig`() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(false)
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.leesSessie(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `leesSessie van een lopende sessie slaagt`() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(true)
+
+        assertDoesNotThrow { facade.leesSessie(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `beeindigSessie geeft de uitkomst door`() {
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(SessieEinde.BEEINDIGD)
+
+        assertEquals(SessieEinde.BEEINDIGD, facade.beeindigSessie(SESSIE_ID, ontvanger))
+    }
+
+    @Test
+    fun `een Redis-storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
+        // Een storing als ongeldige sessie melden zou elke ingelogde gebruiker uitloggen.
+        val storing = IllegalStateException("redis connection reset")
+        every { sessies.start(ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.startSessie(ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.leesSessie(SESSIE_ID, ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.beeindigSessie(SESSIE_ID, ontvanger) }
+    }
+
+    // --- timeouts ---
+
+    @Test
+    fun `een await die de timeout overschrijdt is Onbereikbaar via de timeout-tak`() {
+        // Mutiny's TimeoutException (van `atMost`) is geen subklasse van die uit de JDK; beide horen
+        // als timeout herkend te worden en niet als willekeurige fout.
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().nothing()
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(java.util.concurrent.TimeoutException())
+
+        val mutiny = assertThrows<SessiecacheException.Onbereikbaar> { snel.leesSessie(SESSIE_ID, ontvanger) }
+        val jdk = assertThrows<SessiecacheException.Onbereikbaar> { snel.beeindigSessie(SESSIE_ID, ontvanger) }
+
+        assertEquals(TIMEOUT_MELDING, mutiny.message)
+        assertTrue(mutiny.cause is io.smallrye.mutiny.TimeoutException, "Was: ${mutiny.cause}")
+        assertEquals(TIMEOUT_MELDING, jdk.message)
+    }
+
     // --- config-validatie facade-await-timeout ---
 
     @Test
     fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
         val ex = assertThrows<IllegalArgumentException> {
-            BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 0)
+            BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 0)
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")

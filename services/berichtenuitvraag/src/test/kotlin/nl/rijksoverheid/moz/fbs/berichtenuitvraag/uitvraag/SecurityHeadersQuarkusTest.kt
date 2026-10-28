@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
+import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -17,10 +18,17 @@ import org.junit.jupiter.params.provider.ValueSource
 @TestProfile(MockSessiecacheProfile::class)
 class SecurityHeadersQuarkusTest {
 
+    @Inject
+    lateinit var sessiecache: MockSessiecache
+
     private val strikteCsp = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+    // Het test-endpoint valt, zoals elk pad dat niet vrijgesteld is, onder de sessiecontrole.
     private fun headerWaarden(pad: String, naam: String): List<String> =
         given()
+            .apply {
+                if (pad.startsWith("/api/v1/test-only/")) header("X-Ontvanger", "BSN:999990019").header("X-Sessie", sessiecache.sessieVoor())
+            }
             .`when`()
             .get(pad)
             .then()
@@ -113,6 +121,7 @@ class SecurityHeadersQuarkusTest {
     fun `een SSE-stream draagt de headers net zo goed`() {
         val headers = given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessiecache.sessieVoor())
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")

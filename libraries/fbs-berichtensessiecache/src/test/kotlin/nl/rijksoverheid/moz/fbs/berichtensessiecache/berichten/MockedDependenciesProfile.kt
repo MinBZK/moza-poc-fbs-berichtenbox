@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
 import io.quarkus.test.junit.QuarkusTestProfile
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.MockSessieRegister
 
 class MockedDependenciesProfile : QuarkusTestProfile {
 
@@ -9,6 +10,7 @@ class MockedDependenciesProfile : QuarkusTestProfile {
         MockMagazijnClientFactory::class.java,
         MockMagazijnResolver::class.java,
         MockAanmeldingen::class.java,
+        MockSessieRegister::class.java,
     )
 
     override fun getConfigOverrides(): Map<String, String> = mapOf(

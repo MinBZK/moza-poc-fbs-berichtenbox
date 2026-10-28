@@ -101,7 +101,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                     }
 
                     sessiecacheApp = container "Berichtensessiecache" "Afgeschermde in-process module: aggregeert berichten uit alle aangesloten magazijnen en cachet ze per pseudoniem. Geen losse service meer — enige ingang is de Sessiecache-facade; de interne werking (Redis-cache, magazijn-aggregatie) is niet zichtbaar voor consumenten." "Quarkus / Kotlin — gedeelde library (in-process)" "Interne Module" {
-                        sessiecacheFacade = component "Sessiecache-facade" "De enige publieke ingang: lijst, zoeken, bericht, status bijwerken, verwijderen, ophalen-stream, aanmeld-write en volg-stream. De implementatie erachter is Kotlin `internal` — compile-afgedwongen onzichtbaar voor consumenten." "CDI Facade"
+                        sessiecacheFacade = component "Sessiecache-facade" "De enige publieke ingang: lijst, zoeken, bericht, status bijwerken, verwijderen, ophalen-stream, aanmeld-write en volg-stream, en de inlogsessies: starten, controleren en beëindigen. De implementatie erachter is Kotlin `internal` — compile-afgedwongen onzichtbaar voor consumenten." "CDI Facade"
                         magazijnResolver = component "MagazijnResolver" "Bepaalt op basis van dienstvoorkeuren (Profiel Service) en machtigingen welke magazijnen bevraagd worden" "CDI Bean (internal)"
                         pseudoniemService = component "PseudoniemService" "Transformeert PP naar EP per magazijn via BSNk" "CDI Bean (internal)"
                         sessiecacheService = component "BerichtensessiecacheService" "Aggregeert berichten uit de door MagazijnResolver bepaalde magazijnen en cachet de resultaten per pseudoniem" "CDI Bean (internal)"
@@ -109,10 +109,14 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         sessiecacheBulkhead = component "MagazijnAggregatieBulkhead" "Semafoor-bulkhead die het aantal gelijktijdige blokkerende magazijn-aggregatie-calls begrenst, zodat één trage leverancier de gedeelde worker-pool niet laat vollopen en overige endpoints responsief blijven" "CDI Bean (internal)"
                         sessiecacheCircuitBreaker = component "MagazijnCircuitBreaker" "Per-magazijn circuit breaker: opent na opeenvolgende fouten/timeouts zodat een onbereikbaar magazijn de aggregatie niet blijft ophouden" "CDI Bean (internal)"
                         sessiecacheMagazijnClient = component "MagazijnClient" "REST client naar berichtenmagazijnen (per magazijn opgebouwd via MagazijnClientFactory)" "REST Client (internal)"
-                        sessieVolger = component "SessieVolger" "Houdt een open berichtenbox bij: geeft elk aangemeld bericht door, ook als de aanmelding op een andere pod binnenkwam (via één Redis pub/sub-abonnement per pod), en verlengt de sessie op een hartslag" "CDI Bean (internal)"
+                        sessieVolger = component "SessieVolger" "Houdt een open berichtenbox bij: geeft elk aangemeld bericht door, ook als de aanmelding op een andere pod binnenkwam (via één Redis pub/sub-abonnement per pod), en controleert op een hartslag of de sessie nog loopt; zolang ze loopt, verlengt de hartslag de gegevens" "CDI Bean (internal)"
+                        sessieRegister = component "SessieRegister" "Houdt per ontvanger zijn lopende sessies bij (alleen een hash van het sessie-id), elke stap atomair (Lua)" "CDI Bean (internal)"
                         sessiecacheFacade -> sessiecacheService "Gebruikt" "CDI"
                         sessiecacheFacade -> sessieVolger "Volgt een sessie en meldt aanmeldingen" "CDI"
-                        sessieVolger -> sessiecacheCache "Verlengt de sessie en leest het aangemelde bericht" "Redis"
+                        sessiecacheFacade -> sessieRegister "Start, controleert en beëindigt sessies" "CDI"
+                        sessieVolger -> sessieRegister "Controleert op een hartslag of de sessie nog loopt" "CDI"
+                        sessieVolger -> sessiecacheCache "Verlengt de gegevens en leest het aangemelde bericht" "Redis"
+                        sessieRegister -> sessiecacheCache "Registreert sessies" "Redis (Lua)"
                         sessiecacheService -> magazijnResolver "Vraagt op welke magazijnen bevraagd moeten worden" "CDI"
                         sessiecacheService -> pseudoniemService "Transformeert PP naar EP per magazijn" "CDI"
                         sessiecacheService -> sessiecacheCache "Leest/schrijft cache" "Redis"
@@ -127,11 +131,14 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         uitvraagBerichtenlijst = component "Berichtenlijst Service" "Levert per map een berichtenlijst" "CDI Bean"
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haalt berichten en bijlagen op uit cache en berichtenmagazijn" "CDI Bean"
                         uitvraagBeheerService = component "Bericht Beheer Service" "Verplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" "CDI Bean"
+                        sessieFilter = component "Sessiefilter" "Laat een verzoek alleen door met een lopende sessie (X-Sessie) van de ontvanger; weigert standaard, op elk pad behalve het starten van een sessie, het aanmelden en de specificatie" "JAX-RS Filter"
+                        sessieResource = component "Sessies API" "Start en beëindigen van een inlogsessie" "JAX-RS Resource"
 
                         uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper" "CDI"
                         uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst per map" "CDI"
                         uitvraagResource -> uitvraagOphaalService "Berichten en bijlagen ophalen" "CDI"
                         uitvraagResource -> uitvraagBeheerService "Berichtstatus en mappenbeheer" "CDI"
+                        sessieFilter -> uitvraagResource "Laat verzoeken met een lopende sessie door" "JAX-RS"
                     }
 
                     bsnkTransformatie = container "BSNk Transformatie" "Transformeert PP naar EP per berichtenmagazijn — vereist sleutelmateriaal per deelnemer" "BSNk container (Logius)" "Extern Geleverd" {
@@ -152,6 +159,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
                     pseudoniemService -> bsnkTransformatie "Transformeert PP naar EP per magazijn" "BSNk API (lokaal)"
                     aanmeldVerwerker -> sessiecacheFacade "Werkt cache bij (aanmeld-write, in-sessie)" "CDI (in-process facade)"
+                    sessieFilter -> sessiecacheFacade "Controleert de sessie" "CDI (in-process facade)"
+                    sessieResource -> sessiecacheFacade "Start en beëindigt sessies" "CDI (in-process facade)"
                     uitvraagOphaalService -> sessiecacheFacade "Haalt berichten op" "CDI (in-process facade)"
                     uitvraagBerichtenlijst -> sessiecacheFacade "Haalt berichtenlijst op" "CDI (in-process facade)"
                     uitvraagBeheerService -> sessiecacheFacade "Werkt berichtstatus bij in cache" "CDI (in-process facade)"
@@ -185,6 +194,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         notificatieService -> ondernemer "Notificeert over nieuwe berichten" "E-mail, SMS, app-notificatie" "Async"
 
         interactielaag -> uitvraagResource "Berichten-API-aanroepen namens burger of ondernemer" "Digikoppeling REST API via FSC (JWT bearer token)"
+        interactielaag -> sessieResource "Start de inlogsessie bij het inloggen en beëindigt haar bij uitloggen" "Digikoppeling REST API via FSC (JWT bearer token)"
         interactielaag -> profielService "Toestemming bekijken en wijzigen" "Digikoppeling REST API via FSC"
         interactielaag -> digiD "Authenticatie burgers" "SAML 2.0"
         interactielaag -> eHerkenning "Authenticatie zakelijke gebruikers" "SAML 2.0"

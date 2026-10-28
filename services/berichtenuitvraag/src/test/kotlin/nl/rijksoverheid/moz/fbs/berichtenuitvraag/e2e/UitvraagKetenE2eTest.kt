@@ -24,6 +24,7 @@ import org.hamcrest.CoreMatchers.equalTo
 import org.hamcrest.CoreMatchers.nullValue
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.hamcrest.Matchers.contains
@@ -52,6 +53,32 @@ class UitvraagKetenE2eTest {
     private val profiel get() = WireMockBackendsResource.profiel
     private val magazijnA get() = WireMockBackendsResource.magazijnA
     private val magazijnB get() = WireMockBackendsResource.magazijnB
+
+    /** BSN → sessie-id van de sessies die deze test via de API startte. */
+    private val sessies = mutableMapOf<String, String>()
+
+    /** Logt in zoals een berichtenbox dat doet: één sessie per ontvanger, gestart via `POST /sessies`. */
+    private fun sessie(bsn: String): String = sessies.getOrPut(bsn) {
+        given().contentType("application/json")
+            .header("X-Ontvanger", "BSN:$bsn")
+            .`when`().post("/api/v1/sessies")
+            .then()
+            .statusCode(201)
+            .extract().path<String>("sessieId")
+    }
+
+    /** Logt na elke test uit, zoals een berichtenbox dat doet; zo blijven er geen sessies van deze test lopen. */
+    @AfterEach
+    fun uitloggen() {
+        sessies.forEach { (bsn, sessieId) ->
+            given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", sessieId)
+                .`when`().delete("/api/v1/sessies/huidige")
+                .then()
+                .statusCode(204)
+        }
+    }
 
     @BeforeEach
     fun resetStubs() {
@@ -134,6 +161,7 @@ class UitvraagKetenE2eTest {
         // Vóór de eerste ophaling weigert de leesweg met 409 (cache nog niet gevuld).
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(409)
@@ -141,6 +169,7 @@ class UitvraagKetenE2eTest {
         // Ophalen: SSE-stream eindigt met ophalen-gereed en 1 bericht.
         val sse = given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -152,6 +181,7 @@ class UitvraagKetenE2eTest {
         // Lijst uit de (echte) Redis-cache, met uitvraag-parameternamen in de links.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -163,6 +193,7 @@ class UitvraagKetenE2eTest {
         // Detail inclusief inhoud.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(200)
@@ -175,6 +206,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"status":"gelezen"}""")
             .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
@@ -186,6 +218,7 @@ class UitvraagKetenE2eTest {
         // ook in de lijst, en de leesstatus is gebleven.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":"werk"}""")
             .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
@@ -195,6 +228,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .header("Content-Type", "application/merge-patch+json")
             .body("""{"map":""}""")
             .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
@@ -205,6 +239,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -218,12 +253,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().delete("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(204)
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(410)
@@ -232,6 +269,7 @@ class UitvraagKetenE2eTest {
         // Een bericht dat er nooit was, blijft ononderscheidbaar van dat van een ander.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/33333333-3333-3333-3333-333333333333?magazijnId=$OIN_A")
             .then()
             .statusCode(404)
@@ -244,12 +282,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$andereBsn")
+            .header("X-Sessie", sessie(andereBsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .header("X-Ontvanger", "BSN:$andereBsn")
+            .header("X-Sessie", sessie(andereBsn))
             .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
             .then()
             .statusCode(404)
@@ -266,6 +306,7 @@ class UitvraagKetenE2eTest {
 
         val sse = given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -277,6 +318,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -318,7 +360,10 @@ class UitvraagKetenE2eTest {
             ),
         )
 
-        val sse = given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen")
+        val sse = given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
             .then().statusCode(200).extract().body().asString()
 
         assertTrue(sse.contains("\"afgekapt\":true"), "Verwacht het afkap-signaal in de ronde zelf: $sse")
@@ -334,6 +379,7 @@ class UitvraagKetenE2eTest {
             for ((pad, aantal) in paden) {
                 given()
                     .header("X-Ontvanger", "BSN:$bsn")
+                    .header("X-Sessie", sessie(bsn))
                     .`when`().get(pad)
                     .then()
                     .statusCode(200)
@@ -359,12 +405,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -391,12 +439,14 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -414,6 +464,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -428,6 +479,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(503)
@@ -436,6 +488,7 @@ class UitvraagKetenE2eTest {
         // De leesweg meldt de mislukte ophaling; nergens een geslaagde lege lijst.
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(503)
@@ -456,6 +509,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(200)
@@ -464,6 +518,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -478,6 +533,7 @@ class UitvraagKetenE2eTest {
 
         given()
             .header("X-Ontvanger", "BSN:999991401")
+            .header("X-Sessie", sessie("999991401"))
             .`when`().get("/api/v1/berichten/_ophalen")
             .then()
             .statusCode(503)
@@ -495,7 +551,12 @@ class UitvraagKetenE2eTest {
         stubProfielOptIn(bsn, OIN_A)
         stubMagazijnPaginas(magazijnA, ids, bsn, OIN_A)
 
-        given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
 
         val gelezen = mutableListOf<String>()
         var href: String? = "/api/v1/berichten?paginaGrootte=${Sessiecache.MAX_PAGINA_GROOTTE}"
@@ -504,6 +565,7 @@ class UitvraagKetenE2eTest {
         while (href != null) {
             val antwoord = given()
                 .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", sessie(bsn))
                 .`when`().get(href)
                 .then()
                 .statusCode(200)
@@ -524,7 +586,12 @@ class UitvraagKetenE2eTest {
         val nieuwId = "22222222-2222-2222-2222-222222222222"
         stubProfielOptIn(bsn, OIN_A)
         stubMagazijnBericht(magazijnA, "33333333-3333-3333-3333-333333333333", bsn, "magazijn-a", OIN_A)
-        given().header("X-Ontvanger", "BSN:$bsn").`when`().get("/api/v1/berichten/_ophalen").then().statusCode(200)
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
         val lijstVerzoeken = { magazijnA.findAll(getRequestedFor(urlPathMatching("/api/v1/berichten"))).size }
         val naOphalen = lijstVerzoeken()
 
@@ -533,6 +600,7 @@ class UitvraagKetenE2eTest {
         val connection = (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection)
             .apply {
                 setRequestProperty("X-Ontvanger", "BSN:$bsn")
+                setRequestProperty("X-Sessie", sessie(bsn))
                 setRequestProperty("Accept", "text/event-stream")
                 readTimeout = 10_000
             }

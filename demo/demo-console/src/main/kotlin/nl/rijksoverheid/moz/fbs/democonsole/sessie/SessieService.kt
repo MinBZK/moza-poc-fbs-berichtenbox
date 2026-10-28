@@ -6,9 +6,9 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 /**
- * Laat de sessiecache "verlopen" door alle sessie-keys te wissen. Zonder de `:status`-key ziet de
- * uitvraag een sessie die nog niet gevuld is (niet: een afwezige sessie), en geeft GET /berichten
- * 409 — de "nog niet opgehaald"-tak, dezelfde als vóór de eerste ophaalronde. Bewust alleen DEL op
+ * Laat de sessiecache "verlopen" door alle sessie-keys te wissen, ook die van de inlogsessies. Met
+ * de sessie-keys weg kent de uitvraag het sessie-id niet meer en geeft elke `/berichten`-aanroep
+ * 401; de berichtenbox start dan een nieuwe sessie en een nieuwe ophaalronde. Bewust alleen DEL op
  * de sessie-prefix; nooit FLUSHDB/FT.DROPINDEX (die slopen de index).
  */
 @ApplicationScoped

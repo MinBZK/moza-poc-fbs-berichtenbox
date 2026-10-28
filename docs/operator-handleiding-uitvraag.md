@@ -221,20 +221,63 @@ round-trips in totaal. Er is geen reden om de batchgrootte aan te passen zolang
 
 ## Cache-levensduur
 
+De env-var tussen haakjes geldt in de profielen `prod`, `staging` en `acceptatie`. Daarbuiten (dev,
+compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIECACHE_SESSIE_MAX_DUUR`.
+
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | De Redis-TTL op de sessie-administratie van een ontvanger, opnieuw gezet bij elke start. Een sessie verloopt niet uit zichzelf: wie niet uitlogt, laat haar tot die TTL staan. Staat los van de TTL op de berichtgegevens (`berichtensessiecache.ttl`) |
 | `berichtensessiecache.ttl` | `PT12H` | Sliding TTL: elke succesvolle read verlengt hem. Dekt een halve werkdag zonder herhaalde ophaal-flow; verlagen bij geheugendruk op Redis |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de cache-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger 12 uur te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
-| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Verlengt de sessie van een open berichtenbox en houdt proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.ttl` blijven, anders start de pod niet |
+| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt; een beëindigde sessie sluit de stream hoogstens een hartslag later. Zolang ze loopt, verlengt de hartslag de berichtgegevens van een open berichtenbox, en houdt hij proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.ttl` blijven, anders start de pod niet |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
+
+Het starten en beëindigen van een sessie komt als verwerkingsactiviteit
+`urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` in het Logboek Dataverwerkingen.
+
+- De logregel van een uitlog (`uitvraag-sessie-einde`) draagt `fbs.sessie.einde.uitkomst`:
+  `beeindigd` of `onbekend` (de sessie bestond niet). Zolang er geen authenticatie is, kan iedereen
+  een uitlog voor een willekeurige ontvanger aanvragen; zo'n regel is aan `onbekend` te herkennen.
+- De controle van de sessie bij een verzoek levert geen eigen logregel.
+
+### Verwerkingsregister en DPIA
+
+De verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` hoort in het
+verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
+
+- **Doel:** bijhouden welke inlogsessies een ontvanger heeft, zodat alleen een verzoek met een
+  lopende sessie bij zijn berichten komt.
+- **Bewaartermijnen:** de sessie-administratie tot de uitlog. Een sessie verloopt niet na
+  inactiviteit: zonder uitlog blijft ze staan tot de Redis-TTL van 12 uur (`max-duur`) na de laatste
+  start van de ontvanger. Wijk je in een omgeving af van de defaults, neem dan die waarden op.
+- **Grondslag:** dezelfde als die van de berichtenuitvraag zelf: de sessie-administratie en het
+  logboek ervan horen bij het tonen van de berichten, niet bij een eigen doel. Stel met de privacy
+  officer de concrete wettelijke grondslag vast (naar verwachting een taak van algemeen belang, AVG
+  art. 6(1)(e)).
+- **Gegevenscategorieën:** het identificatienummer van de ontvanger (BSN, RSIN, KVK-nummer of OIN;
+  voor een BSN geldt UAVG art. 46), en de sessie-administratie (een hash per sessie-id, met het
+  startmoment, en dus wanneer iemand van de onderneming inlogde).
+- **Logregels over in- en uitloggen:** het logboek krijgt per ontvanger, met hem als betrokkene,
+  `uitvraag-sessie-start` en `uitvraag-sessie-einde`. Daarmee legt het vast wanneer er voor die
+  ontvanger werd in- en uitgelogd. Die regels volgen de bewaartermijn van het logboek, niet de
+  termijnen hierboven; neem ze zo op in het register.
+
+### Invoering van inlogsessies
+
+- **Volgorde:** de PR in `moza-poc` (de berichtenbox die sessies start) wordt eerst gemerged; pas
+  daarna gaat de gepinde berichtenbox in `compose.yaml` mee. Een berichtenbox zonder sessies krijgt
+  `401` op elk pad onder `/berichten`.
+- **Zet geen entity- of response-body-logging aan op `/sessies`.** Het antwoord van
+  `POST /sessies` bevat het sessie-id, en de `toString` van het gegenereerde `Sessie`-model ook; het
+  id is een credential.
 
 ## Open berichtenboxen (`_volgen`)
 
 Elke open berichtenbox houdt één SSE-verbinding open. Een aanmelding die op de ene pod binnenkomt,
 bereikt een berichtenbox op een andere pod via Redis pub/sub (kanaal
 `berichtensessiecache:v4:aanmeldingen`); elke pod heeft daar precies één abonnement op, dus één
-extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de sessiesleutel, het
+extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de cache-key van de ontvanger, het
 `berichtId` en de `magazijnId` (de OIN van de organisatie, geen persoonsgegeven). Die sleutel is een SHA-256 zonder geheim over het identificatienummer en dus een
 pseudoniem van de ontvanger, geen anonimisering: het kanaal hoort dezelfde bescherming te krijgen
 als de rest van Redis (TLS en authenticatie).
@@ -243,7 +286,7 @@ als de rest van Redis (TLS en authenticatie).
 |---|---|---|---|
 | `berichtenuitvraag.volgen.max-connections` | `VOLGEN_MAX_CONNECTIONS` | `2000` | Plafond op open verbindingen per pod. Daarboven krijgt een berichtenbox een 503 met `Retry-After`; de lijst blijft bruikbaar, alleen het vanzelf binnenkomen valt weg. Verhogen of een replica bijzetten wanneer `Plafond van … gevolgde sessies op deze pod bereikt` in de log verschijnt |
 | `berichtenuitvraag.volgen.max-connections-per-ontvanger` | `VOLGEN_MAX_CONNECTIONS_PER_ONTVANGER` | `5` | Plafond per ontvanger **per pod**, zodat één aanroeper het pod-plafond niet voor iedereen opmaakt. Genoeg voor een paar tabbladen en apparaten tegelijk. Met meerdere replica's kan één ontvanger tot dit aantal × het aantal pods streams open hebben: de teller staat in het geheugen van elke pod, niet in Redis. De logregel `Plafond van … open berichtenboxen per ontvanger op deze pod bereikt` noemt dan ook één pod |
-| `berichtensessiecache.volg-max-duur` | — | `PT1H` | Maximale duur van één stream; daarna verbindt de berichtenbox opnieuw. Voorkomt dat een vergeten tabblad de sessie en de berichten erin onbeperkt vasthoudt |
+| `berichtensessiecache.volg-max-duur` | — | `PT1H` | Maximale duur van één stream; daarna verbindt de berichtenbox opnieuw en gaat de verbinding opnieuw langs het sessiefilter en de plafonds. Een beëindigde sessie sluit hem al bij de eerstvolgende hartslag |
 | `berichtensessiecache.aanmeldingen-controle` | — | `PT30S` | Hoe vaak het abonnement op aanmeldingen zich opnieuw bewijst. Komen twee probes op rij niet terug, dan verbinden alle open berichtenboxen op die pod opnieuw en bouwt de pod een nieuw abonnement; één gemiste probe logt alleen `Probe op het aanmeldkanaal gemist` op INFO. Korter = sneller herstel na een stil weggevallen verbinding, ten koste van een extra `PUBLISH` per pod per tussenpoos |
 
 - **Beide plafonds op `_volgen` tellen per pod.** Het totaal beschermt het geheugen van die pod;

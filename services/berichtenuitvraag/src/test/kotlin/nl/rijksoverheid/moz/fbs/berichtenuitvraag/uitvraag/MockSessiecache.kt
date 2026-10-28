@@ -12,9 +12,12 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
@@ -55,6 +58,7 @@ class MockSessiecache : Sessiecache {
     var ophalenEvents: Multi<MagazijnEvent> = Multi.createFrom().empty()
     var volgFout: SessiecacheException? = null
     var volgGebeurtenissen: Multi<SessieGebeurtenis> = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
+    val volgSessies = mutableListOf<String>()
 
     var lijstResultaat: BerichtenPagina? = null
 
@@ -69,7 +73,23 @@ class MockSessiecache : Sessiecache {
     val schrijfFouten = ArrayDeque<SessiecacheException>()
     val schrijfAanroepen = mutableListOf<Bericht>()
 
+    /** Lopende sessies: id → ontvanger. Ze lopen tot een einde; de TTL wordt in de library getest. */
+    val sessies = ConcurrentHashMap<String, Identificatienummer>()
+    var startSessieFout: SessiecacheException? = null
+    var leesFout: SessiecacheException? = null
+    var beeindigFout: SessiecacheException? = null
+    val gelezenSessies = CopyOnWriteArrayList<String>()
+
+    /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
+    fun sessieVoor(ontvanger: String = "BSN:999990019"): String =
+        startSessie(Identificatienummer.fromHeader(ontvanger)).sessieId
+
     fun reset() {
+        sessies.clear()
+        startSessieFout = null
+        leesFout = null
+        beeindigFout = null
+        gelezenSessies.clear()
         berichten.clear()
         schrijfFouten.clear()
         schrijfAanroepen.clear()
@@ -82,6 +102,7 @@ class MockSessiecache : Sessiecache {
         ophalenEvents = Multi.createFrom().empty()
         volgFout = null
         volgGebeurtenissen = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
+        volgSessies.clear()
         lijstResultaat = null
         laatstePagina = null
         laatsteGrootte = null
@@ -168,10 +189,35 @@ class MockSessiecache : Sessiecache {
         return bericht
     }
 
-    override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> {
+    override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> {
+        volgSessies += sessieId
         volgFout?.let { throw it }
 
         return volgGebeurtenissen
+    }
+
+    override fun startSessie(ontvanger: Identificatienummer): SessieStart {
+        startSessieFout?.let { throw it }
+
+        val sessieId = UUID.randomUUID().toString().replace("-", "").take(SESSIE_ID_LENGTE)
+        sessies[sessieId] = ontvanger
+
+        return SessieStart(sessieId)
+    }
+
+    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer) {
+        gelezenSessies += sessieId
+        leesFout?.let { throw it }
+
+        if (sessies[sessieId] != ontvanger) throw SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
+    }
+
+    override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde {
+        beeindigFout?.let { throw it }
+
+        if (!sessies.remove(sessieId, ontvanger)) return SessieEinde.ONBEKEND
+
+        return SessieEinde.BEEINDIGD
     }
 
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {
@@ -188,6 +234,9 @@ class MockSessiecache : Sessiecache {
         )
     }
 }
+
+// Gelijk aan de lengte van een echt sessie-id, zodat de vorm-eis van de uitvraag-API hem accepteert.
+private const val SESSIE_ID_LENGTE = 22
 
 /**
  * Activeert [MockSessiecache] als alternative voor de echte facade. Redis blijft
