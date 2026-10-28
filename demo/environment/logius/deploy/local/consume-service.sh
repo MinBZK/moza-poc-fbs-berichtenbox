@@ -62,11 +62,24 @@ STATE_FILE="${STATE_DIR}/${CONSUMER_OIN}-${PROVIDER_OIN}-${SERVICE_NAME}.hash"
 
 fsc_errlog_init
 fsc_have_jq
+[ "$HAVE_JQ" -eq 1 ] || {
+  echo "FAIL: jq is vereist; de contractenlijst wordt over alle pagina's heen met jq samengevoegd." >&2
+  exit 1
+}
 
+# Alle pagina's, niet alleen de eerste: een eigen contract voorbij pagina één zou anders onzichtbaar
+# zijn, en elke run zou er een nieuw naast indienen.
 manager_contracts() {
-  local out; out=$(fsc_tb "$MANAGER/v1/contracts") || {
-    echo "  WARN: GET /v1/contracts faalde: $(fsc_last_error)" >&2; : >"$ERRLOG"; }
-  printf '%s' "$out"
+  fsc_contracten_paginas fsc_tb "$MANAGER/v1/contracts?limit=1000"
+}
+
+# Een lijst die niet te lezen is, is een fout en geen lege lijst: als lege lijst gelezen beslist het
+# script tot indienen, en dan staat er een tweede contract naast het bestaande.
+manager_contracts_of_stop() {
+  manager_contracts || {
+    echo "FAIL: kon de contractenlijst niet ophalen: $(fsc_last_error)" >&2
+    exit 1
+  }
 }
 
 # --- 0. Outway-public-key-thumbprint (host-side openssl) --------------------------------------
@@ -85,7 +98,7 @@ echo "consume: outway public-key-thumbprint = $THUMB"
 if [ -f "$STATE_FILE" ]; then
   SAVED=$(cat "$STATE_FILE" 2>/dev/null || true)
   if [ -n "$SAVED" ]; then
-    LIST=$(manager_contracts)
+    LIST=$(manager_contracts_of_stop) || exit 1
     case "$(fsc_accept_state "$LIST" "$SAVED" "$PROVIDER_OIN")" in
       yes)
         CSTATE=$(fsc_contract_state "$LIST" "$SAVED")
@@ -94,7 +107,7 @@ if [ -f "$STATE_FILE" ]; then
             GRANT=$(fsc_grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
             [ "$GRANT" != "unknown" ] || {
               echo "FAIL: contract $SAVED gevonden, maar geen grant-hash voor service=$SERVICE_NAME," \
-                   "outway-thumbprint=$THUMB (jq beschikbaar? content.grants[] aanwezig?)." >&2
+                   "outway-thumbprint=$THUMB (content.grants[] aanwezig?)." >&2
               exit 1
             }
             echo "OK: eerder geaccepteerd contract $SAVED draagt nog de provider-accept en heeft manager-state $CSTATE (idempotent, skip)."
@@ -104,10 +117,20 @@ if [ -f "$STATE_FILE" ]; then
             echo "consume: state-file-contract $SAVED draagt de accept-handtekening, maar manager-state is $CSTATE (niet CONTRACT_STATE_VALID) — opnieuw opzetten." ;;
         esac ;;
       unknown)
-        if printf '%s' "$LIST" | grep -qF "$SAVED"; then
+        # Dezelfde state-poort als hierboven: de state-file wordt al ná de accept geschreven, dus
+        # hij kan wijzen naar een contract dat de verificatie van die run niet doorkwam.
+        CSTATE=$(fsc_contract_state "$LIST" "$SAVED")
+        case "$CSTATE" in
+          valid|contract_state_valid|unknown) ;;
+          *)
+            echo "consume: state-file-contract $SAVED heeft manager-state $CSTATE (niet CONTRACT_STATE_VALID) — opnieuw opzetten."
+            SAVED="" ;;
+        esac
+
+        if [ -n "$SAVED" ] && printf '%s' "$LIST" | grep -qF "$SAVED"; then
           GRANT=$(fsc_grant_hash "$LIST" "$SAVED" "$SERVICE_NAME" "$THUMB")
           [ "$GRANT" != "unknown" ] || {
-            echo "FAIL: contract $SAVED aanwezig, maar kon geen grant-hash lezen (vereist jq; installeer jq)." >&2
+            echo "FAIL: contract $SAVED aanwezig, maar kon geen grant-hash lezen (afwijkende JSON-vorm?)." >&2
             exit 1
           }
           echo "OK: eerder geaccepteerd contract $SAVED nog aanwezig (idempotent, skip)."
@@ -121,6 +144,11 @@ if [ -f "$STATE_FILE" ]; then
 fi
 
 # --- 2. Contract opstellen + indienen -----------------------------------------------------------
+# De lijst moet vóór het indienen volledig te lezen zijn, ook zonder state-file. De poll hierna leest
+# hem opnieuw om het nieuwe contract te zien; lukt dat niet (bv. een afgekapte lijst), dan blijft er
+# een half ondertekend contract staan, en elke herhaling voegt er een toe.
+[ -n "${LIST+gezet}" ] || LIST=$(manager_contracts_of_stop) || exit 1
+
 IV=$(fsc_new_iv)
 fsc_validity
 
@@ -154,7 +182,15 @@ echo "  consumer-handtekening gezet (2xx); content_hash=$HASH"
 echo "consume: wachten tot het contract zichtbaar is..."
 elapsed=0; visible=0
 while [ "$elapsed" -lt "$SYNC_TIMEOUT" ]; do
-  if printf '%s' "$(manager_contracts)" | grep -qF "$HASH"; then visible=1; break; fi
+  # Hier wél doorgaan bij een leesfout: het contract is al ingediend, dus een onleesbare lijst
+  # betekent alleen "nog niet gezien". Afbreken zou een half ondertekend contract zonder state-file
+  # achterlaten, en de volgende run diende er dan een tweede naast in. De time-out beslist.
+  if LIST=$(manager_contracts); then
+    if printf '%s' "$LIST" | grep -qF "$HASH"; then visible=1; break; fi
+  else
+    fsc_warn_errlog "contractenlijst"
+  fi
+
   sleep "$SYNC_INTERVAL"; elapsed=$((elapsed + SYNC_INTERVAL))
   echo "  ...nog niet zichtbaar (${elapsed}s)"
 done
@@ -166,13 +202,17 @@ fsc_tb -X PUT "$MANAGER/v1/contracts/$HASH/accept" -H 'Content-Type: application
   || { echo "FAIL: PUT accept ($HASH) geweigerd: $(fsc_last_error)" >&2; exit 1; }
 echo "  provider-handtekening gezet (2xx)."
 
+# Nu al vastleggen en niet pas na de verificatie: strandt die, dan beoordeelt de volgende run dít
+# contract in stap 1 in plaats van een tweede in te dienen naast een geldig eerste.
+mkdir -p "$STATE_DIR" && printf '%s\n' "$HASH" > "$STATE_FILE"
+
 # --- 4. Onafhankelijk verifiëren ----------------------------------------------------------------
-FINAL=$(manager_contracts)
+FINAL=$(manager_contracts_of_stop) || exit 1
 case "$(fsc_accept_state "$FINAL" "$HASH" "$PROVIDER_OIN")" in
   yes) echo "OK: contract $HASH draagt de accept-handtekening (geverifieerd)." ;;
   unknown)
     if printf '%s' "$FINAL" | grep -qF "$HASH"; then
-      echo "OK (fallback, geen jq/afwijkende vorm): contract $HASH aanwezig na een 2xx-accept."
+      echo "OK (fallback, afwijkende vorm): contract $HASH aanwezig na een 2xx-accept."
     else
       echo "FAIL: contract $HASH niet teruggevonden na accept." >&2
       exit 1
@@ -182,24 +222,22 @@ esac
 
 # Aanvullende gate naast de accept-signature-check hierboven: bevestigt dat de manager het
 # contract ook daadwerkelijk als CONTRACT_STATE_VALID beschouwt (de echte poort voor
-# grant-gebruik door de outway). Bij "unknown" (geen jq / afwijkende JSON-vorm) valt dit terug
-# op de reeds bevestigde accept-aanwezigheid hierboven, zoals de rest van dit script bij
-# ontbrekende jq consequent doet.
+# grant-gebruik door de outway). Bij "unknown" (afwijkende JSON-vorm) valt dit terug op de reeds
+# bevestigde accept-aanwezigheid hierboven.
 CONTRACT_STATE=$(fsc_contract_state "$FINAL" "$HASH")
 case "$CONTRACT_STATE" in
   valid|contract_state_valid) echo "OK: contract $HASH heeft manager-state CONTRACT_STATE_VALID (geverifieerd)." ;;
-  unknown) echo "  (state-check niet mogelijk: geen jq of afwijkende JSON-vorm — accept-aanwezigheid hierboven blijft de gate.)" ;;
+  unknown) echo "  (state-check niet mogelijk: afwijkende JSON-vorm — accept-aanwezigheid hierboven blijft de gate.)" ;;
   *) echo "FAIL: contract $HASH draagt de accept-handtekening maar staat niet op CONTRACT_STATE_VALID (state=$CONTRACT_STATE)." >&2; exit 1 ;;
 esac
 
 GRANT=$(fsc_grant_hash "$FINAL" "$HASH" "$SERVICE_NAME" "$THUMB")
 [ "$GRANT" != "unknown" ] || {
   echo "FAIL: kon geen grant-hash vinden voor service=$SERVICE_NAME, outway-thumbprint=$THUMB" \
-       "in contract $HASH (vereist jq; installeer jq)." >&2
+       "in contract $HASH (afwijkende JSON-vorm?)." >&2
   exit 1
 }
 
-mkdir -p "$STATE_DIR" && printf '%s\n' "$HASH" > "$STATE_FILE"
 echo "CONTRACT-HASH: $HASH"
 echo "GRANT-HASH: $GRANT"
 echo "CONSUME OK."

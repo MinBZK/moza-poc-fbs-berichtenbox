@@ -37,15 +37,20 @@
              meelevert. Controleer dat bij ELKE quarkus.platform.version-bump: de pin wint ook
              neerwaarts, dus hij trekt een nieuwere jackson uit een latere Quarkus-BOM stil terug
              — de build blijft daarbij groen, dus niets anders signaleert het. -->
-        <jackson-bom.version>2.22.3</jackson-bom.version>
+        <jackson-bom.version>2.22.4</jackson-bom.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
         <kotlin.version>2.4.21</kotlin.version>
         <!-- Bij een bump: kijk welke jackson-databind de nieuwe BOM meelevert en vergelijk met
              jackson-bom.version hierboven. Die pin staat vóór de Quarkus-BOM en wint ook neerwaarts,
              dus hij trekt een nieuwere jackson stil terug zonder dat de build of CI iets meldt. -->
-        <quarkus.platform.version>3.40.1</quarkus.platform.version>
+        <quarkus.platform.version>3.40.1.1</quarkus.platform.version>
         <openapi-generator.version>7.26.0</openapi-generator.version>
+        <!-- Het type van elk `type: string, format: binary`-schema in de gegenereerde API, ook in een
+             request body of modelveld. Een service die de vorm van zo'n response per antwoord kiest
+             (bijvoorbeeld bytes of een stream), overschrijft deze property in zijn eigen pom met
+             jakarta.ws.rs.core.Response. -->
+        <api.binary.type>byte[]</api.binary.type>
         <detekt-maven-plugin.version>1.23.8</detekt-maven-plugin.version>
         <!-- Expliciete versie: de modules declareren maven-compiler-plugin (Kotlin compileert
              zelf, java-compile draait alleen op gegenereerde sources). Zonder beheerde versie
@@ -232,7 +237,7 @@
                                 </configOptions>
                                 <typeMappings>
                                     <typeMapping>OffsetDateTime=java.time.Instant</typeMapping>
-                                    <typeMapping>File=byte[]</typeMapping>
+                                    <typeMapping>File=${api.binary.type}</typeMapping>
                                 </typeMappings>
                                 <generateSupportingFiles>false</generateSupportingFiles>
                                 <generateApiTests>false</generateApiTests>

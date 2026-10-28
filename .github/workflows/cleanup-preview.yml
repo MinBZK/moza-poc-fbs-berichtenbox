@@ -33,6 +33,9 @@
 # delete wél: bij de comment breekt de stap direct af, bij de ghcr-sweep levert elke mislukte versie
 # een waarschuwing en eindigt de job rood via de aggregatie onderaan die stap.
 #
+# Over het geheel oordeelt `opruim-oordeel`: precies één uitkomst per run — gelukt, niets te doen,
+# of mislukt — zodat een opruiming die stilviel niet leest als een die klaar is.
+#
 # DESTRUCTIEF: de deployment-DELETE draait Argo `prune` + `Delete` en, voor projecten met de
 # `postgresql-database`-service, `database_cleanup` — de database van die deployment gaat mee. Voor
 # een `pr-<n>`-preview is dat de bedoeling. Vandaar de rem op de handmatige route: het nummer moet
@@ -177,6 +180,14 @@ jobs:
     needs: doel
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Wat elke leg aantrof, voor opruim-oordeel. Eén output per leg en niet één gedeelde: bij een
+    # matrix wint de leg die als laatste klaar is, dus een gedeelde naam zou de uitkomst van de
+    # andere legs overschrijven. test-opruim-oordeel.sh eist dat deze sleutels de legs volgen.
+    outputs:
+      bestond-uitvraag: ${{ steps.bestaat.outputs.bestond-uitvraag }}
+      bestond-externe-stubs: ${{ steps.bestaat.outputs.bestond-externe-stubs }}
+      bestond-magazijnen: ${{ steps.bestaat.outputs.bestond-magazijnen }}
+      bestond-stelselregister: ${{ steps.bestaat.outputs.bestond-stelselregister }}
     strategy:
       # Eén falend project mag de teardown van de andere twee niet afbreken.
       fail-fast: false
@@ -222,18 +233,24 @@ jobs:
           ZAD_API_URL: ${{ env.OM_API }}
           PROJECT: ${{ matrix.project }}
           DEPLOYMENT: pr-${{ needs.doel.outputs.pr }}
+          NAAM: ${{ matrix.naam }}
         run: |
           rc=0
           .github/scripts/zad-deployment-bestaat.sh "$PROJECT" "$DEPLOYMENT" || rc=$?
 
           case "$rc" in
-            0) echo "bestaat=true" >> "$GITHUB_OUTPUT" ;;
+            0) bestaat=true ;;
             1)
               echo "::notice::$DEPLOYMENT bestaat niet in $PROJECT; er is niets op te ruimen."
-              echo "bestaat=false" >> "$GITHUB_OUTPUT"
+              bestaat=false
               ;;
-            *) echo "bestaat=onbekend" >> "$GITHUB_OUTPUT" ;;
+            *) bestaat=onbekend ;;
           esac
+
+          {
+            echo "bestaat=$bestaat"
+            echo "bestond-$NAAM=$bestaat"
+          } >> "$GITHUB_OUTPUT"
 
       # Geen aparte stap voor de cross-domain-regels: die staan in de projectspec ónder de deployment
       # (`deployments[].services`), en de delete haalt dat hele blok weg. Ze eerst leegmaken liet
@@ -243,7 +260,7 @@ jobs:
         # `!= 'false'` en niet `== 'true'`: valt de stap hierboven om, dan is de output leeg, en dan
         # hoort er gewoon verwijderd te worden.
         if: ${{ !cancelled() && steps.bestaat.outputs.bestaat != 'false' }}
-        uses: RijksICTGilde/zad-actions/cleanup@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/cleanup@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets[matrix.key] }}
           project-id: ${{ matrix.project }}
@@ -318,10 +335,16 @@ jobs:
       contents: read
       deployments: write
       pull-requests: write
+    # Wat er verwijderd is, voor opruim-oordeel.
+    outputs:
+      comments: ${{ steps.comment.outputs.verwijderd }}
+      deployments: ${{ steps.deployments.outputs.verwijderd }}
+      omgeving: ${{ steps.omgeving.outputs.status }}
     steps:
       # Als eerste, want deze stap heeft het admin-token niet nodig: een ontbrekend PAT mag de
       # comment- en deployment-opruiming niet tegenhouden.
       - name: Verwijder de deploy-comment
+        id: comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMMER: ${{ needs.doel.outputs.pr }}
@@ -348,15 +371,21 @@ jobs:
 
           if [ -z "$ids" ]; then
             echo "Geen deploy-comment op PR $PR_NUMMER."
+            echo "verwijderd=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          verwijderd=0
           for id in $ids; do
             gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" -X DELETE
             echo "Comment $id verwijderd."
+            verwijderd=$((verwijderd + 1))
           done
 
+          echo "verwijderd=$verwijderd" >> "$GITHUB_OUTPUT"
+
       - name: Verwijder de GitHub-deployments en controleer dat ze weg zijn
+        id: deployments
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -381,6 +410,7 @@ jobs:
           done
 
           echo "Verwijderd: $verwijderd."
+          echo "verwijderd=$verwijderd" >> "$GITHUB_OUTPUT"
 
           # Eerst lezen (een leesfout is dan rood via `set -e`), dan tellen met `grep -c`: `wc -l`
           # telt een laatste regel zonder afsluitende newline niet mee en zou één resterend record
@@ -397,6 +427,7 @@ jobs:
           echo "Geen GitHub-deployments meer op $OMGEVING."
 
       - name: Verwijder de GitHub-omgeving en controleer dat hij weg is
+        id: omgeving
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -417,6 +448,7 @@ jobs:
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/environments/$OMGEVING") || code=000
           echo "DELETE omgeving $OMGEVING gaf HTTP $code."
+          echo "status=$code" >> "$GITHUB_OUTPUT"
 
           # De statuscode van die DELETE is geen bewijs: GitHub antwoordt met 404 wanneer het token
           # de resource niet mag zien, wat niet te onderscheiden is van "bestond al niet". Lezen mag
@@ -477,9 +509,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      contents: read
       packages: write
+    # Wat er verwijderd is, voor opruim-oordeel.
+    outputs:
+      versies: ${{ steps.sweep.outputs.versies }}
     steps:
+      # Voor ghcr-package-bestaat.sh. Onder `pull_request_target` pakt de checkout dezelfde ref als
+      # waarvan deze workflow draait (zie de kop), nooit de PR-code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
       - name: Verwijder de ghcr-versies van deze PR
+        id: sweep
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORG: ${{ needs.doel.outputs.owner }}
@@ -492,6 +535,7 @@ jobs:
           set -euo pipefail
           fail=0
           blijvers=""
+          verwijderd=0
 
           # Expliciete lijst, bewust niet afgeleid uit alle org-packages: de prefix `pr-<n>-`
           # is niet uniek binnen de organisatie, dus een brede sweep zou images van een
@@ -502,8 +546,22 @@ jobs:
           # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
           # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
           for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-stelselregister fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
-            if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100"); then
-              echo "::warning::Kon de versies van $pkg niet ophalen — images van deze PR blijven mogelijk staan."
+            if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100" 2>"$RUNNER_TEMP/fout"); then
+              # Een package dat nog nooit gepusht is (een nieuw image waarvan de eerste build nog
+              # niet draaide), is een geldige toestand en hoort geen rode job op te leveren. Een
+              # 404 alleen bewijst dat niet; ghcr-package-bestaat.sh beslist, en alleen zijn
+              # "bestaat niet" slaat het package over.
+              if grep -qF 'HTTP 404' "$RUNNER_TEMP/fout"; then
+                rc=0
+                .github/scripts/ghcr-package-bestaat.sh "$ORG" "$pkg" || rc=$?
+
+                if [ "$rc" -eq 1 ]; then
+                  echo "$pkg: niets op te ruimen."
+                  continue
+                fi
+              fi
+
+              echo "::warning::Kon de versies van $pkg niet ophalen ($(head -c 200 "$RUNNER_TEMP/fout")) — images van deze PR blijven mogelijk staan."
               fail=1
               continue
             fi
@@ -538,6 +596,7 @@ jobs:
               # waarschuwing scheelt bovendien een duik in het ruwe joblog.
               if err=$(gh api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE 2>&1); then
                 echo "$pkg: versie $id verwijderd."
+                verwijderd=$((verwijderd + 1))
               elif printf '%s' "$err" | grep -qF 'downloads cannot be deleted'; then
                 # GitHub weigert een publieke versie te verwijderen zodra zijn downloadteller boven
                 # de 5000 uitkomt. Die teller kan er ver naast zitten — waargenomen op een versie
@@ -576,6 +635,46 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+          echo "versies=$verwijderd" >> "$GITHUB_OUTPUT"
+
           # Achterblijvende images zijn geen reden om de PR-afsluiting te blokkeren, maar het
           # moet wel als rode job zichtbaar zijn — anders groeit de ghcr-berg ongemerkt door.
           exit "$fail"
+
+  # Eén afleesbare uitkomst per opruiming: gelukt, niets te doen, of mislukt. Valt `doel` om, dan
+  # staan alle opruimjobs op 'skipped' — in de Actions-tab niet te onderscheiden van "er viel niets
+  # op te ruimen", en op een gesloten PR kijkt daar niemand meer naar. Deze job oordeelt over het
+  # geheel en wordt rood zodra er niet aantoonbaar is opgeruimd. Dezelfde vorm als `uitrol-poort`
+  # in deploy.yml; het waarom van elke uitkomst staat in opruim-oordeel.sh.
+  opruim-oordeel:
+    needs: [doel, cleanup-preview-zad, cleanup-preview-github, cleanup-preview-images]
+    # `always()` en niet `!cancelled()`: bij een afgebroken run moet het oordeel juist "mislukt"
+    # zijn, en een overgeslagen oordeel leest als groen.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      # `cancelled()` mag alleen in een `if:` staan, niet in een env-expressie; de stap hieronder
+      # zet deze waarde om zodra de run is afgebroken.
+      CANCELLED: 'false'
+    steps:
+      # De stappen dragen hun eigen `always()`: zonder die conditie draait een stap niet meer zodra
+      # de run is afgebroken, en dan eindigt de job groen zonder oordeel.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ always() }}
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Merk een afgebroken run
+        if: ${{ cancelled() }}
+        run: echo "CANCELLED=true" >> "$GITHUB_ENV"
+      - name: Beoordeel de opruiming
+        if: ${{ always() }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          # De matrix-legs van cleanup-preview-zad: een leg die niets rapporteert, maakt het oordeel
+          # dan rood in plaats van weg te vallen. test-opruim-oordeel.sh houdt de twee gelijk.
+          ZAD_LEGS: uitvraag externe-stubs magazijnen stelselregister
+        run: .github/scripts/opruim-oordeel.sh

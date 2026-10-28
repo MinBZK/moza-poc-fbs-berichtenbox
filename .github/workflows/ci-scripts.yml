@@ -3,7 +3,8 @@
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
 # demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
 # handtekening controleert. De suites onder demo/lib/ toetsen de modus-keuze waarmee elke lokale
-# opstelling start; die horen bij een required check, en draaien daarom hier. Een fout daarin is
+# opstelling start, en demo/test-meet-fanout.sh toetst dat de fan-out-meting een niet-geleegde
+# cache weigert; die horen bij een required check, en draaien daarom hier. Een fout daarin is
 # stil — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
 # Vandaar een eigen, lichte workflow: shellcheck, actionlint en de bash-unittests, zonder de docker
 # build van de FSC-harness.
@@ -116,6 +117,14 @@ jobs:
             fail=1
           fi
 
+          # Om dezelfde reden als demo/lib/: de suite draait hier. Bij naam, want de suite roept het
+          # script aan in plaats van het te sourcen, dus -x neemt het niet mee. Een volgende
+          # demo/test-*.sh draait hieronder vanzelf mee maar wordt hier niet gelint: zet hem en zijn
+          # script dan in deze regel.
+          if ! shellcheck -x -S warning demo/meet-fanout.sh demo/test-meet-fanout.sh; then
+            fail=1
+          fi
+
           echo "== bash-unittests =="
           gedraaid=0
 
@@ -125,11 +134,13 @@ jobs:
           declare -A VERWACHTE_ASSERTIES=(
             [.github/scripts/test-wijzigingsfilter.sh]=113
             [.github/scripts/test-uitrol-poort.sh]=100
+            [.github/scripts/test-opruim-oordeel.sh]=62
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
-            [.github/scripts/test-preview-klaarzetten.sh]=78
+            [.github/scripts/test-preview-klaarzetten.sh]=97
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
+            [.github/scripts/test-ghcr-package-bestaat.sh]=29
             [.github/scripts/test-images-gepubliceerd.sh]=35
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=22
@@ -141,24 +152,15 @@ jobs:
             [.github/scripts/test-proeftuin-pin.sh]=139
             [.github/scripts/test-preview-resten.sh]=255
             [.github/scripts/test-selinux-label-guard.sh]=22
-            [demo/lib/test-podman-modus.sh]=88
+            [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
+            [demo/test-meet-fanout.sh]=223
           )
-
-          # De andere richting: een suite die verdwijnt of buiten het `test-*.sh`-patroon wordt
-          # hernoemd, laat alleen een verweesde sleutel achter — `find` levert hem niet meer, de
-          # `gedraaid`-guard hieronder telt de overige suites en de stap wordt groen. Voor
-          # demo-grens.sh is dat extra duur: die controle heeft geen andere aanroep in de keten,
-          # dus één hernoeming haalt de architectuurgrens er geruisloos uit.
-          for t in "${!VERWACHTE_ASSERTIES[@]}"; do
-            if [ ! -f "$t" ]; then
-              echo "FOUT: $t staat in VERWACHTE_ASSERTIES maar bestaat niet meer."
-              fail=1
-            fi
-          done
+          declare -A GEDRAAID=()
 
           while IFS= read -r t; do
             gedraaid=$((gedraaid + 1))
+            GEDRAAID[$t]=1
             echo "-- $t"
 
             if ! uitvoer=$(bash "$t" 2>&1); then
@@ -197,29 +199,44 @@ jobs:
                 fail=1
               fi
             fi
-          done < <(find .github/scripts demo/lib -name 'test-*.sh' | sort)
+          done < <({ find .github/scripts demo/lib -name 'test-*.sh'; find demo -maxdepth 1 -name 'test-*.sh'; } | sort)
 
-          # Zonder deze guard meldt de stap groen zodra er geen `test-*.sh` meer onder
-          # .github/scripts/ staat — verwijderd, of buiten dat pad of die naamvorm gebracht.
-          #
+          # De andere richting: een suite die verdwijnt, buiten het `test-*.sh`-patroon wordt
+          # hernoemd of buiten de `find` raakt, laat alleen een verweesde sleutel achter — de
+          # `gedraaid`-guard hieronder telt de overige suites en de stap wordt groen. Daarom: draaide
+          # hij, niet: bestaat hij; een bestand buiten de `find` bestaat nog wel. Voor demo-grens.sh
+          # is dat extra duur: die controle heeft geen andere aanroep in de keten, dus één
+          # hernoeming haalt de architectuurgrens er geruisloos uit.
+          for t in "${!VERWACHTE_ASSERTIES[@]}"; do
+            if [ -z "${GEDRAAID[$t]:-}" ]; then
+              echo "FOUT: $t staat in VERWACHTE_ASSERTIES maar draaide niet."
+              fail=1
+            fi
+          done
+
+          # Vangnet voor een `find` die niets meer oplevert terwijl VERWACHTE_ASSERTIES tegelijk
+          # geleegd is: dan heeft de controle hierboven geen sleutels om te missen.
           if [ "$gedraaid" -eq 0 ]; then
             echo "FOUT: geen enkele test-*.sh gevonden — deze stap meet niets."
             fail=1
           fi
 
           # En een benoemde set, geen aantal: een suite die mét zijn VERWACHTE_ASSERTIES-sleutel
-          # verdwijnt laat de guards hierboven tevreden, en een vervangende stub die één `OK:`
+          # verdwijnt of buiten de `find` raakt laat de guards hierboven tevreden — het bestand
+          # kan dan nog bestaan, dus ook hier: draaide hij. Een vervangende stub die één `OK:`
           # print haalt elke telling. Deze dragen elk een controle die nergens anders in de keten
-          # wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf, en de twee onder
-          # demo/lib/ zijn de enige toets van de modus-keuze.
+          # wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf, de twee onder demo/lib/
+          # zijn de enige toets van de modus-keuze, en test-meet-fanout.sh de enige bewaking dat de
+          # fan-out-meting een niet-geleegde cache weigert.
           for verplicht in .github/scripts/test-wijzigingsfilter.sh \
                            .github/scripts/test-uitrol-poort.sh \
                            .github/scripts/test-demo-grens.sh \
                            .github/scripts/test-jdk-handtekening.sh \
                            demo/lib/test-podman-modus.sh \
-                           demo/lib/test-opstellingen.sh; do
-            if [ ! -f "$verplicht" ]; then
-              echo "FOUT: $verplicht ontbreekt; die controle draait nergens meer in de keten."
+                           demo/lib/test-opstellingen.sh \
+                           demo/test-meet-fanout.sh; do
+            if [ -z "${GEDRAAID[$verplicht]:-}" ]; then
+              echo "FOUT: $verplicht draaide niet; die controle draait nergens meer in de keten."
               fail=1
             fi
           done

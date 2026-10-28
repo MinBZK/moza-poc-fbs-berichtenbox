@@ -402,25 +402,67 @@ meld(
     "elk project zonder netwerkregels heeft een eigen preview-uitrol",
 )
 
-# De lijst hierboven is zelf een kopie. Wat hem aan deploy.yml bindt: de uitrol-job van elk van die
-# projecten wijst naar hetzelfde project, dezelfde key en dezelfde groep als de opruim-leg. Loopt
-# één van die uiteen, dan ruimt de opruiming een ander project op dan waar de preview ontstond.
+# De derde kopie van de projectlijst: de `PROJECT_*`-env die de uitrol-jobs lezen. Elke preview-uitrol
+# wijst naar hetzelfde project, dezelfde key en dezelfde groep als zijn opruim-leg; loopt één van die
+# uiteen, dan ruimt de opruiming een ander project op dan waar de preview ontstond. En elke uitrol
+# die een `pr-<n>`-deployment aanmaakt, moet zo'n leg hebben — ook een die later bijkomt, onder welke
+# jobnaam ook. Zonder dat verifiëren alle bestaande legs met succes dat `pr-<n>` in hún project weg
+# is, en blijft de nieuwe preview stil staan.
 with open(sys.argv[1], encoding="utf-8") as bestand:
     workflow_env = yaml.safe_load(bestand).get("env") or {}
+
+opruim_legs = {naam: (project, key) for naam, project, key in legs(cleanup.get("cleanup-preview-zad"))}
+project_env = {naam: waarde for naam, waarde in workflow_env.items() if naam.startswith("PROJECT_")}
+
+# Leeg is hier een kapotte meting: dan keurt de lus hieronder alles goed.
+meld(len(project_env) >= len(opruim_legs) > 0, "deploy.yml en de opruim-matrix noemen projecten")
+meld(
+    sorted(project_env.values()) == sorted(project for project, _ in opruim_legs.values()),
+    "de PROJECT_*-env in deploy.yml noemt precies de projecten van de opruim-matrix",
+)
+
+preview_uitrollen = []
+
+for job_naam, job in deploy.items():
+    for stap in job.get("steps") or []:
+        if "zad-actions/deploy" not in str(stap.get("uses", "")):
+            continue
+
+        # `test` en de `fsc-*`-peers zijn vaste deployments en worden nooit opgeruimd. Alleen een
+        # letterlijke vaste naam valt daarbuiten: een naam uit een expressie kan bij uitvoering
+        # alsnog `pr-<n>` opleveren, en telt dus als preview.
+        doel_naam = str((stap.get("with") or {}).get("deployment-name", ""))
+        vast = "${{" not in doel_naam and (doel_naam == "test" or re.fullmatch(r"fsc-[a-z0-9-]+", doel_naam))
+
+        if not vast:
+            preview_uitrollen.append((job_naam, stap.get("with") or {}))
+
+meld(len(preview_uitrollen) == len(opruim_legs), "elke opruim-leg hoort bij precies één preview-uitrol")
+
+for job_naam, invoer in preview_uitrollen:
+    naam = job_naam.removeprefix("deploy-preview-")
+    leg = opruim_legs.get(naam)
+    env_naam = "PROJECT_" + naam.upper().replace("-", "_")
+
+    if not job_naam.startswith("deploy-preview-") or leg is None:
+        meld(False, f"{job_naam} maakt een pr-<n>-deployment aan zonder opruim-leg in cleanup-preview.yml")
+        continue
+
+    project, key = leg
+    meld(invoer.get("deployment-name") == "pr-${{ github.event.pull_request.number }}", f"de uitrol van {naam} heet pr-<n>")
+    meld(workflow_env.get(env_naam) == project, f"{env_naam} in deploy.yml is het project van de opruim-leg")
+    meld(invoer.get("project-id") == "${{ env." + env_naam + " }}", f"de uitrol van {naam} leest dat project")
+    meld(invoer.get("api-key") == "${{ secrets." + key + " }}", f"de uitrol van {naam} gebruikt de key van de opruim-leg")
+    meld(
+        (deploy[job_naam].get("concurrency") or {}).get("group") == "zad-" + naam + "-pr-${{ github.event.pull_request.number }}",
+        f"de uitrol van {naam} deelt zijn groep met de opruim-leg",
+    )
 
 for naam, project, key in ZONDER_REGELS:
     job = deploy.get("deploy-preview-" + naam) or {}
     stappen = [stap for stap in job.get("steps") or [] if "zad-actions/deploy" in str(stap.get("uses", ""))]
     invoer = (stappen[0].get("with") if stappen else None) or {}
-    env_naam = "PROJECT_" + naam.upper().replace("-", "_")
 
-    meld(workflow_env.get(env_naam) == project, f"{env_naam} in deploy.yml is het project van de opruim-leg")
-    meld(invoer.get("project-id") == "${{ env." + env_naam + " }}", f"de uitrol van {naam} leest dat project")
-    meld(invoer.get("api-key") == "${{ secrets." + key + " }}", f"de uitrol van {naam} gebruikt de key van de opruim-leg")
-    meld(
-        (job.get("concurrency") or {}).get("group") == "zad-" + naam + "-pr-${{ github.event.pull_request.number }}",
-        f"de uitrol van {naam} deelt zijn groep met de opruim-leg",
-    )
     meld(
         invoer.get("components") == "${{ needs.meta.outputs.componenten-" + naam + " }}",
         f"de uitrol van {naam} rolt de componentenlijst uit meta uit",

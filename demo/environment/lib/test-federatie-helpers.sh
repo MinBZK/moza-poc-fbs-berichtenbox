@@ -5,8 +5,12 @@
 #   - fsc_compose_project levert de projectnaam waarop de container-filters staan; leeg betekent
 #     dat élke `--filter label=com.docker.compose.project=` niets meer selecteert, en dus dat de
 #     controles die daarop leunen zwijgend uitgeschakeld zijn;
-#   - fsc_podman_api_dood beslist of `federatie.sh up` retryt of stopt met een herstart-instructie;
+#   - fsc_podman_api_dood en fsc_pull_limiet_bereikt beslissen of `federatie.sh up` retryt of stopt
+#     met een instructie;
 #   - leaves_ketenen beslist of een DESTRUCTIEVE CA-operatie als "al gedaan" wordt overgeslagen.
+#
+# Daarnaast de bedrading in federatie.sh zelf: of compose en de podman-CLI dezelfde engine zien,
+# en of `up_met_retry` die beslissingen ook opvolgt.
 #
 # Geen containers, geen netwerk: openssl plus een tmpdir.
 set -euo pipefail
@@ -138,6 +142,22 @@ else
   ok "compose_project faalt hard op een ontbrekend bestand"
 fi
 
+# --- fsc_pull_limiet_bereikt --------------------------------------------------------------------
+limiet_geval() {  # <verwacht 0/1> <omschrijving> <loginhoud>
+  printf '%s\n' "$3" > "$WERK/log"
+  if fsc_pull_limiet_bereikt "$WERK/log"; then gemeten=0; else gemeten=1; fi
+  [ "$gemeten" -eq "$1" ] && ok "$2" || fout "$2 (verwacht $1, kreeg $gemeten)"
+}
+
+limiet_geval 0 "herkent de rate-limit-melding van Docker Hub" \
+  'outway-logius Error {"message":"toomanyrequests: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit"}'
+limiet_geval 0 "herkent de kale HTTP-status zoals podman die doorgeeft" \
+  'Error: initializing source docker://ghcr.io/minbzk/fsc:1.0: reading manifest 1.0 in ghcr.io/minbzk/fsc: invalid status code from registry 429 (Too Many Requests)'
+limiet_geval 1 "een gewone pull-fout is geen rate limit" \
+  'Error response from daemon: manifest unknown: manifest unknown'
+limiet_geval 1 "een ID-mapping-fout is geen rate limit" \
+  'creating an ID-mapped copy of layer "8473d9e6": container ID 0 cannot be mapped to a host ID'
+
 # --- fsc_podman_api_dood ------------------------------------------------------------------------
 api_geval() {  # <verwacht 0/1> <omschrijving> <loginhoud>
   printf '%s\n' "$3" > "$WERK/log"
@@ -159,6 +179,107 @@ api_geval 1 "ziet postgres-opstartruis NIET als API-storing" \
   'manager-magazijn-a-1  | failed to connect to `user=postgres`: 127.0.0.1:5432: connection refused'
 api_geval 1 "ziet de ID-map-race NIET als API-storing" \
   'Error response from daemon: container create: creating an ID-mapped copy of layer "abc": container ID 0 cannot be mapped to a host ID'
+
+# --- federatie.sh: zelfde_engine, engine_voor_compose, up_met_retry ------------------------------
+# federatie.sh voert alleen bij directe aanroep een commando uit, dus sourcen levert de functies.
+# Elk geval in een subshell: de functies eindigen met `exit`, en federatie.sh zet zijn eigen
+# EXIT-trap.
+FED="$HERE/../federatie/federatie.sh"
+
+federatie_geval() {  # <script>: zet STATUS en UITVOER
+  STATUS=0
+  UITVOER="$(
+    (
+      unset MODUS DOCKER_HOST CONTAINER_HOST
+      # shellcheck source=../federatie/federatie.sh
+      . "$FED"
+      eval "$1"
+    ) 2>&1
+  )" || STATUS=$?
+}
+
+federatie_verwacht() {  # <omschrijving> <status> <naald>
+  if [ "$STATUS" -ne "$2" ]; then
+    fout "$1 — exit $STATUS, verwacht $2. Uitvoer: $UITVOER"
+  else
+    case "$UITVOER" in
+      *"$3"*) ok "$1" ;;
+      *) fout "$1 — '$3' ontbreekt in: $UITVOER" ;;
+    esac
+  fi
+}
+
+federatie_geval 'zelfde_engine; echo "CH=${CONTAINER_HOST:-leeg}"'
+federatie_verwacht "zonder DOCKER_HOST blijft CONTAINER_HOST onaangeroerd" 0 "CH=leeg"
+
+federatie_geval 'DOCKER_HOST=unix:///a.sock; zelfde_engine; echo "CH=$CONTAINER_HOST"'
+federatie_verwacht "de podman-CLI krijgt de socket van compose" 0 "CH=unix:///a.sock"
+
+federatie_geval 'DOCKER_HOST=unix:///a.sock; CONTAINER_HOST=unix:///a.sock; zelfde_engine; echo GELIJK'
+federatie_verwacht "een gelijke CONTAINER_HOST wordt geaccepteerd" 0 "GELIJK"
+
+federatie_geval 'DOCKER_HOST=unix:///a.sock; CONTAINER_HOST=unix:///b.sock; zelfde_engine; echo DOORGELOPEN'
+federatie_verwacht "een afwijkende CONTAINER_HOST wordt geweigerd" 1 "wijzen naar verschillende engines"
+
+case "$UITVOER" in
+  *DOORGELOPEN*) fout "na een afwijkende CONTAINER_HOST loopt het script door — $UITVOER" ;;
+  *) ok "na een afwijkende CONTAINER_HOST stopt het script" ;;
+esac
+
+federatie_geval 'modus_engine() { PODMAN_RUNTIME=0; DOCKER_HOST=unix:///docker.sock; }; engine_voor_compose; echo DOORGELOPEN'
+federatie_verwacht "op een andere engine dan podman weigert de federatie" 1 "de federatie vraagt podman"
+
+federatie_geval 'modus_engine() { PODMAN_RUNTIME=1; DOCKER_HOST=unix:///podman.sock; }; engine_voor_compose; echo "CH=$CONTAINER_HOST"'
+federatie_verwacht "op podman praat de CLI daarna via dezelfde socket" 0 "CH=unix:///podman.sock"
+
+# up_met_retry met een modus_compose_up die FAALREGEL logt en faalt, of slaagt als die leeg is. De
+# telling bewijst of er geretryd is; de rest van de omgeving is stil.
+RETRY_STUBS='
+  aanroepen=0
+  UP_POGINGEN=3
+  compose_project() { echo fsc-test; }
+  dode_containers() { :; }
+  opruimen() { :; }
+  sleep() { :; }
+  modus_compose_up() {
+    aanroepen=$((aanroepen + 1))
+    [ -n "$FAALREGEL" ] || return 0
+    printf "%s\n" "$FAALREGEL"
+    return 1
+  }
+'
+
+retry_geval() {  # <faalregel, of leeg voor een geslaagde up>
+  # shellcheck disable=SC2034  # gelezen door modus_compose_up in RETRY_STUBS, via eval.
+  FAALREGEL="$1"
+  federatie_geval "$RETRY_STUBS"'up_met_retry logius || echo "RC=$?"; echo "AANROEPEN=$aanroepen"'
+}
+
+retry_geval ""
+federatie_verwacht "een geslaagde up: één aanroep" 0 "AANROEPEN=1"
+
+case "$UITVOER" in
+  *RC=*) fout "een geslaagde up meldt een fout — $UITVOER" ;;
+  *) ok "een geslaagde up meldt geen fout" ;;
+esac
+
+retry_geval 'Error response from daemon: toomanyrequests: You have reached your unauthenticated pull rate limit.'
+federatie_verwacht "het pull-limiet stopt na één poging" 0 "RC=1
+AANROEPEN=1"
+federatie_verwacht "het advies noemt geen vaste registry" 0 "docker login <registry>"
+
+retry_geval 'Error: reading manifest 1.0 in ghcr.io/minbzk/fsc: invalid status code from registry 429 (Too Many Requests)'
+federatie_verwacht "een 429 van de registry stopt ook na één poging" 0 "RC=1
+AANROEPEN=1"
+
+retry_geval 'error during connect: Post "http://d/v1.41/containers/create": EOF'
+federatie_verwacht "een weggevallen API stopt na één poging" 0 "AANROEPEN=1"
+federatie_verwacht "een weggevallen API noemt de oorzaak" 0 "podman-API-service is onderweg weggevallen"
+
+retry_geval 'Error: creating container: container ID 0 cannot be mapped to a host ID'
+federatie_verwacht "een gewone fout wordt UP_POGINGEN keer geprobeerd" 0 "RC=1
+AANROEPEN=3"
+federatie_verwacht "na de laatste poging volgt de eindmelding" 0 "kwam niet omhoog in 3 pogingen"
 
 # --- leaves_ketenen -----------------------------------------------------------------------------
 # Functie uit deel-groep-ca.sh; die sourcen zou het script uitvoeren, dus we halen 'm eruit.

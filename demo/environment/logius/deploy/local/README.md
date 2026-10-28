@@ -27,9 +27,9 @@ OIDC-login-voorziening — dat blijft buiten scope voor deze peer-harness. Bouwt
 - Gegenereerde certs uit `pki/` — draai daar eerst `./init-ca.sh`, `./issue.sh`,
   `./gen-crl.sh` en `./verify.sh` (zie `pki/README.md`, sectie "Uitvoeren"). Zonder certs
   faalt elke container die `/pki` mount bij boot (ontbrekend bestand).
-- **jq** (host-side) — `consume-service.sh` leest het grant-hash uit `content.grants[]`
-  daarmee; zonder jq faalt het script expliciet in plaats van het verkeerde (contract-)hash
-  af te geven.
+- **jq** (host-side) — `consume-service.sh` voegt de pagina's van de contractenlijst ermee samen
+  en leest er het grant-hash uit `content.grants[]` mee; zonder jq faalt het script meteen in
+  plaats van een contract te missen of het verkeerde (contract-)hash af te geven.
 
 ## Draaiboek
 
@@ -245,11 +245,14 @@ Vijf beperkingen:
   externe peer kon toen ook niet; deze overlay cementeert dat. Draai `127.0.0.1` niet terug naar
   `0.0.0.0` om een multi-host-testnet te bouwen — dan zet je de hele stack, inclusief postgres en
   de controller zonder authenticatie, op het netwerk.
-- **Faalt een container tijdens de eerste `up`** (`container ID 0 cannot be mapped to a host ID`),
-  dan blijft hij in status `Created` achter en geeft elke volgende `up`
-  `write /proc/<pid>/uid_map: Operation not permitted`. Dat is geen keep-id-probleem maar een race
-  bij het aanmaken van de ID-gemapte laagkopie. Ruim op en probeer opnieuw; soms is dat twee of
-  drie keer nodig voordat de stack compleet staat:
+- **De containers worden op podman één voor één aangemaakt.** Met `userns_mode: keep-id` en een
+  storage-driver die lagen niet ID-mapped kan mounten (`vfs`, zoals in podman-in-een-container)
+  maakt podman per image-laag een ID-mapped kopie; tegelijk aangemaakte containers botsten daarop
+  met `container ID 0 cannot be mapped to a host ID`, en een volgende `up` naast de achtergebleven
+  `Created`-container gaf `write /proc/<pid>/uid_map: Operation not permitted`. `up.sh` haalt de
+  images daarom eerst parallel op en maakt daarna per service één container aan, in de volgorde
+  van de afhankelijkheden, vóór `up -d`. Zie je een van die
+  twee meldingen toch, ruim dan de achterblijvers op en start opnieuw:
 
   ```bash
   podman ps -a --format '{{.Names}} {{.Status}}' | grep -v ' Up ' | awk '{print $1}' \
@@ -276,6 +279,10 @@ Vijf beperkingen:
   (SNI-passthrough intern op het compose-netwerk), dus `443` kan hier niet conflicteren — behalve
   onder de hostnet-overlay, waar de hele stack de poortruimte van je machine deelt (zie
   [Podman zonder bridge-netwerk](#podman-zonder-bridge-netwerk)).
+- **`consume-service.sh` faalt met "de lijst is mogelijk afgekapt"** → de manager heeft duizend
+  contracten of meer. OpenFSC v2.5.2 bladert niet door (de pagina na een cursor is leeg), dus het
+  script ziet alleen de eerste duizend en weigert te beslissen of het eigen contract ertussen staat.
+  In deze harness: opruimen met `./deploy/local/up.sh down -v` en opnieuw opzetten.
 - **Smoke faalt** → `./deploy/local/up.sh compose logs
   manager-directory manager-logius controller-logius` voor de mesh-logs. Blijft de announce-smoke
   hangen op "nog niet aangemeld" terwijl de managers gezond loggen, controleer dan éérst

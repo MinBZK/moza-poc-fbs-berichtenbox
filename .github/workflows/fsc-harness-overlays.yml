@@ -362,7 +362,8 @@ jobs:
       - name: shellcheck + bash-unittests
         # De harness is bash, en zijn bash-tests (demo/environment/lib/test-*.sh) draaien nergens
         # anders. Zonder deze stap rot elke test die eraan wordt toegevoegd. De suites onder
-        # demo/lib/ (de modus-keuze) draaien in ci-scripts.yml, want dat is een required check.
+        # demo/lib/ (de modus-keuze) en naast de demo-scripts (demo/test-*.sh) draaien in
+        # ci-scripts.yml, want dat is een required check.
         #
         # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
         # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die

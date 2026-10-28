@@ -47,7 +47,7 @@ Gemeenschappelijk (beide componenten):
 | `FSC_LUS_MELD_WACHT_NA` | optioneel, standaard `20` — na zoveel rondes wachten volgt een waarschuwing |
 | `FSC_LUS_MAX_WACHT` | optioneel, standaard `200` — na zoveel rondes wachten op de overkant stopt de lus |
 | `FSC_GROUP_ID` | optioneel, standaard `moza-fbs-test` |
-| `FSC_CONTRACT_LIMIET` | optioneel, standaard `1000` — paginalimiet op het ophalen van de contracten; de manager staat maximaal 1000 toe en weigert meer met een 400 |
+| `FSC_CONTRACT_LIMIET` | optioneel, standaard `1000` — paginalimiet op het ophalen van de contracten; de manager staat maximaal 1000 toe en weigert meer met een 400. OpenFSC v2.5.2 bladert niet door, dus dit is het hele leesbare venster: staan er meer contracten, dan faalt de bootstrap met "de lijst is mogelijk afgekapt". Verlaag hem dus niet; staat hij al op 1000, ruim dan oude contracten op (intrekken) of zet de manager-database opnieuw op |
 
 `logius-fscbootstrap` (consumer):
 

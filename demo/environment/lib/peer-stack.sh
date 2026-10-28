@@ -163,7 +163,7 @@ modus_poorten_vrij "${C[@]}"
 modus_onthouden "$MODUS_BESTAND"
 
 echo "$PEER starten ($MODUS)"
-"${C[@]}" up -d
+modus_compose_up "${C[@]}"
 
 # `up -d` geeft 0 zodra de containers gestart zijn; managers en migrate-jobs hebben daarna nog tijd
 # nodig. smoke-services.sh toetst precies wat "klaar" betekent (alles draait, elke migrate-job met

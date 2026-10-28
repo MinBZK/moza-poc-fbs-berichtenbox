@@ -285,29 +285,42 @@ magazijnen* — of op **Herstel demo**, dat het ook doet.
 Dan de meting zelf, vanuit de repository-root:
 
 ```bash
+# Plak de Cookie-kopregel (zie hieronder) en druk op Enter; `-s` houdt hem van het scherm, en zo komt
+# hij niet in je shell-geschiedenis zoals bij `CONSOLE_COOKIE='…' demo/meet-fanout.sh`.
+read -rs CONSOLE_COOKIE && export CONSOLE_COOKIE
+
 UITVRAAG=https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl \
 CONSOLE=https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl \
-CONSOLE_COOKIE='<het sessiecookie van je ingelogde browser>' \
   demo/meet-fanout.sh 3
+
+unset CONSOLE_COOKIE
 ```
 
 **Het cookie is geen franje.** Het script leegt vóór elke ronde de sessiecache via het paneel, en dat
-paneel staat achter de muur: zonder cookie krijgt die aanroep 403 en stopt de meting met "de
-sessiecache legen mislukte".
+paneel staat achter de muur: zonder geldig cookie komt die aanroep niet bij het paneel aan. Op ZAD
+stopt de meting dan met `FOUT: het legen van de sessiecache is niet bevestigd: …/api/demo/sessie/verlopen gaf HTTP 403.`,
+gevolgd door een hint over `CONSOLE_COOKIE`. Een anders ingestelde muur kan ook doorverwijzen of de
+inlogpagina met 200 teruggeven; het script telt alleen de bevestiging van het paneel zelf, dus ook
+dan stopt de meting.
 
 Welk cookie: de muur is een **oauth2-proxy**-sidecar, en die zet zijn sessie in `_oauth2_proxy`. De
 sidecar geeft geen `--cookie-name` mee, dus dat is de standaardnaam. Is de sessie groot, dan splitst
 oauth2-proxy hem over `_oauth2_proxy_0`, `_oauth2_proxy_1`, … — dan moeten die stukken **allemaal**
-mee, in dezelfde volgorde. Kopieer daarom niet één waarde maar de hele kopregel: open de devtools van
+mee, in dezelfde volgorde. Kopieer daarom niet één waarde maar de kopregel: open de devtools van
 een browser waarin je op `$CONSOLE` bent ingelogd, tabblad Netwerk, klik een verzoek aan de console
 aan en kopieer bij *Request Headers* de waarde van `Cookie`. Die vorm — `naam=waarde; naam=waarde` —
-is precies wat `CONSOLE_COOKIE` verwacht, en hij klopt ook als de naam ooit verandert.
+is precies wat `CONSOLE_COOKIE` verwacht, en hij klopt ook als de naam ooit verandert. Staan er
+cookies van andere diensten in, laat die dan weg: alleen de `_oauth2_proxy`-paren zijn nodig.
 
 Het is een geldige sessie op jouw rijksaccount: hou hem uit shell-geschiedenis, issues en logs, en
-haal een verse op als je meting stukloopt op een 403 (hij verloopt).
+haal een verse op als de meting stopt met de verwijzing naar `CONSOLE_COOKIE` (hij verloopt, ook
+midden in een meting). Het script stuurt hem alleen over https mee, en niet als argument van curl,
+zodat hij niet in de proceslijst van de machine staat.
 
-Zonder cookie kan het ook met de hand — `demo/meet-fanout.sh 1` per ondernemer, en tussen de rondes
-in de browser op **Cache verlopen** — maar dan is de meting niet in één handeling te herhalen.
+De meting laat sporen achter in het Logboek Dataverwerkingen van de uitvraag: per ronde een regel
+voor de ophaalronde, met de persona als betrokkene, en eenmaal per run een regel voor de controle
+dat het legen de uitvraag raakte. Meet daarom alleen met de demo-persona's uit het script. De ruwe
+stromen blijven in de map die het script noemt; ruim die op zodra de uitkomst is vastgelegd.
 
 Verwacht per ondernemer, met de laptopmeting uit
 `docs/plans/2026-08-21-magazijn-simulator-design.md` ernaast:
@@ -333,9 +346,11 @@ Wat wél een bevinding is:
 | Veel meer mislukt dan de tabel, verspreid over alle ondernemers | Kijk eerst naar de simulator: zijn database-pool draagt honderd magazijnen tegelijk, en een te lage waarde laat magazijnen omvallen die op *normaal* staan. |
 | `NIET_OPGEHAALD` bij gezonde magazijnen | De bevraging is niet gestart omdat de gelijktijdigheidsgrens vol bleef; geen storing van die organisatie. In vlagen: het wachtbudget (`MAGAZIJN_WACHTBUDGET_MS`) is te krap voor de piek. Aanhoudend: `MAX_CONCURRENT` is te laag voor wat er tegelijk loopt — draaien er meer metingen of demo's naast elkaar? |
 | `de uitvraag op … is niet gezond` | De meting is niet begonnen; dit zegt niets over de fan-out. |
+| `de uitvraag op … ziet na het legen nog een sessie voor …` | Het paneel bevestigde het legen, maar in een andere Redis dan die van de gemeten uitvraag. Meestal komen `UITVRAAG` en `CONSOLE` uit verschillende deployments (een `pr-<n>` tegen `test`): de console leegt de Redis van zijn eigen deployment. |
 
-Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand uit `$UITVOER` (standaard
-`/tmp/fanout-meting.tsv`) is het bewijsstuk. Leg hem vast waar hij navolgbaar blijft — bij de meting
+Bewaar de uitkomst als hij afwijkt van de tabel hierboven: het TSV-bestand dat het script aan het begin
+noemt (`meting.tsv` in de map van de run, of `$UITVOER` als je die zet) is het bewijsstuk. Leg hem vast
+waar hij navolgbaar blijft — bij de meting
 in `docs/plans/2026-08-21-magazijn-simulator-design.md`, of onder het issue waaraan je werkt. Een
 meting die alleen in een terminal heeft gestaan, is een volgende keer niet te vergelijken.
 

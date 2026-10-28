@@ -45,6 +45,179 @@ modus_gereedschap() {
     }
 }
 
+# modus_pause_pid_verweesd <bestand>: 0 als het bestand bestaat maar niet naar het pauzeproces van
+# rootless podman wijst. Dat proces houdt de user namespace vast; elke podman-aanroep probeert zich
+# erbij te voegen. Overleeft het bestand een herstart van de container, dan faalt dat met `cannot
+# re-exec process to join the existing user namespace` — een melding die niet naar het bestand
+# wijst. Verweesd is: geen geldige pid, een pid die niet bestaat, of een proces dat niet van deze
+# gebruiker is of geen pauzeproces (een hergebruikte pid). Ruim in twijfel níét op: een levende
+# pause.pid weghalen zet een draaiende stack in een user namespace die podman niet meer terugvindt.
+#
+# Beslissend is de user namespace: het pauzeproces zit altijd in een andere dan de aanroeper, een
+# hergebruikte pid normaal niet. Op de naam alleen gaat het mis, want met catatonit geïnstalleerd
+# voert podman `catatonit -P` uit als pauzeproces. De naam blijft het tweede vangnet: onder
+# `podman unshare` deelt de aanroeper de userns van het pauzeproces.
+modus_pause_pid_verweesd() {
+    local pid comm
+
+    [ -f "$1" ] || return 1
+
+    pid="$(head -n1 "$1" 2>/dev/null || true)"
+
+    case "$pid" in
+        '' | *[!0-9]*) return 0 ;;
+    esac
+
+    [ -d "/proc/$pid" ] || return 0
+
+    [ "$(stat -c %u "/proc/$pid" 2>/dev/null || true)" = "$(id -u)" ] || return 0
+
+    # Niet te lezen telt als een andere userns, en dus als levend.
+    [ "$(readlink "/proc/$pid/ns/user" 2>/dev/null || true)" = "$(readlink /proc/self/ns/user 2>/dev/null || true)" ] \
+        || return 1
+
+    comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
+
+    case "$comm" in
+        podman* | catatonit) return 1 ;;
+    esac
+
+    return 0
+}
+
+# modus_runtime_dir: de runtime-map van rootless podman, met dezelfde keuze als podman zelf:
+# XDG_RUNTIME_DIR, anders /run/user/<uid> als die schrijfbaar is, anders /tmp/podman-run-<uid>.
+# Eén plek voor de pause.pid én de socket; kiezen ze elk hun eigen map, dan zoekt dit script de
+# socket op een plek waar podman hem nooit neerzet.
+modus_runtime_dir() {
+    if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        printf '%s' "$XDG_RUNTIME_DIR"
+    elif [ -w "/run/user/$(id -u)" ]; then
+        printf '%s' "/run/user/$(id -u)"
+    else
+        printf '%s' "/tmp/podman-run-$(id -u)"
+    fi
+}
+
+# modus_pause_pid_opruimen: verwijdert een verweesde pause.pid. Alleen op Linux: buiten Linux
+# draait podman in een VM en ligt het bestand daar.
+modus_pause_pid_opruimen() {
+    local bestand pid
+    bestand="$(modus_runtime_dir)/libpod/tmp/pause.pid"
+    pid="$(head -n1 "$bestand" 2>/dev/null || true)"
+
+    modus_pause_pid_verweesd "$bestand" || return 0
+
+    # Een andere sessie kan intussen een nieuw pauzeproces hebben gestart; zijn pid weghalen zou
+    # precies de schade aanrichten die de controle hierboven voorkomt.
+    [ "$(head -n1 "$bestand" 2>/dev/null || true)" = "$pid" ] || return 0
+
+    echo "Verweesde $bestand opgeruimd (pid $pid is niet het pauzeproces van podman)."
+    rm -f "$bestand"
+}
+
+# modus_socket_status <pad>: 0 als er een API antwoordt, 1 als er niemand luistert (geen socket, of
+# de verbinding wordt geweigerd), 2 als dat niet vast te stellen is (timeout, onverwacht antwoord).
+# Alleen bij 1 is de socket veilig op te ruimen: een bezette service die te traag antwoordt, leeft
+# nog, en zonder zijn socket draait hij onbereikbaar door. Een socketbestand zonder service blijft
+# na een herstart van de container staan; zonder deze controle faalt pas de eerste compose-aanroep,
+# met een melding die de oorzaak overstemt. Zonder curl telt het bestaan van het bestand.
+modus_socket_status() {
+    local antwoord rc=0
+
+    [ -S "$1" ] || return 1
+
+    command -v curl >/dev/null 2>&1 || return 0
+
+    antwoord="$(curl -sS --max-time 5 --unix-socket "$1" http://d/_ping 2>/dev/null)" || rc=$?
+
+    if [ "$rc" -eq 0 ] && [ "$antwoord" = "OK" ]; then
+        return 0
+    fi
+
+    # curl exit 7: verbinding geweigerd — er luistert niemand.
+    [ "$rc" -eq 7 ] && return 1
+
+    return 2
+}
+
+# modus_engine_is_podman <pad>: 0 als de engine podman is, 1 als hij iets anders is, 2 als dat niet
+# vast te stellen is. Het pad zegt niets: podman-docker publiceert podman op /run/docker.sock, en een
+# symlink kan elke naam dragen. Dus de engine zelf vragen: podman zet `Libpod-Api-Version` op elk
+# antwoord, Docker niet. Via `/_ping` en niet `/version`: die laatste wacht op de storage-lock zolang
+# er een pull of create loopt, en loopt dan in de time-out. Zonder curl blijft alleen het pad over.
+modus_engine_is_podman() {
+    local koppen
+
+    if command -v curl >/dev/null 2>&1; then
+        koppen="$(curl -sS --max-time 5 -o /dev/null -D - --unix-socket "$1" http://d/_ping 2>/dev/null)" \
+            || return 2
+
+        # Header-namen zijn hoofdletterongevoelig. Eerst vangen en dan matchen: in een pijp naar
+        # `grep -q` kan de schrijver onder `pipefail` op SIGPIPE falen.
+        case "$(printf '%s' "$koppen" | tr '[:upper:]' '[:lower:]')" in
+            *'libpod-api-version:'*) return 0 ;;
+        esac
+
+        return 1
+    fi
+
+    case "$1" in
+        *podman*) return 0 ;;
+    esac
+
+    return 1
+}
+
+# modus_eigen_socket <pad>: 0 als dit de rootless podman-socket van deze gebruiker is. Alleen die mag
+# dit script herstarten. Een ander pad met "podman" erin kan een rootful socket zijn (systemd
+# socket-activation), en curl meldt een geweigerde toegang met dezelfde exit 7 als "niemand
+# luistert": die opruimen zou een levende socket van een ander weghalen.
+modus_eigen_socket() {
+    [ "$1" = "$(modus_runtime_dir)/podman/podman.sock" ] || return 1
+
+    # Een bestand dat er staat, moet van deze gebruiker zijn; anders is het niet ons om weg te halen.
+    [ ! -e "$1" ] || [ -O "$1" ]
+}
+
+# modus_podman_service <pad>: start `podman system service` op een socket waarop niemand luistert, en
+# wacht tot hij antwoordt. `--time=0` houdt de service draaien ná dit script, zodat een latere
+# `… down` dezelfde socket vindt. `setsid` maakt hem los van de aanroepende shell, die hem anders
+# bij afsluiten meeneemt. Het log blijft staan: zonder die uitvoer is een mislukte start (subuid,
+# storage.conf, bezette socket) niet te diagnosticeren.
+#
+# Zonder CONTAINER_HOST en CONTAINER_CONNECTION: met een van beide gezet is podman een remote client,
+# en die kent `system service` niet (`accepts at most 1 arg(s), received 2`). Wie de podman-CLI
+# naar dezelfde socket als compose wijst, zoals `federatie.sh` vraagt, liep daar anders op stuk.
+modus_podman_service() {
+    local sock="$1" service_log
+    local -a service=(env -u CONTAINER_HOST -u CONTAINER_CONNECTION podman system service --time=0 "unix://$sock")
+
+    echo "Podman-API antwoordt niet op $sock — service starten…"
+    mkdir -p "$(dirname "$sock")"
+    # Een socketbestand zonder luisteraar laat `system service` falen op `address already in use`.
+    # Veilig, want de aanroeper heeft vastgesteld dat er niemand luistert (modus_socket_status 1) en
+    # dat het de eigen socket is (modus_eigen_socket).
+    rm -f "$sock"
+
+    service_log="$(mktemp -t podman-service.XXXXXX)"
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "${service[@]}" >"$service_log" 2>&1 &
+    else
+        "${service[@]}" >"$service_log" 2>&1 &
+    fi
+
+    for _ in $(seq 1 20); do
+        modus_socket_status "$sock" && return 0
+        sleep 0.5
+    done
+
+    echo "podman system service kwam niet omhoog ($sock):" >&2
+    tail -20 "$service_log" >&2
+    exit 1
+}
+
 # modus_engine: bepaalt op welke engine compose landt en zet DOCKER_HOST en PODMAN_RUNTIME.
 #
 # Zonder DOCKER_HOST gaat podman voor: staat het op PATH, dan wordt zijn API-socket gezocht en zo
@@ -54,8 +227,11 @@ modus_gereedschap() {
 #
 # Buiten Linux draait podman in een VM (podman machine): de socket hoort dan bij die VM, en
 # `podman system service` bestaat op de client daar niet.
+#
+# Bijwerkingen, en daarom alleen aanroepen vóór een commando dat de engine echt nodig heeft: een
+# verweesde pause.pid wordt opgeruimd en een eigen podman-socket zonder luisteraar wordt gestart.
 modus_engine() {
-    local sock service_log
+    local sock status=0
 
     if [ -z "${DOCKER_HOST:-}" ] && ! command -v podman >/dev/null 2>&1; then
         if [ "${MODUS_DOCKER_TOEGESTAAN:-0}" -eq 1 ] && command -v docker >/dev/null 2>&1; then
@@ -67,53 +243,142 @@ modus_engine() {
         exit 1
     fi
 
-    if [ -z "${DOCKER_HOST:-}" ] && [ "$(uname -s)" != "Linux" ]; then
-        sock="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -n1 || true)"
-
-        if [ -z "$sock" ] || [ ! -S "$sock" ]; then
-            echo "Geen socket van podman machine gevonden${sock:+ ($sock)}; start hem met \`podman machine start\`." >&2
-            exit 1
-        fi
-
-        export DOCKER_HOST="unix://$sock"
+    if [ "$(uname -s)" = "Linux" ] && command -v podman >/dev/null 2>&1; then
+        modus_pause_pid_opruimen
     fi
 
     if [ -z "${DOCKER_HOST:-}" ]; then
-        sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+        if [ "$(uname -s)" != "Linux" ]; then
+            sock="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -n1 || true)"
 
-        if [ ! -S "$sock" ]; then
-            echo "Podman-API-socket ontbreekt ($sock) — starten…"
-            mkdir -p "$(dirname "$sock")"
-
-            # `--time=0` houdt de service draaien ná dit script, zodat een latere `… down` dezelfde
-            # socket vindt. Het log blijft staan: zonder die uitvoer is een mislukte start (subuid,
-            # storage.conf, bezette socket) niet te diagnosticeren.
-            service_log="$(mktemp -t podman-service.XXXXXX)"
-            podman system service --time=0 "unix://$sock" >"$service_log" 2>&1 &
-            for _ in $(seq 1 20); do [ -S "$sock" ] && break; sleep 0.5; done
-
-            [ -S "$sock" ] || {
-                echo "podman system service kwam niet omhoog ($sock):" >&2
-                tail -20 "$service_log" >&2
+            if [ -z "$sock" ] || [ ! -S "$sock" ]; then
+                echo "Geen socket van podman machine gevonden${sock:+ ($sock)}; start hem met \`podman machine start\`." >&2
                 exit 1
-            }
+            fi
+        else
+            sock="$(modus_runtime_dir)/podman/podman.sock"
         fi
 
         export DOCKER_HOST="unix://$sock"
     fi
 
-    # `podman` leest DOCKER_HOST niet (dat is CONTAINER_HOST), compose wél. Wijst DOCKER_HOST naar
-    # een andere engine, dan zou een podman-controle een andere machine beoordelen dan waarop de
-    # stack landt; die worden dan overgeslagen in plaats van een verkeerd antwoord te geven.
     case "$DOCKER_HOST" in
-        *podman*) PODMAN_RUNTIME=1 ;;
-        *) PODMAN_RUNTIME=0 ;;
+        unix://*)
+            sock="${DOCKER_HOST#unix://}"
+            modus_socket_status "$sock" || status=$?
+
+            # Een dode engine is niet te vragen wat hij is; herstarten doet dit alleen voor de eigen
+            # rootless podman-socket op Linux, ook als DOCKER_HOST er expliciet naar wijst.
+            if [ "$status" -eq 1 ] && [ "$(uname -s)" = "Linux" ] && command -v podman >/dev/null 2>&1 \
+                && modus_eigen_socket "$sock"; then
+                modus_podman_service "$sock"
+                status=0
+            fi
+
+            case "$status" in
+                1)
+                    echo "Geen engine die antwoordt op DOCKER_HOST=$DOCKER_HOST; start die eerst." >&2
+                    exit 1
+                    ;;
+                2)
+                    echo "De engine op DOCKER_HOST=$DOCKER_HOST antwoordt niet binnen 5 seconden; is hij bezet?" >&2
+                    echo "  De socket blijft staan. Probeer het zo opnieuw." >&2
+                    exit 1
+                    ;;
+            esac
+
+            status=0
+            modus_engine_is_podman "$sock" || status=$?
+
+            case "$status" in
+                0) PODMAN_RUNTIME=1 ;;
+                1) PODMAN_RUNTIME=0 ;;
+                *)
+                    # Docker aannemen zou de podman-overlays en de seriële start overslaan.
+                    echo "Niet vast te stellen welke engine er op DOCKER_HOST=$DOCKER_HOST draait; probeer het zo opnieuw." >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
+        *)
+            # tcp:// en ssh:// worden niet bevraagd; dan blijft alleen het adres over.
+            case "$DOCKER_HOST" in
+                *podman*) PODMAN_RUNTIME=1 ;;
+                *) PODMAN_RUNTIME=0 ;;
+            esac
+            ;;
     esac
 
     if [ "$PODMAN_RUNTIME" -eq 0 ] && [ "${MODUS_DOCKER_TOEGESTAAN:-0}" -ne 1 ]; then
-        echo "Let op: DOCKER_HOST=$DOCKER_HOST wijst niet naar een podman-socket."
+        echo "Let op: DOCKER_HOST=$DOCKER_HOST wijst niet naar een podman-engine."
         echo "  De image- en netwerkcontroles die podman rechtstreeks bevragen worden overgeslagen."
     fi
+}
+
+# modus_compose_is_v2 <compose-commando…>: 0 als dit docker compose v2 is. Gevraagd aan `version`,
+# niet afgeleid uit `--help`: podman-compose kent ook een `--parallel`. v1 meldt zich als
+# `docker-compose version 1…`, podman-compose als `podman-compose version …`. De uitkomst wordt per
+# proces onthouden: een federatie roept dit per peer en per poging aan.
+modus_compose_is_v2() {
+    local versie
+
+    if [ -z "${MODUS_COMPOSE_V2:-}" ]; then
+        versie="$("$@" version 2>/dev/null || true)"
+
+        case "$versie" in
+            *"Docker Compose version"*) MODUS_COMPOSE_V2=1 ;;
+            *) MODUS_COMPOSE_V2=0 ;;
+        esac
+    fi
+
+    [ "$MODUS_COMPOSE_V2" -eq 1 ]
+}
+
+# modus_compose_up <compose-commando met alle -f's…>: `up -d`, op podman met de containers één voor
+# één aangemaakt.
+#
+# De podman-overlays zetten de services op `userns_mode: keep-id`. Kan de storage-driver een laag
+# niet ID-mapped mounten (vfs altijd; overlay alleen met kernelsteun), dan maakt podman bij de
+# eerste container per laag een ID-mapped kopie, die met de laatste container weer verdwijnt. Maakt
+# compose containers met een gedeelde basislaag tegelijk aan, dan doen ze dat allebei en faalt de
+# verliezer op `container ID 0 cannot be mapped to a host ID`; een volgende `up` naast de
+# achtergebleven `Created`-container geeft `write /proc/<pid>/uid_map: Operation not permitted`.
+# Of de driver kopieert, is vooraf niet betrouwbaar vast te stellen, dus dit geldt voor elke podman.
+#
+# Serieel door per service `create` aan te roepen, in de volgorde van `config --services` (die van de
+# afhankelijkheden): elke aanroep vindt zijn afhankelijkheden dan al en maakt precies één container.
+# Zonder `--no-recreate`: een container met gewijzigde configuratie moet hier opnieuw worden
+# aangemaakt, anders doet `up -d` dat daarna voor alle gewijzigde tegelijk. `up -d` start daarna
+# alleen nog. COMPOSE_PARALLEL_LIMIT=1 en `--parallel 1` beperken het aanmaken bij `up` in docker
+# compose v2.32 níét — gemeten, de containers stonden toch tegelijk op `Creating`. Het ophalen raakt
+# de mapping niet en blijft parallel; `--policy missing` houdt een start met aanwezige images
+# offline. Docker kent de race niet.
+#
+# Vraagt docker compose v2 (`pull --policy`, `create` per service). Een andere compose valt terug op
+# een gewone `up -d`, en dit zegt waarom.
+modus_compose_up() {
+    local services service
+
+    if [ "${PODMAN_RUNTIME:-0}" -ne 1 ]; then
+        "$@" up -d
+        return
+    fi
+
+    if ! modus_compose_is_v2 "$@"; then
+        echo "Let op: dit is geen docker compose v2; de containers worden tegelijk aangemaakt en" >&2
+        echo "  kunnen botsen op 'container ID 0 cannot be mapped'." >&2
+        "$@" up -d
+        return
+    fi
+
+    "$@" pull --policy missing --quiet || return
+    services="$("$@" config --services)" || return
+
+    for service in $services; do
+        "$@" create "$service" || return
+    done
+
+    "$@" up -d
 }
 
 # modus_compose_kiezen: zet COMPOSE_BIN. `docker compose` (v2) eerst: hostnet gebruikt `!reset`,
@@ -136,9 +401,16 @@ modus_compose_kiezen() {
 # elke volgende controle de stilte als een uitkomst: geen containers van het project, geen images.
 # Bij podman met `--url`, want `podman` leest DOCKER_HOST niet en slaagt lokaal ook als de socket
 # weg is. Dat geldt ook voor `docker info` waar `docker` een shim naar podman is (podman-docker).
+#
+# Een `unix://`-socket heeft modus_engine al met `/_ping` gecontroleerd; dit dekt wat die niet kan
+# pingen: Docker zonder DOCKER_HOST (de socket hangt dan aan een context) en `tcp://`/`ssh://`.
 modus_engine_bereikbaar() {
     local log
     local -a probe
+
+    case "${DOCKER_HOST:-}" in
+        unix://*) return 0 ;;
+    esac
 
     if [ "${PODMAN_RUNTIME:-0}" -eq 1 ] && command -v podman >/dev/null 2>&1; then
         probe=(podman --url "$DOCKER_HOST" info)

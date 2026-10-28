@@ -51,8 +51,14 @@ server {
     # antwoordt de uitvraag met 400. Niet via de proeftuin, die dat ook doet: zijn BACKEND_KETEN wijst
     # naar een containernaam die in hostnet niet resolvet. Een regex-location gaat vóór elk gewoon
     # prefix, dus deze wint van /api/v1/.
+    #
+    # Daardoor erft hij ook de HTTP/1.1 van /api/v1/ niet, en nginx spreekt standaard 1.0. Dan eindigt
+    # een gestreamde bijlage zonder Content-Length met het sluiten van de connection, en is een
+    # afgebroken download niet van een volledige te onderscheiden.
     location ~ ^/api/v1/berichten/[^/]+/bijlagen/[^/]+$ {
         proxy_pass ${UITVRAAG_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header X-Ontvanger $cookie_ontvanger;
     }
 

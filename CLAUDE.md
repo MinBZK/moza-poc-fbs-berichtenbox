@@ -243,6 +243,7 @@ Wat je hoe dan ook moet weten:
 | `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |
 | `.github/scripts/wijzigingsfilter.sh`  | Bepaalt per PR wat er moet draaien (code-checks, deploy, test-scope, fuzz); deploy.yml, test.yml, detekt.yml en cflite_pr.yml delen dit script. Unittests ernaast in `test-wijzigingsfilter.sh`, gedraaid door `ci-scripts.yml` |
 | `.github/scripts/uitrol-poort.sh`      | Oordeelt ná een deploy-run of er terecht wél of niet is uitgerold — een overgeslagen gate mag geen groene, lege run opleveren |
+| `.github/scripts/opruim-oordeel.sh`    | Oordeelt ná een `cleanup-preview.yml`-run: precies één uitkomst per opruiming (gelukt, niets te doen, mislukt), zodat een opruiming die stilviel niet leest als een die klaar is |
 | `.github/scripts/merge-guard.sh`       | Controleert één gerenderde compose-merge van een FSC-peer-harness op de eisen die in een gedeelde netns gelden |
 | `.github/scripts/selinux-label-guard.sh` | Eist `:z` op elke bind-mount van een gerenderde podman-merge (bridge, hostnet, federatie; peers én demo-stack), zodat de opstellingen op een SELinux-enforcing-host starten |
 | `.github/scripts/proeftuin-pin.sh`     | Vergelijkt de gepinde berichtenbox-digest in `compose.yaml` met de laatste main-commit van `MinBZK/moza-poc` en rapporteert een status; `pin-consistency.yml` en `proeftuin-pin.yml` delen hem |

@@ -22,11 +22,13 @@
 # Linux + podman: gebruikt `ss` (iproute2) en `podman`. Op andere systemen weigert `up`; zie hieronder.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVDIR="$(cd "${HERE}/.." && pwd)"
 
 # shellcheck source=../lib/fsc-harness.sh
 . "${ENVDIR}/lib/fsc-harness.sh"
+# shellcheck source=../../lib/podman-modus.sh
+. "${ENVDIR}/../lib/podman-modus.sh"
 # shellcheck source=peers.env
 . "${HERE}/peers.env"
 
@@ -41,6 +43,37 @@ if [ -n "${MODUS:-}" ] && [ "$MODUS" != "hostnet" ]; then
   echo "      Een losse peer in ${MODUS}: demo/environment/<peer>/deploy/local/up.sh." >&2
   exit 2
 fi
+
+# zelfde_engine: de federatie bevraagt podman ook rechtstreeks (`podman ps/exec/logs`). compose volgt
+# DOCKER_HOST, de podman-CLI CONTAINER_HOST; wijzen die naar verschillende engines, dan maakt compose
+# de stack op de ene en zoeken de controles hem op de andere — met een "geen containers"-fout ná een
+# geslaagde `up`. Daarom praat de CLI via dezelfde socket als compose.
+zelfde_engine() {
+  [ -n "${DOCKER_HOST:-}" ] || return 0
+
+  if [ -n "${CONTAINER_HOST:-}" ] && [ "$CONTAINER_HOST" != "$DOCKER_HOST" ]; then
+    echo "FOUT: DOCKER_HOST (${DOCKER_HOST}) en CONTAINER_HOST (${CONTAINER_HOST}) wijzen naar verschillende engines." >&2
+    echo "      compose volgt de eerste, de podman-CLI de tweede; zet ze gelijk of maak er één leeg." >&2
+    exit 1
+  fi
+
+  export CONTAINER_HOST="$DOCKER_HOST"
+}
+
+# engine_voor_compose: vóór elk commando dat compose aanroept. modus_engine ruimt een verweesde
+# pause.pid op en zorgt voor een API-socket die antwoordt; anders verdwijnt die oorzaak achter de
+# eerste compose-fout. Niet bij `status` of een onbekend commando: dat zijn bijwerkingen die daar
+# niet horen.
+engine_voor_compose() {
+  modus_engine
+
+  if [ "$PODMAN_RUNTIME" -ne 1 ]; then
+    echo "FOUT: de federatie vraagt podman; DOCKER_HOST=${DOCKER_HOST:-<niet gezet>} wijst naar een andere engine." >&2
+    exit 1
+  fi
+
+  zelfde_engine
+}
 
 # De peers delen de netns van de host en binden elk op een eigen 127.20.x-adres. Op macOS draaien
 # de containers in de VM van podman machine en niet op de host; daar bestaat dat adresplan niet en
@@ -136,19 +169,18 @@ dode_containers() {
 
 # up_met_retry <peer>: `up -d` met een begrensd aantal pogingen.
 #
-# Podman kan bij een verse `up` twee transiënte fouten geven die niets met de configuratie te maken
-# hebben, en beide laten containers op `Created` achter waardoor een simpele herhaling óók faalt:
-#   - "container ID 0 cannot be mapped to a host ID" — twee containers maken tegelijk een ID-mapped
-#     kopie van dezelfde image-laag; wie verliest, faalt. Na één geslaagde kopie is de laag gecached.
-#   - de podman-API-service bezwijkt onder de gelijktijdige creates. Die moet je zelf herstarten;
-#     dit script meldt dat en stopt, want retryen tegen een dode API is zinloos.
+# De race op de ID-mapped laagkopie ("container ID 0 cannot be mapped to a host ID") voorkomt
+# modus_compose_up door de containers één voor één aan te maken. De retry is het vangnet voor wat
+# daarna nog transiënt kan zijn; een mislukte poging laat containers op `Created` achter, dus die
+# worden eerst opgeruimd. Bezwijkt de podman-API-service, dan stopt dit: retryen tegen een dode API
+# is zinloos, en een nieuwe aanroep van dit script start hem zelf opnieuw.
 up_met_retry() {
   local peer="$1" project poging=1 log rc dood rc_status
   project="$(compose_project "$peer")"
   log=$(mktemp)
 
   while [ "$poging" -le "$UP_POGINGEN" ]; do
-    rc=0; dc "$peer" up -d >"$log" 2>&1 || rc=$?
+    rc=0; modus_compose_up dc "$peer" >"$log" 2>&1 || rc=$?
 
     if [ "$rc" -eq 0 ]; then
       # `up -d` exit 0 zodra de containers gestárt zijn, niet zodra ze gezond zijn. De overlay geeft
@@ -179,13 +211,23 @@ up_met_retry() {
     fi
 
     if fsc_podman_api_dood "$log"; then
-      echo "FAIL: de podman-API-service is niet bereikbaar. Herstart 'm en probeer opnieuw:" >&2
-      echo "  podman system service --time=0 unix://\${XDG_RUNTIME_DIR:-/tmp/podman-run-\$(id -u)}/podman/podman.sock &" >&2
+      echo "FAIL: de podman-API-service is onderweg weggevallen. Draai '$0 down' en daarna '$0 up';" >&2
+      echo "      dit script start de service dan zelf opnieuw." >&2
       tail -n 5 "$log" >&2; rm -f "$log"; return 1
     fi
 
+    if fsc_pull_limiet_bereikt "$log"; then
+      echo "FAIL: een registry weigert het ophalen van images voor '${peer}': limiet voor pulls bereikt." >&2
+      # compose stuurt de inloggegevens uit ~/.docker/config.json mee, niet die uit podmans auth.json.
+      # Welke registry het is, staat in de regel hieronder; niet elke registry is Docker Hub.
+      echo "      Log in bij die registry met \`docker login <registry>\` (Docker Hub: docker.io; zonder" >&2
+      echo "      docker-CLI: \`podman login --authfile ~/.docker/config.json <registry>\`), of wacht tot" >&2
+      echo "      de limiet verloopt, en draai dan opnieuw '$0 up'." >&2
+      fsc_pull_limiet_regel "$log" >&2; rm -f "$log"; return 1
+    fi
+
     if [ "$poging" -lt "$UP_POGINGEN" ]; then
-      echo "  poging ${poging}/${UP_POGINGEN} faalde (transiënt?), restanten opruimen en opnieuw..." >&2
+      echo "  poging ${poging}/${UP_POGINGEN} faalde — dat hoort niet voor te komen; restanten opruimen en opnieuw." >&2
       tail -n 2 "$log" >&2
       opruimen "$project" "$log"
       sleep 2
@@ -287,8 +329,12 @@ markeer_peers() {
   done
 }
 
+# Alleen uitvoeren bij directe aanroep, zodat test-federatie-helpers.sh de functies kan sourcen.
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0
+
 case "${1:-}" in
   up)
+    engine_voor_compose
     markeer_peers
 
     echo "federatie: gastheer-stack (${GASTHEER}) — postgres, router, directory + peer..."
@@ -321,6 +367,7 @@ case "${1:-}" in
     ;;
 
   down)
+    engine_voor_compose
     # Fouten tellen in plaats van slikken: een mislukte teardown laat het postgres-volume staan,
     # en de volgende `up` faalt dan op iets dat niets met afbreken te maken lijkt te hebben.
     RC=0
@@ -345,6 +392,7 @@ case "${1:-}" in
     ;;
 
   stop|start)
+    engine_voor_compose
     # Goedkoop itereren: containers stoppen/starten zonder de volumes te wissen.
     ACTIE="$1"
     RC=0
@@ -369,6 +417,8 @@ case "${1:-}" in
       exit 2
     }
 
+    engine_voor_compose
+
     GEVONDEN=0
     for peer in $(fsc_alle_peers); do
       # `config --services` en niet `ps --services`: die laatste toont alleen services met een
@@ -392,6 +442,7 @@ case "${1:-}" in
     ;;
 
   status)
+    zelfde_engine
     # Elke pipeline met `|| true`: onder `pipefail` geeft een `grep` zonder treffers een non-nul
     # status, en dan zou juist het diagnose-commando zwijgend afbreken.
     # Alleen de containers van deze federatie: een ongefilterde `ps -a` toont elke container op de
