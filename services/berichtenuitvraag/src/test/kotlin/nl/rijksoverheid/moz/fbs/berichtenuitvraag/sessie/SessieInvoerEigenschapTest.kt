@@ -22,7 +22,7 @@ import kotlin.random.Random
  * zitten wel in de eigenschapstest van de bibliotheek, die de vormregel rechtstreeks krijgt.
  */
 @QuarkusTest
-@TestProfile(SessieKetenProfile::class)
+@TestProfile(KorteSessieKetenProfile::class)
 class SessieInvoerEigenschapTest {
 
     @Test

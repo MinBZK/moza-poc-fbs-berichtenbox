@@ -22,6 +22,7 @@ script:post-response {
 }
 
 docs {
-  Geeft 201 met `sessieId` en `Location: /api/v1/sessies/huidige`. Het id komt automatisch in de
+  Geeft 201 met `sessieId`, `geldigTot` (verloop bij inactiviteit) en `uiterlijkGeldigTot`
+  (het harde plafond), en `Location: /api/v1/sessies/huidige`. Het id komt automatisch in de
   omgevingsvariabele `sessie` en gaat als `X-Sessie` mee op elk verzoek dat een sessie vereist.
 }

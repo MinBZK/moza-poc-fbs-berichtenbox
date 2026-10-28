@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
 /**
- * Eigenschappen van de sessie-id's over veel willekeurige invoer, tegen een echte Redis:
+ * Eigenschappen van de sessie-id's over veel willekeurige invoer, tegen een echte Redis: [Sessiecache.raakSessie],
  * [Sessiecache.leesSessie] en [Sessiecache.beeindigSessie] accepteren alleen een id dat
  * [Sessiecache.startSessie] uitgaf, een onjuist gevormd id komt niet tot Redis, en een uitgegeven id
  * geldt tot zijn einde en daarna nooit meer. Een vaste seed, zodat een falend geval te herhalen is.
@@ -50,6 +50,7 @@ class SessieIdEigenschapTest {
 
         invoer.forEachIndexed { i, id ->
             assertFalse(Sessiecache.SESSIE_ID_VORM.matches(id), "de generator leverde een geldige vorm: ${zichtbaar(id)}")
+            assertThrows<SessiecacheException.SessieOngeldig>(zichtbaar(id)) { sessiecache.raakSessie(id, ontvanger) }
             assertThrows<SessiecacheException.SessieOngeldig>(zichtbaar(id)) { sessiecache.leesSessie(id, ontvanger) }
             assertEquals(SessieEinde.ONBEKEND, sessiecache.beeindigSessie(id, ontvanger), zichtbaar(id))
 
@@ -61,7 +62,7 @@ class SessieIdEigenschapTest {
         assertEquals(0, eigen.get(), "een onjuist gevormd id bereikte Redis")
 
         // Positieve controle: de telling ziet een script van deze ontvanger wel.
-        assertDoesNotThrow { sessiecache.leesSessie(echt, ontvanger) }
+        assertDoesNotThrow { sessiecache.raakSessie(echt, ontvanger) }
         assertEquals(1, eigen.get(), "de telling mist de scripts van deze ontvanger")
     }
 
@@ -78,11 +79,12 @@ class SessieIdEigenschapTest {
 
             if (id == echt) return@repeat
 
+            assertThrows<SessiecacheException.SessieOngeldig>(id) { sessiecache.raakSessie(id, ontvanger) }
             assertThrows<SessiecacheException.SessieOngeldig>(id) { sessiecache.leesSessie(id, ontvanger) }
             assertEquals(SessieEinde.ONBEKEND, sessiecache.beeindigSessie(id, ontvanger), id)
         }
 
-        assertDoesNotThrow { sessiecache.leesSessie(echt, ontvanger) }
+        assertDoesNotThrow { sessiecache.raakSessie(echt, ontvanger) }
         assertTrue(redis.key().exists(status).await().atMost(WACHTTIJD), "een onbekend id wiste de gegevens")
     }
 
@@ -95,7 +97,11 @@ class SessieIdEigenschapTest {
             val ids = List(random.nextInt(1, 4)) { sessiecache.startSessie(ontvanger).sessieId }
             val einde = ids.random(random)
 
-            repeat(random.nextInt(1, 6)) { sessiecache.leesSessie(ids.random(random), ontvanger) }
+            repeat(random.nextInt(1, 6)) {
+                val id = ids.random(random)
+
+                if (random.nextBoolean()) sessiecache.raakSessie(id, ontvanger) else sessiecache.leesSessie(id, ontvanger)
+            }
 
             val uitkomst = sessiecache.beeindigSessie(einde, ontvanger)
 
@@ -105,6 +111,7 @@ class SessieIdEigenschapTest {
             val nieuw = sessiecache.startSessie(ontvanger).sessieId
 
             assertFalse(nieuw in ids, "geval $i: een id werd opnieuw uitgegeven")
+            assertThrows<SessiecacheException.SessieOngeldig>("geval $i") { sessiecache.raakSessie(einde, ontvanger) }
             assertThrows<SessiecacheException.SessieOngeldig>("geval $i") { sessiecache.leesSessie(einde, ontvanger) }
             assertEquals(SessieEinde.ONBEKEND, sessiecache.beeindigSessie(einde, ontvanger), "geval $i")
             (ids - einde + nieuw).forEach { assertDoesNotThrow("geval $i") { sessiecache.leesSessie(it, ontvanger) } }

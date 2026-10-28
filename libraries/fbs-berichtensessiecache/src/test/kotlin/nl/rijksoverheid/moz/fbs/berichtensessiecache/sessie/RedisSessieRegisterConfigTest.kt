@@ -35,8 +35,10 @@ class RedisSessieRegisterConfigTest {
     fun `een duur van nul of negatief wordt per sleutel geweigerd`(waarde: String) {
         val duur = Duration.parse(waarde)
         val gevallen = mapOf(
+            "inactiviteit" to TestSessieConfig(inactiviteit = duur),
             "max-duur" to TestSessieConfig(maxDuur = duur),
             "vangnet-marge" to TestSessieConfig(vangnetMarge = duur),
+            "veeg-interval" to TestSessieConfig(veegInterval = duur),
         )
 
         gevallen.forEach { (sleutel, config) ->

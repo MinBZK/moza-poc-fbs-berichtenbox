@@ -5,7 +5,6 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
@@ -17,15 +16,16 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
 /**
  * Het vangnet zelf, tegen een echte Redis met een vangnet-TTL van drie seconden uit
- * [KortVangnetRedisTestProfile]: wat er gebeurt als niemand uitlogt.
+ * [KortVangnetRedisTestProfile]: wat er gebeurt als niemand actief opruimt. De verloopindex is
+ * stelselbreed; elke test begint daarom met een lege index.
  */
 @QuarkusTest
 @TestProfile(KortVangnetRedisTestProfile::class)
@@ -40,12 +40,17 @@ class VangnetVerloopTest {
     @Inject
     lateinit var redis: ReactiveRedisDataSource
 
+    @BeforeEach
+    fun legeVerloopindex() {
+        redis.key().del(RedisSessieRegister.VERLOOP_INDEX).await().atMost(WACHTTIJD)
+    }
+
     @Test
-    fun `zonder uitloggen verlopen de sessie en alle gegevens na de vangnet-TTL`() {
+    fun `zonder actief opruimen verloopt alles na de vangnet-TTL, en houdt de index alleen een kenmerk vast`() {
         val bsn = Bsn("999993653")
         val k = BerichtenCache.cacheKey(bsn)
-        redis.key().del("$k:sessies").await().atMost(WACHTTIJD)
-        val sessieId = sessiecache.startSessie(bsn).sessieId
+        redis.key().del("$k:sessies", "$k:sessies:plafond").await().atMost(WACHTTIJD)
+        sessiecache.startSessie(bsn)
         val berichten = List(2) { bericht(bsn) }
         berichtenCache.store(k, berichten).await().atMost(WACHTTIJD)
         berichtenCache.storeAggregationStatus(k, AggregationStatus(status = OphalenStatus.GEREED)).await().atMost(WACHTTIJD)
@@ -57,7 +62,16 @@ class VangnetVerloopTest {
 
         assertEquals(emptyList<String>(), sleutelsOnder(k))
         berichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} niet verlopen") }
-        assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.leesSessie(sessieId, bsn) }
+
+        // De index heeft geen TTL en houdt de ontvanger vast, maar alleen als kenmerk.
+        assertEquals(listOf(BerichtenCache.kenmerk(bsn)), indexLeden())
+        assertTrue(indexLeden().none { bsn.waarde in it })
+
+        val gemeld = mutableListOf<Opruiming>()
+        sessiecache.ruimVerlopenSessiesOp { gemeld += it }
+
+        assertEquals(listOf(Opruiming.ZonderOntvanger(BerichtenCache.kenmerk(bsn), OpruimUitkomst.GEWIST)), gemeld)
+        assertEquals(emptyList<String>(), indexLeden())
     }
 
     private fun bericht(ontvanger: Identificatienummer) = Bericht(
@@ -70,6 +84,9 @@ class VangnetVerloopTest {
         magazijnId = WireMockMagazijnResource.OIN_A,
         aantalBijlagen = 0,
     )
+
+    private fun indexLeden(): List<String> =
+        redis.sortedSet(String::class.java).zrange(RedisSessieRegister.VERLOOP_INDEX, 0, -1).await().atMost(WACHTTIJD)
 
     private fun sleutelsOnder(prefix: String): List<String> =
         redis.execute("KEYS", "$prefix:*").await().atMost(WACHTTIJD).map { it.toString() }

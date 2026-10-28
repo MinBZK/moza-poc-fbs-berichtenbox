@@ -19,10 +19,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.net.Socket
+import java.time.Instant
 
 /**
  * `POST /sessies` en `DELETE /sessies/huidige`: de vertaling van de facade naar HTTP. Het
- * sessiegedrag zelf (opruimen) zit in de library; de mock spiegelt alleen wat de uitvraag
+ * sessiegedrag zelf (verloop, opruimen) zit in de library; de mock spiegelt alleen wat de uitvraag
  * ervan ziet.
  */
 @QuarkusTest
@@ -38,7 +39,7 @@ class SessieResourceTest {
     }
 
     @Test
-    fun `start geeft 201 met sessieId en een Location zonder geheim`() {
+    fun `start geeft 201 met sessieId, geldigTot, uiterlijkGeldigTot en een Location zonder geheim`() {
         val antwoord = given().contentType("application/json")
             .header("X-Ontvanger", ONTVANGER)
             .`when`()
@@ -54,8 +55,12 @@ class SessieResourceTest {
             .jsonPath()
 
         val sessieId = antwoord.getString("sessieId")
+        val geldigheid = sessiecache.geldigheden.getValue(sessieId)
 
         assertEquals(Bsn("999990019"), sessiecache.sessies[sessieId], "de sessie hoort bij de ontvanger uit X-Ontvanger")
+        assertEquals(geldigheid.geldigTot, Instant.parse(antwoord.getString("geldigTot")))
+        assertEquals(geldigheid.uiterlijkGeldigTot, Instant.parse(antwoord.getString("uiterlijkGeldigTot")))
+        assertTrue(geldigheid.geldigTot < geldigheid.uiterlijkGeldigTot, "het verloop bij inactiviteit hoort vóór het plafond")
     }
 
     /**

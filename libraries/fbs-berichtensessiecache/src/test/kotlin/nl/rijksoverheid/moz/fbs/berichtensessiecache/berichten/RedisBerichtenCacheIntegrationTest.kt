@@ -1208,8 +1208,8 @@ class RedisBerichtenCacheIntegrationTest {
 
     /**
      * De TTL op de gegevens is een vangnet dat ná de laatste sessie valt; het wissen zelf is een
-     * actieve stap. Schoof lezen de TTL op, dan zou een lezende sessie die nooit uitlogt haar
-     * gegevens onbeperkt laten leven.
+     * actieve stap. Schoof lezen de TTL op, dan zou een lezende sessie haar gegevens voorbij het
+     * plafond van de sessie laten leven.
      */
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = ["lijst", "gefilterde lijst", "zoeken", "bericht"])

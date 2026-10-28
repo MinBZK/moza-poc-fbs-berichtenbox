@@ -3,8 +3,10 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.smallrye.mutiny.Uni
 import io.smallrye.mutiny.helpers.test.AssertSubscriber
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -115,7 +117,7 @@ class SessieVolgerTest {
     }
 
     @Test
-    fun `de hartslag controleert de gevolgde sessie en meldt zich zolang die loopt`() {
+    fun `de hartslag controleert de gevolgde sessie zonder hem te verlengen en meldt zich zolang die loopt`() {
         startSessie(ontvanger)
 
         val volgend = snel.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
@@ -124,6 +126,8 @@ class SessieVolgerTest {
         assertEquals(listOf(SessieGebeurtenis.Hartslag, SessieGebeurtenis.Hartslag), volgend.items.drop(1).take(2))
         assertTrue(sessies.lezingen.size >= 3, "gelezen: ${sessies.lezingen}")
         assertTrue(sessies.lezingen.all { it == (SESSIE to ontvanger) }, "gelezen: ${sessies.lezingen}")
+        // Een open connection is geen activiteit van de gebruiker: de stream verlengt de sessie nooit.
+        assertEquals(emptyList<Pair<String, Identificatienummer>>(), sessies.aanrakingen.toList())
     }
 
     @Test
@@ -142,7 +146,7 @@ class SessieVolgerTest {
     @Test
     fun `een andere lopende sessie houdt de gevolgde niet in leven`() {
         // De hartslag gaat over precies deze sessie van precies deze ontvanger: een tweede tabblad
-        // dat nog ingelogd is, of dezelfde id bij een ander, telt niet mee.
+        // dat nog ingelogd is, of dezelfde id bij een ander, verlengt hem niet.
         startSessie(ontvanger)
         sessies.lopend += ANDERE_SESSIE to ontvanger
         sessies.lopend += SESSIE to ander
@@ -368,6 +372,7 @@ class SessieVolgerTest {
     private class GeheugenSessieRegister : SessieRegister {
         val lopend: MutableSet<Pair<String, Identificatienummer>> = ConcurrentHashMap.newKeySet()
         val lezingen: MutableList<Pair<String, Identificatienummer>> = Collections.synchronizedList(mutableListOf())
+        val aanrakingen: MutableList<Pair<String, Identificatienummer>> = Collections.synchronizedList(mutableListOf())
 
         @Volatile
         private var fout: Throwable? = null
@@ -381,12 +386,18 @@ class SessieVolgerTest {
             foutNa = aantal
         }
 
-        override fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean> {
+        override fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> {
             lezingen += sessieId to ontvanger
             val storing = fout?.takeIf { lezingen.size > foutNa }
 
             return storing?.let { Uni.createFrom().failure(it) }
-                ?: Uni.createFrom().item((sessieId to ontvanger) in lopend)
+                ?: Uni.createFrom().item(GELDIGHEID.takeIf { (sessieId to ontvanger) in lopend })
+        }
+
+        override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> {
+            aanrakingen += sessieId to ontvanger
+
+            return Uni.createFrom().item(GELDIGHEID.takeIf { (sessieId to ontvanger) in lopend })
         }
 
         override fun start(ontvanger: Identificatienummer): Uni<SessieStart> = throw UnsupportedOperationException()
@@ -394,6 +405,14 @@ class SessieVolgerTest {
         override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> = throw UnsupportedOperationException()
 
         override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = throw UnsupportedOperationException()
+
+        override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> = throw UnsupportedOperationException()
+
+        override fun verlopen(max: Int): Uni<List<VeegKandidaat>> = throw UnsupportedOperationException()
+
+        override fun veeg(kenmerk: String): Uni<Boolean> = throw UnsupportedOperationException()
+
+        override fun stelUit(kenmerk: String): Uni<Unit> = throw UnsupportedOperationException()
     }
 
     private companion object {
@@ -403,5 +422,7 @@ class SessieVolgerTest {
 
         const val SESSIE = "sessie-van-deze-berichtenbox"
         const val ANDERE_SESSIE = "sessie-van-een-ander-tabblad"
+
+        val GELDIGHEID = SessieGeldigheid(Instant.parse("2026-09-21T10:15:00Z"), Instant.parse("2026-09-21T22:00:00Z"))
     }
 }

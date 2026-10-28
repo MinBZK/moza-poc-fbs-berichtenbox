@@ -83,7 +83,7 @@ function bewaarSessie(ontvanger, sessieId) {
   try {
     sessionStorage.setItem(sessieSleutel(ontvanger), sessieId);
   } catch (fout) {
-    // Zonder opslag begint elke herlaadslag een nieuwe sessie; de oude blijft tot de vangnet-TTL staan.
+    // Zonder opslag begint elke herlaadslag een nieuwe sessie; de oude verloopt vanzelf.
   }
 }
 
@@ -148,7 +148,7 @@ function startSessie(ontvanger) {
 }
 
 // Idempotent aan de serverkant (204 ook bij een onbekend id): een mislukte aanroep laat de sessie
-// hooguit tot de vangnet-TTL staan, dus de gebruiker krijgt er geen melding van. Wel in de console, zodat
+// hooguit tot verlopen staan, dus de gebruiker krijgt er geen melding van. Wel in de console, zodat
 // wie de demo bedient ziet dat er een sessie blijft staan. Zonder het sessie-id: dat is een geheim.
 async function beeindigSessie(ontvanger) {
   const sessieId = leesSessie(ontvanger);
@@ -165,14 +165,14 @@ async function beeindigSessie(ontvanger) {
       headers: { 'X-Ontvanger': ontvanger, 'X-Sessie': sessieId },
     });
 
-    if (!respons.ok) console.warn(`uitloggen van de vorige persona mislukt (HTTP ${respons.status}); de sessie blijft staan tot de bewaartermijn van de uitvraag`);
+    if (!respons.ok) console.warn(`uitloggen van de vorige persona mislukt (HTTP ${respons.status}); de sessie verloopt vanzelf`);
   } catch (fout) {
-    console.warn(`uitloggen van de vorige persona mislukt (geen verbinding: ${fout}); de sessie blijft staan tot de bewaartermijn van de uitvraag`);
+    console.warn(`uitloggen van de vorige persona mislukt (geen verbinding: ${fout}); de sessie verloopt vanzelf`);
   }
 }
 
 // Alleen het eigen foutcontract telt als sessieverlies. Een 401 van een inlogmuur ervoor (HTML) zegt
-// niets over de sessie; die vergeten laat de sessie ongebruikt achter tot de vangnet-TTL.
+// niets over de sessie; die vergeten laat de sessie ongebruikt achter tegen het plafond.
 async function isSessieOngeldig(respons) {
   if (respons.status !== 401) return false;
 
@@ -777,7 +777,7 @@ el('vernieuw').addEventListener('click', () => laadLijst());
 // verkeerde plaatje. De magazijnnamen blijven: die horen bij de OIN, niet bij de persona.
 function wisPersonaState() {
   // De vorige persona uitloggen vóór de nieuwe sessie start: anders blijft die sessie met zijn
-  // berichten in Redis staan tot de vangnet-TTL.
+  // berichten in Redis staan tot hij verloopt.
   const vorige = gekozenOntvanger;
 
   gekozenOntvanger = huidigeOntvanger();

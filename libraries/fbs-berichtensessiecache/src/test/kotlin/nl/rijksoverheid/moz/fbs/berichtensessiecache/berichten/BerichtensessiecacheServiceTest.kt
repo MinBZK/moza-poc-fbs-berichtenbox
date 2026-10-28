@@ -61,6 +61,7 @@ class BerichtensessiecacheServiceTest {
     // De ontvanger zelf en niet `any()`: MockK bouwt voor `any()` een Bsn zonder waarde.
     private val sessies = mockk<SessieRegister>().also {
         every { it.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(false)
+        every { it.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().item(Unit)
     }
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
@@ -222,9 +223,9 @@ class BerichtensessiecacheServiceTest {
 
     @ParameterizedTest(name = "magazijnen={0}")
     @ValueSource(booleans = [false, true])
-    fun `een mislukte opruimcontrole na een opgeslagen ronde geeft het alert en meldt dat niet als opslagfout`(metMagazijn: Boolean) {
+    fun `een mislukte opruimcontrole na een opgeslagen ronde markeert voor de veeg en meldt dat niet als opslagfout`(metMagazijn: Boolean) {
         // De ronde staat al opgeslagen en de lock is vrij; een FOUT-status zou nu de ronde van een
-        // ander kunnen overschrijven. Of de laatste sessie intussen eindigde, is onbekend.
+        // ander kunnen overschrijven. Of de laatste sessie intussen eindigde, beslist de veegtaak.
         val client = mockk<MagazijnClient>()
 
         stubAggregatie(client)
@@ -239,8 +240,9 @@ class BerichtensessiecacheServiceTest {
             assertTrue(events.filterIsInstance<OphalenFout>().isEmpty(), "Events: $events")
         }
 
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
         verify(exactly = 0) { berichtenCache.sluitRondeAf(any(), any(), any()) }
-        assertEquals(1, regels.count { it.contains(ALERT_OPRUIMEN) && it.contains("Opruimen zonder lopende sessie mislukt") }, "Log: $regels")
+        assertTrue(regels.any { it.contains("Opruimen zonder lopende sessie mislukt") }, "Log: $regels")
         assertTrue(regels.none { it.contains("Fout bij opslaan") || it.contains("Store-fout") }, "Log: $regels")
     }
 
@@ -299,7 +301,7 @@ class BerichtensessiecacheServiceTest {
     @Test
     fun `een opslag zonder magazijnen zonder antwoord, waarna de lock al weg is, krijgt toch de opruimcontrole`() {
         // Het opslaan kan in Redis gelukt zijn terwijl het antwoord uitbleef: dan gaf het de lock al
-        // vrij. Liep er geen sessie meer, dan blijft de status anders staan tot de vangnet-TTL.
+        // vrij. Liep er geen sessie meer, dan blijft de status anders staan zonder dat de veegtaak hem kent.
         every { berichtenCache.trySetAggregationStatus(cacheKey, any(), any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(emptySet<String>())
         every { clientFactory.getAllMagazijnen() } returns emptyMap()
@@ -402,10 +404,27 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `een mislukt opruimen na verwijderen geeft een alert zonder ontvanger en het verwijderen slaagt`() {
+    fun `een mislukt opruimen na verwijderen markeert de ontvanger voor de veegtaak`() {
         val sleutel = BerichtSleutel("magazijn-a", UUID.randomUUID())
         every { berichtenCache.delete(sleutel, ontvanger) } returns Uni.createFrom().voidItem()
         every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+
+        val regels = vangLog { service.verwijderBericht(sleutel, ontvanger).await().atMost(Duration.ofSeconds(5)) }
+
+        io.mockk.verifyOrder {
+            sessies.ruimOpZonderSessie(ontvanger)
+            sessies.markeerVoorVeeg(ontvanger)
+        }
+        assertTrue(regels.any { it.contains("de veegtaak ruimt het op") }, "Log: $regels")
+        assertTrue(regels.none { it.contains(ALERT_OPRUIMEN) }, "Log: $regels")
+    }
+
+    @Test
+    fun `faalt ook het markeren, dan volgt een alert zonder ontvanger en slaagt het verwijderen`() {
+        val sleutel = BerichtSleutel("magazijn-a", UUID.randomUUID())
+        every { berichtenCache.delete(sleutel, ontvanger) } returns Uni.createFrom().voidItem()
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis nog steeds weg"))
 
         val regels = vangLog { service.verwijderBericht(sleutel, ontvanger).await().atMost(Duration.ofSeconds(5)) }
 
@@ -415,15 +434,15 @@ class BerichtensessiecacheServiceTest {
     }
 
     @Test
-    fun `een mislukt opruimen na een mislukte ronde geeft het alert`() {
+    fun `een mislukt opruimen na een mislukte ronde markeert de ontvanger voor de veegtaak`() {
         every { berichtenCache.trySetAggregationStatus(cacheKey, any(), any()) } returns Uni.createFrom().item(true)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().failure(ProfielServiceFoutException.upstreamError(500))
         every { berichtenCache.sluitRondeAf(cacheKey, any(), any()) } returns Uni.createFrom().item(true)
         every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
 
-        val regels = vangLog { assertThrows<ProfielServiceFoutException> { service.haalBerichtenOp(ontvanger) } }
+        assertThrows<ProfielServiceFoutException> { service.haalBerichtenOp(ontvanger) }
 
-        assertEquals(1, regels.count { it.contains(ALERT_OPRUIMEN) }, "Log: $regels")
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
     }
 
     private fun vangLog(blok: () -> Unit): List<String> {
@@ -1124,9 +1143,10 @@ class BerichtensessiecacheServiceTest {
         )
     }
 
-    @Test
-    fun `na een dubbele cachefout geeft de ronde het alert dat alleen de vangnet-TTL nog opruimt`() {
-        // Kruiste de ronde met een uitlog, dan blijft er iets staan dat verder niets opruimt.
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `na een dubbele cachefout markeert de ronde de ontvanger alsnog voor de veegtaak`(markerenFaalt: Boolean) {
+        // Kruiste de ronde met een uitlog, dan blijft er anders iets staan dat de veegtaak niet kent.
         val client = mockk<MagazijnClient>()
 
         stubAggregatie(client)
@@ -1134,13 +1154,16 @@ class BerichtensessiecacheServiceTest {
         every { berichtenCache.slaRondeOp(cacheKey, any(), any(), any()) } returns Uni.createFrom().failure(RuntimeException("Redis store down"))
         every { berichtenCache.sluitRondeAf(cacheKey, any(), any()) } returns Uni.createFrom().failure(RuntimeException("Redis status ook down"))
 
+        if (markerenFaalt) every { sessies.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().failure(RuntimeException("Redis weg"))
+
         val regels = vangLog {
             val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
 
             assertEquals(1, events.filterIsInstance<OphalenMisluktNaBevraging>().size, "Events: $events")
         }
 
-        assertEquals(1, regels.count { it.contains(ALERT_OPRUIMEN) }, "Log: $regels")
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
+        assertEquals(if (markerenFaalt) 1 else 0, regels.count { it.contains(ALERT_OPRUIMEN) }, "Log: $regels")
         assertTrue(regels.none { it.contains(ontvanger.waarde) }, "de BSN hoort niet in de log: $regels")
     }
 

@@ -15,8 +15,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en controleert op
- * elke hartslag of de inlogsessie nog loopt. Eindigt de sessie, dan merkt de stream dat hoogstens
- * een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen].
+ * elke hartslag of de inlogsessie nog loopt. Alleen lezen: een open connection is geen activiteit van
+ * de gebruiker en houdt de sessie dus niet in leven. Verloopt de sessie, dan merkt de stream dat
+ * hoogstens een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen].
  *
  * De volgorde bij het starten is wat "niets missen" waarmaakt: eerst de luisteraar registreren,
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].
@@ -90,8 +91,8 @@ internal class SessieVolger(
                 // VolgenGestart, zodat SessieVerlopen dan het enige item is.
                 .chain { _ -> sessies.lees(sessieId, ontvanger) }
                 .subscribe().with(
-                    { loopt ->
-                        if (loopt) {
+                    { geldigheid ->
+                        if (geldigheid != null) {
                             emitter.emit(SessieGebeurtenis.VolgenGestart)
                             hartslagen.set(startHartslag(sessieId, ontvanger, emitter))
 
@@ -118,7 +119,9 @@ internal class SessieVolger(
     ): Cancellable =
         Multi.createFrom().ticks().every(hartslag)
             .onOverflow().drop()
-            .onItem().transformToUniAndConcatenate { _ -> sessies.lees(sessieId, ontvanger) }
+            // Naar een Boolean: een Multi laat een null-item vallen, en dan zou het einde van de sessie
+            // nooit aankomen.
+            .onItem().transformToUniAndConcatenate { _ -> sessies.lees(sessieId, ontvanger).map { it != null } }
             .subscribe().with(
                 { loopt -> if (loopt) emitter.emit(SessieGebeurtenis.Hartslag) else beeindig(emitter) },
                 { fout ->

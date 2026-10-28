@@ -118,7 +118,7 @@ except (urllib.error.URLError, TimeoutError) as fout:
     print(f"FOUT: de ophaalronde voor {ontvanger} mislukte: {fout}", file=sys.stderr)
     sys.exit(1)
 finally:
-    # Beëindigen is idempotent; een mislukking laat de sessie hooguit tot de vangnet-TTL staan.
+    # Beëindigen is idempotent; een mislukking laat de sessie hooguit verlopen.
     try:
         urllib.request.urlopen(urllib.request.Request(
             f"{uitvraag}/api/v1/sessies/huidige",

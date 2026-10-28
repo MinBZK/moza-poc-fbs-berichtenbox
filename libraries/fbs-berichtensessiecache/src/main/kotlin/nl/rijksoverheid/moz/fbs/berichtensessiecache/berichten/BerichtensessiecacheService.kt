@@ -230,29 +230,55 @@ internal class BerichtensessiecacheService(
     /**
      * Ruimt op als er geen lopende sessie meer is, na een schrijfactie waarvan de uitkomst al vaststaat:
      * een tombstone of een FOUT-status. De handeling zelf hoort niet alsnog te falen op een mislukt
-     * opruimen. Na een uitlog ruimt verder niets het geschrevene op behalve de vangnet-TTL, die het
-     * zonder logregel wist. Alleen de fout-soort in de log: de cacheKey is een hash van de ontvanger.
+     * opruimen. Na een uitlog kent de verloopindex de ontvanger niet meer, dus zonder markering zou
+     * het geschrevene onzichtbaar blijven staan tot de vangnet-TTL, die het zonder logregel wist.
+     * Alleen de fout-soort in de log: de cacheKey is een hash van de ontvanger.
      */
     private fun ruimOpBestEffort(ontvanger: Identificatienummer): Uni<Void> = controleerNaOpslaan(ontvanger).replaceWithVoid()
 
     /**
      * [ruimOpBestEffort] met de uitkomst: `true` als er gewist is. Faalt het opruimen, dan `false`
-     * en het alert: of de laatste sessie intussen eindigde, is dan onbekend.
+     * en de markering voor de veegtaak: of de laatste sessie intussen eindigde, is dan onbekend,
+     * en de veegtaak beslist dat alsnog.
      */
     private fun controleerNaOpslaan(ontvanger: Identificatienummer): Uni<Boolean> =
         sessies.ruimOpZonderSessie(ontvanger)
             .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
-            .onFailure().invoke { e -> meldOpruimenMislukt("Opruimen zonder lopende sessie mislukt", e) }
-            .onFailure().recoverWithItem(false)
+            .onFailure().recoverWithUni { e -> markeerNaMisluktOpruimen(ontvanger, e).replaceWith(false) }
 
-    private fun meldOpruimenMislukt(wat: String, fout: Throwable) {
-        log.errorf(
-            "%s %s (fout=%s); blijft er iets zonder sessie staan, dan ruimt de vangnet-TTL het op zonder logregel",
-            ALERT_OPRUIMEN_NA_SCHRIJVEN,
-            wat,
-            fout.javaClass.name,
-        )
-    }
+    /** Zonder eigen opruimpoging: de aanroeper weet al dat Redis faalt. Een fout hier is al gelogd. */
+    private fun markeerBestEffort(ontvanger: Identificatienummer): Uni<Void> =
+        sessies.markeerVoorVeeg(ontvanger)
+            .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
+            .onFailure().invoke { e ->
+                log.errorf(
+                    "%s Markeren voor de veegtaak na een dubbele cachefout mislukt (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
+                    ALERT_OPRUIMEN_NA_SCHRIJVEN,
+                    e.javaClass.name,
+                )
+            }
+            .onFailure().recoverWithNull()
+            .replaceWithVoid()
+
+    private fun markeerNaMisluktOpruimen(ontvanger: Identificatienummer, opruimFout: Throwable): Uni<Void> =
+        sessies.markeerVoorVeeg(ontvanger)
+            .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
+            .invoke { _ ->
+                log.warnf(
+                    "Opruimen zonder lopende sessie mislukt (fout=%s); de veegtaak ruimt het op",
+                    opruimFout.javaClass.name,
+                )
+            }
+            .onFailure().invoke { e ->
+                log.errorf(
+                    "%s Opruimen zonder lopende sessie mislukt (fout=%s) en ook het markeren voor de veegtaak (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
+                    ALERT_OPRUIMEN_NA_SCHRIJVEN,
+                    opruimFout.javaClass.name,
+                    e.javaClass.name,
+                )
+            }
+            .onFailure().recoverWithNull()
+            .replaceWithVoid()
 
     /**
      * Orkestreert het ophalen van berichten uit de magazijnen die de [MagazijnResolver]
@@ -570,7 +596,7 @@ internal class BerichtensessiecacheService(
             log.errorf(ex, "(errorId=%s) Store-fout bij lege magazijn-set voor key=%s", errorId, ronde.cacheKey)
 
             // Zonder lock kan het opslaan in Redis al gelukt zijn terwijl het antwoord uitbleef. Liep er
-            // toen geen sessie meer, dan blijft de status anders staan tot de vangnet-TTL.
+            // toen geen sessie meer, dan blijft de status anders staan zonder dat de veegtaak hem kent.
             if (!cleanupLockMetFoutStatus(ronde, "store-fout bij lege magazijn-set", errorId)) {
                 ruimOpBestEffort(ronde.ontvanger).await().indefinitely()
             }
@@ -992,11 +1018,8 @@ internal class BerichtensessiecacheService(
                 }
             }
             // Kruiste de ronde met een uitlog, dan kan een deel van wat ze schreef zonder status
-            // blijven staan, en niets anders dan de vangnet-TTL ruimt het dan nog op. Een afbreking
-            // krijgt ook dit alert niet, om dezelfde reden als hierboven.
-            .onFailure().invoke { e ->
-                if (!isAfbreking(e)) meldOpruimenMislukt("Opruimen na een dubbele cachefout niet uitgevoerd", e)
-            }
+            // blijven staan, en de verloopindex kent de ontvanger dan niet meer.
+            .onFailure().call { _ -> markeerBestEffort(ronde.ontvanger) }
             .onFailure().recoverWithNull()
             // Meld expliciet dat de eerder per-magazijn getoonde resultaten niet
             // bewaard zijn: de VOLTOOID-events zijn al geëmit, maar de cache-write

@@ -16,6 +16,7 @@ class KortVangnetRedisTestProfile : QuarkusTestProfile {
     override fun getConfigOverrides(): Map<String, String> = mapOf(
         "quarkus.redis.devservices.enabled" to "true",
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
+        "berichtensessiecache.sessie.inactiviteit" to "PT1S",
         "berichtensessiecache.sessie.max-duur" to "PT2S",
         "berichtensessiecache.sessie.vangnet-marge" to "PT1S",
     )

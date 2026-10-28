@@ -139,7 +139,7 @@ class SessieFilterTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("routes")
-    fun `met een geldige sessie gaat het verzoek door, na een controle van de sessie`(route: Route) {
+    fun `met een geldige sessie gaat het verzoek door, en wordt de sessie verlengd`(route: Route) {
         val sessie = sessiecache.sessieVoor(ONTVANGER)
         // Geen gegevens en geen magazijn in deze test: een 4xx/5xx van verderop is prima, een 401 niet.
         val status = route.stuur(given().header("X-Ontvanger", ONTVANGER).header("X-Sessie", sessie))
@@ -148,7 +148,7 @@ class SessieFilterTest {
             .statusCode()
 
         assertNotEquals(401, status, "$route werd geweigerd met een geldige sessie")
-        assertEquals(listOf(sessie), sessiecache.gelezenSessies.toList())
+        assertEquals(listOf(sessie), sessiecache.geraakteSessies.toList())
     }
 
     @ParameterizedTest(name = "{0}")
@@ -160,7 +160,7 @@ class SessieFilterTest {
             .contentType("application/problem+json")
             .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
 
-        assertTrue(sessiecache.gelezenSessies.isEmpty())
+        assertTrue(sessiecache.geraakteSessies.isEmpty())
     }
 
     /**
@@ -184,7 +184,7 @@ class SessieFilterTest {
             .contentType("application/problem+json")
             .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
 
-        assertTrue(sessiecache.gelezenSessies.isEmpty(), omschrijving)
+        assertTrue(sessiecache.geraakteSessies.isEmpty(), omschrijving)
     }
 
     @ParameterizedTest(name = "{0}")
@@ -198,13 +198,13 @@ class SessieFilterTest {
             .header("WWW-Authenticate", CHALLENGE)
             .body("type", equalTo("urn:fbs:fout:sessie-ongeldig"))
 
-        assertTrue(sessiecache.gelezenSessies.isEmpty())
+        assertTrue(sessiecache.geraakteSessies.isEmpty())
     }
 
     @Test
-    fun `een onbereikbare opslag bij het lezen van de sessie geeft 503 en geen 401`() {
+    fun `een onbereikbare opslag bij het raken geeft 503 en geen 401`() {
         val sessie = sessiecache.sessieVoor(ONTVANGER)
-        sessiecache.leesFout = SessiecacheException.Onbereikbaar("Redis weg")
+        sessiecache.raakFout = SessiecacheException.Onbereikbaar("Redis weg")
 
         // Een storing is geen ongeldige sessie: met een 401 zou de berichtenbox de gebruiker uitloggen.
         given()
@@ -233,7 +233,7 @@ class SessieFilterTest {
             .extract()
 
         assertNotEquals(401, aanmelding.statusCode())
-        assertTrue(sessiecache.gelezenSessies.isEmpty())
+        assertTrue(sessiecache.geraakteSessies.isEmpty())
     }
 
     @Test

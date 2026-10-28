@@ -12,12 +12,17 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Volledigheid
 
 /**
@@ -73,15 +78,37 @@ class MockSessiecache : Sessiecache {
     val schrijfFouten = ArrayDeque<SessiecacheException>()
     val schrijfAanroepen = mutableListOf<Bericht>()
 
-    /** Lopende sessies: id → ontvanger. Ze lopen tot een einde; de vangnet-TTL wordt in de library getest. */
+    /** Lopende sessies: id → ontvanger. Geen verloop; dat gedrag wordt in de library getest. */
     val sessies = ConcurrentHashMap<String, Identificatienummer>()
     var startSessieFout: SessiecacheException? = null
 
-    /** Laat de volgende start melden dat hij resten wiste die er zonder lopende sessie nog stonden. */
+    /** Laat de volgende start melden dat hij resten van een verlopen sessie wiste. */
     var restenBijVolgendeStart = false
-    var leesFout: SessiecacheException? = null
+    var raakFout: SessiecacheException? = null
     var beeindigFout: SessiecacheException? = null
-    val gelezenSessies = CopyOnWriteArrayList<String>()
+
+    /** Wat de volgende veegrondes als opruimingen teruggeven, één lijst per aanroep; daarna leeg. */
+    val veegRondes = ConcurrentLinkedQueue<List<Opruiming>>()
+
+    /** Neemt het over van [veegRondes]: krijgt het gevraagde maximum en levert zelf de ronde. */
+    @Volatile
+    var veegRonde: ((Int) -> List<Opruiming>)? = null
+
+    /**
+     * Per veegronde of de kandidatenbatch vol was; zonder waarde geldt een ronde met `max`
+     * opruimingen als vol, zoals bij één pod zonder kandidaten die al weg zijn.
+     */
+    val veegVol = ConcurrentLinkedQueue<Boolean>()
+
+    /** Meldt na zoveel opruimingen [veegFout] in plaats van de rest: een ronde die halverwege afbreekt. */
+    @Volatile
+    var veegFoutNa: Int? = null
+    var veegFout: SessiecacheException? = null
+    val veegAanroepen = AtomicInteger()
+    val geraakteSessies = CopyOnWriteArrayList<String>()
+
+    /** De geldigheid per lopende sessie; een raak schuift [SessieGeldigheid.geldigTot] op, tot het plafond. */
+    val geldigheden = ConcurrentHashMap<String, SessieGeldigheid>()
 
     /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
     fun sessieVoor(ontvanger: String = "BSN:999990019"): String =
@@ -91,9 +118,16 @@ class MockSessiecache : Sessiecache {
         sessies.clear()
         startSessieFout = null
         restenBijVolgendeStart = false
-        leesFout = null
+        raakFout = null
         beeindigFout = null
-        gelezenSessies.clear()
+        veegRondes.clear()
+        veegRonde = null
+        veegVol.clear()
+        veegFoutNa = null
+        veegFout = null
+        veegAanroepen.set(0)
+        geraakteSessies.clear()
+        geldigheden.clear()
         berichten.clear()
         schrijfFouten.clear()
         schrijfAanroepen.clear()
@@ -204,18 +238,37 @@ class MockSessiecache : Sessiecache {
         startSessieFout?.let { throw it }
 
         val sessieId = UUID.randomUUID().toString().replace("-", "").take(SESSIE_ID_LENGTE)
+        val nu = Instant.now()
+        val plafond = nu.plusSeconds(MAX_DUUR_SECONDEN)
         sessies[sessieId] = ontvanger
+        geldigheden[sessieId] = SessieGeldigheid(minOf(nu.plusSeconds(INACTIVITEIT_SECONDEN), plafond), plafond)
         val resten = restenBijVolgendeStart
         restenBijVolgendeStart = false
 
-        return SessieStart(sessieId, restenOpgeruimd = resten)
+        return SessieStart(sessieId, geldigheden.getValue(sessieId), restenOpgeruimd = resten)
     }
 
-    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer) {
-        gelezenSessies += sessieId
-        leesFout?.let { throw it }
+    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid {
+        geraakteSessies += sessieId
+        raakFout?.let { throw it }
 
+        val huidig = lopend(sessieId, ontvanger)
+        val verlengd = huidig.copy(geldigTot = minOf(Instant.now().plusSeconds(INACTIVITEIT_SECONDEN), huidig.uiterlijkGeldigTot))
+        geldigheden[sessieId] = verlengd
+
+        return verlengd
+    }
+
+    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid {
+        raakFout?.let { throw it }
+
+        return lopend(sessieId, ontvanger)
+    }
+
+    private fun lopend(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid {
         if (sessies[sessieId] != ontvanger) throw SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
+
+        return geldigheden.getValue(sessieId)
     }
 
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde {
@@ -223,7 +276,27 @@ class MockSessiecache : Sessiecache {
 
         if (!sessies.remove(sessieId, ontvanger)) return SessieEinde.ONBEKEND
 
+        geldigheden.remove(sessieId)
+
         return if (sessies.containsValue(ontvanger)) SessieEinde.BEEINDIGD else SessieEinde.OPGERUIMD
+    }
+
+    override fun ruimVerlopenSessiesOp(max: Int, meld: (Opruiming) -> Unit): Boolean {
+        veegAanroepen.incrementAndGet()
+
+        val foutNa = veegFoutNa
+
+        if (foutNa == null) veegFout?.let { throw it }
+
+        val opruimingen = veegRonde?.invoke(max) ?: veegRondes.poll().orEmpty()
+
+        opruimingen.forEachIndexed { i, opruiming ->
+            if (i == foutNa) throw checkNotNull(veegFout)
+
+            meld(opruiming)
+        }
+
+        return veegVol.poll() ?: (opruimingen.size == max)
     }
 
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {
@@ -243,6 +316,10 @@ class MockSessiecache : Sessiecache {
 
 // Gelijk aan de lengte van een echt sessie-id, zodat de vorm-eis van de uitvraag-API hem accepteert.
 private const val SESSIE_ID_LENGTE = 22
+
+// Gelijk aan de defaults van `berichtensessiecache.sessie.inactiviteit` en `max-duur`.
+private const val INACTIVITEIT_SECONDEN = 900L
+private const val MAX_DUUR_SECONDEN = 43_200L
 
 /**
  * Activeert [MockSessiecache] als alternative voor de echte facade. Redis blijft
