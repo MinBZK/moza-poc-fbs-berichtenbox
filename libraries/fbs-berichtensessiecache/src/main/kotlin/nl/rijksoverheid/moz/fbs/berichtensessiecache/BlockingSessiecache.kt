@@ -17,6 +17,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.ALERT_OPRUIMEN_NA_SCHRIJVEN
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
@@ -138,7 +139,13 @@ internal class BlockingSessiecache(
     override fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID) {
         if (!ingeschreven(magazijnId)) return
 
-        awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
+        try {
+            awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
+        } catch (e: SessiecacheException) {
+            // Een timeout kan de keten afbreken ná de tombstone en vóór de opruimcontrole erna.
+            meldOpruimenOnzeker("Verwijderen niet bevestigd", e)
+            throw e
+        }
     }
 
     override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> = service.haalBerichtenOp(ontvanger)
@@ -167,6 +174,28 @@ internal class BlockingSessiecache(
             // Defensieve limiet overschreden (BerichtValidator): invoerfout van de
             // aanleverende caller, geen infrastructuurfout.
             throw SessiecacheException.OngeldigeInvoer(e.message ?: "Ongeldig bericht.", e)
+        } catch (e: SessiecacheException) {
+            // Het aanmeldscript kan in Redis gedraaid hebben terwijl het antwoord wegviel, en het kijkt
+            // niet naar sessies. Liep er toen geen sessie meer, dan blijft het geschrevene onzichtbaar staan.
+            meldOpruimenOnzeker("Aanmelding niet bevestigd", e)
+            throw e
+        }
+
+        // De statuscontrole hierboven en het schrijven zijn twee stappen; eindigde de laatste sessie
+        // daartussen, dan is het bericht nu weer gewist en hoort de aanleveraar dat er geen lijst was.
+        val opgeruimd = try {
+            awaitOrServiceUnavailable { sessies.ruimOpZonderSessie(ontvanger) }
+        } catch (e: SessiecacheException) {
+            // De herlevering die op deze fout volgt, vindt na een uitlog geen status meer en ruimt dus
+            // niets op; alleen de vangnet-TTL ruimt het geschrevene dan nog op.
+            meldOpruimenOnzeker("Opruimen na een aanmelding mislukt", e)
+            throw e
+        }
+
+        if (opgeruimd) {
+            throw SessiecacheException.GeenLijstInCache(
+                "Geen opgehaalde lijst voor deze ontvanger; bericht niet toegevoegd.",
+            )
         }
 
         meldAanGevolgdeSessies(ontvanger, geschreven)
@@ -193,6 +222,21 @@ internal class BlockingSessiecache(
 
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
         awaitOrServiceUnavailable { sessies.beeindig(sessieId, ontvanger) }
+
+    /**
+     * Na een schrijfactie waarvan niet vaststaat of een opruimcontrole erachter liep; de aanroeper
+     * krijgt hoe dan ook de oorspronkelijke fout. Eindigde de laatste sessie intussen, dan blijft het
+     * geschrevene staan tot de vangnet-TTL, die het zonder logregel wist. [wat] noemt in het alert
+     * welke stap faalde.
+     */
+    private fun meldOpruimenOnzeker(wat: String, fout: Exception) {
+        log.errorf(
+            "%s %s (fout=%s); blijft er iets zonder sessie staan, dan ruimt de vangnet-TTL het op zonder logregel",
+            ALERT_OPRUIMEN_NA_SCHRIJVEN,
+            wat,
+            fout.javaClass.name,
+        )
+    }
 
     /**
      * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en

@@ -7,9 +7,10 @@ import io.vertx.mutiny.redis.client.Response
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RealRedisTestProfile
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
@@ -19,14 +20,17 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.security.MessageDigest
 import java.time.Duration
 import java.util.HexFormat
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Het sessieregister tegen een echte Redis, via de facade: starten, lezen en beëindigen. De sessies
- * overleven elke test: [RealRedisTestProfile] laat de maximale duur op de standaardwaarde.
+ * overleven elke test ([OpruimRedisTestProfile]).
  */
 @QuarkusTest
-@TestProfile(RealRedisTestProfile::class)
+@TestProfile(OpruimRedisTestProfile::class)
 class RedisSessieRegisterTest {
 
     @Inject
@@ -47,6 +51,13 @@ class RedisSessieRegisterTest {
     }
 
     @Test
+    fun `start meldt geen resten bij een eerste sessie`() {
+        val start = sessiecache.startSessie(ontvanger)
+
+        assertFalse(start.restenOpgeruimd)
+    }
+
+    @Test
     fun `lees met een onbekende, andermans of verkeerd gevormde id gooit SessieOngeldig`() {
         val id = sessiecache.startSessie(ontvanger).sessieId
 
@@ -56,21 +67,105 @@ class RedisSessieRegisterTest {
         assertDoesNotThrow { sessiecache.leesSessie(id, ontvanger) }
     }
 
+    @Test
+    fun `start zonder lopende sessie ruimt achtergebleven gegevens op`() {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
+        redis.list(String::class.java).rpush("$k:list", "{}").await().atMost(WACHTTIJD)
+
+        val start = sessiecache.startSessie(ontvanger)
+
+        assertTrue(start.restenOpgeruimd)
+        assertEquals(0, redis.key().exists("$k:status", "$k:list").await().atMost(WACHTTIJD))
+    }
+
+    @Test
+    fun `een start gelijktijdig met het einde van de laatste sessie laat een geldige sessie achter`() {
+        // Welke van de twee eerst gaat, verschilt per herhaling; in beide volgordes moet de nieuwe
+        // sessie bruikbaar zijn, en zijn de oude gegevens weg of nog van een lopende sessie, nooit half.
+        val pool = Executors.newFixedThreadPool(2)
+        val volgordes = mutableSetOf<SessieEinde>()
+
+        try {
+            repeat(HERHALINGEN) {
+                val ontvanger = nieuweOntvanger()
+                val k = BerichtenCache.cacheKey(ontvanger)
+                val eerste = sessiecache.startSessie(ontvanger)
+                redis.list(String::class.java).rpush("$k:list", "{}").await().atMost(WACHTTIJD)
+                val poort = CyclicBarrier(2)
+
+                val einde = pool.submit<SessieEinde> {
+                    poort.await(10, TimeUnit.SECONDS)
+                    sessiecache.beeindigSessie(eerste.sessieId, ontvanger)
+                }
+                val start = pool.submit<SessieStart> {
+                    poort.await(10, TimeUnit.SECONDS)
+                    sessiecache.startSessie(ontvanger)
+                }
+                val uitkomst = einde.get(10, TimeUnit.SECONDS)
+                val nieuw = start.get(10, TimeUnit.SECONDS)
+
+                volgordes += uitkomst
+                assertDoesNotThrow { sessiecache.leesSessie(nieuw.sessieId, ontvanger) }
+                assertFalse(nieuw.restenOpgeruimd, "Er was geen achtergebleven rest om op te ruimen")
+                assertEquals(uitkomst == SessieEinde.BEEINDIGD, redis.key().exists("$k:list").await().atMost(WACHTTIJD), "Uitkomst $uitkomst")
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        assertTrue(volgordes.all { it == SessieEinde.OPGERUIMD || it == SessieEinde.BEEINDIGD }, "Uitkomsten: $volgordes")
+    }
+
+    @Test
+    fun `start naast een lopende sessie laat de gegevens staan`() {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        sessiecache.startSessie(ontvanger)
+        redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
+
+        val tweede = sessiecache.startSessie(ontvanger)
+
+        assertFalse(tweede.restenOpgeruimd)
+        assertTrue(redis.key().exists("$k:status").await().atMost(WACHTTIJD))
+    }
+
     @ParameterizedTest
     @ValueSource(ints = [1, 2, 3])
-    fun `elke sessie beeindigen geeft BEEINDIGD en laat de rest lopen`(aantal: Int) {
+    fun `alle sessies op een na beeindigen geeft BEEINDIGD en de laatste OPGERUIMD`(aantal: Int) {
         val ids = (1..aantal).map { sessiecache.startSessie(ontvanger).sessieId }
 
-        ids.forEachIndexed { i, id ->
-            assertEquals(SessieEinde.BEEINDIGD, sessiecache.beeindigSessie(id, ontvanger))
-            assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.leesSessie(id, ontvanger) }
-            ids.drop(i + 1).forEach { over -> assertDoesNotThrow { sessiecache.leesSessie(over, ontvanger) } }
-        }
+        ids.dropLast(1).forEach { assertEquals(SessieEinde.BEEINDIGD, sessiecache.beeindigSessie(it, ontvanger)) }
+
+        assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(ids.last(), ontvanger))
+        assertThrows<SessiecacheException.SessieOngeldig> { sessiecache.leesSessie(ids.last(), ontvanger) }
+    }
+
+    @Test
+    fun `einde van de laatste sessie ruimt gegevens en sessiesleutels op`() {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        val id = sessiecache.startSessie(ontvanger).sessieId
+        redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
+        redis.list(String::class.java).rpush("$k:list", "{}").await().atMost(WACHTTIJD)
+        redis.value(String::class.java).set("$k:lock", "1").await().atMost(WACHTTIJD)
+
+        sessiecache.beeindigSessie(id, ontvanger)
+
+        val over = redis.key().exists("$k:status", "$k:list", "$k:lock", "$k:sessies").await().atMost(WACHTTIJD)
+        assertEquals(0, over)
     }
 
     @Test
     fun `einde van onbekende id geeft ONBEKEND`() {
         assertEquals(SessieEinde.ONBEKEND, sessiecache.beeindigSessie(ONBEKENDE_ID, ontvanger))
+    }
+
+    @Test
+    fun `einde van onbekende id zonder lopende sessie wist achtergebleven gegevens en meldt OPGERUIMD`() {
+        val k = BerichtenCache.cacheKey(ontvanger)
+        redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
+
+        assertEquals(SessieEinde.OPGERUIMD, sessiecache.beeindigSessie(ONBEKENDE_ID, ontvanger))
+        assertFalse(redis.key().exists("$k:status").await().atMost(WACHTTIJD))
     }
 
     @Test
@@ -145,6 +240,7 @@ class RedisSessieRegisterTest {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
         val SESSIE_ID_VORM = Regex("^[A-Za-z0-9_-]{22}$")
         const val ONBEKENDE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
+        const val HERHALINGEN = 20
         private val teller = AtomicLong(System.nanoTime())
 
         fun nieuweOntvanger() = Oin(teller.incrementAndGet().toString().padStart(20, '0').takeLast(20))

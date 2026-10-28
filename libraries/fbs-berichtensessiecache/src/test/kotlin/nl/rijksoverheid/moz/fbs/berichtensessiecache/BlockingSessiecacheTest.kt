@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonParseException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.WebApplicationException
@@ -28,6 +29,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -35,6 +37,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import java.net.URI
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -72,8 +75,12 @@ class BlockingSessiecacheTest {
 
         override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
     }
+    // Standaard loopt er nog een sessie: de schrijftests gaan over het schrijven, niet over het kruisen.
+    // De ontvanger zelf en niet `any()`: MockK bouwt voor `any()` een Bsn zonder waarde.
     private val ontvanger = Bsn("999990019")
-    private val sessies = mockk<SessieRegister>()
+    private val sessies = mockk<SessieRegister>().also {
+        every { it.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(false)
+    }
     private val facade = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 5)
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
@@ -437,6 +444,103 @@ class BlockingSessiecacheTest {
         assertSame(bericht, facade.schrijfBericht(ontvanger, bericht))
     }
 
+    @Test
+    fun `schrijfBericht dat kruist met het einde van de laatste sessie geeft GeenLijstInCache en meldt niets aan`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(true)
+
+        assertThrows<SessiecacheException.GeenLijstInCache> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verifyOrder {
+            service.createBericht(bericht, ontvanger)
+            sessies.ruimOpZonderSessie(ontvanger)
+        }
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+    }
+
+    @Test
+    fun `schrijfBericht met een mislukte opruimcontrole geeft het alert zonder de ontvanger en is Onbereikbaar`() {
+        // De aanleveraar moet het opnieuw proberen: of het bericht een sessie heeft, is niet bekend.
+        // De herlevering vindt dan geen status meer, dus alleen de vangnet-TTL kan het nog opruimen.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+
+            assertEquals("redis weg", fout.cause?.message, "de oorspronkelijke fout hoort door te komen")
+        }
+
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+        assertEquals(1, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+        regels.forEach { regel ->
+            assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel")
+            assertFalse(BerichtenCache.kenmerk(ontvanger) in regel, "kenmerk in de log: $regel")
+        }
+    }
+
+    @Test
+    fun `schrijfBericht waarvan het schrijven zelf geen antwoord geeft, geeft het alert en is Onbereikbaar`() {
+        // Het aanmeldscript kan in Redis gedraaid hebben terwijl het antwoord wegviel; na een uitlog
+        // vindt de herlevering geen status meer, dus alleen de vangnet-TTL ruimt het geschrevene nog op.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("verbinding weg"))
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+
+            assertEquals("verbinding weg", fout.cause?.message, "de oorspronkelijke fout hoort door te komen")
+        }
+
+        verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+        assertEquals(1, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+        regels.forEach { regel -> assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel") }
+    }
+
+    @Test
+    fun `schrijfBericht dat de validator afwijst, geeft geen alert`() {
+        // Een invoerfout: er is niets geschreven, dus ook niets om op te ruimen.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().failure(IllegalArgumentException("te lang"))
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            assertThrows<SessiecacheException.OngeldigeInvoer> { facade.schrijfBericht(ontvanger, bericht) }
+        }
+
+        assertEquals(0, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+    }
+
+    @Test
+    fun `verwijder waarvan het antwoord uitblijft, geeft het alert en is Onbereikbaar`() {
+        // De tombstone kan al geschreven zijn terwijl de opruimcontrole erna nooit liep.
+        val id = UUID.randomUUID()
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
+            Uni.createFrom().failure(IllegalStateException("verbinding weg"))
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, MAGAZIJN, id) }
+        }
+
+        assertEquals(1, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+    }
+
+    @Test
+    fun `een geslaagde verwijdering geeft geen alert`() {
+        val id = UUID.randomUUID()
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().voidItem()
+
+        val regels = vangLog(BlockingSessiecache::class.java) { facade.verwijder(ontvanger, MAGAZIJN, id) }
+
+        assertEquals(0, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+    }
+
     // --- volg ---
 
     @Test
@@ -574,7 +678,7 @@ class BlockingSessiecacheTest {
 
     @Test
     fun `startSessie geeft de gestarte sessie door`() {
-        val start = SessieStart(SESSIE_ID)
+        val start = SessieStart(SESSIE_ID, restenOpgeruimd = true)
         every { sessies.start(ontvanger) } returns Uni.createFrom().item(start)
 
         assertSame(start, facade.startSessie(ontvanger))
@@ -641,5 +745,31 @@ class BlockingSessiecacheTest {
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")
+    }
+
+    private fun vangLog(klasse: Class<*>, blok: () -> Unit): List<String> {
+        val regels = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val logger = java.util.logging.Logger.getLogger(klasse.name)
+        val vanger = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) {
+                val oorzaken = generateSequence(record.thrown) { it.cause }.joinToString("") { " | ${it.javaClass.name}: ${it.message}" }
+
+                regels += String.format(record.message, *(record.parameters ?: emptyArray())) + oorzaken
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+
+        logger.addHandler(vanger)
+
+        try {
+            blok()
+        } finally {
+            logger.removeHandler(vanger)
+        }
+
+        return regels
     }
 }

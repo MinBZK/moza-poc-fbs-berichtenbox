@@ -104,8 +104,8 @@ interface Sessiecache {
     ): Bericht?
 
     /**
-     * Idempotente cache-invalidate: "niet in cache" is geen fout (TTL kan verlopen
-     * zijn, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
+     * Idempotente cache-invalidate: "niet in cache" is geen fout (het opruimen na de laatste
+     * sessie wiste de lijst al, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
      */
     fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID)
 
@@ -114,6 +114,8 @@ interface Sessiecache {
      * magazijnen en vult de cache; retourneert een SSE-compatible event-stream
      * met per-magazijn voortgang en een afsluitend GEREED/FOUT-event. Gooit 409
      * wanneer er al een ophaling loopt voor deze ontvanger (atomaire Redis-lock).
+     * Eindigt de laatste sessie terwijl de ronde loopt, dan wist de ronde wat ze
+     * schreef en eindigt de stream zonder afsluitend event.
      */
     fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent>
 
@@ -121,16 +123,17 @@ interface Sessiecache {
      * Schrijft één bericht bij in de al opgehaalde lijst van [ontvanger] (aanmeld-pad).
      * Gooit 400 wanneer `bericht.ontvanger` niet overeenkomt met [ontvanger] of
      * wanneer het bericht de defensieve limieten overschrijdt; 404 wanneer er
-     * geen opgehaalde lijst is voor deze ontvanger.
+     * geen opgehaalde lijst is voor deze ontvanger, ook als de laatste sessie eindigde
+     * terwijl het bericht geschreven werd — het is dan weer gewist.
      */
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
 
     /**
      * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat: elk bericht
      * dat via [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
-     * periodieke hartslag controleert of de sessie nog loopt (zie [leesSessie]) en verlengt zolang de
-     * gegevens van de ontvanger. Eindigt de sessie, dan meldt de stream [SessieGebeurtenis.SessieVerlopen]
-     * en sluit. Zie [SessieGebeurtenis] voor het verloop.
+     * periodieke hartslag controleert of de sessie nog loopt (zie [leesSessie]). Eindigt de sessie,
+     * dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit. Zie [SessieGebeurtenis] voor
+     * het verloop.
      *
      * Synchroon en vóór de stream: [SessiecacheException.SessieOngeldig] als [sessieId] geen lopende
      * sessie van [ontvanger] is, daarna net als [lijst] de eis van een afgeronde ophaling met
@@ -145,11 +148,18 @@ interface Sessiecache {
     fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis>
 
     /**
-     * Start een inlogsessie voor [ontvanger]. Een ontvanger kan meerdere sessies tegelijk hebben.
+     * Start een inlogsessie voor [ontvanger]. Loopt er voor hem nog geen andere sessie, dan worden
+     * eerst de gegevens gewist die er zonder lopende sessie nog stonden: een sessie begint met een
+     * vers beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
      *
      * De sessie verloopt niet uit zichzelf: ze loopt tot [beeindigSessie]. Wordt ze nooit beëindigd,
-     * dan verdwijnt ze met de TTL op de sessie-administratie (`berichtensessiecache.sessie.max-duur`
-     * na de laatste start van de ontvanger).
+     * dan verdwijnt ze met de vangnet-TTL (`berichtensessiecache.sessie.max-duur` plus
+     * `vangnet-marge`), en de gegevens van de ontvanger zonder logregel.
+     *
+     * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
+     * gebeurde, dan staat er een sessie die niemand kent, en kan de start al resten gewist hebben.
+     * Een volgende start ziet die spooksessie lopen en meldt dan niets, dus de aanroeper legt zo'n
+     * start als onbevestigd opruimen vast, net als een uitlog zonder antwoord.
      */
     fun startSessie(ontvanger: Identificatienummer): SessieStart
 
@@ -161,9 +171,14 @@ interface Sessiecache {
     fun leesSessie(sessieId: String, ontvanger: Identificatienummer)
 
     /**
-     * Beëindigt de sessie [sessieId] van [ontvanger]; zijn andere sessies lopen door.
-     * Idempotent: een onbekende of verlopen sessie is geen fout, de uitkomst is dan
-     * [SessieEinde.ONBEKEND].
+     * Beëindigt de sessie [sessieId] van [ontvanger]. Loopt er daarna geen sessie meer voor hem,
+     * dan worden zijn gegevens gewist ([SessieEinde.OPGERUIMD]) — ook bij een onbekende of al
+     * verlopen sessie, als er nog gegevens stonden: elk wissen hoort gemeld te worden.
+     * Idempotent: een onbekende of verlopen sessie is geen fout; zonder iets te wissen is de
+     * uitkomst [SessieEinde.ONBEKEND].
+     *
+     * Bij [SessiecacheException.Onbereikbaar] kan het wissen al gebeurd zijn, en dan ziet een
+     * herhaalde aanroep niets meer: de aanroeper legt die uitlog dan als onbevestigd vast.
      */
     fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
 }

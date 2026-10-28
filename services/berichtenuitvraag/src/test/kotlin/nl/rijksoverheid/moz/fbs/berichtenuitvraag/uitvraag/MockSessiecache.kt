@@ -73,9 +73,12 @@ class MockSessiecache : Sessiecache {
     val schrijfFouten = ArrayDeque<SessiecacheException>()
     val schrijfAanroepen = mutableListOf<Bericht>()
 
-    /** Lopende sessies: id → ontvanger. Ze lopen tot een einde; de TTL wordt in de library getest. */
+    /** Lopende sessies: id → ontvanger. Ze lopen tot een einde; de vangnet-TTL wordt in de library getest. */
     val sessies = ConcurrentHashMap<String, Identificatienummer>()
     var startSessieFout: SessiecacheException? = null
+
+    /** Laat de volgende start melden dat hij resten wiste die er zonder lopende sessie nog stonden. */
+    var restenBijVolgendeStart = false
     var leesFout: SessiecacheException? = null
     var beeindigFout: SessiecacheException? = null
     val gelezenSessies = CopyOnWriteArrayList<String>()
@@ -87,6 +90,7 @@ class MockSessiecache : Sessiecache {
     fun reset() {
         sessies.clear()
         startSessieFout = null
+        restenBijVolgendeStart = false
         leesFout = null
         beeindigFout = null
         gelezenSessies.clear()
@@ -201,8 +205,10 @@ class MockSessiecache : Sessiecache {
 
         val sessieId = UUID.randomUUID().toString().replace("-", "").take(SESSIE_ID_LENGTE)
         sessies[sessieId] = ontvanger
+        val resten = restenBijVolgendeStart
+        restenBijVolgendeStart = false
 
-        return SessieStart(sessieId)
+        return SessieStart(sessieId, restenOpgeruimd = resten)
     }
 
     override fun leesSessie(sessieId: String, ontvanger: Identificatienummer) {
@@ -217,7 +223,7 @@ class MockSessiecache : Sessiecache {
 
         if (!sessies.remove(sessieId, ontvanger)) return SessieEinde.ONBEKEND
 
-        return SessieEinde.BEEINDIGD
+        return if (sessies.containsValue(ontvanger)) SessieEinde.BEEINDIGD else SessieEinde.OPGERUIMD
     }
 
     private fun paginaVan(pagina: Int?, paginaGrootte: Int?): BerichtenPagina {

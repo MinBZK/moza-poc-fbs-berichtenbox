@@ -217,6 +217,6 @@ Dat script levert ook `out/root.pem`, de root waartegen je het document verifiee
 
 Voor productie is er per service een operator-handleiding:
 [magazijn](operator-handleiding.md) (verplichte overrides, LDV-TLS, outbox, monitoring) en
-[uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, cache-TTL's).
+[uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, sessietermijnen).
 Het [stelselregister](operator-handleiding-stelselregister.md) heeft er een over de ondertekensleutel.
 De eerste twee beschrijven ook de bewust-onveilige kleppen en de alert-regels die daarbij horen.

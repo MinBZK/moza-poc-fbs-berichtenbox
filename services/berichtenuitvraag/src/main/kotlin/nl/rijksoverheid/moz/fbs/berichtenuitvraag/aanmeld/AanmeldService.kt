@@ -21,7 +21,7 @@ import org.jboss.logging.Logger
  * in de sessiecache van de ontvanger.
  *
  * Alleen ontvangers met een opgehaalde lijst worden bijgewerkt; ontbreekt die, dan
- * is dat het normale geval (de meeste ontvangers hebben er geen) en wordt
+ * is dat het normale geval (de meeste ontvangers zijn niet ingelogd) en wordt
  * het event geaccepteerd-maar-overgeslagen i.p.v. als fout teruggemeld — anders zou
  * de publicatie-stream zinloos blijven herafleveren.
  *
@@ -92,7 +92,7 @@ class AanmeldService(
 
             return true
         } catch (ignored: SessiecacheException.GeenLijstInCache) {
-            // Geen opgehaalde lijst is het normale geval (de meeste ontvangers hebben er geen):
+            // Geen opgehaalde lijst is het normale geval (de meeste ontvangers zijn niet ingelogd):
             // geaccepteerd-maar-overgeslagen, geen fout. Bewust geen detail loggen.
             log.debug("Geen opgehaalde lijst voor ontvanger; aanmelding overgeslagen")
 

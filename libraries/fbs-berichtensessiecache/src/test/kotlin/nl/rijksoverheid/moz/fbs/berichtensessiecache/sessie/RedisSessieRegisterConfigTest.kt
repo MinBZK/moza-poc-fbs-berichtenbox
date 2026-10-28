@@ -36,6 +36,7 @@ class RedisSessieRegisterConfigTest {
         val duur = Duration.parse(waarde)
         val gevallen = mapOf(
             "max-duur" to TestSessieConfig(maxDuur = duur),
+            "vangnet-marge" to TestSessieConfig(vangnetMarge = duur),
         )
 
         gevallen.forEach { (sleutel, config) ->

@@ -22,7 +22,7 @@ import java.net.Socket
 
 /**
  * `POST /sessies` en `DELETE /sessies/huidige`: de vertaling van de facade naar HTTP. Het
- * sessiegedrag zelf zit in de library; de mock spiegelt alleen wat de uitvraag
+ * sessiegedrag zelf (opruimen) zit in de library; de mock spiegelt alleen wat de uitvraag
  * ervan ziet.
  */
 @QuarkusTest

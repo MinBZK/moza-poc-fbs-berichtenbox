@@ -20,11 +20,36 @@ class SessieServiceTest {
         val gevonden = listOf("berichtensessiecache:v2:abc:status", "berichtensessiecache:v2:abc:list")
 
         every { keyCommands.keys("berichtensessiecache:*") } returns gevonden
+        every { keyCommands.keys("bericht:*") } returns emptyList()
         every { keyCommands.del("berichtensessiecache:v2:abc:status", "berichtensessiecache:v2:abc:list") } returns 2
 
         assertEquals(2, service.laatSessiesVerlopen())
 
         verify { keyCommands.del("berichtensessiecache:v2:abc:status", "berichtensessiecache:v2:abc:list") }
+    }
+
+    @Test
+    fun `verlopen wist ook de berichthashes buiten de sessie-prefix`() {
+        val sessieKeys = listOf("berichtensessiecache:v4:abc:status", "berichtensessiecache:v4:abc:sessies")
+        val hashes = listOf("bericht:v4:00000000000000100000:b1", "bericht:v4:00000001823288444000:b2")
+        val alles = (sessieKeys + hashes).toTypedArray()
+
+        every { keyCommands.keys("berichtensessiecache:*") } returns sessieKeys
+        every { keyCommands.keys("bericht:*") } returns hashes
+        every { keyCommands.del(*alles) } returns 4
+
+        assertEquals(4, service.laatSessiesVerlopen())
+
+        verify { keyCommands.del(*alles) }
+    }
+
+    @Test
+    fun `verlopen wist berichthashes ook als er geen sessie-keys meer zijn`() {
+        every { keyCommands.keys("berichtensessiecache:*") } returns emptyList()
+        every { keyCommands.keys("bericht:*") } returns listOf("bericht:v4:00000000000000100000:b1")
+        every { keyCommands.del("bericht:v4:00000000000000100000:b1") } returns 1
+
+        assertEquals(1, service.laatSessiesVerlopen())
     }
 
     @Test
@@ -38,7 +63,8 @@ class SessieServiceTest {
 
     @Test
     fun `zo mogelijk wissen geeft het aantal door als het lukt`() {
-        every { keyCommands.keys(any()) } returns listOf("berichtensessiecache:v3:abc:status")
+        every { keyCommands.keys("berichtensessiecache:*") } returns listOf("berichtensessiecache:v3:abc:status")
+        every { keyCommands.keys("bericht:*") } returns emptyList()
         every { keyCommands.del("berichtensessiecache:v3:abc:status") } returns 1
 
         assertEquals(1, service.laatSessiesVerlopenZoMogelijk())

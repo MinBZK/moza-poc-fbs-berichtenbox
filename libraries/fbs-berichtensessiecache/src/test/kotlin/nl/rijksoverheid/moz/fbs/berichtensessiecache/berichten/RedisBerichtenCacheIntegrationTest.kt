@@ -5,10 +5,11 @@ import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieConfig
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.dataTtl
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Rsin
-import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -41,8 +42,10 @@ class RedisBerichtenCacheIntegrationTest {
     @Inject
     lateinit var objectMapper: com.fasterxml.jackson.databind.ObjectMapper
 
-    @ConfigProperty(name = "berichtensessiecache.ttl")
-    lateinit var sessieTtl: Duration
+    @Inject
+    internal lateinit var sessieConfig: SessieConfig
+
+    private val sessieTtl: Duration get() = sessieConfig.dataTtl
 
     // OIN gebruikt als test-ontvanger: geen elfproef-vereiste, 20-cijferig uniek per test-run.
     private val ontvangerWaarde = System.nanoTime().toString().padStart(20, '0').takeLast(20)
@@ -235,8 +238,8 @@ class RedisBerichtenCacheIntegrationTest {
     fun `trySetAggregationStatus atomaire lock - eerste aanroep slaagt, tweede faalt`() {
         val status = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
 
-        val first = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
-        val second = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val first = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
+        val second = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertTrue(first)
         assertFalse(second)
@@ -738,7 +741,7 @@ class RedisBerichtenCacheIntegrationTest {
     }
 
     @Test
-    fun `createBericht zonder lijst begint er een met alleen dat bericht, met de sessie-TTL`() {
+    fun `createBericht zonder lijst begint er een met alleen dat bericht, met de vangnet-TTL`() {
         val nieuw = testBerichten()[0]
 
         berichtenCache.createBericht(nieuw, ontvanger).await().indefinitely()
@@ -749,14 +752,14 @@ class RedisBerichtenCacheIntegrationTest {
 
         // Zonder TTL blijft een hash met gegevens van de ontvanger voor altijd in Redis staan.
         listOf(listKey(), BerichtenCache.berichtKey(nieuw.sleutel)).forEach { sleutel ->
-            assertTrue(pttl(sleutel) in 1..sessieTtl.toMillis(), "$sleutel zonder sessie-TTL: ${pttl(sleutel)}")
+            assertTrue(pttl(sleutel) in 1..sessieTtl.toMillis(), "$sleutel zonder vangnet-TTL: ${pttl(sleutel)}")
         }
     }
 
     @Test
     fun `een reeks aanmeldingen terwijl de berichtenbox leest, komt er helemaal in`() {
-        // Een open berichtenbox verlengt bij elk gelezen bericht de TTL van de lijst (EXPIRE). Een
-        // aanmelding die op die lijst wachtte tot er niets aan veranderde, liep daar op stuk.
+        // Een open berichtenbox leest terwijl aanmeldingen binnenkomen. Een aanmelding die op de
+        // lijst wachtte tot er niets aan veranderde, liep daar vroeger op stuk.
         // Achter elkaar aangemeld: gelijktijdig zou de test de connection-pool meten, niet dit.
         val gelezen = testBerichten()[0]
         berichtenCache.store(cacheKey(), listOf(gelezen)).await().indefinitely()
@@ -1203,40 +1206,75 @@ class RedisBerichtenCacheIntegrationTest {
         assertNull(after)
     }
 
-    @Test
-    fun `sliding TTL - reads verlengen sessie-keys zodat actieve gebruiker data behoudt`() {
-        val berichten = testBerichten().take(1)
-        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
+    /**
+     * De TTL op de gegevens is een vangnet dat ná de laatste sessie valt; het wissen zelf is een
+     * actieve stap. Schoof lezen de TTL op, dan zou een lezende sessie die nooit uitlogt haar
+     * gegevens onbeperkt laten leven.
+     */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["lijst", "gefilterde lijst", "zoeken", "bericht"])
+    fun `lezen verlengt de TTL van de gegevens niet`(leespad: String) {
+        val bericht = testBerichten()[0]
+        berichtenCache.store(cacheKey(), listOf(bericht)).await().indefinitely()
         berichtenCache.storeAggregationStatus(
             cacheKey(),
             AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1),
         ).await().indefinitely()
+        val sleutels = listOf(listKey(), "${cacheKey()}:status", "${cacheKey()}:sleutels", BerichtenCache.berichtKey(bericht.sleutel))
 
-        // TTL is 2s; doe 3 reads elk na 1s. Zonder sliding TTL zou de data na 2s weg zijn;
-        // met sliding TTL verlengt elke read en blijft de data beschikbaar.
-        repeat(3) {
-            Thread.sleep(1_000)
-            val page = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
-            assertNotNull(page, "Cache is vroegtijdig verlopen op iteratie $it")
-            assertEquals(1, page!!.totalElements)
+        Thread.sleep(1_000)
+
+        val lezing = when (leespad) {
+            "lijst" -> berichtenCache.getPage(cacheKey(), 0, 20, null, null).replaceWithVoid()
+            "gefilterde lijst" -> berichtenCache.getPage(cacheKey(), 0, 20, bericht.afzender, ontvanger).replaceWithVoid()
+            "zoeken" -> berichtenCache.search(ontvanger, "belastingaangifte", 0, 20).replaceWithVoid()
+            else -> berichtenCache.getById(bericht.sleutel, ontvanger).replaceWithVoid()
         }
+
+        lezing.await().indefinitely()
+
+        sleutels.forEach { sleutel ->
+            val resterend = pttl(sleutel)
+
+            assertTrue(resterend in 1..sessieTtl.toMillis() - 900, "$sleutel verlengd of verlopen: $resterend ms")
+        }
+    }
+
+    @Test
+    fun `de sleutelset kent elke berichthash en tombstone van de ontvanger`() {
+        val opgehaald = testBerichten().take(2)
+        val aangemeld = testBerichten()[2]
+        berichtenCache.store(cacheKey(), opgehaald).await().indefinitely()
+        berichtenCache.createBericht(aangemeld, ontvanger).await().indefinitely()
+        berichtenCache.delete(opgehaald[0].sleutel, ontvanger).await().indefinitely()
+
+        val sleutels = redis.set(String::class.java).smembers("${cacheKey()}:sleutels").await().indefinitely()
+
+        val verwacht = (opgehaald + aangemeld).map { BerichtenCache.berichtKey(it.sleutel) } +
+            BerichtenCache.verwijderdKey(ontvanger, opgehaald[0].sleutel)
+
+        assertEquals(verwacht.toSet(), sleutels)
+        assertTrue(pttl("${cacheKey()}:sleutels") in 1..sessieTtl.toMillis())
     }
 
     @Test
     fun `updateAggregationStatus laat lock-key intact`() {
         val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
 
-        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertTrue(lockVerkregen, "Eerste trySet moet slagen")
 
         // updateAggregationStatus werkt de waarde bij maar houdt de lock (key) intact.
-        berichtenCache.updateAggregationStatus(
+        val eigenaar = berichtenCache.updateAggregationStatus(
             cacheKey(),
             bezigStatus.copy(totaalMagazijnen = 3),
+            RONDE,
         ).await().indefinitely()
 
-        val lockNogAanwezig = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        assertTrue(eigenaar, "De ronde die de lock houdt, hoort dat te horen")
+
+        val lockNogAanwezig = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertFalse(lockNogAanwezig, "Lock moet nog aanwezig zijn na updateAggregationStatus")
     }
@@ -1247,19 +1285,19 @@ class RedisBerichtenCacheIntegrationTest {
         // zodat een nieuwe aanroep kan slagen (geen eeuwig-lock na EXPIRE-failure).
         val status = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1)
 
-        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertTrue(lockVerkregen, "Eerste trySet moet slagen")
 
         // Tweede aanroep faalt meteen: lock bestaat nog.
-        val dubbel = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val dubbel = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertFalse(dubbel, "Lock moet geblokkeerd zijn terwijl hij actief is")
 
         // TTL is 2s in RealRedisTestProfile; na 3s is de lock automatisch verdwenen.
         Thread.sleep(3_000)
 
-        val naVerloop = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
+        val naVerloop = berichtenCache.trySetAggregationStatus(cacheKey(), status, RONDE).await().indefinitely()
 
         assertTrue(naVerloop, "Lock moet na TTL-verloop opnieuw verkregen kunnen worden")
     }
@@ -1268,7 +1306,7 @@ class RedisBerichtenCacheIntegrationTest {
     fun `storeAggregationStatus geeft lock vrij`() {
         val bezigStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
 
-        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        val lockVerkregen = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertTrue(lockVerkregen, "Eerste trySet moet slagen")
 
@@ -1278,22 +1316,69 @@ class RedisBerichtenCacheIntegrationTest {
             AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 0, geslaagd = 0, mislukt = 0),
         ).await().indefinitely()
 
-        val lockVrij = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus).await().indefinitely()
+        val lockVrij = berichtenCache.trySetAggregationStatus(cacheKey(), bezigStatus, RONDE).await().indefinitely()
 
         assertTrue(lockVrij, "Lock moet vrij zijn na storeAggregationStatus")
     }
 
     @Test
-    fun `sliding TTL - getById verlengt TTL van berichthash`() {
-        val berichten = testBerichten().take(1)
-        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
-        val berichtId = berichten[0].berichtId
+    fun `slaRondeOp met de eigen lock schrijft lijst, hashes en status en geeft de lock vrij`() {
+        val berichten = testBerichten()
+        val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
+        berichtenCache.trySetAggregationStatus(cacheKey(), AggregationStatus(status = OphalenStatus.BEZIG), RONDE).await().indefinitely()
 
-        repeat(3) {
-            Thread.sleep(1_000)
-            val bericht = berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
-            assertNotNull(bericht, "Bericht-hash is vroegtijdig verlopen op iteratie $it")
-        }
+        assertTrue(berichtenCache.slaRondeOp(cacheKey(), berichten, gereed, RONDE).await().indefinitely())
+
+        assertEquals(gereed, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertEquals(berichten.size.toLong(), berichtenCache.getPage(cacheKey(), 0, 20).await().indefinitely()!!.totalElements)
+        berichten.forEach { assertTrue(bestaat(BerichtenCache.berichtKey(it.sleutel))) }
+        assertFalse(bestaat("${cacheKey()}:lock"))
+    }
+
+    @ParameterizedTest(name = "lock {0}")
+    @ValueSource(strings = ["weg", "van een andere ronde"])
+    fun `slaRondeOp zonder de eigen lock schrijft niets en laat een andere lock staan`(lock: String) {
+        val berichten = testBerichten()
+        val anderStatus = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 2)
+
+        if (lock != "weg") berichtenCache.trySetAggregationStatus(cacheKey(), anderStatus, ANDERE_RONDE).await().indefinitely()
+
+        val opgeslagen = berichtenCache.slaRondeOp(cacheKey(), berichten, AggregationStatus(status = OphalenStatus.GEREED), RONDE)
+            .await().indefinitely()
+
+        assertFalse(opgeslagen)
+        assertFalse(bestaat("${cacheKey()}:list"))
+        berichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel))) }
+        assertEquals(if (lock == "weg") null else anderStatus, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertEquals(lock != "weg", bestaat("${cacheKey()}:lock"))
+    }
+
+    @Test
+    fun `slaRondeOp met een lege lijst wist de lijst van een vorige ronde`() {
+        berichtenCache.store(cacheKey(), testBerichten()).await().indefinitely()
+        berichtenCache.trySetAggregationStatus(cacheKey(), AggregationStatus(status = OphalenStatus.BEZIG), RONDE).await().indefinitely()
+
+        assertTrue(berichtenCache.slaRondeOp(cacheKey(), emptyList(), AggregationStatus(status = OphalenStatus.GEREED), RONDE).await().indefinitely())
+
+        assertFalse(bestaat("${cacheKey()}:list"))
+        assertEquals(OphalenStatus.GEREED, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely()?.status)
+    }
+
+    @Test
+    fun `sluitRondeAf en updateAggregationStatus schrijven alleen voor de ronde die de lock houdt`() {
+        val bezig = AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 0)
+        val fout = AggregationStatus(status = OphalenStatus.FOUT)
+        berichtenCache.trySetAggregationStatus(cacheKey(), bezig, ANDERE_RONDE).await().indefinitely()
+
+        assertFalse(berichtenCache.updateAggregationStatus(cacheKey(), bezig.copy(totaalMagazijnen = 3), RONDE).await().indefinitely())
+        assertFalse(berichtenCache.sluitRondeAf(cacheKey(), fout, RONDE).await().indefinitely())
+        assertEquals(bezig, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertTrue(bestaat("${cacheKey()}:lock"))
+
+        assertTrue(berichtenCache.sluitRondeAf(cacheKey(), fout, ANDERE_RONDE).await().indefinitely())
+        assertEquals(fout, berichtenCache.getAggregationStatus(cacheKey()).await().indefinitely())
+        assertFalse(bestaat("${cacheKey()}:lock"))
+        assertTrue(pttl("${cacheKey()}:status") in (sessieTtl.toMillis() - 5_000)..sessieTtl.toMillis())
     }
 
     @Test
@@ -1308,24 +1393,6 @@ class RedisBerichtenCacheIntegrationTest {
             .await().indefinitely()
 
         assertFalse(velden.containsKey("inhoud"), "Was: ${velden.keys}")
-    }
-
-    @Test
-    fun `sliding TTL - getById verlengt ook de list-key`() {
-        // getById verlengt naast de berichthash ook de sessie-keys (list + status), zodat een
-        // detailweergave alléén de pagina-navigatie niet alsnog laat verlopen. TTL is 2s; 3 reads
-        // met 1s ertussen tonen dat de list-key blijft leven zolang er gelezen wordt.
-        val berichten = testBerichten().take(1)
-        berichtenCache.store(cacheKey(), berichten).await().indefinitely()
-        val berichtId = berichten[0].berichtId
-
-        repeat(3) {
-            Thread.sleep(1_000)
-            berichtenCache.getById(BerichtSleutel(MAGAZIJN_A, berichtId), ontvanger).await().indefinitely()
-        }
-
-        val listTtl = redis.key().ttl(listKey()).await().indefinitely()
-        assertTrue(listTtl > 0, "list-key is vroegtijdig verlopen ondanks herhaalde getById-reads; was: $listTtl")
     }
 
     @Test
@@ -1575,7 +1642,11 @@ class RedisBerichtenCacheIntegrationTest {
 
     private fun pttl(sleutel: String): Long = redis.key().pttl(sleutel).await().indefinitely()
 
+    private fun bestaat(sleutel: String): Boolean = redis.key().exists(sleutel).await().indefinitely()
+
     private companion object {
+        const val RONDE = "ronde-1"
+        const val ANDERE_RONDE = "ronde-2"
         const val GELIJKTIJDIG = 10
         const val REEKS = 50
         const val WACHTTIJD_S = 10L
