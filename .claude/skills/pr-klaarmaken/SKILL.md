@@ -1,12 +1,12 @@
 ---
 name: pr-klaarmaken
-description: Zet het werk op de huidige branch klaar als draft-PR — sync met main, verify per geraakte module, warnings triëren, PR openen en aan het issue koppelen
-disable-model-invocation: true
+description: Zet het werk op de huidige branch klaar als draft-PR — sync met main, verify per geraakte module, warnings triëren, PR openen en aan het issue koppelen. Gebruik wanneer de opdrachtgever om een PR vraagt, direct of via een opdracht als /pr-reeks
 ---
 
 # PR klaarmaken
 
-Deze workflow heeft zij-effecten (push, PR openen) en wordt daarom alleen op verzoek gedraaid.
+Deze workflow heeft zij-effecten (push, PR openen). Draai hem alleen als de opdrachtgever om een PR
+vraagt, direct of via een opdracht die PR's oplevert zoals `/pr-reeks`; niet omdat het werk af lijkt.
 
 Stap 1 vóór stap 3: zo verify je tegen de actuele `main` en zie je conflicten en semantische
 botsingen (hernoemde of verwijderde symbolen) lokaal in plaats van in CI. Up-to-date zijn is voor

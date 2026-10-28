@@ -43,7 +43,8 @@ afsluitcomment; de opdrachtgever leest die bij de review.
   infrastructuur (FSC-harness, demo-stack, compose, ZAD-scripts), draai het dan lokaal met podman.
   De host is gedeeld met andere sessies: stoor geen draaiende stack. Kan het niet, zet dan in de
   PR-body "Niet live getest" plus wat er na de merge te controleren is.
-- Open de draft-PR volgens `/pr-klaarmaken` stap 5-7 (`Closes` of `Refs MinBZK/MijnOverheidZakelijk#<n>`).
+- Open de draft-PR met de skill `pr-klaarmaken` (Skill-tool). Stap 1-4 daarvan heb je hierboven al
+  gedaan; `Closes` of `Refs MinBZK/MijnOverheidZakelijk#<n>` volgens stap 7.
 
 ## 2. Reviewronde
 
