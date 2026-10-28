@@ -12,6 +12,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -159,12 +160,17 @@ interface Sessiecache {
      * eerst de gegevens van een eerdere, verlopen sessie gewist: een sessie begint met een vers
      * beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
      *
+     * [uiterlijkGeldigTot] is het plafond van de sessie van de aanroeper (het portaal): de sessie
+     * eindigt dan op het vroegste van dat moment en start + `berichtensessiecache.sessie.max-duur`.
+     * Ligt het niet in de toekomst (volgens de klok van de opslag), dan [SessiecacheException.OngeldigeInvoer]
+     * en is er niets gestart of gewist.
+     *
      * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
      * gebeurde, dan staat er een sessie die niemand kent, en kan de start al resten gewist hebben.
      * Een volgende start ziet die spooksessie lopen en meldt dan niets, dus de aanroeper legt zo'n
      * start als onbevestigd opruimen vast, net als een uitlog zonder antwoord.
      */
-    fun startSessie(ontvanger: Identificatienummer): SessieStart
+    fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant? = null): SessieStart
 
     /**
      * Controleert dat [sessieId] een lopende sessie van [ontvanger] is en verlengt hem met de

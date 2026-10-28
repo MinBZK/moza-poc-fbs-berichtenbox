@@ -106,9 +106,13 @@ class MockSessiecache : Sessiecache {
     var veegFout: SessiecacheException? = null
     val veegAanroepen = AtomicInteger()
     val geraakteSessies = CopyOnWriteArrayList<String>()
+    val gelezenSessies = CopyOnWriteArrayList<String>()
 
     /** De geldigheid per lopende sessie; een raak schuift [SessieGeldigheid.geldigTot] op, tot het plafond. */
     val geldigheden = ConcurrentHashMap<String, SessieGeldigheid>()
+
+    /** Het plafond dat elke start meekreeg, in volgorde; `null` voor een start zonder body. */
+    val startPlafonds = CopyOnWriteArrayList<Instant?>()
 
     /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
     fun sessieVoor(ontvanger: String = "BSN:999990019"): String =
@@ -127,7 +131,9 @@ class MockSessiecache : Sessiecache {
         veegFout = null
         veegAanroepen.set(0)
         geraakteSessies.clear()
+        gelezenSessies.clear()
         geldigheden.clear()
+        startPlafonds.clear()
         berichten.clear()
         schrijfFouten.clear()
         schrijfAanroepen.clear()
@@ -234,12 +240,17 @@ class MockSessiecache : Sessiecache {
         return volgGebeurtenissen
     }
 
-    override fun startSessie(ontvanger: Identificatienummer): SessieStart {
+    override fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant?): SessieStart {
         startSessieFout?.let { throw it }
+        startPlafonds += uiterlijkGeldigTot
+
+        if (uiterlijkGeldigTot != null && !uiterlijkGeldigTot.isAfter(Instant.now())) {
+            throw SessiecacheException.OngeldigeInvoer("uiterlijkGeldigTot ligt niet in de toekomst.")
+        }
 
         val sessieId = UUID.randomUUID().toString().replace("-", "").take(SESSIE_ID_LENGTE)
         val nu = Instant.now()
-        val plafond = nu.plusSeconds(MAX_DUUR_SECONDEN)
+        val plafond = listOfNotNull(nu.plusSeconds(MAX_DUUR_SECONDEN), uiterlijkGeldigTot).min()
         sessies[sessieId] = ontvanger
         geldigheden[sessieId] = SessieGeldigheid(minOf(nu.plusSeconds(INACTIVITEIT_SECONDEN), plafond), plafond)
         val resten = restenBijVolgendeStart
@@ -260,6 +271,7 @@ class MockSessiecache : Sessiecache {
     }
 
     override fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid {
+        gelezenSessies += sessieId
         raakFout?.let { throw it }
 
         return lopend(sessieId, ontvanger)

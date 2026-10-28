@@ -62,9 +62,9 @@ class SessieInvoerEigenschapTest {
                 given().header("X-Ontvanger", ontvanger).headers(Headers(waarden.map { Header("X-Sessie", it) })).request(methode, pad)
             }
 
-            // De lopende sessie zelf blijft bruikbaar: weigeren is niet beëindigen. Zonder ophaalronde is dat een 409.
-            given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/berichten")
-                .then().statusCode(409)
+            // De lopende sessie zelf blijft bruikbaar: weigeren is niet beëindigen.
+            given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/sessies/huidige")
+                .then().statusCode(200)
         }
     }
 
@@ -83,8 +83,8 @@ class SessieInvoerEigenschapTest {
             }
         }
 
-        given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/berichten")
-            .then().statusCode(409)
+        given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/sessies/huidige")
+            .then().statusCode(200)
     }
 
     private fun verwachtWeigering(geval: String, ontvangerGeldig: Boolean, verzoek: () -> Response) {
@@ -120,6 +120,8 @@ class SessieInvoerEigenschapTest {
             "GET" to "/api/v1/berichten/00000000-0000-4000-8000-000000000001?magazijnId=00000001003214345000",
             "GET" to "/api/v1/berichten/_ophalen",
             "GET" to "/api/v1/berichten/_volgen",
+            "GET" to "/api/v1/sessies/huidige",
+            "POST" to "/api/v1/sessies/huidige/_verlengen",
         )
     }
 }

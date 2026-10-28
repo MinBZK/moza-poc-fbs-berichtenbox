@@ -103,19 +103,29 @@ internal object SessieScripts {
 
     /**
      * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), kenmerk,
-     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger, en de TTL van
-     * de index (ms).
+     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger, het plafond
+     * dat de aanroeper meegaf (ms) of een lege tekst, en de TTL van de index (ms).
      *
-     * Antwoord `{1, verloop, opgeruimd, plafond}`, met verloop en plafond in ms en opgeruimd 1 als de
-     * start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0.
+     * Antwoord:
+     * - `{1, verloop, opgeruimd, plafond}` bij een start, met verloop en plafond in ms en opgeruimd 1
+     *   als de start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0;
+     * - `{2}` als het meegegeven plafond niet in de toekomst ligt. Er is dan niets veranderd.
      *
-     * Het plafond is start + maximale duur. Alleen een start zonder andere lopende sessie wist: die
-     * begint met een vers beeld. Een start naast een lopende sessie trekt de TTL van de bestaande
-     * gegevens op, anders verlopen ze vóór het plafond van de nieuwe sessie.
+     * Het plafond is het vroegste van start + maximale duur en het meegegeven plafond: de sessie van
+     * het portaal eindigt niet later dan het portaal zegt. Alleen een start zonder andere lopende
+     * sessie wist: die begint met een vers beeld. Een start naast een lopende sessie trekt de TTL van
+     * de bestaande gegevens op, anders verlopen ze vóór het plafond van de nieuwe sessie.
      */
     val START = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
         local plafond = nu + tonumber(ARGV[3])
+        local gevraagd = tonumber(ARGV[7])
+        if gevraagd then
+            if gevraagd <= nu then
+                return { 2 }
+            end
+            plafond = math.min(plafond, gevraagd)
+        end
 
         ruimVerlopenOp(nu)
 
@@ -140,7 +150,7 @@ internal object SessieScripts {
         redis.call('PEXPIRE', KEYS[2], ARGV[5])
         redis.call('SET', KEYS[8], ARGV[6], 'PX', ARGV[5])
         redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[4])
-        houdIndexAan(ARGV[7])
+        houdIndexAan(ARGV[8])
         return { 1, verloop, opgeruimd, plafond }
     """.trimIndent()
 

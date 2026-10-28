@@ -1,7 +1,7 @@
 meta {
-  name: 2. Sessie beëindigen
+  name: 5. Sessie beëindigen
   type: http
-  seq: 2
+  seq: 5
 }
 
 delete {
@@ -18,5 +18,5 @@ headers {
 
 docs {
   Geeft 204, ook als de sessie al verlopen of onbekend is. Alleen een ontbrekende of niet goed
-  gevormde `X-Sessie` geeft 401. Het portaal stuurt dit bij uitloggen.
+  gevormde `X-Sessie` geeft 401. Het portaal stuurt dit bij uitloggen en bij zijn eigen time-out.
 }

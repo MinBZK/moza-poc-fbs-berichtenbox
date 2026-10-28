@@ -103,9 +103,11 @@ tags:
       verdwijnen pas met de laatste sessie. Het sessie-id gaat als `X-Sessie` mee en bewijst dat
       er een lopende sessie is.
 
-      Een sessie verloopt als er een tijd lang geen verzoek in gebeurt, en uiterlijk na een
-      maximale duur sinds de start. Elk verzoek met `X-Sessie` verlengt haar, nooit voorbij dat
-      plafond. Het portaal beëindigt haar bij uitloggen (`DELETE /sessies/huidige`).
+      Het portaal is de klok. Het bepaalt wanneer de gebruiker inactief of uitgelogd is: het
+      verlengt de sessie bij activiteit (`POST /sessies/huidige/_verlengen`), beëindigt haar bij
+      uitloggen en bij zijn eigen time-out (`DELETE /sessies/huidige`), en geeft bij het starten
+      zijn eigen plafond mee. De inactiviteitstermijn en het plafond van deze dienst zijn alleen
+      een vangnet.
   - name: Specificatie
     description: Dit OpenAPI-document, op de plek waar de API Design Rules het verwachten.
 
@@ -234,18 +236,25 @@ paths:
         meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
         hoeft na te vragen.
 
-        Een open verbinding houdt de sessie niet in leven: inactiviteit is inactiviteit van de
-        gebruiker. Een open tabblad op een onbeheerde werkplek hield de gegevens anders
-        bereikbaar tot het plafond van de sessie. Het openen verlengt haar wel, zoals elk
-        verzoek met `X-Sessie`.
+        Een open verbinding houdt de sessie niet in leven, en het openen ervan verlengt haar
+        evenmin: inactiviteit is inactiviteit van de gebruiker. Een open tabblad op een
+        onbeheerde werkplek hield de gegevens anders bereikbaar tot het plafond van de sessie.
+        Verlengen gebeurt door verzoeken van de gebruiker en door
+        `POST /sessies/huidige/_verlengen`.
 
         Volgorde en volledigheid: de stroom bevat hoogstens één `volgen-gestart`, meestal als
         eerste. Lees op dat moment de lijst (`GET /berichten`) en voeg elk
         `bericht-bijgekomen` toe, ontdubbeld op (`magazijnId`, `berichtId`). Wat vóór
         `volgen-gestart` binnenkwam staat in de lijst, wat erna komt krijg je hier; een
         bericht dat op het grensvlak valt kan in beide zitten, en een `bericht-bijgekomen`
-        kan zelfs vóór `volgen-gestart` binnenkomen. Zo is de lijst ook na een verbroken verbinding weer
-        compleet: verbind opnieuw en doe hetzelfde.
+        kan zelfs vóór `volgen-gestart` binnenkomen.
+
+        Na een verbroken verbinding: verbind opnieuw en voeg weer elk `bericht-bijgekomen` toe,
+        maar lees de lijst dan niet vanzelf opnieuw. `GET /berichten` verlengt de sessie, en een
+        herverbinding is geen activiteit van de gebruiker: een open tabblad op een onbeheerde
+        werkplek met een haperende verbinding hield de sessie anders in leven tot het plafond.
+        Lees de lijst opnieuw bij de volgende actie van de gebruiker; dan is hij weer compleet.
+        Was de gebruiker juist actief toen de verbinding terugkwam, dan mag het meteen.
 
         Eindigt de sessie terwijl de stroom openstaat (uitgelogd, of verlopen), dan komt
         `sessie-verlopen` en eindigt de stroom. Dat kan ook vlak na het verbinden gebeuren:
@@ -486,9 +495,20 @@ paths:
         het gaat als `X-Sessie` mee op elk verzoek dat een sessie vereist. Het staat in geen
         URL: de `Location`-header wijst naar `/sessies/huidige`, de sessie die bij de
         meegestuurde `X-Sessie` hoort.
+
+        Optioneel geeft het portaal in de body het plafond van zijn eigen sessie mee
+        (`uiterlijkGeldigTot`). Deze sessie eindigt dan uiterlijk op dat moment, of eerder als
+        de maximale duur van deze dienst eerder verstrijkt. Een moment dat niet in de toekomst
+        ligt, of een onleesbare body, geeft `400`. Zonder body geldt alleen de maximale duur van
+        deze dienst.
       operationId: startSessie
       parameters:
         - $ref: '#/components/parameters/OntvangerHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SessieStartVerzoek' }
       responses:
         '201':
           description: Sessie gestart
@@ -501,10 +521,35 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Sessie' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /sessies/huidige:
+    get:
+      tags: [Sessies]
+      summary: Geldigheid van de sessie
+      description: |
+        Hoe lang de sessie uit `X-Sessie` nog geldig is, zonder het sessie-id en zonder de
+        sessie te verlengen: dit verzoek leest alleen. Een sessie die niet (meer) loopt, geeft
+        `401` met `sessie-ongeldig`.
+      operationId: leesSessie
+      security:
+        - sessie: []
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: De sessie loopt
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessieGeldigheid' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
     delete:
       tags: [Sessies]
       summary: Sessie beëindigen
@@ -513,7 +558,8 @@ paths:
         onbekende sessie geeft `204`. Alleen een ontbrekende, herhaalde of niet goed gevormde
         `X-Sessie` geeft `401`: dan is er geen sessie aangewezen.
 
-        Het portaal roept dit aan bij het uitloggen van de gebruiker.
+        Het portaal roept dit aan bij het uitloggen van de gebruiker en bij het verlopen van
+        zijn eigen sessie.
       operationId: beeindigSessie
       security:
         - sessie: []
@@ -524,6 +570,37 @@ paths:
           description: Sessie beëindigd
           headers:
             API-Version: { $ref: '#/components/headers/API-Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /sessies/huidige/_verlengen:
+    post:
+      tags: [Sessies]
+      summary: Sessie verlengen
+      description: |
+        Verlengt de inactiviteitstermijn van de sessie uit `X-Sessie`, net zoals elk verzoek
+        onder `/berichten` behalve `_volgen` dat doet, en nooit voorbij `uiterlijkGeldigTot`. Het portaal roept dit
+        aan bij activiteit van de gebruiker in een willekeurige dienst, hooguit eens per minuut;
+        niet op een timer en niet zolang alleen een verbinding openstaat. Zo bepaalt het portaal
+        wanneer de gebruiker inactief is.
+
+        Een sessie die niet (meer) loopt, geeft `401` met `sessie-ongeldig`; verlengen maakt
+        haar niet opnieuw geldig.
+      operationId: verlengSessie
+      security:
+        - sessie: []
+      parameters:
+        - $ref: '#/components/parameters/OntvangerHeader'
+      responses:
+        '200':
+          description: Sessie verlengd
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessieGeldigheid' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -896,6 +973,19 @@ components:
       enum: [gelezen, ongelezen]
       nullable: true
 
+    SessieStartVerzoek:
+      type: object
+      description: Optioneel bij `POST /sessies`; zonder body geldt alleen de maximale duur van deze dienst.
+      required: [uiterlijkGeldigTot]
+      properties:
+        uiterlijkGeldigTot:
+          type: string
+          format: date-time
+          description: |
+            Het plafond van de sessie van het portaal. Deze sessie eindigt uiterlijk dan, of
+            eerder als de maximale duur van deze dienst eerder verstrijkt. Moet in de toekomst
+            liggen.
+
     Sessie:
       type: object
       required: [sessieId, geldigTot, uiterlijkGeldigTot]
@@ -904,6 +994,17 @@ components:
           type: string
           pattern: '^[A-Za-z0-9_-]{22}$'
           description: Geheim; stuur het als `X-Sessie`-header mee. Niet loggen, niet in een URL.
+        geldigTot: { $ref: '#/components/schemas/GeldigTot' }
+        uiterlijkGeldigTot: { $ref: '#/components/schemas/UiterlijkGeldigTot' }
+        _links: { $ref: '#/components/schemas/SessieLinks' }
+
+    SessieGeldigheid:
+      type: object
+      description: |
+        Hoe lang de sessie nog geldig is, zonder het sessie-id. Het antwoord van
+        `GET /sessies/huidige` en `POST /sessies/huidige/_verlengen`.
+      required: [geldigTot, uiterlijkGeldigTot]
+      properties:
         geldigTot: { $ref: '#/components/schemas/GeldigTot' }
         uiterlijkGeldigTot: { $ref: '#/components/schemas/UiterlijkGeldigTot' }
         _links: { $ref: '#/components/schemas/SessieLinks' }
@@ -920,12 +1021,13 @@ components:
       format: date-time
       description: |
         Het harde plafond: de sessie eindigt dan, wat er ook gebeurt. Start plus de maximale
-        duur van deze dienst.
+        duur van deze dienst, of het eerdere plafond dat het portaal bij de start meegaf.
 
     SessieLinks:
       type: object
       properties:
         self: { $ref: '#/components/schemas/Link' }
+        verlengen: { $ref: '#/components/schemas/Link' }
 
     Link:
       type: object

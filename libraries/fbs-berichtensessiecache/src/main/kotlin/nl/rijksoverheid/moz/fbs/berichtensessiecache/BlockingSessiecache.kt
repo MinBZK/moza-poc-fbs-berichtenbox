@@ -24,6 +24,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -31,6 +32,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -215,8 +217,13 @@ internal class BlockingSessiecache(
         return volger.volg(ontvanger, sessieId)
     }
 
-    override fun startSessie(ontvanger: Identificatienummer): SessieStart =
-        awaitOrServiceUnavailable { sessies.start(ontvanger) }
+    override fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant?): SessieStart =
+        when (val uitkomst = awaitOrServiceUnavailable { sessies.start(ontvanger, uiterlijkGeldigTot) }) {
+            is StartUitkomst.Gestart -> uitkomst.start
+            StartUitkomst.PlafondVerstreken -> throw SessiecacheException.OngeldigeInvoer(
+                "uiterlijkGeldigTot ligt niet in de toekomst.",
+            )
+        }
 
     override fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid =
         awaitOrServiceUnavailable { sessies.raak(sessieId, ontvanger) } ?: throw sessieOngeldig()

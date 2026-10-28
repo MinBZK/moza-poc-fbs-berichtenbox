@@ -5,15 +5,18 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.response.Response
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Het verlopen van een sessie, door de hele keten: HTTP, filter, facade en een echte Redis.
- * Inactiviteit 4 s en een maximale duur van een minuut uit [KorteSessieKetenProfile], zodat verlopen
- * binnen een test te zien is. Elke controle dat een sessie nog loopt, heeft minstens anderhalve
- * seconde speling. Zonder ophaalronde antwoordt `GET /berichten` met een 409 als de sessie loopt, en
- * met een 401 als ze verlopen is.
+ * Het portaal als klok, door de hele keten: HTTP, filter, facade en een echte Redis. Inactiviteit
+ * 4 s en een maximale duur van een minuut uit [KorteSessieKetenProfile], zodat verlopen binnen een
+ * test te zien is en het plafond alleen meetelt als de start er zelf een meegaf. Elke controle dat
+ * een sessie nog loopt, heeft minstens anderhalve seconde speling; een controle dat ze verlopen is,
+ * wacht ruim voorbij het verloop.
  */
 @QuarkusTest
 @TestProfile(KorteSessieKetenProfile::class)
@@ -23,24 +26,44 @@ class SessieKetenTest {
     private val ontvanger = "OIN:" + teller.incrementAndGet().toString().padStart(20, '0').takeLast(20)
 
     @Test
-    fun `een verzoek houdt de sessie langer dan de inactiviteit in leven`() {
+    fun `verlengen houdt de sessie langer dan de inactiviteit in leven`() {
         val sessie = start()
 
         Thread.sleep(2_000)
-        berichten(sessie).then().statusCode(409)
+        verleng(sessie).then().statusCode(200)
         Thread.sleep(2_500)
 
         // Zonder verlenging was de sessie na 4 s verlopen.
-        berichten(sessie).then().statusCode(409)
+        lees(sessie).then().statusCode(200)
     }
 
     @Test
-    fun `zonder verzoek verloopt de sessie na de inactiviteit`() {
+    fun `opvragen verlengt niet, dus een alleen opgevraagde sessie verloopt`() {
         val sessie = start()
 
-        Thread.sleep(4_300)
+        Thread.sleep(2_000)
+        lees(sessie).then().statusCode(200)
+        Thread.sleep(2_300)
 
-        berichten(sessie).then().statusCode(401)
+        lees(sessie).then().statusCode(401)
+        verleng(sessie).then().statusCode(401)
+    }
+
+    @Test
+    fun `een plafond van het portaal laat de sessie dan eindigen, en verlengen gaat er niet voorbij`() {
+        val plafond = Instant.now().plusMillis(2_500)
+        val sessie = start("""{"uiterlijkGeldigTot":"$plafond"}""")
+
+        Thread.sleep(700)
+        val verlengd = verleng(sessie).then().statusCode(200).extract()
+
+        val uiterlijk = Instant.parse(verlengd.path("uiterlijkGeldigTot"))
+        assertEquals(plafond.toEpochMilli(), uiterlijk.toEpochMilli())
+        assertTrue(!Instant.parse(verlengd.path<String>("geldigTot")).isAfter(uiterlijk), "verlengd voorbij het plafond")
+
+        Thread.sleep(2_000)
+
+        lees(sessie).then().statusCode(401)
     }
 
     @Test
@@ -50,15 +73,23 @@ class SessieKetenTest {
         given().header("X-Ontvanger", ontvanger).header("X-Sessie", sessie).delete("/api/v1/sessies/huidige")
             .then().statusCode(204)
 
-        berichten(sessie).then().statusCode(401).header("WWW-Authenticate", "X-Sessie realm=\"berichtenuitvraag\"")
+        verleng(sessie).then().statusCode(401).header("WWW-Authenticate", "X-Sessie realm=\"berichtenuitvraag\"")
     }
 
-    private fun start(): String =
-        given().header("X-Ontvanger", ontvanger).contentType("application/json").post("/api/v1/sessies")
-            .then().statusCode(201).extract().path("sessieId")
+    private fun start(body: String? = null): String {
+        // Zonder body toch JSON: REST Assured stuurt anders een formulier-mediatype mee, en dat is 415.
+        val verzoek = given().header("X-Ontvanger", ontvanger).contentType("application/json")
 
-    private fun berichten(sessie: String): Response =
-        given().header("X-Ontvanger", ontvanger).header("X-Sessie", sessie).get("/api/v1/berichten")
+        body?.let { verzoek.body(it) }
+
+        return verzoek.post("/api/v1/sessies").then().statusCode(201).extract().path("sessieId")
+    }
+
+    private fun lees(sessie: String): Response =
+        given().header("X-Ontvanger", ontvanger).header("X-Sessie", sessie).get("/api/v1/sessies/huidige")
+
+    private fun verleng(sessie: String): Response =
+        given().header("X-Ontvanger", ontvanger).header("X-Sessie", sessie).post("/api/v1/sessies/huidige/_verlengen")
 
     private companion object {
         val teller = AtomicLong(System.nanoTime())

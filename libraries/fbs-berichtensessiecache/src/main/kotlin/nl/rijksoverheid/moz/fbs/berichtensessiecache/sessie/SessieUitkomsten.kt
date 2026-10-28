@@ -6,7 +6,7 @@ import java.time.Instant
 /**
  * Hoe lang een lopende sessie geldig is. [geldigTot] is het verloop bij inactiviteit: elk verzoek in
  * de sessie schuift het op, nooit voorbij [uiterlijkGeldigTot]. Dat is het harde plafond van de
- * sessie: start + maximale duur.
+ * sessie: start + maximale duur, of het eerdere plafond dat de start meekreeg.
  */
 data class SessieGeldigheid(val geldigTot: Instant, val uiterlijkGeldigTot: Instant)
 
