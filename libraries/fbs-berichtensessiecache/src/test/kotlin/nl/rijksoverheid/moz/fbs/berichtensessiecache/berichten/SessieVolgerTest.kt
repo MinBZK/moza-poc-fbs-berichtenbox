@@ -27,11 +27,11 @@ class SessieVolgerTest {
     private val cache = MockBerichtenCache()
     private val aanmeldingen = MockAanmeldingen()
     private val sessies = GeheugenSessieRegister()
-    private val volger = SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
+    private val volger = SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR)
 
     // Alleen voor de tests die de hartslag zelf toetsen. Elders zou een tik tussen twee stappen van
     // een test vallen en de telling van de items verstoren.
-    private val snel = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
+    private val snel = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, MAX_DUUR)
 
     private val ontvanger = Bsn("999993653")
     private val ander = Bsn("999990019")
@@ -188,50 +188,6 @@ class SessieVolgerTest {
     }
 
     @Test
-    fun `de hartslag verlengt de gegevens zolang de sessie loopt, en de laatste controle niet meer`() {
-        val verlengd = Collections.synchronizedList(mutableListOf<String>())
-        val tellendeCache = object : BerichtenCache by cache {
-            override fun verlengSessie(key: String): Uni<Boolean> {
-                verlengd += key
-
-                return cache.verlengSessie(key)
-            }
-        }
-        val tellend = SessieVolger(tellendeCache, aanmeldingen, sessies, SNELLE_HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
-        startSessie(ontvanger)
-        val volgend = tellend.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
-            .also { it.wachtTot { items -> items.count { item -> item == SessieGebeurtenis.Hartslag } >= 2 } }
-
-        sessies.lopend.remove(SESSIE to ontvanger)
-
-        volgend.awaitCompletion(Duration.ofSeconds(5))
-        // Eén verlenging bij het starten en één per hartslag; de controle die het einde zag, verlengt niets.
-        assertEquals(1 + volgend.items.count { it == SessieGebeurtenis.Hartslag }, verlengd.size, "verlengd: $verlengd")
-        assertTrue(verlengd.all { it == BerichtenCache.cacheKey(ontvanger) }, "verlengd: $verlengd")
-    }
-
-    @Test
-    fun `mislukt het verlengen op een hartslag, dan breekt de stream af in plaats van een hartslag te melden`() {
-        // Een hartslag die doorgaat terwijl verlengen mislukt, toont een berichtenbox waarvan de
-        // gegevens intussen aflopen. Afbreken laat de afnemer opnieuw verbinden, en die krijgt dan een eerlijke 503.
-        val fout = IllegalStateException("MULTI geweigerd")
-        var verlengingen = 0
-        val haperendeCache = object : BerichtenCache by cache {
-            override fun verlengSessie(key: String): Uni<Boolean> =
-                if (verlengingen++ == 0) Uni.createFrom().item(true) else Uni.createFrom().failure(fout)
-        }
-
-        val haperend = SessieVolger(haperendeCache, aanmeldingen, sessies, SNELLE_HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
-        startSessie(ontvanger)
-        val volgend = haperend.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
-
-        volgend.awaitFailure(Duration.ofSeconds(5))
-        assertEquals(fout, volgend.failure)
-        assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.items, "geen hartslag na een mislukte verlenging")
-        wachtTotAfgemeld(BerichtenCache.cacheKey(ontvanger))
-    }
-
-    @Test
     fun `valt het doorgeven weg, dan eindigt de stream met die fout`() {
         startSessie(ontvanger)
         val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
@@ -293,7 +249,7 @@ class SessieVolgerTest {
                 Uni.createFrom().failure(IllegalStateException("redis weg"))
         }
 
-        val volgerMetFout = SessieVolger(falendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, Duration.ofMinutes(2))
+        val volgerMetFout = SessieVolger(falendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR)
         startSessie(ontvanger)
         val volgend = volgerMetFout.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
         volgend.wachtTot { it.isNotEmpty() }
@@ -328,36 +284,16 @@ class SessieVolgerTest {
     @ValueSource(strings = ["PT0S", "PT-1S"])
     fun `een hartslag van nul of minder weigert te starten`(hartslag: String) {
         val fout = assertThrows<IllegalArgumentException> {
-            SessieVolger(cache, aanmeldingen, sessies, Duration.parse(hartslag), MAX_DUUR, Duration.ofMinutes(2))
+            SessieVolger(cache, aanmeldingen, sessies, Duration.parse(hartslag), MAX_DUUR)
         }
 
         assertTrue(fout.message!!.contains("moet groter zijn dan 0"), fout.message)
     }
 
-    /**
-     * De grens zelf (precies de helft) en een waarde erboven. Een ruime maximale duur, zodat niet
-     * de controle daarop eerst omvalt: dan zou deze test slagen zonder de regel te toetsen die hij
-     * noemt.
-     */
-    @ParameterizedTest(name = "hartslag {0} bij een bewaartermijn van 2 minuten")
-    @ValueSource(strings = ["PT1M", "PT90S"])
-    fun `een hartslag vanaf de helft van de bewaartermijn weigert te starten`(hartslag: String) {
-        val fout = assertThrows<IllegalArgumentException> {
-            SessieVolger(cache, aanmeldingen, sessies, Duration.parse(hartslag), Duration.ofHours(1), Duration.ofMinutes(2))
-        }
-
-        assertTrue(fout.message!!.contains("moet kleiner zijn dan 1/2 van berichtensessiecache.ttl"), fout.message)
-    }
-
-    @Test
-    fun `een hartslag net onder de helft van de bewaartermijn start wel`() {
-        SessieVolger(cache, aanmeldingen, sessies, Duration.ofSeconds(59), Duration.ofHours(1), Duration.ofMinutes(2))
-    }
-
     @Test
     fun `na de maximale duur eindigt de stream zonder SessieVerlopen, zodat de afnemer opnieuw verbindt`() {
         startSessie(ontvanger)
-        val kort = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, Duration.ofMillis(700), Duration.ofMinutes(2))
+        val kort = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, Duration.ofMillis(700))
 
         val volgend = kort.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
 
@@ -370,7 +306,7 @@ class SessieVolgerTest {
     @ValueSource(strings = ["PT30S", "PT1S"])
     fun `een maximale duur die niet boven de hartslag ligt, weigert te starten`(maxDuur: String) {
         val fout = assertThrows<IllegalArgumentException> {
-            SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, Duration.parse(maxDuur), Duration.ofMinutes(2))
+            SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, Duration.parse(maxDuur))
         }
 
         assertTrue(fout.message!!.contains("berichtensessiecache.volg-max-duur"))
@@ -456,6 +392,8 @@ class SessieVolgerTest {
         override fun start(ontvanger: Identificatienummer): Uni<SessieStart> = throw UnsupportedOperationException()
 
         override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> = throw UnsupportedOperationException()
+
+        override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = throw UnsupportedOperationException()
     }
 
     private companion object {

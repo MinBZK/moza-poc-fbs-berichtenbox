@@ -7,18 +7,21 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.util.UUID
 
 /**
- * Sessieregister voor de profielen zonder echte Redis: elke sessie loopt, zodat die tests over het
- * ophalen gaan en niet over de sessie.
+ * Sessieregister voor de profielen zonder echte Redis. Daar draait een ophaalronde of aanmelding
+ * zonder voorafgaande sessie; dit register gedraagt zich alsof er altijd een loopt, zodat die
+ * tests over het ophalen gaan en niet over het opruimen erna.
  */
 @Alternative
 @ApplicationScoped
 internal class MockSessieRegister : SessieRegister {
 
     override fun start(ontvanger: Identificatienummer): Uni<SessieStart> =
-        Uni.createFrom().item(SessieStart(UUID.randomUUID().toString()))
+        Uni.createFrom().item(SessieStart(UUID.randomUUID().toString(), false))
 
     override fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(true)
 
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> =
         Uni.createFrom().item(SessieEinde.BEEINDIGD)
+
+    override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(false)
 }

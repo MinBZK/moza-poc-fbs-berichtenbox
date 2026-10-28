@@ -71,6 +71,7 @@ class GevolgdeSessieTest {
     private fun volg(sessieId: String): AssertSubscriber<SessieGebeurtenis> =
         sessiecache.volg(ontvanger, sessieId).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
 
+    // Na de start: een start zonder andere lopende sessie ruimt eerst de resten op, ook deze status.
     private fun zetGereed() {
         berichtenCache.storeAggregationStatus(
             BerichtenCache.cacheKey(ontvanger),

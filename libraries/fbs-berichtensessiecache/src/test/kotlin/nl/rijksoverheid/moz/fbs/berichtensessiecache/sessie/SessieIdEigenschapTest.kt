@@ -11,14 +11,15 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
-import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RealRedisTestProfile
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
@@ -30,7 +31,7 @@ import kotlin.random.Random
  * geldt tot zijn einde en daarna nooit meer. Een vaste seed, zodat een falend geval te herhalen is.
  */
 @QuarkusTest
-@TestProfile(RealRedisTestProfile::class)
+@TestProfile(OpruimRedisTestProfile::class)
 class SessieIdEigenschapTest {
 
     @Inject
@@ -65,10 +66,12 @@ class SessieIdEigenschapTest {
     }
 
     @Test
-    fun `een goed gevormd maar nooit uitgegeven id wordt geweigerd en laat de lopende sessie staan`() {
+    fun `een goed gevormd maar nooit uitgegeven id wordt geweigerd en laat de lopende sessie en haar gegevens staan`() {
         val random = Random(SEED + 1)
         val ontvanger = nieuweOntvanger()
         val echt = sessiecache.startSessie(ontvanger).sessieId
+        val status = "${BerichtenCache.cacheKey(ontvanger)}:status"
+        redis.value(String::class.java).set(status, "{}").await().atMost(WACHTTIJD)
 
         repeat(GEVALLEN) {
             val id = OnjuisteSessieIds.geldigGevormd(random)
@@ -80,6 +83,7 @@ class SessieIdEigenschapTest {
         }
 
         assertDoesNotThrow { sessiecache.leesSessie(echt, ontvanger) }
+        assertTrue(redis.key().exists(status).await().atMost(WACHTTIJD), "een onbekend id wiste de gegevens")
     }
 
     @Test
@@ -95,7 +99,7 @@ class SessieIdEigenschapTest {
 
             val uitkomst = sessiecache.beeindigSessie(einde, ontvanger)
 
-            assertEquals(SessieEinde.BEEINDIGD, uitkomst, "geval $i")
+            assertEquals(if (ids.size == 1) SessieEinde.OPGERUIMD else SessieEinde.BEEINDIGD, uitkomst, "geval $i")
 
             // Ook een nieuwe sessie van dezelfde ontvanger maakt het oude id niet weer geldig.
             val nieuw = sessiecache.startSessie(ontvanger).sessieId
@@ -135,6 +139,7 @@ class SessieIdEigenschapTest {
         const val SEED = 943L
         const val GEVALLEN = 500
         const val ANDER_VERKEER_ELKE = 50
+        val WACHTTIJD: Duration = Duration.ofSeconds(5)
         private val teller = AtomicLong(System.nanoTime())
 
         fun nieuweOntvanger() = Oin(teller.incrementAndGet().toString().padStart(20, '0').takeLast(20))

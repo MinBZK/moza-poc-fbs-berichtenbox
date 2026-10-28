@@ -776,8 +776,8 @@ el('vernieuw').addEventListener('click', () => laadLijst());
 // lijst van die persona onder de kop van de nieuwe — in een Berichtenbox-demo precies het
 // verkeerde plaatje. De magazijnnamen blijven: die horen bij de OIN, niet bij de persona.
 function wisPersonaState() {
-  // De vorige persona uitloggen vóór de nieuwe sessie start: anders blijft die sessie in Redis
-  // staan tot de vangnet-TTL.
+  // De vorige persona uitloggen vóór de nieuwe sessie start: anders blijft die sessie met zijn
+  // berichten in Redis staan tot de vangnet-TTL.
   const vorige = gekozenOntvanger;
 
   gekozenOntvanger = huidigeOntvanger();

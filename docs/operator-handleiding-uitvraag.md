@@ -226,19 +226,53 @@ compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIEC
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | De Redis-TTL op de sessie-administratie van een ontvanger, opnieuw gezet bij elke start. Een sessie verloopt niet uit zichzelf: wie niet uitlogt, laat haar tot die TTL staan. Staat los van de TTL op de berichtgegevens (`berichtensessiecache.ttl`) |
-| `berichtensessiecache.ttl` | `PT12H` | Sliding TTL: elke succesvolle read verlengt hem. Dekt een halve werkdag zonder herhaalde ophaal-flow; verlagen bij geheugendruk op Redis |
-| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de cache-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger 12 uur te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
-| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt; een beëindigde sessie sluit de stream hoogstens een hartslag later. Zolang ze loopt, verlengt de hartslag de berichtgegevens van een open berichtenbox, en houdt hij proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.ttl` blijven, anders start de pod niet |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Samen met `vangnet-marge` de Redis-TTL op de sessie-administratie en de berichtgegevens. Een sessie verloopt niet uit zichzelf: wie niet uitlogt, laat sessie en gegevens tot die TTL staan |
+| `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL staat op `max-duur` + marge. Hij wordt opnieuw gezet bij elke sessiestart en elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering), en een start naast een lopende sessie trekt hem op voor de bestaande gegevens; leesverkeer verlengt hem niet. Gegevens van een sessie die niet uitgelogd wordt, of die een mislukt opruimen liet staan, blijven dus tot `max-duur` + marge na de laatste start of schrijfactie staan. Het actieve opruimen bij de laatste uitlog van een ontvanger is leidend |
+| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op (`INFO Ophaalronde was de lock kwijt …`). Dezelfde regel verschijnt als de laatste sessie tijdens de ronde eindigde |
+| `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt; een beëindigde sessie sluit de stream hoogstens een hartslag later. Houdt ook proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s) |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
 
-Het starten en beëindigen van een sessie komt als verwerkingsactiviteit
-`urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` in het Logboek Dataverwerkingen.
+Elk actief opruimen van berichtgegevens (uitloggen, een start die resten wist) komt als
+verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` in het Logboek
+Dataverwerkingen. Drie uitzonderingen:
+
+- het verlopen van de vangnet-TTL, dat zonder logregel wist. Een sessie verloopt niet uit zichzelf,
+  dus dat gebeurt bij elke sessie die niet uitgelogd wordt, en verder na
+  `[ALERT opruimen_na_schrijven]`. Het portaal hoort daarom bij elk uitloggen
+  `DELETE /sessies/huidige` aan te roepen;
+- het opruimen direct na een schrijfactie die kruiste met het einde van de laatste sessie: de
+  opruimcontrole wist wat er toen nog geschreven werd meteen weer, zonder eigen logregel. De
+  schrijfactie zelf (ophaalronde, aanmelding of verwijdering) heeft wel haar logregel;
+- een opruiming die niet in het logboek kon worden geschreven (`LDV_OPRUIMEN_ONTBREEKT`).
+
+Regels die je in de logs kunt zien:
+
+- `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
+  vastgelegd. Alert-token. De regel draagt een eigen `foutId`, de aanleiding, de uitkomst, het type
+  ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger: naleggen kan dus niet.
+  Controleer de LDV-verbinding, en **meld het gat aan de privacy officer**, met het tijdvenster
+  (eerste en laatste regel) en het aantal regels (verschillende `foutId`'s). De verantwoording
+  (AVG art. 5(2)) heeft dan een gat dat niet te herstellen is; dat hoort vastgelegd te worden.
+- `ERROR [ALERT opruimen_na_schrijven]`: na een schrijfactie staat niet vast dat er niets zonder
+  sessie is achtergebleven. De regel begint met wat er misging: `Opruimen na een aanmelding
+  mislukt`, `Aanmelding niet bevestigd` of `Verwijderen niet bevestigd` (Redis antwoordde niet op
+  het schrijven zelf, dat dus toch gelukt kan zijn), `Opruimen zonder lopende sessie mislukt`, of
+  `Opruimen na een dubbele cachefout niet uitgevoerd`. Kruiste de schrijfactie met het einde van de
+  laatste sessie, dan blijven eventueel geschreven gegevens onzichtbaar staan tot de Redis-TTL ze
+  wist, en dat wissen komt niet in het logboek. Alert-token; controleer de bereikbaarheid van Redis.
+  Tijdens een Redis-storing kan het per mislukte schrijfactie verschijnen. De regel noemt alleen
+  fouttypes: welke ontvanger het betreft, staat bewust niet in de log.
+- Een uitlog of start waarop Redis niet op tijd antwoordt, geeft de gebruiker `503` en komt als
+  opruiming met uitkomst `onbevestigd` in het logboek (aanleiding `uitgelogd` of `nieuwe-start`):
+  het wissen kan al gebeurd zijn.
+
+In het logboek zelf:
 
 - De logregel van een uitlog (`uitvraag-sessie-einde`) draagt `fbs.sessie.einde.uitkomst`:
-  `beeindigd` of `onbekend` (de sessie bestond niet). Zolang er geen authenticatie is, kan iedereen
-  een uitlog voor een willekeurige ontvanger aanvragen; zo'n regel is aan `onbekend` te herkennen.
+  `opgeruimd`, `beeindigd` (er lopen nog andere sessies) of `onbekend` (de sessie bestond niet en
+  er is niets gewist). Zolang er geen authenticatie is, kan iedereen een uitlog voor een
+  willekeurige ontvanger aanvragen; zo'n regel is aan `onbekend` te herkennen.
 - De controle van de sessie bij een verzoek levert geen eigen logregel.
 
 ### Verwerkingsregister en DPIA
@@ -246,28 +280,39 @@ Het starten en beëindigen van een sessie komt als verwerkingsactiviteit
 De verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` hoort in het
 verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
 
-- **Doel:** bijhouden welke inlogsessies een ontvanger heeft, zodat alleen een verzoek met een
-  lopende sessie bij zijn berichten komt.
-- **Bewaartermijnen:** de sessie-administratie tot de uitlog. Een sessie verloopt niet na
-  inactiviteit: zonder uitlog blijft ze staan tot de Redis-TTL van 12 uur (`max-duur`) na de laatste
-  start van de ontvanger. Wijk je in een omgeving af van de defaults, neem dan die waarden op.
+- **Doel:** de tijdelijke kopie van de berichtgegevens van een ontvanger alleen bewaren zolang hij een
+  lopende inlogsessie heeft, en elk wissen ervan verantwoorden.
+- **Bewaartermijnen:** tot de laatste uitlog van de ontvanger. Een sessie verloopt niet na
+  inactiviteit: zonder uitlog blijven de gegevens staan tot de Redis-TTL van 13 uur (`max-duur` +
+  `vangnet-marge`) na de laatste start of schrijfactie, en dat wissen komt niet in het logboek. Wijk
+  je in een omgeving af van de defaults, neem dan die waarden op.
 - **Grondslag:** dezelfde als die van de berichtenuitvraag zelf: de sessie-administratie en het
   logboek ervan horen bij het tonen van de berichten, niet bij een eigen doel. Stel met de privacy
   officer de concrete wettelijke grondslag vast (naar verwachting een taak van algemeen belang, AVG
   art. 6(1)(e)).
 - **Gegevenscategorieën:** het identificatienummer van de ontvanger (BSN, RSIN, KVK-nummer of OIN;
-  voor een BSN geldt UAVG art. 46), en de sessie-administratie (een hash per sessie-id, met het
-  startmoment, en dus wanneer iemand van de onderneming inlogde).
+  voor een BSN geldt UAVG art. 46); de metadata van zijn berichten (afzender, onderwerp,
+  publicatietijdstip, leesstatus, map, namen van bijlagen; de berichttekst blijft in het
+  magazijn); en de sessie-administratie (een hash per sessie-id, met het startmoment, en dus
+  wanneer iemand van de onderneming inlogde).
 - **Logregels over in- en uitloggen:** het logboek krijgt per ontvanger, met hem als betrokkene,
-  `uitvraag-sessie-start` en `uitvraag-sessie-einde`. Daarmee legt het vast wanneer er voor die
-  ontvanger werd in- en uitgelogd. Die regels volgen de bewaartermijn van het logboek, niet de
-  termijnen hierboven; neem ze zo op in het register.
+  `uitvraag-sessie-start`, `uitvraag-sessie-einde` en `uitvraag-sessie-opruimen`. Daarmee legt het
+  vast wanneer er voor die ontvanger werd in- en uitgelogd en wanneer zijn gegevens gewist zijn.
+  Die regels volgen de bewaartermijn van het logboek, niet de termijnen hierboven; neem ze zo op in
+  het register.
 
-### Invoering van inlogsessies
+### Overgang naar sessiegebonden opslag
 
+- **Leeg de berichtenopslag bij de eerste uitrol**, vóór of tijdens het uitrollen: verwijder alle
+  sleutels onder `bericht:v4:*` en `berichtensessiecache:*`. Het is alleen een cache; de magazijnen
+  blijven de bron, en de berichtenbox haalt na het inloggen alles opnieuw op. Een berichthash van
+  vóór de overgang staat niet in de `:sleutels`-set van zijn ontvanger, dus het opruimen bij
+  uitloggen vindt hem niet en hij blijft staan tot zijn oude TTL afloopt.
 - **Volgorde:** de PR in `moza-poc` (de berichtenbox die sessies start) wordt eerst gemerged; pas
   daarna gaat de gepinde berichtenbox in `compose.yaml` mee. Een berichtenbox zonder sessies krijgt
   `401` op elk pad onder `/berichten`.
+- **Redis standalone of Sentinel, geen Cluster.** De sessiescripts wissen sleutels van één
+  ontvanger die niet als `KEYS` worden meegegeven en dus over hash-slots heen kunnen liggen.
 - **Zet geen entity- of response-body-logging aan op `/sessies`.** Het antwoord van
   `POST /sessies` bevat het sessie-id, en de `toString` van het gegenereerde `Sessie`-model ook; het
   id is een credential.
