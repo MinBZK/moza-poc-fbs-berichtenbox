@@ -93,8 +93,12 @@ review-agents in de werkboom van de hoofdsessie, en gaat lopend werk verloren.
 - Muteer voor elke nieuwe of gewijzigde test de code in een /tmp-kopie en bevestig dat de test
   faalt. Houd het aantal mutaties en vangsten bij.
 - Opnieuw lokaal groen, één commit per ronde (`fix: reviewronde <N>, <kern>`), push.
-- Iets buiten de scope maakt geen nieuw issue. Zet een comment op het issue dat er het dichtst bij
-  ligt, of neem het als vraag op in de eindmelding.
+- Iets buiten de scope beslis je niet zelf, maar leg je voor met afwegingen. Een nieuw issue dat we
+  nu niet oppakken is werk op de backlog; direct meenemen kan tijd-efficiënter zijn, maar maakt de
+  PR groter. Opties: meenemen in deze PR, een aparte PR zonder nieuw issue (met `Refs` naar het
+  verwante issue), een comment op een bestaand issue, of een nieuw issue. Weeg omvang,
+  regressierisico, reviewbaarheid en verwantschap met het lopende werk. Ga intussen door binnen de
+  scope; leg het voor in de wachttijd na de PR, of anders in de eindmelding.
 
 ## 4. Stoppen of doorgaan
 
