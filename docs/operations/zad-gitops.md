@@ -166,6 +166,10 @@ en de melding noemt beide keren de oorzaak:
 - de wijziging is opgeslagen maar niet uitgerold — de melding noemt het aantal wachtende
   wijzigingen en `zad project refresh`, het commando dat ze alsnog uitrolt.
 
+Vanaf v4.4.0 leest de stap ook het eindresultaat van de overnemende taak op ongezonde componenten,
+zoals bij een directe uitrol (zie "Gelukt, maar ongezond" hieronder); `zad task wait` doet dat zelf
+niet. Alleen componenten van déze deployment tellen: een projectbrede taak noemt ook de buren.
+
 Elke wachtstap is afzonderlijk begrensd door `task-timeout`, de keten door tien overnames. De
 preview-deploys laten twee volle wachtstappen toe (`timeout-minutes: 35` bij een `task-timeout` van
 900 s). Een langere keten loopt tegen die grens aan; de job is dan afgebroken, niet mislukt, en
@@ -175,6 +179,38 @@ Blijft staan: **geen handmatig OM-werk terwijl er een deploy loopt**. Een projec
 de lopende deploy over, en een handmatige taak die faalt, laat die deploy nu mee falen. De
 concurrency-groepen in `deploy.yml` staan per project **en** PR, dus die sluiten zo'n samenloop niet
 uit.
+
+**Gelukt, maar ongezond: een groene deploy-job zegt niet dat alles draait.** OM kan een uitrol
+accepteren en tegelijk melden dat componenten ongezond zijn:
+
+```
+"headline": "The operation succeeded, but some components are unhealthy.",
+"details": ["uitvraag (image_pull): Registry kon de container image niet leveren"]
+```
+
+Meestal is het `image_pull`: de pull-through-mirror `rcr.rijksapps.nl` levert een net gepusht image
+nog niet. OM zet zo'n component uit (`replicas: 0`) en de automatische herverwerking probeert het niet
+opnieuw, dus het blijft uit tot de volgende uitrol. `zad-actions/deploy` maakt van die melding vanaf
+v4.4.0 een `::warning::`-annotatie in de samenvatting van de run, ook na een overname. De job blijft
+groen: `fail-on-warnings` staat nog uit tot gemeten is hoe vaak dit op `test` gebeurt
+([MinBZK/MijnOverheidZakelijk#1324](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1324)).
+Valt een deployment raar om, kijk dan eerst in de annotaties van zijn laatste deploy-run, ook als die
+groen is. Ontbrekende resources (een Service, de Redis van een preview) staan er niet in: die meldt
+OM niet als waarschuwing.
+
+Herstellen is opnieuw uitrollen met dezelfde tag; een upsert heft de uitschakeling op (zie "Een door
+OM uitgeschakeld component" hieronder). Twee valkuilen bij het herdraaien:
+
+- **`gh run rerun --failed` draait een groene job niet opnieuw.** Struikelt pas een afhankelijke job
+  over de half gelukte uitrol (`deploy-preview-magazijnen` die de Redis van het uitvraag-project
+  niet bereikt), dan wijst de rode job naar het verkeerde project en verandert herhalen niets. Draai
+  op een PR de hele run opnieuw (`gh run rerun <run-id>`). Vanaf poging 2 krijgt de PR-tag een
+  `-r<poging>`-suffix, dus rolt alles echt opnieuw uit.
+- **Op `main` alleen de nieuwste run opnieuw draaien.** De tag `main-<sha7>` heeft geen
+  poging-suffix, en de concurrency-groepen `zad-*-test` zetten jobs achter elkaar, niet op volgorde
+  van commit. Een oudere run rolt `test` dus groen terug naar de images van zijn commit. De volgende
+  uitrol naar `test` herstelt een uitgeschakeld component vanzelf; wie niet wil wachten, zet het
+  aan met één `update-image` op de huidige tag.
 
 **Valkuilen bij debuggen (geleerd uit een ImagePullBackOff-melding):**
 - De UI-melding **"uitgeschakeld: image ontbreekt"** + logs **"No resources found in
