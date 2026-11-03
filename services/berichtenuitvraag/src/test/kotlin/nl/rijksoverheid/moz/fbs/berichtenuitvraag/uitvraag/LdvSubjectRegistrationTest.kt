@@ -131,6 +131,13 @@ class LdvSubjectRegistrationTest {
 
     private fun sessieRegel(naam: String) = Logregel(naam, ProcessingActivities.UITVRAAG_SESSIE, "BSN", "999990019", StatusCode.UNSET)
 
+    /** De twee fouten waarbij het script in Redis gedraaid kan hebben. */
+    private fun scriptFout(soort: String): SessiecacheException = when (soort) {
+        "onbereikbaar" -> SessiecacheException.Onbereikbaar("Redis antwoordt niet")
+        "onleesbaar" -> SessiecacheException.Onleesbaar("onverwacht scriptantwoord")
+        else -> error("onbekende soort $soort")
+    }
+
     @Test
     fun `een start zonder resten levert precies de logregel van de start`() {
         vangLogregels()
@@ -212,13 +219,14 @@ class LdvSubjectRegistrationTest {
         assertEquals(StatusCode.ERROR, start.toSpanData().status.statusCode)
     }
 
-    @Test
-    fun `een start zonder antwoord van de opslag legt het opruimen als onbevestigd vast`() {
+    @ParameterizedTest(name = "{0}")
+    @CsvSource("onbereikbaar, 503", "onleesbaar, 500")
+    fun `een start zonder leesbaar antwoord van de opslag legt het opruimen als onbevestigd vast`(fout: String, status: Int) {
         // De start kan in Redis resten gewist hebben; een volgende start ziet de spooksessie en meldt niets.
-        sessiecache.startSessieFout = SessiecacheException.Onbereikbaar("Redis antwoordt niet")
+        sessiecache.startSessieFout = scriptFout(fout)
         vangLogregels()
 
-        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(503)
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(status)
 
         assertEquals(listOf(sessieRegel(SessieLogboek.NAAM).copy(status = StatusCode.ERROR)), logregels.filter { it.naam == SessieLogboek.NAAM })
         verify { opruimSpan.setAttribute(SessieLogboek.AANLEIDING_ATTRIBUUT, "nieuwe-start") }
@@ -226,8 +234,8 @@ class LdvSubjectRegistrationTest {
     }
 
     @Test
-    fun `een start met een andere fout dan onbereikbaar legt geen opruimen vast`() {
-        sessiecache.startSessieFout = SessiecacheException.Onleesbaar("kapot")
+    fun `een start die vóór Redis strandt legt geen opruimen vast`() {
+        sessiecache.startSessieFout = SessiecacheException.OngeldigeInvoer("ongeldig")
         vangLogregels()
 
         given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies")
@@ -235,10 +243,11 @@ class LdvSubjectRegistrationTest {
         assertEquals(emptyList<Logregel>(), logregels.filter { it.naam == SessieLogboek.NAAM })
     }
 
-    @Test
-    fun `een uitlog zonder antwoord van de opslag legt het opruimen als onbevestigd vast`() {
+    @ParameterizedTest(name = "{0}")
+    @CsvSource("onbereikbaar, 503", "onleesbaar, 500")
+    fun `een uitlog zonder leesbaar antwoord van de opslag legt het opruimen als onbevestigd vast`(fout: String, status: Int) {
         val sessie = sessiecache.sessieVoor()
-        sessiecache.beeindigFout = SessiecacheException.Onbereikbaar("Redis antwoordt niet")
+        sessiecache.beeindigFout = scriptFout(fout)
         vangLogregels()
 
         given()
@@ -246,7 +255,7 @@ class LdvSubjectRegistrationTest {
             .header("X-Sessie", sessie)
             .delete("/api/v1/sessies/huidige")
             .then()
-            .statusCode(503)
+            .statusCode(status)
 
         assertEquals(listOf(sessieRegel(SessieLogboek.NAAM).copy(status = StatusCode.ERROR)), logregels.filter { it.naam == SessieLogboek.NAAM })
         verify { opruimSpan.setAttribute(SessieLogboek.AANLEIDING_ATTRIBUUT, "uitgelogd") }
@@ -254,9 +263,9 @@ class LdvSubjectRegistrationTest {
     }
 
     @Test
-    fun `een uitlog met een andere fout dan onbereikbaar legt geen opruimen vast`() {
+    fun `een uitlog die vóór Redis strandt legt geen opruimen vast`() {
         val sessie = sessiecache.sessieVoor()
-        sessiecache.beeindigFout = SessiecacheException.Onleesbaar("kapot")
+        sessiecache.beeindigFout = SessiecacheException.OngeldigeInvoer("ongeldig")
         vangLogregels()
 
         given()
