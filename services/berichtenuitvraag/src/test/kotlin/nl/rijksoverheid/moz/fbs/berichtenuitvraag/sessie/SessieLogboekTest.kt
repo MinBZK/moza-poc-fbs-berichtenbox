@@ -6,6 +6,8 @@ import io.mockk.slot
 import io.mockk.verify
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.context.Context
+import io.opentelemetry.context.ContextKey
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
@@ -15,6 +17,7 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Kvk
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -67,6 +70,21 @@ class SessieLogboekTest {
         verify { span.setAttribute(SessieLogboek.UITKOMST_ATTRIBUUT, uitkomst.name.lowercase()) }
         verify { span.end() }
         verify { handler.enforceWriteAcknowledgement(true) }
+    }
+
+    @Test
+    fun `de opruimregel is een kind van de context van het verzoek en draagt haar eigen actienaam`() {
+        // Een losse trace zou de auditor het wissen niet meer aan de uitlog laten koppelen.
+        val ouder = slot<Context>()
+        val context = slot<LogboekContext>()
+        every { handler.startSpan(SessieLogboek.NAAM, capture(ouder)) } returns span
+        every { handler.addLogboekContextToSpan(span, capture(context), any()) } returns emptyList()
+        val verzoek = Context.root().with(ContextKey.named("verzoek"), "uitlog")
+
+        verzoek.makeCurrent().use { logboek.opgeruimd(Bsn("999990019"), OpruimAanleiding.UITGELOGD) }
+
+        assertSame(verzoek, ouder.captured)
+        assertEquals(SessieLogboek.NAAM, context.captured.actionName)
     }
 
     @Test
