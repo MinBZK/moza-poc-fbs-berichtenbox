@@ -6,10 +6,11 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 /**
- * Laat de sessiecache "verlopen" door alle sessie-keys te wissen, ook die van de inlogsessies. Met
- * de sessie-keys weg kent de uitvraag het sessie-id niet meer en geeft elke `/berichten`-aanroep
- * 401; de berichtenbox start dan een nieuwe sessie en een nieuwe ophaalronde. Bewust alleen DEL op
- * de sessie-prefix; nooit FLUSHDB/FT.DROPINDEX (die slopen de index).
+ * Laat de sessiecache "verlopen" door alle keys onder `berichtensessiecache:` te wissen: de
+ * berichtgegevens en de administratie van de inlogsessies. Zonder die keys kent de uitvraag het
+ * sessie-id niet meer en geeft elke `/berichten`-aanroep 401; de berichtenbox start dan een nieuwe
+ * sessie en een nieuwe ophaalronde. Bewust alleen DEL op dit prefix; nooit FLUSHDB/FT.DROPINDEX
+ * (die slopen de index).
  */
 @ApplicationScoped
 class SessieService(private val redis: RedisDataSource) {
@@ -39,7 +40,7 @@ class SessieService(private val redis: RedisDataSource) {
 
         // Versieloos patroon: de sessiecache versienummert zijn sleutels (`:v1:`, `:v2:`, …) en
         // die versie bumpt bij elke wijziging van het opslagformaat. Een patroon met een vast
-        // versienummer zou na zo'n bump niets meer vinden en tóch "0 sessie-keys gewist" melden —
+        // versienummer zou na zo'n bump niets meer vinden en tóch "0 keys gewist" melden —
         // een knop die succes rapporteert zonder iets te doen. De prefix zelf is specifiek genoeg.
         const val SESSIE_PATROON = "berichtensessiecache:*"
     }
