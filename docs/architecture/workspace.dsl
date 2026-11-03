@@ -132,7 +132,7 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
                         uitvraagOphaalService = component "Bericht Ophaal Service" "Haalt berichten en bijlagen op uit cache en berichtenmagazijn" "CDI Bean"
                         uitvraagBeheerService = component "Bericht Beheer Service" "Verplaatst berichten naar andere map, verwijdert berichten en beheert berichtstatus (gelezen, etc.)" "CDI Bean"
                         sessieFilter = component "Sessiefilter" "Laat een verzoek alleen door met een lopende sessie (X-Sessie) van de ontvanger; weigert standaard, op elk pad behalve het starten van een sessie, het aanmelden en de specificatie" "JAX-RS Filter"
-                        sessieResource = component "Sessies API" "Start en beëindigen van een inlogsessie" "JAX-RS Resource"
+                        sessieResource = component "Sessies API" "Starten en beëindigen van een inlogsessie" "JAX-RS Resource"
 
                         uitvraagResource -> tokenValidatie "Valideert identiteit aanroeper" "CDI"
                         uitvraagResource -> uitvraagBerichtenlijst "Berichtenlijst per map" "CDI"
