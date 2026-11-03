@@ -404,6 +404,9 @@ class SessieVolgerTest {
 
         override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> = throw UnsupportedOperationException()
 
+        override fun heeftSessieGestartVoor(ontvanger: Identificatienummer, moment: Instant): Uni<Boolean> =
+            throw UnsupportedOperationException()
+
         override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = throw UnsupportedOperationException()
 
         override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> = throw UnsupportedOperationException()

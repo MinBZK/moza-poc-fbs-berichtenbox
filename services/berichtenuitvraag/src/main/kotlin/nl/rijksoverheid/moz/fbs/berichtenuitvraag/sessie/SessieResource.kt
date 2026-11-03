@@ -57,10 +57,13 @@ class SessieResource(
             leesUitCache(log, "sessie-start") {
                 try {
                     sessiecache.startSessie(ontvanger, sessieStartVerzoek?.uiterlijkGeldigTot)
-                } catch (e: SessiecacheException.Onbereikbaar) {
-                    // De start kan in Redis al resten gewist hebben. Een volgende start ziet dan de
+                } catch (e: SessiecacheException) {
+                    // De start kan in Redis al resten verwijderd hebben. Een volgende start ziet dan de
                     // sessie die niemand kent lopen en meldt niets, dus dit is de enige kans op een logregel.
-                    sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START, OpruimUitkomst.ONBEVESTIGD)
+                    if (scriptKanGelopenHebben(e)) {
+                        sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START, OpruimUitkomst.ONBEVESTIGD)
+                    }
+
                     throw e
                 }
             }
@@ -96,10 +99,13 @@ class SessieResource(
         val einde = leesUitCache(log, "sessie-einde") {
             try {
                 sessiecache.beeindigSessie(sessieId, ontvanger)
-            } catch (e: SessiecacheException.Onbereikbaar) {
-                // Het script kan al gewist en de ontvanger uit de verloopindex gehaald hebben; een
+            } catch (e: SessiecacheException) {
+                // Het script kan al verwijderd en de ontvanger uit de verloopindex gehaald hebben; een
                 // herhaalde uitlog ziet dan niets meer, dus dit is de enige kans op een logregel.
-                sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD, OpruimUitkomst.ONBEVESTIGD)
+                if (scriptKanGelopenHebben(e)) {
+                    sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD, OpruimUitkomst.ONBEVESTIGD)
+                }
+
                 throw e
             }
         }
@@ -110,6 +116,11 @@ class SessieResource(
 
         if (einde == SessieEinde.OPGERUIMD) sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD)
     }
+
+    // Geen antwoord, of een antwoord dat deze code niet kent: in beide gevallen kan het script in Redis
+    // gedraaid hebben. Een invoerfout houdt de facade tegen vóór Redis.
+    private fun scriptKanGelopenHebben(e: SessiecacheException): Boolean =
+        e is SessiecacheException.Onbereikbaar || e is SessiecacheException.Onleesbaar
 
     // Het filter zet hem bij elk verzoek dat een sessie vereist; ontbreekt hij, dan is dat een
     // configuratiefout, en die hoort niet stil een lege sessie op te leveren.

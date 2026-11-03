@@ -41,6 +41,9 @@ class RedisSessieRegisterTest {
     @Inject
     lateinit var redis: ReactiveRedisDataSource
 
+    @Inject
+    internal lateinit var register: SessieRegister
+
     // Uniek per test: de Redis-container wordt gedeeld tussen de tests van dit profiel.
     private val ontvanger = nieuweOntvanger()
 
@@ -224,6 +227,81 @@ class RedisSessieRegisterTest {
 
         assertTrue(volgordes.all { it == SessieEinde.OPGERUIMD || it == SessieEinde.BEEINDIGD }, "Uitkomsten: $volgordes")
     }
+
+    @Test
+    fun `twee sessies die tegelijk uitloggen geven precies een OPGERUIMD en laten niets achter`() {
+        // De uitkomst bepaalt of er een logregel komt: twee keer OPGERUIMD is een dubbele regel, twee
+        // keer BEEINDIGD laat gegevens zonder sessie staan.
+        val pool = Executors.newFixedThreadPool(2)
+
+        try {
+            repeat(HERHALINGEN) {
+                val ontvanger = nieuweOntvanger()
+                val k = BerichtenCache.cacheKey(ontvanger)
+                val sessies = List(2) { sessiecache.startSessie(ontvanger) }
+                redis.list(String::class.java).rpush("$k:list", "{}").await().atMost(WACHTTIJD)
+                val poort = CyclicBarrier(2)
+
+                val uitkomsten = sessies
+                    .map { sessie ->
+                        pool.submit<SessieEinde> {
+                            poort.await(10, TimeUnit.SECONDS)
+                            sessiecache.beeindigSessie(sessie.sessieId, ontvanger)
+                        }
+                    }
+                    .map { it.get(10, TimeUnit.SECONDS) }
+
+                assertEquals(1, uitkomsten.count { it == SessieEinde.OPGERUIMD }, "Uitkomsten: $uitkomsten")
+                assertEquals(1, uitkomsten.count { it == SessieEinde.BEEINDIGD }, "Uitkomsten: $uitkomsten")
+                assertEquals(emptyList<String>(), lijst("KEYS", "$k:*"))
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `heeftSessieGestartVoor telt alleen lopende sessies die voor het moment begonnen`() {
+        // Pod en Redis-container delen hier één klok; de pauzes houden de starttijden uit elkaar.
+        val straks = Instant.now().plusSeconds(60)
+
+        assertFalse(gestartVoor(ontvanger, straks), "nog geen sessie")
+
+        val eerste = sessiecache.startSessie(ontvanger).sessieId
+        Thread.sleep(PAUZE_MS)
+        val grens = Instant.now()
+        Thread.sleep(PAUZE_MS)
+        val tweede = sessiecache.startSessie(ontvanger).sessieId
+
+        assertTrue(gestartVoor(ontvanger, grens), "de eerste sessie begon vóór de grens")
+        assertFalse(gestartVoor(nieuweOntvanger(), straks), "andermans sessie telt niet")
+
+        sessiecache.beeindigSessie(eerste, ontvanger)
+
+        // Uitloggen en opnieuw inloggen: de sessie die nu loopt, begon pas na de grens.
+        assertFalse(gestartVoor(ontvanger, grens), "een later begonnen sessie telt niet")
+        assertTrue(gestartVoor(ontvanger, straks), "de tweede sessie loopt nog")
+
+        sessiecache.beeindigSessie(tweede, ontvanger)
+
+        assertFalse(gestartVoor(ontvanger, straks))
+    }
+
+    @Test
+    fun `heeftSessieGestartVoor telt een verlopen sessie niet`() {
+        val straks = Instant.now().plusSeconds(60)
+        sessiecache.startSessie(ontvanger)
+
+        assertTrue(gestartVoor(ontvanger, straks))
+
+        // Verlopen staat de sessie nog in de administratie tot een script haar opruimt.
+        Thread.sleep(INACTIVITEIT_MS + 300)
+
+        assertFalse(gestartVoor(ontvanger, straks), "een verlopen sessie loopt niet meer")
+    }
+
+    private fun gestartVoor(ontvanger: Oin, moment: Instant): Boolean =
+        register.heeftSessieGestartVoor(ontvanger, moment).await().atMost(WACHTTIJD)
 
     @Test
     fun `start naast een lopende sessie laat de gegevens staan`() {
@@ -463,6 +541,7 @@ class RedisSessieRegisterTest {
         const val INACTIVITEIT_MS = 4_000L
         const val MAX_DUUR_MS = 6_000L
         const val VERLOOP_INDEX = "berichtensessiecache:v4:verloop"
+        const val PAUZE_MS = 20L
         private val teller = AtomicLong(System.nanoTime())
 
         fun nieuweOntvanger() = Oin(teller.incrementAndGet().toString().padStart(20, '0').takeLast(20))

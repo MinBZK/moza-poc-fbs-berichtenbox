@@ -28,6 +28,9 @@ internal class MockSessieRegister : SessieRegister {
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> =
         Uni.createFrom().item(SessieEinde.BEEINDIGD)
 
+    override fun heeftSessieGestartVoor(ontvanger: Identificatienummer, moment: Instant): Uni<Boolean> =
+        Uni.createFrom().item(true)
+
     override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(false)
 
     override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> = Uni.createFrom().item(Unit)

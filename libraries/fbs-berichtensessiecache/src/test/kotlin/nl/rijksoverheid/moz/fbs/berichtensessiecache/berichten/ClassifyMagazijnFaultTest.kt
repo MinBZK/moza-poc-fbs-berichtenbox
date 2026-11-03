@@ -47,6 +47,7 @@ class ClassifyMagazijnFaultTest {
         bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 15000L),
         circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
         sessies = mockk<SessieRegister>(),
+        aggregationLockTtl = java.time.Duration.ofMinutes(2),
     ).also { it.valideerTimeouts() }
 
     @Test

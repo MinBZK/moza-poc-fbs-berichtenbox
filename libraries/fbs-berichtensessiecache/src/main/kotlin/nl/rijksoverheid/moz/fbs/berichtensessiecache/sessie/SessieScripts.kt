@@ -13,7 +13,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  *    score zijn laatste verloop in ms;
  * 4–6. de gegevens onder een vaste naam: `$k:list`, `$k:status`, `$k:lock`;
  * 7. `$k:sleutels` — SET met elke andere gegevenssleutel van de ontvanger: de berichthashes, ook
- *    die van eerdere ophaalrondes, en de tombstones. De hashes vallen buiten de sessie-prefix en
+ *    die van eerdere ophaalrondes, en de tombstones. De hashes vallen buiten het prefix `$k` en
  *    zijn anders alleen via een zoekopdracht te vinden;
  * 8. `$k:ontvanger` — STRING, de leesbare ontvanger, voor de logregel van de veegtaak.
  *
@@ -113,7 +113,7 @@ internal object SessieScripts {
      *
      * Het plafond is het vroegste van start + maximale duur en het meegegeven plafond: de sessie van
      * het portaal eindigt niet later dan het portaal zegt. Alleen een start zonder andere lopende
-     * sessie wist: die begint met een vers beeld. Een start naast een lopende sessie trekt de TTL van
+     * sessie ruimt op: die begint met een vers beeld. Een start naast een lopende sessie trekt de TTL van
      * de bestaande gegevens op, anders verlopen ze vóór het plafond van de nieuwe sessie.
      */
     val START = GEDEELD + "\n\n" + """
@@ -202,9 +202,11 @@ internal object SessieScripts {
      * ARGV: sessie-hash, kenmerk, TTL van de index (ms). Antwoord `ONBEKEND`, `BEEINDIGD` of `OPGERUIMD` (zie
      * [SessieEinde]).
      *
-     * Blijft er geen lopende sessie over, dan wist het script ook bij een onbekend id: er is dan
-     * niemand meer voor wie de gegevens bestaan. Wist dat iets, of haalt het een wachtende
-     * opruiming uit de index, dan is de uitkomst `OPGERUIMD`, zodat het wissen in het logboek komt.
+     * Blijft er geen lopende sessie over, dan ruimt het script de gegevens op, ook bij een onbekend
+     * id: er is dan niemand meer voor wie ze bestaan. De uitkomst is `OPGERUIMD` bij elke laatste
+     * uitlog van een bekende sessie, ook als er niets te verwijderen was, en bij een onbekend id als
+     * er wel iets verwijderd is of als het een wachtende opruiming uit de index haalt. De logregel
+     * die daarop volgt, legt vast dat er na deze uitlog niets meer van de ontvanger staat.
      */
     val EINDE = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
@@ -239,8 +241,11 @@ internal object SessieScripts {
      * ARGV: kenmerk, leesbare ontvanger, vangnet-TTL (ms), TTL van de index (ms). Antwoord 1 als er
      * geen lopende sessie is en er gegevens gewist zijn, anders 0.
      *
-     * Draait ná het schrijven van een ophaalronde of een aanmelding: eindigde de laatste sessie
-     * terwijl die liep, dan ruimt dit het geschrevene op, in welke volgorde het ook gebeurde.
+     * Draait ná een schrijfactie die niet zelf aan een sessie hangt (ophaalronde, aanmelding,
+     * verwijdering): eindigde de laatste sessie terwijl die liep, dan ruimt dit het geschrevene op,
+     * in welke volgorde het ook gebeurde. Het verwijdert alles van de ontvanger, niet alleen wat die
+     * schrijfactie schreef.
+     *
      * Dit wissen leidt zelf niet tot een logregel, dus het zet de ontvanger met score "nu" in de
      * verloopindex. Zonder NX of GT: er loopt geen sessie, dus een latere score is achterhaald.
      */
@@ -257,6 +262,25 @@ internal object SessieScripts {
             redis.call('ZADD', KEYS[3], nu, ARGV[1])
             houdIndexAan(ARGV[4])
             return 1
+        end
+        return 0
+    """.trimIndent()
+
+    /**
+     * ARGV: moment (ms), maximale duur (ms). Antwoord 1 als er een lopende sessie is die vóór het
+     * moment begon, anders 0. De start staat niet apart: het is het plafond min de maximale duur.
+     * Gaf de aanroeper een vroeger plafond mee, dan valt die schatting vóór de echte start, en telt
+     * een sessie die kort na het moment begon mogelijk mee. Die fout valt naar de veilige kant: een
+     * melding die niet nodig was, geen melding die uitblijft.
+     */
+    val GESTART_VOOR = GEDEELD + "\n\n" + """
+        local nu = tijdInMs()
+        local grens = tonumber(ARGV[1]) + tonumber(ARGV[2])
+        for _, lid in ipairs(redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. nu, '+inf')) do
+            local plafond = tonumber(redis.call('HGET', KEYS[2], lid))
+            if plafond and plafond < grens then
+                return 1
+            end
         end
         return 0
     """.trimIndent()

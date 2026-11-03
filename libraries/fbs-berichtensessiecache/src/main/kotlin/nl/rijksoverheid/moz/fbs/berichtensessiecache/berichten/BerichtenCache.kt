@@ -36,10 +36,19 @@ internal class CacheContentieException(sleutel: BerichtSleutel) :
     RuntimeException("Cache-update afgebroken door gelijktijdige wijziging voor $sleutel")
 
 internal interface BerichtenCache {
-    /** Schrijft [berichten] als de lijst van [key], zonder naar een lopende ronde te kijken. */
+    /**
+     * Alleen voor tests, om een opgehaalde lijst neer te zetten. Schrijft [berichten] als de lijst
+     * van [key] zonder naar een lopende ronde te kijken. Productie schrijft via [slaRondeOp]: zonder
+     * de controle op het lock-token kan een ronde van vóór een uitlog haar resultaat in een nieuwe
+     * sessie zetten.
+     */
     fun store(key: String, berichten: List<Bericht>): Uni<Void>
 
-    /** Schrijft een afsluitende status en geeft de lock vrij, wie hem ook houdt. */
+    /**
+     * Alleen voor tests, net als [store]. Schrijft een afsluitende status en geeft de lock vrij, wie
+     * hem ook houdt; productie gebruikt [slaRondeOp] of [sluitRondeAf], die dat alleen doen voor de
+     * ronde die de lock nog heeft.
+     */
     fun storeAggregationStatus(key: String, status: AggregationStatus): Uni<Void>
 
     /**
@@ -55,7 +64,7 @@ internal interface BerichtenCache {
     /**
      * Slaat het resultaat van ronde [ronde] op (lijst, berichthashes en [status]) en geeft de lock
      * vrij, in één transactie die alleen doorgaat als [ronde] de lock dan nog houdt. `false` als dat
-     * niet zo is: de sessie eindigde intussen (het opruimen wist de lock) of de lock verliep. Dan is
+     * niet zo is: de laatste sessie eindigde intussen (het opruimen wist de lock) of de lock verliep. Dan is
      * er niets geschreven, zodat een latere sessie nooit de resultaten van een eerdere ronde ziet.
      */
     fun slaRondeOp(key: String, berichten: List<Bericht>, status: AggregationStatus, ronde: String): Uni<Boolean>
@@ -75,9 +84,9 @@ internal interface BerichtenCache {
     fun delete(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void>
 
     /**
-     * Of [ontvanger] dit bericht binnen deze sessie zélf verwijderde. Alleen te vertrouwen als
-     * antwoord op een misser: staat het bericht er nog, dan is dat de waarheid en zegt de
-     * tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
+     * Of [ontvanger] dit bericht zélf verwijderde; de tombstone blijft zolang zijn gegevens in de
+     * cache staan. Alleen te vertrouwen als antwoord op een misser: staat het bericht er nog, dan is
+     * dat de waarheid en zegt de tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
      */
     fun isVerwijderdVoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean>
 
@@ -109,7 +118,7 @@ internal interface BerichtenCache {
         // v4: de berichthash draagt het magazijn, want een berichtnummer is alleen uniek binnen
         // het magazijn dat het uitdeelde. Een pod van een vorige versie zou een gedeelde lijst
         // op alleen het nummer matchen en zo het bericht van de ene organisatie bij de andere
-        // bijwerken of opruimen; daarom zijn alle sleutels van de sessie disjunct van v3.
+        // bijwerken of opruimen; daarom zijn alle sleutels van de cache disjunct van v3.
         fun berichtKey(sleutel: BerichtSleutel) = "$BERICHT_PREFIX${sleutel.magazijnId}:${sleutel.berichtId}"
         const val BERICHT_PREFIX = "bericht:v4:"
 
@@ -284,7 +293,8 @@ internal class RedisBerichtenCache(
                 if (opgeslagen) {
                     log.debugf("Opgeslagen %d berichten in cache", berichten.size)
                 } else {
-                    log.infof("Ophaalronde was de lock kwijt (sessie-einde of verlopen lock); resultaten niet opgeslagen")
+                    // Of dat een sessie-einde of een verlopen lock is, en dus het logniveau, bepaalt de aanroeper.
+                    log.debugf("Ophaalronde was de lock kwijt; resultaten niet opgeslagen")
                 }
             }
             .onFailure().invoke { e -> log.errorf("Redis slaRondeOp mislukt (fout=%s)", e.javaClass.name) }
@@ -344,7 +354,7 @@ internal class RedisBerichtenCache(
     override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
         val json = objectMapper.writeValueAsString(status)
         // Nog-lopende (BEZIG) status: korte vangnet-TTL gelijk aan de lock, zodat een crash de
-        // status niet 12u laat hangen. De terminale GEREED/FOUT-status volgt wél de TTL van de
+        // status niet tot de TTL van de gegevens (`max-duur` + `vangnet-marge`) laat hangen. De terminale GEREED/FOUT-status volgt wél de TTL van de
         // gegevens, omdat die het gecachte resultaat spiegelt.
         return voerLockScriptUit(ZET_STATUS_ALS_EIGENAAR, key, ronde, json, aggregationLockTtl.toMillis().toString(), "0")
             .onFailure().invoke { e -> log.errorf(e, "Redis updateAggregationStatus mislukt voor key=%s", key) }
@@ -697,10 +707,10 @@ internal class RedisBerichtenCache(
         // `getPage` direct deserialiseert — een HSET-alleen update laat die list stale (oude
         // status/map zichtbaar in `GET /berichten` tot de volgende ophaalronde). We schrijven daarom
         // óók de matchende list-entry terug, onder hetzelfde optimistic locking als `delete`
-        // (WATCH op list- en bericht-key): een concurrente `createBericht`/`delete` tussen read en EXEC breekt de transactie af zodat
-        // we geen lost-update veroorzaken. Bij afbreken herhalen we tot een klein plafond; daarna
-        // laten we de cache met rust en levert de operatie een retriable 503 op zodat de client
-        // opnieuw kan proberen.
+        // (WATCH op list- en bericht-key): een concurrente `createBericht`/`delete` tussen read en
+        // EXEC breekt de transactie af zodat we geen lost-update veroorzaken. Bij afbreken herhalen
+        // we tot een klein plafond; daarna laten we de cache met rust en levert de operatie een
+        // retriable 503 op zodat de client opnieuw kan proberen.
         val leesstatus = status?.let { Leesstatus.fromWire(it) }
         return probeerUpdateMetadata(sleutel, ontvanger, leesstatus, map, 1)
     }
@@ -874,14 +884,14 @@ internal class RedisBerichtenCache(
     }
 
     /**
-     * Voegt niets toe als het bericht al in de lijst van deze sessie staat. Dat gebeurt gewoon: het
+     * Voegt niets toe als het bericht al in de lijst van de ontvanger staat. Dat gebeurt gewoon: het
      * magazijn meldt een bericht aan uit zijn wachtrij, en een ophaalronde die intussen liep, heeft
      * het rechtstreeks uit het magazijn al meegenomen. Zonder deze controle staat het er daarna
      * twee keer in.
      *
      * Controleren en toevoegen in één Lua-script, dus atomair zonder WATCH. Een WATCH op de lijst
-     * zou afbreken op elke EXPIRE die een open berichtenbox op zijn hartslag doet — precies wat er
-     * gebeurt als een reeks aanmeldingen binnenkomt terwijl die ontvanger volgt.
+     * zou afbreken op elke PEXPIRE die een andere schrijfactie of een sessiestart naast een lopende
+     * sessie op de lijst zet — precies wat er gebeurt als een reeks aanmeldingen tegelijk binnenkomt.
      */
     override fun createBericht(bericht: Bericht, ontvanger: Identificatienummer): Uni<Void> {
         val cacheKey = BerichtenCache.cacheKey(ontvanger)
@@ -972,7 +982,7 @@ internal class RedisBerichtenCache(
             // Best-effort: de delete zelf is dan al onherroepelijk
             // uitgevoerd, en die alsnog laten omvallen levert een 502 op een geslaagde verwijdering
             // plus een compensatie-invalidate die niets meer te invalideren heeft. Wat verloren
-            // gaat is het kenmerk: de rest van de sessie meldt "onbekend" waar "verwijderd" hoorde.
+            // gaat is het kenmerk: een latere lookup meldt "onbekend" waar "verwijderd" hoorde.
             // Eigen alert-anker, want de generieke delete-logregel zou beweren dat de delete faalde.
             .onFailure().invoke { e ->
                 log.errorf(
@@ -1005,7 +1015,8 @@ internal class RedisBerichtenCache(
      */
     private fun blobMatcht(json: String, sleutel: BerichtSleutel, handeling: String): Boolean =
         runCatching { objectMapper.readTree(json) }
-            .onFailure { e -> log.warnf(e, "Onparsebare list-entry bij %s; entry behouden. %s", handeling, sleutel) }
+            // Alleen de klassenaam: de melding van een parsefout citeert het blob, en daarin staat de ontvanger.
+            .onFailure { e -> log.warnf("Onparsebare list-entry bij %s; entry behouden (fout=%s). %s", handeling, e.javaClass.name, sleutel) }
             .getOrNull()
             ?.let { blob ->
                 blob.path("berichtId").asText() == sleutel.berichtId.toString() &&
@@ -1015,9 +1026,9 @@ internal class RedisBerichtenCache(
     companion object {
         // Aantal optimistic-lock-pogingen voor `updateBerichtMetadata` voordat de update een
         // retriable contentie-fout geeft. Een klein plafond voorkomt ongebonden retry onder
-        // pathologische contentie. Ook een EXPIRE van een gevolgde berichtenbox breekt de WATCH af.
-        // (Delete gebruikt LREM en heeft geen retry-loop nodig.)
-        // TODO(MinBZK/MijnOverheidZakelijk#1166): atomair zonder WATCH, zoals createBericht, zodat meelezen niet meer botst.
+        // pathologische contentie. Ook een PEXPIRE van een andere schrijfactie of van een sessiestart
+        // naast een lopende sessie breekt de WATCH af. (Delete gebruikt LREM en heeft geen retry-loop nodig.)
+        // TODO(MinBZK/MijnOverheidZakelijk#1166): atomair zonder WATCH, zoals createBericht, zodat gelijktijdige schrijfacties niet meer botsen.
         private const val MAX_UPDATE_METADATA_POGINGEN = 5
 
         /**
@@ -1156,7 +1167,7 @@ internal class RedisBerichtenCache(
 }
 
 /**
- * De uitkomst van een ophaalronde zoals die de sessie overleeft. [nietOpgehaald] telt de
+ * De uitkomst van een ophaalronde zoals die in de cache blijft staan. [nietOpgehaald] telt de
  * organisaties die door de gelijktijdigheidsgrens van de uitvraag niet bevraagd zijn; die horen
  * niet bij [mislukt], want er is geen uitspraak over dat magazijn gedaan.
  *

@@ -409,7 +409,7 @@ const SAMENVATTINGEN = {
     'simulator-legen': (body) =>
         body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
 
-    sessie: (body) => body.gewisteKeys + ' sleutel(s) in de sessiecache gewist (sessies en berichten); de berichtenbox krijgt 401 en start een nieuwe sessie',
+    sessie: (body) => body.gewisteKeys + ' key(s) van de sessiecache gewist (inlogsessies en berichtgegevens); de berichtenbox krijgt 401 en start een nieuwe sessie',
 
     'foutieve-aanlevering': (body) => 'Het magazijn wees de aanlevering af met HTTP ' + body.status,
 
