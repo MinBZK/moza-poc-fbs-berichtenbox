@@ -117,7 +117,8 @@ haalt een ronde dat niet: alleen organisaties die niet antwoorden maken hun time
 wachtbudget komt pas in beeld als meerdere ondernemers tegelijk ophalen (gemeten: 10 seconden bij
 honderd organisaties). Maar reken de som na vóór je de fan-out of de timeouts vergroot: verstrijkt
 de lock middenin een ronde, dan vervalt de bescherming tegen een tweede gelijktijdige ronde voor
-dezelfde ontvanger. Verhoog dan `aggregation-lock-ttl` mee, of `max-parallel-per-ronde` (binnen
+dezelfde ontvanger, en slaat de ronde haar resultaat niet op (de berichtenbox krijgt een fout-event,
+de log een `WARN` met de lock-TTL). Verhoog dan `aggregation-lock-ttl` mee, of `max-parallel-per-ronde` (binnen
 `max-concurrent`). Er is geen startup-controle op deze verhouding — het aantal organisaties van een
 ondernemer is bij het opstarten niet bekend.
 
@@ -226,24 +227,35 @@ compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIEC
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | De Redis-TTL (vangnet) op de sessie-administratie en de berichtgegevens. Hij wordt opnieuw gezet bij elke sessiestart en elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering), en een start naast een lopende sessie trekt hem op voor de bestaande gegevens; leesverkeer verlengt hem niet. Activiteit verlengt een sessie niet en er is geen inactiviteitstermijn: een sessie die niet uitgelogd wordt, of gegevens die een mislukt opruimen liet staan, blijven tot `max-duur` na de laatste start of schrijfactie staan. Het actieve opruimen bij de laatste uitlog van een ontvanger is leidend |
-| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op (`INFO Ophaalronde was de lock kwijt …`). Dezelfde regel verschijnt als de laatste sessie tijdens de ronde eindigde |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | De Redis-TTL (vangnet) op de sessie-administratie en de berichtgegevens; leesverkeer verlengt hem niet. Op de sessie-administratie zet alleen een sessiestart hem: een sessie die niet uitgelogd wordt, eindigt `max-duur` na de laatste start, ook als er daarna nog geschreven werd. Activiteit verlengt een sessie niet en er is geen inactiviteitstermijn. Op de berichtgegevens zet elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering) hem opnieuw, en een start naast een lopende sessie trekt hem op voor de bestaande gegevens: gegevens van een sessie die niet uitgelogd wordt, of die een mislukt opruimen liet staan, blijven tot `max-duur` na de laatste start of schrijfactie staan. Het actieve opruimen bij de laatste uitlog van een ontvanger is leidend |
+| `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op. Loopt de sessie dan nog, dan krijgt de berichtenbox een fout-event (haal opnieuw op) en staat er `WARN Ophaalronde was haar lock kwijt terwijl er nog een sessie loopt … aggregation-lock-ttl (<waarde>)` in de log; verhoog dan deze waarde. Eindigde de laatste sessie tijdens de ronde, dan eindigt de stream zonder slotevent en volgt alleen `INFO Ophaalronde was de lock kwijt doordat de laatste sessie eindigde` |
 | `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt; een beëindigde sessie sluit de stream hoogstens een hartslag later. Houdt ook proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s) |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
 | `profiel.resolver.cache.max-size` | `10000` | Verhoog bij veel gelijktijdige ontvangers; het is een geheugen-plafond |
 
 Elk actief opruimen van berichtgegevens (uitloggen, een start die resten wist) komt als
 verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` in het Logboek
-Dataverwerkingen. Drie uitzonderingen:
+Dataverwerkingen. De laatste uitlog van een bekende sessie levert die regel altijd, ook als er
+niets te wissen was: de regel legt vast dat er na die uitlog niets meer van de ontvanger staat.
+Twee gevallen wissen zonder logregel:
 
-- het verlopen van de vangnet-TTL, dat zonder logregel wist. Er is geen inactiviteitstermijn,
-  dus dat gebeurt bij elke sessie die niet uitgelogd wordt, en verder na
-  `[ALERT opruimen_na_schrijven]`. Het portaal hoort daarom bij elk uitloggen
-  `DELETE /sessies/huidige` aan te roepen;
-- het opruimen direct na een schrijfactie die kruiste met het einde van de laatste sessie: de
-  opruimcontrole wist wat er toen nog geschreven werd meteen weer, zonder eigen logregel. De
-  schrijfactie zelf (ophaalronde, aanmelding of verwijdering) heeft wel haar logregel;
-- een opruiming die niet in het logboek kon worden geschreven (`LDV_OPRUIMEN_ONTBREEKT`).
+- het verlopen van de vangnet-TTL. Er is geen inactiviteitstermijn, dus dat gebeurt bij elke
+  sessie die niet uitgelogd wordt, en bij gegevens die na het alert `[ALERT opruimen_na_schrijven]`
+  achterbleven. Het portaal hoort daarom bij elk uitloggen `DELETE /sessies/huidige` aan te
+  roepen;
+- het opruimen direct na een schrijfactie (ophaalronde, aanmelding of verwijdering) terwijl er
+  geen sessie meer loopt. De opruimcontrole verwijdert dan alles wat er van de ontvanger staat, niet
+  alleen wat die schrijfactie schreef. Dat raakt ook resten van een sessie waarvan de administratie
+  al door de vangnet-TTL verdween, terwijl de gegevens door een latere schrijfactie langer bleven
+  staan. Die resten zouden zonder deze controle even later met de vangnet-TTL verdwijnen, ook
+  zonder logregel. De schrijfactie zelf heeft wel haar logregel.
+
+Daarnaast kan een opruiming wél gebeurd zijn terwijl haar logregel niet geschreven kon worden
+(`LDV_OPRUIMEN_ONTBREEKT`, hieronder).
+
+Een start waarop het antwoord wegviel terwijl Redis haar wel uitvoerde, laat een sessie achter
+waarvan niemand het id kent. Zolang die staat, is de uitlog van de echte sessie niet de laatste:
+die geeft `beeindigd`, en de gegevens blijven staan tot de vangnet-TTL ze zonder logregel wist.
 
 Regels die je in de logs kunt zien:
 
@@ -263,9 +275,12 @@ Regels die je in de logs kunt zien:
   wist, en dat wissen komt niet in het logboek. Alert-token; controleer de bereikbaarheid van Redis.
   Tijdens een Redis-storing kan het per mislukte schrijfactie verschijnen. De regel noemt alleen
   fouttypes: welke ontvanger het betreft, staat bewust niet in de log.
-- Een uitlog of start waarop Redis niet op tijd antwoordt, geeft de gebruiker `503` en komt als
-  opruiming met uitkomst `onbevestigd` in het logboek (aanleiding `uitgelogd` of `nieuwe-start`):
-  het wissen kan al gebeurd zijn.
+- Een uitlog of start waarop Redis niet op tijd antwoordt (`503`), of met een antwoord dat de
+  dienst niet kent (`500`), komt als opruiming met uitkomst `onbevestigd` in het logboek
+  (aanleiding `uitgelogd` of `nieuwe-start`): het wissen kan al gebeurd zijn.
+- `WARN Ophaalronde was haar lock kwijt terwijl er nog een sessie loopt`: de ronde duurde langer
+  dan `aggregation-lock-ttl` en heeft niets opgeslagen; de berichtenbox kreeg een fout-event met
+  dezelfde `errorId` als referentie. Zie de rij `aggregation-lock-ttl` hierboven.
 
 In het logboek zelf:
 

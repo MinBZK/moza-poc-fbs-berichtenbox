@@ -9,7 +9,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  * 1. `$k:sessies` — ZSET, lid `sha256(sessie-id)`, score het startmoment in ms;
  * 2–4. de gegevens onder een vaste naam: `$k:list`, `$k:status`, `$k:lock`;
  * 5. `$k:sleutels` — SET met elke andere gegevenssleutel van de ontvanger: de berichthashes, ook
- *    die van eerdere ophaalrondes, en de tombstones. De hashes vallen buiten de sessie-prefix en
+ *    die van eerdere ophaalrondes, en de tombstones. De hashes vallen buiten het prefix `$k` en
  *    zijn anders alleen via een zoekopdracht te vinden.
  *
  * Een sessie geldt tot het uitloggen, of tot Redis `$k:sessies` wist met de vangnet-TTL (zie
@@ -67,7 +67,7 @@ internal object SessieScripts {
      *
      * Antwoord `{1, opgeruimd}`, met opgeruimd 1 als de start gegevens wiste, anders 0.
      *
-     * Alleen een start zonder andere lopende sessie wist: die begint met een vers beeld. Een start
+     * Alleen een start zonder andere lopende sessie ruimt op: die begint met een vers beeld. Een start
      * naast een lopende sessie trekt de TTL van de bestaande gegevens op, anders kan de vangnet-TTL
      * ze wissen terwijl de nieuwe sessie nog loopt.
      */
@@ -100,9 +100,11 @@ internal object SessieScripts {
     /**
      * ARGV: sessie-hash. Antwoord `ONBEKEND`, `BEEINDIGD` of `OPGERUIMD` (zie [SessieEinde]).
      *
-     * Blijft er geen lopende sessie over, dan wist het script ook bij een onbekend id: er is dan
-     * niemand meer voor wie de gegevens bestaan. Wist dat iets, dan is de uitkomst `OPGERUIMD`,
-     * zodat het wissen in het logboek komt.
+     * Blijft er geen lopende sessie over, dan ruimt het script de gegevens op, ook bij een onbekend
+     * id: er is dan niemand meer voor wie ze bestaan. De uitkomst is `OPGERUIMD` bij elke laatste
+     * uitlog van een bekende sessie, ook als er niets te verwijderen was, en bij een onbekend id als
+     * er wel iets verwijderd is. De logregel die daarop volgt, legt vast dat er na deze uitlog
+     * niets meer van de ontvanger staat.
      */
     val EINDE = GEDEELD + "\n\n" + """
         local bekend = redis.call('ZREM', KEYS[1], ARGV[1]) == 1
@@ -124,9 +126,15 @@ internal object SessieScripts {
     /**
      * Geen ARGV. Antwoord 1 als er geen lopende sessie is en er gegevens gewist zijn, anders 0.
      *
-     * Draait ná het schrijven van een ophaalronde of een aanmelding: eindigde de laatste sessie
-     * terwijl die liep, dan ruimt dit het geschrevene op, in welke volgorde het ook gebeurde. Dit
-     * wissen krijgt geen eigen logregel.
+     * Draait ná een schrijfactie die niet zelf aan een sessie hangt (ophaalronde, aanmelding,
+     * verwijdering): eindigde de laatste sessie terwijl die liep, dan ruimt dit het geschrevene op,
+     * in welke volgorde het ook gebeurde.
+     *
+     * Het verwijdert alles van de ontvanger, niet alleen wat die schrijfactie schreef. Dat raakt ook
+     * resten van een sessie waarvan de administratie al door de vangnet-TTL verdween, terwijl de
+     * gegevens, die bij een latere schrijfactie hun TTL opnieuw kregen, nog stonden. Dit opruimen
+     * krijgt geen eigen logregel; die resten zouden anders even later met de vangnet-TTL verdwijnen,
+     * ook zonder logregel.
      */
     val OPRUIMEN = GEDEELD + "\n\n" + """
         if redis.call('ZCARD', KEYS[1]) > 0 then
