@@ -116,8 +116,8 @@ nieuwe veld wanneer ze opnieuw worden geschreven (na de volgende ophaalronde
 van hun ontvanger).
 
 Er is geen natuurlijke rotatie: de berichten van een ontvanger blijven staan tot zijn
-laatste sessie eindigt, of anders tot de vangnet-TTL (`berichtensessiecache.sessie.max-duur` plus
-`vangnet-marge`, default 13 uur na de laatste start of schrijfactie).
+laatste sessie eindigt, of anders tot de vangnet-TTL (`berichtensessiecache.sessie.max-duur`,
+default 12 uur na de laatste start of schrijfactie).
 Oude berichten zijn op het nieuwe veld dus pas vindbaar zodra de ontvanger opnieuw ophaalt,
 een nieuwe sessie start (vers beeld) of zijn laatste sessie eindigt. Bij urgent volledig
 herindexen: laat een gerichte cache-warming-flow lopen.

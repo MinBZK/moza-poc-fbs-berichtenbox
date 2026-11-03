@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Het wissen van de berichtgegevens aan het einde van de laatste sessie, tegen een echte Redis:
  * wat er weg moet (ook hashes van eerdere rondes, aanmeldingen en tombstones), wat er gebeurt als
  * schrijven en uitloggen elkaar kruisen, en de TTL op de gegevens als vangnet. Duren uit
- * [OpruimRedisTestProfile]: maximale duur 20 s, marge 1 s.
+ * [OpruimRedisTestProfile]: maximale duur 20 s.
  */
 @QuarkusTest
 @TestProfile(OpruimRedisTestProfile::class)
@@ -332,7 +332,7 @@ class SessieOpruimenTest {
 
         // De tweede start zette de vangnet-TTL van de administratie opnieuw; zonder dat viel de nieuwe
         // sessie na de eerste vangnet-TTL weg.
-        assertTrue(pttl("$k:sessies") > MAX_DUUR_MS, "$k:sessies niet opgetrokken: ${pttl("$k:sessies")} ms")
+        assertTrue(pttl("$k:sessies") > OPGETROKKEN_MS, "$k:sessies niet opgetrokken: ${pttl("$k:sessies")} ms")
     }
 
     @Test
@@ -352,11 +352,11 @@ class SessieOpruimenTest {
         Thread.sleep(1_500)
 
         // Zonder optrekken verlopen deze vóór de sessie-administratie van een sessie die nu start.
-        gegevens.forEach { assertTrue(pttl(it) in 1 until MAX_DUUR_MS, "$it: ${pttl(it)} ms") }
+        gegevens.forEach { assertTrue(pttl(it) in 1 until OPGETROKKEN_MS, "$it: ${pttl(it)} ms") }
 
         sessiecache.startSessie(ontvanger)
 
-        gegevens.forEach { assertTrue(pttl(it) > MAX_DUUR_MS, "$it niet opgetrokken: ${pttl(it)} ms") }
+        gegevens.forEach { assertTrue(pttl(it) > OPGETROKKEN_MS, "$it niet opgetrokken: ${pttl(it)} ms") }
     }
 
     @Test
@@ -370,18 +370,18 @@ class SessieOpruimenTest {
     }
 
     @Test
-    fun `de TTL na het schrijven is maximale duur plus marge, en lezen verlengt hem niet`() {
+    fun `de TTL na het schrijven is de maximale duur, en lezen verlengt hem niet`() {
         val berichten = listOf(bericht())
         vulAlsOpgehaald(berichten)
         val gegevens = listOf("$k:list", "$k:status", "$k:sleutels", BerichtenCache.berichtKey(berichten[0].sleutel))
 
-        gegevens.forEach { assertTrue(pttl(it) in (MAX_DUUR_MS + 1)..DATA_TTL_MS, "$it: ${pttl(it)} ms") }
+        gegevens.forEach { assertTrue(pttl(it) in (OPGETROKKEN_MS + 1)..DATA_TTL_MS, "$it: ${pttl(it)} ms") }
 
-        Thread.sleep(1_200)
+        Thread.sleep(1_500)
         berichtenCache.getPage(k, 0, 20).await().atMost(WACHTTIJD)
         berichtenCache.getById(berichten[0].sleutel, ontvanger).await().atMost(WACHTTIJD)
 
-        gegevens.forEach { assertTrue(pttl(it) < MAX_DUUR_MS, "$it verlengd door lezen: ${pttl(it)} ms") }
+        gegevens.forEach { assertTrue(pttl(it) < OPGETROKKEN_MS, "$it verlengd door lezen: ${pttl(it)} ms") }
     }
 
     private fun vulAlsOpgehaald(berichten: List<Bericht>) {
@@ -424,8 +424,11 @@ class SessieOpruimenTest {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
         const val WACHTTIJD_S = 10L
         const val RONDE_S = 15L
-        const val MAX_DUUR_MS = 20_000L
-        const val DATA_TTL_MS = 21_000L
+        const val DATA_TTL_MS = 20_000L
+
+        // Een TTL boven deze grens is net gezet; na de anderhalve seconde wachten in de tests ligt
+        // een niet opgetrokken TTL eronder.
+        const val OPGETROKKEN_MS = DATA_TTL_MS - 1_000L
         const val LOCK_TTL_MS = 5_000L
         const val AANTAL_OVER_GRENS = 1001
         private val teller = AtomicLong(System.nanoTime())

@@ -12,8 +12,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  *    die van eerdere ophaalrondes, en de tombstones. De hashes vallen buiten de sessie-prefix en
  *    zijn anders alleen via een zoekopdracht te vinden.
  *
- * Een sessie verloopt niet uit zichzelf: ze loopt tot het uitloggen, of tot de vangnet-TTL op
- * `$k:sessies` (zie [dataTtl]) de administratie laat verdwijnen.
+ * Een sessie geldt tot het uitloggen, of tot Redis `$k:sessies` wist met de vangnet-TTL (zie
+ * [dataTtl]). Activiteit verlengt niets.
  *
  * Omdat de leden van `$k:sleutels` niet in KEYS staan, gaan deze scripts uit van één Redis-node,
  * zoals het aanmeldscript van de berichtencache.

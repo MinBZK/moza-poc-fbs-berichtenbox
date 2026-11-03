@@ -226,8 +226,7 @@ compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIEC
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Samen met `vangnet-marge` de Redis-TTL op de sessie-administratie en de berichtgegevens. Een sessie verloopt niet uit zichzelf: wie niet uitlogt, laat sessie en gegevens tot die TTL staan |
-| `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL staat op `max-duur` + marge. Hij wordt opnieuw gezet bij elke sessiestart en elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering), en een start naast een lopende sessie trekt hem op voor de bestaande gegevens; leesverkeer verlengt hem niet. Gegevens van een sessie die niet uitgelogd wordt, of die een mislukt opruimen liet staan, blijven dus tot `max-duur` + marge na de laatste start of schrijfactie staan. Het actieve opruimen bij de laatste uitlog van een ontvanger is leidend |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | De Redis-TTL (vangnet) op de sessie-administratie en de berichtgegevens. Hij wordt opnieuw gezet bij elke sessiestart en elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering), en een start naast een lopende sessie trekt hem op voor de bestaande gegevens; leesverkeer verlengt hem niet. Activiteit verlengt een sessie niet en er is geen inactiviteitstermijn: een sessie die niet uitgelogd wordt, of gegevens die een mislukt opruimen liet staan, blijven tot `max-duur` na de laatste start of schrijfactie staan. Het actieve opruimen bij de laatste uitlog van een ontvanger is leidend |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op (`INFO Ophaalronde was de lock kwijt …`). Dezelfde regel verschijnt als de laatste sessie tijdens de ronde eindigde |
 | `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt; een beëindigde sessie sluit de stream hoogstens een hartslag later. Houdt ook proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s) |
 | `profiel.resolver.cache.ttl-seconds` | `30` | In-JVM Caffeine-cache die burst-load richting de Profiel-service absorbeert voor dezelfde ontvanger |
@@ -237,7 +236,7 @@ Elk actief opruimen van berichtgegevens (uitloggen, een start die resten wist) k
 verwerkingsactiviteit `urn:nl:moz:fbs:verwerkingsactiviteit:berichtenuitvraag:sessie` in het Logboek
 Dataverwerkingen. Drie uitzonderingen:
 
-- het verlopen van de vangnet-TTL, dat zonder logregel wist. Een sessie verloopt niet uit zichzelf,
+- het verlopen van de vangnet-TTL, dat zonder logregel wist. Er is geen inactiviteitstermijn,
   dus dat gebeurt bij elke sessie die niet uitgelogd wordt, en verder na
   `[ALERT opruimen_na_schrijven]`. Het portaal hoort daarom bij elk uitloggen
   `DELETE /sessies/huidige` aan te roepen;
@@ -250,10 +249,11 @@ Regels die je in de logs kunt zien:
 
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
   vastgelegd. Alert-token. De regel draagt een eigen `foutId`, de aanleiding, de uitkomst, het type
-  ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger: naleggen kan dus niet.
-  Controleer de LDV-verbinding, en **meld het gat aan de privacy officer**, met het tijdvenster
-  (eerste en laatste regel) en het aantal regels (verschillende `foutId`'s). De verantwoording
-  (AVG art. 5(2)) heeft dan een gat dat niet te herstellen is; dat hoort vastgelegd te worden.
+  ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger, want dat kan een BSN zijn.
+  De ontbrekende LDV-regel is dus niet achteraf aan te vullen. Controleer de LDV-verbinding, en
+  **meld de ontbrekende regels aan de privacy officer**, met het tijdvenster (eerste en laatste
+  regel) en het aantal regels (verschillende `foutId`'s). De verantwoording (AVG art. 5(2)) mist
+  dan regels die niet te herstellen zijn; dat hoort vastgelegd te worden.
 - `ERROR [ALERT opruimen_na_schrijven]`: na een schrijfactie staat niet vast dat er niets zonder
   sessie is achtergebleven. De regel begint met wat er misging: `Opruimen na een aanmelding
   mislukt`, `Aanmelding niet bevestigd` of `Verwijderen niet bevestigd` (Redis antwoordde niet op
@@ -282,9 +282,9 @@ verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
 
 - **Doel:** de tijdelijke kopie van de berichtgegevens van een ontvanger alleen bewaren zolang hij een
   lopende inlogsessie heeft, en elk wissen ervan verantwoorden.
-- **Bewaartermijnen:** tot de laatste uitlog van de ontvanger. Een sessie verloopt niet na
-  inactiviteit: zonder uitlog blijven de gegevens staan tot de Redis-TTL van 13 uur (`max-duur` +
-  `vangnet-marge`) na de laatste start of schrijfactie, en dat wissen komt niet in het logboek. Wijk
+- **Bewaartermijnen:** tot de laatste uitlog van de ontvanger. Er is geen inactiviteitstermijn:
+  zonder uitlog blijven de gegevens staan tot de Redis-TTL van 12 uur (`max-duur`) na de laatste
+  start of schrijfactie, en dat wissen komt niet in het logboek. Wijk
   je in een omgeving af van de defaults, neem dan die waarden op.
 - **Grondslag:** dezelfde als die van de berichtenuitvraag zelf: de sessie-administratie en het
   logboek ervan horen bij het tonen van de berichten, niet bij een eigen doel. Stel met de privacy

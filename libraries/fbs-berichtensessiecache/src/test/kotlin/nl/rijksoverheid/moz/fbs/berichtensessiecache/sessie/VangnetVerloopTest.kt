@@ -79,7 +79,7 @@ class VangnetVerloopTest {
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
 
-        // Maximale duur plus marge uit het profiel; de marge hierna dekt de traagheid van de test zelf.
+        // De maximale duur uit het profiel; de marge hierna dekt de traagheid van de test zelf.
         const val DATA_TTL_MS = 3_000L
         const val MARGE_MS = 700L
     }

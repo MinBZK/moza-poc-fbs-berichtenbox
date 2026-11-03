@@ -22,8 +22,7 @@ class KleineBatchRedisTestProfile : QuarkusTestProfile {
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
         "quarkus.redis.max-waiting-handlers" to "64",
         "berichtensessiecache.redis-batchgrootte" to "16",
-        "berichtensessiecache.sessie.max-duur" to "PT4M",
-        "berichtensessiecache.sessie.vangnet-marge" to "PT1M",
+        "berichtensessiecache.sessie.max-duur" to "PT5M",
         "berichtensessiecache.aggregation-lock-ttl" to "PT5M",
     )
 }

@@ -152,9 +152,9 @@ interface Sessiecache {
      * eerst de gegevens gewist die er zonder lopende sessie nog stonden: een sessie begint met een
      * vers beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
      *
-     * De sessie verloopt niet uit zichzelf: ze loopt tot [beeindigSessie]. Wordt ze nooit beëindigd,
-     * dan verdwijnt ze met de vangnet-TTL (`berichtensessiecache.sessie.max-duur` plus
-     * `vangnet-marge`), en de gegevens van de ontvanger zonder logregel.
+     * De sessie geldt tot [beeindigSessie]; activiteit verlengt haar niet en er is geen
+     * inactiviteitstermijn. Wordt ze nooit beëindigd, dan wist Redis haar met de vangnet-TTL
+     * (`berichtensessiecache.sessie.max-duur`), en de gegevens van de ontvanger zonder logregel.
      *
      * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
      * gebeurde, dan staat er een sessie die niemand kent, en kan de start al resten gewist hebben.

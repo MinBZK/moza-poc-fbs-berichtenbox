@@ -32,18 +32,12 @@ class RedisSessieRegisterConfigTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["PT0S", "-PT1S"])
-    fun `een duur van nul of negatief wordt per sleutel geweigerd`(waarde: String) {
-        val duur = Duration.parse(waarde)
-        val gevallen = mapOf(
-            "max-duur" to TestSessieConfig(maxDuur = duur),
-            "vangnet-marge" to TestSessieConfig(vangnetMarge = duur),
-        )
+    fun `een duur van nul of negatief wordt geweigerd`(waarde: String) {
+        val config = TestSessieConfig(maxDuur = Duration.parse(waarde))
 
-        gevallen.forEach { (sleutel, config) ->
-            val fout = assertThrows<IllegalArgumentException> { RedisSessieRegister(redis, config) }
+        val fout = assertThrows<IllegalArgumentException> { RedisSessieRegister(redis, config) }
 
-            assertTrue(fout.message!!.contains("berichtensessiecache.sessie.$sleutel"), "Was: ${fout.message}")
-        }
+        assertTrue(fout.message!!.contains("berichtensessiecache.sessie.max-duur"), "Was: ${fout.message}")
     }
 
     @ParameterizedTest(name = "antwoord {0}")
