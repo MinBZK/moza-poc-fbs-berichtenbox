@@ -59,10 +59,11 @@ class SessieLogboek(private val processingHandler: ProcessingHandler) {
     }
 
     /**
-     * Het gat valt niet na te leggen: de regel noemt de ontvanger niet, en dat hoort zo. Wat er wel
-     * in staat, is wat de privacy officer nodig heeft om het gat te melden: een eigen `foutId` per
-     * ontbrekende regel (om ze te tellen en naar een melding te verwijzen), het tijdstip van de
-     * logregel, de aanleiding, de uitkomst, het type ontvanger en de klasse van de oorzaak.
+     * Uit deze applicatielog is de ontbrekende LDV-regel niet achteraf aan te vullen: de logregel
+     * noemt de ontvanger niet, omdat dat een BSN kan zijn. Wel staat erin wat de privacy officer
+     * nodig heeft om de ontbrekende regel te melden: een eigen `foutId` per ontbrekende regel (om ze
+     * te tellen en naar een melding te verwijzen), het tijdstip van de logregel, de aanleiding, de
+     * uitkomst, het type ontvanger en de klasse van de oorzaak.
      */
     private fun meldOntbrekend(ontvanger: Identificatienummer, aanleiding: OpruimAanleiding, uitkomst: OpruimUitkomst, oorzaak: String) {
         log.errorf(

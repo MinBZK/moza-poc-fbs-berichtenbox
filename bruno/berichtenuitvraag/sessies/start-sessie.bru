@@ -17,14 +17,15 @@ headers {
 
 script:post-response {
   if (res.status === 201) {
-    bru.setEnvVar("sessie", res.body.sessieId);
+    bru.setVar("sessie", res.body.sessieId);
   }
 }
 
 docs {
   Geeft 201 met `sessieId`, `geldigTot` (verloop bij inactiviteit) en `uiterlijkGeldigTot`
   (het harde plafond), en `Location: /api/v1/sessies/huidige`. Het id komt automatisch in de
-  omgevingsvariabele `sessie` en gaat als `X-Sessie` mee op elk verzoek dat een sessie vereist.
+  runtime-variabele `sessie` en gaat als `X-Sessie` mee op elk verzoek dat een sessie vereist. Een
+  runtime-variabele staat niet in het omgevingsbestand, dus starten laat geen wijziging in git achter.
 
   Zonder body geldt alleen de maximale duur van de uitvraag; met een plafond van het portaal zie
   "Sessie starten met plafond".

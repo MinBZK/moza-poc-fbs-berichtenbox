@@ -228,7 +228,7 @@ compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIEC
 |---|---|---|
 | `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek of verlenging (`_verlengen`). Een open `_volgen`-verbinding houdt hem niet in leven. Gekoppeld aan een portaal: zie *Koppeling met een portaal* |
 | `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik. Geeft het portaal bij de start een eerder plafond mee, dan geldt dat |
-| `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat op `max-duur` + marge. Hij wordt opnieuw gezet bij elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering) en opgetrokken door een sessiestart naast een lopende sessie; leesverkeer verlengt hem niet. Gegevens blijven bij een mislukt opruimen dus tot `max-duur` + marge na de laatste schrijfactie staan, niet na de eerste ophaalronde. Het is alleen een vangnet; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend |
+| `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat op `max-duur` + marge. Hij wordt opnieuw gezet bij elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering) en opgetrokken door een sessiestart naast een lopende sessie; leesverkeer verlengt hem niet. Gegevens blijven bij een mislukt opruimen dus tot `max-duur` + marge na de laatste schrijfactie staan, niet na de eerste ophaalronde. Het is alleen een vangnet; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend. De marge is de tijd die de veegtaak na het plafond krijgt om actief op te ruimen, mét logregel; pas als dat de hele marge blijft mislukken, wist Redis zonder logregel. Een uur geeft na `[ALERT sessie_veger_faalt]` tijd om de storing te verhelpen. Korter beperkt hoe lang gegevens na zo'n storing blijven staan, maar vergroot de kans op een wis zonder logregel |
 | `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt. Eén ronde haalt batches van 100 op zolang die vol zijn, binnen een budget van een half interval; een ontvanger waarvan het opruimen mislukt, schuift een interval (minstens 30 s) naar achteren |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op (`INFO Ophaalronde was de lock kwijt …`). Dezelfde regel verschijnt als de laatste sessie tijdens de ronde eindigde |
 | `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt, zonder hem te verlengen; een verlopen sessie sluit de stream hoogstens een hartslag later. Houdt ook proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s) |
@@ -283,10 +283,11 @@ met de foutklasse:
     mislukking schuift een ontvanger minstens 30 s op, dus drie pogingen duren een paar minuten.
 - `ERROR LDV_OPRUIMEN_ONTBREEKT`: het opruimen is gebeurd maar kon niet in het logboek worden
   vastgelegd. Alert-token. De regel draagt een eigen `foutId`, de aanleiding, de uitkomst, het type
-  ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger: naleggen kan dus niet.
-  Controleer de LDV-verbinding, en **meld het gat aan de privacy officer**, met het tijdvenster
-  (eerste en laatste regel) en het aantal regels (verschillende `foutId`'s). De verantwoording
-  (AVG art. 5(2)) heeft dan een gat dat niet te herstellen is; dat hoort vastgelegd te worden. Met
+  ontvanger en de klasse van de oorzaak, maar bewust niet de ontvanger, want dat kan een BSN zijn.
+  De ontbrekende LDV-regel is dus niet achteraf aan te vullen. Controleer de LDV-verbinding, en
+  **meld de ontbrekende regels aan de privacy officer**, met het tijdvenster (eerste en laatste
+  regel) en het aantal regels (verschillende `foutId`'s). De verantwoording (AVG art. 5(2)) mist
+  dan regels die niet te herstellen zijn; dat hoort vastgelegd te worden. Met
   `ontvanger.type=onbekend` kán er hoe dan ook geen logregel komen: de verloopindex noemt alleen
   een hash van de ontvanger, en de leesbare vorm (`…:ontvanger`, met dezelfde vangnet-TTL als de
   gegevens) was al verlopen, onleesbaar, of hoorde niet bij de index-entry. Dat laatste meldt ook
