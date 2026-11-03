@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnClientFactory
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnResolver
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.WireMockMagazijnResource
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -249,6 +251,67 @@ class SessieOpruimenTest {
     }
 
     @Test
+    fun `einde van een van twee sessies tijdens het ophalen laat de ronde gewoon afronden`() {
+        val bsn = Bsn("999993653")
+        val bsnKey = BerichtenCache.cacheKey(bsn)
+        val stubBerichten = MockMagazijnClientFactory.testBerichtenA + MockMagazijnClientFactory.testBerichtenB
+        ruimStubOp(bsn, stubBerichten)
+        val eerste = sessiecache.startSessie(bsn)
+        val tweede = sessiecache.startSessie(bsn)
+        val bevraagd = CountDownLatch(1)
+        MockMagazijnClientFactory.bevraagd = bevraagd
+        MockMagazijnClientFactory.tegenhouden = CountDownLatch(1)
+
+        try {
+            val ronde = sessiecache.ophalen(bsn).collect().asList().subscribeAsCompletionStage()
+
+            assertTrue(bevraagd.await(WACHTTIJD_S, TimeUnit.SECONDS), "de ronde kwam niet bij de magazijnen")
+            assertEquals(SessieEinde.BEEINDIGD, sessiecache.beeindigSessie(eerste.sessieId, bsn))
+            MockMagazijnClientFactory.tegenhouden?.countDown()
+
+            val events = ronde.toCompletableFuture().get(RONDE_S, TimeUnit.SECONDS)
+
+            assertEquals(1, events.count { it is OphalenGereed }, "Eén GEREED naast een lopende sessie: $events")
+            assertEquals(OphalenStatus.GEREED, berichtenCache.getAggregationStatus(bsnKey).await().atMost(WACHTTIJD)?.status)
+            stubBerichten.forEach { assertTrue(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} niet opgeslagen") }
+            assertEquals(stubBerichten.size.toLong(), zoekTotaal(bsn))
+        } finally {
+            sessiecache.beeindigSessie(tweede.sessieId, bsn)
+        }
+    }
+
+    @Test
+    fun `een ronde die langer duurt dan de lock-TTL terwijl de sessie loopt, meldt dat haar resultaten niet bewaard zijn`() {
+        // De lock verloopt echt (lock-TTL 5 s uit het profiel): de bevraging wacht tot hij weg is.
+        val bsn = Bsn("999993653")
+        val bsnKey = BerichtenCache.cacheKey(bsn)
+        val stubBerichten = MockMagazijnClientFactory.testBerichtenA + MockMagazijnClientFactory.testBerichtenB
+        ruimStubOp(bsn, stubBerichten)
+        val sessie = sessiecache.startSessie(bsn)
+        val bevraagd = CountDownLatch(1)
+        MockMagazijnClientFactory.bevraagd = bevraagd
+        MockMagazijnClientFactory.tegenhouden = CountDownLatch(1)
+
+        try {
+            val ronde = sessiecache.ophalen(bsn).collect().asList().subscribeAsCompletionStage()
+
+            assertTrue(bevraagd.await(WACHTTIJD_S, TimeUnit.SECONDS), "de ronde kwam niet bij de magazijnen")
+            wachtTotVerdwenen("$bsnKey:lock")
+            MockMagazijnClientFactory.tegenhouden?.countDown()
+
+            val events = ronde.toCompletableFuture().get(RONDE_S, TimeUnit.SECONDS)
+
+            assertTrue(events.none { it is OphalenGereed }, "Geen GEREED zonder lock: $events")
+            assertEquals(1, events.count { it is OphalenMisluktNaBevraging }, "Events: $events")
+            assertFalse(bestaat("$bsnKey:list"), "de ronde schreef haar lijst zonder lock")
+            stubBerichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} geschreven zonder lock") }
+            assertDoesNotThrow { sessiecache.leesSessie(sessie.sessieId, bsn) }
+        } finally {
+            sessiecache.beeindigSessie(sessie.sessieId, bsn)
+        }
+    }
+
+    @Test
     fun `aanmelding na uitloggen schrijft niets`() {
         val sessie = sessiecache.startSessie(ontvanger)
         vulAlsOpgehaald(listOf(bericht()))
@@ -395,6 +458,21 @@ class SessieOpruimenTest {
         berichtenCache.getById(berichten[0].sleutel, ontvanger).await().atMost(WACHTTIJD)
 
         gegevens.forEach { assertTrue(pttl(it) < MAX_DUUR_MS, "$it verlengd door lezen: ${pttl(it)} ms") }
+    }
+
+    /** De magazijn-stub levert altijd aan deze BSN; een vorige test mag geen hashes of sessie achterlaten. */
+    private fun ruimStubOp(bsn: Identificatienummer, stubBerichten: List<Bericht>) {
+        redis.key().del(*stubBerichten.map { BerichtenCache.berichtKey(it.sleutel) }.toTypedArray()).await().atMost(WACHTTIJD)
+        sessies.ruimOpZonderSessie(bsn).await().atMost(WACHTTIJD)
+    }
+
+    private fun wachtTotVerdwenen(sleutel: String) {
+        val uiterlijk = System.nanoTime() + Duration.ofSeconds(WACHTTIJD_S).toNanos()
+
+        while (bestaat(sleutel)) {
+            assertTrue(System.nanoTime() < uiterlijk, "$sleutel verdween niet")
+            Thread.sleep(100)
+        }
     }
 
     private fun vulAlsOpgehaald(berichten: List<Bericht>) {

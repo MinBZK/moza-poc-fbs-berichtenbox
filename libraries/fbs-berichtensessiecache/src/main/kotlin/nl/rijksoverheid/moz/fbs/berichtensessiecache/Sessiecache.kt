@@ -5,6 +5,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
@@ -81,9 +82,9 @@ interface Sessiecache {
      * `null` als het niet bestaat of niet van [ontvanger] is. Vereist een afgeronde
      * ophaling. De berichttekst zit hier niet bij; zie [Bericht].
      *
-     * Gooit [SessiecacheException.BerichtVerwijderd] wanneer [ontvanger] dit bericht binnen deze
-     * sessie zélf verwijderde. Het bericht van een ánder levert `null`, gelijk aan een onbekend
-     * bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
+     * Gooit [SessiecacheException.BerichtVerwijderd] wanneer [ontvanger] dit bericht zélf
+     * verwijderde; dat kenmerk blijft zolang zijn gegevens in de cache staan. Het bericht van een
+     * ánder levert `null`, gelijk aan een onbekend bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
      * hier niet zichtbaar te worden.
      *
      * Een organisatie deelt haar berichtnummers zelf uit, dus een nummer is alleen uniek binnen het
@@ -119,6 +120,10 @@ interface Sessiecache {
      * wanneer er al een ophaling loopt voor deze ontvanger (atomaire Redis-lock).
      * Eindigt de laatste sessie terwijl de ronde loopt, dan wist de ronde wat ze
      * schreef en eindigt de stream zonder afsluitend event.
+     *
+     * Duurt de ronde langer dan `berichtensessiecache.aggregation-lock-ttl` terwijl de sessie
+     * nog loopt, dan is haar lock verlopen en slaat ze niets op; de stream eindigt dan met
+     * [OphalenMisluktNaBevraging], zodat de afnemer weet dat hij opnieuw moet ophalen.
      */
     fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent>
 
@@ -159,10 +164,16 @@ interface Sessiecache {
      * eerst de gegevens van een eerdere, verlopen sessie gewist: een sessie begint met een vers
      * beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
      *
-     * Blijft het antwoord uit ([SessiecacheException.Onbereikbaar]) terwijl de start in Redis wel
-     * gebeurde, dan staat er een sessie die niemand kent, en kan de start al resten gewist hebben.
-     * Een volgende start ziet die spooksessie lopen en meldt dan niets, dus de aanroeper legt zo'n
-     * start als onbevestigd opruimen vast, net als een uitlog zonder antwoord.
+     * Is het antwoord niet te lezen ([SessiecacheException.Onbereikbaar] of
+     * [SessiecacheException.Onleesbaar]) terwijl de start in Redis wel gebeurde, dan staat er een
+     * sessie waarvan de aanroeper het id nooit kreeg (een spooksessie), en kan de start al resten
+     * verwijderd hebben. Een volgende start ziet die spooksessie als lopende sessie en meldt daarom
+     * niet dat er resten weg zijn; de aanroeper legt zo'n start daarom vast als
+     * [OpruimUitkomst.ONBEVESTIGD], net als een uitlog zonder leesbaar antwoord.
+     *
+     * Zolang de spooksessie loopt, is de uitlog van de echte sessie niet de laatste: die geeft
+     * [SessieEinde.BEEINDIGD], en de gegevens blijven staan tot de spooksessie na de
+     * inactiviteitstermijn verloopt en de veegtaak ze opruimt.
      */
     fun startSessie(ontvanger: Identificatienummer): SessieStart
 
@@ -179,13 +190,16 @@ interface Sessiecache {
 
     /**
      * Beëindigt de sessie [sessieId] van [ontvanger]. Loopt er daarna geen sessie meer voor hem,
-     * dan worden zijn gegevens gewist ([SessieEinde.OPGERUIMD]) — ook bij een onbekende of al
-     * verlopen sessie, als er nog gegevens stonden: elk wissen hoort gemeld te worden.
+     * dan worden zijn gegevens gewist en is de uitkomst [SessieEinde.OPGERUIMD]: bij een bekende
+     * sessie altijd, ook als er niets stond, en bij een onbekende of al verlopen sessie alleen als
+     * er nog gegevens stonden of een opruiming op de veegtaak wachtte, want elk wissen hoort gemeld
+     * te worden.
      * Idempotent: een onbekende of verlopen sessie is geen fout; zonder iets te wissen is de
      * uitkomst [SessieEinde.ONBEKEND].
      *
-     * Bij [SessiecacheException.Onbereikbaar] kan het wissen al gebeurd zijn, en dan ziet een
-     * herhaalde aanroep niets meer: de aanroeper legt die uitlog dan als onbevestigd vast.
+     * Bij [SessiecacheException.Onbereikbaar] of [SessiecacheException.Onleesbaar] kan het wissen
+     * al gebeurd zijn, en dan ziet een herhaalde aanroep niets meer: de aanroeper legt die uitlog
+     * dan vast als [OpruimUitkomst.ONBEVESTIGD].
      */
     fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
 

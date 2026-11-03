@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import jakarta.ws.rs.WebApplicationException
@@ -62,6 +63,8 @@ class BerichtensessiecacheServiceTest {
     private val sessies = mockk<SessieRegister>().also {
         every { it.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(false)
         every { it.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().item(Unit)
+        // Pas gevraagd als een ronde haar lock kwijt is; standaard omdat de laatste sessie eindigde.
+        every { it.heeftSessieGestartVoor(ontvanger, any()) } returns Uni.createFrom().item(false)
     }
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
@@ -83,12 +86,14 @@ class BerichtensessiecacheServiceTest {
         bulkhead = testBulkhead,
         circuitBreaker = testBreaker,
         sessies = sessies,
+        aggregationLockTtl = LOCK_TTL,
     ).also { it.valideerTimeouts() }
 
     private val cacheKey = BerichtenCache.cacheKey(ontvanger)
 
     companion object {
         const val ALERT_OPRUIMEN = "[ALERT opruimen_na_schrijven]"
+        val LOCK_TTL: Duration = Duration.ofMinutes(2)
 
         @JvmStatic
         fun mappenPerLevering(): List<Arguments> = listOf(
@@ -248,7 +253,7 @@ class BerichtensessiecacheServiceTest {
 
     @ParameterizedTest(name = "magazijnen={0}")
     @ValueSource(booleans = [false, true])
-    fun `een ronde die de lock kwijt is eindigt zonder GEREED en zonder opruimcontrole`(metMagazijn: Boolean) {
+    fun `een ronde die de lock kwijt is na de laatste uitlog eindigt stil, zonder opruimcontrole`(metMagazijn: Boolean) {
         val client = mockk<MagazijnClient>()
 
         stubAggregatie(client)
@@ -256,9 +261,51 @@ class BerichtensessiecacheServiceTest {
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
         every { berichtenCache.slaRondeOp(cacheKey, any(), any(), any()) } returns Uni.createFrom().item(false)
 
-        val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+        val regels = vangLog {
+            val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
 
-        assertTrue(events.none { it is OphalenGereed || it is OphalenFout }, "Events: $events")
+            assertTrue(events.none { it is OphalenGereed || it is OphalenFout }, "Events: $events")
+        }
+
+        verify(exactly = 1) { sessies.heeftSessieGestartVoor(ontvanger, any()) }
+        verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
+        verify(exactly = 0) { berichtenCache.sluitRondeAf(any(), any(), any()) }
+        assertEquals(1, regels.count { it.contains("doordat de laatste sessie eindigde") }, "Log: $regels")
+        assertTrue(regels.none { it.contains("aggregation-lock-ttl") }, "Log: $regels")
+    }
+
+    /** Een lopende sessie, of niet vast te stellen of er een loopt: beide melden dat niets bewaard is. */
+    @ParameterizedTest(name = "magazijnen={0}, sessiecontrole faalt={1}")
+    @CsvSource("false, false", "true, false", "false, true", "true, true")
+    fun `een ronde die de lock kwijt is terwijl de sessie loopt meldt dat haar resultaten niet bewaard zijn`(
+        metMagazijn: Boolean,
+        controleFaalt: Boolean,
+    ) {
+        val client = mockk<MagazijnClient>()
+
+        stubAggregatie(client)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(if (metMagazijn) setOf("magazijn-a") else emptySet())
+        every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
+        every { berichtenCache.slaRondeOp(cacheKey, any(), any(), any()) } returns Uni.createFrom().item(false)
+        every { sessies.heeftSessieGestartVoor(ontvanger, any()) } returns
+            if (controleFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
+
+        val regels = vangLog {
+            val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+            val fout = assertInstanceOf(OphalenFout::class.java, events.last(), "Events: $events")
+
+            assertEquals(
+                if (metMagazijn) OphalenMisluktNaBevraging::class else OphalenMisluktVoorBevraging::class,
+                fout::class,
+                "Events: $events",
+            )
+            assertTrue(events.none { it is OphalenGereed }, "Events: $events")
+        }
+
+        val melding = regels.single { it.contains("aggregation-lock-ttl") }
+
+        assertTrue(melding.contains(LOCK_TTL.toString()), melding)
+        assertFalse(melding.contains(ontvanger.waarde), "de BSN hoort niet in de applicatielog: $melding")
         verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
         verify(exactly = 0) { berichtenCache.sluitRondeAf(any(), any(), any()) }
     }
@@ -512,6 +559,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         ).also { it.valideerTimeouts() }
 
         val eerderBericht = Bericht(
@@ -598,6 +646,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -618,6 +667,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -641,6 +691,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -662,6 +713,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -681,6 +733,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -700,6 +753,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = testBulkhead,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         )
 
         val ex = assertThrows<IllegalArgumentException> { mis.valideerTimeouts() }
@@ -1185,6 +1239,7 @@ class BerichtensessiecacheServiceTest {
                 bulkhead = teKrap,
                 circuitBreaker = testBreaker,
                 sessies = sessies,
+                aggregationLockTtl = LOCK_TTL,
             ).valideerTimeouts()
         }
 
@@ -1209,6 +1264,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = exact,
             circuitBreaker = testBreaker,
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         ).valideerTimeouts()
     }
 
@@ -1331,6 +1387,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = volBulkhead,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
@@ -1403,6 +1460,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = balansBulkhead,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         ).also { it.valideerTimeouts() }
 
         val client = mockk<MagazijnClient>()
@@ -1480,6 +1538,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = bulkheadMetGrens,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         ).also { it.valideerTimeouts() }
 
         val magazijnIds = (1..aantalMagazijnen).map { nummer -> "magazijn-%03d".format(nummer) }
@@ -1558,6 +1617,7 @@ class BerichtensessiecacheServiceTest {
             bulkhead = bulkheadKortBudget,
             circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
             sessies = sessies,
+            aggregationLockTtl = LOCK_TTL,
         ).also { it.valideerTimeouts() }
 
         // 100 organisaties × 200 ms bij 5 tegelijk = twintig golven van 200 ms; de hele ronde duurt
@@ -1968,6 +2028,7 @@ class BerichtensessiecacheServiceTest {
         bulkhead = testBulkhead,
         circuitBreaker = testBreaker,
         sessies = sessies,
+        aggregationLockTtl = LOCK_TTL,
         paginaLezer = paginaLezer,
     ).also { it.valideerTimeouts() }
 

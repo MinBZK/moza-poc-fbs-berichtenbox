@@ -35,7 +35,11 @@ enum class SessieEinde {
     /** De sessie is beëindigd; de ontvanger heeft nog andere lopende sessies, dus zijn gegevens blijven. */
     BEEINDIGD,
 
-    /** Er loopt geen sessie meer voor deze ontvanger en zijn gegevens zijn gewist. */
+    /**
+     * Er loopt geen sessie meer voor deze ontvanger en er staat niets meer van hem: wat er stond, is
+     * verwijderd. Bij de laatste uitlog van een bekende sessie is dit altijd de uitkomst, ook als er
+     * geen gegevens waren; de logregel legt dan vast dat er na deze uitlog niets meer staat.
+     */
     OPGERUIMD,
 }
 
@@ -73,10 +77,11 @@ enum class OpruimUitkomst {
     MISLUKT,
 
     /**
-     * Geen antwoord binnen de timeout (`facade-await-timeout-seconds`), of de veegronde werd
-     * onderbroken. Het opruimen kan in Redis alsnog zijn uitgevoerd, of niet. Liep het niet, dan staat
-     * de ontvanger nog in de verloopindex (na een timeout net als bij [MISLUKT] een veeginterval naar
-     * achteren) en meldt een latere ronde het opruimen alsnog.
+     * Het script kan gedraaid hebben, maar het antwoord was niet te lezen: het bleef uit (time-out,
+     * verbindingsfout, contentie), had een vorm die deze code niet kent, of de veegronde werd
+     * onderbroken. Of er opgeruimd is, staat dus niet vast. Liep het opruimen van de veegtaak niet,
+     * dan staat de ontvanger nog in de verloopindex (na een time-out net als bij [MISLUKT] een
+     * veeginterval naar achteren) en meldt een latere ronde het opruimen alsnog.
      */
     ONBEVESTIGD,
 }

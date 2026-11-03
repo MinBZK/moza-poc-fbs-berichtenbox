@@ -34,6 +34,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.net.ConnectException
 import java.time.Duration
+import java.time.Instant
 import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -86,6 +87,10 @@ internal class BerichtensessiecacheService(
     private val circuitBreaker: MagazijnCircuitBreaker,
     private val paginaLezer: MagazijnPaginaLezer,
     private val sessies: SessieRegister,
+    // Alleen voor de melding als een ronde haar lock verliest terwijl de sessie loopt; de lock zelf
+    // zet RedisBerichtenCache.
+    @param:ConfigProperty(name = "berichtensessiecache.aggregation-lock-ttl", defaultValue = "PT2M")
+    private val aggregationLockTtl: Duration,
 ) {
     private val log = Logger.getLogger(BerichtensessiecacheService::class.java)
 
@@ -237,9 +242,11 @@ internal class BerichtensessiecacheService(
     private fun ruimOpBestEffort(ontvanger: Identificatienummer): Uni<Void> = controleerNaOpslaan(ontvanger).replaceWithVoid()
 
     /**
-     * [ruimOpBestEffort] met de uitkomst: `true` als er gewist is. Faalt het opruimen, dan `false`
-     * en de markering voor de veegtaak: of de laatste sessie intussen eindigde, is dan onbekend,
-     * en de veegtaak beslist dat alsnog.
+     * [ruimOpBestEffort] met de uitkomst: `true` als er gewist is. Zonder lopende sessie wist dit
+     * alle gegevens van de ontvanger, niet alleen wat deze schrijfactie schreef (zie
+     * [SessieRegister.ruimOpZonderSessie]). Faalt het opruimen, dan `false` en de markering voor de
+     * veegtaak: of de laatste sessie intussen eindigde, is dan onbekend, en de veegtaak beslist dat
+     * alsnog.
      */
     private fun controleerNaOpslaan(ontvanger: Identificatienummer): Uni<Boolean> =
         sessies.ruimOpZonderSessie(ontvanger)
@@ -322,7 +329,8 @@ internal class BerichtensessiecacheService(
 
         // De laatste sessie eindigde terwijl de ronde de magazijnen bepaalde: opslaan kan ze dan toch
         // niet meer, en een magazijn hoort de ontvanger van een uitgelogde gebruiker niet te zien.
-        // Geen slotevent, net als bij een ronde die na het bevragen niets meer kon opslaan.
+        // Geen slotevent: er is niemand meer voor wie het resultaat bestaat. Zo vlak na het nemen
+        // van de lock is een verlopen lock hier geen reëel geval.
         if (!zetBezigStatusMetTotaal(ronde, bezigStatus, clients.size)) {
             log.info("Ophaalronde heeft de lock niet meer (sessie beëindigd of lock verlopen); geen magazijnen bevraagd")
 
@@ -595,25 +603,27 @@ internal class BerichtensessiecacheService(
 
             log.errorf(ex, "(errorId=%s) Store-fout bij lege magazijn-set voor key=%s", errorId, ronde.cacheKey)
 
-            // Zonder lock kan het opslaan in Redis al gelukt zijn terwijl het antwoord uitbleef. Liep er
-            // toen geen sessie meer, dan blijft de status anders staan zonder dat de veegtaak hem kent.
+            // Ging de FOUT-status niet door omdat de ronde de lock niet meer houdt, dan kan het opslaan
+            // in Redis al gelukt zijn terwijl het antwoord uitbleef. Liep er toen geen sessie meer, dan
+            // blijft de status anders staan zonder dat de veegtaak hem kent.
             if (!cleanupLockMetFoutStatus(ronde, "store-fout bij lege magazijn-set", errorId)) {
                 ruimOpBestEffort(ronde.ontvanger).await().indefinitely()
             }
+
             // SSE-stream is al actief op dit punt; een fout-event geeft de client
             // dezelfde UX als het aggregatie-faalpad i.p.v. een mid-stream HTTP-500.
-            return Multi.createFrom().item(
-                OphalenMisluktVoorBevraging(
-                    foutmelding = "Interne fout bij opslaan resultaten (ref: $ref)",
-                    referentie = ref,
-                ),
-            )
+            return Multi.createFrom().item(opslaanMisluktVoorBevraging(ref))
         }
 
-        // Zoals na een ronde met magazijnen: niets opgeslagen of daarna weer gewist, dan geen GEREED.
-        val weg = if (opgeslagen) controleerNaOpslaan(ronde.ontvanger).await().indefinitely() else true
+        if (!opgeslagen) {
+            val errorId = UUID.randomUUID()
+            val lockVerlopen = lockVerlopenTerwijlSessieLoopt(ronde, errorId).await().indefinitely()
 
-        if (weg) return Multi.createFrom().empty()
+            return if (lockVerlopen) Multi.createFrom().item(opslaanMisluktVoorBevraging(errorId.toString())) else Multi.createFrom().empty()
+        }
+
+        // Zoals na een ronde met magazijnen: daarna weer gewist, dan geen GEREED.
+        if (controleerNaOpslaan(ronde.ontvanger).await().indefinitely()) return Multi.createFrom().empty()
 
         return Multi.createFrom().item(
             OphalenGereed(
@@ -920,23 +930,27 @@ internal class BerichtensessiecacheService(
                 )
 
                 berichtenCache.slaRondeOp(ronde.cacheKey, berichten, status, ronde.token)
-                    .chain { opgeslagen -> if (opgeslagen) controleerNaOpslaan(ronde.ontvanger) else Uni.createFrom().item(true) }
-                    .chain { weg ->
-                        // De laatste sessie eindigde tijdens de ronde: het opruimen nam de lock mee,
-                        // dus er is niets opgeslagen, of het geschrevene is daarna weer gewist. Geen
-                        // GEREED, de stream eindigt zonder slotevent.
-                        if (weg) {
-                            Uni.createFrom().nullItem()
+                    .chain { opgeslagen ->
+                        if (opgeslagen) {
+                            // Eindigde de laatste sessie tijdens de ronde, dan is het geschrevene
+                            // daarna weer gewist: geen GEREED, de stream eindigt zonder slotevent.
+                            controleerNaOpslaan(ronde.ontvanger).chain { weg ->
+                                slotevent(
+                                    OphalenGereed(
+                                        totaalBerichten = alleBerichten.size,
+                                        geslaagd = tellers.geslaagd.get(),
+                                        mislukt = tellers.mislukt.get(),
+                                        nietOpgehaald = tellers.nietOpgehaald.get(),
+                                        totaalMagazijnen = totaalMagazijnen,
+                                    ).takeUnless { weg },
+                                )
+                            }
                         } else {
-                            Uni.createFrom().item<MagazijnEvent>(
-                                OphalenGereed(
-                                    totaalBerichten = alleBerichten.size,
-                                    geslaagd = tellers.geslaagd.get(),
-                                    mislukt = tellers.mislukt.get(),
-                                    nietOpgehaald = tellers.nietOpgehaald.get(),
-                                    totaalMagazijnen = totaalMagazijnen,
-                                ),
-                            )
+                            val errorId = UUID.randomUUID()
+
+                            lockVerlopenTerwijlSessieLoopt(ronde, errorId).chain { verlopen ->
+                                slotevent(nietBewaard(errorId.toString(), totaalMagazijnen, tellers).takeIf { verlopen })
+                            }
                         }
                     }
             }
@@ -995,12 +1009,12 @@ internal class BerichtensessiecacheService(
             // dit de status weer op.
             .call { _ -> ruimOpBestEffort(ronde.ontvanger) }
             // FATAL + ALERT-marker: dubbele Redis-fout = cache effectief onbruikbaar
-            // voor deze sessie. Lock blijft tot Redis-TTL hangen. Het prefix wordt
+            // voor deze ontvanger. Lock blijft tot Redis-TTL hangen. Het prefix wordt
             // door log-aggregator (Loki/CloudWatch) gefilterd richting alert-routing.
             // Een afbreking krijgt die marker niet: beheer oppiepen voor een gesloten
             // pagina of een herstart laat echte storingen ondersneeuwen.
             // Bewust alleen `e`: is de eerste fout een afbreking maar de tweede een echte
-            // Redis-uitval, dan is de cache voor deze sessie wél onbruikbaar en blijft de lock
+            // Redis-uitval, dan is de cache voor deze ontvanger wél onbruikbaar en blijft de lock
             // op de TTL hangen — precies de conditie waarvoor de marker bestaat.
             .onFailure().invoke { e ->
                 if (isAfbreking(e)) {
@@ -1025,17 +1039,61 @@ internal class BerichtensessiecacheService(
             // bewaard zijn: de VOLTOOID-events zijn al geëmit, maar de cache-write
             // faalde, dus de client moet opnieuw ophalen i.p.v. te denken dat de
             // resultaten beschikbaar zijn via GET /berichten.
-            .replaceWith(
-                OphalenMisluktNaBevraging(
-                    foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
-                    geslaagd = tellers.geslaagd.get(),
-                    mislukt = tellers.mislukt.get(),
-                    nietOpgehaald = tellers.nietOpgehaald.get(),
-                    totaalMagazijnen = totaalMagazijnen,
-                    referentie = ref,
-                )
-            )
+            .replaceWith(nietBewaard(ref, totaalMagazijnen, tellers))
     }
+
+    /**
+     * De ronde hield haar lock niet meer bij het opslaan; `true` als dat een storing is. Loopt geen
+     * van de sessies meer die er bij de start van de ronde waren, dan nam het opruimen bij de laatste
+     * uitlog de lock mee en bestaat het resultaat voor niemand meer: geen slotevent. Dat geldt ook
+     * als er daarna meteen een nieuwe sessie begon. Loopt zo'n sessie nog wel, dan is de lock
+     * verlopen omdat de ronde langer duurde dan `aggregation-lock-ttl`, en hoort de berichtenbox dat
+     * zijn resultaten niet bewaard zijn. Is dat niet vast te stellen, dan ook `true`: stil eindigen
+     * zou een storing verbergen.
+     */
+    private fun lockVerlopenTerwijlSessieLoopt(ronde: Ronde, errorId: UUID): Uni<Boolean> =
+        sessies.heeftSessieGestartVoor(ronde.ontvanger, ronde.gestart)
+            .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
+            .invoke { sessieLoopt ->
+                if (sessieLoopt) {
+                    log.warnf(
+                        "(errorId=%s) Ophaalronde was haar lock kwijt terwijl er nog een sessie loopt: de ronde duurde " +
+                            "langer dan aggregation-lock-ttl (%s); resultaten niet opgeslagen",
+                        errorId, aggregationLockTtl,
+                    )
+                } else {
+                    log.info("Ophaalronde was de lock kwijt doordat de laatste sessie eindigde; resultaten niet opgeslagen")
+                }
+            }
+            .onFailure().recoverWithItem { fout ->
+                log.warnf(
+                    "(errorId=%s) Ophaalronde was haar lock kwijt (aggregation-lock-ttl %s), en of er nog een sessie " +
+                        "loopt, is niet vast te stellen (fout=%s); gemeld als niet bewaard",
+                    errorId, aggregationLockTtl, fout.javaClass.name,
+                )
+
+                true
+            }
+
+    /** Zonder [event] eindigt de stream zonder slotevent. */
+    private fun slotevent(event: MagazijnEvent?): Uni<MagazijnEvent> =
+        if (event == null) Uni.createFrom().nullItem() else Uni.createFrom().item(event)
+
+    private fun nietBewaard(ref: String, totaalMagazijnen: Int, tellers: RondeTellers) =
+        OphalenMisluktNaBevraging(
+            foutmelding = "Resultaten konden niet worden opgeslagen; haal opnieuw op (ref: $ref)",
+            geslaagd = tellers.geslaagd.get(),
+            mislukt = tellers.mislukt.get(),
+            nietOpgehaald = tellers.nietOpgehaald.get(),
+            totaalMagazijnen = totaalMagazijnen,
+            referentie = ref,
+        )
+
+    private fun opslaanMisluktVoorBevraging(ref: String) =
+        OphalenMisluktVoorBevraging(
+            foutmelding = "Interne fout bij opslaan resultaten (ref: $ref)",
+            referentie = ref,
+        )
 
     /**
      * Best-effort lock-release na fout: schrijft de FOUT-status en geeft de lock vrij, alleen als
@@ -1280,6 +1338,9 @@ internal class BerichtensessiecacheService(
 private class Ronde(val ontvanger: Identificatienummer) {
     val cacheKey: String = BerichtenCache.cacheKey(ontvanger)
     val token: String = UUID.randomUUID().toString()
+
+    /** Een sessie die al vóór dit moment liep, is er een waarvoor deze ronde ophaalt. */
+    val gestart: Instant = Instant.now()
 }
 
 /**

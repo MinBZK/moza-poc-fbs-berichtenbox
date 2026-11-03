@@ -57,11 +57,14 @@ class VangnetVerloopTest {
         berichtenCache.delete(berichten[0].sleutel, bsn).await().atMost(WACHTTIJD)
 
         assertTrue(sleutelsOnder(k).any { ":verwijderd:" in it }, "de tombstone hoort er te zijn: ${sleutelsOnder(k)}")
+        // Positieve controle: zonder deze zou een zoekopdracht die nooit iets vindt ook "leeg" opleveren.
+        assertTrue(zoekTotaal(bsn) >= 1, "de zoekindex kent vooraf het overgebleven bericht")
 
         Thread.sleep(DATA_TTL_MS + MARGE_MS)
 
         assertEquals(emptyList<String>(), sleutelsOnder(k))
         berichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} niet verlopen") }
+        assertEquals(0L, zoekTotaal(bsn), "de zoekindex kent nog een verlopen bericht")
 
         // De index heeft geen TTL en houdt de ontvanger vast, maar alleen als kenmerk.
         assertEquals(listOf(BerichtenCache.kenmerk(bsn)), indexLeden())
@@ -92,6 +95,10 @@ class VangnetVerloopTest {
         redis.execute("KEYS", "$prefix:*").await().atMost(WACHTTIJD).map { it.toString() }
 
     private fun bestaat(sleutel: String): Boolean = redis.key().exists(sleutel).await().atMost(WACHTTIJD)
+
+    private fun zoekTotaal(voor: Identificatienummer): Long =
+        redis.search().ftSearch(BerichtenCache.SEARCH_INDEX, "@ontvanger:{${voor.waarde}}")
+            .await().atMost(WACHTTIJD).count().toLong()
 
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)

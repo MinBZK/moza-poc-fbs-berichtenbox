@@ -40,7 +40,7 @@ class HuidigeSessie(val sessieId: String) {
  * codegen.
  *
  * Een filter en geen controle per resource: zonder sessie verdient elk endpoint dezelfde 401, en
- * de gegenereerde validatie zou een kromme `X-Ontvanger` anders pas na deze controle zien. Het
+ * de gegenereerde validatie zou een ongeldige `X-Ontvanger` anders pas na deze controle zien. Het
  * filter draait vóór die validatie.
  *
  * Faalt dicht: de controle telt de headerwaarden zelf. `getHeaderString` voegt herhaalde waarden
@@ -51,9 +51,9 @@ class HuidigeSessie(val sessieId: String) {
  * `X-Sessie` (anders 401). Post-matching, zodat het pad het pad is waarop de router het verzoek al
  * heeft gematcht; een omweg als `/aanmeldingen/../berichten` komt hier dus als `/berichten` binnen.
  *
- * Wat het vaststelde, staat voor de resource onder [HUIDIGE_SESSIE]; de sessie-id staat sinds het
- * securityschema niet meer als parameter in de gegenereerde interfaces. De sessie-id is een
- * credential en komt in geen enkele logregel of foutmelding.
+ * Wat het vaststelde, staat voor de resource onder [HUIDIGE_SESSIE]. Het sessie-id is een
+ * `apiKey`-securityschema en staat daarom niet als parameter in de gegenereerde interfaces. Het
+ * sessie-id is een credential en komt in geen enkele logregel of foutmelding.
  */
 @Provider
 @Priority(Priorities.AUTHENTICATION)

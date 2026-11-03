@@ -187,6 +187,8 @@ internal class BlockingSessiecache(
 
         // De statuscontrole hierboven en het schrijven zijn twee stappen; eindigde de laatste sessie
         // daartussen, dan is het bericht nu weer gewist en hoort de aanleveraar dat er geen lijst was.
+        // Zonder lopende sessie verdwijnt daarbij alles van de ontvanger, ook de resten van een verlopen
+        // sessie die de veegtaak nog niet had opgeruimd.
         val opgeruimd = try {
             awaitOrServiceUnavailable { sessies.ruimOpZonderSessie(ontvanger) }
         } catch (e: SessiecacheException) {
