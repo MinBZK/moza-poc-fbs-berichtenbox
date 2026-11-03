@@ -16,7 +16,9 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en controleert op
  * elke hartslag of de inlogsessie nog loopt. Eindigt de sessie, dan merkt de stream dat hoogstens
- * een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen].
+ * een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen]. De hartslag verlengt
+ * niets: niet de sessie, want een open connection is geen activiteit van de gebruiker, en niet de
+ * gegevens, die een vaste vangnet-TTL hebben.
  *
  * De volgorde bij het starten is wat "niets missen" waarmaakt: eerst de luisteraar registreren,
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].
