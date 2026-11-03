@@ -28,7 +28,7 @@ script:pre-request {
 
 script:post-response {
   if (res.status === 201) {
-    bru.setEnvVar("sessie", res.body.sessieId);
+    bru.setVar("sessie", res.body.sessieId);
   }
 }
 

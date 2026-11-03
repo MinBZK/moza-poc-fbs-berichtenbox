@@ -19,7 +19,13 @@ internal interface SessieConfig {
     @WithDefault("PT12H")
     fun maxDuur(): Duration
 
-    /** Hoe ver de Redis-TTL van de gegevens voorbij [maxDuur] ligt; alleen een vangnet als actief opruimen faalt. */
+    /**
+     * Hoe ver de Redis-TTL van de gegevens voorbij [maxDuur] ligt: de tijd die de veegtaak na het
+     * plafond krijgt om actief op te ruimen, met een regel in het logboek. Pas als dat de hele marge
+     * blijft mislukken, wist Redis zonder logregel. Een uur geeft na het alert `sessie_veger_faalt`
+     * tijd om de storing te verhelpen; korter beperkt hoe lang gegevens na zo'n storing blijven
+     * staan, maar vergroot de kans op een wis zonder logregel.
+     */
     @WithDefault("PT1H")
     fun vangnetMarge(): Duration
 
