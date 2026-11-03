@@ -147,9 +147,10 @@ interface Sessiecache {
     /**
      * Start een inlogsessie voor [ontvanger]. Een ontvanger kan meerdere sessies tegelijk hebben.
      *
-     * De sessie verloopt niet uit zichzelf: ze loopt tot [beeindigSessie]. Wordt ze nooit beëindigd,
-     * dan verdwijnt ze met de TTL op de sessie-administratie (`berichtensessiecache.sessie.max-duur`
-     * na de laatste start van de ontvanger).
+     * De sessie geldt tot [beeindigSessie]; activiteit verlengt haar niet en er is geen
+     * inactiviteitstermijn. Wordt ze nooit beëindigd, dan wist Redis de sessie-administratie van de
+     * ontvanger `berichtensessiecache.sessie.max-duur` na diens laatste sessiestart, en is de sessie
+     * vanaf dan ongeldig.
      */
     fun startSessie(ontvanger: Identificatienummer): SessieStart
 

@@ -7,8 +7,8 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie
  * Alle scripts delen dezelfde KEYS (zie [RedisSessieRegister.sleutels]):
  * 1. `$k:sessies` — ZSET, lid `sha256(sessie-id)`, score het startmoment in ms.
  *
- * Een sessie verloopt niet uit zichzelf: ze loopt tot het uitloggen, of tot de TTL op
- * `$k:sessies` ([SessieConfig.maxDuur] na de laatste start) de administratie laat verdwijnen.
+ * Een sessie geldt tot het uitloggen, of tot Redis `$k:sessies` wist: die TTL is
+ * [SessieConfig.maxDuur] na de laatste start. Activiteit verlengt niets.
  *
  * De tijd komt uit Redis (`TIME`) en niet uit de pod: pods met een verschillende klok zouden
  * anders verschillende startmomenten noteren.

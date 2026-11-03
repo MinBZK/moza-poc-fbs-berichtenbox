@@ -226,7 +226,7 @@ compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIEC
 
 | Property | Default | Wanneer aanpassen |
 |---|---|---|
-| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | De Redis-TTL op de sessie-administratie van een ontvanger, opnieuw gezet bij elke start. Een sessie verloopt niet uit zichzelf: wie niet uitlogt, laat haar tot die TTL staan. Staat los van de TTL op de berichtgegevens (`berichtensessiecache.ttl`) |
+| `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | De Redis-TTL op de sessie-administratie van een ontvanger, opnieuw gezet bij elke start. Activiteit verlengt een sessie niet en er is geen inactiviteitstermijn: wie niet uitlogt, houdt een geldige sessie tot Redis de administratie bij deze TTL wist. Staat los van de TTL op de berichtgegevens (`berichtensessiecache.ttl`) |
 | `berichtensessiecache.ttl` | `PT12H` | Sliding TTL: elke succesvolle read verlengt hem. Dekt een halve werkdag zonder herhaalde ophaal-flow; verlagen bij geheugendruk op Redis |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de cache-TTL: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger 12 uur te blokkeren. Moet ruim boven de normale aggregatieduur liggen |
 | `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt; een beëindigde sessie sluit de stream hoogstens een hartslag later. Zolang ze loopt, verlengt de hartslag de berichtgegevens van een open berichtenbox, en houdt hij proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s). Moet onder de helft van `berichtensessiecache.ttl` blijven, anders start de pod niet |
@@ -248,9 +248,9 @@ verwerkingsregister en in de DPIA. Leg daar met de privacy officer vast:
 
 - **Doel:** bijhouden welke inlogsessies een ontvanger heeft, zodat alleen een verzoek met een
   lopende sessie bij zijn berichten komt.
-- **Bewaartermijnen:** de sessie-administratie tot de uitlog. Een sessie verloopt niet na
-  inactiviteit: zonder uitlog blijft ze staan tot de Redis-TTL van 12 uur (`max-duur`) na de laatste
-  start van de ontvanger. Wijk je in een omgeving af van de defaults, neem dan die waarden op.
+- **Bewaartermijnen:** de sessie-administratie tot de uitlog. Er is geen inactiviteitstermijn:
+  zonder uitlog wist Redis de administratie 12 uur (`max-duur`) na de laatste sessiestart van de
+  ontvanger. Wijk je in een omgeving af van de defaults, neem dan die waarden op.
 - **Grondslag:** dezelfde als die van de berichtenuitvraag zelf: de sessie-administratie en het
   logboek ervan horen bij het tonen van de berichten, niet bij een eigen doel. Stel met de privacy
   officer de concrete wettelijke grondslag vast (naar verwachting een taak van algemeen belang, AVG

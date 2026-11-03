@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference
  * elke hartslag of de inlogsessie nog loopt. Eindigt de sessie, dan merkt de stream dat hoogstens
  * een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen]. Zolang ze loopt, verlengt
  * de hartslag de gegevens van de ontvanger, zodat een bezoeker die alleen kijkt ze niet verliest.
+ * De sessie zelf verlengt hij niet: een open connection is geen activiteit van de gebruiker.
  *
  * De volgorde bij het starten is wat "niets missen" waarmaakt: eerst de luisteraar registreren,
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].

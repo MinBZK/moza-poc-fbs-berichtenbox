@@ -6,8 +6,9 @@ import java.time.Duration
 
 /**
  * Hoe lang de sessies van een ontvanger hoogstens blijven staan als niemand ze beëindigt. Een
- * sessie verloopt niet uit zichzelf: ze loopt tot het uitloggen. Wordt ze nooit beëindigd, dan wist
- * Redis de sessie-administratie van de ontvanger [maxDuur] na zijn laatste start. Elke consument
+ * sessie geldt tot het uitloggen; activiteit verlengt haar niet en er is geen inactiviteitstermijn.
+ * Wordt ze nooit beëindigd, dan wist Redis de sessie-administratie van de ontvanger [maxDuur] na
+ * diens laatste sessiestart, en is de sessie vanaf dan ongeldig. Elke consument
  * roept bij het opstarten [valideer] aan, zodat een ongeldige waarde de pod tegenhoudt met een
  * melding over die waarde.
  */
