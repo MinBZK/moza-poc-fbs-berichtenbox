@@ -79,8 +79,8 @@ interface Sessiecache {
      * ophaling. De berichttekst zit hier niet bij; zie [Bericht].
      *
      * Gooit [SessiecacheException.BerichtVerwijderd] wanneer [ontvanger] dit bericht zélf
-     * verwijderde en de tombstone daarvan nog staat (één cache-TTL vanaf het verwijderen). Het bericht van een ánder levert `null`, gelijk aan een onbekend
-     * bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
+     * verwijderde en de tombstone daarvan nog staat (één cache-TTL vanaf het verwijderen). Het
+     * bericht van een ánder levert `null`, gelijk aan een onbekend bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
      * hier niet zichtbaar te worden.
      *
      * Een organisatie deelt haar berichtnummers zelf uit, dus een nummer is alleen uniek binnen het

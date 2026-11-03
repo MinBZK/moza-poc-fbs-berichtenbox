@@ -48,9 +48,8 @@ internal interface BerichtenCache {
 
     /**
      * Of [ontvanger] dit bericht zélf verwijderde, zolang de tombstone daarvan staat (één cache-TTL
-     * vanaf het verwijderen). Alleen te vertrouwen als
-     * antwoord op een misser: staat het bericht er nog, dan is dat de waarheid en zegt de
-     * tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
+     * vanaf het verwijderen). Alleen te vertrouwen als antwoord op een misser: staat het bericht er
+     * nog, dan is dat de waarheid en zegt de tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
      */
     fun isVerwijderdVoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean>
 
