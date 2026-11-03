@@ -4,6 +4,7 @@ import io.smallrye.mutiny.Uni
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.inject.Alternative
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -22,6 +23,9 @@ internal class MockSessieRegister : SessieRegister {
 
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> =
         Uni.createFrom().item(SessieEinde.BEEINDIGD)
+
+    override fun heeftSessieGestartVoor(ontvanger: Identificatienummer, moment: Instant): Uni<Boolean> =
+        Uni.createFrom().item(true)
 
     override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(false)
 }

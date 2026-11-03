@@ -11,6 +11,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.RedisBerichtenCac
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.time.Instant
 import java.util.Base64
 import java.util.HexFormat
 
@@ -34,10 +35,18 @@ internal interface SessieRegister {
     fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde>
 
     /**
-     * Wist de gegevens van [ontvanger] als er geen lopende sessie meer is, in één atomaire stap;
+     * `true` als [ontvanger] een lopende sessie heeft die vóór [moment] begon. Een sessie die later
+     * begon, telt niet: wie uitlogt en meteen weer inlogt, heeft daarna alleen een nieuwe sessie.
+     * [moment] komt van de klok van de pod en de starttijden van die van Redis; een verschil tussen
+     * die twee klokken verschuift de grens met evenveel.
+     */
+    fun heeftSessieGestartVoor(ontvanger: Identificatienummer, moment: Instant): Uni<Boolean>
+
+    /**
+     * Wist alle gegevens van [ontvanger] als er geen lopende sessie meer is, in één atomaire stap;
      * `true` als er iets gewist is. Hoort direct ná een schrijfactie die niet zelf aan een sessie
      * hangt, zodat een uitlog die ermee kruist niets laat staan. Dit wissen krijgt geen eigen
-     * logregel.
+     * logregel; zie [SessieScripts.OPRUIMEN] voor wat er dan nog meer weg kan gaan.
      */
     fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean>
 }
@@ -90,6 +99,11 @@ internal class RedisSessieRegister(
                 ?: throw CacheCorruptedException.onverwachtScriptantwoord("einde")
         }
     }
+
+    // De score van een sessie is haar startmoment in ms; `(` maakt de grens exclusief.
+    override fun heeftSessieGestartVoor(ontvanger: Identificatienummer, moment: Instant): Uni<Boolean> =
+        redis.execute("ZCOUNT", sleutels(BerichtenCache.kenmerk(ontvanger)).first(), "-inf", "(${moment.toEpochMilli()}")
+            .map { it.toLong() > 0 }
 
     override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> =
         voerUit(SessieScripts.OPRUIMEN, ontvanger, emptyList()).map { it.toInteger() == 1 }
