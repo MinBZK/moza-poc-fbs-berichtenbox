@@ -14,8 +14,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
  *
  * - Elke 401 krijgt de challenge van het sessieschema: een 401 zonder `WWW-Authenticate` mag
  *   niet (RFC 9110 §15.5.2). De sessie is het enige authenticatieschema van deze API, dus elke 401
- *   hoort erbij, uit het filter of uit de cache. Bij de overstap naar een token wordt dit
- *   `Bearer realm="…", error="invalid_token"`.
+ *   hoort erbij, uit het filter of uit de cache.
  * - Een gestarte sessie krijgt een `Location`. Die wijst naar `/sessies/huidige`, een pad zonder
  *   geheim: welke sessie dat is, zegt de `X-Sessie` van het verzoek.
  */
