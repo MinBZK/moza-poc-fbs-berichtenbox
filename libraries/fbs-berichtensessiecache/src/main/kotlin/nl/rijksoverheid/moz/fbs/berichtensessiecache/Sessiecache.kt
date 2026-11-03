@@ -78,9 +78,9 @@ interface Sessiecache {
      * `null` als het niet bestaat of niet van [ontvanger] is. Vereist een afgeronde
      * ophaling. De berichttekst zit hier niet bij; zie [Bericht].
      *
-     * Gooit [SessiecacheException.BerichtVerwijderd] wanneer [ontvanger] dit bericht binnen deze
-     * sessie zélf verwijderde. Het bericht van een ánder levert `null`, gelijk aan een onbekend
-     * bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
+     * Gooit [SessiecacheException.BerichtVerwijderd] wanneer [ontvanger] dit bericht zélf
+     * verwijderde; dat kenmerk blijft zolang zijn gegevens in de cache staan. Het bericht van een
+     * ánder levert `null`, gelijk aan een onbekend bericht: het verschil tussen "bestaat niet" en "bestaat wel maar is niet van jou" hoort
      * hier niet zichtbaar te worden.
      *
      * Een organisatie deelt haar berichtnummers zelf uit, dus een nummer is alleen uniek binnen het

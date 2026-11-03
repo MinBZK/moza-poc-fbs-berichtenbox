@@ -16,7 +16,7 @@ class SessieServiceTest {
     private val service = SessieService(redis)
 
     @Test
-    fun `verlopen wist de gevonden sessie-keys en geeft het aantal terug`() {
+    fun `verlopen wist de gevonden cache-keys en geeft het aantal terug`() {
         val gevonden = listOf("berichtensessiecache:v2:abc:status", "berichtensessiecache:v2:abc:list")
 
         every { keyCommands.keys("berichtensessiecache:*") } returns gevonden

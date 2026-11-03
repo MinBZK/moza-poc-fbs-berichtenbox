@@ -75,9 +75,9 @@ internal interface BerichtenCache {
     fun delete(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Void>
 
     /**
-     * Of [ontvanger] dit bericht binnen deze sessie zélf verwijderde. Alleen te vertrouwen als
-     * antwoord op een misser: staat het bericht er nog, dan is dat de waarheid en zegt de
-     * tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
+     * Of [ontvanger] dit bericht zélf verwijderde; de tombstone blijft zolang zijn gegevens in de
+     * cache staan. Alleen te vertrouwen als antwoord op een misser: staat het bericht er nog, dan is
+     * dat de waarheid en zegt de tombstone niets. `false` betekent "niet bekend als verwijderd", niet "bestaat nog".
      */
     fun isVerwijderdVoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Boolean>
 
@@ -874,7 +874,7 @@ internal class RedisBerichtenCache(
     }
 
     /**
-     * Voegt niets toe als het bericht al in de lijst van deze sessie staat. Dat gebeurt gewoon: het
+     * Voegt niets toe als het bericht al in de lijst van de ontvanger staat. Dat gebeurt gewoon: het
      * magazijn meldt een bericht aan uit zijn wachtrij, en een ophaalronde die intussen liep, heeft
      * het rechtstreeks uit het magazijn al meegenomen. Zonder deze controle staat het er daarna
      * twee keer in.
