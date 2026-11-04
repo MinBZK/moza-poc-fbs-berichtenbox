@@ -273,18 +273,19 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: moment (ms), maximale duur (ms). Antwoord 1 als er een lopende sessie is die vóór het
-     * moment begon, anders 0. De start staat niet apart: het is het plafond min de maximale duur.
+     * ARGV: moment (ms), maximale duur (ms). Antwoord 1 als er een lopende sessie is die vóór of op
+     * het moment begon, anders 0. De start staat niet apart: het is het plafond min de maximale duur.
      * Gaf de aanroeper een vroeger plafond mee, dan valt die schatting vóór de echte start, en telt
-     * een sessie die kort na het moment begon mogelijk mee. Die fout valt naar de veilige kant: een
-     * melding die niet nodig was, geen melding die uitblijft.
+     * een sessie die kort na het moment begon mogelijk mee. Ook "op het moment" telt mee: een ronde
+     * die vlak na de start van haar sessie begint, valt vaak in dezelfde milliseconde. Beide fouten
+     * vallen naar de veilige kant: een melding die niet nodig was, geen melding die uitblijft.
      */
     val GESTART_VOOR = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
         local grens = tonumber(ARGV[1]) + tonumber(ARGV[2])
         for _, lid in ipairs(redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. nu, '+inf')) do
             local plafond = tonumber(redis.call('HGET', KEYS[2], lid))
-            if plafond and plafond < grens then
+            if plafond and plafond <= grens then
                 return 1
             end
         end

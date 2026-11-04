@@ -313,6 +313,18 @@ class RedisSessieRegisterTest {
     }
 
     @Test
+    fun `heeftSessieGestartVoor telt een sessie die in dezelfde milliseconde als het moment begon`() {
+        // Een ronde die direct na de start van haar sessie begint, valt vaak in dezelfde milliseconde.
+        val sessie = sessiecache.startSessie(ontvanger).sessieId
+        val start = sessiecache.leesSessie(sessie, ontvanger).uiterlijkGeldigTot.minusMillis(MAX_DUUR_MS)
+
+        assertTrue(gestartVoor(ontvanger, start), "een sessie die op het moment zelf begon, loopt al")
+        assertFalse(gestartVoor(ontvanger, start.minusMillis(1)), "een sessie die erna begon, telt niet")
+
+        sessiecache.beeindigSessie(sessie, ontvanger)
+    }
+
+    @Test
     fun `heeftSessieGestartVoor telt een verlopen sessie niet`() {
         val straks = Instant.now().plusSeconds(60)
         sessiecache.startSessie(ontvanger)
