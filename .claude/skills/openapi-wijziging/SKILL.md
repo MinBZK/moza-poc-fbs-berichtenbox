@@ -59,9 +59,11 @@ Hieronder is `<service>` steeds `berichtenuitvraag` of `berichtenmagazijn`.
 4. **Lint de spec tegen de ADR-ruleset**
 
    ```bash
-   npx @stoplight/spectral-cli lint services/<service>/src/main/resources/openapi/<service>-api.yaml \
-     --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
+   npm ci --prefix tools/adr-lint
+   npm run lint:<service> --prefix tools/adr-lint
    ```
+
+   Nul errors is de eis; de warning `nlgov:servers-use-https` is een bewuste afwijking.
 
 5. **Werk de Bruno-collectie bij**
 
