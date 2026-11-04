@@ -159,6 +159,9 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
 ./mvnw clean test -pl services/stelselregister -am               # Tests stelselregister (geen Docker; testsleutels via keytool)
 ./mvnw clean verify -pl services/berichtenmagazijn -am           # Volledige suite + JaCoCo + detekt
+./mvnw clean verify -pl services/berichtenuitvraag,demo/demo-console -am -T 1C   # Modules parallel
+./mvnw clean test -pl services/berichtenuitvraag -am -Dtest='Klasse' \
+  -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true     # Alleen geraakte klassen, zonder gate
 ./mvnw compile quarkus:dev -pl services/berichtenuitvraag -am    # Dev mode (poort 8086)
 ./mvnw compile quarkus:dev -pl services/berichtenmagazijn -am    # Dev mode (poort 8090)
 ```

@@ -1182,8 +1182,7 @@ class RedisBerichtenCacheIntegrationTest {
         berichtenCache.delete(target.sleutel, ontvanger).await().indefinitely()
         assertTrue(berichtenCache.isVerwijderdVoor(target.sleutel, ontvanger).await().indefinitely())
 
-        // TTL is 2s in RealRedisTestProfile, wacht 3s
-        Thread.sleep(3_000)
+        wachtTotVerlopen(BerichtenCache.verwijderdKey(ontvanger, target.sleutel))
 
         assertFalse(berichtenCache.isVerwijderdVoor(target.sleutel, ontvanger).await().indefinitely())
     }
@@ -1196,8 +1195,7 @@ class RedisBerichtenCacheIntegrationTest {
         val before = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
         assertNotNull(before)
 
-        // TTL is 2s in RealRedisTestProfile, wacht 3s
-        Thread.sleep(3_000)
+        wachtTotVerlopen(listKey())
 
         val after = berichtenCache.getPage(cacheKey(), 0, 20, null, null).await().indefinitely()
         assertNull(after)
@@ -1256,8 +1254,7 @@ class RedisBerichtenCacheIntegrationTest {
 
         assertFalse(dubbel, "Lock moet geblokkeerd zijn terwijl hij actief is")
 
-        // TTL is 2s in RealRedisTestProfile; na 3s is de lock automatisch verdwenen.
-        Thread.sleep(3_000)
+        wachtTotVerlopen("${cacheKey()}:lock")
 
         val naVerloop = berichtenCache.trySetAggregationStatus(cacheKey(), status).await().indefinitely()
 
@@ -1575,10 +1572,24 @@ class RedisBerichtenCacheIntegrationTest {
 
     private fun pttl(sleutel: String): Long = redis.key().pttl(sleutel).await().indefinitely()
 
+    /**
+     * Wacht tot Redis de key zelf laat verlopen (TTL 2 s in [RealRedisTestProfile]). EXISTS raakt de
+     * TTL niet; een read via de cache wel, want die verlengt hem — daarmee zou de key nooit verlopen.
+     */
+    private fun wachtTotVerlopen(sleutel: String) {
+        val einde = System.nanoTime() + TimeUnit.SECONDS.toNanos(WACHTTIJD_S)
+
+        while (redis.key().exists(sleutel).await().indefinitely()) {
+            assertTrue(System.nanoTime() < einde, "$sleutel niet verlopen binnen ${WACHTTIJD_S}s")
+            Thread.sleep(PEILING_MS)
+        }
+    }
+
     private companion object {
         const val GELIJKTIJDIG = 10
         const val REEKS = 50
         const val WACHTTIJD_S = 10L
+        const val PEILING_MS = 50L
         const val PAGINA = Sessiecache.MAX_PAGINA_GROOTTE
         const val MAGAZIJN_A = "magazijn-a"
         const val MAGAZIJN_B = "magazijn-b"

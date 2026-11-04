@@ -62,6 +62,13 @@
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
+        <!-- Expliciete versie: fbs-berichtensessiecache en berichtenuitvraag declareren
+             maven-surefire-plugin voor hun forks. Zonder beheerde versie waarschuwt Maven
+             'build.plugins.plugin.version is missing'. -->
+        <maven-surefire-plugin.version>3.6.0</maven-surefire-plugin.version>
+        <!-- Aantal parallelle Surefire-forks in de modules die het gebruiken (sessiecache en
+             uitvraag). Overschrijfbaar met -Dfbs.test.forks=1 om een fout in één JVM na te lopen. -->
+        <fbs.test.forks>3</fbs.test.forks>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
         <jandex-maven-plugin.version>3.6.0</jandex-maven-plugin.version>
@@ -197,6 +204,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>${maven-jar-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven-surefire-plugin.version}</version>
                 </plugin>
 
                 <!-- API-generatie uit de OpenAPI-spec. Identiek voor elke service op
