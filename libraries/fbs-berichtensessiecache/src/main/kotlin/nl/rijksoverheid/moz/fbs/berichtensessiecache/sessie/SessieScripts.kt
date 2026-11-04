@@ -102,20 +102,31 @@ internal object SessieScripts {
     """.trimIndent()
 
     /**
-     * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), kenmerk,
-     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger, en de TTL van
-     * de index (ms).
+     * ARGV: sessie-hash, inactiviteit (ms), maximale duur (ms), grens per ontvanger, kenmerk,
+     * vangnet-TTL van de sessie-administratie en de gegevens (ms), leesbare ontvanger, het plafond
+     * dat de aanroeper meegaf (ms) of een lege tekst, en de TTL van de index (ms).
      *
-     * Antwoord `{1, verloop, opgeruimd, plafond}`, met verloop en plafond in ms en opgeruimd 1 als de
-     * start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0.
+     * Antwoord:
+     * - `{1, verloop, opgeruimd, plafond}` bij een start, met verloop en plafond in ms en opgeruimd 1
+     *   als de start gegevens wiste of een wachtende opruiming uit de index overnam, anders 0;
+     * - `{0, wachttijd}` bij de grens, met de tijd in ms tot de vroegst verlopende sessie verloopt;
+     * - `{2}` als het meegegeven plafond niet in de toekomst ligt. Er is dan niets veranderd.
      *
-     * Het plafond is start + maximale duur. Alleen een start zonder andere lopende sessie ruimt op:
-     * die begint met een vers beeld. Een start naast een lopende sessie trekt de TTL van de bestaande
-     * gegevens op, anders verlopen ze vóór het plafond van de nieuwe sessie.
+     * Het plafond is het vroegste van start + maximale duur en het meegegeven plafond: de sessie van
+     * het portaal eindigt niet later dan het portaal zegt. Alleen een start zonder andere lopende
+     * sessie ruimt op: die begint met een vers beeld. Een start naast een lopende sessie trekt de TTL van
+     * de bestaande gegevens op, anders verlopen ze vóór het plafond van de nieuwe sessie.
      */
     val START = GEDEELD + "\n\n" + """
         local nu = tijdInMs()
         local plafond = nu + tonumber(ARGV[3])
+        local gevraagd = tonumber(ARGV[8])
+        if gevraagd then
+            if gevraagd <= nu then
+                return { 2 }
+            end
+            plafond = math.min(plafond, gevraagd)
+        end
 
         ruimVerlopenOp(nu)
 
@@ -123,24 +134,29 @@ internal object SessieScripts {
         local opgeruimd = 0
         if leeg then
             -- Vóór de ZADD hieronder: die schuift een wachtende opruiming naar het nieuwe verloop.
-            local wachtte = wachtend(ARGV[4], nu)
+            local wachtte = wachtend(ARGV[5], nu)
             if purge() > 0 or wachtte then
                 opgeruimd = 1
             end
         end
 
+        if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[4]) then
+            local vroegste = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+            return { 0, tonumber(vroegste[2]) - nu }
+        end
+
         if not leeg then
-            trekTtlOp(ARGV[5])
+            trekTtlOp(ARGV[6])
         end
 
         local verloop = math.min(nu + tonumber(ARGV[2]), plafond)
         redis.call('ZADD', KEYS[1], verloop, ARGV[1])
         redis.call('HSET', KEYS[2], ARGV[1], plafond)
-        redis.call('PEXPIRE', KEYS[1], ARGV[5])
-        redis.call('PEXPIRE', KEYS[2], ARGV[5])
-        redis.call('SET', KEYS[8], ARGV[6], 'PX', ARGV[5])
-        redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[4])
-        houdIndexAan(ARGV[7])
+        redis.call('PEXPIRE', KEYS[1], ARGV[6])
+        redis.call('PEXPIRE', KEYS[2], ARGV[6])
+        redis.call('SET', KEYS[8], ARGV[7], 'PX', ARGV[6])
+        redis.call('ZADD', KEYS[3], 'GT', verloop, ARGV[5])
+        houdIndexAan(ARGV[9])
         return { 1, verloop, opgeruimd, plafond }
     """.trimIndent()
 
@@ -259,6 +275,9 @@ internal object SessieScripts {
     /**
      * ARGV: moment (ms), maximale duur (ms). Antwoord 1 als er een lopende sessie is die vóór het
      * moment begon, anders 0. De start staat niet apart: het is het plafond min de maximale duur.
+     * Gaf de aanroeper een vroeger plafond mee, dan valt die schatting vóór de echte start, en telt
+     * een sessie die kort na het moment begon mogelijk mee. Die fout valt naar de veilige kant: een
+     * melding die niet nodig was, geen melding die uitblijft.
      */
     val GESTART_VOOR = GEDEELD + "\n\n" + """
         local nu = tijdInMs()

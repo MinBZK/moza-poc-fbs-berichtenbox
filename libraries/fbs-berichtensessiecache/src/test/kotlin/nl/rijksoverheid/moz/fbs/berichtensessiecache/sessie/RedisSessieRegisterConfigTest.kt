@@ -18,7 +18,7 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.time.Duration
 
 /**
- * Een duur van nul of minder houdt de pod bij het opstarten tegen, met de
+ * Een duur of grens van nul of minder houdt de pod bij het opstarten tegen, met de
  * configuratiesleutel in de melding.
  */
 class RedisSessieRegisterConfigTest {
@@ -59,6 +59,14 @@ class RedisSessieRegisterConfigTest {
         }
 
         assertEquals("Onverwacht antwoord van het einde-script", fout.message)
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, -1])
+    fun `een grens per ontvanger van nul of negatief wordt geweigerd`(grens: Int) {
+        val fout = assertThrows<IllegalArgumentException> { RedisSessieRegister(redis, TestSessieConfig(maxPerOntvanger = grens)) }
+
+        assertTrue(fout.message!!.contains("berichtensessiecache.sessie.max-per-ontvanger"), "Was: ${fout.message}")
     }
 
     private companion object {

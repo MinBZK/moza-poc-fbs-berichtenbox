@@ -7,6 +7,7 @@ import jakarta.ws.rs.container.ContainerRequestFilter
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.leesUitCache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.splitOntvanger
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
@@ -23,14 +24,20 @@ enum class Sessievereiste {
     /** Een goed gevormde `X-Sessie`, maar of die sessie loopt, maakt niet uit: uitloggen is idempotent. */
     ALLEEN_VORM,
 
+    /** Een lopende sessie, zonder hem te verlengen: dit verzoek is geen activiteit van de gebruiker. */
+    LOPEND,
+
     /** Een lopende sessie, en het verzoek verlengt hem: een verzoek van de gebruiker. */
     VERLENGEN,
 }
 
-/** De sessie die het filter bij dit verzoek vaststelde. */
-class HuidigeSessie(val sessieId: String) {
+/**
+ * De sessie die het filter bij dit verzoek vaststelde. [geldigheid] is `null` bij
+ * [Sessievereiste.ALLEEN_VORM]: dan is niet nagevraagd of hij loopt.
+ */
+class HuidigeSessie(val sessieId: String, val geldigheid: SessieGeldigheid?) {
     // Het id is een credential; een toString belandt makkelijk in een log.
-    override fun toString(): String = "HuidigeSessie(sessieId=***)"
+    override fun toString(): String = "HuidigeSessie(sessieId=***, geldigheid=$geldigheid)"
 }
 
 /**
@@ -71,9 +78,13 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
 
         if (sessieId == null || !Sessiecache.SESSIE_ID_VORM.matches(sessieId)) throw sessieOngeldig()
 
-        if (vereiste == Sessievereiste.VERLENGEN) leesUitCache(log, "sessie-raken") { sessiecache.raakSessie(sessieId, ontvanger) }
+        val geldigheid = when (vereiste) {
+            Sessievereiste.VERLENGEN -> leesUitCache(log, "sessie-raken") { sessiecache.raakSessie(sessieId, ontvanger) }
+            Sessievereiste.LOPEND -> leesUitCache(log, "sessie-lezen") { sessiecache.leesSessie(sessieId, ontvanger) }
+            Sessievereiste.ALLEEN_VORM, Sessievereiste.GEEN -> null
+        }
 
-        request.setProperty(HUIDIGE_SESSIE, HuidigeSessie(sessieId))
+        request.setProperty(HUIDIGE_SESSIE, HuidigeSessie(sessieId, geldigheid))
     }
 
     private fun leesOntvanger(waarden: List<String>): Identificatienummer {
@@ -117,6 +128,10 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
             return when {
                 relatief in VRIJGESTELD -> Sessievereiste.GEEN
                 relatief == "sessies/huidige" && methode == "DELETE" -> Sessievereiste.ALLEEN_VORM
+                // Alleen lezen: de geldigheid opvragen, en een open berichtenbox die meeluistert.
+                // Geen van beide is activiteit van de gebruiker.
+                relatief == "sessies/huidige" && methode in LEESMETHODES -> Sessievereiste.LOPEND
+                relatief == "berichten/_volgen" -> Sessievereiste.LOPEND
                 else -> Sessievereiste.VERLENGEN
             }
         }
@@ -126,5 +141,8 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
          * het OpenAPI-document. Bij `sessies` volstaat het pad, want daar bestaat alleen `POST`.
          */
         private val VRIJGESTELD = setOf("sessies", "aanmeldingen", "openapi.json")
+
+        // JAX-RS beantwoordt een HEAD met de GET-resource; die verlengt dus evenmin.
+        private val LEESMETHODES = setOf("GET", "HEAD")
     }
 }

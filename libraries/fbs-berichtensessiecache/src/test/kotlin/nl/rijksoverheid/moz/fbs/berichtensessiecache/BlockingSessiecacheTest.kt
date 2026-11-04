@@ -32,6 +32,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
@@ -50,6 +51,7 @@ import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
@@ -711,9 +713,35 @@ class BlockingSessiecacheTest {
     @Test
     fun `startSessie geeft de gestarte sessie door`() {
         val start = SessieStart(SESSIE_ID, GELDIGHEID, restenOpgeruimd = true)
-        every { sessies.start(ontvanger) } returns Uni.createFrom().item(start)
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
 
         assertSame(start, facade.startSessie(ontvanger))
+    }
+
+    @Test
+    fun `startSessie geeft het plafond van de aanroeper door aan het register`() {
+        val plafond = Instant.parse("2026-10-21T13:00:00Z")
+        val start = SessieStart(SESSIE_ID, GELDIGHEID, restenOpgeruimd = false)
+        every { sessies.start(ontvanger, plafond) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
+
+        assertSame(start, facade.startSessie(ontvanger, plafond))
+    }
+
+    @Test
+    fun `startSessie op de grens gooit TeVeelSessies met de tijd tot er een plek vrijkomt`() {
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().item(StartUitkomst.LimietBereikt(Duration.ofSeconds(42)))
+
+        val fout = assertThrows<SessiecacheException.TeVeelSessies> { facade.startSessie(ontvanger) }
+
+        assertEquals(Duration.ofSeconds(42), fout.vrijOver)
+    }
+
+    @Test
+    fun `startSessie met een verstreken plafond gooit OngeldigeInvoer`() {
+        val plafond = Instant.parse("2020-01-01T00:00:00Z")
+        every { sessies.start(ontvanger, plafond) } returns Uni.createFrom().item(StartUitkomst.PlafondVerstreken)
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.startSessie(ontvanger, plafond) }
     }
 
     @Test
@@ -751,7 +779,7 @@ class BlockingSessiecacheTest {
     fun `een Redis-storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
         // Een storing als ongeldige sessie melden zou elke ingelogde gebruiker uitloggen.
         val storing = IllegalStateException("redis connection reset")
-        every { sessies.start(ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().failure(storing)
         every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
         every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
         every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)

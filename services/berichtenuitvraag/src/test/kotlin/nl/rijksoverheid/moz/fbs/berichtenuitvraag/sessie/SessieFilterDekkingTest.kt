@@ -61,7 +61,7 @@ class SessieFilterDekkingTest {
         private const val MAGAZIJN = "00000001003214345000"
 
         /** Vastgelegd zodat een halve spec-parse de dekking niet stil verkleint. */
-        private const val OPERATIES = 12
+        private const val OPERATIES = 14
 
         @JvmStatic
         fun operaties(): List<SpecOperatie> {
@@ -89,8 +89,11 @@ class SessieFilterDekkingTest {
 
         @JvmStatic
         fun verwachteVereisten(): List<Arguments> = listOf(
-            Arguments.of("GET", "/berichten/_volgen", Sessievereiste.VERLENGEN),
+            Arguments.of("GET", "/berichten/_volgen", Sessievereiste.LOPEND),
+            Arguments.of("GET", "/sessies/huidige", Sessievereiste.LOPEND),
+            Arguments.of("HEAD", "/sessies/huidige", Sessievereiste.LOPEND),
             Arguments.of("DELETE", "/sessies/huidige", Sessievereiste.ALLEEN_VORM),
+            Arguments.of("POST", "/sessies/huidige/_verlengen", Sessievereiste.VERLENGEN),
             Arguments.of("GET", "/berichten", Sessievereiste.VERLENGEN),
             Arguments.of("POST", "/sessies", Sessievereiste.GEEN),
             // Een pad dat (nog) niet in de spec staat, valt onder de standaard: verlengen, dus een sessie.
@@ -140,7 +143,7 @@ class SessieFilterDekkingTest {
 
     @ParameterizedTest(name = "{0} {1} vereist {2}")
     @MethodSource("verwachteVereisten")
-    fun `het filter maakt het juiste onderscheid tussen verlengen en alleen de vorm`(
+    fun `het filter maakt het juiste onderscheid tussen verlengen, lezen en alleen de vorm`(
         methode: String,
         pad: String,
         verwacht: Sessievereiste,
@@ -159,7 +162,7 @@ class SessieFilterDekkingTest {
             .header("WWW-Authenticate", "X-Sessie realm=\"berichtenuitvraag\"")
             .body("type", equalTo("urn:fbs:fout:sessie-ongeldig"))
 
-        assertTrue(sessiecache.geraakteSessies.isEmpty())
+        assertTrue(sessiecache.geraakteSessies.isEmpty() && sessiecache.gelezenSessies.isEmpty())
     }
 
     @ParameterizedTest(name = "{0}")

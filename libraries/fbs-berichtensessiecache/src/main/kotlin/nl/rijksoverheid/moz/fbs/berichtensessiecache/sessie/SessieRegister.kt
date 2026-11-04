@@ -14,6 +14,7 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.HexFormat
@@ -30,7 +31,8 @@ internal const val ALERT_OPRUIMEN_NA_SCHRIJVEN = "[ALERT opruimen_na_schrijven]"
  */
 internal interface SessieRegister {
 
-    fun start(ontvanger: Identificatienummer): Uni<SessieStart>
+    /** [plafond] is het uiterste einde dat de aanroeper zelf oplegt; `null` laat alleen de maximale duur gelden. */
+    fun start(ontvanger: Identificatienummer, plafond: Instant? = null): Uni<StartUitkomst>
 
     /** De geldigheid als [sessieId] een lopende sessie van [ontvanger] is, nu verlengd; anders `null`. */
     fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?>
@@ -84,6 +86,21 @@ internal interface SessieRegister {
     fun stelUit(kenmerk: String): Uni<Unit>
 }
 
+/** Wat [SessieRegister.start] deed. */
+internal sealed interface StartUitkomst {
+
+    data class Gestart(val start: SessieStart) : StartUitkomst
+
+    /**
+     * De ontvanger heeft al het maximum aantal lopende sessies; er is niets gestart en niets gewist.
+     * [vrijOver] is de tijd tot de vroegst verlopende van die sessies verloopt.
+     */
+    data class LimietBereikt(val vrijOver: Duration) : StartUitkomst
+
+    /** Het meegegeven plafond lag niet in de toekomst; er is niets gestart en niets gewist. */
+    data object PlafondVerstreken : StartUitkomst
+}
+
 /**
  * Een ontvanger uit de verloopindex. [kenmerk] is zijn lid in de index ([BerichtenCache.kenmerk]);
  * [ontvanger] de leesbare vorm, of `null` als die al verlopen of onleesbaar is of niet bij [kenmerk]
@@ -117,30 +134,37 @@ internal class RedisSessieRegister(
 
     private val indexTtlMs: String = config.indexTtl.toMillis().toString()
 
-    override fun start(ontvanger: Identificatienummer): Uni<SessieStart> {
+    override fun start(ontvanger: Identificatienummer, plafond: Instant?): Uni<StartUitkomst> {
         val sessieId = nieuweSessieId()
         val argumenten = listOf(
             hash(sessieId),
             config.inactiviteit().toMillis().toString(),
             config.maxDuur().toMillis().toString(),
+            config.maxPerOntvanger().toString(),
             BerichtenCache.kenmerk(ontvanger),
             // Geen sessie leeft langer dan start + maximale duur, dus de laatste start bepaalt hoe
             // lang de administratie en de gegevens moeten blijven staan.
             config.dataTtl.toMillis().toString(),
             ontvanger.toCanonicalString(),
+            // Begrensd, want toEpochMilli loopt over op een moment ver buiten het bereik van ms.
+            plafond?.coerceIn(Instant.EPOCH, VERSTE_PLAFOND)?.toEpochMilli()?.toString().orEmpty(),
             indexTtlMs,
         )
 
         return voerUit(SessieScripts.START, ontvanger, argumenten).map { antwoord ->
             when (antwoord.get(0).toInteger()) {
-                1 -> SessieStart(
-                    sessieId = sessieId,
-                    geldigheid = SessieGeldigheid(
-                        geldigTot = Instant.ofEpochMilli(antwoord.get(1).toLong()),
-                        uiterlijkGeldigTot = Instant.ofEpochMilli(antwoord.get(3).toLong()),
+                0 -> StartUitkomst.LimietBereikt(Duration.ofMillis(antwoord.get(1).toLong()))
+                1 -> StartUitkomst.Gestart(
+                    SessieStart(
+                        sessieId = sessieId,
+                        geldigheid = SessieGeldigheid(
+                            geldigTot = Instant.ofEpochMilli(antwoord.get(1).toLong()),
+                            uiterlijkGeldigTot = Instant.ofEpochMilli(antwoord.get(3).toLong()),
+                        ),
+                        restenOpgeruimd = antwoord.get(2).toLong() > 0,
                     ),
-                    restenOpgeruimd = antwoord.get(2).toLong() > 0,
                 )
+                2 -> StartUitkomst.PlafondVerstreken
                 else -> throw CacheCorruptedException.onverwachtScriptantwoord("start")
             }
         }
@@ -245,6 +269,9 @@ internal class RedisSessieRegister(
 
         /** Achter `$k`: de leesbare ontvanger bij een index-entry. */
         private const val ONTVANGER_SUFFIX = ":ontvanger"
+
+        /** Verder dan dit valt niets meer in ms uit te drukken; elk plafond hierbuiten is toch later dan de maximale duur. */
+        private val VERSTE_PLAFOND: Instant = Instant.ofEpochMilli(Long.MAX_VALUE)
 
         /** 128 bits; zie [Sessiecache.SESSIE_ID_VORM]. */
         private const val SESSIE_ID_BYTES = 16

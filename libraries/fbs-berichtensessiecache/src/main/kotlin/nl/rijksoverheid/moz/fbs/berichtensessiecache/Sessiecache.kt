@@ -13,6 +13,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -164,6 +165,15 @@ interface Sessiecache {
      * eerst de gegevens van een eerdere, verlopen sessie gewist: een sessie begint met een vers
      * beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
      *
+     * [uiterlijkGeldigTot] is het plafond van de sessie van de aanroeper (het portaal): de sessie
+     * eindigt dan op het vroegste van dat moment en start + `berichtensessiecache.sessie.max-duur`.
+     * Ligt het niet in de toekomst (volgens de klok van de opslag), dan [SessiecacheException.OngeldigeInvoer]
+     * en is er niets gestart of gewist.
+     *
+     * Gooit [SessiecacheException.TeVeelSessies] wanneer [ontvanger] al het maximum aantal lopende
+     * sessies heeft (`berichtensessiecache.sessie.max-per-ontvanger`); er wordt geen bestaande
+     * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
+     *
      * Is het antwoord niet te lezen ([SessiecacheException.Onbereikbaar] of
      * [SessiecacheException.Onleesbaar]) terwijl de start in Redis wel gebeurde, dan staat er een
      * sessie waarvan de aanroeper het id nooit kreeg (een spooksessie), en kan de start al resten
@@ -175,7 +185,7 @@ interface Sessiecache {
      * [SessieEinde.BEEINDIGD], en de gegevens blijven staan tot de spooksessie na de
      * inactiviteitstermijn verloopt en de veegtaak ze opruimt.
      */
-    fun startSessie(ontvanger: Identificatienummer): SessieStart
+    fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant? = null): SessieStart
 
     /**
      * Controleert dat [sessieId] een lopende sessie van [ontvanger] is en verlengt hem met de

@@ -7,10 +7,12 @@ internal data class TestSessieConfig(
     val inactiviteit: Duration = Duration.ofMinutes(15),
     val maxDuur: Duration = Duration.ofHours(12),
     val vangnetMarge: Duration = Duration.ofHours(1),
+    val maxPerOntvanger: Int = 5,
     val veegInterval: Duration = Duration.ofSeconds(30),
 ) : SessieConfig {
     override fun inactiviteit() = inactiviteit
     override fun maxDuur() = maxDuur
     override fun vangnetMarge() = vangnetMarge
+    override fun maxPerOntvanger() = maxPerOntvanger
     override fun veegInterval() = veegInterval
 }
