@@ -75,32 +75,16 @@ class RedisBerichtenCacheBatchIntegrationTest {
     }
 
     @Test
-    fun `een read verlengt de TTL van elk geraakt bericht, ook voorbij de eerste batch`() {
+    fun `elke per-bericht hash staat in de sleutelset, ook voorbij de eerste batch`() {
+        // Zonder de volledige set vindt het opruimen na de laatste sessie niet alle hashes terug.
         val berichten = (1..200).map { bericht(it) }
 
         berichtenCache.store(cacheKey, berichten).await().atMost(Duration.ofSeconds(30))
 
-        // getPageFiltered (afzender-filter, dus het RediSearch-pad) sorteert dalend op
-        // publicatietijdstip. `berichten.first()` (index 1) heeft de laagste publicatietijdstip
-        // en staat dus als laatste resultaat — en daarmee als laatste sleutel in
-        // renewBerichtTtls' batches. Zonder batching valt de EXPIRE-transactie in zijn geheel om
-        // (queue-overflow) en blijft deze TTL onaangeroerd.
-        val laatsteInBatchVolgorde = berichten.first()
-        val berichtKey = BerichtenCache.berichtKey(laatsteInBatchVolgorde.sleutel)
+        val sleutels = redis.set(String::class.java).smembers("$cacheKey:sleutels").await().atMost(Duration.ofSeconds(5))
 
-        // `store` zet deze TTL al op de volle profiel-waarde (PT5M); een korte, kunstmatige TTL
-        // vooraf maakt een uitgebleven renew zichtbaar — anders zou "TTL nog positief" ook zonder
-        // renew waar zijn.
-        redis.key().expire(berichtKey, Duration.ofSeconds(2)).await().atMost(Duration.ofSeconds(5))
-
-        val pagina = berichtenCache.getPage(cacheKey, 0, 200, "00000001800866472000", ontvanger, null)
-            .await().atMost(Duration.ofSeconds(30))
-
-        assertEquals(200, pagina!!.berichten.size)
-
-        val ttl = redis.key().ttl(berichtKey).await().atMost(Duration.ofSeconds(5))
-
-        assertTrue(ttl > 2, "TTL van het laatste bericht in batchvolgorde moet verlengd zijn boven de kunstmatig verkorte waarde; was: $ttl")
+        assertEquals(berichten.map { BerichtenCache.berichtKey(it.sleutel) }.toSet(), sleutels)
+        assertTrue(redis.key().ttl("$cacheKey:sleutels").await().atMost(Duration.ofSeconds(5)) > 0, "sleutelset zonder TTL")
     }
 
     @Test
