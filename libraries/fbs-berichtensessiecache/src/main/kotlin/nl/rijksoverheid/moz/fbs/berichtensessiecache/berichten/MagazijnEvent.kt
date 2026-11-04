@@ -82,9 +82,8 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
  * `afgekapt`: er staat méér bij deze organisatie dan is opgehaald. Het portaal hoort dat te tonen,
  * óók in een samenvattende regel — anders houdt de ontvanger een onvolledige lijst voor een
  * volledige. `totaalBeschikbaar` staat er alleen bij een bruikbaar totaal van het magazijn zelf, en
- * is daarmee het enige optionele veld op dit type. Dat afkap-signaal leeft alleen in deze stroom;
- * de sessiecache bewaart het niet, dus wie de lijst later opnieuw opvraagt krijgt hem zonder deze
- * mededeling. TODO(MinBZK/MijnOverheidZakelijk#1072)
+ * is daarmee het enige optionele veld op dit type. Na de ronde draagt de berichtenlijst hetzelfde
+ * signaal in [Volledigheid.afgekapt], zodat het verversen en bladeren overleeft.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten", "afgekapt", "totaalBeschikbaar", "mappen")
