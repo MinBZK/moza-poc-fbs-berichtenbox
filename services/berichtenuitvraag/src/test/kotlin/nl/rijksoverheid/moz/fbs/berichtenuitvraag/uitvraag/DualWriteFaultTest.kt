@@ -284,7 +284,7 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `PATCH compensatie-invalidate-faal blijft 502 (cache stale tot TTL)`() {
+    fun `PATCH compensatie-invalidate-faal blijft 502 (cache stale tot de volgende ophaalronde)`() {
         // Cache-PATCH faalt én de compensatie-invalidate faalt ook. De operatie
         // blijft 502; de cache mag stale blijven tot de TTL verloopt.
         val id = UUID.randomUUID()
@@ -366,7 +366,7 @@ class DualWriteFaultTest {
     }
 
     @Test
-    fun `DELETE cache-faal en compensatie-faal blijft 502 (cache stale tot TTL)`() {
+    fun `DELETE cache-faal en compensatie-faal blijft 502 (cache stale tot de volgende ophaalronde)`() {
         val id = UUID.randomUUID()
         seedBericht(id)
         stubMagazijnDeleteOk(id)

@@ -1,34 +1,47 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie
 
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.StatusCode
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.SessiesApi
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Link
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Sessie
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.SessieLinks
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.SessieStartVerzoek
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.leesUitCache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.registreerLdvSubject
+import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
+import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.SessieGeldigheid as SessieGeldigheidDto
 
 /**
  * REST-resource voor inlogsessies. De sessiestaat zit in de sessiecache; deze resource vertaalt
- * alleen naar HTTP. De 201 op de start komt van de gedeelde `CreatedStatusFilter`, de `Location`
- * van [SessieResponsFilter].
+ * alleen naar HTTP en legt in het logboek vast wat er met de gegevens gebeurde. De 201 op de start
+ * komt van de gedeelde `CreatedStatusFilter`, de `Location` van [SessieResponsFilter].
  *
- * De controle van de sessie bij elk verzoek krijgt geen eigen logregel: ze leest alleen de
- * sessie-administratie, niet de gegevens van de ontvanger. De controle zelf doet [SessieFilter];
- * hier staat alleen wat het vaststelde.
+ * Wist een start of een einde de gegevens van de ontvanger, dan volgt naast de logregel van het
+ * verzoek een tweede via [SessieLogboek]: het wissen is een eigen verwerking.
+ *
+ * Lezen en verlengen krijgen geen eigen logregel, net als het verlengen door elk ander verzoek in
+ * de sessie: ze raken alleen de sessie-administratie, niet de gegevens van de ontvanger. De
+ * controle zelf doet [SessieFilter]; hier staat alleen wat het vaststelde.
  */
 @ApplicationScoped
 class SessieResource(
     private val sessiecache: Sessiecache,
+    private val sessieLogboek: SessieLogboek,
     private val logboekContext: LogboekContext,
     @param:Context private val request: ContainerRequestContext,
 ) : SessiesApi {
@@ -36,14 +49,46 @@ class SessieResource(
     private val log = Logger.getLogger(SessieResource::class.java)
 
     @Logboek(name = "uitvraag-sessie-start", processingActivityId = ProcessingActivities.UITVRAAG_SESSIE)
-    override fun startSessie(xOntvanger: String): Sessie {
+    override fun startSessie(xOntvanger: String, sessieStartVerzoek: SessieStartVerzoek?): Sessie {
         registreerLdvSubject(logboekContext, xOntvanger)
 
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
-        val start = leesUitCache(log, "sessie-start") { sessiecache.startSessie(ontvanger) }
+        val start = try {
+            leesUitCache(log, "sessie-start") {
+                try {
+                    sessiecache.startSessie(ontvanger, sessieStartVerzoek?.uiterlijkGeldigTot)
+                } catch (e: SessiecacheException) {
+                    // De start kan in Redis al resten verwijderd hebben. Een volgende start ziet dan de
+                    // sessie die niemand kent lopen en meldt niets, dus dit is de enige kans op een logregel.
+                    if (scriptKanGelopenHebben(e)) {
+                        sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START, OpruimUitkomst.ONBEVESTIGD)
+                    }
 
-        return Sessie(start.sessieId).links(links())
+                    throw e
+                }
+            }
+        } catch (e: FbsFoutException) {
+            // Een bedoelde weigering of een fout van de afnemer, geen storing: in het logboek staat
+            // "Error" voor wat misging. De regel zegt wel dat er geen sessie begon.
+            if (e.foutcode in WEIGERINGEN) {
+                logboekContext.expectException(e, StatusCode.UNSET)
+                Span.current().setAttribute(START_UITKOMST_ATTRIBUUT, GEWEIGERD)
+            }
+
+            throw e
+        }
+
+        Span.current().setAttribute(START_UITKOMST_ATTRIBUUT, GESTART)
+
+        if (start.restenOpgeruimd) sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.NIEUWE_START)
+
+        return Sessie(start.sessieId, start.geldigheid.geldigTot, start.geldigheid.uiterlijkGeldigTot).links(links())
     }
+
+    override fun leesSessie(xOntvanger: String): SessieGeldigheidDto = alsDto(huidigeSessie().geldigheid)
+
+    // Het verlengen zelf deed het filter al: dit pad valt onder de standaard van "elk verzoek verlengt".
+    override fun verlengSessie(xOntvanger: String): SessieGeldigheidDto = alsDto(huidigeSessie().geldigheid)
 
     @Logboek(name = "uitvraag-sessie-einde", processingActivityId = ProcessingActivities.UITVRAAG_SESSIE)
     override fun beeindigSessie(xOntvanger: String) {
@@ -51,12 +96,31 @@ class SessieResource(
 
         val ontvanger = Identificatienummer.fromHeader(xOntvanger)
         val sessieId = huidigeSessie().sessieId
-        val einde = leesUitCache(log, "sessie-einde") { sessiecache.beeindigSessie(sessieId, ontvanger) }
+        val einde = leesUitCache(log, "sessie-einde") {
+            try {
+                sessiecache.beeindigSessie(sessieId, ontvanger)
+            } catch (e: SessiecacheException) {
+                // Het script kan al verwijderd en de ontvanger uit de verloopindex gehaald hebben; een
+                // herhaalde uitlog ziet dan niets meer, dus dit is de enige kans op een logregel.
+                if (scriptKanGelopenHebben(e)) {
+                    sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD, OpruimUitkomst.ONBEVESTIGD)
+                }
+
+                throw e
+            }
+        }
 
         // Zonder authenticatie kan iedereen een einde voor een willekeurige ontvanger aanvragen. Wie
         // de logregel leest, ziet hieraan of dat einde iets deed.
         Span.current().setAttribute(EINDE_UITKOMST_ATTRIBUUT, einde.name.lowercase())
+
+        if (einde == SessieEinde.OPGERUIMD) sessieLogboek.opgeruimd(ontvanger, OpruimAanleiding.UITGELOGD)
     }
+
+    // Geen antwoord, of een antwoord dat deze code niet kent: in beide gevallen kan het script in Redis
+    // gedraaid hebben. Een invoerfout houdt de facade tegen vóór Redis.
+    private fun scriptKanGelopenHebben(e: SessiecacheException): Boolean =
+        e is SessiecacheException.Onbereikbaar || e is SessiecacheException.Onleesbaar
 
     // Het filter zet hem bij elk verzoek dat een sessie vereist; ontbreekt hij, dan is dat een
     // configuratiefout, en die hoort niet stil een lege sessie op te leveren.
@@ -65,11 +129,27 @@ class SessieResource(
             "Geen sessie vastgesteld; draait het SessieFilter op dit pad?"
         }
 
+    private fun alsDto(geldigheid: SessieGeldigheid?): SessieGeldigheidDto {
+        val vastgesteld = checkNotNull(geldigheid) { "Sessie niet nagevraagd op een pad dat een lopende sessie vereist" }
+
+        return SessieGeldigheidDto(vastgesteld.geldigTot, vastgesteld.uiterlijkGeldigTot).links(links())
+    }
+
     private fun links(): SessieLinks = SessieLinks()
         .self(Link().href(SessieResponsFilter.HUIDIGE_SESSIE_PAD))
+        .verlengen(Link().href("${SessieResponsFilter.HUIDIGE_SESSIE_PAD}/_verlengen"))
 
     companion object {
-        /** Wat een einde deed: `onbekend` (niets) of `beeindigd`. */
+        /** Wat een einde deed: `onbekend` (niets), `beeindigd` (andere sessies lopen nog) of `opgeruimd`. */
         const val EINDE_UITKOMST_ATTRIBUUT = "fbs.sessie.einde.uitkomst"
+
+        /** Of een start een sessie opleverde: `gestart`, of `geweigerd` (te veel sessies of een ongeldig verzoek). */
+        const val START_UITKOMST_ATTRIBUUT = "fbs.sessie.start.uitkomst"
+
+        private const val GESTART = "gestart"
+        private const val GEWEIGERD = "geweigerd"
+
+        /** De start is bewust niet gedaan: de grens, of een verzoek dat niet kon, zoals een plafond in het verleden. */
+        private val WEIGERINGEN = setOf(Foutcode.TE_VEEL_SESSIES, Foutcode.ONGELDIG_VERZOEK)
     }
 }

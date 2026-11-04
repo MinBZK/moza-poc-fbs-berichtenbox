@@ -7,13 +7,11 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.fail
 import java.time.Duration
-import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.LinkedBlockingQueue
@@ -21,9 +19,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
 /**
- * Het doorgeven van aanmeldingen tussen pods en het verlengen van een gevolgde sessie, tegen een
- * echte Redis. Een tweede, los gebouwde [RedisAanmeldingen] speelt de andere pod: die heeft zijn
- * eigen abonnement, precies zoals een tweede replica.
+ * Het doorgeven van aanmeldingen tussen pods, tegen een echte Redis. Een tweede, los gebouwde
+ * [RedisAanmeldingen] speelt de andere pod: die heeft zijn eigen abonnement, precies zoals een
+ * tweede replica.
  */
 @QuarkusTest
 @TestProfile(RealRedisTestProfile::class)
@@ -34,9 +32,6 @@ class RedisAanmeldingenIntegrationTest {
 
     @Inject
     internal lateinit var aanmeldingen: Aanmeldingen
-
-    @Inject
-    internal lateinit var berichtenCache: BerichtenCache
 
     private val anderePod by lazy { RedisAanmeldingen(redis, STANDAARD_CONTROLE) }
 
@@ -290,56 +285,6 @@ class RedisAanmeldingenIntegrationTest {
             pod.stop()
         }
     }
-
-    @Test
-    fun `verlengSessie zonder sessie is false`() {
-        assertFalse(berichtenCache.verlengSessie(cacheKey).await().atMost(WACHTTIJD))
-    }
-
-    @Test
-    fun `verlengSessie laat een lopende ophaling op haar vangnet-TTL staan`() {
-        berichtenCache.updateAggregationStatus(cacheKey, AggregationStatus(OphalenStatus.BEZIG, totaalMagazijnen = 1))
-            .await().atMost(WACHTTIJD)
-        val voor = pttl("$cacheKey:status")
-
-        assertTrue(berichtenCache.verlengSessie(cacheKey).await().atMost(WACHTTIJD))
-        assertTrue(pttl("$cacheKey:status") <= voor)
-    }
-
-    @Test
-    fun `verlengSessie verlengt pas na de helft van de sessieduur, en dan ook de berichten`() {
-        val bericht = Bericht(
-            berichtId = UUID.randomUUID(),
-            afzender = "00000001003214345000",
-            afzenderNaam = "Magazijn A",
-            ontvanger = ontvanger,
-            onderwerp = "Oud bericht",
-            publicatietijdstip = Instant.parse("2026-09-21T10:00:00Z"),
-            magazijnId = "00000001003214345000",
-            aantalBijlagen = 0,
-        )
-        berichtenCache.store(cacheKey, listOf(bericht)).await().atMost(WACHTTIJD)
-        berichtenCache.storeAggregationStatus(cacheKey, AggregationStatus(OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1))
-            .await().atMost(WACHTTIJD)
-        val hashKey = BerichtenCache.berichtKey(bericht.sleutel)
-
-        // Vers: ruim boven de helft van de 2 s uit het profiel, dus niets te doen.
-        assertTrue(berichtenCache.verlengSessie(cacheKey).await().atMost(WACHTTIJD))
-        val versResterend = pttl(hashKey)
-
-        Thread.sleep(1_200)
-        assertTrue(pttl(hashKey) < 1_000)
-
-        assertTrue(berichtenCache.verlengSessie(cacheKey).await().atMost(WACHTTIJD))
-
-        listOf(hashKey, "$cacheKey:list", "$cacheKey:status").forEach { sleutel ->
-            assertTrue(pttl(sleutel) > 1_500, "$sleutel niet verlengd")
-        }
-
-        assertTrue(versResterend > 1_000)
-    }
-
-    private fun pttl(sleutel: String): Long = redis.key().pttl(sleutel).await().atMost(WACHTTIJD)
 
     private fun abonnees(): Long =
         redis.execute("PUBSUB", "NUMSUB", RedisAanmeldingen.KANAAL).await().atMost(WACHTTIJD).get(1).toLong()

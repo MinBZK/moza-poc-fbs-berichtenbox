@@ -15,11 +15,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en controleert op
- * elke hartslag of de inlogsessie nog loopt. Eindigt de sessie, dan merkt de stream dat hoogstens
- * een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen]. Zolang de sessie
- * loopt, verlengt de hartslag de berichtgegevens van de ontvanger, zodat een bezoeker die alleen
- * kijkt die gegevens niet verliest. De sessie zelf verlengt de hartslag niet: een open connection
- * is geen activiteit van de gebruiker.
+ * elke hartslag of de inlogsessie nog loopt. Alleen lezen: een open connection is geen activiteit van
+ * de gebruiker en houdt de sessie dus niet in leven. Verloopt de sessie, dan merkt de stream dat
+ * hoogstens een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen].
  *
  * De volgorde bij het starten is wat "niets missen" waarmaakt: eerst de luisteraar registreren,
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].
@@ -44,8 +42,6 @@ internal class SessieVolger(
     // half-open connection achter een proxy) geen luisteraar en hartslag eindeloos vasthoudt.
     @param:ConfigProperty(name = "berichtensessiecache.volg-max-duur", defaultValue = "PT1H")
     private val maxDuur: Duration,
-    @ConfigProperty(name = "berichtensessiecache.ttl", defaultValue = "PT12H")
-    ttl: Duration,
 ) {
     private val log = Logger.getLogger(SessieVolger::class.java)
 
@@ -56,13 +52,6 @@ internal class SessieVolger(
 
         require(maxDuur > hartslag) {
             "berichtensessiecache.volg-max-duur ($maxDuur) moet groter zijn dan berichtensessiecache.volg-hartslag ($hartslag)"
-        }
-
-        // De cache verlengt pas als er minder dan dit deel van de bewaartermijn rest; een tragere
-        // hartslag laat de gegevens van een gevolgde sessie tussen twee slagen in verlopen.
-        require(hartslag < ttl.dividedBy(BerichtenCache.VERLENG_DEEL)) {
-            "berichtensessiecache.volg-hartslag ($hartslag) moet kleiner zijn dan " +
-                "1/${BerichtenCache.VERLENG_DEEL} van berichtensessiecache.ttl ($ttl)"
         }
     }
 
@@ -100,10 +89,10 @@ internal class SessieVolger(
             aanmeldingen.actief()
                 // De facade controleerde de sessie al; dit vangt een einde tussen die controle en
                 // VolgenGestart, zodat SessieVerlopen dan het enige item is.
-                .chain { _ -> controleer(sessieId, ontvanger) }
+                .chain { _ -> sessies.lees(sessieId, ontvanger) }
                 .subscribe().with(
-                    { loopt ->
-                        if (loopt) {
+                    { geldigheid ->
+                        if (geldigheid != null) {
                             emitter.emit(SessieGebeurtenis.VolgenGestart)
                             hartslagen.set(startHartslag(sessieId, ontvanger, emitter))
 
@@ -130,7 +119,9 @@ internal class SessieVolger(
     ): Cancellable =
         Multi.createFrom().ticks().every(hartslag)
             .onOverflow().drop()
-            .onItem().transformToUniAndConcatenate { _ -> controleer(sessieId, ontvanger) }
+            // Naar een Boolean: een Multi laat een null-item vallen, en dan zou het einde van de sessie
+            // nooit aankomen.
+            .onItem().transformToUniAndConcatenate { _ -> sessies.lees(sessieId, ontvanger).map { it != null } }
             .subscribe().with(
                 { loopt -> if (loopt) emitter.emit(SessieGebeurtenis.Hartslag) else beeindig(emitter) },
                 { fout ->
@@ -138,15 +129,6 @@ internal class SessieVolger(
                     emitter.fail(fout)
                 },
             )
-
-    /**
-     * `true` als de sessie loopt; dan zijn ook de gegevens van de ontvanger verlengd. Of die er nog
-     * staan, beslist niet over de stream: dat doet alleen de sessie.
-     */
-    private fun controleer(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean> =
-        sessies.lees(sessieId, ontvanger).call { loopt ->
-            if (loopt) berichtenCache.verlengSessie(BerichtenCache.cacheKey(ontvanger)) else Uni.createFrom().voidItem()
-        }
 
     /**
      * Leest het bericht uit de cache in plaats van het mee te sturen over het kanaal: zo gaat er

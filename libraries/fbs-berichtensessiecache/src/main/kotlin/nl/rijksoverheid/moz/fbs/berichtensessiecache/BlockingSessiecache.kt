@@ -17,15 +17,22 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGeslote
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.ALERT_OPRUIMEN_NA_SCHRIJVEN
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -138,7 +145,13 @@ internal class BlockingSessiecache(
     override fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID) {
         if (!ingeschreven(magazijnId)) return
 
-        awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
+        try {
+            awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
+        } catch (e: SessiecacheException) {
+            // Een timeout kan de keten afbreken ná de tombstone en vóór de opruimcontrole erna.
+            markeerVoorVeeg(ontvanger, "Verwijderen niet bevestigd")
+            throw e
+        }
     }
 
     override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> = service.haalBerichtenOp(ontvanger)
@@ -167,6 +180,30 @@ internal class BlockingSessiecache(
             // Defensieve limiet overschreden (BerichtValidator): invoerfout van de
             // aanleverende caller, geen infrastructuurfout.
             throw SessiecacheException.OngeldigeInvoer(e.message ?: "Ongeldig bericht.", e)
+        } catch (e: SessiecacheException) {
+            // Het aanmeldscript kan in Redis gedraaid hebben terwijl het antwoord wegviel, en het kijkt
+            // niet naar sessies. Zonder markering zou het geschrevene dan onzichtbaar blijven staan.
+            markeerVoorVeeg(ontvanger, "Aanmelding niet bevestigd")
+            throw e
+        }
+
+        // De statuscontrole hierboven en het schrijven zijn twee stappen; eindigde de laatste sessie
+        // daartussen, dan is het bericht nu weer gewist en hoort de aanleveraar dat er geen lijst was.
+        // Zonder lopende sessie verdwijnt daarbij alles van de ontvanger, ook de resten van een verlopen
+        // sessie die de veegtaak nog niet had opgeruimd.
+        val opgeruimd = try {
+            awaitOrServiceUnavailable { sessies.ruimOpZonderSessie(ontvanger) }
+        } catch (e: SessiecacheException) {
+            // De herlevering die op deze fout volgt, vindt na een uitlog geen status meer en ruimt dus
+            // niets op; alleen de veegtaak kan het geschrevene dan nog vinden.
+            markeerVoorVeeg(ontvanger, "Opruimen na een aanmelding mislukt")
+            throw e
+        }
+
+        if (opgeruimd) {
+            throw SessiecacheException.GeenLijstInCache(
+                "Geen opgehaalde lijst voor deze ontvanger; bericht niet toegevoegd.",
+            )
         }
 
         meldAanGevolgdeSessies(ontvanger, geschreven)
@@ -182,17 +219,139 @@ internal class BlockingSessiecache(
         return volger.volg(ontvanger, sessieId)
     }
 
-    override fun startSessie(ontvanger: Identificatienummer): SessieStart =
-        awaitOrServiceUnavailable { sessies.start(ontvanger) }
+    override fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant?): SessieStart =
+        when (val uitkomst = awaitOrServiceUnavailable { sessies.start(ontvanger, uiterlijkGeldigTot) }) {
+            is StartUitkomst.Gestart -> uitkomst.start
+            is StartUitkomst.LimietBereikt -> throw SessiecacheException.TeVeelSessies(
+                "Er lopen al te veel sessies voor deze ontvanger.",
+                uitkomst.vrijOver,
+            )
+            StartUitkomst.PlafondVerstreken -> throw SessiecacheException.OngeldigeInvoer(
+                "uiterlijkGeldigTot ligt niet in de toekomst.",
+            )
+        }
 
-    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer) {
-        if (!awaitOrServiceUnavailable { sessies.lees(sessieId, ontvanger) }) throw sessieOngeldig()
-    }
+    override fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid =
+        awaitOrServiceUnavailable { sessies.raak(sessieId, ontvanger) } ?: throw sessieOngeldig()
+
+    override fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid =
+        awaitOrServiceUnavailable { sessies.lees(sessieId, ontvanger) } ?: throw sessieOngeldig()
 
     private fun sessieOngeldig() = SessiecacheException.SessieOngeldig("Sessie is verlopen of ongeldig.")
 
     override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
         awaitOrServiceUnavailable { sessies.beeindig(sessieId, ontvanger) }
+
+    override fun ruimVerlopenSessiesOp(max: Int, meld: (Opruiming) -> Unit): Boolean {
+        // Redis leest een negatieve LIMIT als "alles": dat maakt van een begrensde ronde een onbegrensde.
+        if (max < 1) throw SessiecacheException.OngeldigeInvoer("max ($max) moet minstens 1 zijn.")
+
+        val kandidaten = awaitOrServiceUnavailable { sessies.verlopen(max) }
+
+        for (kandidaat in kandidaten) {
+            // De pod stopt: geen volgende ontvanger meer beginnen, de index bewaart hem.
+            if (Thread.currentThread().isInterrupted) return false
+
+            val opruiming = veegEen(kandidaat) ?: continue
+
+            if (!Thread.currentThread().isInterrupted) {
+                meld(opruiming)
+
+                continue
+            }
+
+            // De pod stopt. Deze melding mag niet op de vlag stranden, want het wissen kan al gebeurd
+            // zijn; daarna stopt de ronde en pakt een volgende de rest van de index op.
+            Thread.interrupted()
+
+            try {
+                meld(opruiming)
+            } finally {
+                Thread.currentThread().interrupt()
+            }
+
+            return false
+        }
+
+        return kandidaten.size == max
+    }
+
+    /**
+     * Per ontvanger een eigen timeout en een eigen vangnet: een fout of een trage ontvanger mag de
+     * ontvangers erachter niet tegenhouden. `null` als er voor deze ontvanger nog een sessie loopt of
+     * een andere pod al veegde.
+     *
+     * Alleen de fout-soort in de log: de melding van een Redis- of parse-fout kan een fragment van
+     * de invoer bevatten.
+     */
+    private fun veegEen(kandidaat: VeegKandidaat): Opruiming? =
+        try {
+            if (sessies.veeg(kandidaat.kenmerk).await().atMost(timeout)) kandidaat.opruiming(OpruimUitkomst.GEWIST) else null
+        } catch (e: Exception) {
+            // Een script dat Redis eenmaal kreeg, loopt tot het einde: na een timeout of een interrupt
+            // is de uitkomst onbekend. Een foutantwoord breekt het script af vóór de ZREM aan het einde,
+            // dus dan staat de ontvanger nog in de index voor een volgende ronde. Mutiny's eigen
+            // TimeoutException (van `atMost`) is geen subklasse van die uit de JDK.
+            val keten = generateSequence<Throwable>(e) { it.cause }.toList()
+            val onderbroken = keten.any { it is InterruptedException }
+            val onbevestigd = onderbroken ||
+                keten.any { it is io.smallrye.mutiny.TimeoutException || it is java.util.concurrent.TimeoutException }
+
+            when {
+                onderbroken -> {
+                    // Mutiny zet de vlag meestal al; hier expliciet, want de aanroeper stopt erop.
+                    Thread.currentThread().interrupt()
+                    log.infof("Opruimen van een verlopen sessie onderbroken (fout=%s); de veegronde stopt", e.javaClass.name)
+                }
+                onbevestigd -> log.warnf(
+                    "Opruimen van een verlopen sessie niet bevestigd binnen %s (fout=%s); de gegevens zijn mogelijk gewist",
+                    timeout,
+                    e.javaClass.name,
+                )
+                else -> log.errorf(
+                    "Opruimen van een verlopen sessie mislukt (fout=%s); een volgende veegronde probeert het opnieuw",
+                    e.javaClass.name,
+                )
+            }
+
+            // Ook na een timeout: hangt het script van deze ontvanger structureel, dan kost hij anders
+            // elke ronde de volle timeout. `XX` in het uitstel laat een al geveegde ontvanger weg. Na
+            // een interrupt niet: de pod stopt, en de entry blijft voor een volgende ronde staan.
+            if (!onderbroken) stelUit(kandidaat.kenmerk)
+
+            kandidaat.opruiming(if (onbevestigd) OpruimUitkomst.ONBEVESTIGD else OpruimUitkomst.MISLUKT)
+        }
+
+    /**
+     * Best-effort: lukt ook dit niet, dan blijft de ontvanger vooraan in de index staan en is de
+     * volgende ronde gewoon weer een poging. Een fout hier verandert de uitkomst niet.
+     */
+    private fun stelUit(kenmerk: String) {
+        try {
+            sessies.stelUit(kenmerk).await().atMost(timeout)
+        } catch (e: Exception) {
+            log.warnf("Uitstellen van een mislukte opruiming mislukt (%s); de volgende veegronde ziet hem weer vooraan", e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Best-effort, na een schrijfactie waarvan niet vaststaat of een opruimcontrole erachter liep: de
+     * aanroeper krijgt hoe dan ook de oorspronkelijke fout. Staat de ontvanger al in de verloopindex,
+     * met een lopende sessie of al wachtend, dan verandert dit niets. [wat] noemt in het alert welke
+     * stap faalde.
+     */
+    private fun markeerVoorVeeg(ontvanger: Identificatienummer, wat: String) {
+        try {
+            sessies.markeerVoorVeeg(ontvanger).await().atMost(timeout)
+        } catch (e: Exception) {
+            log.errorf(
+                "%s %s en ook het markeren voor de veegtaak (fout=%s); de vangnet-TTL ruimt het op zonder logregel",
+                ALERT_OPRUIMEN_NA_SCHRIJVEN,
+                wat,
+                e.javaClass.name,
+            )
+        }
+    }
 
     /**
      * Alleen een ingeschreven magazijn komt bij de cache. De magazijnId belandt in Redis-sleutels en

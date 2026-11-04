@@ -3,9 +3,11 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.redis.datasource.hash.ReactiveHashCommands
 import io.smallrye.mutiny.Uni
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.TestSessieConfig
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -14,19 +16,17 @@ import java.time.Duration
 import java.util.UUID
 
 /**
- * `renewBerichtTtls` is bewust best-effort (`onFailure().recoverWithNull()`): een mislukte
- * TTL-verlenging mag een al geslaagde read nooit alsnog laten falen, anders zou een transiënte
- * Redis-storing op de sliding-TTL-batch een werkende `getById` in een 500 veranderen. Deze test
- * dwingt die mislukking af door de onderliggende transactie te laten falen, zonder de read-kant
- * aan te raken — mocked op het niveau van `ReactiveRedisDataSource` omdat een echte Redis-fout op
- * enkel de TTL-batch niet reproduceerbaar is zonder de read-transactie mee te raken.
+ * Lezen raakt alleen wat het leest. Vroeger verlengde elke read de TTL van de gegevens; nu is die
+ * TTL een vast vangnet ná de laatste sessie, en een read die toch nog een transactie of
+ * TTL-commando stuurt, zou dat vangnet weer laten meeschuiven. De mock zonder `relaxed` laat elke
+ * onverwachte aanroep falen.
  */
-class RedisBerichtenCacheRenewFailureTest {
+class RedisBerichtenCacheLezenTest {
 
     private val redis = mockk<ReactiveRedisDataSource>(relaxed = false)
 
     @Test
-    fun `mislukte TTL-verlenging laat een geslaagde getById onaangetast`() {
+    fun `getById leest alleen de hash en stuurt geen TTL-commando`() {
         val berichtId = UUID.randomUUID()
         val ontvanger = Oin("00000001234567890000")
         val berichtKey = BerichtenCache.berichtKey(BerichtSleutel("00000001800866472000", berichtId))
@@ -41,21 +41,16 @@ class RedisBerichtenCacheRenewFailureTest {
                 "ontvanger" to ontvanger.waarde,
                 "ontvangerType" to "OIN",
                 "onderwerp" to "onderwerp",
-                "inhoud" to "inhoud",
                 "publicatietijdstip" to "2026-01-01T00:00:00Z",
                 "magazijnId" to "00000001800866472000",
                 "aantalBijlagen" to "0",
             ),
         )
-        // renewBerichtTtls draait in een eigen withTransaction — laat die falen zonder de
-        // read-transactie (hgetall hierboven) te raken.
-        every { redis.withTransaction(any()) } returns
-            Uni.createFrom().failure(RuntimeException("Redis-verbinding weg tijdens TTL-batch"))
 
         val cache = RedisBerichtenCache(
             redis = redis,
             objectMapper = ObjectMapper(),
-            ttl = Duration.ofHours(12),
+            sessieConfig = TestSessieConfig(),
             aggregationLockTtl = Duration.ofMinutes(2),
             startupRedisearchTimeoutSeconds = 5,
             redisBatchgrootte = 256,
@@ -64,7 +59,9 @@ class RedisBerichtenCacheRenewFailureTest {
 
         val bericht = cache.getById(BerichtSleutel("00000001800866472000", berichtId), ontvanger).await().indefinitely()
 
-        assertNotNull(bericht, "read moet slagen ondanks een mislukte TTL-verlenging")
+        assertNotNull(bericht)
         assertEquals(berichtId, bericht!!.berichtId)
+        verify(exactly = 0) { redis.key() }
+        verify(exactly = 0) { redis.withTransaction(any()) }
     }
 }

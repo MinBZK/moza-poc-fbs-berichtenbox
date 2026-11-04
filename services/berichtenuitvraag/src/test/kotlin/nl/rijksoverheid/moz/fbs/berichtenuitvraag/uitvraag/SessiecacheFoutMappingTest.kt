@@ -10,7 +10,10 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.api.assertThrows
+import java.time.Duration
 
 /**
  * De enige plek waar de gesloten [SessiecacheException]-hiërarchie naar een API-status
@@ -38,6 +41,7 @@ class SessiecacheFoutMappingTest {
         assertEquals(404, SessiecacheException.GeenLijstInCache("x").naApiFout().response.status)
         assertEquals(410, SessiecacheException.BerichtVerwijderd("x").naApiFout().response.status)
         assertEquals(401, SessiecacheException.SessieOngeldig("x").naApiFout().response.status)
+        assertEquals(429, SessiecacheException.TeVeelSessies("x", Duration.ofSeconds(1)).naApiFout().response.status)
     }
 
     @Test
@@ -52,6 +56,7 @@ class SessiecacheFoutMappingTest {
             SessiecacheException.GeenLijstInCache("x") to Foutcode.GEEN_LIJST_IN_CACHE,
             SessiecacheException.BerichtVerwijderd("x") to Foutcode.BERICHT_VERWIJDERD,
             SessiecacheException.SessieOngeldig("x") to Foutcode.SESSIE_ONGELDIG,
+            SessiecacheException.TeVeelSessies("x", Duration.ofSeconds(1)) to Foutcode.TE_VEEL_SESSIES,
         )
 
         kenmerken.forEach { (uitkomst, verwacht) ->
@@ -77,6 +82,7 @@ class SessiecacheFoutMappingTest {
             SessiecacheException.GeenLijstInCache("x"),
             SessiecacheException.BerichtVerwijderd("x"),
             SessiecacheException.SessieOngeldig("x"),
+            SessiecacheException.TeVeelSessies("x", Duration.ofSeconds(1)),
         )
 
         gevallen.forEach { geval ->
@@ -102,6 +108,7 @@ class SessiecacheFoutMappingTest {
         assertFalse(SessiecacheException.GeenLijstInCache("x").isStoring())
         assertFalse(SessiecacheException.BerichtVerwijderd("x").isStoring())
         assertFalse(SessiecacheException.SessieOngeldig("x").isStoring())
+        assertFalse(SessiecacheException.TeVeelSessies("x", Duration.ofSeconds(1)).isStoring())
     }
 
     /**
@@ -182,5 +189,24 @@ class SessiecacheFoutMappingTest {
     @Test
     fun `een blijvende fout draagt geen Retry-After`() {
         assertNull(SessiecacheException.Onleesbaar("x").naApiFout().response.getHeaderString("Retry-After"))
+    }
+
+    @Test
+    fun `te veel sessies draagt de tijd tot er een plek vrijkomt als Retry-After`() {
+        val fout = SessiecacheException.TeVeelSessies("x", Duration.ofMillis(899_200)).naApiFout()
+
+        assertEquals("900", fout.response.getHeaderString("Retry-After"))
+    }
+
+    /** Naar boven afgerond en nooit 0: een `Retry-After: 0` nodigt uit tot direct opnieuw proberen. */
+    @ParameterizedTest(name = "{0} ms wordt {1} s")
+    @CsvSource("0, 1", "1, 1", "999, 1", "1000, 1", "1001, 2", "899200, 900", "-5000, 1")
+    fun `retryAfterSeconden rondt naar boven af en geeft minstens 1`(millis: Long, verwacht: Int) {
+        assertEquals(verwacht, retryAfterSeconden(Duration.ofMillis(millis)))
+    }
+
+    @Test
+    fun `retryAfterSeconden past een absurde wachttijd in een Int`() {
+        assertEquals(Int.MAX_VALUE, retryAfterSeconden(Duration.ofDays(365L * 1000)))
     }
 }
