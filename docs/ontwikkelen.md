@@ -43,6 +43,51 @@ ongewijzigde code.
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
 (Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten.
 
+### Tijdens het werk: alleen de geraakte testklassen
+
+Een volledige run van de uitvraag met zijn bibliotheken duurt een paar minuten. Draai tussendoor
+alleen de klassen die je wijziging raakt, en de volledige suite vóór je pusht (CI draait hem
+sowieso):
+
+```bash
+./mvnw clean test -pl services/berichtenuitvraag -am \
+  -Dtest='BijlageStreamenTest,*Volgen*Test' \
+  -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true
+```
+
+- `-Dtest` neemt klassenamen met wildcards, en `Klasse#methode` voor één test.
+- `-Dsurefire.failIfNoSpecifiedTests=false` is nodig door `-am`: de bibliotheken die meebouwen
+  hebben geen klasse die op het filter past, en Surefire faalt dan.
+- `-Djacoco.skip=true`, omdat een deel van de tests nooit aan de 90%-grens komt. De gate hoort bij
+  de volledige suite.
+- Gebruik geen `-Dsurefire.runOrder`. Surefire zet daarmee ook de JUnit-volgorde van de
+  testklassen, en Quarkus weigert dan te starten (`Critical failure ... the Quarkus JUnit
+  configuration has been overridden`), omdat het die volgorde zelf nodig heeft om per testprofiel
+  te groeperen.
+
+### De volledige suite: parallel
+
+```bash
+./mvnw clean verify -pl services/berichtenuitvraag,demo/demo-console -am -T 1C
+```
+
+`-T 1C` bouwt onafhankelijke modules naast elkaar: de demo-modules lopen dan naast de keten
+fbs-common → sessiecache → uitvraag. Binnen fbs-berichtensessiecache en berichtenuitvraag draaien
+de testklassen bovendien over drie Surefire-forks, elk met een eigen Quarkus en eigen Dev
+Services-containers. Een fout die je in één JVM wilt nalopen, draai je met `-Dfbs.test.forks=1`.
+
+Over die forks:
+
+- Surefire geeft een fork één testklasse tegelijk, en elke `@QuarkusTest`-klasse start daardoor
+  een eigen Quarkus — ook als de vorige klasse in die fork hetzelfde testprofiel had. Een extra
+  testprofiel kost in een fork dus niets extra; een extra `@QuarkusTest`-klasse kost een
+  opstart van enkele seconden.
+- JaCoCo schrijft per fork een eigen databestand (`target/jacoco-quarkus-<n>.exec`); de build voegt
+  ze samen vóór de gate. Lees de dekking zoals altijd in `target/site/jacoco/`.
+- Elke fork moet zijn eigen poort kunnen pakken. Een testconfiguratie met een vaste
+  `quarkus.http.test-port` of een vaste WireMock-poort laat forks op elkaar botsen; gebruik
+  `quarkus.http.test-port=0` en `wireMockConfig().dynamicPort()`.
+
 ## Kwaliteitsgates
 
 Er zijn twee gates, elk gebonden aan een andere Maven-fase:
