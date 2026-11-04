@@ -2,7 +2,7 @@
 # bridge-netwerk (podman-in-een-container: `/proc/sys` is read-only, dus netavark krijgt de
 # sysctls van de bridge niet gezet, en aardvark-dns ontbreekt, dus container-DNS resolvet niet).
 #
-# Start deze modus via `demo/podman-up.sh` — het wachten zit daar, niet in compose (zie punt 3).
+# Start deze modus via `demo/up.sh` — het wachten zit daar, niet in compose (zie punt 3).
 #
 # Alle containers delen de netns van de aanroeper. Images, SELinux-labels en de overige env en
 # mounts blijven uit de twee onderliggende bestanden — hier staan alleen de verschillen.

@@ -1,12 +1,12 @@
-# Overlay op docker-compose.yaml + docker-compose.podman.yaml — vangnet voor omgevingen zonder
+# Overlay op compose.yaml + compose.podman.yaml — vangnet voor omgevingen zonder
 # bruikbaar bridge-netwerk (podman-in-een-container: netavark kan de ipv6-sysctls van de bridge
 # niet zetten en aardvark-dns ontbreekt, dus container-DNS resolvet niet).
 #
-#   docker compose -f deploy/local/docker-compose.yaml \
-#                  -f deploy/local/docker-compose.podman.yaml \
-#                  -f deploy/local/docker-compose.podman-hostnet.yaml up -d
+#   docker compose -f deploy/local/compose.yaml \
+#                  -f deploy/local/compose.podman.yaml \
+#                  -f deploy/local/compose.podman-hostnet.yaml up -d
 #
-# Deze overlay hoort altijd bovenop docker-compose.podman.yaml: hij bestaat alleen voor podman, en
+# Deze overlay hoort altijd bovenop compose.podman.yaml: hij bestaat alleen voor podman, en
 # de keep-id-mapping die de privékeys leesbaar maakt staat daar.
 #
 # Alle containers delen de netns van de aanroeper. De `*.fsc-test.local`-namen komen daarom uit
@@ -73,7 +73,7 @@ services:
     networks: !reset null
     sysctls: !reset null
     volumes:
-      - ./haproxy.podman-hostnet.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./haproxy.podman-hostnet.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro,z
 
   manager-directory:
     network_mode: host

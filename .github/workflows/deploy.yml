@@ -209,7 +209,7 @@ env:
   # Alleen amd64: ZAD draait daarop, en compose houdt de multi-arch-tag voor wie op arm werkt.
   # Verdwijnt de dubbele child upstream, of komt de Quay-dedupe (PROJQUAY-10068) in een release, dan
   # kan de digest hier weg en volstaat de tag.
-  TOXIPROXY_IMAGE: 'ghcr.io/shopify/toxiproxy:2.12.0@sha256:a3e244375123dad8849091bcc59775e188624d3f602db01901f9af855682fef8'
+  TOXIPROXY_IMAGE: 'ghcr.io/shopify/toxiproxy:2.13.0@sha256:9941f0357759e6c9bfe0ad45e20c415100505113da0f5c436cfd0a4d27579fdc'
 
 jobs:
   # Bepaalt in één keer wát er voor deze revisie moet draaien. Levert vier onafhankelijke
@@ -1013,7 +1013,7 @@ jobs:
       # deze uitrol rendert ze meteen mee.
       - name: Deploy uitvraag-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1049,7 +1049,7 @@ jobs:
       # bij de componentenlijst in `meta`. De inbound-regels voor de Toxiproxy's staan al in het
       # projectbestand (`preview-klaarzetten`), dus deze uitrol rendert ze meteen mee.
       - name: Deploy externe-stubs-project
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -1087,7 +1087,7 @@ jobs:
     steps:
       - name: Deploy stelselregister-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_STELSELREGISTER }}
           project-id: ${{ env.PROJECT_STELSELREGISTER }}
@@ -1194,7 +1194,7 @@ jobs:
 
       - name: Deploy magazijnen-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -1302,7 +1302,7 @@ jobs:
       name: test
     steps:
       - name: Deploy uitvraag-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1322,7 +1322,7 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/logius/deploy/zad/upsert-peer.sh.
       - name: Deploy uitvraag-project (fsc-logius — FSC-peer)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1359,7 +1359,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy externe-stubs-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -1392,7 +1392,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy stelselregister-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_STELSELREGISTER }}
           project-id: ${{ env.PROJECT_STELSELREGISTER }}
@@ -1423,7 +1423,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy magazijnen-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -1445,7 +1445,7 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
       - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@4217ceaa5c347f3c6d16142b5ad8ab94110c4cdb # v4.4.0
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}

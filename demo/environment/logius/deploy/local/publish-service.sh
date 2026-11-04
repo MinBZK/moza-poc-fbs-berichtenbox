@@ -8,6 +8,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../../lib/fsc-harness.sh
 source "$HERE/../../../lib/fsc-harness.sh"
+fsc_lokale_engine
 
 # Zet $HAVE_JQ; de vergelijking van de bestaande upstream leest de controller-JSON met jq.
 #
@@ -21,7 +22,7 @@ fsc_have_jq
 }
 
 # shellcheck disable=SC2034  # gelezen door fsc_tb() uit de caller-scope (lib/fsc-harness.sh).
-COMPOSE=(docker compose -f "$HERE/docker-compose.yaml")
+COMPOSE=(docker compose -f "$HERE/compose.yaml")
 # Overrulebaar omdat één inway meer dan één dienst kan dragen: logius biedt naast profiel-service
 # ook notificatieservice aan. Dezelfde variabelenaam als smoke-discover.sh gebruikt.
 SERVICE_NAME="${FSC_SERVICE_NAME:-profiel-service}"
@@ -115,7 +116,14 @@ else
 fi
 
 echo "publish: servicePublication-contract indienen (idempotent)..."
-if fsc_tb "$MANAGER/v1/services/publications" | grep -q "\"$SERVICE_NAME\""; then
+# Eerst lezen, dan zoeken: in één `if fsc_tb … | grep` valt een mislukte lezing in de else-tak, en
+# dan staat er een tweede publicatiecontract naast het bestaande.
+PUBLICATIES=$(fsc_tb "$MANAGER/v1/services/publications") || {
+  echo "FAIL: kon de publicaties niet ophalen: $(fsc_last_error)" >&2
+  exit 1
+}
+
+if printf '%s' "$PUBLICATIES" | grep -q "\"$SERVICE_NAME\""; then
   echo "  al gepubliceerd, skip contract."
 else
   # UUID + timestamp zijn host-lokaal (geen container-context nodig) -> host-builtins i.p.v. toolbox-exec.

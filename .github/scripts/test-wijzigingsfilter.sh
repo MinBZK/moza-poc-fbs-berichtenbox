@@ -210,6 +210,10 @@ verwacht "de demo-stack" 'demo/environment/federatie/federatie.sh' "$DEMO_STACK"
 # demo-stack aansturen. Zonder deze fixture kon het compleet verdwijnen zonder dat er iets rood werd.
 verwacht "een shellscript direct onder demo/" 'demo/smoke.sh' "$DEMO_STACK"
 
+# De modus-keuze van de lokale opstellingen: zonder dit alternatief kost elke wijziging eraan twee
+# jib-builds en drie previews, terwijl geen image hem leest.
+verwacht "de gedeelde modus-keuze onder demo/lib/" 'demo/lib/podman-modus.sh' "$DEMO_STACK"
+
 # En de tegenhanger: het generatiescript schrijft de ondernemer-stubs die in het
 # fbs-demo-profiel-image gebakken worden, dus het valt júist niet onder de uitsluiting. Terugzetten
 # van het py-alternatief laat een gewijzigde fan-out zonder preview door — de check meldt dan groen
@@ -809,7 +813,7 @@ if [ -z "$ci_runs" ]; then
 else
   ci_ontbreekt=""
 
-  for nodig in "find .github/scripts -name 'test-*.sh'" "shellcheck"; do
+  for nodig in "find .github/scripts demo/lib -name 'test-*.sh'" "shellcheck"; do
     grep -qF "$nodig" <<<"$ci_runs" || ci_ontbreekt="$ci_ontbreekt '$nodig'"
   done
 

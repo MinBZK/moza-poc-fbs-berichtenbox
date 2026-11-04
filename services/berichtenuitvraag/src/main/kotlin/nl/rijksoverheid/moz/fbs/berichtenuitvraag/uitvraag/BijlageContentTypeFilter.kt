@@ -25,9 +25,17 @@ internal const val BIJLAGE_MIME_TYPE_PROPERTY = "fbs.uitvraag.bijlage.mimeType"
 internal const val BIJLAGE_NAAM_PROPERTY = "fbs.uitvraag.bijlage.naam"
 
 /**
+ * Request-property met het aantal bytes van de bijlage, voor `Content-Length`. Optioneel: zonder
+ * vaste lengte gaat het antwoord chunked. De resource streamt de bijlage, dus Quarkus kent de
+ * lengte zelf niet.
+ */
+internal const val BIJLAGE_LENGTE_PROPERTY = "fbs.uitvraag.bijlage.lengte"
+
+/**
  * Overschrijft de `Content-Type` van een response wanneer de resource
  * expliciet een MIME-type op de request-context heeft gezet via
- * [BIJLAGE_MIME_TYPE_PROPERTY], en zet de bijbehorende `Content-Disposition`:
+ * [BIJLAGE_MIME_TYPE_PROPERTY], en zet de bijbehorende `Content-Disposition` en, als die
+ * vaststaat, de `Content-Length` ([BIJLAGE_LENGTE_PROPERTY]). Voor de dispositie geldt:
  * `inline` voor typen die een browser toont zonder aangeleverde code uit te
  * voeren, `attachment` voor al het overige. Die afweging staat in
  * [BijlageContentDisposition] en is gedeeld met het magazijn, zodat een
@@ -65,6 +73,7 @@ class BijlageContentTypeFilter : ContainerResponseFilter {
 
         resp.headers.putSingle("Content-Type", effectief.toString())
         resp.headers.putSingle("Content-Disposition", BijlageContentDisposition.waarde(effectief, naam))
+        (req.getProperty(BIJLAGE_LENGTE_PROPERTY) as? Long)?.let { resp.headers.putSingle("Content-Length", it.toString()) }
     }
 
     private companion object {

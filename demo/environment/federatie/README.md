@@ -112,8 +112,8 @@ for p in logius magazijn-a; do
 done
 
 # 2. PKI per peer (vereist cfssl; zie <peer>/pki/README.md)
-(cd logius/pki && ./init-ca.sh && ./issue.sh && ./verify.sh)
-(cd magazijn-a/pki && ./init-ca.sh && ./issue.sh && ./verify.sh)
+(cd logius/pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh)
+(cd magazijn-a/pki && ./init-ca.sh && ./issue.sh && ./gen-crl.sh && ./verify.sh)
 
 # 3. Eén group-CA over alle peers — DESTRUCTIEF op de doel-peers, zie de kop van het script
 ./federatie/deel-groep-ca.sh --check      # toont wat er zou gebeuren
@@ -186,7 +186,7 @@ Die smoke vereist dat het magazijn zijn events door de outway stuurt:
 export NOTIFICATIE_GRANT_HASH="$(fsc_compose_env_lees demo/generated/fsc-grants.env NOTIFICATIE_GRANT_HASH)"
 
 MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 \
-  NOTIFICATIE_URL=http://127.20.2.5:8443/events OUTWAY_HOST=127.20.2.5 demo/podman-up.sh
+  NOTIFICATIE_URL=http://127.20.2.5:8443/events OUTWAY_HOST=127.20.2.5 demo/up.sh
 ```
 
 **Zet URL, grant-hash en outway-host altijd samen.** De hash komt uit `fsc-grants.env`, de andere
@@ -247,7 +247,7 @@ FSC_UPSTREAM_URL=http://127.0.0.1:8090 \
 ./contracts/fbs-contracten.sh
 
 # 3. de demo-stack met de uitvraag door de outway van logius
-MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 ../../podman-up.sh
+MODUS=hostnet MAGAZIJN_A_URL=http://127.20.1.5:8443 ../../up.sh
 
 ./smoke-keten.sh
 ```
@@ -287,11 +287,48 @@ Drie dingen om te weten:
 ## Valkuilen
 
 - **`depends_on: !override`, niet `!reset`** — zie de toelichting in `compose/magazijn-a.yaml`.
-- **Podman faalt regelmatig op de eerste `up`** met een ID-mapping-fout; `federatie.sh up` ruimt op
-  en probeert het in totaal drie keer (`UP_POGINGEN`). De mislukte poging staat in de uitvoer;
-  zolang het script `FEDERATIE OP` meldt, is er niets aan de hand.
-- **Bezwijkt de podman-API-service** (`error during connect`), dan herstart `federatie.sh` die
-  bewust niet voor je — het meldt het commando.
+- **De containers worden op podman één voor één aangemaakt.** De podman-overlays draaien elke
+  FSC-service met `userns_mode: keep-id`. Kan de storage-driver een laag niet ID-mapped mounten
+  (`vfs` altijd, zoals in podman-in-een-container; overlay alleen met kernelsteun), dan maakt podman
+  bij de eerste container per image-laag een ID-mapped kopie; containers die tegelijk worden
+  aangemaakt botsen daarop met `container ID 0 cannot be mapped to a host ID`. De kopie verdwijnt
+  met de laatste container, dus dit speelt na elke `down`, niet alleen op een schone machine. De
+  images worden daarom eerst parallel opgehaald (`pull --policy missing`), daarna maakt het script
+  per service één container aan (`create`, in de volgorde van de afhankelijkheden; ook een
+  container met gewijzigde configuratie wordt zo één voor één opnieuw aangemaakt), en pas dan volgt
+  `up -d`. `COMPOSE_PARALLEL_LIMIT=1` en `--parallel 1` lijken hetzelfde te doen, maar beperken het
+  aanmaken bij `up` niet. Dit geldt op elke podman: of de driver kopieert, is vooraf niet
+  betrouwbaar vast te stellen. Het vraagt docker compose v2; een andere compose start gewoon
+  parallel en meldt dat.
+  Meldt `federatie.sh up` toch een mislukte poging, dan ruimt het op en probeert het opnieuw
+  (`UP_POGINGEN`, standaard 3), maar dat hoort niet voor te komen.
+- **`write /proc/<pid>/uid_map: Operation not permitted`** is het gevolg van dezelfde race: een
+  volgende `up` naast een container die na de eerste fout op `Created` bleef staan. Met het seriële
+  aanmaken komt de eerste fout niet meer voor, en de retry ruimt `Created`-achterblijvers op vóór
+  hij opnieuw begint. Zie je hem toch, maak dan een issue aan in MinBZK/MijnOverheidZakelijk met de
+  podman- en crun-versie (`podman version`, `crun --version`), en verwijs naar #975.
+- **Limiet voor pulls bereikt** (`toomanyrequests`, of `429 (Too Many Requests)`): `federatie.sh up`
+  stopt dan zonder retry en toont de regel met de weigering. Log in bij die registry met
+  `docker login <registry>` (Docker Hub: `docker.io`) — compose stuurt de gegevens uit
+  `~/.docker/config.json` mee, niet die uit podmans eigen `auth.json`; zonder docker-CLI schrijft
+  `podman login --authfile ~/.docker/config.json <registry>` hetzelfde bestand.
+- **Een verweesde `pause.pid`** (na een herstart van de container) liet elke podman-aanroep falen op
+  `cannot re-exec process to join the existing user namespace`. `federatie.sh` (bij elk commando
+  behalve `status`), de losse `up.sh` en `demo/up.sh` ruimen dat bestand zelf op als het proces
+  erin niet meer het pauzeproces van podman is, en melden dat. Het pauzeproces herkennen ze aan
+  zijn eigen user namespace, want de naam verschilt: `podman pause`, of `catatonit` als dat
+  geïnstalleerd is.
+- **Een podman-API-socket waarop niemand luistert** wordt vooraf herkend. Is het de eigen rootless
+  socket (`<runtime-map>/podman/podman.sock`), dan wordt de service opnieuw gestart; elke andere
+  socket, ook een rootful `/run/podman/podman.sock`, blijft staan en het script meldt dat de engine
+  niet antwoordt. Antwoordt de socket wel maar niet binnen vijf seconden, dan stopt het script ook:
+  een bezette service is niet dood. Valt hij tijdens `up` weg (`error during connect`), dan
+  stopt `federatie.sh` met de instructie `down` en daarna `up` te draaien; dan start het de service
+  zelf. Of de engine podman is, leest het script uit de headers van `/_ping` en niet uit
+  `/version`: dat laatste wacht op de storage-lock zolang er elders een pull loopt.
+- **compose en de podman-CLI praten met dezelfde engine.** compose volgt `DOCKER_HOST`, de
+  podman-CLI `CONTAINER_HOST`; `federatie.sh` zet de tweede gelijk aan de eerste, zodat de controles
+  na `up` naar dezelfde containers kijken. Staan ze allebei en verschillen ze, dan stopt het script.
 - **Paden in de overlays zijn relatief aan de project-directory** — zie de toelichting in
   `compose/logius.yaml`.
 - **Standalone en federatie kunnen niet tegelijk.** Beide claimen `:443` en `:5432`.

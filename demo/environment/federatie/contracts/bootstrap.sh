@@ -70,6 +70,28 @@ provider_helft() {
     "${HERE}/bootstrap-provider.sh"
 }
 
+# herhaal_zolang_wachtend <melding> <commando...>: herhaalt zolang het commando 3 geeft ("de overkant
+# is nog niet zover"), tot FSC_SYNC_TIMEOUT. 0 is klaar en elke andere uitgang is meteen het
+# antwoord: alleen 3 is het wachten waard.
+herhaal_zolang_wachtend() {
+  local melding="$1" timeout="${FSC_SYNC_TIMEOUT:-20}" interval="${FSC_SYNC_INTERVAL:-2}" elapsed=0 uitkomst
+  shift
+
+  # Interval 0 zou `elapsed` nooit laten groeien en er een tight loop van maken.
+  [ "$interval" -gt 0 ] || interval=1
+
+  while :; do
+    uitkomst=0
+    "$@" || uitkomst=$?
+
+    [ "$uitkomst" -eq 3 ] || return "$uitkomst"
+    [ "$elapsed" -lt "$timeout" ] || return 3
+
+    sleep "$interval"; elapsed=$((elapsed + interval))
+    echo "  ...${melding} (${elapsed}s)" >&2
+  done
+}
+
 # --- 1. Consumer dient in -------------------------------------------------------------------------
 rc=0
 consumer_helft || rc=$?
@@ -85,9 +107,17 @@ fi
 }
 
 # --- 2. Provider tekent ---------------------------------------------------------------------------
+# Het contract kruist via de mesh-sync naar de manager van de provider, en dat gebeurt asynchroon.
+# Vlak na het indienen is "nog niets binnen" (3) dus een gewone tussenstand en geen fout; zonder deze
+# herhaling hing de uitkomst van een verse bootstrap af van wie de race won.
 echo
 rc=0
-provider_helft || rc=$?
+herhaal_zolang_wachtend "contract nog niet binnen bij de provider" provider_helft || rc=$?
+
+if [ "$rc" -eq 3 ]; then
+  echo "FAIL: het contract van de consumer kwam niet binnen bij de provider (mesh-sync)." >&2
+  exit 1
+fi
 
 # 4 = er lagen contracten die de autorisatietoets niet haalden. Die melding staat al in de log van
 # de helft zelf; hier telt alleen dat er niet getekend is, en stap 3 stelt dat vervolgens vast.
@@ -102,22 +132,7 @@ fi
 # nog niet langs is geweest. Deze aanroeper weet het wél: stap 2 is net klaar. Op ZAD vervult de
 # lus om de helften heen dezelfde rol.
 wacht_tot_geldig() {
-  local timeout="${FSC_SYNC_TIMEOUT:-20}" interval="${FSC_SYNC_INTERVAL:-2}" elapsed=0 uitkomst
-
-  # Interval 0 zou `elapsed` nooit laten groeien en er een tight loop van maken.
-  [ "$interval" -gt 0 ] || interval=1
-
-  while :; do
-    uitkomst=0
-    consumer_helft || uitkomst=$?
-
-    # Alleen 3 ("ingediend, nog niet getekend") is het wachten waard; 0 is klaar en de rest is fout.
-    [ "$uitkomst" -eq 3 ] || return "$uitkomst"
-    [ "$elapsed" -lt "$timeout" ] || return 3
-
-    sleep "$interval"; elapsed=$((elapsed + interval))
-    echo "  ...contract nog niet geldig bij de consumer (${elapsed}s)" >&2
-  done
+  herhaal_zolang_wachtend "contract nog niet geldig bij de consumer" consumer_helft
 }
 
 echo

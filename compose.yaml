@@ -4,7 +4,7 @@
 # `localhost/` voor.
 #
 # `DEMO_BIND` bepaalt op welk hostadres de stack publiceert; default `127.0.0.1`, en verder wordt
-# alleen `0.0.0.0` ondersteund — `demo/podman-up.sh` controleert elke service over 127.0.0.1 en een
+# alleen `0.0.0.0` ondersteund — `demo/up.sh` controleert elke service over 127.0.0.1 en een
 # specifiek adres laat die controles aflopen. Zonder die binding staat de hele demo op élke
 # interface van de machine: Redis zonder wachtwoord, vier PostgreSQL-instanties met
 # demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
@@ -240,7 +240,7 @@ services:
   # Netwerk-storingssimulator tussen de uitvraag en zijn afhankelijkheden. Proxies vast uit
   # /proxies.json; de demo-console voegt runtime toxics toe via de admin-API (:8474).
   toxiproxy:
-    image: ghcr.io/shopify/toxiproxy:2.12.0
+    image: ghcr.io/shopify/toxiproxy:2.13.0
     environment:
       TZ: Europe/Amsterdam
     profiles: [demo]
@@ -496,7 +496,7 @@ services:
   # hier. Op een oudere valt dat weg en loopt alleen het leespad, want /api/demo/personas valt daar
   # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
   proeftuin:
-    image: ghcr.io/minbzk/moza-poc:latest@sha256:8641b2ca50cc4a8d0007896aa488983e52083d95c2ec45f501fdee5d8e21f1c6
+    image: ghcr.io/minbzk/moza-poc:latest@sha256:66d5f28d4d3114ec6ca460ca25d5d491f7eb418f681da95921da26e0d711403e
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8096:8080"

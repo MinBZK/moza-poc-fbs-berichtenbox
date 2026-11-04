@@ -67,6 +67,15 @@ enum class Foutcode(val code: String, val uitleg: String) {
         "Er staan te veel berichtenboxen tegelijk open. Probeer het straks opnieuw.",
     ),
 
+    /**
+     * Er lopen te veel grote bijlage-downloads tegelijk, voor deze ontvanger of in totaal, op de
+     * instantie die het verzoek afhandelt. Geen storing; `Retry-After` staat erbij.
+     */
+    TE_VEEL_GELIJKTIJDIGE_DOWNLOADS(
+        "te-veel-gelijktijdige-downloads",
+        "Er lopen te veel downloads tegelijk. Probeer het straks opnieuw.",
+    ),
+
     /** Geen opgehaalde lijst voor deze ontvanger; er is niets om een bericht in bij te schrijven. */
     GEEN_LIJST_IN_CACHE("geen-lijst-in-cache", "Er zijn voor deze ontvanger nog geen berichten opgehaald."),
 

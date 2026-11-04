@@ -120,7 +120,7 @@ berichtenbox moet doen:
 - Elke operatie met een sessie kan `503` geven (met `Retry-After`) als de opslag van de sessies
   niet antwoordt, nu ook `PATCH` en `DELETE /berichten/{berichtId}`. Behandel die als tijdelijk:
   opnieuw proberen na `Retry-After`, de sessie blijft geldig.
-- API-versie `0.7.0`.
+- API-versie `0.9.0`.
 
 **Lokaal testen** tegen de uitvraag van die branch: in de FBS-repo de demo-stack starten met de
 overlay `compose.proeftuin-versie.yaml` die naar jouw lokale/preview-image van de berichtenbox

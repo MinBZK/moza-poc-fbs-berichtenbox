@@ -37,6 +37,8 @@ import org.junit.jupiter.api.assertThrows
 import java.time.Duration
 import java.time.Instant
 import java.util.Optional
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.logging.Handler
 import java.util.logging.LogRecord
 import java.util.logging.Logger
@@ -327,16 +329,26 @@ class LdvUitkomstIntegrationTest {
         val bsn = gebruik(ONTVANGER_INTERRUPT)
         val stub = leverAanStub()
         val pollThread = Thread.currentThread()
-        // De afnemer onderbreekt de poll-thread terwijl die op het eerste antwoord wacht.
+        val pollrondeVoorbij = CountDownLatch(1)
+        // De afnemer onderbreekt de poll-thread terwijl die op het eerste antwoord wacht, en
+        // antwoordt pas als de pollronde voorbij is: `HttpClient.send` kijkt alleen naar de vlag
+        // zolang er nog geen antwoord is, dus een antwoord dat eerder komt, haalt de interrupt in.
         stub.statusVoorAanroep = { aanroep ->
-            if (aanroep == 1) pollThread.interrupt()
+            if (aanroep == 1) {
+                pollThread.interrupt()
+                pollrondeVoorbij.await(ANTWOORD_UITERLIJK.toMillis(), TimeUnit.MILLISECONDS)
+            }
 
             202
         }
         sluitAndereClaimsAf()
         val berichtIds = List(3) { leverAanEnGeefBerichtId(bsn) }
 
-        stream.pollronde()
+        try {
+            stream.pollronde()
+        } finally {
+            pollrondeVoorbij.countDown()
+        }
 
         // Leest de vlag en wist hem meteen: de opruiming hoort hem niet te erven.
         val vlagBleefStaan = Thread.interrupted()
@@ -632,6 +644,9 @@ class LdvUitkomstIntegrationTest {
     private companion object {
         const val MAX_POGINGEN = 3
         const val WEIGER_TRIGGER = "ldv_test_weiger"
+
+        /** Vangnet: blijft de interrupt uit, dan faalt de test op zijn asserties in plaats van te hangen. */
+        val ANTWOORD_UITERLIJK: Duration = Duration.ofSeconds(10)
 
         /** De SQLState van een kale `RAISE EXCEPTION`. */
         const val SQLSTATE_EIGEN_FOUT = "P0001"

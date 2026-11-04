@@ -287,7 +287,7 @@ ok_tenzij "$VOOR" "adresschema consistent met de overlays"
 
 # --- 4. Eén directory ----------------------------------------------------------------------------
 echo "== 4. één directory =="
-if ! PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/docker-compose.yaml")"; then
+if ! PROJECT="$(fsc_compose_project "${ENVDIR}/${GASTHEER}/deploy/local/compose.yaml")"; then
   fout "projectnaam van de gastheer niet af te leiden"
 else
   RC=0

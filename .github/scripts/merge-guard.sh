@@ -190,7 +190,7 @@ if [ "$(jq -r '.services | has("router")' <<<"$MERGED")" = "true" ]; then
 fi
 
 meld "zonder network_mode host in de merge (voeg toe aan de overlay: network_mode, extra_hosts, botsvrije poort):" "$geen_host"
-meld "leest /pki onder een vaste UID zonder keep-id (voeg toe aan docker-compose.podman.yaml):" "$geen_keepid"
+meld "leest /pki onder een vaste UID zonder keep-id (voeg toe aan compose.podman.yaml):" "$geen_keepid"
 meld "listener-env die niet op loopback (127.x) staat:" "$env_lek"
 meld "bind-adres dat niet op loopback staat:" "$bind_lek"
 meld "nog een gepubliceerde poort in de merge (mist een 'ports: !reset []'):" "$poorten"

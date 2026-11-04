@@ -67,3 +67,6 @@ __pycache__/
 # ondernemer-stubs hierheen; .gitkeep houdt de map bestaanbaar zodat de COPY ook zonder gedraaid
 # script slaagt.
 wiremock/demo-profiel/generated/*.json
+
+# Netwerkmodus van de laatste start via deploy/local/up.sh
+demo/environment/*/deploy/local/.modus

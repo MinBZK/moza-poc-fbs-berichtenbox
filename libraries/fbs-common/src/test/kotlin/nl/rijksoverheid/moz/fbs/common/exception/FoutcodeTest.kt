@@ -32,6 +32,7 @@ class FoutcodeTest {
             Foutcode.OPHALEN_MISLUKT to "ophalen-mislukt",
             Foutcode.TIJDELIJK_NIET_BESCHIKBAAR to "tijdelijk-niet-beschikbaar",
             Foutcode.TE_VEEL_OPEN_BERICHTENBOXEN to "te-veel-open-berichtenboxen",
+            Foutcode.TE_VEEL_GELIJKTIJDIGE_DOWNLOADS to "te-veel-gelijktijdige-downloads",
             Foutcode.GEEN_LIJST_IN_CACHE to "geen-lijst-in-cache",
             Foutcode.SESSIE_ONGELDIG to "sessie-ongeldig",
             Foutcode.TE_VEEL_SESSIES to "te-veel-sessies",

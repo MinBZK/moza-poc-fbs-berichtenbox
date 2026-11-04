@@ -99,9 +99,9 @@ een gedeeltelijke storing — dat is correct gedrag, geen defect. Zie
 
 ## Demo-stack
 
-Voor demonstraties draait de volledige keten in containers — images bouwen met jib, stubs
-genereren, `docker compose --profile demo up -d`, en een bedieningspaneel op
-<http://localhost:8095>. Het [demo-runbook](docs/demo-runbook.md) beschrijft de opzet, de
+Voor demonstraties draait de volledige keten in containers: images bouwen met jib en starten met
+`demo/up.sh`, dat op Docker en podman zelf de werkbare modus kiest. Daarna staat de demo op
+<http://127.0.0.1:8097/bediening/>. Het [demo-runbook](docs/demo-runbook.md) beschrijft de opzet, de
 persona's, alle knoppen en de scenario's stap voor stap.
 
 Zónder `--profile demo` start compose alleen de infrastructuur (Redis, de drie Postgres-instanties
