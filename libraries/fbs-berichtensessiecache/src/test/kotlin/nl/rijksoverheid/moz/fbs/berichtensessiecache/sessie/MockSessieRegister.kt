@@ -16,10 +16,14 @@ import java.util.UUID
 @ApplicationScoped
 internal class MockSessieRegister : SessieRegister {
 
-    override fun start(ontvanger: Identificatienummer): Uni<SessieStart> =
-        Uni.createFrom().item(SessieStart(UUID.randomUUID().toString(), false))
+    override fun start(ontvanger: Identificatienummer, plafond: Instant?): Uni<StartUitkomst> =
+        Uni.createFrom().item(StartUitkomst.Gestart(SessieStart(UUID.randomUUID().toString(), geldigheid(), false)))
 
-    override fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(true)
+    override fun raak(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> = Uni.createFrom().item(geldigheid())
+
+    override fun lees(sessieId: String, ontvanger: Identificatienummer): Uni<SessieGeldigheid?> = Uni.createFrom().item(geldigheid())
+
+    private fun geldigheid() = SessieGeldigheid(Instant.now().plusSeconds(900), Instant.now().plusSeconds(43_200))
 
     override fun beeindig(sessieId: String, ontvanger: Identificatienummer): Uni<SessieEinde> =
         Uni.createFrom().item(SessieEinde.BEEINDIGD)
@@ -28,4 +32,12 @@ internal class MockSessieRegister : SessieRegister {
         Uni.createFrom().item(true)
 
     override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> = Uni.createFrom().item(false)
+
+    override fun markeerVoorVeeg(ontvanger: Identificatienummer): Uni<Unit> = Uni.createFrom().item(Unit)
+
+    override fun verlopen(max: Int): Uni<List<VeegKandidaat>> = Uni.createFrom().item(emptyList())
+
+    override fun veeg(kenmerk: String): Uni<Boolean> = Uni.createFrom().item(false)
+
+    override fun stelUit(kenmerk: String): Uni<Unit> = Uni.createFrom().item(Unit)
 }

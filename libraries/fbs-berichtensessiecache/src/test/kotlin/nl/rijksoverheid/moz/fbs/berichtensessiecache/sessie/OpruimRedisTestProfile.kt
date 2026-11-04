@@ -5,9 +5,9 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnClien
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnResolver
 
 /**
- * Echte Redis met sessies die een test overleven. Twintig seconden is lang genoeg voor een test en
- * kort genoeg om binnen een test te zien of een TTL opnieuw gezet is: na anderhalve seconde wachten
- * ligt een niet opgetrokken TTL een seconde onder de maximale duur.
+ * Echte Redis met sessies die een test overleven, en een vangnetmarge van één seconde. Zo is binnen
+ * een test te zien dat gegevens zonder optrekken vóór het plafond van een latere sessie zouden
+ * verlopen: wacht anderhalve seconde en de TTL ligt onder de maximale duur.
  */
 class OpruimRedisTestProfile : QuarkusTestProfile {
 
@@ -19,7 +19,9 @@ class OpruimRedisTestProfile : QuarkusTestProfile {
     override fun getConfigOverrides(): Map<String, String> = mapOf(
         "quarkus.redis.devservices.enabled" to "true",
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
+        "berichtensessiecache.sessie.inactiviteit" to "PT10S",
         "berichtensessiecache.sessie.max-duur" to "PT20S",
+        "berichtensessiecache.sessie.vangnet-marge" to "PT1S",
         "berichtensessiecache.aggregation-lock-ttl" to "PT5S",
     )
 }

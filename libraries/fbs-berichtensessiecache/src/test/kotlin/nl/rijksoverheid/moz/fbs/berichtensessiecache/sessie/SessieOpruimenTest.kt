@@ -42,7 +42,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Het wissen van de berichtgegevens aan het einde van de laatste sessie, tegen een echte Redis:
  * wat er weg moet (ook hashes van eerdere rondes, aanmeldingen en tombstones), wat er gebeurt als
  * schrijven en uitloggen elkaar kruisen, en de TTL op de gegevens als vangnet. Duren uit
- * [OpruimRedisTestProfile]: maximale duur 20 s.
+ * [OpruimRedisTestProfile]: maximale duur 20 s, marge 1 s.
  */
 @QuarkusTest
 @TestProfile(OpruimRedisTestProfile::class)
@@ -77,8 +77,8 @@ class SessieOpruimenTest {
 
     @Test
     fun `een mislukte ronde die kruist met het einde van de laatste sessie laat geen status achter`() {
-        // De FOUT-status volgt op het opruimen; zonder opruimen na die schrijfactie blijft hij tot de
-        // vangnet-TTL staan.
+        // De FOUT-status volgt op het opruimen; de verloopindex kent de ontvanger dan al niet meer,
+        // dus zonder opruimen na die schrijfactie blijft hij tot de vangnet-TTL staan.
         val sessie = sessiecache.startSessie(ontvanger)
         vulAlsOpgehaald(listOf(bericht()))
         val bereikt = CountDownLatch(1)
@@ -106,7 +106,7 @@ class SessieOpruimenTest {
         sessiecache.verwijder(ontvanger, berichten[0].magazijnId, berichten[0].berichtId)
 
         assertFalse(bestaat(BerichtenCache.verwijderdKey(ontvanger, berichten[0].sleutel)))
-        assertNietsAchter(berichten)
+        assertNietsAchter(berichten, wachtend = true)
     }
 
     @Test
@@ -129,7 +129,8 @@ class SessieOpruimenTest {
 
         assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
 
-        assertEquals(emptyList<String>(), sleutelsOnder(k))
+        // Alleen de leesbare ontvanger, bij de wachtende index-entry voor de veegtaak.
+        assertEquals(listOf("$k:ontvanger"), sleutelsOnder(k))
     }
 
     /** 257: meer dan één schrijfbatch (`redis-batchgrootte`) en meer dan de grootste pagina. */
@@ -335,7 +336,7 @@ class SessieOpruimenTest {
         berichtenCache.createBericht(nieuw, ontvanger).await().atMost(WACHTTIJD)
 
         assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
-        assertNietsAchter(listOf(nieuw))
+        assertNietsAchter(listOf(nieuw), wachtend = true)
     }
 
     @Test
@@ -355,6 +356,16 @@ class SessieOpruimenTest {
     }
 
     @Test
+    fun `opruimen zonder sessie ruimt op als alleen een verlopen sessie over is`() {
+        vulAlsOpgehaald(listOf(bericht()))
+        // Een lid met een verloop in het verleden: zoals een sessie die verliep zonder dat er geveegd is.
+        redis.sortedSet(String::class.java).zadd("$k:sessies", 1.0, "verlopen").await().atMost(WACHTTIJD)
+
+        assertTrue(sessies.ruimOpZonderSessie(ontvanger).await().atMost(WACHTTIJD))
+        assertNietsAchter(emptyList(), wachtend = true)
+    }
+
+    @Test
     fun `start zonder lopende sessie ruimt resten op en meldt restenOpgeruimd`() {
         val resten = List(2) { bericht() }
         vulAlsOpgehaald(resten)
@@ -363,7 +374,7 @@ class SessieOpruimenTest {
         val start = sessiecache.startSessie(ontvanger)
 
         assertTrue(start.restenOpgeruimd)
-        assertEquals(listOf("$k:sessies"), sleutelsOnder(k))
+        assertEquals(listOf("$k:ontvanger", "$k:sessies", "$k:sessies:plafond"), sleutelsOnder(k).sorted())
         resten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel))) }
     }
 
@@ -383,7 +394,7 @@ class SessieOpruimenTest {
         val sleutels = sleutelsOnder(k)
         val soorten = sleutels.map { it.removePrefix("$k:").let { soort -> if (soort.startsWith("verwijderd:")) "verwijderd" else soort } }
 
-        assertEquals(setOf("list", "status", "sleutels", "verwijderd", "sessies"), soorten.toSet(), "Sleutels: $sleutels")
+        assertEquals(setOf("list", "status", "sleutels", "verwijderd", "sessies", "sessies:plafond", "ontvanger"), soorten.toSet(), "Sleutels: $sleutels")
 
         val hashes = redis.set(String::class.java).smembers("$k:sleutels").await().atMost(WACHTTIJD)
             .filter { it.startsWith(BerichtenCache.BERICHT_PREFIX) && bestaat(it) }
@@ -393,13 +404,15 @@ class SessieOpruimenTest {
 
         (sleutels + hashes).forEach { assertTrue(pttl(it) in 1..DATA_TTL_MS, "$it zonder vangnet-TTL: ${pttl(it)} ms") }
 
-        // De tweede start zette de vangnet-TTL van de administratie opnieuw; zonder dat viel de nieuwe
-        // sessie na de eerste vangnet-TTL weg.
-        assertTrue(pttl("$k:sessies") > OPGETROKKEN_MS, "$k:sessies niet opgetrokken: ${pttl("$k:sessies")} ms")
+        // De tweede start zette de administratie op zijn eigen plafond; zonder dat viel de nieuwe sessie
+        // na de eerste vangnet-TTL weg.
+        listOf("$k:sessies", "$k:sessies:plafond", "$k:ontvanger").forEach {
+            assertTrue(pttl(it) > MAX_DUUR_MS, "$it niet opgetrokken: ${pttl(it)} ms")
+        }
     }
 
     @Test
-    fun `start naast een lopende sessie trekt de TTL van de gegevens op tot die van de nieuwe sessie`() {
+    fun `start naast een lopende sessie trekt de TTL op tot voorbij het plafond van de nieuwe sessie`() {
         sessiecache.startSessie(ontvanger)
         val berichten = List(2) { bericht() }
         vulAlsOpgehaald(berichten)
@@ -414,12 +427,12 @@ class SessieOpruimenTest {
 
         Thread.sleep(1_500)
 
-        // Zonder optrekken verlopen deze vóór de sessie-administratie van een sessie die nu start.
-        gegevens.forEach { assertTrue(pttl(it) in 1 until OPGETROKKEN_MS, "$it: ${pttl(it)} ms") }
+        // Zonder optrekken verlopen deze vóór het plafond van een sessie die nu start.
+        gegevens.forEach { assertTrue(pttl(it) in 1 until MAX_DUUR_MS, "$it: ${pttl(it)} ms") }
 
         sessiecache.startSessie(ontvanger)
 
-        gegevens.forEach { assertTrue(pttl(it) > OPGETROKKEN_MS, "$it niet opgetrokken: ${pttl(it)} ms") }
+        gegevens.forEach { assertTrue(pttl(it) > MAX_DUUR_MS, "$it niet opgetrokken: ${pttl(it)} ms") }
     }
 
     @Test
@@ -433,18 +446,18 @@ class SessieOpruimenTest {
     }
 
     @Test
-    fun `de TTL na het schrijven is de maximale duur, en lezen verlengt hem niet`() {
+    fun `de TTL na het schrijven is maximale duur plus marge, en lezen verlengt hem niet`() {
         val berichten = listOf(bericht())
         vulAlsOpgehaald(berichten)
         val gegevens = listOf("$k:list", "$k:status", "$k:sleutels", BerichtenCache.berichtKey(berichten[0].sleutel))
 
-        gegevens.forEach { assertTrue(pttl(it) in (OPGETROKKEN_MS + 1)..DATA_TTL_MS, "$it: ${pttl(it)} ms") }
+        gegevens.forEach { assertTrue(pttl(it) in (MAX_DUUR_MS + 1)..DATA_TTL_MS, "$it: ${pttl(it)} ms") }
 
-        Thread.sleep(1_500)
+        Thread.sleep(1_200)
         berichtenCache.getPage(k, 0, 20).await().atMost(WACHTTIJD)
         berichtenCache.getById(berichten[0].sleutel, ontvanger).await().atMost(WACHTTIJD)
 
-        gegevens.forEach { assertTrue(pttl(it) < OPGETROKKEN_MS, "$it verlengd door lezen: ${pttl(it)} ms") }
+        gegevens.forEach { assertTrue(pttl(it) < MAX_DUUR_MS, "$it verlengd door lezen: ${pttl(it)} ms") }
     }
 
     /** De magazijn-stub levert altijd aan deze BSN; een vorige test mag geen hashes of sessie achterlaten. */
@@ -470,14 +483,22 @@ class SessieOpruimenTest {
         ).await().atMost(WACHTTIJD)
     }
 
-    private fun assertNietsAchter(berichten: List<Bericht>) {
-        assertEquals(emptyList<String>(), sleutelsOnder(k))
+    /**
+     * [wachtend]: het wissen gebeurde zonder eigen logregel, dus de ontvanger wacht in de verloopindex
+     * op de veegtaak, en zijn leesbare vorm blijft daarvoor staan tot die veeg.
+     */
+    private fun assertNietsAchter(berichten: List<Bericht>, wachtend: Boolean = false) {
+        assertEquals(if (wachtend) listOf("$k:ontvanger") else emptyList(), sleutelsOnder(k))
+        assertEquals(wachtend, indexScore() != null, "index-entry: ${indexScore()}")
         berichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} achtergebleven") }
         assertEquals(0L, zoekTotaal(ontvanger))
     }
 
     private fun sleutelsOnder(prefix: String): List<String> =
         redis.execute("KEYS", "$prefix:*").await().atMost(WACHTTIJD).map { it.toString() }
+
+    private fun indexScore(): Double? =
+        redis.sortedSet(String::class.java).zscore(RedisSessieRegister.VERLOOP_INDEX, BerichtenCache.kenmerk(ontvanger)).await().atMost(WACHTTIJD)
 
     private fun bestaat(sleutel: String): Boolean = redis.key().exists(sleutel).await().atMost(WACHTTIJD)
 
@@ -502,11 +523,8 @@ class SessieOpruimenTest {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
         const val WACHTTIJD_S = 10L
         const val RONDE_S = 15L
-        const val DATA_TTL_MS = 20_000L
-
-        // Een TTL boven deze grens is net gezet; na de anderhalve seconde wachten in de tests ligt
-        // een niet opgetrokken TTL eronder.
-        const val OPGETROKKEN_MS = DATA_TTL_MS - 1_000L
+        const val MAX_DUUR_MS = 20_000L
+        const val DATA_TTL_MS = 21_000L
         const val LOCK_TTL_MS = 5_000L
         const val AANTAL_OVER_GRENS = 1001
         private val teller = AtomicLong(System.nanoTime())

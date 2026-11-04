@@ -30,7 +30,7 @@ class SessieServiceTest {
 
     @Test
     fun `verlopen wist ook de berichthashes buiten de sessie-prefix`() {
-        val sessieKeys = listOf("berichtensessiecache:v4:abc:status", "berichtensessiecache:v4:abc:sessies")
+        val sessieKeys = listOf("berichtensessiecache:v4:abc:status", "berichtensessiecache:v4:verloop")
         val hashes = listOf("bericht:v4:00000000000000100000:b1", "bericht:v4:00000001823288444000:b2")
         val alles = (sessieKeys + hashes).toTypedArray()
 

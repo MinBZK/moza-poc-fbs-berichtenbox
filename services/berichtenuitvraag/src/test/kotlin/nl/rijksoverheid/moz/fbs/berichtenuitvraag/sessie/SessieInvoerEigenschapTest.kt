@@ -22,7 +22,7 @@ import kotlin.random.Random
  * zitten wel in de eigenschapstest van de bibliotheek, die de vormregel rechtstreeks krijgt.
  */
 @QuarkusTest
-@TestProfile(SessieKetenProfile::class)
+@TestProfile(KorteSessieKetenProfile::class)
 class SessieInvoerEigenschapTest {
 
     @Test
@@ -62,9 +62,9 @@ class SessieInvoerEigenschapTest {
                 given().header("X-Ontvanger", ontvanger).headers(Headers(waarden.map { Header("X-Sessie", it) })).request(methode, pad)
             }
 
-            // De lopende sessie zelf blijft bruikbaar: weigeren is niet beëindigen. Zonder ophaalronde is dat een 409.
-            given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/berichten")
-                .then().statusCode(409)
+            // De lopende sessie zelf blijft bruikbaar: weigeren is niet beëindigen.
+            given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/sessies/huidige")
+                .then().statusCode(200)
         }
     }
 
@@ -83,8 +83,8 @@ class SessieInvoerEigenschapTest {
             }
         }
 
-        given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/berichten")
-            .then().statusCode(409)
+        given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/sessies/huidige")
+            .then().statusCode(200)
     }
 
     private fun verwachtWeigering(geval: String, ontvangerGeldig: Boolean, verzoek: () -> Response) {
@@ -108,7 +108,7 @@ class SessieInvoerEigenschapTest {
         const val GEVALLEN = 400
         private val teller = AtomicLong(System.nanoTime())
 
-        // Uniek per geval: de sessies van een ontvanger blijven over de tests heen in Redis lopen.
+        // Uniek per geval: de grens van vijf sessies per ontvanger telt over de tests heen mee.
         fun nieuweOntvanger() = "OIN:" + teller.incrementAndGet().toString().padStart(20, '0').takeLast(20)
 
         val ONGELDIGE_ONTVANGERS = listOf("", "BSN:123", "BSN:999990018", "FOO:1", "BSN 999990019", "OIN:1:2")
@@ -120,6 +120,8 @@ class SessieInvoerEigenschapTest {
             "GET" to "/api/v1/berichten/00000000-0000-4000-8000-000000000001?magazijnId=00000001003214345000",
             "GET" to "/api/v1/berichten/_ophalen",
             "GET" to "/api/v1/berichten/_volgen",
+            "GET" to "/api/v1/sessies/huidige",
+            "POST" to "/api/v1/sessies/huidige/_verlengen",
         )
     }
 }

@@ -11,9 +11,10 @@ class RealRedisTestProfile : QuarkusTestProfile {
     override fun getConfigOverrides(): Map<String, String> = mapOf(
         "quarkus.redis.devservices.enabled" to "true",
         "quarkus.redis.devservices.image-name" to "redis/redis-stack-server:7.4.0-v3",
-        // Een TTL op de gegevens van 2 s (de maximale duur), zodat verlopen binnen een test
+        // Een TTL op de gegevens van 2 s (maximale duur plus marge), zodat verlopen binnen een test
         // te zien is. Sessies spelen in dit profiel geen rol.
-        "berichtensessiecache.sessie.max-duur" to "PT2S",
+        "berichtensessiecache.sessie.max-duur" to "PT1S",
+        "berichtensessiecache.sessie.vangnet-marge" to "PT1S",
         "berichtensessiecache.aggregation-lock-ttl" to "PT2S",
     )
 }

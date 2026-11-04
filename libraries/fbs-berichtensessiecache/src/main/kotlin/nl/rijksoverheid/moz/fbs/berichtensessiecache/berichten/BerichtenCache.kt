@@ -179,7 +179,7 @@ internal class RedisBerichtenCache(
 
     // Gezet bij elke schrijfactie, en opgetrokken door een sessiestart naast een lopende sessie;
     // leesverkeer verlengt niets. Het wissen is een actieve stap bij het einde van de laatste
-    // sessie, deze TTL is het vangnet als dat mislukt of als niemand uitlogt.
+    // sessie, deze TTL is alleen het vangnet als dat mislukt.
     private val dataTtl: Duration = sessieConfig.dataTtl
 
     @PostConstruct
@@ -354,7 +354,7 @@ internal class RedisBerichtenCache(
     override fun updateAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> {
         val json = objectMapper.writeValueAsString(status)
         // Nog-lopende (BEZIG) status: korte vangnet-TTL gelijk aan de lock, zodat een crash de
-        // status niet tot de TTL van de gegevens (`max-duur`) laat hangen. De terminale GEREED/FOUT-status volgt wél de TTL van de
+        // status niet tot de TTL van de gegevens (`max-duur` + `vangnet-marge`) laat hangen. De terminale GEREED/FOUT-status volgt wél de TTL van de
         // gegevens, omdat die het gecachte resultaat spiegelt.
         return voerLockScriptUit(ZET_STATUS_ALS_EIGENAAR, key, ronde, json, aggregationLockTtl.toMillis().toString(), "0")
             .onFailure().invoke { e -> log.errorf(e, "Redis updateAggregationStatus mislukt voor key=%s", key) }

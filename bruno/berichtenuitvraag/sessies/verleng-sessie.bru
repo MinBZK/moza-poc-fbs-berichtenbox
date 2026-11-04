@@ -1,0 +1,23 @@
+meta {
+  name: 4. Sessie verlengen
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrlUitvraag}}/sessies/huidige/_verlengen
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  X-Sessie: {{sessie}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+docs {
+  Verlengt de inactiviteitstermijn, nooit voorbij `uiterlijkGeldigTot`, en geeft 200 met dezelfde
+  body als "Geldigheid van de sessie". Het portaal roept dit aan bij activiteit van de gebruiker,
+  hooguit eens per minuut. Een sessie die niet (meer) loopt, geeft 401 `sessie-ongeldig`.
+}

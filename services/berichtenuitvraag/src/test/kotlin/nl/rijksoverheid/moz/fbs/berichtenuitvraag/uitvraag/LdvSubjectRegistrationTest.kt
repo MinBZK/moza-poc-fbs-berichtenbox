@@ -25,6 +25,7 @@ import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie.SessieLogboek
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie.SessieResource
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -207,6 +208,59 @@ class LdvSubjectRegistrationTest {
         assertEquals(uitkomst, einde.getAttribute(AttributeKey.stringKey(SessieResource.EINDE_UITKOMST_ATTRIBUUT)))
     }
 
+    /** Een bedoelde weigering is geen storing: in het logboek betekent "Error" dat er iets misging. */
+    @Test
+    fun `een start boven de grens krijgt een logregel zonder status Error`() {
+        repeat(5) { sessiecache.sessieVoor() }
+        vangLogregels()
+
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies").then().statusCode(429)
+
+        val start = verzoekSpans.getValue("uitvraag-sessie-start").toSpanData()
+
+        assertNotEquals(StatusCode.ERROR, start.status.statusCode, "429 als Error gelogd: ${start.status}")
+        assertEquals(listOf(sessieRegel("uitvraag-sessie-start")), logregels.toList())
+    }
+
+    @Test
+    fun `een start met een plafond in het verleden krijgt een logregel zonder status Error`() {
+        // Een fout van de afnemer, geen storing: net als de weigering boven de grens.
+        vangLogregels()
+
+        given()
+            .contentType("application/json")
+            .header("X-Ontvanger", "BSN:999990019")
+            .body("""{"uiterlijkGeldigTot":"2020-01-01T00:00:00Z"}""")
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(400)
+
+        val start = verzoekSpans.getValue("uitvraag-sessie-start").toSpanData()
+
+        assertNotEquals(StatusCode.ERROR, start.status.statusCode, "400 als Error gelogd: ${start.status}")
+        assertEquals(listOf(sessieRegel("uitvraag-sessie-start")), logregels.toList())
+    }
+
+    /** Wie de logregel van een start leest, ziet of er een sessie begon: ook een weigering heeft een regel. */
+    @ParameterizedTest(name = "{0} sessies vooraf, plafond {1}: {2} {3}")
+    @CsvSource("0, , 201, gestart", "4, , 201, gestart", "5, , 429, geweigerd", "0, 2020-01-01T00:00:00Z, 400, geweigerd")
+    fun `de logregel van een start noemt of hij gestart of geweigerd is`(aantal: Int, plafond: String?, status: Int, uitkomst: String) {
+        repeat(aantal) { sessiecache.sessieVoor() }
+        vangLogregels()
+
+        given()
+            .contentType("application/json")
+            .header("X-Ontvanger", "BSN:999990019")
+            .apply { plafond?.let { body("""{"uiterlijkGeldigTot":"$it"}""") } }
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(status)
+
+        val start = verzoekSpans.getValue("uitvraag-sessie-start")
+
+        assertEquals(uitkomst, start.getAttribute(AttributeKey.stringKey(SessieResource.START_UITKOMST_ATTRIBUUT)))
+    }
+
     @Test
     fun `een start die op een storing strandt, blijft wel een Error`() {
         sessiecache.startSessieFout = SessiecacheException.Onbereikbaar("Redis weg")
@@ -217,6 +271,7 @@ class LdvSubjectRegistrationTest {
         val start = verzoekSpans.getValue("uitvraag-sessie-start")
 
         assertEquals(StatusCode.ERROR, start.toSpanData().status.statusCode)
+        assertEquals(null, start.getAttribute(AttributeKey.stringKey(SessieResource.START_UITKOMST_ATTRIBUUT)), "onbekend of er iets startte")
     }
 
     @ParameterizedTest(name = "{0}")
@@ -241,6 +296,18 @@ class LdvSubjectRegistrationTest {
         given().contentType("application/json").header("X-Ontvanger", "BSN:999990019").post("/api/v1/sessies")
 
         assertEquals(emptyList<Logregel>(), logregels.filter { it.naam == SessieLogboek.NAAM })
+    }
+
+    /** Lezen en verlengen raken alleen de sessie-administratie; net als het verlengen door een berichtenverzoek geen logregel. */
+    @Test
+    fun `opvragen en verlengen van de sessie leveren geen logregel`() {
+        val sessie = sessiecache.sessieVoor()
+        vangLogregels()
+
+        given().header("X-Ontvanger", "BSN:999990019").header("X-Sessie", sessie).get("/api/v1/sessies/huidige").then().statusCode(200)
+        given().header("X-Ontvanger", "BSN:999990019").header("X-Sessie", sessie).post("/api/v1/sessies/huidige/_verlengen").then().statusCode(200)
+
+        assertEquals(emptyList<String>(), gestarteSpans.toList())
     }
 
     @ParameterizedTest(name = "{0}")

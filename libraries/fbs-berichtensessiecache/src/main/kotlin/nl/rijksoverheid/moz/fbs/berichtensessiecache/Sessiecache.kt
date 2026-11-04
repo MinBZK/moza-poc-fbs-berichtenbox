@@ -8,9 +8,12 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenMisluktNaBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -138,8 +141,12 @@ interface Sessiecache {
      * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat: elk bericht
      * dat via [schrijfBericht] binnenkomt — op welke pod ook — komt als gebeurtenis door, en een
      * periodieke hartslag controleert of de sessie nog loopt (zie [leesSessie]). Eindigt de sessie,
-     * dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit. Zie [SessieGebeurtenis] voor
-     * het verloop.
+     * uitgelogd of verlopen, dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit.
+     * Zie [SessieGebeurtenis] voor het verloop.
+     *
+     * Het volgen verlengt de sessie niet, ook het openen niet: inactiviteit is inactiviteit van de
+     * gebruiker, en een open tabblad op een onbeheerde werkplek zou de gegevens anders tot het
+     * plafond bereikbaar houden. Verlengen doen de verzoeken van de gebruiker zelf ([raakSessie]).
      *
      * Synchroon en vóór de stream: [SessiecacheException.SessieOngeldig] als [sessieId] geen lopende
      * sessie van [ontvanger] is, daarna net als [lijst] de eis van een afgeronde ophaling met
@@ -155,12 +162,17 @@ interface Sessiecache {
 
     /**
      * Start een inlogsessie voor [ontvanger]. Loopt er voor hem nog geen andere sessie, dan worden
-     * eerst de gegevens gewist die er zonder lopende sessie nog stonden: een sessie begint met een
-     * vers beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
+     * eerst de gegevens van een eerdere, verlopen sessie gewist: een sessie begint met een vers
+     * beeld, en [SessieStart.restenOpgeruimd] meldt of er iets te wissen viel.
      *
-     * De sessie geldt tot [beeindigSessie]; activiteit verlengt haar niet en er is geen
-     * inactiviteitstermijn. Wordt ze nooit beëindigd, dan wist Redis haar met de vangnet-TTL
-     * (`berichtensessiecache.sessie.max-duur`), en de gegevens van de ontvanger zonder logregel.
+     * [uiterlijkGeldigTot] is het plafond van de sessie van de aanroeper (het portaal): de sessie
+     * eindigt dan op het vroegste van dat moment en start + `berichtensessiecache.sessie.max-duur`.
+     * Ligt het niet in de toekomst (volgens de klok van de opslag), dan [SessiecacheException.OngeldigeInvoer]
+     * en is er niets gestart of gewist.
+     *
+     * Gooit [SessiecacheException.TeVeelSessies] wanneer [ontvanger] al het maximum aantal lopende
+     * sessies heeft (`berichtensessiecache.sessie.max-per-ontvanger`); er wordt geen bestaande
+     * sessie verdrongen, want dat logt een gebruiker ongemerkt uit.
      *
      * Is het antwoord niet te lezen ([SessiecacheException.Onbereikbaar] of
      * [SessiecacheException.Onleesbaar]) terwijl de start in Redis wel gebeurde, dan staat er een
@@ -169,24 +181,29 @@ interface Sessiecache {
      * niet dat er resten weg zijn; de aanroeper legt zo'n start daarom vast als
      * [OpruimUitkomst.ONBEVESTIGD], net als een uitlog zonder leesbaar antwoord.
      *
-     * Zolang de spooksessie staat, is de uitlog van de echte sessie niet de laatste: die geeft
-     * [SessieEinde.BEEINDIGD], en de gegevens blijven staan tot de vangnet-TTL ze zonder logregel
-     * wist.
+     * Zolang de spooksessie loopt, is de uitlog van de echte sessie niet de laatste: die geeft
+     * [SessieEinde.BEEINDIGD], en de gegevens blijven staan tot de spooksessie na de
+     * inactiviteitstermijn verloopt en de veegtaak ze opruimt.
      */
-    fun startSessie(ontvanger: Identificatienummer): SessieStart
+    fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant? = null): SessieStart
 
     /**
-     * Controleert dat [sessieId] een lopende sessie van [ontvanger] is. Gooit
+     * Controleert dat [sessieId] een lopende sessie van [ontvanger] is en verlengt hem met de
+     * inactiviteitsduur, nooit voorbij het plafond; antwoordt de geldigheid na het verlengen. Gooit
      * [SessiecacheException.SessieOngeldig] voor een onbekende, verlopen of andermans sessie — die
      * drie zijn voor de aanroeper bewust niet te onderscheiden.
      */
-    fun leesSessie(sessieId: String, ontvanger: Identificatienummer)
+    fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid
+
+    /** Als [raakSessie], maar zonder te verlengen: alleen lezen. */
+    fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid
 
     /**
      * Beëindigt de sessie [sessieId] van [ontvanger]. Loopt er daarna geen sessie meer voor hem,
      * dan worden zijn gegevens gewist en is de uitkomst [SessieEinde.OPGERUIMD]: bij een bekende
      * sessie altijd, ook als er niets stond, en bij een onbekende of al verlopen sessie alleen als
-     * er nog gegevens stonden, want elk wissen hoort gemeld te worden.
+     * er nog gegevens stonden of een opruiming op de veegtaak wachtte, want elk wissen hoort gemeld
+     * te worden.
      * Idempotent: een onbekende of verlopen sessie is geen fout; zonder iets te wissen is de
      * uitkomst [SessieEinde.ONBEKEND].
      *
@@ -195,4 +212,29 @@ interface Sessiecache {
      * dan vast als [OpruimUitkomst.ONBEVESTIGD].
      */
     fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde
+
+    /**
+     * Ruimt hoogstens [max] ontvangers op wier laatste sessie verlopen is, en geeft elke opruiming
+     * aan [meld] zodra ze gebeurd is, niet pas na de hele batch: stopt de pod halverwege, dan is wat
+     * al gewist is ook al gemeld. Elk wissen hoort in het logboek. Bedoeld voor een periodieke taak,
+     * en veilig om op meerdere pods tegelijk te draaien: per ontvanger beslist één atomaire stap,
+     * dus een opruiming wordt precies één keer gemeld. Wie in de tussentijd een sessie startte of
+     * raakte, blijft staan en wordt niet gemeld.
+     *
+     * Per ontvanger is de uitkomst [OpruimUitkomst.GEWIST], [OpruimUitkomst.MISLUKT] (de ontvanger
+     * blijft in de index, een veeginterval naar achteren; een latere ronde probeert opnieuw) of
+     * [OpruimUitkomst.ONBEVESTIGD] (geen antwoord: de gegevens zijn mogelijk gewist; de ontvanger
+     * schuift net zo naar achteren). Een fout bij één ontvanger breekt de ronde niet af; een
+     * interrupt wel, na de melding van die ontvanger als [OpruimUitkomst.ONBEVESTIGD], en met de
+     * interrupt-vlag weer gezet.
+     *
+     * Antwoordt of de batch kandidaten vol was: dan wachten er mogelijk meer. Dat zegt meer dan het
+     * aantal meldingen, want een kandidaat die een andere pod al veegde of die weer een sessie heeft,
+     * wordt niet gemeld. Na een interrupt `false`.
+     *
+     * Gooit [SessiecacheException.Onbereikbaar] als de verlopen sessies niet op te vragen zijn, en
+     * [SessiecacheException.OngeldigeInvoer] voor een [max] kleiner dan 1. Een fout uit [meld] breekt
+     * de ronde af en komt ongewijzigd door.
+     */
+    fun ruimVerlopenSessiesOp(max: Int = 100, meld: (Opruiming) -> Unit): Boolean
 }
