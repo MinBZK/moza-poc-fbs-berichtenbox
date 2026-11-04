@@ -230,6 +230,7 @@ compose) werkt de afgeleide naam van de property, bijvoorbeeld `BERICHTENSESSIEC
 | `berichtensessiecache.sessie.inactiviteit` (`SESSIE_INACTIVITEIT`) | `PT15M` | Een sessie verloopt na zo lang zonder verzoek of verlenging (`_verlengen`). Een open `_volgen`-verbinding houdt hem niet in leven. Gekoppeld aan een portaal: zie *Koppeling met een portaal* |
 | `berichtensessiecache.sessie.max-duur` (`SESSIE_MAX_DUUR`) | `PT12H` | Harde bovengrens vanaf de start van de sessie, ook bij continu gebruik. Geeft het portaal bij de start een eerder plafond mee, dan geldt dat |
 | `berichtensessiecache.sessie.vangnet-marge` (`SESSIE_VANGNET_MARGE`) | `PT1H` | De Redis-TTL op berichtgegevens staat op `max-duur` + marge. Hij wordt opnieuw gezet bij elke schrijfactie (ophaalronde, aanmelding, `PATCH`, verwijdering) en opgetrokken door een sessiestart naast een lopende sessie; leesverkeer verlengt hem niet. Gegevens blijven bij een mislukt opruimen dus tot `max-duur` + marge na de laatste schrijfactie staan, niet na de eerste ophaalronde. Het is alleen een vangnet; het actieve opruimen bij de laatste uitlog of het verlopen van de laatste sessie van een ontvanger is leidend. De marge is de tijd die de veegtaak na het plafond krijgt om actief op te ruimen, mét logregel; pas als dat de hele marge blijft mislukken, wist Redis zonder logregel. Een uur geeft na `[ALERT sessie_veger_faalt]` tijd om de storing te verhelpen. Korter beperkt hoe lang gegevens na zo'n storing blijven staan, maar vergroot de kans op een wis zonder logregel |
+| `berichtensessiecache.sessie.max-per-ontvanger` (`SESSIE_MAX_PER_ONTVANGER`) | `5` | Maximum aantal gelijktijdige sessies per ontvanger; daarboven weigert `POST /sessies` met 429 |
 | `berichtensessiecache.sessie.veeg-interval` (`SESSIE_VEEG_INTERVAL`) | `PT30S` | Hoe vaak de veegtaak verlopen sessies opruimt. Eén ronde haalt batches van 100 op zolang die vol zijn, binnen een budget van een half interval; een ontvanger waarvan het opruimen mislukt, schuift een interval (minstens 30 s) naar achteren |
 | `berichtensessiecache.aggregation-lock-ttl` | `PT2M` | Vangnet-TTL voor de aggregatie-lock en de BEZIG-status. Bewust losgekoppeld van de TTL op de gegevens: crasht een pod midden in een aggregatie, dan zelfheelt de status na deze tijd in plaats van de ontvanger uren te blokkeren. Moet ruim boven de normale aggregatieduur liggen: een ronde schrijft alleen zolang ze haar eigen lock nog houdt, dus een ronde die langer duurt slaat niets op. Loopt de sessie dan nog, dan krijgt de berichtenbox een fout-event (haal opnieuw op) en staat er `WARN Ophaalronde was haar lock kwijt terwijl er nog een sessie loopt … aggregation-lock-ttl (<waarde>)` in de log; verhoog dan deze waarde. Eindigde de laatste sessie tijdens de ronde, dan eindigt de stream zonder slotevent en volgt alleen `INFO Ophaalronde was de lock kwijt doordat de laatste sessie eindigde` |
 | `berichtensessiecache.volg-hartslag` | `PT20S` | Hartslag op `GET /berichten/_volgen`. Controleert of de inlogsessie nog loopt, zonder hem te verlengen; een verlopen sessie sluit de stream hoogstens een hartslag later. Houdt ook proxies wakker die een stille verbinding afbreken (OpenShift-route: 30 s, nginx: 60 s) |
@@ -328,9 +329,10 @@ met de foutklasse:
 In het logboek zelf:
 
 - De logregel van een start (`uitvraag-sessie-start`) draagt `fbs.sessie.start.uitkomst`:
-  `gestart`, of `geweigerd` bij een ongeldig verzoek (`400`, zoals een plafond in het verleden). Een
-  weigering staat zonder status `Error`: het is een fout van de afnemer, geen storing. Bij een
-  storing (`503`) ontbreekt het attribuut, want dan is niet bekend of er een sessie begon.
+  `gestart`, of `geweigerd` bij een start boven de grens (`429 te-veel-sessies`) of een ongeldig
+  verzoek (`400`, zoals een plafond in het verleden). Een weigering staat zonder status `Error`: het
+  is een bedoelde weigering of een fout van de afnemer, geen storing. Bij een storing (`503`)
+  ontbreekt het attribuut, want dan is niet bekend of er een sessie begon.
 - De logregel van een uitlog (`uitvraag-sessie-einde`) draagt `fbs.sessie.einde.uitkomst`:
   `opgeruimd`, `beeindigd` (er lopen nog andere sessies) of `onbekend` (de sessie bestond niet en
   er is niets gewist). Zolang er geen authenticatie is, kan iedereen een uitlog voor een

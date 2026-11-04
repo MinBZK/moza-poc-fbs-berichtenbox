@@ -27,7 +27,7 @@ import java.time.temporal.ChronoUnit
 
 /**
  * `POST /sessies`, `GET` en `DELETE /sessies/huidige` en `POST /sessies/huidige/_verlengen`: de
- * vertaling van de facade naar HTTP. Het sessiegedrag zelf (verloop, opruimen) zit in de
+ * vertaling van de facade naar HTTP. Het sessiegedrag zelf (verloop, opruimen, de grens) zit in de
  * library; de mock spiegelt alleen wat de uitvraag ervan ziet.
  */
 @QuarkusTest
@@ -255,6 +255,46 @@ class SessieResourceTest {
         beeindig(vanAnder).then().statusCode(204)
 
         assertEquals(Bsn("999993653"), sessiecache.sessies[vanAnder])
+    }
+
+    @Test
+    fun `zesde start geeft 429 met Retry-After, en na het beeindigen van een kan het weer`() {
+        val sessies = (1..5).map { _ ->
+            given().contentType("application/json").header("X-Ontvanger", ONTVANGER).post("/api/v1/sessies")
+                .then().statusCode(201).extract().path<String>("sessieId")
+        }
+
+        given().contentType("application/json")
+            .header("X-Ontvanger", ONTVANGER)
+            .`when`()
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(429)
+            .contentType("application/problem+json")
+            .header("Retry-After", "90")
+            .body("type", equalTo("urn:fbs:fout:te-veel-sessies"))
+
+        // Een andere ontvanger heeft zijn eigen grens.
+        given().contentType("application/json").header("X-Ontvanger", "BSN:999993653").post("/api/v1/sessies").then().statusCode(201)
+
+        beeindig(sessies.first()).then().statusCode(204)
+
+        given().contentType("application/json").header("X-Ontvanger", ONTVANGER).post("/api/v1/sessies").then().statusCode(201)
+    }
+
+    /** Ook boven de vijf minuten die de mapper een upstream gunt: de aanwijzing is van ons. */
+    @Test
+    fun `de Retry-After van een 429 is naar boven afgerond, ook boven vijf minuten`() {
+        repeat(5) { sessiecache.sessieVoor(ONTVANGER) }
+        sessiecache.vrijOverBijGrens = Duration.ofMillis(899_001)
+
+        given().contentType("application/json")
+            .header("X-Ontvanger", ONTVANGER)
+            .`when`()
+            .post("/api/v1/sessies")
+            .then()
+            .statusCode(429)
+            .header("Retry-After", "900")
     }
 
     @Test

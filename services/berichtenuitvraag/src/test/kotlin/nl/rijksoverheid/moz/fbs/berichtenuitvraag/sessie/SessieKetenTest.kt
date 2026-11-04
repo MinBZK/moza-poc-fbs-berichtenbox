@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicLong
 @TestProfile(KorteSessieKetenProfile::class)
 class SessieKetenTest {
 
-    // Uniek per test: de Redis-container wordt gedeeld tussen de tests van dit profiel.
+    // Uniek per test: de Redis-container wordt gedeeld tussen de tests van dit profiel, en de grens per ontvanger telt mee.
     private val ontvanger = "OIN:" + teller.incrementAndGet().toString().padStart(20, '0').takeLast(20)
 
     @Test

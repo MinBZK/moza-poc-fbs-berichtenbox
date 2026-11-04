@@ -5,7 +5,8 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MockMagazijnClien
 
 /**
  * Echte Redis met een vangnet-TTL van drie seconden (maximale duur 2 s plus marge 1 s), zodat een
- * test kan zien dat gegevens zonder actief opruimen echt verlopen.
+ * test kan zien dat gegevens zonder actief opruimen echt verlopen. De grens per ontvanger staat op 2,
+ * zodat de configuratie aantoonbaar doorwerkt en niet alleen de standaardwaarde 5 getoetst is.
  */
 class KortVangnetRedisTestProfile : QuarkusTestProfile {
 
@@ -19,5 +20,6 @@ class KortVangnetRedisTestProfile : QuarkusTestProfile {
         "berichtensessiecache.sessie.inactiviteit" to "PT1S",
         "berichtensessiecache.sessie.max-duur" to "PT2S",
         "berichtensessiecache.sessie.vangnet-marge" to "PT1S",
+        "berichtensessiecache.sessie.max-per-ontvanger" to "2",
     )
 }

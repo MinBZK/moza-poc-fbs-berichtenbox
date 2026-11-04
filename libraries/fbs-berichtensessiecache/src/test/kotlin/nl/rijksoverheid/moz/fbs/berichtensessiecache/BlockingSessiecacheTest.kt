@@ -51,6 +51,7 @@ import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
@@ -724,6 +725,15 @@ class BlockingSessiecacheTest {
         every { sessies.start(ontvanger, plafond) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
 
         assertSame(start, facade.startSessie(ontvanger, plafond))
+    }
+
+    @Test
+    fun `startSessie op de grens gooit TeVeelSessies met de tijd tot er een plek vrijkomt`() {
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().item(StartUitkomst.LimietBereikt(Duration.ofSeconds(42)))
+
+        val fout = assertThrows<SessiecacheException.TeVeelSessies> { facade.startSessie(ontvanger) }
+
+        assertEquals(Duration.ofSeconds(42), fout.vrijOver)
     }
 
     @Test

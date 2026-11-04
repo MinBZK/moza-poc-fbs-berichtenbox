@@ -67,8 +67,9 @@ function toon(element, zichtbaar) {
 }
 
 // Sessie van de uitvraag, per persona en per tabblad. sessionStorage overleeft een herlaadslag
-// maar wordt niet gedeeld tussen tabbladen: elk tabblad is een eigen "inlog". Het id is een
-// bearer: nooit loggen en nooit in een URL.
+// maar wordt niet gedeeld tussen tabbladen: elk tabblad is een eigen "inlog", en de uitvraag
+// begrenst het aantal gelijktijdige sessies per ontvanger. Het id is een bearer: nooit loggen en
+// nooit in een URL.
 const sessieSleutel = (ontvanger) => `fbs-sessie:${ontvanger}`;
 
 function leesSessie(ontvanger) {
@@ -96,7 +97,7 @@ function vergeetSessie(ontvanger) {
 }
 
 // Eén lopende start per ontvanger, zodat de keuzehandler en een gelijktijdige api()-aanroep niet
-// elk een sessie openen.
+// elk een sessie openen (het plafond is vijf).
 const lopendeStarts = new Map();
 
 // Geeft het sessie-id, of een respons-vormig foutobject. Een bewaard id wordt hergebruikt.
@@ -117,6 +118,8 @@ function startSessie(ontvanger) {
         } catch (fout) {
           return { fout: { ok: false, status: 0, netwerkfout: true, melding: 'geen verbinding: ' + fout } };
         }
+
+        if (respons.status === 429) return { fout: { ok: false, status: 429, melding: teVeelSessiesMelding(respons) } };
 
         if (!respons.ok) return { fout: respons };
 
@@ -147,9 +150,20 @@ function startSessie(ontvanger) {
   return lopendeStarts.get(ontvanger);
 }
 
+// De uitvraag geeft in Retry-After de seconden tot de vroegst verlopende sessie van deze persona.
+function teVeelSessiesMelding(respons) {
+  const seconden = Number.parseInt(respons.headers.get('Retry-After'), 10);
+  const wachten = Number.isFinite(seconden) && seconden > 0
+    ? ` of probeer het over ${Math.ceil(seconden / 60)} minuut${seconden > 60 ? 'en' : ''} opnieuw`
+    : '';
+
+  return `Te veel open sessies voor deze persona; sluit een ander tabblad${wachten}.`;
+}
+
 // Idempotent aan de serverkant (204 ook bij een onbekend id): een mislukte aanroep laat de sessie
 // hooguit tot verlopen staan, dus de gebruiker krijgt er geen melding van. Wel in de console, zodat
-// wie de demo bedient ziet dat er een sessie blijft staan. Zonder het sessie-id: dat is een geheim.
+// wie de demo bedient ziet dat er een sessie tegen het plafond blijft staan. Zonder het sessie-id:
+// dat is een geheim.
 async function beeindigSessie(ontvanger) {
   const sessieId = leesSessie(ontvanger);
 
@@ -752,8 +766,8 @@ async function laadPersonas() {
 let gekozenOntvanger = null;
 
 // Sessie starten bij het kiezen van een persona (ook de eerste keuze), zodat Ophalen en Vernieuw
-// er direct een hebben. Een mislukte start wordt hier getoond in plaats van bij de eerstvolgende
-// klik.
+// er direct een hebben. Een mislukte start (bijvoorbeeld het plafond van vijf) wordt hier getoond
+// in plaats van bij de eerstvolgende klik.
 async function sessieBijKeuze() {
   const sessie = await startSessie(huidigeOntvanger());
 

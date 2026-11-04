@@ -17,6 +17,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -114,6 +115,9 @@ class MockSessiecache : Sessiecache {
     /** Het plafond dat elke start meekreeg, in volgorde; `null` voor een start zonder body. */
     val startPlafonds = CopyOnWriteArrayList<Instant?>()
 
+    /** Wat [SessiecacheException.TeVeelSessies.vrijOver] bij de grens meldt. */
+    var vrijOverBijGrens: Duration = Duration.ofSeconds(90)
+
     /** Start een sessie zoals `POST /sessies` dat zou doen, voor tests die een geldige `X-Sessie` nodig hebben. */
     fun sessieVoor(ontvanger: String = "BSN:999990019"): String =
         startSessie(Identificatienummer.fromHeader(ontvanger)).sessieId
@@ -134,6 +138,7 @@ class MockSessiecache : Sessiecache {
         gelezenSessies.clear()
         geldigheden.clear()
         startPlafonds.clear()
+        vrijOverBijGrens = Duration.ofSeconds(90)
         berichten.clear()
         schrijfFouten.clear()
         schrijfAanroepen.clear()
@@ -244,6 +249,11 @@ class MockSessiecache : Sessiecache {
         startSessieFout?.let { throw it }
         startPlafonds += uiterlijkGeldigTot
 
+        // Dezelfde grens als de echte facade, zodat de 429 van de uitvraag hier ook uit de grens komt.
+        if (sessies.values.count { it == ontvanger } >= MAX_SESSIES_PER_ONTVANGER) {
+            throw SessiecacheException.TeVeelSessies("Te veel sessies tegelijk.", vrijOverBijGrens)
+        }
+
         if (uiterlijkGeldigTot != null && !uiterlijkGeldigTot.isAfter(Instant.now())) {
             throw SessiecacheException.OngeldigeInvoer("uiterlijkGeldigTot ligt niet in de toekomst.")
         }
@@ -328,6 +338,9 @@ class MockSessiecache : Sessiecache {
 
 // Gelijk aan de lengte van een echt sessie-id, zodat de vorm-eis van de uitvraag-API hem accepteert.
 private const val SESSIE_ID_LENGTE = 22
+
+// Gelijk aan de default van `berichtensessiecache.sessie.max-per-ontvanger`.
+private const val MAX_SESSIES_PER_ONTVANGER = 5
 
 // Gelijk aan de defaults van `berichtensessiecache.sessie.inactiviteit` en `max-duur`.
 private const val INACTIVITEIT_SECONDEN = 900L
