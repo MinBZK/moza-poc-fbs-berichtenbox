@@ -1300,8 +1300,8 @@ function planInrichting(wacht) {
     }, wacht);
 }
 
-/* De ontdubbeling loopt op een BSN, dus alleen persona's met een BSN kunnen hem spelen. Een vrij
- * tekstveld zou een BSN vragen die verderop in dezelfde pagina al als keuzelijst bestaat.
+/* Elke persona, zonder filter: een berichtenbox biedt dezelfde persona's aan, en een persona die
+ * hier ontbreekt is daar wel te kiezen maar niet te demonstreren.
  *
  * De optie draagt de persona-id en niet zijn nummer: het adres dat de knop aanroept hoort geen
  * identificatienummer te dragen. De console zoekt het nummer zelf op. */
@@ -1315,24 +1315,20 @@ function vulPersonas(personas, uitlezingGelukt) {
         return;
     }
 
-    if (!heeftAlleVelden('personas', personas, ['id', 'ontvanger'], keuze, knop, 'ontdubbelPersona')) return;
-
-    const metBsn = personas.filter((persona) => persona.ontvanger.startsWith('BSN:'));
+    if (!heeftAlleVelden('personas', personas, ['id'], keuze, knop, 'ontdubbelPersona')) return;
 
     vulKeuze(
         keuze,
         knop,
-        metBsn.map((persona) => ({ waarde: persona.id, label: persona.label })),
-        'geen persona met een BSN ingericht',
+        personas.map((persona) => ({ waarde: persona.id, label: persona.label })),
+        'geen persona ingericht',
         'ontdubbelPersona',
     );
 }
 
 /* Zonder `id` wordt de optie-wáárde de string "undefined" terwijl het label gewoon klopt: de lijst
  * ziet er goed uit, de knop blijft levend, en zijn 404 wijst naar de persona-inrichting waar niets
- * mis is. Zonder `ontvanger` gooit het filter hierboven een TypeError, die de aanroeper opvangt en
- * als "niet op te halen" toont — dezelfde verkeerde diagnose, in de andere richting. Vandaar een
- * lijst met de velden die de aanroeper nodig heeft: `berichtPersonas` draagt bewust geen ontvanger.
+ * mis is. Vandaar de controle vóór het vullen.
  *
  * Een eigen melding en niet die van `meldOnbruikbareLijst`: de lijst kwám binnen en was wél op te
  * halen, er ontbreekt een veld. Met de verkeerde reden afhaken stuurt de bediener de andere kant
@@ -1349,8 +1345,8 @@ function heeftAlleVelden(bron, personas, velden, keuze, knop, keuzeId) {
 
     const onvolledig = personas[plek];
 
-    // Wélk veld, want de twee wijzen naar verschillende plekken in de inrichting: een ontbrekende
-    // `id` naar de sleutel onder demo.personas, een ontbrekende `ontvanger` naar type en waarde.
+    // Wélk veld: een ontbrekende `id` wijst naar de sleutel onder demo.personas, een leeg element
+    // naar de persona zelf.
     const gemist = (onvolledig && velden.find((veld) => !onvolledig[veld])) || 'de persona zelf';
     const wie = (onvolledig && onvolledig.label) || 'zonder label';
 

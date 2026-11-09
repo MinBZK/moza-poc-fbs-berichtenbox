@@ -22,9 +22,9 @@ class OntdubbelingService(
     private val mapper: ObjectMapper,
 ) {
 
-    fun demonstreer(ontvangerBsn: String): OntdubbelingResultaat {
+    fun demonstreer(ontvanger: Ontvanger): OntdubbelingResultaat {
         val eventId = UUID.randomUUID().toString()
-        val payload = mapper.writeValueAsString(bouwEvent(eventId, ontvangerBsn))
+        val payload = mapper.writeValueAsString(bouwEvent(eventId, ontvanger))
 
         val eerste = post(payload)
         val tweede = post(payload)
@@ -34,7 +34,7 @@ class OntdubbelingService(
 
     private fun post(payload: String): Int = client.meldAan(payload).use { it.status }
 
-    private fun bouwEvent(eventId: String, ontvangerBsn: String): AanmeldEvent {
+    private fun bouwEvent(eventId: String, ontvanger: Ontvanger): AanmeldEvent {
         val nu = OffsetDateTime.now().toString()
         val berichtId = UUID.randomUUID().toString()
 
@@ -49,7 +49,7 @@ class OntdubbelingService(
             data = AanmeldData(
                 berichtId = berichtId,
                 afzender = AFZENDER_OIN,
-                ontvanger = Ontvanger(type = "BSN", waarde = ontvangerBsn),
+                ontvanger = ontvanger,
                 onderwerp = "Demo: ontdubbeling",
                 tijdstipOntvangst = nu,
                 publicatietijdstip = nu,

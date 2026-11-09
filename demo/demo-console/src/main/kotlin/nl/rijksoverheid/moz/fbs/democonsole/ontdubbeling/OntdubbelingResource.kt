@@ -29,20 +29,13 @@ class OntdubbelingResource(
         val gekozen = personaService.alle().firstOrNull { it.id == persona }
             ?: throw onbekendePersona(persona, KIES_EEN_PERSONA)
 
-        // Een 400 en geen 404: deze persona bestáát, hij kan dit scenario alleen niet spelen —
-        // OntdubbelingService bouwt het event met een BSN-ontvanger. Het paneel biedt zo'n persona
-        // niet aan, maar dit adres staat open op de origin van het paneel.
-        if (gekozen.type != BSN) {
-            throw BadRequestException("persona '$persona' heeft een ${gekozen.type} en geen $BSN; $KIES_EEN_PERSONA")
-        }
-
-        return service.demonstreer(gekozen.waarde)
+        // Elk type: een berichtenbox biedt dezelfde persona's aan, en de aanmelding van de uitvraag
+        // neemt elk identificatienummer aan dat de persona-inrichting toelaat.
+        return service.demonstreer(Ontvanger(type = gekozen.type, waarde = gekozen.waarde))
     }
 
     private companion object {
 
-        const val BSN = "BSN"
-
-        const val KIES_EEN_PERSONA = "kies een persona met een $BSN uit personas van /api/demo/omgeving"
+        const val KIES_EEN_PERSONA = "kies een persona uit personas van /api/demo/omgeving"
     }
 }
