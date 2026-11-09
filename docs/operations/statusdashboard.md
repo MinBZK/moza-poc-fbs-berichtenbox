@@ -14,7 +14,7 @@ wanneer. Het onderzoek daarna loopt via [`zad-gitops.md`](zad-gitops.md).
 
 Valt een onderdeel uit, dan plaatst Gatus een melding in het Mattermost-kanaal van moza-gatus; bij
 herstel volgt een tweede. Dat kanaal delen we bewust met de andere MOZa-teams, zodat we elkaar
-kunnen helpen. <!-- TODO: wie reageert er op een melding -->
+kunnen helpen. Wie er op een melding reageert, is nog niet afgesproken.
 
 Een controle loopt elke twee minuten en meldt na drie mislukte op rij: een storing staat er na vier
 tot zes minuten, en een uitrol die een paar minuten `503` geeft, levert geen melding op. Alleen
