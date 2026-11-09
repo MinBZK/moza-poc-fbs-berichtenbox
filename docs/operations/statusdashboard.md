@@ -29,7 +29,7 @@ deployment `test` staat erop; previews (`pr-<n>`) zijn tijdelijk en blijven buit
 | `fbs magazijn-simulator` | `magazijnsimulator` (`mpfm-w3h`) | `/q/health/ready` | 200 en `status` = `UP` |
 | `fbs demo-personas` | `demopersonas` (`mpfm-w3h`) | `/q/health/ready` | 200 en `status` = `UP` |
 | `fbs stelselregister` | `stelselregister` (`mpfs-rab`) | `/q/health/ready` | 200 en `status` = `UP` |
-| `fbs profiel-stub`, `fbs notificatie-stub` | `profiel`, `notificatie` (`mpfpsm-lcl`) | `/__admin/health` | 200 en `status` = `healthy` |
+| `fbs profiel-stub`, `fbs notificatie-stub` | `profiel`, `notificatie` (`mpfpsm-lcl`) | `/gezondheid` | 200 en `status` = `healthy` |
 | `fbs berichtenbox` | `proeftuin` (`mpfm-w3h`) | `/` | 200 en de titel `MijnOverheid Zakelijk` |
 
 Readiness en niet een willekeurig pad: readiness telt de opslag van een dienst mee (Redis,
