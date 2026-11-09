@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.8.0
+  version: 0.8.1
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -166,13 +166,14 @@ paths:
         opgehaalde berichten zijn er wél. Toon dat signaal, ook in een samenvattende regel —
         anders lijkt een afgekapte lijst een volledige lijst en kan de ontvanger niet
         weten wat hij mist. `ophalen-gereed` telt een afgekapte organisatie mee in
-        `geslaagd` en noemt haar niet apart: verzamel ze uit de `magazijn-bevraging-voltooid`-events,
-        of lees ze na de ronde uit `afgekapt` van `GET /berichten`.
+        `geslaagd` en noemt haar niet apart: verzamel ze uit de
+        `magazijn-bevraging-voltooid`-events, of lees ze na `ophalen-gereed` uit `afgekapt`
+        van `GET /berichten`.
 
-        Opnieuw ophalen verhelpt een afkap niet. De oorzaak is de grens van de uitvraag of de
-        levering van de organisatie zelf, en een nieuwe ronde levert in de regel hetzelfde op.
-        Presenteer een afgekapte organisatie dus niet als "niet geleverd", en raad geen nieuwe
-        poging aan.
+        Opnieuw ophalen verhelpt een afkap in de regel niet. De oorzaak is meestal de grens van
+        de uitvraag of de levering van de organisatie zelf, en een nieuwe ronde levert dan
+        hetzelfde op. Presenteer een afgekapte organisatie dus niet als "niet geleverd", en raad
+        geen nieuwe poging aan.
 
         `totaalBeschikbaar` staat bij elke `OK` waarvoor de organisatie een bruikbaar totaal
         meldde, ook zonder afkap; dan is het gelijk aan `aantalBerichten`.

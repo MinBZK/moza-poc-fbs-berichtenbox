@@ -921,6 +921,7 @@ class BerichtensessiecacheServiceTest {
 
         assertEquals(5, voltooid.aantalBerichten, "alle pagina's moeten meetellen")
         assertEquals(false, voltooid.afgekapt, "binnen de cap wordt er niets afgekapt")
+        assertEquals(5L, voltooid.totaalBeschikbaar, "het totaal gaat ook zonder afkap mee")
         verify(exactly = 1) { client.getBerichten(any(), any(), 2, any()) }
     }
 
@@ -1271,6 +1272,7 @@ class BerichtensessiecacheServiceTest {
 
         assertEquals(2, voltooid.aantalBerichten)
         assertEquals(false, voltooid.afgekapt, "alles opgehaald, dus niets af te kappen")
+        assertEquals(2L, voltooid.totaalBeschikbaar, "zonder afkap gelijk aan aantalBerichten")
     }
 
     @Test

@@ -83,7 +83,7 @@ sealed interface MagazijnBevragingVoltooid : MagazijnBevraging {
  * óók in een samenvattende regel — anders houdt de ontvanger een onvolledige lijst voor een
  * volledige. `totaalBeschikbaar` staat er alleen bij een bruikbaar totaal van het magazijn zelf, en
  * is daarmee het enige optionele veld op dit type. Na de ronde draagt de berichtenlijst hetzelfde
- * signaal in [Volledigheid.afgekapt], zodat het verversen en bladeren overleeft.
+ * signaal in [Volledigheid.afgekapt], zodat het signaal verversen en bladeren overleeft.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder("event", "magazijnId", "naam", "status", "aantalBerichten", "afgekapt", "totaalBeschikbaar", "mappen")
