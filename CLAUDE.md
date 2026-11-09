@@ -236,7 +236,7 @@ Wat je hoe dan ook moet weten:
 | `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, de demo met de proeftuin als berichtenbox, configuratie |
 | `docs/demo-runbook.md`                 | De demo opzetten en spelen: images bouwen (jib), stub-artefacten genereren, stack starten, poorten, persona's, bedieningspaneel, scenario's en valkuilen |
 | `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens; voor het stelselregister de ondertekensleutel |
-| `docs/operations/`                     | Operationele notities per onderwerp: `zad-gitops.md` (deploy-debug), `profiel-404-alert.md`, `redisearch-schema-bump.md` |
+| `docs/operations/`                     | Operationele notities per onderwerp: `zad-gitops.md` (deploy-debug), `statusdashboard.md` (Gatus-bewaking van `test` en de Redis-knop-aankondiging), `profiel-404-alert.md`, `redisearch-schema-bump.md` |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator). Draagt ook de enige pin van de berichtenbox uit de proeftuin; `.github/scripts/proeftuin-image.sh` leest die regel voor de deploy en het ZAD-creatiescript |
 | `compose.proeftuin-versie.yaml`         | Overlay om de berichtenbox op een andere versie te zetten dan de gepinde digest (release-tag, of nog niet gemergd werk uit hun preview-repository) |

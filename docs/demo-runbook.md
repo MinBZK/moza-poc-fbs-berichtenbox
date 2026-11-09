@@ -464,6 +464,11 @@ De cache-verval-knop en de vier storingsknoppen (profiel, notificatie, aanmeld, 
 op ZAD altijd één vaste deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` ze per
 preview bij en weer weg.
 
+De Redis-knop op `test` legt de uitvraag echt plat, en het statusdashboard meldt dat in het
+gezamenlijke Mattermost-kanaal. Het paneel kondigt dat daar vooraf aan als **FBS Demo**, en ook het
+opheffen; je hoeft collega's dus niet zelf te waarschuwen. Een vergeten reset blijft wel elk kwartier
+een herinnering opleveren. Zie `docs/operations/statusdashboard.md`.
+
 Eén verschil met lokaal: op ZAD staat elke stroom achter zijn eigen Toxiproxy, dus "alles uit" vraagt
 vier knoppen in plaats van één instantie. "Alles normaal (reset)" gaat ze wél alle vier langs.
 

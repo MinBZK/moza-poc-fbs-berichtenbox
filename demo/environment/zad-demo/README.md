@@ -669,6 +669,31 @@ servicenaam (`$DEPLOYMENT_NAME-profiel`) en geen volledige cross-namespace-naam:
 dezelfde namespace als zijn upstream. De admin-URL's zijn andersom — die lost de console zelf op, en
 dus staan daar de volledige namen.
 
+### De Redis-knop aankondigen
+
+De Redis-knop maakt de uitvraag bewust onbereikbaar (zie "Readiness op de uitvraag zakt mee met de
+berichtenopslag" in hoofdstuk 9), en het statusdashboard meldt dat in Mattermost. De console
+kondigt die melding vooraf aan in hetzelfde kanaal; waarom en wat er gecontroleerd wordt staat in
+`docs/operations/statusdashboard.md`. Hij heeft daarvoor de webhook-url van dat kanaal nodig, de
+url die Gatus ook gebruikt.
+
+Zet hem als override op `test` en niet componentbreed: een override reist niet mee naar een
+preview (zie "Env per component en per deployment" in `docs/operations/zad-gitops.md`), en de
+storing van een preview meldt niemand.
+
+```bash
+zadctl -p mpfm-w3h env add -c democonsole --deployment test 'MATTERMOST_WEBHOOK_URL=<webhook-url>'
+```
+
+De url is een wachtwoord: wie hem heeft, kan onder elke naam in het kanaal posten. Hij hoort niet in
+een commit, ticket of chat. De console vergelijkt daarnaast zijn `$DEPLOYMENT_NAME` met `test`
+(`AANKONDIGING_BEWAAKTE_DEPLOYMENT`), zodat ook een componentbreed gezette url op een preview
+niets plaatst. Wordt de webhook ooit vervangen, dan moet de nieuwe url zowel hier als bij Gatus.
+
+Controleren: druk de Redis-knop op `uit` en daarna "Alles normaal (reset)". In het kanaal staan dan
+twee berichten van **FBS Demo**. Komt er niets, kijk dan in de log van `democonsole` naar
+`Storingsaankondiging niet geplaatst`; die regel noemt de statuscode of het soort fout, nooit de url.
+
 ## 7. De berichtenbox naast het paneel
 
 Het paneel toont de berichtenbox van de proeftuin in een frame. Lokaal zet de demo-proxy beide
@@ -931,6 +956,9 @@ de timing en het ingress-gedrag zijn afgeleid; stap 10(b) van `verify-zad.md` me
 
 Dat is een bewuste keuze: zonder berichtenopslag kán de uitvraag zijn werk niet doen, en 503 is wat
 er in productie zou gebeuren. De pod herstart niet — liveness staat op `/q/health/live`.
+
+Het statusdashboard ziet hetzelfde en meldt het als storing; de console kondigt die melding vooraf
+aan ("De Redis-knop aankondigen" in hoofdstuk 6).
 
 Wil de demo die degradatie tóch tonen in plaats van een 503, dan is het alternatief een eigen
 health-group in de uitvraag die de bewust-breekbare afhankelijkheden buiten readiness houdt. Dat is
