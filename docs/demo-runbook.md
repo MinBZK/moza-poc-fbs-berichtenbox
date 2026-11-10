@@ -389,9 +389,10 @@ een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand
 Na een refresh staat die stand er direct weer.
 
 De persona-tabel heeft, als deze omgeving bij de sessiecache kan, een kolom *Sessies*: het aantal
-lopende inlogsessies van die persona, bijgewerkt met de toestandsbalk. Onder een persona met
-sessies staat per sessie wanneer ze zonder activiteit verloopt en wanneer uiterlijk, met de knop
-*Beëindigen*, en daaronder *Alle sessies van deze persona beëindigen*. Beëindigen laat de sessie
+lopende inlogsessies van die persona, bijgewerkt met de toestandsbalk. Het pijltje achter het
+aantal klapt de sessies van die persona open: per sessie wanneer ze zonder activiteit verloopt en
+wanneer uiterlijk, met de knop *Beëindigen*, en daaronder *Alle sessies van deze persona
+beëindigen*. Een opengeklapte persona blijft open als de tabel ververst. Beëindigen laat de sessie
 in Redis verlopen, net alsof de inactiviteit verstreken was: de berichtenbox van die sessie krijgt
 bij zijn volgende verzoek 401 (een open `_volgen`-stream bij de volgende hartslag
 `sessie-verlopen`) en start een nieuwe sessie. Was het de laatste sessie van de persona, dan ruimt

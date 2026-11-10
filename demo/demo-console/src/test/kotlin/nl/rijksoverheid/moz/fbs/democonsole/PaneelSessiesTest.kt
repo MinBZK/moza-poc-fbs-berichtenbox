@@ -39,6 +39,29 @@ class PaneelSessiesTest {
     }
 
     @Test
+    fun `de sessies van een persona staan dichtgeklapt achter een pijltje bij het aantal`() {
+        val teken = functie("tekenPersonas")
+        val rij = functie("sessieRij")
+        val knop = functie("uitklapKnop")
+        val stand = functie("zetUitklapStand")
+
+        assertTrue("sessiecel.append(uitklapKnop(persona, open));" in teken, "het pijltje staat niet bij het aantal")
+        assertTrue("uitgeklapteSessies.has(persona.id)" in teken, "de tabel onthoudt niet welke persona open staat")
+        assertTrue("rij.hidden = !open;" in rij, "de sessies staan niet standaard dicht")
+        assertTrue("knop.setAttribute('aria-controls', sessieRijId(persona));" in knop && "rij.id = sessieRijId(persona);" in rij,
+            "het pijltje wijst niet naar zijn rij")
+        assertTrue("knop.setAttribute('aria-expanded', open ? 'true' : 'false');" in stand, "het pijltje zegt niet of hij open staat")
+        assertTrue("open ? '▴' : '▾'" in stand, "het pijltje wisselt niet van richting")
+        assertTrue("klapSessies(uitklap);" in script, "een klik op het pijltje klapt niets")
+    }
+
+    @Test
+    fun `na het hertekenen houdt het pijltje zijn focus`() {
+        assertTrue("actief.dataset.uitklap" in functie("sessieKnoppenVoor"), "de focus op het pijltje wordt niet onthouden")
+        assertTrue("if (pijl) pijl.focus();" in functie("herstelSessieKnoppen"), "de focus gaat niet terug naar het pijltje")
+    }
+
+    @Test
     fun `de knoppen wijzen naar de adressen en parameters van SessieResource`() {
         val rij = functie("sessieRij")
 

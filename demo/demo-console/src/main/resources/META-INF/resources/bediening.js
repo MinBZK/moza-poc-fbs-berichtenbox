@@ -95,6 +95,10 @@ let heeftSessiecache = null;
  * stand: een sessie die intussen verliep, stond dan nog met een knop in de tabel. */
 let sessieStand = null;
 
+/* De persona's waarvan de sessies uitgeklapt staan. De tabel tekent opnieuw bij elke poll met een
+ * ander verloop; zonder deze stand klapt een open rij dan vanzelf weer dicht. */
+const uitgeklapteSessies = new Set();
+
 /* Per blok op het Info-blad: de laatst gelezen inhoud, wanneer die binnenkwam, en of de poging daarna
  * mislukte. */
 const infoStand = {};
@@ -1987,7 +1991,8 @@ function modusNaam(modus) {
 /* Een tabel en geen opsomming: de tweede kolom beantwoordt waarom *Bericht plaatsen* een persona niet
  * aanbiedt. Het teken staat nooit alleen; de tekst ernaast zegt hetzelfde. De sessiekolom staat er
  * alleen als deze omgeving bij de sessiecache kan; een persona met lopende sessies krijgt daaronder
- * een rij met elke sessie en de knoppen om ze te beëindigen. */
+ * een rij met elke sessie en de knoppen om ze te beëindigen, dichtgeklapt achter het pijltje bij
+ * het aantal. Zo blijft de tabel een overzicht. */
 function tekenPersonas(doel, personas) {
     if (!Array.isArray(personas)) throw new TypeError('geen lijst maar ' + typeof personas);
 
@@ -2026,7 +2031,13 @@ function tekenPersonas(doel, personas) {
         sessiecel.textContent = Array.isArray(sessies) ? String(sessies.length) : '?';
         rij.append(sessiecel);
 
-        return Array.isArray(sessies) && sessies.length ? [rij, sessieRij(persona, sessies, titels.length)] : [rij];
+        if (!Array.isArray(sessies) || !sessies.length) return [rij];
+
+        const open = uitgeklapteSessies.has(persona.id);
+
+        sessiecel.append(uitklapKnop(persona, open));
+
+        return [rij, sessieRij(persona, sessies, titels.length, open)];
     });
 
     const tabel = document.createElement('table');
@@ -2053,14 +2064,6 @@ function tekenPersonas(doel, personas) {
 
     if (metSessies && !sessieStand) uitleg.push(infoAlinea('De lopende sessies zijn (nog) niet gelezen.'));
 
-    if (metSessies) {
-        uitleg.push(infoAlinea(
-            'Een sessie beëindigen laat haar verlopen: de berichtenbox krijgt bij zijn volgende verzoek 401 en start een nieuwe sessie. ' +
-            'Was het de laatste sessie van de persona, dan ruimt de uitvraag de gegevens op en legt dat vast in het logboek: ' +
-            'bij de volgende veegronde (aanleiding verlopen), of eerder als de berichtenbox al een nieuwe sessie start (aanleiding nieuwe-start).',
-        ));
-    }
-
     const vorige = sessieKnoppenVoor(doel);
 
     doel.replaceChildren(omhulsel, ...uitleg);
@@ -2073,9 +2076,11 @@ function tekenPersonas(doel, personas) {
 function sessieKnoppenVoor(doel) {
     const knoppen = Array.from(doel.querySelectorAll('button[data-pad]'));
     const focus = knoppen.find((knop) => knop === document.activeElement);
+    const actief = document.activeElement;
 
     return {
         focus: focus ? { pad: focus.dataset.pad, persona: focus.dataset.persona } : null,
+        uitklap: actief && doel.contains(actief) && actief.dataset.uitklap ? actief.dataset.uitklap : null,
         uitkomsten: knoppen
             .filter((knop) => knop.dataset.uitkomst && knop.dataset.uitkomst !== 'bezig')
             .map((knop) => ({ pad: knop.dataset.pad, uitkomst: knop.dataset.uitkomst })),
@@ -2097,7 +2102,17 @@ function herstelSessieKnoppen(doel, vorige) {
     });
 
     // Alleen als de focus met de oude knop verdween: wie intussen verder ging, houdt zijn plek.
-    if (!vorige.focus || document.activeElement !== document.body) return;
+    if (document.activeElement !== document.body) return;
+
+    if (vorige.uitklap) {
+        const pijl = Array.from(doel.querySelectorAll('[data-uitklap]')).find((knop) => knop.dataset.uitklap === vorige.uitklap);
+
+        if (pijl) pijl.focus();
+
+        return;
+    }
+
+    if (!vorige.focus) return;
 
     const persona = vorige.focus.persona;
     const doelwit = bijPad(vorige.focus.pad) ||
@@ -2107,16 +2122,68 @@ function herstelSessieKnoppen(doel, vorige) {
     if (doelwit) doelwit.focus();
 }
 
+/* Het pijltje achter het aantal sessies. Klapt de rij eronder open of dicht zonder de tabel opnieuw
+ * te tekenen; `aria-expanded` en `aria-controls` vertellen een schermlezer wat het doet. */
+function uitklapKnop(persona, open) {
+    const knop = document.createElement('button');
+    const pijl = document.createElement('span');
+
+    knop.type = 'button';
+    knop.className = 'sessie-uitklap';
+    knop.dataset.uitklap = persona.id;
+    knop.dataset.label = persona.label;
+    knop.setAttribute('aria-controls', sessieRijId(persona));
+    pijl.setAttribute('aria-hidden', 'true');
+    knop.append(pijl);
+    zetUitklapStand(knop, persona, open);
+
+    return knop;
+}
+
+function zetUitklapStand(knop, persona, open) {
+    knop.setAttribute('aria-expanded', open ? 'true' : 'false');
+    knop.setAttribute('aria-label', (open ? 'Sessies van ' : 'Toon de sessies van ') + persona.label + (open ? ' verbergen' : ''));
+    knop.firstChild.textContent = open ? '▴' : '▾';
+}
+
+function klapSessies(knop) {
+    const id = knop.dataset.uitklap;
+    const open = !uitgeklapteSessies.has(id);
+    const rij = document.getElementById(knop.getAttribute('aria-controls'));
+
+    if (open) {
+        uitgeklapteSessies.add(id);
+    } else {
+        uitgeklapteSessies.delete(id);
+    }
+
+    if (rij) rij.hidden = !open;
+
+    zetUitklapStand(knop, { id: id, label: knop.dataset.label }, open);
+}
+
+function sessieRijId(persona) {
+    return 'sessies-' + persona.id;
+}
+
 /* Per sessie wanneer ze verloopt en haar plafond; nooit een id of hash, alleen de verwijzing die de
- * console uitdeelt, en die staat alleen in het adres van de knop. */
-function sessieRij(persona, sessies, kolommen) {
+ * console uitdeelt, en die staat alleen in het adres van de knop. Dichtgeklapt tot het pijltje bij
+ * het aantal hem opent. */
+function sessieRij(persona, sessies, kolommen, open) {
     const rij = document.createElement('tr');
     const cel = document.createElement('td');
     const lijst = document.createElement('ul');
+    const uitleg = document.createElement('p');
 
     rij.className = 'infotabel__sessies';
+    rij.id = sessieRijId(persona);
+    rij.hidden = !open;
     cel.colSpan = kolommen;
     lijst.className = 'sessielijst';
+    uitleg.className = 'sessielijst__uitleg';
+    uitleg.textContent =
+        'Beëindigen laat een sessie verlopen: de berichtenbox krijgt bij zijn volgende verzoek 401 en start een nieuwe sessie. ' +
+        'Was het de laatste sessie, dan ruimt de uitvraag de gegevens op en legt dat vast in het logboek.';
 
     sessies.forEach((sessie) => {
         const item = document.createElement('li');
@@ -2134,6 +2201,7 @@ function sessieRij(persona, sessies, kolommen) {
 
     cel.append(
         lijst,
+        uitleg,
         sessieKnop('Alle sessies van deze persona beëindigen', '/api/demo/sessie/beeindig-persona?persona=' + encodeURIComponent(persona.id),
             'Alle sessies van deze persona beëindigen: ' + persona.label, persona.id, true),
     );
@@ -2227,6 +2295,14 @@ document.addEventListener('click', (gebeurtenis) => {
 
     if (tab) {
         kiesTab(tab);
+
+        return;
+    }
+
+    const uitklap = gebeurtenis.target.closest('button[data-uitklap]');
+
+    if (uitklap) {
+        klapSessies(uitklap);
 
         return;
     }

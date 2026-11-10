@@ -713,9 +713,25 @@ body.ingeklapt #paneel {
     white-space: nowrap;
 }
 
-/* De sessies horen bij de persona-rij erboven; zonder eigen scheidingslijn lezen ze als één rij. */
-.infotabel--personas tr:has(+ .infotabel__sessies) td {
+/* De sessies horen bij de persona-rij erboven; zonder eigen scheidingslijn lezen ze als één rij.
+ * Alleen als ze uitgeklapt zijn: dichtgeklapt is de persona-rij gewoon een rij. */
+.infotabel--personas tr:has(+ .infotabel__sessies:not([hidden])) td {
     border-bottom: none;
+}
+
+.sessie-uitklap {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    margin-left: var(--bediening-space-2xs);
+    padding: 0 var(--bediening-space-2xs);
+}
+
+.sessielijst__uitleg {
+    font-size: var(--bediening-font-size-sm);
+    margin: 0 0 var(--bediening-space-2xs);
 }
 
 .sessielijst {
