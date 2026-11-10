@@ -133,7 +133,12 @@ twee nieuwe events (schema's `BerichtGewijzigd` en `BerichtVerwijderd` in de spe
   zoals ze er staan. Ontbreekt `map`, dan staat het bericht in Postvak IN; ontbreekt `status`, dan is
   die onbekend, net als in `GET /berichten`.
 - **`bericht-verwijderd`** — `{ "event": "bericht-verwijderd", "magazijnId", "berichtId" }`. Haal het
-  bericht uit de lijst. Staat het detail ervan open, sluit dat dan.
+  bericht uit de lijst. Staat het detail ervan open, sluit dat dan. Meestal is het bericht
+  verwijderd; na een mislukte bijwerking haalt de uitvraag het ook uit de lijst, en dan komt het bij
+  een volgende ophaalronde terug.
+
+Let op de vorm: bij deze twee staat de sleutel (`magazijnId`, `berichtId`) op het hoogste niveau van
+het event, niet onder `bericht` zoals bij `bericht-bijgekomen`. Er gaat geen volledig bericht mee.
 
 Wat de berichtenbox moet doen (`assets/javascript/berichtenbox-keten.js`, op de plek waar nu
 `bericht-bijgekomen` verwerkt wordt):
@@ -148,15 +153,32 @@ Wat de berichtenbox moet doen (`assets/javascript/berichtenbox-keten.js`, op de 
 3. **Geen nieuw verzoek bij een event.** Werk de lijst in het geheugen bij en teken opnieuw; haal het
    bericht niet opnieuw op. Een `GET` verlengt de sessie, en een event is geen activiteit van de
    gebruiker. Een geopend detail laat je staan als het bericht alleen gewijzigd is.
-4. **Filters en tellers opnieuw toepassen**: het aantal ongelezen, de mappen en hun tellingen, en
+4. **Events tijdens het laden van de lijst opnieuw toepassen.** Komt er een `bericht-*`-event binnen
+   terwijl een `GET /berichten` loopt (de eerste lezing na `volgen-gestart`, of de lezing na een
+   eigen actie), pas het dan meteen toe én bewaar het, en pas het na het vervangen van de lijst nog
+   een keer toe. Het antwoord van die `GET` kan van vóór de wijziging zijn: zonder deze stap staat
+   een verwijderd bericht weer in de lijst, of een gelezen bericht weer als ongelezen. Opnieuw
+   toepassen mag, want de events zijn idempotent (punt 2). Bewaar ook events voor een bericht dat
+   nog niet in de oude lijst stond: de nieuwe lijst kan het met de oude waarden brengen. De
+   demo-berichtenbox in de FBS-repo (`demo/demo-console/.../berichtenbox.js`, `laadLijst`) doet dit
+   zo.
+5. **Filters en tellers opnieuw toepassen**: het aantal ongelezen, de mappen en hun tellingen, en
    "alleen ongelezen". Een bericht dat naar een andere map verhuist, verdwijnt uit de getoonde map.
-5. **Onbekende events blijven genegeerd**, zoals al in de spec stond.
-6. **Paginering:** wie tijdens het bladeren `bericht-verwijderd` krijgt, leest de lijst opnieuw vanaf
-   de eerste pagina, net als na een eigen verwijdering (zie de beschrijving van `GET /berichten`).
+6. **Onbekende events blijven genegeerd**, zoals al in de spec stond.
+7. **Paginering:** komt `bericht-verwijderd` terwijl de berichtenbox nog door de pagina's bladert,
+   dan is er één bericht tussen twee pagina's doorgevallen. Die lopende lezing mag dan opnieuw vanaf
+   de eerste pagina beginnen, net als na een eigen verwijdering (zie de beschrijving van
+   `GET /berichten`): ze hoort nog bij de actie van de gebruiker die haar startte. Dat is geen
+   uitzondering op punt 3, want het event zelf start geen nieuwe lezing. Loopt er geen lezing, dan
+   haal je het bericht alleen uit de lijst in het geheugen.
 
 Het doorgeven is best-effort: lukt het de uitvraag niet, dan slaagt de `PATCH` of `DELETE` toch, en
-verschijnt de wijziging pas bij het volgende lezen van de lijst. Twee wijzigingen waarvan de tweede
-pas begon toen de eerste bevestigd was, komen in die volgorde aan. De API-versie is nu `0.10.0`.
+verschijnt de wijziging pas bij het volgende lezen van de lijst. Hetzelfde geldt na een verbroken
+verbinding: wat in de tussentijd in een ander tabblad gebeurde, zie je pas bij de lezing bij de
+volgende actie van de gebruiker. Elk event draagt de waarden van zijn moment, dus het laatste event
+over een bericht geeft de eindtoestand, ook als twee snelle wijzigingen elkaar onderweg inhalen.
+Volgt een verwijdering vlak op een wijziging, dan kan die wijziging wegvallen; de verwijdering komt
+wel.
 
 **Lokaal testen** tegen de uitvraag van die branch: in de FBS-repo de demo-stack starten met de
 overlay `compose.proeftuin-versie.yaml` die naar jouw lokale/preview-image van de berichtenbox

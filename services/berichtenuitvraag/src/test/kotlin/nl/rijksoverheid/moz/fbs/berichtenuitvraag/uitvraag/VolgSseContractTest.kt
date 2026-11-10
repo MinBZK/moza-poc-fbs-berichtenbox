@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.NullSource
 import java.time.Instant
 import java.util.UUID
 
@@ -82,12 +83,15 @@ class VolgSseContractTest {
         assertTrue(gestuurd.containsAll(schema.required.orEmpty()))
     }
 
-    @Test
-    fun `een wijziging naar Postvak IN laat de map weg en houdt wat het schema eist`() {
+    @ParameterizedTest(name = "status={0}")
+    @EnumSource(BerichtStatus::class)
+    @NullSource
+    fun `een wijziging naar Postvak IN laat de map weg en houdt wat het schema eist`(status: BerichtStatus?) {
         val schema = spec.components.schemas[schemaVoor(VolgEventType.BERICHT_GEWIJZIGD)]!!
-        val gestuurd = velden(VolgGebeurtenis.gewijzigd(MAGAZIJN, UUID.randomUUID(), BerichtStatus.ONGELEZEN, null))
+        val gestuurd = velden(VolgGebeurtenis.gewijzigd(MAGAZIJN, UUID.randomUUID(), status, null))
 
-        assertEquals(schema.properties.keys - "map", gestuurd)
+        // Een onbekende status ontbreekt net als een lege map: geen `null` op de lijn.
+        assertEquals(schema.properties.keys - "map" - setOfNotNull("status".takeIf { status == null }), gestuurd)
         assertTrue(gestuurd.containsAll(schema.required.orEmpty()))
     }
 
@@ -95,9 +99,10 @@ class VolgSseContractTest {
     fun `elk nieuw event-schema draagt een voorbeeld dat bij zijn soort hoort`() {
         listOf(VolgEventType.BERICHT_GEWIJZIGD, VolgEventType.BERICHT_VERWIJDERD).forEach { type ->
             val schema = spec.components.schemas[schemaVoor(type)]!!
-            val voorbeeld = mapper.valueToTree<JsonNode>(schema.example)
+            val voorbeeld = requireNotNull(schema.example) { "schema van ${type.value} heeft geen voorbeeld" }
+                .let { mapper.valueToTree<JsonNode>(it) }
 
-            assertEquals(type.value, voorbeeld?.get("event")?.asText(), "voorbeeld van ${type.value}")
+            assertEquals(type.value, voorbeeld.get("event")?.asText(), "voorbeeld van ${type.value}")
             assertTrue(voorbeeld.fieldNames().asSequence().toSet().containsAll(schema.required.orEmpty()), "voorbeeld van ${type.value}")
         }
     }

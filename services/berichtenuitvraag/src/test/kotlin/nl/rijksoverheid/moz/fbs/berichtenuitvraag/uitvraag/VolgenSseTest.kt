@@ -74,6 +74,11 @@ class VolgenSseTest {
                 SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, Leesstatus.ONGELEZEN, null),
                 """{"event":"bericht-gewijzigd","magazijnId":"$RVO","berichtId":"$BERICHT_ID","status":"ongelezen"}""",
             ),
+            // Status onbekend én Postvak IN: alleen de sleutel blijft over.
+            Arguments.of(
+                SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, null, null),
+                """{"event":"bericht-gewijzigd","magazijnId":"$RVO","berichtId":"$BERICHT_ID"}""",
+            ),
             Arguments.of(
                 SessieGebeurtenis.BerichtVerwijderd(RVO, BERICHT_ID),
                 """{"event":"bericht-verwijderd","magazijnId":"$RVO","berichtId":"$BERICHT_ID"}""",

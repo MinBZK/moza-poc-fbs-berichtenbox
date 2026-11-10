@@ -90,7 +90,7 @@ tags:
   - name: Volgen
     description: |
       SSE-endpoint waarop een geopende berichtenbox nieuw binnengekomen berichten
-      doorkrijgt, en wat er in een ander venster met een bericht gebeurde; wordt buiten
+      doorkrijgt, en wat er in een ander tabblad met een bericht gebeurde; wordt buiten
       codegen afgehandeld.
   - name: Aanmeld
     description: |
@@ -128,16 +128,20 @@ paths:
         geen momentopname: wordt er tijdens het bladeren een bericht verwijderd, dan schuift
         de rest één plaats op en valt er per verwijdering één bericht tussen twee pagina's
         door. Verwijdert de afnemer zelf tijdens het bladeren, dan weet hij dat en leest hij
-        opnieuw vanaf de eerste pagina. Een verwijdering in een ander venster merkt hij aan
-        `bericht-verwijderd` op `_volgen`, en leest dan net zo opnieuw; zonder open `_volgen`
-        merkt hij haar niet, want de lijst noemt geen totaal. Het overgeslagen bericht
-        ontbreekt dan tot de lijst opnieuw gelezen wordt.
+        opnieuw vanaf de eerste pagina. Een verwijdering in een ander tabblad merkt hij aan
+        `bericht-verwijderd` op `_volgen`. Komt dat terwijl hij nog bladert, dan mag hij die
+        lopende lezing opnieuw vanaf de eerste pagina beginnen: dat hoort nog bij de actie van de
+        gebruiker die haar startte. Het event zelf start nooit een nieuwe lezing (zie `_volgen`).
+        Zonder open `_volgen` merkt hij de verwijdering niet, want de lijst noemt geen totaal.
+        Het overgeslagen bericht ontbreekt dan tot de lijst opnieuw gelezen wordt.
 
         Filteren (op `map` of op afzender via `magazijnId`), zoeken op onderwerp en
         sorteren doet de afnemer over die set. Dat houdt het resultaat consistent en
         laat zich combineren met `_volgen`: voeg elk `bericht-bijgekomen` aan de set toe, werk
         bij `bericht-gewijzigd` status en map bij, haal bij `bericht-verwijderd` het bericht
-        eruit, en pas filter, zoekterm en sortering opnieuw toe.
+        eruit, en pas filter, zoekterm en sortering opnieuw toe. Een event dat binnenkomt terwijl
+        deze lijst gelezen wordt, pas je na het vervangen van de set nog een keer toe; anders zet
+        een antwoord dat vóór dat event berekend was de oude toestand terug (zie `_volgen`).
 
         Dat een organisatie niets of niet alles leverde, staat op elke pagina in
         `nietGeleverd` en `afgekapt`: hetzelfde als de events van `_ophalen` meldden, maar
@@ -239,18 +243,32 @@ paths:
       description: |
         Houdt een verbinding open waarover elk bericht dat tijdens de sessie binnenkomt
         meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
-        hoeft na te vragen. Hetzelfde geldt voor wat er in een ander venster van dezelfde
+        hoeft na te vragen. Hetzelfde geldt voor wat er in een ander tabblad van dezelfde
         ontvanger met een bericht gebeurt: gelezen of ongelezen gemarkeerd, naar een andere
         map verplaatst (`bericht-gewijzigd`), of verwijderd (`bericht-verwijderd`).
 
-        Ook het venster dat de wijziging zelf deed, krijgt dat event: de dienst weet niet welke
-        verbinding bij welk venster hoort. Verwerk `bericht-gewijzigd` en `bericht-verwijderd`
+        Ook het tabblad dat de wijziging zelf deed, krijgt dat event: de dienst weet niet welke
+        verbinding bij welk tabblad hoort. Verwerk `bericht-gewijzigd` en `bericht-verwijderd`
         daarom idempotent. `bericht-gewijzigd` draagt de waarden van dat moment, geen verschil:
         zet status en map op wat er staat, ook als ze al zo waren. `bericht-verwijderd` voor een
         bericht dat al weg is, of `bericht-gewijzigd` voor een bericht dat niet in de lijst
-        staat, negeer je. Twee wijzigingen waarvan de tweede pas begon toen de eerste bevestigd
-        was, komen in die volgorde aan. Een wijziging die het doorgeven niet haalt, zie je pas
-        bij het volgende lezen van de lijst; het verzoek dat haar deed, slaagt dan toch.
+        staat, negeer je. Omdat elk event de waarden van zijn moment draagt, geeft het laatste
+        event over een bericht de eindtoestand, ook als twee snelle wijzigingen elkaar onderweg
+        inhalen. Volgt een verwijdering vlak op een wijziging, dan kan die wijziging wegvallen;
+        de verwijdering komt wel. Een wijziging die het doorgeven niet haalt, zie je pas bij het
+        volgende lezen van de lijst; het verzoek dat haar deed, slaagt dan toch.
+
+        Bij `bericht-gewijzigd` en `bericht-verwijderd` staat de sleutel (`magazijnId`,
+        `berichtId`) op het hoogste niveau van het event, niet onder `bericht` zoals bij
+        `bericht-bijgekomen`: er gaat geen volledig bericht mee.
+
+        `bericht-bijgekomen`, `bericht-gewijzigd` en `bericht-verwijderd` leiden nooit zelf tot
+        een verzoek: werk de lijst in het geheugen bij en teken opnieuw. `GET /berichten` verlengt de sessie, en een event is geen activiteit van de
+        gebruiker. Loopt er op het moment van een event een lijstlezing, pas het event dan nu
+        toe én bewaar het, en pas het na het vervangen van de lijst nog een keer toe. Het
+        antwoord van die lezing kan berekend zijn vóór de wijziging, en zou haar anders ongedaan
+        maken: een verwijderd bericht staat weer in de lijst, of een gelezen bericht weer als
+        ongelezen. Opnieuw toepassen is veilig, want de events zijn idempotent.
 
         Een open verbinding houdt de sessie niet in leven, en het openen ervan verlengt haar
         evenmin: inactiviteit is inactiviteit van de gebruiker. Een open tabblad op een
@@ -263,13 +281,17 @@ paths:
         `bericht-bijgekomen` toe, ontdubbeld op (`magazijnId`, `berichtId`). Wat vóór
         `volgen-gestart` binnenkwam staat in de lijst, wat erna komt krijg je hier; een
         bericht dat op het grensvlak valt kan in beide zitten, en een `bericht-bijgekomen`
-        kan zelfs vóór `volgen-gestart` binnenkomen.
+        kan zelfs vóór `volgen-gestart` binnenkomen. Voor `bericht-gewijzigd` en
+        `bericht-verwijderd` volstaat ontdubbelen niet: een event dat binnenkomt terwijl die
+        lijst nog geladen wordt, pas je na het laden opnieuw toe, zoals hierboven beschreven.
 
         Na een verbroken verbinding: verbind opnieuw en voeg weer elk `bericht-bijgekomen` toe,
         maar lees de lijst dan niet vanzelf opnieuw. `GET /berichten` verlengt de sessie, en een
         herverbinding is geen activiteit van de gebruiker: een open tabblad op een onbeheerde
         werkplek met een haperende verbinding hield de sessie anders in leven tot het plafond.
         Lees de lijst opnieuw bij de volgende actie van de gebruiker; dan is hij weer compleet.
+        Dat geldt ook voor wijzigingen en verwijderingen die tijdens de onderbreking in een
+        ander tabblad gebeurden: die zie je pas bij die lezing.
         Was de gebruiker juist actief toen de verbinding terugkwam, dan mag het meteen.
 
         Eindigt de sessie terwijl de stroom openstaat (uitgelogd, of verlopen), dan komt
@@ -1256,7 +1278,9 @@ components:
       description: |
         Eén bericht uit de SSE-stroom van `GET /berichten/_volgen`. Elke SSE-regel draagt in
         zijn `data`-veld één van deze objecten als JSON; `event` zegt om welk soort bericht het
-        gaat. Een soort die je niet kent, mag je negeren.
+        gaat. Een soort die je niet kent, mag je negeren. Bij `bericht-bijgekomen` staat het
+        bericht onder `bericht`; bij `bericht-gewijzigd` en `bericht-verwijderd` staat de
+        sleutel (`magazijnId`, `berichtId`) op het hoogste niveau.
       oneOf:
         - $ref: '#/components/schemas/VolgenGestart'
         - $ref: '#/components/schemas/BerichtBijgekomen'
@@ -1315,7 +1339,7 @@ components:
     BerichtGewijzigd:
       type: object
       description: |
-        De leesstatus of de map van een bericht is gewijzigd, in dit of een ander venster van
+        De leesstatus of de map van een bericht is gewijzigd, in dit of een ander tabblad van
         dezelfde ontvanger. `status` en `map` zijn de waarden nu, niet wat er veranderde: zet ze
         zoals ze hier staan. Ontbreekt `map`, dan staat het bericht in Postvak IN; ontbreekt
         `status`, dan is die onbekend, net als in de lijst. Het bericht wijs je aan met
@@ -1337,9 +1361,10 @@ components:
     BerichtVerwijderd:
       type: object
       description: |
-        Een bericht is verwijderd, in dit of een ander venster van dezelfde ontvanger, en staat
-        niet meer in de lijst. Haal het weg op `magazijnId` én `berichtId`; was het al weg, dan
-        verandert er niets.
+        Een bericht staat niet meer in de lijst. Meestal is het verwijderd, in dit of een ander
+        tabblad van dezelfde ontvanger. Het kan ook zijn dat de dienst het na een mislukte
+        bijwerking uit de lijst haalde; dan komt het bij een volgende ophaalronde terug. Haal het
+        weg op `magazijnId` én `berichtId`; was het al weg, dan verandert er niets.
       required: [event, magazijnId, berichtId]
       properties:
         event: { type: string, enum: [bericht-verwijderd] }
