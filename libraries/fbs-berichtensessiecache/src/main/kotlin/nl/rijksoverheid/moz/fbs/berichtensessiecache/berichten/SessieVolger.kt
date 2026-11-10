@@ -107,7 +107,7 @@ internal class SessieVolger(
 
             val afmelding = aanmeldingen.registreer(
                 cacheKey,
-                opMelding ={ sleutel, wijziging -> invoer.onNext(sleutel to wijziging) },
+                opMelding = { sleutel, wijziging -> invoer.onNext(sleutel to wijziging) },
                 opStoring = emitter::fail,
                 // Een stoppende pod is geen storing: zelfde einde als na de maximale duur.
                 opEinde = emitter::complete,
