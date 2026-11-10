@@ -409,7 +409,11 @@ const SAMENVATTINGEN = {
     'simulator-legen': (body) =>
         body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
 
-    sessie: (body) => body.gewisteKeys + ' key(s) van de sessiecache gewist (inlogsessies en berichtgegevens); de berichtenbox krijgt 401 en start een nieuwe sessie',
+    // Beide getallen: alle sessies van een ontvanger staan in één sleutel, dus het aantal keys zegt
+    // niets over hoeveel berichtenboxen er nu een nieuwe sessie starten.
+    sessie: (body) =>
+        body.beeindigdeSessies + ' sessie(s) beëindigd en ' + body.gewisteKeys +
+        ' key(s) van de sessiecache gewist (inlogsessies en berichtgegevens); de berichtenbox krijgt 401 en start een nieuwe sessie',
 
     'foutieve-aanlevering': (body) => 'Het magazijn wees de aanlevering af met HTTP ' + body.status,
 
