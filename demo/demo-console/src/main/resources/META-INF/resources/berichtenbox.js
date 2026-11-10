@@ -476,6 +476,172 @@ async function laadLijst(opnieuwNaVerlopen = false) {
   herteken();
 
   if (afgebroken) meldOnvolledig(afgebroken);
+
+  volg(ontvanger);
+}
+
+// _volgen houdt de lijst bij terwijl het tabblad openstaat: nieuwe berichten, en wat een ander
+// tabblad van dezelfde persona markeert, verplaatst of verwijdert. Via fetch, net als _ophalen.
+// Eén stroom per tabblad, voor de gekozen persona.
+let volgStroom = null;
+
+const VOLG_HERVERBIND_MS = 5000;
+
+function stopVolgen() {
+  if (volgStroom) volgStroom.afbreker.abort();
+
+  volgStroom = null;
+}
+
+function volg(ontvanger) {
+  if (volgStroom && volgStroom.ontvanger === ontvanger) return;
+
+  stopVolgen();
+  volgStroom = { ontvanger, afbreker: new AbortController(), eerste: true };
+  verbindVolgen(volgStroom);
+}
+
+async function verbindVolgen(stroom) {
+  const actief = () => volgStroom === stroom;
+
+  // Zonder bewaarde sessie zou api() er een starten, en een herverbinding is geen activiteit van de
+  // gebruiker.
+  if (!leesSessie(stroom.ontvanger)) {
+    volgStroom = null;
+
+    return;
+  }
+
+  const respons = await api('/berichten/_volgen', { signal: stroom.afbreker.signal, headers: { Accept: 'text/event-stream' } }, stroom.ontvanger);
+
+  if (!actief()) return;
+
+  // 401 (sessie weg) of 409 (niets opgehaald): niet vanzelf opnieuw. De volgende klik van de
+  // gebruiker start dan een sessie of een ophaalronde, en daarmee weer het volgen.
+  if (!respons.ok && respons.status !== 0 && respons.status !== 503) {
+    volgStroom = null;
+
+    return;
+  }
+
+  let wachtMs = VOLG_HERVERBIND_MS;
+
+  if (respons.ok) {
+    if ((await leesVolgStroom(respons, stroom)) === 'sessie-verlopen') {
+      if (actief()) {
+        volgStroom = null;
+        toonVoortgang(['Sessie verlopen — klik op Vernieuw of Ophalen om verder te gaan.']);
+      }
+
+      return;
+    }
+  } else {
+    const seconden = respons.headers ? Number.parseInt(respons.headers.get('Retry-After'), 10) : NaN;
+
+    if (Number.isFinite(seconden) && seconden > 0) wachtMs = seconden * 1000;
+  }
+
+  // Geëindigd zonder sessie-verlopen (maximale duur, herstart van de uitvraag, storing): opnieuw.
+  setTimeout(() => {
+    if (actief()) verbindVolgen(stroom);
+  }, wachtMs);
+}
+
+// Geeft het laatste event terug, zodat de aanroeper weet of de sessie verliep.
+async function leesVolgStroom(respons, stroom) {
+  const lezer = respons.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let laatste = null;
+
+  try {
+    while (volgStroom === stroom) {
+      const { done, value } = await lezer.read();
+
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let scheiding;
+
+      while ((scheiding = buffer.indexOf('\n\n')) >= 0) {
+        const dataRegel = buffer.slice(0, scheiding).split('\n').find((r) => r.startsWith('data:'));
+
+        buffer = buffer.slice(scheiding + 2);
+
+        if (dataRegel && volgStroom === stroom) {
+          const gebeurtenis = JSON.parse(dataRegel.slice(5).trim());
+
+          laatste = gebeurtenis.event;
+          verwerkVolgEvent(gebeurtenis, stroom);
+        }
+      }
+    }
+  } catch (fout) {
+    // Afgebroken (persona gewisseld, connection weg): de aanroeper beslist of hij opnieuw verbindt.
+  }
+
+  return laatste;
+}
+
+const sleutelVan = (bericht) => `${bericht.magazijnId} ${bericht.berichtId}`;
+
+// Het eigen tabblad krijgt zijn eigen wijzigingen ook terug; elke tak hieronder geeft bij een
+// herhaling hetzelfde beeld. Een bericht is het paar van magazijn en berichtnummer.
+function verwerkVolgEvent(gebeurtenis, stroom) {
+  const sleutel = sleutelVan(gebeurtenis.bericht || gebeurtenis);
+
+  switch (gebeurtenis.event) {
+    case 'volgen-gestart':
+      // Wat tussen het laden van de lijst en dit moment binnenkwam, staat alleen in de lijst. Na
+      // een herverbinding niet opnieuw lezen: dat verlengt de sessie, en herverbinden is geen
+      // activiteit van de gebruiker.
+      if (stroom.eerste) {
+        stroom.eerste = false;
+        laadLijst();
+      }
+
+      return;
+
+    case 'bericht-bijgekomen':
+      if (!alleBerichten.some((bericht) => sleutelVan(bericht) === sleutel)) alleBerichten.push(gebeurtenis.bericht);
+
+      break;
+
+    case 'bericht-gewijzigd': {
+      const bericht = alleBerichten.find((kandidaat) => sleutelVan(kandidaat) === sleutel);
+
+      if (!bericht) return;
+
+      // De waarden van nu, geen verschil: een ontbrekende map is Postvak IN.
+      if (gebeurtenis.status) {
+        bericht.status = gebeurtenis.status;
+      } else {
+        delete bericht.status;
+      }
+
+      if (gebeurtenis.map) {
+        bericht.map = gebeurtenis.map;
+      } else {
+        delete bericht.map;
+      }
+
+      break;
+    }
+
+    case 'bericht-verwijderd':
+      alleBerichten = alleBerichten.filter((bericht) => sleutelVan(bericht) !== sleutel);
+
+      if (el('detail').dataset.sleutel === sleutel) toon(el('detail'), false);
+
+      break;
+
+    default:
+      // Hartslag, sessie-verlopen (afgehandeld door de aanroeper) en soorten die we niet kennen.
+      return;
+  }
+
+  herteken(true);
 }
 
 // Naast wat de volledigheidsregel al over de organisaties zegt.
@@ -514,8 +680,10 @@ function toonVolledigheid(lijst) {
   toon(vak, delen.length > 0);
 }
 
-// Her-rendert zijbalk + lijst uit de in-memory array (na laden, sorteren, filteren of actie).
-function herteken() {
+// Her-rendert zijbalk + lijst uit de in-memory array (na laden, sorteren, filteren of actie). Een
+// event van _volgen laat een geopend bericht staan (`behoudDetail`): het komt ook na een eigen
+// actie, en zou het bericht dan direct weer sluiten.
+function herteken(behoudDetail = false) {
   if (actieveMap !== null && actieveMap !== 'Archief' && !mapNamen().includes(actieveMap)) {
     actieveMap = null;
   }
@@ -529,7 +697,7 @@ function herteken() {
 
   const start = huidigePagina * PAGINA_GROOTTE;
 
-  tekenLijst(zichtbaar.slice(start, start + PAGINA_GROOTTE));
+  tekenLijst(zichtbaar.slice(start, start + PAGINA_GROOTTE), behoudDetail);
   renderPaginering(zichtbaar.length, maxPagina);
 }
 
@@ -578,10 +746,11 @@ function sorteer(lijst) {
   }
 }
 
-function tekenLijst(berichten) {
+function tekenLijst(berichten, behoudDetail = false) {
   const ul = el('lijst');
 
-  toon(el('detail'), false);
+  if (!behoudDetail) toon(el('detail'), false);
+
   ul.innerHTML = '';
 
   if (berichten.length === 0) {
@@ -798,6 +967,7 @@ function wisPersonaState() {
 
   if (vorige && vorige !== gekozenOntvanger) beeindigSessie(vorige);
 
+  stopVolgen();
   alleBerichten = [];
   actieveMap = null;
   huidigePagina = 0;
@@ -907,6 +1077,7 @@ async function toonDetail(bericht) {
   const detail = el('detail');
 
   detail.innerHTML = '';
+  detail.dataset.sleutel = sleutelVan(geladen);
   detail.append(detailKop(geladen), detailInhoud(geladen), renderBijlagen(geladen), detailActies(geladen));
   toon(detail, true);
 }
