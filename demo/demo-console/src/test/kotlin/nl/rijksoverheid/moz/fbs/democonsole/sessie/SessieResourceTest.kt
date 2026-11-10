@@ -33,11 +33,11 @@ class SessieResourceTest {
 
     @ParameterizedTest(name = "{0} sessie(s), {1} gewiste keys")
     @CsvSource("0, 0", "1, 374", "3, 374")
-    fun `verlopen meldt de beëindigde sessies naast de gewiste keys`(sessies: Int, keys: Int) {
+    fun `verlopen meldt de gewiste sessies naast de gewiste keys`(sessies: Int, keys: Int) {
         // Nul hoort erbij: bij het eerste legen van een meting is er vaak nog niets te wissen.
-        every { sessieService.laatSessiesVerlopen() } returns VerlopenSessiecache(gewisteKeys = keys, beeindigdeSessies = sessies)
+        every { sessieService.laatSessiesVerlopen() } returns VerlopenSessiecache(gewisteKeys = keys, gewisteSessies = sessies)
 
-        assertEquals(VerlopenSessiecache(gewisteKeys = keys, beeindigdeSessies = sessies), resource.verlopen())
+        assertEquals(VerlopenSessiecache(gewisteKeys = keys, gewisteSessies = sessies), resource.verlopen())
     }
 
     @Test
@@ -45,7 +45,7 @@ class SessieResourceTest {
         // Die hernoemt geen refactoring mee. Een ander veld laat elke meting stoppen met een melding
         // die naar de inlogmuur wijst en het paneel "undefined" tonen; een ander pad geeft beide
         // een 404.
-        every { sessieService.laatSessiesVerlopen() } returns VerlopenSessiecache(gewisteKeys = 0, beeindigdeSessies = 0)
+        every { sessieService.laatSessiesVerlopen() } returns VerlopenSessiecache(gewisteKeys = 0, gewisteSessies = 0)
 
         val pad = SessieResource::class.java.getAnnotation(Path::class.java).value +
             SessieResource::class.java.getMethod("verlopen").getAnnotation(Path::class.java).value
@@ -124,7 +124,7 @@ class SessieResourceTest {
 
         const val VELD = "gewisteKeys"
 
-        const val SESSIES_VELD = "beeindigdeSessies"
+        const val SESSIES_VELD = "gewisteSessies"
 
         val VAN_DIJK = DemoPersona("vandijk", "Garage Van Dijk B.V.", "KVK", "90000014", emptyList(), PersonaBron.KETEN)
     }

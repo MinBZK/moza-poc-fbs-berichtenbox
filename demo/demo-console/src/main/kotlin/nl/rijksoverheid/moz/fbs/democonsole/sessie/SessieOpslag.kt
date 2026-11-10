@@ -23,8 +23,9 @@ interface SessieOpslag {
 
     /**
      * Laat de sessies met deze hashes verlopen, alleen als ze nog liepen, en geeft het aantal terug.
-     * Ze verdwijnen niet: de veegtaak van de uitvraag vindt een ontvanger zonder lopende sessie in de
-     * verloopindex, ruimt zijn gegevens op en legt dat vast in het logboek.
+     * Ze verdwijnen niet: een ontvanger zonder lopende sessie staat daarna in de verloopindex, en de
+     * uitvraag ruimt zijn gegevens op en legt dat vast in het logboek. Dat doet de veegtaak (aanleiding
+     * `verlopen`), of een nieuwe sessie van die ontvanger die eerder start (aanleiding `nieuwe-start`).
      */
     fun laatVerlopen(administratie: Sessieadministratie, hashes: List<String>): Int
 }
@@ -39,9 +40,10 @@ class RedisSessieOpslag(private val redis: RedisDataSource) : SessieOpslag {
     }
 
     // SCAN en niet KEYS: het paneel vraagt dit elke vijf seconden, en KEYS houdt Redis bezet zolang
-    // hij de hele keyspace doorloopt.
+    // hij de hele keyspace doorloopt. SCAN geeft een sleutel minstens één keer, niet precies één
+    // keer: tijdens een rehash kan hij terugkomen, en dan telde één sessie dubbel.
     override fun sleutels(patroon: String): List<String> =
-        redis.key().scan(KeyScanArgs().match(patroon).count(SCAN_STAP)).toIterable().toList()
+        redis.key().scan(KeyScanArgs().match(patroon).count(SCAN_STAP)).toIterable().distinct()
 
     override fun leden(administratie: Sessieadministratie): List<Sessielid> =
         redis.sortedSet(String::class.java, String::class.java)
@@ -83,12 +85,17 @@ class RedisSessieOpslag(private val redis: RedisDataSource) : SessieOpslag {
          * KEYS: de sessie-ZSET en de verloopindex van dezelfde versie. ARGV: het kenmerk, en daarna de
          * hashes van de sessies die moeten verlopen. Antwoord: het aantal dat nog liep en nu verlopen is.
          *
-         * Een sessie verloopt hier zoals ze vanzelf zou verlopen: haar score gaat naar "nu" volgens
-         * Redis, en de bibliotheek wijst een score tot en met nu af. Daarna staat de ontvanger in de
+         * De score van een sessie gaat naar "nu" volgens Redis, en de bibliotheek wijst een score tot
+         * en met nu af: voor de bibliotheek is de sessie verlopen. Daarna staat de ontvanger in de
          * verloopindex op het verloop van zijn laatste sessie, zonder `GT`: was dit de laatste lopende,
-         * dan is dat "nu", en ruimt de veegtaak hem bij zijn volgende ronde op, mét een regel
-         * "verlopen" in het logboek. Weghalen in plaats van laten verlopen zou die regel overslaan.
-         * Eén script, zodat een sessie die tegelijk verlengd wordt niet half beëindigd achterblijft.
+         * dan is dat "nu". De volgende veegronde ruimt hem dan op, mét een regel in het logboek, tenzij
+         * er eerder een nieuwe sessie van hem start: die neemt de opruiming en de regel over. Weghalen
+         * in plaats van laten verlopen zou die regel overslaan. Eén script, zodat een sessie die
+         * tegelijk verlengd wordt niet half beëindigd achterblijft.
+         *
+         * De index-TTL zet de console niet: die volgt uit de configuratie van de uitvraag. `ZADD` laat
+         * de bestaande TTL staan, en die valt niet vóór het einde van een sessie die nog liep: elke
+         * start zet hem op meer dan de maximale duur van een sessie.
          */
         val LAAT_VERLOPEN = """
             local t = redis.call('TIME')

@@ -75,12 +75,26 @@ class SessieServiceTest {
         every { keyCommands.keys("bericht:*") } returns emptyList()
         every { keyCommands.del("berichtensessiecache:v4:abc:sessies") } returns 1
 
-        assertEquals(VerlopenSessiecache(gewisteKeys = 1, beeindigdeSessies = lopend), service.laatSessiesVerlopen())
+        assertEquals(VerlopenSessiecache(gewisteKeys = 1, gewisteSessies = lopend), service.laatSessiesVerlopen())
 
         verifyOrder {
             beheer.telLopende()
             keyCommands.del("berichtensessiecache:v4:abc:sessies")
         }
+    }
+
+    @Test
+    fun `verlopen wist ook als alleen de telling faalt`() {
+        // Het wissen is het doel van de knop, en de meting van meet-fanout.sh wacht erop; het aantal
+        // sessies is bijzaak.
+        every { beheer.telLopende() } throws IllegalStateException("WRONGTYPE")
+        every { keyCommands.keys("berichtensessiecache:*") } returns listOf("berichtensessiecache:v4:abc:sessies")
+        every { keyCommands.keys("bericht:*") } returns emptyList()
+        every { keyCommands.del("berichtensessiecache:v4:abc:sessies") } returns 1
+
+        assertEquals(VerlopenSessiecache(gewisteKeys = 1, gewisteSessies = null), service.laatSessiesVerlopen())
+
+        verify { keyCommands.del("berichtensessiecache:v4:abc:sessies") }
     }
 
     @Test

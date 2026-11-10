@@ -58,6 +58,37 @@ class PaneelSessiesTest {
     }
 
     @Test
+    fun `na het hertekenen van de tabel houdt een sessieknop zijn focus en zijn merkteken`() {
+        // Na elke actie en bij elke poll met een ander verloop tekent de tabel opnieuw. Zonder dit
+        // valt de focus terug op <body> en verdwijnt het merkteken dat net gezet werd.
+        val teken = functie("tekenPersonas")
+        val voor = teken.indexOf("const vorige = sessieKnoppenVoor(doel);")
+        val vervangen = teken.indexOf("doel.replaceChildren(omhulsel")
+        val na = teken.indexOf("herstelSessieKnoppen(doel, vorige);")
+
+        assertTrue(voor in 0 until vervangen, "de focus en de merktekens worden niet vóór het hertekenen onthouden")
+        assertTrue(na > vervangen, "de focus en de merktekens worden niet ná het hertekenen teruggezet")
+
+        val herstel = functie("herstelSessieKnoppen")
+
+        assertTrue("zetUitkomst(knop, uitkomst)" in herstel, "een merkteken gaat niet mee naar de nieuwe knop")
+        assertTrue("doelwit.focus()" in herstel, "de focus gaat niet terug")
+        assertTrue("document.activeElement !== document.body" in herstel, "de focus wordt weggehaald bij wie intussen verder ging")
+        assertTrue("knop.dataset.persona = persona;" in functie("sessieKnop"), "een sessieknop zegt niet bij welke persona hij hoort")
+    }
+
+    @Test
+    fun `Cache verlopen zonder telling staat op let op en noemt geen getal`() {
+        // De sessies tellen mag mislukken; het wissen gaat dan door, maar "null lopende sessie(s)" is
+        // geen melding.
+        assertTrue(
+            "typeof body.gewisteKeys === 'number' && typeof body.gewisteSessies !== 'number'" in functie("vullingSoort"),
+            "een mislukte telling staat niet op let op",
+        )
+        assertTrue("typeof body.gewisteSessies === 'number' ? body.gewisteSessies :" in script, "een mislukte telling toont 'null'")
+    }
+
+    @Test
     fun `het script leest de velden die het antwoord draagt`() {
         assertEquals(setOf("personas"), velden(Sessieoverzicht::class))
         assertEquals(setOf("persona", "sessies"), velden(PersonaSessies::class))

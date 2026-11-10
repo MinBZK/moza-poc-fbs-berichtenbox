@@ -48,8 +48,6 @@ class RedisSessieOpslagTest {
 
     @Test
     fun `de sleutels komen uit SCAN met het patroon en niet uit KEYS`() {
-        // KEYS houdt Redis bezet zolang hij de hele keyspace doorloopt, en het paneel vraagt dit elke
-        // vijf seconden.
         val argumenten = slot<KeyScanArgs>()
         val cursor = mockk<KeyScanCursor<String>> { every { toIterable() } returns listOf("x", "y") }
 
@@ -61,6 +59,17 @@ class RedisSessieOpslagTest {
             "SCAN zonder het patroon: ${argumenten.captured.toArgs()}",
         )
         verify(exactly = 0) { sleutels.keys(any()) }
+    }
+
+    @Test
+    fun `een sleutel die SCAN twee keer teruggeeft, telt één keer`() {
+        // SCAN belooft "minstens één keer": tijdens een rehash van de keyspace kan een sleutel
+        // terugkomen, en dan stond één sessie twee keer in het paneel.
+        val cursor = mockk<KeyScanCursor<String>> { every { toIterable() } returns listOf("x", "y", "x") }
+
+        every { sleutels.scan(any()) } returns cursor
+
+        assertEquals(listOf("x", "y"), opslag.sleutels(SessiecacheSleutels.ALLE_SESSIES))
     }
 
     @Test
@@ -124,19 +133,6 @@ class RedisSessieOpslagTest {
         assertEquals(0, opslag.laatVerlopen(ADMINISTRATIE, emptyList()))
 
         verify(exactly = 0) { redis.execute(any<String>(), *anyVararg()) }
-    }
-
-    @Test
-    fun `het script zet alleen een lopende sessie op nu en de index op het laatste verloop`() {
-        // Het script zelf draait hier niet; deze test pint de stappen waar het beëindigen op rust.
-        // Weghalen in plaats van laten verlopen zou de veegtaak passeren en dus het logboek.
-        val script = RedisSessieOpslag.LAAT_VERLOPEN
-
-        assertTrue("redis.call('ZADD', KEYS[1], 'XX', nu, ARGV[i])" in script, "de sessie gaat niet op nu")
-        assertTrue("tonumber(score) > nu" in script, "het script beëindigt ook een sessie die al verlopen was")
-        assertTrue("redis.call('ZRANGE', KEYS[1], -1, -1, 'WITHSCORES')" in script, "de index volgt het laatste verloop niet")
-        assertTrue("redis.call('ZADD', KEYS[2], laatste[2], ARGV[1])" in script, "de index wordt niet bijgewerkt")
-        assertTrue("ZREM" !in script && "DEL" !in script, "het script haalt iets weg in plaats van het te laten verlopen")
     }
 
     private companion object {

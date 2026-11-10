@@ -420,16 +420,19 @@ const SAMENVATTINGEN = {
         body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
 
     // Beide getallen: alle sessies van een ontvanger staan in één sleutel, dus het aantal keys zegt
-    // niets over hoeveel berichtenboxen er nu een nieuwe sessie starten.
+    // niets over hoeveel berichtenboxen er nu een nieuwe sessie starten. "Gewist" en niet "beëindigd":
+    // dit wissen komt niet in het logboek, en dat woord hoort bij de knoppen op Info.
     sessie: (body) =>
-        body.beeindigdeSessies + ' sessie(s) beëindigd en ' + body.gewisteKeys +
+        (typeof body.gewisteSessies === 'number' ? body.gewisteSessies : 'Een onbekend aantal') +
+        ' lopende sessie(s) en ' + body.gewisteKeys +
         ' key(s) van de sessiecache gewist (inlogsessies en berichtgegevens); de berichtenbox krijgt 401 en start een nieuwe sessie',
 
     // Nul is een tweede klik, of een sessie die intussen al verliep; `vullingSoort` maakt dat geel.
     'sessie-beeindigen': (body) =>
         body.beeindigdeSessies
             ? body.beeindigdeSessies + ' sessie(s) laten verlopen; de berichtenbox krijgt bij zijn volgende verzoek 401. ' +
-              'Liep er daarna geen sessie meer, dan ruimt de veegtaak de gegevens op en legt dat vast in het logboek'
+              'Liep er daarna geen sessie meer, dan ruimt de uitvraag de gegevens op en legt dat vast in het logboek: ' +
+              'de veegtaak (aanleiding verlopen), of eerder de nieuwe sessie van de berichtenbox (aanleiding nieuwe-start)'
             : 'Geen lopende sessie meer om te beëindigen; de lijst op Info wordt bijgewerkt',
 
     'foutieve-aanlevering': (body) => 'Het magazijn wees de aanlevering af met HTTP ' + body.status,
@@ -489,9 +492,11 @@ function vullingSoort(body) {
     // helemaal mislukte, blijft rood.
     const bijzaakMislukt = Boolean(body && ((body.gesimuleerd && body.gesimuleerd.overgeslagen) || body.sessiesNietGewist));
 
-    // Een beëindiging die niets beëindigde, deed niets. "Cache verlopen" draagt ook het aantal
-    // gewiste keys, en is zonder lopende sessies wel gewoon gelukt.
-    if (body && body.beeindigdeSessies === 0 && body.gewisteKeys === undefined) return 'let-op';
+    // Een beëindiging die niets beëindigde, deed niets.
+    if (body && body.beeindigdeSessies === 0) return 'let-op';
+
+    // "Cache verlopen" wiste wel, maar telde de sessies niet.
+    if (body && typeof body.gewisteKeys === 'number' && typeof body.gewisteSessies !== 'number') return 'let-op';
 
     const vulling = body && body.vulling ? body.vulling : body;
 
@@ -2002,6 +2007,9 @@ function tekenPersonas(doel, personas) {
         const teken = document.createElement('span');
 
         naamcel.textContent = persona.label;
+        // Het laatste houvast voor de focus als de sessieknoppen van deze persona verdwijnen.
+        naamcel.dataset.personaNaam = persona.id;
+        naamcel.tabIndex = -1;
         teken.className = 'infoteken';
         teken.setAttribute('aria-hidden', 'true');
         teken.textContent = persona.metMagazijn ? '✓' : '—';
@@ -2048,11 +2056,55 @@ function tekenPersonas(doel, personas) {
     if (metSessies) {
         uitleg.push(infoAlinea(
             'Een sessie beëindigen laat haar verlopen: de berichtenbox krijgt bij zijn volgende verzoek 401 en start een nieuwe sessie. ' +
-            'Was het de laatste sessie van de persona, dan ruimt de veegtaak van de uitvraag de gegevens op en legt dat vast in het logboek.',
+            'Was het de laatste sessie van de persona, dan ruimt de uitvraag de gegevens op en legt dat vast in het logboek: ' +
+            'bij de volgende veegronde (aanleiding verlopen), of eerder als de berichtenbox al een nieuwe sessie start (aanleiding nieuwe-start).',
         ));
     }
 
+    const vorige = sessieKnoppenVoor(doel);
+
     doel.replaceChildren(omhulsel, ...uitleg);
+    herstelSessieKnoppen(doel, vorige);
+}
+
+/* Wat een hertekening van de tabel niet mag wissen: welke sessieknop de focus had en welke merktekens
+ * er nog staan. Een knop is te herkennen aan zijn adres, want een verwijzing blijft gelijk zolang haar
+ * sessie loopt. `bezig` gaat niet mee: dat merkteken ruimt `voerUit` op, op de knop die het zette. */
+function sessieKnoppenVoor(doel) {
+    const knoppen = Array.from(doel.querySelectorAll('button[data-pad]'));
+    const focus = knoppen.find((knop) => knop === document.activeElement);
+
+    return {
+        focus: focus ? { pad: focus.dataset.pad, persona: focus.dataset.persona } : null,
+        uitkomsten: knoppen
+            .filter((knop) => knop.dataset.uitkomst && knop.dataset.uitkomst !== 'bezig')
+            .map((knop) => ({ pad: knop.dataset.pad, uitkomst: knop.dataset.uitkomst })),
+    };
+}
+
+/* Is de sessie van de knop met de focus weg, dan gaat de focus naar de knop voor alle sessies van die
+ * persona, en is die er ook niet meer, naar de naam van de persona; anders valt hij op <body> en begint
+ * toetsenbordnavigatie weer bovenaan. Een merkteken gaat mee zolang zijn knop er nog is. Verdween de
+ * knop, dan zegt de melding bovenaan wat er gebeurde. */
+function herstelSessieKnoppen(doel, vorige) {
+    const knoppen = Array.from(doel.querySelectorAll('button[data-pad]'));
+    const bijPad = (pad) => knoppen.find((knop) => knop.dataset.pad === pad);
+
+    vorige.uitkomsten.forEach(({ pad, uitkomst }) => {
+        const knop = bijPad(pad);
+
+        if (knop) zetUitkomst(knop, uitkomst);
+    });
+
+    // Alleen als de focus met de oude knop verdween: wie intussen verder ging, houdt zijn plek.
+    if (!vorige.focus || document.activeElement !== document.body) return;
+
+    const persona = vorige.focus.persona;
+    const doelwit = bijPad(vorige.focus.pad) ||
+        knoppen.find((knop) => knop.dataset.persona === persona && knop.dataset.alleSessies === 'ja') ||
+        Array.from(doel.querySelectorAll('[data-persona-naam]')).find((cel) => cel.dataset.personaNaam === persona);
+
+    if (doelwit) doelwit.focus();
 }
 
 /* Per sessie wanneer ze verloopt en haar plafond; nooit een id of hash, alleen de verwijzing die de
@@ -2075,7 +2127,7 @@ function sessieRij(persona, sessies, kolommen) {
         item.append(
             tekst,
             sessieKnop('Beëindigen', '/api/demo/sessie/beeindig?verwijzing=' + encodeURIComponent(sessie.verwijzing),
-                'Beëindigen: de sessie van ' + persona.label + ' die ' + moment),
+                'Beëindigen: de sessie van ' + persona.label + ' die ' + moment, persona.id, false),
         );
         lijst.append(item);
     });
@@ -2083,7 +2135,7 @@ function sessieRij(persona, sessies, kolommen) {
     cel.append(
         lijst,
         sessieKnop('Alle sessies van deze persona beëindigen', '/api/demo/sessie/beeindig-persona?persona=' + encodeURIComponent(persona.id),
-            'Alle sessies van deze persona beëindigen: ' + persona.label),
+            'Alle sessies van deze persona beëindigen: ' + persona.label, persona.id, true),
     );
     rij.append(cel);
 
@@ -2091,9 +2143,10 @@ function sessieRij(persona, sessies, kolommen) {
 }
 
 /* Een actieknop zoals die in de opmaak: de klik loopt via `voerUit`, en het merkteken hangt het
- * script hier zelf aan omdat deze knop pas na het laden ontstaat. De toelichting begint met de
- * zichtbare tekst, zodat wie de knop bij die naam aanspreekt (spraakbesturing) hem vindt. */
-function sessieKnop(tekst, pad, toelichting) {
+ * script hier zelf aan omdat deze knop pas na het laden ontstaat. Bij een hertekening gaat het mee
+ * naar de nieuwe knop (zie `herstelSessieKnoppen`). De toelichting begint met de zichtbare tekst,
+ * zodat wie de knop bij die naam aanspreekt (spraakbesturing) hem vindt. */
+function sessieKnop(tekst, pad, toelichting, persona, alleSessies) {
     const knop = document.createElement('button');
     const merk = document.createElement('span');
 
@@ -2102,6 +2155,8 @@ function sessieKnop(tekst, pad, toelichting) {
     knop.dataset.methode = 'POST';
     knop.dataset.pad = pad;
     knop.dataset.samenvatting = 'sessie-beeindigen';
+    knop.dataset.persona = persona;
+    knop.dataset.alleSessies = alleSessies ? 'ja' : 'nee';
     knop.setAttribute('aria-label', toelichting);
     knop.textContent = tekst;
     merk.className = 'knop__uitkomst';

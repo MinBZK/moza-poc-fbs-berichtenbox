@@ -11,9 +11,9 @@ import java.util.HexFormat
  * van `fbs-berichtensessiecache`: een demo-module hangt niet aan een stelsel-library. Klein gehouden
  * en vastgepind door `SessiecacheSleutelsConsistentieTest`, die de broncode van de bibliotheek leest.
  *
- * Het versieprefix (`v4`) zoekt de console niet op een vaste waarde maar leest hij uit de gevonden
- * sleutel: na een versiebump zou een vaste versie stil "0 sessies" melden. De verloopindex hoort bij
- * dezelfde versie als de sessies die erin staan.
+ * Het versieprefix (`v4`) staat niet vast in de console: hij leest het uit de gevonden sleutel. Na een
+ * versiebump zou een vaste versie stil "0 sessies" melden. De verloopindex hoort bij dezelfde versie
+ * als de sessies die erin staan.
  */
 object SessiecacheSleutels {
 
