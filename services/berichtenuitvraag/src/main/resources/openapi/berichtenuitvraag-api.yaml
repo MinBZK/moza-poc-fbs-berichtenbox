@@ -248,9 +248,9 @@ paths:
         daarom idempotent. `bericht-gewijzigd` draagt de waarden van dat moment, geen verschil:
         zet status en map op wat er staat, ook als ze al zo waren. `bericht-verwijderd` voor een
         bericht dat al weg is, of `bericht-gewijzigd` voor een bericht dat niet in de lijst
-        staat, negeer je. Per verbinding komen ze in de volgorde waarin de wijzigingen
-        binnenkwamen. Een wijziging die het doorgeven niet haalt, zie je pas bij het volgende
-        lezen van de lijst; het verzoek dat haar deed, slaagt dan toch.
+        staat, negeer je. Twee wijzigingen waarvan de tweede pas begon toen de eerste bevestigd
+        was, komen in die volgorde aan. Een wijziging die het doorgeven niet haalt, zie je pas
+        bij het volgende lezen van de lijst; het verzoek dat haar deed, slaagt dan toch.
 
         Een open verbinding houdt de sessie niet in leven, en het openen ervan verlengt haar
         evenmin: inactiviteit is inactiviteit van de gebruiker. Een open tabblad op een

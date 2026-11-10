@@ -155,8 +155,8 @@ Wat de berichtenbox moet doen (`assets/javascript/berichtenbox-keten.js`, op de 
    de eerste pagina, net als na een eigen verwijdering (zie de beschrijving van `GET /berichten`).
 
 Het doorgeven is best-effort: lukt het de uitvraag niet, dan slaagt de `PATCH` of `DELETE` toch, en
-verschijnt de wijziging pas bij het volgende lezen van de lijst. Per verbinding komen de events in de
-volgorde waarin de wijzigingen binnenkwamen. De API-versie is nu `0.10.0`.
+verschijnt de wijziging pas bij het volgende lezen van de lijst. Twee wijzigingen waarvan de tweede
+pas begon toen de eerste bevestigd was, komen in die volgorde aan. De API-versie is nu `0.10.0`.
 
 **Lokaal testen** tegen de uitvraag van die branch: in de FBS-repo de demo-stack starten met de
 overlay `compose.proeftuin-versie.yaml` die naar jouw lokale/preview-image van de berichtenbox

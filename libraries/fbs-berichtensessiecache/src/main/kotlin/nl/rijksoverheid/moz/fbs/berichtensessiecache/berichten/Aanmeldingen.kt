@@ -69,7 +69,7 @@ internal class AbonnementGesloten(melding: String) : IllegalStateException(meldi
  * zelf uit de cache. Een nieuw bericht houdt de vorm zonder soort, zodat een pod op de vorige versie
  * het tijdens een rolling update nog leest; een wijziging slaat zo'n pod als onleesbaar over. Eén
  * kanaal voor alle soorten en geen tweede: elk abonnement kost een eigen connection en een eigen
- * probe, en op één kanaal komen de meldingen van één publicerende pod in volgorde aan.
+ * probe, en de luisteraars per ontvanger zijn voor alle soorten dezelfde.
  *
  * De `cacheKey` is een SHA-256 zonder geheim over het identificatienummer en
  * dus een pseudoniem, geen anonimisering: een BSN is eruit terug te rekenen. Het kanaal verdient
