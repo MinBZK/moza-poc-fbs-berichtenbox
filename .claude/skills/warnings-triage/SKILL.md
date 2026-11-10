@@ -36,7 +36,7 @@ dus buiten eigen beheer:
 |---------|----------|
 | `java.lang.System::load has been called ... (restricted method)` | jansi, via de Maven-wrapper-CLI. Niet beïnvloedbaar zonder de wrapper te patchen |
 | `sun.misc.Unsafe::objectFieldOffset is deprecated` | guava, transitief via de Maven-wrapper. Verdwijnt zodra de upstream-libs migreren |
-| `LogManager accessed before the "java.util.logging.manager" system property was set` | Initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch, geen effect op test- of runtime-gedrag |
+| `LogManager accessed before the "java.util.logging.manager" system property was set` | Initialisatie-volgorde van de JBoss LogManager in de test-bootstrap. Geen effect zolang `quarkus.bootstrap.blocking-task-runner` in de Surefire-configuratie van de parent-pom staat; zonder die instelling kon hij de teststart laten vastlopen |
 
 En één die geen build-warning is maar wel elke start haalt:
 

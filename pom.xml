@@ -62,6 +62,7 @@
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
+        <maven-surefire-plugin.version>3.6.0</maven-surefire-plugin.version>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
         <jandex-maven-plugin.version>3.6.0</jandex-maven-plugin.version>
@@ -197,6 +198,24 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>${maven-jar-plugin.version}</version>
+                </plugin>
+                <!-- Quarkus lost bij de teststart de dependencies op in worker threads, terwijl de
+                     main-thread de lock van de FacadeClassLoader vasthoudt en op die threads
+                     wacht. Downloadt een worker thread een artefact, dan schrijft JBoss LogManager
+                     bij de eerste HTTPS-connection een waarschuwing. Surefire laadt voor het
+                     opvangen daarvan een klasse via diezelfde classloader, en de run hangt zonder
+                     melding vóór de eerste test. Met de blocking task runner voert de main-thread
+                     die taken zelf uit. De versie staat vast omdat een deel van die keten in
+                     Surefire zelf zit. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven-surefire-plugin.version}</version>
+                    <configuration>
+                        <systemPropertyVariables>
+                            <quarkus.bootstrap.blocking-task-runner>true</quarkus.bootstrap.blocking-task-runner>
+                        </systemPropertyVariables>
+                    </configuration>
                 </plugin>
 
                 <!-- API-generatie uit de OpenAPI-spec. Identiek voor elke service op
