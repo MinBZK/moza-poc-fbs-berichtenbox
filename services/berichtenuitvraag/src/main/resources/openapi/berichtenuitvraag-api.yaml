@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Berichten Uitvraag API
-  version: 0.9.0
+  version: 0.10.0
   description: |
     Frontend-API voor het MijnOverheid-Zakelijk portaal. Leest berichten uit de
     in-process berichtensessiecache (Redis-backed) en raadpleegt het
@@ -90,7 +90,8 @@ tags:
   - name: Volgen
     description: |
       SSE-endpoint waarop een geopende berichtenbox nieuw binnengekomen berichten
-      doorkrijgt; wordt buiten codegen afgehandeld.
+      doorkrijgt, en wat er in een ander venster met een bericht gebeurde; wordt buiten
+      codegen afgehandeld.
   - name: Aanmeld
     description: |
       CloudEvents-webhook waarop de Publicatie Stream van een magazijn een nieuw
@@ -127,14 +128,16 @@ paths:
         geen momentopname: wordt er tijdens het bladeren een bericht verwijderd, dan schuift
         de rest één plaats op en valt er per verwijdering één bericht tussen twee pagina's
         door. Verwijdert de afnemer zelf tijdens het bladeren, dan weet hij dat en leest hij
-        opnieuw vanaf de eerste pagina. Een verwijdering in een ander venster merkt hij niet:
-        de lijst noemt geen totaal en `_volgen` meldt geen verwijderingen. Het overgeslagen
-        bericht ontbreekt dan tot de lijst opnieuw gelezen wordt.
+        opnieuw vanaf de eerste pagina. Een verwijdering in een ander venster merkt hij aan
+        `bericht-verwijderd` op `_volgen`, en leest dan net zo opnieuw; zonder open `_volgen`
+        merkt hij haar niet, want de lijst noemt geen totaal. Het overgeslagen bericht
+        ontbreekt dan tot de lijst opnieuw gelezen wordt.
 
         Filteren (op `map` of op afzender via `magazijnId`), zoeken op onderwerp en
         sorteren doet de afnemer over die set. Dat houdt het resultaat consistent en
-        laat zich combineren met `_volgen`: voeg elk `bericht-bijgekomen` aan de set toe en
-        pas filter, zoekterm en sortering opnieuw toe.
+        laat zich combineren met `_volgen`: voeg elk `bericht-bijgekomen` aan de set toe, werk
+        bij `bericht-gewijzigd` status en map bij, haal bij `bericht-verwijderd` het bericht
+        eruit, en pas filter, zoekterm en sortering opnieuw toe.
 
         Dat een organisatie niets of niet alles leverde, staat op elke pagina in
         `nietGeleverd` en `afgekapt`: hetzelfde als de events van `_ophalen` meldden, maar
@@ -229,14 +232,25 @@ paths:
   /berichten/_volgen:
     get:
       tags: [Volgen]
-      summary: Nieuwe berichten volgen terwijl de berichtenbox openstaat (Server-Sent Events)
+      summary: Berichten volgen terwijl de berichtenbox openstaat (Server-Sent Events)
       operationId: volgenBerichten
       security:
         - sessie: []
       description: |
         Houdt een verbinding open waarover elk bericht dat tijdens de sessie binnenkomt
         meteen wordt doorgegeven, zonder nieuwe ophaalronde en zonder dat de client
-        hoeft na te vragen.
+        hoeft na te vragen. Hetzelfde geldt voor wat er in een ander venster van dezelfde
+        ontvanger met een bericht gebeurt: gelezen of ongelezen gemarkeerd, naar een andere
+        map verplaatst (`bericht-gewijzigd`), of verwijderd (`bericht-verwijderd`).
+
+        Ook het venster dat de wijziging zelf deed, krijgt dat event: de dienst weet niet welke
+        verbinding bij welk venster hoort. Verwerk `bericht-gewijzigd` en `bericht-verwijderd`
+        daarom idempotent. `bericht-gewijzigd` draagt de waarden van dat moment, geen verschil:
+        zet status en map op wat er staat, ook als ze al zo waren. `bericht-verwijderd` voor een
+        bericht dat al weg is, of `bericht-gewijzigd` voor een bericht dat niet in de lijst
+        staat, negeer je. Per verbinding komen ze in de volgorde waarin de wijzigingen
+        binnenkwamen. Een wijziging die het doorgeven niet haalt, zie je pas bij het volgende
+        lezen van de lijst; het verzoek dat haar deed, slaagt dan toch.
 
         Een open verbinding houdt de sessie niet in leven, en het openen ervan verlengt haar
         evenmin: inactiviteit is inactiviteit van de gebruiker. Een open tabblad op een
@@ -1248,6 +1262,8 @@ components:
         - $ref: '#/components/schemas/BerichtBijgekomen'
         - $ref: '#/components/schemas/Hartslag'
         - $ref: '#/components/schemas/SessieVerlopen'
+        - $ref: '#/components/schemas/BerichtGewijzigd'
+        - $ref: '#/components/schemas/BerichtVerwijderd'
       discriminator:
         propertyName: event
         mapping:
@@ -1255,6 +1271,8 @@ components:
           bericht-bijgekomen: '#/components/schemas/BerichtBijgekomen'
           hartslag: '#/components/schemas/Hartslag'
           sessie-verlopen: '#/components/schemas/SessieVerlopen'
+          bericht-gewijzigd: '#/components/schemas/BerichtGewijzigd'
+          bericht-verwijderd: '#/components/schemas/BerichtVerwijderd'
 
     VolgenGestart:
       type: object
@@ -1293,6 +1311,44 @@ components:
       required: [event]
       properties:
         event: { type: string, enum: [sessie-verlopen] }
+
+    BerichtGewijzigd:
+      type: object
+      description: |
+        De leesstatus of de map van een bericht is gewijzigd, in dit of een ander venster van
+        dezelfde ontvanger. `status` en `map` zijn de waarden nu, niet wat er veranderde: zet ze
+        zoals ze hier staan. Ontbreekt `map`, dan staat het bericht in Postvak IN; ontbreekt
+        `status`, dan is die onbekend, net als in de lijst. Het bericht wijs je aan met
+        `magazijnId` én `berichtId`; staat het niet in je lijst, negeer het event dan.
+      required: [event, magazijnId, berichtId]
+      properties:
+        event: { type: string, enum: [bericht-gewijzigd] }
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        berichtId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/BerichtStatus' }
+        map: { type: string, minLength: 1, maxLength: 128 }
+      example:
+        event: bericht-gewijzigd
+        magazijnId: '00000001003214345000'
+        berichtId: 0b0e5a52-8a8f-4d5f-9d2e-2f7f7a0c1d11
+        status: gelezen
+        map: Belasting
+
+    BerichtVerwijderd:
+      type: object
+      description: |
+        Een bericht is verwijderd, in dit of een ander venster van dezelfde ontvanger, en staat
+        niet meer in de lijst. Haal het weg op `magazijnId` én `berichtId`; was het al weg, dan
+        verandert er niets.
+      required: [event, magazijnId, berichtId]
+      properties:
+        event: { type: string, enum: [bericht-verwijderd] }
+        magazijnId: { $ref: '#/components/schemas/MagazijnId' }
+        berichtId: { type: string, format: uuid }
+      example:
+        event: bericht-verwijderd
+        magazijnId: '00000001003214345000'
+        berichtId: 0b0e5a52-8a8f-4d5f-9d2e-2f7f7a0c1d11
 
     MagazijnId:
       type: string

@@ -9,6 +9,7 @@ import io.smallrye.mutiny.Uni
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
@@ -64,6 +65,19 @@ class VolgenSseTest {
                     """"magazijnId":"$RVO",""" +
                     """"_links":{"self":{"href":"/api/v1/berichten/$BERICHT_ID?magazijnId=$RVO"}}}}""",
             ),
+            Arguments.of(
+                SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, Leesstatus.GELEZEN, "Belasting"),
+                """{"event":"bericht-gewijzigd","magazijnId":"$RVO","berichtId":"$BERICHT_ID","status":"gelezen","map":"Belasting"}""",
+            ),
+            // Postvak IN: de map ontbreekt, net als in de lijst.
+            Arguments.of(
+                SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, Leesstatus.ONGELEZEN, null),
+                """{"event":"bericht-gewijzigd","magazijnId":"$RVO","berichtId":"$BERICHT_ID","status":"ongelezen"}""",
+            ),
+            Arguments.of(
+                SessieGebeurtenis.BerichtVerwijderd(RVO, BERICHT_ID),
+                """{"event":"bericht-verwijderd","magazijnId":"$RVO","berichtId":"$BERICHT_ID"}""",
+            ),
         )
 
         @JvmStatic
@@ -113,13 +127,18 @@ class VolgenSseTest {
         sessiecache.volgGebeurtenissen = Multi.createFrom().items(
             SessieGebeurtenis.VolgenGestart,
             SessieGebeurtenis.BerichtBijgekomen(bericht()),
+            SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, Leesstatus.GELEZEN, null),
             SessieGebeurtenis.Hartslag,
+            SessieGebeurtenis.BerichtVerwijderd(RVO, BERICHT_ID),
             SessieGebeurtenis.SessieVerlopen,
         )
 
         val events = frames(volgen()).map { Regex(""""event":"([a-z-]+)"""").find(it)!!.groupValues[1] }
 
-        assertEquals(listOf("volgen-gestart", "bericht-bijgekomen", "hartslag", "sessie-verlopen"), events)
+        assertEquals(
+            listOf("volgen-gestart", "bericht-bijgekomen", "bericht-gewijzigd", "hartslag", "bericht-verwijderd", "sessie-verlopen"),
+            events,
+        )
     }
 
     @Test
