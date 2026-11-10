@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 import io.quarkus.runtime.Startup
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
+import io.smallrye.mutiny.operators.multi.processors.UnicastProcessor
 import io.smallrye.mutiny.subscription.Cancellable
 import io.smallrye.mutiny.subscription.MultiEmitter
 import jakarta.enterprise.context.ApplicationScoped
@@ -14,16 +15,22 @@ import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld bericht door en controleert op
- * elke hartslag of de inlogsessie nog loopt. Alleen lezen: een open connection is geen activiteit van
- * de gebruiker en houdt de sessie dus niet in leven. Verloopt de sessie, dan merkt de stream dat
- * hoogstens een hartslag later en sluit hij met [SessieGebeurtenis.SessieVerlopen].
+ * Houdt een open berichtenbox bij: stuurt elk in de sessie aangemeld, bijgewerkt of verwijderd
+ * bericht door en controleert op elke hartslag of de inlogsessie nog loopt. Alleen lezen: een open
+ * connection is geen activiteit van de gebruiker en houdt de sessie dus niet in leven. Verloopt de
+ * sessie, dan merkt de stream dat hoogstens een hartslag later en sluit hij met
+ * [SessieGebeurtenis.SessieVerlopen].
  *
  * De volgorde bij het starten is wat "niets missen" waarmaakt: eerst de luisteraar registreren,
  * dan wachten tot deze pod aanmeldingen ontvangt, en pas dan [SessieGebeurtenis.VolgenGestart].
  * Wat vóór dat moment binnenkwam, leest de afnemer uit de lijst; wat erna komt, krijgt hij hier.
  * Wat in het overlappende stukje valt, krijgt hij twee keer — daarom ontdubbelt hij op
  * (`magazijnId`, `berichtId`).
+ *
+ * Per stream gaan de meldingen één voor één door, in de volgorde waarin ze binnenkwamen. Een
+ * bijwerking leest de huidige waarden uit de cache; zonder die volgorde kon een trage lezing van
+ * de eerste van twee snelle bijwerkingen ná de tweede aankomen, en bleef het scherm op de oude
+ * waarde staan.
  *
  * `@Startup` zodat een verkeerd ingestelde hartslag de pod bij het opstarten tegenhoudt en niet
  * pas bij de eerste bezoeker.
@@ -55,8 +62,8 @@ internal class SessieVolger(
         }
     }
 
-    fun meldAan(ontvanger: Identificatienummer, sleutel: BerichtSleutel): Uni<Void> =
-        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), sleutel)
+    fun meld(ontvanger: Identificatienummer, sleutel: BerichtSleutel, wijziging: Berichtwijziging): Uni<Void> =
+        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), sleutel, wijziging)
 
     /**
      * Slaagt zodra deze pod aanmeldingen ontvangt. De facade wacht hierop vóórdat hij de stream
@@ -72,9 +79,21 @@ internal class SessieVolger(
             val hartslagen = AtomicReference<Cancellable?>(null)
             val einde = Uni.createFrom().voidItem().onItem().delayIt().by(maxDuur)
                 .subscribe().with { emitter.complete() }
+            val meldingen = UnicastProcessor.create<Pair<BerichtSleutel, Berichtwijziging>>()
+            // Meldingen kunnen van meer dan één thread komen, en een processor verwacht ze één voor één.
+            val invoer = meldingen.serialized()
+            val doorgifte = meldingen
+                .onItem().transformToUniAndConcatenate { (sleutel, wijziging) -> naarGebeurtenis(sleutel, wijziging, ontvanger) }
+                .subscribe().with(
+                    { gebeurtenis -> gebeurtenis?.let { emitter.emit(it) } },
+                    { fout ->
+                        log.warnf(fout, "Gemeld bericht niet te lezen; gevolgde sessie afgebroken")
+                        emitter.fail(fout)
+                    },
+                )
             val afmelding = aanmeldingen.registreer(
                 cacheKey,
-                opBericht = { sleutel -> stuurDoor(sleutel, ontvanger, emitter) },
+                opBericht = { sleutel, wijziging -> invoer.onNext(sleutel to wijziging) },
                 opStoring = emitter::fail,
                 // Een stoppende pod is geen storing: zelfde einde als na de maximale duur.
                 opEinde = emitter::complete,
@@ -82,6 +101,7 @@ internal class SessieVolger(
 
             emitter.onTermination {
                 afmelding.afmelden()
+                doorgifte.cancel()
                 einde.cancel()
                 hartslagen.getAndSet(null)?.cancel()
             }
@@ -131,30 +151,36 @@ internal class SessieVolger(
             )
 
     /**
-     * Leest het bericht uit de cache in plaats van het mee te sturen over het kanaal: zo gaat er
-     * geen berichtgegeven over pub/sub, en controleert [BerichtenCache.getById] meteen dat het
-     * van deze ontvanger is. Een leesfout breekt de stream af; de afnemer verbindt opnieuw en
-     * leest de lijst, zodat het bericht alsnog verschijnt.
+     * Leest een nieuw of bijgewerkt bericht uit de cache in plaats van het mee te sturen over het
+     * kanaal: zo gaat er geen berichtgegeven over pub/sub, en controleert [BerichtenCache.getById]
+     * meteen dat het van deze ontvanger is. Een leesfout breekt de stream af; de afnemer verbindt
+     * opnieuw en leest de lijst, zodat het bericht alsnog klopt. Een verwijdering heeft niets te
+     * lezen: alleen de sleutel gaat door.
      *
-     * Geeft de cache niets terug, dan staat het bericht er niet (meer): de aanmelding wordt
-     * overgeslagen en de lijst blijft de waarheid.
+     * Geeft de cache niets terug, dan staat het bericht er niet (meer): de melding wordt
+     * overgeslagen en de lijst blijft de waarheid. `null` laat de doorgifte het item overslaan.
      */
-    private fun stuurDoor(sleutel: BerichtSleutel, ontvanger: Identificatienummer, emitter: MultiEmitter<in SessieGebeurtenis>) {
-        berichtenCache.getById(sleutel, ontvanger).subscribe().with(
-            { bericht ->
-                if (bericht == null) {
+    private fun naarGebeurtenis(
+        sleutel: BerichtSleutel,
+        wijziging: Berichtwijziging,
+        ontvanger: Identificatienummer,
+    ): Uni<SessieGebeurtenis?> {
+        if (wijziging == Berichtwijziging.VERWIJDERD) {
+            return Uni.createFrom().item(SessieGebeurtenis.BerichtVerwijderd(sleutel.magazijnId, sleutel.berichtId))
+        }
+
+        return berichtenCache.getById(sleutel, ontvanger).map { bericht ->
+            when {
+                bericht == null -> {
                     // De sleutel is geen persoonsgegeven; dit spoor verbindt een gemist bericht
                     // op het scherm met een hash die eerder verliep dan zijn lijst-entry.
-                    log.debugf("Aangemeld bericht %s niet in de cache; overgeslagen", sleutel)
-                } else {
-                    emitter.emit(SessieGebeurtenis.BerichtBijgekomen(bericht))
+                    log.debugf("Gemeld bericht %s niet in de cache; overgeslagen", sleutel)
+                    null
                 }
-            },
-            { fout ->
-                log.warnf(fout, "Aangemeld bericht niet te lezen; gevolgde sessie afgebroken")
-                emitter.fail(fout)
-            },
-        )
+                wijziging == Berichtwijziging.BIJGEKOMEN -> SessieGebeurtenis.BerichtBijgekomen(bericht)
+                else -> SessieGebeurtenis.BerichtGewijzigd(bericht.magazijnId, bericht.berichtId, bericht.status, bericht.map)
+            }
+        }
     }
 
     private fun beeindig(emitter: MultiEmitter<in SessieGebeurtenis>) {

@@ -21,12 +21,13 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Brengt een aanmelding van de pod die hem verwerkte naar elke pod waar die sessie gevolgd wordt.
  * Een aanmelding en de open berichtenbox van dezelfde ontvanger landen niet op dezelfde pod, dus
- * een lokale seintjeslijst volstaat niet.
+ * een lokale seintjeslijst volstaat niet. Hetzelfde geldt voor het bijwerken en verwijderen van
+ * een bericht: dat gebeurt in het ene tabblad en hoort in alle andere zichtbaar te worden.
  */
 internal interface Aanmeldingen {
 
-    /** Meldt dat het bericht [sleutel] in de sessie onder [cacheKey] is bijgeschreven. */
-    fun meld(cacheKey: String, sleutel: BerichtSleutel): Uni<Void>
+    /** Meldt dat er met het bericht [sleutel] in de sessie onder [cacheKey] [wijziging] gebeurde. */
+    fun meld(cacheKey: String, sleutel: BerichtSleutel, wijziging: Berichtwijziging): Uni<Void>
 
     /**
      * Registreert een luisteraar voor de sessie onder [cacheKey], direct en synchroon. Berichten
@@ -36,7 +37,7 @@ internal interface Aanmeldingen {
      */
     fun registreer(
         cacheKey: String,
-        opBericht: (BerichtSleutel) -> Unit,
+        opBericht: (BerichtSleutel, Berichtwijziging) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Afmelding
@@ -63,8 +64,14 @@ internal class AbonnementGesloten(melding: String) : IllegalStateException(meldi
  * Een abonnement per open berichtenbox zou er één Redis-connection per bezoeker kosten: de
  * Quarkus-client opent voor elke `subscribe` een eigen, langlevende connection.
  *
- * Het kanaalbericht is de `cacheKey` plus `berichtId` en `magazijnId`; de inhoud leest de ontvangende pod
- * zelf uit de cache. De `cacheKey` is een SHA-256 zonder geheim over het identificatienummer en
+ * Het kanaalbericht is de `cacheKey` plus `berichtId` en `magazijnId`, en voor een wijziging of
+ * verwijdering de soort als vierde deel; de inhoud en de nieuwe waarden leest de ontvangende pod
+ * zelf uit de cache. Een nieuw bericht houdt de vorm zonder soort, zodat een pod op de vorige versie
+ * het tijdens een rolling update nog leest; een wijziging slaat zo'n pod als onleesbaar over. Eén
+ * kanaal voor alle soorten en geen tweede: elk abonnement kost een eigen connection en een eigen
+ * probe, en op één kanaal komen de meldingen van één publicerende pod in volgorde aan.
+ *
+ * De `cacheKey` is een SHA-256 zonder geheim over het identificatienummer en
  * dus een pseudoniem, geen anonimisering: een BSN is eruit terug te rekenen. Het kanaal verdient
  * daarom dezelfde bescherming als de cache-keys van de ontvangers (TLS en authenticatie op Redis).
  *
@@ -104,12 +111,15 @@ internal class RedisAanmeldingen(
         }
     }
 
-    override fun meld(cacheKey: String, sleutel: BerichtSleutel): Uni<Void> =
-        publiceer("$cacheKey$SCHEIDING${sleutel.berichtId}$SCHEIDING${sleutel.magazijnId}")
+    override fun meld(cacheKey: String, sleutel: BerichtSleutel, wijziging: Berichtwijziging): Uni<Void> {
+        val basis = "$cacheKey$SCHEIDING${sleutel.berichtId}$SCHEIDING${sleutel.magazijnId}"
+
+        return publiceer(kanaalsoort(wijziging)?.let { "$basis$SCHEIDING$it" } ?: basis)
+    }
 
     override fun registreer(
         cacheKey: String,
-        opBericht: (BerichtSleutel) -> Unit,
+        opBericht: (BerichtSleutel, Berichtwijziging) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Aanmeldingen.Afmelding {
@@ -212,7 +222,13 @@ internal class RedisAanmeldingen(
             return
         }
 
-        if (sessie.isEmpty() || id == null || delen.size != 3 || magazijnId.isNullOrEmpty()) {
+        val wijziging = when (delen.size) {
+            3 -> Berichtwijziging.BIJGEKOMEN
+            4 -> KANAALSOORTEN[delen[3]]
+            else -> null
+        }
+
+        if (sessie.isEmpty() || id == null || wijziging == null || magazijnId.isNullOrEmpty()) {
             // Ons eigen kanaal, dus een onleesbaar bericht is een defect. De inhoud blijft uit de
             // log: een cacheKey is een pseudoniem van de ontvanger.
             log.warn("Onleesbaar bericht op het aanmeldkanaal genegeerd")
@@ -226,7 +242,7 @@ internal class RedisAanmeldingen(
         // ontvanger het bericht toch.
         luisteraars[sessie]?.forEach { luisteraar ->
             try {
-                luisteraar.opBericht(sleutel)
+                luisteraar.opBericht(sleutel, wijziging)
             } catch (fout: RuntimeException) {
                 log.warnf(fout, "Aanmelding niet aan een gevolgde sessie doorgegeven; de andere gaan door")
             }
@@ -371,13 +387,23 @@ internal class RedisAanmeldingen(
         }
     }
 
-    private class Luisteraar(val opBericht: (BerichtSleutel) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
+    private class Luisteraar(val opBericht: (BerichtSleutel, Berichtwijziging) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 
     companion object {
         // Zelfde versie als de cache-keys: de cacheKey in het bericht heeft die vorm. Sinds v4
         // draagt het bericht ook de magazijnId, die een v3-pod niet zou kunnen lezen.
         const val KANAAL = "berichtensessiecache:v4:aanmeldingen"
         private const val SCHEIDING = ' '
+
+        // Alleen wat een pod op de vorige versie niet kende, krijgt een soort op het kanaal.
+        private fun kanaalsoort(wijziging: Berichtwijziging): String? = when (wijziging) {
+            Berichtwijziging.BIJGEKOMEN -> null
+            Berichtwijziging.GEWIJZIGD -> "gewijzigd"
+            Berichtwijziging.VERWIJDERD -> "verwijderd"
+        }
+
+        private val KANAALSOORTEN: Map<String, Berichtwijziging> =
+            Berichtwijziging.entries.mapNotNull { wijziging -> kanaalsoort(wijziging)?.let { it to wijziging } }.toMap()
 
         // Kan nooit een cacheKey zijn: die begint met `berichtensessiecache:`.
         private const val PROBE = "probe"

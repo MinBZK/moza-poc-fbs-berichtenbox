@@ -14,22 +14,22 @@ import java.util.concurrent.CopyOnWriteArrayList
 @ApplicationScoped
 internal class MockAanmeldingen : Aanmeldingen {
 
-    private class Luisteraar(val opBericht: (BerichtSleutel) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
+    private class Luisteraar(val opBericht: (BerichtSleutel, Berichtwijziging) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 
     private val luisteraars = ConcurrentHashMap<String, CopyOnWriteArrayList<Luisteraar>>()
 
-    val meldingen = CopyOnWriteArrayList<Pair<String, BerichtSleutel>>()
+    val meldingen = CopyOnWriteArrayList<Triple<String, BerichtSleutel, Berichtwijziging>>()
 
-    override fun meld(cacheKey: String, sleutel: BerichtSleutel): Uni<Void> {
-        meldingen += cacheKey to sleutel
-        luisteraars[cacheKey]?.forEach { it.opBericht(sleutel) }
+    override fun meld(cacheKey: String, sleutel: BerichtSleutel, wijziging: Berichtwijziging): Uni<Void> {
+        meldingen += Triple(cacheKey, sleutel, wijziging)
+        luisteraars[cacheKey]?.forEach { it.opBericht(sleutel, wijziging) }
 
         return Uni.createFrom().voidItem()
     }
 
     override fun registreer(
         cacheKey: String,
-        opBericht: (BerichtSleutel) -> Unit,
+        opBericht: (BerichtSleutel, Berichtwijziging) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Aanmeldingen.Afmelding {

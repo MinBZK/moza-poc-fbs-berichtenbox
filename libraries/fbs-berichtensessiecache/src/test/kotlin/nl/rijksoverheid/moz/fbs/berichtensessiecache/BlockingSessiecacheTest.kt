@@ -25,6 +25,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Berichtwijziging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
@@ -372,6 +373,88 @@ class BlockingSessiecacheTest {
         }
     }
 
+    // --- wijzigingen doorgeven aan gevolgde sessies ---
+
+    @ParameterizedTest(name = "status={0}, map={1}")
+    @CsvSource("gelezen,", ",archief", "ongelezen,''", nullValues = [""])
+    fun `werkBerichtBij meldt het bijgewerkte bericht bij de gevolgde sessies`(status: String?, map: String?) {
+        val bijgewerkt = testBericht()
+        every { service.updateBerichtMetadata(bijgewerkt.sleutel, ontvanger, status, map) } returns Uni.createFrom().item(bijgewerkt)
+        every { volger.meld(ontvanger, bijgewerkt.sleutel, Berichtwijziging.GEWIJZIGD) } returns Uni.createFrom().voidItem()
+
+        facade.werkBerichtBij(ontvanger, MAGAZIJN, bijgewerkt.berichtId, status?.let(Leesstatus::fromWire), map)
+
+        verify(exactly = 1) { volger.meld(ontvanger, bijgewerkt.sleutel, Berichtwijziging.GEWIJZIGD) }
+    }
+
+    @Test
+    fun `werkBerichtBij op een bericht dat niet in de cache staat, meldt niets`() {
+        val id = UUID.randomUUID()
+        every { service.updateBerichtMetadata(BerichtSleutel(MAGAZIJN, id), ontvanger, "gelezen", null) } returns Uni.createFrom().nullItem()
+
+        assertNull(facade.werkBerichtBij(ontvanger, MAGAZIJN, id, Leesstatus.GELEZEN, null))
+
+        verify(exactly = 0) { volger.meld(ontvanger, any(), any()) }
+    }
+
+    @Test
+    fun `werkBerichtBij dat in de cache mislukt, meldt niets`() {
+        val id = UUID.randomUUID()
+        every { service.updateBerichtMetadata(BerichtSleutel(MAGAZIJN, id), ontvanger, "gelezen", null) } returns
+            Uni.createFrom().failure(RuntimeException("redis weg"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.werkBerichtBij(ontvanger, MAGAZIJN, id, Leesstatus.GELEZEN, null) }
+
+        verify(exactly = 0) { volger.meld(ontvanger, any(), any()) }
+    }
+
+    @Test
+    fun `verwijder meldt de verwijdering bij de gevolgde sessies`() {
+        val sleutel = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
+        every { service.verwijderBericht(sleutel, ontvanger) } returns Uni.createFrom().voidItem()
+        every { volger.meld(ontvanger, sleutel, Berichtwijziging.VERWIJDERD) } returns Uni.createFrom().voidItem()
+
+        facade.verwijder(ontvanger, MAGAZIJN, sleutel.berichtId)
+
+        verify(exactly = 1) { volger.meld(ontvanger, sleutel, Berichtwijziging.VERWIJDERD) }
+    }
+
+    @Test
+    fun `verwijder dat in de cache mislukt, meldt niets`() {
+        val sleutel = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
+        every { service.verwijderBericht(sleutel, ontvanger) } returns Uni.createFrom().failure(RuntimeException("redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().item(Unit)
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, MAGAZIJN, sleutel.berichtId) }
+
+        verify(exactly = 0) { volger.meld(ontvanger, any(), any()) }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["fout", "timeout"])
+    fun `een mislukte melding laat bijwerken en verwijderen slagen, met een waarschuwing zonder BSN`(soort: String) {
+        // Best-effort zoals bij een aanmelding: de cache is al bijgewerkt, en een fout zou de afnemer
+        // laten herhalen wat al gelukt is. De melding van de oorzaak kan de ontvanger noemen.
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        val bijgewerkt = testBericht()
+        val mislukt: Uni<Void> = if (soort == "fout") {
+            Uni.createFrom().failure(IllegalStateException("PUBLISH geweigerd voor ${ontvanger.waarde}"))
+        } else {
+            Uni.createFrom().nothing()
+        }
+        every { service.updateBerichtMetadata(bijgewerkt.sleutel, ontvanger, "gelezen", null) } returns Uni.createFrom().item(bijgewerkt)
+        every { service.verwijderBericht(bijgewerkt.sleutel, ontvanger) } returns Uni.createFrom().voidItem()
+        every { volger.meld(ontvanger, bijgewerkt.sleutel, any()) } returns mislukt
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            assertSame(bijgewerkt, snel.werkBerichtBij(ontvanger, MAGAZIJN, bijgewerkt.berichtId, Leesstatus.GELEZEN, null))
+            snel.verwijder(ontvanger, MAGAZIJN, bijgewerkt.berichtId)
+        }
+
+        assertEquals(2, regels.count { it.contains("niet doorgegeven aan gevolgde sessies") }, "Log: $regels")
+        assertTrue(regels.none { it.contains(ontvanger.waarde) }, "BSN in de log: $regels")
+    }
+
     // --- verwijder / ophalen ---
 
     @Test
@@ -433,11 +516,11 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val bericht = testBericht()
         every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
-        every { volger.meldAan(ontvanger, bericht.sleutel) } returns Uni.createFrom().voidItem()
+        every { volger.meld(ontvanger, bericht.sleutel, Berichtwijziging.BIJGEKOMEN) } returns Uni.createFrom().voidItem()
 
         facade.schrijfBericht(ontvanger, bericht)
 
-        verify(exactly = 1) { volger.meldAan(ontvanger, bericht.sleutel) }
+        verify(exactly = 1) { volger.meld(ontvanger, bericht.sleutel, Berichtwijziging.BIJGEKOMEN) }
     }
 
     @Test
@@ -445,7 +528,7 @@ class BlockingSessiecacheTest {
         stubStatus(gereed)
         val bericht = testBericht()
         every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
-        every { volger.meldAan(ontvanger, bericht.sleutel) } returns
+        every { volger.meld(ontvanger, bericht.sleutel, Berichtwijziging.BIJGEKOMEN) } returns
             Uni.createFrom().failure(IllegalStateException("redis weg"))
 
         assertSame(bericht, facade.schrijfBericht(ontvanger, bericht))
@@ -464,7 +547,7 @@ class BlockingSessiecacheTest {
             service.createBericht(bericht, ontvanger)
             sessies.ruimOpZonderSessie(ontvanger)
         }
-        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+        verify(exactly = 0) { volger.meld(ontvanger, bericht.sleutel, Berichtwijziging.BIJGEKOMEN) }
     }
 
     @ParameterizedTest(name = "markeren faalt={0}")
@@ -486,7 +569,7 @@ class BlockingSessiecacheTest {
             sessies.ruimOpZonderSessie(ontvanger)
             sessies.markeerVoorVeeg(ontvanger)
         }
-        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+        verify(exactly = 0) { volger.meld(ontvanger, bericht.sleutel, Berichtwijziging.BIJGEKOMEN) }
     }
 
     @Test
@@ -528,7 +611,7 @@ class BlockingSessiecacheTest {
 
         verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
         verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
-        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+        verify(exactly = 0) { volger.meld(ontvanger, bericht.sleutel, Berichtwijziging.BIJGEKOMEN) }
         assertEquals(if (markerenFaalt) 1 else 0, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
         regels.forEach { regel -> assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel") }
     }
