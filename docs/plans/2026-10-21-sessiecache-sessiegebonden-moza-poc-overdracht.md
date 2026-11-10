@@ -122,6 +122,42 @@ berichtenbox moet doen:
   opnieuw proberen na `Retry-After`, de sessie blijft geldig.
 - API-versie `0.9.0`.
 
+### Live wijzigingen via `_volgen` (API-versie `0.10.0`)
+
+Leest de ondernemer in één tabblad een bericht, verplaatst hij het naar een map of verwijdert hij
+het, dan zien zijn andere open tabbladen dat nu meteen. `GET /api/v1/berichten/_volgen` kent daarvoor
+twee nieuwe events (schema's `BerichtGewijzigd` en `BerichtVerwijderd` in de spec):
+
+- **`bericht-gewijzigd`** — `{ "event": "bericht-gewijzigd", "magazijnId", "berichtId", "status"?, "map"? }`.
+  `status` (`gelezen`/`ongelezen`) en `map` zijn de waarden van nu, niet wat er veranderde: zet ze
+  zoals ze er staan. Ontbreekt `map`, dan staat het bericht in Postvak IN; ontbreekt `status`, dan is
+  die onbekend, net als in `GET /berichten`.
+- **`bericht-verwijderd`** — `{ "event": "bericht-verwijderd", "magazijnId", "berichtId" }`. Haal het
+  bericht uit de lijst. Staat het detail ervan open, sluit dat dan.
+
+Wat de berichtenbox moet doen (`assets/javascript/berichtenbox-keten.js`, op de plek waar nu
+`bericht-bijgekomen` verwerkt wordt):
+
+1. **Een bericht is het paar** `magazijnId` + `berichtId`, net als bij het ontdubbelen van
+   `bericht-bijgekomen`. Alleen `berichtId` is niet genoeg: twee organisaties kunnen hetzelfde nummer
+   uitdelen.
+2. **Idempotent verwerken.** Ook het tabblad dat zelf de `PATCH` of `DELETE` deed, krijgt het event
+   terug; de uitvraag weet niet welke verbinding bij welk tabblad hoort. Twee keer hetzelfde event
+   mag dus niets anders opleveren dan één keer. `bericht-gewijzigd` of `bericht-verwijderd` voor een
+   bericht dat niet (meer) in de lijst staat: negeren.
+3. **Geen nieuw verzoek bij een event.** Werk de lijst in het geheugen bij en teken opnieuw; haal het
+   bericht niet opnieuw op. Een `GET` verlengt de sessie, en een event is geen activiteit van de
+   gebruiker. Een geopend detail laat je staan als het bericht alleen gewijzigd is.
+4. **Filters en tellers opnieuw toepassen**: het aantal ongelezen, de mappen en hun tellingen, en
+   "alleen ongelezen". Een bericht dat naar een andere map verhuist, verdwijnt uit de getoonde map.
+5. **Onbekende events blijven genegeerd**, zoals al in de spec stond.
+6. **Paginering:** wie tijdens het bladeren `bericht-verwijderd` krijgt, leest de lijst opnieuw vanaf
+   de eerste pagina, net als na een eigen verwijdering (zie de beschrijving van `GET /berichten`).
+
+Het doorgeven is best-effort: lukt het de uitvraag niet, dan slaagt de `PATCH` of `DELETE` toch, en
+verschijnt de wijziging pas bij het volgende lezen van de lijst. Per verbinding komen de events in de
+volgorde waarin de wijzigingen binnenkwamen. De API-versie is nu `0.10.0`.
+
 **Lokaal testen** tegen de uitvraag van die branch: in de FBS-repo de demo-stack starten met de
 overlay `compose.proeftuin-versie.yaml` die naar jouw lokale/preview-image van de berichtenbox
 wijst (zie `docs/demo-runbook.md` daar).

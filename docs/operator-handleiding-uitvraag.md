@@ -429,8 +429,11 @@ een vangnet, en mogen niet vóór die van het portaal verlopen:
 Elke open berichtenbox houdt één SSE-verbinding open. Een aanmelding die op de ene pod binnenkomt,
 bereikt een berichtenbox op een andere pod via Redis pub/sub (kanaal
 `berichtensessiecache:v4:aanmeldingen`); elke pod heeft daar precies één abonnement op, dus één
-extra Redis-connection per pod, niet per bezoeker. Over het kanaal gaan alleen de cache-key van de ontvanger, het
-`berichtId` en de `magazijnId` (de OIN van de organisatie, geen persoonsgegeven). Die sleutel is een SHA-256 zonder geheim over het identificatienummer en dus een
+extra Redis-connection per pod, niet per bezoeker. Hetzelfde kanaal brengt een `PATCH` of `DELETE`
+op een bericht naar de andere open berichtenboxen van dezelfde ontvanger. Over het kanaal gaan
+alleen de cache-key van de ontvanger, het `berichtId`, de `magazijnId` (de OIN van de organisatie,
+geen persoonsgegeven) en bij een wijziging of verwijdering de soort; status en map leest de
+ontvangende pod zelf uit de cache. Die sleutel is een SHA-256 zonder geheim over het identificatienummer en dus een
 pseudoniem van de ontvanger, geen anonimisering: het kanaal hoort dezelfde bescherming te krijgen
 als de rest van Redis (TLS en authenticatie).
 
@@ -452,6 +455,15 @@ als de rest van Redis (TLS en authenticatie).
   weggevallen` is een echte storing.
 - **Een pod die stopt, logt `Pod stopt; N open streams verbinden opnieuw`** op INFO en sluit
   de streams zonder foutmelding. Bij een rolling update is dat het verwachte beeld, geen storing.
+- **`WARN Nieuw bericht|Bijgewerkt bericht|Verwijderd bericht niet doorgegeven aan gevolgde
+  sessies (fout=…)`**: de aanmelding, `PATCH` of `DELETE` is in de cache gelukt en het verzoek
+  slaagt, maar het kanaal nam de melding niet aan. Open berichtenboxen zien het pas als ze de lijst
+  opnieuw lezen. Alleen de foutklasse staat erbij, geen ontvanger. Komt het vaak voor, kijk dan naar
+  de bereikbaarheid van Redis; het abonnement van de pods zelf kan dan nog gewoon werken.
+- **`WARN Onleesbaar bericht op het aanmeldkanaal genegeerd` tijdens een uitrol** van deze versie is
+  te verwachten: een pod op de vorige versie kent de wijzigingen en verwijderingen die de nieuwe pods
+  publiceren nog niet en slaat ze over. Nieuwe berichten verstaan beide versies. Buiten een uitrol
+  wijst de regel op een defect.
 - **Een proxy vóór de uitvraag mag `_volgen` niet bufferen** (nginx: `proxy_buffering off`), anders
   komen de berichten pas bij het sluiten van de verbinding aan.
 
