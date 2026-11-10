@@ -25,19 +25,43 @@ class BerichtenboxVolgenTest {
 
         assertTrue(soorten.containsAll(listOf("bericht-gewijzigd", "bericht-verwijderd")), "spec niet goed gelezen: $soorten")
 
-        // Een hartslag hoeft niets te doen.
-        val onverwerkt = (soorten - "hartslag").filterNot { box.contains("'$it'") }
+        // In de switch zelf, niet ergens in een comment of een andere functie. Een hartslag hoeft
+        // niets te doen.
+        val verwerking = functie("verwerkVolgEvent")
+        val onverwerkt = (soorten - "hartslag").filterNot { verwerking.contains("case '$it'") }
 
-        assertEquals(emptyList<String>(), onverwerkt, "berichtenbox.js verwerkt deze events niet")
+        assertEquals(emptyList<String>(), onverwerkt, "verwerkVolgEvent in berichtenbox.js verwerkt deze events niet")
+    }
+
+    @Test
+    fun `een event tijdens het laden van de lijst wordt na het laden opnieuw toegepast`() {
+        // Anders zet een antwoord van vóór de wijziging de oude toestand terug, zoals de spec van
+        // _volgen beschrijft.
+        assertTrue(functie("verwerkVolgEvent").contains("lopendeLezingen.forEach"), "events tijdens een lezing worden niet bewaard")
+        assertTrue(functie("laadLijst").contains("lopendeLezingen.add"), "laadLijst houdt de events tijdens de lezing niet bij")
+
+        val laden = functie("laadLijstMetEvents")
+
+        assertTrue(
+            laden.indexOf("tijdensLezing.forEach(pasVolgEventToe)") > laden.indexOf("alleBerichten = verzameld"),
+            "de bewaarde events gaan niet ná het vervangen van de lijst opnieuw over de lijst",
+        )
     }
 
     @Test
     fun `de berichtenbox volgt, en stopt daarmee bij het wisselen van persona`() {
         assertTrue(box.contains("'/berichten/_volgen'"), "de berichtenbox opent _volgen niet")
 
-        val wissel = box.substringAfter("function wisPersonaState()").substringBefore("\n}")
+        assertTrue(functie("wisPersonaState").contains("stopVolgen()"), "de stream van de vorige persona blijft open na een wissel")
+    }
 
-        assertTrue(wissel.contains("stopVolgen()"), "de stroom van de vorige persona blijft open na een wissel")
+    /** De body van een functie op het hoogste niveau van het script, tot de sluitaccolade aan het begin van een regel. */
+    private fun functie(naam: String): String {
+        val start = Regex("""(?m)^(async )?function $naam\(""").find(box)
+
+        assertTrue(start != null, "functie $naam niet gevonden in berichtenbox.js")
+
+        return box.substring(start!!.range.first).substringBefore("\n}")
     }
 
     /** De sleutels van de discriminator-mapping van `VolgEvent`. */

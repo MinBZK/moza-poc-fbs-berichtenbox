@@ -417,7 +417,25 @@ function volgendePad(lijst) {
   return href ? naarApiPad(href) : null;
 }
 
+// Events van _volgen die binnenkomen terwijl laadLijst() loopt. Het antwoord van die lezing kan van
+// vóór het event zijn en het dan ongedaan maken: een verwijderd bericht stond weer in de lijst. Elke
+// lopende lezing bewaart ze daarom en past ze na het vervangen van de lijst nog een keer toe; dat
+// mag, want ze zijn idempotent.
+const lopendeLezingen = new Set();
+
 async function laadLijst(opnieuwNaVerlopen = false) {
+  const tijdensLezing = [];
+
+  lopendeLezingen.add(tijdensLezing);
+
+  try {
+    await laadLijstMetEvents(opnieuwNaVerlopen, tijdensLezing);
+  } finally {
+    lopendeLezingen.delete(tijdensLezing);
+  }
+}
+
+async function laadLijstMetEvents(opnieuwNaVerlopen, tijdensLezing) {
   const verzameld = [];
   let pad = '/berichten';
   let paginas = 0;
@@ -473,6 +491,7 @@ async function laadLijst(opnieuwNaVerlopen = false) {
   }
 
   alleBerichten = verzameld;
+  tijdensLezing.forEach(pasVolgEventToe);
   herteken();
 
   if (afgebroken) meldOnvolledig(afgebroken);
@@ -482,80 +501,102 @@ async function laadLijst(opnieuwNaVerlopen = false) {
 
 // _volgen houdt de lijst bij terwijl het tabblad openstaat: nieuwe berichten, en wat een ander
 // tabblad van dezelfde persona markeert, verplaatst of verwijdert. Via fetch, net als _ophalen.
-// Eén stroom per tabblad, voor de gekozen persona.
-let volgStroom = null;
+// Eén stream per tabblad, voor de gekozen persona.
+let volgStream = null;
 
 const VOLG_HERVERBIND_MS = 5000;
+const VOLG_HERVERBIND_MAX_MS = 60000;
+
+const SESSIE_VERLOPEN_MELDING = 'Sessie verlopen — klik op Vernieuw of Ophalen om verder te gaan.';
 
 function stopVolgen() {
-  if (volgStroom) volgStroom.afbreker.abort();
+  if (volgStream) volgStream.afbreker.abort();
 
-  volgStroom = null;
+  volgStream = null;
 }
 
 function volg(ontvanger) {
-  if (volgStroom && volgStroom.ontvanger === ontvanger) return;
+  if (volgStream && volgStream.ontvanger === ontvanger) return;
 
   stopVolgen();
-  volgStroom = { ontvanger, afbreker: new AbortController(), eerste: true };
-  verbindVolgen(volgStroom);
+  volgStream = { ontvanger, afbreker: new AbortController(), eerste: true, mislukt: 0 };
+  verbindVolgen(volgStream);
 }
 
-async function verbindVolgen(stroom) {
-  const actief = () => volgStroom === stroom;
+// Stopt het volgen met een melding, voor wat opnieuw verbinden niet oplost.
+function stopVolgenMet(melding) {
+  volgStream = null;
+  toonVoortgang([melding]);
+}
+
+async function verbindVolgen(stream) {
+  const actief = () => volgStream === stream;
 
   // Zonder bewaarde sessie zou api() er een starten, en een herverbinding is geen activiteit van de
   // gebruiker.
-  if (!leesSessie(stroom.ontvanger)) {
-    volgStroom = null;
+  if (!leesSessie(stream.ontvanger)) {
+    volgStream = null;
 
     return;
   }
 
-  const respons = await api('/berichten/_volgen', { signal: stroom.afbreker.signal, headers: { Accept: 'text/event-stream' } }, stroom.ontvanger);
+  const respons = await api('/berichten/_volgen', { signal: stream.afbreker.signal, headers: { Accept: 'text/event-stream' } }, stream.ontvanger);
 
   if (!actief()) return;
 
-  // 401 (sessie weg) of 409 (niets opgehaald): niet vanzelf opnieuw. De volgende klik van de
-  // gebruiker start dan een sessie of een ophaalronde, en daarmee weer het volgen.
-  if (!respons.ok && respons.status !== 0 && respons.status !== 503) {
-    volgStroom = null;
+  // 401 (sessie weg) of 409 (niets opgehaald) lost opnieuw verbinden niet op. De volgende klik van
+  // de gebruiker start een sessie of een ophaalronde, en daarmee weer het volgen.
+  if (respons.status === 401) {
+    stopVolgenMet(SESSIE_VERLOPEN_MELDING);
 
     return;
   }
 
-  let wachtMs = VOLG_HERVERBIND_MS;
+  if (respons.status === 409) {
+    stopVolgenMet('Live bijwerken gestopt: er is nog niets opgehaald — klik op Ophalen.');
+
+    return;
+  }
 
   if (respons.ok) {
-    if ((await leesVolgStroom(respons, stroom)) === 'sessie-verlopen') {
-      if (actief()) {
-        volgStroom = null;
-        toonVoortgang(['Sessie verlopen — klik op Vernieuw of Ophalen om verder te gaan.']);
-      }
+    stream.mislukt = 0;
+
+    if ((await leesVolgStream(respons, stream)) === 'sessie-verlopen') {
+      if (actief()) stopVolgenMet(SESSIE_VERLOPEN_MELDING);
 
       return;
     }
   } else {
-    const seconden = respons.headers ? Number.parseInt(respons.headers.get('Retry-After'), 10) : NaN;
-
-    if (Number.isFinite(seconden) && seconden > 0) wachtMs = seconden * 1000;
+    stream.mislukt += 1;
   }
 
-  // Geëindigd zonder sessie-verlopen (maximale duur, herstart van de uitvraag, storing): opnieuw.
+  // Elke andere afloop (maximale duur, herstart van de uitvraag, netwerkfout, 5xx, 429): opnieuw.
+  // Alleen de eerste verbinding leest bij volgen-gestart de lijst; zie verwerkVolgEvent().
+  stream.eerste = false;
   setTimeout(() => {
-    if (actief()) verbindVolgen(stroom);
-  }, wachtMs);
+    if (actief()) verbindVolgen(stream);
+  }, herverbindWachttijd(respons, stream.mislukt));
+}
+
+// Na een normaal einde de vaste wachttijd; na elke mislukte poging op rij het dubbele, tot een
+// minuut, zodat een uitvraag die even weg is niet overspoeld wordt. Retry-After gaat voor.
+function herverbindWachttijd(respons, mislukt) {
+  const seconden = respons.headers ? Number.parseInt(respons.headers.get('Retry-After'), 10) : NaN;
+
+  if (Number.isFinite(seconden) && seconden > 0) return seconden * 1000;
+
+  return Math.min(VOLG_HERVERBIND_MS * 2 ** Math.max(mislukt - 1, 0), VOLG_HERVERBIND_MAX_MS);
 }
 
 // Geeft het laatste event terug, zodat de aanroeper weet of de sessie verliep.
-async function leesVolgStroom(respons, stroom) {
+async function leesVolgStream(respons, stream) {
   const lezer = respons.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let laatste = null;
 
   try {
-    while (volgStroom === stroom) {
+    while (volgStream === stream) {
       const { done, value } = await lezer.read();
 
       if (done) break;
@@ -569,11 +610,11 @@ async function leesVolgStroom(respons, stroom) {
 
         buffer = buffer.slice(scheiding + 2);
 
-        if (dataRegel && volgStroom === stroom) {
+        if (dataRegel && volgStream === stream) {
           const gebeurtenis = JSON.parse(dataRegel.slice(5).trim());
 
           laatste = gebeurtenis.event;
-          verwerkVolgEvent(gebeurtenis, stroom);
+          verwerkVolgEvent(gebeurtenis, stream);
         }
       }
     }
@@ -586,62 +627,71 @@ async function leesVolgStroom(respons, stroom) {
 
 const sleutelVan = (bericht) => `${bericht.magazijnId} ${bericht.berichtId}`;
 
-// Het eigen tabblad krijgt zijn eigen wijzigingen ook terug; elke tak hieronder geeft bij een
-// herhaling hetzelfde beeld. Een bericht is het paar van magazijn en berichtnummer.
-function verwerkVolgEvent(gebeurtenis, stroom) {
-  const sleutel = sleutelVan(gebeurtenis.bericht || gebeurtenis);
-
+function verwerkVolgEvent(gebeurtenis, stream) {
   switch (gebeurtenis.event) {
     case 'volgen-gestart':
       // Wat tussen het laden van de lijst en dit moment binnenkwam, staat alleen in de lijst. Na
       // een herverbinding niet opnieuw lezen: dat verlengt de sessie, en herverbinden is geen
       // activiteit van de gebruiker.
-      if (stroom.eerste) {
-        stroom.eerste = false;
+      if (stream.eerste) {
+        stream.eerste = false;
         laadLijst();
       }
 
       return;
 
     case 'bericht-bijgekomen':
-      if (!alleBerichten.some((bericht) => sleutelVan(bericht) === sleutel)) alleBerichten.push(gebeurtenis.bericht);
-
-      break;
-
-    case 'bericht-gewijzigd': {
-      const bericht = alleBerichten.find((kandidaat) => sleutelVan(kandidaat) === sleutel);
-
-      if (!bericht) return;
-
-      // De waarden van nu, geen verschil: een ontbrekende map is Postvak IN.
-      if (gebeurtenis.status) {
-        bericht.status = gebeurtenis.status;
-      } else {
-        delete bericht.status;
-      }
-
-      if (gebeurtenis.map) {
-        bericht.map = gebeurtenis.map;
-      } else {
-        delete bericht.map;
-      }
-
-      break;
-    }
-
+    case 'bericht-gewijzigd':
     case 'bericht-verwijderd':
-      alleBerichten = alleBerichten.filter((bericht) => sleutelVan(bericht) !== sleutel);
+      // Ook als het bericht nog niet in de lijst staat: de lijst die nu geladen wordt, kan het
+      // met de oude waarden brengen.
+      lopendeLezingen.forEach((tijdensLezing) => tijdensLezing.push(gebeurtenis));
+      pasVolgEventToe(gebeurtenis);
+      herteken(true);
 
-      if (el('detail').dataset.sleutel === sleutel) toon(el('detail'), false);
+      return;
 
-      break;
+    case 'sessie-verlopen':
+      // leesVolgStream() geeft het door; de aanroeper stopt het volgen en meldt het.
+      return;
 
     default:
-      // Hartslag, sessie-verlopen (afgehandeld door de aanroeper) en soorten die we niet kennen.
+      // Hartslag, en soorten die we niet kennen.
       return;
   }
+}
 
-  herteken(true);
+// Het eigen tabblad krijgt zijn eigen wijzigingen ook terug, en een event kan na het laden van de
+// lijst nog een keer langskomen; elke tak geeft bij een herhaling hetzelfde beeld. Een bericht is
+// het paar van magazijn en berichtnummer. Bij bericht-bijgekomen staat dat paar onder `bericht`,
+// bij de andere twee op het hoogste niveau.
+function pasVolgEventToe(gebeurtenis) {
+  const sleutel = sleutelVan(gebeurtenis.bericht || gebeurtenis);
+
+  if (gebeurtenis.event === 'bericht-bijgekomen') {
+    if (!alleBerichten.some((bericht) => sleutelVan(bericht) === sleutel)) alleBerichten.push(gebeurtenis.bericht);
+  } else if (gebeurtenis.event === 'bericht-gewijzigd') {
+    const bericht = alleBerichten.find((kandidaat) => sleutelVan(kandidaat) === sleutel);
+
+    if (!bericht) return;
+
+    // De waarden van nu, geen verschil: een ontbrekende map is Postvak IN.
+    if (gebeurtenis.status) {
+      bericht.status = gebeurtenis.status;
+    } else {
+      delete bericht.status;
+    }
+
+    if (gebeurtenis.map) {
+      bericht.map = gebeurtenis.map;
+    } else {
+      delete bericht.map;
+    }
+  } else if (gebeurtenis.event === 'bericht-verwijderd') {
+    alleBerichten = alleBerichten.filter((bericht) => sleutelVan(bericht) !== sleutel);
+
+    if (el('detail').dataset.sleutel === sleutel) toon(el('detail'), false);
+  }
 }
 
 // Naast wat de volledigheidsregel al over de organisaties zegt.
