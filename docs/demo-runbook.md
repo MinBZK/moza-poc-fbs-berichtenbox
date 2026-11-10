@@ -388,6 +388,18 @@ in *Bericht plaatsen*), de stroom, de storingen en of elk component zelf antwoor
 een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand staan en zegt dat.
 Na een refresh staat die stand er direct weer.
 
+De persona-tabel heeft, als deze omgeving bij de sessiecache kan, een kolom *Sessies*: het aantal
+lopende inlogsessies van die persona, bijgewerkt met de toestandsbalk. Onder een persona met
+sessies staat per sessie wanneer ze zonder activiteit verloopt en wanneer uiterlijk, met de knop
+*Beëindigen*, en daaronder *Alle sessies van deze persona beëindigen*. Beëindigen laat de sessie
+in Redis verlopen, net alsof de inactiviteit verstreken was: de berichtenbox van die sessie krijgt
+bij zijn volgende verzoek 401 (een open `_volgen`-stream bij de volgende hartslag
+`sessie-verlopen`) en start een nieuwe sessie. Was het de laatste sessie van de persona, dan ruimt
+de veegtaak van de uitvraag binnen een veegronde de gegevens op en legt dat vast in het logboek
+(aanleiding `verlopen`). Een sessie-id of -hash staat nergens in het paneel; de knop wijst de
+sessie aan met een verwijzing die de console zelf uitdeelt en die na een herstart van de console
+niets meer aanwijst. Een tweede klik meldt dat er niets meer te beëindigen was.
+
 **Tabblad Demo**
 - *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg,
   laadt de basisvulling opnieuw en wist als laatste de sessies; in één klik terug naar de
@@ -415,7 +427,7 @@ uit) en de omliggende diensten (Redis, profielservice, notificatie, uitvraag/aan
 een proxy die deze omgeving niet heeft, staan er niet: op ZAD krijgen de magazijnen hun gedrag uit
 de simulator.
 
-**Tabblad Scenario's** — *Cache verlopen* (wist de hele sessiecache: de inlogsessies, de berichtgegevens en de berichthashes. Een open `_volgen`-stream krijgt
+**Tabblad Scenario's** — *Cache verlopen* (wist de hele sessiecache: de inlogsessies, de berichtgegevens en de berichthashes, zonder regel in het logboek. De melding noemt hoeveel sessies er liepen en hoeveel keys er weg zijn; dat laatste getal hangt niet aan het aantal sessies, want alle sessies van een ontvanger staan in één sleutel. Selectief beëindigen, mét logboek, gaat via Info. Een open `_volgen`-stream krijgt
 bij de eerstvolgende hartslag `sessie-verlopen`; elk gewoon verzoek krijgt 401. De berichtenbox start bij de volgende actie een nieuwe sessie en haalt opnieuw op; een losse `GET /berichten` geeft 401 tot je een nieuwe sessie start), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
