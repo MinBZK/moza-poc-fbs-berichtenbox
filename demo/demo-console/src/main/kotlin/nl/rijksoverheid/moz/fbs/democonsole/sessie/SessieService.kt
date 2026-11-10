@@ -6,6 +6,16 @@ import java.util.logging.Level
 import java.util.logging.Logger
 
 /**
+ * `gewisteKeys` heeft twee lezers: `bediening.js` toont het aantal, en `demo/meet-fanout.sh` eist het
+ * als geheel getal voordat een ronde mag beginnen — een inlogmuur kan met 200 antwoorden, maar niet
+ * met dit veld. Hernoem of hertype je het, pas dan beide mee aan.
+ *
+ * `gewisteSessies` zijn de sessies die liepen toen alles gewist werd: gewist, niet beëindigd, want
+ * er volgt geen regel in het logboek. `null` als de telling mislukte; het wissen ging dan wel door.
+ */
+data class VerlopenSessiecache(val gewisteKeys: Int, val gewisteSessies: Int?)
+
+/**
  * Laat de sessiecache "verlopen" door alle keys onder `berichtensessiecache:` en alle berichthashes
  * te wissen: de berichtgegevens en de administratie van de inlogsessies. De hashes staan buiten dat
  * prefix en blijven anders achter als gegevens zonder sessie. Zonder die keys kent de uitvraag het
@@ -14,11 +24,27 @@ import java.util.logging.Logger
  * FLUSHDB/FT.DROPINDEX (die slopen de index).
  */
 @ApplicationScoped
-class SessieService(private val redis: RedisDataSource) {
+class SessieService(private val redis: RedisDataSource, private val beheer: SessieBeheer) {
 
     private val log = Logger.getLogger(SessieService::class.java.name)
 
-    fun laatSessiesVerlopen(): Int {
+    /**
+     * Telt eerst de lopende sessies: het aantal keys zegt daar niets over, want alle sessies van een
+     * ontvanger zijn leden van één sleutel. Na het wissen is er niets meer te tellen. De telling raakt
+     * meer van Redis dan het wissen (SCAN, en per ontvanger zijn sessies en plafonds); een fout daarin
+     * mag de knop niet laten mislukken.
+     */
+    fun laatSessiesVerlopen(): VerlopenSessiecache {
+        val lopend = runCatching { beheer.telLopende() }.getOrElse { fout ->
+            log.log(Level.WARNING, "lopende sessies niet geteld; de sessiecache wordt toch gewist", fout)
+
+            null
+        }
+
+        return VerlopenSessiecache(gewisteKeys = wis(), gewisteSessies = lopend)
+    }
+
+    private fun wis(): Int {
         val keys = PATRONEN.flatMap { redis.key().keys(it) }
 
         return if (keys.isEmpty()) 0 else redis.key().del(*keys.toTypedArray())
@@ -31,7 +57,7 @@ class SessieService(private val redis: RedisDataSource) {
      * een fout in plaats van een exception.
      */
     fun laatSessiesVerlopenZoMogelijk(): Int? =
-        runCatching { laatSessiesVerlopen() }.getOrElse { fout ->
+        runCatching { wis() }.getOrElse { fout ->
             log.log(Level.WARNING, "sessiecache niet gewist", fout)
 
             null
