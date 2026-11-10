@@ -15,7 +15,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * De vorm van een bericht op het aanmeldkanaal. Een nieuw bericht houdt de vorm van de vorige
  * versie: tijdens een rolling update lezen pods op die versie het kanaal nog, en zij kennen geen
- * soort. Een wijziging of verwijdering kunnen zij toch niet doorgeven.
+ * soort. Een wijziging of verwijdering lezen zij niet en slaan zij over als onleesbaar.
  */
 class AanmeldkanaalVormTest {
 

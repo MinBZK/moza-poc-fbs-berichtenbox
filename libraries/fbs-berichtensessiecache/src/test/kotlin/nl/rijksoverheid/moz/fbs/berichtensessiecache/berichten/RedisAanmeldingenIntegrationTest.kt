@@ -100,17 +100,19 @@ class RedisAanmeldingenIntegrationTest {
         assertEquals(vanB, ontvangen.poll(5, TimeUnit.SECONDS))
     }
 
-    @Test
-    fun `alleen de luisteraars van dezelfde sessie krijgen de aanmelding`() {
-        val eigen = LinkedBlockingQueue<BerichtSleutel>()
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Berichtwijziging::class)
+    internal fun `alleen de luisteraars van dezelfde sessie krijgen de melding`(wijziging: Berichtwijziging) {
+        val eigen = LinkedBlockingQueue<Pair<BerichtSleutel, Berichtwijziging>>()
         val vreemd = LinkedBlockingQueue<BerichtSleutel>()
-        anderePod.registreer(cacheKey, { sleutel, _ -> eigen += sleutel }, {}, {})
+        anderePod.registreer(cacheKey, { sleutel, soort -> eigen += sleutel to soort }, {}, {})
         anderePod.registreer("${cacheKey}x", { sleutel, _ -> vreemd += sleutel }, {}, {})
         anderePod.actief().await().atMost(WACHTTIJD)
+        val sleutel = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
 
-        aanmeldingen.meld(cacheKey, BerichtSleutel(MAGAZIJN, UUID.randomUUID()), Berichtwijziging.BIJGEKOMEN).await().atMost(WACHTTIJD)
+        aanmeldingen.meld(cacheKey, sleutel, wijziging).await().atMost(WACHTTIJD)
 
-        assertTrue(eigen.poll(5, TimeUnit.SECONDS) != null)
+        assertEquals(sleutel to wijziging, eigen.poll(5, TimeUnit.SECONDS))
         assertTrue(vreemd.isEmpty())
     }
 

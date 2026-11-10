@@ -12,6 +12,7 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -28,9 +29,14 @@ import java.util.concurrent.atomic.AtomicReference
  * (`magazijnId`, `berichtId`).
  *
  * Per stream gaan de meldingen één voor één door, in de volgorde waarin ze binnenkwamen. Een
- * bijwerking leest de huidige waarden uit de cache; zonder die volgorde kon een trage lezing van
- * de eerste van twee snelle bijwerkingen ná de tweede aankomen, en bleef het scherm op de oude
- * waarde staan.
+ * bijwerking leest de huidige waarden uit de cache, dus anders komt een trage lezing van de eerste
+ * van twee snelle bijwerkingen ná de tweede aan, en blijft het scherm op de oude waarde staan. Een
+ * lezing die niet binnen `berichtensessiecache.volg-lees-timeout` antwoordt, breekt de stream af:
+ * de Redis-client begrenst een reactief commando zelf niet, en één hangende lezing zou anders alle
+ * latere meldingen van die stream ophouden terwijl de hartslag gewoon doorloopt.
+ *
+ * Volgt een verwijdering snel op een bijwerking, dan kan de lezing voor die bijwerking het bericht
+ * al kwijt zijn; de bijwerking valt dan weg, de verwijdering komt wel door.
  *
  * `@Startup` zodat een verkeerd ingestelde hartslag de pod bij het opstarten tegenhoudt en niet
  * pas bij de eerste bezoeker.
@@ -49,6 +55,9 @@ internal class SessieVolger(
     // half-open connection achter een proxy) geen luisteraar en hartslag eindeloos vasthoudt.
     @param:ConfigProperty(name = "berichtensessiecache.volg-max-duur", defaultValue = "PT1H")
     private val maxDuur: Duration,
+    // Gelijk aan de standaardtimeout van de facade: een lezing per melding, net als een GET.
+    @param:ConfigProperty(name = "berichtensessiecache.volg-lees-timeout", defaultValue = "PT5S")
+    private val leesTimeout: Duration,
 ) {
     private val log = Logger.getLogger(SessieVolger::class.java)
 
@@ -59,6 +68,10 @@ internal class SessieVolger(
 
         require(maxDuur > hartslag) {
             "berichtensessiecache.volg-max-duur ($maxDuur) moet groter zijn dan berichtensessiecache.volg-hartslag ($hartslag)"
+        }
+
+        require(leesTimeout.isPositive) {
+            "berichtensessiecache.volg-lees-timeout ($leesTimeout) moet groter zijn dan 0"
         }
     }
 
@@ -91,9 +104,10 @@ internal class SessieVolger(
                         emitter.fail(fout)
                     },
                 )
+
             val afmelding = aanmeldingen.registreer(
                 cacheKey,
-                opBericht = { sleutel, wijziging -> invoer.onNext(sleutel to wijziging) },
+                opMelding ={ sleutel, wijziging -> invoer.onNext(sleutel to wijziging) },
                 opStoring = emitter::fail,
                 // Een stoppende pod is geen storing: zelfde einde als na de maximale duur.
                 opEinde = emitter::complete,
@@ -154,8 +168,12 @@ internal class SessieVolger(
      * Leest een nieuw of bijgewerkt bericht uit de cache in plaats van het mee te sturen over het
      * kanaal: zo gaat er geen berichtgegeven over pub/sub, en controleert [BerichtenCache.getById]
      * meteen dat het van deze ontvanger is. Een leesfout breekt de stream af; de afnemer verbindt
-     * opnieuw en leest de lijst, zodat het bericht alsnog klopt. Een verwijdering heeft niets te
-     * lezen: alleen de sleutel gaat door.
+     * opnieuw en leest de lijst, zodat het bericht alsnog klopt.
+     *
+     * Een verwijdering heeft niets te lezen en controleert dus geen eigenaar: alleen de sleutel gaat
+     * door. Dat is veilig omdat de luisteraars gekozen worden op de cacheKey van de eigen ontvanger,
+     * en alleen een geslaagde verwijdering door die ontvanger meldt; de sleutel (OIN en berichtnummer)
+     * verraadt verder niets over het bericht.
      *
      * Geeft de cache niets terug, dan staat het bericht er niet (meer): de melding wordt
      * overgeslagen en de lijst blijft de waarheid. `null` laat de doorgifte het item overslaan.
@@ -169,18 +187,21 @@ internal class SessieVolger(
             return Uni.createFrom().item(SessieGebeurtenis.BerichtVerwijderd(sleutel.magazijnId, sleutel.berichtId))
         }
 
-        return berichtenCache.getById(sleutel, ontvanger).map { bericht ->
-            when {
-                bericht == null -> {
-                    // De sleutel is geen persoonsgegeven; dit spoor verbindt een gemist bericht
-                    // op het scherm met een hash die eerder verliep dan zijn lijst-entry.
-                    log.debugf("Gemeld bericht %s niet in de cache; overgeslagen", sleutel)
-                    null
+        return berichtenCache.getById(sleutel, ontvanger)
+            .ifNoItem().after(leesTimeout)
+            .failWith { TimeoutException("lezing van een gemeld bericht kwam niet terug binnen $leesTimeout") }
+            .map { bericht ->
+                when {
+                    bericht == null -> {
+                        // De sleutel is geen persoonsgegeven; dit spoor verbindt een gemist bericht
+                        // op het scherm met een hash die eerder verliep dan zijn lijst-entry.
+                        log.debugf("Gemeld bericht %s niet in de cache; overgeslagen", sleutel)
+                        null
+                    }
+                    wijziging == Berichtwijziging.BIJGEKOMEN -> SessieGebeurtenis.BerichtBijgekomen(bericht)
+                    else -> SessieGebeurtenis.BerichtGewijzigd(bericht.magazijnId, bericht.berichtId, bericht.status, bericht.map)
                 }
-                wijziging == Berichtwijziging.BIJGEKOMEN -> SessieGebeurtenis.BerichtBijgekomen(bericht)
-                else -> SessieGebeurtenis.BerichtGewijzigd(bericht.magazijnId, bericht.berichtId, bericht.status, bericht.map)
             }
-        }
     }
 
     private fun beeindig(emitter: MultiEmitter<in SessieGebeurtenis>) {

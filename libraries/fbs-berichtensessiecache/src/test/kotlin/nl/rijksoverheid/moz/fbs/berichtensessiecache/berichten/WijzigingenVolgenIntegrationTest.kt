@@ -43,7 +43,7 @@ class WijzigingenVolgenIntegrationTest {
     private val anderePod by lazy { RedisAanmeldingen(redis, Duration.ofSeconds(30)) }
 
     private val volgerOpAnderePod by lazy {
-        SessieVolger(berichtenCache, anderePod, sessies, Duration.ofSeconds(30), Duration.ofMinutes(1))
+        SessieVolger(berichtenCache, anderePod, sessies, Duration.ofSeconds(30), Duration.ofMinutes(1), Duration.ofSeconds(5))
     }
 
     // Uniek per test: de Redis-container wordt gedeeld tussen de tests van dit profiel.
@@ -70,6 +70,13 @@ class WijzigingenVolgenIntegrationTest {
         listOf(hier, daar, anders).forEach { stream -> wachtTot("VolgenGestart") { SessieGebeurtenis.VolgenGestart in stream.items } }
 
         sessiecache.werkBerichtBij(ontvanger, MAGAZIJN, bericht.berichtId, Leesstatus.GELEZEN, "Belasting")
+
+        // Eerst de bijwerking laten aankomen: elke volger leest het bericht pas bij het doorgeven, en
+        // een verwijdering die daarvoor valt, laat de bijwerking terecht wegvallen.
+        listOf(hier, daar).forEach { stream ->
+            wachtTot("BerichtGewijzigd") { stream.items.any { it is SessieGebeurtenis.BerichtGewijzigd } }
+        }
+
         sessiecache.verwijder(ontvanger, MAGAZIJN, bericht.berichtId)
 
         val verwacht = listOf(
@@ -87,6 +94,27 @@ class WijzigingenVolgenIntegrationTest {
         assertEquals(listOf(SessieGebeurtenis.VolgenGestart), anders.items.filterNot { it == SessieGebeurtenis.Hartslag })
 
         listOf(hier, daar, anders).forEach { it.cancel() }
+    }
+
+    @Test
+    fun `een verwijdering van een bericht dat al weg was, komt toch door`() {
+        // Twee tabbladen verwijderen tegelijk: wie als tweede komt, vindt niets meer, maar de
+        // melding verandert niets aan wat de berichtenboxen tonen en mag dus gewoon gaan.
+        val tabblad = sessiecache.startSessie(ontvanger).sessieId
+        zetGereed(ontvanger)
+        val nooitGeweest = UUID.randomUUID()
+        val daar = volgerOpAnderePod.volg(ontvanger, tabblad).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
+        wachtTot("VolgenGestart") { SessieGebeurtenis.VolgenGestart in daar.items }
+
+        sessiecache.verwijder(ontvanger, MAGAZIJN, nooitGeweest)
+
+        wachtTot("BerichtVerwijderd") { daar.items.any { it is SessieGebeurtenis.BerichtVerwijderd } }
+        assertEquals(
+            listOf(SessieGebeurtenis.VolgenGestart, SessieGebeurtenis.BerichtVerwijderd(MAGAZIJN, nooitGeweest)),
+            daar.items.filterNot { it == SessieGebeurtenis.Hartslag },
+        )
+
+        daar.cancel()
     }
 
     // Na de start: een start zonder andere lopende sessie ruimt eerst de resten op, ook deze status.

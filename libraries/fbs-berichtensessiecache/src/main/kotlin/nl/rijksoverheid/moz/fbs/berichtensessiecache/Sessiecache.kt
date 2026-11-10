@@ -101,8 +101,8 @@ interface Sessiecache {
      * niet bestaat of niet van [ontvanger] is.
      *
      * Na een geslaagde bijwerking krijgt elke gevolgde sessie van [ontvanger], ook de eigen,
-     * [nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis.BerichtGewijzigd]. Dat
-     * doorgeven is best-effort: lukt het niet, dan slaagt de bijwerking toch.
+     * [SessieGebeurtenis.BerichtGewijzigd]. Dat doorgeven is best-effort: lukt het niet, dan
+     * slaagt de bijwerking toch.
      */
     fun werkBerichtBij(
         ontvanger: Identificatienummer,
@@ -115,8 +115,7 @@ interface Sessiecache {
     /**
      * Idempotente cache-invalidate: "niet in cache" is geen fout (het opruimen na de laatste
      * sessie wiste de lijst al, of een andere instance heeft de dual-write-invalidate al uitgevoerd).
-     * Daarna krijgt elke gevolgde sessie van [ontvanger]
-     * [nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis.BerichtVerwijderd],
+     * Daarna krijgt elke gevolgde sessie van [ontvanger] [SessieGebeurtenis.BerichtVerwijderd],
      * best-effort zoals bij [werkBerichtBij].
      */
     fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID)
@@ -145,10 +144,10 @@ interface Sessiecache {
     fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht
 
     /**
-     * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat: elk bericht
-     * dat via [schrijfBericht] binnenkomt, en elke bijwerking of verwijdering via [werkBerichtBij] en
-     * [verwijder] — op welke pod ook — komt als gebeurtenis door, en een
-     * periodieke hartslag controleert of de sessie nog loopt (zie [leesSessie]). Eindigt de sessie,
+     * Volgt de inlogsessie [sessieId] van [ontvanger] terwijl de berichtenbox openstaat. Elk bericht
+     * dat via [schrijfBericht] binnenkomt, en elke bijwerking of verwijdering via [werkBerichtBij] of
+     * [verwijder], komt als gebeurtenis door, op welke pod het ook gebeurde. Een periodieke
+     * hartslag controleert of de sessie nog loopt (zie [leesSessie]). Eindigt de sessie,
      * uitgelogd of verlopen, dan meldt de stream [SessieGebeurtenis.SessieVerlopen] en sluit.
      * Zie [SessieGebeurtenis] voor het verloop.
      *

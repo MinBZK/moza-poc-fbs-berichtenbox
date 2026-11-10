@@ -273,6 +273,7 @@ class BlockingSessiecacheTest {
         assertNull(facade.werkBerichtBij(ontvanger, magazijnId, UUID.randomUUID(), Leesstatus.GELEZEN, null))
 
         verify(exactly = 0) { service.updateBerichtMetadata(any(), ontvanger, any(), any()) }
+        verify(exactly = 0) { volger.meld(ontvanger, any(), any()) }
     }
 
     @ParameterizedTest(name = "magazijnId=\"{0}\"")
@@ -281,6 +282,7 @@ class BlockingSessiecacheTest {
         facade.verwijder(ontvanger, magazijnId, UUID.randomUUID())
 
         verify(exactly = 0) { service.verwijderBericht(any(), ontvanger) }
+        verify(exactly = 0) { volger.meld(ontvanger, any(), any()) }
     }
 
     @ParameterizedTest(name = "magazijnId=\"{0}\"")
@@ -384,6 +386,11 @@ class BlockingSessiecacheTest {
 
         facade.werkBerichtBij(ontvanger, MAGAZIJN, bijgewerkt.berichtId, status?.let(Leesstatus::fromWire), map)
 
+        // Pas ná de schrijfactie: een eerdere melding laat de volger de oude waarden lezen.
+        verifyOrder {
+            service.updateBerichtMetadata(bijgewerkt.sleutel, ontvanger, status, map)
+            volger.meld(ontvanger, bijgewerkt.sleutel, Berichtwijziging.GEWIJZIGD)
+        }
         verify(exactly = 1) { volger.meld(ontvanger, bijgewerkt.sleutel, Berichtwijziging.GEWIJZIGD) }
     }
 
@@ -416,6 +423,10 @@ class BlockingSessiecacheTest {
 
         facade.verwijder(ontvanger, MAGAZIJN, sleutel.berichtId)
 
+        verifyOrder {
+            service.verwijderBericht(sleutel, ontvanger)
+            volger.meld(ontvanger, sleutel, Berichtwijziging.VERWIJDERD)
+        }
         verify(exactly = 1) { volger.meld(ontvanger, sleutel, Berichtwijziging.VERWIJDERD) }
     }
 

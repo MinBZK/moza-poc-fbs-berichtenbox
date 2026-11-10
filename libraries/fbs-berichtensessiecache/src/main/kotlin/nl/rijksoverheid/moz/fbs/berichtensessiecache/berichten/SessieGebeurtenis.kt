@@ -14,7 +14,11 @@ import java.util.UUID
  *
  * [BerichtGewijzigd] en [BerichtVerwijderd] komen bij elke gevolgde sessie van de ontvanger, ook
  * bij die waaruit de wijziging kwam; de afnemer verwerkt ze dus idempotent. Ze komen in de
- * volgorde waarin ze op deze pod binnenkwamen.
+ * volgorde waarin ze op deze pod binnenkwamen, en dragen de waarden van het moment van doorgeven:
+ * het laatste over een bericht geeft de eindtoestand. Voor hen volstaat ontdubbelen niet. Komt er
+ * een binnen terwijl de afnemer de lijst leest, dan kan het antwoord van die lezing van vóór de
+ * wijziging zijn en haar ongedaan maken. De afnemer past zo'n gebeurtenis daarom na het vervangen
+ * van de lijst nog een keer toe; dat mag, omdat ze idempotent zijn.
  *
  * Uitzonderingen op dat verloop. Blijkt de sessie bij het starten al weg, dan is
  * [SessieVerlopen] het enige item. Na `berichtensessiecache.volg-max-duur`, of als de pod stopt,
@@ -41,7 +45,11 @@ sealed interface SessieGebeurtenis {
         val map: String?,
     ) : SessieGebeurtenis
 
-    /** Een bericht staat niet meer in de lijst, ook als de berichtenbox die deze stream volgt het verwijderde. */
+    /**
+     * Een bericht staat niet meer in de lijst, ook als de berichtenbox die deze stream volgt het
+     * verwijderde. Meestal is het verwijderd; na een mislukte bijwerking haalt de dienst het ook
+     * uit de cache, en dan brengt een volgende ophaalronde het terug.
+     */
     data class BerichtVerwijderd(val magazijnId: String, val berichtId: UUID) : SessieGebeurtenis
 
     /** De sessie loopt nog; houdt ook tussenliggende proxies wakker. Verlengt de sessie niet. */

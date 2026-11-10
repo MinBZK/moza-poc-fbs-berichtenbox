@@ -19,10 +19,12 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Brengt een aanmelding van de pod die hem verwerkte naar elke pod waar die sessie gevolgd wordt.
- * Een aanmelding en de open berichtenbox van dezelfde ontvanger landen niet op dezelfde pod, dus
- * een lokale seintjeslijst volstaat niet. Hetzelfde geldt voor het bijwerken en verwijderen van
- * een bericht: dat gebeurt in het ene tabblad en hoort in alle andere zichtbaar te worden.
+ * Brengt een melding over een bericht (aangemeld, bijgewerkt of verwijderd) van de pod die hem
+ * verwerkte naar elke pod waar die sessie gevolgd wordt. Een aanmelding en de open berichtenbox
+ * van dezelfde ontvanger landen niet op dezelfde pod, dus een lokale seintjeslijst volstaat niet.
+ * Hetzelfde geldt voor het bijwerken en verwijderen: dat gebeurt in het ene tabblad en hoort in
+ * alle andere zichtbaar te worden. De naam en het kanaal stammen uit de tijd van alleen
+ * aanmeldingen; het kanaal hernoemen kost een nieuwe sleutelversie.
  */
 internal interface Aanmeldingen {
 
@@ -30,14 +32,14 @@ internal interface Aanmeldingen {
     fun meld(cacheKey: String, sleutel: BerichtSleutel, wijziging: Berichtwijziging): Uni<Void>
 
     /**
-     * Registreert een luisteraar voor de sessie onder [cacheKey], direct en synchroon. Berichten
+     * Registreert een luisteraar voor de sessie onder [cacheKey], direct en synchroon. Meldingen
      * komen pas door zodra [actief] geslaagd is. [opStoring] valt wanneer het doorgeven zelf
      * wegvalt; [opEinde] wanneer deze pod stopt. In beide gevallen komt wat daarna wordt aangemeld
      * hier niet meer door. Is de pod al gestopt, dan valt [opEinde] meteen, binnen deze aanroep.
      */
     fun registreer(
         cacheKey: String,
-        opBericht: (BerichtSleutel, Berichtwijziging) -> Unit,
+        opMelding: (BerichtSleutel, Berichtwijziging) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Afmelding
@@ -114,16 +116,16 @@ internal class RedisAanmeldingen(
     override fun meld(cacheKey: String, sleutel: BerichtSleutel, wijziging: Berichtwijziging): Uni<Void> {
         val basis = "$cacheKey$SCHEIDING${sleutel.berichtId}$SCHEIDING${sleutel.magazijnId}"
 
-        return publiceer(kanaalsoort(wijziging)?.let { "$basis$SCHEIDING$it" } ?: basis)
+        return publiceer(wijziging.kanaalsoort?.let { "$basis$SCHEIDING$it" } ?: basis)
     }
 
     override fun registreer(
         cacheKey: String,
-        opBericht: (BerichtSleutel, Berichtwijziging) -> Unit,
+        opMelding: (BerichtSleutel, Berichtwijziging) -> Unit,
         opStoring: (Throwable) -> Unit,
         opEinde: () -> Unit,
     ): Aanmeldingen.Afmelding {
-        val luisteraar = Luisteraar(opBericht, opStoring, opEinde)
+        val luisteraar = Luisteraar(opMelding, opStoring, opEinde)
 
         // Toevoegen binnen `compute`, niet op wat `computeIfAbsent` teruggeeft: dan kan het afmelden
         // van de laatste andere luisteraar de set er net tussenuit halen, en belandt deze in een set
@@ -207,8 +209,14 @@ internal class RedisAanmeldingen(
 
     private fun publiceerProbe(probe: UUID): Uni<Void> = publiceer("$PROBE$SCHEIDING$probe")
 
-    // `internal` zodat een test de verdeling onder gelijktijdig registreren en afmelden kan toetsen
-    // zonder een Redis-bericht te hoeven afwachten.
+    /**
+     * Geeft een kanaalbericht door aan de luisteraars van zijn sessie, voor elke soort melding:
+     * drie delen is een aanmelding in de vorm van de vorige versie, vier delen een melding met een
+     * [Berichtwijziging.kanaalsoort]. Al het andere is onleesbaar.
+     *
+     * `internal` zodat een test de verdeling onder gelijktijdig registreren en afmelden kan toetsen
+     * zonder een Redis-bericht te hoeven afwachten.
+     */
     internal fun verdeel(bericht: String) {
         val delen = bericht.split(SCHEIDING)
         val sessie = delen[0]
@@ -242,9 +250,9 @@ internal class RedisAanmeldingen(
         // ontvanger het bericht toch.
         luisteraars[sessie]?.forEach { luisteraar ->
             try {
-                luisteraar.opBericht(sleutel, wijziging)
+                luisteraar.opMelding(sleutel, wijziging)
             } catch (fout: RuntimeException) {
-                log.warnf(fout, "Aanmelding niet aan een gevolgde sessie doorgegeven; de andere gaan door")
+                log.warnf(fout, "Melding niet aan een gevolgde sessie doorgegeven; de andere gaan door")
             }
         }
     }
@@ -387,7 +395,7 @@ internal class RedisAanmeldingen(
         }
     }
 
-    private class Luisteraar(val opBericht: (BerichtSleutel, Berichtwijziging) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
+    private class Luisteraar(val opMelding: (BerichtSleutel, Berichtwijziging) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 
     companion object {
         // Zelfde versie als de cache-keys: de cacheKey in het bericht heeft die vorm. Sinds v4
@@ -395,15 +403,8 @@ internal class RedisAanmeldingen(
         const val KANAAL = "berichtensessiecache:v4:aanmeldingen"
         private const val SCHEIDING = ' '
 
-        // Alleen wat een pod op de vorige versie niet kende, krijgt een soort op het kanaal.
-        private fun kanaalsoort(wijziging: Berichtwijziging): String? = when (wijziging) {
-            Berichtwijziging.BIJGEKOMEN -> null
-            Berichtwijziging.GEWIJZIGD -> "gewijzigd"
-            Berichtwijziging.VERWIJDERD -> "verwijderd"
-        }
-
         private val KANAALSOORTEN: Map<String, Berichtwijziging> =
-            Berichtwijziging.entries.mapNotNull { wijziging -> kanaalsoort(wijziging)?.let { it to wijziging } }.toMap()
+            Berichtwijziging.entries.mapNotNull { wijziging -> wijziging.kanaalsoort?.let { it to wijziging } }.toMap()
 
         // Kan nooit een cacheKey zijn: die begint met `berichtensessiecache:`.
         private const val PROBE = "probe"
