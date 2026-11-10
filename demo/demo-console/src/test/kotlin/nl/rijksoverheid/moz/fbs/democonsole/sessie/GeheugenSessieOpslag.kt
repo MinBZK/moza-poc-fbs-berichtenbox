@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentHashMap
  * De sessie-administratie in het geheugen, met dezelfde betekenis als in Redis: per sessie-ZSET de
  * leden met hun verloop, per plafond-HASH het plafond, en de verloopindex. [laatVerlopen] doet wat
  * het Lua-script in [RedisSessieOpslag] doet, zodat de tests van [SessieBeheer] de uitkomst kunnen
- * nalopen en niet alleen de aanroep.
+ * nalopen en niet alleen de aanroep. Het script zelf draait in [LaatVerlopenRedisTest].
  */
 class GeheugenSessieOpslag : SessieOpslag {
 

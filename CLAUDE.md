@@ -153,7 +153,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl libraries/fbs-common -am                   # Tests fbs-common (pure JVM)
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
-./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (pure JVM + één @QuarkusTest)
+./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (Docker vereist voor één Redis-test)
 ./mvnw clean test -pl demo/demo-personas -am                     # Tests personadienst (pure JVM + één @QuarkusTest)
 ./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
@@ -233,7 +233,7 @@ Wat je hoe dan ook moet weten:
 | `libraries/fbs-common/`                | Gedeeld cross-cutting: JAX-RS filters, exception mappers, `profiel/` (Profiel-serviceclient, voorkeuren, toestemming), `fsc/` (outway-headers, outbound-TLS) en de LDV-validators |
 | `demo/`                                | Demonstratiecode: modules, FSC-harness, stubgenerator — nooit productie (`demo/README.md`) |
 | `demo/demo-personas/`                  | De demo-identiteiten als eigen dienst (`GET /api/demo/personas`); apart van het paneel zodat een berichtenbox de lijst kan lezen zonder bij de knoppen te kunnen |
-| `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests plus één `@QuarkusTest` zonder Docker) |
+| `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests en `@QuarkusTest`s zonder Docker, plus één test die het eigen Lua-script tegen een echte Redis draait: Docker vereist) |
 | `demo/magazijn-simulator/`             | Eén service die zich als veel magazijnen voordoet, per pad-prefix `/magazijn/<OIN>`. Genereert uit `berichtenmagazijn-api.yaml` van het echte magazijn — die koppeling is een pad-verwijzing (`api.spec.file`) en staat niet in de reactor-graaf |
 | `demo/up.sh`, `demo/smoke.sh`   | De demo-stack draaien op Docker of podman (`up`/`down`/`ps`/`compose`) en er een rookproef overheen halen. De modus-keuze (docker, bridge, hostnet) staat in `demo/lib/podman-modus.sh` en wordt gedeeld met `demo/environment/<peer>/deploy/local/up.sh` |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |

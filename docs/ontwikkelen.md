@@ -31,7 +31,7 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-kern -am                  # pure JVM
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
-./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker
+./mvnw clean test -pl demo/demo-console -am                   # Docker vereist voor één Redis-test (Testcontainers)
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
 ./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
@@ -41,7 +41,10 @@ ongewijzigde code.
 ```
 
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
-(Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten.
+(Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten. De demo-console
+start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij wijst
+`quarkus.redis.hosts` altijd zelf aan, en dan start Quarkus geen Dev Service. Zijn andere tests
+draaien zonder Docker.
 
 ## Kwaliteitsgates
 
