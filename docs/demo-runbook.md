@@ -388,6 +388,21 @@ in *Bericht plaatsen*), de stroom, de storingen en of elk component zelf antwoor
 een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand staan en zegt dat.
 Na een refresh staat die stand er direct weer.
 
+De persona-tabel heeft, als deze omgeving bij de sessiecache kan, een kolom *Sessies*: het aantal
+lopende inlogsessies van die persona, bijgewerkt met de toestandsbalk. Het pijltje achter het
+aantal klapt de sessies van die persona open: per sessie wanneer ze zonder activiteit verloopt en
+wanneer uiterlijk, met de knop *Beëindigen*, en daaronder *Alle sessies van deze persona
+beëindigen*. Een opengeklapte persona blijft open als de tabel ververst. Beëindigen laat de sessie
+in Redis verlopen, net alsof de inactiviteit verstreken was: de berichtenbox van die sessie krijgt
+bij zijn volgende verzoek 401 (een open `_volgen`-stream bij de volgende hartslag
+`sessie-verlopen`) en start een nieuwe sessie. Was het de laatste sessie van de persona, dan ruimt
+de uitvraag de gegevens op en legt dat vast in het logboek. Meestal doet de veegtaak dat binnen een
+veegronde (aanleiding `verlopen`); start de berichtenbox vóór die ronde al een nieuwe sessie, dan
+neemt die start het over (aanleiding `nieuwe-start`). Dat de console het einde veroorzaakte, staat
+niet in het logboek. Een sessie-id of -hash staat nergens in het paneel; de knop wijst de
+sessie aan met een verwijzing die de console zelf uitdeelt en die na een herstart van de console
+niets meer aanwijst. Een tweede klik meldt dat er niets meer te beëindigen was.
+
 **Tabblad Demo**
 - *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg,
   laadt de basisvulling opnieuw en wist als laatste de sessies; in één klik terug naar de
@@ -415,7 +430,7 @@ uit) en de omliggende diensten (Redis, profielservice, notificatie, uitvraag/aan
 een proxy die deze omgeving niet heeft, staan er niet: op ZAD krijgen de magazijnen hun gedrag uit
 de simulator.
 
-**Tabblad Scenario's** — *Cache verlopen* (wist de hele sessiecache: de inlogsessies, de berichtgegevens en de berichthashes. Een open `_volgen`-stream krijgt
+**Tabblad Scenario's** — *Cache verlopen* (wist de hele sessiecache: de inlogsessies, de berichtgegevens en de berichthashes, zonder regel in het logboek. De melding noemt hoeveel lopende sessies en hoeveel keys er gewist zijn; dat laatste getal hangt niet aan het aantal sessies, want alle sessies van een ontvanger staan in één sleutel. Selectief beëindigen, mét logboek, gaat via Info. Een open `_volgen`-stream krijgt
 bij de eerstvolgende hartslag `sessie-verlopen`; elk gewoon verzoek krijgt 401. De berichtenbox start bij de volgende actie een nieuwe sessie en haalt opnieuw op; een losse `GET /berichten` geeft 401 tot je een nieuwe sessie start), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
@@ -463,6 +478,11 @@ De cache-verval-knop en de vier storingsknoppen (profiel, notificatie, aanmeld, 
 `test` en op een preview. Ze praten cluster-intern met een ander project, en zo'n netwerkregel noemt
 op ZAD altijd één vaste deployment — daarom schrijven `deploy.yml` en `cleanup-preview.yml` ze per
 preview bij en weer weg.
+
+De Redis-knop op `test` legt de uitvraag echt plat, en het statusdashboard meldt dat in het
+gezamenlijke Mattermost-kanaal. Het paneel kondigt dat daar vooraf aan als **FBS Demo**, en ook het
+opheffen; je hoeft collega's dus niet zelf te waarschuwen. Een vergeten reset blijft wel elk kwartier
+een herinnering opleveren. Zie `docs/operations/statusdashboard.md`.
 
 Eén verschil met lokaal: op ZAD staat elke stroom achter zijn eigen Toxiproxy, dus "alles uit" vraagt
 vier knoppen in plaats van één instantie. "Alles normaal (reset)" gaat ze wél alle vier langs.
