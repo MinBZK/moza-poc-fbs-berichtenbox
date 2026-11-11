@@ -21,15 +21,42 @@ publicatie_lees() {
   echo "$versie $hash"
 }
 
-# Soort fout uit de uitvoer van functl: geen-listing, niet-ingelogd of onbekend. Na een nieuwe
+# De plugin-id uit dezelfde regel: `funops plugin approve` vraagt hem.
+publicatie_plugin_id() {
+  grep -E '^published plugin=' <<<"$1" | tail -1 | sed -nE 's/.* id=([0-9a-f-]{36})( .*|$)/\1/p' | grep . || return 1
+}
+
+# De versie uit de melding van functl dat een versie al bestaat (versies zijn create-only).
+bestaande_versie() {
+  sed -nE 's/.*already_exists: version "([^"]+)" already exists.*/\1/p' <<<"$1" | grep . || return 1
+}
+
+# "<status> <plugin-id>" van een versie van een first-party plug-in, uit `funops plugin list
+# --status all -o json`. Alleen de organisatie system: een andere organisatie mag dezelfde naam
+# gebruiken.
+versie_uit_catalogus() {
+  local catalogus=$1 plugin=$2 versie=$3
+
+  jq -er --arg p "$plugin" --arg v "$versie" \
+    'first(.[] | select(.organization == "system" and .plugin == $p and .version == $v)) | "\(.status) \(.plugin_id)"' \
+    <<<"$catalogus" 2>/dev/null || return 1
+}
+
+# Soort fout uit de uitvoer van functl: geen-listing, bestaat-al, niet-ingelogd of onbekend. Na een nieuwe
 # uitrol van het platform zijn de API-keys weg; dat moet als "maak een nieuwe key" bij de gebruiker
 # aankomen en niet als een kale RPC-fout.
 functl_fout_soort() {
   case "$1" in
     *"no listing named"*) echo geen-listing ;;
-    *unauthenticated* | *401*) echo niet-ingelogd ;;
+    *already_exists*) echo bestaat-al ;;
+    *unauthenticated* | *"not authenticated"* | *401*) echo niet-ingelogd ;;
     *) echo onbekend ;;
   esac
+}
+
+# De key uit het antwoord van CreateAPIKey (Connect, JSON). Een Connect-fout heeft geen token.
+api_key_uit_antwoord() {
+  jq -er '.token | select(type == "string" and length > 0)' <<<"$1" 2>/dev/null || return 1
 }
 
 # Slaagt als een PluginInstallation (JSON van kubectl) draait en gereed is.
@@ -72,7 +99,9 @@ readonly SANDBOX_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000001
 readonly SANDBOX_PROJECT_ID=019b4000-9000-7000-8000-000000000001
 readonly SANDBOX_NAMESPACE_ID=019b4000-a000-7000-8000-000000000001
 
-# Een PluginInstallation van een first-party plug-in (organisatie system).
+# Een PluginInstallation van een first-party plug-in (organisatie system). Zonder hash is de
+# installatie niet gepind; dat staat alleen de sandbox toe (allowUnpinnedHash), en het script doet
+# het alleen voor een versie die al eerder gepubliceerd was en waarvan de hash niet meer te lezen is.
 manifest_plugininstallatie() {
   local plugin=$1 versie=$2 hash=$3
 
@@ -86,8 +115,9 @@ spec:
     organizationName: system
     pluginName: $plugin
     pluginVersion: "$versie"
-    definitionHash: "$hash"
 EOF
+
+  [ -z "$hash" ] || echo "    definitionHash: \"$hash\""
 }
 
 # Een namespace zoals de console hem maakt (tnt-<project>--<naam>), met de labels en de LimitRange

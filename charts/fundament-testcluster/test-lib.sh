@@ -14,7 +14,7 @@ readonly LIB="$HIER/lib.sh"
 # De bestanden waarin elke kubectl- en helm-aanroep via de wrappers met een vaste context moet
 # lopen. Een bestand dat ontbreekt telt als fout: een hernoeming mag deze controle niet stil
 # uitschakelen.
-GECONTROLEERDE_SCRIPTS=("$LIB")
+GECONTROLEERDE_SCRIPTS=("$LIB" "$HIER/../fundament-testcluster.sh")
 
 asserties=0
 mislukt=0
@@ -80,13 +80,50 @@ gelijk "hash van 63 tekens: exit 1" 1 \
   "$(code_van publicatie_lees "published plugin=x version=v1 hash=sha256:$(printf 'a%.0s' $(seq 1 63)) id=1")"
 gelijk "lege uitvoer: exit 1" 1 "$(code_van publicatie_lees "")"
 
+echo "== publicatie_plugin_id =="
+
+gelijk "plugin-id uit de publish-regel" 019b4000-3000-7000-8000-000000000002 \
+  "$(publicatie_plugin_id "published plugin=cert-manager version=1.21.3 hash=$HASH_A id=019b4000-3000-7000-8000-000000000002 version_id=0a1 status=SUBMISSION_STATUS_PENDING")"
+gelijk "zonder id: exit 1" 1 "$(code_van publicatie_plugin_id "published plugin=x version=1 hash=$HASH_A")"
+
+echo "== bestaande_versie =="
+
+gelijk "versie uit already_exists" 1.21.3 \
+  "$(bestaande_versie 'Error: already_exists: version "1.21.3" already exists for this plugin')"
+gelijk "andere fout: exit 1" 1 "$(code_van bestaande_versie 'Error: connection refused')"
+
+echo "== versie_uit_catalogus =="
+
+CATALOGUS='[{"organization":"system","plugin":"cert-manager","plugin_id":"019b4000-3000-7000-8000-000000000002","version":"1.21.3","status":"draft"},
+{"organization":"system","plugin":"cloudnativepg","plugin_id":"019b4000-3000-7000-8000-000000000003","version":"v0.2.0","status":"approved"},
+{"organization":"acme-corp","plugin":"cloudnativepg","plugin_id":"019b4000-3000-7000-8000-000000000009","version":"v0.2.0","status":"pending"}]'
+gelijk "status en id van een concept" "draft 019b4000-3000-7000-8000-000000000002" \
+  "$(versie_uit_catalogus "$CATALOGUS" cert-manager 1.21.3)"
+gelijk "alleen van de organisatie system" "approved 019b4000-3000-7000-8000-000000000003" \
+  "$(versie_uit_catalogus "$CATALOGUS" cloudnativepg v0.2.0)"
+gelijk "onbekende versie: exit 1" 1 "$(code_van versie_uit_catalogus "$CATALOGUS" cert-manager 9.9.9)"
+gelijk "lege catalogus: exit 1" 1 "$(code_van versie_uit_catalogus '[]' cert-manager 1.21.3)"
+
 echo "== functl_fout_soort =="
 
 gelijk "geen listing" geen-listing \
   "$(functl_fout_soort 'Error: no listing named "cloudnativepg" in this organization — pass --create to reserve it')"
 gelijk "unauthenticated" niet-ingelogd "$(functl_fout_soort 'unauthenticated: invalid api key')"
 gelijk "http 401" niet-ingelogd "$(functl_fout_soort 'request failed: 401 Unauthorized')"
+gelijk "nog nooit ingelogd" niet-ingelogd \
+  "$(functl_fout_soort "Error: not authenticated: run 'functl auth login' to authenticate")"
+gelijk "versie bestaat al" bestaat-al \
+  "$(functl_fout_soort 'Error: already_exists: version "1.21.3" already exists for this plugin')"
 gelijk "iets anders" onbekend "$(functl_fout_soort 'connection refused')"
+
+echo "== api_key_uit_antwoord =="
+
+gelijk "token uit CreateAPIKey" fun_abc123 \
+  "$(api_key_uit_antwoord '{"id":"01a1","token":"fun_abc123","tokenPrefix":"fun_abc"}')"
+gelijk "Connect-fout: exit 1" 1 \
+  "$(code_van api_key_uit_antwoord '{"code":"permission_denied","message":"not allowed"}')"
+gelijk "lege token: exit 1" 1 "$(code_van api_key_uit_antwoord '{"id":"01a1","token":""}')"
+gelijk "geen JSON: exit 1" 1 "$(code_van api_key_uit_antwoord '<html>502</html>')"
 
 echo "== plugin_staat_klaar =="
 
@@ -128,6 +165,8 @@ gelijk "vrijgekomen poort: exit 0" 0 "$(code_van poort_vrij "$vrije_poort")"
 
 echo "== manifest_plugininstallatie =="
 
+m=$(manifest_plugininstallatie cloudnativepg v0.2.0 "")
+bevat_niet "zonder hash: geen definitionHash" "definitionHash" "$m"
 m=$(manifest_plugininstallatie cloudnativepg v0.2.0 "$HASH_A")
 bevat "soort" "kind: PluginInstallation" "$m"
 bevat "naam met organisatie" "name: system--cloudnativepg" "$m"
@@ -261,10 +300,12 @@ for bestand in "${GECONTROLEERDE_SCRIPTS[@]}"; do
     continue
   fi
 
-  # Commentaarregels en de definities van de wrappers zelf tellen niet.
-  kaal=$(grep -nE '(^|[^a-zA-Z_-])(kubectl|helm)( |$)' "$bestand" |
+  # Alleen op de plek van een commando (begin van de regel, na |, &&, ;, ( of $( ): in een melding
+  # of een lijst toolnamen is het geen aanroep. Commentaarregels en de definities van de wrappers
+  # zelf tellen niet.
+  kaal=$(grep -nE '(^|[;&|(])[[:space:]]*(kubectl|helm)( |$)' "$bestand" |
     grep -vE '^[0-9]+:[[:space:]]*#' |
-    grep -vE '^[0-9]+:[[:space:]]*(kc|kcp|hm)\(\)' || true)
+    grep -vE '^[0-9]+:[[:space:]]*(kc|kcp|hm|kconfig)\(\)' || true)
   gelijk "geen kale kubectl/helm in $(basename "$bestand")" "" "$kaal"
 done
 
