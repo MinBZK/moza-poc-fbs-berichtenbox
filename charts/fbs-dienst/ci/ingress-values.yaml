@@ -1,0 +1,17 @@
+# Een cluster zonder Gateway API, zoals een kaal k3d met Traefik.
+dienst:
+  image:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+cluster:
+  routingMode: ingress
+
+ingress:
+  enabled: true
+  hostname: dienst.localhost
+  ingressClassName: traefik
+  tls: true
+
+networkPolicy:
+  ingressNSMatchLabels:
+    kubernetes.io/metadata.name: kube-system

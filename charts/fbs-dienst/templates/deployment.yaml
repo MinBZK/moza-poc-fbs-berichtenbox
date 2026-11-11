@@ -1,0 +1,164 @@
+{{- /*
+SPDX-License-Identifier: APACHE-2.0
+Afgeleid van template/CHART_NAME/templates/deployment.yaml uit MinBZK/mijn-bureau-infra.
+*/}}
+{{- $d := .Values.dienst }}
+{{- $component := include "fbs-dienst.component" . }}
+{{- $podLabels := include "fbs-dienst.podLabels" . }}
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ template "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+  {{- if or $d.deploymentAnnotations .Values.commonAnnotations }}
+  {{- $annotations := include "common.tplvalues.merge" (dict "values" (list $d.deploymentAnnotations .Values.commonAnnotations) "context" .) }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not $d.autoscaling.hpa.enabled }}
+  replicas: {{ $d.replicaCount }}
+  {{- end }}
+  {{- if $d.preciesEenReplica }}
+  strategy:
+    type: Recreate
+  {{- else if $d.updateStrategy }}
+  strategy: {{- toYaml $d.updateStrategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" $podLabels "context" $ ) | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+  template:
+    metadata:
+      {{- if $d.podAnnotations }}
+      annotations: {{- include "common.tplvalues.render" (dict "value" $d.podAnnotations "context" $) | nindent 8 }}
+      {{- end }}
+      labels: {{- include "common.labels.standard" ( dict "customLabels" $podLabels "context" $ ) | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+    spec:
+      {{- include "fbs-dienst.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "fbs-dienst.serviceAccountName" . }}
+      automountServiceAccountToken: {{ $d.automountServiceAccountToken }}
+      {{- if $d.hostAliases }}
+      hostAliases: {{- include "common.tplvalues.render" (dict "value" $d.hostAliases "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if $d.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" $d.affinity "context" $) | nindent 8 }}
+      {{- else }}
+      {{- $podAffinity := include "common.affinities.pods" (dict "type" $d.podAffinityPreset "component" $component "customLabels" $podLabels "context" $) }}
+      {{- $podAntiAffinity := include "common.affinities.pods" (dict "type" $d.podAntiAffinityPreset "component" $component "customLabels" $podLabels "context" $) }}
+      {{- $nodeAffinity := include "common.affinities.nodes" (dict "type" $d.nodeAffinityPreset.type "key" $d.nodeAffinityPreset.key "values" $d.nodeAffinityPreset.values) }}
+      {{- if or $podAffinity $podAntiAffinity $nodeAffinity }}
+      affinity:
+        {{- with $podAffinity }}
+        podAffinity: {{- . | nindent 10 }}
+        {{- end }}
+        {{- with $podAntiAffinity }}
+        podAntiAffinity: {{- . | nindent 10 }}
+        {{- end }}
+        {{- with $nodeAffinity }}
+        nodeAffinity: {{- . | nindent 10 }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- if $d.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" $d.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if $d.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" $d.tolerations "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if $d.priorityClassName }}
+      priorityClassName: {{ $d.priorityClassName | quote }}
+      {{- end }}
+      {{- if $d.schedulerName }}
+      schedulerName: {{ $d.schedulerName | quote }}
+      {{- end }}
+      {{- if $d.runtimeClassName }}
+      runtimeClassName: {{ $d.runtimeClassName | quote }}
+      {{- end }}
+      {{- if $d.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- include "common.tplvalues.render" (dict "value" $d.topologySpreadConstraints "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if $d.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" $d.podSecurityContext "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if $d.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ $d.terminationGracePeriodSeconds }}
+      {{- end }}
+      {{- if $d.initContainers }}
+      initContainers: {{- include "common.tplvalues.render" (dict "value" $d.initContainers "context" $) | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ include "common.names.name" . }}
+          image: {{ include "fbs-dienst.image" . }}
+          imagePullPolicy: {{ $d.image.pullPolicy }}
+          {{- if $d.containerSecurityContext.enabled }}
+          securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" $d.containerSecurityContext "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if $d.command }}
+          command: {{- include "common.tplvalues.render" (dict "value" $d.command "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if $d.args }}
+          args: {{- include "common.tplvalues.render" (dict "value" $d.args "context" $) | nindent 12 }}
+          {{- end }}
+          env:
+            - name: QUARKUS_HTTP_PORT
+              value: {{ $d.containerPorts.http | quote }}
+            {{- range $naam, $waarde := $d.env }}
+            - name: {{ $naam }}
+              value: {{ tpl (toString $waarde) $ | quote }}
+            {{- end }}
+            {{- if $d.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" $d.extraEnvVars "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if or $d.extraEnvVarsCM $d.extraEnvVarsSecret }}
+          envFrom:
+            {{- if $d.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ include "common.tplvalues.render" (dict "value" $d.extraEnvVarsCM "context" $) }}
+            {{- end }}
+            {{- if $d.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ include "common.tplvalues.render" (dict "value" $d.extraEnvVarsSecret "context" $) }}
+            {{- end }}
+          {{- end }}
+          resources: {{- toYaml $d.resources | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ $d.containerPorts.http }}
+              protocol: TCP
+          {{- if $d.customLivenessProbe }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" $d.customLivenessProbe "context" $) | nindent 12 }}
+          {{- else if $d.livenessProbe.enabled }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" (omit $d.livenessProbe "enabled") "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if $d.customReadinessProbe }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" $d.customReadinessProbe "context" $) | nindent 12 }}
+          {{- else if $d.readinessProbe.enabled }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" (omit $d.readinessProbe "enabled") "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if $d.customStartupProbe }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" $d.customStartupProbe "context" $) | nindent 12 }}
+          {{- else if $d.startupProbe.enabled }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" (omit $d.startupProbe "enabled") "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if $d.lifecycleHooks }}
+          lifecycle: {{- include "common.tplvalues.render" (dict "value" $d.lifecycleHooks "context" $) | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if $d.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" (dict "value" $d.extraVolumeMounts "context" $) | nindent 12 }}
+            {{- end }}
+        {{- if $d.sidecars }}
+        {{- include "common.tplvalues.render" ( dict "value" $d.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ $d.tmpSizeLimit }}
+        {{- if $d.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" $d.extraVolumes "context" $) | nindent 8 }}
+        {{- end }}

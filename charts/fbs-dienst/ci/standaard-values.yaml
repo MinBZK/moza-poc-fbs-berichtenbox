@@ -1,0 +1,4 @@
+# Alleen wat verplicht is: de standaarden van de chart moeten zelf de controle halen.
+dienst:
+  image:
+    tag: main-0000000

@@ -1,0 +1,77 @@
+{{- /*
+SPDX-License-Identifier: APACHE-2.0
+Afgeleid van template/CHART_NAME/templates/networkpolicy.yaml uit MinBZK/mijn-bureau-infra.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- $component := include "fbs-dienst.component" . }}
+apiVersion: {{ include "common.capabilities.networkPolicy.apiVersion" . }}
+kind: NetworkPolicy
+metadata:
+  name: {{ template "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- $podLabels := include "fbs-dienst.podLabels" . }}
+  podSelector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" $podLabels "context" $ ) | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    {{- if $np.allowExternalEgress }}
+    - {}
+    {{- else }}
+    {{- include "common.networkPolicy.dnsEgress" (dict "context" $) | nindent 4 }}
+    {{- with $np.allowedEgressPorts }}
+    - ports:
+        {{- range . }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+    {{- if $np.extraEgress }}
+    {{- include "common.tplvalues.render" ( dict "value" $np.extraEgress "context" $ ) | nindent 4 }}
+    {{- end }}
+    {{- end }}
+  {{- /* Een regel zonder bronnen (`from` leeg of afwezig) laat in Kubernetes juist álles toe. */}}
+  {{- $heeftBron := or $np.addExternalClientAccess $np.ingressPodMatchLabels $np.ingressNSMatchLabels }}
+  {{- if and (not $np.allowExternal) (not $heeftBron) (not $np.extraIngress) }}
+  ingress: []
+  {{- else }}
+  ingress:
+    {{- if or $np.allowExternal $heeftBron }}
+    - ports:
+        - port: {{ .Values.dienst.containerPorts.http }}
+          protocol: TCP
+      {{- if not $np.allowExternal }}
+      from:
+        {{- if $np.addExternalClientAccess }}
+        - podSelector:
+            matchLabels:
+              {{ template "common.names.fullname" . }}-client: "true"
+        {{- end }}
+        {{- if $np.ingressPodMatchLabels }}
+        - podSelector:
+            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.ingressPodMatchLabels "context" $ ) | nindent 14 }}
+        {{- end }}
+        {{- if $np.ingressNSMatchLabels }}
+        - namespaceSelector:
+            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.ingressNSMatchLabels "context" $ ) | nindent 14 }}
+          {{- if $np.ingressNSPodMatchLabels }}
+          podSelector:
+            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.ingressNSPodMatchLabels "context" $ ) | nindent 14 }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- if $np.extraIngress }}
+    {{- include "common.tplvalues.render" ( dict "value" $np.extraIngress "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

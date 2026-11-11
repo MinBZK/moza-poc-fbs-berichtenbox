@@ -1,0 +1,9 @@
+{{ include "common.names.name" . }} ({{ include "fbs-dienst.image" . }}) is geïnstalleerd als {{ include "common.names.fullname" . }} in namespace {{ include "common.names.namespace" . }}.
+
+Gezondheid volgen:
+  kubectl -n {{ include "common.names.namespace" . }} rollout status deployment/{{ include "common.names.fullname" . }}
+
+Binnen het cluster: http://{{ include "common.names.fullname" . }}.{{ include "common.names.namespace" . }}.svc:{{ .Values.service.ports.http }}
+{{- if .Values.ingress.enabled }}
+Van buiten: https://{{ .Values.ingress.hostname }}{{ .Values.ingress.path }}
+{{- end }}

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: EUPL-1.2
+apiVersion: v2
+name: fbs-dienst
+description: >-
+  Eén Quarkus-dienst van het Federatief Berichtenstelsel (berichtenuitvraag, berichtenmagazijn of
+  stelselregister). Per dienst een values-bestand onder diensten/.
+type: application
+version: 0.1.0
+# Gelijk aan de versie in de root-pom: de images dragen geen semver-tag (main-<sha7>), en het
+# label app.kubernetes.io/version moet semver zijn.
+appVersion: 0.1.0
+home: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+sources:
+  - https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+keywords:
+  - mijnoverheid-zakelijk
+  - berichtenbox
+annotations:
+  licenses: EUPL-1.2
+maintainers:
+  - name: MijnOverheid Zakelijk
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+dependencies:
+  # Gevendord en uitgepakt in charts/common (zie charts/common/HERKOMST.md), zodat de chart
+  # zonder `helm dependency build` vanaf een pad te installeren is.
+  - name: common
+    version: 2.31.1
+    repository: file://charts/common

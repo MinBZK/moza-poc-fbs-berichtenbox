@@ -1,0 +1,221 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Standaarden voor elke dienst. Wat per dienst verschilt staat in diensten/<dienst>.yaml; wat per
+# omgeving verschilt (tag, hostnaam, adressen, geheimen) geef je bij de installatie mee.
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  compatibility:
+    openshift:
+      adaptSecurityContext: auto
+    omitEmptySeLinuxOptions: true
+  dns:
+    # Poort van de DNS-resolver waarheen de NetworkPolicy uitgaand verkeer toestaat.
+    external:
+      port: 53
+    internal: {}
+
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+commonLabels:
+  app.kubernetes.io/part-of: fbs
+commonAnnotations: {}
+extraDeploy: []
+
+cluster:
+  # gateway-api (HTTPRoute, zoals Fundament met Envoy Gateway) of ingress.
+  routingMode: gateway-api
+  gateway:
+    name: ""
+    # Leeg = de namespace van de release.
+    namespace: ""
+    # Naam van de listener op de Gateway.
+    sectionName: https
+    annotations: {}
+
+dienst:
+  image:
+    registry: ghcr.io
+    repository: ""
+    # Verplicht (of een digest): de keten publiceert alleen main-<sha7> en pr-<n>-<sha7>.
+    tag: ""
+    digest: ""
+    pullPolicy: Always
+    pullSecrets: []
+
+  replicaCount: 1
+  # Voor een dienst die nooit met twee instanties tegelijk mag draaien: de render faalt bij meer
+  # replica's of een HPA, en een uitrol stopt de oude pod vóór de nieuwe start.
+  preciesEenReplica: false
+
+  containerPorts:
+    http: 8080
+
+  # Losse instellingen als env. Geheimen niet hier, maar in een bestaand Secret
+  # (extraEnvVarsSecret), zodat ze niet in een values-bestand belanden.
+  env:
+    # TLS eindigt in de Gateway; de dienst spreekt zelf platte HTTP binnen het cluster.
+    HTTP_TLS_TERMINATION: mesh
+  extraEnvVars: []
+  extraEnvVarsCM: ""
+  extraEnvVarsSecret: ""
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /q/health/live
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /q/health/ready
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+  # Ruim: het magazijn draait Flyway-migraties vóór het zich gestart meldt.
+  startupProbe:
+    enabled: true
+    httpGet:
+      path: /q/health/started
+      port: http
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 36
+    successThreshold: 1
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  customStartupProbe: {}
+
+  # De JVM neemt standaard 80% van de geheugenlimiet als heap.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 50Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+      ephemeral-storage: 1Gi
+
+  podSecurityContext:
+    enabled: true
+    fsGroup: 185
+    fsGroupChangePolicy: OnRootMismatch
+    supplementalGroups: []
+    sysctls: []
+  # UID 185 is de gebruiker van het UBI-openjdk-image waar jib op bouwt.
+  containerSecurityContext:
+    enabled: true
+    seLinuxOptions: {}
+    runAsUser: 185
+    runAsGroup: 185
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    privileged: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Quarkus en Vert.x schrijven tijdelijke bestanden onder java.io.tmpdir.
+  tmpSizeLimit: 256Mi
+
+  command: []
+  args: []
+  automountServiceAccountToken: false
+  hostAliases: []
+  deploymentAnnotations: {}
+  podLabels: {}
+  podAnnotations: {}
+  podAffinityPreset: ""
+  podAntiAffinityPreset: soft
+  nodeAffinityPreset:
+    type: ""
+    key: ""
+    values: []
+  affinity: {}
+  nodeSelector: {}
+  tolerations: []
+  updateStrategy:
+    type: RollingUpdate
+  priorityClassName: ""
+  topologySpreadConstraints: []
+  schedulerName: ""
+  runtimeClassName: ""
+  terminationGracePeriodSeconds: 30
+  lifecycleHooks: {}
+  extraVolumes: []
+  extraVolumeMounts: []
+  sidecars: []
+  initContainers: []
+
+  pdb:
+    create: true
+    minAvailable: ""
+    maxUnavailable: 1
+
+  autoscaling:
+    hpa:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPU: 75
+      targetMemory: ""
+
+service:
+  type: ClusterIP
+  ports:
+    http: 80
+  clusterIP: ""
+  annotations: {}
+  extraPorts: []
+  sessionAffinity: None
+  sessionAffinityConfig: {}
+
+networkPolicy:
+  enabled: true
+  # true laat inkomend verkeer van overal toe; standaard alleen de bronnen hieronder.
+  allowExternal: false
+  # true laat uitgaand verkeer naar overal toe; standaard alleen DNS plus allowedEgressPorts.
+  allowExternalEgress: false
+  # Uitgaande TCP-poorten, naar elke bestemming. Per dienst in diensten/<dienst>.yaml.
+  allowedEgressPorts: []
+  # Pods met het label <fullname>-client=true mogen de dienst aanroepen.
+  addExternalClientAccess: true
+  # De namespace van de proxy's van de Gateway. Envoy Gateway zet ze in zijn eigen namespace, niet
+  # in die van de Gateway-resource. Weghalen kan alleen met null: Helm voegt een lege map samen met
+  # deze standaard in plaats van hem te vervangen.
+  ingressNSMatchLabels:
+    kubernetes.io/metadata.name: envoy-gateway-system
+  ingressNSPodMatchLabels: {}
+  ingressPodMatchLabels: {}
+  extraIngress: []
+  extraEgress: []
+
+ingress:
+  enabled: false
+  # Verplicht zodra ingress.enabled: de route faalt anders bij de render.
+  hostname: ""
+  path: /
+  # Alleen bij cluster.routingMode=ingress.
+  pathType: Prefix
+  ingressClassName: ""
+  annotations: {}
+  # Alleen bij cluster.routingMode=ingress: TLS met het Secret <hostname>-tls, bijvoorbeeld van
+  # cert-manager via annotations. Bij gateway-api regelt de Gateway TLS.
+  tls: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false

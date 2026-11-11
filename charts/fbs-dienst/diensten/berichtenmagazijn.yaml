@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Berichtenmagazijn: neemt berichten van een organisatie aan en levert ze aan de berichtenuitvraag.
+# Eén magazijn per organisatie; de plug-in "berichtenmagazijn" installeert er een per release.
+#
+# Mee te geven bij de installatie (zie docs/operator-handleiding.md):
+#   via env of extraEnvVarsCM: DB_JDBC_URL, DB_USERNAME, DB_SCHEMA, MAGAZIJN_OIN, AANMELD_URL,
+#     NOTIFICATIE_URL, PROFIEL_SERVICE_URL (https), LDV_POSTGRES_URL (met sslmode=require),
+#     LDV_POSTGRES_USERNAME
+#   via extraEnvVarsSecret: DB_PASSWORD, LDV_POSTGRES_PASSWORD
+
+nameOverride: berichtenmagazijn
+
+dienst:
+  image:
+    repository: minbzk/fbs-berichtenmagazijn
+  containerPorts:
+    http: 8090
+
+networkPolicy:
+  # Aanmelding, notificatie en profielservice (https), de eigen database en het logboek
+  # (PostgreSQL).
+  allowedEgressPorts: [443, 5432]

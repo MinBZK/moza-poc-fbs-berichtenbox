@@ -1,0 +1,20 @@
+# Zoals op Fundament: een HTTPRoute aan een Envoy Gateway in een andere namespace, config en
+# geheimen uit bestaande objecten.
+dienst:
+  image:
+    tag: main-0000000
+  extraEnvVarsCM: fbs-config
+  extraEnvVarsSecret: fbs-geheimen
+  env:
+    PROFIEL_SERVICE_URL: https://profiel.{{ .Release.Namespace }}.example.nl
+
+cluster:
+  routingMode: gateway-api
+  gateway:
+    name: fundament-gateway
+    namespace: gateway-system
+    sectionName: https
+
+ingress:
+  enabled: true
+  hostname: dienst.fieldlab.example.nl
