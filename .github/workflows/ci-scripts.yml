@@ -189,7 +189,7 @@ jobs:
             [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223
-            [charts/fundament-testcluster/test-lib.sh]=82
+            [charts/fundament-testcluster/test-lib.sh]=104
           )
           declare -A GEDRAAID=()
 

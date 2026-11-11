@@ -315,3 +315,85 @@ spec:
       args: [-s, -o, /dev/null, -w, '%{http_code}', --max-time, "10", "http://$dienst.$ns.svc/q/health/ready"]
 EOF
 }
+
+# --- Values --------------------------------------------------------------------------------------
+
+readonly DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
+
+# Het values-bestand bovenop charts/fbs-dienst/diensten/<dienst>.yaml. De adressen naar buiten zijn
+# onbereikbaar maar https: de readiness hangt alleen aan database, Redis en het stelseldocument,
+# en berichtenverkeer tussen de diensten valt buiten deze proef. Het magazijn krijgt daarnaast
+# charts/voorbeelden/berichtenmagazijn-cnpg.yaml, dat zijn database uit het Secret db-app haalt.
+values_dienst() {
+  local dienst=$1 ns=$2
+
+  case "$dienst" in
+    berichtenuitvraag)
+      # Het JDBC-adres stelt de pod zelf samen uit de velden van het CNPG-Secret, zoals het
+      # voorbeeld van het magazijn: het veld uri is geen JDBC, en jdbc-uri zet het wachtwoord
+      # in de URL.
+      cat <<EOF
+dienst:
+  allowUnsafeFlags: true
+  extraEnvVars:
+    - name: LDV_HOST
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: host}}
+    - name: LDV_PORT
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: port}}
+    - name: LDV_DBNAME
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: dbname}}
+    - name: LDV_POSTGRES_USERNAME
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: username}}
+    - name: LDV_POSTGRES_PASSWORD
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: password}}
+    - name: LDV_POSTGRES_URL
+      value: jdbc:postgresql://\$(LDV_HOST):\$(LDV_PORT)/\$(LDV_DBNAME)?sslmode=require
+  env:
+    REDIS_HOSTS: redis://proef-redis.$ns.svc:6379
+    FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT: "true"
+    PROFIEL_SERVICE_URL: https://profiel.invalid
+    MAGAZIJN_A_URL: https://berichtenmagazijn.invalid
+    MAGAZIJN_B_URL: https://magazijn-b.invalid
+EOF
+      ;;
+    berichtenmagazijn)
+      cat <<EOF
+dienst:
+  env:
+    MAGAZIJN_OIN: "00000001003214345000"
+    AANMELD_URL: https://aanmeld.invalid
+    NOTIFICATIE_URL: https://notificatie.invalid
+    PROFIEL_SERVICE_URL: https://profiel.invalid
+EOF
+      ;;
+    stelselregister)
+      cat <<EOF
+dienst:
+  env:
+    STELSELDOCUMENT_UITGEVER_OIN: "00000000000000001000"
+    STELSELDOCUMENT_OMGEVING: lokaal
+    MAGAZIJN_A_URL: https://berichtenmagazijn.invalid
+    MAGAZIJN_B_URL: https://magazijn-b.invalid
+EOF
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# De helm-argumenten voor een route aan de https-listener van Gateway web, één per regel (lees ze
+# met mapfile). allowUnauthenticated: de route staat alleen op loopback open.
+helm_route_args() {
+  local dienst=$1
+
+  case " ${DIENSTEN[*]} " in
+    *" $dienst "*) ;;
+    *) return 1 ;;
+  esac
+
+  printf '%s\n' \
+    --set ingress.enabled=true \
+    --set ingress.allowUnauthenticated=true \
+    --set "ingress.hostname=$dienst.fbs.localhost" \
+    --set cluster.gateway.name=web \
+    --set cluster.gateway.sectionName=https
+}

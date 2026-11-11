@@ -218,6 +218,41 @@ bevat "geen capabilities" "drop: [ALL]" "$m"
 bevat "geen privilege escalation" "allowPrivilegeEscalation: false" "$m"
 bevat "health binnen het cluster" "http://berichtenmagazijn.tnt-fbs--fbs.svc/q/health/ready" "$m"
 
+echo "== values_dienst =="
+
+v=$(values_dienst berichtenuitvraag tnt-fbs--fbs)
+bevat "uitvraag: Redis in de namespace" "REDIS_HOSTS: redis://proef-redis.tnt-fbs--fbs.svc:6379" "$v"
+bevat "uitvraag: Redis-klep, er is geen Redis met TLS" 'FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT: "true"' "$v"
+bevat "uitvraag: logboek uit het CNPG-Secret" "secretKeyRef: {name: ldv-uitvraag-app" "$v"
+bevat "uitvraag: logboek met TLS" "sslmode=require" "$v"
+bevat "uitvraag: wachtwoord van het logboek uit het Secret" "name: LDV_POSTGRES_PASSWORD" "$v"
+bevat_niet "uitvraag: geen klep voor het logboek" "FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT" "$v"
+bevat "uitvraag: magazijnen via https" "MAGAZIJN_A_URL: https://" "$v"
+
+v=$(values_dienst berichtenmagazijn tnt-fbs--fbs)
+bevat_niet "magazijn: geen enkele onveilige klep" "UNSAFE" "$v"
+bevat_niet "magazijn: geen allowUnsafeFlags" "allowUnsafeFlags" "$v"
+bevat "magazijn: OIN" 'MAGAZIJN_OIN: "00000001003214345000"' "$v"
+bevat "magazijn: aanmelden via https" "AANMELD_URL: https://" "$v"
+
+v=$(values_dienst stelselregister tnt-fbs--fbs)
+bevat "stelselregister: omgeving lokaal" "STELSELDOCUMENT_OMGEVING: lokaal" "$v"
+bevat "stelselregister: uitgever" 'STELSELDOCUMENT_UITGEVER_OIN: "00000000000000001000"' "$v"
+bevat_niet "stelselregister: geen onveilige klep" "UNSAFE" "$v"
+
+gelijk "onbekende dienst: exit 1" 1 "$(code_van values_dienst profiel tnt-fbs--fbs)"
+
+echo "== helm_route_args =="
+
+mapfile -t args < <(helm_route_args stelselregister)
+gelijk "vijf argumenten, één per regel" 10 "${#args[@]}"
+gelijk "route aan" "--set ingress.enabled=true" "${args[0]} ${args[1]}"
+bevat "hostnaam" "ingress.hostname=stelselregister.fbs.localhost" "${args[*]}"
+bevat "Gateway web" "cluster.gateway.name=web" "${args[*]}"
+bevat "listener https" "cluster.gateway.sectionName=https" "${args[*]}"
+bevat "route zonder authenticatie, alleen op loopback" "ingress.allowUnauthenticated=true" "${args[*]}"
+gelijk "onbekende dienst: exit 1" 1 "$(code_van helm_route_args profiel)"
+
 echo "== kubectl en helm alleen via de wrappers =="
 
 for bestand in "${GECONTROLEERDE_SCRIPTS[@]}"; do
