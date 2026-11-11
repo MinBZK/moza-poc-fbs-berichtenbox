@@ -4,11 +4,13 @@
 # geen persoonsgegevens, geen uitgaande verbindingen.
 #
 # Mee te geven bij de installatie (zie docs/operator-handleiding-stelselregister.md):
+#   dienst.tlsTermination
 #   via env of extraEnvVarsCM: STELSELDOCUMENT_UITGEVER_OIN, STELSELDOCUMENT_OMGEVING,
 #     MAGAZIJN_A_URL, MAGAZIJN_B_URL (https)
 #   via extraEnvVarsSecret: STELSELDOCUMENT_KEYSTORE_WACHTWOORD
 #   een Secret <fullname>-sleutel met de PKCS#12-keystore onder de sleutel keystore.p12; de
-#     fullname staat in de uitvoer van `helm install` (meestal <release>-stelselregister)
+#     fullname is <release>-stelselregister, of de kale releasenaam als die "stelselregister" al
+#     bevat
 
 nameOverride: stelselregister
 
@@ -21,23 +23,16 @@ dienst:
   # Elke instantie ondertekent op een eigen moment, en een afnemer weigert een document met een
   # oudere `iat` dan het laatste dat hij accepteerde. Twee instanties naast elkaar leveren hem dus
   # afwisselend een document dat hij weigert.
-  preciesEenReplica: true
+  singleReplica: true
 
   env:
     STELSELDOCUMENT_KEYSTORE_PAD: /etc/stelselregister/keystore.p12
 
-  extraVolumes:
-    - name: sleutel
-      secret:
-        secretName: '{{ include "common.names.fullname" . }}-sleutel'
-        defaultMode: 0440
-        items:
-          - key: keystore.p12
-            path: keystore.p12
-  extraVolumeMounts:
-    - name: sleutel
-      mountPath: /etc/stelselregister
-      readOnly: true
+  sleutel:
+    enabled: true
+    secretName: '{{ include "common.names.fullname" . }}-sleutel'
+    key: keystore.p12
+    mountPath: /etc/stelselregister
 
 networkPolicy:
   allowedEgressPorts: []

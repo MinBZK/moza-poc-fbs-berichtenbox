@@ -27,10 +27,31 @@ spec:
     {{- if $np.allowExternalEgress }}
     - {}
     {{- else }}
-    {{- include "common.networkPolicy.dnsEgress" (dict "context" $) | nindent 4 }}
+    {{- /* Zonder `to`: de resolver kan een pod in kube-system zijn of een node-lokaal adres. */}}
+    - ports:
+        {{- range $np.dnsPorts }}
+        - port: {{ . }}
+          protocol: UDP
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
     {{- with $np.allowedEgressPorts }}
     - ports:
         {{- range . }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+    {{- if and $np.gatewayEgress.enabled $np.ingressNSMatchLabels }}
+    - to:
+        - namespaceSelector:
+            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.ingressNSMatchLabels "context" $ ) | nindent 14 }}
+          {{- if $np.ingressNSPodMatchLabels }}
+          podSelector:
+            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.ingressNSPodMatchLabels "context" $ ) | nindent 14 }}
+          {{- end }}
+      ports:
+        {{- range $np.gatewayEgress.ports }}
         - port: {{ . }}
           protocol: TCP
         {{- end }}
@@ -54,7 +75,7 @@ spec:
         {{- if $np.addExternalClientAccess }}
         - podSelector:
             matchLabels:
-              {{ template "common.names.fullname" . }}-client: "true"
+              fbs.minbzk.nl/client: {{ include "common.names.fullname" . | quote }}
         {{- end }}
         {{- if $np.ingressPodMatchLabels }}
         - podSelector:

@@ -2,3 +2,4 @@
 dienst:
   image:
     tag: main-0000000
+  tlsTermination: mesh

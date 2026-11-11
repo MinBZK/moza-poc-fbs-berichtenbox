@@ -30,9 +30,11 @@ spec:
     - {{ .Values.ingress.hostname | quote }}
   rules:
     - matches:
+        {{- range .Values.ingress.paths }}
         - path:
-            type: PathPrefix
-            value: {{ .Values.ingress.path | quote }}
+            type: {{ .type }}
+            value: {{ .value | quote }}
+        {{- end }}
       backendRefs:
         - name: {{ template "common.names.fullname" . }}
           port: {{ .Values.service.ports.http }}

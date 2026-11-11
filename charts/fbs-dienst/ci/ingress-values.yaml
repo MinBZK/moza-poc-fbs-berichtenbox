@@ -2,6 +2,7 @@
 dienst:
   image:
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  tlsTermination: mesh
 
 cluster:
   routingMode: ingress
@@ -15,3 +16,4 @@ ingress:
 networkPolicy:
   ingressNSMatchLabels:
     kubernetes.io/metadata.name: kube-system
+  ingressNSPodMatchLabels: null

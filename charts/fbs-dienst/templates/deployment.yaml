@@ -20,7 +20,7 @@ spec:
   {{- if not $d.autoscaling.hpa.enabled }}
   replicas: {{ $d.replicaCount }}
   {{- end }}
-  {{- if $d.preciesEenReplica }}
+  {{- if $d.singleReplica }}
   strategy:
     type: Recreate
   {{- else if $d.updateStrategy }}
@@ -105,9 +105,12 @@ spec:
           env:
             - name: QUARKUS_HTTP_PORT
               value: {{ $d.containerPorts.http | quote }}
+            - name: HTTP_TLS_TERMINATION
+              value: {{ $d.tlsTermination | quote }}
             {{- range $naam, $waarde := $d.env }}
             - name: {{ $naam }}
-              value: {{ tpl (toString $waarde) $ | quote }}
+              {{- /* toString schrijft een getal vanaf 1e6 als exponent (1.048576e+07); toJson niet. */}}
+              value: {{ tpl (ternary $waarde (toJson $waarde) (kindIs "string" $waarde)) $ | quote }}
             {{- end }}
             {{- if $d.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" $d.extraEnvVars "context" $) | nindent 12 }}
@@ -149,6 +152,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if $d.sleutel.enabled }}
+            - name: sleutel
+              mountPath: {{ $d.sleutel.mountPath }}
+              readOnly: true
+            {{- end }}
             {{- if $d.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" $d.extraVolumeMounts "context" $) | nindent 12 }}
             {{- end }}
@@ -159,6 +167,16 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ $d.tmpSizeLimit }}
+        {{- if $d.sleutel.enabled }}
+        - name: sleutel
+          secret:
+            secretName: {{ tpl $d.sleutel.secretName $ }}
+            # Leesbaar voor de groep (fsGroup), niet voor anderen.
+            defaultMode: 0440
+            items:
+              - key: {{ $d.sleutel.key }}
+                path: {{ $d.sleutel.key }}
+        {{- end }}
         {{- if $d.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" $d.extraVolumes "context" $) | nindent 8 }}
         {{- end }}

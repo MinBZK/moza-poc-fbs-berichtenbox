@@ -6,8 +6,8 @@ description: >-
   stelselregister). Per dienst een values-bestand onder diensten/.
 type: application
 version: 0.1.0
-# Gelijk aan de versie in de root-pom: de images dragen geen semver-tag (main-<sha7>), en het
-# label app.kubernetes.io/version moet semver zijn.
+# Vaste semver: de images dragen geen semver-tag (main-<sha7>), en de overgenomen regel in
+# policy/labels.rego eist semver op app.kubernetes.io/version.
 appVersion: 0.1.0
 home: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
 sources:

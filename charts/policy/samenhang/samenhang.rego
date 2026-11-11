@@ -79,3 +79,70 @@ service_poort(naam, poort) if {
 	some p in s.spec.ports
 	p.port == poort
 }
+
+# Een Ingress-backend noemt de poort bij naam of bij nummer.
+service_poort(naam, poort) if {
+	some s in objecten
+	s.kind == "Service"
+	s.metadata.name == naam
+	some p in s.spec.ports
+	p.name == poort
+}
+
+deny contains msg if {
+	some i in objecten
+	i.kind == "Ingress"
+	some regel in i.spec.rules
+	some pad in regel.http.paths
+	svc := pad.backend.service
+	poort := object.get(svc.port, "number", object.get(svc.port, "name", ""))
+	not service_poort(svc.name, poort)
+	msg := sprintf("Ingress '%s' wijst naar %s:%v, maar die Service-poort bestaat niet", [i.metadata.name, svc.name, poort])
+}
+
+deployments := [d | some d in objecten; d.kind == "Deployment"]
+
+# Een Service zonder pods levert 503's op, terwijl de render en de pods zelf in orde lijken.
+deny contains msg if {
+	some s in objecten
+	s.kind == "Service"
+	count(deployments) > 0
+	not selecteert_pods(s)
+	msg := sprintf("Service '%s' selecteert geen pods van de release", [s.metadata.name])
+}
+
+selecteert_pods(s) if {
+	some d in deployments
+	every k, v in s.spec.selector {
+		d.spec.template.metadata.labels[k] == v
+	}
+}
+
+# Een targetPort bij naam moet een containerpoort van de geselecteerde pods zijn.
+deny contains msg if {
+	some s in objecten
+	s.kind == "Service"
+	some p in s.spec.ports
+	is_string(p.targetPort)
+	not containerpoort(p.targetPort)
+	msg := sprintf("Service '%s' wijst naar targetPort '%s', maar geen container heeft die poort", [s.metadata.name, p.targetPort])
+}
+
+containerpoort(naam) if {
+	some d in deployments
+	some c in d.spec.template.spec.containers
+	some p in c.ports
+	p.name == naam
+}
+
+deny contains msg if {
+	some h in objecten
+	h.kind == "HorizontalPodAutoscaler"
+	not deployment_naam(h.spec.scaleTargetRef.name)
+	msg := sprintf("HPA '%s' schaalt '%s', maar die Deployment staat niet in de release", [h.metadata.name, h.spec.scaleTargetRef.name])
+}
+
+deployment_naam(naam) if {
+	some d in deployments
+	d.metadata.name == naam
+}

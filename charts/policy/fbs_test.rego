@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: EUPL-1.2
+#
+# Varianten staan in `every`, niet in `some`: een test met `some` slaagt al als één variant het
+# verwachte oplevert.
 package main
 
 import rego.v1
@@ -32,6 +35,10 @@ deployment(naam, c, extra) := object.union(
 	extra,
 )
 
+uitvraag(c) := deployment("berichtenuitvraag", c, {})
+
+patch(obj, op) := json.patch(obj, [op])
+
 fbs_deny(obj) := {m | some m in deny with input as obj; not mijn_bureau_regel(m)}
 
 # De overgenomen regels van mijn-bureau eisen meer (labels, imagePullPolicy, namespace) dan deze
@@ -42,57 +49,88 @@ mijn_bureau_regel(m) if {
 }
 
 test_container_volgens_standaard_slaagt if {
-	count(fbs_deny(deployment("berichtenuitvraag", container_ok, {}))) == 0
-}
-
-test_ontbrekende_probe_faalt if {
-	some probe in ["livenessProbe", "readinessProbe", "startupProbe"]
-	c := object.remove(container_ok, [probe])
-	fouten := fbs_deny(deployment("berichtenuitvraag", c, {}))
-	fouten == {sprintf("Container 'dienst' mist een %s", [probe])}
+	count(fbs_deny(uitvraag(container_ok))) == 0
 }
 
 test_elke_probe_afzonderlijk_verplicht if {
 	every probe in ["livenessProbe", "readinessProbe", "startupProbe"] {
-		c := object.remove(container_ok, [probe])
-		count(fbs_deny(deployment("berichtenuitvraag", c, {}))) == 1
+		fbs_deny(uitvraag(object.remove(container_ok, [probe]))) == {sprintf("Container 'dienst' mist een %s", [probe])}
 	}
 }
 
+test_initcontainer_hoeft_geen_probes if {
+	init := object.remove(container_ok, ["livenessProbe", "readinessProbe", "startupProbe"])
+	d := patch(uitvraag(container_ok), {"op": "add", "path": "/spec/template/spec/initContainers", "value": [init]})
+	count(fbs_deny(d)) == 0
+}
+
 test_schrijfbaar_root_filesystem_faalt if {
-	c := json.patch(container_ok, [{"op": "replace", "path": "/securityContext/readOnlyRootFilesystem", "value": false}])
-	fbs_deny(deployment("berichtenuitvraag", c, {})) == {"Container 'dienst' heeft geen read-only root-filesystem"}
+	every waarde in [false, null] {
+		c := patch(container_ok, {"op": "replace", "path": "/securityContext/readOnlyRootFilesystem", "value": waarde})
+		fbs_deny(uitvraag(c)) == {"Container 'dienst' heeft geen read-only root-filesystem"}
+	}
+}
+
+test_initcontainer_valt_onder_dezelfde_regels if {
+	init := patch(container_ok, {"op": "replace", "path": "/securityContext/readOnlyRootFilesystem", "value": false})
+	d := patch(uitvraag(container_ok), {"op": "add", "path": "/spec/template/spec/initContainers", "value": [init]})
+	fbs_deny(d) == {"Container 'dienst' heeft geen read-only root-filesystem"}
 }
 
 test_capabilities_niet_allemaal_weg_faalt if {
-	c := json.patch(container_ok, [{"op": "replace", "path": "/securityContext/capabilities/drop", "value": ["NET_RAW"]}])
-	fbs_deny(deployment("berichtenuitvraag", c, {})) == {"Container 'dienst' laat niet alle capabilities vallen"}
+	every drop in [["NET_RAW"], [], null] {
+		c := patch(container_ok, {"op": "replace", "path": "/securityContext/capabilities/drop", "value": drop})
+		fbs_deny(uitvraag(c)) == {"Container 'dienst' laat niet alle capabilities vallen"}
+	}
 }
 
+test_capabilities_toevoegen_faalt if {
+	c := patch(container_ok, {"op": "add", "path": "/securityContext/capabilities/add", "value": ["NET_ADMIN"]})
+	fbs_deny(uitvraag(c)) == {"Container 'dienst' voegt capabilities toe"}
+}
+
+test_lege_add_lijst_slaagt if {
+	every add in [[], null] {
+		c := patch(container_ok, {"op": "add", "path": "/securityContext/capabilities/add", "value": add})
+		count(fbs_deny(uitvraag(c))) == 0
+	}
+}
+
+pod_seccomp(type) := {"spec": {"template": {"spec": {"securityContext": {"seccompProfile": {"type": type}}}}}}
+
 test_seccomp_ontbreekt_faalt if {
-	c := json.patch(container_ok, [{"op": "remove", "path": "/securityContext/seccompProfile"}])
-	fbs_deny(deployment("berichtenuitvraag", c, {})) == {"Container 'dienst' draait zonder seccomp-profiel RuntimeDefault"}
+	c := patch(container_ok, {"op": "remove", "path": "/securityContext/seccompProfile"})
+	fbs_deny(uitvraag(c)) == {"Container 'dienst' draait zonder seccomp-profiel RuntimeDefault"}
 }
 
 test_seccomp_op_podniveau_volstaat if {
-	c := json.patch(container_ok, [{"op": "remove", "path": "/securityContext/seccompProfile"}])
-	extra := {"spec": {"template": {"spec": {"securityContext": {"seccompProfile": {"type": "RuntimeDefault"}}}}}}
-	count(fbs_deny(deployment("berichtenuitvraag", c, extra))) == 0
+	c := patch(container_ok, {"op": "remove", "path": "/securityContext/seccompProfile"})
+	count(fbs_deny(deployment("berichtenuitvraag", c, pod_seccomp("RuntimeDefault")))) == 0
+}
+
+test_seccomp_container_gaat_voor_pod if {
+	c := patch(container_ok, {"op": "replace", "path": "/securityContext/seccompProfile/type", "value": "Unconfined"})
+	fbs_deny(deployment("berichtenuitvraag", c, pod_seccomp("RuntimeDefault"))) == {"Container 'dienst' draait zonder seccomp-profiel RuntimeDefault"}
+}
+
+test_seccomp_container_redt_open_pod if {
+	count(fbs_deny(deployment("berichtenuitvraag", container_ok, pod_seccomp("Unconfined")))) == 0
 }
 
 test_ephemeral_storage_ontbreekt_faalt if {
-	c := json.patch(container_ok, [{"op": "remove", "path": "/resources/limits/ephemeral-storage"}])
-	fbs_deny(deployment("berichtenuitvraag", c, {})) == {"Container 'dienst' mist ephemeral-storage in resources.limits"}
+	every soort in ["requests", "limits"] {
+		c := patch(container_ok, {"op": "remove", "path": sprintf("/resources/%s/ephemeral-storage", [soort])})
+		fbs_deny(uitvraag(c)) == {sprintf("Container 'dienst' mist ephemeral-storage in resources.%s", [soort])}
+	}
 }
 
 test_service_account_token_faalt if {
-	d := json.patch(deployment("berichtenuitvraag", container_ok, {}), [{"op": "replace", "path": "/spec/template/spec/automountServiceAccountToken", "value": true}])
-	count(fbs_deny(d)) == 1
-}
-
-test_service_account_token_afwezig_faalt if {
-	d := json.patch(deployment("berichtenuitvraag", container_ok, {}), [{"op": "remove", "path": "/spec/template/spec/automountServiceAccountToken"}])
-	count(fbs_deny(d)) == 1
+	every op in [
+		{"op": "replace", "path": "/spec/template/spec/automountServiceAccountToken", "value": true},
+		{"op": "remove", "path": "/spec/template/spec/automountServiceAccountToken"},
+	] {
+		count(fbs_deny(patch(uitvraag(container_ok), op))) == 1
+	}
 }
 
 stelselregister_ok := deployment("stelselregister", container_ok, {"spec": {"strategy": {"type": "Recreate"}}})
@@ -101,36 +139,36 @@ test_stelselregister_een_replica_recreate_slaagt if {
 	count(fbs_deny(stelselregister_ok)) == 0
 }
 
-test_stelselregister_meer_replicas_faalt if {
-	some n in [0, 2, 3]
-	d := json.patch(stelselregister_ok, [{"op": "replace", "path": "/spec/replicas", "value": n}])
-	fbs_deny(d) == {sprintf("Het stelselregister heeft %v replica's; het draait met precies één", [n])}
+test_stelselregister_ander_aantal_replicas_faalt if {
+	every n in [0, 2, 3] {
+		d := patch(stelselregister_ok, {"op": "replace", "path": "/spec/replicas", "value": n})
+		fbs_deny(d) == {sprintf("Het stelselregister heeft %v replica's; het draait met precies één", [n])}
+	}
 }
 
-test_stelselregister_rolling_update_faalt if {
-	some strategie in [{"type": "RollingUpdate"}, null]
-	d := json.patch(stelselregister_ok, [{"op": "replace", "path": "/spec/strategy", "value": strategie}])
-	count(fbs_deny(d)) == 1
-}
-
-test_stelselregister_zonder_strategie_faalt if {
-	d := json.patch(stelselregister_ok, [{"op": "remove", "path": "/spec/strategy"}])
-	count(fbs_deny(d)) == 1
+test_stelselregister_zonder_recreate_faalt if {
+	every op in [
+		{"op": "replace", "path": "/spec/strategy", "value": {"type": "RollingUpdate"}},
+		{"op": "replace", "path": "/spec/strategy", "value": null},
+		{"op": "remove", "path": "/spec/strategy"},
+	] {
+		fbs_deny(patch(stelselregister_ok, op)) == {"Het stelselregister rolt niet uit met Recreate; tijdens de uitrol draaien er dan twee"}
+	}
 }
 
 test_andere_dienst_mag_meer_replicas if {
-	d := json.patch(deployment("berichtenuitvraag", container_ok, {}), [{"op": "replace", "path": "/spec/replicas", "value": 3}])
+	d := patch(uitvraag(container_ok), {"op": "replace", "path": "/spec/replicas", "value": 3})
 	count(fbs_deny(d)) == 0
 }
 
+hpa(naam) := {"kind": "HorizontalPodAutoscaler", "metadata": {"name": "t", "labels": {"app.kubernetes.io/name": naam}}}
+
 test_hpa_op_stelselregister_faalt if {
-	hpa := {"kind": "HorizontalPodAutoscaler", "metadata": {"name": "t", "labels": {"app.kubernetes.io/name": "stelselregister"}}}
-	fbs_deny(hpa) == {"Het stelselregister mag geen HPA hebben"}
+	fbs_deny(hpa("stelselregister")) == {"Het stelselregister mag geen HPA hebben"}
 }
 
 test_hpa_op_andere_dienst_mag if {
-	hpa := {"kind": "HorizontalPodAutoscaler", "metadata": {"name": "t", "labels": {"app.kubernetes.io/name": "berichtenuitvraag"}}}
-	count(fbs_deny(hpa)) == 0
+	count(fbs_deny(hpa("berichtenuitvraag"))) == 0
 }
 
 networkpolicy(ingress, egress, types) := {
@@ -141,7 +179,9 @@ networkpolicy(ingress, egress, types) := {
 
 dns_egress := {"ports": [{"port": 53, "protocol": "UDP"}]}
 
-gateway_ingress := {"ports": [{"port": 8086}], "from": [{"namespaceSelector": {"matchLabels": {"x": "y"}}}]}
+gateway_bron := {"namespaceSelector": {"matchLabels": {"x": "y"}}}
+
+gateway_ingress := {"ports": [{"port": 8086}], "from": [gateway_bron]}
 
 test_afgeschermde_networkpolicy_slaagt if {
 	count(fbs_deny(networkpolicy([gateway_ingress], [dns_egress], ["Ingress", "Egress"]))) == 0
@@ -151,31 +191,97 @@ test_networkpolicy_zonder_regels_slaagt if {
 	count(fbs_deny(networkpolicy([], [], ["Ingress", "Egress"]))) == 0
 }
 
-test_ingress_zonder_from_faalt if {
-	open := {"ports": [{"port": 8086}]}
-	fbs_deny(networkpolicy([gateway_ingress, open], [dns_egress], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat inkomend verkeer van overal toe"}
+test_ingress_zonder_bronnen_faalt if {
+	every regel in [
+		{"ports": [{"port": 8086}]},
+		{"ports": [{"port": 8086}], "from": null},
+		{"ports": [{"port": 8086}], "from": []},
+		{},
+	] {
+		fbs_deny(networkpolicy([gateway_ingress, regel], [dns_egress], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat inkomend verkeer van overal toe"}
+	}
+}
+
+test_bron_met_lege_selectors_faalt if {
+	every peer in [{"namespaceSelector": {}}, {"podSelector": {}}, {"namespaceSelector": {"matchLabels": {}}, "podSelector": {}}] {
+		regel := {"ports": [{"port": 8086}], "from": [peer]}
+		fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' heeft een bron met lege selectors; die laat alles toe"}
+	}
+}
+
+test_bron_met_een_gevulde_selector_slaagt if {
+	every peer in [
+		{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {}},
+		{"podSelector": {"matchExpressions": [{"key": "a", "operator": "Exists"}]}},
+		{"ipBlock": {"cidr": "10.0.0.0/8"}},
+	] {
+		regel := {"ports": [{"port": 8086}], "from": [peer]}
+		count(fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"]))) == 0
+	}
 }
 
 test_open_egress_faalt if {
-	fbs_deny(networkpolicy([gateway_ingress], [dns_egress, {}], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat uitgaand verkeer naar overal toe"}
+	every regel in [{}, {"to": []}, {"to": null, "ports": []}, {"ports": null}] {
+		fbs_deny(networkpolicy([gateway_ingress], [dns_egress, regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat uitgaand verkeer naar overal toe"}
+	}
 }
 
-test_egress_met_alleen_to_slaagt if {
-	naar := {"to": [{"podSelector": {"matchLabels": {"app": "redis"}}}]}
-	count(fbs_deny(networkpolicy([gateway_ingress], [naar], ["Ingress", "Egress"]))) == 0
+test_egress_met_to_of_ports_slaagt if {
+	every regel in [{"to": [{"podSelector": {"matchLabels": {"app": "redis"}}}]}, dns_egress] {
+		count(fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"]))) == 0
+	}
 }
 
 test_networkpolicy_zonder_egress_type_faalt if {
 	fbs_deny(networkpolicy([gateway_ingress], [], ["Ingress"])) == {"NetworkPolicy 'np' beperkt uitgaand verkeer niet"}
 }
 
+route(spec) := {"kind": "HTTPRoute", "metadata": {"name": "r"}, "spec": spec}
+
+api_regel := {"matches": [{"path": {"type": "PathPrefix", "value": "/api/v1"}}]}
+
 test_httproute_zonder_hostnaam_faalt if {
-	some spec in [{}, {"hostnames": []}]
-	route := {"kind": "HTTPRoute", "metadata": {"name": "r"}, "spec": spec}
-	fbs_deny(route) == {"HTTPRoute 'r' heeft geen hostnaam en vangt dan elk verkeer op de Gateway"}
+	every spec in [{"rules": [api_regel]}, {"hostnames": [], "rules": [api_regel]}, {"hostnames": null, "rules": [api_regel]}] {
+		fbs_deny(route(spec)) == {"HTTPRoute 'r' heeft geen hostnaam en vangt dan elk verkeer op de Gateway"}
+	}
 }
 
-test_httproute_met_hostnaam_slaagt if {
-	route := {"kind": "HTTPRoute", "metadata": {"name": "r"}, "spec": {"hostnames": ["a.example.nl"]}}
-	count(fbs_deny(route)) == 0
+test_httproute_met_hostnaam_en_api_pad_slaagt if {
+	count(fbs_deny(route({"hostnames": ["a.example.nl"], "rules": [api_regel]}))) == 0
+}
+
+test_httproute_naar_q_of_alles_faalt if {
+	every pad in [
+		{"type": "PathPrefix", "value": "/"},
+		{"type": "PathPrefix", "value": "/q"},
+		{"type": "Exact", "value": "/q/health/ready"},
+		{"type": "PathPrefix", "value": "/q/swagger-ui"},
+	] {
+		spec := {"hostnames": ["a.example.nl"], "rules": [{"matches": [{"path": pad}]}]}
+		fbs_deny(route(spec)) == {sprintf("HTTPRoute 'r' zet %s open; /q hoort binnen het cluster", [pad.value])}
+	}
+}
+
+test_httproute_exact_root_mag if {
+	spec := {"hostnames": ["a.example.nl"], "rules": [{"matches": [{"path": {"type": "Exact", "value": "/"}}]}]}
+	count(fbs_deny(route(spec))) == 0
+}
+
+test_httproute_regel_zonder_matches_faalt if {
+	every regel in [{}, {"matches": []}] {
+		spec := {"hostnames": ["a.example.nl"], "rules": [api_regel, regel]}
+		fbs_deny(route(spec)) == {"HTTPRoute 'r' heeft een regel zonder matches; die zet alles open"}
+	}
+}
+
+ingress_obj(pad, type) := {"kind": "Ingress", "metadata": {"name": "i"}, "spec": {"rules": [{"http": {"paths": [{"path": pad, "pathType": type}]}}]}}
+
+test_ingress_naar_q_of_alles_faalt if {
+	every pad in ["/", "/q"] {
+		fbs_deny(ingress_obj(pad, "Prefix")) == {sprintf("Ingress 'i' zet %s open; /q hoort binnen het cluster", [pad])}
+	}
+}
+
+test_ingress_naar_api_slaagt if {
+	count(fbs_deny(ingress_obj("/api/v1", "Prefix"))) == 0
 }

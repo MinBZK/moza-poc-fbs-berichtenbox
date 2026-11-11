@@ -18,8 +18,9 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 
 ## Installeren
 
-Geef per dienst het values-bestand uit `diensten/` mee, een image-tag (de keten publiceert
-`main-<sha7>` en `pr-<n>-<sha7>`, geen `latest`) en wat per omgeving verschilt:
+Geef per dienst het values-bestand uit `diensten/` mee, een image-tag (`main-<sha7>` of
+`pr-<n>-<sha7>`, zoals de keten ze publiceert; anders een digest), de plek waar TLS eindigt, en
+wat per omgeving verschilt:
 
 ```bash
 helm upgrade --install berichtenmagazijn charts/fbs-dienst --namespace fbs \
@@ -32,6 +33,7 @@ met in `mijn-omgeving/berichtenmagazijn.yaml` bijvoorbeeld:
 
 ```yaml
 dienst:
+  tlsTermination: app        # of mesh, zie hieronder
   env:
     DB_JDBC_URL: jdbc:postgresql://db.example.nl:5432/magazijn?sslmode=require
     DB_USERNAME: magazijn
@@ -54,27 +56,55 @@ Welke instellingen een dienst nodig heeft, staat bovenin zijn bestand onder `die
 operatorhandleiding van die dienst. Waarden in `dienst.env` mogen templates bevatten, zoals
 `{{ .Release.Namespace }}`.
 
-**Geheimen staan nooit in values.** Wachtwoorden komen uit een bestaand Secret
-(`dienst.extraEnvVarsSecret`); het stelselregister leest zijn ondertekensleutel uit het Secret
-`<fullname>-sleutel`, sleutel `keystore.p12`.
+**`dienst.tlsTermination` is een bewuste keuze, zonder standaard.**
+- Met `app` eindigt TLS in de dienst zelf, met een eigen certificaat.
+- Met `mesh` eindigt TLS ervóór, en loopt het laatste stuk van de Gateway naar de pod als platte
+  HTTP. Kies `mesh` alleen als het pod-netwerk dat stuk afschermt: over die verbinding gaan het
+  BSN en de inhoud van berichten.
+
+**Geheimen staan nooit in values.**
+- Wachtwoorden komen uit een bestaand Secret (`dienst.extraEnvVarsSecret`).
+- Het stelselregister leest zijn ondertekensleutel uit het Secret `<fullname>-sleutel`, sleutel
+  `keystore.p12`.
+- De `FBS_*_UNSAFE_*`-kleppen weigert de render in `dienst.env`, tenzij
+  `dienst.allowUnsafeFlags=true`.
+
+**De API's authenticeren hun aanroepers nog niet.** Wie de route bereikt, bereikt de API. Zet
+`ingress.enabled` dus alleen aan als de Gateway de toegang beperkt, of laat aanroepers binnen het
+cluster komen via het podlabel `fbs.minbzk.nl/client: <fullname>`.
 
 ## Wat de chart standaard afdwingt
 
-- UID 185, `runAsNonRoot`, read-only root-filesystem (met een `emptyDir` op `/tmp`), geen
-  capabilities, seccomp `RuntimeDefault`, geen service-account-token.
-- Liveness, readiness en startup op `/q/health/*`; requests en limits op cpu, geheugen en
-  ephemeral-storage.
-- Een NetworkPolicy: inkomend alleen vanaf de proxy's van Envoy Gateway (namespace
+- **Pod en container:**
+  - UID 185 en `runAsNonRoot`.
+  - Een read-only root-filesystem, met een `emptyDir` op `/tmp`.
+  - Geen capabilities, seccomp `RuntimeDefault`, geen service-account-token.
+  - Dezelfde regels gelden voor initContainers.
+- **Probes en resources:** liveness, readiness en startup op `/q/health/*`; requests en limits op
+  cpu, geheugen en ephemeral-storage.
+- **Een route die alleen `/api/v1`, `/openapi.json` en `/.well-known` doorlaat.** `/q` (health,
+  Swagger UI) blijft binnen het cluster; een health-antwoord noemt bij een storing interne
+  hostnamen.
+- **Een NetworkPolicy, inkomend.** Alleen vanaf de proxy's van de eigen Gateway (in
   `envoy-gateway-system`, instelbaar met `networkPolicy.ingressNSMatchLabels`) en vanaf pods met
-  het label `<fullname>-client: "true"`; uitgaand alleen DNS en de poorten in
-  `networkPolicy.allowedEgressPorts`.
-- Een PodDisruptionBudget.
-- Het stelselregister draait met precies één replica, en rolt uit met `Recreate`: twee instanties
-  ondertekenen elk op hun eigen moment, en een afnemer weigert dan het oudere document.
-- Geen HSTS- of andere security-headers in de route: die zet de dienst zelf.
+  het label `fbs.minbzk.nl/client: <fullname>`.
+- **Een NetworkPolicy, uitgaand.** Alleen:
+  - DNS op 53 en 8053; op Gardener luistert CoreDNS op 8053;
+  - de poorten in `networkPolicy.allowedEgressPorts`, naar elke bestemming;
+  - bij uitvraag en magazijn de proxy's van de Gateway op 10080 en 10443, voor een https-adres van
+    een dienst in hetzelfde cluster.
+- **Een PodDisruptionBudget.**
+- **Het stelselregister draait met precies één replica, en rolt uit met `Recreate`.** Twee
+  instanties ondertekenen elk op hun eigen moment, en een afnemer weigert dan het oudere document.
+- **Geen HSTS- of andere security-headers in de route:** die zet de dienst zelf.
 
-Een render met een onmogelijke combinatie faalt met een melding: geen tag, een route zonder
-hostnaam of Gateway, of het stelselregister met meer replica's of een HPA.
+Een render met een onmogelijke combinatie faalt met een melding. Voorbeelden:
+- geen tag, of een meebewegende tag als `latest` of `main`;
+- geen keuze voor TLS;
+- een route zonder hostnaam of Gateway;
+- een Ingress zonder TLS;
+- een onveilige klep zonder `allowUnsafeFlags`;
+- het stelselregister met een ander aantal replica's dan één, of met een HPA.
 
 ## Controleren zonder cluster
 
@@ -82,11 +112,14 @@ hostnaam of Gateway, of het stelselregister met meer replica's of een HPA.
 charts/controleer.sh
 ```
 
-Per dienst en scenario: `helm lint --strict`, `helm template` met de uitvoer door `kubeconform`
-(Kubernetes plus de Gateway-API-schema's) en door de beleidsregels in `policy/`. Daarnaast
-`conftest verify` voor de eigen regels, en de renders die moeten falen. Vereist `helm`, `conftest`
-en `kubeconform`; de versies die de CI gebruikt staan in `.github/workflows/ci-scripts.yml`. De
-CI draait het script op elke PR.
+Per dienst en scenario draait het script:
+- `helm lint --strict`;
+- `helm template`, met de uitvoer door `kubeconform` (Kubernetes plus de Gateway-API-schema's,
+  beide gepind) en door de beleidsregels in `policy/`.
+
+Daarnaast draaien `conftest verify` voor de eigen regels, de bijzondere values en de renders die
+moeten falen. Het script vereist `helm`, `conftest` en `kubeconform`; de versies die de CI
+gebruikt staan in `.github/workflows/ci-scripts.yml`. De CI draait het script op elke PR.
 
 ## Proef op een lokaal cluster
 
@@ -95,7 +128,13 @@ TAG=main-<sha7> charts/lokaal-testcluster.sh
 charts/lokaal-testcluster.sh opruimen
 ```
 
-Zet een k3d-cluster op met Envoy Gateway, PostgreSQL en Redis Stack als proefvoorzieningen,
-installeert de drie diensten en controleert dat elk gezond is en via de Gateway bereikbaar.
-Vereist `k3d`, `kubectl`, `helm`, `openssl` en `curl`, en een host met Docker of podman: in een
+Het script:
+- zet een k3d-cluster op met Envoy Gateway, met PostgreSQL en Redis Stack als
+  proefvoorzieningen;
+- installeert de drie diensten;
+- controleert per dienst dat de rollout slaagt, dat `/openapi.json` via de Gateway bereikbaar is
+  en dat `/q` dat niet is.
+
+Elke aanroep noemt de context van het proefcluster, en het script wisselt de huidige context niet.
+Het vereist `k3d`, `kubectl`, `helm`, `openssl` en `curl`, en een host met Docker of podman: in een
 container zonder `/dev/fuse` en `/lib/modules` start k3d niet.

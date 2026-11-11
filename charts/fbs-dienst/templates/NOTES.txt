@@ -5,5 +5,10 @@ Gezondheid volgen:
 
 Binnen het cluster: http://{{ include "common.names.fullname" . }}.{{ include "common.names.namespace" . }}.svc:{{ .Values.service.ports.http }}
 {{- if .Values.ingress.enabled }}
-Van buiten: https://{{ .Values.ingress.hostname }}{{ .Values.ingress.path }}
+Van buiten: https://{{ .Values.ingress.hostname }}/api/v1 (zonder authenticatie: elke aanroeper met toegang tot de Gateway bereikt de API)
+{{- end }}
+Aanroepers in de namespace krijgen toegang met het podlabel fbs.minbzk.nl/client: {{ include "common.names.fullname" . }}
+{{- if .Values.dienst.allowUnsafeFlags }}
+
+LET OP: dienst.allowUnsafeFlags staat aan. De dienst logt bij elke start welke TLS-eis uit staat.
 {{- end }}

@@ -4,10 +4,16 @@
 # Eén magazijn per organisatie; de plug-in "berichtenmagazijn" installeert er een per release.
 #
 # Mee te geven bij de installatie (zie docs/operator-handleiding.md):
+#   dienst.tlsTermination
 #   via env of extraEnvVarsCM: DB_JDBC_URL, DB_USERNAME, DB_SCHEMA, MAGAZIJN_OIN, AANMELD_URL,
 #     NOTIFICATIE_URL, PROFIEL_SERVICE_URL (https), LDV_POSTGRES_URL (met sslmode=require),
 #     LDV_POSTGRES_USERNAME
 #   via extraEnvVarsSecret: DB_PASSWORD, LDV_POSTGRES_PASSWORD
+#
+# Het logboek schrijft naar de tabel <DB_SCHEMA>.logboek_dataverwerkingen en maakt dat schema niet
+# zelf aan; Flyway doet dat in de database van DB_JDBC_URL. Laat LDV_POSTGRES_URL dus naar dezelfde
+# database wijzen, of maak het schema daar vooraf aan. Anders start het magazijn gezond en faalt
+# elke aanlevering.
 
 nameOverride: berichtenmagazijn
 
@@ -21,3 +27,6 @@ networkPolicy:
   # Aanmelding, notificatie en profielservice (https), de eigen database en het logboek
   # (PostgreSQL).
   allowedEgressPorts: [443, 5432]
+  # De aanmelding bij de uitvraag in hetzelfde cluster loopt via de Gateway.
+  gatewayEgress:
+    enabled: true

@@ -22,9 +22,12 @@ spec:
     - host: {{ .Values.ingress.hostname | quote }}
       http:
         paths:
-          - path: {{ .Values.ingress.path }}
-            pathType: {{ .Values.ingress.pathType }}
-            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" .) "servicePort" "http" "context" $) | nindent 14 }}
+          {{- range .Values.ingress.paths }}
+          - path: {{ .value }}
+            {{- /* Gateway API kent PathPrefix en Exact; een Ingress Prefix en Exact. */}}
+            pathType: {{ ternary "Prefix" .type (eq .type "PathPrefix") }}
+            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" $) "servicePort" "http" "context" $) | nindent 14 }}
+          {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     - hosts:

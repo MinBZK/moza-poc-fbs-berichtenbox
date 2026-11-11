@@ -3,9 +3,9 @@
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
 # demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
 # handtekening controleert. De suites onder demo/lib/ toetsen de modus-keuze waarmee elke lokale
-# opstelling start, en demo/test-meet-fanout.sh toetst dat de fan-out-meting een niet-geleegde
-# cache weigert; die horen bij een required check, en draaien daarom hier. charts/controleer.sh
-# toetst de Helm-chart, die geen andere check in de keten raakt. Een fout daarin is
+# opstelling start, demo/test-meet-fanout.sh toetst dat de fan-out-meting een niet-geleegde
+# cache weigert, en charts/controleer.sh toetst de Helm-chart, die geen andere check in de keten
+# raakt; die horen bij een required check, en draaien daarom hier. Een fout daarin is
 # stil — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
 # Vandaar een eigen, lichte workflow: shellcheck, actionlint en de bash-unittests, zonder de docker
 # build van de FSC-harness.
@@ -142,7 +142,7 @@ jobs:
           # `xargs -r` draait shellcheck niet bij een lege lijst; zonder deze guard zou die stilte
           # dan als geslaagd tellen in plaats van als "niets gemeten".
           if [ "$scripts" -eq 0 ]; then
-            echo "FOUT: geen enkel script onder .github/scripts/ of .claude/hooks/ — deze stap meet niets."
+            echo "FOUT: geen enkel script onder .github/scripts/, .claude/hooks/, demo/lib/ of charts/ — deze stap meet niets."
             fail=1
           elif ! find .github/scripts .claude/hooks demo/lib charts -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
             fail=1

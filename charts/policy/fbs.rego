@@ -7,13 +7,23 @@ package main
 
 import rego.v1
 
+pod_spec := input.spec.template.spec if input.kind == "Deployment"
+
+# Containers en initContainers: een initContainer draait met dezelfde rechten op dezelfde node.
 containers contains c if {
-	input.kind == "Deployment"
-	some c in input.spec.template.spec.containers
+	some c in pod_spec.containers
+}
+
+containers contains c if {
+	some c in object.get(pod_spec, "initContainers", [])
+}
+
+probe_plichtig contains c if {
+	some c in pod_spec.containers
 }
 
 deny contains msg if {
-	some c in containers
+	some c in probe_plichtig
 	some probe in ["livenessProbe", "readinessProbe", "startupProbe"]
 	not c[probe]
 	msg := sprintf("Container '%s' mist een %s", [c.name, probe])
@@ -21,7 +31,8 @@ deny contains msg if {
 
 deny contains msg if {
 	some c in containers
-	not c.securityContext.readOnlyRootFilesystem
+	# Afwezig of null betekent in Kubernetes: schrijfbaar.
+	object.get(c, ["securityContext", "readOnlyRootFilesystem"], false) != true
 	msg := sprintf("Container '%s' heeft geen read-only root-filesystem", [c.name])
 }
 
@@ -31,9 +42,19 @@ deny contains msg if {
 	msg := sprintf("Container '%s' laat niet alle capabilities vallen", [c.name])
 }
 
+deny contains msg if {
+	some c in containers
+	gevuld(object.get(c, ["securityContext", "capabilities"], {}), "add")
+	msg := sprintf("Container '%s' voegt capabilities toe", [c.name])
+}
+
+# De waarde op de container gaat in Kubernetes vóór die op de pod.
 seccomp_runtime_default(c) if c.securityContext.seccompProfile.type == "RuntimeDefault"
 
-seccomp_runtime_default(_) if input.spec.template.spec.securityContext.seccompProfile.type == "RuntimeDefault"
+seccomp_runtime_default(c) if {
+	not c.securityContext.seccompProfile
+	pod_spec.securityContext.seccompProfile.type == "RuntimeDefault"
+}
 
 deny contains msg if {
 	some c in containers
@@ -51,7 +72,7 @@ deny contains msg if {
 deny contains msg if {
 	input.kind == "Deployment"
 	# Afwezig betekent in Kubernetes: wél mounten.
-	object.get(input.spec.template.spec, "automountServiceAccountToken", true) != false
+	object.get(pod_spec, "automountServiceAccountToken", true) != false
 	msg := "De pod krijgt een service-account-token; de diensten praten niet met de Kubernetes-API"
 }
 
@@ -76,20 +97,42 @@ deny contains msg if {
 	msg := "Het stelselregister mag geen HPA hebben"
 }
 
-# Een regel zonder `from` laat inkomend verkeer van overal toe.
+# Een lijst die afwezig, null of leeg is, betekent in een NetworkPolicy: geen beperking.
+gevuld(obj, sleutel) if {
+	is_array(obj[sleutel])
+	count(obj[sleutel]) > 0
+}
+
+# Een peer met alleen lege selectors betekent: alle pods, of alle namespaces.
+open_peer(peer) if {
+	object.keys(peer) & {"podSelector", "namespaceSelector", "ipBlock"} != set()
+	not peer.ipBlock
+	every sleutel in ["podSelector", "namespaceSelector"] {
+		count(object.get(object.get(peer, sleutel, {}), "matchLabels", {})) == 0
+		count(object.get(object.get(peer, sleutel, {}), "matchExpressions", [])) == 0
+	}
+}
+
 deny contains msg if {
 	input.kind == "NetworkPolicy"
-	some regel in input.spec.ingress
-	not regel.from
+	some regel in object.get(input.spec, "ingress", [])
+	not gevuld(regel, "from")
 	msg := sprintf("NetworkPolicy '%s' laat inkomend verkeer van overal toe", [input.metadata.name])
 }
 
-# Een regel zonder `to` en zonder `ports` laat uitgaand verkeer naar overal toe.
 deny contains msg if {
 	input.kind == "NetworkPolicy"
-	some regel in input.spec.egress
-	not regel.to
-	not regel.ports
+	some regel in object.get(input.spec, "ingress", [])
+	some peer in regel.from
+	open_peer(peer)
+	msg := sprintf("NetworkPolicy '%s' heeft een bron met lege selectors; die laat alles toe", [input.metadata.name])
+}
+
+deny contains msg if {
+	input.kind == "NetworkPolicy"
+	some regel in object.get(input.spec, "egress", [])
+	not gevuld(regel, "to")
+	not gevuld(regel, "ports")
 	msg := sprintf("NetworkPolicy '%s' laat uitgaand verkeer naar overal toe", [input.metadata.name])
 }
 
@@ -101,6 +144,38 @@ deny contains msg if {
 
 deny contains msg if {
 	input.kind == "HTTPRoute"
-	count(object.get(input.spec, "hostnames", [])) == 0
+	not gevuld(input.spec, "hostnames")
 	msg := sprintf("HTTPRoute '%s' heeft geen hostnaam en vangt dan elk verkeer op de Gateway", [input.metadata.name])
+}
+
+# /q bevat health en Swagger UI; een health-antwoord noemt bij een storing interne hostnamen.
+route_pad_open(pad) if {
+	pad.type == "PathPrefix"
+	pad.value in {"/", "/q", "/q/"}
+}
+
+route_pad_open(pad) if startswith(pad.value, "/q/")
+
+deny contains msg if {
+	input.kind == "HTTPRoute"
+	some regel in input.spec.rules
+	some match in regel.matches
+	route_pad_open(match.path)
+	msg := sprintf("HTTPRoute '%s' zet %s open; /q hoort binnen het cluster", [input.metadata.name, match.path.value])
+}
+
+# Een regel zonder matches vangt in Gateway API alles, als PathPrefix /.
+deny contains msg if {
+	input.kind == "HTTPRoute"
+	some regel in input.spec.rules
+	not gevuld(regel, "matches")
+	msg := sprintf("HTTPRoute '%s' heeft een regel zonder matches; die zet alles open", [input.metadata.name])
+}
+
+deny contains msg if {
+	input.kind == "Ingress"
+	some regel in input.spec.rules
+	some pad in regel.http.paths
+	route_pad_open({"type": object.get({"Prefix": "PathPrefix"}, pad.pathType, pad.pathType), "value": pad.path})
+	msg := sprintf("Ingress '%s' zet %s open; /q hoort binnen het cluster", [input.metadata.name, pad.path])
 }

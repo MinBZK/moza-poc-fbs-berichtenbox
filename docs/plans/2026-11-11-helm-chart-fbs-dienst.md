@@ -1,6 +1,7 @@
 # Helm-chart voor de berichtendiensten (fieldlab Fundament)
 
-**Status:** Uitgevoerd
+**Status:** Concept: de chart en de controle zonder cluster zijn klaar, de clusterproef
+(`charts/lokaal-testcluster.sh`) heeft nog niet gedraaid.
 
 Issue: MinBZK/MijnOverheidZakelijk#1535, onder feature #1468 (Fieldlab Soevereine basis).
 
@@ -46,41 +47,64 @@ charts/
   staat niet in een OCI-registry. Uitgepakt in `charts/` werkt de chart zonder
   `helm dependency build`, ook als een plug-in hem vanaf een pad installeert.
 - **Geen geheimen in values.** Wachtwoorden en de ondertekensleutel komen uit een bestaand Secret
-  (`extraEnvVarsSecret`, `extraVolumes`). Een chart die geheimen uit values in een Secret zet,
-  nodigt uit tot wachtwoorden in een values-bestand in git.
-- **Image-tag verplicht.** De keten publiceert alleen `main-<sha7>` en `pr-<n>-<sha7>`, geen
-  `latest`; een standaardtag in de chart zou stil verouderen. Zonder tag of digest faalt de render.
+  (`extraEnvVarsSecret`, `dienst.sleutel`). Een chart die geheimen uit values in een Secret zet,
+  nodigt uit tot wachtwoorden in een values-bestand in git. De sleutel heeft een eigen value en
+  hangt niet aan `extraVolumes`: Helm vervangt lijsten, dus een eigen `extraVolumes` zou hem stil
+  laten wegvallen.
+- **Image-tag verplicht en vast.** De keten publiceert alleen `main-<sha7>` en `pr-<n>-<sha7>`.
+  Een standaardtag zou stil verouderen, en een meebewegende tag laat een herinstallatie een ander
+  image draaien. De render weigert daarom elke andere tag; een digest mag altijd.
+- **TLS-terminatie verplicht te kiezen.** De diensten weigeren te starten zonder TLS, tenzij
+  `HTTP_TLS_TERMINATION=mesh`. Fundament heeft geen mesh: met `mesh` gaat het stuk van de Gateway
+  naar de pod onversleuteld, met het BSN erin. Een standaard zou die keuze voor de operator maken;
+  `dienst.tlsTermination` heeft er daarom geen.
+- **Alleen de API naar buiten.** De route laat `/api/v1`, `/openapi.json` en `/.well-known` door,
+  niet `/q`. De health-checks van Quarkus zetten bij een storing de foutmelding van de database of
+  Redis in het antwoord, met interne hostnamen en poorten.
 - **Beveiliging volgens de mijn-bureau-standaard:** UID 185 (de gebruiker van het
   UBI-openjdk-image), `runAsNonRoot`, read-only root-filesystem met een `emptyDir` op `/tmp`,
   alle capabilities weg, `RuntimeDefault`-seccomp, geen service-account-token, eigen
   service-account, `imagePullPolicy: Always`, requests en limits op cpu, geheugen en
   ephemeral-storage.
-- **Netwerkafscherming standaard dicht.** Inkomend alleen vanaf de namespace van de
-  Envoy-proxy's (instelbaar) en vanaf pods met het client-label; uitgaand alleen DNS plus de
-  poorten die de dienst nodig heeft (443, 5432, 6379), per dienst. Het stelselregister maakt geen
-  uitgaande verbindingen en krijgt alleen DNS. Bestemmingen per IP zijn op Fundament nog niet
-  bekend (#1536); de poortbeperking is de afscherming die nu kan.
+- **Netwerkafscherming standaard dicht.**
+  - Inkomend alleen vanaf de proxy's van de eigen Gateway en vanaf pods met het label
+    `fbs.minbzk.nl/client: <fullname>`. Een vaste sleutel, met de fullname als waarde: een
+    sleutel met de fullname erin zou bij een lange releasenaam de grens van 63 tekens overschrijden.
+  - Uitgaand alleen DNS plus de poorten die de dienst nodig heeft (443, 5432, 6379), per dienst. Het
+    stelselregister maakt geen uitgaande verbindingen en krijgt alleen DNS.
+  - Een NetworkPolicy ziet de poort ná de vertaling door de Service. Daarom staat DNS ook op 8053
+    (CoreDNS op Gardener), en mogen uitvraag en magazijn naar de proxy's van de Gateway op 10080 en
+    10443 (Envoy Gateway telt 10000 op bij een listener onder 1024).
+  - Bestemmingen per IP zijn op Fundament nog niet bekend (MinBZK/MijnOverheidZakelijk#1536). De
+    poortbeperking is de afscherming die nu kan; wie de bestemmingen kent, beschrijft ze met `to`
+    in `extraEgress`.
 - **Precies één replica als invariant van de chart.** Het stelselregister ondertekent per instantie
   op een eigen moment; twee instanties leveren afnemers afwisselend een ouder document, dat ze
-  weigeren. `dienst.preciesEenReplica: true` laat de render falen bij meer replica's of een HPA,
-  en zet de uitrolstrategie op `Recreate`, zodat er ook tijdens een uitrol geen twee draaien.
+  weigeren. `dienst.singleReplica: true` laat de render falen bij een ander aantal replica's dan
+  één of een HPA, en zet de uitrolstrategie op `Recreate`, zodat er ook tijdens een uitrol geen
+  twee draaien.
 - **HTTPRoute met instelbare `sectionName`.** De helper van mijn-bureau zet die vast op `https`;
   de listener-naam van de Gateway op Fundament is nog niet bekend.
-- **Afhankelijkheden buiten de chart.** PostgreSQL, Redis met RediSearch en het logboek zijn #1536.
-  De chart verwijst er alleen naar via env.
+- **Afhankelijkheden buiten de chart.** PostgreSQL, Redis met RediSearch en het logboek horen bij
+  MinBZK/MijnOverheidZakelijk#1536. De chart verwijst er alleen naar via env.
 
 ## Controle zonder cluster
 
 `charts/controleer.sh` draait per scenario in `ci/`:
 
 1. `helm lint --strict`;
-2. `helm template`, met de uitvoer door `kubeconform -strict` (Kubernetes-schema's plus de
-   Gateway-API-schema's uit de CRDs-catalog, gepind op een commit);
+2. `helm template`, met de uitvoer door `kubeconform -strict` (Kubernetes-schema's en de
+   Gateway-API-schema's uit de CRDs-catalog, beide gepind op een commit);
 3. `conftest test` met de regels uit `charts/policy/`: die van mijn-bureau (containers, image,
-   labels, namespace) en eigen regels (probes, afscherming, één replica);
-4. `conftest verify` voor de eigen regels;
-5. negatieve gevallen die moeten falen: geen tag, route zonder hostnaam, meer dan één replica bij
-   het stelselregister.
+   labels, namespace), eigen regels per manifest (probes, afscherming, route, één replica) en
+   regels over de samenhang van een release (Service naar pods, route naar Service, HPA naar
+   Deployment, NetworkPolicy en PDB per Deployment). Een run waarin geen enkele regel draait,
+   telt als fout;
+4. `conftest verify` voor de eigen regels, met een ondergrens op het aantal tests;
+5. bijzondere values (HPA, PDB-grenzen, geen inkomende bronnen, twee magazijnen naast elkaar,
+   een eigen `extraVolumes` bij het stelselregister) en de renders die moeten falen.
+
+Het totaal heeft een ondergrens, zodat een geschrapte controle opvalt.
 
 `ci-scripts.yml` draait het script (helm, conftest en kubeconform gepind op versie en sha256).
 `charts/` gaat in `NIET_CODE` van de wijzigingsfilter: een chartwijziging raakt geen Maven-build en
@@ -92,4 +116,4 @@ geen image, en hoort dus geen testrun en geen preview te kopen.
 - Live: de images met dezelfde securityContext (read-only, UID 185, geen capabilities) onder
   podman tegen PostgreSQL en Redis Stack. Een k3d-cluster draait niet in de ontwikkelcontainer
   (geen `/dev/fuse`, geen `/lib/modules`); `charts/lokaal-testcluster.sh` doet de clusterproef op
-  de host.
+  de host: rollout per dienst, `/openapi.json` via de Gateway bereikbaar, `/q` niet.
