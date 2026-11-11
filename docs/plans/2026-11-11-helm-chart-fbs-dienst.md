@@ -47,20 +47,35 @@ charts/
   staat niet in een OCI-registry. Uitgepakt in `charts/` werkt de chart zonder
   `helm dependency build`, ook als een plug-in hem vanaf een pad installeert.
 - **Geen geheimen in values.** Wachtwoorden en de ondertekensleutel komen uit een bestaand Secret
-  (`extraEnvVarsSecret`, `dienst.sleutel`). Een chart die geheimen uit values in een Secret zet,
-  nodigt uit tot wachtwoorden in een values-bestand in git. De sleutel heeft een eigen value en
+  (`extraEnvVarsSecret`, `dienst.keystore`). Een chart die geheimen uit values in een Secret zet,
+  nodigt uit tot wachtwoorden in een values-bestand in git. De keystore heeft een eigen value en
   hangt niet aan `extraVolumes`: Helm vervangt lijsten, dus een eigen `extraVolumes` zou hem stil
   laten wegvallen.
-- **Image-tag verplicht en vast.** De keten publiceert alleen `main-<sha7>` en `pr-<n>-<sha7>`.
-  Een standaardtag zou stil verouderen, en een meebewegende tag laat een herinstallatie een ander
-  image draaien. De render weigert daarom elke andere tag; een digest mag altijd.
-- **TLS-terminatie verplicht te kiezen.** De diensten weigeren te starten zonder TLS, tenzij
-  `HTTP_TLS_TERMINATION=mesh`. Fundament heeft geen mesh: met `mesh` gaat het stuk van de Gateway
-  naar de pod onversleuteld, met het BSN erin. Een standaard zou die keuze voor de operator maken;
-  `dienst.tlsTermination` heeft er daarom geen.
+- **Image-tag verplicht en vast.** De keten publiceert `main-<sha7>` en `pr-<n>-<sha7>`, bij een
+  herdraai of ready-for-review met `-r<n>`/`-k<n>` erachter. Een standaardtag zou stil verouderen,
+  en een meebewegende tag laat een herinstallatie een ander image draaien. De render weigert daarom
+  elke andere tag; een digest mag altijd.
+- **TLS-terminatie verplicht te kiezen, en alleen `mesh`.** De diensten weigeren te starten zonder
+  TLS, tenzij `HTTP_TLS_TERMINATION=mesh`. Fundament heeft geen mesh: met `mesh` gaat het stuk van
+  de Gateway naar de pod onversleuteld, met het BSN erin. Een standaard zou die keuze voor de
+  operator maken; `dienst.tlsTermination` heeft er daarom geen. TLS in de dienst zelf (`app`)
+  vraagt een https-poort, probes op HTTPS en TLS vanaf de Gateway; die levert de chart niet, en
+  de render weigert `app` in plaats van een pod op te leveren die nooit gereed wordt.
+- **Geen andere weg om TLS uit te zetten.** De render weigert de `FBS_*_UNSAFE_*`-kleppen zonder
+  `dienst.allowUnsafeFlags`, en altijd `QUARKUS_PROFILE` en de JVM-opties die een profiel kunnen
+  zetten: in het profiel `dev` of `test` vervalt elke TLS-eis. De namen worden genormaliseerd zoals
+  SmallRye ze leest, en `extraEnvVars` telt mee.
+- **Een route vraagt een expliciete schakelaar.** De API's authenticeren hun aanroepers niet; wie
+  de route bereikt, leest met een willekeurig BSN in `X-Ontvanger` berichten. `ingress.enabled`
+  vraagt daarom `ingress.allowUnauthenticated=true`. Alleen het stelselregister zet die zelf: het
+  stelseldocument is openbaar en ondertekend.
 - **Alleen de API naar buiten.** De route laat `/api/v1`, `/openapi.json` en `/.well-known` door,
-  niet `/q`. De health-checks van Quarkus zetten bij een storing de foutmelding van de database of
-  Redis in het antwoord, met interne hostnamen en poorten.
+  niet `/q`, en alleen met padtype `PathPrefix` of `Exact`: een reguliere expressie zou die
+  uitsluiting omzeilen. De health-checks van Quarkus zetten bij een storing de foutmelding van de
+  database of Redis in het antwoord, met interne hostnamen en poorten.
+- **Streams zonder request-timeout.** Envoy breekt een antwoord standaard na 15 seconden af, ook een
+  SSE-stream. De stream-paden van de uitvraag (`_ophalen`, `_volgen`) krijgen daarom een eigen
+  regel met `timeouts.request: 0s`; een Exact-match gaat in Gateway API vóór de PathPrefix.
 - **Beveiliging volgens de mijn-bureau-standaard:** UID 185 (de gebruiker van het
   UBI-openjdk-image), `runAsNonRoot`, read-only root-filesystem met een `emptyDir` op `/tmp`,
   alle capabilities weg, `RuntimeDefault`-seccomp, geen service-account-token, eigen
@@ -68,13 +83,15 @@ charts/
   ephemeral-storage.
 - **Netwerkafscherming standaard dicht.**
   - Inkomend alleen vanaf de proxy's van de eigen Gateway en vanaf pods met het label
-    `fbs.minbzk.nl/client: <fullname>`. Een vaste sleutel, met de fullname als waarde: een
-    sleutel met de fullname erin zou bij een lange releasenaam de grens van 63 tekens overschrijden.
+    `client.fbs.minbzk.nl/<fullname>: "true"`. Eén sleutel per doel, zodat een pod meerdere
+    diensten kan aanroepen; de fullname is ten hoogste 63 tekens, de grens voor het naamdeel van
+    een labelsleutel.
   - Uitgaand alleen DNS plus de poorten die de dienst nodig heeft (443, 5432, 6379), per dienst. Het
     stelselregister maakt geen uitgaande verbindingen en krijgt alleen DNS.
   - Een NetworkPolicy ziet de poort ná de vertaling door de Service. Daarom staat DNS ook op 8053
-    (CoreDNS op Gardener), en mogen uitvraag en magazijn naar de proxy's van de Gateway op 10080 en
-    10443 (Envoy Gateway telt 10000 op bij een listener onder 1024).
+    (CoreDNS op Gardener), en mogen uitvraag en magazijn naar de proxy's van Envoy Gateway op 10443
+    (Envoy Gateway telt 10000 op bij een listener onder 1024). Die egress heeft eigen selectors: de
+    bestemming kan achter een andere Gateway staan dan de eigen route.
   - Bestemmingen per IP zijn op Fundament nog niet bekend (MinBZK/MijnOverheidZakelijk#1536). De
     poortbeperking is de afscherming die nu kan; wie de bestemmingen kent, beschrijft ze met `to`
     in `extraEgress`.
@@ -83,6 +100,9 @@ charts/
   weigeren. `dienst.singleReplica: true` laat de render falen bij een ander aantal replica's dan
   één of een HPA, en zet de uitrolstrategie op `Recreate`, zodat er ook tijdens een uitrol geen
   twee draaien.
+- **Afwijkingen van Haven.** Haven vraagt een metrics-endpoint en schaalbaarheid naar meerdere
+  replica's. De diensten hebben geen metrics-endpoint (daarom geen ServiceMonitor), en het
+  stelselregister draait bewust met één replica.
 - **HTTPRoute met instelbare `sectionName`.** De helper van mijn-bureau zet die vast op `https`;
   de listener-naam van de Gateway op Fundament is nog niet bekend.
 - **Afhankelijkheden buiten de chart.** PostgreSQL, Redis met RediSearch en het logboek horen bij

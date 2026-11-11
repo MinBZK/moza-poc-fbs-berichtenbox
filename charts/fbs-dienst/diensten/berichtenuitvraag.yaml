@@ -17,9 +17,15 @@ dienst:
   containerPorts:
     http: 8086
 
+ingress:
+  # Het ophalen en volgen van berichten loopt als SSE-stream, tot een uur lang.
+  streamPaths:
+    - /api/v1/berichten/_ophalen
+    - /api/v1/berichten/_volgen
+
 networkPolicy:
   # Magazijnen en profielservice (https), het logboek (PostgreSQL) en de sessiecache (Redis).
   allowedEgressPorts: [443, 5432, 6379]
-  # Een magazijn in hetzelfde cluster bereikt de uitvraag via de Gateway.
+  # De uitvraag bereikt een magazijn in hetzelfde cluster via de Gateway.
   gatewayEgress:
     enabled: true

@@ -19,8 +19,8 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 ## Installeren
 
 Geef per dienst het values-bestand uit `diensten/` mee, een image-tag (`main-<sha7>` of
-`pr-<n>-<sha7>`, zoals de keten ze publiceert; anders een digest), de plek waar TLS eindigt, en
-wat per omgeving verschilt:
+`pr-<n>-<sha7>`, bij een herdraai of ready-for-review met `-r<n>`/`-k<n>` erachter, zoals de keten
+ze publiceert; anders een digest), de plek waar TLS eindigt, en wat per omgeving verschilt:
 
 ```bash
 helm upgrade --install berichtenmagazijn charts/fbs-dienst --namespace fbs \
@@ -33,7 +33,7 @@ met in `mijn-omgeving/berichtenmagazijn.yaml` bijvoorbeeld:
 
 ```yaml
 dienst:
-  tlsTermination: app        # of mesh, zie hieronder
+  tlsTermination: mesh       # zie hieronder
   env:
     DB_JDBC_URL: jdbc:postgresql://db.example.nl:5432/magazijn?sslmode=require
     DB_USERNAME: magazijn
@@ -49,6 +49,7 @@ cluster:
 
 ingress:
   enabled: true
+  allowUnauthenticated: true # alleen als de Gateway de toegang beperkt, zie hieronder
   hostname: magazijn.organisatie.example.nl
 ```
 
@@ -56,22 +57,26 @@ Welke instellingen een dienst nodig heeft, staat bovenin zijn bestand onder `die
 operatorhandleiding van die dienst. Waarden in `dienst.env` mogen templates bevatten, zoals
 `{{ .Release.Namespace }}`.
 
-**`dienst.tlsTermination` is een bewuste keuze, zonder standaard.**
-- Met `app` eindigt TLS in de dienst zelf, met een eigen certificaat.
-- Met `mesh` eindigt TLS ervóór, en loopt het laatste stuk van de Gateway naar de pod als platte
-  HTTP. Kies `mesh` alleen als het pod-netwerk dat stuk afschermt: over die verbinding gaan het
-  BSN en de inhoud van berichten.
+**`dienst.tlsTermination` is een bewuste keuze, zonder standaard.** De chart ondersteunt alleen
+`mesh`: TLS eindigt vóór de dienst, en het laatste stuk van de Gateway naar de pod loopt als
+platte HTTP. Kies dat alleen als het pod-netwerk dat stuk afschermt: over die verbinding gaan het
+BSN en de inhoud van berichten. TLS in de dienst zelf (`app`) vraagt een https-poort, probes op
+HTTPS en TLS vanaf de Gateway; de render weigert die keuze.
 
 **Geheimen staan nooit in values.**
 - Wachtwoorden komen uit een bestaand Secret (`dienst.extraEnvVarsSecret`).
-- Het stelselregister leest zijn ondertekensleutel uit het Secret `<fullname>-sleutel`, sleutel
+- Het stelselregister leest zijn ondertekensleutel uit het Secret `<fullname>-keystore`, data-key
   `keystore.p12`.
-- De `FBS_*_UNSAFE_*`-kleppen weigert de render in `dienst.env`, tenzij
-  `dienst.allowUnsafeFlags=true`.
+- De `FBS_*_UNSAFE_*`-kleppen weigert de render in `dienst.env` en `dienst.extraEnvVars`, in elke
+  schrijfwijze, tenzij `dienst.allowUnsafeFlags=true`. Hetzelfde geldt voor `QUARKUS_PROFILE` en
+  de JVM-opties waarmee een ander profiel te zetten is: een ander profiel zet elke TLS-eis uit.
+  Wat in `extraEnvVarsCM` of `extraEnvVarsSecret` staat, ziet de chart niet.
 
-**De API's authenticeren hun aanroepers nog niet.** Wie de route bereikt, bereikt de API. Zet
-`ingress.enabled` dus alleen aan als de Gateway de toegang beperkt, of laat aanroepers binnen het
-cluster komen via het podlabel `fbs.minbzk.nl/client: <fullname>`.
+**De API's authenticeren hun aanroepers niet.** Wie de route bereikt, bereikt de API. Een route
+vraagt daarom `ingress.allowUnauthenticated=true`. Zet die alleen als de Gateway de toegang
+beperkt; het stelselregister zet hem zelf, want het stelseldocument is openbaar. Aanroepers binnen
+het cluster komen binnen met het podlabel `client.fbs.minbzk.nl/<fullname>: "true"`, één per
+dienst die ze aanroepen.
 
 ## Wat de chart standaard afdwingt
 
@@ -82,17 +87,18 @@ cluster komen via het podlabel `fbs.minbzk.nl/client: <fullname>`.
   - Dezelfde regels gelden voor initContainers.
 - **Probes en resources:** liveness, readiness en startup op `/q/health/*`; requests en limits op
   cpu, geheugen en ephemeral-storage.
-- **Een route die alleen `/api/v1`, `/openapi.json` en `/.well-known` doorlaat.** `/q` (health,
-  Swagger UI) blijft binnen het cluster; een health-antwoord noemt bij een storing interne
-  hostnamen.
+- **Een route die alleen `/api/v1`, `/openapi.json` en `/.well-known` doorlaat**, met padtype
+  `PathPrefix` of `Exact`. `/q` (health, Swagger UI) blijft binnen het cluster; een health-antwoord
+  noemt bij een storing interne hostnamen. De SSE-paden van de uitvraag krijgen een eigen regel
+  zonder request-timeout, want Envoy breekt een antwoord anders na 15 seconden af.
 - **Een NetworkPolicy, inkomend.** Alleen vanaf de proxy's van de eigen Gateway (in
   `envoy-gateway-system`, instelbaar met `networkPolicy.ingressNSMatchLabels`) en vanaf pods met
-  het label `fbs.minbzk.nl/client: <fullname>`.
+  het label `client.fbs.minbzk.nl/<fullname>: "true"`.
 - **Een NetworkPolicy, uitgaand.** Alleen:
   - DNS op 53 en 8053; op Gardener luistert CoreDNS op 8053;
   - de poorten in `networkPolicy.allowedEgressPorts`, naar elke bestemming;
-  - bij uitvraag en magazijn de proxy's van de Gateway op 10080 en 10443, voor een https-adres van
-    een dienst in hetzelfde cluster.
+  - bij uitvraag en magazijn de proxy's van Envoy Gateway op 10443, voor een https-adres van een
+    dienst in hetzelfde cluster. Envoy laat een listener op 443 op 10443 luisteren.
 - **Een PodDisruptionBudget.**
 - **Het stelselregister draait met precies één replica, en rolt uit met `Recreate`.** Twee
   instanties ondertekenen elk op hun eigen moment, en een afnemer weigert dan het oudere document.
@@ -100,10 +106,10 @@ cluster komen via het podlabel `fbs.minbzk.nl/client: <fullname>`.
 
 Een render met een onmogelijke combinatie faalt met een melding. Voorbeelden:
 - geen tag, of een meebewegende tag als `latest` of `main`;
-- geen keuze voor TLS;
-- een route zonder hostnaam of Gateway;
+- geen keuze voor TLS, of `app`;
+- een route zonder `allowUnauthenticated`, hostnaam of Gateway, of met een ander padtype;
 - een Ingress zonder TLS;
-- een onveilige klep zonder `allowUnsafeFlags`;
+- een onveilige klep of een ander Quarkus-profiel zonder `allowUnsafeFlags`;
 - het stelselregister met een ander aantal replica's dan één, of met een HPA.
 
 ## Controleren zonder cluster

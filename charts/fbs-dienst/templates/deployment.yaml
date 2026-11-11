@@ -152,9 +152,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            {{- if $d.sleutel.enabled }}
-            - name: sleutel
-              mountPath: {{ $d.sleutel.mountPath }}
+            {{- if $d.keystore.enabled }}
+            - name: keystore
+              mountPath: {{ $d.keystore.mountPath }}
               readOnly: true
             {{- end }}
             {{- if $d.extraVolumeMounts }}
@@ -167,15 +167,15 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ $d.tmpSizeLimit }}
-        {{- if $d.sleutel.enabled }}
-        - name: sleutel
+        {{- if $d.keystore.enabled }}
+        - name: keystore
           secret:
-            secretName: {{ tpl $d.sleutel.secretName $ }}
+            secretName: {{ tpl $d.keystore.secretName $ }}
             # Leesbaar voor de groep (fsGroup), niet voor anderen.
             defaultMode: 0440
             items:
-              - key: {{ $d.sleutel.key }}
-                path: {{ $d.sleutel.key }}
+              - key: {{ $d.keystore.key }}
+                path: {{ $d.keystore.key }}
         {{- end }}
         {{- if $d.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" $d.extraVolumes "context" $) | nindent 8 }}

@@ -9,6 +9,7 @@ cluster:
 
 ingress:
   enabled: true
+  allowUnauthenticated: true
   hostname: dienst.localhost
   ingressClassName: traefik
   tls: true

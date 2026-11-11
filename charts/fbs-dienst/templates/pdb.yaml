@@ -16,10 +16,13 @@ metadata:
   annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
   {{- end }}
 spec:
-  {{- /* Op lege string toetsen en niet op truthiness: 0 is een geldige waarde. */}}
-  {{- if ne (toString $pdb.minAvailable) "" }}
+  {{- /* Niet op truthiness toetsen: 0 is een geldige waarde. Leeg en null (ook een met --set
+       weggehaalde sleutel) betekenen: niet gezet. */}}
+  {{- $min := ternary "" (toString $pdb.minAvailable) (kindIs "invalid" $pdb.minAvailable) }}
+  {{- $max := ternary "" (toString $pdb.maxUnavailable) (kindIs "invalid" $pdb.maxUnavailable) }}
+  {{- if ne $min "" }}
   minAvailable: {{ $pdb.minAvailable }}
-  {{- else if ne (toString $pdb.maxUnavailable) "" }}
+  {{- else if ne $max "" }}
   maxUnavailable: {{ $pdb.maxUnavailable }}
   {{- else }}
   maxUnavailable: 1

@@ -38,4 +38,19 @@ spec:
       backendRefs:
         - name: {{ template "common.names.fullname" . }}
           port: {{ .Values.service.ports.http }}
+    {{- with .Values.ingress.streamPaths }}
+    {{- /* Een Exact-match gaat in Gateway API vóór een PathPrefix, dus deze regel wint. */}}
+    - matches:
+        {{- range . }}
+        - path:
+            type: Exact
+            value: {{ . | quote }}
+        {{- end }}
+      timeouts:
+        # 0s: geen grens. Een stream eindigt aan de kant van de dienst.
+        request: 0s
+      backendRefs:
+        - name: {{ template "common.names.fullname" $ }}
+          port: {{ $.Values.service.ports.http }}
+    {{- end }}
 {{- end }}

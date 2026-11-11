@@ -89,6 +89,8 @@ spec:
           from: Same
 EOF
 
+kc -n "$NS" wait gateway/proef --for=condition=Programmed --timeout=5m
+
 echo "== proefvoorzieningen: PostgreSQL en Redis Stack =="
 
 # Geheimen als bestand, niet op de commandoregel: die is via ps zichtbaar voor andere gebruikers.
@@ -167,13 +169,13 @@ EOF
 kc -n "$NS" rollout status deployment/proef-postgres --timeout=5m
 kc -n "$NS" rollout status deployment/proef-redis --timeout=5m
 
-echo "== sleutel van het stelselregister =="
+echo "== keystore van het stelselregister =="
 
 mkdir -p "$WERK/pki"
 cp "$REPO/demo/environment/stelselregister/pki/maak-keten.sh" "$WERK/pki/"
 (cd "$WERK/pki" && STELSELDOCUMENT_OMGEVING=lokaal ./maak-keten.sh >/dev/null)
 
-kc -n "$NS" create secret generic stelselregister-sleutel \
+kc -n "$NS" create secret generic stelselregister-keystore \
   --from-file=keystore.p12="$WERK/pki/out/keystore.p12" --dry-run=client -o yaml | kc apply -f -
 
 echo "== geheimen en instellingen per dienst =="
@@ -233,14 +235,15 @@ EOF
 echo "== installeren met de chart =="
 
 # tlsTermination=mesh: lokaal is het pod-netwerk niet versleuteld. Dat kan hier, met proefgegevens
-# op loopback; op Fundament hoort die keuze bij het pod-netwerk daar.
+# op loopback; op Fundament hoort die keuze bij het pod-netwerk daar. Hetzelfde geldt voor
+# allowUnauthenticated: de route staat alleen op loopback open.
 for dienst in "${DIENSTEN[@]}"; do
   hm upgrade --install "$dienst" "$CHARTS/fbs-dienst" --namespace "$NS" \
     -f "$CHARTS/fbs-dienst/diensten/$dienst.yaml" -f "$WERK/$dienst.yaml" \
     --set dienst.image.tag="$TAG" \
     --set dienst.tlsTermination=mesh \
     --set dienst.extraEnvVarsSecret="$dienst-geheimen" \
-    --set ingress.enabled=true --set ingress.hostname="$dienst.fbs.localhost" \
+    --set ingress.enabled=true --set ingress.allowUnauthenticated=true --set ingress.hostname="$dienst.fbs.localhost" \
     --set cluster.gateway.name=proef --set cluster.gateway.sectionName=http
 done
 
@@ -263,8 +266,9 @@ status() {
 for dienst in "${DIENSTEN[@]}"; do
   code=000
 
-  # De route wordt pas na de rollout door Envoy opgepikt; even geduld.
-  for _ in $(seq 1 30); do
+  # De route wordt pas na de rollout door Envoy opgepikt, en bij de eerste keer wacht dat op het
+  # binnenhalen van het proxy-image.
+  for _ in $(seq 1 90); do
     code=$(status "$dienst" /openapi.json)
     [ "$code" = 200 ] && break
     sleep 2

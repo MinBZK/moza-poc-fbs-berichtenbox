@@ -20,4 +20,5 @@ cluster:
 
 ingress:
   enabled: true
+  allowUnauthenticated: true
   hostname: dienst.fieldlab.example.nl

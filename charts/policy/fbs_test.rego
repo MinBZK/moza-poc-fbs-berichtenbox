@@ -127,9 +127,10 @@ test_ephemeral_storage_ontbreekt_faalt if {
 test_service_account_token_faalt if {
 	every op in [
 		{"op": "replace", "path": "/spec/template/spec/automountServiceAccountToken", "value": true},
+		{"op": "replace", "path": "/spec/template/spec/automountServiceAccountToken", "value": null},
 		{"op": "remove", "path": "/spec/template/spec/automountServiceAccountToken"},
 	] {
-		count(fbs_deny(patch(uitvraag(container_ok), op))) == 1
+		fbs_deny(patch(uitvraag(container_ok), op)) == {"De pod krijgt een service-account-token; de diensten praten niet met de Kubernetes-API"}
 	}
 }
 
@@ -202,22 +203,53 @@ test_ingress_zonder_bronnen_faalt if {
 	}
 }
 
-test_bron_met_lege_selectors_faalt if {
-	every peer in [{"namespaceSelector": {}}, {"podSelector": {}}, {"namespaceSelector": {"matchLabels": {}}, "podSelector": {}}] {
+test_bron_zonder_beperking_faalt if {
+	every peer in [
+		{"namespaceSelector": {}},
+		{"podSelector": {}},
+		{"namespaceSelector": {"matchLabels": {}}, "podSelector": {}},
+		{"namespaceSelector": {"matchLabels": null}},
+		{"podSelector": null, "namespaceSelector": {}},
+		{"namespaceSelector": {"matchLabels": {}, "matchExpressions": []}},
+		{"ipBlock": {"cidr": "0.0.0.0/0"}},
+		{"ipBlock": {"cidr": "::/0"}},
+		{},
+	] {
 		regel := {"ports": [{"port": 8086}], "from": [peer]}
-		fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' heeft een bron met lege selectors; die laat alles toe"}
+		fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' heeft een bron zonder beperking; die laat alles toe"}
 	}
 }
 
-test_bron_met_een_gevulde_selector_slaagt if {
+test_bron_met_beperking_slaagt if {
 	every peer in [
 		{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {}},
 		{"podSelector": {"matchExpressions": [{"key": "a", "operator": "Exists"}]}},
 		{"ipBlock": {"cidr": "10.0.0.0/8"}},
+		{"ipBlock": {"cidr": "0.0.0.0/0", "except": ["10.0.0.0/8"]}},
 	] {
 		regel := {"ports": [{"port": 8086}], "from": [peer]}
 		count(fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"]))) == 0
 	}
+}
+
+test_bestemming_zonder_beperking_faalt if {
+	every peer in [{"namespaceSelector": {}}, {"podSelector": null}, {"ipBlock": {"cidr": "0.0.0.0/0"}}] {
+		regel := {"to": [peer], "ports": [{"port": 5432}]}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' heeft een bestemming zonder beperking; die laat alles toe"}
+	}
+}
+
+test_gateway_poort_naar_overal_faalt if {
+	every poort in [10080, 10443] {
+		regel := {"ports": [{"port": poort, "protocol": "TCP"}]}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {sprintf("NetworkPolicy 'np' laat poort %v naar overal toe; die hoort alleen naar de Gateway-proxy's", [poort])}
+	}
+}
+
+test_gateway_poort_naar_proxys_slaagt if {
+	naar := {"to": [{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {"matchLabels": {"c": "d"}}}]}
+	regel := object.union(naar, {"ports": [{"port": 10443, "protocol": "TCP"}]})
+	count(fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"]))) == 0
 }
 
 test_open_egress_faalt if {
@@ -262,6 +294,17 @@ test_httproute_naar_q_of_alles_faalt if {
 	}
 }
 
+test_httproute_ander_padtype_of_geen_pad_faalt if {
+	every match in [
+		{"path": {"type": "RegularExpression", "value": "/.*"}},
+		{"headers": [{"name": "x", "value": "y"}]},
+		{},
+	] {
+		spec := {"hostnames": ["a.example.nl"], "rules": [api_regel, {"matches": [match]}]}
+		fbs_deny(route(spec)) == {"HTTPRoute 'r' heeft een match zonder pad van type PathPrefix of Exact"}
+	}
+}
+
 test_httproute_exact_root_mag if {
 	spec := {"hostnames": ["a.example.nl"], "rules": [{"matches": [{"path": {"type": "Exact", "value": "/"}}]}]}
 	count(fbs_deny(route(spec))) == 0
@@ -277,8 +320,14 @@ test_httproute_regel_zonder_matches_faalt if {
 ingress_obj(pad, type) := {"kind": "Ingress", "metadata": {"name": "i"}, "spec": {"rules": [{"http": {"paths": [{"path": pad, "pathType": type}]}}]}}
 
 test_ingress_naar_q_of_alles_faalt if {
-	every pad in ["/", "/q"] {
-		fbs_deny(ingress_obj(pad, "Prefix")) == {sprintf("Ingress 'i' zet %s open; /q hoort binnen het cluster", [pad])}
+	every geval in [["/", "Prefix"], ["/q", "Prefix"], ["/q/health/ready", "Exact"], ["/q/swagger-ui", "Prefix"]] {
+		fbs_deny(ingress_obj(geval[0], geval[1])) == {sprintf("Ingress 'i' zet %s open; /q hoort binnen het cluster", [geval[0]])}
+	}
+}
+
+test_ingress_ander_pathtype_faalt if {
+	every type in ["ImplementationSpecific", "PathPrefix"] {
+		fbs_deny(ingress_obj("/api/v1", type)) == {sprintf("Ingress 'i' heeft pad /api/v1 met pathType %s; alleen Prefix of Exact", [type])}
 	}
 }
 

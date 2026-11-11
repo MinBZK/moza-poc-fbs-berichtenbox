@@ -97,20 +97,41 @@ deny contains msg if {
 	msg := "Het stelselregister mag geen HPA hebben"
 }
 
-# Een lijst die afwezig, null of leeg is, betekent in een NetworkPolicy: geen beperking.
+# Afwezig, null en leeg betekenen in Kubernetes hetzelfde; alleen een niet-lege lijst telt als
+# gevuld.
 gevuld(obj, sleutel) if {
 	is_array(obj[sleutel])
 	count(obj[sleutel]) > 0
 }
 
-# Een peer met alleen lege selectors betekent: alle pods, of alle namespaces.
+# Een selector die afwezig, null of leeg is, selecteert alles.
+selector_leeg(peer, sleutel) if {
+	sel := object.get(peer, sleutel, null)
+	not is_object(sel)
+}
+
+selector_leeg(peer, sleutel) if {
+	sel := peer[sleutel]
+	is_object(sel)
+	not gevuld_map(sel, "matchLabels")
+	not gevuld(sel, "matchExpressions")
+}
+
+gevuld_map(obj, sleutel) if {
+	is_object(obj[sleutel])
+	count(obj[sleutel]) > 0
+}
+
+# Een peer zonder enige beperking: alle pods, alle namespaces, of elk adres.
 open_peer(peer) if {
-	object.keys(peer) & {"podSelector", "namespaceSelector", "ipBlock"} != set()
 	not peer.ipBlock
-	every sleutel in ["podSelector", "namespaceSelector"] {
-		count(object.get(object.get(peer, sleutel, {}), "matchLabels", {})) == 0
-		count(object.get(object.get(peer, sleutel, {}), "matchExpressions", [])) == 0
-	}
+	selector_leeg(peer, "podSelector")
+	selector_leeg(peer, "namespaceSelector")
+}
+
+open_peer(peer) if {
+	peer.ipBlock.cidr in {"0.0.0.0/0", "::/0"}
+	not gevuld(peer.ipBlock, "except")
 }
 
 deny contains msg if {
@@ -125,7 +146,7 @@ deny contains msg if {
 	some regel in object.get(input.spec, "ingress", [])
 	some peer in regel.from
 	open_peer(peer)
-	msg := sprintf("NetworkPolicy '%s' heeft een bron met lege selectors; die laat alles toe", [input.metadata.name])
+	msg := sprintf("NetworkPolicy '%s' heeft een bron zonder beperking; die laat alles toe", [input.metadata.name])
 }
 
 deny contains msg if {
@@ -134,6 +155,26 @@ deny contains msg if {
 	not gevuld(regel, "to")
 	not gevuld(regel, "ports")
 	msg := sprintf("NetworkPolicy '%s' laat uitgaand verkeer naar overal toe", [input.metadata.name])
+}
+
+deny contains msg if {
+	input.kind == "NetworkPolicy"
+	some regel in object.get(input.spec, "egress", [])
+	some peer in object.get(regel, "to", [])
+	open_peer(peer)
+	msg := sprintf("NetworkPolicy '%s' heeft een bestemming zonder beperking; die laat alles toe", [input.metadata.name])
+}
+
+# De poorten van de Gateway-proxy's horen alleen naar die proxy's open te staan, niet naar overal.
+gateway_proxy_poorten := {10080, 10443}
+
+deny contains msg if {
+	input.kind == "NetworkPolicy"
+	some regel in object.get(input.spec, "egress", [])
+	some poort in object.get(regel, "ports", [])
+	poort.port in gateway_proxy_poorten
+	not gevuld(regel, "to")
+	msg := sprintf("NetworkPolicy '%s' laat poort %v naar overal toe; die hoort alleen naar de Gateway-proxy's", [input.metadata.name, poort.port])
 }
 
 deny contains msg if {
@@ -164,6 +205,16 @@ deny contains msg if {
 	msg := sprintf("HTTPRoute '%s' zet %s open; /q hoort binnen het cluster", [input.metadata.name, match.path.value])
 }
 
+# Een allowlist, geen denylist: een RegularExpression of een match zonder pad (in Gateway API
+# PathPrefix /) zou de uitsluiting van /q omzeilen.
+deny contains msg if {
+	input.kind == "HTTPRoute"
+	some regel in input.spec.rules
+	some match in regel.matches
+	not object.get(match, ["path", "type"], "") in {"PathPrefix", "Exact"}
+	msg := sprintf("HTTPRoute '%s' heeft een match zonder pad van type PathPrefix of Exact", [input.metadata.name])
+}
+
 # Een regel zonder matches vangt in Gateway API alles, als PathPrefix /.
 deny contains msg if {
 	input.kind == "HTTPRoute"
@@ -178,4 +229,12 @@ deny contains msg if {
 	some pad in regel.http.paths
 	route_pad_open({"type": object.get({"Prefix": "PathPrefix"}, pad.pathType, pad.pathType), "value": pad.path})
 	msg := sprintf("Ingress '%s' zet %s open; /q hoort binnen het cluster", [input.metadata.name, pad.path])
+}
+
+deny contains msg if {
+	input.kind == "Ingress"
+	some regel in input.spec.rules
+	some pad in regel.http.paths
+	not pad.pathType in {"Prefix", "Exact"}
+	msg := sprintf("Ingress '%s' heeft pad %v met pathType %v; alleen Prefix of Exact", [input.metadata.name, object.get(pad, "path", ""), object.get(pad, "pathType", "")])
 }

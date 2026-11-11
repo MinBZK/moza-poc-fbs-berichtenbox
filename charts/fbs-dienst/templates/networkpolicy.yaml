@@ -42,14 +42,12 @@ spec:
           protocol: TCP
         {{- end }}
     {{- end }}
-    {{- if and $np.gatewayEgress.enabled $np.ingressNSMatchLabels }}
+    {{- if $np.gatewayEgress.enabled }}
     - to:
         - namespaceSelector:
-            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.ingressNSMatchLabels "context" $ ) | nindent 14 }}
-          {{- if $np.ingressNSPodMatchLabels }}
+            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.gatewayEgress.namespaceMatchLabels "context" $ ) | nindent 14 }}
           podSelector:
-            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.ingressNSPodMatchLabels "context" $ ) | nindent 14 }}
-          {{- end }}
+            matchLabels: {{- include "common.tplvalues.render" (dict "value" $np.gatewayEgress.podMatchLabels "context" $ ) | nindent 14 }}
       ports:
         {{- range $np.gatewayEgress.ports }}
         - port: {{ . }}
@@ -75,7 +73,7 @@ spec:
         {{- if $np.addExternalClientAccess }}
         - podSelector:
             matchLabels:
-              fbs.minbzk.nl/client: {{ include "common.names.fullname" . | quote }}
+              client.fbs.minbzk.nl/{{ include "common.names.fullname" . }}: "true"
         {{- end }}
         {{- if $np.ingressPodMatchLabels }}
         - podSelector:

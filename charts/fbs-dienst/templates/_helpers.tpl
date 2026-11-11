@@ -37,23 +37,39 @@ komt vóór de uitrol boven; een fout in het cluster pas als de pod niet start.
 {{- if and (not $d.image.tag) (not $d.image.digest) -}}
 {{- $fouten = append $fouten "dienst.image.tag of dienst.image.digest is verplicht (bijvoorbeeld main-<sha7>); er is geen latest" -}}
 {{- else if and $d.image.tag (not $d.image.digest) (not (regexMatch "^(main|pr-[0-9]+)-[0-9a-f]{7}(-[rk][0-9]+)*$" (toString $d.image.tag))) -}}
-{{- $fouten = append $fouten (printf "dienst.image.tag %q is geen main-<sha7> of pr-<n>-<sha7>: een meebewegende tag laat een herinstallatie stil een ander image draaien; gebruik anders dienst.image.digest" (toString $d.image.tag)) -}}
+{{- $fouten = append $fouten (printf "dienst.image.tag %q is geen main-<sha7> of pr-<n>-<sha7> (eventueel met -r<n>/-k<n>): een meebewegende tag laat een herinstallatie stil een ander image draaien; gebruik anders dienst.image.digest" (toString $d.image.tag)) -}}
 {{- end -}}
-{{- if not (has $d.tlsTermination (list "app" "mesh")) -}}
-{{- $fouten = append $fouten (printf "dienst.tlsTermination %q is ongeldig: kies app of mesh (zie values.yaml voor wat mesh vraagt van het pod-netwerk)" (toString $d.tlsTermination)) -}}
+{{- if eq (toString $d.tlsTermination) "app" -}}
+{{- $fouten = append $fouten "dienst.tlsTermination=app levert de chart niet: daarvoor zijn een https-poort, probes op HTTPS en TLS vanaf de Gateway nodig" -}}
+{{- else if ne (toString $d.tlsTermination) "mesh" -}}
+{{- $fouten = append $fouten (printf "dienst.tlsTermination %q is ongeldig: zet mesh, en lees in values.yaml wat dat vraagt van het pod-netwerk" (toString $d.tlsTermination)) -}}
 {{- end -}}
-{{- if hasKey $d.env "HTTP_TLS_TERMINATION" -}}
-{{- $fouten = append $fouten "HTTP_TLS_TERMINATION staat in dienst.env: zet dienst.tlsTermination" -}}
+{{- /* Namen zoals Quarkus ze leest: SmallRye vertaalt fbs.redis.unsafe-allow-plaintext en
+     FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT naar dezelfde property. */}}
+{{- $namen := keys $d.env -}}
+{{- range $d.extraEnvVars -}}
+{{- $namen = append $namen (toString .name) -}}
 {{- end -}}
-{{- if not $d.allowUnsafeFlags -}}
-{{- range $naam, $_ := $d.env -}}
-{{- if contains "UNSAFE" $naam -}}
-{{- $fouten = append $fouten (printf "%s zet een TLS-eis uit; dat kan alleen met dienst.allowUnsafeFlags=true" $naam) -}}
+{{- $onveiligToegestaan := eq (toString $d.allowUnsafeFlags) "true" -}}
+{{- range $namen -}}
+{{- $genormaliseerd := . | upper | replace "." "_" | replace "-" "_" -}}
+{{- if and (contains "UNSAFE" $genormaliseerd) (not $onveiligToegestaan) -}}
+{{- $fouten = append $fouten (printf "%s zet een TLS-eis uit; dat kan alleen met dienst.allowUnsafeFlags=true" .) -}}
+{{- end -}}
+{{- if eq $genormaliseerd "HTTP_TLS_TERMINATION" -}}
+{{- $fouten = append $fouten (printf "%s staat in dienst.env of extraEnvVars: zet dienst.tlsTermination" .) -}}
+{{- end -}}
+{{- /* Een ander profiel (dev, test) schakelt elke TLS-eis uit; JVM-opties kunnen het profiel zetten. */}}
+{{- if has $genormaliseerd (list "QUARKUS_PROFILE" "JAVA_TOOL_OPTIONS" "JDK_JAVA_OPTIONS" "_JAVA_OPTIONS" "JAVA_OPTS" "JAVA_OPTS_APPEND" "JAVA_OPTIONS") -}}
+{{- $fouten = append $fouten (printf "%s kan het Quarkus-profiel wijzigen en daarmee de TLS-eisen uitzetten; de chart laat dat niet toe" .) -}}
 {{- end -}}
 {{- end -}}
+{{- if and $d.keystore.enabled (or (not $d.keystore.secretName) (not $d.keystore.key) (not $d.keystore.mountPath)) -}}
+{{- $fouten = append $fouten "dienst.keystore vraagt secretName, key en mountPath" -}}
 {{- end -}}
-{{- if and $d.sleutel.enabled (or (not $d.sleutel.secretName) (not $d.sleutel.key) (not $d.sleutel.mountPath)) -}}
-{{- $fouten = append $fouten "dienst.sleutel vraagt secretName, key en mountPath" -}}
+{{- $gw := .Values.networkPolicy.gatewayEgress -}}
+{{- if and $gw.enabled (or (not $gw.namespaceMatchLabels) (not $gw.podMatchLabels)) -}}
+{{- $fouten = append $fouten "networkPolicy.gatewayEgress vraagt namespaceMatchLabels en podMatchLabels: anders telt elke pod mee" -}}
 {{- end -}}
 {{- if and $d.autoscaling.hpa.enabled (gt (int $d.autoscaling.hpa.minReplicas) (int $d.autoscaling.hpa.maxReplicas)) -}}
 {{- $fouten = append $fouten (printf "dienst.autoscaling.hpa.minReplicas (%v) is groter dan maxReplicas (%v)" $d.autoscaling.hpa.minReplicas $d.autoscaling.hpa.maxReplicas) -}}
@@ -76,6 +92,14 @@ komt vóór de uitrol boven; een fout in het cluster pas als de pod niet start.
 {{- end -}}
 {{- if not .Values.ingress.paths -}}
 {{- $fouten = append $fouten "ingress.paths is leeg: de route zou niets doorlaten" -}}
+{{- end -}}
+{{- range .Values.ingress.paths -}}
+{{- if not (has (toString .type) (list "PathPrefix" "Exact")) -}}
+{{- $fouten = append $fouten (printf "ingress.paths: type %q is niet toegestaan, alleen PathPrefix of Exact" (toString .type)) -}}
+{{- end -}}
+{{- end -}}
+{{- if ne (toString .Values.ingress.allowUnauthenticated) "true" -}}
+{{- $fouten = append $fouten "ingress.enabled vraagt ingress.allowUnauthenticated=true: de API authenticeert zijn aanroepers niet, dus wie de route bereikt, bereikt de API" -}}
 {{- end -}}
 {{- end -}}
 {{- /* common.names.fullname kapt stil af op 63 tekens; twee releases die pas daarna verschillen,

@@ -113,26 +113,52 @@ deny contains msg if {
 
 selecteert_pods(s) if {
 	some d in deployments
+	geselecteerd(s, d)
+}
+
+# Een targetPort moet een containerpoort zijn van de pods die de Service selecteert: bij naam of
+# bij nummer.
+deny contains msg if {
+	some s in objecten
+	s.kind == "Service"
+	some p in s.spec.ports
+	doel := object.get(p, "targetPort", p.port)
+	not containerpoort(s, doel)
+	msg := sprintf("Service '%s' wijst naar targetPort %v, maar geen geselecteerde container heeft die poort", [s.metadata.name, doel])
+}
+
+geselecteerd(s, d) if {
 	every k, v in s.spec.selector {
 		d.spec.template.metadata.labels[k] == v
 	}
 }
 
-# Een targetPort bij naam moet een containerpoort van de geselecteerde pods zijn.
-deny contains msg if {
-	some s in objecten
-	s.kind == "Service"
-	some p in s.spec.ports
-	is_string(p.targetPort)
-	not containerpoort(p.targetPort)
-	msg := sprintf("Service '%s' wijst naar targetPort '%s', maar geen container heeft die poort", [s.metadata.name, p.targetPort])
-}
-
-containerpoort(naam) if {
+containerpoort(s, naam) if {
+	is_string(naam)
 	some d in deployments
+	geselecteerd(s, d)
 	some c in d.spec.template.spec.containers
 	some p in c.ports
 	p.name == naam
+}
+
+containerpoort(s, nummer) if {
+	is_number(nummer)
+	some d in deployments
+	geselecteerd(s, d)
+	some c in d.spec.template.spec.containers
+	some p in c.ports
+	p.containerPort == nummer
+}
+
+# Zonder poort kiest de Gateway er geen; de route levert dan een 500.
+deny contains msg if {
+	some r in objecten
+	r.kind == "HTTPRoute"
+	some regel in r.spec.rules
+	some ref in regel.backendRefs
+	not ref.port
+	msg := sprintf("HTTPRoute '%s' wijst naar %s zonder poort", [r.metadata.name, ref.name])
 }
 
 deny contains msg if {

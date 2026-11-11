@@ -87,17 +87,45 @@ test_ingress_naar_verkeerde_poort_faalt if {
 
 test_service_zonder_pods_faalt if {
 	andere := json.patch(service, [{"op": "replace", "path": "/spec/selector/app.kubernetes.io~1component", "value": "web"}])
-	deny == {"Service 't-dienst' selecteert geen pods van de release"} with input as release(met("Service", andere))
+	# Zonder geselecteerde pods vindt ook de targetPort geen container.
+	deny == {
+		"Service 't-dienst' selecteert geen pods van de release",
+		"Service 't-dienst' wijst naar targetPort http, maar geen geselecteerde container heeft die poort",
+	} with input as release(met("Service", andere))
 }
 
 test_targetport_zonder_containerpoort_faalt if {
-	andere := json.patch(service, [{"op": "replace", "path": "/spec/ports/0/targetPort", "value": "web"}])
-	deny == {"Service 't-dienst' wijst naar targetPort 'web', maar geen container heeft die poort"} with input as release(met("Service", andere))
+	every doel in ["web", 9999] {
+		andere := json.patch(service, [{"op": "replace", "path": "/spec/ports/0/targetPort", "value": doel}])
+		deny == {sprintf("Service 't-dienst' wijst naar targetPort %v, maar geen geselecteerde container heeft die poort", [doel])} with input as release(met("Service", andere))
+	}
 }
 
 test_targetport_als_nummer_slaagt if {
 	andere := json.patch(service, [{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 8086}])
 	count(deny) == 0 with input as release(met("Service", andere))
+}
+
+test_zonder_targetport_geldt_de_poort if {
+	andere := json.patch(service, [{"op": "remove", "path": "/spec/ports/0/targetPort"}])
+	deny == {"Service 't-dienst' wijst naar targetPort 80, maar geen geselecteerde container heeft die poort"} with input as release(met("Service", andere))
+}
+
+# Een poortnaam die alleen in een ander Deployment bestaat, telt niet.
+test_targetport_in_ander_deployment_faalt if {
+	ander := json.patch(deployment, [
+		{"op": "replace", "path": "/metadata/name", "value": "t-ander"},
+		{"op": "replace", "path": "/spec/template/metadata/labels/app.kubernetes.io~1name", "value": "ander"},
+		{"op": "replace", "path": "/spec/template/spec/containers/0/ports/0/name", "value": "web"},
+	])
+	svc := json.patch(service, [{"op": "replace", "path": "/spec/ports/0/targetPort", "value": "web"}])
+	objs := array.concat(met("Service", svc), [ander])
+	"Service 't-dienst' wijst naar targetPort web, maar geen geselecteerde container heeft die poort" in deny with input as release(objs)
+}
+
+test_route_zonder_poort_faalt if {
+	zonder_poort := {"kind": "HTTPRoute", "metadata": {"name": "r"}, "spec": {"rules": [{"backendRefs": [{"name": "t-dienst"}]}]}}
+	deny == {"HTTPRoute 'r' wijst naar t-dienst zonder poort"} with input as release(met("HTTPRoute", zonder_poort))
 }
 
 test_hpa_naar_onbekende_deployment_faalt if {
