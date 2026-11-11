@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Unittests voor lib.sh van het Fundament-testcluster: de parsers, de manifests en de values,
+# zonder cluster. Wat alleen in een cluster te zien is (draait een plug-in, start een pod), toetst
+# charts/fundament-testcluster.sh zelf bij het draaien.
+
+set -euo pipefail
+
+HIER=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+readonly HIER
+readonly LIB="$HIER/lib.sh"
+
+# De bestanden waarin elke kubectl- en helm-aanroep via de wrappers met een vaste context moet
+# lopen. Een bestand dat ontbreekt telt als fout: een hernoeming mag deze controle niet stil
+# uitschakelen.
+GECONTROLEERDE_SCRIPTS=("$LIB")
+
+asserties=0
+mislukt=0
+
+ok() {
+  asserties=$((asserties + 1))
+  echo "OK: $1"
+}
+
+faal() {
+  mislukt=1
+  echo "FOUT: $1"
+}
+
+gelijk() {
+  local wat=$1 verwacht=$2 gemeten=$3
+
+  if [ "$verwacht" = "$gemeten" ]; then
+    ok "$wat"
+  else
+    faal "$wat — verwacht '$verwacht', gemeten '$gemeten'"
+  fi
+}
+
+bevat() {
+  local wat=$1 naald=$2 hooiberg=$3
+
+  case "$hooiberg" in
+    *"$naald"*) ok "$wat" ;;
+    *) faal "$wat — '$naald' ontbreekt in: $hooiberg" ;;
+  esac
+}
+
+bevat_niet() {
+  local wat=$1 naald=$2 hooiberg=$3
+
+  case "$hooiberg" in
+    *"$naald"*) faal "$wat — '$naald' staat er toch in: $hooiberg" ;;
+    *) ok "$wat" ;;
+  esac
+}
+
+# Exitcode van een opdracht, zonder dat set -e de suite afbreekt.
+code_van() {
+  local code=0
+
+  "$@" >/dev/null 2>&1 || code=$?
+  echo "$code"
+}
+
+# shellcheck source=charts/fundament-testcluster/lib.sh
+source "$LIB"
+
+HASH_A=sha256:$(printf 'a%.0s' $(seq 1 64))
+
+echo "== publicatie_lees =="
+
+gelijk "versie en hash uit de publish-regel" "v1.21.3 $HASH_A" \
+  "$(publicatie_lees "building...
+published plugin=cert-manager version=v1.21.3 hash=$HASH_A id=1 version_id=2 status=SUBMISSION_STATUS_DRAFT")"
+gelijk "zonder published-regel: exit 1" 1 "$(code_van publicatie_lees "error: no listing named \"x\"")"
+gelijk "hash van 63 tekens: exit 1" 1 \
+  "$(code_van publicatie_lees "published plugin=x version=v1 hash=sha256:$(printf 'a%.0s' $(seq 1 63)) id=1")"
+gelijk "lege uitvoer: exit 1" 1 "$(code_van publicatie_lees "")"
+
+echo "== functl_fout_soort =="
+
+gelijk "geen listing" geen-listing \
+  "$(functl_fout_soort 'Error: no listing named "cloudnativepg" in this organization — pass --create to reserve it')"
+gelijk "unauthenticated" niet-ingelogd "$(functl_fout_soort 'unauthenticated: invalid api key')"
+gelijk "http 401" niet-ingelogd "$(functl_fout_soort 'request failed: 401 Unauthorized')"
+gelijk "iets anders" onbekend "$(functl_fout_soort 'connection refused')"
+
+echo "== plugin_staat_klaar =="
+
+gelijk "Running en ready" 0 "$(code_van plugin_staat_klaar '{"status":{"phase":"Running","ready":true}}')"
+gelijk "Installing" 1 "$(code_van plugin_staat_klaar '{"status":{"phase":"Installing","ready":false}}')"
+gelijk "Running zonder ready" 1 "$(code_van plugin_staat_klaar '{"status":{"phase":"Running"}}')"
+gelijk "lege invoer" 1 "$(code_van plugin_staat_klaar '')"
+gelijk "geen JSON" 1 "$(code_van plugin_staat_klaar 'Error from server (NotFound)')"
+
+echo "== sandbox_past =="
+
+MAPPINGS='443/tcp -> 127.0.0.1:9443
+6443/tcp -> 0.0.0.0:41837'
+gelijk "1.36 met de mapping" 0 "$(code_van sandbox_past v1.36.6+k3s1 "$MAPPINGS" 9443)"
+melding=$(sandbox_past v1.33.5+k3s1 "$MAPPINGS" 9443 2>&1 || true)
+gelijk "andere versie: exit 1" 1 "$(code_van sandbox_past v1.33.5+k3s1 "$MAPPINGS" 9443)"
+bevat "andere versie: melding noemt 1.36" "1.36" "$melding"
+melding=$(sandbox_past v1.36.6+k3s1 '6443/tcp -> 0.0.0.0:41837' 9443 2>&1 || true)
+gelijk "zonder mapping: exit 1" 1 "$(code_van sandbox_past v1.36.6+k3s1 '6443/tcp -> 0.0.0.0:41837' 9443)"
+bevat "zonder mapping: melding noemt HTTPS_POORT" "HTTPS_POORT" "$melding"
+gelijk "mapping op 0.0.0.0 telt niet" 1 "$(code_van sandbox_past v1.36.6+k3s1 '443/tcp -> 0.0.0.0:9443' 9443)"
+gelijk "andere poort telt niet" 1 "$(code_van sandbox_past v1.36.6+k3s1 '443/tcp -> 127.0.0.1:19443' 9443)"
+
+echo "== poort_vrij =="
+
+vrije_poort=$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+python3 -I -m http.server --bind 127.0.0.1 "$vrije_poort" >/dev/null 2>&1 &
+server=$!
+
+for _ in $(seq 1 50); do
+  ss -ltn "sport = :$vrije_poort" | grep -q LISTEN && break
+  sleep 0.1
+done
+
+gelijk "bezette poort: exit 1" 1 "$(code_van poort_vrij "$vrije_poort")"
+kill "$server"
+wait "$server" 2>/dev/null || true
+gelijk "vrijgekomen poort: exit 0" 0 "$(code_van poort_vrij "$vrije_poort")"
+
+echo "== kubectl en helm alleen via de wrappers =="
+
+for bestand in "${GECONTROLEERDE_SCRIPTS[@]}"; do
+  if [ ! -f "$bestand" ]; then
+    faal "$bestand ontbreekt"
+    continue
+  fi
+
+  # Commentaarregels en de definities van de wrappers zelf tellen niet.
+  kaal=$(grep -nE '(^|[^a-zA-Z_-])(kubectl|helm)( |$)' "$bestand" |
+    grep -vE '^[0-9]+:[[:space:]]*#' |
+    grep -vE '^[0-9]+:[[:space:]]*(kc|kcp|hm)\(\)' || true)
+  gelijk "geen kale kubectl/helm in $(basename "$bestand")" "" "$kaal"
+done
+
+echo "ASSERTIES=$asserties"
+exit "$mislukt"

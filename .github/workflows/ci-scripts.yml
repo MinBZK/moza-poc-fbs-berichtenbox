@@ -189,6 +189,7 @@ jobs:
             [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223
+            [charts/fundament-testcluster/test-lib.sh]=23
           )
           declare -A GEDRAAID=()
 
@@ -233,7 +234,7 @@ jobs:
                 fail=1
               fi
             fi
-          done < <({ find .github/scripts demo/lib -name 'test-*.sh'; find demo -maxdepth 1 -name 'test-*.sh'; } | sort)
+          done < <({ find .github/scripts demo/lib charts -name 'test-*.sh'; find demo -maxdepth 1 -name 'test-*.sh'; } | sort)
 
           # De andere richting: een suite die verdwijnt, buiten het `test-*.sh`-patroon wordt
           # hernoemd of buiten de `find` raakt, laat alleen een verweesde sleutel achter — de
