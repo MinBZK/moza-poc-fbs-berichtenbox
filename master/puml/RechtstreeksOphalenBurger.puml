@@ -76,9 +76,9 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 }
 
 person "==Burger\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Burger>> as Burger
+rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
 rectangle "==App Manager\n<size:10>[Software System]</size>\n\nLaat de burger inloggen met DigiD of de ondernemer met eHerkenning, en geeft daarna een credential uit aan de app: een bevestiging van de identiteit, gebonden aan het sleutelpaar van de app (BK Connect). Hoe de machtiging van een ondernemer daarin meekomt, is nog open." <<AppManager>> as AppManager
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
-rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
 Burger .[#707070,thickness=2].> Berichtenapp : "<color:#707070>1. Opent de app\n<color:#707070><size:8>[App op eigen apparaat]</size>"
 Berichtenapp .[#707070,thickness=2].> AppManager : "<color:#707070>2. Laat de identiteit bevestigen (eenmalig, daarna hergebruikt)\n<color:#707070><size:8>[HTTPS]</size>"
 AppManager .[#707070,thickness=2].> DigiD : "<color:#707070>3. Laat de burger inloggen\n<color:#707070><size:8>[SAML 2.0]</size>"
