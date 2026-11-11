@@ -104,8 +104,8 @@ gevuld(obj, sleutel) if {
 	count(obj[sleutel]) > 0
 }
 
-# Een selector die afwezig, null of leeg is, beperkt niets: zonder podSelector alle pods, zonder
-# namespaceSelector de eigen namespace.
+# Een selector die afwezig, null of leeg is, telt als geen beperking: een lege podSelector kiest
+# alle pods, een lege namespaceSelector alle namespaces, een afwezige de eigen namespace.
 selector_leeg(peer, sleutel) if {
 	sel := object.get(peer, sleutel, null)
 	not is_object(sel)
@@ -131,12 +131,12 @@ open_peer(peer) if {
 	selector_leeg(peer, "namespaceSelector")
 }
 
-# Een prefix korter dan /8 dekt een groot deel van het internet; twee keer /1 is samen alles.
+# Een prefix korter dan /8 dekt een groot deel van het internet; twee keer /1 is samen alles. Een
+# except maakt dat niet kleiner: "alles behalve de privé-ranges" is nog steeds het internet.
 open_peer(peer) if {
 	delen := split(peer.ipBlock.cidr, "/")
 	count(delen) == 2
 	to_number(delen[1]) < 8
-	not gevuld(peer.ipBlock, "except")
 }
 
 deny contains msg if {
@@ -170,9 +170,28 @@ deny contains msg if {
 	msg := sprintf("NetworkPolicy '%s' heeft een bestemming zonder beperking; die laat alles toe", [input.metadata.name])
 }
 
+# Een poort zonder nummer staat in Kubernetes voor alle poorten van dat protocol.
+poort_tekst(poort) := "alle poorten" if not poort.port
+
+poort_tekst(poort) := sprintf("poorten %v-%v", [poort.port, poort.endPort]) if {
+	poort.port
+	poort.endPort
+}
+
+meer_dan_een_poort(poort) if not poort.port
+
+meer_dan_een_poort(poort) if poort.endPort
+
+poort_tekst(poort) := sprintf("poort %v", [poort.port]) if {
+	poort.port
+	not poort.endPort
+}
+
 # De poorten van de Gateway-proxy's horen alleen naar die proxy's open te staan, niet naar overal
-# en niet naar elke pod in hun namespace. Een poortbereik telt mee.
+# en niet naar elke pod in hun namespace. Een poortbereik en een poort zonder nummer tellen mee.
 gateway_proxy_poorten := {10080, 10443}
+
+raakt_gateway_poort(poort) if not poort.port
 
 raakt_gateway_poort(poort) if poort.port in gateway_proxy_poorten
 
@@ -182,7 +201,7 @@ raakt_gateway_poort(poort) if {
 	p <= poort.endPort
 }
 
-naar_eigen_pods(regel) if {
+naar_benoemde_pods(regel) if {
 	gevuld(regel, "to")
 	every peer in regel.to {
 		gevuld_map(object.get(peer, "podSelector", {}), "matchLabels")
@@ -194,24 +213,39 @@ deny contains msg if {
 	some regel in object.get(input.spec, "egress", [])
 	some poort in object.get(regel, "ports", [])
 	raakt_gateway_poort(poort)
-	not naar_eigen_pods(regel)
-	msg := sprintf("NetworkPolicy '%s' laat poort %v verder toe dan de Gateway-proxy's", [input.metadata.name, poort.port])
+	not naar_benoemde_pods(regel)
+	msg := sprintf("NetworkPolicy '%s' laat %s verder toe dan de Gateway-proxy's", [input.metadata.name, poort_tekst(poort)])
 }
 
-# Een groot poortbereik zonder bestemming is in feite open uitgaand verkeer.
+# Zonder bestemming hoort elke poort een eigen nummer te hebben: een bereik of een poort zonder
+# nummer is in feite open uitgaand verkeer. De chart rendert zelf nooit een bereik.
 deny contains msg if {
 	input.kind == "NetworkPolicy"
 	some regel in object.get(input.spec, "egress", [])
 	not gevuld(regel, "to")
 	some poort in object.get(regel, "ports", [])
-	poort.endPort - poort.port >= 1024
-	msg := sprintf("NetworkPolicy '%s' laat poorten %v-%v naar overal toe", [input.metadata.name, poort.port, poort.endPort])
+	meer_dan_een_poort(poort)
+	msg := sprintf("NetworkPolicy '%s' laat %s naar overal toe", [input.metadata.name, poort_tekst(poort)])
 }
 
 deny contains msg if {
 	input.kind == "NetworkPolicy"
 	not "Egress" in input.spec.policyTypes
 	msg := sprintf("NetworkPolicy '%s' beperkt uitgaand verkeer niet", [input.metadata.name])
+}
+
+# Zonder sectionName hangt de route aan elke listener van de Gateway, ook aan een zonder TLS.
+deny contains msg if {
+	input.kind == "HTTPRoute"
+	some ref in object.get(input.spec, "parentRefs", [])
+	object.get(ref, "sectionName", "") in {"", null}
+	msg := sprintf("HTTPRoute '%s' hangt aan Gateway '%s' zonder sectionName, dus ook aan een listener zonder TLS", [input.metadata.name, ref.name])
+}
+
+deny contains msg if {
+	input.kind == "HTTPRoute"
+	not gevuld(input.spec, "parentRefs")
+	msg := sprintf("HTTPRoute '%s' heeft geen parentRef", [input.metadata.name])
 }
 
 deny contains msg if {

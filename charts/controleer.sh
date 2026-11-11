@@ -28,8 +28,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=266
-MINIMUM_REGO_TESTS=67
+VERWACHTE_CONTROLES=294
+MINIMUM_REGO_TESTS=74
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -123,7 +123,8 @@ toets_render() {
 
   ok "$label: helm template"
 
-  if kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSIE" -cache "$WERK/schemas" \
+  # kubeconform heeft geen eigen HTTP-timeout; zonder grens hangt hij op een haperend netwerk.
+  if timeout 60 kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSIE" -cache "$WERK/schemas" \
       -schema-location "$K8S_SCHEMAS" -schema-location "$CRD_SCHEMAS" "$manifest"; then
     ok "$label: kubeconform"
   else
@@ -203,8 +204,12 @@ else
   fout "conftest verify"
 fi
 
-# Een bestand in een ander package valt buiten de run, en conftest blijft dan groen.
-verkeerd=$(grep -L '^package main$' "$POLICY"/*.rego; grep -L '^package samenhang$' "$POLICY"/samenhang/*.rego)
+# Een bestand in een ander package valt buiten de run, en conftest blijft dan groen. conftest leest
+# de map recursief, dus elke submap telt mee.
+verkeerd=$(
+  find "$POLICY" -name '*.rego' ! -path "$POLICY/samenhang/*" -exec grep -L '^package main$' {} +
+  find "$POLICY/samenhang" -name '*.rego' -exec grep -L '^package samenhang$' {} +
+)
 
 if [ -z "$verkeerd" ]; then
   ok "beleidsregels: elk bestand in package main of samenhang"
@@ -332,6 +337,13 @@ toets_bevat "digest-met-vaste-tag" "de digest staat in het image" \
   'image: ghcr.io/minbzk/fbs-berichtenuitvraag@sha256:0000000000000000000000000000000000000000000000000000000000000000'
 toets_bevat_niet "digest-met-vaste-tag" "geen vaste tag in het image" ':latest'
 
+# Exact / en een Exact-stream zijn toegestaan; /q blijft dicht.
+route_aan=(--set ingress.enabled=true --set ingress.allowUnauthenticated=true --set ingress.hostname=a.example.nl \
+  --set cluster.gateway.name=gw)
+toets_slaagt "route-exact-root" "${uitvraag[@]}" "${route_aan[@]}" \
+  --set-json 'ingress.paths=[{"type":"Exact","value":"/"},{"type":"PathPrefix","value":"/api/v1"}]'
+toets_slaagt "stream-op-exact-pad" "${uitvraag[@]}" "${route_aan[@]}" --set-json 'ingress.streamPaths=["/openapi.json"]'
+
 # Het stelselregister zet de schakelaar zelf: zijn route rendert zonder.
 toets_slaagt "stelselregister-route" -f "$CHART/diensten/stelselregister.yaml" -f "$CHART/ci/standaard-values.yaml" \
   --set ingress.enabled=true --set ingress.hostname=a.example.nl --set cluster.gateway.name=gw
@@ -418,9 +430,13 @@ toets_weigering "klep-extra-env" "FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT zet een TLS-e
 toets_weigering "klep-toestemming-als-tekst" "FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT zet een TLS-eis uit" "${uitvraag[@]}" \
   --set-string dienst.allowUnsafeFlags=false --set-string dienst.env.FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT=true
 
+# Ook wat run-java.sh in het image op de java-opdrachtregel zet of laadt, en de vorm met een
+# profielvoorvoegsel (_PROD_X is %prod.x).
 for naam in QUARKUS_PROFILE SMALLRYE_CONFIG_PROFILE QUARKUS_CONFIG_PROFILE_PARENT SMALLRYE_CONFIG_PROFILE_PARENT \
     QUARKUS_CONFIG_LOCATIONS SMALLRYE_CONFIG_LOCATIONS JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS \
-    JAVA_OPTS JAVA_OPTS_APPEND JAVA_OPTIONS; do
+    JAVA_OPTS JAVA_OPTS_APPEND JAVA_OPTIONS GC_CONTAINER_OPTIONS GC_MAX_METASPACE_SIZE JAVA_APP_DIR \
+    JAVA_MAIN_CLASS JAVA_DEBUG_PORT JBOSS_CONTAINER_UTIL_LOGGING_MODULE _PROD_QUARKUS_CONFIG_LOCATIONS \
+    _PROD_JAVA_OPTS_APPEND; do
   toets_weigering "profiel-$naam" "$naam kan het Quarkus-profiel of de config wijzigen" "${uitvraag[@]}" \
     --set-string "dienst.env.$naam=dev"
 done
@@ -432,6 +448,17 @@ toets_weigering "tls-property-vorm" "http.tls-termination staat in dienst.env of
   --set-json 'dienst.env={"http.tls-termination":"mesh"}'
 toets_weigering "tls-fbs-vorm" "FBS_HTTP_TLS_TERMINATION staat in dienst.env of extraEnvVars" "${uitvraag[@]}" \
   --set-string dienst.env.FBS_HTTP_TLS_TERMINATION=mesh
+toets_weigering "tls-profielvorm" "_PROD_FBS_HTTP_TLS_TERMINATION staat in dienst.env of extraEnvVars" "${uitvraag[@]}" \
+  --set-string dienst.env._PROD_FBS_HTTP_TLS_TERMINATION=mesh
+toets_weigering "eigen-http-poort" "QUARKUS_HTTP_PORT staat in dienst.env of extraEnvVars" "${uitvraag[@]}" \
+  --set-string dienst.env.QUARKUS_HTTP_PORT=9000
+# De lijst als geheel: een verboden naam na een toegestane.
+toets_weigering "profiel-extra-env-tweede" "QUARKUS_PROFILE kan het Quarkus-profiel of de config wijzigen" "${uitvraag[@]}" \
+  --set-json 'dienst.extraEnvVars=[{"name":"A","value":"1"},{"name":"QUARKUS_PROFILE","value":"dev"}]'
+toets_weigering "env-geen-map" "dienst.env is geen map" "${uitvraag[@]}" --set-json 'dienst.env=["QUARKUS_PROFILE"]'
+toets_weigering "extra-env-geen-lijst" "dienst.extraEnvVars is geen lijst" "${uitvraag[@]}" \
+  --set-json 'dienst.extraEnvVars={"name":"QUARKUS_PROFILE","value":"dev"}'
+toets_weigering "env-naam-met-cijfer" '"1ABC" is ongeldig' "${uitvraag[@]}" --set-json 'dienst.env={"1ABC":"x"}'
 toets_weigering "profiel-extra-env" "QUARKUS_PROFILE kan het Quarkus-profiel of de config wijzigen" "${uitvraag[@]}" \
   --set-json 'dienst.extraEnvVars=[{"name":"QUARKUS_PROFILE","value":"dev"}]'
 # Een naam in extraEnvVars mag een template zijn; de controle kijkt naar het resultaat.
@@ -459,6 +486,11 @@ toets_weigering "route-toestemming-als-tekst" "ingress.enabled vraagt ingress.al
 toets_weigering "route-zonder-hostnaam" "ingress.hostname is verplicht" "${uitvraag[@]}" \
   --set ingress.enabled=true --set ingress.allowUnauthenticated=true --set cluster.gateway.name=gw
 toets_weigering "route-zonder-gateway" "cluster.gateway.name is verplicht" "${uitvraag[@]}" "${route[@]}"
+
+for leeg in --set-string --set; do
+  toets_weigering "route-zonder-listener$leeg" "cluster.gateway.sectionName is verplicht" "${uitvraag[@]}" "${route[@]}" \
+    --set cluster.gateway.name=gw "$leeg" cluster.gateway.sectionName=
+done
 toets_weigering "route-zonder-paden" "ingress.paths is leeg" "${uitvraag[@]}" "${route[@]}" \
   --set cluster.gateway.name=gw --set ingress.paths=null
 
@@ -467,16 +499,30 @@ for waarde in / /q /q/health/ready; do
     --set cluster.gateway.name=gw --set-json "ingress.paths=[{\"type\":\"PathPrefix\",\"value\":\"$waarde\"}]"
 done
 
+for waarde in /q /q/health/ready; do
+  toets_weigering "route-exact-$waarde" "\"$waarde\" zet /q open" "${uitvraag[@]}" "${route[@]}" \
+    --set cluster.gateway.name=gw --set-json "ingress.paths=[{\"type\":\"Exact\",\"value\":\"$waarde\"}]"
+done
+
+toets_weigering "route-pad-tweede" '"/q" zet /q open' "${uitvraag[@]}" "${route[@]}" --set cluster.gateway.name=gw \
+  --set-json 'ingress.paths=[{"type":"PathPrefix","value":"/api/v1"},{"type":"PathPrefix","value":"/q"}]'
+
 toets_weigering "route-pad-zonder-slash" '"api/v1" begint niet met /' "${uitvraag[@]}" "${route[@]}" \
   --set cluster.gateway.name=gw --set-json 'ingress.paths=[{"type":"PathPrefix","value":"api/v1"}]'
 
-for stream in /geheim /q/health/ready api/v1/x; do
+for stream in /geheim /q/health/ready api/v1/x /api/v1x /openapi.json/x; do
   toets_weigering "stream-$stream" "ingress.streamPaths: \"$stream\" valt niet onder ingress.paths" "${uitvraag[@]}" "${route[@]}" \
     --set cluster.gateway.name=gw --set-json "ingress.streamPaths=[\"$stream\"]"
 done
 
+toets_weigering "stream-tweede" 'ingress.streamPaths: "/geheim" valt niet onder ingress.paths' "${uitvraag[@]}" "${route[@]}" \
+  --set cluster.gateway.name=gw --set-json 'ingress.streamPaths=["/api/v1/berichten/_ophalen","/geheim"]'
+
 toets_weigering "stream-bij-ingress" "ingress.streamPaths werkt alleen met een HTTPRoute" \
   -f "$CHART/diensten/berichtenuitvraag.yaml" -f "$CHART/ci/standaard-values.yaml" "${route[@]}" \
+  --set cluster.routingMode=ingress --set ingress.tls=true
+toets_weigering "timeout-bij-ingress" "ingress.requestTimeout werkt alleen met een HTTPRoute" \
+  -f "$CHART/diensten/berichtenmagazijn.yaml" -f "$CHART/ci/standaard-values.yaml" "${route[@]}" \
   --set cluster.routingMode=ingress --set ingress.tls=true
 
 for type in RegularExpression ImplementationSpecific Prefix; do
@@ -490,6 +536,13 @@ for veld in namespaceMatchLabels podMatchLabels; do
   toets_weigering "gateway-egress-zonder-$veld" "networkPolicy.gatewayEgress vraagt namespaceMatchLabels en podMatchLabels" \
     "${uitvraag[@]}" --set "networkPolicy.gatewayEgress.$veld=null"
 done
+toets_weigering "dns-zonder-poorten" "networkPolicy.dnsPorts is leeg" "${uitvraag[@]}" --set-json 'networkPolicy.dnsPorts=[]'
+toets_weigering "gateway-egress-zonder-poorten" "networkPolicy.gatewayEgress.ports is leeg" "${uitvraag[@]}" \
+  --set-json 'networkPolicy.gatewayEgress.ports=[]'
+# Bij routingMode=ingress wijst de standaard-podselector naar een Gateway die er niet is.
+toets_weigering "ingress-met-gateway-selector" "networkPolicy.ingressNSPodMatchLabels: gateway.envoyproxy.io/owning-gateway-name is leeg" \
+  -f "$CHART/diensten/stelselregister.yaml" -f "$CHART/ci/standaard-values.yaml" "${route[@]}" \
+  --set cluster.routingMode=ingress --set ingress.tls=true
 toets_weigering "onbekende-routering" 'cluster.routingMode "nodeport" is ongeldig' "${uitvraag[@]}" \
   --set cluster.routingMode=nodeport
 toets_weigering "default-serviceaccount" "serviceAccount.name is verplicht" "${uitvraag[@]}" \

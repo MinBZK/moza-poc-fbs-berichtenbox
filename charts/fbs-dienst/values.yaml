@@ -26,7 +26,8 @@ cluster:
     name: ""
     # Leeg = de namespace van de release.
     namespace: ""
-    # Naam van de listener op de Gateway.
+    # Naam van de listener op de Gateway, verplicht bij een route: zonder hangt de route aan elke
+    # listener, ook aan een zonder TLS.
     sectionName: https
     annotations: {}
 
@@ -137,7 +138,8 @@ dienst:
   # Quarkus en Vert.x schrijven tijdelijke bestanden onder java.io.tmpdir.
   tmpSizeLimit: 256Mi
 
-  # De render weigert beide: ze vervangen het entrypoint van het image, en daarmee het profiel.
+  # De render weigert beide: command vervangt het entrypoint, args de argumenten ervan, en zo is
+  # ook het profiel te zetten.
   command: []
   args: []
   automountServiceAccountToken: false
@@ -237,7 +239,8 @@ networkPolicy:
   ingressNSMatchLabels:
     kubernetes.io/metadata.name: envoy-gateway-system
   # Alleen de proxy's van de eigen Gateway, niet die van andere Gateways in het cluster. Mag
-  # templates bevatten.
+  # templates bevatten. Bij routingMode=ingress is de Gateway-naam leeg en weigert de render een
+  # route: zet dan de labels van de controller-pods, of null.
   ingressNSPodMatchLabels:
     gateway.envoyproxy.io/owning-gateway-name: '{{ .Values.cluster.gateway.name }}'
     gateway.envoyproxy.io/owning-gateway-namespace: '{{ .Values.cluster.gateway.namespace | default (include "common.names.namespace" .) }}'

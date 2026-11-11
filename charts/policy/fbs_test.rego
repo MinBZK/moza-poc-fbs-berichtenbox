@@ -221,8 +221,14 @@ test_bron_zonder_beperking_faalt if {
 }
 
 test_korte_prefix_is_zonder_beperking if {
-	every cidr in ["0.0.0.0/1", "128.0.0.0/1", "10.0.0.0/7"] {
-		regel := {"ports": [{"port": 8086}], "from": [{"ipBlock": {"cidr": cidr}}]}
+	every blok in [
+		{"cidr": "0.0.0.0/1"},
+		{"cidr": "128.0.0.0/1"},
+		{"cidr": "10.0.0.0/7"},
+		{"cidr": "0.0.0.0/0", "except": ["10.0.0.0/8"]},
+		{"cidr": "0.0.0.0/0", "except": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]},
+	] {
+		regel := {"ports": [{"port": 8086}], "from": [{"ipBlock": blok}]}
 		fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' heeft een bron zonder beperking; die laat alles toe"}
 	}
 }
@@ -232,7 +238,7 @@ test_bron_met_beperking_slaagt if {
 		{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {}},
 		{"podSelector": {"matchExpressions": [{"key": "a", "operator": "Exists"}]}},
 		{"ipBlock": {"cidr": "10.0.0.0/8"}},
-		{"ipBlock": {"cidr": "0.0.0.0/0", "except": ["10.0.0.0/8"]}},
+		{"ipBlock": {"cidr": "10.0.0.0/8", "except": ["10.1.0.0/16"]}},
 	] {
 		regel := {"ports": [{"port": 8086}], "from": [peer]}
 		count(fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"]))) == 0
@@ -253,30 +259,68 @@ test_gateway_poort_naar_overal_faalt if {
 	}
 }
 
+proxys := {"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {"matchLabels": {"c": "d"}}}
+
+# Ook één ruime peer naast de proxy's is te ruim.
 test_gateway_poort_naar_hele_namespace_faalt if {
-	every peer in [
-		{"namespaceSelector": {"matchLabels": {"a": "b"}}},
-		{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {}},
+	every naar in [
+		[{"namespaceSelector": {"matchLabels": {"a": "b"}}}],
+		[{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {}}],
+		[proxys, {"namespaceSelector": {"matchLabels": {"a": "b"}}}],
+		[{"namespaceSelector": {"matchLabels": {"a": "b"}}}, proxys],
 	] {
-		regel := {"to": [peer], "ports": [{"port": 10443, "protocol": "TCP"}]}
+		regel := {"to": naar, "ports": [{"port": 10443, "protocol": "TCP"}]}
 		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat poort 10443 verder toe dan de Gateway-proxy's"}
 	}
 }
 
 test_poortbereik_over_gateway_poort_faalt if {
 	naar := {"namespaceSelector": {"matchLabels": {"a": "b"}}}
-	regel := {"to": [naar], "ports": [{"port": 10000, "endPort": 10500, "protocol": "TCP"}]}
-	fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat poort 10000 verder toe dan de Gateway-proxy's"}
+	every geval in [[10000, 10500], [10081, 10443], [10443, 10443], [10080, 10080]] {
+		regel := {"to": [naar], "ports": [{"port": geval[0], "endPort": geval[1], "protocol": "TCP"}]}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {sprintf("NetworkPolicy 'np' laat poorten %v-%v verder toe dan de Gateway-proxy's", geval)}
+	}
 }
 
-test_groot_poortbereik_naar_overal_faalt if {
-	regel := {"ports": [{"port": 1, "endPort": 9000, "protocol": "TCP"}]}
-	fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat poorten 1-9000 naar overal toe"}
+test_poortbereik_naast_gateway_poort_mag if {
+	naar := {"namespaceSelector": {"matchLabels": {"a": "b"}}}
+	every geval in [[10000, 10079], [10081, 10442], [10444, 11000]] {
+		regel := {"to": [naar], "ports": [{"port": geval[0], "endPort": geval[1], "protocol": "TCP"}]}
+		count(fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"]))) == 0
+	}
 }
 
-test_klein_poortbereik_naar_overal_mag if {
-	regel := {"ports": [{"port": 5432, "endPort": 5433, "protocol": "TCP"}]}
-	count(fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"]))) == 0
+test_poort_zonder_nummer_naar_namespace_faalt if {
+	naar := {"namespaceSelector": {"matchLabels": {"a": "b"}}}
+	every protocol in ["TCP", "UDP"] {
+		regel := {"to": [naar], "ports": [{"protocol": protocol}]}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat alle poorten verder toe dan de Gateway-proxy's"}
+	}
+}
+
+test_poort_zonder_nummer_naar_overal_faalt if {
+	every protocol in ["TCP", "UDP"] {
+		regel := {"ports": [{"protocol": protocol}]}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {
+			"NetworkPolicy 'np' laat alle poorten naar overal toe",
+			"NetworkPolicy 'np' laat alle poorten verder toe dan de Gateway-proxy's",
+		}
+	}
+}
+
+# Elk bereik zonder bestemming, ook een klein: de chart rendert er zelf geen.
+test_poortbereik_naar_overal_faalt if {
+	every geval in [[1, 9000], [1, 1023], [5432, 5433]] {
+		regel := {"ports": [{"port": geval[0], "endPort": geval[1], "protocol": "TCP"}]}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {sprintf("NetworkPolicy 'np' laat poorten %v-%v naar overal toe", geval)}
+	}
+}
+
+test_losse_poorten_naar_overal_mogen if {
+	every poorten in [[{"port": 443}], [{"port": 443}, {"port": 5432, "protocol": "TCP"}]] {
+		regel := {"ports": poorten}
+		count(fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"]))) == 0
+	}
 }
 
 test_gateway_poort_naar_proxys_slaagt if {
@@ -301,7 +345,28 @@ test_networkpolicy_zonder_egress_type_faalt if {
 	fbs_deny(networkpolicy([gateway_ingress], [], ["Ingress"])) == {"NetworkPolicy 'np' beperkt uitgaand verkeer niet"}
 }
 
-route(spec) := {"kind": "HTTPRoute", "metadata": {"name": "r"}, "spec": spec}
+gw_ref := {"name": "gw", "sectionName": "https"}
+
+route(spec) := {"kind": "HTTPRoute", "metadata": {"name": "r"}, "spec": object.union({"parentRefs": [gw_ref]}, spec)}
+
+test_httproute_zonder_sectionname_faalt if {
+	every refs in [[{"name": "gw"}], [{"name": "gw", "sectionName": ""}], [gw_ref, {"name": "gw"}]] {
+		spec := {"parentRefs": refs, "hostnames": ["a.example.nl"], "rules": [api_regel]}
+		fbs_deny(route(spec)) == {"HTTPRoute 'r' hangt aan Gateway 'gw' zonder sectionName, dus ook aan een listener zonder TLS"}
+	}
+}
+
+test_httproute_zonder_parentref_faalt if {
+	every refs in [[], null] {
+		spec := {"parentRefs": refs, "hostnames": ["a.example.nl"], "rules": [api_regel]}
+		fbs_deny(route(spec)) == {"HTTPRoute 'r' heeft geen parentRef"}
+	}
+}
+
+test_httproute_met_twee_listeners_slaagt if {
+	spec := {"parentRefs": [gw_ref, {"name": "gw", "sectionName": "https-2"}], "hostnames": ["a.example.nl"], "rules": [api_regel]}
+	count(fbs_deny(route(spec))) == 0
+}
 
 api_regel := {"matches": [{"path": {"type": "PathPrefix", "value": "/api/v1"}}]}
 

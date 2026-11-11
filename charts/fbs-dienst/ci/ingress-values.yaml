@@ -15,6 +15,7 @@ ingress:
   tls: true
   # Een Ingress kent geen timeout per pad; die hoort bij de controller.
   streamPaths: null
+  requestTimeout: null
 
 networkPolicy:
   ingressNSMatchLabels:

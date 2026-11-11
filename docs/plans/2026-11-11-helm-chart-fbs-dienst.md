@@ -63,8 +63,10 @@ charts/
   de render weigert `app` in plaats van een pod op te leveren die nooit gereed wordt.
 - **Vergissingen die TLS uitzetten, weigert de render.** De `FBS_*_UNSAFE_*`-kleppen alleen met
   `dienst.allowUnsafeFlags`. Altijd geweigerd: een ander Quarkus-profiel of config-bestand
-  (`QUARKUS_PROFILE`, `SMALLRYE_CONFIG_PROFILE`, de profile-parents, `*_CONFIG_LOCATIONS`), de
-  JVM-opties die dat kunnen zetten, en een eigen `command`/`args`. In het profiel `dev` of `test`
+  (`QUARKUS_PROFILE` en de voorvoegsels `QUARKUS_CONFIG_` en `SMALLRYE_CONFIG_`), alles wat
+  `run-java.sh` in het image op de java-opdrachtregel zet of laadt (`GC_`, `JAVA_`, `JDK_`,
+  `_JAVA_`, `JBOSS_`), en een eigen `command`/`args`. Een profielvoorvoegsel als `_PROD_` telt
+  mee. In het profiel `dev` of `test`
   vervalt elke TLS-eis, zonder alert-token. De namen worden genormaliseerd zoals SmallRye ze leest,
   en `extraEnvVars` telt mee na de render.
 - **De chart vangt vergissingen, geen opzet.** Wie de values beheert, kan een config-bestand mounten
@@ -135,7 +137,7 @@ charts/
 5. bijzondere values (HPA, PDB-grenzen, geen inkomende bronnen, twee magazijnen naast elkaar,
    een eigen `extraVolumes` bij het stelselregister) en de renders die moeten falen.
 
-Het totaal heeft een ondergrens, zodat een geschrapte controle opvalt.
+Het totaal ligt exact vast, zodat een geschrapte of bijgekomen controle opvalt.
 
 `ci-scripts.yml` draait het script (helm, conftest en kubeconform gepind op versie en sha256).
 `charts/` gaat in `NIET_CODE` van de wijzigingsfilter: een chartwijziging raakt geen Maven-build en

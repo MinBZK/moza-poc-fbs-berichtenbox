@@ -139,6 +139,12 @@ test_mount_zonder_volume_faalt if {
 	}
 }
 
+test_mount_zonder_volume_in_initcontainer_faalt if {
+	init := {"name": "init", "image": "x", "volumeMounts": [{"name": "weg", "mountPath": "/w"}]}
+	d := json.patch(deployment, [{"op": "add", "path": "/spec/template/spec/initContainers", "value": [init]}])
+	deny == {"Deployment 't-dienst' mount 'weg', maar heeft geen volume met die naam"} with input as release(met("Deployment", d))
+}
+
 test_route_zonder_poort_faalt if {
 	zonder_poort := {"kind": "HTTPRoute", "metadata": {"name": "r"}, "spec": {"rules": [{"backendRefs": [{"name": "t-dienst"}]}]}}
 	deny == {"HTTPRoute 'r' wijst naar t-dienst zonder poort"} with input as release(met("HTTPRoute", zonder_poort))

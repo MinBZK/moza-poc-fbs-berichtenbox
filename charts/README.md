@@ -49,7 +49,7 @@ cluster:
 
 ingress:
   enabled: true
-  allowUnauthenticated: true # alleen als de Gateway de toegang beperkt, zie hieronder
+  allowUnauthenticated: true # de API authenticeert niet; zie hieronder
   hostname: magazijn.organisatie.example.nl
 ```
 
@@ -67,18 +67,28 @@ HTTPS en TLS vanaf de Gateway; de render weigert die keuze.
 - Wachtwoorden komen uit een bestaand Secret (`dienst.extraEnvVarsSecret`).
 - Het stelselregister leest zijn ondertekensleutel uit het Secret `<fullname>-keystore`, data-key
   `keystore.p12`.
-- De `FBS_*_UNSAFE_*`-kleppen weigert de render in `dienst.env` en `dienst.extraEnvVars`, in elke
-  schrijfwijze, tenzij `dienst.allowUnsafeFlags=true`.
-- Altijd geweigerd, ook met `allowUnsafeFlags`: een ander Quarkus-profiel of config-bestand
-  (`QUARKUS_PROFILE`, `SMALLRYE_CONFIG_PROFILE`, `*_CONFIG_LOCATIONS` en de JVM-opties waarmee
-  die te zetten zijn), en een eigen `dienst.command` of `dienst.args`. In het profiel `dev` of
-  `test` vervalt elke TLS-eis, zonder alert-token.
+
+**Wat TLS kan uitzetten, weigert de render.** De namen in `dienst.env` en `dienst.extraEnvVars`
+worden getoetst in elke schrijfwijze die Quarkus leest, ook met een profielvoorvoegsel als
+`_PROD_`.
+- De `FBS_*_UNSAFE_*`-kleppen alleen met `dienst.allowUnsafeFlags=true`.
+- Altijd geweigerd, ook met `allowUnsafeFlags`:
+  - een ander Quarkus-profiel of config-bestand: `QUARKUS_PROFILE` en alles wat begint met
+    `QUARKUS_CONFIG_` of `SMALLRYE_CONFIG_`, zoals de profile-parents en `*_CONFIG_LOCATIONS`;
+  - alles wat begint met `GC_`, `JAVA_`, `JDK_`, `_JAVA_` of `JBOSS_`: het image start via
+    `run-java.sh`, dat die op de java-opdrachtregel zet of er scripts uit laadt, en daar past ook
+    `-Dquarkus.profile` in;
+  - een eigen `dienst.command` of `dienst.args`;
+  - `HTTP_TLS_TERMINATION` en `QUARKUS_HTTP_PORT`: die zet de chart zelf.
+
+  In het profiel `dev` of `test` vervalt elke TLS-eis, zonder alert-token.
 - Deze controles vangen vergissingen, geen opzet. Wat in `extraEnvVarsCM`, `extraEnvVarsSecret`,
   een gemount config-bestand, een sidecar of `extraDeploy` staat, ziet de chart niet: wie de
   values beheert, kan de TLS-eisen altijd omzeilen.
 
 **De API's authenticeren hun aanroepers niet.** Wie de route bereikt, bereikt de API. Een route
-vraagt daarom `ingress.allowUnauthenticated=true`; de chart beperkt de toegang zelf niet. Het
+vraagt daarom `ingress.allowUnauthenticated=true`; de chart beperkt de toegang zelf niet. Beperk
+de toegang dan in de Gateway of in het netwerk ervoor. Het
 stelselregister zet de schakelaar zelf, want het stelseldocument is openbaar. Voor uitvraag en
 magazijn is hij in de praktijk nodig zodra ze elkaar aanroepen: de uitvraag eist een https-adres
 voor een magazijn, en binnen het cluster spreekt de pod alleen HTTP, dus dat verkeer loopt via de
@@ -101,7 +111,9 @@ Gateway. Aanroepers binnen het cluster komen binnen met het podlabel
   magazijn zetten daarom `ingress.requestTimeout: 5m`, voor een bijlage tot 25 MiB. De SSE-paden van
   de uitvraag krijgen een eigen regel zonder request-timeout. Bij `routingMode=ingress` gelden deze
   instellingen niet: daar regelt de Ingress-controller de timeouts, en de render weigert
-  `streamPaths`.
+  `streamPaths` en `requestTimeout`.
+- **Een route alleen aan een benoemde listener** (`cluster.gateway.sectionName`). Zonder hangt een
+  HTTPRoute aan elke listener van de Gateway, ook aan een zonder TLS.
 - **Een NetworkPolicy, inkomend.** Alleen vanaf de proxy's van de eigen Gateway (in
   `envoy-gateway-system`, instelbaar met `networkPolicy.ingressNSMatchLabels`) en vanaf pods met
   het label `client.fbs.minbzk.nl/<fullname>: "true"`.
@@ -118,7 +130,13 @@ Gateway. Aanroepers binnen het cluster komen binnen met het podlabel
 Een render met een onmogelijke combinatie faalt met een melding. Voorbeelden:
 - geen tag, of een meebewegende tag als `latest` of `main`;
 - geen keuze voor TLS, of `app`;
-- een route zonder `allowUnauthenticated`, hostnaam of Gateway, met een ander padtype, of met `/q`;
+- een route zonder `allowUnauthenticated`, hostnaam, Gateway of listener, met een ander padtype,
+  of met `/q`;
+- een lege `networkPolicy.dnsPorts` of `gatewayEgress.ports`: een egress-regel zonder poorten laat
+  elke poort toe;
+- bij een route een lege labelwaarde in `networkPolicy.ingressNSPodMatchLabels`. Bij
+  `routingMode=ingress` geldt dat ook voor de standaard, die naar de Gateway kijkt: zet daar de
+  labels van de controller-pods, of null;
 - een Ingress zonder TLS;
 - een onveilige klep zonder `allowUnsafeFlags`, of een ander Quarkus-profiel, of een eigen
   `command`;
