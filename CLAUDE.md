@@ -23,7 +23,7 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 - **Taal:** Kotlin (JVM 21, all-open plugin voor CDI/JAX-RS)
 - **API:** OpenAPI-first (`jaxrs-spec` generator, `interfaceOnly=true`), gegenereerde Java interfaces die Kotlin resources implementeren
 - **REST:** RESTEasy Reactive + Jackson
-- **Caching:** sessiecache-specifiek (library `fbs-berichtensessiecache`, in-process in `berichtenuitvraag`): Redis (sliding TTL, configureerbaar via `berichtensessiecache.ttl`) via de interne `BerichtenCache`-laag — elke succesvolle read verlengt TTL op sessie-keys en geraakte berichthashes. Consumers gebruiken uitsluitend de publieke `Sessiecache`-facade. Berichtenmagazijn heeft geen cache.
+- **Caching:** sessiecache-specifiek (library `fbs-berichtensessiecache`, in-process in `berichtenuitvraag`): Redis via de interne `BerichtenCache`-laag. Geen sliding TTL: gegevens leven zolang de ontvanger een levende sessie heeft (inactiviteit `berichtensessiecache.sessie.inactiviteit`, hard plafond `max-duur`) en worden actief gewist bij de laatste uitlog of het verlopen van de laatste sessie (`SessieVeger`, elke wis in het LDV). De Redis-TTL (`max-duur` + `vangnet-marge`, gezet bij elke schrijfactie) is alleen vangnet en wist als enige zonder LDV-regel; dat komt pas in beeld na een alert (`opruimen_na_schrijven`, `sessie_veger_faalt`). Consumers gebruiken uitsluitend de publieke `Sessiecache`-facade. Berichtenmagazijn heeft geen cache.
 - **Persistentie:** berichtenmagazijn-specifiek: PostgreSQL 18 + Hibernate ORM Panache. Tests via Quarkus Dev Services (Testcontainers); dev via `compose.yaml`. Geen H2. Het Logboek Dataverwerkingen (LDV) schrijft daarnaast naar zijn eigen PostgreSQL — elke service naar de database van zijn eigen deployment (`LDV_DBMS=postgresql`, default; `clickhouse` blijft een werkend alternatief).
 - **Validatie:** Hibernate Validator (Bean Validation via gegenereerde interface-annotaties)
 - **Test:** JUnit 5 + REST-assured + QuarkusTest
@@ -31,8 +31,9 @@ Grens tussen NL en EN — geldt voor identifiers én comments/KDoc:
 ## Architectuurprincipes
 
 - **OpenAPI-first:** De OpenAPI spec per service (`berichtenuitvraag-api.yaml`, `berichtenmagazijn-api.yaml`, `stelselregister-api.yaml`) is de bron van waarheid. Interfaces worden gegenereerd; Kotlin resources implementeren deze. De sessiecache en het magazijnregister zijn interne libraries zonder eigen API-spec: hun CDI-facades (`Sessiecache`, `Magazijnregister`) zijn daar het contract.
-- **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/` — niet technisch (`controller/`, `service/`).
-- **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`. Spec valideren met Spectral-linter (zie Tooling).
+- **Functionele packages:** `berichten/`, `magazijn/`, `notificatie/`, `sessie/` — niet technisch (`controller/`, `service/`).
+- **NL API Design Rules:** `/api/v1` prefix, camelCase JSON, `application/problem+json` fouten (RFC 9457), `API-Version` header, HAL `_links`. Spec valideren met de ADR-linter (zie Tooling).
+- **Sessies:** `POST /api/v1/sessies` start een sessie, `DELETE /api/v1/sessies/huidige` beëindigt hem; `GET` en `POST .../_verlengen` op hetzelfde pad lezen en verlengen hem. Het portaal is de klok: het verlengt bij activiteit van de gebruiker en kan bij de start zijn eigen plafond meegeven; de timers van FBS zijn vangnet. `SessieFilter` weigert standaard: elk pad onder `/api/v1` vereist `X-Sessie`, behalve een expliciete vrijstellingslijst. Het filter faalt dicht, ook bij een ontbrekende of herhaalde header. Het sessie-id staat nooit in logs of URL's.
 - **Cache alleen succesvolle responses** (sessiecache-specifiek): error handling in de resource, niet in de service, zodat de Redis-cache geen foutresultaten opslaat.
 - **ExceptionMappers in fbs-common:** `ProblemExceptionMapper` (WebApplicationException, maskeert 5xx met correlation-id), `ConstraintViolationExceptionMapper` (Bean Validation), `DomainValidationExceptionMapper` (domein-invarianten), `JsonProcessingExceptionMapper`/`MismatchedInputExceptionMapper` (Jackson, zonder originalMessage lek), `UncaughtExceptionMapper` (vangnet voor alle overige `Exception`s, 500 + correlation-id). Gedeelde response-helpers: `problemResponse(...)` en `maskedServerErrorProblem(...)` in `ProblemResponses.kt`.
 - **BSN/PII-handling:** elfproef-validatie via `Bsn`/`Rsin` (in `fbs-kern`). BSN nooit in URL of spec — alleen via header (`X-Ontvanger: BSN:<waarde>`). BSN nooit in applicatie-logs (`.type` mag, `.waarde` niet). LDV's `dataSubjectId` mag de waarde bevatten zolang het endpoint TLS gebruikt (BIO 13.2.1, afgedwongen door `fbs-common/LdvEndpointValidator` in `%prod`/`%staging`/`%acceptatie`).
@@ -152,7 +153,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl libraries/fbs-common -am                   # Tests fbs-common (pure JVM)
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am         # Tests magazijnregister-library (pure JVM)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
-./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (pure JVM + één @QuarkusTest)
+./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (Docker vereist voor één Redis-test)
 ./mvnw clean test -pl demo/demo-personas -am                     # Tests personadienst (pure JVM + één @QuarkusTest)
 ./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
@@ -184,6 +185,15 @@ transitieve libraries, niet uit onze code of config):
 - `LogManager accessed before the "java.util.logging.manager" system property was set`
   — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch,
   geen effect op test- of runtime-gedrag.
+- `OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because
+  bootstrap classpath has been appended`, meestal direct gevolgd door `A Java agent has been loaded
+  dynamically (…byte-buddy-agent…)` — MockK laadt bij zijn eerste mock de byte-buddy-agent en zet zijn
+  eigen klassen op het bootstrap-classpath, opnieuw na elke herstart van Quarkus in een testrun (een
+  nieuwe classloader); met class data sharing (standaard aan sinds JDK 12) meldt de JVM dat. Alleen in test-JVM's, ook op
+  `main`, en weg met `-Xshare:off`; dat kost elke test-JVM opstarttijd en lost niets op, dus niet gedaan.
+- JaCoCo: `Cannot transform ...$$inlined$assertThrows... archive could not be found` — de
+  klassen die Kotlin voor een geïnlinede `assertThrows` in een test genereert; alleen
+  testklassen, die buiten de meting vallen, dus geen effect op de coverage-gate.
 
 ## ZAD deploy & GitOps (debug)
 
@@ -223,7 +233,7 @@ Wat je hoe dan ook moet weten:
 | `libraries/fbs-common/`                | Gedeeld cross-cutting: JAX-RS filters, exception mappers, `profiel/` (Profiel-serviceclient, voorkeuren, toestemming), `fsc/` (outway-headers, outbound-TLS) en de LDV-validators |
 | `demo/`                                | Demonstratiecode: modules, FSC-harness, stubgenerator — nooit productie (`demo/README.md`) |
 | `demo/demo-personas/`                  | De demo-identiteiten als eigen dienst (`GET /api/demo/personas`); apart van het paneel zodat een berichtenbox de lijst kan lezen zonder bij de knoppen te kunnen |
-| `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests plus één `@QuarkusTest` zonder Docker) |
+| `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests en `@QuarkusTest`s zonder Docker, plus één test die het eigen Lua-script tegen een echte Redis draait: Docker vereist) |
 | `demo/magazijn-simulator/`             | Eén service die zich als veel magazijnen voordoet, per pad-prefix `/magazijn/<OIN>`. Genereert uit `berichtenmagazijn-api.yaml` van het echte magazijn — die koppeling is een pad-verwijzing (`api.spec.file`) en staat niet in de reactor-graaf |
 | `demo/up.sh`, `demo/smoke.sh`   | De demo-stack draaien op Docker of podman (`up`/`down`/`ps`/`compose`) en er een rookproef overheen halen. De modus-keuze (docker, bridge, hostnet) staat in `demo/lib/podman-modus.sh` en wordt gedeeld met `demo/environment/<peer>/deploy/local/up.sh` |
 | `services/berichtenmagazijn/pom.xml`   | Module POM (OpenAPI generator, PostgreSQL + Flyway, JPA, Fault Tolerance) |
@@ -236,7 +246,7 @@ Wat je hoe dan ook moet weten:
 | `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, de demo met de proeftuin als berichtenbox, configuratie |
 | `docs/demo-runbook.md`                 | De demo opzetten en spelen: images bouwen (jib), stub-artefacten genereren, stack starten, poorten, persona's, bedieningspaneel, scenario's en valkuilen |
 | `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens; voor het stelselregister de ondertekensleutel |
-| `docs/operations/`                     | Operationele notities per onderwerp: `zad-gitops.md` (deploy-debug), `profiel-404-alert.md`, `redisearch-schema-bump.md` |
+| `docs/operations/`                     | Operationele notities per onderwerp: `zad-gitops.md` (deploy-debug), `statusdashboard.md` (Gatus-bewaking van `test` en de Redis-knop-aankondiging), `profiel-404-alert.md`, `redisearch-schema-bump.md` |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator). Draagt ook de enige pin van de berichtenbox uit de proeftuin; `.github/scripts/proeftuin-image.sh` leest die regel voor de deploy en het ZAD-creatiescript |
 | `compose.proeftuin-versie.yaml`         | Overlay om de berichtenbox op een andere versie te zetten dan de gepinde digest (release-tag, of nog niet gemergd werk uit hun preview-repository) |
@@ -345,7 +355,7 @@ Bij code reviews classificeren we bevindingen op ernst (Hoog/Medium/Laag) met ee
 
 ## Tooling
 
-- **ADR-spec-linting:** `npx @stoplight/spectral-cli lint <spec.yaml> --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml` valideert tegen Forum-Standaardisatie API Design Rules.
+- **ADR-spec-linting:** `npm ci --prefix tools/adr-lint && npm run lint --prefix tools/adr-lint` toetst de drie specs aan de API Design Rules met de DON Checker (OpenLint, opvolger van Spectral). Versie gepind via lockfile, Dependabot bumpt; per spec `lint:<service>`. Niet terug naar `npx @stoplight/spectral-cli` of `@latest`: ongepind is precies het supply-chain-risico. Alleen errors falen; `nlgov:servers-use-https` is een bewuste afwijking. Geen CI-stap: `tools/adr-lint/` staat in `NIET_CODE` van de wijzigingsfilter.
 - **detekt (Kotlin static analysis):** `detekt-maven-plugin` aan `verify` gebonden; rulesets `complexity`, `potential-bugs`, `exceptions`, `empty-blocks` plus een curated set `style`/`naming` (zie `detekt.yml`) — de correctness-/robustness-assen die CodeQL (zwakker voor Kotlin) en JaCoCo niet borgen; overlap met CodeQL bewust geaccepteerd (extra guardrails bij AI-ondersteunde ontwikkeling). De `comments`-ruleset staat uit (botst met "comment het waarom, niet het wat"). Lokaal draaien: `./mvnw detekt:check`. Gate: `maxIssues: 0` ZONDER baseline — élke bevinding faalt de build en wordt écht opgelost; bewuste, onvermijdelijke uitzonderingen krijgen een inline `@Suppress("Rule")` met motivatie-comment (zichtbaar in review, geen verborgen debt). SARIF gaat in CI (`.github/workflows/detekt.yml`) naar het code-scanning-dashboard. Test-sources zijn uitgesloten.
 - **Coverage op PR:** `madrapps/jacoco-report` (GitHub-native, SHA-pinned in `test.yml`) plaatst de JaCoCo-coverage-diff als PR-comment uit de bestaande `jacoco.xml`-rapporten. Bewust géén Codecov (externe SaaS + upload-token + supply-chain-oppervlak). De harde 90%-gate blijft de JaCoCo `check` in de build; de comment is informatief. **Lees `target/site/jacoco/jacoco.xml`** (jacoco-maven-plugin, mét `api.**`/`common.**`-excludes — spiegelt de gate), niet `target/jacoco-report/jacoco.xml` (auto-rapport van de `quarkus-jacoco`-extensie: alleen `@QuarkusTest`-data, géén excludes → gegenereerde code drukt het cijfer kunstmatig). Pad globt op `services/*` én `libraries/*` zodat nieuwe modules automatisch meetellen. `fbs-common` heeft een eigen `jacoco-maven-plugin` (prepare-agent + report + 90%-`check`); het is een pure-JVM-library zonder `@QuarkusTest`, dus de standaard jacoco-agent op Surefire volstaat (geen `quarkus-jacoco`).
 - **CI-status volgen:** `gh pr checks <PR#>` en `gh run watch <run-id> --exit-status`. Bij falen: `gh run view <id> --log-failed`.

@@ -268,7 +268,7 @@ Daar staat tegenover dat **VoRijk een native mobiele app is, geen browser**. Dan
 
 ### Wat wél overneembaar is
 
-1. **Behandel de client-cache als wegwerpbaar.** De cache is een prestatie-optimalisatie, nooit de bron van waarheid. Dat is dezelfde keuze als bij de FBS-sessiecache, die met een sliding TTL in Redis staat en altijd opnieuw gevuld kan worden uit de magazijnen.
+1. **Behandel de client-cache als wegwerpbaar.** De cache is een prestatie-optimalisatie, nooit de bron van waarheid. Dat is dezelfde keuze als bij de FBS-sessiecache, die sessiegebonden in Redis staat (actief gewist bij uitloggen of verlopen) en altijd opnieuw gevuld kan worden uit de magazijnen.
 
 2. **Partiële index, nieuwste-eerst, met een expliciete grens in de UI.** Een zichtbare melding "zoeken in inhoud vanaf &lt;datum&gt;" is eerlijker dan stilzwijgend onvolledige resultaten tonen. Dit patroon is bruikbaar ongeacht welke opslagstrategie verder gekozen wordt.
 

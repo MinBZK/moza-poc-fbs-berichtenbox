@@ -10,6 +10,10 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldDeduplicatie
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldService
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AangemeldBerichtData
@@ -107,8 +111,22 @@ object AanmeldCloudEventFuzzer {
 
             override fun schrijfBericht(ontvanger: Identificatienummer, bericht: Bericht): Bericht = bericht
 
-            override fun volg(ontvanger: Identificatienummer): Multi<SessieGebeurtenis> =
+            override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> =
                 throw UnsupportedOperationException()
+
+            override fun startSessie(ontvanger: Identificatienummer, uiterlijkGeldigTot: Instant?): SessieStart =
+                throw UnsupportedOperationException()
+
+            override fun raakSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid =
+                throw UnsupportedOperationException()
+
+            override fun leesSessie(sessieId: String, ontvanger: Identificatienummer): SessieGeldigheid =
+                throw UnsupportedOperationException()
+
+            override fun beeindigSessie(sessieId: String, ontvanger: Identificatienummer): SessieEinde =
+                throw UnsupportedOperationException()
+
+            override fun ruimVerlopenSessiesOp(max: Int, meld: (Opruiming) -> Unit): Boolean = throw UnsupportedOperationException()
         }
 
         val dedup = object : AanmeldDeduplicatie {

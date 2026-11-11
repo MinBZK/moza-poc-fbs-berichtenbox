@@ -22,7 +22,7 @@ sealed interface SessieGebeurtenis {
     /** Een bericht is in deze sessie aangemeld en staat nu in de lijst. */
     data class BerichtBijgekomen(val bericht: Bericht) : SessieGebeurtenis
 
-    /** De sessie loopt nog en is zojuist verlengd; houdt ook tussenliggende proxies wakker. */
+    /** De sessie loopt nog; houdt ook tussenliggende proxies wakker. Verlengt de sessie niet. */
     data object Hartslag : SessieGebeurtenis
 
     /** De sessie bestaat niet meer; de stream eindigt direct hierna. */

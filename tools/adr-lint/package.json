@@ -1,0 +1,15 @@
+{
+  "name": "adr-lint",
+  "private": true,
+  "description": "Toetst de OpenAPI-specs van de stelsel-diensten aan de API Design Rules met de DON Checker",
+  "license": "EUPL-1.2",
+  "scripts": {
+    "lint": "npm run lint:berichtenmagazijn; a=$?; npm run lint:berichtenuitvraag; b=$?; npm run lint:stelselregister; c=$?; exit $((a | b | c))",
+    "lint:berichtenmagazijn": "don-checker validate --standard adr --input ../../services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml",
+    "lint:berichtenuitvraag": "don-checker validate --standard adr --input ../../services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml",
+    "lint:stelselregister": "don-checker validate --standard adr --input ../../services/stelselregister/src/main/resources/openapi/stelselregister-api.yaml"
+  },
+  "devDependencies": {
+    "@developer-overheid-nl/don-checker": "1.4.0"
+  }
+}
