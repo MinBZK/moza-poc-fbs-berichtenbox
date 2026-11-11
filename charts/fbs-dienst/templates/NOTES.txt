@@ -6,6 +6,10 @@ Gezondheid volgen:
 Binnen het cluster: http://{{ include "common.names.fullname" . }}.{{ include "common.names.namespace" . }}.svc:{{ .Values.service.ports.http }}
 {{- if .Values.ingress.enabled }}
 Van buiten: https://{{ .Values.ingress.hostname }}/api/v1 (zonder authenticatie: elke aanroeper met toegang tot de Gateway bereikt de API)
+{{- if eq .Values.cluster.routingMode "gateway-api" }}
+De hostnaam moet in DNS naar de Gateway wijzen en passen bij listener {{ .Values.cluster.gateway.sectionName }}. Het adres:
+  kubectl -n {{ .Values.cluster.gateway.namespace | default (include "common.names.namespace" .) }} get gateway {{ .Values.cluster.gateway.name }}
+{{- end }}
 {{- end }}
 Aanroepers in de namespace krijgen toegang met het podlabel client.fbs.minbzk.nl/{{ include "common.names.fullname" . }}: "true"
 {{- if eq (toString .Values.dienst.allowUnsafeFlags) "true" }}

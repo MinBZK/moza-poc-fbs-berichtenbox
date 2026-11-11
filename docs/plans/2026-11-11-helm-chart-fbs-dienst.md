@@ -116,8 +116,27 @@ charts/
 - **Afwijkingen van Haven.** Haven vraagt een metrics-endpoint en schaalbaarheid naar meerdere
   replica's. De diensten hebben geen metrics-endpoint (daarom geen ServiceMonitor), en het
   stelselregister draait bewust met één replica.
-- **HTTPRoute met instelbare `sectionName`.** De helper van mijn-bureau zet die vast op `https`;
-  de listener-naam van de Gateway op Fundament is nog niet bekend.
+- **HTTPRoute met instelbare `sectionName`, aan één listener.** De helper van mijn-bureau zet die
+  vast op `https`. Op het fieldlab maakt de deelnemer zelf de Gateway (`web`, listeners `http` en
+  `https`). De route hangt aan één benoemde listener en niet aan beide: over `http` zouden het BSN
+  en de berichten onversleuteld gaan. De lokale proef kiest bewust `http`.
+- **Wat Fundament van de chart vraagt** (fieldlab-handleiding en `fundament-oss/fundament` op
+  b9c12531, 2026-11-11):
+  - Kubernetes 1.36; Envoy Gateway 1.9.3 met Gateway API 1.6.1 (experimental), controller in
+    `envoy-gateway-system`. `controleer.sh` toetst tegen die schema's.
+  - Namespaces maakt de console (`tnt-<project>--<naam>`); projectbeheerders hebben daarin de rol
+    `admin`. De chart maakt alleen objecten binnen de namespace; een beleidsregel weigert andere
+    soorten. HTTPRoute valt niet onder de standaardrol `admin`: dat is een risico dat de
+    installateur met `kubectl auth can-i` controleert.
+  - Op namespaces van plug-ins dwingt de plugin-controller Pod Security `restricted` af. De chart
+    haalt dat, en de beleidsregels toetsen de onderdelen die de bestaande regels nog niet dekten
+    (`allowPrivilegeEscalation` expliciet false, geen `hostPort`, alleen toegestane volumesoorten).
+  - Een LimitRange `fundament-defaults` zet alleen standaardwaarden; de chart zet zelf requests en
+    limits.
+  - PostgreSQL uit CloudNativePG: een voorbeeld-values-bestand stelt het JDBC-adres in de pod samen
+    uit de velden van het Secret `<cluster>-app`, met `sslmode=require`.
+  - De Gateway krijgt een publiek IPv4-adres zonder DNS. De hostnaam van de route (eigen A-record of
+    sslip.io) is pas bekend als de Gateway er staat; daarom eerst de Gateway, dan de chart.
 - **Afhankelijkheden buiten de chart.** PostgreSQL, Redis met RediSearch en het logboek horen bij
   MinBZK/MijnOverheidZakelijk#1536. De chart verwijst er alleen naar via env.
 

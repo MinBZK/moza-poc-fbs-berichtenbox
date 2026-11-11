@@ -14,10 +14,11 @@ CHARTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CHART="$CHARTS/fbs-dienst"
 POLICY="$CHARTS/policy"
 
-# TODO(MinBZK/MijnOverheidZakelijk#1536): bijwerken naar de Kubernetes-versie van Fundament
-# (Gardener).
-KUBERNETES_VERSIE=1.32.0
-# Schema's, elk gepind op een commit: zonder pin kan de uitkomst veranderen zonder diff hier.
+# De versie van de clusters op het fieldlab van Fundament.
+KUBERNETES_VERSIE=1.36.0
+# Schema's, elk gepind op een commit: zonder pin kan de uitkomst veranderen zonder diff hier. De
+# CRD-catalogus staat op Gateway API 1.6.1 (experimental), de versie die de Envoy-plug-in van
+# Fundament installeert.
 K8S_SCHEMAS='https://raw.githubusercontent.com/yannh/kubernetes-json-schema/f7d855e49c34b039c9ef2196444910275e31e09e/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json'
 CRD_SCHEMAS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/501527ab9c40c827144c8f45945b25a023e344ce/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
@@ -28,8 +29,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=294
-MINIMUM_REGO_TESTS=74
+VERWACHTE_CONTROLES=302
+MINIMUM_REGO_TESTS=82
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -343,6 +344,15 @@ route_aan=(--set ingress.enabled=true --set ingress.allowUnauthenticated=true --
 toets_slaagt "route-exact-root" "${uitvraag[@]}" "${route_aan[@]}" \
   --set-json 'ingress.paths=[{"type":"Exact","value":"/"},{"type":"PathPrefix","value":"/api/v1"}]'
 toets_slaagt "stream-op-exact-pad" "${uitvraag[@]}" "${route_aan[@]}" --set-json 'ingress.streamPaths=["/openapi.json"]'
+
+# Het voorbeeld met een database uit CloudNativePG: het JDBC-adres wordt in de pod samengesteld uit
+# de velden van het Secret, met TLS.
+toets_render "magazijn-cnpg" -f "$CHART/diensten/berichtenmagazijn.yaml" -f "$CHARTS/voorbeelden/berichtenmagazijn-cnpg.yaml" \
+  -f "$CHART/ci/standaard-values.yaml" --set ingress.enabled=true --set ingress.allowUnauthenticated=true \
+  --set ingress.hostname=magazijn.example.nl --set cluster.gateway.name=web
+toets_bevat "magazijn-cnpg" "JDBC-adres met TLS" 'value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=require'
+toets_aantal "magazijn-cnpg" "datasource en logboek uit hetzelfde Secret" 'name: db-app' 5
+toets_aantal "magazijn-cnpg" "logboek met TLS" 'sslmode=require' 2
 
 # Het stelselregister zet de schakelaar zelf: zijn route rendert zonder.
 toets_slaagt "stelselregister-route" -f "$CHART/diensten/stelselregister.yaml" -f "$CHART/ci/standaard-values.yaml" \

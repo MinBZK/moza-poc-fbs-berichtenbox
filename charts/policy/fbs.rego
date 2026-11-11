@@ -62,6 +62,46 @@ deny contains msg if {
 	msg := sprintf("Container '%s' draait zonder seccomp-profiel RuntimeDefault", [c.name])
 }
 
+# Pod Security "restricted", die Fundament op de namespaces van plug-ins afdwingt, eist de waarde
+# expliciet; afwezig telt daar als toestaan.
+deny contains msg if {
+	some c in containers
+	object.get(c, ["securityContext", "allowPrivilegeEscalation"], true) != false
+	msg := sprintf("Container '%s' zet allowPrivilegeEscalation niet op false; Pod Security restricted weigert de pod", [c.name])
+}
+
+deny contains msg if {
+	some c in containers
+	some poort in object.get(c, "ports", [])
+	poort.hostPort
+	msg := sprintf("Container '%s' gebruikt hostPort %v; Pod Security restricted weigert de pod", [c.name, poort.hostPort])
+}
+
+# De volumesoorten die Pod Security restricted toelaat.
+toegestane_volumes := {"configMap", "csi", "downwardAPI", "emptyDir", "ephemeral", "persistentVolumeClaim", "projected", "secret"}
+
+deny contains msg if {
+	input.kind == "Deployment"
+	some volume in object.get(pod_spec, "volumes", [])
+	some soort, _ in volume
+	soort != "name"
+	not soort in toegestane_volumes
+	msg := sprintf("Volume '%s' is van soort %s; Pod Security restricted weigert de pod", [volume.name, soort])
+}
+
+# Wat de chart (ook via extraDeploy) aanmaakt, moet binnen één namespace blijven en te maken zijn
+# met de rol admin die Fundament projectbeheerders in hun namespace geeft. HTTPRoute hoort niet bij
+# de standaardrol admin; zie de README.
+namespace_soorten := {
+	"ConfigMap", "Deployment", "HorizontalPodAutoscaler", "HTTPRoute", "Ingress", "NetworkPolicy",
+	"PodDisruptionBudget", "Secret", "Service", "ServiceAccount",
+}
+
+deny contains msg if {
+	not input.kind in namespace_soorten
+	msg := sprintf("%s '%s' hoort niet in deze chart: alleen objecten binnen de eigen namespace die de rol admin mag maken", [input.kind, input.metadata.name])
+}
+
 deny contains msg if {
 	some c in containers
 	some soort in ["requests", "limits"]

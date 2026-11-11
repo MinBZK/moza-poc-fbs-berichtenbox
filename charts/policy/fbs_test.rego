@@ -17,6 +17,7 @@ container_ok := {
 		"limits": {"cpu": "1", "memory": "768Mi", "ephemeral-storage": "1Gi"},
 	},
 	"securityContext": {
+		"allowPrivilegeEscalation": false,
 		"readOnlyRootFilesystem": true,
 		"capabilities": {"drop": ["ALL"]},
 		"seccompProfile": {"type": "RuntimeDefault"},
@@ -44,7 +45,7 @@ fbs_deny(obj) := {m | some m in deny with input as obj; not mijn_bureau_regel(m)
 # De overgenomen regels van mijn-bureau eisen meer (labels, imagePullPolicy, namespace) dan deze
 # minimale objecten bevatten; die meldingen tellen hier niet mee.
 mijn_bureau_regel(m) if {
-	some fragment in ["imagePullPolicy", "labels", "namespace", "service account", "runAsNonRoot", "as root"]
+	some fragment in ["imagePullPolicy", "labels", "does not have a namespace", "service account", "runAsNonRoot", "as root"]
 	contains(m, fragment)
 }
 
@@ -75,6 +76,63 @@ test_initcontainer_valt_onder_dezelfde_regels if {
 	init := patch(container_ok, {"op": "replace", "path": "/securityContext/readOnlyRootFilesystem", "value": false})
 	d := patch(uitvraag(container_ok), {"op": "add", "path": "/spec/template/spec/initContainers", "value": [init]})
 	fbs_deny(d) == {"Container 'dienst' heeft geen read-only root-filesystem"}
+}
+
+# Pod Security restricted: afwezig of null telt als toestaan, ook in een initContainer.
+test_privilege_escalation_niet_uit_faalt if {
+	every waarde in [true, null] {
+		c := patch(container_ok, {"op": "replace", "path": "/securityContext/allowPrivilegeEscalation", "value": waarde})
+		"Container 'dienst' zet allowPrivilegeEscalation niet op false; Pod Security restricted weigert de pod" in fbs_deny(uitvraag(c))
+	}
+}
+
+test_privilege_escalation_ontbreekt_in_initcontainer_faalt if {
+	init := object.remove(container_ok, ["livenessProbe", "readinessProbe", "startupProbe"])
+	init_open := json.patch(init, [{"op": "replace", "path": "/name", "value": "init"}, {"op": "remove", "path": "/securityContext/allowPrivilegeEscalation"}])
+	d := patch(uitvraag(container_ok), {"op": "add", "path": "/spec/template/spec/initContainers", "value": [init_open]})
+	fbs_deny(d) == {"Container 'init' zet allowPrivilegeEscalation niet op false; Pod Security restricted weigert de pod"}
+}
+
+test_hostport_faalt if {
+	c := patch(container_ok, {"op": "add", "path": "/ports", "value": [{"containerPort": 8086}, {"containerPort": 8080, "hostPort": 8080}]})
+	fbs_deny(uitvraag(c)) == {"Container 'dienst' gebruikt hostPort 8080; Pod Security restricted weigert de pod"}
+}
+
+test_containerpoort_zonder_hostport_slaagt if {
+	c := patch(container_ok, {"op": "add", "path": "/ports", "value": [{"containerPort": 8086, "name": "http"}]})
+	count(fbs_deny(uitvraag(c))) == 0
+}
+
+met_volumes(volumes) := patch(uitvraag(container_ok), {"op": "add", "path": "/spec/template/spec/volumes", "value": volumes})
+
+test_toegestane_volumes_slagen if {
+	every volumes in [
+		[],
+		[{"name": "tmp", "emptyDir": {"sizeLimit": "256Mi"}}],
+		[{"name": "tmp", "emptyDir": {}}, {"name": "keystore", "secret": {"secretName": "k"}}, {"name": "c", "configMap": {"name": "c"}}],
+	] {
+		count(fbs_deny(met_volumes(volumes))) == 0
+	}
+}
+
+test_andere_volumesoort_faalt if {
+	every geval in [["hostPath", {"path": "/"}], ["nfs", {"server": "n", "path": "/"}], ["gitRepo", {"repository": "x"}]] {
+		volumes := [{"name": "tmp", "emptyDir": {}}, {"name": "v", geval[0]: geval[1]}]
+		sprintf("Volume 'v' is van soort %s; Pod Security restricted weigert de pod", [geval[0]]) in fbs_deny(met_volumes(volumes))
+	}
+}
+
+test_soort_buiten_de_namespace_faalt if {
+	every soort in ["ClusterRole", "ClusterRoleBinding", "Namespace", "Role", "CustomResourceDefinition", "Job"] {
+		obj := {"kind": soort, "metadata": {"name": "x"}}
+		fbs_deny(obj) == {sprintf("%s 'x' hoort niet in deze chart: alleen objecten binnen de eigen namespace die de rol admin mag maken", [soort])}
+	}
+}
+
+test_soorten_van_de_chart_slagen if {
+	every soort in ["ConfigMap", "Secret", "Service", "ServiceAccount", "PodDisruptionBudget"] {
+		count(fbs_deny({"kind": soort, "metadata": {"name": "x"}})) == 0
+	}
 }
 
 test_capabilities_niet_allemaal_weg_faalt if {

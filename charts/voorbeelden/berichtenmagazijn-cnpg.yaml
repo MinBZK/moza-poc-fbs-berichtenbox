@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Het magazijn met een database uit CloudNativePG, zoals op het fieldlab. Te gebruiken naast
+# diensten/berichtenmagazijn.yaml:
+#
+#   helm install magazijn-a charts/fbs-dienst -n tnt-<project>--<naam> \
+#     -f charts/fbs-dienst/diensten/berichtenmagazijn.yaml -f charts/voorbeelden/berichtenmagazijn-cnpg.yaml \
+#     --set dienst.image.tag=main-<sha7> --set dienst.tlsTermination=mesh
+#
+# Plus de overige instellingen uit de kop van diensten/berichtenmagazijn.yaml.
+#
+# CloudNativePG maakt per Cluster een database `app` en een Secret `<cluster>-app` met onder meer
+# host, port, dbname, username en password. Het veld `uri` is een postgresql://-adres, geen JDBC,
+# en `jdbc-uri` zet het wachtwoord in de URL; daarom stelt de pod het JDBC-adres zelf samen uit de
+# losse velden. Kubernetes vult $(NAAM) in met een variabele die eerder in de lijst staat.
+#
+# De server spreekt standaard TLS met een eigen CA. sslmode=require versleutelt zonder die CA te
+# controleren; dat is wat de LDV-validator eist. Voor verify-full moet de CA uit het Secret
+# `<cluster>-ca` in de pod en in de URL (sslrootcert).
+#
+# Het logboek schrijft in dezelfde database, in het schema van DB_SCHEMA (zie
+# diensten/berichtenmagazijn.yaml).
+
+dienst:
+  extraEnvVars:
+    - name: DB_HOST
+      valueFrom: {secretKeyRef: {name: db-app, key: host}}
+    - name: DB_PORT
+      valueFrom: {secretKeyRef: {name: db-app, key: port}}
+    - name: DB_NAME
+      valueFrom: {secretKeyRef: {name: db-app, key: dbname}}
+    - name: DB_USERNAME
+      valueFrom: {secretKeyRef: {name: db-app, key: username}}
+    - name: DB_PASSWORD
+      valueFrom: {secretKeyRef: {name: db-app, key: password}}
+    - name: DB_JDBC_URL
+      value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=require
+    - name: LDV_POSTGRES_URL
+      value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=require
+    - name: LDV_POSTGRES_USERNAME
+      value: $(DB_USERNAME)
+    - name: LDV_POSTGRES_PASSWORD
+      value: $(DB_PASSWORD)
+  env:
+    DB_SCHEMA: magazijn

@@ -15,6 +15,7 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 | `policy/` | beleidsregels voor conftest: overgenomen van mijn-bureau-infra, plus eigen regels met tests |
 | `controleer.sh` | controle zonder cluster |
 | `lokaal-testcluster.sh` | de drie diensten op een k3d-cluster achter Envoy Gateway |
+| `voorbeelden/` | values voor een opzet die niet bij elke installatie hoort, zoals een database uit CloudNativePG |
 
 ## Installeren
 
@@ -94,6 +95,39 @@ magazijn is hij in de praktijk nodig zodra ze elkaar aanroepen: de uitvraag eist
 voor een magazijn, en binnen het cluster spreekt de pod alleen HTTP, dus dat verkeer loopt via de
 Gateway. Aanroepers binnen het cluster komen binnen met het podlabel
 `client.fbs.minbzk.nl/<fullname>: "true"`, één per dienst die ze aanroepen.
+
+## Op Fundament
+
+Zo ziet een cluster van het fieldlab eruit (Kubernetes 1.36, Envoy Gateway 1.9 met Gateway API
+1.6), en wat dat van de installatie vraagt:
+
+- **Namespace.** Maak de namespace in de console; hij heet dan `tnt-<project>--<naam>`. Installeer
+  zonder `--create-namespace`: een namespace die je met kubectl of Helm maakt, geeft projectleden
+  geen rechten.
+- **Rechten.** Projectbeheerders hebben in hun namespace de ClusterRole `admin`. De chart maakt
+  alleen objecten binnen de namespace, en een beleidsregel weigert andere soorten, ook via
+  `extraDeploy`. HTTPRoute hoort niet bij de standaardrol `admin` van Kubernetes; het fieldlab
+  maakt routes wel met `kubectl apply`, maar dat het met jouw rol mag, controleer je met
+  `kubectl auth can-i create httproutes -n <namespace>`. Mag het niet, installeer dan met
+  `ingress.enabled=false` en maak de route apart.
+- **Gateway.** Fundament installeert Envoy Gateway (GatewayClass `eg`) maar maakt geen Gateway.
+  Maak die zelf in de eigen namespace, bijvoorbeeld `web` met een listener `https` op 443 en een
+  certificaat via cert-manager, en zet `cluster.gateway.name=web` en
+  `cluster.gateway.sectionName=https`. `cluster.gateway.namespace` mag leeg blijven. De proxy's
+  draaien in `envoy-gateway-system`; daar staat de NetworkPolicy al op ingesteld.
+- **Hostnaam.** De Gateway krijgt een publiek IPv4-adres, maar Fundament maakt geen DNS. Volgorde:
+  maak eerst de Gateway, wacht op het adres (`kubectl get gateway web`), en installeer dan de chart
+  met als `ingress.hostname` een eigen A-record of `<ip-met-streepjes>.sslip.io`. Die hostnaam moet
+  passen bij de `hostname` van de https-listener. Een route zonder hostnaam weigert de chart: die
+  zou al het verkeer op de Gateway vangen.
+- **Pod Security.** Op de namespaces van plug-ins dwingt Fundament `restricted` af. De pod van de
+  chart haalt dat, en de beleidsregels toetsen het: `allowPrivilegeEscalation: false`, geen
+  `hostPort`, alleen de volumesoorten die `restricted` toelaat.
+- **Resources.** Een beheerde LimitRange `fundament-defaults` zet alleen standaardwaarden voor
+  containers zonder eigen requests en limits. De chart zet ze zelf, dus die botsen niet.
+- **Database.** PostgreSQL komt uit CloudNativePG, met een Secret `<cluster>-app`.
+  [`voorbeelden/berichtenmagazijn-cnpg.yaml`](voorbeelden/berichtenmagazijn-cnpg.yaml) laat zien
+  hoe het magazijn en zijn logboek daaruit verbinden, met TLS.
 
 ## Wat de chart standaard afdwingt
 

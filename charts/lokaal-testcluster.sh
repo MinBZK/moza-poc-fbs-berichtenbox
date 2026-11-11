@@ -24,7 +24,7 @@ CLUSTER=${CLUSTER:-fbs-chart}
 CONTEXT="k3d-$CLUSTER"
 NS=fbs
 HTTP_POORT=${HTTP_POORT:-8080}
-ENVOY_GATEWAY_VERSIE=v1.9.2
+ENVOY_GATEWAY_VERSIE=v1.9.3
 PG_IMAGE=docker.io/library/postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
 REDIS_IMAGE=docker.io/redis/redis-stack-server:7.4.0-v3@sha256:7d8e657d60d525534d6abe96e7645ab30ef1b4f1ffedc6eeb2d4d4283b3a49b9
 DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
@@ -63,6 +63,9 @@ hm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version "$ENVO
 kc -n envoy-gateway-system wait --for=condition=Available deployment/envoy-gateway --timeout=5m
 
 kc create namespace "$NS" --dry-run=client -o yaml | kc apply -f -
+# Zoals Fundament de namespaces van plug-ins inricht: de API-server weigert elke pod die Pod
+# Security "restricted" niet haalt, ook de proefvoorzieningen hieronder.
+kc label namespace "$NS" pod-security.kubernetes.io/enforce=restricted --overwrite
 
 # Een platte HTTP-listener: lokaal is er geen certificaat. Op Fundament eindigt TLS op de Gateway.
 kc apply -f - <<EOF
@@ -120,15 +123,24 @@ spec:
   template:
     metadata: {labels: {app: proef-postgres}}
     spec:
+      # De gebruiker postgres uit het image; de data staat in een emptyDir die hij mag beschrijven.
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: postgres
           image: $PG_IMAGE
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
           envFrom: [{secretRef: {name: proef-voorzieningen}}]
           ports: [{containerPort: 5432}]
           # Via TCP: tijdens de init luistert de tijdelijke server alleen op de socket.
           readinessProbe: {exec: {command: [pg_isready, -h, 127.0.0.1, -U, postgres]}, periodSeconds: 3}
-          volumeMounts: [{name: init, mountPath: /docker-entrypoint-initdb.d}]
-      volumes: [{name: init, configMap: {name: proef-postgres-init}}]
+          volumeMounts:
+            - {name: init, mountPath: /docker-entrypoint-initdb.d}
+            - {name: data, mountPath: /var/lib/postgresql}
+            - {name: socket, mountPath: /var/run/postgresql}
+      volumes:
+        - {name: init, configMap: {name: proef-postgres-init}}
+        - {name: data, emptyDir: {}}
+        - {name: socket, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service
@@ -147,9 +159,15 @@ spec:
   template:
     metadata: {labels: {app: proef-redis}}
     spec:
+      # Het image draait standaard als root; als een andere gebruiker werkt het met een
+      # beschrijfbare /data.
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: data, emptyDir: {}}]
       containers:
         - name: redis
           image: $REDIS_IMAGE
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: data, mountPath: /data}]
           env:
             - name: REDIS_PASSWORD
               valueFrom: {secretKeyRef: {name: proef-voorzieningen, key: REDIS_PASSWORD}}
