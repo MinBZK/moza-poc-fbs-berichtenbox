@@ -28,8 +28,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=234
-MINIMUM_REGO_TESTS=63
+VERWACHTE_CONTROLES=266
+MINIMUM_REGO_TESTS=67
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -137,7 +137,7 @@ toets_render() {
 # Telt de objecten per soort in een render. $1 = label, $2 = verwachte soorten, gesorteerd.
 toets_soorten() {
   local label=$1 verwacht=$2 gevonden
-  gevonden=$(sed -n 's/^kind: //p' "$WERK/$label.yaml" | sort | paste -sd, -)
+  gevonden=$(sed -n 's/^kind: //p' "$WERK/$label.yaml" 2>/dev/null | sort | paste -sd, - || true)
 
   if [ "$gevonden" = "$verwacht" ]; then
     ok "$label: objecten $gevonden"
@@ -201,6 +201,15 @@ if uitvoer=$(conftest verify --no-color --policy "$POLICY" 2>&1); then
 else
   printf '%s\n' "$uitvoer"
   fout "conftest verify"
+fi
+
+# Een bestand in een ander package valt buiten de run, en conftest blijft dan groen.
+verkeerd=$(grep -L '^package main$' "$POLICY"/*.rego; grep -L '^package samenhang$' "$POLICY"/samenhang/*.rego)
+
+if [ -z "$verkeerd" ]; then
+  ok "beleidsregels: elk bestand in package main of samenhang"
+else
+  fout "beleidsregels: verkeerd package in $verkeerd"
 fi
 
 echo "== renders per dienst en scenario =="
@@ -311,13 +320,17 @@ toets_bevat "onveilig-toegestaan" "klep staat in de env" 'name: "FBS_REDIS_UNSAF
 
 # De tag-vormen die de keten publiceert: main-<sha7>, pr-<n>-<sha7>, en met -r<n>/-k<n> erachter.
 for t in main-0123abc pr-12-0123abc pr-12-0123abc-r2 pr-12-0123abc-k7 pr-12-0123abc-r2-k7; do
-  toets_slaagt "tag-$t" -f "$CHART/diensten/berichtenuitvraag.yaml" -f "$CHART/ci/standaard-values.yaml" \
+  toets_render "tag-$t" -f "$CHART/diensten/berichtenuitvraag.yaml" -f "$CHART/ci/standaard-values.yaml" \
     --set dienst.image.tag="$t"
+  toets_bevat "tag-$t" "de tag staat in het image" "image: ghcr.io/minbzk/fbs-berichtenuitvraag:$t"
 done
 
-# Een digest mag naast elke tag; dan telt de digest.
-toets_slaagt "digest-met-vaste-tag" "${uitvraag[@]}" --set dienst.image.tag=latest \
+# Een digest mag naast elke tag; dan telt de digest, en de tag valt weg.
+toets_render "digest-met-vaste-tag" "${uitvraag[@]}" --set dienst.image.tag=latest \
   --set dienst.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000
+toets_bevat "digest-met-vaste-tag" "de digest staat in het image" \
+  'image: ghcr.io/minbzk/fbs-berichtenuitvraag@sha256:0000000000000000000000000000000000000000000000000000000000000000'
+toets_bevat_niet "digest-met-vaste-tag" "geen vaste tag in het image" ':latest'
 
 # Het stelselregister zet de schakelaar zelf: zijn route rendert zonder.
 toets_slaagt "stelselregister-route" -f "$CHART/diensten/stelselregister.yaml" -f "$CHART/ci/standaard-values.yaml" \
