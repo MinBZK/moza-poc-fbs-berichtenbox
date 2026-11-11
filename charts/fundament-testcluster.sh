@@ -22,13 +22,15 @@
 set -euo pipefail
 
 CHARTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-readonly CHARTS
+REPO=$(cd "$CHARTS/.." && pwd)
+readonly CHARTS REPO
 
 # shellcheck source=charts/fundament-testcluster/lib.sh
 source "$CHARTS/fundament-testcluster/lib.sh"
 
 readonly SANDBOX_CONTEXT=k3d-fundament-plugin
 readonly PLATFORM_CONTEXT=k3d-fundament
+readonly NS=tnt-fbs--fbs
 HTTPS_POORT=${HTTPS_POORT:-9443}
 FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
 FUNDAMENT_REF=${FUNDAMENT_REF:-b9c12531}
@@ -37,12 +39,14 @@ readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET
 WERKBOOM=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-$FUNDAMENT_REF
 readonly WERKBOOM
 
+readonly REDIS_IMAGE=docker.io/redis/redis-stack-server:7.4.0-v3@sha256:7d8e657d60d525534d6abe96e7645ab30ef1b4f1ffedc6eeb2d4d4283b3a49b9
 readonly K3S_IMAGE=docker.io/rancher/k3s:v1.36.6-k3s1@sha256:88d3fac10eb4a429d3c5275f4868fe4b13620f6bbca5bdb5dca0627ac76ae2a0
 
 # De organisatie system publiceert de first-party plug-ins (seeddata van Fundament).
 readonly SYSTEM_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000000
-# <pad onder plugins/>:<metadata.name uit definition.yaml>
-readonly PLUGINS=(cert-manager:cert-manager gateway-api/envoy-gateway:gateway-api-envoy cloudnativepg:cloudnativepg)
+# <pad onder plugins/>:<metadata.name uit definition.yaml>. Envoy Gateway eerst: cert-manager zet
+# zijn Gateway-ondersteuning alleen aan als de Gateway-API-CRD's er bij zijn installatie al zijn.
+readonly PLUGINS=(gateway-api/envoy-gateway:gateway-api-envoy cert-manager:cert-manager cloudnativepg:cloudnativepg)
 # Een geseede DCIM-gebruiker van Fundament die versies mag goedkeuren (zoals in test-env).
 readonly REVIEWER=alice@acme-corp.com
 
@@ -323,6 +327,12 @@ plugin_op() {
   }
 }
 
+# cert-manager geeft alleen een certificaat voor een geannoteerde Gateway met Gateway-ondersteuning
+# aan; zonder blijft de https-listener zonder certificaat.
+cert_manager_met_gateway() {
+  [ "$(kc get plugininstallation system--cert-manager -o jsonpath='{.status.message}' 2>/dev/null)" = "cert-manager is running" ]
+}
+
 gatewayclass_geaccepteerd() {
   [ "$(kc get gatewayclass eg -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = True ]
 }
@@ -339,6 +349,81 @@ plugins_op() {
   wacht_tot 300 "GatewayClass eg geaccepteerd" gatewayclass_geaccepteerd || stop 1 "GatewayClass eg is niet Accepted"
   wacht_tot 300 "CRD van CloudNativePG" kc get crd clusters.postgresql.cnpg.io ||
     stop 1 "de CRD clusters.postgresql.cnpg.io ontbreekt"
+  wacht_tot 600 "cert-manager met Gateway-ondersteuning" cert_manager_met_gateway ||
+    stop 1 "cert-manager draait zonder Gateway-ondersteuning; zie: kubectl --context $SANDBOX_CONTEXT get plugininstallation system--cert-manager -o yaml"
+}
+
+# --- Voorzieningen in de namespace ---------------------------------------------------------------
+
+voorwaarde_klaar() {
+  local soort=$1 naam=$2 conditie=$3
+
+  [ "$(kc -n "$NS" get "$soort" "$naam" -o jsonpath="{.status.conditions[?(@.type==\"$conditie\")].status}" 2>/dev/null)" = True ]
+}
+
+database_gezond() {
+  [ "$(kc -n "$NS" get cluster.postgresql.cnpg.io "$1" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Cluster in healthy state" ]
+}
+
+# Maakt een Secret alleen als hij er nog niet is: een tweede run mag geen nieuw wachtwoord zetten
+# naast een Redis die het oude nog gebruikt.
+secret_eenmalig() {
+  local naam=$1
+  shift
+
+  kc -n "$NS" get secret "$naam" >/dev/null 2>&1 && return 0
+  kc -n "$NS" create secret generic "$naam" "$@" --dry-run=client -o yaml | kc apply -f - >/dev/null
+}
+
+voorzieningen_op() {
+  stap "namespace $NS en Gateway"
+
+  manifest_tenant_namespace "$NS" | kc apply -f -
+  manifest_projectlid "$NS" | kc apply -f -
+  manifest_lokale_ca "$NS" | kc apply -f -
+  wacht_tot 300 "lokale CA" voorwaarde_klaar certificate lokale-ca Ready || stop 1 "certificaat lokale-ca is niet Ready"
+  manifest_gateway "$NS" | kc apply -f -
+  wacht_tot 300 "certificaat web-tls van de Gateway" kc -n "$NS" get secret web-tls ||
+    stop 1 "cert-manager maakte geen certificaat web-tls voor Gateway web"
+  wacht_tot 300 "Gateway web Programmed" voorwaarde_klaar gateway web Programmed ||
+    stop 1 "Gateway web is niet Programmed; zie: kubectl --context $SANDBOX_CONTEXT -n $NS describe gateway web"
+
+  stap "databases (CloudNativePG)"
+
+  local db
+
+  for db in db ldv-uitvraag; do
+    manifest_cnpg_cluster "$db" "$NS" | kc apply -f -
+  done
+
+  for db in db ldv-uitvraag; do
+    wacht_tot 600 "database $db gezond" database_gezond "$db" ||
+      stop 1 "database $db is niet gezond; zie: kubectl --context $SANDBOX_CONTEXT -n $NS describe cluster.postgresql.cnpg.io $db"
+    kc -n "$NS" get secret "$db-app" >/dev/null || stop 1 "Secret $db-app ontbreekt"
+  done
+
+  stap "Redis Stack en geheimen"
+
+  # Geheimen als bestand, niet op de commandoregel: die is via ps zichtbaar voor andere gebruikers.
+  openssl rand -hex 24 >"$WERK/redis-wachtwoord"
+  secret_eenmalig proef-voorzieningen --from-file=REDIS_PASSWORD="$WERK/redis-wachtwoord"
+  kc -n "$NS" get secret proef-voorzieningen -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d >"$WERK/redis-wachtwoord"
+
+  manifest_proef_redis "$NS" "$REDIS_IMAGE" | kc apply -f -
+  kc -n "$NS" rollout status deployment/proef-redis --timeout=5m
+
+  if ! kc -n "$NS" get secret stelselregister-keystore >/dev/null 2>&1; then
+    mkdir -p "$WERK/pki"
+    cp "$REPO/demo/environment/stelselregister/pki/maak-keten.sh" "$WERK/pki/"
+    (cd "$WERK/pki" && STELSELDOCUMENT_OMGEVING=lokaal ./maak-keten.sh >/dev/null)
+    secret_eenmalig stelselregister-keystore --from-file=keystore.p12="$WERK/pki/out/keystore.p12"
+    kc -n "$NS" delete secret stelselregister-geheimen --ignore-not-found >/dev/null
+    secret_eenmalig stelselregister-geheimen --from-file=STELSELDOCUMENT_KEYSTORE_WACHTWOORD="$WERK/pki/out/wachtwoord"
+  fi
+
+  secret_eenmalig berichtenuitvraag-geheimen --from-file=REDIS_PASSWORD="$WERK/redis-wachtwoord"
+  kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
+  echo "OK: Redis, keystore en geheimen"
 }
 
 # --- Subcommando's -------------------------------------------------------------------------------
@@ -356,6 +441,7 @@ op() {
   functl_inloggen
   sandbox_op
   plugins_op
+  voorzieningen_op
 }
 
 case "${1:-}" in
