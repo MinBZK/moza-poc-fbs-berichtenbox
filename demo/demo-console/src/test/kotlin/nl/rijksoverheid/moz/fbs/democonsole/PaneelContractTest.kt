@@ -15,6 +15,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.AanmeldWebhookClient
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingService
+import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringAankondiging
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
@@ -851,7 +852,8 @@ class PaneelContractTest {
  */
 @Mock
 @Singleton
-class VasteStoringService(register: ToxiproxyRegister) : StoringService(register) {
+class VasteStoringService(aankondiging: StoringAankondiging, register: ToxiproxyRegister) :
+    StoringService(aankondiging, register) {
 
     override fun status(): Map<String, Storingstoestand> = linkedMapOf(
         "magazijn-a" to Storingstoestand.NORMAAL,
