@@ -388,11 +388,26 @@ in *Bericht plaatsen*), de stroom, de storingen en of elk component zelf antwoor
 een ↻ om het meteen te verversen; een mislukte uitlezing laat de laatste stand staan en zegt dat.
 Na een refresh staat die stand er direct weer.
 
+De persona-tabel heeft, als deze omgeving bij de sessiecache kan, een kolom *Sessies*: het aantal
+lopende inlogsessies van die persona, bijgewerkt met de toestandsbalk. Het pijltje achter het
+aantal klapt de sessies van die persona open: per sessie wanneer ze zonder activiteit verloopt en
+wanneer uiterlijk, met de knop *Beëindigen*, en daaronder *Alle sessies van deze persona
+beëindigen*. Een opengeklapte persona blijft open als de tabel ververst. Beëindigen laat de sessie
+in Redis verlopen, net alsof de inactiviteit verstreken was: de berichtenbox van die sessie krijgt
+bij zijn volgende verzoek 401 (een open `_volgen`-stream bij de volgende hartslag
+`sessie-verlopen`) en start een nieuwe sessie. Was het de laatste sessie van de persona, dan ruimt
+de uitvraag de gegevens op en legt dat vast in het logboek. Meestal doet de veegtaak dat binnen een
+veegronde (aanleiding `verlopen`); start de berichtenbox vóór die ronde al een nieuwe sessie, dan
+neemt die start het over (aanleiding `nieuwe-start`). Dat de console het einde veroorzaakte, staat
+niet in het logboek. Een sessie-id of -hash staat nergens in het paneel; de knop wijst de
+sessie aan met een verwijzing die de console zelf uitdeelt en die na een herstart van de console
+niets meer aanwijst. Een tweede klik meldt dat er niets meer te beëindigen was.
+
 **Tabblad Demo**
 - *Herstel demo* — stopt een lopende stroom, zet alle storingen uit, legt de magazijnen leeg,
   laadt de basisvulling opnieuw en wist als laatste de sessies; in één klik terug naar de
-  begintoestand. Een open berichtenbox krijgt bij zijn volgende hartslag `sessie-verlopen` en haalt
-  zelf opnieuw op.
+  begintoestand. Een open berichtenbox krijgt bij zijn volgende hartslag `sessie-verlopen`, meldt
+  dat, en start bij de volgende actie een nieuwe sessie en ophaalronde.
 - *Berichtenbox verversen* — herlaadt het frame. Bewust een knop: verversen zet de berichtenbox
   terug op zijn beginstand, en midden in een demo bepaal je zelf wanneer dat mag.
 - *Basisvulling laden* — vaste dataset via de echte aanlever-API (validatie + publicatieketen lopen mee).
@@ -415,8 +430,8 @@ uit) en de omliggende diensten (Redis, profielservice, notificatie, uitvraag/aan
 een proxy die deze omgeving niet heeft, staan er niet: op ZAD krijgen de magazijnen hun gedrag uit
 de simulator.
 
-**Tabblad Scenario's** — *Cache verlopen* (wist alle sessie-keys; een open berichtenbox haalt
-zelf opnieuw op, een losse `GET /berichten` geeft 409 tot je opnieuw ophaalt), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
+**Tabblad Scenario's** — *Cache verlopen* (wist de hele sessiecache: de inlogsessies, de berichtgegevens en de berichthashes, zonder regel in het logboek. De melding noemt hoeveel lopende sessies en hoeveel keys er gewist zijn; dat laatste getal hangt niet aan het aantal sessies, want alle sessies van een ontvanger staan in één sleutel. Selectief beëindigen, mét logboek, gaat via Info. Een open `_volgen`-stream krijgt
+bij de eerstvolgende hartslag `sessie-verlopen`; elk gewoon verzoek krijgt 401. De berichtenbox start bij de volgende actie een nieuwe sessie en haalt opnieuw op; een losse `GET /berichten` geeft 401 tot je een nieuwe sessie start), *Ongeldig bericht aanbieden* (scenario 8), *Ontdubbeling* (kies een
 persona met een BSN; laat die persona eerst **Ophalen**) en *Veel magazijnen* (zet magazijnen
 `k+1..n` op 503; *Alle magazijnen aan* zet alles terug).
 
@@ -501,14 +516,14 @@ volgen in fase 7.
 | 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit*. Veel: persona Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → Ophalen → n−2 FOUT + partiële lijst |
 | 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → Ophalen |
 | 5 | Nieuwe berichten tijdens de sessie | Persona haalt op → *Random berichten opvoeren* → **Vernieuw** toont de nieuwe berichten |
-| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → de open berichtenbox krijgt `sessie-verlopen` en haalt zelf opnieuw op. Wachten (demo-TTL is `PT2M`) werkt alleen zonder open berichtenbox: de hartslag houdt de sessie in leven. Daarna geeft de volgende actie 409 |
+| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → de open berichtenbox krijgt `sessie-verlopen` en meldt dat; de volgende actie start een nieuwe sessie en ophaalronde. Wachten werkt ook met een open berichtenbox: na de demo-inactiviteit (`PT2M`) zonder actie verloopt de sessie, want de hartslag van `_volgen` verlengt haar niet. Zonder open berichtenbox geeft de volgende actie 401 (sessie weg) |
 | 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open een RVO-bericht (uit de cache) → bijlage-download faalt |
 | 8 | Foutieve aanlevering | Scenario's → *Ongeldig bericht aanbieden* → 400 RFC 9457 problem+json in de melding |
 | 9 | Profielservice weg | *Profielservice uit* → Ophalen kan de magazijnenlijst niet resolven |
 | 10 | Notificatieservice weg | *Notificatie uit* → *Random berichten opvoeren* → bericht verschijnt tóch via Vernieuw (aanmeld slaagt; notificatie retryt) |
 | 11 | Uitvraagsysteem eruit | *Uitvraag/aanmeld uit* → *Random berichten opvoeren* → bericht verschijnt níet bij Vernieuw; reset → outbox levert alsnog af |
 | 12 | Redis weg | *Redis uit* → `GET /berichten` geeft 502 problem+json (geen kale 500); *Cache verlopen* blijft werken |
-| 13 | Ontdubbeling | Persona **eerst Ophalen** (actieve sessie!) → Scenario's → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht |
+| 13 | Ontdubbeling | Persona **eerst Ophalen** (opgehaalde lijst!) → Scenario's → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht |
 | 14 | Load/stress | **Fase 7** — k6-script, nog te bouwen |
 | 15 | Niet alles opgehaald | Persona Grootbedrijf → **Ophalen**. De Autoriteit Persoonsgegevens noemt meer berichten dan ze levert (simulator-modus `ONVOLLEDIG`): boven de lijst staat "Niet alles opgehaald bij: Autoriteit Persoonsgegevens (27 van 507)", en die melding blijft na **Vernieuw** en op een volgende pagina staan |
 
@@ -587,10 +602,11 @@ leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's
   de uitvraag logt per organisatie elke opgehaalde pagina en sluit af met hoeveel pagina's het waren
   en waarom hij stopte (einde van de lijst, de cap, of een magazijn dat dezelfde pagina herhaalt).
   Dat staat op DEBUG en de demo draait onder het dev-profiel, dus het staat al aan.
-- **Demo-cache-TTL is 2 minuten.** Staat er geen berichtenbox open en pauzeer je langer tussen
-  Ophalen en een vervolgactie, dan is de sessie verlopen (409); een open berichtenbox houdt hem met
-  zijn hartslag in leven. Realistisch (flow 6), maar hou er rekening mee tijdens het presenteren.
-- **Ontdubbeling en de live-push** vereisen een actieve sessie: laat de persona eerst **Ophalen**.
+- **Demo-inactiviteitstermijn is 2 minuten** (`BERICHTENSESSIECACHE_SESSIE_INACTIVITEIT`). Pauzeer je langer
+  tussen Ophalen en een vervolgactie, dan is de sessie verlopen (401), ook als de berichtenbox openstaat:
+  een open `_volgen`-verbinding houdt de sessie niet in leven. Realistisch (flow 6), maar hou er rekening
+  mee tijdens het presenteren.
+- **Ontdubbeling en de live-push** vereisen een opgehaalde lijst: laat de persona eerst **Ophalen**.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.
 - **Na een reset loopt de Berichtenbox een halve minuut achter.** Zet je een organisatie terug op
