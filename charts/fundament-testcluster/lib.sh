@@ -59,6 +59,13 @@ api_key_uit_antwoord() {
   jq -er '.token | select(type == "string" and length > 0)' <<<"$1" 2>/dev/null || return 1
 }
 
+# Een willekeurig wachtwoord in een bestand, zonder newline: `kubectl create secret --from-file`
+# neemt de newline over, en Redis knipt hem weg uit zijn argumenten terwijl een client hem
+# meestuurt (WRONGPASS).
+geheim_bestand() {
+  openssl rand -hex 24 | tr -d '\n' >"$1"
+}
+
 # Slaagt als een PluginInstallation (JSON van kubectl) draait en gereed is.
 plugin_staat_klaar() {
   jq -e '.status.phase == "Running" and .status.ready == true' <<<"$1" >/dev/null 2>&1 || return 1
@@ -92,13 +99,6 @@ poort_vrij() {
 
 # --- Manifests -----------------------------------------------------------------------------------
 
-# De vaste id's van de sandbox: plugins/sandbox/values.yaml van Fundament (cluster en organisatie
-# van acme-corp) en db/testdata (acme-project). De namespace-id bestaat alleen hier.
-readonly SANDBOX_CLUSTER_ID=019b4000-2000-7000-8000-000000000001
-readonly SANDBOX_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000001
-readonly SANDBOX_PROJECT_ID=019b4000-9000-7000-8000-000000000001
-readonly SANDBOX_NAMESPACE_ID=019b4000-a000-7000-8000-000000000001
-
 # Een PluginInstallation van een first-party plug-in (organisatie system). Zonder hash is de
 # installatie niet gepind; dat staat alleen de sandbox toe (allowUnpinnedHash), en het script doet
 # het alleen voor een versie die al eerder gepubliceerd was en waarvan de hash niet meer te lezen is.
@@ -120,10 +120,12 @@ EOF
   [ -z "$hash" ] || echo "    definitionHash: \"$hash\""
 }
 
-# Een namespace zoals de console hem maakt (tnt-<project>--<naam>), met de labels en de LimitRange
-# die cluster-worker zet (cluster-worker/pkg/handler/namespace in de Fundament-repo; volg die als
-# Fundament ze wijzigt). Pod Security restricted is strenger dan een tenant-namespace, maar is wat
-# geldt in de namespace van een plug-in, en een plug-in moet de chart straks kunnen installeren.
+# Een namespace zoals de console hem maakt (tnt-<project>--<naam>), met de LimitRange die
+# cluster-worker zet (cluster-worker/pkg/handler/namespace in de Fundament-repo). Zonder de
+# beheerlabels van cluster-worker: die van het platform ziet de sandbox en verwijdert elke
+# namespace met die labels waarvan hij de id niet kent. Pod Security restricted is strenger dan een
+# tenant-namespace, maar is wat geldt in de namespace van een plug-in, en een plug-in moet de
+# chart straks kunnen installeren.
 manifest_tenant_namespace() {
   local ns=$1
 
@@ -138,12 +140,6 @@ kind: Namespace
 metadata:
   name: $ns
   labels:
-    fundament.io/managed-by: cluster-worker
-    fundament.io/namespace-name: ${ns#*--}
-    fundament.io/namespace-id: $SANDBOX_NAMESPACE_ID
-    fundament.io/project-id: $SANDBOX_PROJECT_ID
-    fundament.io/organization-id: $SANDBOX_ORGANISATIE_ID
-    fundament.io/cluster-id: $SANDBOX_CLUSTER_ID
     pod-security.kubernetes.io/enforce: restricted
 ---
 apiVersion: v1
@@ -322,7 +318,8 @@ EOF
 
 # Een eenmalige pod die /q/health/ready van een dienst binnen het cluster opvraagt en de
 # statuscode logt. Het label is wat de NetworkPolicy van de chart doorlaat; zonder komt hij niet
-# binnen.
+# binnen. Een nieuwe pod staat pas na een korte vertraging in de toelatingslijst van de
+# policy-controller, vandaar de herhaling.
 manifest_probe() {
   local ns=$1 dienst=$2 image=$3
 
@@ -342,7 +339,7 @@ spec:
     - name: curl
       image: $image
       securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
-      args: [-s, -o, /dev/null, -w, '%{http_code}', --max-time, "10", "http://$dienst.$ns.svc/q/health/ready"]
+      args: [-s, -o, /dev/null, -w, '%{http_code}', --max-time, "10", --retry, "15", --retry-delay, "2", --retry-all-errors, "http://$dienst.$ns.svc/q/health/ready"]
 EOF
 }
 

@@ -179,12 +179,10 @@ echo "== manifest_tenant_namespace =="
 m=$(manifest_tenant_namespace tnt-fbs--fbs)
 bevat "namespace" "kind: Namespace" "$m"
 bevat "naam" "name: tnt-fbs--fbs" "$m"
-bevat "beheerd door cluster-worker" "fundament.io/managed-by: cluster-worker" "$m"
-bevat "namespace-naam is het deel na --" "fundament.io/namespace-name: fbs" "$m"
-bevat "cluster-id van de sandbox" "fundament.io/cluster-id: 019b4000-2000-7000-8000-000000000001" "$m"
-bevat "organisatie-id" "fundament.io/organization-id: 019b4000-0000-7000-8000-000000000001" "$m"
-bevat "project-id" "fundament.io/project-id: " "$m"
-bevat "namespace-id" "fundament.io/namespace-id: " "$m"
+# De cluster-worker van het platform ziet de sandbox en verwijdert elke namespace met zijn
+# beheerlabels waarvan hij de id niet kent.
+bevat_niet "geen beheerlabel van cluster-worker" "fundament.io/managed-by" "$m"
+bevat_niet "geen namespace-id van cluster-worker" "fundament.io/namespace-id" "$m"
 bevat "pod security restricted" "pod-security.kubernetes.io/enforce: restricted" "$m"
 bevat "LimitRange van Fundament" "name: fundament-defaults" "$m"
 bevat "standaardlimiet" "default:" "$m"
@@ -256,6 +254,17 @@ bevat "niet als root" "runAsNonRoot: true" "$m"
 bevat "geen capabilities" "drop: [ALL]" "$m"
 bevat "geen privilege escalation" "allowPrivilegeEscalation: false" "$m"
 bevat "health binnen het cluster" "http://berichtenmagazijn.tnt-fbs--fbs.svc/q/health/ready" "$m"
+# Een nieuwe pod staat pas na een korte vertraging in de toelatingslijst van de NetworkPolicy.
+bevat "probe herhaalt tot de policy hem kent" "--retry-all-errors" "$m"
+bevat "met een grens" '--retry, "15"' "$m"
+
+echo "== geheim_bestand =="
+
+bestand=$(mktemp "${TMPDIR:-/tmp}/geheim.XXXX")
+geheim_bestand "$bestand"
+gelijk "48 hextekens" 48 "$(wc -c <"$bestand" | tr -d ' ')"
+gelijk "geen newline aan het eind" "" "$(tail -c1 "$bestand" | tr -d '[:xdigit:]')"
+rm -f "$bestand"
 
 echo "== values_dienst =="
 

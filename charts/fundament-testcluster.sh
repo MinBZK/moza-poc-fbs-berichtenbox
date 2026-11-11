@@ -39,6 +39,7 @@ readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET
 WERKBOOM=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-$FUNDAMENT_REF
 readonly WERKBOOM
 
+readonly CURL_IMAGE=docker.io/curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40
 readonly REDIS_IMAGE=docker.io/redis/redis-stack-server:7.4.0-v3@sha256:7d8e657d60d525534d6abe96e7645ab30ef1b4f1ffedc6eeb2d4d4283b3a49b9
 readonly K3S_IMAGE=docker.io/rancher/k3s:v1.36.6-k3s1@sha256:88d3fac10eb4a429d3c5275f4868fe4b13620f6bbca5bdb5dca0627ac76ae2a0
 
@@ -405,7 +406,7 @@ voorzieningen_op() {
   stap "Redis Stack en geheimen"
 
   # Geheimen als bestand, niet op de commandoregel: die is via ps zichtbaar voor andere gebruikers.
-  openssl rand -hex 24 >"$WERK/redis-wachtwoord"
+  geheim_bestand "$WERK/redis-wachtwoord"
   secret_eenmalig proef-voorzieningen --from-file=REDIS_PASSWORD="$WERK/redis-wachtwoord"
   kc -n "$NS" get secret proef-voorzieningen -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d >"$WERK/redis-wachtwoord"
 
@@ -426,26 +427,163 @@ voorzieningen_op() {
   echo "OK: Redis, keystore en geheimen"
 }
 
+# --- Installeren en controleren ------------------------------------------------------------------
+
+# Installeert één dienst met de chart; extra argumenten gaan naar helm (route, rol).
+# tlsTermination=mesh: lokaal is het pod-netwerk niet versleuteld. Dat kan hier, met proefgegevens
+# op loopback; op Fundament hoort die keuze bij het pod-netwerk daar.
+installeer_dienst() {
+  local dienst=$1
+  shift
+
+  local args=(upgrade --install "$dienst" "$CHARTS/fbs-dienst" --namespace "$NS" -f "$CHARTS/fbs-dienst/diensten/$dienst.yaml")
+
+  if [ "$dienst" = berichtenmagazijn ]; then
+    args+=(-f "$CHARTS/voorbeelden/berichtenmagazijn-cnpg.yaml")
+  else
+    args+=(--set "dienst.extraEnvVarsSecret=$dienst-geheimen")
+  fi
+
+  values_dienst "$dienst" "$NS" >"$WERK/$dienst-values.yaml"
+  args+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh)
+
+  hm "${args[@]}" "$@" >/dev/null
+  echo "OK: $dienst geïnstalleerd"
+}
+
+# Als organisatiebeheerder (cluster-admin), het pad van het fieldlab-voorbeeld: met route.
+installeer_beheerder() {
+  stap "installeren als organisatiebeheerder"
+
+  local dienst route
+
+  for dienst in "${DIENSTEN[@]}"; do
+    mapfile -t route < <(helm_route_args "$dienst")
+    installeer_dienst "$dienst" "${route[@]}"
+  done
+}
+
+probe_klaar() {
+  case "$(kc -n "$NS" get pod "probe-$1" -o jsonpath='{.status.phase}' 2>/dev/null)" in
+    Succeeded | Failed) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# De HTTP-status van een pad op de hostnaam van een dienst, via de Gateway en over https. Het
+# certificaat wordt getoetst tegen de lokale CA: een TLS-fout geeft 000, geen stille -k.
+via_gateway() {
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 --cacert "$WERK/lokale-ca.crt" \
+    --resolve "$1.fbs.localhost:$HTTPS_POORT:127.0.0.1" "https://$1.fbs.localhost:$HTTPS_POORT$2" || true
+}
+
+fouten=0
+
+fout() {
+  fouten=$((fouten + 1))
+  echo "FOUT: $*"
+}
+
+controleer_dienst() {
+  local dienst=$1 code
+
+  # Een rollout naar nul replica's is ook af; tel daarom de gereede pods mee.
+  if kc -n "$NS" rollout status "deployment/$dienst" --timeout=5m >/dev/null &&
+    [ "$(kc -n "$NS" get deployment "$dienst" -o jsonpath='{.status.readyReplicas}')" -ge 1 ] 2>/dev/null; then
+    echo "OK: $dienst rollout klaar, met een gereede pod"
+  else
+    fout "$dienst rollout niet klaar, of zonder gereede pod"
+    kc -n "$NS" logs "deployment/$dienst" --tail=40 || true
+    kc -n "$NS" get events --field-selector "involvedObject.kind=Pod" --sort-by=.lastTimestamp | grep "$dienst" | tail -5 || true
+  fi
+
+  kc -n "$NS" delete pod "probe-$dienst" --ignore-not-found --wait >/dev/null
+  manifest_probe "$NS" "$dienst" "$CURL_IMAGE" | kc apply -f - >/dev/null
+  code=000
+
+  if wacht_tot 120 "probe $dienst klaar" probe_klaar "$dienst" >/dev/null; then
+    code=$(kc -n "$NS" logs "probe-$dienst" 2>/dev/null || echo 000)
+  fi
+
+  if [ "$code" = 200 ]; then
+    echo "OK: $dienst /q/health/ready binnen het cluster (200)"
+  else
+    fout "$dienst /q/health/ready binnen het cluster gaf $code, verwacht 200"
+  fi
+
+  # Envoy pikt een nieuwe route pas na de rollout op.
+  for _ in $(seq 1 90); do
+    code=$(via_gateway "$dienst" /openapi.json)
+    [ "$code" = 200 ] && break
+    sleep 2
+  done
+
+  if [ "$code" = 200 ]; then
+    echo "OK: $dienst bereikbaar via https://$dienst.fbs.localhost:$HTTPS_POORT/openapi.json"
+  else
+    fout "$dienst via de Gateway gaf $code op /openapi.json, verwacht 200"
+  fi
+
+  # /q (health, Swagger UI) hoort niet via de Gateway bereikbaar te zijn.
+  code=$(via_gateway "$dienst" /q/health/ready)
+
+  if [ "$code" = 404 ]; then
+    echo "OK: $dienst /q niet via de Gateway (404)"
+  else
+    fout "$dienst /q/health/ready via de Gateway gaf $code, verwacht 404"
+  fi
+}
+
+werkmap() {
+  umask 077
+  WERK=$(mktemp -d)
+  trap 'rm -rf "$WERK"' EXIT
+}
+
+controleer() {
+  stap "controleren"
+
+  [ -s "$WERK/lokale-ca.crt" ] ||
+    kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
+
+  local dienst
+
+  for dienst in "${DIENSTEN[@]}"; do
+    controleer_dienst "$dienst"
+  done
+
+  if [ "$fouten" -ne 0 ]; then
+    echo "$fouten controle(s) niet in orde. De opstelling blijft staan voor onderzoek met kubectl --context $SANDBOX_CONTEXT -n $NS; weg met: $0 af"
+    exit 1
+  fi
+
+  echo "Alle diensten gezond en bereikbaar. Weg met: $0 af"
+}
+
 # --- Subcommando's -------------------------------------------------------------------------------
 
 op() {
   : "${TAG:?zet TAG op een gepubliceerde image-tag, bijvoorbeeld main-<sha7> van de laatste main-commit}"
   vereis_tools docker kubectl helm mise git jq curl ss openssl mkcert
 
-  umask 077
-  WERK=$(mktemp -d)
-  trap 'rm -rf "$WERK"' EXIT
-
+  werkmap
   fundament_werkboom
   platform_op
   functl_inloggen
   sandbox_op
   plugins_op
   voorzieningen_op
+  installeer_beheerder
+  controleer
 }
 
 case "${1:-}" in
   op) op ;;
+  controleer)
+    vereis_tools kubectl curl
+    werkmap
+    controleer
+    ;;
   *)
     echo "gebruik: $0 op|controleer|af" >&2
     exit 2
