@@ -62,3 +62,256 @@ sandbox_past() {
 poort_vrij() {
   ! ss -ltnH "sport = :$1" | grep -q .
 }
+
+# --- Manifests -----------------------------------------------------------------------------------
+
+# De vaste id's van de sandbox: plugins/sandbox/values.yaml van Fundament (cluster en organisatie
+# van acme-corp) en db/testdata (acme-project). De namespace-id bestaat alleen hier.
+readonly SANDBOX_CLUSTER_ID=019b4000-2000-7000-8000-000000000001
+readonly SANDBOX_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000001
+readonly SANDBOX_PROJECT_ID=019b4000-9000-7000-8000-000000000001
+readonly SANDBOX_NAMESPACE_ID=019b4000-a000-7000-8000-000000000001
+
+# Een PluginInstallation van een first-party plug-in (organisatie system).
+manifest_plugininstallatie() {
+  local plugin=$1 versie=$2 hash=$3
+
+  cat <<EOF
+apiVersion: plugins.fundament.io/v1
+kind: PluginInstallation
+metadata:
+  name: system--$plugin
+spec:
+  definitionRef:
+    organizationName: system
+    pluginName: $plugin
+    pluginVersion: "$versie"
+    definitionHash: "$hash"
+EOF
+}
+
+# Een namespace zoals de console hem maakt (tnt-<project>--<naam>), met de labels en de LimitRange
+# die cluster-worker zet (cluster-worker/pkg/handler/namespace in de Fundament-repo; volg die als
+# Fundament ze wijzigt). Pod Security restricted is strenger dan een tenant-namespace, maar is wat
+# geldt in de namespace van een plug-in, en een plug-in moet de chart straks kunnen installeren.
+manifest_tenant_namespace() {
+  local ns=$1
+
+  case "$ns" in
+    tnt-*--*) ;;
+    *) return 1 ;;
+  esac
+
+  cat <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $ns
+  labels:
+    fundament.io/managed-by: cluster-worker
+    fundament.io/namespace-name: ${ns#*--}
+    fundament.io/namespace-id: $SANDBOX_NAMESPACE_ID
+    fundament.io/project-id: $SANDBOX_PROJECT_ID
+    fundament.io/organization-id: $SANDBOX_ORGANISATIE_ID
+    fundament.io/cluster-id: $SANDBOX_CLUSTER_ID
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: fundament-defaults
+  namespace: $ns
+spec:
+  limits:
+    - type: Container
+      default: {cpu: 500m, memory: 512Mi}
+      defaultRequest: {cpu: 100m, memory: 128Mi}
+EOF
+}
+
+# Een projectlid: alleen de ClusterRole admin binnen de namespace, zoals Fundament die bindt.
+manifest_projectlid() {
+  local ns=$1
+
+  cat <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: projectlid
+  namespace: $ns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: projectlid-admin
+  namespace: $ns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: projectlid
+    namespace: $ns
+EOF
+}
+
+# Een eigen CA in de namespace, in plaats van Let's Encrypt: lokaal is er geen publieke hostnaam.
+manifest_lokale_ca() {
+  local ns=$1
+
+  cat <<EOF
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: zelfondertekend
+  namespace: $ns
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lokale-ca
+  namespace: $ns
+spec:
+  isCA: true
+  commonName: fbs-fundament-testcluster
+  secretName: lokale-ca
+  privateKey: {algorithm: ECDSA, size: 256}
+  issuerRef: {name: zelfondertekend, kind: Issuer}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: lokale-ca
+  namespace: $ns
+spec:
+  ca:
+    secretName: lokale-ca
+EOF
+}
+
+# De Gateway zoals op het fieldlab: in de eigen namespace, alleen https, met het certificaat via de
+# annotatie van cert-manager. Geen HTTP-listener: de chart hangt een route aan één benoemde
+# listener, en over http zouden BSN en berichten onversleuteld gaan.
+manifest_gateway() {
+  local ns=$1
+
+  cat <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: web
+  namespace: $ns
+  annotations:
+    cert-manager.io/issuer: lokale-ca
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.fbs.localhost"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: web-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+EOF
+}
+
+# Een database zoals de console van de CloudNativePG-plug-in hem maakt, maar met major 18: de
+# diensten draaien op PostgreSQL 18, de console biedt alleen 16 en 17.
+manifest_cnpg_cluster() {
+  local naam=$1 ns=$2
+
+  cat <<EOF
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: $naam
+  namespace: $ns
+  labels:
+    app.kubernetes.io/managed-by: fundament-cloudnativepg
+spec:
+  instances: 1
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ClusterImageCatalog
+    name: fundament-postgresql
+    major: 18
+  enablePDB: false
+  storage:
+    size: 1Gi
+EOF
+}
+
+# Redis Stack als proefvoorziening (er is geen plug-in), zoals in lokaal-testcluster.sh: het image
+# draait standaard als root, als UID 999 werkt het met een beschrijfbare /data.
+manifest_proef_redis() {
+  local ns=$1 image=$2
+
+  cat <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proef-redis
+  namespace: $ns
+spec:
+  selector: {matchLabels: {app: proef-redis}}
+  template:
+    metadata: {labels: {app: proef-redis}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      volumes: [{name: data, emptyDir: {}}]
+      containers:
+        - name: redis
+          image: $image
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: data, mountPath: /data}]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: proef-voorzieningen, key: REDIS_PASSWORD}}
+            - name: REDIS_ARGS
+              value: "--requirepass \$(REDIS_PASSWORD) --save '' --appendonly no"
+          ports: [{containerPort: 6379}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proef-redis
+  namespace: $ns
+spec:
+  selector: {app: proef-redis}
+  ports: [{port: 6379}]
+EOF
+}
+
+# Een eenmalige pod die /q/health/ready van een dienst binnen het cluster opvraagt en de
+# statuscode logt. Het label is wat de NetworkPolicy van de chart doorlaat; zonder komt hij niet
+# binnen.
+manifest_probe() {
+  local ns=$1 dienst=$2 image=$3
+
+  cat <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-$dienst
+  namespace: $ns
+  labels:
+    client.fbs.minbzk.nl/$dienst: "true"
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 100, runAsGroup: 101, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: curl
+      image: $image
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      args: [-s, -o, /dev/null, -w, '%{http_code}', --max-time, "10", "http://$dienst.$ns.svc/q/health/ready"]
+EOF
+}

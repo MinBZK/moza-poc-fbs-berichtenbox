@@ -126,6 +126,98 @@ kill "$server"
 wait "$server" 2>/dev/null || true
 gelijk "vrijgekomen poort: exit 0" 0 "$(code_van poort_vrij "$vrije_poort")"
 
+echo "== manifest_plugininstallatie =="
+
+m=$(manifest_plugininstallatie cloudnativepg v0.2.0 "$HASH_A")
+bevat "soort" "kind: PluginInstallation" "$m"
+bevat "naam met organisatie" "name: system--cloudnativepg" "$m"
+bevat "organisatie" "organizationName: system" "$m"
+bevat "versie gequote" 'pluginVersion: "v0.2.0"' "$m"
+bevat "hash gequote" "definitionHash: \"$HASH_A\"" "$m"
+
+echo "== manifest_tenant_namespace =="
+
+m=$(manifest_tenant_namespace tnt-fbs--fbs)
+bevat "namespace" "kind: Namespace" "$m"
+bevat "naam" "name: tnt-fbs--fbs" "$m"
+bevat "beheerd door cluster-worker" "fundament.io/managed-by: cluster-worker" "$m"
+bevat "namespace-naam is het deel na --" "fundament.io/namespace-name: fbs" "$m"
+bevat "cluster-id van de sandbox" "fundament.io/cluster-id: 019b4000-2000-7000-8000-000000000001" "$m"
+bevat "organisatie-id" "fundament.io/organization-id: 019b4000-0000-7000-8000-000000000001" "$m"
+bevat "project-id" "fundament.io/project-id: " "$m"
+bevat "namespace-id" "fundament.io/namespace-id: " "$m"
+bevat "pod security restricted" "pod-security.kubernetes.io/enforce: restricted" "$m"
+bevat "LimitRange van Fundament" "name: fundament-defaults" "$m"
+bevat "standaardlimiet" "default:" "$m"
+bevat "standaardrequest" "defaultRequest:" "$m"
+bevat_niet "LimitRange zonder maximum" "max:" "$m"
+bevat_niet "LimitRange zonder minimum" "min:" "$m"
+gelijk "naam zonder -- geweigerd" 1 "$(code_van manifest_tenant_namespace fbs)"
+
+echo "== manifest_projectlid =="
+
+m=$(manifest_projectlid tnt-fbs--fbs)
+bevat "ServiceAccount" "kind: ServiceAccount" "$m"
+bevat "naam projectlid" "name: projectlid" "$m"
+bevat "RoleBinding" "kind: RoleBinding" "$m"
+bevat "ClusterRole admin" "name: admin" "$m"
+bevat_niet "geen cluster-brede binding" "kind: ClusterRoleBinding" "$m"
+
+echo "== manifest_lokale_ca =="
+
+m=$(manifest_lokale_ca tnt-fbs--fbs)
+bevat "zelfondertekende Issuer" "selfSigned: {}" "$m"
+bevat "CA-certificaat" "isCA: true" "$m"
+bevat "CA-Issuer" "secretName: lokale-ca" "$m"
+
+echo "== manifest_gateway =="
+
+m=$(manifest_gateway tnt-fbs--fbs)
+bevat "Gateway web" "name: web" "$m"
+bevat "class eg" "gatewayClassName: eg" "$m"
+bevat "certificaat via cert-manager" "cert-manager.io/issuer: lokale-ca" "$m"
+bevat "listener https" "name: https" "$m"
+bevat "protocol HTTPS" "protocol: HTTPS" "$m"
+bevat "poort 443" "port: 443" "$m"
+bevat "hostnaam" 'hostname: "*.fbs.localhost"' "$m"
+bevat "certificaat-Secret" "name: web-tls" "$m"
+bevat "routes alleen uit de eigen namespace" "from: Same" "$m"
+bevat_niet "geen platte HTTP-listener" "protocol: HTTP
+" "$m"
+
+echo "== manifest_cnpg_cluster =="
+
+m=$(manifest_cnpg_cluster db tnt-fbs--fbs)
+bevat "CNPG Cluster" "kind: Cluster" "$m"
+bevat "apiVersion" "apiVersion: postgresql.cnpg.io/v1" "$m"
+bevat "één instance" "instances: 1" "$m"
+bevat "catalogus van de plug-in" "name: fundament-postgresql" "$m"
+bevat "PostgreSQL 18" "major: 18" "$m"
+bevat "geen PDB, zoals de console" "enablePDB: false" "$m"
+bevat "label van de plug-in" "app.kubernetes.io/managed-by: fundament-cloudnativepg" "$m"
+
+echo "== manifest_proef_redis =="
+
+m=$(manifest_proef_redis tnt-fbs--fbs docker.io/redis/redis-stack-server@sha256:abc)
+bevat "image" "image: docker.io/redis/redis-stack-server@sha256:abc" "$m"
+bevat "niet als root" "runAsNonRoot: true" "$m"
+bevat "geen capabilities" "drop: [ALL]" "$m"
+bevat "seccomp" "type: RuntimeDefault" "$m"
+bevat "geen privilege escalation" "allowPrivilegeEscalation: false" "$m"
+bevat "wachtwoord uit het Secret" "name: proef-voorzieningen" "$m"
+bevat "requirepass" 'requirepass $(REDIS_PASSWORD)' "$m"
+
+echo "== manifest_probe =="
+
+m=$(manifest_probe tnt-fbs--fbs berichtenmagazijn docker.io/curlimages/curl@sha256:def)
+bevat "pod-naam" "name: probe-berichtenmagazijn" "$m"
+bevat "label dat de NetworkPolicy doorlaat" 'client.fbs.minbzk.nl/berichtenmagazijn: "true"' "$m"
+bevat "eenmalig" "restartPolicy: Never" "$m"
+bevat "niet als root" "runAsNonRoot: true" "$m"
+bevat "geen capabilities" "drop: [ALL]" "$m"
+bevat "geen privilege escalation" "allowPrivilegeEscalation: false" "$m"
+bevat "health binnen het cluster" "http://berichtenmagazijn.tnt-fbs--fbs.svc/q/health/ready" "$m"
+
 echo "== kubectl en helm alleen via de wrappers =="
 
 for bestand in "${GECONTROLEERDE_SCRIPTS[@]}"; do
