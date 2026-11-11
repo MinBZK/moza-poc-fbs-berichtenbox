@@ -151,7 +151,8 @@ containerpoort(s, nummer) if {
 	p.containerPort == nummer
 }
 
-# Zonder poort kiest de Gateway er geen; de route levert dan een 500.
+# Zonder poort weigert de API-server de HTTPRoute (een CEL-regel van Gateway API); kubeconform
+# toetst die regel niet.
 deny contains msg if {
 	some r in objecten
 	r.kind == "HTTPRoute"
@@ -159,6 +160,21 @@ deny contains msg if {
 	some ref in regel.backendRefs
 	not ref.port
 	msg := sprintf("HTTPRoute '%s' wijst naar %s zonder poort", [r.metadata.name, ref.name])
+}
+
+# Een mount zonder volume met die naam weigert pas de API-server.
+deny contains msg if {
+	some d in deployments
+	pod := d.spec.template.spec
+	some c in array.concat(object.get(pod, "containers", []), object.get(pod, "initContainers", []))
+	some m in object.get(c, "volumeMounts", [])
+	not volume_naam(pod, m.name)
+	msg := sprintf("Deployment '%s' mount '%s', maar heeft geen volume met die naam", [d.metadata.name, m.name])
+}
+
+volume_naam(pod, naam) if {
+	some v in object.get(pod, "volumes", [])
+	v.name == naam
 }
 
 deny contains msg if {

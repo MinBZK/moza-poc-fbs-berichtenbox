@@ -28,8 +28,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=190
-MINIMUM_REGO_TESTS=57
+VERWACHTE_CONTROLES=234
+MINIMUM_REGO_TESTS=63
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -235,14 +235,17 @@ for dienst in "${DIENSTEN[@]}"; do
   # Inkomend alleen van de eigen Gateway: één selector op de naam van die Gateway.
   toets_aantal "$dienst-gateway" "inkomend alleen van de eigen Gateway" "owning-gateway-name: 'fundament-gateway'" 1
 
-  # DNS op 53 en 8053, elk over UDP en TCP.
-  dns=$(grep -A1 -E 'port: (53|8053)$' "$WERK/$dienst-gateway.yaml" | grep -cE 'protocol: (UDP|TCP)' || true)
+  for poort in 53 8053; do
+    for protocol in UDP TCP; do
+      paar=$(grep -A1 -E "port: $poort\$" "$WERK/$dienst-gateway.yaml" | grep -c "protocol: $protocol" || true)
 
-  if [ "$dns" -eq 4 ]; then
-    ok "$dienst-gateway: DNS op 53 en 8053 over UDP en TCP"
-  else
-    fout "$dienst-gateway: DNS-regels $dns, verwacht 4"
-  fi
+      if [ "$paar" -eq 1 ]; then
+        ok "$dienst-gateway: DNS op $poort/$protocol"
+      else
+        fout "$dienst-gateway: DNS op $poort/$protocol ${paar}x, verwacht 1x"
+      fi
+    done
+  done
 done
 
 for dienst in berichtenuitvraag berichtenmagazijn; do
@@ -253,7 +256,21 @@ done
 
 toets_aantal "stelselregister-gateway" "stelselregister niet naar de Gateway" 'port: 10443' 0
 toets_aantal "berichtenuitvraag-gateway" "streams zonder request-timeout" 'request: 0s' 1
-toets_aantal "stelselregister-gateway" "geen streamregel zonder streams" 'request: 0s' 0
+
+for pad in /api/v1/berichten/_ophalen /api/v1/berichten/_volgen; do
+  toets_aantal "berichtenuitvraag-gateway" "stream $pad in de streamregel" "value: \"$pad\"" 1
+done
+
+for dienst in berichtenmagazijn stelselregister; do
+  toets_aantal "$dienst-gateway" "geen streamregel zonder streams" 'request: 0s' 0
+done
+
+for dienst in berichtenuitvraag berichtenmagazijn; do
+  toets_aantal "$dienst-gateway" "bijlagen met een ruime request-timeout" 'request: 5m' 1
+done
+
+toets_aantal "stelselregister-gateway" "stelselregister met de standaard-timeout" 'request: 5m' 0
+toets_aantal "stelselregister-standaard" "keystore-mount en -volume met dezelfde naam" 'name: keystore' 2
 toets_bevat "stelselregister-standaard" "keystore gemount" 'mountPath: /etc/stelselregister'
 toets_bevat "stelselregister-standaard" "keystore alleen-lezen" 'readOnly: true'
 toets_bevat "stelselregister-standaard" "keystore alleen voor de groep" 'defaultMode: 0440'
@@ -290,7 +307,7 @@ done
 
 toets_render "onveilig-toegestaan" "${uitvraag[@]}" \
   --set dienst.allowUnsafeFlags=true --set-string dienst.env.FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT=true
-toets_bevat "onveilig-toegestaan" "klep staat in de env" 'name: FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT'
+toets_bevat "onveilig-toegestaan" "klep staat in de env" 'name: "FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT"'
 
 # De tag-vormen die de keten publiceert: main-<sha7>, pr-<n>-<sha7>, en met -r<n>/-k<n> erachter.
 for t in main-0123abc pr-12-0123abc pr-12-0123abc-r2 pr-12-0123abc-k7 pr-12-0123abc-r2-k7; do
@@ -301,6 +318,10 @@ done
 # Een digest mag naast elke tag; dan telt de digest.
 toets_slaagt "digest-met-vaste-tag" "${uitvraag[@]}" --set dienst.image.tag=latest \
   --set dienst.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+# Het stelselregister zet de schakelaar zelf: zijn route rendert zonder.
+toets_slaagt "stelselregister-route" -f "$CHART/diensten/stelselregister.yaml" -f "$CHART/ci/standaard-values.yaml" \
+  --set ingress.enabled=true --set ingress.hostname=a.example.nl --set cluster.gateway.name=gw
 
 # Een naam van precies 63 tekens: release fbs, een streepje en een nameOverride van 59.
 toets_slaagt "naam-63-tekens" "${uitvraag[@]}" --set nameOverride="$(printf 'a%.0s' $(seq 1 59))"
@@ -384,20 +405,66 @@ toets_weigering "klep-extra-env" "FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT zet een TLS-e
 toets_weigering "klep-toestemming-als-tekst" "FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT zet een TLS-eis uit" "${uitvraag[@]}" \
   --set-string dienst.allowUnsafeFlags=false --set-string dienst.env.FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT=true
 
-for naam in QUARKUS_PROFILE JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS JAVA_OPTS_APPEND; do
-  toets_weigering "profiel-$naam" "$naam kan het Quarkus-profiel wijzigen" "${uitvraag[@]}" \
+for naam in QUARKUS_PROFILE SMALLRYE_CONFIG_PROFILE QUARKUS_CONFIG_PROFILE_PARENT SMALLRYE_CONFIG_PROFILE_PARENT \
+    QUARKUS_CONFIG_LOCATIONS SMALLRYE_CONFIG_LOCATIONS JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS \
+    JAVA_OPTS JAVA_OPTS_APPEND JAVA_OPTIONS; do
+  toets_weigering "profiel-$naam" "$naam kan het Quarkus-profiel of de config wijzigen" "${uitvraag[@]}" \
     --set-string "dienst.env.$naam=dev"
 done
 
+# De schrijfwijzen die SmallRye naar dezelfde property vertaalt.
+toets_weigering "profiel-property-vorm" "quarkus.profile kan het Quarkus-profiel of de config wijzigen" "${uitvraag[@]}" \
+  --set-json 'dienst.env={"quarkus.profile":"dev"}'
+toets_weigering "tls-property-vorm" "http.tls-termination staat in dienst.env of extraEnvVars" "${uitvraag[@]}" \
+  --set-json 'dienst.env={"http.tls-termination":"mesh"}'
+toets_weigering "tls-fbs-vorm" "FBS_HTTP_TLS_TERMINATION staat in dienst.env of extraEnvVars" "${uitvraag[@]}" \
+  --set-string dienst.env.FBS_HTTP_TLS_TERMINATION=mesh
+toets_weigering "profiel-extra-env" "QUARKUS_PROFILE kan het Quarkus-profiel of de config wijzigen" "${uitvraag[@]}" \
+  --set-json 'dienst.extraEnvVars=[{"name":"QUARKUS_PROFILE","value":"dev"}]'
+# Een naam in extraEnvVars mag een template zijn; de controle kijkt naar het resultaat.
+toets_weigering "profiel-extra-env-template" "QUARKUS_PROFILE kan het Quarkus-profiel of de config wijzigen" "${uitvraag[@]}" \
+  --set-json 'dienst.extraEnvVars=[{"name":"QUARKUS_{{ \"PROFILE\" }}","value":"dev"}]'
+toets_weigering "env-naam-met-yaml" "is ongeldig: alleen letters, cijfers" "${uitvraag[@]}" \
+  --set-json 'dienst.env={"A\n- name: QUARKUS_PROFILE":"dev"}'
+toets_weigering "eigen-command" "dienst.command en dienst.args kan de chart niet toestaan" "${uitvraag[@]}" \
+  --set-json 'dienst.command=["java","-Dquarkus.profile=dev","-jar","quarkus-run.jar"]'
+toets_weigering "eigen-args" "dienst.command en dienst.args kan de chart niet toestaan" "${uitvraag[@]}" \
+  --set-json 'dienst.args=["-Dquarkus.profile=dev"]'
+
 route=(--set ingress.enabled=true --set ingress.allowUnauthenticated=true --set ingress.hostname=a.example.nl)
 
-toets_weigering "route-zonder-toestemming" "ingress.enabled vraagt ingress.allowUnauthenticated=true" "${uitvraag[@]}" \
-  --set ingress.enabled=true --set ingress.hostname=a.example.nl --set cluster.gateway.name=gw
+# Alleen het stelselregister zet de schakelaar zelf; uitvraag en magazijn vragen hem expliciet.
+for dienst in berichtenuitvraag berichtenmagazijn; do
+  toets_weigering "route-zonder-toestemming-$dienst" "ingress.enabled vraagt ingress.allowUnauthenticated=true" \
+    -f "$CHART/diensten/$dienst.yaml" -f "$CHART/ci/standaard-values.yaml" \
+    --set ingress.enabled=true --set ingress.hostname=a.example.nl --set cluster.gateway.name=gw
+done
+
+toets_weigering "route-toestemming-als-tekst" "ingress.enabled vraagt ingress.allowUnauthenticated=true" "${uitvraag[@]}" \
+  --set ingress.enabled=true --set-string ingress.allowUnauthenticated=false --set ingress.hostname=a.example.nl \
+  --set cluster.gateway.name=gw
 toets_weigering "route-zonder-hostnaam" "ingress.hostname is verplicht" "${uitvraag[@]}" \
   --set ingress.enabled=true --set ingress.allowUnauthenticated=true --set cluster.gateway.name=gw
 toets_weigering "route-zonder-gateway" "cluster.gateway.name is verplicht" "${uitvraag[@]}" "${route[@]}"
 toets_weigering "route-zonder-paden" "ingress.paths is leeg" "${uitvraag[@]}" "${route[@]}" \
   --set cluster.gateway.name=gw --set ingress.paths=null
+
+for waarde in / /q /q/health/ready; do
+  toets_weigering "route-pad-$waarde" "\"$waarde\" zet /q open" "${uitvraag[@]}" "${route[@]}" \
+    --set cluster.gateway.name=gw --set-json "ingress.paths=[{\"type\":\"PathPrefix\",\"value\":\"$waarde\"}]"
+done
+
+toets_weigering "route-pad-zonder-slash" '"api/v1" begint niet met /' "${uitvraag[@]}" "${route[@]}" \
+  --set cluster.gateway.name=gw --set-json 'ingress.paths=[{"type":"PathPrefix","value":"api/v1"}]'
+
+for stream in /geheim /q/health/ready api/v1/x; do
+  toets_weigering "stream-$stream" "ingress.streamPaths: \"$stream\" valt niet onder ingress.paths" "${uitvraag[@]}" "${route[@]}" \
+    --set cluster.gateway.name=gw --set-json "ingress.streamPaths=[\"$stream\"]"
+done
+
+toets_weigering "stream-bij-ingress" "ingress.streamPaths werkt alleen met een HTTPRoute" \
+  -f "$CHART/diensten/berichtenuitvraag.yaml" -f "$CHART/ci/standaard-values.yaml" "${route[@]}" \
+  --set cluster.routingMode=ingress --set ingress.tls=true
 
 for type in RegularExpression ImplementationSpecific Prefix; do
   toets_weigering "route-padtype-$type" "type \"$type\" is niet toegestaan" "${uitvraag[@]}" "${route[@]}" \
@@ -406,8 +473,10 @@ done
 
 toets_weigering "ingress-zonder-tls" "ingress.tls is verplicht" "${uitvraag[@]}" "${route[@]}" \
   --set cluster.routingMode=ingress
-toets_weigering "gateway-egress-zonder-podselector" "networkPolicy.gatewayEgress vraagt namespaceMatchLabels en podMatchLabels" \
-  "${uitvraag[@]}" --set networkPolicy.gatewayEgress.podMatchLabels=null
+for veld in namespaceMatchLabels podMatchLabels; do
+  toets_weigering "gateway-egress-zonder-$veld" "networkPolicy.gatewayEgress vraagt namespaceMatchLabels en podMatchLabels" \
+    "${uitvraag[@]}" --set "networkPolicy.gatewayEgress.$veld=null"
+done
 toets_weigering "onbekende-routering" 'cluster.routingMode "nodeport" is ongeldig' "${uitvraag[@]}" \
   --set cluster.routingMode=nodeport
 toets_weigering "default-serviceaccount" "serviceAccount.name is verplicht" "${uitvraag[@]}" \

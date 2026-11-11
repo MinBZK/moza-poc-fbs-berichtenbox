@@ -22,6 +22,8 @@ ingress:
   streamPaths:
     - /api/v1/berichten/_ophalen
     - /api/v1/berichten/_volgen
+  # Een bijlage tot 25 MiB komt als één antwoord; de dienst bewaakt zelf het stilvallen.
+  requestTimeout: 5m
 
 networkPolicy:
   # Magazijnen en profielservice (https), het logboek (PostgreSQL) en de sessiecache (Redis).

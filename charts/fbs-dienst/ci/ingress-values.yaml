@@ -13,6 +13,8 @@ ingress:
   hostname: dienst.localhost
   ingressClassName: traefik
   tls: true
+  # Een Ingress kent geen timeout per pad; die hoort bij de controller.
+  streamPaths: null
 
 networkPolicy:
   ingressNSMatchLabels:

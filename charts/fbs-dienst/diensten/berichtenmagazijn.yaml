@@ -23,6 +23,10 @@ dienst:
   containerPorts:
     http: 8090
 
+ingress:
+  # Een bijlage tot 25 MiB komt als één antwoord.
+  requestTimeout: 5m
+
 networkPolicy:
   # Aanmelding, notificatie en profielservice (https), de eigen database en het logboek
   # (PostgreSQL).

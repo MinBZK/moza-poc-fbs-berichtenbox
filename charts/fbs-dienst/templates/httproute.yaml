@@ -35,6 +35,10 @@ spec:
             type: {{ .type }}
             value: {{ .value | quote }}
         {{- end }}
+      {{- with .Values.ingress.requestTimeout }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
       backendRefs:
         - name: {{ template "common.names.fullname" . }}
           port: {{ .Values.service.ports.http }}

@@ -14,7 +14,12 @@ deployment := {
 		"metadata": {"labels": pod_labels},
 		"spec": {
 			"serviceAccountName": "t-dienst",
-			"containers": [{"name": "dienst", "ports": [{"name": "http", "containerPort": 8086}]}],
+			"containers": [{
+				"name": "dienst",
+				"ports": [{"name": "http", "containerPort": 8086}],
+				"volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}],
+			}],
+			"volumes": [{"name": "tmp", "emptyDir": {}}],
 		},
 	}},
 }
@@ -111,16 +116,27 @@ test_zonder_targetport_geldt_de_poort if {
 	deny == {"Service 't-dienst' wijst naar targetPort 80, maar geen geselecteerde container heeft die poort"} with input as release(met("Service", andere))
 }
 
-# Een poortnaam die alleen in een ander Deployment bestaat, telt niet.
+# Een poort die alleen in een ander Deployment bestaat, telt niet; bij naam en bij nummer.
 test_targetport_in_ander_deployment_faalt if {
 	ander := json.patch(deployment, [
 		{"op": "replace", "path": "/metadata/name", "value": "t-ander"},
 		{"op": "replace", "path": "/spec/template/metadata/labels/app.kubernetes.io~1name", "value": "ander"},
 		{"op": "replace", "path": "/spec/template/spec/containers/0/ports/0/name", "value": "web"},
+		{"op": "replace", "path": "/spec/template/spec/containers/0/ports/0/containerPort", "value": 9999},
 	])
-	svc := json.patch(service, [{"op": "replace", "path": "/spec/ports/0/targetPort", "value": "web"}])
-	objs := array.concat(met("Service", svc), [ander])
-	"Service 't-dienst' wijst naar targetPort web, maar geen geselecteerde container heeft die poort" in deny with input as release(objs)
+	every doel in ["web", 9999] {
+		svc := json.patch(service, [{"op": "replace", "path": "/spec/ports/0/targetPort", "value": doel}])
+		objs := array.concat(met("Service", svc), [ander])
+		sprintf("Service 't-dienst' wijst naar targetPort %v, maar geen geselecteerde container heeft die poort", [doel]) in deny with input as release(objs)
+	}
+}
+
+test_mount_zonder_volume_faalt if {
+	every pad in ["/spec/template/spec/containers/0/volumeMounts/0/name", "/spec/template/spec/volumes/0/name"] {
+		d := json.patch(deployment, [{"op": "replace", "path": pad, "value": "keystore2"}])
+		naam := ["tmp", "keystore2"][to_number(contains(pad, "volumeMounts"))]
+		deny == {sprintf("Deployment 't-dienst' mount '%s', maar heeft geen volume met die naam", [naam])} with input as release(met("Deployment", d))
+	}
 }
 
 test_route_zonder_poort_faalt if {

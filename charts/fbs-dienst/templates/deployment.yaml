@@ -108,7 +108,7 @@ spec:
             - name: HTTP_TLS_TERMINATION
               value: {{ $d.tlsTermination | quote }}
             {{- range $naam, $waarde := $d.env }}
-            - name: {{ $naam }}
+            - name: {{ $naam | quote }}
               {{- /* toString schrijft een getal vanaf 1e6 als exponent (1.048576e+07); toJson niet. */}}
               value: {{ tpl (ternary $waarde (toJson $waarde) (kindIs "string" $waarde)) $ | quote }}
             {{- end }}

@@ -220,6 +220,13 @@ test_bron_zonder_beperking_faalt if {
 	}
 }
 
+test_korte_prefix_is_zonder_beperking if {
+	every cidr in ["0.0.0.0/1", "128.0.0.0/1", "10.0.0.0/7"] {
+		regel := {"ports": [{"port": 8086}], "from": [{"ipBlock": {"cidr": cidr}}]}
+		fbs_deny(networkpolicy([regel], [dns_egress], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' heeft een bron zonder beperking; die laat alles toe"}
+	}
+}
+
 test_bron_met_beperking_slaagt if {
 	every peer in [
 		{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {}},
@@ -242,8 +249,34 @@ test_bestemming_zonder_beperking_faalt if {
 test_gateway_poort_naar_overal_faalt if {
 	every poort in [10080, 10443] {
 		regel := {"ports": [{"port": poort, "protocol": "TCP"}]}
-		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {sprintf("NetworkPolicy 'np' laat poort %v naar overal toe; die hoort alleen naar de Gateway-proxy's", [poort])}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {sprintf("NetworkPolicy 'np' laat poort %v verder toe dan de Gateway-proxy's", [poort])}
 	}
+}
+
+test_gateway_poort_naar_hele_namespace_faalt if {
+	every peer in [
+		{"namespaceSelector": {"matchLabels": {"a": "b"}}},
+		{"namespaceSelector": {"matchLabels": {"a": "b"}}, "podSelector": {}},
+	] {
+		regel := {"to": [peer], "ports": [{"port": 10443, "protocol": "TCP"}]}
+		fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat poort 10443 verder toe dan de Gateway-proxy's"}
+	}
+}
+
+test_poortbereik_over_gateway_poort_faalt if {
+	naar := {"namespaceSelector": {"matchLabels": {"a": "b"}}}
+	regel := {"to": [naar], "ports": [{"port": 10000, "endPort": 10500, "protocol": "TCP"}]}
+	fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat poort 10000 verder toe dan de Gateway-proxy's"}
+}
+
+test_groot_poortbereik_naar_overal_faalt if {
+	regel := {"ports": [{"port": 1, "endPort": 9000, "protocol": "TCP"}]}
+	fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"])) == {"NetworkPolicy 'np' laat poorten 1-9000 naar overal toe"}
+}
+
+test_klein_poortbereik_naar_overal_mag if {
+	regel := {"ports": [{"port": 5432, "endPort": 5433, "protocol": "TCP"}]}
+	count(fbs_deny(networkpolicy([gateway_ingress], [regel], ["Ingress", "Egress"]))) == 0
 }
 
 test_gateway_poort_naar_proxys_slaagt if {

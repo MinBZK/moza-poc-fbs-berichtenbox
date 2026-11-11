@@ -104,7 +104,8 @@ gevuld(obj, sleutel) if {
 	count(obj[sleutel]) > 0
 }
 
-# Een selector die afwezig, null of leeg is, selecteert alles.
+# Een selector die afwezig, null of leeg is, beperkt niets: zonder podSelector alle pods, zonder
+# namespaceSelector de eigen namespace.
 selector_leeg(peer, sleutel) if {
 	sel := object.get(peer, sleutel, null)
 	not is_object(sel)
@@ -122,15 +123,19 @@ gevuld_map(obj, sleutel) if {
 	count(obj[sleutel]) > 0
 }
 
-# Een peer zonder enige beperking: alle pods, alle namespaces, of elk adres.
+# Een peer zonder beperking: alle pods in de eigen namespace of in alle namespaces, of (bijna) elk
+# adres. Ook de eigen namespace is te ruim: daar staan ook pods van andere releases.
 open_peer(peer) if {
 	not peer.ipBlock
 	selector_leeg(peer, "podSelector")
 	selector_leeg(peer, "namespaceSelector")
 }
 
+# Een prefix korter dan /8 dekt een groot deel van het internet; twee keer /1 is samen alles.
 open_peer(peer) if {
-	peer.ipBlock.cidr in {"0.0.0.0/0", "::/0"}
+	delen := split(peer.ipBlock.cidr, "/")
+	count(delen) == 2
+	to_number(delen[1]) < 8
 	not gevuld(peer.ipBlock, "except")
 }
 
@@ -165,16 +170,42 @@ deny contains msg if {
 	msg := sprintf("NetworkPolicy '%s' heeft een bestemming zonder beperking; die laat alles toe", [input.metadata.name])
 }
 
-# De poorten van de Gateway-proxy's horen alleen naar die proxy's open te staan, niet naar overal.
+# De poorten van de Gateway-proxy's horen alleen naar die proxy's open te staan, niet naar overal
+# en niet naar elke pod in hun namespace. Een poortbereik telt mee.
 gateway_proxy_poorten := {10080, 10443}
+
+raakt_gateway_poort(poort) if poort.port in gateway_proxy_poorten
+
+raakt_gateway_poort(poort) if {
+	some p in gateway_proxy_poorten
+	poort.port <= p
+	p <= poort.endPort
+}
+
+naar_eigen_pods(regel) if {
+	gevuld(regel, "to")
+	every peer in regel.to {
+		gevuld_map(object.get(peer, "podSelector", {}), "matchLabels")
+	}
+}
 
 deny contains msg if {
 	input.kind == "NetworkPolicy"
 	some regel in object.get(input.spec, "egress", [])
 	some poort in object.get(regel, "ports", [])
-	poort.port in gateway_proxy_poorten
+	raakt_gateway_poort(poort)
+	not naar_eigen_pods(regel)
+	msg := sprintf("NetworkPolicy '%s' laat poort %v verder toe dan de Gateway-proxy's", [input.metadata.name, poort.port])
+}
+
+# Een groot poortbereik zonder bestemming is in feite open uitgaand verkeer.
+deny contains msg if {
+	input.kind == "NetworkPolicy"
+	some regel in object.get(input.spec, "egress", [])
 	not gevuld(regel, "to")
-	msg := sprintf("NetworkPolicy '%s' laat poort %v naar overal toe; die hoort alleen naar de Gateway-proxy's", [input.metadata.name, poort.port])
+	some poort in object.get(regel, "ports", [])
+	poort.endPort - poort.port >= 1024
+	msg := sprintf("NetworkPolicy '%s' laat poorten %v-%v naar overal toe", [input.metadata.name, poort.port, poort.endPort])
 }
 
 deny contains msg if {

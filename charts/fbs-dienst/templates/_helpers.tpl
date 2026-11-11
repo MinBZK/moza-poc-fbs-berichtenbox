@@ -45,24 +45,35 @@ komt vóór de uitrol boven; een fout in het cluster pas als de pod niet start.
 {{- $fouten = append $fouten (printf "dienst.tlsTermination %q is ongeldig: zet mesh, en lees in values.yaml wat dat vraagt van het pod-netwerk" (toString $d.tlsTermination)) -}}
 {{- end -}}
 {{- /* Namen zoals Quarkus ze leest: SmallRye vertaalt fbs.redis.unsafe-allow-plaintext en
-     FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT naar dezelfde property. */}}
+     FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT naar dezelfde property. extraEnvVars na de render: een naam
+     mag een template zijn, en pas het resultaat komt in de container. */}}
 {{- $namen := keys $d.env -}}
-{{- range $d.extraEnvVars -}}
-{{- $namen = append $namen (toString .name) -}}
+{{- $extra := include "common.tplvalues.render" (dict "value" $d.extraEnvVars "context" $) | fromYamlArray -}}
+{{- range $extra -}}
+{{- $namen = append $namen (toString (get . "name")) -}}
 {{- end -}}
 {{- $onveiligToegestaan := eq (toString $d.allowUnsafeFlags) "true" -}}
+{{- /* Elke naam waarmee een ander profiel (dev, test) of een ander config-bestand te zetten is: in
+     zo'n profiel vervalt elke TLS-eis. */}}
+{{- $profielNamen := list "QUARKUS_PROFILE" "SMALLRYE_CONFIG_PROFILE" "QUARKUS_CONFIG_PROFILE_PARENT" "SMALLRYE_CONFIG_PROFILE_PARENT" "QUARKUS_CONFIG_LOCATIONS" "SMALLRYE_CONFIG_LOCATIONS" "JAVA_TOOL_OPTIONS" "JDK_JAVA_OPTIONS" "_JAVA_OPTIONS" "JAVA_OPTS" "JAVA_OPTS_APPEND" "JAVA_OPTIONS" -}}
 {{- range $namen -}}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_.-]*$" .) -}}
+{{- $fouten = append $fouten (printf "env-naam %q is ongeldig: alleen letters, cijfers, _ . en -" .) -}}
+{{- end -}}
 {{- $genormaliseerd := . | upper | replace "." "_" | replace "-" "_" -}}
 {{- if and (contains "UNSAFE" $genormaliseerd) (not $onveiligToegestaan) -}}
 {{- $fouten = append $fouten (printf "%s zet een TLS-eis uit; dat kan alleen met dienst.allowUnsafeFlags=true" .) -}}
 {{- end -}}
-{{- if eq $genormaliseerd "HTTP_TLS_TERMINATION" -}}
+{{- if has $genormaliseerd (list "HTTP_TLS_TERMINATION" "FBS_HTTP_TLS_TERMINATION") -}}
 {{- $fouten = append $fouten (printf "%s staat in dienst.env of extraEnvVars: zet dienst.tlsTermination" .) -}}
 {{- end -}}
-{{- /* Een ander profiel (dev, test) schakelt elke TLS-eis uit; JVM-opties kunnen het profiel zetten. */}}
-{{- if has $genormaliseerd (list "QUARKUS_PROFILE" "JAVA_TOOL_OPTIONS" "JDK_JAVA_OPTIONS" "_JAVA_OPTIONS" "JAVA_OPTS" "JAVA_OPTS_APPEND" "JAVA_OPTIONS") -}}
-{{- $fouten = append $fouten (printf "%s kan het Quarkus-profiel wijzigen en daarmee de TLS-eisen uitzetten; de chart laat dat niet toe" .) -}}
+{{- if has $genormaliseerd $profielNamen -}}
+{{- $fouten = append $fouten (printf "%s kan het Quarkus-profiel of de config wijzigen en daarmee de TLS-eisen uitzetten; de chart laat dat niet toe" .) -}}
 {{- end -}}
+{{- end -}}
+{{- /* Een eigen command vervangt het entrypoint van het image, en daarmee ook het profiel. */}}
+{{- if or $d.command $d.args -}}
+{{- $fouten = append $fouten "dienst.command en dienst.args kan de chart niet toestaan: ze vervangen het entrypoint, en daarmee kan het profiel en elke TLS-eis anders worden" -}}
 {{- end -}}
 {{- if and $d.keystore.enabled (or (not $d.keystore.secretName) (not $d.keystore.key) (not $d.keystore.mountPath)) -}}
 {{- $fouten = append $fouten "dienst.keystore vraagt secretName, key en mountPath" -}}
@@ -94,8 +105,31 @@ komt vóór de uitrol boven; een fout in het cluster pas als de pod niet start.
 {{- $fouten = append $fouten "ingress.paths is leeg: de route zou niets doorlaten" -}}
 {{- end -}}
 {{- range .Values.ingress.paths -}}
+{{- $waarde := toString .value -}}
 {{- if not (has (toString .type) (list "PathPrefix" "Exact")) -}}
 {{- $fouten = append $fouten (printf "ingress.paths: type %q is niet toegestaan, alleen PathPrefix of Exact" (toString .type)) -}}
+{{- end -}}
+{{- if not (hasPrefix "/" $waarde) -}}
+{{- $fouten = append $fouten (printf "ingress.paths: %q begint niet met /" $waarde) -}}
+{{- end -}}
+{{- /* /q bevat health en Swagger UI; een health-antwoord noemt bij een storing interne hostnamen. */}}
+{{- if or (and (eq (toString .type) "PathPrefix") (has $waarde (list "/" "/q" "/q/"))) (eq $waarde "/q") (hasPrefix "/q/" $waarde) -}}
+{{- $fouten = append $fouten (printf "ingress.paths: %q zet /q open; dat hoort binnen het cluster" $waarde) -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.ingress.streamPaths (eq .Values.cluster.routingMode "ingress") -}}
+{{- $fouten = append $fouten "ingress.streamPaths werkt alleen met een HTTPRoute: bij routingMode=ingress breekt de Ingress-controller de streams op zijn eigen timeout af; zet ingress.streamPaths=null en regel de timeout in de controller" -}}
+{{- end -}}
+{{- range .Values.ingress.streamPaths -}}
+{{- $stream := toString . -}}
+{{- $gedekt := false -}}
+{{- range $.Values.ingress.paths -}}
+{{- if or (eq $stream (toString .value)) (and (eq (toString .type) "PathPrefix") (hasPrefix (printf "%s/" (trimSuffix "/" (toString .value))) $stream)) -}}
+{{- $gedekt = true -}}
+{{- end -}}
+{{- end -}}
+{{- if or (not (hasPrefix "/" $stream)) (hasPrefix "/q/" $stream) (eq $stream "/q") (not $gedekt) -}}
+{{- $fouten = append $fouten (printf "ingress.streamPaths: %q valt niet onder ingress.paths, of zet /q open" $stream) -}}
 {{- end -}}
 {{- end -}}
 {{- if ne (toString .Values.ingress.allowUnauthenticated) "true" -}}

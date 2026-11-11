@@ -23,7 +23,7 @@ spec:
       http:
         paths:
           {{- range .Values.ingress.paths }}
-          - path: {{ .value }}
+          - path: {{ .value | quote }}
             {{- /* Gateway API kent PathPrefix en Exact; een Ingress Prefix en Exact. */}}
             pathType: {{ ternary "Prefix" .type (eq .type "PathPrefix") }}
             backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" $) "servicePort" "http" "context" $) | nindent 14 }}

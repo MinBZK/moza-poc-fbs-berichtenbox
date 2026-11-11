@@ -61,21 +61,32 @@ charts/
   operator maken; `dienst.tlsTermination` heeft er daarom geen. TLS in de dienst zelf (`app`)
   vraagt een https-poort, probes op HTTPS en TLS vanaf de Gateway; die levert de chart niet, en
   de render weigert `app` in plaats van een pod op te leveren die nooit gereed wordt.
-- **Geen andere weg om TLS uit te zetten.** De render weigert de `FBS_*_UNSAFE_*`-kleppen zonder
-  `dienst.allowUnsafeFlags`, en altijd `QUARKUS_PROFILE` en de JVM-opties die een profiel kunnen
-  zetten: in het profiel `dev` of `test` vervalt elke TLS-eis. De namen worden genormaliseerd zoals
-  SmallRye ze leest, en `extraEnvVars` telt mee.
+- **Vergissingen die TLS uitzetten, weigert de render.** De `FBS_*_UNSAFE_*`-kleppen alleen met
+  `dienst.allowUnsafeFlags`. Altijd geweigerd: een ander Quarkus-profiel of config-bestand
+  (`QUARKUS_PROFILE`, `SMALLRYE_CONFIG_PROFILE`, de profile-parents, `*_CONFIG_LOCATIONS`), de
+  JVM-opties die dat kunnen zetten, en een eigen `command`/`args`. In het profiel `dev` of `test`
+  vervalt elke TLS-eis, zonder alert-token. De namen worden genormaliseerd zoals SmallRye ze leest,
+  en `extraEnvVars` telt mee na de render.
+- **De chart vangt vergissingen, geen opzet.** Wie de values beheert, kan een config-bestand mounten
+  of via `extraEnvVarsCM` een profiel zetten; dat ziet de chart niet. Sluitend wordt het pas als de
+  diensten de TLS-eis aan de launch mode koppelen in plaats van aan de profielnaam, zoals het
+  stelselregister dat al doet voor zijn wegwerpketen. Dat raakt `fbs-common`, niet de chart.
 - **Een route vraagt een expliciete schakelaar.** De API's authenticeren hun aanroepers niet; wie
   de route bereikt, leest met een willekeurig BSN in `X-Ontvanger` berichten. `ingress.enabled`
   vraagt daarom `ingress.allowUnauthenticated=true`. Alleen het stelselregister zet die zelf: het
-  stelseldocument is openbaar en ondertekend.
+  stelseldocument is openbaar en ondertekend. Voor uitvraag en magazijn is de schakelaar in de
+  praktijk altijd nodig zodra ze elkaar aanroepen, want dat verkeer loopt over https via de
+  Gateway. Een toegangsbeperking in de chart zelf (een `SecurityPolicy` van Envoy Gateway) is een
+  open ontwerpkeuze.
 - **Alleen de API naar buiten.** De route laat `/api/v1`, `/openapi.json` en `/.well-known` door,
   niet `/q`, en alleen met padtype `PathPrefix` of `Exact`: een reguliere expressie zou die
   uitsluiting omzeilen. De health-checks van Quarkus zetten bij een storing de foutmelding van de
   database of Redis in het antwoord, met interne hostnamen en poorten.
-- **Streams zonder request-timeout.** Envoy breekt een antwoord standaard na 15 seconden af, ook een
-  SSE-stream. De stream-paden van de uitvraag (`_ophalen`, `_volgen`) krijgen daarom een eigen
-  regel met `timeouts.request: 0s`; een Exact-match gaat in Gateway API vóór de PathPrefix.
+- **Timeouts in de HTTPRoute.** Envoy breekt een antwoord standaard na 15 seconden af, tot het hele
+  antwoord binnen is. Uitvraag en magazijn zetten `ingress.requestTimeout: 5m` voor bijlagen tot
+  25 MiB. De stream-paden van de uitvraag (`_ophalen`, `_volgen`) krijgen een eigen regel met
+  `timeouts.request: 0s`; een Exact-match gaat in Gateway API vóór de PathPrefix. Bij een Ingress
+  regelt de controller de timeouts, en weigert de render `streamPaths`.
 - **Beveiliging volgens de mijn-bureau-standaard:** UID 185 (de gebruiker van het
   UBI-openjdk-image), `runAsNonRoot`, read-only root-filesystem met een `emptyDir` op `/tmp`,
   alle capabilities weg, `RuntimeDefault`-seccomp, geen service-account-token, eigen

@@ -68,15 +68,22 @@ HTTPS en TLS vanaf de Gateway; de render weigert die keuze.
 - Het stelselregister leest zijn ondertekensleutel uit het Secret `<fullname>-keystore`, data-key
   `keystore.p12`.
 - De `FBS_*_UNSAFE_*`-kleppen weigert de render in `dienst.env` en `dienst.extraEnvVars`, in elke
-  schrijfwijze, tenzij `dienst.allowUnsafeFlags=true`. Hetzelfde geldt voor `QUARKUS_PROFILE` en
-  de JVM-opties waarmee een ander profiel te zetten is: een ander profiel zet elke TLS-eis uit.
-  Wat in `extraEnvVarsCM` of `extraEnvVarsSecret` staat, ziet de chart niet.
+  schrijfwijze, tenzij `dienst.allowUnsafeFlags=true`.
+- Altijd geweigerd, ook met `allowUnsafeFlags`: een ander Quarkus-profiel of config-bestand
+  (`QUARKUS_PROFILE`, `SMALLRYE_CONFIG_PROFILE`, `*_CONFIG_LOCATIONS` en de JVM-opties waarmee
+  die te zetten zijn), en een eigen `dienst.command` of `dienst.args`. In het profiel `dev` of
+  `test` vervalt elke TLS-eis, zonder alert-token.
+- Deze controles vangen vergissingen, geen opzet. Wat in `extraEnvVarsCM`, `extraEnvVarsSecret`,
+  een gemount config-bestand, een sidecar of `extraDeploy` staat, ziet de chart niet: wie de
+  values beheert, kan de TLS-eisen altijd omzeilen.
 
 **De API's authenticeren hun aanroepers niet.** Wie de route bereikt, bereikt de API. Een route
-vraagt daarom `ingress.allowUnauthenticated=true`. Zet die alleen als de Gateway de toegang
-beperkt; het stelselregister zet hem zelf, want het stelseldocument is openbaar. Aanroepers binnen
-het cluster komen binnen met het podlabel `client.fbs.minbzk.nl/<fullname>: "true"`, één per
-dienst die ze aanroepen.
+vraagt daarom `ingress.allowUnauthenticated=true`; de chart beperkt de toegang zelf niet. Het
+stelselregister zet de schakelaar zelf, want het stelseldocument is openbaar. Voor uitvraag en
+magazijn is hij in de praktijk nodig zodra ze elkaar aanroepen: de uitvraag eist een https-adres
+voor een magazijn, en binnen het cluster spreekt de pod alleen HTTP, dus dat verkeer loopt via de
+Gateway. Aanroepers binnen het cluster komen binnen met het podlabel
+`client.fbs.minbzk.nl/<fullname>: "true"`, één per dienst die ze aanroepen.
 
 ## Wat de chart standaard afdwingt
 
@@ -89,8 +96,12 @@ dienst die ze aanroepen.
   cpu, geheugen en ephemeral-storage.
 - **Een route die alleen `/api/v1`, `/openapi.json` en `/.well-known` doorlaat**, met padtype
   `PathPrefix` of `Exact`. `/q` (health, Swagger UI) blijft binnen het cluster; een health-antwoord
-  noemt bij een storing interne hostnamen. De SSE-paden van de uitvraag krijgen een eigen regel
-  zonder request-timeout, want Envoy breekt een antwoord anders na 15 seconden af.
+  noemt bij een storing interne hostnamen.
+- **Timeouts in de HTTPRoute.** Envoy breekt een antwoord standaard na 15 seconden af. Uitvraag en
+  magazijn zetten daarom `ingress.requestTimeout: 5m`, voor een bijlage tot 25 MiB. De SSE-paden van
+  de uitvraag krijgen een eigen regel zonder request-timeout. Bij `routingMode=ingress` gelden deze
+  instellingen niet: daar regelt de Ingress-controller de timeouts, en de render weigert
+  `streamPaths`.
 - **Een NetworkPolicy, inkomend.** Alleen vanaf de proxy's van de eigen Gateway (in
   `envoy-gateway-system`, instelbaar met `networkPolicy.ingressNSMatchLabels`) en vanaf pods met
   het label `client.fbs.minbzk.nl/<fullname>: "true"`.
@@ -107,9 +118,10 @@ dienst die ze aanroepen.
 Een render met een onmogelijke combinatie faalt met een melding. Voorbeelden:
 - geen tag, of een meebewegende tag als `latest` of `main`;
 - geen keuze voor TLS, of `app`;
-- een route zonder `allowUnauthenticated`, hostnaam of Gateway, of met een ander padtype;
+- een route zonder `allowUnauthenticated`, hostnaam of Gateway, met een ander padtype, of met `/q`;
 - een Ingress zonder TLS;
-- een onveilige klep of een ander Quarkus-profiel zonder `allowUnsafeFlags`;
+- een onveilige klep zonder `allowUnsafeFlags`, of een ander Quarkus-profiel, of een eigen
+  `command`;
 - het stelselregister met een ander aantal replica's dan één, of met een HPA.
 
 ## Controleren zonder cluster

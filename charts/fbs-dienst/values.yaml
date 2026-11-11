@@ -62,7 +62,9 @@ dienst:
   env: {}
   # De FBS_*_UNSAFE_*-kleppen zetten een TLS-eis uit. Zonder deze schakelaar weigert de render ze
   # in dienst.env en extraEnvVars, in elke schrijfwijze, zodat ze niet ongemerkt in een echte
-  # installatie belanden. Wat in extraEnvVarsCM of extraEnvVarsSecret staat, ziet de chart niet.
+  # installatie belanden. De controle vangt vergissingen, geen opzet: wat in extraEnvVarsCM,
+  # extraEnvVarsSecret, een gemount config-bestand (extraVolumes), een sidecar of extraDeploy staat,
+  # ziet de chart niet.
   allowUnsafeFlags: false
   extraEnvVars: []
   extraEnvVarsCM: ""
@@ -135,6 +137,7 @@ dienst:
   # Quarkus en Vert.x schrijven tijdelijke bestanden onder java.io.tmpdir.
   tmpSizeLimit: 256Mi
 
+  # De render weigert beide: ze vervangen het entrypoint van het image, en daarmee het profiel.
   command: []
   args: []
   automountServiceAccountToken: false
@@ -260,9 +263,14 @@ ingress:
       value: /openapi.json
     - type: PathPrefix
       value: /.well-known
-  # Paden met een stream (SSE): een eigen regel zonder request-timeout. Envoy breekt een antwoord
-  # anders na 15 seconden af, ook een stream. Exact, en binnen een van de paden hierboven.
+  # Alleen bij routingMode=gateway-api. Paden met een stream (SSE): een eigen regel in de HTTPRoute
+  # zonder request-timeout. Envoy breekt een antwoord anders na 15 seconden af, ook een stream.
+  # Exact, en binnen een van de paden hierboven. Bij routingMode=ingress weigert de render ze: de
+  # Ingress kent geen timeout per pad, die hoort bij de controller.
   streamPaths: []
+  # Alleen bij routingMode=gateway-api: de request-timeout van de gewone regel. Leeg = die van
+  # Envoy (15 seconden), en die loopt tot het hele antwoord binnen is, ook bij een grote bijlage.
+  requestTimeout: ""
   # Alleen bij cluster.routingMode=ingress.
   ingressClassName: ""
   annotations: {}
