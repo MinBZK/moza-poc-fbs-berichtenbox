@@ -180,12 +180,13 @@ haal_sleutel() {
 # gefaseerd te doen: eerst `mpfpsm-lcl`, dan `mpfm-w3h`, dan `mpfb-8wh`, en de FSC-deployments apart.
 # `mpfs-rab` (het stelselregister) hangt van geen ander project af en kan op elk moment.
 
-# De twee WireMock-stubs. /__admin/health hoort bij de admin-API en kan door geen stub-mapping
-# worden overgenomen. Beide paden wijzen erheen: een WireMock zonder werkende admin-API is stuk, dus
-# een apart liveness-signaal bestaat er niet.
+# De twee WireMock-stubs. Een TCP-connect, geen httpGet: hun admin-API staat dicht (zie
+# wiremock/externe-stubs/admin-dicht.sh), en de stub-mapping /gezondheid bestaat alleen in images
+# van ná die mapping. De probe-instelling geldt voor elke deployment van het component, dus ook voor
+# de preview van een branch die main nog niet binnenhaalde; een poort antwoordt in elk image.
 STUBS=(
-    "mpfpsm-lcl|test|profiel|http|8080|/__admin/health|/__admin/health"
-    "mpfpsm-lcl|test|notificatie|http|8080|/__admin/health|/__admin/health"
+    "mpfpsm-lcl|test|profiel|tcp|8080||"
+    "mpfpsm-lcl|test|notificatie|tcp|8080||"
 )
 
 # De vier storingsknoppen. De probe wijst naar de admin-API op 8474 en niet naar de proxy die de

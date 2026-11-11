@@ -68,6 +68,11 @@ class BijlageGrenzenTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    private val sessies = mutableMapOf<String, String>()
+
+    /** Een geldige `X-Sessie` per ontvanger: elk verzoek onder `/api/v1/berichten` eist er een. */
+    private fun sessie(ontvanger: String): String = sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) }
+
     @TestHTTPResource("/api/v1/berichten")
     lateinit var berichten: URL
 
@@ -94,6 +99,7 @@ class BijlageGrenzenTest {
     fun zetKlaar() {
         BijlageMagazijnStub.reset()
         sessiecache.reset()
+        sessies.clear()
 
         berichtVoor.forEach { (bsn, berichtId) ->
             sessiecache.zet(
@@ -133,6 +139,7 @@ class BijlageGrenzenTest {
     private fun verzoek(bsn: String): HttpRequest =
         HttpRequest.newBuilder(URI.create(adres(bsn)))
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie("BSN:$bsn"))
             .timeout(Duration.ofSeconds(20))
             .build()
 
@@ -172,6 +179,7 @@ class BijlageGrenzenTest {
         given()
             .filter(CONTRACT)
             .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie("BSN:$bsn"))
             .`when`()
             .get(adres(bsn))
             .then()
@@ -205,7 +213,7 @@ class BijlageGrenzenTest {
 
         Socket(berichten.host, berichten.port).use { socket ->
             val pad = URI.create(adres(ontvangers[0])).let { "${it.rawPath}?${it.rawQuery}" }
-            socket.getOutputStream().write("GET $pad HTTP/1.1\r\nHost: localhost\r\nX-Ontvanger: BSN:${ontvangers[0]}\r\n\r\n".toByteArray())
+            socket.getOutputStream().write("GET $pad HTTP/1.1\r\nHost: localhost\r\nX-Ontvanger: BSN:${ontvangers[0]}\r\nX-Sessie: ${sessie("BSN:${ontvangers[0]}")}\r\n\r\n".toByteArray())
             socket.getOutputStream().flush()
 
             // Niets lezen: de uitvraag loopt vast op een volle socket, tot de bewaking ingrijpt.

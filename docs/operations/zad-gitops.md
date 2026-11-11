@@ -28,6 +28,10 @@ deployment omdat `postgresql-database` deployment-gebonden is: alleen een compon
 deployment als de magazijnen erft hun database-secret, en dat secret is wat de legen-knop mogelijk
 maakt. De eenmalige creatie staat in `demo/environment/zad-demo/README.md`.
 
+**Eerste blik bij een vastgelopen `test`: het statusdashboard** (groep `fbs-test`, zie
+[`statusdashboard.md`](statusdashboard.md)). Dat laat zien welk onderdeel wegvalt en sinds wanneer,
+vóór je een manifest opent.
+
 Zes ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle zes geverifieerd in
 `RijksICTGilde/RIG-Cluster`:
 
@@ -188,18 +192,22 @@ accepteren en tegelijk melden dat componenten ongezond zijn:
 "details": ["uitvraag (image_pull): Registry kon de container image niet leveren"]
 ```
 
-Meestal is het `image_pull`: de pull-through-mirror `rcr.rijksapps.nl` levert een net gepusht image
-nog niet. OM zet zo'n component uit (`replicas: 0`) en de automatische herverwerking probeert het niet
-opnieuw, dus het blijft uit tot de volgende uitrol. `zad-actions/deploy` maakt van die melding vanaf
-v4.4.0 een `::warning::`-annotatie in de samenvatting van de run, ook na een overname. De job blijft
-groen: `fail-on-warnings` staat nog uit tot gemeten is hoe vaak dit op `test` gebeurt
-([MinBZK/MijnOverheidZakelijk#1324](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1324)).
-Valt een deployment raar om, kijk dan eerst in de annotaties van zijn laatste deploy-run, ook als die
-groen is. Ontbrekende resources (een Service, de Redis van een preview) staan er niet in: die meldt
-OM niet als waarschuwing.
+Meestal is het `image_pull` met "Registry kon de container image niet leveren": de
+pull-through-mirror `rcr.rijksapps.nl` levert een net gepusht image nog niet. Dat gebeurt bij
+vrijwel elke uitrol van een eigen, vers gebouwd image (26 van 28 deploy-jobs in de week na v4.4.0)
+en leidde in die week nergens tot een uitgeschakeld component (`disabled-image`, zie hieronder):
+het ophalen wordt opnieuw geprobeerd, en de oude pod blijft antwoorden tot de nieuwe draait.
+`zad-actions/deploy` maakt van die melding vanaf v4.4.0 een `::warning::`-annotatie in de
+samenvatting van de run, ook na een overname. De job blijft groen: met `fail-on-warnings` aan zou
+vrijwel elke deploy rood worden (meting in
+`docs/plans/2026-10-15-zad-deploy-faalt-op-waarschuwingen.md`). Valt een deployment raar om, kijk
+dan eerst in de annotaties van zijn laatste deploy-run, ook als die groen is. Ontbrekende resources
+(een Service, de Redis van een preview) staan er niet in: die meldt OM niet als waarschuwing.
 
-Herstellen is opnieuw uitrollen met dezelfde tag; een upsert heft de uitschakeling op (zie "Een door
-OM uitgeschakeld component" hieronder). Twee valkuilen bij het herdraaien:
+Draait een component na zo'n melding blijvend niet (oude tag of `replicas: 0` in het gerenderde
+manifest), dan is herstellen opnieuw uitrollen met dezelfde tag; een upsert heft ook een
+uitschakeling op (zie "Een door OM uitgeschakeld component" hieronder). Twee valkuilen bij het
+herdraaien:
 
 - **`gh run rerun --failed` draait een groene job niet opnieuw.** Struikelt pas een afhankelijke job
   over de half gelukte uitrol (`deploy-preview-magazijnen` die de Redis van het uitvraag-project

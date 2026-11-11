@@ -217,14 +217,15 @@ class PaneelInfoTest {
         assertTrue("blok.bewaarbaar(antwoord)" in bijwerken, "werkInfoBij past bewaarbaar niet toe")
         assertTrue("stand.inhoud = nieuw;" in bijwerken, "werkInfoBij bewaart iets anders dan het gesnoeide antwoord")
 
-        // Per persona precies het label en de vlag. De id koppelt de twee lijsten, maar gaat niet mee.
+        // Per persona precies de id, het label en de vlag. De id is een naam en nooit een nummer —
+        // DemoPersona weigert er een — en de sessiekolom zoekt er de lopende sessies mee op.
         val perPersona = Regex("""\(\{([^}]*)}\)""").findAll(snoeien).map { it.groupValues[1] }.toList()
 
         assertEquals(1, perPersona.size, "personaInfo bouwt een persona niet op precies één plek op")
         assertEquals(
-            setOf("label", "metMagazijn"),
+            setOf("id", "label", "metMagazijn"),
             Regex("""(\w+):""").findAll(perPersona.single()).map { it.groupValues[1] }.toSet(),
-            "personaInfo bewaart per persona meer dan het label en de vlag",
+            "personaInfo bewaart per persona meer dan de id, het label en de vlag",
         )
 
         assertEquals(1, Regex("""setItem\(INFO_SLEUTEL""").findAll(script).count(), "de info-cache wordt op meer dan één plek geschreven")

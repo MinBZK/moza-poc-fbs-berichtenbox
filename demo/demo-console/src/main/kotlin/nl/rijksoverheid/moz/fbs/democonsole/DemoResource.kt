@@ -30,7 +30,7 @@ import kotlin.random.Random
 data class LeegAntwoord(
     val magazijnen: Map<String, Int>,
     val gesimuleerd: GesimuleerdHerstel,
-    /** Hoeveel sessie-keys er gewist zijn; `null` als dat niet lukte. */
+    /** Hoeveel keys van de sessiecache er gewist zijn; `null` als dat niet lukte. */
     val sessiesGewist: Int?,
 ) {
     val letOp: String = sessieMelding(sessiesGewist)

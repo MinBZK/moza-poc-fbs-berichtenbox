@@ -31,7 +31,7 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-kern -am                  # pure JVM
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
-./mvnw clean test -pl demo/demo-console -am                   # pure JVM + één @QuarkusTest, geen Docker
+./mvnw clean test -pl demo/demo-console -am                   # Docker vereist voor één Redis-test (Testcontainers)
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
 ./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
@@ -41,7 +41,10 @@ ongewijzigde code.
 ```
 
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
-(Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten.
+(Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten. De demo-console
+start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij wijst
+`quarkus.redis.hosts` altijd zelf aan, en dan start Quarkus geen Dev Service. Zijn andere tests
+draaien zonder Docker.
 
 ### Tijdens het werk: alleen de geraakte testklassen
 
@@ -109,14 +112,21 @@ zichtbaar is.
 
 ## OpenAPI-specs linten
 
-De specs zijn de bron van waarheid voor beide API's en moeten voldoen aan de NL API Design Rules:
+De specs zijn de bron van waarheid voor de API's en moeten voldoen aan de NL API Design Rules. Dat
+toetst de [DON Checker](https://github.com/developer-overheid-nl/don-checker) van
+developer.overheid.nl, die op OpenLint draait (de opvolger van Spectral). `tools/adr-lint/` pint
+hem met een lockfile, en Dependabot biedt nieuwe versies aan:
 
 ```bash
-npx @stoplight/spectral-cli lint services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml \
-  --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
-npx @stoplight/spectral-cli lint services/berichtenuitvraag/src/main/resources/openapi/berichtenuitvraag-api.yaml \
-  --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
+npm ci --prefix tools/adr-lint                 # eenmalig, en na elke bump
+npm run lint --prefix tools/adr-lint           # alle drie de specs
+npm run lint:stelselregister --prefix tools/adr-lint   # of één: lint:berichtenmagazijn, lint:berichtenuitvraag
 ```
+
+Alleen een error faalt de run. De warning `nlgov:servers-use-https` op elke spec is een bewuste
+afwijking (relatieve `servers`-URL achter een TLS-terminerende gateway; de motivatie staat in de
+spec). Een bump van de checker kan een nieuwe ADR-versie met strengere regels meebrengen; draai de
+lint dus opnieuw op zo'n Dependabot-PR.
 
 ## Een tweede magazijn draaien
 
@@ -259,7 +269,10 @@ dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
   PATCH/DELETE) en de aanmeld-webhook
 - `bruno/stelselregister/` — het stelseldocument, de sleutelset en `security.txt`
 
-Open de folder in Bruno, kies environment `lokaal` en run requests. De collectie spiegelt de
+Open de folder in Bruno, kies environment `lokaal` en run requests.
+Start voor requests onder `/berichten` eerst een sessie (`bruno/berichtenuitvraag/sessies/`,
+`POST /api/v1/sessies`); dat request zet het id in de runtime-variabele `sessie`, en de requests
+sturen het als `X-Sessie`. Met curl: zelfde `POST`, daarna `-H "X-Sessie: <id>"` meegeven. De collectie spiegelt de
 OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een bijbehorende `.bru`-request.
 
 ## Configuratie
@@ -295,6 +308,6 @@ Dat script levert ook `out/root.pem`, de root waartegen je het document verifiee
 
 Voor productie is er per service een operator-handleiding:
 [magazijn](operator-handleiding.md) (verplichte overrides, LDV-TLS, outbox, monitoring) en
-[uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, cache-TTL's).
+[uitvraag](operator-handleiding-uitvraag.md) (sessiecache-TLS, timeout-invarianten, sessietermijnen).
 Het [stelselregister](operator-handleiding-stelselregister.md) heeft er een over de ondertekensleutel.
 De eerste twee beschrijven ook de bewust-onveilige kleppen en de alert-regels die daarbij horen.
