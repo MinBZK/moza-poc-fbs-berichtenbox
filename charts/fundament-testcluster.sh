@@ -7,6 +7,7 @@
 # docs/plans/2026-11-11-lokaal-fundament-testcluster.md.
 #
 #   TAG=main-<sha7> charts/fundament-testcluster.sh op        opzetten, installeren, controleren
+#   ... op --rol beheerder|projectlid|beide                    één rol, of beide na elkaar (default)
 #   charts/fundament-testcluster.sh controleer                 alleen controleren
 #   charts/fundament-testcluster.sh af                         sandbox weg; het platform blijft
 #
@@ -429,25 +430,31 @@ voorzieningen_op() {
 
 # --- Installeren en controleren ------------------------------------------------------------------
 
-# Installeert één dienst met de chart; extra argumenten gaan naar helm (route, rol).
+# De chart-argumenten van een dienst, in de array DIENST_ARGS: release, chart, namespace en values.
 # tlsTermination=mesh: lokaal is het pod-netwerk niet versleuteld. Dat kan hier, met proefgegevens
 # op loopback; op Fundament hoort die keuze bij het pod-netwerk daar.
+dienst_args() {
+  local dienst=$1
+
+  DIENST_ARGS=("$dienst" "$CHARTS/fbs-dienst" --namespace "$NS" -f "$CHARTS/fbs-dienst/diensten/$dienst.yaml")
+
+  if [ "$dienst" = berichtenmagazijn ]; then
+    DIENST_ARGS+=(-f "$CHARTS/voorbeelden/berichtenmagazijn-cnpg.yaml")
+  else
+    DIENST_ARGS+=(--set "dienst.extraEnvVarsSecret=$dienst-geheimen")
+  fi
+
+  values_dienst "$dienst" "$NS" >"$WERK/$dienst-values.yaml"
+  DIENST_ARGS+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh)
+}
+
+# Installeert één dienst met de chart; extra argumenten gaan naar helm (route, rol).
 installeer_dienst() {
   local dienst=$1
   shift
 
-  local args=(upgrade --install "$dienst" "$CHARTS/fbs-dienst" --namespace "$NS" -f "$CHARTS/fbs-dienst/diensten/$dienst.yaml")
-
-  if [ "$dienst" = berichtenmagazijn ]; then
-    args+=(-f "$CHARTS/voorbeelden/berichtenmagazijn-cnpg.yaml")
-  else
-    args+=(--set "dienst.extraEnvVarsSecret=$dienst-geheimen")
-  fi
-
-  values_dienst "$dienst" "$NS" >"$WERK/$dienst-values.yaml"
-  args+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh)
-
-  hm "${args[@]}" "$@" >/dev/null
+  dienst_args "$dienst"
+  hm upgrade --install "${DIENST_ARGS[@]}" "$@" >/dev/null
   echo "OK: $dienst geïnstalleerd"
 }
 
@@ -458,8 +465,50 @@ installeer_beheerder() {
   local dienst route
 
   for dienst in "${DIENSTEN[@]}"; do
+    losse_route_weg "$dienst"
     mapfile -t route < <(helm_route_args "$dienst")
     installeer_dienst "$dienst" "${route[@]}"
+  done
+}
+
+# Een route die de beheerder voor een projectlid apart maakte, is niet van Helm; een installatie
+# mét route zou er anders op stuklopen ("exists and cannot be imported").
+losse_route_weg() {
+  local release
+
+  release=$(kc -n "$NS" get httproute "$1" -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}' 2>/dev/null) || return 0
+  [ -n "$release" ] || kc -n "$NS" delete httproute "$1" >/dev/null
+}
+
+# Als projectlid: alleen de ClusterRole admin in de namespace. HTTPRoute hoort daar niet bij (de
+# Envoy-plug-in voegt hem niet aan admin toe), dus de uitweg uit de README van de chart: installeren
+# zonder route, en de route apart laten maken door een organisatiebeheerder.
+installeer_projectlid() {
+  stap "installeren als projectlid"
+
+  local lid=system:serviceaccount:$NS:projectlid mag
+
+  mag=$(kc auth can-i create httproutes.gateway.networking.k8s.io -n "$NS" --as "$lid" 2>/dev/null || true)
+  echo "INFO: projectlid mag HTTPRoutes maken: ${mag:-onbekend}"
+
+  local dienst route
+
+  for dienst in "${DIENSTEN[@]}"; do
+    hm uninstall "$dienst" --namespace "$NS" --wait >/dev/null 2>&1 || true
+  done
+
+  for dienst in "${DIENSTEN[@]}"; do
+    # cluster.gateway.name ook zonder route: de NetworkPolicy laat de proxy's van die Gateway toe;
+    # zonder wordt de selector leeg en blokkeert hij de route die de beheerder apart maakt.
+    installeer_dienst "$dienst" --kube-as-user "$lid" --set ingress.enabled=false --set cluster.gateway.name=web ||
+      stop 1 "installeren van $dienst als projectlid faalde; de chart hoort binnen de rol admin te blijven"
+  done
+
+  for dienst in "${DIENSTEN[@]}"; do
+    mapfile -t route < <(helm_route_args "$dienst")
+    dienst_args "$dienst"
+    hm template "${DIENST_ARGS[@]}" "${route[@]}" --show-only templates/httproute.yaml | kc apply -n "$NS" -f - >/dev/null
+    echo "OK: route van $dienst apart gemaakt door de beheerder"
   done
 }
 
@@ -543,6 +592,8 @@ werkmap() {
 controleer() {
   stap "controleren"
 
+  fouten=0
+
   [ -s "$WERK/lokale-ca.crt" ] ||
     kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
 
@@ -573,19 +624,42 @@ op() {
   sandbox_op
   plugins_op
   voorzieningen_op
-  installeer_beheerder
-  controleer
+
+  case "$ROL" in
+    beheerder | beide)
+      installeer_beheerder
+      controleer
+      ;;
+  esac
+
+  case "$ROL" in
+    projectlid | beide)
+      installeer_projectlid
+      controleer
+      ;;
+  esac
 }
 
+ROL=beide
+
 case "${1:-}" in
-  op) op ;;
+  op)
+    if [ "${2:-}" = --rol ]; then
+      case "${3:-}" in
+        beheerder | projectlid | beide) ROL=$3 ;;
+        *) stop 2 "--rol is beheerder, projectlid of beide" ;;
+      esac
+    fi
+
+    op
+    ;;
   controleer)
     vereis_tools kubectl curl
     werkmap
     controleer
     ;;
   *)
-    echo "gebruik: $0 op|controleer|af" >&2
+    echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | controleer | af" >&2
     exit 2
     ;;
 esac
