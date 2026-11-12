@@ -134,7 +134,7 @@ charts/
   - Een LimitRange `fundament-defaults` zet alleen standaardwaarden; de chart zet zelf requests en
     limits.
   - PostgreSQL uit CloudNativePG: een voorbeeld-values-bestand stelt het JDBC-adres in de pod samen
-    uit de velden van het Secret `<cluster>-app`, met `sslmode=require`.
+    uit de velden van het Secret `<cluster>-app`, met `sslmode=verify-full` tegen de CA uit `<cluster>-ca`.
   - De Gateway krijgt een publiek IPv4-adres zonder DNS. De hostnaam van de route (eigen A-record of
     sslip.io) is pas bekend als de Gateway er staat; daarom eerst de Gateway, dan de chart.
 - **Afhankelijkheden buiten de chart.** PostgreSQL, Redis met RediSearch en het logboek horen bij

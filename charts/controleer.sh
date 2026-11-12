@@ -29,7 +29,7 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=302
+VERWACHTE_CONTROLES=311
 MINIMUM_REGO_TESTS=82
 
 for gereedschap in helm conftest kubeconform; do
@@ -346,13 +346,19 @@ toets_slaagt "route-exact-root" "${uitvraag[@]}" "${route_aan[@]}" \
 toets_slaagt "stream-op-exact-pad" "${uitvraag[@]}" "${route_aan[@]}" --set-json 'ingress.streamPaths=["/openapi.json"]'
 
 # Het voorbeeld met een database uit CloudNativePG: het JDBC-adres wordt in de pod samengesteld uit
-# de velden van het Secret, met TLS.
+# de velden van het Secret, met TLS die de server controleert tegen de CA van het Cluster.
 toets_render "magazijn-cnpg" -f "$CHART/diensten/berichtenmagazijn.yaml" -f "$CHARTS/voorbeelden/berichtenmagazijn-cnpg.yaml" \
   -f "$CHART/ci/standaard-values.yaml" --set ingress.enabled=true --set ingress.allowUnauthenticated=true \
   --set ingress.hostname=magazijn.example.nl --set cluster.gateway.name=web
-toets_bevat "magazijn-cnpg" "JDBC-adres met TLS" 'value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=require'
+toets_bevat "magazijn-cnpg" "JDBC-adres met TLS" \
+  'value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=verify-full&sslrootcert=/etc/fbs/db-ca/ca.crt'
 toets_aantal "magazijn-cnpg" "datasource en logboek uit hetzelfde Secret" 'name: db-app' 5
-toets_aantal "magazijn-cnpg" "logboek met TLS" 'sslmode=require' 2
+toets_aantal "magazijn-cnpg" "datasource en logboek controleren de server" 'sslmode=verify-full&sslrootcert=/etc/fbs/db-ca/ca.crt' 2
+toets_bevat_niet "magazijn-cnpg" "geen sslmode zonder servercontrole" 'sslmode=require'
+toets_bevat "magazijn-cnpg" "CA gemount op het pad uit de URL" 'mountPath: /etc/fbs/db-ca'
+# Alleen het certificaat: het Secret <cluster>-ca bevat ook de sleutel waarmee de CA tekent.
+toets_aantal "magazijn-cnpg" "alleen ca.crt uit het CA-Secret" 'key: ca.crt' 1
+toets_bevat_niet "magazijn-cnpg" "geen CA-sleutel in de pod" 'ca.key'
 
 # Het stelselregister zet de schakelaar zelf: zijn route rendert zonder.
 toets_slaagt "stelselregister-route" -f "$CHART/diensten/stelselregister.yaml" -f "$CHART/ci/standaard-values.yaml" \
@@ -360,6 +366,30 @@ toets_slaagt "stelselregister-route" -f "$CHART/diensten/stelselregister.yaml" -
 
 # Een naam van precies 63 tekens: release fbs, een streepje en een nameOverride van 59.
 toets_slaagt "naam-63-tekens" "${uitvraag[@]}" --set nameOverride="$(printf 'a%.0s' $(seq 1 59))"
+
+# NOTES.txt rendert alleen bij een install; --dry-run=client raakt geen cluster. Zonder route en
+# zonder Gateway-naam laat de NetworkPolicy geen Gateway binnen, en een apart gemaakte route geeft
+# een 503.
+toets_notes() {
+  local label=$1 verwacht=$2
+  shift 2
+
+  if ! helm install fbs "$CHART" --namespace fbs --dry-run=client "$@" >"$WERK/$label.yaml" 2>&1; then
+    cat "$WERK/$label.yaml"
+    fout "$label: helm install --dry-run"
+  elif [ "$verwacht" = ja ]; then
+    toets_bevat "$label" "NOTES waarschuwt voor de Gateway" "laat de NetworkPolicy geen Gateway binnen"
+  else
+    toets_bevat_niet "$label" "NOTES zonder Gateway-waarschuwing" "laat de NetworkPolicy geen Gateway binnen"
+  fi
+}
+
+toets_notes "notes-zonder-gateway" ja "${uitvraag[@]}"
+toets_notes "notes-met-gateway" nee "${uitvraag[@]}" --set cluster.gateway.name=web
+toets_notes "notes-met-route" nee "${uitvraag[@]}" "${route_aan[@]}"
+toets_notes "notes-eigen-labels" nee "${uitvraag[@]}" \
+  --set-json 'networkPolicy.ingressNSPodMatchLabels={"gateway.envoyproxy.io/owning-gateway-name":null,"gateway.envoyproxy.io/owning-gateway-namespace":null,"app.kubernetes.io/name":"eigen-proxy"}'
+toets_notes "notes-ingress-modus" nee "${uitvraag[@]}" --set cluster.routingMode=ingress
 
 # Een eigen extraVolumes vervangt de lijst uit diensten/; de keystore mag daar niet aan hangen.
 toets_render "stelselregister-extra-volume" "${stelsel[@]}" \

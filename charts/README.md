@@ -108,8 +108,13 @@ Zo ziet een cluster van het fieldlab eruit (Kubernetes 1.36, Envoy Gateway 1.9 m
   alleen objecten binnen de namespace, en een beleidsregel weigert andere soorten, ook via
   `extraDeploy`. HTTPRoute hoort niet bij de standaardrol `admin` van Kubernetes; het fieldlab
   maakt routes wel met `kubectl apply`, maar dat het met jouw rol mag, controleer je met
-  `kubectl auth can-i create httproutes -n <namespace>`. Mag het niet, installeer dan met
-  `ingress.enabled=false` en maak de route apart.
+  `kubectl auth can-i create httproutes -n <namespace>`. Een projectlid met alleen `admin` krijgt
+  daar `no`. Installeer dan met `ingress.enabled=false`, maar mét `cluster.gateway.name` (en
+  `cluster.gateway.namespace` als de Gateway elders staat): daarop laat de NetworkPolicy de
+  proxy's van de Gateway binnen. Zonder die naam geeft de Gateway een 503; NOTES.txt waarschuwt
+  dan. Een beheerder maakt de route met dezelfde values, zodat de render hem eerst toetst:
+  `helm template <release> charts/fbs-dienst -f ... --set ingress.enabled=true
+  --show-only templates/httproute.yaml | kubectl apply -f -`.
 - **Gateway.** Fundament installeert Envoy Gateway (GatewayClass `eg`) maar maakt geen Gateway.
   Maak die zelf in de eigen namespace, bijvoorbeeld `web` met een listener `https` op 443 en een
   certificaat via cert-manager, en zet `cluster.gateway.name=web` en
@@ -127,7 +132,9 @@ Zo ziet een cluster van het fieldlab eruit (Kubernetes 1.36, Envoy Gateway 1.9 m
   containers zonder eigen requests en limits. De chart zet ze zelf, dus die botsen niet.
 - **Database.** PostgreSQL komt uit CloudNativePG, met een Secret `<cluster>-app`.
   [`voorbeelden/berichtenmagazijn-cnpg.yaml`](voorbeelden/berichtenmagazijn-cnpg.yaml) laat zien
-  hoe het magazijn en zijn logboek daaruit verbinden, met TLS.
+  hoe het magazijn en zijn logboek daaruit verbinden, met `sslmode=verify-full` tegen de CA uit
+  `<cluster>-ca`: via het logboek gaan BSN's over die verbinding, en `require` controleert niet
+  welke server antwoordt.
 
 ## Wat de chart standaard afdwingt
 

@@ -97,8 +97,10 @@ kc -n "$NS" wait gateway/proef --for=condition=Programmed --timeout=5m
 echo "== proefvoorzieningen: PostgreSQL en Redis Stack =="
 
 # Geheimen als bestand, niet op de commandoregel: die is via ps zichtbaar voor andere gebruikers.
-openssl rand -hex 24 >"$WERK/pg-wachtwoord"
-openssl rand -hex 24 >"$WERK/redis-wachtwoord"
+# Zonder afsluitende newline: --from-file neemt die mee in het Secret. Redis knipt hem weg bij het
+# lezen, de diensten niet, en dan krijgen die WRONGPASS.
+openssl rand -hex 24 | tr -d '\n' >"$WERK/pg-wachtwoord"
+openssl rand -hex 24 | tr -d '\n' >"$WERK/redis-wachtwoord"
 
 kc -n "$NS" create secret generic proef-voorzieningen \
   --from-file=POSTGRES_PASSWORD="$WERK/pg-wachtwoord" --from-file=REDIS_PASSWORD="$WERK/redis-wachtwoord" \
