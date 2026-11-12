@@ -15,6 +15,7 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 | `policy/` | beleidsregels voor conftest: overgenomen van mijn-bureau-infra, plus eigen regels met tests |
 | `controleer.sh` | controle zonder cluster |
 | `lokaal-testcluster.sh` | de drie diensten op een k3d-cluster achter Envoy Gateway |
+| `fundament-testcluster.sh` | de drie diensten op een sandbox van Fundament, met de echte plug-ins |
 | `voorbeelden/` | values voor een opzet die niet bij elke installatie hoort, zoals een database uit CloudNativePG |
 
 ## Installeren
@@ -208,3 +209,57 @@ Het script:
 Elke aanroep noemt de context van het proefcluster, en het script wisselt de huidige context niet.
 Het vereist `k3d`, `kubectl`, `helm`, `openssl` en `curl`, en een host met Docker of podman: in een
 container zonder `/dev/fuse` en `/lib/modules` start k3d niet.
+
+## Proef op een Fundament-sandbox
+
+Dichter bij het fieldlab dan de k3d-proef: het lokale platform van Fundament met zijn
+plugin-sandbox als cluster, op Kubernetes 1.36. Envoy Gateway, cert-manager en CloudNativePG komen
+via de echte plugin-controller, zoals op het fieldlab. Het ontwerp staat in
+[`docs/plans/2026-11-11-lokaal-fundament-testcluster.md`](../docs/plans/2026-11-11-lokaal-fundament-testcluster.md).
+
+```bash
+TAG=main-<sha7> charts/fundament-testcluster.sh op       # opzetten, installeren, controleren
+TAG=main-<sha7> charts/fundament-testcluster.sh op --rol projectlid
+charts/fundament-testcluster.sh controleer                # alleen controleren
+charts/fundament-testcluster.sh af                        # sandbox weg; het platform blijft
+charts/fundament-testcluster.sh af --met-platform         # ook het platform
+```
+
+`op` doet:
+- **Fundament** op een vaste commit (`FUNDAMENT_REF`) in een eigen worktree van een clone
+  (`FUNDAMENT_REPO`, standaard `~/dev/fundament`), met de tools uit hun `mise.toml`;
+- **het platform** (`k3d-fundament`), alleen als het nog niet draait: elke uitrol wist zijn
+  databases. De eerste keer bouwt dit alle images van Fundament;
+- **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite;
+- **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`;
+- **de plug-ins**: publiceren, goedkeuren en installeren;
+- **in `tnt-fbs--fbs`**: Gateway `web` met een https-listener en een certificaat van cert-manager
+  uit een lokale CA, twee databases uit CloudNativePG (PostgreSQL 18, TLS) en Redis Stack;
+- **de diensten** in twee rollen, elk gevolgd door de controle:
+  - als **organisatiebeheerder** (cluster-admin), met route;
+  - als **projectlid** (alleen de rol `admin` in de namespace). Die mag geen HTTPRoute maken, dus
+    installeert het script zonder route en maakt de beheerder de route apart. Zet ook dan
+    `cluster.gateway.name`: zonder laat de NetworkPolicy de proxy's van de Gateway niet binnen.
+
+De controle eist per dienst:
+- een rollout met een gereede pod;
+- binnen het cluster `/q/health/ready` 200, vanaf een pod met het clientlabel;
+- via de Gateway, over https met het certificaat getoetst, `/openapi.json` 200 en `/q` 404.
+
+Waarin het afwijkt van het fieldlab:
+- opslag via local-path in plaats van Ceph;
+- een lokale CA in plaats van Let's Encrypt;
+- Redis als proefvoorziening zonder TLS, met de klep `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT`;
+- de namespace draagt Pod Security `restricted`, zoals een namespace van een plug-in, en mist
+  de beheerlabels van Fundament: de cluster-worker van het lokale platform ziet de sandbox, en
+  verwijdert een namespace met die labels die hij niet kent.
+
+Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss`,
+`openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
+- `HTTPS_POORT` (standaard 9443);
+- `FUNDAMENT_SUBNET` (standaard `172.29.0.0/16`): Fundament neemt anders 172.19, dat op een
+  machine met meer compose-projecten vaak bezet is;
+- `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte.
+
+Ook dit script noemt bij elke aanroep de context. Het zet de huidige context terug als het
+aanmaken van het platform die wisselde.

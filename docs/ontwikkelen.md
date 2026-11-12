@@ -91,11 +91,16 @@ Gebruik en standaarden staan in [`charts/README.md`](../charts/README.md).
 ```bash
 charts/controleer.sh                       # zonder cluster: lint, schema's, beleidsregels
 TAG=main-<sha7> charts/lokaal-testcluster.sh   # op een k3d-cluster op de host
+TAG=main-<sha7> charts/fundament-testcluster.sh op   # op een sandbox van Fundament, zoals het fieldlab
 ```
 
 `controleer.sh` vereist `helm`, `conftest` en `kubeconform`; de CI (`ci-scripts.yml`) draait het op
 elke PR, met de versies die daar gepind staan. Raakt een wijziging de chart, draai dan ook de
 clusterproef: alleen die laat zien dat de pods echt starten en de Gateway ze bereikt.
+`fundament-testcluster.sh` zet het lokale platform van Fundament op, met de plug-ins zoals het
+fieldlab ze installeert, en installeert de diensten in twee rollen. De eerste keer duurt dat lang,
+omdat het alle images van Fundament bouwt. Voorwaarden en afwijkingen staan in
+[`charts/README.md`](../charts/README.md#proef-op-een-fundament-sandbox).
 
 ## Een tweede magazijn draaien
 

@@ -9,7 +9,7 @@
 #   TAG=main-<sha7> charts/fundament-testcluster.sh op        opzetten, installeren, controleren
 #   ... op --rol beheerder|projectlid|beide                    één rol, of beide na elkaar (default)
 #   charts/fundament-testcluster.sh controleer                 alleen controleren
-#   charts/fundament-testcluster.sh af                         sandbox weg; het platform blijft
+#   charts/fundament-testcluster.sh af [--met-platform]        sandbox weg; het platform alleen op verzoek
 #
 # Leunt op een clone van fundament-oss/fundament (FUNDAMENT_REPO) en draait die op een vaste commit
 # (FUNDAMENT_REF) in een eigen worktree, met de tools uit hun mise.toml. Voor het publiceren van de
@@ -51,6 +51,8 @@ readonly SYSTEM_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000000
 readonly PLUGINS=(gateway-api/envoy-gateway:gateway-api-envoy cert-manager:cert-manager cloudnativepg:cloudnativepg)
 # Een geseede DCIM-gebruiker van Fundament die versies mag goedkeuren (zoals in test-env).
 readonly REVIEWER=alice@acme-corp.com
+# De relay van `just plugins sandbox-catalog` naar marketplace-catalog-api (hun vaste poort).
+readonly CATALOGUS_POORT=38080
 
 # Een eigen functl-configuratie: de sessie van deze opstelling mag die van de gebruiker niet
 # overschrijven.
@@ -280,8 +282,10 @@ plugin_publiceren() {
   echo "$versie $hash"
 }
 
-# Een versie die al bestaat, bij een herhaalde run na een onderbreking. De hash staat alleen in de
-# uitvoer van de eerste publish; de installatie wordt dan niet gepind. Print "<versie>".
+# Een versie die al bestaat: na `af` blijft de catalogus van het platform staan, en versies zijn
+# create-only. De hash staat dan niet meer in een publish-uitvoer; de catalogus geeft hem voor een
+# goedgekeurde versie, via de relay die `just plugins sandbox-catalog` op de host zet.
+# Print "<versie> <hash>".
 plugin_hervatten() {
   local naam=$1 uitvoer=$2 versie status id
 
@@ -293,12 +297,18 @@ plugin_hervatten() {
     approved) ;;
     pending) fj funops plugin approve "$id" "$versie" --reviewer "$REVIEWER" >&2 || stop 1 "goedkeuren van $naam $versie faalde" ;;
     *)
-      stop 1 "versie $versie van $naam staat op $status en is niet meer in te dienen; rol het platform opnieuw uit: (cd $WERKBOOM && mise exec -- just cluster-delete) en $0 op"
+      stop 1 "versie $versie van $naam staat op $status en is niet meer in te dienen; rol het platform opnieuw uit: $0 af --met-platform en $0 op"
       ;;
   esac
 
-  echo "LET OP: $naam $versie stond al in de catalogus; de installatie is niet gepind op een hash." >&2
-  echo "$versie"
+  local antwoord hash
+  antwoord=$(curl -s --max-time 10 -X POST "http://localhost:$CATALOGUS_POORT/catalog.v1.CatalogService/GetPluginDefinition" \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":{\"organizationName\":\"system\",\"pluginName\":\"$naam\"},\"version\":\"$versie\"}")
+  hash=$(hash_uit_catalogus "$antwoord") || { echo "$antwoord" >&2; stop 1 "geen hash in de catalogus voor $naam $versie"; }
+
+  echo "OK: $naam $versie stond al in de catalogus" >&2
+  echo "$versie $hash"
 }
 
 # Publiceert en installeert een plug-in, tenzij de installatie er al is.
@@ -309,12 +319,14 @@ plugin_op() {
   if kc get plugininstallation "$installatie" >/dev/null 2>&1; then
     echo "OK: $installatie bestaat al"
   else
-    local uitvoer versie hash=""
+    local uitvoer versie hash
 
     if uitvoer=$(plugin_publiceren "$pad"); then
       read -r versie hash <<<"$uitvoer"
     elif [ "$(functl_fout_soort "$uitvoer")" = bestaat-al ]; then
-      versie=$(plugin_hervatten "$naam" "$uitvoer")
+      # In een command substitution, niet in < <(...): daar zou een stop het script niet afbreken.
+      uitvoer=$(plugin_hervatten "$naam" "$uitvoer") || exit $?
+      read -r versie hash <<<"$uitvoer"
     else
       echo "$uitvoer" >&2
       stop 1 "publiceren van $pad faalde"
@@ -583,8 +595,9 @@ controleer_dienst() {
   fi
 }
 
+# Geen umask voor het hele proces: die geldt dan ook voor de checkout van Fundament, en Docker
+# kopieert die bestandsrechten in hun images. mktemp -d maakt de map al alleen voor de eigenaar.
 werkmap() {
-  umask 077
   WERK=$(mktemp -d)
   trap 'rm -rf "$WERK"' EXIT
 }
@@ -609,6 +622,33 @@ controleer() {
   fi
 
   echo "Alle diensten gezond en bereikbaar. Weg met: $0 af"
+}
+
+# --- Opruimen ------------------------------------------------------------------------------------
+
+# Ruimt de sandbox en de worktree op. Het platform alleen met --met-platform: het kan voor ander
+# Fundament-werk op deze machine in gebruik zijn, en opnieuw opzetten bouwt alle images opnieuw.
+af() {
+  local met_platform=$1
+
+  if [ ! -d "$WERKBOOM" ]; then
+    echo "OK: niets op te ruimen ($WERKBOOM bestaat niet)"
+    return 0
+  fi
+
+  if sandbox_bestaat; then
+    fj plugins cluster-delete
+    echo "OK: sandbox weg"
+  fi
+
+  if [ "$met_platform" = ja ]; then
+    fj cluster-delete
+    echo "OK: platform weg"
+  fi
+
+  git -C "$FUNDAMENT_REPO" worktree remove --force "$WERKBOOM"
+  echo "OK: worktree $WERKBOOM weg"
+  [ "$met_platform" = ja ] || echo "Het platform k3d-fundament blijft staan; ook weg met: $0 af --met-platform"
 }
 
 # --- Subcommando's -------------------------------------------------------------------------------
@@ -653,13 +693,21 @@ case "${1:-}" in
 
     op
     ;;
+  af)
+    vereis_tools git mise
+    case "${2:-}" in
+      "") af nee ;;
+      --met-platform) af ja ;;
+      *) stop 2 "af kent alleen --met-platform" ;;
+    esac
+    ;;
   controleer)
     vereis_tools kubectl curl
     werkmap
     controleer
     ;;
   *)
-    echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | controleer | af" >&2
+    echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | controleer | af [--met-platform]" >&2
     exit 2
     ;;
 esac

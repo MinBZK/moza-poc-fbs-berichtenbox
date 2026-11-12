@@ -26,6 +26,12 @@ publicatie_plugin_id() {
   grep -E '^published plugin=' <<<"$1" | tail -1 | sed -nE 's/.* id=([0-9a-f-]{36})( .*|$)/\1/p' | grep . || return 1
 }
 
+# De hash uit het antwoord van GetPluginDefinition van de catalogus (Connect, JSON): voor een
+# versie die al eerder gepubliceerd en goedgekeurd is, staat hij niet meer in een publish-uitvoer.
+hash_uit_catalogus() {
+  jq -er '.definitionHash | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' <<<"$1" 2>/dev/null || return 1
+}
+
 # De versie uit de melding van functl dat een versie al bestaat (versies zijn create-only).
 bestaande_versie() {
   sed -nE 's/.*already_exists: version "([^"]+)" already exists.*/\1/p' <<<"$1" | grep . || return 1
@@ -99,11 +105,13 @@ poort_vrij() {
 
 # --- Manifests -----------------------------------------------------------------------------------
 
-# Een PluginInstallation van een first-party plug-in (organisatie system). Zonder hash is de
-# installatie niet gepind; dat staat alleen de sandbox toe (allowUnpinnedHash), en het script doet
-# het alleen voor een versie die al eerder gepubliceerd was en waarvan de hash niet meer te lezen is.
+# Een PluginInstallation van een first-party plug-in (organisatie system), gepind op de hash van
+# de definitie. Zonder hash faalt de controller bij zijn eerste update ("definitionRef is immutable
+# once set"), ook in de sandbox die ongepinde installaties toestaat.
 manifest_plugininstallatie() {
   local plugin=$1 versie=$2 hash=$3
+
+  [ -n "$hash" ] || return 1
 
   cat <<EOF
 apiVersion: plugins.fundament.io/v1
@@ -115,9 +123,8 @@ spec:
     organizationName: system
     pluginName: $plugin
     pluginVersion: "$versie"
+    definitionHash: "$hash"
 EOF
-
-  [ -z "$hash" ] || echo "    definitionHash: \"$hash\""
 }
 
 # Een namespace zoals de console hem maakt (tnt-<project>--<naam>), met de LimitRange die

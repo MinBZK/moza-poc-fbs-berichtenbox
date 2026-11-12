@@ -104,6 +104,13 @@ gelijk "alleen van de organisatie system" "approved 019b4000-3000-7000-8000-0000
 gelijk "onbekende versie: exit 1" 1 "$(code_van versie_uit_catalogus "$CATALOGUS" cert-manager 9.9.9)"
 gelijk "lege catalogus: exit 1" 1 "$(code_van versie_uit_catalogus '[]' cert-manager 1.21.3)"
 
+echo "== hash_uit_catalogus =="
+
+gelijk "hash uit GetPluginDefinition" "$HASH_A" \
+  "$(hash_uit_catalogus "{\"manifest\":\"YQ==\",\"definitionHash\":\"$HASH_A\"}")"
+gelijk "Connect-fout: exit 1" 1 "$(code_van hash_uit_catalogus '{"code":"not_found","message":"plugin definition not found"}')"
+gelijk "afgekapte hash: exit 1" 1 "$(code_van hash_uit_catalogus '{"definitionHash":"sha256:abc"}')"
+
 echo "== functl_fout_soort =="
 
 gelijk "geen listing" geen-listing \
@@ -165,8 +172,8 @@ gelijk "vrijgekomen poort: exit 0" 0 "$(code_van poort_vrij "$vrije_poort")"
 
 echo "== manifest_plugininstallatie =="
 
-m=$(manifest_plugininstallatie cloudnativepg v0.2.0 "")
-bevat_niet "zonder hash: geen definitionHash" "definitionHash" "$m"
+# Zonder hash faalt de controller ("definitionRef is immutable once set"); altijd pinnen.
+gelijk "zonder hash: exit 1" 1 "$(code_van manifest_plugininstallatie cloudnativepg v0.2.0 "")"
 m=$(manifest_plugininstallatie cloudnativepg v0.2.0 "$HASH_A")
 bevat "soort" "kind: PluginInstallation" "$m"
 bevat "naam met organisatie" "name: system--cloudnativepg" "$m"
@@ -317,6 +324,14 @@ for bestand in "${GECONTROLEERDE_SCRIPTS[@]}"; do
     grep -vE '^[0-9]+:[[:space:]]*(kc|kcp|hm|kconfig)\(\)' || true)
   gelijk "geen kale kubectl/helm in $(basename "$bestand")" "" "$kaal"
 done
+
+echo "== geen umask voor het hele proces =="
+
+# Een strenge umask vóór de checkout van Fundament maakt hun bestanden 600; Docker kopieert die
+# rechten in de images en de niet-root-gebruiker kan ze dan niet lezen (trek.yaml: permission
+# denied). De werkmap van mktemp -d is al 700.
+umask_regels=$(grep -nE '^[[:space:]]*umask[[:space:]]' "$HIER/../fundament-testcluster.sh" || true)
+gelijk "geen umask in fundament-testcluster.sh" "" "$umask_regels"
 
 echo "ASSERTIES=$asserties"
 exit "$mislukt"

@@ -1,6 +1,6 @@
 # Lokaal Fundament-testcluster voor de chart
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 ## Aanleiding
 
@@ -162,9 +162,9 @@ noemt.
   niet draait, en weigert als er al een `k3d-fundament-plugin` op een andere Kubernetes-versie staat
   (met de melding hoe je die opruimt). `af` ruimt alleen de sandbox en onze installatie op; het
   platform laat het staan, want dat kan voor ander Fundament-werk in gebruik zijn.
-- **API-key voor `functl`:** die is alleen via de console aan te maken. `op` leest hem uit
-  `FUNCTL_API_KEY`; ontbreekt die, dan stopt `op` met de stappen om er een te maken. Herhaalbaar,
-  niet onbeheerd.
+- **API-key voor `functl`:** `op` maakt hem zelf, zoals de e2e-suite van Fundament: inloggen met
+  het lokale seed-account en `CreateAPIKey` aanroepen. `FUNCTL_API_KEY` gaat voor. (Eerst
+  ontworpen als handmatige stap, omdat ik dacht dat alleen de console een key kon maken.)
 - **Fundament-versie:** gepind op een commit van `fundament-oss/fundament` (startwaarde `b9c12531`,
   2026-11-11), overschrijfbaar via `FUNDAMENT_REF`. Het script checkt die uit in een eigen worktree
   van de clone, zodat de clone zelf niet verandert.
@@ -181,3 +181,45 @@ noemt.
 - Hoe de Gateway vanaf de host bereikbaar wordt: een portmapping op de k3d-loadbalancer, of
   `kubectl port-forward` naar de Envoy-service. Zolang het loopback blijft.
 - Welke delen van `lokaal-testcluster.sh` hergebruikt worden: functies delen of kopiëren.
+
+## Uitkomst (2026-11-12)
+
+Gedraaid op de ontwikkelmachine, met images `main-8e9f467` en Fundament `b9c12531`:
+
+- **Vanaf nul** (`af --met-platform`, dan `op`): groen in ruim twaalf minuten, met beide rollen.
+  De sandbox draait `v1.36.6+k3s1`. Envoy Gateway, cert-manager en CloudNativePG draaien via de
+  plugin-controller, gepind op hun hash. De databases draaien PostgreSQL 18.6 uit de catalogus
+  van de plug-in.
+- **Na `af`** (het platform blijft): `op` haalt de hash van de al goedgekeurde versies uit de
+  catalogus en is weer groen.
+- **Herhaald:** een tweede `op` slaat alles over wat er al staat. De huidige context van de
+  gebruiker blijft staan of wordt teruggezet.
+- **Een projectlid mag geen HTTPRoute maken** (`kubectl auth can-i` geeft `no`). De uitweg uit de
+  README werkt: installeren zonder route en de route apart maken. Dat lukt alleen als ook
+  `cluster.gateway.name` gezet is.
+- **Negatieve proef:** met het stelselregister op 0 replica's geeft `controleer` exit 1, met drie
+  foutregels voor die dienst.
+
+### Afwijkingen van dit ontwerp die het draaien opleverde
+
+- **Plug-ins** worden gepubliceerd met `--submit` en goedgekeurd met `funops`, zoals test-env van
+  Fundament: een concept ziet alleen de organisatie die het publiceerde.
+- **Volgorde:** Envoy Gateway komt vóór cert-manager, anders draait cert-manager zonder
+  Gateway-ondersteuning.
+- **Namespace:** geen beheerlabels van Fundament. De cluster-worker van het lokale platform ziet
+  de sandbox en verwijderde de namespace als "orphan".
+- **Netwerk:** het Docker-netwerk van het platform staat op een instelbaar subnet. 172.19 was
+  bezet.
+- **Platform-uitrol:** via `skaffold run --default-repo=localhost:5111`, zoals hun `just dev`. Het
+  recipe `just deploy local` pusht naar een registry-naam die de node niet kent.
+
+### Bevindingen voor PR 444
+
+- **Wachtwoorden met een newline.** `lokaal-testcluster.sh` maakt wachtwoorden met
+  `openssl rand -hex 24 > bestand` en zet ze met `--from-file` in een Secret. Daarmee komt de
+  newline in het Secret. Redis knipt die weg uit zijn argumenten, de uitvraag stuurt hem mee: de
+  uitvraag wordt nooit ready (`WRONGPASS`).
+- **NetworkPolicy zonder route.** Met `ingress.enabled=false` en zonder `cluster.gateway.name`
+  rendert de NetworkPolicy `owning-gateway-name: ""`. Die blokkeert de proxy's van de Gateway, dus
+  de route die de beheerder apart maakt geeft 503. De README-uitweg moet `cluster.gateway.name`
+  noemen. Een render-fout voor deze combinatie is te overwegen.
