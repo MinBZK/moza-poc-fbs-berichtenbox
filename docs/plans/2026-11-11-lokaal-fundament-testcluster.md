@@ -193,7 +193,8 @@ Gedraaid op de ontwikkelmachine, met images `main-8e9f467` en Fundament `b9c1253
 - **Na `af`** (het platform blijft): `op` haalt de hash van de al goedgekeurde versies uit de
   catalogus en is weer groen.
 - **Herhaald:** een tweede `op` slaat alles over wat er al staat. De huidige context van de
-  gebruiker blijft staan of wordt teruggezet.
+  gebruiker blijft staan (sinds de review maakt het script het platform zelf, zonder van context
+  te wisselen).
 - **Een projectlid mag geen HTTPRoute maken** (`kubectl auth can-i` geeft `no`). De uitweg uit de
   README werkt: installeren zonder route en de route apart maken. Dat lukt alleen als ook
   `cluster.gateway.name` gezet is.
@@ -219,8 +220,9 @@ Gedraaid op de ontwikkelmachine, met images `main-8e9f467` en Fundament `b9c1253
   relays naar het platform op 0.0.0.0. Via de authn-relay kon iedereen op hetzelfde netwerk met het
   openbare seed-wachtwoord een beheerderstoken halen. Het script maakt platform en sandbox nu zelf
   aan, met die poorten op loopback. De relays bindt het aan het gateway-adres van het
-  sandbox-netwerk. Alleen de Kubernetes-API's van k3d luisteren nog op alle adressen; die vragen
-  een clientcertificaat.
+  sandbox-netwerk. Dat adres is van de host zelf: lokale containers, en een buur die er een route
+  naartoe legt, kunnen er nog bij. De README noemt dat, met wat je vóór het fieldlab moet doen. De
+  Kubernetes-API's van k3d luisteren op alle adressen; anoniem geven ze 401.
 - **Context.** Doordat het script het platform zelf aanmaakt, wisselt de huidige context niet
   meer. Een kale `kubectl` of `helm` in het script breekt het af.
 - **Platform-herstart.** Een herstart van het platform leidt niet meer tot een nieuwe uitrol, en

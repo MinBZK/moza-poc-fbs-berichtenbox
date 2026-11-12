@@ -261,7 +261,7 @@ Waarin het afwijkt van het fieldlab:
   de beheerlabels van Fundament: de cluster-worker van het lokale platform ziet de sandbox, en
   verwijdert een namespace met die labels die hij niet kent.
 
-Wat hier kan omdat alles op loopback staat, maar op het fieldlab een keuze vraagt:
+Wat hier kan omdat de routes alleen op loopback staan, maar op het fieldlab een keuze vraagt:
 - **`ingress.allowUnauthenticated=true`.** Op het fieldlab krijgt de Gateway een publiek adres.
   Beperk de toegang in de Gateway, of zet er bewust alleen proefgegevens achter;
 - **`dienst.tlsTermination=mesh`.** Ga na of het pod-netwerk van het fieldlab het verkeer tussen
@@ -270,11 +270,33 @@ Wat hier kan omdat alles op loopback staat, maar op het fieldlab een keuze vraag
   Op het fieldlab hoort het `rediss://` met wachtwoord te zijn, of de klep bewust, met het alert
   `REDIS_UNPROTECTED`.
 
-Wat er op de machine openstaat: de https-poort, de registries (5111, 5112), de database van het
-platform (54328) en de relays staan op loopback of op het Docker-netwerk van de sandbox. De
-Kubernetes-API's van beide k3d-clusters luisteren op alle adressen; die vragen een
-clientcertificaat. Fundament's eigen `just plugins sandbox-catalog` zet de relays op 0.0.0.0,
-inclusief de inlog van het seed-account. Het script gebruikt die recipe daarom niet.
+Wat er op de machine openstaat:
+- **op loopback:** de https-poort, de console (8443), de registries (5111, 5112) en de database
+  van het platform (54328);
+- **op het host-adres van de sandbox-bridge** (bijvoorbeeld `172.25.0.1`): de relays naar de
+  catalogus (38080) en de inlog van het platform (38081). Dat adres is van de host zelf. Elke
+  container op de machine kan erbij, en een buur op hetzelfde netwerk die er een route naartoe
+  legt ook. Via 38081 haalt hij met het openbare seed-wachtwoord een beheerderstoken voor het
+  lokale platform. Fundament's eigen `just plugins sandbox-catalog` zet de relays zelfs op
+  0.0.0.0; het script gebruikt die recipe daarom niet;
+- **op alle adressen:** de Kubernetes-API's van beide k3d-clusters. Anoniem geven die 401, maar
+  ze accepteren wel tokens.
+
+De containers starten na een herstart van de machine vanzelf weer.
+
+**Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: ruim de opstelling op
+met `charts/fundament-testcluster.sh af --met-platform`. Wil je hem houden, stop dan op zijn minst
+de clusters en de relays:
+
+```bash
+docker stop $(docker ps -q --filter name=k3d-fundament) fun-catalog-relay fun-authn-relay
+```
+
+Het lokale platform installeert bij het aanmaken de mkcert-CA in de trust-stores van de machine
+en van de browsers (`mkcert -install`, met `certutil`). De private sleutel van die CA staat
+daarna ook in een Secret in het platformcluster. Wie die sleutel heeft, kan elke https-verbinding
+van deze machine onderscheppen. De pin op `FUNDAMENT_REF` dekt alleen de broncode van Fundament:
+hun builds halen base-images en Helm-charts op tag op.
 
 Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss`,
 `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
