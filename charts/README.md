@@ -229,8 +229,9 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
 - **Fundament** op een vaste commit (`FUNDAMENT_REF`, een volledige SHA) in een eigen worktree
   van een clone (`FUNDAMENT_REPO`, standaard `~/dev/fundament`), met de tools uit hun
   `mise.toml`. Het voert hun code en recipes uit, met de rechten van Docker;
-- **het platform** (`k3d-fundament`), alleen uitgerold als het er nog niet is: elke uitrol wist
-  zijn databases. De eerste keer bouwt dit alle images van Fundament;
+- **het platform** (`k3d-fundament`), alleen uitgerold als Kubernetes meldt dat het er niet is:
+  elke uitrol wist zijn databases. Antwoordt de API niet, dan stopt het script. De eerste keer
+  bouwt dit alle images van Fundament;
 - **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite;
 - **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
   de relays van de sandbox naar het platform;
@@ -244,9 +245,10 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
     `cluster.gateway.name`: zonder laat de NetworkPolicy de proxy's van de Gateway niet binnen.
 
 De controle eist per dienst:
-- een rollout met een gereede pod;
+- een rollout waarin alle pods gereed zijn, standaard twee (`REPLICAS`);
 - binnen het cluster `/q/health/ready` 200 vanaf een pod mét het clientlabel, en geen verbinding
-  vanaf een pod zonder;
+  vanaf een pod zonder. Dat laatste telt alleen als curl geen verbinding kreeg of in zijn
+  tijdslimiet liep; een probe-pod die niet start of de naam niet vindt, is een fout;
 - via de Gateway, over https met het certificaat getoetst, `/openapi.json` 200 en `/q` 404.
 
 Waarin het afwijkt van het fieldlab:
@@ -282,6 +284,11 @@ Wat er op de machine openstaat:
 - **op alle adressen:** de Kubernetes-API's van beide k3d-clusters. Anoniem geven die 401, maar
   ze accepteren wel tokens.
 
+Luistert iets anders van de opstelling op alle adressen, dan weigert `op`. Dat gebeurt vóór het
+begint, en nog een keer na het opzetten van platform en sandbox. Zo valt een platform op dat met
+Fundaments eigen recipes is gemaakt, of een k3d-config waarvan het script de poorten niet heeft
+kunnen herschrijven.
+
 De containers starten na een herstart van de machine vanzelf weer.
 
 **Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: ruim de opstelling op
@@ -301,6 +308,8 @@ hun builds halen base-images en Helm-charts op tag op.
 Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss`,
 `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
 - `HTTPS_POORT` (standaard 9443);
+- `REPLICAS` (standaard 2): pods per dienst. Twee toetst ook wat één pod verbergt: een tweede pod
+  die niet start, gelijktijdige migraties, de PodDisruptionBudget;
 - `FUNDAMENT_SUBNET` (standaard `172.29.0.0/16`): Fundament neemt anders 172.19, dat op een
   machine met meer compose-projecten vaak bezet is;
 - `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte. Zet hem met `read -rs

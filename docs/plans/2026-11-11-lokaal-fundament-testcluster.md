@@ -231,7 +231,32 @@ Gedraaid op de ontwikkelmachine, met images `main-8e9f467` en Fundament `b9c1253
 - **NetworkPolicy.** De controle toetst ook de weigering: een pod zonder clientlabel komt er niet
   in.
 
+### Na de herbeoordeling van de lage punten (2026-11-12)
+
+Een paar uitgestelde lage punten bleken bij nader inzien medium. Ze konden de belofte van de
+opstelling ondermijnen: groen betekent dat het werkt.
+
+- **NetworkPolicy-probe.** Een probe-pod die niet startte, telde als "de dienst weigert". De probe
+  logt nu ook de exitcode van curl. Alleen "geen verbinding" (7) of "tijdslimiet" (28) telt als
+  weigering.
+- **Replica's.** De controle eiste één gereede pod. Nu moeten alle gewenste pods gereed zijn, en
+  de diensten draaien standaard met twee (`REPLICAS`).
+- **Uitrollen bij een API-fout.** Een mislukte `get` op het platform leidde tot een nieuwe uitrol
+  over een bestaand platform heen. Nu wacht het script op de API, rolt alleen uit bij NotFound,
+  en stopt bij elke andere fout.
+- **Poorten op alle adressen.** Een platform dat met Fundaments eigen recipes was gemaakt, werd
+  stil hergebruikt, en een gewijzigde k3d-config kon poorten op 0.0.0.0 zetten. De poortbindingen
+  van alle containers op beide netwerken worden nu getoetst, vóór het begin en na het opzetten.
+- **Beslislogica getest.** `controleer_dienst`, `voorcontrole` en `platform_op` hebben tests met
+  stubs.
+- **API-key de dag erna.** De key had een vaste naam. Een verlopen key houdt die naam bezet, dus
+  `op` faalde na een uur altijd. Elke key krijgt nu een eigen naam, en een weigering toont het
+  antwoord van het platform. Dit kwam pas aan het licht bij het live draaien van deze ronde.
+
 ### Bevindingen voor PR 444
+
+Op 12 november doorgegeven aan het werk aan #444, samen met een vraag over `sslmode=require` (zie
+hieronder).
 
 - **Wachtwoorden met een newline.** `lokaal-testcluster.sh` maakt wachtwoorden met
   `openssl rand -hex 24 > bestand` en zet ze met `--from-file` in een Secret. Daarmee komt de
@@ -241,3 +266,6 @@ Gedraaid op de ontwikkelmachine, met images `main-8e9f467` en Fundament `b9c1253
   rendert de NetworkPolicy `owning-gateway-name: ""`. Die blokkeert de proxy's van de Gateway, dus
   de route die de beheerder apart maakt geeft 503. De README-uitweg moet `cluster.gateway.name`
   noemen. Een render-fout voor deze combinatie is te overwegen.
+- **`sslmode=require` controleert de server niet.** Het voorbeeld met CNPG beschrijft dit al als
+  keuze. De vraag is of `verify-full` met `<cluster>-ca` op het fieldlab de standaard moet zijn: daar
+  gaan BSN's via het logboek over deze verbinding.

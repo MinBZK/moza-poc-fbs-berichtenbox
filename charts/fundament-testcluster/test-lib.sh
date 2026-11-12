@@ -354,6 +354,54 @@ bevat "listener https" "cluster.gateway.sectionName=https" "${args[*]}"
 bevat "route zonder authenticatie, alleen op loopback" "ingress.allowUnauthenticated=true" "${args[*]}"
 gelijk "onbekende dienst: exit 1" 1 "$(code_van helm_route_args profiel)"
 
+echo "== manifest_probe logt ook de exitcode =="
+
+bevat "probe logt status en exitcode van curl" "%{http_code} %{exitcode}" "$(manifest_probe tnt-fbs--fbs stelselregister img zonder-label)"
+bevat "probe met label idem" "%{http_code} %{exitcode}" "$(manifest_probe tnt-fbs--fbs stelselregister img)"
+
+echo "== probe_geweigerd =="
+
+# Een probe logt "<http-status> <exitcode van curl>". Geweigerd is alleen: geen antwoord, en curl
+# kreeg geen verbinding (7) of liep in zijn tijdslimiet (28). Al het andere is geen bewijs dat de
+# NetworkPolicy weigert.
+gelijk "geen verbinding (7): geweigerd" 0 "$(code_van probe_geweigerd "000 7")"
+gelijk "tijdslimiet (28): geweigerd" 0 "$(code_van probe_geweigerd "000 28")"
+gelijk "naam niet gevonden (6): geen bewijs" 1 "$(code_van probe_geweigerd "000 6")"
+gelijk "een antwoord: niet geweigerd" 1 "$(code_van probe_geweigerd "200 0")"
+gelijk "probe-pod zonder uitvoer: geen bewijs" 1 "$(code_van probe_geweigerd "geen-uitvoer")"
+gelijk "lege uitvoer: geen bewijs" 1 "$(code_van probe_geweigerd "")"
+gelijk "alleen 000, zonder exitcode: geen bewijs" 1 "$(code_van probe_geweigerd "000")"
+
+echo "== poorten_naar_buiten =="
+
+gelijk "alles op loopback of het bridge-adres: niets" "" "$(poorten_naar_buiten <<'EOF'
+k3d-fundament-serverlb|80/tcp, 127.0.0.1:54328->54328/tcp, 127.0.0.1:8443->443/tcp, 0.0.0.0:43917->6443/tcp, [::]:43917->6443/tcp
+fun-authn-relay|172.25.0.1:38081->8080/tcp
+k3d-fundament-server-0|
+registry.localhost|127.0.0.1:5111->5000/tcp
+EOF
+)"
+gelijk "database op alle adressen" "k3d-fundament-serverlb 0.0.0.0:54328->54328/tcp" \
+  "$(poorten_naar_buiten <<<'k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 0.0.0.0:54328->54328/tcp, 0.0.0.0:43917->6443/tcp')"
+gelijk "IPv6 in beide notaties" "registry.localhost [::]:5111->5000/tcp
+registry.localhost :::5112->5000/tcp" \
+  "$(poorten_naar_buiten <<<'registry.localhost|[::]:5111->5000/tcp, :::5112->5000/tcp')"
+gelijk "meerdere containers, elk apart" "a 0.0.0.0:1->1/tcp
+b 0.0.0.0:2->2/udp" "$(poorten_naar_buiten <<'EOF'
+a|0.0.0.0:1->1/tcp
+b|0.0.0.0:2->2/udp, 127.0.0.1:3->3/tcp
+EOF
+)"
+gelijk "geen invoer: niets" "" "$(poorten_naar_buiten </dev/null)"
+
+echo "== kubectl_niet_gevonden =="
+
+gelijk "NotFound" 0 "$(code_van kubectl_niet_gevonden 'Error from server (NotFound): deployments.apps "organization-api" not found')"
+gelijk "API weigert de verbinding" 1 "$(code_van kubectl_niet_gevonden 'The connection to the server 127.0.0.1:43917 was refused - did you specify the right host or port?')"
+gelijk "API onbereikbaar" 1 "$(code_van kubectl_niet_gevonden 'Unable to connect to the server: dial tcp 127.0.0.1:43917: connect: connection refused')"
+gelijk "geen rechten" 1 "$(code_van kubectl_niet_gevonden 'Error from server (Forbidden): deployments.apps "organization-api" is forbidden')"
+gelijk "lege uitvoer" 1 "$(code_van kubectl_niet_gevonden '')"
+
 echo "== het script zelf, met stubs =="
 
 SCRIPT="$HIER/../fundament-testcluster.sh"
@@ -403,6 +451,125 @@ gelijk "af met eigen sandbox: exit 0" 0 "$code"
 bevat "af met eigen sandbox: sandbox weg" "fj plugins cluster-delete" "$uitvoer"
 bevat_niet "af zonder --met-platform: platform blijft" "fj cluster-delete" "$uitvoer"
 bevat "af zonder --met-platform: wijst op de vlag" "af --met-platform" "$uitvoer"
+
+# --- controleer_dienst: het oordeel per controle ---
+
+# kc beantwoordt de rollout ($ROLLOUT), en "<spec.replicas> <readyReplicas>" ($STAAT); de probes
+# en de Gateway geven wat de variabelen zeggen. GATEWAY_WACHTTIJD=0: niet drie minuten wachten.
+CONTROLE_STUBS='GATEWAY_WACHTTIJD=0;
+kc() { case "$*" in *"rollout status"*) return "${ROLLOUT:-0}" ;; *jsonpath*) echo "$STAAT" ;; *) return 0 ;; esac; };
+probe_code() { if [ "$2" = met-label ]; then echo "$MET"; else echo "$ZONDER"; fi; };
+via_gateway() { if [ "$2" = /openapi.json ]; then echo "$OPENAPI"; else echo "$Q"; fi; };'
+
+controle() {
+  in_script "$CONTROLE_STUBS $1; controleer_dienst stelselregister; echo \"FOUTEN=\$fouten\""
+}
+
+GOED='STAAT="2 2"; MET="200 0"; ZONDER="000 28"; OPENAPI=200; Q=404'
+uitvoer=$(controle "$GOED")
+bevat "controleer: alles in orde, geen fouten" "FOUTEN=0" "$uitvoer"
+gelijk "controleer: vijf OK-regels" 5 "$(grep -c '^OK:' <<<"$uitvoer")"
+uitvoer=$(controle "$GOED; STAAT='2 1'")
+bevat "controleer: één van twee replica's niet gereed is een fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; STAAT='0 '")
+bevat "controleer: nul replica's is een fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; ROLLOUT=1")
+bevat "controleer: rollout niet klaar is een fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; MET='000 7'")
+bevat "controleer: probe met label zonder antwoord is een fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; ZONDER='000 6'")
+bevat "controleer: probe zonder label die de naam niet vindt is een fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; ZONDER='200 0'")
+bevat "controleer: probe zonder label die binnenkomt is een fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; OPENAPI=503")
+bevat "controleer: Gateway geeft 503 is een fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; Q=200")
+bevat "controleer: /q via de Gateway bereikbaar is een fout" "FOUTEN=1" "$uitvoer"
+
+# Een probe-pod die niet start (PSA, image, scheduling), met de echte probe_code: dat mag niet
+# lezen als "de NetworkPolicy weigert".
+uitvoer=$(in_script 'GATEWAY_WACHTTIJD=0;
+kc() { case "$*" in *"rollout status"*) return 0 ;; *jsonpath*) echo "1 1" ;; *apply*) return 1 ;; *logs*) return 1 ;; *) return 0 ;; esac; };
+wacht_tot() { shift 2; "$@"; }; pod_klaar() { return 1; };
+via_gateway() { if [ "$2" = /openapi.json ]; then echo 200; else echo 404; fi; };
+controleer_dienst stelselregister; echo "FOUTEN=$fouten"')
+bevat_niet "probe-pod start niet: geen OK voor de weigering" "OK: stelselregister weigert" "$uitvoer"
+bevat "probe-pod start niet: beide probes fout" "FOUTEN=2" "$uitvoer"
+
+# --- voorcontrole ---
+
+VOOR_STUBS='poort_vrij() { return "${BEZET:-0}"; }; sandbox_bestaat() { [ "${SANDBOX:-nee}" = ja ]; };
+sandbox_van_ons() { [ "${VAN_ONS:-ja}" = ja ]; }; platform_bestaat() { [ "${PLATFORM:-nee}" = ja ]; };
+docker_poorten() { printf "%s\n" "${POORTEN:-}"; };'
+code=0
+uitvoer=$(in_script "$VOOR_STUBS voorcontrole") || code=$?
+gelijk "voorcontrole: niets staat er, poort vrij: exit 0" 0 "$code"
+code=0
+uitvoer=$(in_script "$VOOR_STUBS BEZET=1; voorcontrole") || code=$?
+gelijk "voorcontrole: poort bezet: exit 2" 2 "$code"
+code=0
+uitvoer=$(in_script "$VOOR_STUBS SANDBOX=ja; VAN_ONS=nee; voorcontrole") || code=$?
+gelijk "voorcontrole: vreemde sandbox: exit 2" 2 "$code"
+code=0
+uitvoer=$(in_script "$VOOR_STUBS SANDBOX=ja; voorcontrole") || code=$?
+gelijk "voorcontrole: eigen sandbox: exit 0" 0 "$code"
+code=0
+uitvoer=$(in_script "$VOOR_STUBS PLATFORM=ja; POORTEN='k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 0.0.0.0:43917->6443/tcp'; voorcontrole") || code=$?
+gelijk "voorcontrole: platform op loopback: exit 0" 0 "$code"
+code=0
+uitvoer=$(in_script "$VOOR_STUBS PLATFORM=ja; POORTEN='k3d-fundament-serverlb|0.0.0.0:54328->54328/tcp'; voorcontrole") || code=$?
+gelijk "voorcontrole: platform met poorten op alle adressen: exit 2" 2 "$code"
+bevat "voorcontrole: noemt de poort" "0.0.0.0:54328" "$uitvoer"
+
+# --- platform_op: alleen uitrollen als het platform er aantoonbaar niet is ---
+
+PLATFORM_STUBS='platform_bestaat() { true; }; fj() { :; }; mise() { echo "UITROL $*"; };
+wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; };
+docker_poorten() { :; }; mkdir -p "$WORKTREE";'
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Unable to connect to the server: dial tcp 127.0.0.1:43917: connect: connection refused' >&2; return 1 ;; esac; }; platform_op") || code=$?
+gelijk "platform_op: API-fout: exit 1" 1 "$code"
+bevat_niet "platform_op: API-fout: niet opnieuw uitrollen" "UITROL" "$uitvoer"
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Error from server (NotFound): deployments.apps \"organization-api\" not found' >&2; return 1 ;; esac; }; platform_op") || code=$?
+gelijk "platform_op: niet uitgerold: exit 0" 0 "$code"
+bevat "platform_op: niet uitgerold: uitrollen" "UITROL exec -- skaffold run" "$uitvoer"
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; platform_op") || code=$?
+gelijk "platform_op: al uitgerold: exit 0" 0 "$code"
+bevat_niet "platform_op: al uitgerold: niet opnieuw uitrollen" "UITROL" "$uitvoer"
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; docker_poorten() { echo 'k3d-fundament-serverlb|0.0.0.0:54328->54328/tcp'; }; platform_op") || code=$?
+gelijk "platform_op: poort op alle adressen na het opzetten: exit 2" 2 "$code"
+
+# --- api_key_maken: elke key een eigen naam ---
+
+# Een key verloopt na een uur, maar zijn naam blijft bezet: een tweede key met dezelfde naam weigert
+# het platform (already_exists). Twee keer na elkaar maken moet dus twee namen opleveren.
+uitvoer=$(in_script 'WERK=$(mktemp -d); mkcert() { echo /geen; };
+curl() { local a; case "$*" in *login/password*) echo "{\"access_token\":\"t\"}" ;;
+  *CreateAPIKey*) for a; do case "$a" in *expiresIn*) echo "$a" >>"$WERK/aanvragen" ;; esac; done; echo "{\"token\":\"k\"}" ;; esac; };
+api_key_maken >/dev/null; api_key_maken >/dev/null; jq -r .name "$WERK/aanvragen"')
+gelijk "api_key_maken: twee keys, twee namen" 2 "$(sort -u <<<"$uitvoer" | grep -c '^fbs-fundament-testcluster-')"
+
+uitvoer=$(in_script 'WERK=$(mktemp -d); mkcert() { echo /geen; };
+curl() { case "$*" in *login/password*) echo "{\"access_token\":\"t\"}" ;; *) echo "{\"code\":\"already_exists\"}" ;; esac; };
+api_key_maken || echo MISLUKT')
+bevat "api_key_maken: een weigering noemt het antwoord van het platform" "already_exists" "$uitvoer"
+bevat "api_key_maken: een weigering faalt" "MISLUKT" "$uitvoer"
+
+# --- replica's ---
+
+uitvoer=$(REPLICAS=3 in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args stelselregister; printf "%s\n" "${DIENST_ARGS[@]}"')
+bevat "dienst_args: het aantal replica's gaat naar de chart" "dienst.replicaCount=3" "$uitvoer"
+uitvoer=$(in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args stelselregister; printf "%s\n" "${DIENST_ARGS[@]}"')
+bevat "dienst_args: standaard twee replica's" "dienst.replicaCount=2" "$uitvoer"
+# vereis_tools breekt af met 9: komt op voorbij de validatie, dan draait er verder niets echt.
+for ongeldig in 0 -1 twee 1.5 " 2"; do
+  code=0
+  uitvoer=$(REPLICAS=$ongeldig TAG=main-1234567 in_script 'vereis_tools() { exit 9; }; op') || code=$?
+  gelijk "op met REPLICAS='$ongeldig': exit 2" 2 "$code"
+done
 
 echo "== kubectl en helm alleen via de wrappers =="
 

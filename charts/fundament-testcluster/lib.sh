@@ -126,6 +126,33 @@ image_uit_definitie() {
   sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]]+@sha256:[0-9a-f]{64})[[:space:]]*$/\1/p' <<<"$1" | head -1 | grep . || return 1
 }
 
+# Gepubliceerde poorten op alle adressen (0.0.0.0 of ::), uit regels "<container>|<poorten>" van
+# docker ps; print "<container> <binding>" per poort. De Kubernetes-API (->6443) telt niet mee: k3d
+# zet die altijd op alle adressen, en hij vraagt een clientcertificaat.
+poorten_naar_buiten() {
+  local naam poorten binding
+  local -a bindingen
+
+  while IFS='|' read -r naam poorten; do
+    IFS=',' read -ra bindingen <<<"$poorten"
+
+    for binding in "${bindingen[@]}"; do
+      binding=${binding# }
+
+      case "$binding" in
+        *"->6443/tcp") ;;
+        0.0.0.0:* | "[::]:"* | :::*) echo "$naam $binding" ;;
+      esac
+    done
+  done
+}
+
+# Slaagt als kubectl meldde dat het object niet bestaat. Elke andere fout (API onbereikbaar, geen
+# rechten) zegt niets over of het er is.
+kubectl_niet_gevonden() {
+  grep -q '^Error from server (NotFound)' <<<"$1"
+}
+
 # Slaagt als niemand op 127.0.0.1:<poort> luistert. Ook een listener op alle adressen bezet hem.
 poort_vrij() {
   ! ss -ltnH "sport = :$1" | grep -q .
@@ -352,9 +379,9 @@ EOF
 }
 
 # Een eenmalige pod die /q/health/ready van een dienst binnen het cluster opvraagt en de
-# statuscode logt. Het label is wat de NetworkPolicy van de chart doorlaat; zonder komt hij niet
-# binnen. Een nieuwe pod staat pas na een korte vertraging in de toelatingslijst van de
-# policy-controller, vandaar de herhaling.
+# statuscode logt, met de exitcode van curl erachter (zie probe_geweigerd). Het label is wat de
+# NetworkPolicy van de chart doorlaat; zonder komt hij niet binnen. Een nieuwe pod staat pas na een
+# korte vertraging in de toelatingslijst van de policy-controller, vandaar de herhaling.
 manifest_probe() {
   local ns=$1 dienst=$2 image=$3 soort=${4:-met-label}
   local naam=probe-$dienst labels="  labels:
@@ -383,8 +410,24 @@ spec:
     - name: curl
       image: $image
       securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
-      args: [-s, -o, /dev/null, -w, '%{http_code}', --max-time, "5", ${herhaling}"http://$dienst.$ns.svc/q/health/ready"]
+      args: [-s, -o, /dev/null, -w, '%{http_code} %{exitcode}', --max-time, "5", ${herhaling}"http://$dienst.$ns.svc/q/health/ready"]
 EOF
+}
+
+# Slaagt als de uitvoer van een probe ("<http-status> <exitcode van curl>") toont dat de dienst
+# de verbinding weigert: geen antwoord, en curl kreeg geen verbinding (7) of liep in zijn
+# tijdslimiet (28). Een probe die niet draaide of de naam niet vond, zegt niets over de
+# NetworkPolicy.
+probe_geweigerd() {
+  local status exitcode rest
+
+  read -r status exitcode rest <<<"$1"
+  [ "$status" = 000 ] && [ -z "$rest" ] || return 1
+
+  case "$exitcode" in
+    7 | 28) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # --- Values --------------------------------------------------------------------------------------

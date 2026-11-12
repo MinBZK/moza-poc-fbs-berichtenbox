@@ -37,7 +37,10 @@ HTTPS_POORT=${HTTPS_POORT:-9443}
 FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
 FUNDAMENT_REF=${FUNDAMENT_REF:-b9c1253103f0121ec061507fc241580b94bc3ab4}
 FUNDAMENT_SUBNET=${FUNDAMENT_SUBNET:-172.29.0.0/16}
-readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET
+# Twee replica's: zo toetst de proef ook wat één pod verbergt (een tweede pod die niet start,
+# gelijktijdige migraties, de PodDisruptionBudget).
+REPLICAS=${REPLICAS:-2}
+readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET REPLICAS
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster
 WORKTREE=$CACHE/fundament-${FUNDAMENT_REF:0:8}
 readonly CACHE WORKTREE
@@ -152,6 +155,31 @@ platform_gereed() {
   [ "$(kcp -n fundament get deployment organization-api -o jsonpath='{.status.availableReplicas}' 2>/dev/null)" -ge 1 ] 2>/dev/null
 }
 
+# De gepubliceerde poorten van alles op de twee netwerken van deze opstelling, als
+# "<container>|<poorten>". Faalt als docker faalt: een lege lijst mag dan niet als "in orde" lezen.
+docker_poorten() {
+  local netwerk
+
+  for netwerk in k3d-fundament k3d-fundament-plugin; do
+    docker ps --filter "network=$netwerk" --format '{{.Names}}|{{.Ports}}' || return 1
+  done | sort -u
+}
+
+# Slaagt als niets van de opstelling op alle adressen luistert, behalve de Kubernetes-API's (zie
+# poorten_naar_buiten). Een platform dat met Fundaments eigen recipes is gemaakt, of een k3d-config
+# die k3d_config_loopback niet herkent, valt hier op.
+alleen_loopback() {
+  local poorten open
+
+  poorten=$(docker_poorten) || { echo "docker ps faalde" >&2; return 1; }
+  open=$(poorten_naar_buiten <<<"$poorten")
+  [ -z "$open" ] && return 0
+
+  echo "Op alle adressen:" >&2
+  echo "$open" >&2
+  return 1
+}
+
 console_antwoordt() {
   curl -sf -o /dev/null --max-time 5 --cacert "$(mkcert -CAROOT)/rootCA.pem" https://console.fundament.localhost:8443/
 }
@@ -184,9 +212,19 @@ platform_op() {
     platform_maken
   fi
 
-  if kcp -n fundament get deployment organization-api >/dev/null 2>&1; then
+  # Na een herstart antwoordt de API pas na een poos. Pas daarna zegt een mislukte get iets.
+  wacht_tot 180 "Kubernetes-API van het platform" kcp get --raw=/readyz ||
+    stop 1 "de Kubernetes-API van het platform antwoordt niet; zie: docker ps --filter network=k3d-fundament"
+
+  local uitvoer
+
+  if uitvoer=$(kcp -n fundament get deployment organization-api -o name 2>&1); then
     wacht_tot 600 "platform gereed" platform_gereed ||
       stop 1 "het platform draait maar wordt niet gereed; zie: kubectl --context $PLATFORM_CONTEXT -n fundament get pods. Opnieuw uitrollen wist het: $0 af --met-platform en $0 op"
+  elif ! kubectl_niet_gevonden "$uitvoer"; then
+    # Uitrollen over een bestaand platform wist zijn databases; alleen bij een zekere NotFound.
+    echo "$uitvoer" >&2
+    stop 1 "kon niet vaststellen of het platform al is uitgerold"
   else
     # Zoals `just dev`, maar eenmalig. Niet `just deploy local`: dat pusht naar
     # k3d-registry.localhost:5111 (SKAFFOLD_DEFAULT_REPO uit hun mise.toml), een naam die de
@@ -198,15 +236,22 @@ platform_op() {
 
   wacht_tot 900 "console bereikbaar op https://console.fundament.localhost:8443" console_antwoordt ||
     stop 1 "de console antwoordt niet; zie: kubectl --context $PLATFORM_CONTEXT -n fundament get pods"
+
+  alleen_loopback ||
+    stop 2 "het platform publiceert poorten op alle adressen (hierboven); ruim het op met: $0 af --met-platform"
 }
 
 # Een API-key voor functl, zoals de e2e-suite van Fundament die maakt: inloggen met het
 # wachtwoord van het seed-account platform-admin (charts/fundament/values-local.yaml van
 # Fundament; bestaat alleen lokaal) en CreateAPIKey aanroepen. Het toegangstoken gaat via een
 # bestand naar curl, niet op de commandoregel: die is via ps zichtbaar voor andere gebruikers.
+#
+# Elke key een eigen naam: een verlopen key houdt zijn naam bezet, en het platform weigert een
+# tweede met dezelfde (already_exists).
 api_key_maken() {
-  local ca token antwoord
+  local ca token antwoord naam
   ca="$(mkcert -CAROOT)/rootCA.pem"
+  naam=fbs-fundament-testcluster-$(date -u +%Y%m%dT%H%M%S)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')
 
   token=$(curl -sf --cacert "$ca" -X POST https://authn.fundament.localhost:8443/login/password \
     -H 'Content-Type: application/json' -d '{"email":"platform-admin@fundament.io","password":"password"}' |
@@ -217,10 +262,11 @@ api_key_maken() {
     https://organization.fundament.localhost:8443/organization.v1.APIKeyService/CreateAPIKey \
     -H 'Content-Type: application/json' -H @"$WERK/auth-header" \
     -H "Fun-Organization: $SYSTEM_ORGANISATIE_ID" -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" \
-    -d '{"name":"fbs-fundament-testcluster","expiresIn":"1h"}')
+    -d "{\"name\":\"$naam\",\"expiresIn\":\"1h\"}")
   rm -f "$WERK/auth-header"
 
-  api_key_uit_antwoord "$antwoord"
+  # Een weigering bevat geen key; het antwoord zegt waarom.
+  api_key_uit_antwoord "$antwoord" || { echo "$antwoord" >&2; return 1; }
 }
 
 # functl inloggen voor de organisatie system. Een eerdere sessie blijft geldig tot de key
@@ -256,8 +302,14 @@ sandbox_van_ons() {
     "$(docker port k3d-fundament-plugin-serverlb 2>/dev/null)" "$HTTPS_POORT"
 }
 
-# Weigert vóór er iets wordt aangemaakt: een sandbox die niet van ons is, of een bezette poort.
+# Weigert vóór er iets wordt aangemaakt: een sandbox die niet van ons is, een bezette poort, of
+# een draaiend platform met poorten op alle adressen (gemaakt met de recipes van Fundament zelf).
 voorcontrole() {
+  if platform_bestaat; then
+    alleen_loopback ||
+      stop 2 "het platform k3d-fundament publiceert poorten op alle adressen (hierboven) en is niet met deze opstelling gemaakt; ruim het op met: $0 af --met-platform"
+  fi
+
   if sandbox_bestaat; then
     sandbox_van_ons || stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: $0 af"
   else
@@ -308,6 +360,8 @@ sandbox_op() {
   fj plugins deploy
   fj plugin-sandbox-kubeconfig
   relays_op
+
+  alleen_loopback || stop 2 "de sandbox publiceert poorten op alle adressen (hierboven); ruim hem op met: $0 af"
 }
 
 installatie_klaar() { plugin_staat_klaar "$(kc get plugininstallation "$1" -o json 2>/dev/null)"; }
@@ -517,7 +571,8 @@ dienst_args() {
   fi
 
   values_dienst "$dienst" "$NS" >"$WERK/$dienst-values.yaml"
-  DIENST_ARGS+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh)
+  DIENST_ARGS+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh \
+    --set "dienst.replicaCount=$REPLICAS")
 }
 
 # Installeert één dienst met de chart; extra argumenten gaan naar helm (route, rol). Het expliciete
@@ -593,7 +648,8 @@ pod_klaar() {
   esac
 }
 
-# Draait een probe-pod en print de statuscode die hij logde (000 zonder antwoord).
+# Draait een probe-pod en print wat hij logde: "<http-status> <exitcode van curl>". Een pod die
+# niet draaide of niets logde, geeft "geen-uitvoer": dat mag niet lezen als een weigering.
 probe_code() {
   local dienst=$1 soort=$2 naam=probe-$1
 
@@ -603,9 +659,9 @@ probe_code() {
   manifest_probe "$NS" "$dienst" "$CURL_IMAGE" "$soort" | kc apply -f - >/dev/null
 
   if wacht_tot 120 "probe $naam klaar" pod_klaar "$naam" >/dev/null; then
-    kc -n "$NS" logs "$naam" 2>/dev/null || echo 000
+    kc -n "$NS" logs "$naam" 2>/dev/null | grep . || echo geen-uitvoer
   else
-    echo 000
+    echo geen-uitvoer
   fi
 }
 
@@ -617,6 +673,7 @@ via_gateway() {
 }
 
 fouten=0
+GATEWAY_WACHTTIJD=180
 
 fout() {
   fouten=$((fouten + 1))
@@ -624,21 +681,27 @@ fout() {
 }
 
 controleer_dienst() {
-  local dienst=$1 code
+  local dienst=$1 code staat="" gewenst gereed
 
-  # Een rollout naar nul replica's is ook af; tel daarom de gereede pods mee.
-  if kc -n "$NS" rollout status "deployment/$dienst" --timeout=5m >/dev/null &&
-    [ "$(kc -n "$NS" get deployment "$dienst" -o jsonpath='{.status.readyReplicas}')" -ge 1 ] 2>/dev/null; then
-    echo "OK: $dienst rollout klaar, met een gereede pod"
+  # Een rollout naar nul replica's is ook af; daarom moeten alle gewenste pods gereed zijn, en
+  # minstens één.
+  if kc -n "$NS" rollout status "deployment/$dienst" --timeout=5m >/dev/null; then
+    staat=$(kc -n "$NS" get deployment "$dienst" -o jsonpath='{.spec.replicas} {.status.readyReplicas}') || true
+  fi
+
+  read -r gewenst gereed <<<"$staat" || true
+
+  if [ "${gewenst:-0}" -ge 1 ] 2>/dev/null && [ "${gereed:-0}" = "$gewenst" ]; then
+    echo "OK: $dienst rollout klaar, $gereed van $gewenst pods gereed"
   else
-    fout "$dienst rollout niet klaar, of zonder gereede pod"
+    fout "$dienst rollout niet klaar, of niet alle pods gereed (${gereed:-0} van ${gewenst:-0})"
     kc -n "$NS" logs "deployment/$dienst" --tail=40 || true
     kc -n "$NS" get events --field-selector "involvedObject.kind=Pod" --sort-by=.lastTimestamp | grep "$dienst" | tail -5 || true
   fi
 
   code=$(probe_code "$dienst" met-label)
 
-  if [ "$code" = 200 ]; then
+  if [ "${code%% *}" = 200 ]; then
     echo "OK: $dienst /q/health/ready binnen het cluster (200)"
   else
     fout "$dienst /q/health/ready binnen het cluster gaf $code, verwacht 200"
@@ -648,14 +711,14 @@ controleer_dienst() {
   # een pod er niet in te komen.
   code=$(probe_code "$dienst" zonder-label)
 
-  if [ "$code" = 000 ]; then
-    echo "OK: $dienst weigert een pod zonder clientlabel"
+  if probe_geweigerd "$code"; then
+    echo "OK: $dienst weigert een pod zonder clientlabel (curl ${code#* })"
   else
     fout "$dienst gaf $code aan een pod zonder clientlabel, verwacht geen verbinding"
   fi
 
-  # Envoy pikt een nieuwe route pas na de rollout op; uiterlijk drie minuten.
-  local einde=$((SECONDS + 180))
+  # Envoy pikt een nieuwe route pas na de rollout op.
+  local einde=$((SECONDS + GATEWAY_WACHTTIJD))
 
   until code=$(via_gateway "$dienst" /openapi.json) && [ "$code" = 200 ] || [ "$SECONDS" -ge "$einde" ]; do
     sleep 2
@@ -743,6 +806,7 @@ af() {
 
 op() {
   : "${TAG:?zet TAG op een gepubliceerde image-tag, bijvoorbeeld main-<sha7> van de laatste main-commit}"
+  [[ $REPLICAS =~ ^[1-9][0-9]?$ ]] || stop 2 "REPLICAS moet een geheel getal van 1 tot 99 zijn"
   vereis_tools docker mise git jq curl ss openssl mkcert
   # type -P: kubectl en helm zijn hierboven vangfuncties, command -v zou die vinden.
   type -P kubectl >/dev/null && type -P helm >/dev/null || stop 2 "kubectl en helm moeten op het PATH staan"
