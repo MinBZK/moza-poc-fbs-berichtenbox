@@ -226,12 +226,14 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
 ```
 
 `op` doet:
-- **Fundament** op een vaste commit (`FUNDAMENT_REF`) in een eigen worktree van een clone
-  (`FUNDAMENT_REPO`, standaard `~/dev/fundament`), met de tools uit hun `mise.toml`;
-- **het platform** (`k3d-fundament`), alleen als het nog niet draait: elke uitrol wist zijn
-  databases. De eerste keer bouwt dit alle images van Fundament;
+- **Fundament** op een vaste commit (`FUNDAMENT_REF`, een volledige SHA) in een eigen worktree
+  van een clone (`FUNDAMENT_REPO`, standaard `~/dev/fundament`), met de tools uit hun
+  `mise.toml`. Het voert hun code en recipes uit, met de rechten van Docker;
+- **het platform** (`k3d-fundament`), alleen uitgerold als het er nog niet is: elke uitrol wist
+  zijn databases. De eerste keer bouwt dit alle images van Fundament;
 - **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite;
-- **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`;
+- **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
+  de relays van de sandbox naar het platform;
 - **de plug-ins**: publiceren, goedkeuren en installeren;
 - **in `tnt-fbs--fbs`**: Gateway `web` met een https-listener en een certificaat van cert-manager
   uit een lokale CA, twee databases uit CloudNativePG (PostgreSQL 18, TLS) en Redis Stack;
@@ -243,23 +245,45 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
 
 De controle eist per dienst:
 - een rollout met een gereede pod;
-- binnen het cluster `/q/health/ready` 200, vanaf een pod met het clientlabel;
+- binnen het cluster `/q/health/ready` 200 vanaf een pod mét het clientlabel, en geen verbinding
+  vanaf een pod zonder;
 - via de Gateway, over https met het certificaat getoetst, `/openapi.json` 200 en `/q` 404.
 
 Waarin het afwijkt van het fieldlab:
 - opslag via local-path in plaats van Ceph;
-- een lokale CA in plaats van Let's Encrypt;
-- Redis als proefvoorziening zonder TLS, met de klep `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT`;
+- een lokale CA in plaats van Let's Encrypt. Let's Encrypt met HTTP-01 vraagt op het fieldlab ook
+  een `http`-listener op 80 voor de challenge; houd de route dan met `sectionName=https` aan de
+  https-listener;
+- PostgreSQL 18 via een eigen `Cluster`-manifest. De console van de plug-in biedt 16 en 17;
+- de NetworkPolicy wordt hier afgedwongen door k3s, op het fieldlab door een andere netwerklaag.
+  Toets de weigering daar opnieuw;
 - de namespace draagt Pod Security `restricted`, zoals een namespace van een plug-in, en mist
   de beheerlabels van Fundament: de cluster-worker van het lokale platform ziet de sandbox, en
   verwijdert een namespace met die labels die hij niet kent.
+
+Wat hier kan omdat alles op loopback staat, maar op het fieldlab een keuze vraagt:
+- **`ingress.allowUnauthenticated=true`.** Op het fieldlab krijgt de Gateway een publiek adres.
+  Beperk de toegang in de Gateway, of zet er bewust alleen proefgegevens achter;
+- **`dienst.tlsTermination=mesh`.** Ga na of het pod-netwerk van het fieldlab het verkeer tussen
+  Gateway en pod versleutelt voordat er echte berichten overheen gaan;
+- **Redis zonder TLS**, met de klep `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT`. Er is geen Redis-plug-in.
+  Op het fieldlab hoort het `rediss://` met wachtwoord te zijn, of de klep bewust, met het alert
+  `REDIS_UNPROTECTED`.
+
+Wat er op de machine openstaat: de https-poort, de registries (5111, 5112), de database van het
+platform (54328) en de relays staan op loopback of op het Docker-netwerk van de sandbox. De
+Kubernetes-API's van beide k3d-clusters luisteren op alle adressen; die vragen een
+clientcertificaat. Fundament's eigen `just plugins sandbox-catalog` zet de relays op 0.0.0.0,
+inclusief de inlog van het seed-account. Het script gebruikt die recipe daarom niet.
 
 Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss`,
 `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
 - `HTTPS_POORT` (standaard 9443);
 - `FUNDAMENT_SUBNET` (standaard `172.29.0.0/16`): Fundament neemt anders 172.19, dat op een
   machine met meer compose-projecten vaak bezet is;
-- `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte.
+- `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte. Zet hem met `read -rs
+  FUNCTL_API_KEY && export FUNCTL_API_KEY`, niet inline: dan belandt hij niet in de
+  shellgeschiedenis.
 
-Ook dit script noemt bij elke aanroep de context. Het zet de huidige context terug als het
-aanmaken van het platform die wisselde.
+Ook dit script noemt bij elke aanroep de context, en het wisselt de huidige context niet. Een
+kale `kubectl` of `helm` in het script breekt het af.

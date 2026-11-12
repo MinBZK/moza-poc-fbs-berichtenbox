@@ -12,8 +12,9 @@
 #   charts/fundament-testcluster.sh af [--met-platform]        sandbox weg; het platform alleen op verzoek
 #
 # Leunt op een clone van fundament-oss/fundament (FUNDAMENT_REPO) en draait die op een vaste commit
-# (FUNDAMENT_REF) in een eigen worktree, met de tools uit hun mise.toml. Voor het publiceren van de
-# plug-ins maakt het zelf een API-key met het lokale seed-account; FUNCTL_API_KEY gaat voor.
+# (FUNDAMENT_REF) in een eigen worktree, met de tools uit hun mise.toml: het voert hun code en
+# recipes uit, met de rechten van Docker. Voor het publiceren van de plug-ins maakt het zelf een
+# API-key met het lokale seed-account; FUNCTL_API_KEY gaat voor.
 #
 # Elke kubectl- en helm-aanroep noemt de context, en het script wisselt de huidige context niet:
 # de proefinstallatie heeft een onveilige klep (Redis zonder TLS) en mag niet in een echt cluster
@@ -34,15 +35,17 @@ readonly PLATFORM_CONTEXT=k3d-fundament
 readonly NS=tnt-fbs--fbs
 HTTPS_POORT=${HTTPS_POORT:-9443}
 FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
-FUNDAMENT_REF=${FUNDAMENT_REF:-b9c12531}
+FUNDAMENT_REF=${FUNDAMENT_REF:-b9c1253103f0121ec061507fc241580b94bc3ab4}
 FUNDAMENT_SUBNET=${FUNDAMENT_SUBNET:-172.29.0.0/16}
 readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET
-WERKBOOM=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-$FUNDAMENT_REF
-readonly WERKBOOM
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster
+WORKTREE=$CACHE/fundament-${FUNDAMENT_REF:0:8}
+readonly CACHE WORKTREE
 
 readonly CURL_IMAGE=docker.io/curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40
 readonly REDIS_IMAGE=docker.io/redis/redis-stack-server:7.4.0-v3@sha256:7d8e657d60d525534d6abe96e7645ab30ef1b4f1ffedc6eeb2d4d4283b3a49b9
 readonly K3S_IMAGE=docker.io/rancher/k3s:v1.36.6-k3s1@sha256:88d3fac10eb4a429d3c5275f4868fe4b13620f6bbca5bdb5dca0627ac76ae2a0
+readonly SOCAT_IMAGE=docker.io/alpine/socat@sha256:e8a6e8868a8e6e01d9c2c321a8f8d4474d2d741d962462e5c5a124a8e66a0055
 
 # De organisatie system publiceert de first-party plug-ins (seeddata van Fundament).
 readonly SYSTEM_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000000
@@ -51,21 +54,31 @@ readonly SYSTEM_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000000
 readonly PLUGINS=(gateway-api/envoy-gateway:gateway-api-envoy cert-manager:cert-manager cloudnativepg:cloudnativepg)
 # Een geseede DCIM-gebruiker van Fundament die versies mag goedkeuren (zoals in test-env).
 readonly REVIEWER=alice@acme-corp.com
-# De relay van `just plugins sandbox-catalog` naar marketplace-catalog-api (hun vaste poort).
-readonly CATALOGUS_POORT=38080
+# De relays van de sandbox naar het platform: de poorten en NodePorts van hun sandbox-catalog.
+readonly CATALOGUS_POORT=38080 AUTHN_POORT=38081
 
 # Een eigen functl-configuratie: de sessie van deze opstelling mag die van de gebruiker niet
 # overschrijven.
-export FUNCTL_CONFIG_DIR=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/functl
+export FUNCTL_CONFIG_DIR=$CACHE/functl
 
-kc() { kubectl --context "$SANDBOX_CONTEXT" "$@"; }
-kcp() { kubectl --context "$PLATFORM_CONTEXT" "$@"; }
-hm() { helm --kube-context "$SANDBOX_CONTEXT" "$@"; }
-# Alleen voor het lezen en terugzetten van de huidige context, nooit voor iets in een cluster.
-kconfig() { kubectl config "$@"; }
+kc() { command kubectl --context "$SANDBOX_CONTEXT" "$@"; }
+kcp() { command kubectl --context "$PLATFORM_CONTEXT" "$@"; }
+hm() { command helm --kube-context "$SANDBOX_CONTEXT" "$@"; }
+
+# Een kale aanroep zou de huidige context van de gebruiker gebruiken, en dat kan een echt cluster
+# zijn. Elke aanroep loopt via kc, kcp of hm; deze vangen wat daar toch omheen gaat.
+kubectl() {
+  echo "FOUT: kubectl zonder vaste context; gebruik kc of kcp" >&2
+  exit 2
+}
+
+helm() {
+  echo "FOUT: helm zonder vaste context; gebruik hm" >&2
+  exit 2
+}
 
 # Een recipe van Fundament, in de worktree en met de tools uit hun mise.toml.
-fj() { (cd "$WERKBOOM" && mise exec -- just "$@"); }
+fj() { (cd "$WORKTREE" && mise exec -- just "$@"); }
 
 stap() { echo "== $* =="; }
 
@@ -101,32 +114,37 @@ vereis_tools() {
   [ "${#ontbreekt[@]}" -eq 0 ] || stop 2 "ontbreekt op het PATH: ${ontbreekt[*]}"
 }
 
+# Geen umask voor het hele proces: die geldt dan ook voor de checkout van Fundament, en Docker
+# kopieert die bestandsrechten in hun images. mktemp -d maakt de map al alleen voor de eigenaar.
+werkmap() {
+  WERK=$(mktemp -d)
+  trap 'rm -rf "$WERK"' EXIT
+}
+
 # --- Fundament -----------------------------------------------------------------------------------
 
 # Fundament op FUNDAMENT_REF in een eigen worktree, zodat de clone zelf niet verandert en de
 # opstelling niet meebeweegt met wat daar toevallig uitgecheckt staat.
-fundament_werkboom() {
+fundament_worktree() {
+  is_commit_sha "$FUNDAMENT_REF" || stop 2 "FUNDAMENT_REF moet een volledige commit-SHA zijn, geen branch of korte SHA"
   [ -d "$FUNDAMENT_REPO/.git" ] || stop 2 "geen clone van fundament-oss/fundament in $FUNDAMENT_REPO (zet FUNDAMENT_REPO)"
-
-  local commit
-  commit=$(git -C "$FUNDAMENT_REPO" rev-parse --verify --quiet "$FUNDAMENT_REF^{commit}") ||
+  git -C "$FUNDAMENT_REPO" cat-file -e "$FUNDAMENT_REF^{commit}" 2>/dev/null ||
     stop 2 "$FUNDAMENT_REF bestaat niet in $FUNDAMENT_REPO (git -C $FUNDAMENT_REPO fetch)"
 
-  if [ -d "$WERKBOOM" ]; then
-    [ "$(git -C "$WERKBOOM" rev-parse HEAD)" = "$commit" ] ||
-      stop 2 "$WERKBOOM staat niet op $FUNDAMENT_REF; ruim hem op met: $0 af"
+  if [ -d "$WORKTREE" ]; then
+    [ "$(git -C "$WORKTREE" rev-parse HEAD)" = "$FUNDAMENT_REF" ] ||
+      stop 2 "$WORKTREE staat niet op $FUNDAMENT_REF; ruim hem op met: $0 af"
   else
-    stap "Fundament $FUNDAMENT_REF in $WERKBOOM"
-    mkdir -p "$(dirname "$WERKBOOM")"
-    git -C "$FUNDAMENT_REPO" worktree add --detach "$WERKBOOM" "$commit"
+    stap "Fundament ${FUNDAMENT_REF:0:8} in $WORKTREE"
+    mkdir -p "$CACHE"
+    git -C "$FUNDAMENT_REPO" worktree add --detach "$WORKTREE" "$FUNDAMENT_REF"
   fi
 
-  (cd "$WERKBOOM" && mise trust --quiet && mise install --quiet)
+  (cd "$WORKTREE" && mise trust --quiet && mise install --quiet)
 }
 
-platform_draait() {
-  [ "$(docker inspect -f '{{.State.Running}}' k3d-fundament-server-0 2>/dev/null)" = true ]
-}
+platform_bestaat() { docker inspect k3d-fundament-server-0 >/dev/null 2>&1; }
+sandbox_bestaat() { docker inspect k3d-fundament-plugin-server-0 >/dev/null 2>&1; }
 
 # Een Deployment die bestaat maar niet start (een image dat niet op te halen is) telt niet als
 # een draaiend platform.
@@ -134,51 +152,47 @@ platform_gereed() {
   [ "$(kcp -n fundament get deployment organization-api -o jsonpath='{.status.availableReplicas}' 2>/dev/null)" -ge 1 ] 2>/dev/null
 }
 
-context_terugzetten() {
-  local voor=$1
-
-  [ "$(kconfig current-context 2>/dev/null || true)" != "$voor" ] || return 0
-
-  if [ -n "$voor" ]; then
-    kconfig use-context "$voor" >/dev/null
-  else
-    kconfig unset current-context >/dev/null
-  fi
-
-  echo "OK: huidige context teruggezet op ${voor:-<geen>}"
-}
-
 console_antwoordt() {
   curl -sf -o /dev/null --max-time 5 --cacert "$(mkcert -CAROOT)/rootCA.pem" https://console.fundament.localhost:8443/
 }
 
-# Het platform, alleen als het nog niet draait: elke uitrol wist zijn databases, en daarmee de
-# API-keys en de gepubliceerde plug-ins.
+# Hun cluster-create, maar met de poorten en registry op loopback en zonder de huidige context te
+# wisselen.
+platform_maken() {
+  # Fundament maakt het netwerk anders zelf op 172.19.0.0/16, alleen om 172.18 (Gardener) te
+  # ontwijken; op een machine met meer compose-projecten is dat subnet vaak al bezet.
+  if ! docker network inspect k3d-fundament >/dev/null 2>&1; then
+    docker network create --subnet "$FUNDAMENT_SUBNET" k3d-fundament >/dev/null ||
+      stop 2 "subnet $FUNDAMENT_SUBNET is bezet (zet FUNDAMENT_SUBNET op een vrij /16)"
+  fi
+
+  k3d_config_loopback <"$WORKTREE/deploy/k3d/config.yaml" >"$WERK/platform-k3d.yaml"
+  (cd "$WORKTREE" && PWD=$WORKTREE mise exec -- k3d cluster create --config="$WERK/platform-k3d.yaml" \
+    --kubeconfig-switch-context=false)
+  fj setup-certs
+  fj setup-gateway
+}
+
+# Het platform. Uitrollen alleen als het er nog niet is: elke uitrol wist zijn databases, en
+# daarmee de API-keys en de gepubliceerde plug-ins. Een platform dat net is herstart, krijgt de tijd.
 platform_op() {
   stap "Fundament-platform ($PLATFORM_CONTEXT)"
 
-  if platform_draait && platform_gereed; then
-    echo "OK: platform draait al"
+  if platform_bestaat; then
+    fj cluster-start >/dev/null
   else
-    # Fundament maakt het netwerk anders zelf op 172.19.0.0/16, alleen om 172.18 (Gardener) te
-    # ontwijken; op een machine met meer compose-projecten is dat subnet vaak al bezet. Een
-    # bestaand netwerk k3d-fundament gebruikt hun recipe gewoon.
-    if ! docker network inspect k3d-fundament >/dev/null 2>&1; then
-      docker network create --subnet "$FUNDAMENT_SUBNET" k3d-fundament >/dev/null ||
-        stop 2 "subnet $FUNDAMENT_SUBNET is bezet (zet FUNDAMENT_SUBNET op een vrij /16)"
-    fi
+    platform_maken
+  fi
 
-    # k3d wisselt bij het aanmaken van het platform de huidige context; zet die terug, zodat een
-    # kale kubectl na deze opstelling nog wijst waar hij voor het draaien wees.
-    local context_voor
-    context_voor=$(kconfig current-context 2>/dev/null || true)
-    fj cluster-start
-    context_terugzetten "$context_voor"
+  if kcp -n fundament get deployment organization-api >/dev/null 2>&1; then
+    wacht_tot 600 "platform gereed" platform_gereed ||
+      stop 1 "het platform draait maar wordt niet gereed; zie: kubectl --context $PLATFORM_CONTEXT -n fundament get pods. Opnieuw uitrollen wist het: $0 af --met-platform en $0 op"
+  else
     # Zoals `just dev`, maar eenmalig. Niet `just deploy local`: dat pusht naar
     # k3d-registry.localhost:5111 (SKAFFOLD_DEFAULT_REPO uit hun mise.toml), een naam die de
     # node niet kent; de mirror in de k3d-config dekt alleen localhost:5111.
     echo "Platform uitrollen; de eerste keer bouwt dit alle images van Fundament en duurt het lang."
-    (cd "$WERKBOOM" && mise exec -- skaffold run --kube-context "$PLATFORM_CONTEXT" --profile env-local \
+    (cd "$WORKTREE" && mise exec -- skaffold run --kube-context "$PLATFORM_CONTEXT" --profile env-local \
       --default-repo=localhost:5111)
   fi
 
@@ -187,9 +201,9 @@ platform_op() {
 }
 
 # Een API-key voor functl, zoals de e2e-suite van Fundament die maakt: inloggen met het
-# wachtwoord van het seed-account platform-admin (alleen lokaal; elke uitrol van het platform zet
-# het terug) en CreateAPIKey aanroepen. Het toegangstoken gaat via een bestand naar curl, niet op
-# de commandoregel: die is via ps zichtbaar voor andere gebruikers.
+# wachtwoord van het seed-account platform-admin (charts/fundament/values-local.yaml van
+# Fundament; bestaat alleen lokaal) en CreateAPIKey aanroepen. Het toegangstoken gaat via een
+# bestand naar curl, niet op de commandoregel: die is via ps zichtbaar voor andere gebruikers.
 api_key_maken() {
   local ca token antwoord
   ca="$(mkcert -CAROOT)/rootCA.pem"
@@ -236,29 +250,64 @@ functl_inloggen() {
   echo "OK: functl ingelogd voor de organisatie system"
 }
 
-# k3d staat alleen via de mise.toml van Fundament op het PATH.
-sandbox_bestaat() { (cd "$WERKBOOM" && mise exec -- k3d cluster get fundament-plugin >/dev/null 2>&1); }
+# Slaagt als de bestaande sandbox van deze opstelling kan zijn (zie sandbox_past).
+sandbox_van_ons() {
+  sandbox_past "$(kc version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // ""')" \
+    "$(docker port k3d-fundament-plugin-serverlb 2>/dev/null)" "$HTTPS_POORT"
+}
 
-# De sandbox van Fundament, maar op Kubernetes 1.36 en met de https-poort op loopback. Niet via
-# `just plugins cluster-create`: die wisselt de huidige context.
+# Weigert vóór er iets wordt aangemaakt: een sandbox die niet van ons is, of een bezette poort.
+voorcontrole() {
+  if sandbox_bestaat; then
+    sandbox_van_ons || stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: $0 af"
+  else
+    poort_vrij "$HTTPS_POORT" || stop 2 "poort 127.0.0.1:$HTTPS_POORT is bezet (zet HTTPS_POORT)"
+  fi
+}
+
+# Hun sandbox-catalog, maar met de relays op het gateway-adres van het sandbox-netwerk
+# (host.k3d.internal) in plaats van 0.0.0.0: via de authn-relay kan anders iedereen op hetzelfde
+# netwerk met het openbare seed-wachtwoord een beheerderstoken halen.
+relays_op() {
+  kcp apply -f "$WORKTREE/plugins/sandbox/marketplace-catalog-api-nodeport.yaml" >/dev/null
+  kcp apply -f "$WORKTREE/plugins/sandbox/authn-api-nodeport.yaml" >/dev/null
+
+  local node_ip
+  node_ip=$(docker inspect k3d-fundament-server-0 --format '{{(index .NetworkSettings.Networks "k3d-fundament").IPAddress}}')
+  SANDBOX_GATEWAY=$(docker network inspect k3d-fundament-plugin --format '{{(index .IPAM.Config 0).Gateway}}')
+  [ -n "$node_ip" ] && [ -n "$SANDBOX_GATEWAY" ] || stop 1 "kon de adressen voor de relays niet bepalen"
+
+  local relay poort nodeport
+
+  for relay in fun-catalog-relay:$CATALOGUS_POORT:30080 fun-authn-relay:$AUTHN_POORT:30081; do
+    IFS=: read -r relay poort nodeport <<<"$relay"
+    docker rm -f "$relay" >/dev/null 2>&1 || true
+    docker run -d --name "$relay" --network k3d-fundament --restart unless-stopped \
+      -p "$SANDBOX_GATEWAY:$poort:8080" "$SOCAT_IMAGE" \
+      "TCP-LISTEN:8080,fork,reuseaddr" "TCP:$node_ip:$nodeport" >/dev/null
+  done
+
+  echo "OK: relays naar het platform op $SANDBOX_GATEWAY (host.k3d.internal)"
+}
+
+# De sandbox van Fundament, maar op Kubernetes 1.36, met de https-poort en de registry op loopback,
+# en zonder de huidige context te wisselen (wat `just plugins cluster-create` wel doet).
 sandbox_op() {
   stap "sandbox ($SANDBOX_CONTEXT, Kubernetes 1.36)"
 
   if sandbox_bestaat; then
-    sandbox_past "$(kc version -o json | jq -r .serverVersion.gitVersion)" \
-      "$(docker port k3d-fundament-plugin-serverlb)" "$HTTPS_POORT" ||
-      stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: (cd $WERKBOOM && mise exec -- just plugins cluster-delete)"
+    sandbox_van_ons || stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: $0 af"
     echo "OK: sandbox bestaat al"
   else
-    poort_vrij "$HTTPS_POORT" || stop 2 "poort 127.0.0.1:$HTTPS_POORT is bezet (zet HTTPS_POORT)"
-    (cd "$WERKBOOM/plugins" && mise exec -- k3d cluster create --config=sandbox/k3d-config.yaml \
+    k3d_config_loopback <"$WORKTREE/plugins/sandbox/k3d-config.yaml" >"$WERK/sandbox-k3d.yaml"
+    (cd "$WORKTREE/plugins" && PWD=$WORKTREE/plugins mise exec -- k3d cluster create --config="$WERK/sandbox-k3d.yaml" \
       --image "$K3S_IMAGE" -p "127.0.0.1:$HTTPS_POORT:443@loadbalancer" \
       --kubeconfig-switch-context=false --wait)
   fi
 
   fj plugins deploy
   fj plugin-sandbox-kubeconfig
-  fj plugins sandbox-catalog
+  relays_op
 }
 
 installatie_klaar() { plugin_staat_klaar "$(kc get plugininstallation "$1" -o json 2>/dev/null)"; }
@@ -284,8 +333,7 @@ plugin_publiceren() {
 
 # Een versie die al bestaat: na `af` blijft de catalogus van het platform staan, en versies zijn
 # create-only. De hash staat dan niet meer in een publish-uitvoer; de catalogus geeft hem voor een
-# goedgekeurde versie, via de relay die `just plugins sandbox-catalog` op de host zet.
-# Print "<versie> <hash>".
+# goedgekeurde versie. Print "<versie> <hash>".
 plugin_hervatten() {
   local naam=$1 uitvoer=$2 versie status id
 
@@ -301,11 +349,21 @@ plugin_hervatten() {
       ;;
   esac
 
-  local antwoord hash
-  antwoord=$(curl -s --max-time 10 -X POST "http://localhost:$CATALOGUS_POORT/catalog.v1.CatalogService/GetPluginDefinition" \
+  local antwoord hash image
+  antwoord=$(curl -s --max-time 10 -X POST "http://$SANDBOX_GATEWAY:$CATALOGUS_POORT/catalog.v1.CatalogService/GetPluginDefinition" \
     -H 'Content-Type: application/json' \
     -d "{\"name\":{\"organizationName\":\"system\",\"pluginName\":\"$naam\"},\"version\":\"$versie\"}")
   hash=$(hash_uit_catalogus "$antwoord") || { echo "$antwoord" >&2; stop 1 "geen hash in de catalogus voor $naam $versie"; }
+
+  # De registry van de sandbox verdwijnt met `af`, en publish heeft het image net opnieuw gebouwd;
+  # alleen uit een gelijke build-cache komt dezelfde digest. Anders start de plug-in nooit.
+  image=$(image_uit_definitie "$(jq -r '.manifest' <<<"$antwoord" | base64 -d)") ||
+    stop 1 "geen image met digest in de definitie van $naam $versie"
+  local repo=${image#localhost:5112/}
+  curl -sf -o /dev/null --max-time 10 \
+    -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+    "http://127.0.0.1:5112/v2/${repo%@*}/manifests/${repo#*@}" ||
+    stop 1 "het image van $naam $versie ($image) staat niet meer in de registry; rol het platform opnieuw uit: $0 af --met-platform en $0 op"
 
   echo "OK: $naam $versie stond al in de catalogus" >&2
   echo "$versie $hash"
@@ -369,7 +427,7 @@ plugins_op() {
 
 # --- Voorzieningen in de namespace ---------------------------------------------------------------
 
-voorwaarde_klaar() {
+conditie_klaar() {
   local soort=$1 naam=$2 conditie=$3
 
   [ "$(kc -n "$NS" get "$soort" "$naam" -o jsonpath="{.status.conditions[?(@.type==\"$conditie\")].status}" 2>/dev/null)" = True ]
@@ -380,13 +438,14 @@ database_gezond() {
 }
 
 # Maakt een Secret alleen als hij er nog niet is: een tweede run mag geen nieuw wachtwoord zetten
-# naast een Redis die het oude nog gebruikt.
+# naast een Redis die het oude nog gebruikt. Met create, niet apply: apply zet de inhoud ook in
+# een annotatie.
 secret_eenmalig() {
   local naam=$1
   shift
 
   kc -n "$NS" get secret "$naam" >/dev/null 2>&1 && return 0
-  kc -n "$NS" create secret generic "$naam" "$@" --dry-run=client -o yaml | kc apply -f - >/dev/null
+  kc -n "$NS" create secret generic "$naam" "$@" >/dev/null
 }
 
 voorzieningen_op() {
@@ -395,11 +454,11 @@ voorzieningen_op() {
   manifest_tenant_namespace "$NS" | kc apply -f -
   manifest_projectlid "$NS" | kc apply -f -
   manifest_lokale_ca "$NS" | kc apply -f -
-  wacht_tot 300 "lokale CA" voorwaarde_klaar certificate lokale-ca Ready || stop 1 "certificaat lokale-ca is niet Ready"
+  wacht_tot 300 "lokale CA" conditie_klaar certificate lokale-ca Ready || stop 1 "certificaat lokale-ca is niet Ready"
   manifest_gateway "$NS" | kc apply -f -
   wacht_tot 300 "certificaat web-tls van de Gateway" kc -n "$NS" get secret web-tls ||
     stop 1 "cert-manager maakte geen certificaat web-tls voor Gateway web"
-  wacht_tot 300 "Gateway web Programmed" voorwaarde_klaar gateway web Programmed ||
+  wacht_tot 300 "Gateway web Programmed" conditie_klaar gateway web Programmed ||
     stop 1 "Gateway web is niet Programmed; zie: kubectl --context $SANDBOX_CONTEXT -n $NS describe gateway web"
 
   stap "databases (CloudNativePG)"
@@ -426,12 +485,13 @@ voorzieningen_op() {
   manifest_proef_redis "$NS" "$REDIS_IMAGE" | kc apply -f -
   kc -n "$NS" rollout status deployment/proef-redis --timeout=5m
 
-  if ! kc -n "$NS" get secret stelselregister-keystore >/dev/null 2>&1; then
+  # Keystore en wachtwoord horen bij elkaar; ontbreekt er één, dan beide opnieuw.
+  if ! kc -n "$NS" get secret stelselregister-keystore stelselregister-geheimen >/dev/null 2>&1; then
     mkdir -p "$WERK/pki"
     cp "$REPO/demo/environment/stelselregister/pki/maak-keten.sh" "$WERK/pki/"
     (cd "$WERK/pki" && STELSELDOCUMENT_OMGEVING=lokaal ./maak-keten.sh >/dev/null)
+    kc -n "$NS" delete secret stelselregister-keystore stelselregister-geheimen --ignore-not-found >/dev/null
     secret_eenmalig stelselregister-keystore --from-file=keystore.p12="$WERK/pki/out/keystore.p12"
-    kc -n "$NS" delete secret stelselregister-geheimen --ignore-not-found >/dev/null
     secret_eenmalig stelselregister-geheimen --from-file=STELSELDOCUMENT_KEYSTORE_WACHTWOORD="$WERK/pki/out/wachtwoord"
   fi
 
@@ -460,13 +520,15 @@ dienst_args() {
   DIENST_ARGS+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh)
 }
 
-# Installeert één dienst met de chart; extra argumenten gaan naar helm (route, rol).
+# Installeert één dienst met de chart; extra argumenten gaan naar helm (route, rol). Het expliciete
+# return: een aanroeper met || zet errexit in deze functie uit, en dan zou een mislukte installatie
+# toch "OK" melden.
 installeer_dienst() {
   local dienst=$1
   shift
 
   dienst_args "$dienst"
-  hm upgrade --install "${DIENST_ARGS[@]}" "$@" >/dev/null
+  hm upgrade --install "${DIENST_ARGS[@]}" "$@" >/dev/null || return 1
   echo "OK: $dienst geïnstalleerd"
 }
 
@@ -479,7 +541,7 @@ installeer_beheerder() {
   for dienst in "${DIENSTEN[@]}"; do
     losse_route_weg "$dienst"
     mapfile -t route < <(helm_route_args "$dienst")
-    installeer_dienst "$dienst" "${route[@]}"
+    installeer_dienst "$dienst" "${route[@]}" || stop 1 "installeren van $dienst als beheerder faalde"
   done
 }
 
@@ -524,17 +586,33 @@ installeer_projectlid() {
   done
 }
 
-probe_klaar() {
-  case "$(kc -n "$NS" get pod "probe-$1" -o jsonpath='{.status.phase}' 2>/dev/null)" in
+pod_klaar() {
+  case "$(kc -n "$NS" get pod "$1" -o jsonpath='{.status.phase}' 2>/dev/null)" in
     Succeeded | Failed) return 0 ;;
     *) return 1 ;;
   esac
 }
 
+# Draait een probe-pod en print de statuscode die hij logde (000 zonder antwoord).
+probe_code() {
+  local dienst=$1 soort=$2 naam=probe-$1
+
+  [ "$soort" = met-label ] || naam=probe-zonder-label-$dienst
+
+  kc -n "$NS" delete pod "$naam" --ignore-not-found --wait >/dev/null
+  manifest_probe "$NS" "$dienst" "$CURL_IMAGE" "$soort" | kc apply -f - >/dev/null
+
+  if wacht_tot 120 "probe $naam klaar" pod_klaar "$naam" >/dev/null; then
+    kc -n "$NS" logs "$naam" 2>/dev/null || echo 000
+  else
+    echo 000
+  fi
+}
+
 # De HTTP-status van een pad op de hostnaam van een dienst, via de Gateway en over https. Het
 # certificaat wordt getoetst tegen de lokale CA: een TLS-fout geeft 000, geen stille -k.
 via_gateway() {
-  curl -s -o /dev/null -w '%{http_code}' --max-time 10 --cacert "$WERK/lokale-ca.crt" \
+  curl -s -o /dev/null -w '%{http_code}' --max-time 3 --cacert "$WERK/lokale-ca.crt" \
     --resolve "$1.fbs.localhost:$HTTPS_POORT:127.0.0.1" "https://$1.fbs.localhost:$HTTPS_POORT$2" || true
 }
 
@@ -558,13 +636,7 @@ controleer_dienst() {
     kc -n "$NS" get events --field-selector "involvedObject.kind=Pod" --sort-by=.lastTimestamp | grep "$dienst" | tail -5 || true
   fi
 
-  kc -n "$NS" delete pod "probe-$dienst" --ignore-not-found --wait >/dev/null
-  manifest_probe "$NS" "$dienst" "$CURL_IMAGE" | kc apply -f - >/dev/null
-  code=000
-
-  if wacht_tot 120 "probe $dienst klaar" probe_klaar "$dienst" >/dev/null; then
-    code=$(kc -n "$NS" logs "probe-$dienst" 2>/dev/null || echo 000)
-  fi
+  code=$(probe_code "$dienst" met-label)
 
   if [ "$code" = 200 ]; then
     echo "OK: $dienst /q/health/ready binnen het cluster (200)"
@@ -572,10 +644,20 @@ controleer_dienst() {
     fout "$dienst /q/health/ready binnen het cluster gaf $code, verwacht 200"
   fi
 
-  # Envoy pikt een nieuwe route pas na de rollout op.
-  for _ in $(seq 1 90); do
-    code=$(via_gateway "$dienst" /openapi.json)
-    [ "$code" = 200 ] && break
+  # De NetworkPolicy is wat de dienst afschermt bij tlsTermination=mesh; zonder clientlabel hoort
+  # een pod er niet in te komen.
+  code=$(probe_code "$dienst" zonder-label)
+
+  if [ "$code" = 000 ]; then
+    echo "OK: $dienst weigert een pod zonder clientlabel"
+  else
+    fout "$dienst gaf $code aan een pod zonder clientlabel, verwacht geen verbinding"
+  fi
+
+  # Envoy pikt een nieuwe route pas na de rollout op; uiterlijk drie minuten.
+  local einde=$((SECONDS + 180))
+
+  until code=$(via_gateway "$dienst" /openapi.json) && [ "$code" = 200 ] || [ "$SECONDS" -ge "$einde" ]; do
     sleep 2
   done
 
@@ -593,13 +675,6 @@ controleer_dienst() {
   else
     fout "$dienst /q/health/ready via de Gateway gaf $code, verwacht 404"
   fi
-}
-
-# Geen umask voor het hele proces: die geldt dan ook voor de checkout van Fundament, en Docker
-# kopieert die bestandsrechten in hun images. mktemp -d maakt de map al alleen voor de eigenaar.
-werkmap() {
-  WERK=$(mktemp -d)
-  trap 'rm -rf "$WERK"' EXIT
 }
 
 controleer() {
@@ -626,39 +701,55 @@ controleer() {
 
 # --- Opruimen ------------------------------------------------------------------------------------
 
-# Ruimt de sandbox en de worktree op. Het platform alleen met --met-platform: het kan voor ander
-# Fundament-werk op deze machine in gebruik zijn, en opnieuw opzetten bouwt alle images opnieuw.
+# Ruimt op wat er staat, ook als de worktree al weg is: de recipes om op te ruimen staan in de
+# worktree, dus die komt dan eerst terug. Het platform alleen met --met-platform: het kan voor ander
+# Fundament-werk in gebruik zijn, en opnieuw opzetten bouwt alle images opnieuw. Een sandbox die niet
+# van deze opstelling is, blijft staan.
 af() {
-  local met_platform=$1
-
-  if [ ! -d "$WERKBOOM" ]; then
-    echo "OK: niets op te ruimen ($WERKBOOM bestaat niet)"
-    return 0
-  fi
+  local met_platform=$1 gedaan=nee
 
   if sandbox_bestaat; then
+    sandbox_van_ons || stop 2 "de sandbox k3d-fundament-plugin is niet van deze opstelling; ruim hem zelf op"
+    fundament_worktree >/dev/null
     fj plugins cluster-delete
     echo "OK: sandbox weg"
+    gedaan=ja
   fi
 
-  if [ "$met_platform" = ja ]; then
+  if [ "$met_platform" = ja ] && platform_bestaat; then
+    fundament_worktree >/dev/null
     fj cluster-delete
     echo "OK: platform weg"
+    gedaan=ja
   fi
 
-  git -C "$FUNDAMENT_REPO" worktree remove --force "$WERKBOOM"
-  echo "OK: worktree $WERKBOOM weg"
-  [ "$met_platform" = ja ] || echo "Het platform k3d-fundament blijft staan; ook weg met: $0 af --met-platform"
+  if [ -d "$WORKTREE" ]; then
+    git -C "$FUNDAMENT_REPO" worktree remove --force "$WORKTREE"
+    echo "OK: worktree $WORKTREE weg"
+    gedaan=ja
+  fi
+
+  # De functl-sessie van deze opstelling: een API-key die nog tot een uur geldig is.
+  rm -rf "$FUNCTL_CONFIG_DIR"
+
+  [ "$gedaan" = ja ] || echo "OK: niets op te ruimen"
+
+  if [ "$met_platform" != ja ] && platform_bestaat; then
+    echo "Het platform k3d-fundament blijft staan; ook weg met: $0 af --met-platform"
+  fi
 }
 
 # --- Subcommando's -------------------------------------------------------------------------------
 
 op() {
   : "${TAG:?zet TAG op een gepubliceerde image-tag, bijvoorbeeld main-<sha7> van de laatste main-commit}"
-  vereis_tools docker kubectl helm mise git jq curl ss openssl mkcert
+  vereis_tools docker mise git jq curl ss openssl mkcert
+  # type -P: kubectl en helm zijn hierboven vangfuncties, command -v zou die vinden.
+  type -P kubectl >/dev/null && type -P helm >/dev/null || stop 2 "kubectl en helm moeten op het PATH staan"
 
   werkmap
-  fundament_werkboom
+  voorcontrole
+  fundament_worktree
   platform_op
   functl_inloggen
   sandbox_op
@@ -680,34 +771,49 @@ op() {
   esac
 }
 
-ROL=beide
+main() {
+  ROL=beide
 
-case "${1:-}" in
-  op)
-    if [ "${2:-}" = --rol ]; then
-      case "${3:-}" in
-        beheerder | projectlid | beide) ROL=$3 ;;
-        *) stop 2 "--rol is beheerder, projectlid of beide" ;;
+  case "${1:-}" in
+    op)
+      case "${2:-}" in
+        "") ;;
+        --rol)
+          case "${3:-}" in
+            beheerder | projectlid | beide) ROL=$3 ;;
+            *) stop 2 "--rol is beheerder, projectlid of beide" ;;
+          esac
+
+          [ "$#" -eq 3 ] || stop 2 "onbekend argument na --rol $3: ${4:-}"
+          ;;
+        *) stop 2 "onbekend argument: $2" ;;
       esac
-    fi
 
-    op
-    ;;
-  af)
-    vereis_tools git mise
-    case "${2:-}" in
-      "") af nee ;;
-      --met-platform) af ja ;;
-      *) stop 2 "af kent alleen --met-platform" ;;
-    esac
-    ;;
-  controleer)
-    vereis_tools kubectl curl
-    werkmap
-    controleer
-    ;;
-  *)
-    echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | controleer | af [--met-platform]" >&2
-    exit 2
-    ;;
-esac
+      op
+      ;;
+    af)
+      vereis_tools docker git mise jq
+
+      case "${2:-}" in
+        "") af nee ;;
+        --met-platform) af ja ;;
+        *) stop 2 "af kent alleen --met-platform" ;;
+      esac
+      ;;
+    controleer)
+      [ "$#" -eq 1 ] || stop 2 "controleer kent geen argumenten"
+      vereis_tools curl
+      werkmap
+      controleer
+      ;;
+    *)
+      echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | controleer | af [--met-platform]" >&2
+      exit 2
+      ;;
+  esac
+}
+
+# Gesourcet (door de tests) draait er niets.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

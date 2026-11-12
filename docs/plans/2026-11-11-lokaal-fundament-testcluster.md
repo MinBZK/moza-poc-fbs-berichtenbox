@@ -213,6 +213,22 @@ Gedraaid op de ontwikkelmachine, met images `main-8e9f467` en Fundament `b9c1253
 - **Platform-uitrol:** via `skaffold run --default-repo=localhost:5111`, zoals hun `just dev`. Het
   recipe `just deploy local` pusht naar een registry-naam die de node niet kent.
 
+### Na de review (2026-11-12)
+
+- **Netwerk.** De recipes van Fundament zetten de registries, de database van het platform en de
+  relays naar het platform op 0.0.0.0. Via de authn-relay kon iedereen op hetzelfde netwerk met het
+  openbare seed-wachtwoord een beheerderstoken halen. Het script maakt platform en sandbox nu zelf
+  aan, met die poorten op loopback. De relays bindt het aan het gateway-adres van het
+  sandbox-netwerk. Alleen de Kubernetes-API's van k3d luisteren nog op alle adressen; die vragen
+  een clientcertificaat.
+- **Context.** Doordat het script het platform zelf aanmaakt, wisselt de huidige context niet
+  meer. Een kale `kubectl` of `helm` in het script breekt het af.
+- **Platform-herstart.** Een herstart van het platform leidt niet meer tot een nieuwe uitrol, en
+  dus niet meer tot gewiste databases.
+- **`af`** ruimt op wat er draait, ook zonder worktree, en laat een vreemde sandbox staan.
+- **NetworkPolicy.** De controle toetst ook de weigering: een pod zonder clientlabel komt er niet
+  in.
+
 ### Bevindingen voor PR 444
 
 - **Wachtwoorden met een newline.** `lokaal-testcluster.sh` maakt wachtwoorden met

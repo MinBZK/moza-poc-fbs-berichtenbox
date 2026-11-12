@@ -122,6 +122,7 @@ gelijk "nog nooit ingelogd" niet-ingelogd \
 gelijk "versie bestaat al" bestaat-al \
   "$(functl_fout_soort 'Error: already_exists: version "1.21.3" already exists for this plugin')"
 gelijk "iets anders" onbekend "$(functl_fout_soort 'connection refused')"
+gelijk "401 in een poortnummer is geen 401" onbekend "$(functl_fout_soort 'dial tcp 127.0.0.1:34012: connection refused')"
 
 echo "== api_key_uit_antwoord =="
 
@@ -153,6 +154,9 @@ gelijk "zonder mapping: exit 1" 1 "$(code_van sandbox_past v1.36.6+k3s1 '6443/tc
 bevat "zonder mapping: melding noemt HTTPS_POORT" "HTTPS_POORT" "$melding"
 gelijk "mapping op 0.0.0.0 telt niet" 1 "$(code_van sandbox_past v1.36.6+k3s1 '443/tcp -> 0.0.0.0:9443' 9443)"
 gelijk "andere poort telt niet" 1 "$(code_van sandbox_past v1.36.6+k3s1 '443/tcp -> 127.0.0.1:19443' 9443)"
+gelijk "extra mapping op 0.0.0.0 naast loopback telt niet" 1 \
+  "$(code_van sandbox_past v1.36.6+k3s1 '443/tcp -> 127.0.0.1:9443
+443/tcp -> 0.0.0.0:9444' 9443)"
 
 echo "== poort_vrij =="
 
@@ -172,7 +176,6 @@ gelijk "vrijgekomen poort: exit 0" 0 "$(code_van poort_vrij "$vrije_poort")"
 
 echo "== manifest_plugininstallatie =="
 
-# Zonder hash faalt de controller ("definitionRef is immutable once set"); altijd pinnen.
 gelijk "zonder hash: exit 1" 1 "$(code_van manifest_plugininstallatie cloudnativepg v0.2.0 "")"
 m=$(manifest_plugininstallatie cloudnativepg v0.2.0 "$HASH_A")
 bevat "soort" "kind: PluginInstallation" "$m"
@@ -186,8 +189,6 @@ echo "== manifest_tenant_namespace =="
 m=$(manifest_tenant_namespace tnt-fbs--fbs)
 bevat "namespace" "kind: Namespace" "$m"
 bevat "naam" "name: tnt-fbs--fbs" "$m"
-# De cluster-worker van het platform ziet de sandbox en verwijdert elke namespace met zijn
-# beheerlabels waarvan hij de id niet kent.
 bevat_niet "geen beheerlabel van cluster-worker" "fundament.io/managed-by" "$m"
 bevat_niet "geen namespace-id van cluster-worker" "fundament.io/namespace-id" "$m"
 bevat "pod security restricted" "pod-security.kubernetes.io/enforce: restricted" "$m"
@@ -261,9 +262,54 @@ bevat "niet als root" "runAsNonRoot: true" "$m"
 bevat "geen capabilities" "drop: [ALL]" "$m"
 bevat "geen privilege escalation" "allowPrivilegeEscalation: false" "$m"
 bevat "health binnen het cluster" "http://berichtenmagazijn.tnt-fbs--fbs.svc/q/health/ready" "$m"
-# Een nieuwe pod staat pas na een korte vertraging in de toelatingslijst van de NetworkPolicy.
 bevat "probe herhaalt tot de policy hem kent" "--retry-all-errors" "$m"
 bevat "met een grens" '--retry, "15"' "$m"
+
+m=$(manifest_probe tnt-fbs--fbs berichtenmagazijn docker.io/curlimages/curl@sha256:def zonder-label)
+bevat "probe zonder label: eigen naam" "name: probe-zonder-label-berichtenmagazijn" "$m"
+bevat_niet "probe zonder label: geen clientlabel" "client.fbs.minbzk.nl" "$m"
+bevat_niet "probe zonder label: geen herhaling, de weigering geldt meteen" "--retry" "$m"
+bevat "probe zonder label: zelfde doel" "http://berichtenmagazijn.tnt-fbs--fbs.svc/q/health/ready" "$m"
+
+echo "== is_commit_sha =="
+
+gelijk "volledige SHA" 0 "$(code_van is_commit_sha b9c1253103f0121ec061507fc241580b94bc3ab4)"
+gelijk "korte SHA" 1 "$(code_van is_commit_sha b9c12531)"
+gelijk "branchnaam" 1 "$(code_van is_commit_sha master)"
+gelijk "hoofdletters" 1 "$(code_van is_commit_sha B9C1253103F0121EC061507FC241580B94BC3AB4)"
+
+echo "== k3d_config_loopback =="
+
+K3D_CONFIG='ports:
+  - port: 127.0.0.1:8443:443
+    nodeFilters:
+      - loadbalancer
+  - port: 54328:54328
+    nodeFilters:
+      - loadbalancer
+registries:
+  create:
+    name: "registry.localhost"
+    host: "0.0.0.0"
+    hostPort: "5111"'
+c=$(k3d_config_loopback <<<"$K3D_CONFIG")
+bevat "database-poort op loopback" "port: 127.0.0.1:54328:54328" "$c"
+bevat "registry op loopback" 'host: "127.0.0.1"' "$c"
+bevat "loopback-poort blijft" "port: 127.0.0.1:8443:443" "$c"
+bevat_niet "geen 0.0.0.0 meer" "0.0.0.0" "$c"
+bevat "de rest blijft" 'hostPort: "5111"' "$c"
+gelijk "poort met hostIP blijft één keer geprefixt" 1 "$(grep -c '127.0.0.1:8443' <<<"$c")"
+
+echo "== image_uit_definitie =="
+
+gelijk "image met digest uit de manifest" \
+  "localhost:5112/cloudnativepg-plugin@sha256:${HASH_A#sha256:}" \
+  "$(image_uit_definitie "spec:
+  deployment:
+    image: localhost:5112/cloudnativepg-plugin@${HASH_A}
+    imagePullPolicy: IfNotPresent")"
+gelijk "zonder image: exit 1" 1 "$(code_van image_uit_definitie "spec: {}")"
+gelijk "image zonder digest: exit 1" 1 "$(code_van image_uit_definitie "    image: localhost:5112/x:latest")"
 
 echo "== geheim_bestand =="
 
@@ -300,13 +346,63 @@ gelijk "onbekende dienst: exit 1" 1 "$(code_van values_dienst profiel tnt-fbs--f
 echo "== helm_route_args =="
 
 mapfile -t args < <(helm_route_args stelselregister)
-gelijk "vijf argumenten, één per regel" 10 "${#args[@]}"
+gelijk "vijf --set-paren, één woord per regel" 10 "${#args[@]}"
 gelijk "route aan" "--set ingress.enabled=true" "${args[0]} ${args[1]}"
 bevat "hostnaam" "ingress.hostname=stelselregister.fbs.localhost" "${args[*]}"
 bevat "Gateway web" "cluster.gateway.name=web" "${args[*]}"
 bevat "listener https" "cluster.gateway.sectionName=https" "${args[*]}"
 bevat "route zonder authenticatie, alleen op loopback" "ingress.allowUnauthenticated=true" "${args[*]}"
 gelijk "onbekende dienst: exit 1" 1 "$(code_van helm_route_args profiel)"
+
+echo "== het script zelf, met stubs =="
+
+SCRIPT="$HIER/../fundament-testcluster.sh"
+TESTCACHE=$(mktemp -d)
+trap 'rm -rf "$TESTCACHE"' EXIT
+
+# Draait een stuk bash met het script gesourcet, in een eigen shell; stubs in $1 overschrijven
+# functies van het script.
+in_script() {
+  XDG_CACHE_HOME="$TESTCACHE" bash -c "source '$SCRIPT'; $1" 2>&1
+}
+
+# Aangeroepen met ||, zoals het script dat doet: daar staat errexit in de functie uit.
+uitvoer=$(in_script 'WERK=$(mktemp -d); TAG=main-1234567; hm() { return 1; }; installeer_dienst stelselregister || echo "MISLUKT GEMELD"')
+bevat "mislukte helm-installatie: de aanroeper ziet het" "MISLUKT GEMELD" "$uitvoer"
+bevat_niet "mislukte helm-installatie: geen OK" "OK:" "$uitvoer"
+
+code=0
+uitvoer=$(in_script 'kubectl get pods') || code=$?
+gelijk "kale kubectl: exit 2" 2 "$code"
+bevat "kale kubectl: melding" "zonder vaste context" "$uitvoer"
+code=0
+uitvoer=$(in_script 'helm list') || code=$?
+gelijk "kale helm: exit 2" 2 "$code"
+
+AF_STUBS='fj() { echo "fj $*"; }; git() { echo "git $*"; }; fundament_worktree() { echo "worktree gemaakt" >&2; };'
+code=0
+uitvoer=$(in_script "$AF_STUBS sandbox_bestaat() { false; }; platform_bestaat() { false; }; af nee") || code=$?
+gelijk "af zonder iets: exit 0" 0 "$code"
+bevat "af zonder iets: melding" "niets op te ruimen" "$uitvoer"
+
+code=0
+uitvoer=$(in_script "$AF_STUBS sandbox_bestaat() { false; }; platform_bestaat() { true; }; af ja") || code=$?
+gelijk "af --met-platform zonder worktree: exit 0" 0 "$code"
+bevat "af --met-platform zonder worktree: worktree eerst terug" "worktree gemaakt" "$uitvoer"
+bevat "af --met-platform zonder worktree: platform weg" "fj cluster-delete" "$uitvoer"
+bevat_niet "af --met-platform: niet 'niets op te ruimen'" "niets op te ruimen" "$uitvoer"
+
+code=0
+uitvoer=$(in_script "$AF_STUBS sandbox_bestaat() { true; }; sandbox_van_ons() { false; }; platform_bestaat() { false; }; af nee") || code=$?
+gelijk "af met een vreemde sandbox: exit 2" 2 "$code"
+bevat_niet "af met een vreemde sandbox: niet weggehaald" "fj plugins cluster-delete" "$uitvoer"
+
+code=0
+uitvoer=$(in_script "$AF_STUBS sandbox_bestaat() { true; }; sandbox_van_ons() { true; }; platform_bestaat() { true; }; af nee") || code=$?
+gelijk "af met eigen sandbox: exit 0" 0 "$code"
+bevat "af met eigen sandbox: sandbox weg" "fj plugins cluster-delete" "$uitvoer"
+bevat_niet "af zonder --met-platform: platform blijft" "fj cluster-delete" "$uitvoer"
+bevat "af zonder --met-platform: wijst op de vlag" "af --met-platform" "$uitvoer"
 
 echo "== kubectl en helm alleen via de wrappers =="
 

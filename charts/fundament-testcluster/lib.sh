@@ -55,7 +55,7 @@ functl_fout_soort() {
   case "$1" in
     *"no listing named"*) echo geen-listing ;;
     *already_exists*) echo bestaat-al ;;
-    *unauthenticated* | *"not authenticated"* | *401*) echo niet-ingelogd ;;
+    *unauthenticated* | *"not authenticated"* | *" 401 "* | *"401 Unauthorized"* | *"(401)"*) echo niet-ingelogd ;;
     *) echo onbekend ;;
   esac
 }
@@ -96,9 +96,37 @@ sandbox_past() {
     echo "De sandbox heeft geen mapping 127.0.0.1:$poort -> 443 (HTTPS_POORT=$poort)." >&2
     return 1
   fi
+
+  # Een tweede mapping op een ander adres zet de proefroutes, zonder authenticatie, op het netwerk.
+  if grep -E '^443/tcp -> ' <<<"$mappings" | grep -qvxE "443/tcp -> 127\.0\.0\.1:$poort"; then
+    echo "De sandbox heeft naast 127.0.0.1:$poort nog een mapping op 443; die is niet van deze opstelling." >&2
+    return 1
+  fi
 }
 
-# Slaagt als niemand op 127.0.0.1:<poort> luistert. Ook een luisteraar op alle adressen bezet hem.
+# Slaagt voor een volledige commit-SHA. Een korte SHA of een branchnaam laat de pin op Fundament
+# stil meebewegen.
+is_commit_sha() {
+  [[ $1 =~ ^[0-9a-f]{40}$ ]]
+}
+
+# Een k3d-config van Fundament met hun poorten en registry op loopback in plaats van 0.0.0.0. Zij
+# binden 8443 al bewust op loopback; de database (54328) en de registries (plain HTTP, zonder
+# authenticatie) niet, en die horen niet op het netwerk van een laptop op een gedeelde wifi.
+# Leest de config op stdin.
+k3d_config_loopback() {
+  sed -E \
+    -e 's/^([[:space:]]*- port: )([0-9]+:[0-9]+)[[:space:]]*$/\1127.0.0.1:\2/' \
+    -e 's/^([[:space:]]*host: )"0\.0\.0\.0"/\1"127.0.0.1"/'
+}
+
+# Het image van een plug-in uit zijn definitie (de manifest uit de catalogus), met digest. Na een
+# opgeruimde registry moet precies dat image er weer zijn, anders start de plug-in niet.
+image_uit_definitie() {
+  sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]]+@sha256:[0-9a-f]{64})[[:space:]]*$/\1/p' <<<"$1" | head -1 | grep . || return 1
+}
+
+# Slaagt als niemand op 127.0.0.1:<poort> luistert. Ook een listener op alle adressen bezet hem.
 poort_vrij() {
   ! ss -ltnH "sport = :$1" | grep -q .
 }
@@ -131,8 +159,8 @@ EOF
 # cluster-worker zet (cluster-worker/pkg/handler/namespace in de Fundament-repo). Zonder de
 # beheerlabels van cluster-worker: die van het platform ziet de sandbox en verwijdert elke
 # namespace met die labels waarvan hij de id niet kent. Pod Security restricted is strenger dan een
-# tenant-namespace, maar is wat geldt in de namespace van een plug-in, en een plug-in moet de
-# chart straks kunnen installeren.
+# tenant-namespace, maar is wat geldt in de namespace van een plug-in, en de chart moet ook door een
+# plug-in te installeren zijn.
 manifest_tenant_namespace() {
   local ns=$1
 
@@ -328,16 +356,25 @@ EOF
 # binnen. Een nieuwe pod staat pas na een korte vertraging in de toelatingslijst van de
 # policy-controller, vandaar de herhaling.
 manifest_probe() {
-  local ns=$1 dienst=$2 image=$3
+  local ns=$1 dienst=$2 image=$3 soort=${4:-met-label}
+  local naam=probe-$dienst labels="  labels:
+    client.fbs.minbzk.nl/$dienst: \"true\""
+  local herhaling='--retry, "15", --retry-delay, "2", --retry-all-errors, '
+
+  # Zonder label moet de NetworkPolicy de pod meteen weigeren; herhalen zou dat alleen vertragen.
+  if [ "$soort" = zonder-label ]; then
+    naam=probe-zonder-label-$dienst
+    labels=""
+    herhaling=""
+  fi
 
   cat <<EOF
 apiVersion: v1
 kind: Pod
 metadata:
-  name: probe-$dienst
+  name: $naam
   namespace: $ns
-  labels:
-    client.fbs.minbzk.nl/$dienst: "true"
+$labels
 spec:
   restartPolicy: Never
   automountServiceAccountToken: false
@@ -346,7 +383,7 @@ spec:
     - name: curl
       image: $image
       securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
-      args: [-s, -o, /dev/null, -w, '%{http_code}', --max-time, "10", --retry, "15", --retry-delay, "2", --retry-all-errors, "http://$dienst.$ns.svc/q/health/ready"]
+      args: [-s, -o, /dev/null, -w, '%{http_code}', --max-time, "5", ${herhaling}"http://$dienst.$ns.svc/q/health/ready"]
 EOF
 }
 
