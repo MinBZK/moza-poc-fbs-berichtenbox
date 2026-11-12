@@ -147,6 +147,12 @@ poorten_naar_buiten() {
   done
 }
 
+# Slaagt als de chart-values van een dienst (charts/fbs-dienst/diensten/<dienst>.yaml) hem op
+# precies één replica vastzetten. De chart weigert dan elk ander aantal.
+enkele_replica() {
+  grep -qE '^[[:space:]]*singleReplica:[[:space:]]*true[[:space:]]*$' "$1"
+}
+
 # Slaagt als kubectl meldde dat het object niet bestaat. Elke andere fout (API onbereikbaar, geen
 # rechten) zegt niets over of het er is.
 kubectl_niet_gevonden() {

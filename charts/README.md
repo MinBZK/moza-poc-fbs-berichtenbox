@@ -245,7 +245,7 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
     `cluster.gateway.name`: zonder laat de NetworkPolicy de proxy's van de Gateway niet binnen.
 
 De controle eist per dienst:
-- een rollout waarin alle pods gereed zijn, standaard twee (`REPLICAS`);
+- een rollout waarin alle pods gereed zijn, standaard twee (`REPLICAS`), voor het stelselregister één;
 - binnen het cluster `/q/health/ready` 200 vanaf een pod mét het clientlabel, en geen verbinding
   vanaf een pod zonder. Dat laatste telt alleen als curl geen verbinding kreeg of in zijn
   tijdslimiet liep; een probe-pod die niet start of de naam niet vindt, is een fout;
@@ -309,7 +309,8 @@ Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, 
 `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
 - `HTTPS_POORT` (standaard 9443);
 - `REPLICAS` (standaard 2): pods per dienst. Twee toetst ook wat één pod verbergt: een tweede pod
-  die niet start, gelijktijdige migraties, de PodDisruptionBudget;
+  die niet start, gelijktijdige migraties, de PodDisruptionBudget. Het stelselregister blijft op
+  één: zijn chart-values zetten `singleReplica`;
 - `FUNDAMENT_SUBNET` (standaard `172.29.0.0/16`): Fundament neemt anders 172.19, dat op een
   machine met meer compose-projecten vaak bezet is;
 - `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte. Zet hem met `read -rs

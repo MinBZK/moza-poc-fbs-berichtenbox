@@ -38,7 +38,8 @@ FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
 FUNDAMENT_REF=${FUNDAMENT_REF:-b9c1253103f0121ec061507fc241580b94bc3ab4}
 FUNDAMENT_SUBNET=${FUNDAMENT_SUBNET:-172.29.0.0/16}
 # Twee replica's: zo toetst de proef ook wat één pod verbergt (een tweede pod die niet start,
-# gelijktijdige migraties, de PodDisruptionBudget).
+# gelijktijdige migraties, de PodDisruptionBudget). Niet voor een dienst die de chart op één
+# replica vastzet (singleReplica).
 REPLICAS=${REPLICAS:-2}
 readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET REPLICAS
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster
@@ -307,7 +308,7 @@ sandbox_van_ons() {
 voorcontrole() {
   if platform_bestaat; then
     alleen_loopback ||
-      stop 2 "het platform k3d-fundament publiceert poorten op alle adressen (hierboven) en is niet met deze opstelling gemaakt; ruim het op met: $0 af --met-platform"
+      stop 2 "op de netwerken van deze opstelling luistert iets op alle adressen (hierboven). Is het platform met de recipes van Fundament zelf gemaakt, ruim het dan op met: $0 af --met-platform"
   fi
 
   if sandbox_bestaat; then
@@ -571,8 +572,9 @@ dienst_args() {
   fi
 
   values_dienst "$dienst" "$NS" >"$WERK/$dienst-values.yaml"
-  DIENST_ARGS+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh \
-    --set "dienst.replicaCount=$REPLICAS")
+  DIENST_ARGS+=(-f "$WERK/$dienst-values.yaml" --set "dienst.image.tag=$TAG" --set dienst.tlsTermination=mesh)
+
+  enkele_replica "$CHARTS/fbs-dienst/diensten/$dienst.yaml" || DIENST_ARGS+=(--set "dienst.replicaCount=$REPLICAS")
 }
 
 # Installeert één dienst met de chart; extra argumenten gaan naar helm (route, rol). Het expliciete

@@ -359,6 +359,19 @@ echo "== manifest_probe logt ook de exitcode =="
 bevat "probe logt status en exitcode van curl" "%{http_code} %{exitcode}" "$(manifest_probe tnt-fbs--fbs stelselregister img zonder-label)"
 bevat "probe met label idem" "%{http_code} %{exitcode}" "$(manifest_probe tnt-fbs--fbs stelselregister img)"
 
+echo "== enkele_replica =="
+
+bestand=$(mktemp "${TMPDIR:-/tmp}/dienst.XXXX")
+printf 'dienst:\n  # uitleg\n  singleReplica: true\n' >"$bestand"
+gelijk "singleReplica: true" 0 "$(code_van enkele_replica "$bestand")"
+printf 'dienst:\n  singleReplica: false\n' >"$bestand"
+gelijk "singleReplica: false" 1 "$(code_van enkele_replica "$bestand")"
+printf 'dienst:\n  # singleReplica: true staat hier alleen in commentaar\n' >"$bestand"
+gelijk "alleen in commentaar" 1 "$(code_van enkele_replica "$bestand")"
+rm -f "$bestand"
+gelijk "het echte stelselregister" 0 "$(code_van enkele_replica "$HIER/../fbs-dienst/diensten/stelselregister.yaml")"
+gelijk "het echte magazijn" 1 "$(code_van enkele_replica "$HIER/../fbs-dienst/diensten/berichtenmagazijn.yaml")"
+
 echo "== probe_geweigerd =="
 
 # Een probe logt "<http-status> <exitcode van curl>". Geweigerd is alleen: geen antwoord, en curl
@@ -560,10 +573,14 @@ bevat "api_key_maken: een weigering faalt" "MISLUKT" "$uitvoer"
 
 # --- replica's ---
 
-uitvoer=$(REPLICAS=3 in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args stelselregister; printf "%s\n" "${DIENST_ARGS[@]}"')
+uitvoer=$(REPLICAS=3 in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args berichtenmagazijn; printf "%s\n" "${DIENST_ARGS[@]}"')
 bevat "dienst_args: het aantal replica's gaat naar de chart" "dienst.replicaCount=3" "$uitvoer"
-uitvoer=$(in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args stelselregister; printf "%s\n" "${DIENST_ARGS[@]}"')
+uitvoer=$(in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args berichtenuitvraag; printf "%s\n" "${DIENST_ARGS[@]}"')
 bevat "dienst_args: standaard twee replica's" "dienst.replicaCount=2" "$uitvoer"
+# Het stelselregister draait volgens zijn chart-values met precies één replica (singleReplica);
+# de chart weigert dan elk ander aantal.
+uitvoer=$(REPLICAS=3 in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args stelselregister; printf "%s\n" "${DIENST_ARGS[@]}"')
+bevat_niet "dienst_args: een dienst met singleReplica krijgt geen aantal" "replicaCount" "$uitvoer"
 # vereis_tools breekt af met 9: komt op voorbij de validatie, dan draait er verder niets echt.
 for ongeldig in 0 -1 twee 1.5 " 2"; do
   code=0

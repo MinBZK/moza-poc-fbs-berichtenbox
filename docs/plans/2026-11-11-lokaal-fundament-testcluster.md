@@ -240,7 +240,8 @@ opstelling ondermijnen: groen betekent dat het werkt.
   logt nu ook de exitcode van curl. Alleen "geen verbinding" (7) of "tijdslimiet" (28) telt als
   weigering.
 - **Replica's.** De controle eiste één gereede pod. Nu moeten alle gewenste pods gereed zijn, en
-  de diensten draaien standaard met twee (`REPLICAS`).
+  de diensten draaien standaard met twee (`REPLICAS`). Het stelselregister blijft op één: zijn
+  chart-values zetten `singleReplica`, en de chart weigert dan een tweede (live gezien).
 - **Uitrollen bij een API-fout.** Een mislukte `get` op het platform leidde tot een nieuwe uitrol
   over een bestaand platform heen. Nu wacht het script op de API, rolt alleen uit bij NotFound,
   en stopt bij elke andere fout.
