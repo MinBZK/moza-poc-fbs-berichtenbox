@@ -16,8 +16,10 @@ Een ondernemer zoekt in de eigen berichten.
    alleen in het onderwerp: de tekst van een bericht staat niet in de uitvraag, maar in het magazijn
    van de organisatie. Een bericht is een treffer als een woord in het onderwerp overeenkomt met de
    zoekterm, los van hoofdletters. Het zoeken volgt Engelse taalregels: soms vindt een zoekterm ook
-   een verwante vorm ("behandel" vindt "behandeling"), korte Engelse woorden als "in" of "is" vinden
-   niets, en een deel van een woord is geen treffer: "subsidie" vindt "Subsidieaanvraag" niet.
+   een verwante vorm ("behandel" vindt "behandeling"), en het begin van een samengesteld woord is
+   geen treffer ("subsidie" vindt "Subsidieaanvraag" niet). Korte Engelse woorden als "in", "is" of
+   "of" slaat het zoeken over; zoekt de ondernemer alleen op zo'n woord, dan krijgt hij alle
+   berichten.
 4. De uitvraag geeft de eerste 20 treffers, nieuwste eerst, en zegt welke organisaties bij het
    ophalen niet leverden.
 5. Het portaal toont de treffers.
@@ -37,6 +39,7 @@ sequenceDiagram
     IL->>FBS: Zoek in de berichten van deze ondernemer
     FBS->>FBS: Loopt de sessie? Verleng haar
     FBS->>FBS: Zoek in het onderwerp van de opgehaalde berichten
+    Note over FBS: Legt het zoeken vast in het logboek
     FBS-->>IL: De eerste 20 treffers, nieuwste eerst, en welke organisaties niet leverden
     IL-->>OND: Toont de treffers
 ```
@@ -51,7 +54,8 @@ sequenceDiagram
 | Een organisatie leverde bij het ophalen niet | Haar berichten zitten niet in de zoekresultaten | De treffers zeggen welke organisatie ontbreekt |
 | Er zijn meer dan 20 treffers | De uitvraag geeft alleen de eerste 20, zonder verder bladeren | De ondernemer moet zijn zoekterm verfijnen |
 | De zoekterm staat alleen in de tekst van een bericht | Geen treffer | Het bericht wordt niet gevonden |
-| De zoekterm is een kort, veelvoorkomend Engels woord, zoals "in" of "is" | Het zoeken slaat zo'n woord over | Geen treffers |
+| De zoekterm is een kort, veelvoorkomend Engels woord, zoals "in", "is" of "of" | Het zoeken slaat zo'n woord over en filtert dan alleen op de ondernemer | De eerste 20 berichten van de hele lijst, alsof er niet gezocht is |
+| De zoekterm bevat een letter met een accent of trema, zoals "beëindiging" of "één" | De uitvraag maakt de letter onleesbaar voor de zoekindex | Geen treffers |
 | De zoekterm bevat een spatie of een leesteken, bijvoorbeeld "aanslag 2024" of "BTW-aangifte" | De uitvraag zoekt naar de hele zoekterm als één woord, en dat komt in geen onderwerp voor | Geen treffers, ook als elk woord apart wel voorkomt |
 | De sessie is verlopen | De uitvraag weigert | "Uw sessie is verlopen of ongeldig. Log opnieuw in." |
 
@@ -68,7 +72,8 @@ de uitvraag tijdens de sessie al heeft.
 ## Open vragen
 
 - Moet het zoeken Nederlandse taalregels volgen, of juist geen taalregels? Nu gelden de Engelse:
-  die vinden soms een verwante vorm en slaan korte Engelse woorden over.
+  die vinden soms een verwante vorm, en een zoekterm als "in" of "of" toont alle berichten.
+- Moet een letter met een accent of trema gewoon gevonden worden? Nu vindt die niets.
 - Moet een zoekterm van meer woorden berichten vinden waarin elk woord voorkomt? Nu vindt die
   niets.
 

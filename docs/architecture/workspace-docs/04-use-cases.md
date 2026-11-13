@@ -85,8 +85,9 @@ in zijn eigen Logboek Dataverwerkingen: welke handeling, voor welke ondernemer, 
 Bij het aanleveren en publiceren legt het magazijn de handeling vast vóórdat het hem uitvoert:
 mislukt de vastlegging, dan gebeurt er niets, en slaat het een aangeleverd bericht bijvoorbeeld niet
 op. De meeste andere handelingen worden vastgelegd zodra ze klaar zijn en vóór het antwoord:
-mislukt de vastlegging, dan krijgt de aanroeper een foutmelding en geen gegevens, terwijl een
-wijziging dan al wel is doorgevoerd. Het ophalen en het volgen worden vastgelegd bij de start; een
-mislukte uitkomst komt er later bij. Het wissen van gegevens bij het einde of de start van een
+mislukt de vastlegging, dan krijgt het portaal of de organisatie een foutmelding en geen gegevens,
+terwijl een wijziging dan al wel is doorgevoerd. Het ophalen wordt vastgelegd bij de start, en een
+mislukte ronde komt er later bij. Het volgen wordt alleen bij de start vastgelegd: een afgebroken
+verbinding staat niet in het logboek. Het wissen van gegevens bij het einde of de start van een
 sessie gaat altijd door; mislukt de vastlegging, dan krijgt de beheerder een waarschuwing. Welke
 berichten precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.

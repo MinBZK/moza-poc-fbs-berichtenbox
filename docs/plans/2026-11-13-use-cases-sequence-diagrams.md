@@ -29,9 +29,9 @@ klopt met het huidige gedrag, en de afwijking van de doelarchitectuur.
 
 De diagrammen tonen één lijn per systeem: het Berichten Uitvraag Systeem en het Berichtenmagazijn,
 plus de actoren en de diensten van MijnOverheid Zakelijk. De onderdelen binnen een systeem
-(Publicatie Stream, sessiecache, magazijnregister) staan in de technische verwijzing; de tekst
-beschrijft wat ze doen, het diagram niet: op containerniveau werden de diagrammen te druk voor het doel, een gedeeld
-beeld van het verloop.
+(Publicatie Stream, sessiecache, magazijnregister) staan in de tekst en de technische verwijzing
+waar het ertoe doet, niet in het diagram: op containerniveau werden de diagrammen te druk voor het
+doel, een gedeeld beeld van het verloop.
 
 "Berichtenmagazijn" staat voor elk magazijn. Het model kent "Berichtenmagazijn (BBO-gehost)" en
 "Berichtenmagazijn (eigen gehost)", maar de koppelvlakken zijn stelselafspraken, dus een use case
@@ -94,8 +94,9 @@ ontwikkeling. Het overzicht verwijst naar de bestaande `dynamic`-views `Rechtstr
 ## Verificatie
 
 - Guard groen op de documentatie, rood op elke fixture-variant. Elke controle in het script is
-  gemuteerd in een kopie; de suite ving 54 van de 55 mutaties. De overgebleven mutatie (`;?` weg uit
-  de kop) is equivalent: de `;` valt daarna toch weg bij het splitsen in statements.
+  gemuteerd in een kopie; de suite ving alle 64 mutaties. Waar de guard Mermaid volgt (directives,
+  boxkleuren, sleutelwoorden), is het gedrag nagelopen met Mermaid 11.9.0; voor het DSL-commentaar
+  met de parser van Structurizr.
 - Elk Mermaid-blok rendert met `mermaid-cli` 11.9.0 (dezelfde versie als de site).
 - De site genereert lokaal met `structurizr-site-generatr:1.5.2`; elke use-case-pagina staat in
   het menu en toont zijn diagram.

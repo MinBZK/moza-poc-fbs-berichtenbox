@@ -57,6 +57,15 @@ workspace {
         # hekje = container "Hekje"
         /* ouder = container "Ouder" {
         } */
+        /*
+        midden = container "Midden"
+        /* genest, op één regel */
+        /*
+        diep = container "Diep"
+        */
+        // een regel die eindigt op */
+        verder = container "Verder"
+        */
         /* los blokcommentaar op één regel */
         winkel = softwareSystem "Winkel" "Toont \"{\" in de kassa" {
             properties {
@@ -247,7 +256,7 @@ draai "$werkmap/workspace.dsl" "$docs"
 verwacht "statement na een puntkomma wordt getoetst" 1 "'ZZ' is niet gedeclareerd"
 
 # 11d. Een uitgecommentarieerd element telt niet.
-for naam in Oud Ouder Hekje; do
+for naam in Oud Ouder Hekje Midden Diep Verder; do
   docs=$(nieuwe_docs "commentaar-$naam")
   voeg_in "$docs" "    participant OU as $naam"
   draai "$werkmap/workspace.dsl" "$docs"
@@ -324,7 +333,9 @@ verwacht "box 'winkel' is niet exact 'Winkel'" 1 "box 'winkel' is geen element u
 
 # 11g. Notities links en rechts, (de)activatie.
 for regel in 'Note right of ZZ: z' 'note left of ZZ: z' 'activate ZZ' 'deactivate ZZ' 'destroy ZZ' \
-             'Title->>ZZ: x' 'TITLE->>ZZ: x' 'accDescr->>ZZ: x' '%%{init: {}}%% KA->>ZZ: x'; do
+             'Title->>ZZ: x' 'TITLE->>ZZ: x' 'accDescr->>ZZ: x' 'accTitle->>ZZ: x' \
+             'Partner->>ZZ: x' 'Alternatief->>ZZ: x' 'AutonumberX->>ZZ: x' \
+             '%%{init: {}}%% KA->>ZZ: x' '%%{init: {}}%% KA->>ZZ: x %%{init: {}}%%'; do
   docs=$(nieuwe_docs "noemt-$(printf '%s' "$regel" | od -An -tx1 | tr -d ' \n')")
   voeg_in "$docs" "    $regel"
   draai "$werkmap/workspace.dsl" "$docs"
@@ -392,7 +403,7 @@ for voor in '%%{init: {"theme": "dark"}}%%' $'---\ntitle: Betalen\n---' ''; do
   verwacht "diagram met voorloop '${voor%%$'\n'*}' wordt getoetst" 1 "participant 'Onbekend' is geen element uit het model"
 done
 
-# Op de regel van de kop, of in een directive vóór de kop, telt alles mee.
+# Alles op de regel van de kop telt mee, ook als er een directive vóór de kop staat.
 for kop in 'sequenceDiagram participant X as Onbekend' 'sequenceDiagram; participant X as Onbekend' \
            '%%{init: {}}%% sequenceDiagram' $'%%{\n  init: {}\n}%%\nsequenceDiagram'; do
   docs=$(nieuwe_docs "kop-$(printf '%s' "$kop" | od -An -tx1 | tr -d ' \n' | cut -c1-40)")
@@ -433,6 +444,38 @@ docs=$(nieuwe_docs fence-ingesprongen)
 printf '# Overzicht\n\n- stap\n\n  ```mermaid\n  sequenceDiagram\n      participant X as Onbekend\n  ```\n' > "$docs/00-overzicht.md"
 draai "$werkmap/workspace.dsl" "$docs"
 verwacht "ingesprongen blok in een lijst wordt getoetst" 1 "participant 'Onbekend' is geen element uit het model"
+
+# Zonder woord direct na `%%{` is het voor Mermaid geen directive: de regels ertussen tellen mee.
+docs=$(nieuwe_docs geen-directive)
+printf '# Overzicht\n\n```mermaid\nsequenceDiagram\n    participant K as Klant\n    %%%%{ - begin\n    Onbekend->>K: x\n    %%%% einde }%%%%\n```\n' > "$docs/00-overzicht.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "regels tussen een schijn-directive worden getoetst" 1 "'Onbekend' is niet gedeclareerd"
+
+# Mermaid splitst alleen op een regeleinde, niet op U+2028: wat erachter staat, hoort bij het label.
+docs=$(nieuwe_docs regelscheiding)
+voeg_in "$docs" "    participant A as Klant"$' '"%% x"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "U+2028 splitst het label niet" 1 "is geen element uit het model"
+
+# Een meerregelige accDescr zou regels verbergen; de guard weigert hem.
+docs=$(nieuwe_docs accdescr-blok)
+voeg_in "$docs" "    accDescr {"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "meerregelige accDescr wordt geweigerd" 1 "meerregelige accDescr niet ondersteund"
+
+# Boxkleuren zoals Mermaid ze splitst: alleen een geldige kleur valt weg, ook bij een lege box.
+docs=$(nieuwe_docs box-kleur-lege-box)
+voeg_in "$docs" "    end"
+voeg_in "$docs" "    box Aqua Webwinkel"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "lege box met kleur en een onbekende naam faalt" 1 "box 'Aqua Webwinkel' is geen element uit het model"
+
+for label in 'rgbx Winkel' 'rgb(1, 2, 3) Kluis (oud)' 'rgb(1, 2, 3) x) Winkel'; do
+  docs=$(nieuwe_docs "box-schijnkleur-$(printf '%s' "$label" | od -An -tx1 | tr -d ' \n')")
+  sed -i "s/box Winkel/box $label/" "$docs/01-uc1-betalen.md"
+  draai "$werkmap/workspace.dsl" "$docs"
+  verwacht "box '$label': Mermaid toont het hele label" 1 "box '$label' is geen element uit het model"
+done
 
 # 11n. Een blok dat nooit sluit, of een diagram zonder deelnemers, meet niets.
 docs=$(nieuwe_docs niet-gesloten)

@@ -39,6 +39,7 @@ sequenceDiagram
 
     IL->>FBS: Volg de berichtenbox (doorlopende verbinding)
     FBS->>FBS: Loopt de sessie, en is het ophalen klaar?
+    Note over FBS: Legt het volgen vast in het logboek
     FBS-->>IL: Volgen gestart
     IL->>FBS: Geef de berichtenlijst (opnieuw)
     FBS-->>IL: Berichtenlijst

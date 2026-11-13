@@ -38,8 +38,10 @@ FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})\s*mermaid\b", re.IGNORECASE)
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
 
 # Een directive (`%%{init: ...}%%`) mag overal staan, ook over meerdere regels. Mermaid haalt hem
-# weg vóór het lezen; wat ervoor en erna op de regel staat, telt gewoon mee.
-DIRECTIVE = re.compile(r"%%\{.*?\}%%", re.S)
+# weg vóór het lezen en voegt wat ervoor en erna staat samen tot één regel. Dit is de regex van
+# Mermaid zelf: zonder woord direct na `%%{` is het geen directive maar gewoon een `%%`-regel, en
+# een directive zonder `}%%` loopt door tot het einde van het diagram.
+DIRECTIVE = re.compile(r"%%\{\s*(?:\w+\s*:|\w+)\s*(?:\w+|(?:(?!\}%%).|\n)*)?\s*(?:\}%%)?", re.I | re.A)
 SEQUENCE_KOP = re.compile(r"^sequenceDiagram\b\s*;?\s*(.*)$", re.IGNORECASE)
 DECLARATIE = re.compile(r"^(?:create\s+)?(participant|actor)\s+(.+?)(?:\s+as\s+(.+?))?$", re.IGNORECASE)
 BOX = re.compile(r"^box(?:\s+(.*))?$", re.IGNORECASE)
@@ -51,13 +53,18 @@ STRUCTUUR = re.compile(
     r"^(?:end|autonumber\b.*|(?:alt|else|opt|loop|par|par_over|and|critical|option|break|rect)\b.*"
     # Alleen met een spatie of dubbele punt erna is `title` een titel, en `accDescr` alleen met `:` of
     # `{`: `Title->>X: y` is voor Mermaid een pijl van een deelnemer die Title heet.
-    r"|title(?:\s.*|:.*)|acctitle\s*:.*|accdescr\s*(?::.*|\{.*))$",
+    r"|title(?:\s.*|:.*)|acctitle\s*:.*|accdescr\s*:.*)$",
     re.IGNORECASE,
 )
-# Een kleur vóór het label van een box (`box Aqua Winkel`, `box rgb(1,2,3) Winkel`). Mermaid leest het
-# eerste woord alleen als kleur als het een CSS-kleur is; anders hoort het bij de titel. Een `#` opent
-# in Mermaid commentaar, dus `#ffcc00` is geen kleur maar het einde van de regel.
-BOX_KLEUR = re.compile(r"^(rgba?\([^)]*\)|hsla?\([^)]*\)|[A-Za-z]+)\s+(.+)$")
+# Een meerregelige `accDescr {` slokt in Mermaid alles op tot de `}`. Die regels overslaan zou een
+# nieuwe plek openen waar een deelnemer ongezien staat, dus de guard weigert de vorm.
+ACCDESCR_BLOK = re.compile(r"^accdescr\s*\{", re.IGNORECASE)
+# Een kleur vóór het label van een box (`box Aqua Winkel`, `box rgb(1,2,3) Winkel`), gesplitst zoals
+# `parseBoxData` in Mermaid dat doet: het eerste woord, of alles tot de laatste `)`. Is dat geen
+# geldige kleur, dan hoort het bij de titel. Een `#` opent in Mermaid commentaar, dus `#ffcc00` is
+# geen kleur maar het einde van de regel.
+BOX_KLEUR = re.compile(r"^((?:rgba?|hsla?)\s*\(.*\)|\w*)(.*)$", re.A)
+KLEURFUNCTIE = re.compile(r"(?:rgba?|hsla?)\s*\([^()]*\)", re.I)
 CSS_KLEUREN = frozenset("""
     aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet
     brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue
@@ -78,19 +85,32 @@ CSS_KLEUREN = frozenset("""
 """.split())
 
 
+def regels_van(tekst: str) -> list[str]:
+    """Splitst alleen op een regeleinde, zoals Mermaid en Structurizr: `splitlines()` splitst ook op
+    tekens als U+2028, en dan ziet de guard twee regels waar Mermaid er één leest."""
+    return tekst.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+
 def zonder_commentaar(dsl: str) -> list[str]:
     """Laat `//`- en `#`-regels en `/* */`-blokken weg, zodat een uitgecommentarieerd element niet
-    meetelt. Structurizr kent blokcommentaar per regel: een regel die met `/*` begint, tot een regel
-    die op `*/` eindigt. Zo opent een `/*` binnen een string (`"services/*/pom.xml"`) niets."""
+    meetelt. Dit volgt de parser van Structurizr: commentaar is per regel. Een regel die met `/*`
+    begint én op `*/` eindigt, is één commentaarregel, ook binnen een blok. Een regel die alleen met
+    `/*` begint, opent een (geneste) context, en een regel die op `*/` eindigt, sluit de binnenste.
+    Zo opent een `/*` binnen een string (`"services/*/pom.xml"`) niets."""
     regels: list[str] = []
-    in_blok = False
+    diepte = 0
 
-    for regel in dsl.splitlines():
-        if in_blok:
-            in_blok = not regel.rstrip().endswith("*/")
-        elif regel.lstrip().startswith("/*"):
-            in_blok = not regel.rstrip().endswith("*/")
-        elif not re.match(r"^\s*(?://|#)", regel):
+    for regel in regels_van(dsl):
+        kaal = regel.strip()
+
+        if re.match(r"^(?://|#)", kaal) or (kaal.startswith("/*") and kaal.endswith("*/")):
+            continue
+
+        if kaal.startswith("/*"):
+            diepte += 1
+        elif diepte:
+            diepte -= kaal.endswith("*/")
+        else:
             regels.append(regel)
 
     return regels
@@ -150,7 +170,7 @@ def mermaid_blokken(tekst: str) -> tuple[list[tuple[int, list[str]]], int | None
     fence = ""
     start = 0
 
-    for nummer, regel in enumerate(tekst.splitlines(), start=1):
+    for nummer, regel in enumerate(regels_van(tekst), start=1):
         if huidig is None:
             opening = FENCE_OPEN.match(regel)
 
@@ -170,48 +190,78 @@ def mermaid_blokken(tekst: str) -> tuple[list[tuple[int, list[str]]], int | None
     return blokken, (start if huidig is not None else None)
 
 
+def zonder_directives(regels: list[str]) -> list[tuple[str, int]]:
+    """Haalt de directives weg zoals Mermaid: wat ervoor en erna staat, wordt één regel. Geeft per
+    regel de index van de oorspronkelijke regel waarop hij begint, zodat een melding naar de goede
+    regel wijst."""
+    tekst = "\n".join(regels)
+    uit: list[tuple[str, int]] = []
+    huidig = ""
+    begin = 0
+    regel = 0
+    vorige = 0
+
+    for directive in [*DIRECTIVE.finditer(tekst), None]:
+        stuk = tekst[vorige:directive.start() if directive else len(tekst)]
+
+        for n, deel in enumerate(stuk.split("\n")):
+            if n:
+                uit.append((huidig, begin))
+                huidig = ""
+                regel += 1
+                begin = regel
+
+            huidig += deel
+
+        if directive:
+            # De regeleindes binnen een directive vallen weg: de regel loopt door, de telling niet.
+            regel += directive.group().count("\n")
+            vorige = directive.end()
+
+    uit.append((huidig, begin))
+    return uit
+
+
 def sequence_statements(regels: list[str], start: int) -> list[tuple[str, int]] | None:
     """De statements van een sequence diagram met hun regelnummer, of `None` als het blok geen
     sequence diagram is. Vóór de kop mogen lege regels, `%%`-commentaar en YAML-frontmatter staan;
     wat na `sequenceDiagram` op dezelfde regel volgt, is al een statement."""
-    # Een directive vervangen door evenveel regeleindes houdt de regelnummers gelijk.
-    tekst = DIRECTIVE.sub(lambda m: "\n" * m.group().count("\n"), "\n".join(regels))
-    regels = tekst.split("\n")
+    gelezen = zonder_directives(regels)
     i = 0
 
-    if next((r.strip() for r in regels if r.strip()), "") == "---":
-        eerste = next(j for j, r in enumerate(regels) if r.strip())
-        i = next((j for j in range(eerste + 1, len(regels)) if regels[j].strip() == "---"), len(regels)) + 1
+    if next((r.strip() for r, _ in gelezen if r.strip()), "") == "---":
+        eerste = next(j for j, (r, _) in enumerate(gelezen) if r.strip())
+        i = next((j for j in range(eerste + 1, len(gelezen)) if gelezen[j][0].strip() == "---"), len(gelezen)) + 1
 
-    while i < len(regels) and (not regels[i].strip() or regels[i].strip().startswith("%%")):
+    while i < len(gelezen) and (not gelezen[i][0].strip() or gelezen[i][0].strip().startswith("%%")):
         i += 1
 
-    kop = SEQUENCE_KOP.match(regels[i].strip()) if i < len(regels) else None
+    kop = SEQUENCE_KOP.match(gelezen[i][0].strip()) if i < len(gelezen) else None
 
     if kop is None:
         return None
 
-    uit = [(deel.strip(), start + i + 1) for deel in kop.group(1).split(";")]
+    uit = [(deel.strip(), start + gelezen[i][1] + 1) for deel in kop.group(1).split(";")]
 
-    for index in range(i + 1, len(regels)):
-        uit += [(deel.strip(), start + index + 1) for deel in regels[index].split(";")]
+    for tekst, index in gelezen[i + 1:]:
+        uit += [(deel.strip(), start + index + 1) for deel in tekst.split(";")]
 
     return uit
 
 
 def box_element(label: str, model: dict[str, set[str]]) -> str | None:
-    if label in model:
-        return label
+    """Het element dat een boxlabel noemt, met een eventuele kleur ervoor weggelaten zoals Mermaid
+    dat doet; `None` als de titel die Mermaid toont geen element is."""
+    gesplitst = BOX_KLEUR.match(label)
+    titel = label
 
-    met_kleur = BOX_KLEUR.match(label)
+    if gesplitst:
+        kleur, rest = gesplitst.group(1), gesplitst.group(2).strip()
 
-    if met_kleur and met_kleur.group(2) in model:
-        kleur = met_kleur.group(1).lower()
+        if kleur.lower() in CSS_KLEUREN or KLEURFUNCTIE.fullmatch(kleur):
+            titel = rest
 
-        if kleur in CSS_KLEUREN or kleur.startswith(("rgb", "hsl")):
-            return met_kleur.group(2)
-
-    return None
+    return titel if titel in model else None
 
 
 def toets_blok(bestand: str, start: int, statements: list[tuple[str, int]], model: dict[str, set[str]]) -> tuple[list[str], int]:
@@ -256,6 +306,8 @@ def toets_blok(bestand: str, start: int, statements: list[tuple[str, int]], mode
         elif statement.lower() == "end" and in_box:
             in_box = False
             box = None
+        elif ACCDESCR_BLOK.match(statement):
+            fouten.append(f"{waar}: meerregelige accDescr niet ondersteund; gebruik `accDescr: ...`")
         elif STRUCTUUR.match(statement):
             continue
         elif pijlregel:

@@ -89,7 +89,7 @@ sequenceDiagram
 | Het logboek kan de aanlevering niet vastleggen | Het magazijn slaat het bericht niet op | Een serverfout; later opnieuw aanleveren |
 | De organisatie levert hetzelfde bericht twee keer aan, bijvoorbeeld na een time-out | Het magazijn herkent dat niet: er ontstaan twee berichten | De ondernemer ziet het bericht dubbel |
 | De uitvraag of de Notificatie Service is onbereikbaar | Het magazijn probeert het nog vier keer, ongeveer eens per minuut, en geeft die levering daarna op. Vraagt de bestemming zelf om later terug te komen, dan wacht hij zo lang (hooguit een uur). Een storing bij de ene bestemming houdt de andere niet tegen, maar een bestemming die niet antwoordt, kan de andere vertragen | De organisatie merkt niets: haar aanlevering was al aangenomen. Duurt de storing langer dan een paar minuten, dan krijgt de ondernemer geen melding |
-| De ondernemer is niet ingelogd | De uitvraag neemt de aanmelding aan en doet er niets mee | Niets. Het bericht verschijnt bij de volgende keer inloggen, omdat de uitvraag dan het magazijn van deze organisatie opnieuw bevraagt |
+| De ondernemer is niet ingelogd, of heeft zijn berichten nog niet opgehaald | De uitvraag neemt de aanmelding aan en doet er niets mee | Niets. Het bericht verschijnt bij het volgende ophalen, omdat de uitvraag dan het magazijn van deze organisatie opnieuw bevraagt |
 | Een aanmelding komt twee keer binnen | De uitvraag herkent de herhaling (een dag lang) en zet het bericht niet dubbel in de lijst | Niets |
 | Het bericht is verwijderd voordat het gepubliceerd werd | Het magazijn levert het niet meer | Geen melding |
 
@@ -107,8 +107,8 @@ sequenceDiagram
   kijkt alleen naar het opgegeven bestandstype, niet naar de inhoud.
 - **Persoonsgegevens in aanmelding en melding.** De aanmelding bij de uitvraag en de melding aan de
   Notificatie Service bevatten het identificatienummer van de ontvanger en het onderwerp, leesbaar.
-  De afspraken voor zulke meldingen vragen om gevoelige gegevens daarin te versleutelen, of ze
-  alleen op te laten halen.
+  De afspraken voor zulke meldingen vragen om gevoelige gegevens daarin te versleutelen, of ze uit
+  de melding weg te laten zodat de ontvanger ze apart ophaalt.
 
 ## Open vragen
 

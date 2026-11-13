@@ -2,11 +2,12 @@
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
 # demonstratiecode afhangt, jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
-# handtekening controleert, en use-case-deelnemers.py bewaakt dat de sequence diagrams van de use
-# cases alleen elementen uit het C4-model noemen. De suites onder demo/lib/ toetsen de modus-keuze
-# waarmee elke lokale opstelling start, en demo/test-meet-fanout.sh toetst dat de fan-out-meting
-# een niet-geleegde cache weigert; die horen bij een required check, en draaien daarom hier. Een fout daarin is
-# stil — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
+# handtekening controleert, en use-case-deelnemers.py bewaakt dat elk sequence diagram in de
+# architectuurdocumentatie alleen elementen uit het C4-model noemt. De suites onder demo/lib/
+# toetsen de modus-keuze waarmee elke lokale opstelling start, en demo/test-meet-fanout.sh toetst
+# dat de fan-out-meting een niet-geleegde cache weigert; die horen bij een required check, en
+# draaien daarom hier. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped' en dat
+# telt als succes voor branch protection.
 # Vandaar een eigen, lichte workflow: shellcheck, actionlint en de bash-unittests, zonder de docker
 # build van de FSC-harness.
 name: CI-scripts
@@ -91,7 +92,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: .github/scripts/fuzz-basis-modules.sh
 
-      - name: De sequence diagrams van de use cases volgen het C4-model
+      - name: De sequence diagrams in de architectuurdocumentatie volgen het C4-model
         # De suite hieronder toetst deze guard tegen fixtures én de echte documentatie; deze stap
         # laat hem los op docs/architecture, zodat een deelnemer die niet (meer) in het model staat
         # als eigen regel in de log staat. Hier en niet in architecture.yml: die heeft een
@@ -162,7 +163,7 @@ jobs:
             [.github/scripts/test-proeftuin-pin.sh]=139
             [.github/scripts/test-preview-resten.sh]=255
             [.github/scripts/test-selinux-label-guard.sh]=22
-            [.github/scripts/test-use-case-deelnemers.sh]=105
+            [.github/scripts/test-use-case-deelnemers.sh]=120
             [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223

@@ -24,7 +24,7 @@ heeft de ondernemer in zijn berichtenbox gekeken terwijl het bericht daar te zie
 | Is het bericht aangenomen? | Logboek van het magazijn, bij het aanleveren (use case 1) | Wel: wanneer, voor welke ontvanger, en of het lukte. Niet: welk bericht; het berichtnummer staat niet in die regel. Weigerde het magazijn het bericht, bijvoorbeeld omdat de ondernemer geen berichten van deze organisatie wilde, dan staat de weigering er ook, maar zonder de ontvanger: die legt het magazijn pas vast als het bericht door de controle is. De organisatie kreeg de weigering wel direct |
 | Is de melding verstuurd? | Logboek van het magazijn, per poging om de Notificatie Service te bereiken (use case 1) | Wel: of de Notificatie Service de melding aannam. Niet: of die dienst daarna een e-mail stuurde, en naar welk adres. Dat ligt bij de Notificatie Service |
 | Heeft de ondernemer gekeken? | Logboek van de uitvraag (ophalen, lijst, zoeken, openen), en het logboek van elk magazijn dat bevraagd werd (use case 2) | Wel: wanneer de ondernemer ingelogd was, wanneer de uitvraag de berichtenlijst bij het magazijn van deze organisatie ophaalde, en of dat lukte. Niet: welke berichten in die lijst zaten, en welke het portaal liet zien |
-| Heeft de ondernemer het bericht geopend? | Logboek van de uitvraag en van het magazijn (use case 5) | De uitvraag legt vast dat de ondernemer een bericht probeerde te openen, maar niet welk, van welke organisatie, en of dat lukte: een geweigerde poging staat er net zo in als een geslaagde. Het magazijn legt een weigering als fout vast, dus daar toont een regel zonder fout dat de tekst aan de uitvraag verstrekt is; of de uitvraag hem daarna doorgaf, blijkt pas uit beide regels samen, via het gemeenschappelijke trace-nummer. Wordt het magazijn ooit gelijkgetrokken met de uitvraag (een weigering is volgens de standaard voor het logboek geen fout), dan verdwijnt dat onderscheid. In geen van beide staat het berichtnummer |
+| Heeft de ondernemer het bericht geopend? | Logboek van de uitvraag en van het magazijn (use case 5) | De uitvraag legt vast dat de ondernemer een bericht probeerde te openen, maar niet welk, van welke organisatie, en of dat lukte: een geweigerde poging staat er net zo in als een geslaagde. Het magazijn legt een weigering als fout vast, dus daar toont een regel zonder fout dat de tekst aan de uitvraag verstrekt is; of de uitvraag hem daarna doorgaf, blijkt pas uit beide regels samen, via een gemeenschappelijk kenmerk van het verzoek (trace-id). Wordt het magazijn ooit gelijkgetrokken met de uitvraag (een weigering is volgens de standaard voor het logboek geen fout), dan verdwijnt dat onderscheid. In geen van beide staat het berichtnummer |
 
 Daaruit valt af te leiden, niet aan te tonen, dat het bericht getoond kon worden: het magazijn gaf
 op een bepaald moment de lijst van deze ondernemer af, en het bericht was toen al aangeleverd en
@@ -38,8 +38,9 @@ ontvangen. Elk bevraagd magazijn legt nu één regel per 100 berichten vast. Leg
 bericht een regel vast, dan wordt dat één regel per bericht per keer inloggen, verspreid over de
 logboeken van alle betrokken magazijnen en de uitvraag. Alleen als de ontvanger een
 overheidsorganisatie is (een OIN), bevraagt de uitvraag alle magazijnen; met 1800 magazijnen levert
-één keer inloggen dan nu al tot ongeveer 1800 logregels op, plus één per getoond bericht. Elke
-extra regel bevat het identificatienummer van de ontvanger, leesbaar: meer vastleggen staat op
+één keer inloggen dan nu al ongeveer 1800 logregels op (één per bevraagd magazijn, tot vijf bij een
+magazijn met meer dan 100 berichten), plus één per getoond bericht. Bij een ondernemer met een BSN
+bevat elke extra regel dat nummer, leesbaar: meer vastleggen staat op
 gespannen voet met dataminimalisatie. Pseudonimiseren van dat nummer in het logboek, wat de
 standaard aanraadt, verzacht dat.
 
@@ -63,7 +64,8 @@ is.
 - Het magazijn legt elk verwijderen door de ondernemer vast in zijn logboek, met de ondernemer maar
   zonder het berichtnummer. Het definitief opruimen legt het alleen vast in de technische log voor
   beheerders (de applicatielog), met het berichtnummer maar zonder de ondernemer. De twee sporen
-  zijn dus niet aan elkaar te koppelen: samen leveren ze geen bewijs per bericht.
+  zijn alleen bij benadering aan elkaar te koppelen, via het tijdstip van verwijderen: dat is geen
+  sluitend bewijs per bericht.
 - De berichtenlijst in de uitvraag verdwijnt vanzelf aan het einde van de laatste sessie, en dat
   wissen staat in het logboek van de uitvraag. Alleen als het opruimen mislukt en ook de geplande
   veegtaak er niet meer bij komt, wist een vangnet de lijst later zonder logregel.
@@ -80,14 +82,16 @@ berichten van deze ondernemer staan: dat blijkt alleen door ze allemaal te vrage
   regels gebeurt;
 - het besef dat het bewijs van de wissing zelf weer een vastlegging met het nummer van de
   ondernemer is: precies de spanning uit de onderzoeksvraag;
-- een toets of een wettelijke bewaarplicht het verzoek beperkt (de AVG kent die uitzondering op het
-  recht op wissing);
-- het besef dat het recht op wissing alleen geldt voor natuurlijke personen: het raakt een
-  ondernemer met een BSN (een eenmanszaak), niet een onderneming met een RSIN of KVK-nummer;
+- een toets of de grondslag (een wettelijke verplichting of een publieke taak) of de Archiefwet het
+  verzoek beperkt (AVG artikel 17, derde lid);
+- het besef dat het recht op wissing alleen natuurlijke personen toekomt: het raakt berichten aan
+  een ondernemer met een BSN, en ook aan een eenmanszaak of vof via het KVK-nummer. Een
+  rechtspersoon (RSIN) heeft dit recht niet, maar personen over wie zo'n bericht gaat wel;
 - het besef dat elke verzendende organisatie verantwoordelijk is voor de berichten in haar eigen
   magazijn. Het verzoek loopt dus per organisatie, en elke organisatie moet de partijen aan wie ze
   de gegevens verstrekte, van de wissing op de hoogte brengen. De beheerder van het stelsel kan
-  coördineren, maar wist zelf niets.
+  coördineren, maar wist zelf geen berichten; voor de eigen logboekregels van de uitvraag geldt de
+  afspraak over de bewaartermijn hierboven.
 
 ## 3. Een magazijn is langere tijd uit de lucht
 

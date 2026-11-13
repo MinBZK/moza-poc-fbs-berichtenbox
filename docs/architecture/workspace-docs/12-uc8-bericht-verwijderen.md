@@ -63,11 +63,12 @@ sequenceDiagram
 
 ## Doelarchitectuur
 
-- **Logboek bij het definitief opruimen.** Het model zegt dat de Retentie Service het definitief
-  verwijderen vastlegt in het Logboek Dataverwerkingen. Nu legt hij het alleen vast in de
-  technische log voor beheerders (de applicatielog), zonder het nummer van de ontvanger.
-- **Organisatie verwijdert een bericht** (open punt, nog niet in het model). Het koppelvlak van het magazijn kent geen manier waarop
-  de organisatie zelf een bericht intrekt. Een zelf gehost magazijn kan dat intern regelen; voor de
+- **Logboek bij het definitief opruimen.** Het model zegt dat het magazijn (de Retentie Service)
+  het definitief verwijderen vastlegt in het Logboek Dataverwerkingen. Nu legt het magazijn het
+  alleen vast in de technische log voor beheerders (de applicatielog), zonder het nummer van de
+  ontvanger.
+- **Organisatie verwijdert een bericht** (open punt, nog niet in het model). Het koppelvlak van het
+  magazijn kent geen manier waarop de organisatie zelf een bericht intrekt. Een zelf gehost magazijn kan dat intern regelen; voor de
   ondernemer verdwijnt het bericht dan bij het volgende ophalen, zonder melding.
 - **Alle berichten van een ondernemer wissen** (open punt, nog niet in het model). Er is geen manier om alle berichten van één
   ondernemer in één keer te verwijderen. Zie de pagina met beheervragen.
