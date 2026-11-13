@@ -566,7 +566,9 @@ bevat "probe-pod start niet: de fout komt van de probe zelf" "gaf geen-uitvoer a
 # van een oude pod met dezelfde naam lezen. In een command substitution, zoals het script hem
 # aanroept: daar geldt errexit niet.
 for faalt in delete apply; do
-  uitvoer=$(in_script "kc() { case \"\$*\" in *$faalt*) return 1 ;; *logs*) echo '000 7 0' ;; *) return 0 ;; esac; };
+  # apply leest stdin, zoals kubectl: anders meldt cat een kapotte pipe (op de CI-runner wordt
+  # SIGPIPE genegeerd) en komt die melding in de uitvoer.
+  uitvoer=$(in_script "kc() { case \"\$*\" in *delete*) [ $faalt != delete ] ;; *apply*) cat >/dev/null; [ $faalt != apply ] ;; *logs*) echo '000 7 0' ;; *) return 0 ;; esac; };
 wacht_tot() { shift 2; \"\$@\"; }; pod_klaar() { return 0; }; echo \"\$(probe_code stelselregister zonder-label)\"")
   gelijk "probe_code: $faalt faalt geeft geen-uitvoer" "geen-uitvoer" "$uitvoer"
 done
