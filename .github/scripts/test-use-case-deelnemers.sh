@@ -54,20 +54,28 @@ workspace {
     model {
         klant = person "Klant"
         // oud = container "Oud"
+        # hekje = container "Hekje"
         /* ouder = container "Ouder" {
         } */
-        winkel = softwareSystem "Winkel" {
+        /* los blokcommentaar op één regel */
+        winkel = softwareSystem "Winkel" "Toont \"{\" in de kassa" {
             properties {
                 "bron" "urn:{oin:winkel"
+                "build" "services/*/pom.xml"
+                "ook" "libraries/*/pom.xml"
             }
             kassa = container "Kassa" {
                 bon = component "Bonprinter"
             }
             voorraad = container	"Voorraad"
+            kluis = container "Kluis (oud)"
         }
+        /* nog een blokcommentaar */
         bank = softwareSystem "Bank" {
             grootboek = container "Grootboek"
-            koel = container "Voorraad (koel)"
+            koel = container "Voorraad (koel)" {
+                thermo = component "Thermometer"
+            }
         }
         noord = softwareSystem "Filiaal (noord)" {
             rek = container "Rek"
@@ -165,7 +173,7 @@ sed -i 's/participant KA as Kassa/participant Kassa as Kasregister/; s/K->>KA: B
 draai "$werkmap/workspace.dsl" "$docs"
 verwacht "label telt, ook als de alias een elementnaam is" 1 "participant 'Kasregister' is geen element uit het model"
 
-# 7. Ongedeclareerde deelnemer in een bericht, per pijlsoort.
+# 7. Ongedeclareerde deelnemer in een pijl, per pijlsoort.
 for pijl in '->>' '-->>' '->' '-->' '-x' '--x' '-)' '--)' '->>+' '-->>-' '<<->>' '<<-->>'; do
   docs=$(nieuwe_docs "ongedeclareerd-$(printf '%s' "$pijl" | od -An -tx1 | tr -d ' \n')")
   voeg_in "$docs" "    KA${pijl}ZZ: Stiekem"
@@ -239,7 +247,7 @@ draai "$werkmap/workspace.dsl" "$docs"
 verwacht "statement na een puntkomma wordt getoetst" 1 "'ZZ' is niet gedeclareerd"
 
 # 11d. Een uitgecommentarieerd element telt niet.
-for naam in Oud Ouder; do
+for naam in Oud Ouder Hekje; do
   docs=$(nieuwe_docs "commentaar-$naam")
   voeg_in "$docs" "    participant OU as $naam"
   draai "$werkmap/workspace.dsl" "$docs"
@@ -262,12 +270,44 @@ voeg_in "$docs" "    participant GB as Grootboek"
 draai "$werkmap/workspace.dsl" "$docs"
 verwacht "na de box geldt de box niet meer" 0 "alle in het model"
 
-for kleur in 'Aqua' 'rgb(1, 2, 3)' '#ffcc00'; do
+for kleur in 'Aqua' 'transparent' 'rgb(1, 2, 3)' 'rgba(1, 2, 3, 0.5)' 'hsl(1, 2%, 3%)'; do
   docs=$(nieuwe_docs "box-kleur-$(printf '%s' "$kleur" | od -An -tx1 | tr -d ' \n')")
   sed -i "s/box Winkel/box $kleur Winkel/" "$docs/01-uc1-betalen.md"
   draai "$werkmap/workspace.dsl" "$docs"
   verwacht "box met kleur '$kleur' herkent het element" 0 "alle in het model"
 done
+
+# Geen CSS-kleur: Mermaid toont het woord als deel van de titel, en na een `#` niets meer.
+for voor in 'Oude' '#ffcc00'; do
+  docs=$(nieuwe_docs "box-geen-kleur-$(printf '%s' "$voor" | od -An -tx1 | tr -d ' \n')")
+  sed -i "s/box Winkel/box $voor Winkel/" "$docs/01-uc1-betalen.md"
+  draai "$werkmap/workspace.dsl" "$docs"
+  verwacht "box '$voor Winkel' is geen element" 1 "box '$voor Winkel' is geen element uit het model"
+done
+
+# Een verkorte naam mag ook als deelnemer in een box staan.
+docs=$(nieuwe_docs verkort-in-box)
+voeg_in "$docs" "    participant KL as Kluis"
+sed -i 's/^        participant VO as Voorraad$/        participant VO as Voorraad\n        participant KL as Kluis/' "$docs/01-uc1-betalen.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "'Kluis' voor 'Kluis (oud)' in box 'Winkel'" 0 "alle in het model"
+
+# Een onderdeel van 'Voorraad (koel)' is geen onderdeel van 'Voorraad': die naam is al een element.
+docs=$(nieuwe_docs verkort-voorouder-bestaat)
+sed -i 's/box Winkel/box Voorraad/; s/participant KA as Kassa/participant KA as Thermometer/; s/^        participant VO as Voorraad$//; s/KA->>VO: Boek af/KA->>KA: Boek af/; s/VO-->>KA: Afgeboekt/KA-->>KA: Afgeboekt/; s/Note over KA,VO: Samen/Note over KA: Samen/' "$docs/01-uc1-betalen.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "'Thermometer' hoort niet in box 'Voorraad'" 1 "'Thermometer' staat in box 'Voorraad'"
+
+# Strings met `\"`, `{` of `/*` en blokcommentaar op één regel verstoren de nesting niet.
+docs=$(nieuwe_docs dsl-strings)
+sed -i 's/participant VO as Voorraad/participant VO as Grootboek/' "$docs/01-uc1-betalen.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "nesting blijft kloppen na strings met accolades en globs" 1 "'Grootboek' staat in box 'Winkel'"
+
+docs=$(nieuwe_docs dsl-na-blokcommentaar)
+voeg_in "$docs" "    participant BA as Bank"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "element tussen twee blokcommentaren telt mee" 0 "alle in het model"
 
 # 11f. Exacte naam: geen hoofdletterverschil, geen deel van een naam.
 for label in voorraad Voor; do
@@ -283,7 +323,8 @@ draai "$werkmap/workspace.dsl" "$docs"
 verwacht "box 'winkel' is niet exact 'Winkel'" 1 "box 'winkel' is geen element uit het model"
 
 # 11g. Notities links en rechts, (de)activatie.
-for regel in 'Note right of ZZ: z' 'note left of ZZ: z' 'activate ZZ' 'deactivate ZZ' 'destroy ZZ'; do
+for regel in 'Note right of ZZ: z' 'note left of ZZ: z' 'activate ZZ' 'deactivate ZZ' 'destroy ZZ' \
+             'Title->>ZZ: x' 'TITLE->>ZZ: x' 'accDescr->>ZZ: x' '%%{init: {}}%% KA->>ZZ: x'; do
   docs=$(nieuwe_docs "noemt-$(printf '%s' "$regel" | od -An -tx1 | tr -d ' \n')")
   voeg_in "$docs" "    $regel"
   draai "$werkmap/workspace.dsl" "$docs"
@@ -311,9 +352,9 @@ cat >> "$docs/01-uc1-betalen.md" <<'EOF'
 ```mermaid
 ```
 EOF
-sed -i 's/^    KA->>KA: Controleer$/    KA->>NW: Nieuw\n    alt Gelukt\n        autonumber\n        %% commentaar\n    else Mislukt\n        rect rgb(200, 200, 200)\n            KA->>VO: Herstel\n        end\n    end/' "$docs/01-uc1-betalen.md"
+sed -i 's/^    KA->>KA: Controleer$/    KA->>NW: Nieuw\n    alt Gelukt\n        autonumber\n        %% commentaar\n    else Mislukt\n        rect rgb(200, 200, 200)\n            KA->>VO: Herstel\n        end\n    end\n    title Betalen\n    title: Betalen\n    accTitle: Betalen\n    accDescr: De klant betaalt\n    K<<->>KA: Over en weer\n    Note over K, KA: Met spatie\n    link KA: Kassa @ https:\/\/example.org\n    links KA: {"Kassa": "https:\/\/example.org"}\n    properties KA: {"class": "kassa"}\n    details KA: {"x": 1}\n    %%{init: {}}%% KA->>VO: Na een directive/' "$docs/01-uc1-betalen.md"
 draai "$werkmap/workspace.dsl" "$docs"
-verwacht "create, volgorde, structuur en een leeg blok mogen" 0 "alle in het model"
+verwacht "create, volgorde, structuur, titels, links en een leeg blok mogen" 0 "alle in het model"
 
 # 11k. Elk diagram heeft zijn eigen deelnemers: een tweede diagram erft ze niet.
 docs=$(nieuwe_docs scope-per-blok)
@@ -350,6 +391,48 @@ for voor in '%%{init: {"theme": "dark"}}%%' $'---\ntitle: Betalen\n---' ''; do
   draai "$werkmap/workspace.dsl" "$docs"
   verwacht "diagram met voorloop '${voor%%$'\n'*}' wordt getoetst" 1 "participant 'Onbekend' is geen element uit het model"
 done
+
+# Op de regel van de kop, of in een directive vóór de kop, telt alles mee.
+for kop in 'sequenceDiagram participant X as Onbekend' 'sequenceDiagram; participant X as Onbekend' \
+           '%%{init: {}}%% sequenceDiagram' $'%%{\n  init: {}\n}%%\nsequenceDiagram'; do
+  docs=$(nieuwe_docs "kop-$(printf '%s' "$kop" | od -An -tx1 | tr -d ' \n' | cut -c1-40)")
+  printf '# Overzicht\n\n```mermaid\n%s\n    participant K as Klant\n    participant X as Onbekend\n```\n' "$kop" > "$docs/00-overzicht.md"
+  draai "$werkmap/workspace.dsl" "$docs"
+  verwacht "diagram met kop '${kop%%$'\n'*}' wordt getoetst" 1 "participant 'Onbekend' is geen element uit het model"
+done
+
+docs=$(nieuwe_docs kop-twee-statements)
+printf '# Overzicht\n\n```mermaid\nsequenceDiagram participant K as Klant; participant X as Onbekend\n```\n' > "$docs/00-overzicht.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "tweede statement op de kopregel wordt getoetst" 1 "participant 'Onbekend' is geen element uit het model"
+
+docs=$(nieuwe_docs kop-na-commentaar)
+printf '# Overzicht\n\n```mermaid\n%%%% een opmerking\nsequenceDiagram\n    participant X as Onbekend\n```\n' > "$docs/00-overzicht.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "commentaarregel vóór de kop" 1 "participant 'Onbekend' is geen element uit het model"
+
+# Een directive over meerdere regels houdt de regelnummers erna gelijk.
+docs=$(nieuwe_docs directive-regelnummer)
+printf '# Overzicht\n\n```mermaid\nsequenceDiagram\n    %%%%{\n      init: {}\n    }%%%%\n    participant X as Onbekend\n```\n' > "$docs/00-overzicht.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "regelnummer na een directive over meerdere regels" 1 "00-overzicht.md:8: participant 'Onbekend'"
+
+# Ook als tweede blok op een use-case-pagina, waar een overgeslagen blok niet als ontbrekend opvalt.
+docs=$(nieuwe_docs kop-tweede-blok)
+printf '\n```mermaid\nsequenceDiagram; participant X as Onbekend\n```\n' >> "$docs/01-uc1-betalen.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "tweede blok met statement op de kop wordt getoetst" 1 "01-uc1-betalen.md:21: participant 'Onbekend'"
+
+# Een fence van een ander teken sluit het blok niet; een ingesprongen blok telt ook.
+docs=$(nieuwe_docs fence-ander-teken)
+printf '# Overzicht\n\n```mermaid\nsequenceDiagram\n    participant K as Klant\n~~~\n    participant X as Onbekend\n```\n' > "$docs/00-overzicht.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "tilde-fence sluit een backtick-blok niet" 1 "participant 'Onbekend' is geen element uit het model"
+
+docs=$(nieuwe_docs fence-ingesprongen)
+printf '# Overzicht\n\n- stap\n\n  ```mermaid\n  sequenceDiagram\n      participant X as Onbekend\n  ```\n' > "$docs/00-overzicht.md"
+draai "$werkmap/workspace.dsl" "$docs"
+verwacht "ingesprongen blok in een lijst wordt getoetst" 1 "participant 'Onbekend' is geen element uit het model"
 
 # 11n. Een blok dat nooit sluit, of een diagram zonder deelnemers, meet niets.
 docs=$(nieuwe_docs niet-gesloten)

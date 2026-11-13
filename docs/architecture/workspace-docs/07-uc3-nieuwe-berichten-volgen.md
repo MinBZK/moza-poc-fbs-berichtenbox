@@ -22,7 +22,8 @@ Nieuwe berichten verschijnen terwijl de berichtenbox openstaat.
 5. De uitvraag draait op meerdere servers tegelijk. De server die de aanmelding ontving, laat via
    het tijdelijke geheugen alle andere servers weten dat er een nieuw bericht is. De server waarmee
    het portaal verbonden is, stuurt de kopgegevens naar het portaal.
-6. Het portaal toont het nieuwe bericht.
+6. Het portaal toont het nieuwe bericht. In de lijst van de uitvraag staat een bericht dat tijdens de
+   sessie bijkomt achteraan, niet bij de nieuwste: het portaal zet het zelf op zijn plek.
 7. Eindigt de sessie, door uitloggen of verlopen, dan meldt de uitvraag dat bij de eerstvolgende
    controle en sluit de verbinding.
 
@@ -56,7 +57,7 @@ sequenceDiagram
 
     OND->>IL: Logt uit (zie use case 2)
     FBS->>FBS: Loopt de sessie nog? Nee
-    FBS-->>IL: Sessie verlopen, verbinding gesloten
+    FBS-->>IL: Sessie beëindigd, verbinding gesloten
 ```
 
 ## Als het misgaat
@@ -90,6 +91,6 @@ voldoende?
 |---|---|---|
 | Volgen | `GET /api/v1/berichten/_volgen` (SSE) | Events `volgen-gestart`, `bericht-bijgekomen`, `hartslag`, `sessie-verlopen`. `409 nog-niet-opgehaald` of `ophalen-bezig`, `503 ophalen-mislukt`, `503 te-veel-open-berichtenboxen` met `Retry-After: 30`. Verlengt de sessie niet |
 | Hartslag | `SessieVolger` | Elke 20s. Maximale duur van een verbinding 1u |
-| Doorgeven tussen instanties | Redis pub/sub, één abonnement per instantie | Alleen ontvanger-sleutel, berichtnummer en magazijn over het kanaal. Probe elke 30s, na twee gemiste probes worden alle streams van die instantie afgebroken |
+| Doorgeven tussen servers (instanties) | Redis pub/sub, één abonnement per instantie | Alleen ontvanger-sleutel, berichtnummer en magazijn over het kanaal. Probe elke 30s, na twee gemiste probes worden alle streams van die instantie afgebroken |
 | Aanmelden | `POST /api/v1/aanmeldingen` | Zie use case 1 |
 | Logboek | `uitvraag-volgen-sse` bij het openen | Losse events worden niet vastgelegd |

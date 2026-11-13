@@ -162,7 +162,7 @@ jobs:
             [.github/scripts/test-proeftuin-pin.sh]=139
             [.github/scripts/test-preview-resten.sh]=255
             [.github/scripts/test-selinux-label-guard.sh]=22
-            [.github/scripts/test-use-case-deelnemers.sh]=82
+            [.github/scripts/test-use-case-deelnemers.sh]=105
             [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223
@@ -239,7 +239,7 @@ jobs:
           # wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf, de twee onder demo/lib/
           # zijn de enige toets van de modus-keuze, test-meet-fanout.sh de enige bewaking dat de
           # fan-out-meting een niet-geleegde cache weigert, en test-use-case-deelnemers.sh de enige
-          # plek waar de sequence diagrams van de use cases tegen het C4-model gelegd worden.
+          # toets van de diagram-guard zelf: de stap hierboven draait hem alleen op de echte docs.
           for verplicht in .github/scripts/test-wijzigingsfilter.sh \
                            .github/scripts/test-uitrol-poort.sh \
                            .github/scripts/test-demo-grens.sh \

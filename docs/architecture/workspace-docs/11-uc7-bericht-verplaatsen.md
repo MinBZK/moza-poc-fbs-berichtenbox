@@ -44,14 +44,15 @@ sequenceDiagram
     MAG-->>FBS: Gewijzigd
     alt Bijwerken van de lijst lukt
         FBS->>FBS: Werk het bericht in de lijst bij
+        Note over FBS: Legt de wijziging vast in het logboek
         FBS-->>IL: Bijgewerkt bericht
         IL-->>OND: Het bericht staat in de map
     else Bijwerken van de lijst mislukt
         FBS->>FBS: Haal het bericht uit de lijst, tot het volgende ophalen
+        Note over FBS: Legt de mislukte wijziging vast in het logboek
         FBS-->>IL: Fout
         IL-->>OND: "Probeer het straks nog eens"
     end
-    Note over FBS: Legt de wijziging vast in het logboek
 ```
 
 ## Als het misgaat

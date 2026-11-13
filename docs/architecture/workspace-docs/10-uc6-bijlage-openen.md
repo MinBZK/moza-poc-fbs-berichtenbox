@@ -6,7 +6,7 @@ Een ondernemer opent of downloadt een bijlage bij een bericht.
 |---|---|
 | **Actor** | Een ondernemer die een bericht heeft geopend (use case 5) |
 | **Aanleiding** | De ondernemer klikt op een bijlage |
-| **Resultaat** | Een PDF of afbeelding opent in het portaal. Andere bestanden worden gedownload, onder de bestandsnaam die de organisatie meegaf |
+| **Resultaat** | Een PDF, PNG of JPEG opent in het portaal. Andere bestanden worden gedownload, onder de bestandsnaam die de organisatie meegaf |
 
 ## Verloop
 
@@ -38,12 +38,12 @@ sequenceDiagram
     MAG->>MAG: Zoek het bericht, controleer of het bij deze ondernemer hoort, zoek de bijlage
     Note over MAG: Legt de verstrekking vast in het logboek
     MAG-->>FBS: Bijlage met bestandstype
+    Note over FBS: Legt de verstrekking vast in het logboek
     alt Klein bestand
         FBS-->>IL: Bijlage in één keer
     else Groot bestand
         FBS-->>IL: Bijlage in delen, terwijl hij binnenkomt
     end
-    Note over FBS: Legt de verstrekking vast in het logboek
     alt PDF, PNG of JPEG
         IL-->>OND: Toont de bijlage
     else Ander bestandstype
@@ -74,6 +74,6 @@ Autorisatie en identiteit wijken af zoals bij use case 5, FSC zoals bij use case
 |---|---|---|
 | Uitvraag | `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}?magazijnId=` | `404 bericht-onbekend` ook als het magazijn `410` geeft, `410` alleen bij een eigen verwijdering zolang de ondernemer een sessie heeft, `502 keten-fout`, `503 te-veel-gelijktijdige-downloads` met `Retry-After: 30` |
 | Magazijn | `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}` met `X-Ontvanger` | Eigenaarscontrole via het bericht |
-| Doorgeven | `BijlageDoorgifte` | Tot 1 MiB in één keer, daarboven streaming. Slots per instantie: 3 per ontvanger, 20 in totaal. 60s zonder lezen breekt af |
+| Doorgeven | `BijlageDoorgifte` | Tot 1 MiB in één keer, daarboven streaming. Slots per server (instantie): 3 per ontvanger, 20 in totaal. 60s zonder lezen breekt af |
 | Weergave | `Content-Disposition` `inline` alleen voor `application/pdf`, `image/png`, `image/jpeg`, anders `attachment` | Een `inline`-bijlage mag same-origin geframed worden. Bestandsnaam uit de sessiecache |
 | Logboek | Uitvraag `uitvraag-bijlage`, magazijn `ophalen-bijlage` | |

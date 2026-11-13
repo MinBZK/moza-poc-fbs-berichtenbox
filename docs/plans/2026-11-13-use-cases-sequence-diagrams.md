@@ -29,8 +29,8 @@ klopt met het huidige gedrag, en de afwijking van de doelarchitectuur.
 
 De diagrammen tonen één lijn per systeem: het Berichten Uitvraag Systeem en het Berichtenmagazijn,
 plus de actoren en de diensten van MijnOverheid Zakelijk. De onderdelen binnen een systeem
-(Publicatie Stream, sessiecache, magazijnregister) staan in de tekst en de technische verwijzing,
-niet in het diagram: op containerniveau werden de diagrammen te druk voor het doel, een gedeeld
+(Publicatie Stream, sessiecache, magazijnregister) staan in de technische verwijzing; de tekst
+beschrijft wat ze doen, het diagram niet: op containerniveau werden de diagrammen te druk voor het doel, een gedeeld
 beeld van het verloop.
 
 "Berichtenmagazijn" staat voor elk magazijn. Het model kent "Berichtenmagazijn (BBO-gehost)" en
@@ -51,7 +51,8 @@ faalt als:
 - een use-case-pagina geen sequence diagram heeft, of de controle niets vond om te meten.
 
 Het script volgt de sequence-lexer van Mermaid 11.9: hoofdletterongevoelig, `;` als scheiding
-tussen statements, spaties in een id, en fences van backticks of tildes.
+tussen statements (ook op de regel van de kop), spaties in een id, directives overal, en fences van
+backticks of tildes, ook ingesprongen.
 
 Het script is Python (parsing van markdown en DSL), met een bash-testsuite ernaast volgens het
 `test-*.sh`-patroon. Die suite toetst ook de echte documentatie, en draait in `ci-scripts.yml`: een
@@ -73,7 +74,7 @@ staat als feit in de use case en als open vraag in de PR.
 Bovenste deel per pagina zonder technische voorkennis; endpoints, statuscodes en codeverwijzingen
 in een afsluitende sectie "Technische verwijzing".
 
-### Rechtstreeks ophalen valt buiten deze ronde
+### Rechtstreeks ophalen nog niet uitgewerkt
 
 Use case 9 uit het voorstel (een burger of ondernemer haalt berichten met een app rechtstreeks bij
 de magazijnen op) is weggelaten op verzoek van de opdrachtgever: die route is nog te veel in
@@ -93,7 +94,8 @@ ontwikkeling. Het overzicht verwijst naar de bestaande `dynamic`-views `Rechtstr
 ## Verificatie
 
 - Guard groen op de documentatie, rood op elke fixture-variant. Elke controle in het script is
-  gemuteerd in een kopie; de suite ving alle 38 mutaties.
+  gemuteerd in een kopie; de suite ving 54 van de 55 mutaties. De overgebleven mutatie (`;?` weg uit
+  de kop) is equivalent: de `;` valt daarna toch weg bij het splitsen in statements.
 - Elk Mermaid-blok rendert met `mermaid-cli` 11.9.0 (dezelfde versie als de site).
 - De site genereert lokaal met `structurizr-site-generatr:1.5.2`; elke use-case-pagina staat in
   het menu en toont zijn diagram.

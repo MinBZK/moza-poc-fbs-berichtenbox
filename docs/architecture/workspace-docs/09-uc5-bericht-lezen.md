@@ -41,8 +41,8 @@ sequenceDiagram
     MAG->>MAG: Zoek het bericht en controleer of het bij deze ondernemer hoort
     Note over MAG: Legt het lezen vast in het logboek
     MAG-->>FBS: Tekst en status
-    FBS-->>IL: Bericht met tekst en bijlagen
     Note over FBS: Legt het lezen vast in het logboek
+    FBS-->>IL: Bericht met tekst en bijlagen
     IL-->>OND: Toont het bericht
     IL->>FBS: Markeer als gelezen (zie use case 7)
 ```

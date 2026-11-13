@@ -59,7 +59,7 @@ onderdeel uit het model is.
 | Ondernemer / Zakelijke gebruiker | De ontvanger van berichten, namens een onderneming |
 | Organisatie B | Een overheidsorganisatie die berichten verstuurt |
 | Interactielaag | Het portaal waarin de ondernemer zijn berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze |
-| Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort (het magazijnregister), houdt de opgehaalde berichtenlijst van een ingelogde ondernemer tijdelijk vast, en neemt aanmeldingen van nieuwe berichten aan |
+| Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort (het magazijnregister), houdt de opgehaalde berichtenlijst van een ingelogde ondernemer vast in een tijdelijk geheugen, en neemt aanmeldingen van nieuwe berichten aan |
 | Berichtenmagazijn | De opslag van de berichten van één organisatie. Elke organisatie heeft er één, zelf gehost of afgenomen bij BBO, en elk magazijn volgt dezelfde stelselafspraken over aanleveren, ophalen, beheren en aanmelden. De lijn in de diagrammen staat voor elk magazijn |
 | Profiel Service | Dienst van MijnOverheid Zakelijk met de voorkeuren van de ondernemer: van welke organisaties hij berichten via de berichtenbox wil ontvangen |
 | Notificatie Service | Dienst van MijnOverheid Zakelijk die de ondernemer laat weten dat er een bericht is, bijvoorbeeld per e-mail |
@@ -84,8 +84,9 @@ opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.
 in zijn eigen Logboek Dataverwerkingen: welke handeling, voor welke ondernemer, en of die lukte.
 Bij het aanleveren en publiceren legt het magazijn de handeling vast vóórdat het hem uitvoert:
 mislukt de vastlegging, dan gebeurt er niets, en slaat het een aangeleverd bericht bijvoorbeeld niet
-op. Alle andere handelingen, in magazijn en uitvraag, worden vastgelegd nadat ze uitgevoerd zijn:
-mislukt de vastlegging daar, dan krijgt de aanroeper een foutmelding, maar is de handeling al
-gebeurd. Het wissen van gegevens aan het einde van een sessie
-gaat altijd door; mislukt de vastlegging, dan krijgt de beheerder een waarschuwing. Welke berichten
-precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.
+op. De meeste andere handelingen worden vastgelegd zodra ze klaar zijn en vóór het antwoord:
+mislukt de vastlegging, dan krijgt de aanroeper een foutmelding en geen gegevens, terwijl een
+wijziging dan al wel is doorgevoerd. Het ophalen en het volgen worden vastgelegd bij de start; een
+mislukte uitkomst komt er later bij. Het wissen van gegevens bij het einde of de start van een
+sessie gaat altijd door; mislukt de vastlegging, dan krijgt de beheerder een waarschuwing. Welke
+berichten precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.

@@ -17,9 +17,8 @@ Een ondernemer verwijdert een bericht.
    voor en is niet meer op te vragen.
 4. De uitvraag haalt het bericht uit de lijst, en onthoudt dat de ondernemer het zelf verwijderd
    heeft. Vraagt hij het opnieuw op zolang hij een sessie open heeft, dan hoort hij dat.
-5. Elke nacht om 03:00 (in de tijdzone van de server) ruimt de Retentie Service van het magazijn de berichten definitief op die
-   zowel ten minste zeven jaar geleden verwijderd zijn als ten minste zeven jaar geleden
-   ontvangen.
+5. Elke nacht om 03:00 Nederlandse tijd ruimt het magazijn de berichten definitief op die zowel ten
+   minste zeven jaar geleden verwijderd zijn als ten minste zeven jaar geleden ontvangen.
 
 ## Sequence diagram
 
@@ -40,11 +39,11 @@ sequenceDiagram
     Note over MAG: Legt het verwijderen vast in het logboek
     MAG-->>FBS: Verwijderd
     FBS->>FBS: Haal het bericht uit de lijst en onthoud dat het verwijderd is
-    FBS-->>IL: Verwijderd
     Note over FBS: Legt het verwijderen vast in het logboek
+    FBS-->>IL: Verwijderd
     IL-->>OND: Het bericht is weg
 
-    Note over MAG: Later: elke nacht om 03:00, tijdzone van de server
+    Note over MAG: Later: elke nacht om 03:00 Nederlandse tijd
     loop In porties, tot alles opgeruimd is
         MAG->>MAG: Verwijder berichten die 7 jaar geleden verwijderd en 7 jaar geleden ontvangen zijn definitief, met bijlagen en status
     end
@@ -80,5 +79,5 @@ sequenceDiagram
 | Uitvraag | `DELETE /api/v1/berichten/{berichtId}?magazijnId=` | `204`. Fouten van het magazijn gaan door als `404`, `403`, `502`. Na een geslaagde magazijn-delete en een cachestoring: `502` |
 | Magazijn | `DELETE /api/v1/berichten/{berichtId}` met `X-Ontvanger` | Soft-delete: `verwijderd_op` gezet. `204` ook als het al verwijderd was. `404` onbekend, `403` andermans bericht |
 | Lijst | `Sessiecache.verwijder` | Haalt het bericht uit de lijst en schrijft een tombstone per ontvanger, tot het einde van zijn laatste sessie. Daarna geven bericht en bijlage `410 bericht-verwijderd` |
-| Retentie | `HardDeleteJob`, cron `0 0 3 * * ?` zonder tijdzone (JVM-default) | Drempels `verwijderd_op` en `tijdstip_ontvangst` allebei ten minste 7 jaar (`P7Y`). Batches van 1000, hooguit 100.000 per run, `SKIP LOCKED` tussen instanties |
+| Retentie | `HardDeleteJob`, cron `0 0 3 * * ?` zonder tijdzone: JVM-default, in de image `TZ=Europe/Amsterdam` | Drempels `verwijderd_op` en `tijdstip_ontvangst` allebei ten minste 7 jaar (`P7Y`). Batches van 1000, hooguit 100.000 per run, `SKIP LOCKED` tussen instanties |
 | Logboek | Uitvraag `uitvraag-verwijder`, magazijn `verwijderen-bericht`. Retentie: alleen applicatielog | |

@@ -54,10 +54,10 @@ sequenceDiagram
     PRO-->>FBS: Organisaties
     FBS->>FBS: Zoek het magazijn van elke organisatie op in het magazijnregister
     FBS-->>IL: Per magazijn: bevraging gestart
-    loop Elk magazijn, allemaal tegelijk
+    loop Per magazijn (de bevragingen lopen tegelijk)
         FBS->>MAG: Berichten van deze ondernemer (kopgegevens, zonder tekst)
-        MAG-->>FBS: Berichten
         Note over MAG: Legt het verstrekken vast in het logboek
+        MAG-->>FBS: Berichten
         FBS-->>IL: Dit magazijn is klaar, met het aantal berichten
     end
     FBS->>FBS: Bewaar de samengevoegde lijst zolang de ondernemer ingelogd is
