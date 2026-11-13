@@ -236,6 +236,7 @@ class BijlageGrenzenTest {
         given()
             .filter(CONTRACT)
             .header("X-Ontvanger", "BSN:${ontvangers[2]}")
+            .header("X-Sessie", sessie("BSN:${ontvangers[2]}"))
             .`when`()
             .get("$berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}?magazijnId=${BijlageMagazijnStub.OIN}")
             .then()
