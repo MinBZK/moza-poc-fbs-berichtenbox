@@ -38,10 +38,10 @@ ontvangen. Elk bevraagd magazijn legt nu één regel per 100 berichten vast. Leg
 bericht een regel vast, dan wordt dat één regel per bericht per keer inloggen, verspreid over de
 logboeken van alle betrokken magazijnen en de uitvraag. Alleen als de ontvanger een
 overheidsorganisatie is (een OIN), bevraagt de uitvraag alle magazijnen; met 1800 magazijnen levert
-één keer inloggen dan nu al ongeveer 1800 logregels op (één per bevraagd magazijn, tot vijf bij een
-magazijn met meer dan 100 berichten), plus één per getoond bericht. Bij een ondernemer met een BSN
-bevat elke extra regel dat nummer, leesbaar: meer vastleggen staat op
-gespannen voet met dataminimalisatie. Pseudonimiseren van dat nummer in het logboek, wat de
+één keer inloggen dan nu al minstens 1800 logregels op (één per bevraagd magazijn, tot vijf bij een
+magazijn met meer dan 100 berichten), plus één per getoond bericht. Bij een ondernemer die een natuurlijk
+persoon is (een BSN, of het KVK-nummer van een eenmanszaak) bevat elke extra regel dat nummer,
+leesbaar: meer vastleggen staat op gespannen voet met dataminimalisatie. Pseudonimiseren van dat nummer in het logboek, wat de
 standaard aanraadt, verzacht dat.
 
 **Waar het antwoord vandaan moet komen.** Er is geen centrale plek die dit bijhoudt. Het antwoord
@@ -84,14 +84,16 @@ berichten van deze ondernemer staan: dat blijkt alleen door ze allemaal te vrage
   ondernemer is: precies de spanning uit de onderzoeksvraag;
 - een toets of de grondslag (een wettelijke verplichting of een publieke taak) of de Archiefwet het
   verzoek beperkt (AVG artikel 17, derde lid);
-- het besef dat het recht op wissing alleen natuurlijke personen toekomt: het raakt berichten aan
-  een ondernemer met een BSN, en ook aan een eenmanszaak of vof via het KVK-nummer. Een
-  rechtspersoon (RSIN) heeft dit recht niet, maar personen over wie zo'n bericht gaat wel;
+- het besef dat het recht op wissing alleen natuurlijke personen toekomt. Het raakt berichten aan
+  een ondernemer met een BSN, een eenmanszaak, en de vennoten van een vof of maatschap, of die nu
+  via het KVK-nummer of het RSIN zijn aangeschreven. Het type nummer beslist dat dus niet, de
+  rechtsvorm wel. Een rechtspersoon zoals een bv of nv heeft dit recht niet, maar personen over
+  wie zo'n bericht gaat wel;
 - het besef dat elke verzendende organisatie verantwoordelijk is voor de berichten in haar eigen
   magazijn. Het verzoek loopt dus per organisatie, en elke organisatie moet de partijen aan wie ze
   de gegevens verstrekte, van de wissing op de hoogte brengen. De beheerder van het stelsel kan
-  coördineren, maar wist zelf geen berichten; voor de eigen logboekregels van de uitvraag geldt de
-  afspraak over de bewaartermijn hierboven.
+  coördineren, maar wist zelf geen berichten; voor de eigen logboekregels van de uitvraag is de
+  bewaartermijn uit het eerste punt nodig.
 
 ## 3. Een magazijn is langere tijd uit de lucht
 

@@ -42,6 +42,7 @@ sequenceDiagram
     Note over FBS: Legt het volgen vast in het logboek
     FBS-->>IL: Volgen gestart
     IL->>FBS: Geef de berichtenlijst (opnieuw)
+    Note over FBS: Legt het opvragen van de lijst vast in het logboek
     FBS-->>IL: Berichtenlijst
 
     par Teken van leven

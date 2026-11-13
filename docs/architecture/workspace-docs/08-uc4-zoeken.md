@@ -18,8 +18,8 @@ Een ondernemer zoekt in de eigen berichten.
    zoekterm, los van hoofdletters. Het zoeken volgt Engelse taalregels: soms vindt een zoekterm ook
    een verwante vorm ("behandel" vindt "behandeling"), en het begin van een samengesteld woord is
    geen treffer ("subsidie" vindt "Subsidieaanvraag" niet). Korte Engelse woorden als "in", "is" of
-   "of" slaat het zoeken over; zoekt de ondernemer alleen op zo'n woord, dan krijgt hij alle
-   berichten.
+   "of" slaat het zoeken over; zoekt de ondernemer alleen op zo'n woord, dan krijgt hij de
+   berichtenlijst alsof er niet gezocht is.
 4. De uitvraag geeft de eerste 20 treffers, nieuwste eerst, en zegt welke organisaties bij het
    ophalen niet leverden.
 5. Het portaal toont de treffers.
@@ -72,7 +72,8 @@ de uitvraag tijdens de sessie al heeft.
 ## Open vragen
 
 - Moet het zoeken Nederlandse taalregels volgen, of juist geen taalregels? Nu gelden de Engelse:
-  die vinden soms een verwante vorm, en een zoekterm als "in" of "of" toont alle berichten.
+  die vinden soms een verwante vorm, en een zoekterm als "in" of "of" toont de lijst alsof er
+  niet gezocht is.
 - Moet een letter met een accent of trema gewoon gevonden worden? Nu vindt die niets.
 - Moet een zoekterm van meer woorden berichten vinden waarin elk woord voorkomt? Nu vindt die
   niets.

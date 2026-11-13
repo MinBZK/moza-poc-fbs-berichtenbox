@@ -44,15 +44,21 @@ Elke `participant`/`actor` in een diagram draagt als label exact de naam van een
 faalt als:
 
 - een label geen elementnaam is, of een uitgecommentarieerd element noemt;
-- een deelnemer in een `box` in het model geen onderdeel is van het element van de box;
 - een pijl, notitie of (de)activatie een deelnemer noemt die niet gedeclareerd is (Mermaid maakt
   die stil aan, en dan ontloopt hij de naamcontrole);
 - een regel in een diagram niet herkend wordt: wat niet gelezen wordt, kan een deelnemer bevatten;
 - een use-case-pagina geen sequence diagram heeft, of de controle niets vond om te meten.
 
-Het script volgt de sequence-lexer van Mermaid 11.9: hoofdletterongevoelig, `;` als scheiding
-tussen statements (ook op de regel van de kop), spaties in een id, directives overal, en fences van
-backticks of tildes, ook ingesprongen.
+Het script leest een strikte deelverzameling van Mermaid: één statement per regel, de kop
+`sequenceDiagram` op een eigen regel, en geen directives, frontmatter, boxen, `;` of `#`. Wat
+erbuiten valt, faalt. Drie reviewrondes lieten zien dat elke leesregel van Mermaid die de guard
+probeert na te bootsen (statements scheiden op `;`, directives over meerdere regels, frontmatter,
+boxkleuren, commentaar en entities met `#`) een nieuwe plek opleverde waar een deelnemer ongezien
+kon staan. Een strikte deelverzameling sluit die hele klasse in één keer af, en de diagrammen op
+systeemniveau hebben geen van die vormen nodig. Binnen de deelverzameling volgt het script Mermaid
+11.9: hoofdletterongevoelig, spaties in een id, sleutelwoorden alleen met witruimte erna, alleen
+`\n` als regeleinde, en fences van backticks of tildes, ook ingesprongen. Het DSL-commentaar volgt
+de parser van Structurizr.
 
 Het script is Python (parsing van markdown en DSL), met een bash-testsuite ernaast volgens het
 `test-*.sh`-patroon. Die suite toetst ook de echte documentatie, en draait in `ci-scripts.yml`: een
@@ -94,11 +100,11 @@ ontwikkeling. Het overzicht verwijst naar de bestaande `dynamic`-views `Rechtstr
 ## Verificatie
 
 - Guard groen op de documentatie, rood op elke fixture-variant. Elke controle in het script is
-  gemuteerd in een kopie; de suite ving alle 64 mutaties. Waar de guard Mermaid volgt (directives,
-  boxkleuren, sleutelwoorden), is het gedrag nagelopen met Mermaid 11.9.0; voor het DSL-commentaar
-  met de parser van Structurizr.
+  gemuteerd in een kopie; de suite ving alle 58 mutaties. Waar de guard Mermaid volgt, is het
+  gedrag in de reviewrondes nagelopen met Mermaid 11.9.0; voor het DSL-commentaar met de parser van
+  Structurizr. De overstap naar de strikte deelverzameling kwam na de laatste reviewronde.
 - Elk Mermaid-blok rendert met `mermaid-cli` 11.9.0 (dezelfde versie als de site).
 - De site genereert lokaal met `structurizr-site-generatr:1.5.2`; elke use-case-pagina staat in
   het menu en toont zijn diagram.
-- Inhoud per use case nagelopen tegen de code (stappen, statuscodes, timeouts), en in de
-  reviewronde opnieuw door twee reviewers.
+- Inhoud per use case nagelopen tegen de code (stappen, statuscodes, timeouts), en in vier
+  reviewrondes opnieuw, deels tegen een echte zoekindex.

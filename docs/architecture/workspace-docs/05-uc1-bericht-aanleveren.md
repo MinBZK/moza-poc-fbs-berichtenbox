@@ -108,7 +108,7 @@ sequenceDiagram
 - **Persoonsgegevens in aanmelding en melding.** De aanmelding bij de uitvraag en de melding aan de
   Notificatie Service bevatten het identificatienummer van de ontvanger en het onderwerp, leesbaar.
   De afspraken voor zulke meldingen vragen om gevoelige gegevens daarin te versleutelen, of ze uit
-  de melding weg te laten zodat de ontvanger ze apart ophaalt.
+  de melding weg te laten zodat de uitvraag of de Notificatie Service ze apart ophaalt.
 
 ## Open vragen
 

@@ -50,10 +50,10 @@ sequenceDiagram
 
     IL->>FBS: Haal de berichten op (doorlopende verbinding)
     FBS->>FBS: Start een ophaalronde (één tegelijk per ondernemer)
-    Note over FBS: Legt het ophalen vast in het logboek
     FBS->>PRO: Van welke organisaties wil de ondernemer berichten via de berichtenbox?
     PRO-->>FBS: Organisaties
     FBS->>FBS: Zoek het magazijn van elke organisatie op in het magazijnregister
+    Note over FBS: Legt het ophalen vast in het logboek
     FBS-->>IL: Per magazijn: bevraging gestart
     loop Per magazijn (de bevragingen lopen tegelijk)
         FBS->>MAG: Berichten van deze ondernemer (kopgegevens, zonder tekst)

@@ -9,26 +9,26 @@ zijn wat een use case moet laten zien. Het risico daarvan is dat de deelnemers u
 lopen met het model. Dit script houdt ze gelijk, voor elk sequence diagram in elke `*.md` van de
 map:
 
-- elke `participant`, `actor` en `box` draagt als label exact de naam van een element uit het model,
-  of die naam zonder toevoeging tussen haakjes. "Berichtenmagazijn" staat zo voor
+- elke `participant` en `actor` draagt als label exact de naam van een element uit het model, of
+  die naam zonder toevoeging tussen haakjes. "Berichtenmagazijn" staat zo voor
   "Berichtenmagazijn (BBO-gehost)" én "Berichtenmagazijn (eigen gehost)": de koppelvlakken van een
   magazijn zijn stelselafspraken, dus een use case geldt voor elk magazijn, niet voor één hosting;
-- een deelnemer binnen een `box` is in het model een onderdeel van het element dat de box noemt;
 - elke pijl, notitie en (de)activatie noemt alleen gedeclareerde deelnemers. Mermaid maakt een
   ongedeclareerde deelnemer stil aan, en die zou dan langs de naamcontrole glippen;
 - elke use-case-pagina (`*-uc<n>-*.md`) heeft minstens één sequence diagram.
 
-Het script leest zoals de sequence-lexer van Mermaid: hoofdletterongevoelig, `;` als scheiding
-tussen statements, spaties in een id, directives overal. Een regel die het niet herkent, is een
-fout en wordt niet overgeslagen: wat niet gelezen wordt, kan een deelnemer bevatten. Vindt het
-script geen use-case-pagina of geen enkel element, dan faalt het ook: dan meet het niets.
+Het script leest een strikte deelverzameling van Mermaid: één statement per regel, de kop
+`sequenceDiagram` op een eigen regel, en geen directives, frontmatter, boxen, `;` of `#`. Mermaid
+kent daar elk een eigen leesregel voor, en elke leesregel die de guard niet precies zo nabootst, is
+een plek waar een deelnemer ongezien kan staan. Wat buiten de deelverzameling valt, en elke regel
+die het script niet herkent, is daarom een fout. Vindt het script geen use-case-pagina of geen
+enkel element, dan faalt het ook: dan meet het niets.
 """
 
 import re
 import sys
 from pathlib import Path
 
-STRING = r'"(?:[^"\\]|\\.)*"'
 # `container "Naam"` zonder identifier ertussen: zo vallen view-definities als
 # `container bboMagazijn "Sleutel"` buiten de vangst.
 ELEMENT = re.compile(r'\b(?:person|softwareSystem|container|component)\s+"((?:[^"\\]|\\.)+)"')
@@ -37,52 +37,26 @@ USE_CASE_PAGINA = re.compile(r"^\d+-uc\d+-.+\.md$")
 FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})\s*mermaid\b", re.IGNORECASE)
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
 
-# Een directive (`%%{init: ...}%%`) mag overal staan, ook over meerdere regels. Mermaid haalt hem
-# weg vóór het lezen en voegt wat ervoor en erna staat samen tot één regel. Dit is de regex van
-# Mermaid zelf: zonder woord direct na `%%{` is het geen directive maar gewoon een `%%`-regel, en
-# een directive zonder `}%%` loopt door tot het einde van het diagram.
-DIRECTIVE = re.compile(r"%%\{\s*(?:\w+\s*:|\w+)\s*(?:\w+|(?:(?!\}%%).|\n)*)?\s*(?:\}%%)?", re.I | re.A)
-SEQUENCE_KOP = re.compile(r"^sequenceDiagram\b\s*;?\s*(.*)$", re.IGNORECASE)
+SEQUENCE = re.compile(r"\bsequenceDiagram\b", re.IGNORECASE)
+KOP = re.compile(r"^sequenceDiagram$", re.IGNORECASE)
+# Tekens waar Mermaid een statement of regel anders afbreekt dan "één statement per regel": `;`
+# scheidt statements, `#` opent commentaar of een entity, `%%{` een directive, en de rest zijn
+# regelscheidingen die JavaScript wel kent en een regel-voor-regel-lezing niet.
+BUITEN_DEELVERZAMELING = re.compile(r"[;#  \x0b\x0c\x85]|%%\{")
 DECLARATIE = re.compile(r"^(?:create\s+)?(participant|actor)\s+(.+?)(?:\s+as\s+(.+?))?$", re.IGNORECASE)
-BOX = re.compile(r"^box(?:\s+(.*))?$", re.IGNORECASE)
 PIJL = r"(?:<<-->>|<<->>|-->>|->>|-->|->|--x|-x|--\)|-\))"
 PIJLREGEL = re.compile(rf"^(.+?)\s*{PIJL}[+-]?\s*(.+?)\s*:")
 NOTITIE = re.compile(r"^note\s+(?:over|left\s+of|right\s+of)\s+([^:]+?)\s*:", re.IGNORECASE)
 NOEMT_EEN = re.compile(r"^(?:activate|deactivate|destroy|links?|properties|details)\s+([^:]+?)\s*(?::.*)?$", re.IGNORECASE)
+# Een sleutelwoord telt alleen met witruimte of het regeleinde erna: `Partner->>X: y` is voor Mermaid
+# een pijl van een deelnemer die Partner heet, en `alt->>X: y` kan Mermaid niet lezen. Alleen met een
+# spatie of dubbele punt erna is `title` een titel, en `accTitle`/`accDescr` alleen met `:`.
 STRUCTUUR = re.compile(
-    r"^(?:end|autonumber\b.*|(?:alt|else|opt|loop|par|par_over|and|critical|option|break|rect)\b.*"
-    # Alleen met een spatie of dubbele punt erna is `title` een titel, en `accDescr` alleen met `:` of
-    # `{`: `Title->>X: y` is voor Mermaid een pijl van een deelnemer die Title heet.
+    r"^(?:(?:end|autonumber|alt|else|opt|loop|par|par_over|and|critical|option|break|rect)(?=\s|$).*"
     r"|title(?:\s.*|:.*)|acctitle\s*:.*|accdescr\s*:.*)$",
     re.IGNORECASE,
 )
-# Een meerregelige `accDescr {` slokt in Mermaid alles op tot de `}`. Die regels overslaan zou een
-# nieuwe plek openen waar een deelnemer ongezien staat, dus de guard weigert de vorm.
-ACCDESCR_BLOK = re.compile(r"^accdescr\s*\{", re.IGNORECASE)
-# Een kleur vóór het label van een box (`box Aqua Winkel`, `box rgb(1,2,3) Winkel`), gesplitst zoals
-# `parseBoxData` in Mermaid dat doet: het eerste woord, of alles tot de laatste `)`. Is dat geen
-# geldige kleur, dan hoort het bij de titel. Een `#` opent in Mermaid commentaar, dus `#ffcc00` is
-# geen kleur maar het einde van de regel.
-BOX_KLEUR = re.compile(r"^((?:rgba?|hsla?)\s*\(.*\)|\w*)(.*)$", re.A)
-KLEURFUNCTIE = re.compile(r"(?:rgba?|hsla?)\s*\([^()]*\)", re.I)
-CSS_KLEUREN = frozenset("""
-    aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet
-    brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue
-    darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange
-    darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise
-    darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen
-    fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred
-    indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan
-    lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen
-    lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta
-    maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue
-    mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin
-    navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen
-    paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple
-    red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue
-    slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato transparent
-    turquoise violet wheat white whitesmoke yellow yellowgreen
-""".split())
+NIET_ONDERSTEUND = re.compile(r"^(?:box|accdescr\s*\{)", re.IGNORECASE)
 
 
 def regels_van(tekst: str) -> list[str]:
@@ -116,50 +90,12 @@ def zonder_commentaar(dsl: str) -> list[str]:
     return regels
 
 
-def lees_model(dsl: Path) -> dict[str, set[str]]:
-    """Geeft per elementnaam de namen van de elementen waarin het genest staat."""
-    model: dict[str, set[str]] = {}
-    stapel: list[str | None] = []
-
-    for regel in zonder_commentaar(dsl.read_text(encoding="utf-8")):
-        element = ELEMENT.search(regel)
-
-        if element:
-            model.setdefault(element.group(1), set()).update(n for n in stapel if n)
-
-        # Een accolade binnen een string (`"urn:{oin}"`, ook na een `\"`) opent geen blok.
-        for teken in re.sub(STRING, '""', regel):
-            if teken == "{":
-                stapel.append(element.group(1) if element else None)
-                element = None
-            elif teken == "}" and stapel:
-                stapel.pop()
-
-    return met_verkorte_namen(model)
-
-
-def met_verkorte_namen(model: dict[str, set[str]]) -> dict[str, set[str]]:
-    """Voegt per naam met een toevoeging tussen haakjes ook de naam zonder die toevoeging toe. Een
-    verkorte naam staat voor al die elementen tegelijk, en een onderdeel van één ervan is ook een
-    onderdeel van de verkorte naam. Een verkorte naam die zelf al een element is, blijft dat element."""
-    verkort: dict[str, set[str]] = {}
-
-    for naam, voorouders in model.items():
-        kort = VERKORT.match(naam)
-
-        if kort and kort.group(1) not in model:
-            verkort.setdefault(kort.group(1), set()).update(voorouders)
-
-    uitgebreid = {naam: set(voorouders) for naam, voorouders in {**model, **verkort}.items()}
-
-    for naam, voorouders in model.items():
-        for voorouder in list(voorouders):
-            kort = VERKORT.match(voorouder)
-
-            if kort and kort.group(1) in verkort:
-                uitgebreid[naam].add(kort.group(1))
-
-    return uitgebreid
+def lees_model(dsl: Path) -> set[str]:
+    """De namen van de elementen in het model, plus per naam met een toevoeging tussen haakjes ook
+    de naam zonder die toevoeging."""
+    namen = {element.group(1) for regel in zonder_commentaar(dsl.read_text(encoding="utf-8"))
+             for element in ELEMENT.finditer(regel)}
+    return namen | {kort.group(1) for naam in namen if (kort := VERKORT.match(naam))}
 
 
 def mermaid_blokken(tekst: str) -> tuple[list[tuple[int, list[str]]], int | None]:
@@ -190,101 +126,42 @@ def mermaid_blokken(tekst: str) -> tuple[list[tuple[int, list[str]]], int | None
     return blokken, (start if huidig is not None else None)
 
 
-def zonder_directives(regels: list[str]) -> list[tuple[str, int]]:
-    """Haalt de directives weg zoals Mermaid: wat ervoor en erna staat, wordt één regel. Geeft per
-    regel de index van de oorspronkelijke regel waarop hij begint, zodat een melding naar de goede
-    regel wijst."""
-    tekst = "\n".join(regels)
-    uit: list[tuple[str, int]] = []
-    huidig = ""
-    begin = 0
-    regel = 0
-    vorige = 0
-
-    for directive in [*DIRECTIVE.finditer(tekst), None]:
-        stuk = tekst[vorige:directive.start() if directive else len(tekst)]
-
-        for n, deel in enumerate(stuk.split("\n")):
-            if n:
-                uit.append((huidig, begin))
-                huidig = ""
-                regel += 1
-                begin = regel
-
-            huidig += deel
-
-        if directive:
-            # De regeleindes binnen een directive vallen weg: de regel loopt door, de telling niet.
-            regel += directive.group().count("\n")
-            vorige = directive.end()
-
-    uit.append((huidig, begin))
-    return uit
-
-
-def sequence_statements(regels: list[str], start: int) -> list[tuple[str, int]] | None:
-    """De statements van een sequence diagram met hun regelnummer, of `None` als het blok geen
-    sequence diagram is. Vóór de kop mogen lege regels, `%%`-commentaar en YAML-frontmatter staan;
-    wat na `sequenceDiagram` op dezelfde regel volgt, is al een statement."""
-    gelezen = zonder_directives(regels)
-    i = 0
-
-    if next((r.strip() for r, _ in gelezen if r.strip()), "") == "---":
-        eerste = next(j for j, (r, _) in enumerate(gelezen) if r.strip())
-        i = next((j for j in range(eerste + 1, len(gelezen)) if gelezen[j][0].strip() == "---"), len(gelezen)) + 1
-
-    while i < len(gelezen) and (not gelezen[i][0].strip() or gelezen[i][0].strip().startswith("%%")):
-        i += 1
-
-    kop = SEQUENCE_KOP.match(gelezen[i][0].strip()) if i < len(gelezen) else None
-
-    if kop is None:
+def toets_blok(bestand: str, start: int, regels: list[str], model: set[str]) -> tuple[list[str], int] | None:
+    """Toetst één Mermaid-blok. `None` als het geen sequence diagram is; een blok dat het woord
+    `sequenceDiagram` noemt maar niet in de ondersteunde vorm begint, is een fout, niet iets anders."""
+    if not any(SEQUENCE.search(regel) for regel in regels):
         return None
 
-    uit = [(deel.strip(), start + gelezen[i][1] + 1) for deel in kop.group(1).split(";")]
-
-    for tekst, index in gelezen[i + 1:]:
-        uit += [(deel.strip(), start + index + 1) for deel in tekst.split(";")]
-
-    return uit
-
-
-def box_element(label: str, model: dict[str, set[str]]) -> str | None:
-    """Het element dat een boxlabel noemt, met een eventuele kleur ervoor weggelaten zoals Mermaid
-    dat doet; `None` als de titel die Mermaid toont geen element is."""
-    gesplitst = BOX_KLEUR.match(label)
-    titel = label
-
-    if gesplitst:
-        kleur, rest = gesplitst.group(1), gesplitst.group(2).strip()
-
-        if kleur.lower() in CSS_KLEUREN or KLEURFUNCTIE.fullmatch(kleur):
-            titel = rest
-
-    return titel if titel in model else None
-
-
-def toets_blok(bestand: str, start: int, statements: list[tuple[str, int]], model: dict[str, set[str]]) -> tuple[list[str], int]:
     fouten: list[str] = []
     gedeclareerd: set[str] = set()
     genoemd: list[tuple[str, str]] = []
-    in_box = False
-    box: str | None = None
     labels = 0
+    kop = next(
+        (i for i, regel in enumerate(regels)
+         if regel.strip() and (not regel.strip().startswith("%%") or regel.strip().startswith("%%{"))),
+        None,
+    )
 
-    for statement, regel in statements:
-        waar = f"{bestand}:{regel}"
+    if kop is None or not KOP.match(regels[kop].strip()):
+        regel = start + 1 + (kop or 0)
+        fouten.append(f"{bestand}:{regel}: een sequence diagram begint met `sequenceDiagram` op een eigen regel, met alleen lege regels of `%%`-commentaar ervoor")
+        return fouten, 0
 
-        if not statement or statement.startswith("%%"):
+    for offset, regel in enumerate(regels, start=1):
+        statement = regel.strip()
+        waar = f"{bestand}:{start + offset}"
+
+        if offset <= kop + 1 or not statement or (statement.startswith("%%") and not statement.startswith("%%{")):
             continue
 
         declaratie = DECLARATIE.match(statement)
-        nieuwe_box = BOX.match(statement)
         pijlregel = PIJLREGEL.match(statement)
         notitie = NOTITIE.match(statement)
         noemt = NOEMT_EEN.match(statement)
 
-        if declaratie:
+        if BUITEN_DEELVERZAMELING.search(statement) or NIET_ONDERSTEUND.match(statement):
+            fouten.append(f"{waar}: buiten de ondersteunde Mermaid (geen `;`, `#`, directive, box of meerregelige accDescr): '{statement}'")
+        elif declaratie:
             alias = declaratie.group(2)
             label = declaratie.group(3) or alias
             gedeclareerd.add(alias)
@@ -292,22 +169,6 @@ def toets_blok(bestand: str, start: int, statements: list[tuple[str, int]], mode
 
             if label not in model:
                 fouten.append(f"{waar}: {declaratie.group(1).lower()} '{label}' is geen element uit het model")
-            elif box and box not in model[label]:
-                fouten.append(f"{waar}: '{label}' staat in box '{box}', maar is in het model geen onderdeel daarvan")
-        elif nieuwe_box:
-            # Een box bevat alleen declaraties; de eerstvolgende `end` sluit hem.
-            labels += 1
-            in_box = True
-            box_label = (nieuwe_box.group(1) or "").strip()
-            box = box_element(box_label, model)
-
-            if box is None:
-                fouten.append(f"{waar}: box '{box_label}' is geen element uit het model")
-        elif statement.lower() == "end" and in_box:
-            in_box = False
-            box = None
-        elif ACCDESCR_BLOK.match(statement):
-            fouten.append(f"{waar}: meerregelige accDescr niet ondersteund; gebruik `accDescr: ...`")
         elif STRUCTUUR.match(statement):
             continue
         elif pijlregel:
@@ -359,15 +220,14 @@ def main(argv: list[str]) -> int:
             fouten.append(f"{pagina}:{open_blok}: Mermaid-blok zonder afsluitende fence")
 
         for start, regels in blokken:
-            statements = sequence_statements(regels, start)
+            uitkomst = toets_blok(str(pagina), start, regels, model)
 
-            if statements is None:
+            if uitkomst is None:
                 continue
 
             sequence += 1
-            blokfouten, bloklabels = toets_blok(str(pagina), start, statements, model)
-            fouten += blokfouten
-            labels += bloklabels
+            fouten += uitkomst[0]
+            labels += uitkomst[1]
 
         diagrammen += sequence
 
@@ -391,7 +251,7 @@ def main(argv: list[str]) -> int:
 
         return 1
 
-    print(f"{pagina_s} use-case-pagina's, {diagrammen} sequence diagrams, {labels} deelnemers en boxen: alle in het model.")
+    print(f"{pagina_s} use-case-pagina's, {diagrammen} sequence diagrams, {labels} deelnemers: alle in het model.")
     return 0
 
 
