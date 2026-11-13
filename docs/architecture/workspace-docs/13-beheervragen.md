@@ -5,9 +5,8 @@ gaan, maar over het beheer van het stelsel. Ze delen één onderzoeksvraag: hoev
 vastgelegd worden om het stelsel goed te beheren, en botst dat met de bedoeling dat er geen centrale
 verwerker van berichten is?
 
-Deze pagina is geen uitgewerkte use case: of en hoe deze situaties erin komen, stelt de refinement
-vast. Wel staat hier wat het stelsel er **nu** op kan antwoorden, met verwijzing naar de use cases
-waar het gedrag beschreven is. Logius wordt hier genoemd als beheerder van het stelsel; voor de
+Hier staat wat het stelsel er **nu** op kan antwoorden, met verwijzing naar de use cases waar het
+gedrag beschreven is. Logius wordt hier genoemd als beheerder van het stelsel; voor de
 vragen maakt het niet uit wie die rol krijgt.
 
 ## 1. Heeft de ondernemer het bericht kunnen zien?

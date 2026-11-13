@@ -4,10 +4,6 @@ De diagrammen elders op deze site laten zien uit welke onderdelen het Federatief
 bestaat. De use cases hieronder laten zien wat er gebeurt als iemand het gebruikt: wie wat doet,
 in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt als iets misgaat.
 
-De lijst is het eerste voorstel uit issue
-[MijnOverheidZakelijk#1522](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1522). Welke use
-cases er definitief in komen, stelt de refinement vast.
-
 | Nr | Use case | Actor |
 |---|---|---|
 | 1 | Een organisatie levert een bericht aan, en de ondernemer krijgt een melding | Organisatie |
