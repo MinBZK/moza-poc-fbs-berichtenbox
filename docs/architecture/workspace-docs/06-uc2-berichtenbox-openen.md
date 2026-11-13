@@ -13,8 +13,8 @@ Een ondernemer opent de berichtenbox en ziet de berichten uit alle magazijnen bi
 1. De ondernemer logt in op het portaal. Het portaal start een sessie bij de uitvraag. Had de
    ondernemer nog gegevens staan van een eerdere sessie die niet netjes is afgesloten, dan wist de
    uitvraag die eerst, en legt dat vast in het logboek.
-2. Het portaal vraagt de uitvraag de berichten op te halen. Het antwoord is een doorlopende stroom
-   meldingen, zodat het portaal de voortgang per organisatie kan tonen.
+2. Het portaal vraagt de uitvraag de berichten op te halen. Het antwoord komt over een doorlopende
+   verbinding binnen, zodat het portaal de voortgang per organisatie kan tonen.
 3. De uitvraag vraagt de Profiel Service van welke organisaties de ondernemer berichten via de
    berichtenbox wil ontvangen, en zoekt in het magazijnregister het magazijn van elk van die
    organisaties op.
@@ -36,60 +36,47 @@ sequenceDiagram
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant SC as Berichtensessiecache
-        participant REG as Magazijnregister
-    end
+    participant FBS as Berichten Uitvraag Systeem
     participant PRO as Profiel Service
-    participant MA as Berichtenmagazijn (BBO-gehost)
-    participant MB as Berichtenmagazijn (eigen gehost)
+    participant MAG as Berichtenmagazijn
 
     OND->>IL: Logt in en opent de berichtenbox
-    IL->>UV: Start een sessie voor deze ondernemer
-    UV->>SC: Registreer de sessie
+    IL->>FBS: Start een sessie voor deze ondernemer
     opt Geen andere sessie van deze ondernemer, wel oude gegevens
-        SC->>SC: Wis de oude gegevens
-        Note over UV: Legt het wissen vast in het logboek
+        FBS->>FBS: Wis de oude gegevens
+        Note over FBS: Legt het wissen vast in het logboek
     end
-    UV-->>IL: Sessie gestart
+    FBS-->>IL: Sessie gestart
 
-    IL->>UV: Haal de berichten op (doorlopende stroom)
-    UV->>SC: Start een ophaalronde (één tegelijk per ondernemer)
-    SC->>PRO: Van welke organisaties wil de ondernemer berichten via de berichtenbox?
-    PRO-->>SC: Organisaties
-    SC->>REG: Welk magazijn hoort bij elke organisatie?
-    REG-->>SC: Magazijnen en hun adres
-    UV-->>IL: Per magazijn: bevraging gestart
-    par Alle magazijnen tegelijk
-        SC->>MA: Berichten van deze ondernemer (kopgegevens, zonder tekst)
-        MA-->>SC: Berichten
-        UV-->>IL: BBO-magazijn klaar, aantal berichten
-    and
-        SC->>MB: Berichten van deze ondernemer (kopgegevens, zonder tekst)
-        MB-->>SC: Berichten
-        UV-->>IL: Eigen magazijn klaar, aantal berichten
+    IL->>FBS: Haal de berichten op (doorlopende verbinding)
+    FBS->>FBS: Start een ophaalronde (één tegelijk per ondernemer)
+    FBS->>PRO: Van welke organisaties wil de ondernemer berichten via de berichtenbox?
+    PRO-->>FBS: Organisaties
+    FBS->>FBS: Zoek het magazijn van elke organisatie op in het magazijnregister
+    FBS-->>IL: Per magazijn: bevraging gestart
+    loop Elk magazijn, allemaal tegelijk
+        FBS->>MAG: Berichten van deze ondernemer (kopgegevens, zonder tekst)
+        MAG-->>FBS: Berichten
+        Note over MAG: Legt het verstrekken vast in het logboek
+        FBS-->>IL: Dit magazijn is klaar, met het aantal berichten
     end
-    SC->>SC: Bewaar de samengevoegde lijst zolang de ondernemer ingelogd is
-    UV-->>IL: Ophalen klaar
+    FBS->>FBS: Bewaar de samengevoegde lijst zolang de ondernemer ingelogd is
+    FBS-->>IL: Ophalen klaar
 
-    IL->>UV: Geef de berichtenlijst (pagina 1)
-    UV->>SC: Lees de lijst
-    SC-->>UV: Berichten, en welke organisaties niet leverden
-    UV-->>IL: Berichtenlijst, nieuwste eerst
+    IL->>FBS: Geef de berichtenlijst (pagina 1)
+    FBS-->>IL: Berichtenlijst, nieuwste eerst, en welke organisaties niet leverden
     IL-->>OND: Toont de berichtenbox
 
     loop Bij activiteit van de ondernemer
-        IL->>UV: Verleng de sessie
+        IL->>FBS: Verleng de sessie
     end
     OND->>IL: Logt uit
-    IL->>UV: Beëindig de sessie
-    UV->>SC: Beëindig de sessie
+    IL->>FBS: Beëindig de sessie
     opt Dit was de laatste sessie van de ondernemer
-        SC->>SC: Wis de berichtenlijst
-        Note over UV: Legt het wissen vast in het logboek
+        FBS->>FBS: Wis de berichtenlijst
+        Note over FBS: Legt het wissen vast in het logboek
     end
-    UV-->>IL: Sessie beëindigd
+    FBS-->>IL: Sessie beëindigd
 ```
 
 ## Als het misgaat
@@ -106,7 +93,7 @@ sequenceDiagram
 | Het ophalen loopt al, bijvoorbeeld in een tweede tabblad | De uitvraag start geen tweede ronde | Een melding dat het ophalen al bezig is |
 | Het portaal vraagt de lijst op voordat er is opgehaald | De uitvraag weigert | Het portaal start eerst het ophalen |
 | De ondernemer is al op vijf plekken tegelijk ingelogd | De uitvraag start geen nieuwe sessie | "U bent op te veel plekken tegelijk ingelogd", met de tijd tot een plek vrijkomt |
-| De sessie is verlopen (15 minuten zonder activiteit, of uiterlijk 12 uur) | De uitvraag weigert elk verzoek. Binnen een halve minuut wist hij de berichtenlijst en legt dat vast in het logboek | "Uw sessie is verlopen. Log opnieuw in." Na opnieuw inloggen worden de berichten opnieuw opgehaald |
+| De sessie is verlopen (15 minuten zonder activiteit, of uiterlijk 12 uur) | De uitvraag weigert elk verzoek. Binnen een halve minuut wist hij de berichtenlijst en legt dat vast in het logboek | "Uw sessie is verlopen of ongeldig. Log opnieuw in." Na opnieuw inloggen worden de berichten opnieuw opgehaald |
 | De ondernemer sluit het venster tijdens het ophalen | Het ophalen loopt door en vult de lijst | Bij terugkomen staat de lijst klaar |
 | Het tijdelijke geheugen van de uitvraag is onbereikbaar | De uitvraag weigert | "Probeer het straks nog eens" |
 
@@ -133,6 +120,6 @@ sequenceDiagram
 | Magazijn bevragen | `GET /api/v1/berichten?page&pageSize=100` op elk magazijn | Doorbladeren tot 500 berichten. Query-timeout 10s, geen retry. Circuit breaker per magazijn (3 storingen, 30s open). Bulkhead 50 gelijktijdig, 15s wachten |
 | Lijst | `GET /api/v1/berichten?pagina&paginaGrootte` | `nietGeleverd`, `afgekapt`, `aantalNietGeleverd`. `409 nog-niet-opgehaald`, `409 ophalen-bezig`, `503 ophalen-mislukt` |
 | Verlengen | `POST /api/v1/sessies/huidige/_verlengen` | Ook elk verzoek onder `/berichten` (behalve `_volgen`) verlengt |
-| Uitloggen | `DELETE /api/v1/sessies/huidige` | Altijd `204`. Wissen bij de laatste sessie: `uitvraag-sessie-opruimen`, `aanleiding=uitgelogd` |
+| Uitloggen | `DELETE /api/v1/sessies/huidige` | `204`, ook voor een al verlopen of onbekende sessie; `401` alleen bij een ontbrekende of misvormde `X-Sessie`, `400` bij een ongeldige `X-Ontvanger`. Wissen bij de laatste sessie: `uitvraag-sessie-opruimen`, `aanleiding=uitgelogd` |
 | Verlopen | `SessieVeger`, elke 30s | `uitvraag-sessie-opruimen`, `aanleiding=verlopen` |
-| Logboek | `uitvraag-sessie-start`, `uitvraag-ophalen-sse`, `uitvraag-lijst`. Magazijn: `ophalen-berichtenlijst` | |
+| Logboek | `uitvraag-sessie-start`, `uitvraag-sessie-einde`, `uitvraag-ophalen-sse`, `uitvraag-lijst`. Magazijn: `ophalen-berichtenlijst` | |

@@ -18,9 +18,12 @@ cases er definitief in komen, stelt de refinement vast.
 | 6 | Een ondernemer opent of downloadt een bijlage | Ondernemer |
 | 7 | Een ondernemer verplaatst een bericht naar een map of archiveert het | Ondernemer |
 | 8 | Een ondernemer verwijdert een bericht | Ondernemer |
-| 9 | Een burger of ondernemer haalt berichten rechtstreeks bij de magazijnen op | Burger of ondernemer |
 
-Daarna volgt een pagina met drie vragen uit het beheer van het stelsel, en wat het stelsel daar
+Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag
+ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan
+staat in de views *RechtstreeksOphalen* van het architectuurmodel.
+
+Na de use cases volgt een pagina met drie vragen uit het beheer van het stelsel, en wat het stelsel daar
 nu wel en niet op kan antwoorden.
 
 ## Zo lees je een use case
@@ -31,7 +34,7 @@ Elke use case heeft dezelfde opbouw:
 - **Verloop**: de stappen in gewone taal.
 - **Sequence diagram**: dezelfde stappen als plaatje. Van boven naar beneden is de tijd. Een
   doorgetrokken pijl is een verzoek, een gestippelde pijl het antwoord. Een pijl met een open punt
-  is een bericht waar de afzender niet op wacht. Een kader met `alt` toont alternatieven, `opt`
+  is een verzoek waar de afzender niet op wacht. Een kader met `alt` toont alternatieven, `opt`
   iets dat alleen soms gebeurt, `loop` iets dat zich herhaalt en `par` dingen die tegelijk
   gebeuren.
 - **Als het misgaat**: per situatie wat het stelsel doet en wat de actor merkt.
@@ -44,23 +47,22 @@ bij de use case zelf en op de pagina met PoC-afwijkingen.
 
 ## De deelnemers
 
-De namen in de diagrammen zijn de namen van onderdelen uit het architectuurmodel, zodat je ze in de
-andere diagrammen terugvindt. Bij het bouwen van deze site controleert een script dat elke
-deelnemer een onderdeel uit het model is.
+De diagrammen tonen het stelsel op het niveau van de systemen: één lijn voor het Berichten
+Uitvraag Systeem en één voor het Berichtenmagazijn, ook als een stap binnen zo'n systeem door
+verschillende onderdelen gaat. De tekst en de technische verwijzing noemen die onderdelen waar het
+ertoe doet. De namen zijn die uit het architectuurmodel, zodat je ze in de andere diagrammen
+terugvindt; bij elke wijziging in de repository controleert een script dat elke deelnemer een
+onderdeel uit het model is.
 
 | Deelnemer | Wat het is |
 |---|---|
 | Ondernemer / Zakelijke gebruiker | De ontvanger van berichten, namens een onderneming |
 | Organisatie B | Een overheidsorganisatie die berichten verstuurt |
 | Interactielaag | Het portaal waarin de ondernemer zijn berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze |
-| Berichten Uitvraag Service | De centrale dienst waar het portaal berichten opvraagt en beheert |
-| Berichtensessiecache | Het tijdelijke geheugen van de uitvraag: de opgehaalde berichtenlijst van een ingelogde ondernemer, zolang hij ingelogd is |
-| Aanmeld Service | Het deel van de uitvraag dat nieuwe berichten van een magazijn aanneemt |
-| Magazijnregister | Welke organisatie welk berichtenmagazijn heeft, en waar dat te bereiken is |
-| Berichtenmagazijn | De opslag van de berichten van één organisatie. Elke organisatie heeft er één: zelf gehost, of afgenomen bij BBO. Een magazijn bestaat uit een Aanlever API, een Ophaal- en Beheer API, validatie, autorisatie, de Publicatie Stream en de Dataopslag |
+| Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort (het magazijnregister), houdt de opgehaalde berichtenlijst van een ingelogde ondernemer tijdelijk vast, en neemt aanmeldingen van nieuwe berichten aan |
+| Berichtenmagazijn | De opslag van de berichten van één organisatie. Elke organisatie heeft er één, zelf gehost of afgenomen bij BBO, en elk magazijn volgt dezelfde stelselafspraken over aanleveren, ophalen, beheren en aanmelden. De lijn in de diagrammen staat voor elk magazijn |
 | Profiel Service | Dienst van MijnOverheid Zakelijk met de voorkeuren van de ondernemer: van welke organisaties hij berichten via de berichtenbox wil ontvangen |
 | Notificatie Service | Dienst van MijnOverheid Zakelijk die de ondernemer laat weten dat er een bericht is, bijvoorbeeld per e-mail |
-| Stelselregister | Publiceert de lijst van deelnemende organisaties en hun magazijnen, ondertekend |
 
 ## Wat voor alle use cases geldt
 
@@ -70,8 +72,9 @@ zolang hij ingelogd is, en wist die zodra zijn laatste sessie eindigt.
 
 **Inloggen is in deze opstelling nog niet gebouwd.** Het portaal geeft bij elk verzoek mee om welke
 ondernemer het gaat, en start bij het inloggen een sessie bij de uitvraag. Elk verzoek over
-berichten moet bij een lopende sessie van die ondernemer horen. In het doelbeeld bewijst een token
-uit eHerkenning wie de ondernemer is; zie de pagina met PoC-afwijkingen.
+berichten moet bij een lopende sessie van die ondernemer horen. In het doelbeeld logt de ondernemer
+in met eHerkenning, en geeft de Interactielaag daarna een token uit dat bij elk verzoek bewijst wie
+hij is; zie de pagina met PoC-afwijkingen.
 
 **Een sessie verloopt.** Na 15 minuten zonder activiteit, en uiterlijk na 12 uur, eindigt de sessie.
 Het portaal kan een kortere grens meegeven en beëindigt de sessie zelf bij uitloggen. Daarna is
@@ -79,7 +82,10 @@ opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.
 
 **Wat het stelsel vastlegt.** Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast
 in zijn eigen Logboek Dataverwerkingen: welke handeling, voor welke ondernemer, en of die lukte.
-Een handeling waarvan de vastlegging mislukt, telt niet als uitgevoerd; het magazijn slaat een
-aangeleverd bericht dan bijvoorbeeld niet op. Alleen het wissen van gegevens aan het einde van een
-sessie gaat dan toch door, met een waarschuwing aan de beheerder. Welke berichten precies getoond
-zijn, staat niet in het logboek; zie de pagina met beheervragen.
+Bij het aanleveren en publiceren legt het magazijn de handeling vast vóórdat het hem uitvoert:
+mislukt de vastlegging, dan gebeurt er niets, en slaat het een aangeleverd bericht bijvoorbeeld niet
+op. Alle andere handelingen, in magazijn en uitvraag, worden vastgelegd nadat ze uitgevoerd zijn:
+mislukt de vastlegging daar, dan krijgt de aanroeper een foutmelding, maar is de handeling al
+gebeurd. Het wissen van gegevens aan het einde van een sessie
+gaat altijd door; mislukt de vastlegging, dan krijgt de beheerder een waarschuwing. Welke berichten
+precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.

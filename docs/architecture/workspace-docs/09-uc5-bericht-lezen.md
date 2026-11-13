@@ -6,7 +6,7 @@ Een ondernemer opent een bericht en leest het.
 |---|---|
 | **Actor** | Een ondernemer met een geopende berichtenbox |
 | **Aanleiding** | De ondernemer klikt op een bericht in de lijst |
-| **Resultaat** | De ondernemer ziet de tekst van het bericht, met de lijst van bijlagen. Het bericht staat daarna als gelezen gemarkeerd |
+| **Resultaat** | De ondernemer ziet de tekst van het bericht, met de lijst van bijlagen. Markeert het portaal het daarna als gelezen, dan staat het ook zo in het magazijn |
 
 ## Verloop
 
@@ -30,34 +30,21 @@ sequenceDiagram
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant SC as Berichtensessiecache
-        participant REG as Magazijnregister
-    end
-    box Berichtenmagazijn (BBO-gehost)
-        participant OB as Berichtenmagazijn Ophaal- en Beheer API
-        participant AUT as Autorisatie Service
-        participant DB as Dataopslag
-    end
+    participant FBS as Berichten Uitvraag Systeem
+    participant MAG as Berichtenmagazijn
 
     OND->>IL: Opent een bericht
-    IL->>UV: Geef bericht (berichtnummer, organisatie)
-    UV->>SC: Staat dit bericht in de lijst van deze ondernemer?
-    SC-->>UV: Kopgegevens en bijlagen
-    UV->>REG: Adres van het magazijn van deze organisatie
-    REG-->>UV: Adres
-    Note over UV: Legt het lezen vast in het logboek
-    UV->>OB: Geef de tekst van het bericht, voor deze ondernemer
-    OB->>DB: Zoek het bericht
-    DB-->>OB: Bericht
-    OB->>AUT: Hoort het bericht bij deze ondernemer?
-    AUT-->>OB: Ja
-    Note over OB: Legt het lezen vast in het logboek
-    OB-->>UV: Tekst en status
-    UV-->>IL: Bericht met tekst en bijlagen
+    IL->>FBS: Geef bericht (berichtnummer, organisatie)
+    FBS->>FBS: Staat dit bericht in de lijst van deze ondernemer?
+    FBS->>FBS: Zoek het magazijn van deze organisatie op
+    FBS->>MAG: Geef de tekst van het bericht, voor deze ondernemer
+    MAG->>MAG: Zoek het bericht en controleer of het bij deze ondernemer hoort
+    Note over MAG: Legt het lezen vast in het logboek
+    MAG-->>FBS: Tekst en status
+    FBS-->>IL: Bericht met tekst en bijlagen
+    Note over FBS: Legt het lezen vast in het logboek
     IL-->>OND: Toont het bericht
-    IL->>UV: Markeer als gelezen (zie use case 7)
+    IL->>FBS: Markeer als gelezen (zie use case 7)
 ```
 
 ## Als het misgaat
@@ -65,8 +52,8 @@ sequenceDiagram
 | Situatie | Wat het stelsel doet | Wat de ondernemer merkt |
 |---|---|---|
 | Het bericht staat niet in de lijst van deze ondernemer: het bestaat niet, of het is van een ander | De uitvraag geeft in beide gevallen hetzelfde antwoord, zodat niemand kan aftasten welke berichten van anderen bestaan | "Dit bericht is niet (meer) beschikbaar" |
-| De ondernemer heeft het bericht in deze sessie zelf verwijderd (use case 8) | De uitvraag weet dat tot het einde van de sessie | "U hebt dit bericht verwijderd" |
-| Het bericht is intussen in het magazijn verwijderd, vanuit een andere sessie of door de organisatie zelf | Het magazijn kent het niet meer. De uitvraag laat het tot het volgende ophalen in de lijst staan | "Dit bericht is niet (meer) beschikbaar" |
+| De ondernemer heeft het bericht zelf verwijderd (use case 8), in deze of een andere lopende sessie | De uitvraag weet dat tot de laatste sessie van de ondernemer eindigt | "U hebt dit bericht verwijderd" |
+| Het bericht is buiten de berichtenbox om uit het magazijn verdwenen, bijvoorbeeld door de organisatie zelf | Het magazijn kent het niet meer. De uitvraag laat het tot het volgende ophalen in de lijst staan | "Dit bericht is niet (meer) beschikbaar" |
 | Het magazijn is onbereikbaar, of antwoordt niet binnen 10 seconden | De uitvraag probeert het niet opnieuw | "Probeer het straks nog eens" |
 | Het magazijn geeft een onleesbaar of leeg antwoord | De uitvraag geeft het bericht niet door | "Probeer het straks nog eens" |
 | Uitvraag en magazijn zijn het oneens over de eigenaar | Het magazijn weigert | Een melding dat hij geen toegang heeft |
@@ -85,8 +72,8 @@ sequenceDiagram
 
 | Stap | Koppelvlak | Opmerking |
 |---|---|---|
-| Uitvraag | `GET /api/v1/berichten/{berichtId}?magazijnId=` | `404 bericht-onbekend` (bestaat niet, is van een ander, of `magazijnId` onbekend), `410 bericht-verwijderd` (eigen verwijdering in deze sessie), `409`/`503` als de ophaalronde niet klaar of mislukt is, `502 keten-fout` bij timeout, transportfout of onleesbaar antwoord |
+| Uitvraag | `GET /api/v1/berichten/{berichtId}?magazijnId=` | `404 bericht-onbekend` (bestaat niet, is van een ander, of `magazijnId` onbekend), `410 bericht-verwijderd` (eigen verwijdering, tombstone per ontvanger tot de laatste sessie eindigt), `409`/`503` als de ophaalronde niet klaar of mislukt is, `502 keten-fout` bij timeout, transportfout of onleesbaar antwoord |
 | Magazijn | `GET /api/v1/berichten/{berichtId}` met `X-Ontvanger` | `404` voor een onbekend of verwijderd bericht, `403` voor andermans bericht (`BerichtAutorisatie.vereisOntvanger`) |
 | Routering | `MagazijnRouter` via het `Magazijnregister` | Connect-timeout 2s, read-timeout 10s. Geen circuit breaker of retry op dit pad |
 | Gelezen | `PATCH /api/v1/berichten/{berichtId}` met `status: gelezen` | Door het portaal, niet door het openen |
-| Logboek | Uitvraag `uitvraag-bericht`, magazijn `ophalen-bericht` | Een weigering (4xx) staat in het logboek van de uitvraag als weigering, niet als fout |
+| Logboek | Uitvraag `uitvraag-bericht`, magazijn `ophalen-bericht` | Geen van beide legt het berichtnummer vast. De uitvraag legt een 4xx vast met status `Unset`, net als een geslaagde opening (`LogboekWeigering` kondigt de exceptie aan); het magazijn legt een 4xx vast als `Error`. Alleen een magazijnregel zonder fout toont dus dat de tekst verstrekt is |

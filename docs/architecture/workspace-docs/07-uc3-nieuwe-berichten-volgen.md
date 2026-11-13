@@ -19,9 +19,9 @@ Nieuwe berichten verschijnen terwijl de berichtenbox openstaat.
    Een openstaande verbinding verlengt de sessie niet: alleen activiteit van de ondernemer doet dat.
 4. Een magazijn meldt een nieuw bericht aan (use case 1, stap 7). De uitvraag zet het in de lijst van
    de ondernemer.
-5. De uitvraag kan uit meerdere instanties bestaan. De instantie die de aanmelding ontving, geeft het
-   nieuwe bericht via het tijdelijke geheugen door aan alle instanties. De instantie waarmee het
-   portaal verbonden is, stuurt de kopgegevens naar het portaal.
+5. De uitvraag draait op meerdere servers tegelijk. De server die de aanmelding ontving, laat via
+   het tijdelijke geheugen alle andere servers weten dat er een nieuw bericht is. De server waarmee
+   het portaal verbonden is, stuurt de kopgegevens naar het portaal.
 6. Het portaal toont het nieuwe bericht.
 7. Eindigt de sessie, door uitloggen of verlopen, dan meldt de uitvraag dat bij de eerstvolgende
    controle en sluit de verbinding.
@@ -33,40 +33,30 @@ sequenceDiagram
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant SC as Berichtensessiecache
-        participant AMS as Aanmeld Service
-    end
-    participant PUB as Publicatie Stream
+    participant FBS as Berichten Uitvraag Systeem
+    participant MAG as Berichtenmagazijn
 
-    IL->>UV: Volg de berichtenbox (doorlopende verbinding)
-    UV->>SC: Loopt de sessie, en is het ophalen klaar?
-    SC-->>UV: Ja
-    UV->>SC: Meld deze verbinding aan voor nieuwe berichten van de ondernemer
-    UV-->>IL: Volgen gestart
-    IL->>UV: Geef de berichtenlijst (opnieuw)
-    UV-->>IL: Berichtenlijst
+    IL->>FBS: Volg de berichtenbox (doorlopende verbinding)
+    FBS->>FBS: Loopt de sessie, en is het ophalen klaar?
+    FBS-->>IL: Volgen gestart
+    IL->>FBS: Geef de berichtenlijst (opnieuw)
+    FBS-->>IL: Berichtenlijst
 
     par Teken van leven
         loop Elke 20 seconden
-            UV->>SC: Loopt de sessie nog?
-            SC-->>UV: Ja
-            UV-->>IL: Hartslag
+            FBS->>FBS: Loopt de sessie nog?
+            FBS-->>IL: Teken van leven
         end
     and Nieuw bericht
-        PUB->>AMS: Nieuw bericht gepubliceerd (zie use case 1)
-        AMS->>SC: Zet het bericht in de lijst van de ondernemer
-        SC-->>UV: Nieuw bericht voor deze ondernemer (ook als het op een andere instantie binnenkwam)
-        UV->>SC: Lees de kopgegevens van het bericht
-        UV-->>IL: Bericht bijgekomen
+        MAG->>FBS: Nieuw bericht gepubliceerd (zie use case 1)
+        FBS->>FBS: Zet het bericht in de lijst, en geef het door aan elke server van de uitvraag
+        FBS-->>IL: Bericht bijgekomen (kopgegevens)
         IL-->>OND: Het bericht verschijnt in de berichtenbox
     end
 
     OND->>IL: Logt uit (zie use case 2)
-    UV->>SC: Loopt de sessie nog?
-    SC-->>UV: Nee
-    UV-->>IL: Sessie verlopen, verbinding gesloten
+    FBS->>FBS: Loopt de sessie nog? Nee
+    FBS-->>IL: Sessie verlopen, verbinding gesloten
 ```
 
 ## Als het misgaat
@@ -75,18 +65,18 @@ sequenceDiagram
 |---|---|---|
 | De ondernemer is niet ingelogd, of heeft zijn berichten nog niet opgehaald | De uitvraag zet het bericht nergens in | Niets. Het bericht verschijnt bij het volgende ophalen |
 | Het portaal wil volgen voordat er is opgehaald | De uitvraag weigert | Het portaal haalt eerst op |
-| Er staan te veel berichtenboxen open: meer dan 5 voor dezelfde ondernemer of meer dan 2000 in totaal, geteld per instantie | De uitvraag weigert de verbinding | Het portaal probeert het na 30 seconden opnieuw. Tot dan verschijnen nieuwe berichten pas na verversen |
+| Er staan te veel berichtenboxen open: meer dan 5 voor dezelfde ondernemer of meer dan 2000 in totaal, geteld per server | De uitvraag weigert de verbinding | Het portaal probeert het na 30 seconden opnieuw. Tot dan verschijnen nieuwe berichten pas na verversen |
 | De sessie eindigt | Bij de eerstvolgende controle meldt de uitvraag dat en sluit de verbinding | Uiterlijk 20 seconden later sluit het volgen. Het portaal vraagt om opnieuw in te loggen |
 | De verbinding staat een uur open | De uitvraag sluit hem zonder melding | Het portaal verbindt opnieuw en leest de lijst opnieuw |
-| De instantie waarmee het portaal verbonden is, stopt (bijvoorbeeld bij een uitrol) | De verbinding wordt gesloten | Het portaal verbindt opnieuw |
-| Het doorgeven tussen instanties valt weg | Na een minuut zonder signaal sluit de uitvraag alle verbindingen van die instantie | Het portaal verbindt opnieuw en leest de lijst opnieuw |
+| De server waarmee het portaal verbonden is, stopt (bijvoorbeeld bij een nieuwe versie) | De verbinding wordt gesloten | Het portaal verbindt opnieuw |
+| Het doorgeven tussen de servers valt weg | Na een minuut zonder signaal sluit de uitvraag alle verbindingen van die server | Het portaal verbindt opnieuw en leest de lijst opnieuw |
 | Het doorgeven van één aanmelding mislukt | Het bericht staat wel in de lijst, maar de geopende berichtenbox hoort het niet | Het bericht verschijnt pas na verversen |
 | Een bericht wordt dubbel doorgegeven, of komt binnen voordat het volgen gemeld is | De uitvraag ontdubbelt niet op de verbinding | Het portaal ontdubbelt, op organisatie en berichtnummer |
 
 ## Doelarchitectuur
 
-Het model toont dit verloop zoals het nu werkt. Zie use case 2 voor inloggen, pseudoniemen en
-machtigingen: die gelden hier ook, omdat volgen pas kan na het ophalen.
+Het volgen zelf wijkt in het doelbeeld niet af van wat er nu draait. Inloggen, pseudoniemen en
+machtigingen wel, en die gelden hier ook, omdat volgen pas kan na het ophalen: zie use case 2.
 
 ## Open vragen
 
