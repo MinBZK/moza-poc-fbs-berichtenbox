@@ -388,11 +388,18 @@ Deze tabel gaat als terugkoppeling naar de auteurs, net als die in het toepassin
 - **De goedkoopste maatregel ligt bij de ingress.** Hybride sleuteluitwisseling in TLS dekt alle
   routes tegelijk, en Chrome, Edge en Firefox bieden haar standaard aan. Daarom staat ze naast
   TLS 1.3 als eis aan de ingress.
-- **De JWE-laag volgt later.** `ML-KEM-768+ECDH-ES` leidt de sleutel af uit `SS' ‖ Z`, met een
-  verwijzing naar een IETF-draft. jose4j en `jose` (panva) kennen dat algoritme niet, en Java 21
-  heeft geen ML-KEM. Nu bouwen betekent eigen cryptografie, aan twee kanten. Zodra de draft af
-  is en de libraries hem kennen, voegen we het algoritme toe. Dat breekt niets: het magazijn
-  accepteert dan beide `alg`-waarden.
+- **De JWE-laag volgt later, maar is wel oplosbaar.** Er zijn drie blokkades:
+  - Java 21, waar we op zitten, heeft geen ML-KEM. Dat zit in de JDK vanaf 24 (JEP 496), en de
+    eerste LTS-versie ermee is Java 25. De overstap staat in MinBZK/MijnOverheidZakelijk#1555.
+  - `ML-KEM-768+ECDH-ES` leidt de sleutel af uit `SS' ‖ Z`, met een verwijzing naar een
+    IETF-draft. jose4j en `jose` (panva) kennen dat algoritme niet. Het is een kleine aanpassing
+    van de afleiding die `ECDH-ES` al gebruikt, maar wel eigen cryptografie: zelf bouwen en
+    toetsen tegen testvectoren.
+  - De app in de browser moet hetzelfde kunnen. Zij heeft alleen de public key van het magazijn
+    nodig, dus een JavaScript-library voor ML-KEM volstaat; een niet-exporteerbare sleutel is
+    daar niet nodig.
+
+  Toevoegen breekt niets: het magazijn accepteert dan beide `alg`-waarden.
 
 ## Afwijkingen van de API Design Rules
 
@@ -491,7 +498,8 @@ gebruikt de uitvraag niet. Wel drie raakvlakken:
 - Nieuwe berichten zien zonder uitvraag (#1217), de demo naast elkaar (#1219) en meten tot 100
   organisaties (#1220).
 - De vindbaarheidsconfiguratie per organisatie (4.2).
-- Hybride ML-KEM in de JWE (3.3), zodra de JOSE-libraries hem kennen; zie "Post-quantum".
+- Hybride ML-KEM in de JWE (3.3), na de overstap naar Java 25
+  (MinBZK/MijnOverheidZakelijk#1555); zie "Post-quantum".
 
 ## Besloten na review
 
