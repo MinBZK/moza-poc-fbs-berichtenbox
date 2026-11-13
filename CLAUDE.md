@@ -183,8 +183,9 @@ transitieve libraries, niet uit onze code of config):
 - `sun.misc.Unsafe::objectFieldOffset is deprecated` — guava, transitief via de
   Maven-wrapper. Verdwijnt zodra de upstream-libs migreren.
 - `LogManager accessed before the "java.util.logging.manager" system property was set`
-  — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap; cosmetisch,
-  geen effect op test- of runtime-gedrag.
+  — initialisatie-volgorde van de JBoss LogManager in de test-bootstrap. Geen effect op test- of
+  runtime-gedrag zolang `quarkus.bootstrap.blocking-task-runner` in de Surefire-configuratie van
+  de parent-pom staat; zonder die instelling kon hij de teststart laten vastlopen.
 - `OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because
   bootstrap classpath has been appended`, meestal direct gevolgd door `A Java agent has been loaded
   dynamically (…byte-buddy-agent…)` — MockK laadt bij zijn eerste mock de byte-buddy-agent en zet zijn
