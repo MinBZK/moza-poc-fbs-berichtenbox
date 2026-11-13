@@ -344,17 +344,19 @@ class PaneelPadenTest {
     }
 
     /**
-     * Het paneel filtert de ontdubbel-keuzelijst op het type dat de resource als enige accepteert.
-     * Drijft dat filter af — naar `KVK:` bijvoorbeeld — dan biedt de lijst uitsluitend persona's
-     * aan die elke klik met een 400 beantwoorden, en niets in de keten merkt dat: de contracttest
-     * bouwt dezelfde regel na in Kotlin en blijft dus groen.
+     * De ontdubbel-keuzelijst biedt elke persona aan, want een berichtenbox kiest uit dezelfde
+     * personadienst. Een filter dat hier terugkomt, laat persona's weg die in de berichtenbox wel te
+     * kiezen zijn, en de contracttest merkt dat niet: die leest de lijst van de console, niet wat het
+     * paneel ervan overhoudt.
      */
     @Test
-    fun `de keuzelijst filtert op hetzelfde type dat de ontdubbeling accepteert`() {
-        assertTrue(
-            code.contains("""startsWith('BSN:')"""),
-            "$SCRIPT filtert niet meer op BSN; de ontdubbeling accepteert geen ander type",
-        )
+    fun `de ontdubbel-keuzelijst laat geen persona weg`() {
+        val vulPersonas = Regex("""^function vulPersonas\(.*?^}$""", setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL))
+            .find(code)
+            ?.value
+
+        assertTrue(vulPersonas != null, "de functie vulPersonas niet gevonden in $SCRIPT")
+        assertFalse(vulPersonas!!.contains(".filter("), "$SCRIPT filtert de ontdubbel-keuzelijst weer")
     }
 
     /** Aanroepen van [functie] in het script; de definitie zelf telt niet mee. */
