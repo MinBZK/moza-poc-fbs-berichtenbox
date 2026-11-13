@@ -68,7 +68,19 @@ if [[ "$module" == "libraries/fbs-kern" || "$module" == "libraries/fbs-common" |
 fi
 
 if [[ "$snel" != true || "${FBS_HOOK_TESTS:-1}" == "0" ]]; then
-    echo "Geraakte module: $module — draai zelf:"
+    # Een testklasse draait zichzelf; bij productiecode zijn de tests die de naam van de klasse
+    # dragen de beste gok. Zonder treffer faalt Surefire niet, dankzij -Dsurefire.failIfNoSpecifiedTests=false.
+    klasse=$(basename "$pad" .kt)
+
+    if [[ "$pad" == *"/src/test/"* ]]; then
+        filter="$klasse"
+    else
+        filter="*${klasse}*Test"
+    fi
+
+    echo "Geraakte module: $module — draai zelf, eerst de geraakte tests:"
+    echo "  ./mvnw clean test -pl $module -am -Dtest='$filter' -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true"
+    echo "  en vóór de push de hele module (met de coverage-gate):"
     echo "  ./mvnw clean test -pl $module -am"
 
     case "$module" in

@@ -65,6 +65,7 @@ class BerichtensessiecacheServiceTest {
         every { it.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().item(Unit)
         // Pas gevraagd als een ronde haar lock kwijt is; standaard omdat de laatste sessie eindigde.
         every { it.heeftSessieGestartVoor(ontvanger, any()) } returns Uni.createFrom().item(false)
+        every { it.nu() } returns Uni.createFrom().item(Instant.now())
     }
     // Echte (kleine) instances: het concurrency-bulkhead + circuit breaker bevatten geen externe
     // afhankelijkheden, dus geen mock nodig. Drempel 3 / 30s = de prod-defaults.
@@ -274,21 +275,27 @@ class BerichtensessiecacheServiceTest {
         assertTrue(regels.none { it.contains("aggregation-lock-ttl") }, "Log: $regels")
     }
 
-    /** Een lopende sessie, of niet vast te stellen of er een loopt: beide melden dat niets bewaard is. */
-    @ParameterizedTest(name = "magazijnen={0}, sessiecontrole faalt={1}")
-    @CsvSource("false, false", "true, false", "false, true", "true, true")
+    /**
+     * Een lopende sessie, of niet vast te stellen of er een loopt: beide melden dat niets bewaard is.
+     * Niet vast te stellen is zowel een controle die faalt als een klok van het register die niet antwoordt.
+     */
+    @ParameterizedTest(name = "magazijnen={0}, faalt={1}")
+    @CsvSource("false, niets", "true, niets", "false, controle", "true, controle", "false, klok", "true, klok")
     fun `een ronde die de lock kwijt is terwijl de sessie loopt meldt dat haar resultaten niet bewaard zijn`(
         metMagazijn: Boolean,
-        controleFaalt: Boolean,
+        faalt: String,
     ) {
         val client = mockk<MagazijnClient>()
+        val redisWeg = RuntimeException("Redis weg")
 
         stubAggregatie(client)
         every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(if (metMagazijn) setOf("magazijn-a") else emptySet())
         every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
         every { berichtenCache.slaRondeOp(cacheKey, any(), any(), any()) } returns Uni.createFrom().item(false)
         every { sessies.heeftSessieGestartVoor(ontvanger, any()) } returns
-            if (controleFaalt) Uni.createFrom().failure(RuntimeException("Redis weg")) else Uni.createFrom().item(true)
+            if (faalt == "controle") Uni.createFrom().failure(redisWeg) else Uni.createFrom().item(true)
+
+        if (faalt == "klok") every { sessies.nu() } returns Uni.createFrom().failure(redisWeg)
 
         val regels = vangLog {
             val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
@@ -308,6 +315,32 @@ class BerichtensessiecacheServiceTest {
         assertFalse(melding.contains(ontvanger.waarde), "de BSN hoort niet in de applicatielog: $melding")
         verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
         verify(exactly = 0) { berichtenCache.sluitRondeAf(any(), any(), any()) }
+    }
+
+    @Test
+    fun `de sessiecontrole na een verloren lock rekent met de klok van het register, niet met die van de pod`() {
+        // Een register-klok die een jaar voorloopt. Met de klok van de pod zou elke sessie pas ná de
+        // ronde lijken te beginnen, en de ronde eindigt dan stil terwijl de gebruiker nog ingelogd is.
+        val registerNu = Instant.now().plus(Duration.ofDays(365))
+        val moment = slot<Instant>()
+        val client = mockk<MagazijnClient>()
+
+        stubAggregatie(client)
+        every { resolver.resolve(ontvanger) } returns Uni.createFrom().item(setOf("magazijn-a"))
+        every { client.getBerichten(any(), any(), any(), any()) } returns MagazijnBerichtenResponse(emptyList())
+        every { berichtenCache.slaRondeOp(cacheKey, any(), any(), any()) } returns Uni.createFrom().item(false)
+        every { sessies.nu() } returns Uni.createFrom().item(registerNu)
+        every { sessies.heeftSessieGestartVoor(ontvanger, capture(moment)) } returns Uni.createFrom().item(true)
+        val voor = System.nanoTime()
+
+        val events = service.haalBerichtenOp(ontvanger).collect().asList().await().atMost(Duration.ofSeconds(15))
+
+        val rondeDuurde = Duration.ofNanos(System.nanoTime() - voor)
+
+        assertInstanceOf(OphalenMisluktNaBevraging::class.java, events.last(), "Events: $events")
+        // Het begin van de ronde op de klok van het register: hooguit haar duur vóór "nu", nooit erna.
+        assertTrue(moment.captured <= registerNu, "Moment na de register-tijd: ${moment.captured}")
+        assertTrue(moment.captured >= registerNu.minus(rondeDuurde), "Moment niet op de register-klok: ${moment.captured}")
     }
 
     @Test
