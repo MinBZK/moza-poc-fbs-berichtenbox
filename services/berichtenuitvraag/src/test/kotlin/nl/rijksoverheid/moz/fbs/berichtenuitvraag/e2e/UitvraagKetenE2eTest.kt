@@ -936,18 +936,19 @@ class UitvraagKetenE2eTest {
             .extract().path<String>("sessieId")
 
         val regels = LinkedBlockingQueue<String>()
-        val connection = (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection)
-            .apply {
-                setRequestProperty("X-Ontvanger", "BSN:$bsn")
-                setRequestProperty("X-Sessie", tweedeTabblad)
-                setRequestProperty("Accept", "text/event-stream")
-                readTimeout = 10_000
-            }
+        val http = HttpClient.newHttpClient()
+        val verzoek = HttpRequest.newBuilder(URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen"))
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", tweedeTabblad)
+            .header("Accept", "text/event-stream")
+            .build()
 
         try {
-            assertEquals(200, connection.responseCode)
+            val antwoord = http.send(verzoek, BodyHandlers.ofLines())
 
-            val lezer = Thread { runCatching { connection.inputStream.bufferedReader().lineSequence().forEach { regels += it } } }
+            assertEquals(200, antwoord.statusCode())
+
+            val lezer = Thread { runCatching { antwoord.body().forEach { regels += it } } }
                 .apply { isDaemon = true; start() }
 
             wachtOpRegel(regels, "\"event\":\"volgen-gestart\"")
@@ -978,10 +979,10 @@ class UitvraagKetenE2eTest {
                 wachtOpRegel(regels, "\"event\":\"bericht-verwijderd\"").replace("data: ", "data:"),
             )
 
-            connection.disconnect()
+            http.shutdownNow()
             lezer.join(2_000)
         } finally {
-            connection.disconnect()
+            http.shutdownNow()
             given()
                 .header("X-Ontvanger", "BSN:$bsn")
                 .header("X-Sessie", tweedeTabblad)
