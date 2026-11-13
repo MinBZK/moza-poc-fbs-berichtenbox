@@ -68,7 +68,7 @@
 <ol>
  <li>De ondernemer typt een zoekterm in het portaal.</li>
  <li>Het portaal vraagt de uitvraag om te zoeken.</li>
- <li>De uitvraag zoekt in de berichtenlijst die bij het ophalen (use case 2) is samengesteld. Hij zoekt alleen in het onderwerp: de tekst van een bericht staat niet in de uitvraag, maar in het magazijn van de organisatie. Een bericht is een treffer als een woord in het onderwerp overeenkomt met de zoekterm, los van hoofdletters. Het zoeken volgt Engelse taalregels: soms vindt een zoekterm ook een verwante vorm ("behandel" vindt "behandeling"), korte Engelse woorden als "in" of "is" vinden niets, en een deel van een woord is geen treffer: "subsidie" vindt "Subsidieaanvraag" niet.</li>
+ <li>De uitvraag zoekt in de berichtenlijst die bij het ophalen (use case 2) is samengesteld. Hij zoekt alleen in het onderwerp: de tekst van een bericht staat niet in de uitvraag, maar in het magazijn van de organisatie. Een bericht is een treffer als een woord in het onderwerp overeenkomt met de zoekterm, los van hoofdletters. Het zoeken volgt Engelse taalregels: soms vindt een zoekterm ook een verwante vorm ("behandel" vindt "behandeling"), en het begin van een samengesteld woord is geen treffer ("subsidie" vindt "Subsidieaanvraag" niet). Korte Engelse woorden als "in", "is" of "of" slaat het zoeken over; zoekt de ondernemer alleen op zo'n woord, dan krijgt hij alle berichten.</li>
  <li>De uitvraag geeft de eerste 20 treffers, nieuwste eerst, en zegt welke organisaties bij het ophalen niet leverden.</li>
  <li>Het portaal toont de treffers.</li>
 </ol>
@@ -84,6 +84,7 @@
     IL-&gt;&gt;FBS: Zoek in de berichten van deze ondernemer
     FBS-&gt;&gt;FBS: Loopt de sessie? Verleng haar
     FBS-&gt;&gt;FBS: Zoek in het onderwerp van de opgehaalde berichten
+    Note over FBS: Legt het zoeken vast in het logboek
     FBS--&gt;&gt;IL: De eerste 20 treffers, nieuwste eerst, en welke organisaties niet leverden
     IL--&gt;&gt;OND: Toont de treffers
 </code></pre>
@@ -128,8 +129,13 @@
    <td>Het bericht wordt niet gevonden</td>
   </tr>
   <tr>
-   <td>De zoekterm is een kort, veelvoorkomend Engels woord, zoals "in" of "is"</td>
-   <td>Het zoeken slaat zo'n woord over</td>
+   <td>De zoekterm is een kort, veelvoorkomend Engels woord, zoals "in", "is" of "of"</td>
+   <td>Het zoeken slaat zo'n woord over en filtert dan alleen op de ondernemer</td>
+   <td>De eerste 20 berichten van de hele lijst, alsof er niet gezocht is</td>
+  </tr>
+  <tr>
+   <td>De zoekterm bevat een letter met een accent of trema, zoals "beëindiging" of "één"</td>
+   <td>De uitvraag maakt de letter onleesbaar voor de zoekindex</td>
    <td>Geen treffers</td>
   </tr>
   <tr>
@@ -149,7 +155,8 @@
 <p>Wat het zoeken betreft, wijkt het doelbeeld niet af; inloggen en pseudoniemen wel, zie use case 2. Zoeken in de tekst van berichten zou betekenen dat die tekst centraal komt te staan, of dat elk magazijn bij elke zoekvraag bevraagd wordt. Het model kiest geen van beide: de tekst blijft bij de organisatie, en zoeken blijft beperkt tot de kopgegevens die de uitvraag tijdens de sessie al heeft.</p>
 <h2>Open vragen</h2>
 <ul>
- <li>Moet het zoeken Nederlandse taalregels volgen, of juist geen taalregels? Nu gelden de Engelse: die vinden soms een verwante vorm en slaan korte Engelse woorden over.</li>
+ <li>Moet het zoeken Nederlandse taalregels volgen, of juist geen taalregels? Nu gelden de Engelse: die vinden soms een verwante vorm, en een zoekterm als "in" of "of" toont alle berichten.</li>
+ <li>Moet een letter met een accent of trema gewoon gevonden worden? Nu vindt die niets.</li>
  <li>Moet een zoekterm van meer woorden berichten vinden waarin elk woord voorkomt? Nu vindt die niets.</li>
 </ul>
 <h2>Technische verwijzing</h2>
