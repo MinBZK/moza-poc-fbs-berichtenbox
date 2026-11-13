@@ -144,10 +144,23 @@ BERICHT="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["
     || faal "geen berichtId in het antwoord van het magazijn"
 echo "Aangeleverd: bericht $BERICHT met een bijlage van $BYTES bytes"
 
+# Elk verzoek onder /api/v1/berichten eist een inlogsessie (X-Sessie). Het id is een credential: het
+# komt niet in de uitvoer, en de sessie eindigt met het script.
+STATUS="$(curl -sS -o "$WERK/sessie.json" -w '%{http_code}' -X POST -H "X-Ontvanger: $ONTVANGER" \
+    "$UITVRAAG/api/v1/sessies")" \
+    || faal "een sessie starten brak af (curl stopte met code $?)"
+
+[ "$STATUS" = 201 ] || faal "een sessie starten gaf $STATUS: $(head -c 2000 "$WERK/sessie.json")"
+
+SESSIE="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["sessieId"])' "$WERK/sessie.json")" \
+    || faal "geen sessieId in het antwoord van de uitvraag"
+rm -f "$WERK/sessie.json"
+trap 'curl -sS -o /dev/null -X DELETE -H "X-Ontvanger: $ONTVANGER" -H "X-Sessie: $SESSIE" "$UITVRAAG/api/v1/sessies/huidige" || true; [ "$BEWAREN" = 1 ] || rm -rf "$WERK"' EXIT
+
 # De uitvraag geeft een bijlage alleen vrij voor een bericht dat in de sessie van de ontvanger staat.
 # Een ophaalronde bevraagt elk magazijn opnieuw, dus daarna kent de sessie het nieuwe bericht.
 STATUS="$(curl -sS -N --max-time 180 -o "$WERK/ophalen.sse" -w '%{http_code}' \
-    -H "X-Ontvanger: $ONTVANGER" -H 'Accept: text/event-stream' \
+    -H "X-Ontvanger: $ONTVANGER" -H "X-Sessie: $SESSIE" -H 'Accept: text/event-stream' \
     "$UITVRAAG/api/v1/berichten/_ophalen")" \
     || faal "ophalen brak af (curl stopte met code $?)"
 
@@ -178,7 +191,7 @@ if not voltooid or voltooid[-1].get("status") != "OK":
 PY
 
 STATUS="$(curl -sS -o "$WERK/bericht.json" -w '%{http_code}' -H "X-Ontvanger: $ONTVANGER" \
-    "$UITVRAAG/api/v1/berichten/$BERICHT?magazijnId=$AFZENDER")" \
+    -H "X-Sessie: $SESSIE" "$UITVRAAG/api/v1/berichten/$BERICHT?magazijnId=$AFZENDER")" \
     || faal "het bericht ophalen brak af (curl stopte met code $?)"
 
 [ "$STATUS" = 200 ] || faal "het bericht ophalen gaf $STATUS: $(head -c 2000 "$WERK/bericht.json")"
@@ -197,7 +210,7 @@ print(urljoin(sys.argv[1] + "/", bericht["bijlagen"][0]["_links"]["self"]["href"
 # dan is dat alleen aan de exitcode van curl te zien.
 UIT="$(curl -sS -D "$WERK/headers.txt" -o "$WERK/terug.pdf" \
     -w '%{http_code} %{size_download} %{time_total}' \
-    -H "X-Ontvanger: $ONTVANGER" "$URL")" \
+    -H "X-Ontvanger: $ONTVANGER" -H "X-Sessie: $SESSIE" "$URL")" \
     || faal "de download brak af (curl stopte met code $?); ontvangen: $(cat "$WERK/terug.pdf" 2>/dev/null | wc -c | tr -d ' ') van $BYTES bytes"
 read -r CODE ONTVANGEN DUUR <<< "$UIT"
 
@@ -210,6 +223,7 @@ cmp -s "$WERK/bijlage.pdf" "$WERK/terug.pdf" \
 
 echo "OK: $ONTVANGEN bytes byte-gelijk terug in ${DUUR}s"
 echo
-echo "Bijlage-adres, voor verdere proeven:"
+echo "Bijlage-adres, voor verdere proeven. De sessie van dit script is beëindigd; start zelf een"
+echo "nieuwe met POST $UITVRAAG/api/v1/sessies, en doe daarna eerst een ophaalronde:"
 echo "  $URL"
-echo "  -H 'X-Ontvanger: $ONTVANGER'"
+echo "  -H 'X-Ontvanger: $ONTVANGER' -H 'X-Sessie: <sessieId>'"

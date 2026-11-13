@@ -16,6 +16,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.AanmeldWebhookClient
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingService
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.Ontvanger
+import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringAankondiging
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
@@ -25,6 +26,10 @@ import nl.rijksoverheid.moz.fbs.democonsole.omgeving.OmgevingConfig
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorBeheerClient
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorService
 import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorStand
+import nl.rijksoverheid.moz.fbs.democonsole.sessie.GeheugenSessieOpslag
+import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessieOpslag
+import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessiecacheSleutels
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -91,6 +96,7 @@ class PaneelContractTest {
         VasteAanleverService.opdrachten.clear()
         VasteAanleverService.faalreden = null
         VasteOntdubbelingService.ontvangers.clear()
+        VasteSessieOpslag.opslag.leeg()
     }
 
     private fun haal(url: URL): HttpResponse<String> =
@@ -399,6 +405,8 @@ class PaneelContractTest {
         assertEquals(3, body.path("aangeboden").asInt())
     }
 
+    private fun adres(pad: String): URL = URI.create(basis.toString().removeSuffix("/") + pad).toURL()
+
     private fun post(pad: String, query: String = ""): HttpResponse<String> = HttpClient.newHttpClient().send(
         HttpRequest.newBuilder(URI.create(basis.toString().removeSuffix("/") + pad + query))
             .POST(HttpRequest.BodyPublishers.noBody())
@@ -696,6 +704,12 @@ class PaneelContractTest {
         /** Uit de ingerichte personaset van demo-personas; `pietersen` is de persona die de test aanwijst. */
         const val PIETERSEN_BSN = "999993653"
 
+        const val SESSIE_HASH = "9c1185a5c5e9fc54612808977ee8f548b2258d31d4c8a6b8e6d0b7d5d6a3c3f1"
+
+        val PIETERSEN_SESSIES = SessiecacheSleutels.administratie(
+            "berichtensessiecache:v4:" + SessiecacheSleutels.kenmerk(Identificatienummer.fromHeader("BSN:$PIETERSEN_BSN")) + ":sessies",
+        )!!
+
         /**
          * Hoe een bediener het nummer in de parameter kan krijgen: kaal, met witruimte of een punt
          * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel uit `ontvanger`, met een
@@ -729,6 +743,72 @@ class PaneelContractTest {
         fun randomOpDeGrenzen() = listOf(1, DemoResource.MAX_RANDOM_BERICHTEN)
     }
 
+    /**
+     * `bediening.js` zoekt de sessies op met de persona-id en leest `verloopt` en `plafond` als
+     * tijdstip (`new Date(...)`). Een getal in milliseconden of een andere sleutel leest daar als
+     * "onbekend", zonder dat een test in Kotlin rood wordt.
+     */
+    @Test
+    fun `de lopende sessies komen per persona-id over de lijn, met verloop en plafond als tijdstip`() {
+        val nu = VasteSessieOpslag.opslag.nu
+
+        VasteSessieOpslag.opslag.zet(PIETERSEN_SESSIES, SESSIE_HASH, nu + 5 * 60_000, plafond = nu + 12 * 3_600_000)
+
+        val antwoord = haalJson(adres("/api/demo/sessie/lopend"))
+        val pietersen = ObjectMapper().readTree(antwoord).path("personas").single { it.path("persona").asText() == "pietersen" }
+        val sessie = pietersen.path("sessies").single()
+
+        assertEquals(Instant.ofEpochMilli(nu + 5 * 60_000), Instant.parse(sessie.path("verloopt").asText()))
+        assertEquals(Instant.ofEpochMilli(nu + 12 * 3_600_000), Instant.parse(sessie.path("plafond").asText()))
+        assertEquals(setOf("verwijzing", "verloopt", "plafond"), sessie.fieldNames().asSequence().toSet())
+        assertFalse(antwoord.contains(SESSIE_HASH.take(12)), "het antwoord draagt de sessie-hash")
+        assertFalse(antwoord.contains(PIETERSEN_SESSIES.kenmerk.take(12)), "het antwoord draagt het kenmerk van de ontvanger")
+        assertFalse(antwoord.contains(PIETERSEN_BSN), "het antwoord draagt het identificatienummer")
+    }
+
+    @Test
+    fun `een sessie beëindigen geeft het aantal, en een tweede keer nul`() {
+        VasteSessieOpslag.opslag.zet(PIETERSEN_SESSIES, SESSIE_HASH, VasteSessieOpslag.opslag.nu + 60_000)
+
+        val verwijzing = ObjectMapper().readTree(haalJson(adres("/api/demo/sessie/lopend"))).path("personas")
+            .single { it.path("persona").asText() == "pietersen" }.path("sessies").single().path("verwijzing").asText()
+
+        listOf(1, 0).forEach { verwacht ->
+            val respons = post("/api/demo/sessie/beeindig", "?verwijzing=$verwijzing")
+
+            assertEquals(200, respons.statusCode())
+            assertEquals(verwacht, ObjectMapper().readTree(respons.body()).path("beeindigdeSessies").asInt(-1))
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["", "?verwijzing=", "?verwijzing=kort"])
+    fun `een sessie beëindigen zonder bruikbare verwijzing geeft 400 in de vorm die het paneel leest`(query: String) {
+        val respons = post("/api/demo/sessie/beeindig", query)
+
+        assertEquals(400, respons.statusCode(), "query '$query'")
+        assertTrue(ObjectMapper().readTree(respons.body()).path("fout").isTextual, respons.body())
+    }
+
+    @Test
+    fun `alle sessies van een persona beëindigen gaat op de persona-id`() {
+        VasteSessieOpslag.opslag.zet(PIETERSEN_SESSIES, SESSIE_HASH, VasteSessieOpslag.opslag.nu + 60_000)
+        VasteSessieOpslag.opslag.zet(PIETERSEN_SESSIES, "f".repeat(64), VasteSessieOpslag.opslag.nu + 120_000)
+
+        val respons = post("/api/demo/sessie/beeindig-persona", "?persona=pietersen")
+
+        assertEquals(200, respons.statusCode())
+        assertEquals(2, ObjectMapper().readTree(respons.body()).path("beeindigdeSessies").asInt(-1))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["", "?persona=bestaat-niet"])
+    fun `alle sessies beëindigen zonder bekende persona geeft een weigering en geen 500`(query: String) {
+        val respons = post("/api/demo/sessie/beeindig-persona", query)
+
+        assertEquals(if (query.isEmpty()) 400 else 404, respons.statusCode(), "query '$query'")
+    }
+
     @Test
     fun `de omgeving meldt of de sessiecache bereikbaar is`() {
         // Het paneel laat de sessie-groep hierop weg; ontbreekt het veld, dan blijft een knop
@@ -750,7 +830,8 @@ class PaneelContractTest {
  */
 @Mock
 @Singleton
-class VasteStoringService(register: ToxiproxyRegister) : StoringService(register) {
+class VasteStoringService(aankondiging: StoringAankondiging, register: ToxiproxyRegister) :
+    StoringService(aankondiging, register) {
 
     override fun status(): Map<String, Storingstoestand> = linkedMapOf(
         "magazijn-a" to Storingstoestand.NORMAAL,
@@ -840,5 +921,20 @@ class VasteOntdubbelingService(@RestClient client: AanmeldWebhookClient) :
     companion object {
 
         val ontvangers: MutableList<Ontvanger> = CopyOnWriteArrayList()
+    }
+}
+
+/**
+ * De sessie-administratie in het geheugen in plaats van Redis, dat hier niet draait. De bean
+ * delegeert naar één procesbrede instantie, zodat een test er sessies in kan zetten vóórdat CDI de
+ * bean voor het eerst maakt; de @BeforeEach leegt hem.
+ */
+@Mock
+@Singleton
+class VasteSessieOpslag : SessieOpslag by opslag {
+
+    companion object {
+
+        val opslag = GeheugenSessieOpslag()
     }
 }

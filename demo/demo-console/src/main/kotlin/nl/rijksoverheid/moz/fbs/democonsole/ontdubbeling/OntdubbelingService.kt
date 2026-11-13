@@ -12,9 +12,9 @@ data class OntdubbelingResultaat(val eventId: String, val eersteStatus: Int, val
 /**
  * Demonstreert ontdubbeling op de aanmeld-webhook: bouwt één CloudEvent en levert het tweemaal met
  * hetzelfde `id` af. De uitvraag dedupliceert op `id` (keyspace `aanmeld:event:`), dus er ontstaat
- * één bericht — mits de ontvanger een actieve sessie heeft (anders wordt de marker vrijgegeven en
- * verschijnt niets). Id en berichtId worden per aanroep vers gegenereerd zodat opeenvolgende demo's
- * niet tegen elkaars 24u-marker dedupliceren.
+ * één bericht — mits de berichtenlijst van de ontvanger al opgehaald is (anders wordt de marker
+ * vrijgegeven en verschijnt niets). Id en berichtId worden per aanroep vers gegenereerd zodat
+ * opeenvolgende demo's niet tegen elkaars 24u-marker dedupliceren.
  */
 @ApplicationScoped
 class OntdubbelingService(

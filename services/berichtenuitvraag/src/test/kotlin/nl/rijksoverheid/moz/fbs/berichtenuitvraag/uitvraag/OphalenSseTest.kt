@@ -42,9 +42,12 @@ class OphalenSseTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    private lateinit var sessie: String
+
     @BeforeEach
     fun reset() {
         sessiecache.reset()
+        sessie = sessiecache.sessieVoor()
     }
 
     private fun gereedEvent(geslaagd: Int = 1, mislukt: Int = 0, nietOpgehaald: Int = 0) = OphalenGereed(
@@ -157,6 +160,7 @@ class OphalenSseTest {
 
         val body = given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -181,6 +185,7 @@ class OphalenSseTest {
 
         val body = given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -198,6 +203,7 @@ class OphalenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -216,6 +222,7 @@ class OphalenSseTest {
 
         val body = given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -248,6 +255,7 @@ class OphalenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -277,6 +285,7 @@ class OphalenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -297,6 +306,7 @@ class OphalenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -311,6 +321,7 @@ class OphalenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -332,6 +343,7 @@ class OphalenSseTest {
         val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
             requestMethod = "GET"
             setRequestProperty("X-Ontvanger", "BSN:999990019")
+            setRequestProperty("X-Sessie", sessie)
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000

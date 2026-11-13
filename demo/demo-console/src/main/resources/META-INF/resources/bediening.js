@@ -85,6 +85,20 @@ let ververslus = 0;
  * is. */
 let heeftSimulator = null;
 
+/* Hetzelfde voor de sessiecache: een omgeving zonder netwerkregel daarheen vraagt er niet naar, en
+ * de persona-tabel krijgt dan geen sessiekolom. */
+let heeftSessiecache = null;
+
+/* De lopende sessies per persona-id uit /api/demo/sessie/lopend, of null als die niet te lezen waren.
+ * Buiten `infoStand`, en dus nooit in sessionStorage: een verwijzing wijst alleen een sessie aan
+ * zolang deze console draait. En anders dan daar valt een mislukte uitlezing niet terug op de vorige
+ * stand: een sessie die intussen verliep, stond dan nog met een knop in de tabel. */
+let sessieStand = null;
+
+/* De persona's waarvan de sessies uitgeklapt staan. De tabel tekent opnieuw bij elke poll met een
+ * ander verloop; zonder deze stand klapt een open rij dan vanzelf weer dicht. */
+const uitgeklapteSessies = new Set();
+
 /* Per blok op het Info-blad: de laatst gelezen inhoud, wanneer die binnenkwam, en of de poging daarna
  * mislukte. */
 const infoStand = {};
@@ -409,7 +423,21 @@ const SAMENVATTINGEN = {
     'simulator-legen': (body) =>
         body.berichten + ' berichten weg; ' + body.magazijnen + ' gesimuleerde magazijnen terug op hun gedrag',
 
-    sessie: (body) => body.gewisteKeys + ' sessie-key(s) gewist; de volgende uitvraag geeft 409',
+    // Beide getallen: alle sessies van een ontvanger staan in één sleutel, dus het aantal keys zegt
+    // niets over hoeveel berichtenboxen er nu een nieuwe sessie starten. "Gewist" en niet "beëindigd":
+    // dit wissen komt niet in het logboek, en dat woord hoort bij de knoppen op Info.
+    sessie: (body) =>
+        (typeof body.gewisteSessies === 'number' ? body.gewisteSessies : 'Een onbekend aantal') +
+        ' lopende sessie(s) en ' + body.gewisteKeys +
+        ' key(s) van de sessiecache gewist (inlogsessies en berichtgegevens); de berichtenbox krijgt 401 en start een nieuwe sessie',
+
+    // Nul is een tweede klik, of een sessie die intussen al verliep; `vullingSoort` maakt dat geel.
+    'sessie-beeindigen': (body) =>
+        body.beeindigdeSessies
+            ? body.beeindigdeSessies + ' sessie(s) laten verlopen; de berichtenbox krijgt bij zijn volgende verzoek 401. ' +
+              'Liep er daarna geen sessie meer, dan ruimt de uitvraag de gegevens op en legt dat vast in het logboek: ' +
+              'de veegtaak (aanleiding verlopen), of eerder de nieuwe sessie van de berichtenbox (aanleiding nieuwe-start)'
+            : 'Geen lopende sessie meer om te beëindigen; de lijst op Info wordt bijgewerkt',
 
     'foutieve-aanlevering': (body) => 'Het magazijn wees de aanlevering af met HTTP ' + body.status,
 
@@ -467,6 +495,12 @@ function vullingSoort(body) {
     // maar horen ook niet groen te zijn. Ze maken de uitkomst hooguit strenger: een vulling die
     // helemaal mislukte, blijft rood.
     const bijzaakMislukt = Boolean(body && ((body.gesimuleerd && body.gesimuleerd.overgeslagen) || body.sessiesNietGewist));
+
+    // Een beëindiging die niets beëindigde, deed niets.
+    if (body && body.beeindigdeSessies === 0) return 'let-op';
+
+    // "Cache verlopen" wiste wel, maar telde de sessies niet.
+    if (body && typeof body.gewisteKeys === 'number' && typeof body.gewisteSessies !== 'number') return 'let-op';
 
     const vulling = body && body.vulling ? body.vulling : body;
 
@@ -1014,7 +1048,7 @@ async function verversToestand(metHand) {
 
     const beurt = ++ververslus;
 
-    const [status, tempo, storingen, bereikbaarheid, veel] = await Promise.all([
+    const [status, tempo, storingen, bereikbaarheid, veel, sessies] = await Promise.all([
         lees('/api/demo/status'),
         lees('/api/demo/tempo'),
         lees('/api/demo/storing'),
@@ -1022,6 +1056,7 @@ async function verversToestand(metHand) {
         // Niet vragen naar wat deze omgeving niet heeft: dat levert elke vijf seconden een fout in
         // het log op, zonder dat er iets te tonen valt.
         heeftSimulator === false ? null : lees('/api/demo/simulator'),
+        heeftSessiecache === false ? null : lees('/api/demo/sessie/lopend'),
     ]);
 
     // Een ronde die al liep toen er geklikt werd, mag de verse toestand van ná die actie niet
@@ -1043,6 +1078,7 @@ async function verversToestand(metHand) {
     werkInfoBij('stroom', tempo);
     werkInfoBij('storingen', storingen);
     werkInfoBij('componenten', bereikbaarheid);
+    werkSessiesBij(sessies);
 
     if (!metHand) return;
 
@@ -1068,8 +1104,14 @@ async function pasOmgevingToe() {
     onbruikbareLijsten.clear();
 
     heeftSimulator = omgeving ? omgeving.simulator : true;
+    const sessiecacheWas = heeftSessiecache;
+
+    heeftSessiecache = omgeving ? omgeving.sessiecache : true;
 
     werkInfoBij('personas', omgeving);
+
+    // De sessiekolom hangt hieraan, en werkInfoBij tekent alleen opnieuw bij een ander antwoord.
+    if (heeftSessiecache !== sessiecacheWas && infoStand.personas && infoStand.personas.inhoud) tekenInfo('personas');
 
     // Het adres van de berichtenbox komt uit ditzelfde antwoord. Is de console onbereikbaar, dan
     // blijft het eigen pad over — lokaal is dat het juiste adres.
@@ -1943,7 +1985,10 @@ function modusNaam(modus) {
 }
 
 /* Een tabel en geen opsomming: de tweede kolom beantwoordt waarom *Bericht plaatsen* een persona niet
- * aanbiedt. Het teken staat nooit alleen; de tekst ernaast zegt hetzelfde. */
+ * aanbiedt. Het teken staat nooit alleen; de tekst ernaast zegt hetzelfde. De sessiekolom staat er
+ * alleen als deze omgeving bij de sessiecache kan; een persona met lopende sessies krijgt daaronder
+ * een rij met elke sessie en de knoppen om ze te beëindigen, dichtgeklapt achter het pijltje bij
+ * het aantal. Zo blijft de tabel een overzicht. */
 function tekenPersonas(doel, personas) {
     if (!Array.isArray(personas)) throw new TypeError('geen lijst maar ' + typeof personas);
 
@@ -1953,21 +1998,42 @@ function tekenPersonas(doel, personas) {
         return;
     }
 
-    const rijen = personas.map((persona) => {
+    const metSessies = heeftSessiecache !== false;
+    const titels = metSessies ? ['Persona', 'Echt magazijn', 'Sessies'] : ['Persona', 'Echt magazijn'];
+
+    const rijen = personas.flatMap((persona) => {
         const rij = document.createElement('tr');
         const naamcel = document.createElement('td');
         const magazijncel = document.createElement('td');
         const teken = document.createElement('span');
 
         naamcel.textContent = persona.label;
+        // Het laatste houvast voor de focus als de sessieknoppen van deze persona verdwijnen.
+        naamcel.dataset.personaNaam = persona.id;
+        naamcel.tabIndex = -1;
         teken.className = 'infoteken';
         teken.setAttribute('aria-hidden', 'true');
         teken.textContent = persona.metMagazijn ? '✓' : '—';
         teken.dataset.soort = persona.metMagazijn ? 'goed' : '';
-        magazijncel.append(teken, persona.metMagazijn ? 'ja' : 'nee, alleen gesimuleerde');
+        magazijncel.append(teken, persona.metMagazijn ? 'ja' : 'nee');
         rij.append(naamcel, magazijncel);
 
-        return rij;
+        if (!metSessies) return [rij];
+
+        const sessies = sessieStand ? sessieStand[persona.id] : undefined;
+        const sessiecel = document.createElement('td');
+
+        sessiecel.className = 'infotabel__aantal';
+        sessiecel.textContent = Array.isArray(sessies) ? String(sessies.length) : '?';
+        rij.append(sessiecel);
+
+        if (!Array.isArray(sessies) || !sessies.length) return [rij];
+
+        const open = uitgeklapteSessies.has(persona.id);
+
+        sessiecel.append(uitklapKnop(persona, open));
+
+        return [rij, sessieRij(persona, sessies, titels.length, open)];
     });
 
     const tabel = document.createElement('table');
@@ -1976,7 +2042,7 @@ function tekenPersonas(doel, personas) {
     const romp = document.createElement('tbody');
     const omhulsel = document.createElement('div');
 
-    ['Persona', 'Echt magazijn'].forEach((titel) => {
+    titels.forEach((titel) => {
         const cel = document.createElement('th');
 
         cel.scope = 'col';
@@ -1987,18 +2053,194 @@ function tekenPersonas(doel, personas) {
     kop.append(kopregel);
     romp.append(...rijen);
     tabel.append(kop, romp);
-    omhulsel.className = 'infotabel';
+    omhulsel.className = 'infotabel infotabel--personas';
     omhulsel.append(tabel);
 
-    doel.replaceChildren(
-        omhulsel,
-        infoAlinea("Alleen persona's met een echt magazijn staan in de keuzelijst van Bericht plaatsen."),
-    );
+    const uitleg = [infoAlinea("Alleen persona's met een echt magazijn staan in de keuzelijst van Bericht plaatsen.")];
+
+    if (metSessies && !sessieStand) uitleg.push(infoAlinea('De lopende sessies zijn (nog) niet gelezen.'));
+
+    const vorige = sessieKnoppenVoor(doel);
+
+    doel.replaceChildren(omhulsel, ...uitleg);
+    herstelSessieKnoppen(doel, vorige);
 }
 
-/* Per persona alleen het label en of er een echt magazijn voor is. Nooit de persona zelf: die draagt
- * ook zijn BSN of KVK-nummer, en dit belandt in sessionStorage. De id koppelt de twee lijsten en gaat
- * niet mee. */
+/* Wat een hertekening van de tabel niet mag wissen: welke sessieknop de focus had en welke merktekens
+ * er nog staan. Een knop is te herkennen aan zijn adres, want een verwijzing blijft gelijk zolang haar
+ * sessie loopt. `bezig` gaat niet mee: dat merkteken ruimt `voerUit` op, op de knop die het zette. */
+function sessieKnoppenVoor(doel) {
+    const knoppen = Array.from(doel.querySelectorAll('button[data-pad]'));
+    const focus = knoppen.find((knop) => knop === document.activeElement);
+    const actief = document.activeElement;
+
+    return {
+        focus: focus ? { pad: focus.dataset.pad, persona: focus.dataset.persona } : null,
+        uitklap: actief && doel.contains(actief) && actief.dataset.uitklap ? actief.dataset.uitklap : null,
+        uitkomsten: knoppen
+            .filter((knop) => knop.dataset.uitkomst && knop.dataset.uitkomst !== 'bezig')
+            .map((knop) => ({ pad: knop.dataset.pad, uitkomst: knop.dataset.uitkomst })),
+    };
+}
+
+/* Is de sessie van de knop met de focus weg, dan gaat de focus naar de knop voor alle sessies van die
+ * persona, en is die er ook niet meer, naar de naam van de persona; anders valt hij op <body> en begint
+ * toetsenbordnavigatie weer bovenaan. Een merkteken gaat mee zolang zijn knop er nog is. Verdween de
+ * knop, dan zegt de melding bovenaan wat er gebeurde. */
+function herstelSessieKnoppen(doel, vorige) {
+    const knoppen = Array.from(doel.querySelectorAll('button[data-pad]'));
+    const bijPad = (pad) => knoppen.find((knop) => knop.dataset.pad === pad);
+
+    vorige.uitkomsten.forEach(({ pad, uitkomst }) => {
+        const knop = bijPad(pad);
+
+        if (knop) zetUitkomst(knop, uitkomst);
+    });
+
+    // Alleen als de focus met de oude knop verdween: wie intussen verder ging, houdt zijn plek.
+    if (document.activeElement !== document.body) return;
+
+    if (vorige.uitklap) {
+        const pijl = Array.from(doel.querySelectorAll('[data-uitklap]')).find((knop) => knop.dataset.uitklap === vorige.uitklap);
+
+        if (pijl) pijl.focus();
+
+        return;
+    }
+
+    if (!vorige.focus) return;
+
+    const persona = vorige.focus.persona;
+    const doelwit = bijPad(vorige.focus.pad) ||
+        knoppen.find((knop) => knop.dataset.persona === persona && knop.dataset.alleSessies === 'ja') ||
+        Array.from(doel.querySelectorAll('[data-persona-naam]')).find((cel) => cel.dataset.personaNaam === persona);
+
+    if (doelwit) doelwit.focus();
+}
+
+/* Het pijltje achter het aantal sessies. Klapt de rij eronder open of dicht zonder de tabel opnieuw
+ * te tekenen; `aria-expanded` en `aria-controls` vertellen een schermlezer wat het doet. */
+function uitklapKnop(persona, open) {
+    const knop = document.createElement('button');
+    const pijl = document.createElement('span');
+
+    knop.type = 'button';
+    knop.className = 'sessie-uitklap';
+    knop.dataset.uitklap = persona.id;
+    knop.dataset.label = persona.label;
+    knop.setAttribute('aria-controls', sessieRijId(persona));
+    pijl.setAttribute('aria-hidden', 'true');
+    knop.append(pijl);
+    zetUitklapStand(knop, persona, open);
+
+    return knop;
+}
+
+function zetUitklapStand(knop, persona, open) {
+    knop.setAttribute('aria-expanded', open ? 'true' : 'false');
+    knop.setAttribute('aria-label', (open ? 'Sessies van ' : 'Toon de sessies van ') + persona.label + (open ? ' verbergen' : ''));
+    knop.firstChild.textContent = open ? '▴' : '▾';
+}
+
+function klapSessies(knop) {
+    const id = knop.dataset.uitklap;
+    const open = !uitgeklapteSessies.has(id);
+    const rij = document.getElementById(knop.getAttribute('aria-controls'));
+
+    if (open) {
+        uitgeklapteSessies.add(id);
+    } else {
+        uitgeklapteSessies.delete(id);
+    }
+
+    if (rij) rij.hidden = !open;
+
+    zetUitklapStand(knop, { id: id, label: knop.dataset.label }, open);
+}
+
+function sessieRijId(persona) {
+    return 'sessies-' + persona.id;
+}
+
+/* Per sessie wanneer ze verloopt en haar plafond; nooit een id of hash, alleen de verwijzing die de
+ * console uitdeelt, en die staat alleen in het adres van de knop. Dichtgeklapt tot het pijltje bij
+ * het aantal hem opent. */
+function sessieRij(persona, sessies, kolommen, open) {
+    const rij = document.createElement('tr');
+    const cel = document.createElement('td');
+    const lijst = document.createElement('ul');
+    const uitleg = document.createElement('p');
+
+    rij.className = 'infotabel__sessies';
+    rij.id = sessieRijId(persona);
+    rij.hidden = !open;
+    cel.colSpan = kolommen;
+    lijst.className = 'sessielijst';
+    uitleg.className = 'sessielijst__uitleg';
+    uitleg.textContent =
+        'Beëindigen laat een sessie verlopen: de berichtenbox krijgt bij zijn volgende verzoek 401 en start een nieuwe sessie. ' +
+        'Was het de laatste sessie, dan ruimt de uitvraag de gegevens op en legt dat vast in het logboek.';
+
+    sessies.forEach((sessie) => {
+        const item = document.createElement('li');
+        const tekst = document.createElement('span');
+        const moment = 'verloopt ' + klokTijd(sessie.verloopt) + ', uiterlijk ' + klokTijd(sessie.plafond);
+
+        tekst.textContent = moment;
+        item.append(
+            tekst,
+            sessieKnop('Beëindigen', '/api/demo/sessie/beeindig?verwijzing=' + encodeURIComponent(sessie.verwijzing),
+                'Beëindigen: de sessie van ' + persona.label + ' die ' + moment, persona.id, false),
+        );
+        lijst.append(item);
+    });
+
+    cel.append(
+        lijst,
+        uitleg,
+        sessieKnop('Alle sessies van deze persona beëindigen', '/api/demo/sessie/beeindig-persona?persona=' + encodeURIComponent(persona.id),
+            'Alle sessies van deze persona beëindigen: ' + persona.label, persona.id, true),
+    );
+    rij.append(cel);
+
+    return rij;
+}
+
+/* Een actieknop zoals die in de opmaak: de klik loopt via `voerUit`, en het merkteken hangt het
+ * script hier zelf aan omdat deze knop pas na het laden ontstaat. Bij een hertekening gaat het mee
+ * naar de nieuwe knop (zie `herstelSessieKnoppen`). De toelichting begint met de zichtbare tekst,
+ * zodat wie de knop bij die naam aanspreekt (spraakbesturing) hem vindt. */
+function sessieKnop(tekst, pad, toelichting, persona, alleSessies) {
+    const knop = document.createElement('button');
+    const merk = document.createElement('span');
+
+    knop.type = 'button';
+    knop.className = 'knop knop--klein';
+    knop.dataset.methode = 'POST';
+    knop.dataset.pad = pad;
+    knop.dataset.samenvatting = 'sessie-beeindigen';
+    knop.dataset.persona = persona;
+    knop.dataset.alleSessies = alleSessies ? 'ja' : 'nee';
+    knop.setAttribute('aria-label', toelichting);
+    knop.textContent = tekst;
+    merk.className = 'knop__uitkomst';
+    knop.append(merk);
+
+    return knop;
+}
+
+function klokTijd(moment) {
+    const tijd = new Date(moment);
+
+    if (Number.isNaN(tijd.getTime())) return 'onbekend';
+
+    return 'om ' + tijd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/* Per persona alleen de id, het label en of er een echt magazijn voor is. Nooit de persona zelf: die
+ * draagt ook zijn BSN of KVK-nummer, en dit belandt in sessionStorage. De id is een naam en nooit een
+ * nummer (de personadienst weigert er een); hij koppelt de persona's aan de berichtpersona's en aan
+ * de lopende sessies. */
 function personaInfo(omgeving) {
     if (!omgeving || typeof omgeving !== 'object' || !Array.isArray(omgeving.personas)) return null;
 
@@ -2007,7 +2249,31 @@ function personaInfo(omgeving) {
 
     return omgeving.personas
         .filter((persona) => persona && persona.label)
-        .map((persona) => ({ label: persona.label, metMagazijn: metMagazijn.has(persona.id) }));
+        .map((persona) => ({ id: persona.id, label: persona.label, metMagazijn: metMagazijn.has(persona.id) }));
+}
+
+function werkSessiesBij(antwoord) {
+    const nieuw = sessiesPerPersona(antwoord);
+
+    // Om dezelfde reden als bij werkInfoBij: een ongewijzigde tabel elke vijf seconden opnieuw tekenen
+    // laat een schermlezer telkens bovenaan beginnen, en haalt de focus van een knop.
+    if (JSON.stringify(nieuw) === JSON.stringify(sessieStand)) return;
+
+    sessieStand = nieuw;
+
+    if (infoStand.personas && infoStand.personas.inhoud) tekenInfo('personas');
+}
+
+function sessiesPerPersona(antwoord) {
+    if (!antwoord || typeof antwoord !== 'object' || !Array.isArray(antwoord.personas)) return null;
+
+    const perPersona = {};
+
+    antwoord.personas.forEach((rij) => {
+        if (rij && typeof rij.persona === 'string' && Array.isArray(rij.sessies)) perPersona[rij.persona] = rij.sessies;
+    });
+
+    return perPersona;
 }
 
 // ---------------------------------------------------------------- bedrading
@@ -2025,6 +2291,14 @@ document.addEventListener('click', (gebeurtenis) => {
 
     if (tab) {
         kiesTab(tab);
+
+        return;
+    }
+
+    const uitklap = gebeurtenis.target.closest('button[data-uitklap]');
+
+    if (uitklap) {
+        klapSessies(uitklap);
 
         return;
     }

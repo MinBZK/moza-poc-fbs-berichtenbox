@@ -669,6 +669,31 @@ servicenaam (`$DEPLOYMENT_NAME-profiel`) en geen volledige cross-namespace-naam:
 dezelfde namespace als zijn upstream. De admin-URL's zijn andersom — die lost de console zelf op, en
 dus staan daar de volledige namen.
 
+### De Redis-knop aankondigen
+
+De Redis-knop maakt de uitvraag bewust onbereikbaar (zie "Readiness op de uitvraag zakt mee met de
+berichtenopslag" in hoofdstuk 9), en het statusdashboard meldt dat in Mattermost. De console
+kondigt die melding vooraf aan in hetzelfde kanaal; waarom en wat er gecontroleerd wordt staat in
+`docs/operations/statusdashboard.md`. Hij heeft daarvoor de webhook-url van dat kanaal nodig, de
+url die Gatus ook gebruikt.
+
+Zet hem als override op `test` en niet componentbreed: een override reist niet mee naar een
+preview (zie "Env per component en per deployment" in `docs/operations/zad-gitops.md`), en de
+storing van een preview meldt niemand.
+
+```bash
+zadctl -p mpfm-w3h env add -c democonsole --deployment test 'MATTERMOST_WEBHOOK_URL=<webhook-url>'
+```
+
+De url is een wachtwoord: wie hem heeft, kan onder elke naam in het kanaal posten. Hij hoort niet in
+een commit, ticket of chat. De console vergelijkt daarnaast zijn `$DEPLOYMENT_NAME` met `test`
+(`AANKONDIGING_BEWAAKTE_DEPLOYMENT`), zodat ook een componentbreed gezette url op een preview
+niets plaatst. Wordt de webhook ooit vervangen, dan moet de nieuwe url zowel hier als bij Gatus.
+
+Controleren: druk de Redis-knop op `uit` en daarna "Alles normaal (reset)". In het kanaal staan dan
+twee berichten van **FBS Demo**. Komt er niets, kijk dan in de log van `democonsole` naar
+`Storingsaankondiging niet geplaatst`; die regel noemt de statuscode of het soort fout, nooit de url.
+
 ## 7. De berichtenbox naast het paneel
 
 Het paneel toont de berichtenbox van de proeftuin in een frame. Lokaal zet de demo-proxy beide
@@ -852,7 +877,7 @@ wanneer hij netjes staat te wachten — de controle maakt dan de storing die ze 
 | `magazijnsimulator` | `mpfm-w3h` | `http` | 8092 | `/q/health/live` · `/q/health/ready` |
 | `toxiproxy-aanmeld`, `-redis` | `mpfb-8wh` | `http` | 8474 | `/version` · `/version` |
 | `toxiproxy-profiel`, `-notificatie` | `mpfpsm-lcl` | `http` | 8474 | `/version` · `/version` |
-| `profiel`, `notificatie` | `mpfpsm-lcl` | `http` | 8080 | `/__admin/health` · `/__admin/health` |
+| `profiel`, `notificatie` | `mpfpsm-lcl` | `tcp` | 8080 | — |
 | `redis` | `mpfb-8wh` | `tcp` | 6379 | — |
 | `proeftuin` | `mpfm-w3h` | `tcp` | 8080 | — |
 | `logius-fscpg`, `magazijna-fscpg` | `mpfb-8wh` / `mpfm-w3h` | `tcp` | 5432 | — |
@@ -872,10 +897,15 @@ de knop dichtzet; het waarom staat daar. De `--set`-regels in hoofdstuk 6 horen 
 die componenten en herhalen dezelfde waarden — wijzigt de keuze, werk dan beide plekken bij, of laat
 het script hem overschrijven en pas hoofdstuk 6 aan zodra het component herschapen wordt.
 
-**De WireMock-stubs** krijgen `/__admin/health`. Dat pad hoort bij de admin-API en wordt vóór de
-stub-mappings afgehandeld, dus geen mapping kan het overnemen; op `wiremock/wiremock:3.13.2` — het
-image uit `wiremock/externe-stubs/Dockerfile` — antwoordt het 200 met `{"status":"healthy"}`. Er is
-geen apart liveness-signaal: een WireMock zonder werkende admin-API is stuk.
+**De WireMock-stubs** krijgen een TCP-connect op 8080. Hun admin-API staat dicht: elk image zet
+bij het starten een wegwerpwachtwoord op `/__admin` (`wiremock/externe-stubs/admin-dicht.sh`), want
+via de publieke route kon iedereen de mappings wijzigen, de stub stilleggen en het request-journaal
+lezen. De stub-mapping `GET /gezondheid` is wat het statusdashboard controleert, maar als probe is
+hij niet bruikbaar: de probe-instelling geldt voor elke deployment van het component, ook voor de
+preview van een branch die die mapping nog niet kent. Een poort antwoordt in elk image.
+
+Zet de probe om vóór een image met dichte admin uitrolt: een httpGet op `/__admin/health` krijgt
+daar 401, en omdat liveness hetzelfde pad had, herstart de pod dan in een lus.
 
 **Redis en de twee PostgreSQL'en** spreken geen HTTP. Een TCP-connect is daar een eerlijke probe:
 beide protocollen beginnen met een connect die het serverproces zelf accepteert, en geen van beide
@@ -932,6 +962,9 @@ de timing en het ingress-gedrag zijn afgeleid; stap 10(b) van `verify-zad.md` me
 Dat is een bewuste keuze: zonder berichtenopslag kán de uitvraag zijn werk niet doen, en 503 is wat
 er in productie zou gebeuren. De pod herstart niet — liveness staat op `/q/health/live`.
 
+Het statusdashboard ziet hetzelfde en meldt het als storing; de console kondigt die melding vooraf
+aan ("De Redis-knop aankondigen" in hoofdstuk 6).
+
 Wil de demo die degradatie tóch tonen in plaats van een 503, dan is het alternatief een eigen
 health-group in de uitvraag die de bewust-breekbare afhankelijkheden buiten readiness houdt. Dat is
 applicatiewerk, geen ZAD-instelling.
@@ -951,7 +984,7 @@ De andere richting is bij de eerste apply vastgesteld: de dienst slaat óók aan
 er al stond. Poorten en aliassen gelden alleen bij component-creatie, maar de dienstconfiguratie
 gaat naar een eigen laag bij OM (`PUT /v2/projects/{p}/services/health-check/config/component/{c}`).
 `profiel` ging van een `tcpSocket`-probe naar `httpGet /__admin/health` zonder dat er iets
-herschapen werd.
+herschapen werd (en is later teruggezet op `tcpSocket`, zie hierboven).
 
 ## 10. De beheer-UI's van de FSC-peers achter de muur
 

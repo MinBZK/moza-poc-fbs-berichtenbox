@@ -19,7 +19,10 @@ enum class Storingstoestand(@get:JsonValue val waarde: String) {
 
 /** Orkestreert de storingsknoppen naar Toxiproxy-admin-calls. */
 @ApplicationScoped
-class StoringService(private val register: ToxiproxyRegister) {
+class StoringService(
+    private val aankondiging: StoringAankondiging,
+    private val register: ToxiproxyRegister,
+) {
 
     private val log = Logger.getLogger(StoringService::class.java.name)
 
@@ -47,6 +50,8 @@ class StoringService(private val register: ToxiproxyRegister) {
      * "traag" boven een verbinding die dicht staat, en sprak het zichzelf tegen met zijn eigen chip.
      */
     fun traag(proxy: String, latencyMs: Int): Storingstoestand {
+        val voor = vooraf(proxy)
+
         controleer(
             register.client(proxy).voegToxicToe(proxy, ToxicVerzoek("latency", mapOf("latency" to latencyMs))),
             "traag zetten van $proxy",
@@ -56,26 +61,52 @@ class StoringService(private val register: ToxiproxyRegister) {
             bereikt = Response.Status.CONFLICT.statusCode,
         )
 
-        return toestandVan(proxy)
+        return toestandVan(proxy).also { kondigAan(proxy, voor, it) }
     }
 
     /** Zet de proxy uit en geeft terug wat er daarna staat; zie [traag] voor het waarom. */
     fun uit(proxy: String): Storingstoestand {
+        val voor = vooraf(proxy)
+
         controleer(register.client(proxy).zetProxy(proxy, ProxyPatch(enabled = false)), "uitschakelen van $proxy")
 
-        return toestandVan(proxy)
+        return toestandVan(proxy).also { kondigAan(proxy, voor, it) }
     }
 
     private fun toestandVan(proxy: String): Storingstoestand = toestand(register.client(proxy).proxies()[proxy])
 
-    // Herstel: elke proxy op elke instantie weer aan, alle toxics weg. Elke instantie krijgt zijn
-    // eigen poging, los van de andere: op een gedeelde omgeving met meerdere instanties mag één
-    // kapotte instantie de storingen op de overige, gezonde instanties niet laten staan. Fouten
-    // worden verzameld en pas aan het eind gemeld, geïndexeerd naar instantie (zodat twee identieke
-    // meldingen te onderscheiden blijven) en met een terugval op de exceptienaam wanneer de fout
-    // zelf geen message heeft — anders valt zo'n fout stil uit de lijst en meldt reset() ten
-    // onrechte dat alles gelukt is.
+    // Alleen uitlezen als er iets aan te kondigen valt: anders kost elke knop een extra aanroep
+    // naar Toxiproxy voor niets. Een mislukte uitlezing mag de knop zelf niet tegenhouden.
+    private fun vooraf(proxy: String): Storingstoestand? =
+        if (aankondiging.bewaakt(proxy)) leesVeilig(proxy) else null
+
+    private fun leesVeilig(proxy: String): Storingstoestand =
+        runCatching { toestandVan(proxy) }.getOrDefault(Storingstoestand.ONBEKEND)
+
+    private fun kondigAan(proxy: String, voor: Storingstoestand?, na: Storingstoestand) {
+        if (voor != null) aankondiging.overgang(proxy, voor, na)
+    }
+
+    /** Elke proxy op elke instantie weer aan, alle toxics weg; zie [herstelAlles]. */
     fun reset() {
+        val voor = register.namen().filter { aankondiging.bewaakt(it) }.associateWith { leesVeilig(it) }
+
+        // Ook na een gedeeltelijk mislukt herstel aankondigen wat er wél terug is: de bewaking
+        // meldt dat herstel hoe dan ook.
+        try {
+            herstelAlles()
+        } finally {
+            voor.forEach { (proxy, toestand) -> aankondiging.overgang(proxy, toestand, leesVeilig(proxy)) }
+        }
+    }
+
+    // Elke instantie krijgt zijn eigen poging, los van de andere: op een gedeelde omgeving met
+    // meerdere instanties mag één kapotte instantie de storingen op de overige, gezonde instanties
+    // niet laten staan. Fouten worden verzameld en pas aan het eind gemeld, geïndexeerd naar
+    // instantie (zodat twee identieke meldingen te onderscheiden blijven) en met een terugval op de
+    // exceptienaam wanneer de fout zelf geen message heeft — anders valt zo'n fout stil uit de lijst
+    // en meldt reset() ten onrechte dat alles gelukt is.
+    private fun herstelAlles() {
         val perInstantie = register.namen().groupBy { register.client(it) }
 
         check(perInstantie.isNotEmpty()) {

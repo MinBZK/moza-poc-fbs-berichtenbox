@@ -10,8 +10,7 @@
 #
 # Er draait een echte HTTP-server en geen curl-stub: wat curl met een 3xx, een 401 of een eigen
 # .curlrc doet, is precies wat hier getoetst wordt, en een stub zou dat gedrag aannemen in plaats
-# van toetsen. Eén nep-server speelt uitvraag én paneel, met de sessies per ondernemer in het
-# geheugen; de modus van het paneel staat in een bestand dat hij per aanroep leest, zodat niet elk
+# van toetsen. Eén nep-server speelt uitvraag én paneel, met de inlogsessies in het geheugen; de modus van het paneel staat in een bestand dat hij per aanroep leest, zodat niet elk
 # geval een eigen server hoeft te starten.
 set -euo pipefail
 
@@ -49,6 +48,7 @@ import http.server
 import json
 import sys
 import time
+import uuid
 
 modusbestand, logbestand, poortbestand, cookiebestand = sys.argv[1:5]
 
@@ -95,7 +95,7 @@ def probleem(status, code):
 
 
 # De antwoorden van de uitvraag in de vorm van haar spec (`Problem`, `BerichtenLijst`).
-NOG_NIET_OPGEHAALD = probleem(409, "nog-niet-opgehaald")
+SESSIE_ONGELDIG = probleem(401, "sessie-ongeldig")
 UITVRAAG_FOUTEN = {
     "uitvraag-bezig": probleem(409, "ophalen-bezig"),
     "uitvraag-mislukt": probleem(503, "ophalen-mislukt"),
@@ -136,8 +136,8 @@ PANEEL = {
     "groot": (200, "application/json", b'{"gewisteKeys":2,"opvulling":"' + b"x" * (2 * 1024 * 1024) + b'"}'),
 }
 
-# Ontvangers met een sessie in "de" Redis die de uitvraag leest.
-sessies = set()
+# De inlogsessies in "de" Redis die de uitvraag leest: sessie-id naar ontvanger.
+sessies = {}
 
 
 class Nep(http.server.BaseHTTPRequestHandler):
@@ -171,6 +171,9 @@ class Nep(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def lopend(self, ontvanger):
+        return sessies.get(self.headers.get("X-Sessie", "")) == ontvanger
+
     def do_GET(self):
         ontvanger = self.headers.get("X-Ontvanger", "")
         pad, _, query = self.path.partition("?")
@@ -181,28 +184,45 @@ class Nep(http.server.BaseHTTPRequestHandler):
         elif pad == "/api/v1/berichten/_ophalen":
             self.spoor("ophalen " + ontvanger)
 
-            if modus == "ophalen-409":
+            if not self.lopend(ontvanger):
+                self.antwoord(*SESSIE_ONGELDIG)
+            elif modus == "ophalen-409":
                 self.antwoord(*UITVRAAG_FOUTEN["uitvraag-bezig"])
-                return
-
-            sessies.add(ontvanger)
-            self.antwoord(200, "text/event-stream", STREAM_GEEN_GESLAAGD if modus == "geen-geslaagd" else STREAM_GESLAAGD)
+            else:
+                self.antwoord(200, "text/event-stream", STREAM_GEEN_GESLAAGD if modus == "geen-geslaagd" else STREAM_GESLAAGD)
         elif pad == "/api/v1/berichten":
             self.spoor(f"berichten {ontvanger} {query} {self.headers.get('Accept', '')}")
 
             if modus in UITVRAAG_FOUTEN:
                 self.antwoord(*UITVRAAG_FOUTEN[modus])
-            elif ontvanger in sessies:
+            elif self.lopend(ontvanger):
                 self.antwoord(*LIJST)
             else:
-                self.antwoord(*NOG_NIET_OPGEHAALD)
+                self.antwoord(*SESSIE_ONGELDIG)
         else:
             self.antwoord(404, None, b"")
+
+    def do_DELETE(self):
+        if self.path != "/api/v1/sessies/huidige":
+            self.antwoord(404, None, b"")
+            return
+
+        self.spoor("uitlog " + self.headers.get("X-Ontvanger", ""))
+        sessies.pop(self.headers.get("X-Sessie", ""), None)
+        self.antwoord(204, None, b"")
 
     def do_POST(self):
         if self.path == "/nep/reset":
             sessies.clear()
             self.antwoord(204, None, b"")
+            return
+
+        if self.path == "/api/v1/sessies":
+            ontvanger = self.headers.get("X-Ontvanger", "")
+            self.spoor("sessie " + ontvanger)
+            sessie = uuid.uuid4().hex
+            sessies[sessie] = ontvanger
+            self.antwoord(201, "application/json", json.dumps({"sessieId": sessie}).encode())
             return
 
         if self.path != "/api/demo/sessie/verlopen":
@@ -348,10 +368,12 @@ gestopt() {
 # --- geslaagd: de lokale demo-stack, zonder muur ---------------------------------------------------
 # Vier ondernemers, twee rondes: elke ronde precies één keer legen vóór het ophalen, en de toets bij
 # de uitvraag één keer, vóór de tweede ronde — elke toets is een regel in het logboek van de uitvraag.
-verwacht="verlopen ophalen verlopen berichten ophalen"
+# Elke ronde start een eigen sessie. De eerste laat haar sessie lopen, zodat de toets kan zien dat het
+# legen haar wiste; de andere loggen na de ronde uit.
+verwacht="verlopen sessie ophalen verlopen berichten sessie ophalen uitlog"
 
 for _ in $(seq 3 8); do
-    verwacht="$verwacht verlopen ophalen"
+    verwacht="$verwacht verlopen sessie ophalen uitlog"
 done
 
 for modus in bevestigd eerst-nul; do
@@ -476,7 +498,7 @@ done
 # eerste ronde, op de ondernemer van die ronde: daar stond zeker een sessie. Elke soort antwoord van de
 # uitvraag krijgt zijn eigen uitleg.
 GEVALLEN_UITVRAAG=(
-    "andere-redis|ziet na het legen nog een sessie voor kleine-eenmanszaak, dus het paneel leegde een andere Redis."
+    "andere-redis|kent na het legen nog de sessie van kleine-eenmanszaak, dus het paneel leegde een andere Redis."
     "uitvraag-mislukt|kent na het legen nog een mislukte ronde voor kleine-eenmanszaak, dus het paneel leegde een andere Redis."
     "uitvraag-bezig|haalt na het legen op voor kleine-eenmanszaak: het paneel leegde een andere Redis, of er haalt tegelijk iemand anders op voor deze persona."
     "uitvraag-geen-opslag|bereikt haar tijdelijke berichtenopslag niet."

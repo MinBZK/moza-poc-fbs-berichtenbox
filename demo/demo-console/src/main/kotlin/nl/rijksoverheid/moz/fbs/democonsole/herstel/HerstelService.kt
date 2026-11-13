@@ -20,7 +20,7 @@ data class HerstelResultaat(
     val geleegd: Map<String, Int>,
     val vulling: AanleverResultaat,
     val gesimuleerd: GesimuleerdHerstel,
-    /** Hoeveel sessie-keys er gewist zijn; `null` als dat niet lukte. */
+    /** Hoeveel keys van de sessiecache er gewist zijn; `null` als dat niet lukte. */
     val sessiesGewist: Int?,
     /** Hoeveel berichten er weer in de gesimuleerde magazijnen zijn klaargezet. */
     val gesimuleerdGevuld: Int = 0,

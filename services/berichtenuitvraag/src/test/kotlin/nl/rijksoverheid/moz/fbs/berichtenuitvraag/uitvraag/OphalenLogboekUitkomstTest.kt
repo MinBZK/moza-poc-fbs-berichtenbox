@@ -41,11 +41,17 @@ class OphalenLogboekUitkomstTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    private val sessies = mutableMapOf<String, String>()
+
+    /** Een geldige `X-Sessie` per ontvanger: elk verzoek onder `/api/v1/berichten` eist er een. */
+    private fun sessie(ontvanger: String): String = sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) }
+
     private val processingHandler = mockk<ProcessingHandler>(relaxed = true)
 
     @BeforeEach
     fun installeer() {
         sessiecache.reset()
+        sessies.clear()
         every { processingHandler.recordFailedOutcome(any<Logregel>(), any()) } returns emptyList()
         QuarkusMock.installMockForType(processingHandler, ProcessingHandler::class.java)
     }
@@ -152,6 +158,7 @@ class OphalenLogboekUitkomstTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie("BSN:999990019"))
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -164,6 +171,7 @@ class OphalenLogboekUitkomstTest {
     private fun haalOp() {
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie("BSN:999990019"))
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
