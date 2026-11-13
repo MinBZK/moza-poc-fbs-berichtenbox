@@ -914,6 +914,83 @@ class UitvraagKetenE2eTest {
         }
     }
 
+    @Test
+    fun `lezen, verplaatsen en verwijderen in de ene sessie komt aan op _volgen van een andere sessie`() {
+        // Twee tabbladen van dezelfde ondernemer, elk met een eigen inlogsessie.
+        val bsn = "999990019"
+        val berichtId = "44444444-4444-4444-4444-444444444444"
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, berichtId, bsn, "magazijn-a", OIN_A)
+        magazijnA.stubFor(wmPatch(urlPathMatching("/api/v1/berichten/$berichtId")).willReturn(aResponse().withStatus(204)))
+        magazijnA.stubFor(wmDelete(urlPathMatching("/api/v1/berichten/$berichtId")).willReturn(aResponse().withStatus(204)))
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+        val tweedeTabblad = given().contentType("application/json").header("X-Ontvanger", "BSN:$bsn")
+            .`when`().post("/api/v1/sessies")
+            .then()
+            .statusCode(201)
+            .extract().path<String>("sessieId")
+
+        val regels = LinkedBlockingQueue<String>()
+        val connection = (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection)
+            .apply {
+                setRequestProperty("X-Ontvanger", "BSN:$bsn")
+                setRequestProperty("X-Sessie", tweedeTabblad)
+                setRequestProperty("Accept", "text/event-stream")
+                readTimeout = 10_000
+            }
+
+        try {
+            assertEquals(200, connection.responseCode)
+
+            val lezer = Thread { runCatching { connection.inputStream.bufferedReader().lineSequence().forEach { regels += it } } }
+                .apply { isDaemon = true; start() }
+
+            wachtOpRegel(regels, "\"event\":\"volgen-gestart\"")
+
+            given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", sessie(bsn))
+                .header("Content-Type", "application/merge-patch+json")
+                .body("""{"status":"gelezen","map":"werk"}""")
+                .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+                .then()
+                .statusCode(200)
+
+            assertEquals(
+                """data:{"event":"bericht-gewijzigd","magazijnId":"$OIN_A","berichtId":"$berichtId","status":"gelezen","map":"werk"}""",
+                wachtOpRegel(regels, "\"event\":\"bericht-gewijzigd\"").replace("data: ", "data:"),
+            )
+
+            given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", sessie(bsn))
+                .`when`().delete("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+                .then()
+                .statusCode(204)
+
+            assertEquals(
+                """data:{"event":"bericht-verwijderd","magazijnId":"$OIN_A","berichtId":"$berichtId"}""",
+                wachtOpRegel(regels, "\"event\":\"bericht-verwijderd\"").replace("data: ", "data:"),
+            )
+
+            connection.disconnect()
+            lezer.join(2_000)
+        } finally {
+            connection.disconnect()
+            given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", tweedeTabblad)
+                .`when`().delete("/api/v1/sessies/huidige")
+                .then()
+                .statusCode(204)
+        }
+    }
+
     private fun wachtOpRegel(regels: LinkedBlockingQueue<String>, bevat: String): String {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
 

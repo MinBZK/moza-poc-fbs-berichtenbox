@@ -1,13 +1,16 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie
 
+import io.quarkus.redis.datasource.ReactiveRedisDataSource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.response.Response
+import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
 
@@ -21,6 +24,9 @@ import java.util.concurrent.atomic.AtomicLong
 @QuarkusTest
 @TestProfile(KorteSessieKetenProfile::class)
 class SessieKetenTest {
+
+    @Inject
+    lateinit var redis: ReactiveRedisDataSource
 
     // Uniek per test: de Redis-container wordt gedeeld tussen de tests van dit profiel, en de grens per ontvanger telt mee.
     private val ontvanger = "OIN:" + teller.incrementAndGet().toString().padStart(20, '0').takeLast(20)
@@ -51,7 +57,7 @@ class SessieKetenTest {
 
     @Test
     fun `een plafond van het portaal laat de sessie dan eindigen, en verlengen gaat er niet voorbij`() {
-        val plafond = Instant.now().plusMillis(2_500)
+        val plafond = redisNu().plusMillis(2_500)
         val sessie = start("""{"uiterlijkGeldigTot":"$plafond"}""")
 
         Thread.sleep(700)
@@ -90,6 +96,14 @@ class SessieKetenTest {
 
     private fun verleng(sessie: String): Response =
         given().header("X-Ontvanger", ontvanger).header("X-Sessie", sessie).post("/api/v1/sessies/huidige/_verlengen")
+
+    // Het plafond moet in de klok van Redis liggen, waar de sessie mee rekent: een container in een
+    // VM (Docker Desktop, podman machine) loopt niet gelijk met de JVM.
+    private fun redisNu(): Instant {
+        val tijd = redis.execute("TIME").await().atMost(Duration.ofSeconds(5))
+
+        return Instant.ofEpochSecond(tijd.get(0).toLong(), tijd.get(1).toLong() * 1000)
+    }
 
     private companion object {
         val teller = AtomicLong(System.nanoTime())

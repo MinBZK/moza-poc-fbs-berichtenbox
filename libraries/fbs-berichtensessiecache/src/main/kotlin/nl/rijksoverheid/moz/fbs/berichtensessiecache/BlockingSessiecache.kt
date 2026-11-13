@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Berichtwijziging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtensessiecacheService
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.CacheContentieException
@@ -137,21 +138,30 @@ internal class BlockingSessiecache(
 
         if (!ingeschreven(magazijnId)) return null
 
-        return awaitOrServiceUnavailable {
-            service.updateBerichtMetadata(BerichtSleutel(magazijnId, berichtId), ontvanger, status?.wire, map)
-        }
+        val sleutel = BerichtSleutel(magazijnId, berichtId)
+        val bijgewerkt = awaitOrServiceUnavailable { service.updateBerichtMetadata(sleutel, ontvanger, status?.wire, map) }
+
+        if (bijgewerkt != null) meldBijGevolgdeSessies(ontvanger, sleutel, Berichtwijziging.GEWIJZIGD)
+
+        return bijgewerkt
     }
 
     override fun verwijder(ontvanger: Identificatienummer, magazijnId: String, berichtId: UUID) {
         if (!ingeschreven(magazijnId)) return
 
+        val sleutel = BerichtSleutel(magazijnId, berichtId)
+
         try {
-            awaitOrServiceUnavailable { service.verwijderBericht(BerichtSleutel(magazijnId, berichtId), ontvanger) }
+            awaitOrServiceUnavailable { service.verwijderBericht(sleutel, ontvanger) }
         } catch (e: SessiecacheException) {
             // Een timeout kan de keten afbreken ná de tombstone en vóór de opruimcontrole erna.
             markeerVoorVeeg(ontvanger, "Verwijderen niet bevestigd")
             throw e
         }
+
+        // Ook als het bericht al weg was: een herhaalde melding verandert niets aan wat de
+        // berichtenboxen tonen.
+        meldBijGevolgdeSessies(ontvanger, sleutel, Berichtwijziging.VERWIJDERD)
     }
 
     override fun ophalen(ontvanger: Identificatienummer): Multi<MagazijnEvent> = service.haalBerichtenOp(ontvanger)
@@ -206,7 +216,7 @@ internal class BlockingSessiecache(
             )
         }
 
-        meldAanGevolgdeSessies(ontvanger, geschreven)
+        meldBijGevolgdeSessies(ontvanger, geschreven.sleutel, Berichtwijziging.BIJGEKOMEN)
 
         return geschreven
     }
@@ -366,15 +376,26 @@ internal class BlockingSessiecache(
     }
 
     /**
-     * Best-effort: het bericht staat al in de cache, en de aanmelding afwijzen zou de
-     * aanleveraar laten herafleveren wat niets meer toevoegt. Een open berichtenbox mist het dan
-     * tot hij opnieuw verbindt of de lijst ververst.
+     * Best-effort, ná een geslaagde schrijfactie: de cache is al bijgewerkt, en het verzoek afwijzen
+     * zou de aanroeper laten herhalen wat al gelukt is. Een open berichtenbox ziet het dan pas als
+     * hij opnieuw verbindt of de lijst ververst.
+     *
+     * Alleen de fout-soort in de log: de melding van een Redis-fout kan een fragment van de invoer
+     * bevatten.
      */
-    private fun meldAanGevolgdeSessies(ontvanger: Identificatienummer, bericht: Bericht) {
+    private fun meldBijGevolgdeSessies(ontvanger: Identificatienummer, sleutel: BerichtSleutel, wijziging: Berichtwijziging) {
         try {
-            volger.meldAan(ontvanger, bericht.sleutel).await().atMost(timeout)
+            volger.meld(ontvanger, sleutel, wijziging).await().atMost(timeout)
         } catch (e: Exception) {
-            log.warnf(e, "Nieuw bericht niet doorgegeven aan gevolgde sessies; open berichtenboxen zien het later")
+            log.warnf(
+                "%s niet doorgegeven aan gevolgde sessies (fout=%s); open berichtenboxen zien het later",
+                when (wijziging) {
+                    Berichtwijziging.BIJGEKOMEN -> "Nieuw bericht"
+                    Berichtwijziging.GEWIJZIGD -> "Bijgewerkt bericht"
+                    Berichtwijziging.VERWIJDERD -> "Verwijderd bericht"
+                },
+                e.javaClass.name,
+            )
         }
     }
 
