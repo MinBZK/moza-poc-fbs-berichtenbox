@@ -359,7 +359,7 @@ gelijk "onbekende dienst: exit 1" 1 "$(code_van helm_route_args profiel)"
 
 echo "== manifest_probe logt ook de exitcode =="
 
-bevat "probe logt status, exitcode en verbindingen" "%{http_code} %{exitcode} %{num_connects}" "$(manifest_probe tnt-fbs--fbs stelselregister img zonder-label)"
+bevat "probe logt status, exitcode en connections" "%{http_code} %{exitcode} %{num_connects}" "$(manifest_probe tnt-fbs--fbs stelselregister img zonder-label)"
 bevat "probe met label idem" "%{http_code} %{exitcode} %{num_connects}" "$(manifest_probe tnt-fbs--fbs stelselregister img)"
 
 echo "== enkele_replica =="
@@ -377,17 +377,17 @@ gelijk "het echte magazijn" 1 "$(code_van enkele_replica "$HIER/../fbs-dienst/di
 
 echo "== probe_geweigerd =="
 
-# Een probe logt "<http-status> <exitcode van curl> <aantal verbindingen>". Geweigerd is alleen:
-# geen antwoord, geen TCP-verbinding, en curl kreeg de verbinding geweigerd (7), zoals de
+# Een probe logt "<http-status> <exitcode van curl> <aantal connections>". Geweigerd is alleen:
+# geen antwoord, geen TCP-connection, en curl kreeg de connection geweigerd (7), zoals de
 # policy-controller van k3s doet. Een timeout (28) is meerduidig (een trage dienst, een DNS-timeout)
 # en telt niet.
-gelijk "verbinding geweigerd (7): geweigerd" 0 "$(code_van probe_geweigerd "000 7 0")"
-gelijk "timeout zonder verbinding (28): geen bewijs" 1 "$(code_van probe_geweigerd "000 28 0")"
-gelijk "timeout mét verbinding: een trage dienst, geen weigering" 1 "$(code_van probe_geweigerd "000 28 1")"
-gelijk "geweigerd maar wel een verbinding geteld: geen bewijs" 1 "$(code_van probe_geweigerd "000 7 1")"
+gelijk "connection geweigerd (7): geweigerd" 0 "$(code_van probe_geweigerd "000 7 0")"
+gelijk "timeout zonder connection (28): geen bewijs" 1 "$(code_van probe_geweigerd "000 28 0")"
+gelijk "timeout mét connection: een trage dienst, geen weigering" 1 "$(code_van probe_geweigerd "000 28 1")"
+gelijk "geweigerd maar wel een connection geteld: geen bewijs" 1 "$(code_van probe_geweigerd "000 7 1")"
 gelijk "naam niet gevonden (6): geen bewijs" 1 "$(code_van probe_geweigerd "000 6 0")"
 gelijk "een antwoord: niet geweigerd" 1 "$(code_van probe_geweigerd "200 0 1")"
-gelijk "zonder aantal verbindingen: geen bewijs" 1 "$(code_van probe_geweigerd "000 7")"
+gelijk "zonder aantal connections: geen bewijs" 1 "$(code_van probe_geweigerd "000 7")"
 gelijk "probe-pod zonder uitvoer: geen bewijs" 1 "$(code_van probe_geweigerd "geen-uitvoer")"
 gelijk "lege uitvoer: geen bewijs" 1 "$(code_van probe_geweigerd "")"
 gelijk "alleen 000, zonder exitcode: geen bewijs" 1 "$(code_van probe_geweigerd "000")"
@@ -436,7 +436,7 @@ code=$(code_van poortbindingen_uit_inspect <<<"geen json")
 echo "== kubectl_niet_gevonden =="
 
 gelijk "NotFound" 0 "$(code_van kubectl_niet_gevonden 'Error from server (NotFound): deployments.apps "organization-api" not found')"
-gelijk "API weigert de verbinding" 1 "$(code_van kubectl_niet_gevonden 'The connection to the server 127.0.0.1:43917 was refused - did you specify the right host or port?')"
+gelijk "API weigert de connection" 1 "$(code_van kubectl_niet_gevonden 'The connection to the server 127.0.0.1:43917 was refused - did you specify the right host or port?')"
 gelijk "API onbereikbaar" 1 "$(code_van kubectl_niet_gevonden 'Unable to connect to the server: dial tcp 127.0.0.1:43917: connect: connection refused')"
 gelijk "geen rechten" 1 "$(code_van kubectl_niet_gevonden 'Error from server (Forbidden): deployments.apps "organization-api" is forbidden')"
 gelijk "lege uitvoer" 1 "$(code_van kubectl_niet_gevonden '')"
@@ -495,9 +495,14 @@ bevat "af zonder --met-platform: wijst op de vlag" "af --met-platform" "$uitvoer
 
 # kc beantwoordt de rollout ($ROLLOUT), en "<spec.replicas> <readyReplicas>" ($STAAT); de probes
 # en de Gateway geven wat de variabelen zeggen. GATEWAY_WACHTTIJD=0: niet drie minuten wachten.
-CONTROLE_STUBS='GATEWAY_WACHTTIJD=0;
-kc() { case "$*" in *"rollout status"*) return "${ROLLOUT:-0}" ;; *jsonpath*) echo "$STAAT" ;; *) return 0 ;; esac; };
-probe_code() { if [ "$2" = met-label ]; then echo "$MET"; else echo "$ZONDER"; fi; };
+# De gereedheid van de pods ($STEMPEL, na de probe zonder label $STEMPEL_NA) geeft kc bij een
+# "get pods"; zie gereedheid_stempel.
+CONTROLE_STUBS='GATEWAY_WACHTTIJD=0; STEMPEL="p1 0 True t1"; STEMPEL_NA=;
+kc() { case "$*" in *"rollout status"*) return "${ROLLOUT:-0}" ;;
+  *"get pods"*) if [ -f "$WERK/na" ]; then echo "${STEMPEL_NA:-$STEMPEL}"; else echo "$STEMPEL"; fi ;;
+  *jsonpath*) echo "$STAAT" ;; *) return 0 ;; esac; };
+WERK=$(mktemp -d);
+probe_code() { if [ "$2" = met-label ]; then echo "$MET"; else touch "$WERK/na"; echo "$ZONDER"; fi; };
 via_gateway() { if [ "$2" = /openapi.json ]; then echo "$OPENAPI"; else echo "$Q"; fi; };'
 
 controle() {
@@ -521,9 +526,23 @@ bevat "controleer: probe zonder label die de naam niet vindt is een fout" "FOUTE
 uitvoer=$(controle "$GOED; ZONDER='200 0 1'")
 bevat "controleer: probe zonder label die binnenkomt is een fout" "FOUTEN=1" "$uitvoer"
 uitvoer=$(controle "$GOED; ZONDER='000 28 1'")
-bevat "controleer: probe zonder label die verbinding krijgt maar geen antwoord is een fout" "FOUTEN=1" "$uitvoer"
+bevat "controleer: probe zonder label met connection maar zonder antwoord is een fout" "FOUTEN=1" "$uitvoer"
 uitvoer=$(controle "$GOED; OPENAPI=503")
 bevat "controleer: Gateway geeft 503 is een fout" "FOUTEN=1" "$uitvoer"
+# Een Service zonder gereede endpoints weigert ook met "000 7 0". Een pod die tijdens de probe
+# zonder label even niet gereed was, of herstartte, maakt de weigering dus waardeloos.
+uitvoer=$(controle "$GOED; STEMPEL_NA='p1 0 True t2'")
+bevat "controleer: gereedheid wisselde tijdens de probe zonder label: fout" "FOUTEN=1" "$uitvoer"
+bevat_niet "controleer: gereedheid wisselde: geen OK voor de weigering" "OK: stelselregister weigert" "$uitvoer"
+uitvoer=$(controle "$GOED; STEMPEL_NA='p1 1 True t1'")
+bevat "controleer: pod herstartte tijdens de probe zonder label: fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; STEMPEL='p1 0 False t1'")
+bevat_niet "controleer: pod niet gereed vóór de probe zonder label: geen OK voor de weigering" "OK: stelselregister weigert" "$uitvoer"
+uitvoer=$(controle "$GOED; STEMPEL=''")
+bevat_niet "controleer: geen pods vóór de probe zonder label: geen OK voor de weigering" "OK: stelselregister weigert" "$uitvoer"
+uitvoer=$(controle "$GOED; STEMPEL='p1 0 True t1
+p2 0 True t1'")
+bevat "controleer: twee pods die gereed blijven: in orde" "FOUTEN=0" "$uitvoer"
 uitvoer=$(controle "$GOED; Q=200")
 bevat "controleer: /q via de Gateway bereikbaar is een fout" "FOUTEN=1" "$uitvoer"
 
@@ -545,6 +564,17 @@ for faalt in delete apply; do
 wacht_tot() { shift 2; \"\$@\"; }; pod_klaar() { return 0; }; echo \"\$(probe_code stelselregister zonder-label)\"")
   gelijk "probe_code: $faalt faalt geeft geen-uitvoer" "geen-uitvoer" "$uitvoer"
 done
+
+# Na een geslaagde apply: een pod die nooit klaar wordt, of klaar is zonder logs, levert geen
+# uitvoer op die als weigering kan lezen; echte logs komen ongewijzigd door. De stub leest stdin
+# bij apply, zoals kubectl: anders breekt de pipe en faalt de apply al.
+probe_met() {
+  in_script "kc() { case \"\$*\" in *logs*) printf '%s' '$2' ;; *apply*) cat >/dev/null ;; *) return 0 ;; esac; };
+wacht_tot() { shift 2; \"\$@\"; }; pod_klaar() { return $1; }; echo \"\$(probe_code stelselregister zonder-label)\""
+}
+gelijk "probe_code: pod wordt nooit klaar" "geen-uitvoer" "$(probe_met 1 '000 7 0')"
+gelijk "probe_code: pod klaar zonder logs" "geen-uitvoer" "$(probe_met 0 '')"
+gelijk "probe_code: logs komen door" "000 7 0" "$(probe_met 0 '000 7 0')"
 
 # --- voorcontrole ---
 
@@ -573,6 +603,9 @@ bevat "voorcontrole: noemt de poort" "0.0.0.0:54328" "$uitvoer"
 code=0
 uitvoer=$(in_script "$VOOR_STUBS SANDBOX=ja; POORTEN='k3d-fundament-plugin-serverlb|0.0.0.0:5112->5000/tcp'; voorcontrole") || code=$?
 gelijk "voorcontrole: alleen een sandbox, met poorten op alle adressen: exit 2" 2 "$code"
+code=0
+uitvoer=$(in_script "$VOOR_STUBS POORTEN='registry.localhost|0.0.0.0:5111->5000/tcp'; voorcontrole") || code=$?
+gelijk "voorcontrole: alleen een achtergebleven registry op alle adressen: exit 2" 2 "$code"
 
 # Een docker die faalt, levert geen lege lijst op die als "in orde" leest.
 code=0
@@ -646,6 +679,11 @@ bevat "dienst_args: standaard twee replica's" "dienst.replicaCount=2" "$uitvoer"
 uitvoer=$(REPLICAS=3 in_script 'WERK=$(mktemp -d); TAG=main-1234567; dienst_args stelselregister; printf "%s\n" "${DIENST_ARGS[@]}"')
 bevat_niet "dienst_args: een dienst met singleReplica krijgt geen aantal" "replicaCount" "$uitvoer"
 # vereis_tools breekt af met 9: komt op voorbij de validatie, dan draait er verder niets echt.
+for geldig in 1 2 99; do
+  code=0
+  uitvoer=$(REPLICAS=$geldig TAG=main-1234567 in_script 'vereis_tools() { exit 9; }; op') || code=$?
+  gelijk "op met REPLICAS=$geldig: voorbij de validatie" 9 "$code"
+done
 for ongeldig in 0 -1 twee 1.5 " 2"; do
   code=0
   uitvoer=$(REPLICAS=$ongeldig TAG=main-1234567 in_script 'vereis_tools() { exit 9; }; op') || code=$?

@@ -249,7 +249,8 @@ De controle eist per dienst:
 - binnen het cluster `/q/health/ready` 200 vanaf een pod mét het clientlabel, en geen verbinding
   vanaf een pod zonder. Beide probes herhalen ruim een halve minuut, want de policy-controller
   kent een nieuwe pod pas na een vertraging. De weigering telt alleen als curl de verbinding
-  geweigerd kreeg (exitcode 7, zonder TCP-verbinding). Een timeout, een probe-pod die niet start,
+  geweigerd kreeg (exitcode 7, zonder TCP-verbinding) en alle pods de hele probe gereed bleven:
+  een Service zonder gereede pods weigert op dezelfde manier. Een timeout, een probe-pod die niet start,
   of een naam die niet gevonden wordt, is een fout. Een netwerklaag die verkeer stil laat vallen in
   plaats van te weigeren, geeft dus ook een fout;
 - via de Gateway, over https met het certificaat getoetst, `/openapi.json` 200 en `/q` 404.

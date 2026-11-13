@@ -240,7 +240,9 @@ opstelling ondermijnen: groen betekent dat het werkt.
   logt nu ook de exitcode van curl en het aantal verbindingen. Alleen een geweigerde verbinding
   (7, nul verbindingen) telt als weigering. Een timeout niet: die geeft ook een trage dienst of
   een DNS-timeout. De probe zonder label herhaalt nu ook, want tot de policy-controller een nieuwe
-  pod kent, ziet een te ruime policy er net zo uit als een weigering.
+  pod kent, ziet een te ruime policy er net zo uit als een weigering. Een Service zonder gereede pods
+  weigert met dezelfde foutcode; daarom telt de weigering alleen als naam, restarts en Ready van
+  alle pods over de probe heen gelijk bleven.
 - **Replica's.** De controle eiste één gereede pod. Nu moeten alle gewenste pods gereed zijn, en
   de diensten draaien standaard met twee (`REPLICAS`). Het stelselregister blijft op één: zijn
   chart-values zetten `singleReplica`, en de chart weigert dan een tweede (live gezien).

@@ -38,8 +38,8 @@ FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
 FUNDAMENT_REF=${FUNDAMENT_REF:-b9c1253103f0121ec061507fc241580b94bc3ab4}
 FUNDAMENT_SUBNET=${FUNDAMENT_SUBNET:-172.29.0.0/16}
 # Twee replica's: zo toetst de proef ook wat één pod verbergt (een tweede pod die niet start,
-# gelijktijdige migraties, de PodDisruptionBudget). Niet voor een dienst die de chart op één
-# replica vastzet (singleReplica).
+# twee pods die tegelijk migreren). Niet voor een dienst die de chart op één replica vastzet
+# (singleReplica).
 REPLICAS=${REPLICAS:-2}
 readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET REPLICAS
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster
@@ -173,8 +173,8 @@ docker_poorten() {
 }
 
 # Slaagt als geen container van de opstelling, ook geen gestopte, een poort op alle adressen
-# publiceert, behalve de Kubernetes-API's (zie poorten_naar_buiten). Een platform dat met Fundaments eigen recipes is gemaakt, of een k3d-config
-# die k3d_config_loopback niet herkent, valt hier op.
+# publiceert, behalve de Kubernetes-API's (zie poorten_naar_buiten). Een platform dat met Fundaments
+# eigen recipes is gemaakt, of een k3d-config die k3d_config_loopback niet herkent, valt hier op.
 alleen_loopback() {
   local poorten open
 
@@ -204,6 +204,9 @@ platform_maken() {
   k3d_config_loopback <"$WORKTREE/deploy/k3d/config.yaml" >"$WERK/platform-k3d.yaml"
   (cd "$WORKTREE" && PWD=$WORKTREE mise exec -- k3d cluster create --config="$WERK/platform-k3d.yaml" \
     --kubeconfig-switch-context=false)
+  # Meteen, niet pas na de uitrol: die bouwt de eerste keer lang, met een eventueel open poort.
+  alleen_loopback ||
+    stop 2 "het nieuwe platform publiceert poorten op alle adressen (hierboven); ruim het op met: $0 af --met-platform"
   fj setup-certs
   fj setup-gateway
 }
@@ -274,7 +277,7 @@ api_key_maken() {
 
   # Alleen code en melding: een antwoord dat de parser niet herkent, kan toch een key bevatten.
   api_key_uit_antwoord "$antwoord" || {
-    jq -r '"CreateAPIKey: \(.code // "?"): \(.message // "")"' <<<"$antwoord" >&2 2>/dev/null ||
+    jq -er '"CreateAPIKey: \(.code // "?"): \(.message // "")"' <<<"$antwoord" >&2 2>/dev/null ||
       echo "CreateAPIKey: geen JSON-antwoord" >&2
     return 1
   }
@@ -317,10 +320,10 @@ sandbox_van_ons() {
 # poort, of een platform of sandbox met poorten op alle adressen (gemaakt met de recipes van
 # Fundament zelf).
 voorcontrole() {
-  if platform_bestaat || sandbox_bestaat; then
-    alleen_loopback ||
-      stop 2 "op de netwerken van deze opstelling publiceert een container poorten op alle adressen (hierboven), ook als hij nu gestopt is. Is het platform met de recipes van Fundament zelf gemaakt, ruim het dan op met: $0 af --met-platform"
-  fi
+  # Ook zonder platform of sandbox: een afgebroken create van Fundament laat bijvoorbeeld een
+  # registry op alle adressen achter.
+  alleen_loopback ||
+    stop 2 "op de netwerken van deze opstelling publiceert een container poorten op alle adressen (hierboven), ook als hij nu gestopt is. Is het platform met de recipes van Fundament zelf gemaakt, ruim het dan op met: $0 af --met-platform"
 
   if sandbox_bestaat; then
     sandbox_van_ons || stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: $0 af"
@@ -376,6 +379,7 @@ sandbox_op() {
     (cd "$WORKTREE/plugins" && PWD=$WORKTREE/plugins mise exec -- k3d cluster create --config="$WERK/sandbox-k3d.yaml" \
       --image "$K3S_IMAGE" -p "127.0.0.1:$HTTPS_POORT:443@loadbalancer" \
       --kubeconfig-switch-context=false --wait)
+    alleen_loopback || stop 2 "de nieuwe sandbox publiceert poorten op alle adressen (hierboven); ruim hem op met: $0 af"
   fi
 
   sandbox_dns_werkt
@@ -704,6 +708,13 @@ fout() {
   echo "FOUT: $*"
 }
 
+# Per pod van een dienst: naam, restarts, Ready en het moment van de laatste wissel van Ready.
+# Blijft dit gelijk over een probe, dan was de dienst al die tijd gereed.
+gereedheid_stempel() {
+  kc -n "$NS" get pods -l "app.kubernetes.io/instance=$1,app.kubernetes.io/component=api" -o jsonpath='{range .items[*]}{.metadata.name} {.status.containerStatuses[0].restartCount} {.status.conditions[?(@.type=="Ready")].status} {.status.conditions[?(@.type=="Ready")].lastTransitionTime}{"\n"}{end}' |
+    sort
+}
+
 controleer_dienst() {
   local dienst=$1 code staat="" gewenst gereed
 
@@ -732,10 +743,16 @@ controleer_dienst() {
   fi
 
   # De NetworkPolicy is wat de dienst afschermt bij tlsTermination=mesh; zonder clientlabel hoort
-  # een pod er niet in te komen.
+  # een pod er niet in te komen. Een Service zonder gereede pods weigert ook, met dezelfde
+  # foutcode: de weigering telt alleen als alle pods de hele probe gereed bleven.
+  local voor na
+  voor=$(gereedheid_stempel "$dienst") || voor=""
   code=$(probe_code "$dienst" zonder-label)
+  na=$(gereedheid_stempel "$dienst") || na=""
 
-  if probe_geweigerd "$code"; then
+  if ! alle_pods_gereed "$voor" || [ "$voor" != "$na" ]; then
+    fout "$dienst was tijdens de probe zonder clientlabel niet steeds gereed; de weigering zegt dan niets over de NetworkPolicy"
+  elif probe_geweigerd "$code"; then
     echo "OK: $dienst weigert een pod zonder clientlabel (curl ${code#* })"
   else
     fout "$dienst gaf $code aan een pod zonder clientlabel, verwacht geen verbinding"

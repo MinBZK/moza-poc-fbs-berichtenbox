@@ -396,7 +396,7 @@ EOF
 }
 
 # Een eenmalige pod die /q/health/ready van een dienst binnen het cluster opvraagt en de
-# statuscode logt, met de exitcode van curl en het aantal verbindingen erachter (zie
+# statuscode logt, met de exitcode van curl en het aantal connections erachter (zie
 # probe_geweigerd). Het label is wat de NetworkPolicy van de chart doorlaat; zonder komt hij niet
 # binnen. Een nieuwe pod staat pas na een korte vertraging in de lijsten van de policy-controller,
 # vandaar de herhaling, met én zonder label: tot dan ziet een te ruime policy er net zo uit als een
@@ -405,6 +405,7 @@ manifest_probe() {
   local ns=$1 dienst=$2 image=$3 soort=${4:-met-label}
   local naam=probe-$dienst labels="  labels:
     client.fbs.minbzk.nl/$dienst: \"true\""
+
   if [ "$soort" = zonder-label ]; then
     naam=probe-zonder-label-$dienst
     labels=""
@@ -429,16 +430,23 @@ spec:
 EOF
 }
 
-# Slaagt als de uitvoer van een probe ("<http-status> <exitcode van curl> <verbindingen>") toont
-# dat de verbinding geweigerd werd: geen antwoord, geen TCP-verbinding, en curl-exitcode 7, zoals
+# Slaagt als er pods zijn en elke regel van gereedheid_stempel ("<pod> <restarts> <Ready> <sinds>")
+# Ready True heeft.
+alle_pods_gereed() {
+  [ -n "$1" ] || return 1
+  ! awk '$3 != "True" { gevonden = 1 } END { exit !gevonden }' <<<"$1"
+}
+
+# Slaagt als de uitvoer van een probe ("<http-status> <exitcode van curl> <connections>") toont
+# dat de connection geweigerd werd: geen antwoord, geen TCP-connection, en curl-exitcode 7, zoals
 # de policy-controller van k3s weigert. Een timeout (28) telt niet: die geeft ook een trage dienst
 # of een DNS-timeout. Een probe die niet draaide of de naam niet vond, zegt niets over de
 # NetworkPolicy.
 probe_geweigerd() {
-  local status exitcode verbindingen rest
+  local status exitcode connections rest
 
-  read -r status exitcode verbindingen rest <<<"$1"
-  [ "$status" = 000 ] && [ "$exitcode" = 7 ] && [ "$verbindingen" = 0 ] && [ -z "$rest" ]
+  read -r status exitcode connections rest <<<"$1"
+  [ "$status" = 000 ] && [ "$exitcode" = 7 ] && [ "$connections" = 0 ] && [ -z "$rest" ]
 }
 
 # --- Values --------------------------------------------------------------------------------------
