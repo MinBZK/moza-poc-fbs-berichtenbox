@@ -360,10 +360,12 @@ relays_op() {
 # De node moet de registry van de images kunnen opzoeken: de chart haalt ze bij elke start
 # (pullPolicy Always). Docker legt de DNS-server van de host vast bij het starten van een
 # container. Na een wissel van netwerk, zoals op het fieldlab, vraagt de node het dus nog aan de
-# server van het vorige netwerk, en blijft elke nieuwe pod in ImagePullBackOff hangen.
+# server van het vorige netwerk, en blijft elke nieuwe pod in ImagePullBackOff hangen. Herstarten
+# via k3d, niet met docker restart: alleen k3d cluster start zet host.k3d.internal terug in
+# CoreDNS, en zonder die naam bereikt de plugin-controller het platform niet meer.
 sandbox_dns_werkt() {
   wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io ||
-    stop 1 "de sandbox-node kan ghcr.io niet opzoeken; na een wissel van netwerk helpt een herstart van de nodes: docker restart k3d-fundament-plugin-server-0 k3d-fundament-server-0"
+    stop 1 "de sandbox-node kan ghcr.io niet opzoeken. Na een wissel van netwerk helpt een herstart van beide clusters: (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin)"
 }
 
 # De sandbox van Fundament, maar op Kubernetes 1.36, met de https-poort en de registry op loopback,

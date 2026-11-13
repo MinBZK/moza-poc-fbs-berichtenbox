@@ -261,7 +261,10 @@ opstelling ondermijnen: groen betekent dat het werkt.
 - **DNS na een netwerkwissel.** Na een suspend op een ander netwerk vroegen de k3d-nodes hun DNS
   nog aan de server van het vorige netwerk. De nieuwe pods als projectlid bleven daardoor in
   ImagePullBackOff hangen, en de controle faalde na bijna een half uur. `op` toetst nu vooraf of de
-  sandbox-node ghcr.io kan opzoeken, en noemt de herstart van de nodes die het oplost.
+  sandbox-node ghcr.io kan opzoeken, en noemt de herstart die het oplost: via `k3d cluster
+  stop`/`start`. Een kale `docker restart` van de nodes herstelt de DNS wel, maar laat
+  `host.k3d.internal` uit CoreDNS weg; daarna bereikt de plugin-controller het platform niet meer
+  (live gezien).
 
 ### Bevindingen voor PR 444
 

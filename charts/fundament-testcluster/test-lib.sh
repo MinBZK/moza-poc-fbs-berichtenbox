@@ -538,8 +538,13 @@ uitvoer=$(controle "$GOED; STEMPEL_NA='p1 1 True t1'")
 bevat "controleer: pod herstartte tijdens de probe zonder label: fout" "FOUTEN=1" "$uitvoer"
 uitvoer=$(controle "$GOED; STEMPEL='p1 0 False t1'")
 bevat_niet "controleer: pod niet gereed vóór de probe zonder label: geen OK voor de weigering" "OK: stelselregister weigert" "$uitvoer"
+bevat "controleer: pod niet gereed vóór de probe zonder label: fout" "FOUTEN=1" "$uitvoer"
 uitvoer=$(controle "$GOED; STEMPEL=''")
 bevat_niet "controleer: geen pods vóór de probe zonder label: geen OK voor de weigering" "OK: stelselregister weigert" "$uitvoer"
+bevat "controleer: geen pods vóór de probe zonder label: fout" "FOUTEN=1" "$uitvoer"
+uitvoer=$(controle "$GOED; STEMPEL='p1 0 True t1
+p2 0 False t1'")
+bevat "controleer: één van twee pods niet gereed vóór de probe zonder label: fout" "FOUTEN=1" "$uitvoer"
 uitvoer=$(controle "$GOED; STEMPEL='p1 0 True t1
 p2 0 True t1'")
 bevat "controleer: twee pods die gereed blijven: in orde" "FOUTEN=0" "$uitvoer"
@@ -549,12 +554,13 @@ bevat "controleer: /q via de Gateway bereikbaar is een fout" "FOUTEN=1" "$uitvoe
 # Een probe-pod die niet start (PSA, image, scheduling), met de echte probe_code: dat mag niet
 # lezen als "de NetworkPolicy weigert".
 uitvoer=$(in_script 'GATEWAY_WACHTTIJD=0;
-kc() { case "$*" in *"rollout status"*) return 0 ;; *jsonpath*) echo "1 1" ;; *apply*) return 1 ;; *logs*) return 1 ;; *) return 0 ;; esac; };
+kc() { case "$*" in *"rollout status"*) return 0 ;; *"get pods"*) echo "p1 0 True t1" ;; *jsonpath*) echo "1 1" ;; *apply*) return 1 ;; *logs*) return 1 ;; *) return 0 ;; esac; };
 wacht_tot() { shift 2; "$@"; }; pod_klaar() { return 1; };
 via_gateway() { if [ "$2" = /openapi.json ]; then echo 200; else echo 404; fi; };
 controleer_dienst stelselregister; echo "FOUTEN=$fouten"')
 bevat_niet "probe-pod start niet: geen OK voor de weigering" "OK: stelselregister weigert" "$uitvoer"
 bevat "probe-pod start niet: beide probes fout" "FOUTEN=2" "$uitvoer"
+bevat "probe-pod start niet: de fout komt van de probe zelf" "gaf geen-uitvoer aan een pod zonder clientlabel" "$uitvoer"
 
 # Een probe-pod die niet weg te halen of niet aan te maken is: dan zou het script de fase en de logs
 # van een oude pod met dezelfde naam lezen. In een command substitution, zoals het script hem
@@ -619,7 +625,10 @@ gelijk "alleen_loopback: docker faalt: niet in orde" 1 "$code"
 code=0
 uitvoer=$(in_script 'docker() { return 1; }; wacht_tot() { shift 2; "$@"; }; sandbox_dns_werkt') || code=$?
 gelijk "sandbox_dns_werkt: geen DNS: exit 1" 1 "$code"
-bevat "sandbox_dns_werkt: noemt de herstart" "docker restart k3d-fundament-plugin-server-0" "$uitvoer"
+# Via k3d, niet docker restart: alleen k3d cluster start zet host.k3d.internal terug in CoreDNS,
+# en zonder die naam bereikt de plugin-controller het platform niet meer.
+bevat "sandbox_dns_werkt: noemt de herstart via k3d" "k3d cluster stop fundament-plugin fundament" "$uitvoer"
+bevat_niet "sandbox_dns_werkt: geen docker restart" "docker restart" "$uitvoer"
 code=0
 uitvoer=$(in_script 'docker() { echo "docker $*"; }; wacht_tot() { shift 2; "$@"; }; sandbox_dns_werkt') || code=$?
 gelijk "sandbox_dns_werkt: DNS werkt: exit 0" 0 "$code"

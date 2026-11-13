@@ -299,11 +299,16 @@ De containers starten na een herstart van de machine vanzelf weer.
 
 **Na een wissel van netwerk**, zoals op het fieldlab, vraagt een k3d-node zijn DNS nog aan de
 server van het vorige netwerk. Docker legt die vast bij het starten van de container. Nieuwe pods
-blijven dan in ImagePullBackOff hangen. `op` controleert dat vooraf. Herstel het met:
+blijven dan in ImagePullBackOff hangen. `op` controleert dat vooraf. Herstel het door beide
+clusters via k3d te herstarten, in de worktree van Fundament (de melding noemt het pad):
 
 ```bash
-docker restart k3d-fundament-plugin-server-0 k3d-fundament-server-0
+mise exec -- k3d cluster stop fundament-plugin fundament
+mise exec -- k3d cluster start fundament fundament-plugin
 ```
+
+Niet met `docker restart`: alleen `k3d cluster start` zet `host.k3d.internal` terug in CoreDNS, en
+zonder die naam bereikt de plugin-controller het platform niet meer.
 
 **Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: ruim de opstelling op
 met `charts/fundament-testcluster.sh af --met-platform`. Wil je hem houden, stop dan op zijn minst
