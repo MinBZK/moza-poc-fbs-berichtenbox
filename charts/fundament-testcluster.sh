@@ -156,18 +156,24 @@ platform_gereed() {
   [ "$(kcp -n fundament get deployment organization-api -o jsonpath='{.status.availableReplicas}' 2>/dev/null)" -ge 1 ] 2>/dev/null
 }
 
-# De gepubliceerde poorten van alles op de twee netwerken van deze opstelling, als
-# "<container>|<poorten>". Faalt als docker faalt: een lege lijst mag dan niet als "in orde" lezen.
+# De poortbindingen van alles op de twee netwerken van deze opstelling, ook van gestopte
+# containers, als "<container>|<bindingen>". Faalt als docker faalt: een lege lijst mag dan niet
+# als "in orde" lezen.
 docker_poorten() {
-  local netwerk
+  local netwerk lijst ids=()
 
+  # Geen < <(...): de exitcode van een process substitution gaat verloren.
   for netwerk in k3d-fundament k3d-fundament-plugin; do
-    docker ps --filter "network=$netwerk" --format '{{.Names}}|{{.Ports}}' || return 1
-  done | sort -u
+    lijst=$(docker ps -aq --filter "network=$netwerk") || return 1
+    [ -z "$lijst" ] || mapfile -t -O "${#ids[@]}" ids <<<"$lijst"
+  done
+
+  [ "${#ids[@]}" -gt 0 ] || return 0
+  docker inspect "${ids[@]}" | poortbindingen_uit_inspect | sort -u
 }
 
-# Slaagt als niets van de opstelling op alle adressen luistert, behalve de Kubernetes-API's (zie
-# poorten_naar_buiten). Een platform dat met Fundaments eigen recipes is gemaakt, of een k3d-config
+# Slaagt als geen container van de opstelling, ook geen gestopte, een poort op alle adressen
+# publiceert, behalve de Kubernetes-API's (zie poorten_naar_buiten). Een platform dat met Fundaments eigen recipes is gemaakt, of een k3d-config
 # die k3d_config_loopback niet herkent, valt hier op.
 alleen_loopback() {
   local poorten open
@@ -266,8 +272,12 @@ api_key_maken() {
     -d "{\"name\":\"$naam\",\"expiresIn\":\"1h\"}")
   rm -f "$WERK/auth-header"
 
-  # Een weigering bevat geen key; het antwoord zegt waarom.
-  api_key_uit_antwoord "$antwoord" || { echo "$antwoord" >&2; return 1; }
+  # Alleen code en melding: een antwoord dat de parser niet herkent, kan toch een key bevatten.
+  api_key_uit_antwoord "$antwoord" || {
+    jq -r '"CreateAPIKey: \(.code // "?"): \(.message // "")"' <<<"$antwoord" >&2 2>/dev/null ||
+      echo "CreateAPIKey: geen JSON-antwoord" >&2
+    return 1
+  }
 }
 
 # functl inloggen voor de organisatie system. Een eerdere sessie blijft geldig tot de key
@@ -303,12 +313,13 @@ sandbox_van_ons() {
     "$(docker port k3d-fundament-plugin-serverlb 2>/dev/null)" "$HTTPS_POORT"
 }
 
-# Weigert vóór er iets wordt aangemaakt: een sandbox die niet van ons is, een bezette poort, of
-# een draaiend platform met poorten op alle adressen (gemaakt met de recipes van Fundament zelf).
+# Weigert vóór er iets wordt aangemaakt of gestart: een sandbox die niet van ons is, een bezette
+# poort, of een platform of sandbox met poorten op alle adressen (gemaakt met de recipes van
+# Fundament zelf).
 voorcontrole() {
-  if platform_bestaat; then
+  if platform_bestaat || sandbox_bestaat; then
     alleen_loopback ||
-      stop 2 "op de netwerken van deze opstelling luistert iets op alle adressen (hierboven). Is het platform met de recipes van Fundament zelf gemaakt, ruim het dan op met: $0 af --met-platform"
+      stop 2 "op de netwerken van deze opstelling publiceert een container poorten op alle adressen (hierboven), ook als hij nu gestopt is. Is het platform met de recipes van Fundament zelf gemaakt, ruim het dan op met: $0 af --met-platform"
   fi
 
   if sandbox_bestaat; then
@@ -343,6 +354,15 @@ relays_op() {
   echo "OK: relays naar het platform op $SANDBOX_GATEWAY (host.k3d.internal)"
 }
 
+# De node moet de registry van de images kunnen opzoeken: de chart haalt ze bij elke start
+# (pullPolicy Always). Docker legt de DNS-server van de host vast bij het starten van een
+# container. Na een wissel van netwerk, zoals op het fieldlab, vraagt de node het dus nog aan de
+# server van het vorige netwerk, en blijft elke nieuwe pod in ImagePullBackOff hangen.
+sandbox_dns_werkt() {
+  wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io ||
+    stop 1 "de sandbox-node kan ghcr.io niet opzoeken; na een wissel van netwerk helpt een herstart van de nodes: docker restart k3d-fundament-plugin-server-0 k3d-fundament-server-0"
+}
+
 # De sandbox van Fundament, maar op Kubernetes 1.36, met de https-poort en de registry op loopback,
 # en zonder de huidige context te wisselen (wat `just plugins cluster-create` wel doet).
 sandbox_op() {
@@ -358,6 +378,7 @@ sandbox_op() {
       --kubeconfig-switch-context=false --wait)
   fi
 
+  sandbox_dns_werkt
   fj plugins deploy
   fj plugin-sandbox-kubeconfig
   relays_op
@@ -650,15 +671,16 @@ pod_klaar() {
   esac
 }
 
-# Draait een probe-pod en print wat hij logde: "<http-status> <exitcode van curl>". Een pod die
-# niet draaide of niets logde, geeft "geen-uitvoer": dat mag niet lezen als een weigering.
+# Draait een probe-pod en print wat hij logde (zie probe_geweigerd). Een pod die niet draaide of
+# niets logde, geeft "geen-uitvoer": dat mag niet lezen als een weigering.
 probe_code() {
   local dienst=$1 soort=$2 naam=probe-$1
 
   [ "$soort" = met-label ] || naam=probe-zonder-label-$dienst
 
-  kc -n "$NS" delete pod "$naam" --ignore-not-found --wait >/dev/null
-  manifest_probe "$NS" "$dienst" "$CURL_IMAGE" "$soort" | kc apply -f - >/dev/null
+  # Zonder deze twee las het script de fase en de logs van een oude pod met dezelfde naam.
+  kc -n "$NS" delete pod "$naam" --ignore-not-found --wait >/dev/null || { echo geen-uitvoer; return; }
+  manifest_probe "$NS" "$dienst" "$CURL_IMAGE" "$soort" | kc apply -f - >/dev/null || { echo geen-uitvoer; return; }
 
   if wacht_tot 120 "probe $naam klaar" pod_klaar "$naam" >/dev/null; then
     kc -n "$NS" logs "$naam" 2>/dev/null | grep . || echo geen-uitvoer

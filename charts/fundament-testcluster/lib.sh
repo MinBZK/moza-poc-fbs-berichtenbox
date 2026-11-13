@@ -127,8 +127,8 @@ image_uit_definitie() {
 }
 
 # Gepubliceerde poorten op alle adressen (0.0.0.0 of ::), uit regels "<container>|<poorten>" van
-# docker ps; print "<container> <binding>" per poort. De Kubernetes-API (->6443) telt niet mee: k3d
-# zet die altijd op alle adressen, en hij vraagt een clientcertificaat.
+# docker ps; print "<container> <binding>" per poort. De Kubernetes-API (->6443) telt niet mee: die
+# zet k3d met de configs van Fundament op alle adressen. Anoniem geeft hij 401; de README noemt hem.
 poorten_naar_buiten() {
   local naam poorten binding
   local -a bindingen
@@ -145,6 +145,17 @@ poorten_naar_buiten() {
       esac
     done
   done
+}
+
+# De geconfigureerde poortbindingen uit `docker inspect` (JSON op stdin), als regels
+# "<container>|<binding>, ..." voor poorten_naar_buiten. Uit HostConfig en niet uit docker ps: een
+# gestopte container toont daar geen poorten, en publiceert ze toch zodra hij start. Een lege
+# HostIp is alle adressen.
+poortbindingen_uit_inspect() {
+  jq -er '.[] | (.Name | ltrimstr("/")) + "|" + ([(.HostConfig.PortBindings // {}) | to_entries[]
+    | .key as $doel | (.value // [])[]
+    | (if (.HostIp // "") == "" then "0.0.0.0" else .HostIp end) + ":" + .HostPort + "->" + $doel]
+    | join(", "))'
 }
 
 # Slaagt als de chart-values van een dienst (charts/fbs-dienst/diensten/<dienst>.yaml) hem op
@@ -385,20 +396,18 @@ EOF
 }
 
 # Een eenmalige pod die /q/health/ready van een dienst binnen het cluster opvraagt en de
-# statuscode logt, met de exitcode van curl erachter (zie probe_geweigerd). Het label is wat de
-# NetworkPolicy van de chart doorlaat; zonder komt hij niet binnen. Een nieuwe pod staat pas na een
-# korte vertraging in de toelatingslijst van de policy-controller, vandaar de herhaling.
+# statuscode logt, met de exitcode van curl en het aantal verbindingen erachter (zie
+# probe_geweigerd). Het label is wat de NetworkPolicy van de chart doorlaat; zonder komt hij niet
+# binnen. Een nieuwe pod staat pas na een korte vertraging in de lijsten van de policy-controller,
+# vandaar de herhaling, met én zonder label: tot dan ziet een te ruime policy er net zo uit als een
+# weigering, en curl stopt bij het eerste antwoord.
 manifest_probe() {
   local ns=$1 dienst=$2 image=$3 soort=${4:-met-label}
   local naam=probe-$dienst labels="  labels:
     client.fbs.minbzk.nl/$dienst: \"true\""
-  local herhaling='--retry, "15", --retry-delay, "2", --retry-all-errors, '
-
-  # Zonder label moet de NetworkPolicy de pod meteen weigeren; herhalen zou dat alleen vertragen.
   if [ "$soort" = zonder-label ]; then
     naam=probe-zonder-label-$dienst
     labels=""
-    herhaling=""
   fi
 
   cat <<EOF
@@ -416,24 +425,20 @@ spec:
     - name: curl
       image: $image
       securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
-      args: [-s, -o, /dev/null, -w, '%{http_code} %{exitcode}', --max-time, "5", ${herhaling}"http://$dienst.$ns.svc/q/health/ready"]
+      args: [-s, -o, /dev/null, -w, '%{http_code} %{exitcode} %{num_connects}', --max-time, "5", --retry, "15", --retry-delay, "2", --retry-all-errors, "http://$dienst.$ns.svc/q/health/ready"]
 EOF
 }
 
-# Slaagt als de uitvoer van een probe ("<http-status> <exitcode van curl>") toont dat de dienst
-# de verbinding weigert: geen antwoord, en curl kreeg geen verbinding (7) of liep in zijn
-# tijdslimiet (28). Een probe die niet draaide of de naam niet vond, zegt niets over de
+# Slaagt als de uitvoer van een probe ("<http-status> <exitcode van curl> <verbindingen>") toont
+# dat de verbinding geweigerd werd: geen antwoord, geen TCP-verbinding, en curl-exitcode 7, zoals
+# de policy-controller van k3s weigert. Een timeout (28) telt niet: die geeft ook een trage dienst
+# of een DNS-timeout. Een probe die niet draaide of de naam niet vond, zegt niets over de
 # NetworkPolicy.
 probe_geweigerd() {
-  local status exitcode rest
+  local status exitcode verbindingen rest
 
-  read -r status exitcode rest <<<"$1"
-  [ "$status" = 000 ] && [ -z "$rest" ] || return 1
-
-  case "$exitcode" in
-    7 | 28) return 0 ;;
-    *) return 1 ;;
-  esac
+  read -r status exitcode verbindingen rest <<<"$1"
+  [ "$status" = 000 ] && [ "$exitcode" = 7 ] && [ "$verbindingen" = 0 ] && [ -z "$rest" ]
 }
 
 # --- Values --------------------------------------------------------------------------------------

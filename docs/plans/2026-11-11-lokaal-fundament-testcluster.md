@@ -237,8 +237,10 @@ Een paar uitgestelde lage punten bleken bij nader inzien medium. Ze konden de be
 opstelling ondermijnen: groen betekent dat het werkt.
 
 - **NetworkPolicy-probe.** Een probe-pod die niet startte, telde als "de dienst weigert". De probe
-  logt nu ook de exitcode van curl. Alleen "geen verbinding" (7) of "tijdslimiet" (28) telt als
-  weigering.
+  logt nu ook de exitcode van curl en het aantal verbindingen. Alleen een geweigerde verbinding
+  (7, nul verbindingen) telt als weigering. Een timeout niet: die geeft ook een trage dienst of
+  een DNS-timeout. De probe zonder label herhaalt nu ook, want tot de policy-controller een nieuwe
+  pod kent, ziet een te ruime policy er net zo uit als een weigering.
 - **Replica's.** De controle eiste één gereede pod. Nu moeten alle gewenste pods gereed zijn, en
   de diensten draaien standaard met twee (`REPLICAS`). Het stelselregister blijft op één: zijn
   chart-values zetten `singleReplica`, en de chart weigert dan een tweede (live gezien).
@@ -246,13 +248,18 @@ opstelling ondermijnen: groen betekent dat het werkt.
   over een bestaand platform heen. Nu wacht het script op de API, rolt alleen uit bij NotFound,
   en stopt bij elke andere fout.
 - **Poorten op alle adressen.** Een platform dat met Fundaments eigen recipes was gemaakt, werd
-  stil hergebruikt, en een gewijzigde k3d-config kon poorten op 0.0.0.0 zetten. De poortbindingen
-  van alle containers op beide netwerken worden nu getoetst, vóór het begin en na het opzetten.
+  stil hergebruikt, en een gewijzigde k3d-config kon poorten op 0.0.0.0 zetten. De geconfigureerde
+  poortbindingen van alle containers op beide netwerken worden nu getoetst, ook van gestopte
+  (`docker inspect`, niet `docker ps`): vóór het begin en na het opzetten.
 - **Beslislogica getest.** `controleer_dienst`, `voorcontrole` en `platform_op` hebben tests met
   stubs.
 - **API-key de dag erna.** De key had een vaste naam. Een verlopen key houdt die naam bezet, dus
   `op` faalde na een uur altijd. Elke key krijgt nu een eigen naam, en een weigering toont het
   antwoord van het platform. Dit kwam pas aan het licht bij het live draaien van deze ronde.
+- **DNS na een netwerkwissel.** Na een suspend op een ander netwerk vroegen de k3d-nodes hun DNS
+  nog aan de server van het vorige netwerk. De nieuwe pods als projectlid bleven daardoor in
+  ImagePullBackOff hangen, en de controle faalde na bijna een half uur. `op` toetst nu vooraf of de
+  sandbox-node ghcr.io kan opzoeken, en noemt de herstart van de nodes die het oplost.
 
 ### Bevindingen voor PR 444
 

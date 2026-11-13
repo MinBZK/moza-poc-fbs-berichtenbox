@@ -247,8 +247,11 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
 De controle eist per dienst:
 - een rollout waarin alle pods gereed zijn, standaard twee (`REPLICAS`), voor het stelselregister één;
 - binnen het cluster `/q/health/ready` 200 vanaf een pod mét het clientlabel, en geen verbinding
-  vanaf een pod zonder. Dat laatste telt alleen als curl geen verbinding kreeg of in zijn
-  tijdslimiet liep; een probe-pod die niet start of de naam niet vindt, is een fout;
+  vanaf een pod zonder. Beide probes herhalen ruim een halve minuut, want de policy-controller
+  kent een nieuwe pod pas na een vertraging. De weigering telt alleen als curl de verbinding
+  geweigerd kreeg (exitcode 7, zonder TCP-verbinding). Een timeout, een probe-pod die niet start,
+  of een naam die niet gevonden wordt, is een fout. Een netwerklaag die verkeer stil laat vallen in
+  plaats van te weigeren, geeft dus ook een fout;
 - via de Gateway, over https met het certificaat getoetst, `/openapi.json` 200 en `/q` 404.
 
 Waarin het afwijkt van het fieldlab:
@@ -284,12 +287,22 @@ Wat er op de machine openstaat:
 - **op alle adressen:** de Kubernetes-API's van beide k3d-clusters. Anoniem geven die 401, maar
   ze accepteren wel tokens.
 
-Luistert iets anders van de opstelling op alle adressen, dan weigert `op`. Dat gebeurt vóór het
-begint, en nog een keer na het opzetten van platform en sandbox. Zo valt een platform op dat met
-Fundaments eigen recipes is gemaakt, of een k3d-config waarvan het script de poorten niet heeft
-kunnen herschrijven.
+Publiceert een andere container van de opstelling een poort op alle adressen, ook als hij gestopt
+is, dan weigert `op`. Dat gebeurt vóórdat het iets aanmaakt of start, en nog een keer na het
+opzetten van platform en sandbox. Zo valt een platform op dat met Fundaments eigen recipes is
+gemaakt, of een k3d-config waarvan het script de poorten niet heeft kunnen herschrijven. Een
+weigering na het opzetten laat staan wat er al draait. Ruim het dan meteen op met
+`af --met-platform`.
 
 De containers starten na een herstart van de machine vanzelf weer.
+
+**Na een wissel van netwerk**, zoals op het fieldlab, vraagt een k3d-node zijn DNS nog aan de
+server van het vorige netwerk. Docker legt die vast bij het starten van de container. Nieuwe pods
+blijven dan in ImagePullBackOff hangen. `op` controleert dat vooraf. Herstel het met:
+
+```bash
+docker restart k3d-fundament-plugin-server-0 k3d-fundament-server-0
+```
 
 **Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: ruim de opstelling op
 met `charts/fundament-testcluster.sh af --met-platform`. Wil je hem houden, stop dan op zijn minst
@@ -309,8 +322,9 @@ Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, 
 `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
 - `HTTPS_POORT` (standaard 9443);
 - `REPLICAS` (standaard 2): pods per dienst. Twee toetst ook wat één pod verbergt: een tweede pod
-  die niet start, gelijktijdige migraties, de PodDisruptionBudget. Het stelselregister blijft op
-  één: zijn chart-values zetten `singleReplica`;
+  die niet start, en twee pods die tegelijk migreren. Het stelselregister blijft op één: zijn
+  chart-values zetten `singleReplica`. Spreiding over nodes en de PodDisruptionBudget toetst de
+  proef niet; de sandbox heeft één node;
 - `FUNDAMENT_SUBNET` (standaard `172.29.0.0/16`): Fundament neemt anders 172.19, dat op een
   machine met meer compose-projecten vaak bezet is;
 - `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte. Zet hem met `read -rs
