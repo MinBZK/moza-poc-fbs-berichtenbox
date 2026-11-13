@@ -14,6 +14,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnClientFact
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnFault
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnPaginaLezer
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResolver
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.MagazijnResponseOverflow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -45,6 +46,8 @@ class ClassifyMagazijnFaultTest {
         cacheAwaitTimeoutSeconds = 5L,
         bulkhead = MagazijnAggregatieBulkhead(maxConcurrent = 20, maxParallelPerRonde = 20, maxWachttijdMs = 15000L),
         circuitBreaker = MagazijnCircuitBreaker(drempel = 3, openSeconds = 30L),
+        sessies = mockk<SessieRegister>(),
+        aggregationLockTtl = java.time.Duration.ofMinutes(2),
     ).also { it.valideerTimeouts() }
 
     @Test

@@ -132,14 +132,20 @@ de foutantwoorden vóór de stream houden hem via het filter.
   registratie af voordat de stream loopt. Berichten die uren later over dezelfde stream gaan, staan
   daardoor niet apart in het logboek. Bij `_ophalen` speelt hetzelfde, maar die duurt seconden. Hoe
   dit te loggen is (per doorgegeven bericht, of één registratie bij het einde) leggen we voor aan
-  het LDV-team, net als moza-logboekdataverwerking#71.
+  het LDV-team, net als moza-logboekdataverwerking#71. De vraag geldt ook voor `bericht-gewijzigd`
+  (status en map) en `bericht-verwijderd` (alleen de sleutel), die sinds API-versie `0.10.0` over
+  dezelfde stream gaan. Die krijgen bewust geen eigen regel: de wijziging zelf staat al in het
+  logboek onder `uitvraag-patch` of `uitvraag-verwijder`, want het doorgeven gebeurt binnen dat
+  verzoek. Betrokkene en ontvanger zijn dezelfde (de ontvanger, in zijn eigen sessies), en status
+  en map zijn geen nieuwe gegevens: `GET /berichten` geeft ze ook.
 
 ## Wat buiten dit werk valt
 
 - **De proeftuin.** Het verbinden, ontdubbelen, opnieuw verbinden en terugvallen op het periodiek
   navragen gebeurt in `MinBZK/moza-poc` en krijgt daar een eigen PR.
-- **Status- of mapwijzigingen uit een ander tabblad.** Die gaan niet over deze stroom; de lijst
-  toont ze bij de volgende lees.
+- **Status- of mapwijzigingen uit een ander tabblad.** Vielen buiten dit werk. Sinds API-versie
+  `0.10.0` gaan ze wél over deze stream, samen met verwijderingen; zie de sectie "Live wijzigingen
+  via `_volgen`" in `2026-10-21-sessiecache-sessiegebonden-moza-poc-overdracht.md`.
 - **Opschalen.** Het plafond begrenst per pod; hoeveel verbindingen een pod werkelijk draagt, hoort
   bij het ticket over het aantal magazijnen en de load-test die daar nog ontbreekt.
 

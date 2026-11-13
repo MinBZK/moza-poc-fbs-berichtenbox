@@ -66,18 +66,165 @@ function toon(element, zichtbaar) {
   element.hidden = !zichtbaar;
 }
 
-// Fetch-helper: zet altijd de X-Ontvanger-header en de basis-URL. Een connection error
+// Sessie van de uitvraag, per persona en per tabblad. sessionStorage overleeft een herlaadslag
+// maar wordt niet gedeeld tussen tabbladen: elk tabblad is een eigen "inlog", en de uitvraag
+// begrenst het aantal gelijktijdige sessies per ontvanger. Het id is een bearer: nooit loggen en
+// nooit in een URL.
+const sessieSleutel = (ontvanger) => `fbs-sessie:${ontvanger}`;
+
+function leesSessie(ontvanger) {
+  try {
+    return sessionStorage.getItem(sessieSleutel(ontvanger));
+  } catch (fout) {
+    return null;
+  }
+}
+
+function bewaarSessie(ontvanger, sessieId) {
+  try {
+    sessionStorage.setItem(sessieSleutel(ontvanger), sessieId);
+  } catch (fout) {
+    // Zonder opslag begint elke herlaadslag een nieuwe sessie; de oude verloopt vanzelf.
+  }
+}
+
+function vergeetSessie(ontvanger) {
+  try {
+    sessionStorage.removeItem(sessieSleutel(ontvanger));
+  } catch (fout) {
+    // Niets om te wissen.
+  }
+}
+
+// Eén lopende start per ontvanger, zodat de keuzehandler en een gelijktijdige api()-aanroep niet
+// elk een sessie openen (het plafond is vijf).
+const lopendeStarts = new Map();
+
+// Geeft het sessie-id, of een respons-vormig foutobject. Een bewaard id wordt hergebruikt.
+function startSessie(ontvanger) {
+  const bewaard = leesSessie(ontvanger);
+
+  if (bewaard) return Promise.resolve({ sessieId: bewaard });
+
+  if (!lopendeStarts.has(ontvanger)) {
+    const start = (async () => {
+      await omgevingGeladen;
+
+      try {
+        let respons;
+
+        try {
+          respons = await fetch(BASIS + '/sessies', { method: 'POST', headers: { 'X-Ontvanger': ontvanger } });
+        } catch (fout) {
+          return { fout: { ok: false, status: 0, netwerkfout: true, melding: 'geen verbinding: ' + fout } };
+        }
+
+        if (respons.status === 429) return { fout: { ok: false, status: 429, melding: teVeelSessiesMelding(respons) } };
+
+        if (!respons.ok) return { fout: respons };
+
+        // Een antwoord kwam er wel: een onleesbare body is een fout van de uitvraag, geen verbroken verbinding.
+        let sessieId;
+
+        try {
+          ({ sessieId } = await respons.json());
+        } catch (fout) {
+          sessieId = undefined;
+        }
+
+        if (typeof sessieId !== 'string' || sessieId === '') {
+          return { fout: { ok: false, status: respons.status, melding: `sessie gestart, maar het antwoord is onleesbaar (HTTP ${respons.status})` } };
+        }
+
+        bewaarSessie(ontvanger, sessieId);
+
+        return { sessieId };
+      } finally {
+        lopendeStarts.delete(ontvanger);
+      }
+    })();
+
+    lopendeStarts.set(ontvanger, start);
+  }
+
+  return lopendeStarts.get(ontvanger);
+}
+
+// De uitvraag geeft in Retry-After de seconden tot de vroegst verlopende sessie van deze persona.
+function teVeelSessiesMelding(respons) {
+  const seconden = Number.parseInt(respons.headers.get('Retry-After'), 10);
+  const wachten = Number.isFinite(seconden) && seconden > 0
+    ? ` of probeer het over ${Math.ceil(seconden / 60)} minuut${seconden > 60 ? 'en' : ''} opnieuw`
+    : '';
+
+  return `Te veel open sessies voor deze persona; sluit een ander tabblad${wachten}.`;
+}
+
+// Idempotent aan de serverkant (204 ook bij een onbekend id): een mislukte aanroep laat de sessie
+// hooguit tot verlopen staan, dus de gebruiker krijgt er geen melding van. Wel in de console, zodat
+// wie de demo bedient ziet dat er een sessie tegen het plafond blijft staan. Zonder het sessie-id:
+// dat is een geheim.
+async function beeindigSessie(ontvanger) {
+  const sessieId = leesSessie(ontvanger);
+
+  vergeetSessie(ontvanger);
+
+  if (!sessieId) return;
+
+  await omgevingGeladen;
+
+  try {
+    const respons = await fetch(BASIS + '/sessies/huidige', {
+      method: 'DELETE',
+      headers: { 'X-Ontvanger': ontvanger, 'X-Sessie': sessieId },
+    });
+
+    if (!respons.ok) console.warn(`uitloggen van de vorige persona mislukt (HTTP ${respons.status}); de sessie verloopt vanzelf`);
+  } catch (fout) {
+    console.warn(`uitloggen van de vorige persona mislukt (geen verbinding: ${fout}); de sessie verloopt vanzelf`);
+  }
+}
+
+// Alleen het eigen foutcontract telt als sessieverlies. Een 401 van een inlogmuur ervoor (HTML) zegt
+// niets over de sessie; die vergeten laat de sessie ongebruikt achter tegen het plafond.
+async function isSessieOngeldig(respons) {
+  if (respons.status !== 401) return false;
+
+  try {
+    const body = await respons.clone().json();
+
+    return body.type === 'urn:fbs:fout:sessie-ongeldig';
+  } catch (fout) {
+    return false;
+  }
+}
+
+// Fetch-helper: zet altijd de X-Ontvanger- en X-Sessie-header en de basis-URL. Een connection error
 // (uitvraag weg, connection halverwege doorgeknipt) komt terug als respons-vormig object in plaats van
 // een verworpen promise, zodat elke aanroeper hem via zijn bestaande `respons.ok`-toets ziet.
 // Zonder dat blijft de fout als unhandled rejection liggen en doet de knop zichtbaar niets —
 // juist de storing die de demo moet tonen, blijft dan onzichtbaar.
-async function api(pad, opties = {}) {
+// Een 401 betekent dat de uitvraag de sessie niet (meer) kent: het bewaarde id wordt weggegooid en
+// de aanroeper beslist of hij opnieuw ophaalt.
+// `ontvanger` staat expliciet in de aanroep van een lopende actie: wisselt de persona halverwege,
+// dan blijft die actie bij de oorspronkelijke ontvanger en sessie in plaats van die van de nieuwe.
+async function api(pad, opties = {}, ontvanger = huidigeOntvanger()) {
   await omgevingGeladen;
+  const sessie = await startSessie(ontvanger);
 
-  const headers = Object.assign({ 'X-Ontvanger': huidigeOntvanger() }, opties.headers || {});
+  if (sessie.fout) return sessie.fout;
+
+  const headers = Object.assign({ 'X-Ontvanger': ontvanger, 'X-Sessie': sessie.sessieId }, opties.headers || {});
 
   try {
-    return await fetch(BASIS + pad, Object.assign({}, opties, { headers }));
+    const respons = await fetch(BASIS + pad, Object.assign({}, opties, { headers }));
+
+    if (await isSessieOngeldig(respons)) {
+      vergeetSessie(ontvanger);
+      respons.sessieOngeldig = true;
+    }
+
+    return respons;
   } catch (fout) {
     return { ok: false, status: 0, netwerkfout: true, melding: 'geen verbinding: ' + fout };
   }
@@ -92,13 +239,23 @@ function toonVoortgang(regels) {
 
 // _ophalen via fetch (EventSource kan de X-Ontvanger-header niet zetten). De stream is
 // text/event-stream; elk frame heeft een data:-regel met één MagazijnEvent als JSON.
-async function ophalen() {
+async function ophalen(opnieuwNaVerlopen = false) {
   const regels = ['Ophalen gestart…'];
   const afgekapteMagazijnen = new Set();
+  // Wisselt de persona tijdens de ronde, dan hoort niets van deze ronde meer op het scherm en mag
+  // een 401 (de sessie is bij het wisselen beëindigd) geen ronde voor de nieuwe persona starten.
+  const ontvanger = huidigeOntvanger();
+  const verouderd = () => huidigeOntvanger() !== ontvanger;
 
   toonVoortgang(regels);
 
-  const respons = await api('/berichten/_ophalen');
+  const respons = await api('/berichten/_ophalen', {}, ontvanger);
+
+  if (verouderd()) return;
+
+  // Eén nieuwe poging: api() startte bij de aanroep een verse sessie, dus een tweede 401 is geen
+  // verlopen sessie maar iets anders, en een lus zou dat verbergen.
+  if (respons.sessieOngeldig && !opnieuwNaVerlopen) return ophalen(true);
 
   if (!respons.ok) {
     toonVoortgang([`Ophalen mislukt (${await foutTekst(respons)})`]);
@@ -118,6 +275,12 @@ async function ophalen() {
   try {
     while (!klaar) {
       const { done, value } = await lezer.read();
+
+      if (verouderd()) {
+        await lezer.cancel();
+
+        return;
+      }
 
       if (done) break;
 
@@ -146,7 +309,9 @@ async function ophalen() {
     return;
   }
 
-  await laadLijst();
+  if (verouderd()) return;
+
+  await laadLijst(true);
 }
 
 // Zonder deze toevoeging lijkt een afgekapte lijst een volledige lijst. Het totaal komt alleen mee
@@ -252,13 +417,43 @@ function volgendePad(lijst) {
   return href ? naarApiPad(href) : null;
 }
 
-async function laadLijst() {
+// Events van _volgen die binnenkomen terwijl laadLijst() loopt. Het antwoord van die lezing kan van
+// vóór het event zijn en het dan ongedaan maken: een verwijderd bericht stond weer in de lijst. Elke
+// lopende lezing bewaart ze daarom en past ze na het vervangen van de lijst nog een keer toe; dat
+// mag, want ze zijn idempotent.
+const lopendeLezingen = new Set();
+
+async function laadLijst(opnieuwNaVerlopen = false) {
+  const tijdensLezing = [];
+
+  lopendeLezingen.add(tijdensLezing);
+
+  try {
+    await laadLijstMetEvents(opnieuwNaVerlopen, tijdensLezing);
+  } finally {
+    lopendeLezingen.delete(tijdensLezing);
+  }
+}
+
+async function laadLijstMetEvents(opnieuwNaVerlopen, tijdensLezing) {
   const verzameld = [];
   let pad = '/berichten';
   let paginas = 0;
+  // Zie ophalen(): een wissel van persona maakt dit resultaat waardeloos, en pagina's van twee
+  // ontvangers mogen niet in één lijst belanden.
+  const ontvanger = huidigeOntvanger();
+  let afgebroken = null;
 
   while (pad && paginas < 100) {
-    const respons = await api(pad);
+    const respons = await api(pad, {}, ontvanger);
+
+    if (huidigeOntvanger() !== ontvanger) return;
+
+    if (respons.sessieOngeldig && verzameld.length === 0 && !opnieuwNaVerlopen) {
+      await ophalen(true);
+
+      return;
+    }
 
     if (respons.status === 409) {
       alleBerichten = [];
@@ -276,10 +471,16 @@ async function laadLijst() {
         return;
       }
 
+      // Een vervolgpagina strandde (sessie verlopen, storing): toon wat er is, maar zeg dat het
+      // niet alles is. Anders lijkt een halve lijst een volledige.
+      afgebroken = await foutTekst(respons);
+
       break;
     }
 
     const lijst = await respons.json();
+
+    if (huidigeOntvanger() !== ontvanger) return;
 
     // Volledigheid geldt voor de hele lijst en staat op elke pagina; de eerste volstaat.
     if (paginas === 0) toonVolledigheid(lijst);
@@ -290,7 +491,217 @@ async function laadLijst() {
   }
 
   alleBerichten = verzameld;
+  tijdensLezing.forEach(pasVolgEventToe);
   herteken();
+
+  if (afgebroken) meldOnvolledig(afgebroken);
+
+  volg(ontvanger);
+}
+
+// _volgen houdt de lijst bij terwijl het tabblad openstaat: nieuwe berichten, en wat een ander
+// tabblad van dezelfde persona markeert, verplaatst of verwijdert. Via fetch, net als _ophalen.
+// Eén stream per tabblad, voor de gekozen persona.
+let volgStream = null;
+
+const VOLG_HERVERBIND_MS = 5000;
+const VOLG_HERVERBIND_MAX_MS = 60000;
+
+const SESSIE_VERLOPEN_MELDING = 'Sessie verlopen — klik op Vernieuw of Ophalen om verder te gaan.';
+
+function stopVolgen() {
+  if (volgStream) volgStream.afbreker.abort();
+
+  volgStream = null;
+}
+
+function volg(ontvanger) {
+  if (volgStream && volgStream.ontvanger === ontvanger) return;
+
+  stopVolgen();
+  volgStream = { ontvanger, afbreker: new AbortController(), eerste: true, mislukt: 0 };
+  verbindVolgen(volgStream);
+}
+
+// Stopt het volgen met een melding, voor wat opnieuw verbinden niet oplost.
+function stopVolgenMet(melding) {
+  volgStream = null;
+  toonVoortgang([melding]);
+}
+
+async function verbindVolgen(stream) {
+  const actief = () => volgStream === stream;
+
+  // Zonder bewaarde sessie zou api() er een starten, en een herverbinding is geen activiteit van de
+  // gebruiker.
+  if (!leesSessie(stream.ontvanger)) {
+    volgStream = null;
+
+    return;
+  }
+
+  const respons = await api('/berichten/_volgen', { signal: stream.afbreker.signal, headers: { Accept: 'text/event-stream' } }, stream.ontvanger);
+
+  if (!actief()) return;
+
+  // 401 (sessie weg) of 409 (niets opgehaald) lost opnieuw verbinden niet op. De volgende klik van
+  // de gebruiker start een sessie of een ophaalronde, en daarmee weer het volgen.
+  if (respons.status === 401) {
+    stopVolgenMet(SESSIE_VERLOPEN_MELDING);
+
+    return;
+  }
+
+  if (respons.status === 409) {
+    stopVolgenMet('Live bijwerken gestopt: er is nog niets opgehaald — klik op Ophalen.');
+
+    return;
+  }
+
+  if (respons.ok) {
+    stream.mislukt = 0;
+
+    if ((await leesVolgStream(respons, stream)) === 'sessie-verlopen') {
+      if (actief()) stopVolgenMet(SESSIE_VERLOPEN_MELDING);
+
+      return;
+    }
+  } else {
+    stream.mislukt += 1;
+  }
+
+  // Elke andere afloop (maximale duur, herstart van de uitvraag, netwerkfout, 5xx, 429): opnieuw.
+  // Alleen de eerste verbinding leest bij volgen-gestart de lijst; zie verwerkVolgEvent().
+  stream.eerste = false;
+  setTimeout(() => {
+    if (actief()) verbindVolgen(stream);
+  }, herverbindWachttijd(respons, stream.mislukt));
+}
+
+// Na een normaal einde de vaste wachttijd; na elke mislukte poging op rij het dubbele, tot een
+// minuut, zodat een uitvraag die even weg is niet overspoeld wordt. Retry-After gaat voor.
+function herverbindWachttijd(respons, mislukt) {
+  const seconden = respons.headers ? Number.parseInt(respons.headers.get('Retry-After'), 10) : NaN;
+
+  if (Number.isFinite(seconden) && seconden > 0) return seconden * 1000;
+
+  return Math.min(VOLG_HERVERBIND_MS * 2 ** Math.max(mislukt - 1, 0), VOLG_HERVERBIND_MAX_MS);
+}
+
+// Geeft het laatste event terug, zodat de aanroeper weet of de sessie verliep.
+async function leesVolgStream(respons, stream) {
+  const lezer = respons.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let laatste = null;
+
+  try {
+    while (volgStream === stream) {
+      const { done, value } = await lezer.read();
+
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let scheiding;
+
+      while ((scheiding = buffer.indexOf('\n\n')) >= 0) {
+        const dataRegel = buffer.slice(0, scheiding).split('\n').find((r) => r.startsWith('data:'));
+
+        buffer = buffer.slice(scheiding + 2);
+
+        if (dataRegel && volgStream === stream) {
+          const gebeurtenis = JSON.parse(dataRegel.slice(5).trim());
+
+          laatste = gebeurtenis.event;
+          verwerkVolgEvent(gebeurtenis, stream);
+        }
+      }
+    }
+  } catch (fout) {
+    // Afgebroken (persona gewisseld, connection weg): de aanroeper beslist of hij opnieuw verbindt.
+  }
+
+  return laatste;
+}
+
+const sleutelVan = (bericht) => `${bericht.magazijnId} ${bericht.berichtId}`;
+
+function verwerkVolgEvent(gebeurtenis, stream) {
+  switch (gebeurtenis.event) {
+    case 'volgen-gestart':
+      // Wat tussen het laden van de lijst en dit moment binnenkwam, staat alleen in de lijst. Na
+      // een herverbinding niet opnieuw lezen: dat verlengt de sessie, en herverbinden is geen
+      // activiteit van de gebruiker.
+      if (stream.eerste) {
+        stream.eerste = false;
+        laadLijst();
+      }
+
+      return;
+
+    case 'bericht-bijgekomen':
+    case 'bericht-gewijzigd':
+    case 'bericht-verwijderd':
+      // Ook als het bericht nog niet in de lijst staat: de lijst die nu geladen wordt, kan het
+      // met de oude waarden brengen.
+      lopendeLezingen.forEach((tijdensLezing) => tijdensLezing.push(gebeurtenis));
+      pasVolgEventToe(gebeurtenis);
+      herteken(true);
+
+      return;
+
+    case 'sessie-verlopen':
+      // leesVolgStream() geeft het door; de aanroeper stopt het volgen en meldt het.
+      return;
+
+    default:
+      // Hartslag, en soorten die we niet kennen.
+      return;
+  }
+}
+
+// Het eigen tabblad krijgt zijn eigen wijzigingen ook terug, en een event kan na het laden van de
+// lijst nog een keer langskomen; elke tak geeft bij een herhaling hetzelfde beeld. Een bericht is
+// het paar van magazijn en berichtnummer. Bij bericht-bijgekomen staat dat paar onder `bericht`,
+// bij de andere twee op het hoogste niveau.
+function pasVolgEventToe(gebeurtenis) {
+  const sleutel = sleutelVan(gebeurtenis.bericht || gebeurtenis);
+
+  if (gebeurtenis.event === 'bericht-bijgekomen') {
+    if (!alleBerichten.some((bericht) => sleutelVan(bericht) === sleutel)) alleBerichten.push(gebeurtenis.bericht);
+  } else if (gebeurtenis.event === 'bericht-gewijzigd') {
+    const bericht = alleBerichten.find((kandidaat) => sleutelVan(kandidaat) === sleutel);
+
+    if (!bericht) return;
+
+    // De waarden van nu, geen verschil: een ontbrekende map is Postvak IN.
+    if (gebeurtenis.status) {
+      bericht.status = gebeurtenis.status;
+    } else {
+      delete bericht.status;
+    }
+
+    if (gebeurtenis.map) {
+      bericht.map = gebeurtenis.map;
+    } else {
+      delete bericht.map;
+    }
+  } else if (gebeurtenis.event === 'bericht-verwijderd') {
+    alleBerichten = alleBerichten.filter((bericht) => sleutelVan(bericht) !== sleutel);
+
+    if (el('detail').dataset.sleutel === sleutel) toon(el('detail'), false);
+  }
+}
+
+// Naast wat de volledigheidsregel al over de organisaties zegt.
+function meldOnvolledig(oorzaak) {
+  const vak = el('volledigheid');
+
+  vak.textContent = [vak.textContent, `Lijst onvolledig geladen (${oorzaak}); klik op Vernieuw om het opnieuw te proberen.`]
+    .filter((deel) => deel)
+    .join(' ');
+  toon(vak, true);
 }
 
 // Uit de lijst zelf, niet uit de voortgangsregels: die beschrijven alleen de ronde die in dit
@@ -319,8 +730,10 @@ function toonVolledigheid(lijst) {
   toon(vak, delen.length > 0);
 }
 
-// Her-rendert zijbalk + lijst uit de in-memory array (na laden, sorteren, filteren of actie).
-function herteken() {
+// Her-rendert zijbalk + lijst uit de in-memory array (na laden, sorteren, filteren of actie). Een
+// event van _volgen laat een geopend bericht staan (`behoudDetail`): het komt ook na een eigen
+// actie, en zou het bericht dan direct weer sluiten.
+function herteken(behoudDetail = false) {
   if (actieveMap !== null && actieveMap !== 'Archief' && !mapNamen().includes(actieveMap)) {
     actieveMap = null;
   }
@@ -334,7 +747,7 @@ function herteken() {
 
   const start = huidigePagina * PAGINA_GROOTTE;
 
-  tekenLijst(zichtbaar.slice(start, start + PAGINA_GROOTTE));
+  tekenLijst(zichtbaar.slice(start, start + PAGINA_GROOTTE), behoudDetail);
   renderPaginering(zichtbaar.length, maxPagina);
 }
 
@@ -383,10 +796,11 @@ function sorteer(lijst) {
   }
 }
 
-function tekenLijst(berichten) {
+function tekenLijst(berichten, behoudDetail = false) {
   const ul = el('lijst');
 
-  toon(el('detail'), false);
+  if (!behoudDetail) toon(el('detail'), false);
+
   ul.innerHTML = '';
 
   if (berichten.length === 0) {
@@ -506,7 +920,7 @@ function toonLeeg(tekst, fout) {
 // Eén foutregel voor beide soorten mislukking: geen connection, of een HTTP-status met
 // problem+json-detail. Een connection error heeft geen body, dus die leest leesProblem niet.
 async function foutTekst(respons) {
-  if (respons.netwerkfout) return respons.melding;
+  if (respons.melding) return respons.melding;
 
   return `HTTP ${respons.status}: ${await leesProblem(respons)}`;
 }
@@ -567,27 +981,55 @@ async function laadPersonas() {
   }
 }
 
-laadPersonas();
+// Persona waarvoor dit tabblad een sessie heeft; nodig om bij wisselen de vorige uit te loggen.
+let gekozenOntvanger = null;
 
-el('ophalen').addEventListener('click', ophalen);
+// Sessie starten bij het kiezen van een persona (ook de eerste keuze), zodat Ophalen en Vernieuw
+// er direct een hebben. Een mislukte start (bijvoorbeeld het plafond van vijf) wordt hier getoond
+// in plaats van bij de eerstvolgende klik.
+async function sessieBijKeuze() {
+  const sessie = await startSessie(huidigeOntvanger());
+
+  if (sessie.fout) toonLeeg(await foutTekst(sessie.fout), true);
+}
+
+laadPersonas().then(() => {
+  if (el('persona').value) {
+    gekozenOntvanger = huidigeOntvanger();
+
+    return sessieBijKeuze();
+  }
+});
+
+el('ophalen').addEventListener('click', () => ophalen());
 // Alleen de lijst (cache) verversen, zonder _ophalen — toont live in de cache opgevoerde berichten.
-el('vernieuw').addEventListener('click', laadLijst);
+el('vernieuw').addEventListener('click', () => laadLijst());
 // Alles wat van de vórige persona is afgeleid weggooien. Zonder dit blijven de mapknoppen met
 // hun tellingen staan en rendert de eerstvolgende actie (map kiezen, sorteren, filteren) de
 // lijst van die persona onder de kop van de nieuwe — in een Berichtenbox-demo precies het
 // verkeerde plaatje. De magazijnnamen blijven: die horen bij de OIN, niet bij de persona.
 function wisPersonaState() {
+  // De vorige persona uitloggen vóór de nieuwe sessie start: anders blijft die sessie met zijn
+  // berichten in Redis staan tot hij verloopt.
+  const vorige = gekozenOntvanger;
+
+  gekozenOntvanger = huidigeOntvanger();
+
+  if (vorige && vorige !== gekozenOntvanger) beeindigSessie(vorige);
+
+  stopVolgen();
   alleBerichten = [];
   actieveMap = null;
   huidigePagina = 0;
   renderMappen();
 }
 
-el('persona').addEventListener('change', () => {
+el('persona').addEventListener('change', async () => {
   wisPersonaState();
   toonVolledigheid(null);
   toon(el('voortgang'), false);
   toonLeeg('Persona gewijzigd — klik op Ophalen.');
+  await sessieBijKeuze();
 });
 
 el('sorteer').addEventListener('change', (gebeurtenis) => {
@@ -685,6 +1127,7 @@ async function toonDetail(bericht) {
   const detail = el('detail');
 
   detail.innerHTML = '';
+  detail.dataset.sleutel = sleutelVan(geladen);
   detail.append(detailKop(geladen), detailInhoud(geladen), renderBijlagen(geladen), detailActies(geladen));
   toon(detail, true);
 }

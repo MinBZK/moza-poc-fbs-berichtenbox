@@ -28,6 +28,10 @@ deployment omdat `postgresql-database` deployment-gebonden is: alleen een compon
 deployment als de magazijnen erft hun database-secret, en dat secret is wat de legen-knop mogelijk
 maakt. De eenmalige creatie staat in `demo/environment/zad-demo/README.md`.
 
+**Eerste blik bij een vastgelopen `test`: het statusdashboard** (groep `fbs-test`, zie
+[`statusdashboard.md`](statusdashboard.md)). Dat laat zien welk onderdeel wegvalt en sinds wanneer,
+vóór je een manifest opent.
+
 Zes ZAD-eigenschappen die bepalen wat een component wél en niet kan, alle zes geverifieerd in
 `RijksICTGilde/RIG-Cluster`:
 

@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten
 
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.TestSessieConfig
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.mockk
@@ -33,7 +34,7 @@ class RedisBerichtenCacheInitTest {
     ) = RedisBerichtenCache(
         redis = redis,
         objectMapper = ObjectMapper(),
-        ttl = Duration.ofHours(12),
+        sessieConfig = TestSessieConfig(),
         aggregationLockTtl = Duration.ofMinutes(2),
         startupRedisearchTimeoutSeconds = startupTimeoutSeconds,
         redisBatchgrootte = redisBatchgrootte,

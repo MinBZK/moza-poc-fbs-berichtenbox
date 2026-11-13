@@ -15,6 +15,7 @@ dist/
 *.class
 *.jar
 *.war
+node_modules/
 
 # Environment
 .env

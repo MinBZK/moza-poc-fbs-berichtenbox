@@ -370,7 +370,7 @@ probe() {
   gh api "$basis/$1/$2/$3-deployment.yaml" --jq '.content' | base64 -d \
     | grep -A6 -E 'livenessProbe|readinessProbe'
 }
-probe mpfpsm-lcl test profiel                    # httpGet /__admin/health :8080
+probe mpfpsm-lcl test profiel                    # tcpSocket :8080
 probe mpfm-w3h   test demopersonas               # httpGet /q/health/live :8098
 probe mpfb-8wh   test uitvraag                   # httpGet /q/health/live :8086
 probe mpfb-8wh   fsc-logius logius-fscoutway     # httpGet /health/live :8081

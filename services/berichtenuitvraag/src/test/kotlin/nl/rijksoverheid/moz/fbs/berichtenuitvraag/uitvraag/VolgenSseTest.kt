@@ -9,6 +9,7 @@ import io.smallrye.mutiny.Uni
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Leesstatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.hamcrest.Matchers.containsString
@@ -40,9 +41,12 @@ class VolgenSseTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    private lateinit var sessie: String
+
     @BeforeEach
     fun reset() {
         sessiecache.reset()
+        sessie = sessiecache.sessieVoor()
     }
 
     companion object {
@@ -61,6 +65,24 @@ class VolgenSseTest {
                     """"magazijnId":"$RVO",""" +
                     """"_links":{"self":{"href":"/api/v1/berichten/$BERICHT_ID?magazijnId=$RVO"}}}}""",
             ),
+            Arguments.of(
+                SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, Leesstatus.GELEZEN, "Belasting"),
+                """{"event":"bericht-gewijzigd","magazijnId":"$RVO","berichtId":"$BERICHT_ID","status":"gelezen","map":"Belasting"}""",
+            ),
+            // Postvak IN: de map ontbreekt, net als in de lijst.
+            Arguments.of(
+                SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, Leesstatus.ONGELEZEN, null),
+                """{"event":"bericht-gewijzigd","magazijnId":"$RVO","berichtId":"$BERICHT_ID","status":"ongelezen"}""",
+            ),
+            // Status onbekend én Postvak IN: alleen de sleutel blijft over.
+            Arguments.of(
+                SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, null, null),
+                """{"event":"bericht-gewijzigd","magazijnId":"$RVO","berichtId":"$BERICHT_ID"}""",
+            ),
+            Arguments.of(
+                SessieGebeurtenis.BerichtVerwijderd(RVO, BERICHT_ID),
+                """{"event":"bericht-verwijderd","magazijnId":"$RVO","berichtId":"$BERICHT_ID"}""",
+            ),
         )
 
         @JvmStatic
@@ -69,6 +91,7 @@ class VolgenSseTest {
             Arguments.of(SessiecacheException.OphalenBezig("bezig"), 409, "ophalen-bezig"),
             Arguments.of(SessiecacheException.OphalenMislukt("mislukt"), 503, "ophalen-mislukt"),
             Arguments.of(SessiecacheException.Onbereikbaar("weg"), 503, "tijdelijk-niet-beschikbaar"),
+            Arguments.of(SessiecacheException.SessieOngeldig("ongeldig"), 401, "sessie-ongeldig"),
         )
 
         @JvmStatic
@@ -109,13 +132,25 @@ class VolgenSseTest {
         sessiecache.volgGebeurtenissen = Multi.createFrom().items(
             SessieGebeurtenis.VolgenGestart,
             SessieGebeurtenis.BerichtBijgekomen(bericht()),
+            SessieGebeurtenis.BerichtGewijzigd(RVO, BERICHT_ID, Leesstatus.GELEZEN, null),
             SessieGebeurtenis.Hartslag,
+            SessieGebeurtenis.BerichtVerwijderd(RVO, BERICHT_ID),
             SessieGebeurtenis.SessieVerlopen,
         )
 
         val events = frames(volgen()).map { Regex(""""event":"([a-z-]+)"""").find(it)!!.groupValues[1] }
 
-        assertEquals(listOf("volgen-gestart", "bericht-bijgekomen", "hartslag", "sessie-verlopen"), events)
+        assertEquals(
+            listOf("volgen-gestart", "bericht-bijgekomen", "bericht-gewijzigd", "hartslag", "bericht-verwijderd", "sessie-verlopen"),
+            events,
+        )
+    }
+
+    @Test
+    fun `de X-Sessie gaat ongewijzigd naar de cache`() {
+        volgen()
+
+        assertEquals(listOf(sessie), sessiecache.volgSessies)
     }
 
     @ParameterizedTest(name = "{0}")
@@ -129,6 +164,7 @@ class VolgenSseTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -185,6 +221,7 @@ class VolgenSseTest {
     private fun volgen(): String =
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_volgen")
@@ -199,6 +236,7 @@ class VolgenSseTest {
     private fun open(): HttpURLConnection =
         (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection).apply {
             setRequestProperty("X-Ontvanger", "BSN:999990019")
+            setRequestProperty("X-Sessie", sessie)
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000
