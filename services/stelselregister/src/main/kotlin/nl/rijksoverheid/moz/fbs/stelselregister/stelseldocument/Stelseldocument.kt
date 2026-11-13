@@ -13,7 +13,7 @@ data class Organisatie(val oin: String, val naam: String, val magazijnUrl: Strin
 /**
  * De inhoud van het stelseldocument, los van uitgifte en handtekening.
  *
- * De veldnamen in de JSON zijn Engels en snake_case: ze komen uit BK Connect en zijn daarmee
+ * De veldnamen in de JSON zijn Engels en snake_case: ze komen uit FSC voor Burgers en zijn daarmee
  * contract met afnemers, geen eigen keuze.
  */
 class Stelseldocument(organisaties: Collection<Organisatie>) {

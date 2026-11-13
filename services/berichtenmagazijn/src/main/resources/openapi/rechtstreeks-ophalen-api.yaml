@@ -6,8 +6,7 @@ info:
   description: |
     Tweede ingang van het berichtenmagazijn: een app van de ontvanger haalt hier zelf berichten op,
     zonder berichten-uitvraag ertussen. Volgt de variant HTTPS-JWT (`CreateSession`, 4.3.4) van
-    [FSC voor Burgers](https://docs.fsc4b.nl/specs/protocol/), werkversie 13 oktober 2026, waar BK
-    Connect draft-00 nu naar doorverwijst. Ontwerp, afwijkingen van die standaard en van de API
+    [FSC voor Burgers](https://docs.fsc4b.nl/specs/protocol/), werkversie 13 oktober 2026. Ontwerp, afwijkingen van die standaard en van de API
     Design Rules:
     [rechtstreeks-ophalen-design.md](https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/plans/2026-10-27-rechtstreeks-ophalen-design.md).
 
@@ -16,20 +15,20 @@ info:
 
     ## Verloop
 
-    1. `POST /rechtstreeks/challenge` — het magazijn geeft een nonce en een tijdelijke public key,
+    1. `POST /rechtstreeks/challenges` — het magazijn geeft een nonce en een tijdelijke public key,
        getekend met zijn eigen sleutel. De app controleert die handtekening met de sleutel uit
        `public_keys` van dit magazijn in het stelseldocument die de `kid` aanwijst, en die nog
        niet verlopen is.
-    2. `POST /rechtstreeks/complete` — de app stuurt een Verifiable Presentation, versleuteld naar
+    2. `POST /rechtstreeks/sessies` — de app stuurt een Verifiable Presentation, versleuteld naar
        de tijdelijke public key. Daarin: het Verifiable Credential van de App Manager, de nonce
        getekend met de sleutel van de app, en een AES-sleutel voor de sessie. Het magazijn
        antwoordt met een sessietoken, versleuteld met die AES-sleutel.
-    3. `GET /rechtstreeks/berichten` en `GET /rechtstreeks/berichten/{berichtId}` met het
-       sessietoken in `Authorization` — het antwoord is versleuteld met de AES-sleutel van de
+    3. `GET /rechtstreeks/berichten` en `GET /rechtstreeks/berichten/{berichtId}` met
+       `Authorization: Bearer <sessieToken>` — het antwoord is versleuteld met de AES-sleutel van de
        sessie.
 
     Wat getekend of versleuteld over de lijn gaat, staat hier als `CompactJws` of `CompactJwe`.
-    Het schema van de inhoud staat ernaast onder `x-payload`.
+    Het schema van de inhoud staat ernaast onder `x-payload`. Elke JWE draagt `typ` `JWE`.
 
     De ontvanger komt uit het Verifiable Credential en dus uit de sessie, nooit uit het verzoek.
     Persoonsgegevens staan daarom niet in URL, header of toegangslog.
@@ -41,15 +40,16 @@ info:
 
     | `type` | Status | Situatie |
     |---|---|---|
-    | `urn:fbs:fout:ongeldig-verzoek` | 400, 406, 415 | Het verzoek zelf klopt niet; bij `complete` alleen de buitenste envelop |
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 406, 415 | Het verzoek zelf klopt niet; bij `sessies` alleen de buitenste envelop: de JSON en de header van de JWE (`alg`, `enc`, `typ`, geen verboden velden) |
     | `urn:fbs:fout:geen-toegang` | 401 | Presentatie afgewezen, nonce onbekend, verlopen of al gebruikt, of sessie onbekend of verlopen |
     | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht bestaat niet, is verwijderd, of hoort niet bij de ontvanger van de sessie |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het pad bestaat (nog) niet, zoals het bijlagepad waar een bijlagelink naar wijst |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Tijdelijk niet beschikbaar, ook als er te veel openstaande challenges zijn; `Retry-After` zegt wanneer opnieuw |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
 
-    Alles wat bij `complete` ná het ontsleutelen misgaat, geeft dezelfde `401` met dezelfde body:
-    het antwoord verraadt niet welke controle faalde, en ook niet of het ontsleutelen lukte. Bij
+    Alles wat bij `sessies` ná het ontsleutelen misgaat, geeft dezelfde `401` met dezelfde body:
+    het antwoord verraadt niet welke controle faalde, en ook niet of het ontsleutelen lukte. De
+    `400` op de header verraadt niets: die is zonder sleutel te lezen. Bij
     een `401` op `berichten` begint de app opnieuw bij stap 1.
 
     Anders dan de eerste ingang onderscheidt deze ingang "bestaat niet", "is verwijderd" en "hoort
@@ -89,8 +89,9 @@ servers:
 
 # Elke tag een eigen subtree. Zou het basispad van een tag de routes van een andere afvangen, dan
 # laat de generator dat basispad vallen en antwoordt Quarkus REST met 405 (zie het commentaar
-# boven `tags` in berichtenmagazijn-api.yaml). De standaard zet `challenge` en `complete` op
-# `/v1/…` van een sessie-dienst uit de vindbaarheidsconfiguratie; die laag bestaat in FBS niet.
+# boven `tags` in berichtenmagazijn-api.yaml). De standaard zet het openen van een sessie op
+# `/v1/challenge` en `/v1/complete` van een sessie-dienst uit de vindbaarheidsconfiguratie; die
+# laag bestaat in FBS niet. Omdat het pad toch afwijkt, volgen de namen de API Design Rules.
 tags:
   - name: RechtstreeksOphalen
     description: Sessie opzetten en berichten ophalen door de app van de ontvanger
@@ -98,7 +99,7 @@ tags:
     description: Het OpenAPI-document van het magazijn, op de plek waar de API Design Rules het verwachten.
 
 paths:
-  /rechtstreeks/challenge:
+  /rechtstreeks/challenges:
     post:
       tags: [RechtstreeksOphalen]
       summary: Nonce en tijdelijke sleutel van het magazijn opvragen
@@ -107,8 +108,8 @@ paths:
         Stap 2 tot en met 9 van `CreateSession` (4.3.4.2). Zonder body. Het magazijn maakt een
         nonce van ten minste 16 willekeurige bytes en een tijdelijk P-256-sleutelpaar; de nonce
         is 60 seconden bruikbaar, één keer. Het antwoord is een JWS, getekend met de sleutel van
-        dit magazijn, met als payload `Challenge`. Het antwoord is `200`, niet `201`: er ontstaat
-        geen resource met een eigen adres.
+        dit magazijn, met als payload `Challenge`. Er ontstaat een challenge zonder eigen adres:
+        `201` zonder `Location`.
 
         Header: `alg` `ES256`, `typ` `jwt`, `kid` van de sleutel van dit magazijn in
         `public_keys` van het stelseldocument. De app gebruikt alleen die sleutel, controleert
@@ -118,7 +119,7 @@ paths:
         `Retry-After`.
       security: []
       responses:
-        '200':
+        '201':
           description: Getekende challenge
           headers:
             API-Version:
@@ -144,11 +145,11 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
-  /rechtstreeks/complete:
+  /rechtstreeks/sessies:
     post:
       tags: [RechtstreeksOphalen]
       summary: Verifiable Presentation aanbieden en een magazijnsessie krijgen
-      operationId: voltooiSessie
+      operationId: startMagazijnsessie
       description: |
         Stap 20 tot en met 26 van `CreateSession` (4.3.4.2). Het magazijn ontsleutelt
         `encrypted_challenge_result` met de tijdelijke private key die bij `nonce` hoort, en
@@ -166,21 +167,23 @@ paths:
         - `session_aes_key` is 32 bytes na base64-decoding.
 
         Alleen `ES256` (JWS), `ECDH-ES` met `A256GCM` (deze JWE) en `dir` met `A256GCM` (het
-        antwoord) worden geaccepteerd; een header met `jwk`, `jku`, `x5u`, `x5c` of `crit` wordt
-        geweigerd. Daarna is de nonce verbruikt, ook als een controle faalde.
+        antwoord) worden geaccepteerd. Een JWE-header met een ander `alg` of `enc`, zonder `typ`
+        `JWE`, of met `jwk`, `jku`, `x5u`, `x5c` of `crit`, geeft `400` (ADR `/encryption/jwe`);
+        in een JWS binnen de presentatie geeft dat `401`. Daarna is de nonce verbruikt, ook als
+        een controle faalde.
 
         Het antwoord is een JWE, versleuteld met `session_aes_key`, met als payload
-        `MagazijnsessieUitgegeven`. Dat de app het kan ontsleutelen, bewijst dat dit magazijn de
-        presentatie heeft geopend. Ook hier `200`, niet `201`.
+        `Magazijnsessie`. Dat de app het kan ontsleutelen, bewijst dat dit magazijn de
+        presentatie heeft geopend. De sessie krijgt geen eigen adres: `201` zonder `Location`.
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CompleteVerzoek'
+              $ref: '#/components/schemas/MagazijnsessieVerzoek'
       responses:
-        '200':
+        '201':
           description: Magazijnsessie, versleuteld met de AES-sleutel uit de presentatie
           headers:
             API-Version:
@@ -196,7 +199,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CompactJwe'
               x-payload:
-                $ref: '#/components/schemas/MagazijnsessieUitgegeven'
+                $ref: '#/components/schemas/Magazijnsessie'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -364,8 +367,8 @@ components:
     CompactJwe:
       type: string
       description: |
-        JWE in compacte serialisatie (RFC 7516), vijf base64url-delen. Bij `dir` en `ECDH-ES` is
-        het tweede deel (de versleutelde sleutel) leeg.
+        JWE in compacte serialisatie (RFC 7516), vijf base64url-delen, met `typ` `JWE` in de
+        header. Bij `dir` en `ECDH-ES` is het tweede deel (de versleutelde sleutel) leeg.
       pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
       maxLength: 16777216
 
@@ -387,7 +390,7 @@ components:
           format: byte
           description: Tijdelijke P-256 public key, base64 van DER (SubjectPublicKeyInfo).
 
-    CompleteVerzoek:
+    MagazijnsessieVerzoek:
       type: object
       description: Stap 20 van `CreateSession`. Veldnamen uit de standaard.
       required: [nonce, encrypted_challenge_result]
@@ -399,8 +402,8 @@ components:
         encrypted_challenge_result:
           type: string
           description: |
-            De Verifiable Presentation als JWE (compact, `alg` `ECDH-ES`, `enc` `A256GCM`),
-            versleuteld naar de tijdelijke public key uit de challenge.
+            De Verifiable Presentation als JWE (compact, `alg` `ECDH-ES`, `enc` `A256GCM`, `typ`
+            `JWE`), versleuteld naar de tijdelijke public key uit de challenge.
           pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
           maxLength: 65536
           x-payload:
@@ -489,26 +492,31 @@ components:
       not:
         required: [d]
 
-    MagazijnsessieUitgegeven:
+    Magazijnsessie:
       type: object
-      description: Payload van het antwoord op `complete`.
-      required: [session_token, expires_in]
+      description: |
+        Payload van het antwoord op `POST /rechtstreeks/sessies`. De standaard legt de vorm niet
+        vast; daarom camelCase, zoals `Sessie` van de uitvraag.
+      required: [sessieToken, geldigTot]
       properties:
-        session_token:
+        sessieToken:
           type: string
-          description: Gaat ongewijzigd in de `Authorization`-header, zonder schema-voorvoegsel (4.4.1, stap 20).
-          pattern: '^[A-Za-z0-9]{32}$'
-        expires_in:
-          type: integer
           description: |
-            Seconden tot de sessie verloopt: 900, of minder als het Verifiable Credential eerder
-            verloopt. Een sessie wordt niet verlengd.
-          minimum: 1
-          maximum: 900
+            Geheim; gaat als `Authorization: Bearer <sessieToken>` mee (RFC 6750). Niet loggen,
+            niet in een URL.
+          pattern: '^[A-Za-z0-9]{32}$'
+        geldigTot:
+          type: string
+          format: date-time
+          description: |
+            Het moment waarop de sessie verloopt: 15 minuten na de start, of eerder op `exp` van het
+            Verifiable Credential. Een sessie wordt niet verlengd.
 
   responses:
     BadRequest:
-      description: Het verzoek is syntactisch onjuist of mist verplichte velden.
+      description: |
+        Het verzoek is syntactisch onjuist of mist verplichte velden. Bij `sessies` ook: de header
+        van de JWE noemt een ander `alg` of `enc`, mist `typ` `JWE`, of bevat een verboden veld.
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
@@ -522,7 +530,7 @@ components:
             $ref: './berichtenmagazijn-api.yaml#/components/schemas/Problem'
     Unauthorized:
       description: |
-        `complete`: de presentatie is afgewezen, of de nonce is onbekend, verlopen of al gebruikt.
+        `sessies`: de presentatie is afgewezen, of de nonce is onbekend, verlopen of al gebruikt.
         Andere paden: de magazijnsessie is onbekend of verlopen. Zonder detail over welke controle
         faalde.
       headers:
@@ -535,12 +543,11 @@ components:
         WWW-Authenticate:
           required: true
           description: |
-            Verplicht bij een 401 (RFC 9110). Een signaal, geen instructie voor de vorm van het
-            token: de app begint opnieuw bij `POST /rechtstreeks/challenge` en stuurt het nieuwe
-            token zonder voorvoegsel.
+            Verplicht bij een 401 (RFC 9110), in de vorm van RFC 6750. De app begint opnieuw bij
+            `POST /rechtstreeks/challenges`.
           schema:
             type: string
-            example: Magazijnsessie realm="00000001234567890001"
+            example: Bearer realm="00000001234567890001", error="invalid_token"
       content:
         application/problem+json:
           schema:
@@ -621,12 +628,11 @@ components:
 
   securitySchemes:
     magazijnsessie:
-      type: apiKey
-      in: header
-      name: Authorization
+      type: http
+      scheme: bearer
       description: |
-        Het `session_token` uit het antwoord op `complete`, zonder schema-voorvoegsel, zoals de
-        standaard het voorschrijft (4.4.1, stap 20). Geldig tot `expires_in` uit dat antwoord.
+        Het `sessieToken` uit het antwoord op `POST /rechtstreeks/sessies`, als `Bearer`-token
+        (RFC 6750). Geldig tot `geldigTot` uit dat antwoord.
 
 security:
   - magazijnsessie: []
