@@ -84,9 +84,9 @@ class AanmeldServiceTest {
     }
 
     @Test
-    fun `geen actieve sessie wordt geaccepteerd-maar-overgeslagen`() {
+    fun `geen opgehaalde lijst wordt geaccepteerd-maar-overgeslagen`() {
         every { sessiecache.schrijfBericht(ontvanger, any()) } throws
-            SessiecacheException.GeenActieveSessie("geen sessie")
+            SessiecacheException.GeenLijstInCache("geen sessie")
 
         // Geen exception: webhook geeft 202.
         service.verwerk(event())
@@ -108,7 +108,7 @@ class AanmeldServiceTest {
 
     @Test
     fun `cache ongeldige-invoer propageert status-behoudend 400`() {
-        // Een niet-GeenActieveSessie cache-fout op het aanmeld-pad gaat status-behoudend
+        // Een niet-GeenLijstInCache cache-fout op het aanmeld-pad gaat status-behoudend
         // door via naApiFout (geen 502-conversie): OngeldigeInvoer blijft 400.
         every { sessiecache.schrijfBericht(ontvanger, any()) } throws
             SessiecacheException.OngeldigeInvoer("bericht overschrijdt limiet")

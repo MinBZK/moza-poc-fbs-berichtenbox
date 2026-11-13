@@ -7,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import org.jboss.logging.Logger
+import java.time.Duration
 
 /**
  * Uniforme upstream-fout-mapping voor calls naar de sessiecache-facade én het magazijn.
@@ -115,8 +116,10 @@ internal fun SessiecacheException.isStoring(): Boolean = when (this) {
     is SessiecacheException.NogNietGevuld,
     is SessiecacheException.OphalenBezig,
     is SessiecacheException.OngeldigeInvoer,
-    is SessiecacheException.GeenActieveSessie,
+    is SessiecacheException.GeenLijstInCache,
     is SessiecacheException.BerichtVerwijderd,
+    is SessiecacheException.SessieOngeldig,
+    is SessiecacheException.TeVeelSessies,
     -> false
 }
 
@@ -141,12 +144,32 @@ internal fun SessiecacheException.naApiFout(): WebApplicationException = when (t
     is SessiecacheException.Onbereikbaar -> tijdelijkNietBeschikbaar(Foutcode.TIJDELIJK_NIET_BESCHIKBAAR, message, this)
     is SessiecacheException.Onleesbaar -> cacheFout(Foutcode.INTERNE_FOUT, Response.Status.INTERNAL_SERVER_ERROR)
     is SessiecacheException.OngeldigeInvoer -> cacheFout(Foutcode.ONGELDIG_VERZOEK, Response.Status.BAD_REQUEST)
-    is SessiecacheException.GeenActieveSessie -> cacheFout(Foutcode.GEEN_ACTIEVE_SESSIE, Response.Status.NOT_FOUND)
+    is SessiecacheException.GeenLijstInCache -> cacheFout(Foutcode.GEEN_LIJST_IN_CACHE, Response.Status.NOT_FOUND)
     // 410 en niet 404: een afnemer die alleen naar de status kijkt, weet dan al dat dit bericht
     // bestond en weg is. De cache honoreert de tombstone alleen voor de eigenaar, dus dit
     // antwoord verraadt niets over het bericht van een ander.
     is SessiecacheException.BerichtVerwijderd -> cacheFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE)
+    is SessiecacheException.SessieOngeldig -> cacheFout(Foutcode.SESSIE_ONGELDIG, Response.Status.UNAUTHORIZED)
+    // 429 en geen 409: de grens is een tijdelijke toestand die verdwijnt zodra een andere sessie
+    // eindigt of verloopt. Retry-After zegt wanneer dat op zijn laatst is, zodat een generieke
+    // client die op een 429 opnieuw probeert, niet blijft hameren.
+    is SessiecacheException.TeVeelSessies -> FbsFoutException(
+        Foutcode.TE_VEEL_SESSIES,
+        Response.Status.TOO_MANY_REQUESTS,
+        message.orEmpty(),
+        this,
+        retryAfterSeconden = retryAfterSeconden(vrijOver),
+    )
 }
+
+/** Naar boven afgerond en minstens 1: een `Retry-After: 0` nodigt uit tot direct opnieuw proberen. */
+internal fun retryAfterSeconden(wachttijd: Duration): Int {
+    val seconden = wachttijd.plusNanos(NANOS_PER_SECONDE - 1).seconds
+
+    return seconden.coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+}
+
+private const val NANOS_PER_SECONDE = 1_000_000_000L
 
 /** Cache-fout met kenmerk; de message van de cache blijft het detail. */
 private fun SessiecacheException.cacheFout(foutcode: Foutcode, status: Response.Status) =
@@ -183,7 +206,7 @@ private const val RETRY_AFTER_SECONDEN = 30
  * De lees-facademethoden (`lijst`/`zoek`/`bericht`) produceren storing-fouten, de 409-gating
  * ([SessiecacheException.NogNietGevuld]/[SessiecacheException.OphalenBezig]) en — alleen op
  * `bericht` — de 410 van [SessiecacheException.BerichtVerwijderd]. De 400/404-gevallen
- * ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenActieveSessie]) ontstaan
+ * ([SessiecacheException.OngeldigeInvoer]/[SessiecacheException.GeenLijstInCache]) ontstaan
  * uitsluitend op de schrijfpaden en bereiken deze grens dus niet.
  */
 internal inline fun <T> leesUitCache(log: Logger, context: String, block: () -> T): T =

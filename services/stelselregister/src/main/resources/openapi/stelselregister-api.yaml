@@ -89,7 +89,7 @@ info:
     | `type` | Status | Situatie |
     |---|---|---|
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad onder `/api/v1` bestaat niet |
-    | `urn:fbs:fout:ongeldig-verzoek` | 405, 406 | Een andere methode dan `GET`, of een `Accept` die `application/jose` uitsluit |
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 405, 406 | Een `If-None-Match` langer dan 512 tekens, een andere methode dan `GET`, of een `Accept` die `application/jose` uitsluit |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Er is op dit moment geen geldig document |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
   contact:
@@ -160,6 +160,8 @@ paths:
               $ref: '#/components/headers/Cache-Control'
             Vary:
               $ref: '#/components/headers/Vary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '406':
           $ref: '#/components/responses/NotAcceptable'
         '500':
@@ -198,8 +200,9 @@ components:
 
   schemas:
     # StelseldocumentHeader en StelseldocumentPayload hangen aan geen enkel pad: OpenAPI 3.0 kan
-    # geen schema aan een `application/jose`-body koppelen. Spectral meldt ze daarom als ongebruikt.
-    # Ze zijn wel contract: de contracttest decodeert de JWS en legt beide delen ertegen.
+    # geen schema aan een `application/jose`-body koppelen. Een OpenAPI-linter kan ze daarom als
+    # ongebruikt melden. Ze zijn wel contract: de contracttest decodeert de JWS en legt beide
+    # delen ertegen.
     StelseldocumentHeader:
       type: object
       description: De JWS-header van het stelseldocument. Bevat precies deze vier velden.
@@ -321,6 +324,15 @@ components:
           format: uri-reference
 
   responses:
+    BadRequest:
+      description: Een parameter voldoet niet aan zijn schema
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     NotAcceptable:
       description: De `Accept`-header sluit `application/jose` uit
       headers:

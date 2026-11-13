@@ -23,7 +23,9 @@ set -euo pipefail
 # `.claude/` hoort hier ondanks dat het uitvoerbare hooks bevat: die draaien op een
 # ontwikkelmachine, niet in CI, en geen enkele check in deze keten dekt ze. Draaien levert er dus
 # niets over op; review is daar de maatregel.
-NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabot\.yml$|^\.editorconfig$|^\.gitignore$|^LICENSE$|^apis\.json$'
+# `tools/adr-lint/` pint de ADR-linter voor ontwikkelaars; geen workflow draait hem. Zonder deze
+# uitsluiting kocht elke Dependabot-bump van die lockfile de volledige keten met drie previews.
+NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabot\.yml$|^\.editorconfig$|^\.gitignore$|^LICENSE$|^apis\.json$|^tools/adr-lint/'
 
 # Workflows waarvoor een preview geen bewijs oplevert. Los van NIET_DEPLOYBAAR omdat de unittests
 # deze lijst tegen de schijf kruiscontroleren: elke naam moet bestaan, en elke workflow op schijf
