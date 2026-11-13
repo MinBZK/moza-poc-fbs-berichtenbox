@@ -9,7 +9,7 @@ info:
     welke magazijnen er zijn en controleert aan de handtekening dat de lijst van de
     stelselbeheerder komt en onderweg niet is gewijzigd.
 
-    De vorm volgt de conceptstandaard BK Connect (draft-00). Wat die standaard aan een
+    De vorm volgt de conceptstandaard FSC voor Burgers. Wat die standaard aan een
     toepassingsprofiel overlaat — pad, vorm van de handtekening, sleuteldistributie en
     geldigheidsduur — staat in `docs/stelseldocument-toepassingsprofiel.md` in de repository.
 

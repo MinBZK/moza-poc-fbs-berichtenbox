@@ -240,7 +240,7 @@ Wat je hoe dan ook moet weten:
 | `services/berichtenmagazijn/src/main/resources/openapi/berichtenmagazijn-api.yaml` | OpenAPI spec Aanlever API |
 | `services/stelselregister/`            | Het magazijnregister als ondertekend stelseldocument (JWS, ES256). Sleutel uit een PKCS#12-keystore; een wegwerpketen alleen in ontwikkel- en testmodus, gekoppeld aan de launch mode |
 | `services/stelselregister/src/main/resources/openapi/stelselregister-api.yaml` | OpenAPI spec stelseldocument, met de verificatiestappen voor afnemers |
-| `docs/stelseldocument-toepassingsprofiel.md` | Hoe FBS het stelseldocument uit BK Connect invult: vorm, geldigheid, verificatie, afwijkingen |
+| `docs/stelseldocument-toepassingsprofiel.md` | Hoe FBS het stelseldocument uit FSC voor Burgers invult: vorm, geldigheid, verificatie, afwijkingen |
 | `demo/environment/stelselregister/`    | Sleutelketen voor de demo (`pki/maak-keten.sh`); de inrichting op ZAD staat in `demo/environment/zad-demo/stelselregister.md` |
 | `docs/architecture/`                   | C4 model (Structurizr DSL)                                      |
 | `docs/ontwikkelen.md`                  | Lokale ontwikkelgids: tests, kwaliteitsgates, linting, tweede magazijn, de demo met de proeftuin als berichtenbox, configuratie |
