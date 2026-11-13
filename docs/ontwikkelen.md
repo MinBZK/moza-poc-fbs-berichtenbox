@@ -89,7 +89,9 @@ Over die forks:
   ze samen vóór de gate. Lees de dekking zoals altijd in `target/site/jacoco/`.
 - Elke fork moet zijn eigen poort kunnen pakken. Een testconfiguratie met een vaste
   `quarkus.http.test-port` of een vaste WireMock-poort laat forks op elkaar botsen; gebruik
-  `quarkus.http.test-port=0` en `wireMockConfig().dynamicPort()`.
+  `quarkus.http.test-port=0` en `wireMockConfig().dynamicPort()`. Alleen in een module die zelf
+  een HTTP-server start: de sessiecache heeft er geen, en daar levert de sleutel alleen een
+  "Unrecognized configuration key"-waarschuwing op.
 
 ## Kwaliteitsgates
 
