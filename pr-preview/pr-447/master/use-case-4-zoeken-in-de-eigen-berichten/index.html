@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 4: Zoeken in de eigen berichten | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="./" class="is-active">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 4: Zoeken in de eigen berichten</h1>
+<p>Een ondernemer zoekt in de eigen berichten.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een ondernemer met een geopende berichtenbox</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De ondernemer zoekt een bericht terug, bijvoorbeeld "aanslag" of "subsidie"</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>De ondernemer ziet de berichten waarvan het onderwerp de zoekterm bevat, nieuwste eerst</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De ondernemer typt een zoekterm in het portaal.</li>
+ <li>Het portaal vraagt de uitvraag om te zoeken.</li>
+ <li>De uitvraag zoekt in de berichtenlijst die bij het ophalen (use case 2) is samengesteld. Hij zoekt alleen in het onderwerp: de tekst van een bericht staat niet in de uitvraag, maar in het magazijn van de organisatie.</li>
+ <li>De uitvraag geeft de eerste 20 treffers, nieuwste eerst, en zegt welke organisaties bij het ophalen niet leverden.</li>
+ <li>Het portaal toont de treffers.</li>
+</ol>
+<p>De magazijnen worden bij het zoeken niet bevraagd.</p>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    actor OND as Ondernemer / Zakelijke gebruiker
+    participant IL as Interactielaag
+    box Berichten Uitvraag Systeem
+        participant UV as Berichten Uitvraag Service
+        participant SC as Berichtensessiecache
+    end
+
+    OND-&gt;&gt;IL: Zoekt op een term
+    IL-&gt;&gt;UV: Zoek in de berichten van deze ondernemer
+    UV-&gt;&gt;SC: Loopt de sessie?
+    SC--&gt;&gt;UV: Ja, en verlengd
+    UV-&gt;&gt;SC: Zoek in het onderwerp van de opgehaalde berichten
+    SC--&gt;&gt;UV: Treffers, en welke organisaties niet leverden
+    UV--&gt;&gt;IL: De eerste 20 treffers, nieuwste eerst
+    IL--&gt;&gt;OND: Toont de treffers
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de ondernemer merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>De zoekterm is korter dan 2 of langer dan 200 tekens</td>
+   <td>De uitvraag weigert</td>
+   <td>Een melding dat de zoekterm niet geldig is</td>
+  </tr>
+  <tr>
+   <td>Er is nog niet opgehaald, of het ophalen loopt nog</td>
+   <td>De uitvraag weigert</td>
+   <td>Het portaal wacht op het ophalen</td>
+  </tr>
+  <tr>
+   <td>Het ophalen is mislukt</td>
+   <td>De uitvraag weigert, ook als er nog een oude lijst is</td>
+   <td>"Probeer het opnieuw"; het portaal haalt opnieuw op</td>
+  </tr>
+  <tr>
+   <td>Een organisatie leverde bij het ophalen niet</td>
+   <td>Haar berichten zitten niet in de zoekresultaten</td>
+   <td>De treffers zeggen welke organisatie ontbreekt</td>
+  </tr>
+  <tr>
+   <td>Er zijn meer dan 20 treffers</td>
+   <td>De uitvraag geeft alleen de eerste 20, zonder verder bladeren</td>
+   <td>De ondernemer moet zijn zoekterm verfijnen</td>
+  </tr>
+  <tr>
+   <td>De zoekterm staat alleen in de tekst van een bericht</td>
+   <td>Geen treffer</td>
+   <td>Het bericht wordt niet gevonden</td>
+  </tr>
+  <tr>
+   <td>De sessie is verlopen</td>
+   <td>De uitvraag weigert</td>
+   <td>"Uw sessie is verlopen. Log opnieuw in."</td>
+  </tr>
+ </tbody>
+</table>
+<p>Tekens als <code>*</code>, <code>-</code> of <code>|</code> in de zoekterm hebben geen bijzondere betekenis: de uitvraag zoekt er letterlijk op.</p>
+<h2>Doelarchitectuur</h2>
+<p>Het doelbeeld wijkt hier niet af. Zoeken in de tekst van berichten zou betekenen dat die tekst centraal komt te staan, of dat elk magazijn bij elke zoekvraag bevraagd wordt. Het model kiest geen van beide: de tekst blijft bij de organisatie, en zoeken blijft beperkt tot de kopgegevens die de uitvraag tijdens de sessie al heeft.</p>
+<h2>Technische verwijzing</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Stap</th>
+   <th>Koppelvlak</th>
+   <th>Opmerking</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Zoeken</td>
+   <td><code>GET /api/v1/berichten/_zoeken?q=</code></td>
+   <td><code>q</code> 2 tot 200 tekens, anders <code>400</code>. <code>409 nog-niet-opgehaald</code> of <code>ophalen-bezig</code>, <code>503 ophalen-mislukt</code>. Alleen een <code>self</code>-link, geen paginering</td>
+  </tr>
+  <tr>
+   <td>Zoekindex</td>
+   <td>RediSearch-index over de berichten in de sessiecache</td>
+   <td>Alleen <code>onderwerp</code> is full-text doorzoekbaar. Elk niet-alfanumeriek teken in <code>q</code> wordt geëscaped</td>
+  </tr>
+  <tr>
+   <td>Logboek</td>
+   <td><code>uitvraag-zoeken</code></td>
+   <td>De zoekterm wordt niet vastgelegd</td>
+  </tr>
+ </tbody>
+</table></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

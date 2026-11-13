@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 6: Bijlage openen of downloaden | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="./" class="is-active">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 6: Bijlage openen of downloaden</h1>
+<p>Een ondernemer opent of downloadt een bijlage bij een bericht.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een ondernemer die een bericht heeft geopend (use case 5)</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De ondernemer klikt op een bijlage</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>Een PDF of afbeelding opent in het portaal. Andere bestanden worden gedownload, onder de bestandsnaam die de organisatie meegaf</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De ondernemer klikt op een bijlage. Het portaal vraagt die op bij de uitvraag.</li>
+ <li>De uitvraag kijkt of het bericht in de lijst van deze ondernemer staat, en haalt daaruit de bestandsnaam van de bijlage.</li>
+ <li>De uitvraag vraagt de bijlage op bij het magazijn van de organisatie. Het magazijn controleert, via het bericht, of de bijlage bij deze ondernemer hoort.</li>
+ <li>De uitvraag geeft de bijlage door aan het portaal. Een klein bestand in één keer, een groot bestand in delen terwijl het binnenkomt.</li>
+ <li>Een PDF, PNG of JPEG mag het portaal direct tonen. Elk ander bestand biedt de browser aan als download.</li>
+</ol>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    actor OND as Ondernemer / Zakelijke gebruiker
+    participant IL as Interactielaag
+    box Berichten Uitvraag Systeem
+        participant UV as Berichten Uitvraag Service
+        participant SC as Berichtensessiecache
+        participant REG as Magazijnregister
+    end
+    box Berichtenmagazijn (BBO-gehost)
+        participant OB as Berichtenmagazijn Ophaal- en Beheer API
+        participant AUT as Autorisatie Service
+        participant DB as Dataopslag
+    end
+
+    OND-&gt;&gt;IL: Klikt op een bijlage
+    IL-&gt;&gt;UV: Geef bijlage (bericht, bijlage, organisatie)
+    UV-&gt;&gt;SC: Staat dit bericht in de lijst van deze ondernemer?
+    SC--&gt;&gt;UV: Bericht met bestandsnaam van de bijlage
+    UV-&gt;&gt;REG: Adres van het magazijn
+    REG--&gt;&gt;UV: Adres
+    UV-&gt;&gt;OB: Geef de bijlage, voor deze ondernemer
+    OB-&gt;&gt;DB: Zoek bericht en bijlage
+    DB--&gt;&gt;OB: Bijlage
+    OB-&gt;&gt;AUT: Hoort het bericht bij deze ondernemer?
+    AUT--&gt;&gt;OB: Ja
+    OB--&gt;&gt;UV: Bijlage met bestandstype
+    alt Klein bestand
+        UV--&gt;&gt;IL: Bijlage in één keer
+    else Groot bestand
+        UV--&gt;&gt;IL: Bijlage in delen, terwijl hij binnenkomt
+    end
+    alt PDF, PNG of JPEG
+        IL--&gt;&gt;OND: Toont de bijlage
+    else Ander bestandstype
+        IL--&gt;&gt;OND: Biedt de bijlage aan als download
+    end
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de ondernemer merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Het bericht staat niet in de lijst van deze ondernemer, of de bijlage bestaat niet</td>
+   <td>Hetzelfde antwoord als bij een onbekend bericht (use case 5)</td>
+   <td>"Deze bijlage is niet (meer) beschikbaar"</td>
+  </tr>
+  <tr>
+   <td>De ondernemer heeft het bericht in deze sessie verwijderd</td>
+   <td>De uitvraag weigert</td>
+   <td>"U hebt dit bericht verwijderd"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn is onbereikbaar of geeft een fout</td>
+   <td>De uitvraag geeft niets door</td>
+   <td>"Probeer het straks nog eens"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn zegt niet wat voor bestand het is</td>
+   <td>De uitvraag geeft niets door</td>
+   <td>"Probeer het straks nog eens"</td>
+  </tr>
+  <tr>
+   <td>Het bestandstype is onbekend of ongeldig</td>
+   <td>De uitvraag geeft het door als download, nooit als iets dat het portaal toont</td>
+   <td>Het bestand wordt gedownload</td>
+  </tr>
+  <tr>
+   <td>De ondernemer downloadt meer dan 3 grote bestanden tegelijk, of er lopen er meer dan 20 op één instantie</td>
+   <td>De uitvraag weigert de volgende</td>
+   <td>"Te veel downloads tegelijk", opnieuw proberen na 30 seconden</td>
+  </tr>
+  <tr>
+   <td>De verbinding met het magazijn breekt af halverwege een groot bestand</td>
+   <td>De uitvraag breekt de download af. Het logboek houdt de verstrekking als geslaagd: liever te veel vastgelegd dan te weinig</td>
+   <td>De download mislukt en moet opnieuw</td>
+  </tr>
+  <tr>
+   <td>Het portaal leest een minuut lang niets van de download</td>
+   <td>De uitvraag breekt de download af</td>
+   <td>De download mislukt</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Doelarchitectuur</h2>
+<p>Zie use case 5: autorisatie, identiteit en FSC wijken op dezelfde manier af.</p>
+<h2>Technische verwijzing</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Stap</th>
+   <th>Koppelvlak</th>
+   <th>Opmerking</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Uitvraag</td>
+   <td><code>GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}?magazijnId=</code></td>
+   <td><code>404 bericht-onbekend</code> ook als het magazijn <code>410</code> geeft, <code>410</code> alleen bij een eigen verwijdering in deze sessie, <code>502 keten-fout</code>, <code>503 te-veel-gelijktijdige-downloads</code> met <code>Retry-After: 30</code></td>
+  </tr>
+  <tr>
+   <td>Magazijn</td>
+   <td><code>GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}</code> met <code>X-Ontvanger</code></td>
+   <td>Eigenaarscontrole via het bericht</td>
+  </tr>
+  <tr>
+   <td>Doorgeven</td>
+   <td><code>BijlageDoorgifte</code></td>
+   <td>Tot 1 MiB in één keer, daarboven streaming. Slots: 3 per ontvanger, 20 per instantie. 60s zonder lezen breekt af</td>
+  </tr>
+  <tr>
+   <td>Weergave</td>
+   <td><code>Content-Disposition</code> <code>inline</code> alleen voor <code>application/pdf</code>, <code>image/png</code>, <code>image/jpeg</code>, anders <code>attachment</code></td>
+   <td>Een <code>inline</code>-bijlage mag same-origin geframed worden. Bestandsnaam uit de sessiecache</td>
+  </tr>
+  <tr>
+   <td>Logboek</td>
+   <td>Uitvraag <code>uitvraag-bijlage</code>, magazijn <code>ophalen-bijlage</code></td>
+   <td></td>
+  </tr>
+ </tbody>
+</table></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

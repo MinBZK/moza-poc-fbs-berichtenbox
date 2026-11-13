@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Beheervragen | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="./" class="is-active">Beheervragen</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Beheervragen</h1>
+<p>In het overleg met Logius over de use cases kwamen drie situaties op tafel die niet over het gebruik gaan, maar over het beheer van het stelsel. Ze delen één onderzoeksvraag: hoeveel moet er centraal vastgelegd worden om het stelsel goed te beheren, en botst dat met de bedoeling dat er geen centrale verwerker van berichten is?</p>
+<p>Deze pagina is geen uitgewerkte use case: of en hoe deze situaties erin komen, stelt de refinement vast. Wel staat hier wat het stelsel er <strong>nu</strong> op kan antwoorden, met verwijzing naar de use cases waar het gedrag beschreven is. Logius wordt hier genoemd als beheerder van het stelsel; voor de vragen maakt het niet uit wie die rol krijgt.</p>
+<h2>1. Heeft de ondernemer het bericht kunnen zien?</h2>
+<p>Een organisatie heeft een conflict met een ondernemer over een belangrijk bericht. Haar eigen logging laat zien dat het bericht nooit geopend is; de ondernemer zegt het nooit ontvangen te hebben. De organisatie vraagt de beheerder: is er een melding gestuurd, en zo nee, waarom niet? En heeft de ondernemer in zijn berichtenbox gekeken terwijl het bericht daar te zien was?</p>
+<p><strong>Wat het stelsel nu vastlegt:</strong></p>
+<table>
+ <thead>
+  <tr>
+   <th>Vraag</th>
+   <th>Waar het staat</th>
+   <th>Wat er wel en niet uit blijkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Is het bericht aangenomen?</td>
+   <td>Logboek van het magazijn, bij het aanleveren (use case 1)</td>
+   <td>Wel: wanneer, voor welke ontvanger, en of het lukte. Weigerde het magazijn het bericht, bijvoorbeeld omdat de ondernemer geen berichten van deze organisatie wilde, dan staat de weigering er ook, maar zonder de ontvanger: die legt het magazijn pas vast als het bericht door de controle is. De organisatie kreeg de weigering wel direct</td>
+  </tr>
+  <tr>
+   <td>Is de melding verstuurd?</td>
+   <td>Logboek van het magazijn, per poging om de Notificatie Service te bereiken (use case 1)</td>
+   <td>Wel: of de Notificatie Service de melding aannam. Niet: of die dienst daarna een e-mail stuurde, en naar welk adres. Dat ligt bij de Notificatie Service</td>
+  </tr>
+  <tr>
+   <td>Heeft de ondernemer gekeken?</td>
+   <td>Logboek van de uitvraag (ophalen, lijst, zoeken, openen), en het logboek van elk magazijn dat bevraagd werd (use case 2)</td>
+   <td>Wel: wanneer de ondernemer ingelogd was, wanneer de uitvraag de berichtenlijst bij het magazijn van deze organisatie ophaalde, en of dat lukte. Niet: welke berichten in die lijst zaten, en welke het portaal liet zien</td>
+  </tr>
+  <tr>
+   <td>Heeft de ondernemer het bericht geopend?</td>
+   <td>Logboek van de uitvraag en van het magazijn (use case 5)</td>
+   <td>Wel: dat er een bericht geopend is, voor welke ondernemer. Het berichtnummer staat er niet bij</td>
+  </tr>
+ </tbody>
+</table>
+<p>Daaruit valt af te leiden, niet aan te tonen, dat het bericht getoond kon worden: het magazijn gaf op een bepaald moment de lijst van deze ondernemer af, en het bericht was toen al gepubliceerd en niet verwijderd. Dat het in de lijst zat (er gaan hooguit 500 berichten per magazijn mee) en dat het portaal het liet zien, staat nergens.</p>
+<p><strong>Wat het kost om dat wel vast te leggen.</strong> Bij elke keer inloggen bevraagt de uitvraag alleen de magazijnen van de organisaties waarvan de ondernemer berichten via de berichtenbox wil ontvangen; is de ontvanger een organisatie, dan alle magazijnen. Elk bevraagd magazijn legt nu één regel per pagina van 100 berichten vast. Leggen we per getoond bericht een regel vast, dan groeit dat naar één regel per bericht per keer inloggen, verspreid over de logboeken van alle betrokken magazijnen en de uitvraag. Met 1800 magazijnen en een ontvanger die een organisatie is, levert één keer inloggen nu al minstens 1800 logregels op; per getoond bericht vastleggen voegt daar één regel per bericht aan toe.</p>
+<p><strong>Waar het antwoord vandaan moet komen.</strong> Er is geen centrale plek die dit bijhoudt. Het antwoord vraagt het logboek van de uitvraag, het logboek van het magazijn van de organisatie, en het logboek van de Notificatie Service.</p>
+<h2>2. Alle berichten van een ondernemer wissen</h2>
+<p>Een ondernemer beroept zich op het recht op gegevenswissing: al zijn berichten moeten uit de berichtenbox verdwijnen, met bijlagen. Ondernemer en beheerder willen daarna bewijs dat dat gelukt is.</p>
+<p><strong>Wat het stelsel nu kan:</strong></p>
+<ul>
+ <li>De ondernemer kan berichten één voor één verwijderen (use case 8). Het magazijn markeert ze als verwijderd en ruimt ze pas definitief op als ze zeven jaar geleden verwijderd én zeven jaar geleden ontvangen zijn.</li>
+ <li>Er is geen opdracht die alle berichten van één ondernemer in één keer verwijdert, niet in een magazijn en niet over alle magazijnen heen.</li>
+ <li>Het magazijn legt elk verwijderen door de ondernemer vast in zijn logboek. Het definitief opruimen legt het alleen vast in de applicatielog, zonder het nummer van de ondernemer.</li>
+ <li>De berichtenlijst in de uitvraag verdwijnt vanzelf aan het einde van de sessie, en dat wissen staat in het logboek van de uitvraag.</li>
+ <li>De logboeken zelf bevatten het nummer van de ondernemer bij elke verwerking.</li>
+</ul>
+<p><strong>Wat er nodig zou zijn:</strong> een opdracht aan elk magazijn om alle berichten van een ontvanger te wissen, een bevestiging per magazijn, en een manier om om te gaan met een magazijn dat (even) niet kan wissen. Zonder centrale opslag van berichten weet ook niemand centraal in welke magazijnen berichten van deze ondernemer staan: dat blijkt alleen door ze allemaal te vragen.</p>
+<h2>3. Een magazijn is langere tijd uit de lucht</h2>
+<p>Het magazijn van een organisatie ligt langere tijd plat. Een ondernemer mist daardoor belangrijke berichten en vraagt de beheerder om er toch bij te kunnen.</p>
+<p><strong>Wat het stelsel nu doet:</strong></p>
+<ul>
+ <li>Bij het openen van de berichtenbox ziet de ondernemer de berichten van de andere organisaties, en de melding welke organisatie niet leverde (use case 2). Na een paar mislukte pogingen slaat de uitvraag het magazijn telkens even over.</li>
+ <li>Berichten die de organisatie in die tijd wil versturen, kan het magazijn niet aannemen (use case 1). Wat al gepubliceerd was en een melding opleverde, kan de ondernemer niet openen: hij heeft dan een melding van een bericht dat hij niet ziet.</li>
+ <li>Er is geen kopie van de berichten buiten het magazijn. Alleen de organisatie zelf kan de berichten op een andere manier bij de ondernemer krijgen.</li>
+</ul>
+<h2>Andere situaties uit het overleg</h2>
+<ul>
+ <li><strong>Een melding ontvangen, maar het bericht niet zien.</strong> Kan bij een onbereikbaar magazijn (hierboven), bij een magazijn dat niet in het magazijnregister staat (use case 2), of als het bericht intussen verwijderd is.</li>
+ <li><strong>Een bericht verwachten dat niet komt.</strong> Kan als het magazijn het bericht weigerde omdat de ondernemer geen berichten van deze organisatie via de berichtenbox wil (use case 1): de organisatie weet dat, de ondernemer niet.</li>
+ <li><strong>Magazijnen die machtigingen kennen.</strong> Een magazijn moet ook de berichten teruggeven die horen bij een machtiging. Dat zit nog niet in het stelsel; zie de doelarchitectuur bij use case 2.</li>
+</ul></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

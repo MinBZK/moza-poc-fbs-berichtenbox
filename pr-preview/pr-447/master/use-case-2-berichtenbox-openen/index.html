@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 2: Berichtenbox openen | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="./" class="is-active">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 2: Berichtenbox openen</h1>
+<p>Een ondernemer opent de berichtenbox en ziet de berichten uit alle magazijnen bij elkaar.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een ondernemer, in het portaal</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De ondernemer logt in en wil zijn berichten zien, bijvoorbeeld na een melding uit use case 1</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>De ondernemer ziet één lijst met de berichten van alle organisaties waarvan hij berichten via de berichtenbox ontvangt, nieuwste eerst. Leverde een organisatie niet, dan ziet hij welke</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De ondernemer logt in op het portaal. Het portaal start een sessie bij de uitvraag. Had de ondernemer nog gegevens staan van een eerdere sessie die niet netjes is afgesloten, dan wist de uitvraag die eerst, en legt dat vast in het logboek.</li>
+ <li>Het portaal vraagt de uitvraag de berichten op te halen. Het antwoord is een doorlopende stroom meldingen, zodat het portaal de voortgang per organisatie kan tonen.</li>
+ <li>De uitvraag vraagt de Profiel Service van welke organisaties de ondernemer berichten via de berichtenbox wil ontvangen, en zoekt in het magazijnregister het magazijn van elk van die organisaties op.</li>
+ <li>De uitvraag bevraagt al die magazijnen tegelijk. Elk magazijn geeft de kopgegevens van de berichten van deze ondernemer: afzender, onderwerp, datum, map, gelezen of niet. De tekst en de bijlagen blijven in het magazijn.</li>
+ <li>Per magazijn meldt de uitvraag aan het portaal of het gelukt is, en hoeveel berichten het waren.</li>
+ <li>Als alle magazijnen geantwoord hebben (of te laat zijn), bewaart de uitvraag de samengevoegde lijst zolang de ondernemer ingelogd is, en meldt dat het ophalen klaar is.</li>
+ <li>Het portaal vraagt de lijst op, per pagina, en toont hem.</li>
+ <li>Zolang de ondernemer actief is, verlengt het portaal de sessie. Logt hij uit, dan beëindigt het portaal de sessie. Was dat zijn laatste sessie, dan wist de uitvraag de lijst en legt dat vast in het logboek.</li>
+</ol>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    actor OND as Ondernemer / Zakelijke gebruiker
+    participant IL as Interactielaag
+    box Berichten Uitvraag Systeem
+        participant UV as Berichten Uitvraag Service
+        participant SC as Berichtensessiecache
+        participant REG as Magazijnregister
+    end
+    participant PRO as Profiel Service
+    participant MA as Berichtenmagazijn (BBO-gehost)
+    participant MB as Berichtenmagazijn (eigen gehost)
+
+    OND-&gt;&gt;IL: Logt in en opent de berichtenbox
+    IL-&gt;&gt;UV: Start een sessie voor deze ondernemer
+    UV-&gt;&gt;SC: Registreer de sessie
+    opt Geen andere sessie van deze ondernemer, wel oude gegevens
+        SC-&gt;&gt;SC: Wis de oude gegevens
+        Note over UV: Legt het wissen vast in het logboek
+    end
+    UV--&gt;&gt;IL: Sessie gestart
+
+    IL-&gt;&gt;UV: Haal de berichten op (doorlopende stroom)
+    UV-&gt;&gt;SC: Start een ophaalronde (één tegelijk per ondernemer)
+    SC-&gt;&gt;PRO: Van welke organisaties wil de ondernemer berichten via de berichtenbox?
+    PRO--&gt;&gt;SC: Organisaties
+    SC-&gt;&gt;REG: Welk magazijn hoort bij elke organisatie?
+    REG--&gt;&gt;SC: Magazijnen en hun adres
+    UV--&gt;&gt;IL: Per magazijn: bevraging gestart
+    par Alle magazijnen tegelijk
+        SC-&gt;&gt;MA: Berichten van deze ondernemer (kopgegevens, zonder tekst)
+        MA--&gt;&gt;SC: Berichten
+        UV--&gt;&gt;IL: BBO-magazijn klaar, aantal berichten
+    and
+        SC-&gt;&gt;MB: Berichten van deze ondernemer (kopgegevens, zonder tekst)
+        MB--&gt;&gt;SC: Berichten
+        UV--&gt;&gt;IL: Eigen magazijn klaar, aantal berichten
+    end
+    SC-&gt;&gt;SC: Bewaar de samengevoegde lijst zolang de ondernemer ingelogd is
+    UV--&gt;&gt;IL: Ophalen klaar
+
+    IL-&gt;&gt;UV: Geef de berichtenlijst (pagina 1)
+    UV-&gt;&gt;SC: Lees de lijst
+    SC--&gt;&gt;UV: Berichten, en welke organisaties niet leverden
+    UV--&gt;&gt;IL: Berichtenlijst, nieuwste eerst
+    IL--&gt;&gt;OND: Toont de berichtenbox
+
+    loop Bij activiteit van de ondernemer
+        IL-&gt;&gt;UV: Verleng de sessie
+    end
+    OND-&gt;&gt;IL: Logt uit
+    IL-&gt;&gt;UV: Beëindig de sessie
+    UV-&gt;&gt;SC: Beëindig de sessie
+    opt Dit was de laatste sessie van de ondernemer
+        SC-&gt;&gt;SC: Wis de berichtenlijst
+        Note over UV: Legt het wissen vast in het logboek
+    end
+    UV--&gt;&gt;IL: Sessie beëindigd
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de ondernemer merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Eén magazijn antwoordt met een fout, of niet binnen 10 seconden</td>
+   <td>De uitvraag gaat door met de andere magazijnen. Het magazijn staat in de lijst als "niet geleverd", en het logboek legt vast hoeveel organisaties mislukten</td>
+   <td>Hij ziet de berichten van de andere organisaties, plus de melding welke organisatie niet leverde. Dat blijft zo bij doorbladeren en verversen, tot hij opnieuw ophaalt</td>
+  </tr>
+  <tr>
+   <td>Een magazijn faalt herhaaldelijk</td>
+   <td>Na drie storingen op rij slaat de uitvraag dat magazijn 30 seconden lang meteen over, en probeert het daarna één keer</td>
+   <td>Als hierboven, maar sneller</td>
+  </tr>
+  <tr>
+   <td>Er lopen te veel bevragingen tegelijk, over alle ondernemers samen</td>
+   <td>Een magazijn dat binnen 15 seconden niet aan de beurt komt, wordt niet bevraagd</td>
+   <td>Die organisatie staat als niet geleverd</td>
+  </tr>
+  <tr>
+   <td>Een magazijn heeft meer dan 500 berichten voor deze ondernemer</td>
+   <td>De uitvraag neemt de eerste 500 en markeert de lijst als afgekapt</td>
+   <td>Hij ziet dat er meer berichten zijn dan getoond</td>
+  </tr>
+  <tr>
+   <td>De Profiel Service is onbereikbaar of antwoordt met een fout</td>
+   <td>Is hij onbereikbaar, dan probeert de uitvraag het twee keer opnieuw. Lukt het niet, dan mislukt de hele ophaalronde. Een eerder opgehaalde lijst blijft bewaard, maar is niet meer op te vragen</td>
+   <td>Een foutmelding "probeer het opnieuw". Ook de lijst en het zoeken geven die melding, tot er opnieuw is opgehaald</td>
+  </tr>
+  <tr>
+   <td>De ondernemer heeft geen profiel bij de Profiel Service</td>
+   <td>De uitvraag bevraagt geen enkel magazijn</td>
+   <td>Een lege berichtenbox</td>
+  </tr>
+  <tr>
+   <td>De ondernemer heeft een voorkeur voor een organisatie die niet in het magazijnregister staat</td>
+   <td>De uitvraag slaat die organisatie over. Staat geen enkele organisatie in het register, dan mislukt de ronde</td>
+   <td>Berichten van die organisatie ontbreken, of hij krijgt een foutmelding</td>
+  </tr>
+  <tr>
+   <td>Het ophalen loopt al, bijvoorbeeld in een tweede tabblad</td>
+   <td>De uitvraag start geen tweede ronde</td>
+   <td>Een melding dat het ophalen al bezig is</td>
+  </tr>
+  <tr>
+   <td>Het portaal vraagt de lijst op voordat er is opgehaald</td>
+   <td>De uitvraag weigert</td>
+   <td>Het portaal start eerst het ophalen</td>
+  </tr>
+  <tr>
+   <td>De ondernemer is al op vijf plekken tegelijk ingelogd</td>
+   <td>De uitvraag start geen nieuwe sessie</td>
+   <td>"U bent op te veel plekken tegelijk ingelogd", met de tijd tot een plek vrijkomt</td>
+  </tr>
+  <tr>
+   <td>De sessie is verlopen (15 minuten zonder activiteit, of uiterlijk 12 uur)</td>
+   <td>De uitvraag weigert elk verzoek. Binnen een halve minuut wist hij de berichtenlijst en legt dat vast in het logboek</td>
+   <td>"Uw sessie is verlopen. Log opnieuw in." Na opnieuw inloggen worden de berichten opnieuw opgehaald</td>
+  </tr>
+  <tr>
+   <td>De ondernemer sluit het venster tijdens het ophalen</td>
+   <td>Het ophalen loopt door en vult de lijst</td>
+   <td>Bij terugkomen staat de lijst klaar</td>
+  </tr>
+  <tr>
+   <td>Het tijdelijke geheugen van de uitvraag is onbereikbaar</td>
+   <td>De uitvraag weigert</td>
+   <td>"Probeer het straks nog eens"</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Doelarchitectuur</h2>
+<ul>
+ <li><strong>Inloggen.</strong> In het doelbeeld logt de ondernemer in met eHerkenning, en bewijst een token bij elk verzoek wie hij is en namens welke onderneming hij handelt. Nu geeft het portaal de ondernemer mee als gegeven, en vertrouwt de uitvraag dat.</li>
+ <li><strong>Pseudoniemen.</strong> In het doelbeeld krijgt elk magazijn een eigen versleuteld pseudoniem van de ondernemer (via BSNk), niet het nummer zelf. Nu krijgt elk magazijn het identificatienummer.</li>
+ <li><strong>Machtigingen.</strong> In het doelbeeld bepalen ook de machtigingen van de gebruiker welke magazijnen bevraagd worden. Nu bepalen alleen de voorkeuren in de Profiel Service dat. Is de ontvanger een organisatie (OIN), dan bevraagt de uitvraag alle magazijnen uit het register.</li>
+ <li><strong>FSC.</strong> In het doelbeeld loopt het bevragen van magazijnen via FSC. Nu is dat per magazijn in te stellen.</li>
+</ul>
+<h2>Technische verwijzing</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Stap</th>
+   <th>Koppelvlak</th>
+   <th>Opmerking</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Sessie starten</td>
+   <td><code>POST /api/v1/sessies</code></td>
+   <td><code>201</code>, <code>sessieId</code> als <code>X-Sessie</code> op elk volgend verzoek. <code>429 te-veel-sessies</code> bij 5 lopende sessies. Wissen van resten: logregel <code>uitvraag-sessie-opruimen</code>, <code>aanleiding=nieuwe-start</code></td>
+  </tr>
+  <tr>
+   <td>Ophalen</td>
+   <td><code>GET /api/v1/berichten/_ophalen</code> (SSE)</td>
+   <td>Events <code>magazijn-bevraging-gestart</code>, <code>magazijn-bevraging-voltooid</code> (<code>OK</code>, <code>FOUT</code>, <code>TIMEOUT</code>, <code>NIET_OPGEHAALD</code>), <code>ophalen-gereed</code>, <code>ophalen-fout</code>. Een tweede ronde geeft <code>409</code> (<code>type</code> <code>urn:fbs:fout:conflict</code>). Profiel-storing: <code>503</code> met <code>Retry-After: 30</code></td>
+  </tr>
+  <tr>
+   <td>Voorkeuren</td>
+   <td><code>POST /api/profielservice/v1/partij</code></td>
+   <td>Voorkeur <code>OntvangViaBerichtenbox</code> per OIN. 30 seconden in het geheugen. <code>404</code> op de partij geeft een lege set</td>
+  </tr>
+  <tr>
+   <td>Magazijn bevragen</td>
+   <td><code>GET /api/v1/berichten?page&amp;pageSize=100</code> op elk magazijn</td>
+   <td>Doorbladeren tot 500 berichten. Query-timeout 10s, geen retry. Circuit breaker per magazijn (3 storingen, 30s open). Bulkhead 50 gelijktijdig, 15s wachten</td>
+  </tr>
+  <tr>
+   <td>Lijst</td>
+   <td><code>GET /api/v1/berichten?pagina&amp;paginaGrootte</code></td>
+   <td><code>nietGeleverd</code>, <code>afgekapt</code>, <code>aantalNietGeleverd</code>. <code>409 nog-niet-opgehaald</code>, <code>409 ophalen-bezig</code>, <code>503 ophalen-mislukt</code></td>
+  </tr>
+  <tr>
+   <td>Verlengen</td>
+   <td><code>POST /api/v1/sessies/huidige/_verlengen</code></td>
+   <td>Ook elk verzoek onder <code>/berichten</code> (behalve <code>_volgen</code>) verlengt</td>
+  </tr>
+  <tr>
+   <td>Uitloggen</td>
+   <td><code>DELETE /api/v1/sessies/huidige</code></td>
+   <td>Altijd <code>204</code>. Wissen bij de laatste sessie: <code>uitvraag-sessie-opruimen</code>, <code>aanleiding=uitgelogd</code></td>
+  </tr>
+  <tr>
+   <td>Verlopen</td>
+   <td><code>SessieVeger</code>, elke 30s</td>
+   <td><code>uitvraag-sessie-opruimen</code>, <code>aanleiding=verlopen</code></td>
+  </tr>
+  <tr>
+   <td>Logboek</td>
+   <td><code>uitvraag-sessie-start</code>, <code>uitvraag-ophalen-sse</code>, <code>uitvraag-lijst</code>. Magazijn: <code>ophalen-berichtenlijst</code></td>
+   <td></td>
+  </tr>
+ </tbody>
+</table></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

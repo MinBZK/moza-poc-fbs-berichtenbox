@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 8: Bericht verwijderen | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="./" class="is-active">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 8: Bericht verwijderen</h1>
+<p>Een ondernemer verwijdert een bericht.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een ondernemer met een geopende berichtenbox</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De ondernemer wil een bericht niet meer in zijn berichtenbox hebben</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>Het bericht is uit de berichtenbox verdwenen en komt niet terug. Het magazijn bewaart het nog tot de bewaartermijn verstreken is, en ruimt het dan definitief op</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De ondernemer verwijdert een bericht. Het portaal geeft dat door aan de uitvraag.</li>
+ <li>De uitvraag stuurt het verwijderen naar het magazijn van de organisatie die het bericht stuurde.</li>
+ <li>Het magazijn controleert of het bericht bij deze ondernemer hoort, en markeert het als verwijderd. Tekst en bijlagen blijven nog staan, maar het bericht komt in geen enkele lijst meer voor en is niet meer op te vragen.</li>
+ <li>De uitvraag haalt het bericht uit de lijst in de sessie, en onthoudt dat de ondernemer het zelf verwijderd heeft. Vraagt hij het in deze sessie opnieuw op, dan hoort hij dat.</li>
+ <li>Elke nacht om 03:00 ruimt de Retentie Service van het magazijn de berichten definitief op die zowel ten minste zeven jaar geleden verwijderd zijn als ten minste zeven jaar geleden ontvangen.</li>
+</ol>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    actor OND as Ondernemer / Zakelijke gebruiker
+    participant IL as Interactielaag
+    box Berichten Uitvraag Systeem
+        participant UV as Berichten Uitvraag Service
+        participant REG as Magazijnregister
+        participant SC as Berichtensessiecache
+    end
+    box Berichtenmagazijn (BBO-gehost)
+        participant OB as Berichtenmagazijn Ophaal- en Beheer API
+        participant AUT as Autorisatie Service
+        participant DB as Dataopslag
+        participant RET as Retentie Service
+    end
+
+    OND-&gt;&gt;IL: Verwijdert een bericht
+    IL-&gt;&gt;UV: Verwijder het bericht
+    UV-&gt;&gt;REG: Adres van het magazijn
+    REG--&gt;&gt;UV: Adres
+    UV-&gt;&gt;OB: Verwijder het bericht voor deze ondernemer
+    OB-&gt;&gt;DB: Zoek het bericht
+    DB--&gt;&gt;OB: Bericht
+    OB-&gt;&gt;AUT: Hoort het bericht bij deze ondernemer?
+    AUT--&gt;&gt;OB: Ja
+    OB-&gt;&gt;DB: Markeer als verwijderd
+    Note over OB: Legt het verwijderen vast in het logboek
+    OB--&gt;&gt;UV: Verwijderd
+    UV-&gt;&gt;SC: Haal het bericht uit de lijst en onthoud dat het verwijderd is
+    UV--&gt;&gt;IL: Verwijderd
+    IL--&gt;&gt;OND: Het bericht is weg
+
+    Note over RET: Later: elke nacht om 03:00
+    loop In porties, tot alles opgeruimd is
+        RET-&gt;&gt;DB: Berichten die 7 jaar geleden verwijderd en 7 jaar geleden ontvangen zijn
+        RET-&gt;&gt;DB: Verwijder bijlagen, status en bericht definitief
+    end
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de ondernemer merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Het bericht bestaat niet in het magazijn</td>
+   <td>Er verandert niets</td>
+   <td>"Dit bericht is niet (meer) beschikbaar"</td>
+  </tr>
+  <tr>
+   <td>Het bericht is van een andere ontvanger</td>
+   <td>Het magazijn weigert</td>
+   <td>Een melding dat hij geen toegang heeft</td>
+  </tr>
+  <tr>
+   <td>Het bericht is al verwijderd</td>
+   <td>Het magazijn meldt het verwijderen als geslaagd en verandert niets</td>
+   <td>Niets</td>
+  </tr>
+  <tr>
+   <td>Het magazijn is onbereikbaar</td>
+   <td>Er verandert niets</td>
+   <td>"Probeer het straks nog eens"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn heeft verwijderd, maar het bijwerken van de lijst mislukt</td>
+   <td>De uitvraag probeert het bericht nog eens uit de lijst te halen. Lukt dat niet, dan krijgt de beheerder een waarschuwing</td>
+   <td>Een foutmelding, terwijl het bericht wel verwijderd is. Bij het volgende ophalen is het weg</td>
+  </tr>
+  <tr>
+   <td>De ondernemer opent het bericht na het einde van zijn sessie, bijvoorbeeld via een oude link</td>
+   <td>De uitvraag weet niet meer dat hij het verwijderd heeft: dat spoor verdwijnt met de sessie</td>
+   <td>"Dit bericht is niet (meer) beschikbaar"</td>
+  </tr>
+  <tr>
+   <td>Het definitief opruimen gaat mis</td>
+   <td>Het bericht blijft staan tot de volgende nacht</td>
+   <td>Niets</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Doelarchitectuur</h2>
+<ul>
+ <li><strong>Logboek bij het definitief opruimen.</strong> Het model zegt dat de Retentie Service het definitief verwijderen vastlegt in het Logboek Dataverwerkingen. Nu legt hij het alleen vast in de applicatielog van het magazijn, zonder het nummer van de ontvanger.</li>
+ <li><strong>Organisatie verwijdert een bericht.</strong> Het koppelvlak van het magazijn kent geen manier waarop de organisatie zelf een bericht intrekt. Een zelf gehost magazijn kan dat intern regelen; voor de ondernemer verdwijnt het bericht dan bij het volgende ophalen, zonder melding.</li>
+ <li><strong>Alle berichten van een ondernemer wissen.</strong> Er is geen manier om alle berichten van één ondernemer in één keer te verwijderen. Zie de pagina met beheervragen.</li>
+</ul>
+<h2>Technische verwijzing</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Stap</th>
+   <th>Koppelvlak</th>
+   <th>Opmerking</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Uitvraag</td>
+   <td><code>DELETE /api/v1/berichten/{berichtId}?magazijnId=</code></td>
+   <td><code>204</code>. Fouten van het magazijn gaan door als <code>404</code>, <code>403</code>, <code>502</code>. Na een geslaagde magazijn-delete en een cachestoring: <code>502</code></td>
+  </tr>
+  <tr>
+   <td>Magazijn</td>
+   <td><code>DELETE /api/v1/berichten/{berichtId}</code> met <code>X-Ontvanger</code></td>
+   <td>Soft-delete: <code>verwijderd_op</code> gezet. <code>204</code> ook als het al verwijderd was. <code>404</code> onbekend, <code>403</code> andermans bericht</td>
+  </tr>
+  <tr>
+   <td>Lijst</td>
+   <td><code>Sessiecache.verwijder</code></td>
+   <td>Haalt het bericht uit de lijst en schrijft een tombstone tot het einde van de laatste sessie. Daarna geven bericht en bijlage <code>410 bericht-verwijderd</code></td>
+  </tr>
+  <tr>
+   <td>Retentie</td>
+   <td><code>HardDeleteJob</code>, cron <code>0 0 3 * * ?</code></td>
+   <td>Drempels <code>verwijderd_op</code> en <code>tijdstip_ontvangst</code> allebei ten minste 7 jaar (<code>P7Y</code>). Batches van 1000, hooguit 100.000 per run, <code>SKIP LOCKED</code> tussen instanties</td>
+  </tr>
+  <tr>
+   <td>Logboek</td>
+   <td>Uitvraag <code>uitvraag-verwijder</code>, magazijn <code>verwijderen-bericht</code>. Retentie: alleen applicatielog</td>
+   <td></td>
+  </tr>
+ </tbody>
+</table></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

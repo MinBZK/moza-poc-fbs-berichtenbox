@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 7: Bericht verplaatsen of archiveren | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="./" class="is-active">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 7: Bericht verplaatsen of archiveren</h1>
+<p>Een ondernemer verplaatst een bericht naar een map, of archiveert het. Markeren als gelezen of ongelezen gaat op dezelfde manier.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een ondernemer met een geopende berichtenbox</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De ondernemer ordent zijn post: "Belasting", "Te bespreken met adviseur", "Archief"</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>Het bericht staat in de gekozen map, bij de organisatie die het verstuurde, en blijft daar ook na uitloggen</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De ondernemer kiest een map voor een bericht. Archiveren is verplaatsen naar een map met die naam: er is geen aparte archiefstand. Een lege mapnaam zet het bericht terug in het Postvak IN.</li>
+ <li>Het portaal geeft de wijziging door aan de uitvraag.</li>
+ <li>De uitvraag stuurt de wijziging naar het magazijn van de organisatie die het bericht verstuurde. Daar staat de map, als eigenschap van het bericht. Er is geen centrale lijst van mappen; zie <a href="https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/mappen-bij-het-bericht.md" target="blank">Mappen horen bij het bericht</a>.</li>
+ <li>Het magazijn controleert of het bericht bij deze ondernemer hoort, en slaat de map op.</li>
+ <li>Daarna werkt de uitvraag de lijst in de sessie bij, en geeft het bijgewerkte bericht terug.</li>
+</ol>
+<p>Eerst het magazijn, dan de lijst: het magazijn is de plek waar de wijziging blijft bestaan. Gaat het bijwerken van de lijst mis, dan staat de wijziging toch in het magazijn, en klopt de lijst weer na het volgende ophalen.</p>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    actor OND as Ondernemer / Zakelijke gebruiker
+    participant IL as Interactielaag
+    box Berichten Uitvraag Systeem
+        participant UV as Berichten Uitvraag Service
+        participant REG as Magazijnregister
+        participant SC as Berichtensessiecache
+    end
+    box Berichtenmagazijn (BBO-gehost)
+        participant OB as Berichtenmagazijn Ophaal- en Beheer API
+        participant AUT as Autorisatie Service
+        participant DB as Dataopslag
+    end
+
+    OND-&gt;&gt;IL: Zet een bericht in map Belasting
+    IL-&gt;&gt;UV: Wijzig het bericht: map Belasting
+    UV-&gt;&gt;REG: Adres van het magazijn
+    REG--&gt;&gt;UV: Adres
+    UV-&gt;&gt;OB: Wijzig het bericht voor deze ondernemer: map Belasting
+    OB-&gt;&gt;DB: Zoek het bericht
+    DB--&gt;&gt;OB: Bericht
+    OB-&gt;&gt;AUT: Hoort het bericht bij deze ondernemer?
+    AUT--&gt;&gt;OB: Ja
+    OB-&gt;&gt;DB: Sla map en gelezen-stand op
+    Note over OB: Legt de wijziging vast in het logboek
+    OB--&gt;&gt;UV: Gewijzigd
+    UV-&gt;&gt;SC: Werk het bericht in de lijst bij
+    alt Bijwerken van de lijst lukt
+        SC--&gt;&gt;UV: Bijgewerkt bericht
+        UV--&gt;&gt;IL: Bijgewerkt bericht
+        IL--&gt;&gt;OND: Het bericht staat in de map
+    else Bijwerken van de lijst mislukt
+        UV-&gt;&gt;SC: Haal het bericht uit de lijst, tot het volgende ophalen
+        UV--&gt;&gt;IL: Fout
+        IL--&gt;&gt;OND: "Probeer het straks nog eens"
+    end
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de ondernemer merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>De wijziging is leeg, of de mapnaam bestaat alleen uit spaties</td>
+   <td>De uitvraag weigert</td>
+   <td>Een melding dat de wijziging niet geldig is</td>
+  </tr>
+  <tr>
+   <td>Het bericht bestaat niet in het magazijn</td>
+   <td>Er verandert niets</td>
+   <td>"Dit bericht is niet (meer) beschikbaar"</td>
+  </tr>
+  <tr>
+   <td>Het bericht is van een andere ontvanger</td>
+   <td>Het magazijn weigert. Anders dan bij lezen is dit antwoord anders dan bij een onbekend bericht</td>
+   <td>Een melding dat hij geen toegang heeft</td>
+  </tr>
+  <tr>
+   <td>Het bericht is al verwijderd</td>
+   <td>Er verandert niets</td>
+   <td>"U hebt dit bericht verwijderd"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn is onbereikbaar</td>
+   <td>Er verandert niets</td>
+   <td>"Probeer het straks nog eens"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn heeft de wijziging opgeslagen, maar het bijwerken van de lijst mislukt</td>
+   <td>De uitvraag haalt het bericht uit de lijst, zodat er geen verouderde versie blijft staan. Hij gebruikt daarvoor dezelfde stap als verwijderen, en onthoudt dus ook dat het bericht verwijderd is. Lukt ook dat niet, dan krijgt de beheerder een waarschuwing</td>
+   <td>Een foutmelding, terwijl de wijziging wel bewaard is. Het bericht is uit de lijst verdwenen, en opent hij het toch, dan hoort hij ten onrechte dat hij het verwijderd heeft. Na opnieuw ophalen staat het bericht in de nieuwe map</td>
+  </tr>
+  <tr>
+   <td>Het magazijn heeft de wijziging opgeslagen, maar het bericht staat niet in de lijst</td>
+   <td>De beheerder krijgt een waarschuwing</td>
+   <td>"Dit bericht is niet (meer) beschikbaar", terwijl de wijziging wel bewaard is</td>
+  </tr>
+ </tbody>
+</table>
+<p>Een map hernoemen is elk bericht in die map wijzigen, bij elke organisatie waar die berichten staan. Een lege map bestaat niet. Zie het stuk over mappen hierboven.</p>
+<h2>Doelarchitectuur</h2>
+<ul>
+ <li><strong>Labels en mappen als stelselafspraak.</strong> Uit het overleg met Logius: magazijnen moeten allerlei labels en mappen kunnen opslaan. Dat wordt een eis aan elk magazijn, ook aan zelf gehoste.</li>
+ <li><strong>Autorisatie.</strong> Zie use case 5.</li>
+</ul>
+<h2>Technische verwijzing</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Stap</th>
+   <th>Koppelvlak</th>
+   <th>Opmerking</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Uitvraag</td>
+   <td><code>PATCH /api/v1/berichten/{berichtId}?magazijnId=</code>, <code>application/merge-patch+json</code></td>
+   <td>Velden <code>status</code> (<code>gelezen</code>, <code>ongelezen</code>) en <code>map</code> (max 128 tekens, <code>""</code> is Postvak IN). Geen veld voor archiveren</td>
+  </tr>
+  <tr>
+   <td>Magazijn</td>
+   <td><code>PATCH /api/v1/berichten/{berichtId}</code> met <code>X-Ontvanger</code></td>
+   <td><code>404</code> onbekend, <code>403</code> andermans bericht, <code>410</code> verwijderd. Upsert in <code>bericht_status</code></td>
+  </tr>
+  <tr>
+   <td>Lijst bijwerken</td>
+   <td><code>Sessiecache.werkBerichtBij</code></td>
+   <td>Bij een cachestoring: compenserende invalidatie via <code>Sessiecache.verwijder</code> (die ook een tombstone schrijft) en <code>502</code>. Mislukt ook die: alert <code>cache_desync_no_selfheal</code></td>
+  </tr>
+  <tr>
+   <td>Logboek</td>
+   <td>Uitvraag <code>uitvraag-patch</code>, magazijn <code>bijwerken-bericht-status</code></td>
+   <td></td>
+  </tr>
+ </tbody>
+</table></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>
