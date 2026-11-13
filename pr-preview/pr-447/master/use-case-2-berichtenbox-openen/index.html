@@ -94,10 +94,10 @@
 
     IL-&gt;&gt;FBS: Haal de berichten op (doorlopende verbinding)
     FBS-&gt;&gt;FBS: Start een ophaalronde (één tegelijk per ondernemer)
-    Note over FBS: Legt het ophalen vast in het logboek
     FBS-&gt;&gt;PRO: Van welke organisaties wil de ondernemer berichten via de berichtenbox?
     PRO--&gt;&gt;FBS: Organisaties
     FBS-&gt;&gt;FBS: Zoek het magazijn van elke organisatie op in het magazijnregister
+    Note over FBS: Legt het ophalen vast in het logboek
     FBS--&gt;&gt;IL: Per magazijn: bevraging gestart
     loop Per magazijn (de bevragingen lopen tegelijk)
         FBS-&gt;&gt;MAG: Berichten van deze ondernemer (kopgegevens, zonder tekst)
