@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="./" class="is-active">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="./" class="is-active">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -70,7 +70,7 @@
  <li>De uitvraag controleert dat de sessie loopt en dat het ophalen klaar is, en meldt dat het volgen begonnen is. Op dat moment leest het portaal de lijst opnieuw, zodat er niets tussen ophalen en volgen verloren gaat.</li>
  <li>Om de 20 seconden controleert de uitvraag of de sessie nog loopt, en stuurt een teken van leven. Een openstaande verbinding verlengt de sessie niet: alleen activiteit van de ondernemer doet dat.</li>
  <li>Een magazijn meldt een nieuw bericht aan (use case 1, stap 7). De uitvraag zet het in de lijst van de ondernemer.</li>
- <li>De uitvraag kan uit meerdere instanties bestaan. De instantie die de aanmelding ontving, geeft het nieuwe bericht via het tijdelijke geheugen door aan alle instanties. De instantie waarmee het portaal verbonden is, stuurt de kopgegevens naar het portaal.</li>
+ <li>De uitvraag draait op meerdere servers tegelijk. De server die de aanmelding ontving, laat via het tijdelijke geheugen alle andere servers weten dat er een nieuw bericht is. De server waarmee het portaal verbonden is, stuurt de kopgegevens naar het portaal.</li>
  <li>Het portaal toont het nieuwe bericht.</li>
  <li>Eindigt de sessie, door uitloggen of verlopen, dan meldt de uitvraag dat bij de eerstvolgende controle en sluit de verbinding.</li>
 </ol>
@@ -79,40 +79,30 @@
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant SC as Berichtensessiecache
-        participant AMS as Aanmeld Service
-    end
-    participant PUB as Publicatie Stream
+    participant FBS as Berichten Uitvraag Systeem
+    participant MAG as Berichtenmagazijn
 
-    IL-&gt;&gt;UV: Volg de berichtenbox (doorlopende verbinding)
-    UV-&gt;&gt;SC: Loopt de sessie, en is het ophalen klaar?
-    SC--&gt;&gt;UV: Ja
-    UV-&gt;&gt;SC: Meld deze verbinding aan voor nieuwe berichten van de ondernemer
-    UV--&gt;&gt;IL: Volgen gestart
-    IL-&gt;&gt;UV: Geef de berichtenlijst (opnieuw)
-    UV--&gt;&gt;IL: Berichtenlijst
+    IL-&gt;&gt;FBS: Volg de berichtenbox (doorlopende verbinding)
+    FBS-&gt;&gt;FBS: Loopt de sessie, en is het ophalen klaar?
+    FBS--&gt;&gt;IL: Volgen gestart
+    IL-&gt;&gt;FBS: Geef de berichtenlijst (opnieuw)
+    FBS--&gt;&gt;IL: Berichtenlijst
 
     par Teken van leven
         loop Elke 20 seconden
-            UV-&gt;&gt;SC: Loopt de sessie nog?
-            SC--&gt;&gt;UV: Ja
-            UV--&gt;&gt;IL: Hartslag
+            FBS-&gt;&gt;FBS: Loopt de sessie nog?
+            FBS--&gt;&gt;IL: Teken van leven
         end
     and Nieuw bericht
-        PUB-&gt;&gt;AMS: Nieuw bericht gepubliceerd (zie use case 1)
-        AMS-&gt;&gt;SC: Zet het bericht in de lijst van de ondernemer
-        SC--&gt;&gt;UV: Nieuw bericht voor deze ondernemer (ook als het op een andere instantie binnenkwam)
-        UV-&gt;&gt;SC: Lees de kopgegevens van het bericht
-        UV--&gt;&gt;IL: Bericht bijgekomen
+        MAG-&gt;&gt;FBS: Nieuw bericht gepubliceerd (zie use case 1)
+        FBS-&gt;&gt;FBS: Zet het bericht in de lijst, en geef het door aan elke server van de uitvraag
+        FBS--&gt;&gt;IL: Bericht bijgekomen (kopgegevens)
         IL--&gt;&gt;OND: Het bericht verschijnt in de berichtenbox
     end
 
     OND-&gt;&gt;IL: Logt uit (zie use case 2)
-    UV-&gt;&gt;SC: Loopt de sessie nog?
-    SC--&gt;&gt;UV: Nee
-    UV--&gt;&gt;IL: Sessie verlopen, verbinding gesloten
+    FBS-&gt;&gt;FBS: Loopt de sessie nog? Nee
+    FBS--&gt;&gt;IL: Sessie verlopen, verbinding gesloten
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>
@@ -135,7 +125,7 @@
    <td>Het portaal haalt eerst op</td>
   </tr>
   <tr>
-   <td>Er staan te veel berichtenboxen open: meer dan 5 voor dezelfde ondernemer of meer dan 2000 in totaal, geteld per instantie</td>
+   <td>Er staan te veel berichtenboxen open: meer dan 5 voor dezelfde ondernemer of meer dan 2000 in totaal, geteld per server</td>
    <td>De uitvraag weigert de verbinding</td>
    <td>Het portaal probeert het na 30 seconden opnieuw. Tot dan verschijnen nieuwe berichten pas na verversen</td>
   </tr>
@@ -150,13 +140,13 @@
    <td>Het portaal verbindt opnieuw en leest de lijst opnieuw</td>
   </tr>
   <tr>
-   <td>De instantie waarmee het portaal verbonden is, stopt (bijvoorbeeld bij een uitrol)</td>
+   <td>De server waarmee het portaal verbonden is, stopt (bijvoorbeeld bij een nieuwe versie)</td>
    <td>De verbinding wordt gesloten</td>
    <td>Het portaal verbindt opnieuw</td>
   </tr>
   <tr>
-   <td>Het doorgeven tussen instanties valt weg</td>
-   <td>Na een minuut zonder signaal sluit de uitvraag alle verbindingen van die instantie</td>
+   <td>Het doorgeven tussen de servers valt weg</td>
+   <td>Na een minuut zonder signaal sluit de uitvraag alle verbindingen van die server</td>
    <td>Het portaal verbindt opnieuw en leest de lijst opnieuw</td>
   </tr>
   <tr>
@@ -172,7 +162,7 @@
  </tbody>
 </table>
 <h2>Doelarchitectuur</h2>
-<p>Het model toont dit verloop zoals het nu werkt. Zie use case 2 voor inloggen, pseudoniemen en machtigingen: die gelden hier ook, omdat volgen pas kan na het ophalen.</p>
+<p>Het volgen zelf wijkt in het doelbeeld niet af van wat er nu draait. Inloggen, pseudoniemen en machtigingen wel, en die gelden hier ook, omdat volgen pas kan na het ophalen: zie use case 2.</p>
 <h2>Open vragen</h2>
 <p>Uit het overleg met Logius: de ondernemer ziet een nieuw bericht alleen meteen als hij online is; anders gebeurt er in de berichtenbox niets en is hij aangewezen op de melding uit use case 1. Is dat voldoende?</p>
 <h2>Technische verwijzing</h2>

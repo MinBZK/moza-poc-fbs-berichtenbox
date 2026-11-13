@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="./" class="is-active">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="./" class="is-active">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -73,12 +73,12 @@
   <tr>
    <td>Heeft de ondernemer het bericht geopend?</td>
    <td>Logboek van de uitvraag en van het magazijn (use case 5)</td>
-   <td>Wel: dat er een bericht geopend is, voor welke ondernemer. Het berichtnummer staat er niet bij</td>
+   <td>De uitvraag legt vast dat de ondernemer een bericht van deze organisatie probeerde te openen, maar niet of dat lukte: een geweigerde poging staat er net zo in als een geslaagde. Het magazijn legt een weigering wel als fout vast, dus daar toont een regel zonder fout dat de tekst verstrekt is. In geen van beide staat het berichtnummer</td>
   </tr>
  </tbody>
 </table>
-<p>Daaruit valt af te leiden, niet aan te tonen, dat het bericht getoond kon worden: het magazijn gaf op een bepaald moment de lijst van deze ondernemer af, en het bericht was toen al gepubliceerd en niet verwijderd. Dat het in de lijst zat (er gaan hooguit 500 berichten per magazijn mee) en dat het portaal het liet zien, staat nergens.</p>
-<p><strong>Wat het kost om dat wel vast te leggen.</strong> Bij elke keer inloggen bevraagt de uitvraag alleen de magazijnen van de organisaties waarvan de ondernemer berichten via de berichtenbox wil ontvangen; is de ontvanger een organisatie, dan alle magazijnen. Elk bevraagd magazijn legt nu één regel per pagina van 100 berichten vast. Leggen we per getoond bericht een regel vast, dan groeit dat naar één regel per bericht per keer inloggen, verspreid over de logboeken van alle betrokken magazijnen en de uitvraag. Met 1800 magazijnen en een ontvanger die een organisatie is, levert één keer inloggen nu al minstens 1800 logregels op; per getoond bericht vastleggen voegt daar één regel per bericht aan toe.</p>
+<p>Daaruit valt af te leiden, niet aan te tonen, dat het bericht getoond kon worden: het magazijn gaf op een bepaald moment de lijst van deze ondernemer af, en het bericht was toen al aangeleverd en niet verwijderd. Een bericht staat al vóór zijn publicatiedatum in die lijst (use case 1). Dat het in de lijst zat (er gaan hooguit 500 berichten per magazijn mee) en dat het portaal het liet zien, staat nergens.</p>
+<p><strong>Wat het kost om dat wel vast te leggen.</strong> Bij elke keer inloggen van een ondernemer bevraagt de uitvraag alleen de magazijnen van de organisaties waarvan hij berichten via de berichtenbox wil ontvangen. Elk bevraagd magazijn legt nu één regel per 100 berichten vast. Leggen we per getoond bericht een regel vast, dan wordt dat één regel per bericht per keer inloggen, verspreid over de logboeken van alle betrokken magazijnen en de uitvraag. Alleen als de ontvanger een overheidsorganisatie is (een OIN), bevraagt de uitvraag alle magazijnen; met 1800 magazijnen levert één keer inloggen dan nu al minstens 1800 logregels op, plus één per getoond bericht.</p>
 <p><strong>Waar het antwoord vandaan moet komen.</strong> Er is geen centrale plek die dit bijhoudt. Het antwoord vraagt het logboek van de uitvraag, het logboek van het magazijn van de organisatie, en het logboek van de Notificatie Service.</p>
 <h2>2. Alle berichten van een ondernemer wissen</h2>
 <p>Een ondernemer beroept zich op het recht op gegevenswissing: al zijn berichten moeten uit de berichtenbox verdwijnen, met bijlagen. Ondernemer en beheerder willen daarna bewijs dat dat gelukt is.</p>
@@ -86,11 +86,16 @@
 <ul>
  <li>De ondernemer kan berichten één voor één verwijderen (use case 8). Het magazijn markeert ze als verwijderd en ruimt ze pas definitief op als ze zeven jaar geleden verwijderd én zeven jaar geleden ontvangen zijn.</li>
  <li>Er is geen opdracht die alle berichten van één ondernemer in één keer verwijdert, niet in een magazijn en niet over alle magazijnen heen.</li>
- <li>Het magazijn legt elk verwijderen door de ondernemer vast in zijn logboek. Het definitief opruimen legt het alleen vast in de applicatielog, zonder het nummer van de ondernemer.</li>
- <li>De berichtenlijst in de uitvraag verdwijnt vanzelf aan het einde van de sessie, en dat wissen staat in het logboek van de uitvraag.</li>
- <li>De logboeken zelf bevatten het nummer van de ondernemer bij elke verwerking.</li>
+ <li>Het magazijn legt elk verwijderen door de ondernemer vast in zijn logboek. Het definitief opruimen legt het alleen vast in de technische log voor beheerders (de applicatielog), met het berichtnummer maar zonder het nummer van de ondernemer. Per ondernemer is het daar niet terug te vinden.</li>
+ <li>De berichtenlijst in de uitvraag verdwijnt vanzelf aan het einde van de laatste sessie, en dat wissen staat in het logboek van de uitvraag. Alleen als het opruimen herhaaldelijk mislukt, wist een vangnet de lijst later zonder logregel.</li>
+ <li>De logboeken zelf bevatten het nummer van de ondernemer bij elke verwerking, leesbaar. Voor die regels is geen bewaartermijn vastgelegd: ze blijven ook na een wissing staan.</li>
 </ul>
-<p><strong>Wat er nodig zou zijn:</strong> een opdracht aan elk magazijn om alle berichten van een ontvanger te wissen, een bevestiging per magazijn, en een manier om om te gaan met een magazijn dat (even) niet kan wissen. Zonder centrale opslag van berichten weet ook niemand centraal in welke magazijnen berichten van deze ondernemer staan: dat blijkt alleen door ze allemaal te vragen.</p>
+<p><strong>Wat er nodig zou zijn:</strong> een opdracht aan elk magazijn om alle berichten van een ontvanger te wissen, een bevestiging per magazijn, en een manier om om te gaan met een magazijn dat (even) niet kan wissen. Zonder centrale opslag van berichten weet ook niemand centraal in welke magazijnen berichten van deze ondernemer staan: dat blijkt alleen door ze allemaal te vragen. Daarnaast:</p>
+<ul>
+ <li>een bewaartermijn voor de logboekregels zelf, en een afspraak over wat er bij een wissing met die regels gebeurt;</li>
+ <li>het besef dat het bewijs van de wissing zelf weer een vastlegging met het nummer van de ondernemer is: precies de spanning uit de onderzoeksvraag;</li>
+ <li>een toets of een wettelijke bewaarplicht het verzoek beperkt (de AVG kent die uitzondering op het recht op wissing).</li>
+</ul>
 <h2>3. Een magazijn is langere tijd uit de lucht</h2>
 <p>Het magazijn van een organisatie ligt langere tijd plat. Een ondernemer mist daardoor belangrijke berichten en vraagt de beheerder om er toch bij te kunnen.</p>
 <p><strong>Wat het stelsel nu doet:</strong></p>

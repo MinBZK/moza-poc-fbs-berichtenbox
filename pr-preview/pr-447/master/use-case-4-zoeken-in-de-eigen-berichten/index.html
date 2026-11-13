@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="./" class="is-active">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="./" class="is-active">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -56,11 +56,11 @@
   </tr>
   <tr>
    <td><strong>Aanleiding</strong></td>
-   <td>De ondernemer zoekt een bericht terug, bijvoorbeeld "aanslag" of "subsidie"</td>
+   <td>De ondernemer zoekt een bericht terug, bijvoorbeeld op "aanslag"</td>
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>De ondernemer ziet de berichten waarvan het onderwerp de zoekterm bevat, nieuwste eerst</td>
+   <td>De ondernemer ziet de berichten met een woord in het onderwerp dat gelijk is aan de zoekterm, nieuwste eerst</td>
   </tr>
  </tbody>
 </table>
@@ -68,7 +68,7 @@
 <ol>
  <li>De ondernemer typt een zoekterm in het portaal.</li>
  <li>Het portaal vraagt de uitvraag om te zoeken.</li>
- <li>De uitvraag zoekt in de berichtenlijst die bij het ophalen (use case 2) is samengesteld. Hij zoekt alleen in het onderwerp: de tekst van een bericht staat niet in de uitvraag, maar in het magazijn van de organisatie.</li>
+ <li>De uitvraag zoekt in de berichtenlijst die bij het ophalen (use case 2) is samengesteld. Hij zoekt alleen in het onderwerp: de tekst van een bericht staat niet in de uitvraag, maar in het magazijn van de organisatie. Een bericht is een treffer als een woord in het onderwerp gelijk is aan de zoekterm, los van hoofdletters. Een deel van een woord is geen treffer: "subsidie" vindt "Subsidieaanvraag" niet, en "aanslag" vindt "aanslagen" niet.</li>
  <li>De uitvraag geeft de eerste 20 treffers, nieuwste eerst, en zegt welke organisaties bij het ophalen niet leverden.</li>
  <li>Het portaal toont de treffers.</li>
 </ol>
@@ -78,18 +78,13 @@
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant SC as Berichtensessiecache
-    end
+    participant FBS as Berichten Uitvraag Systeem
 
     OND-&gt;&gt;IL: Zoekt op een term
-    IL-&gt;&gt;UV: Zoek in de berichten van deze ondernemer
-    UV-&gt;&gt;SC: Loopt de sessie?
-    SC--&gt;&gt;UV: Ja, en verlengd
-    UV-&gt;&gt;SC: Zoek in het onderwerp van de opgehaalde berichten
-    SC--&gt;&gt;UV: Treffers, en welke organisaties niet leverden
-    UV--&gt;&gt;IL: De eerste 20 treffers, nieuwste eerst
+    IL-&gt;&gt;FBS: Zoek in de berichten van deze ondernemer
+    FBS-&gt;&gt;FBS: Loopt de sessie? Verleng haar
+    FBS-&gt;&gt;FBS: Zoek in het onderwerp van de opgehaalde berichten
+    FBS--&gt;&gt;IL: De eerste 20 treffers, nieuwste eerst, en welke organisaties niet leverden
     IL--&gt;&gt;OND: Toont de treffers
 </code></pre>
 <h2>Als het misgaat</h2>
@@ -133,15 +128,20 @@
    <td>Het bericht wordt niet gevonden</td>
   </tr>
   <tr>
+   <td>De zoekterm bevat een spatie of een leesteken, bijvoorbeeld "aanslag 2024" of "BTW-aangifte"</td>
+   <td>De uitvraag zoekt naar de hele zoekterm als één woord, en dat komt in geen onderwerp voor</td>
+   <td>Geen treffers, ook als elk woord apart wel voorkomt</td>
+  </tr>
+  <tr>
    <td>De sessie is verlopen</td>
    <td>De uitvraag weigert</td>
-   <td>"Uw sessie is verlopen. Log opnieuw in."</td>
+   <td>"Uw sessie is verlopen of ongeldig. Log opnieuw in."</td>
   </tr>
  </tbody>
 </table>
-<p>Tekens als <code>*</code>, <code>-</code> of <code>|</code> in de zoekterm hebben geen bijzondere betekenis: de uitvraag zoekt er letterlijk op.</p>
+<p>Tekens als <code>*</code>, <code>-</code> of <code>|</code> in de zoekterm hebben geen bijzondere betekenis: de ondernemer kan er geen zoekopdracht mee samenstellen.</p>
 <h2>Doelarchitectuur</h2>
-<p>Het doelbeeld wijkt hier niet af. Zoeken in de tekst van berichten zou betekenen dat die tekst centraal komt te staan, of dat elk magazijn bij elke zoekvraag bevraagd wordt. Het model kiest geen van beide: de tekst blijft bij de organisatie, en zoeken blijft beperkt tot de kopgegevens die de uitvraag tijdens de sessie al heeft.</p>
+<p>Wat het zoeken betreft, wijkt het doelbeeld niet af; inloggen en pseudoniemen wel, zie use case 2. Zoeken in de tekst van berichten zou betekenen dat die tekst centraal komt te staan, of dat elk magazijn bij elke zoekvraag bevraagd wordt. Het model kiest geen van beide: de tekst blijft bij de organisatie, en zoeken blijft beperkt tot de kopgegevens die de uitvraag tijdens de sessie al heeft.</p>
 <h2>Technische verwijzing</h2>
 <table>
  <thead>
@@ -160,7 +160,7 @@
   <tr>
    <td>Zoekindex</td>
    <td>RediSearch-index over de berichten in de sessiecache</td>
-   <td>Alleen <code>onderwerp</code> is full-text doorzoekbaar. Elk niet-alfanumeriek teken in <code>q</code> wordt geëscaped</td>
+   <td>Alleen <code>onderwerp</code> is full-text doorzoekbaar. <code>escapeRedisSearch</code> escapet elk teken buiten <code>[a-zA-Z0-9]</code>, ook de spatie: een zoekterm met zo'n teken wordt één term die de tokenizer nooit oplevert</td>
   </tr>
   <tr>
    <td>Logboek</td>

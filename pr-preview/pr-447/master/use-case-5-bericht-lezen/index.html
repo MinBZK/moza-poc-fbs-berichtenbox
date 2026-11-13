@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="./" class="is-active">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="./" class="is-active">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -60,7 +60,7 @@
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>De ondernemer ziet de tekst van het bericht, met de lijst van bijlagen. Het bericht staat daarna als gelezen gemarkeerd</td>
+   <td>De ondernemer ziet de tekst van het bericht, met de lijst van bijlagen. Markeert het portaal het daarna als gelezen, dan staat het ook zo in het magazijn</td>
   </tr>
  </tbody>
 </table>
@@ -79,34 +79,21 @@
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant SC as Berichtensessiecache
-        participant REG as Magazijnregister
-    end
-    box Berichtenmagazijn (BBO-gehost)
-        participant OB as Berichtenmagazijn Ophaal- en Beheer API
-        participant AUT as Autorisatie Service
-        participant DB as Dataopslag
-    end
+    participant FBS as Berichten Uitvraag Systeem
+    participant MAG as Berichtenmagazijn
 
     OND-&gt;&gt;IL: Opent een bericht
-    IL-&gt;&gt;UV: Geef bericht (berichtnummer, organisatie)
-    UV-&gt;&gt;SC: Staat dit bericht in de lijst van deze ondernemer?
-    SC--&gt;&gt;UV: Kopgegevens en bijlagen
-    UV-&gt;&gt;REG: Adres van het magazijn van deze organisatie
-    REG--&gt;&gt;UV: Adres
-    Note over UV: Legt het lezen vast in het logboek
-    UV-&gt;&gt;OB: Geef de tekst van het bericht, voor deze ondernemer
-    OB-&gt;&gt;DB: Zoek het bericht
-    DB--&gt;&gt;OB: Bericht
-    OB-&gt;&gt;AUT: Hoort het bericht bij deze ondernemer?
-    AUT--&gt;&gt;OB: Ja
-    Note over OB: Legt het lezen vast in het logboek
-    OB--&gt;&gt;UV: Tekst en status
-    UV--&gt;&gt;IL: Bericht met tekst en bijlagen
+    IL-&gt;&gt;FBS: Geef bericht (berichtnummer, organisatie)
+    FBS-&gt;&gt;FBS: Staat dit bericht in de lijst van deze ondernemer?
+    FBS-&gt;&gt;FBS: Zoek het magazijn van deze organisatie op
+    FBS-&gt;&gt;MAG: Geef de tekst van het bericht, voor deze ondernemer
+    MAG-&gt;&gt;MAG: Zoek het bericht en controleer of het bij deze ondernemer hoort
+    Note over MAG: Legt het lezen vast in het logboek
+    MAG--&gt;&gt;FBS: Tekst en status
+    FBS--&gt;&gt;IL: Bericht met tekst en bijlagen
+    Note over FBS: Legt het lezen vast in het logboek
     IL--&gt;&gt;OND: Toont het bericht
-    IL-&gt;&gt;UV: Markeer als gelezen (zie use case 7)
+    IL-&gt;&gt;FBS: Markeer als gelezen (zie use case 7)
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>
@@ -124,12 +111,12 @@
    <td>"Dit bericht is niet (meer) beschikbaar"</td>
   </tr>
   <tr>
-   <td>De ondernemer heeft het bericht in deze sessie zelf verwijderd (use case 8)</td>
-   <td>De uitvraag weet dat tot het einde van de sessie</td>
+   <td>De ondernemer heeft het bericht zelf verwijderd (use case 8), in deze of een andere lopende sessie</td>
+   <td>De uitvraag weet dat tot de laatste sessie van de ondernemer eindigt</td>
    <td>"U hebt dit bericht verwijderd"</td>
   </tr>
   <tr>
-   <td>Het bericht is intussen in het magazijn verwijderd, vanuit een andere sessie of door de organisatie zelf</td>
+   <td>Het bericht is buiten de berichtenbox om uit het magazijn verdwenen, bijvoorbeeld door de organisatie zelf</td>
    <td>Het magazijn kent het niet meer. De uitvraag laat het tot het volgende ophalen in de lijst staan</td>
    <td>"Dit bericht is niet (meer) beschikbaar"</td>
   </tr>
@@ -178,7 +165,7 @@
   <tr>
    <td>Uitvraag</td>
    <td><code>GET /api/v1/berichten/{berichtId}?magazijnId=</code></td>
-   <td><code>404 bericht-onbekend</code> (bestaat niet, is van een ander, of <code>magazijnId</code> onbekend), <code>410 bericht-verwijderd</code> (eigen verwijdering in deze sessie), <code>409</code>/<code>503</code> als de ophaalronde niet klaar of mislukt is, <code>502 keten-fout</code> bij timeout, transportfout of onleesbaar antwoord</td>
+   <td><code>404 bericht-onbekend</code> (bestaat niet, is van een ander, of <code>magazijnId</code> onbekend), <code>410 bericht-verwijderd</code> (eigen verwijdering, tombstone per ontvanger tot de laatste sessie eindigt), <code>409</code>/<code>503</code> als de ophaalronde niet klaar of mislukt is, <code>502 keten-fout</code> bij timeout, transportfout of onleesbaar antwoord</td>
   </tr>
   <tr>
    <td>Magazijn</td>
@@ -198,7 +185,7 @@
   <tr>
    <td>Logboek</td>
    <td>Uitvraag <code>uitvraag-bericht</code>, magazijn <code>ophalen-bericht</code></td>
-   <td>Een weigering (4xx) staat in het logboek van de uitvraag als weigering, niet als fout</td>
+   <td>Geen van beide legt het berichtnummer vast. De uitvraag legt een 4xx vast met status <code>Unset</code>, net als een geslaagde opening (<code>LogboekWeigering</code> kondigt de exceptie aan); het magazijn legt een 4xx vast als <code>Error</code>. Alleen een magazijnregel zonder fout toont dus dat de tekst verstrekt is</td>
   </tr>
  </tbody>
 </table></div>

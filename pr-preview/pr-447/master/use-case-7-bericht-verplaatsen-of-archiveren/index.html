@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="./" class="is-active">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="./" class="is-active">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -78,39 +78,27 @@
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant REG as Magazijnregister
-        participant SC as Berichtensessiecache
-    end
-    box Berichtenmagazijn (BBO-gehost)
-        participant OB as Berichtenmagazijn Ophaal- en Beheer API
-        participant AUT as Autorisatie Service
-        participant DB as Dataopslag
-    end
+    participant FBS as Berichten Uitvraag Systeem
+    participant MAG as Berichtenmagazijn
 
     OND-&gt;&gt;IL: Zet een bericht in map Belasting
-    IL-&gt;&gt;UV: Wijzig het bericht: map Belasting
-    UV-&gt;&gt;REG: Adres van het magazijn
-    REG--&gt;&gt;UV: Adres
-    UV-&gt;&gt;OB: Wijzig het bericht voor deze ondernemer: map Belasting
-    OB-&gt;&gt;DB: Zoek het bericht
-    DB--&gt;&gt;OB: Bericht
-    OB-&gt;&gt;AUT: Hoort het bericht bij deze ondernemer?
-    AUT--&gt;&gt;OB: Ja
-    OB-&gt;&gt;DB: Sla map en gelezen-stand op
-    Note over OB: Legt de wijziging vast in het logboek
-    OB--&gt;&gt;UV: Gewijzigd
-    UV-&gt;&gt;SC: Werk het bericht in de lijst bij
+    IL-&gt;&gt;FBS: Wijzig het bericht: map Belasting
+    FBS-&gt;&gt;FBS: Zoek het magazijn van deze organisatie op
+    FBS-&gt;&gt;MAG: Wijzig het bericht voor deze ondernemer: map Belasting
+    MAG-&gt;&gt;MAG: Zoek het bericht en controleer of het bij deze ondernemer hoort
+    MAG-&gt;&gt;MAG: Sla map en gelezen-stand op
+    Note over MAG: Legt de wijziging vast in het logboek
+    MAG--&gt;&gt;FBS: Gewijzigd
     alt Bijwerken van de lijst lukt
-        SC--&gt;&gt;UV: Bijgewerkt bericht
-        UV--&gt;&gt;IL: Bijgewerkt bericht
+        FBS-&gt;&gt;FBS: Werk het bericht in de lijst bij
+        FBS--&gt;&gt;IL: Bijgewerkt bericht
         IL--&gt;&gt;OND: Het bericht staat in de map
     else Bijwerken van de lijst mislukt
-        UV-&gt;&gt;SC: Haal het bericht uit de lijst, tot het volgende ophalen
-        UV--&gt;&gt;IL: Fout
+        FBS-&gt;&gt;FBS: Haal het bericht uit de lijst, tot het volgende ophalen
+        FBS--&gt;&gt;IL: Fout
         IL--&gt;&gt;OND: "Probeer het straks nog eens"
     end
+    Note over FBS: Legt de wijziging vast in het logboek
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>
@@ -134,7 +122,7 @@
   </tr>
   <tr>
    <td>Het bericht is van een andere ontvanger</td>
-   <td>Het magazijn weigert. Anders dan bij lezen is dit antwoord anders dan bij een onbekend bericht</td>
+   <td>Het magazijn weigert. Bij lezen (use case 5) is dit antwoord gelijk aan dat voor een onbekend bericht; hier niet</td>
    <td>Een melding dat hij geen toegang heeft</td>
   </tr>
   <tr>
@@ -162,7 +150,7 @@
 <p>Een map hernoemen is elk bericht in die map wijzigen, bij elke organisatie waar die berichten staan. Een lege map bestaat niet. Zie het stuk over mappen hierboven.</p>
 <h2>Doelarchitectuur</h2>
 <ul>
- <li><strong>Labels en mappen als stelselafspraak.</strong> Uit het overleg met Logius: magazijnen moeten allerlei labels en mappen kunnen opslaan. Dat wordt een eis aan elk magazijn, ook aan zelf gehoste.</li>
+ <li><strong>Labels en mappen als stelselafspraak</strong> (open punt, nog niet in het model). Uit het overleg met Logius: magazijnen moeten allerlei labels en mappen kunnen opslaan. Dat wordt een eis aan elk magazijn, ook aan zelf gehoste.</li>
  <li><strong>Autorisatie.</strong> Zie use case 5.</li>
 </ul>
 <h2>Technische verwijzing</h2>

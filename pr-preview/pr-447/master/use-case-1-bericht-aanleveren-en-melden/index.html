@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="./" class="is-active">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="./" class="is-active">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -52,7 +52,7 @@
  <tbody>
   <tr>
    <td><strong>Actor</strong></td>
-   <td>Een overheidsorganisatie (hier: Organisatie B, die haar magazijn bij BBO afneemt)</td>
+   <td>Een overheidsorganisatie (in het diagram: Organisatie B)</td>
   </tr>
   <tr>
    <td><strong>Aanleiding</strong></td>
@@ -60,65 +60,56 @@
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>Het bericht staat in het magazijn van de organisatie. Vanaf de publicatiedatum krijgt de ondernemer een melding, en ziet hij het bericht in zijn berichtenbox</td>
+   <td>Het bericht staat in het magazijn van de organisatie, en de ondernemer ziet het de volgende keer dat hij zijn berichten ophaalt. Vanaf de publicatiedatum krijgt hij er een melding van</td>
   </tr>
  </tbody>
 </table>
 <h2>Verloop</h2>
 <ol>
  <li>De organisatie levert het bericht aan bij haar magazijn: ontvanger, onderwerp, tekst, eventueel bijlagen, en eventueel een publicatiedatum.</li>
- <li>Het magazijn controleert het bericht: zijn de gegevens volledig en zijn de bijlagen PDF's?</li>
+ <li>Het magazijn controleert het bericht: zijn de gegevens volledig, en zijn de bijlagen opgegeven als PDF?</li>
  <li>Het magazijn vraagt de Profiel Service of de ondernemer berichten van deze organisatie via de berichtenbox wil ontvangen. Is de ontvanger zelf een organisatie (OIN), dan slaat het magazijn deze stap over.</li>
  <li>Het magazijn legt de aanlevering vast in zijn logboek, slaat het bericht op en plant in dezelfde stap de twee leveringen die volgen: een aanmelding bij de uitvraag en een melding aan de Notificatie Service.</li>
  <li>De organisatie krijgt direct antwoord: het bericht is aangenomen, met het berichtnummer.</li>
- <li>Daarna, los van de organisatie: zodra de publicatiedatum verstreken is (zonder datum: meteen), pakt de Publicatie Stream van het magazijn de geplande leveringen op. Dat gebeurt in rondes, standaard eens per minuut.</li>
- <li>De Publicatie Stream meldt het nieuwe bericht aan bij de uitvraag. Is de ondernemer op dat moment ingelogd en heeft hij zijn berichten al opgehaald, dan zet de uitvraag het bericht in zijn lijst (en ziet hij het verschijnen, zie use case 3). Is hij niet ingelogd, dan gebeurt er niets: hij ziet het bericht bij de volgende keer inloggen.</li>
- <li>De Publicatie Stream stuurt dezelfde gebeurtenis naar de Notificatie Service. Die zoekt de contactgegevens van de ondernemer op en stuurt hem een melding. Dat deel hoort niet bij het berichtenstelsel.</li>
+ <li>Daarna, los van de organisatie: zodra de publicatiedatum verstreken is (zonder datum: meteen), pakt het magazijn de geplande leveringen op. Dat gebeurt in rondes, standaard eens per minuut, en per levering na elkaar.</li>
+ <li>Het magazijn meldt het nieuwe bericht aan bij de uitvraag. Is de ondernemer op dat moment ingelogd en heeft hij zijn berichten al opgehaald, dan zet de uitvraag het bericht in zijn lijst (en ziet hij het verschijnen, zie use case 3). Is hij niet ingelogd, dan gebeurt er niets: hij ziet het bericht bij de volgende keer inloggen.</li>
+ <li>Het magazijn stuurt dezelfde gebeurtenis naar de Notificatie Service. Die zoekt de contactgegevens van de ondernemer op en stuurt hem een melding. Dat deel hoort niet bij het berichtenstelsel.</li>
 </ol>
+<p><strong>Let op de publicatiedatum.</strong> Alleen de aanmelding en de melding wachten op de publicatiedatum. Het bericht zelf staat vanaf het aanleveren in het magazijn, en het magazijn geeft het mee zodra de uitvraag de berichten van deze ondernemer ophaalt (use case 2). Logt de ondernemer vóór de publicatiedatum in, dan ziet hij het bericht dus al, zonder melding.</p>
 <h2>Sequence diagram</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     autonumber
     participant ORG as Organisatie B
-    box Berichtenmagazijn (BBO-gehost)
-        participant AAN as Berichtenmagazijn Aanlever API
-        participant VAL as Bericht Validatie Service
-        participant DB as Dataopslag
-        participant PUB as Publicatie Stream
-    end
+    participant MAG as Berichtenmagazijn
     participant PRO as Profiel Service
-    box Berichten Uitvraag Systeem
-        participant AMS as Aanmeld Service
-        participant SC as Berichtensessiecache
-    end
+    participant FBS as Berichten Uitvraag Systeem
     participant NOT as Notificatie Service
     actor OND as Ondernemer / Zakelijke gebruiker
 
-    ORG-&gt;&gt;AAN: Levert bericht aan (ontvanger, onderwerp, tekst, bijlagen, publicatiedatum)
-    AAN-&gt;&gt;VAL: Controleer het bericht
-    VAL-&gt;&gt;VAL: Gegevens volledig, bijlagen PDF?
+    ORG-&gt;&gt;MAG: Levert bericht aan (ontvanger, onderwerp, tekst, bijlagen, publicatiedatum)
+    MAG-&gt;&gt;MAG: Gegevens volledig, bijlagen opgegeven als PDF?
     opt Ontvanger is een ondernemer of burger, geen organisatie
-        VAL-&gt;&gt;PRO: Wil de ontvanger berichten van deze organisatie via de berichtenbox?
-        PRO--&gt;&gt;VAL: Voorkeuren van de ontvanger
+        MAG-&gt;&gt;PRO: Wil de ontvanger berichten van deze organisatie via de berichtenbox?
+        PRO--&gt;&gt;MAG: Voorkeuren van de ontvanger
     end
-    VAL--&gt;&gt;AAN: Bericht in orde
-    Note over AAN: Legt de aanlevering vast in het logboek
-    AAN-&gt;&gt;DB: Sla bericht op en plan aanmelding en melding (in één keer)
-    AAN--&gt;&gt;ORG: Aangenomen, met berichtnummer
+    Note over MAG: Legt de aanlevering vast in het logboek
+    MAG-&gt;&gt;MAG: Sla bericht op en plan aanmelding en melding (in één keer)
+    MAG--&gt;&gt;ORG: Aangenomen, met berichtnummer
 
-    Note over PUB: Later en los van de organisatie: zodra de publicatiedatum verstreken is
-    loop Elke ronde (standaard eens per minuut)
-        PUB-&gt;&gt;DB: Welke leveringen zijn aan de beurt?
-        par Aanmelden bij de uitvraag
-            PUB-&gt;&gt;AMS: Nieuw bericht gepubliceerd (kopgegevens, zonder tekst)
-            AMS-&gt;&gt;SC: Zet het bericht in de lijst, alleen als de ondernemer nu ingelogd is
-            AMS--&gt;&gt;PUB: Ontvangen
-        and Melden aan de Notificatie Service
-            PUB-&gt;&gt;NOT: Nieuw bericht gepubliceerd
-            NOT--&gt;&gt;PUB: Ontvangen
+    Note over MAG: Later en los van de organisatie: zodra de publicatiedatum verstreken is
+    loop Elke ronde (standaard eens per minuut), per geplande levering na elkaar
+        Note over MAG: Legt de levering vast in het logboek
+        alt Aanmelden bij de uitvraag
+            MAG-&gt;&gt;FBS: Nieuw bericht gepubliceerd (kopgegevens, zonder tekst)
+            FBS-&gt;&gt;FBS: Zet het bericht in de lijst, alleen als de ondernemer nu ingelogd is
+            FBS--&gt;&gt;MAG: Ontvangen
+        else Melden aan de Notificatie Service
+            MAG-&gt;&gt;NOT: Nieuw bericht gepubliceerd
+            NOT--&gt;&gt;MAG: Ontvangen
             NOT-&gt;&gt;PRO: Contactgegevens van de ontvanger (buiten het berichtenstelsel)
             NOT-)OND: Melding, bijvoorbeeld per e-mail
         end
-        PUB-&gt;&gt;DB: Levering geslaagd
+        MAG-&gt;&gt;MAG: Deze levering is geslaagd
     end
 </code></pre>
 <h2>Als het misgaat</h2>
@@ -132,9 +123,14 @@
  </thead>
  <tbody>
   <tr>
-   <td>Gegevens onvolledig of ongeldig, of een bijlage is geen PDF</td>
+   <td>Gegevens onvolledig of ongeldig, of een bijlage is niet opgegeven als PDF</td>
    <td>Het magazijn weigert het bericht en slaat niets op</td>
    <td>De organisatie krijgt een foutmelding met de reden</td>
+  </tr>
+  <tr>
+   <td>Een bijlage is groter dan 25 MiB, of de hele aanlevering groter dan 40 MB</td>
+   <td>Het magazijn weigert het bericht en slaat niets op</td>
+   <td>Een foutmelding</td>
   </tr>
   <tr>
    <td>De ondernemer heeft geen profiel, of wil geen berichten van deze organisatie via de berichtenbox</td>
@@ -148,8 +144,8 @@
   </tr>
   <tr>
    <td>De opslag van het magazijn is onbereikbaar</td>
-   <td>Het magazijn weigert de aanlevering. Bij herhaalde fouten weigert het een paar seconden lang elke aanlevering meteen, zodat er nooit een bericht verloren gaat dat als aangenomen is gemeld</td>
-   <td>"Tijdelijk niet beschikbaar"; later opnieuw aanleveren</td>
+   <td>Het magazijn weigert de aanlevering; omdat opslaan en plannen één geheel zijn, blijft er niets half achter. Mislukt meer dan de helft van de aanleveringen, dan weigert het magazijn een paar seconden lang elke aanlevering meteen</td>
+   <td>Eerst een serverfout, daarna "tijdelijk niet beschikbaar"; later opnieuw aanleveren</td>
   </tr>
   <tr>
    <td>Het logboek kan de aanlevering niet vastleggen</td>
@@ -163,13 +159,13 @@
   </tr>
   <tr>
    <td>De uitvraag of de Notificatie Service is onbereikbaar</td>
-   <td>De Publicatie Stream probeert het opnieuw, met een steeds langere pauze (tot een uur), maximaal vijf keer per bestemming. Daarna geeft hij die levering op. Een storing bij de ene bestemming houdt de andere niet op</td>
-   <td>De organisatie merkt niets: haar aanlevering was al aangenomen. De ondernemer krijgt de melding later, of niet</td>
+   <td>Het magazijn probeert het nog vier keer, ongeveer eens per minuut, en geeft die levering daarna op. Vraagt de bestemming zelf om later terug te komen, dan wacht hij zo lang (hooguit een uur). Een storing bij de ene bestemming houdt de andere niet op</td>
+   <td>De organisatie merkt niets: haar aanlevering was al aangenomen. Duurt de storing langer dan een paar minuten, dan krijgt de ondernemer geen melding</td>
   </tr>
   <tr>
    <td>De ondernemer is niet ingelogd</td>
    <td>De uitvraag neemt de aanmelding aan en doet er niets mee</td>
-   <td>Niets. Het bericht verschijnt bij de volgende keer inloggen, omdat de uitvraag dan alle magazijnen bevraagt</td>
+   <td>Niets. Het bericht verschijnt bij de volgende keer inloggen, omdat de uitvraag dan het magazijn van deze organisatie opnieuw bevraagt</td>
   </tr>
   <tr>
    <td>Een aanmelding komt twee keer binnen</td>
@@ -178,7 +174,7 @@
   </tr>
   <tr>
    <td>Het bericht is verwijderd voordat het gepubliceerd werd</td>
-   <td>De Publicatie Stream levert het niet meer</td>
+   <td>Het magazijn levert het niet meer</td>
    <td>Geen melding</td>
   </tr>
  </tbody>
@@ -186,10 +182,14 @@
 <h2>Doelarchitectuur</h2>
 <ul>
  <li><strong>Verbinding via FSC.</strong> In het doelbeeld lopen alle verbindingen tussen organisaties via FSC, met wederzijds vertrouwen op basis van PKIoverheid-certificaten. Nu is dat per bestemming in te stellen, en loopt het aanmelden bij de uitvraag direct.</li>
- <li><strong>Wie mag aanleveren.</strong> In het doelbeeld controleert het magazijn wie aanlevert. Nu ligt die controle bij de netwerkrand vóór het magazijn, niet in het magazijn zelf.</li>
- <li><strong>Controle op bijlagen.</strong> Het model noemt ook een controle op grootte en aantal bijlagen. Nu gelden alleen de grenzen uit de koppelvlakspecificatie.</li>
+ <li><strong>Wie mag aanleveren.</strong> In het doelbeeld controleert het magazijn wie aanlevert. Nu ligt die controle bij de netwerkrand vóór het magazijn. Het magazijn controleert ook niet of de opgegeven afzender de organisatie van dit magazijn is; de uitvraag kiest bij een aanmelding het magazijn op basis van die afzender.</li>
+ <li><strong>Controle op bijlagen.</strong> Het model noemt een controle op grootte en aantal bijlagen. Nu gelden 25 MiB per bijlage en 40 MB per aanlevering; het aantal bijlagen is niet begrensd, en het magazijn kijkt alleen naar het opgegeven bestandstype, niet naar de inhoud.</li>
+ <li><strong>Persoonsgegevens in de melding.</strong> De melding aan de uitvraag en de Notificatie Service bevat het identificatienummer van de ontvanger en het onderwerp, leesbaar. Het NL GOV-profiel voor CloudEvents vraagt terughoudendheid met gevoelige gegevens in een melding.</li>
 </ul>
 <h2>Open vragen</h2>
+<ul>
+ <li>Mag een bericht vóór zijn publicatiedatum al in de berichtenbox staan? Het model zegt alleen dat het aanmelden wacht tot de publicatiedatum; nu is het bericht meteen op te halen.</li>
+</ul>
 <p>Uit het overleg met Logius over de use cases:</p>
 <ul>
  <li>Mag een organisatie een bericht digitaal sturen als de ondernemer daar niet voor gekozen heeft? Nu weigert het magazijn dat. Of de wetgeving daar iets anders over zegt, wordt uitgezocht. De afspraak is dat die beslissing bij het magazijn ligt, niet bij de berichtenbox.</li>
@@ -209,7 +209,7 @@
   <tr>
    <td>Aanleveren</td>
    <td><code>POST /api/v1/aanleveringen</code> op het magazijn (<code>berichtenmagazijn-api.yaml</code>)</td>
-   <td><code>201</code> met <code>berichtId</code>. Fouten: <code>400</code> (ongeldig, bijlage geen <code>application/pdf</code>), <code>403</code> (geen profiel of geen opt-in), <code>500</code> (logboek, Profiel Service onbereikbaar na twee retries), <code>503</code> (circuit breaker open, of onduidelijk antwoord van de Profiel Service, met <code>Retry-After</code>)</td>
+   <td><code>201</code> met <code>berichtId</code>. Fouten: <code>400</code> (ongeldig, bijlage niet <code>application/pdf</code> of groter dan <code>Bijlage.MAX_CONTENT_BYTES</code>), <code>403</code> (geen profiel of geen opt-in), <code>500</code> (logboek, opslag, Profiel Service onbereikbaar na twee retries), <code>503</code> (circuit breaker open, zonder <code>Retry-After</code>, of onduidelijk antwoord van de Profiel Service, met <code>Retry-After: 30</code>). Body boven <code>quarkus.http.limits.max-body-size</code> (40M): <code>413</code></td>
   </tr>
   <tr>
    <td>Toestemming</td>
@@ -219,27 +219,27 @@
   <tr>
    <td>Opslaan en plannen</td>
    <td>Eén transactie: bericht, bijlagen, en per bestemming een outbox-rij</td>
-   <td>Circuit breakers rond de Profiel Service en de database</td>
+   <td>Circuit breakers rond de Profiel Service en de database (20 verzoeken, 50% fout, 5s open)</td>
   </tr>
   <tr>
    <td>Publiceren</td>
-   <td><code>PublicatieStream</code></td>
-   <td><code>magazijn.publicatie.polling.interval</code> (60s), per bestemming <code>max-pogingen</code> 5 en backoff 1s tot 1u, <code>Retry-After</code> heeft voorrang</td>
+   <td><code>PublicatieStream</code>, één claim per transactie</td>
+   <td><code>magazijn.publicatie.polling.interval</code> (60s). Per bestemming <code>max-pogingen</code> 5 in totaal, backoff vanaf 1s (in de praktijk begrensd door de polling), <code>Retry-After</code> heeft voorrang tot 1u. Lijst en detail in het magazijn filteren niet op <code>publicatietijdstip</code> (<code>BerichtRepository</code>)</td>
   </tr>
   <tr>
    <td>Aanmelden</td>
    <td><code>POST /api/v1/aanmeldingen</code> op de uitvraag, CloudEvent <code>nl.rijksoverheid.fbs.bericht.gepubliceerd</code></td>
-   <td><code>202</code> ook als er niets geschreven is. Ontdubbeld op magazijn en event-id, 24 uur</td>
+   <td><code>202</code> ook als er niets geschreven is. Ontdubbeld op magazijn en event-id, 24 uur. Magazijn afgeleid uit de afzender-OIN</td>
   </tr>
   <tr>
    <td>Melden</td>
    <td>CloudEvent naar <code>NOTIFICATIE_URL</code></td>
-   <td>In de lokale ontwikkelomgeving een stub</td>
+   <td><code>data</code> bevat <code>ontvanger</code> en <code>onderwerp</code>. In de lokale ontwikkelomgeving een stub</td>
   </tr>
   <tr>
    <td>Logboek</td>
    <td>Magazijn: <code>aanleveren-bericht</code>, en per poging per bestemming <code>publicatie-&lt;doel&gt;</code>. Uitvraag: <code>uitvraag-aanmelding</code></td>
-   <td></td>
+   <td>Een geweigerde aanlevering staat in het logboek zonder ontvanger: die wordt pas na de controle vastgelegd</td>
   </tr>
  </tbody>
 </table></div>

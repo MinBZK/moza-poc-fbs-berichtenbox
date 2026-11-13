@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="./" class="is-active">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="./" class="is-active">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -67,7 +67,7 @@
 <h2>Verloop</h2>
 <ol>
  <li>De ondernemer logt in op het portaal. Het portaal start een sessie bij de uitvraag. Had de ondernemer nog gegevens staan van een eerdere sessie die niet netjes is afgesloten, dan wist de uitvraag die eerst, en legt dat vast in het logboek.</li>
- <li>Het portaal vraagt de uitvraag de berichten op te halen. Het antwoord is een doorlopende stroom meldingen, zodat het portaal de voortgang per organisatie kan tonen.</li>
+ <li>Het portaal vraagt de uitvraag de berichten op te halen. Het antwoord komt over een doorlopende verbinding binnen, zodat het portaal de voortgang per organisatie kan tonen.</li>
  <li>De uitvraag vraagt de Profiel Service van welke organisaties de ondernemer berichten via de berichtenbox wil ontvangen, en zoekt in het magazijnregister het magazijn van elk van die organisaties op.</li>
  <li>De uitvraag bevraagt al die magazijnen tegelijk. Elk magazijn geeft de kopgegevens van de berichten van deze ondernemer: afzender, onderwerp, datum, map, gelezen of niet. De tekst en de bijlagen blijven in het magazijn.</li>
  <li>Per magazijn meldt de uitvraag aan het portaal of het gelukt is, en hoeveel berichten het waren.</li>
@@ -80,60 +80,47 @@
     autonumber
     actor OND as Ondernemer / Zakelijke gebruiker
     participant IL as Interactielaag
-    box Berichten Uitvraag Systeem
-        participant UV as Berichten Uitvraag Service
-        participant SC as Berichtensessiecache
-        participant REG as Magazijnregister
-    end
+    participant FBS as Berichten Uitvraag Systeem
     participant PRO as Profiel Service
-    participant MA as Berichtenmagazijn (BBO-gehost)
-    participant MB as Berichtenmagazijn (eigen gehost)
+    participant MAG as Berichtenmagazijn
 
     OND-&gt;&gt;IL: Logt in en opent de berichtenbox
-    IL-&gt;&gt;UV: Start een sessie voor deze ondernemer
-    UV-&gt;&gt;SC: Registreer de sessie
+    IL-&gt;&gt;FBS: Start een sessie voor deze ondernemer
     opt Geen andere sessie van deze ondernemer, wel oude gegevens
-        SC-&gt;&gt;SC: Wis de oude gegevens
-        Note over UV: Legt het wissen vast in het logboek
+        FBS-&gt;&gt;FBS: Wis de oude gegevens
+        Note over FBS: Legt het wissen vast in het logboek
     end
-    UV--&gt;&gt;IL: Sessie gestart
+    FBS--&gt;&gt;IL: Sessie gestart
 
-    IL-&gt;&gt;UV: Haal de berichten op (doorlopende stroom)
-    UV-&gt;&gt;SC: Start een ophaalronde (één tegelijk per ondernemer)
-    SC-&gt;&gt;PRO: Van welke organisaties wil de ondernemer berichten via de berichtenbox?
-    PRO--&gt;&gt;SC: Organisaties
-    SC-&gt;&gt;REG: Welk magazijn hoort bij elke organisatie?
-    REG--&gt;&gt;SC: Magazijnen en hun adres
-    UV--&gt;&gt;IL: Per magazijn: bevraging gestart
-    par Alle magazijnen tegelijk
-        SC-&gt;&gt;MA: Berichten van deze ondernemer (kopgegevens, zonder tekst)
-        MA--&gt;&gt;SC: Berichten
-        UV--&gt;&gt;IL: BBO-magazijn klaar, aantal berichten
-    and
-        SC-&gt;&gt;MB: Berichten van deze ondernemer (kopgegevens, zonder tekst)
-        MB--&gt;&gt;SC: Berichten
-        UV--&gt;&gt;IL: Eigen magazijn klaar, aantal berichten
+    IL-&gt;&gt;FBS: Haal de berichten op (doorlopende verbinding)
+    FBS-&gt;&gt;FBS: Start een ophaalronde (één tegelijk per ondernemer)
+    FBS-&gt;&gt;PRO: Van welke organisaties wil de ondernemer berichten via de berichtenbox?
+    PRO--&gt;&gt;FBS: Organisaties
+    FBS-&gt;&gt;FBS: Zoek het magazijn van elke organisatie op in het magazijnregister
+    FBS--&gt;&gt;IL: Per magazijn: bevraging gestart
+    loop Elk magazijn, allemaal tegelijk
+        FBS-&gt;&gt;MAG: Berichten van deze ondernemer (kopgegevens, zonder tekst)
+        MAG--&gt;&gt;FBS: Berichten
+        Note over MAG: Legt het verstrekken vast in het logboek
+        FBS--&gt;&gt;IL: Dit magazijn is klaar, met het aantal berichten
     end
-    SC-&gt;&gt;SC: Bewaar de samengevoegde lijst zolang de ondernemer ingelogd is
-    UV--&gt;&gt;IL: Ophalen klaar
+    FBS-&gt;&gt;FBS: Bewaar de samengevoegde lijst zolang de ondernemer ingelogd is
+    FBS--&gt;&gt;IL: Ophalen klaar
 
-    IL-&gt;&gt;UV: Geef de berichtenlijst (pagina 1)
-    UV-&gt;&gt;SC: Lees de lijst
-    SC--&gt;&gt;UV: Berichten, en welke organisaties niet leverden
-    UV--&gt;&gt;IL: Berichtenlijst, nieuwste eerst
+    IL-&gt;&gt;FBS: Geef de berichtenlijst (pagina 1)
+    FBS--&gt;&gt;IL: Berichtenlijst, nieuwste eerst, en welke organisaties niet leverden
     IL--&gt;&gt;OND: Toont de berichtenbox
 
     loop Bij activiteit van de ondernemer
-        IL-&gt;&gt;UV: Verleng de sessie
+        IL-&gt;&gt;FBS: Verleng de sessie
     end
     OND-&gt;&gt;IL: Logt uit
-    IL-&gt;&gt;UV: Beëindig de sessie
-    UV-&gt;&gt;SC: Beëindig de sessie
+    IL-&gt;&gt;FBS: Beëindig de sessie
     opt Dit was de laatste sessie van de ondernemer
-        SC-&gt;&gt;SC: Wis de berichtenlijst
-        Note over UV: Legt het wissen vast in het logboek
+        FBS-&gt;&gt;FBS: Wis de berichtenlijst
+        Note over FBS: Legt het wissen vast in het logboek
     end
-    UV--&gt;&gt;IL: Sessie beëindigd
+    FBS--&gt;&gt;IL: Sessie beëindigd
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>
@@ -198,7 +185,7 @@
   <tr>
    <td>De sessie is verlopen (15 minuten zonder activiteit, of uiterlijk 12 uur)</td>
    <td>De uitvraag weigert elk verzoek. Binnen een halve minuut wist hij de berichtenlijst en legt dat vast in het logboek</td>
-   <td>"Uw sessie is verlopen. Log opnieuw in." Na opnieuw inloggen worden de berichten opnieuw opgehaald</td>
+   <td>"Uw sessie is verlopen of ongeldig. Log opnieuw in." Na opnieuw inloggen worden de berichten opnieuw opgehaald</td>
   </tr>
   <tr>
    <td>De ondernemer sluit het venster tijdens het ophalen</td>
@@ -262,7 +249,7 @@
   <tr>
    <td>Uitloggen</td>
    <td><code>DELETE /api/v1/sessies/huidige</code></td>
-   <td>Altijd <code>204</code>. Wissen bij de laatste sessie: <code>uitvraag-sessie-opruimen</code>, <code>aanleiding=uitgelogd</code></td>
+   <td><code>204</code>, ook voor een al verlopen of onbekende sessie; <code>401</code> alleen bij een ontbrekende of misvormde <code>X-Sessie</code>, <code>400</code> bij een ongeldige <code>X-Ontvanger</code>. Wissen bij de laatste sessie: <code>uitvraag-sessie-opruimen</code>, <code>aanleiding=uitgelogd</code></td>
   </tr>
   <tr>
    <td>Verlopen</td>
@@ -271,7 +258,7 @@
   </tr>
   <tr>
    <td>Logboek</td>
-   <td><code>uitvraag-sessie-start</code>, <code>uitvraag-ophalen-sse</code>, <code>uitvraag-lijst</code>. Magazijn: <code>ophalen-berichtenlijst</code></td>
+   <td><code>uitvraag-sessie-start</code>, <code>uitvraag-sessie-einde</code>, <code>uitvraag-ophalen-sse</code>, <code>uitvraag-lijst</code>. Magazijn: <code>ophalen-berichtenlijst</code></td>
    <td></td>
   </tr>
  </tbody>

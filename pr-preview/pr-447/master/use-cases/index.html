@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="./" class="is-active">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-rechtstreeks-ophalen/" class="">Use case 9: Rechtstreeks ophalen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="./" class="is-active">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -92,27 +92,23 @@
    <td>Een ondernemer verwijdert een bericht</td>
    <td>Ondernemer</td>
   </tr>
-  <tr>
-   <td>9</td>
-   <td>Een burger of ondernemer haalt berichten rechtstreeks bij de magazijnen op</td>
-   <td>Burger of ondernemer</td>
-  </tr>
  </tbody>
 </table>
-<p>Daarna volgt een pagina met drie vragen uit het beheer van het stelsel, en wat het stelsel daar nu wel en niet op kan antwoorden.</p>
+<p>Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan staat in de views <em>RechtstreeksOphalen</em> van het architectuurmodel.</p>
+<p>Na de use cases volgt een pagina met drie vragen uit het beheer van het stelsel, en wat het stelsel daar nu wel en niet op kan antwoorden.</p>
 <h2>Zo lees je een use case</h2>
 <p>Elke use case heeft dezelfde opbouw:</p>
 <ul>
  <li><strong>Actor, aanleiding en resultaat</strong>: wie begint, waarom, en wat er is als het goed gaat.</li>
  <li><strong>Verloop</strong>: de stappen in gewone taal.</li>
- <li><strong>Sequence diagram</strong>: dezelfde stappen als plaatje. Van boven naar beneden is de tijd. Een doorgetrokken pijl is een verzoek, een gestippelde pijl het antwoord. Een pijl met een open punt is een bericht waar de afzender niet op wacht. Een kader met <code>alt</code> toont alternatieven, <code>opt</code> iets dat alleen soms gebeurt, <code>loop</code> iets dat zich herhaalt en <code>par</code> dingen die tegelijk gebeuren.</li>
+ <li><strong>Sequence diagram</strong>: dezelfde stappen als plaatje. Van boven naar beneden is de tijd. Een doorgetrokken pijl is een verzoek, een gestippelde pijl het antwoord. Een pijl met een open punt is een verzoek waar de afzender niet op wacht. Een kader met <code>alt</code> toont alternatieven, <code>opt</code> iets dat alleen soms gebeurt, <code>loop</code> iets dat zich herhaalt en <code>par</code> dingen die tegelijk gebeuren.</li>
  <li><strong>Als het misgaat</strong>: per situatie wat het stelsel doet en wat de actor merkt.</li>
  <li><strong>Doelarchitectuur</strong>: waar het doelbeeld afwijkt van wat er nu draait.</li>
  <li><strong>Technische verwijzing</strong>: de koppelvlakken en instellingen achter het verloop, voor wie het in de code wil nalopen.</li>
 </ul>
 <p>De diagrammen tonen hoe het stelsel zich <strong>nu</strong> gedraagt. Wat in het doelbeeld anders gaat, staat bij de use case zelf en op de pagina met PoC-afwijkingen.</p>
 <h2>De deelnemers</h2>
-<p>De namen in de diagrammen zijn de namen van onderdelen uit het architectuurmodel, zodat je ze in de andere diagrammen terugvindt. Bij het bouwen van deze site controleert een script dat elke deelnemer een onderdeel uit het model is.</p>
+<p>De diagrammen tonen het stelsel op het niveau van de systemen: één lijn voor het Berichten Uitvraag Systeem en één voor het Berichtenmagazijn, ook als een stap binnen zo'n systeem door verschillende onderdelen gaat. De tekst en de technische verwijzing noemen die onderdelen waar het ertoe doet. De namen zijn die uit het architectuurmodel, zodat je ze in de andere diagrammen terugvindt; bij elke wijziging in de repository controleert een script dat elke deelnemer een onderdeel uit het model is.</p>
 <table>
  <thead>
   <tr>
@@ -134,24 +130,12 @@
    <td>Het portaal waarin de ondernemer zijn berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze</td>
   </tr>
   <tr>
-   <td>Berichten Uitvraag Service</td>
-   <td>De centrale dienst waar het portaal berichten opvraagt en beheert</td>
-  </tr>
-  <tr>
-   <td>Berichtensessiecache</td>
-   <td>Het tijdelijke geheugen van de uitvraag: de opgehaalde berichtenlijst van een ingelogde ondernemer, zolang hij ingelogd is</td>
-  </tr>
-  <tr>
-   <td>Aanmeld Service</td>
-   <td>Het deel van de uitvraag dat nieuwe berichten van een magazijn aanneemt</td>
-  </tr>
-  <tr>
-   <td>Magazijnregister</td>
-   <td>Welke organisatie welk berichtenmagazijn heeft, en waar dat te bereiken is</td>
+   <td>Berichten Uitvraag Systeem</td>
+   <td>De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort (het magazijnregister), houdt de opgehaalde berichtenlijst van een ingelogde ondernemer tijdelijk vast, en neemt aanmeldingen van nieuwe berichten aan</td>
   </tr>
   <tr>
    <td>Berichtenmagazijn</td>
-   <td>De opslag van de berichten van één organisatie. Elke organisatie heeft er één: zelf gehost, of afgenomen bij BBO. Een magazijn bestaat uit een Aanlever API, een Ophaal- en Beheer API, validatie, autorisatie, de Publicatie Stream en de Dataopslag</td>
+   <td>De opslag van de berichten van één organisatie. Elke organisatie heeft er één, zelf gehost of afgenomen bij BBO, en elk magazijn volgt dezelfde stelselafspraken over aanleveren, ophalen, beheren en aanmelden. De lijn in de diagrammen staat voor elk magazijn</td>
   </tr>
   <tr>
    <td>Profiel Service</td>
@@ -161,17 +145,13 @@
    <td>Notificatie Service</td>
    <td>Dienst van MijnOverheid Zakelijk die de ondernemer laat weten dat er een bericht is, bijvoorbeeld per e-mail</td>
   </tr>
-  <tr>
-   <td>Stelselregister</td>
-   <td>Publiceert de lijst van deelnemende organisaties en hun magazijnen, ondertekend</td>
-  </tr>
  </tbody>
 </table>
 <h2>Wat voor alle use cases geldt</h2>
 <p><strong>Er is geen centrale opslag van berichten.</strong> Een bericht staat alleen in het magazijn van de organisatie die het verstuurde. De uitvraag houdt de berichtenlijst van een ondernemer alleen vast zolang hij ingelogd is, en wist die zodra zijn laatste sessie eindigt.</p>
-<p><strong>Inloggen is in deze opstelling nog niet gebouwd.</strong> Het portaal geeft bij elk verzoek mee om welke ondernemer het gaat, en start bij het inloggen een sessie bij de uitvraag. Elk verzoek over berichten moet bij een lopende sessie van die ondernemer horen. In het doelbeeld bewijst een token uit eHerkenning wie de ondernemer is; zie de pagina met PoC-afwijkingen.</p>
+<p><strong>Inloggen is in deze opstelling nog niet gebouwd.</strong> Het portaal geeft bij elk verzoek mee om welke ondernemer het gaat, en start bij het inloggen een sessie bij de uitvraag. Elk verzoek over berichten moet bij een lopende sessie van die ondernemer horen. In het doelbeeld logt de ondernemer in met eHerkenning, en geeft de Interactielaag daarna een token uit dat bij elk verzoek bewijst wie hij is; zie de pagina met PoC-afwijkingen.</p>
 <p><strong>Een sessie verloopt.</strong> Na 15 minuten zonder activiteit, en uiterlijk na 12 uur, eindigt de sessie. Het portaal kan een kortere grens meegeven en beëindigt de sessie zelf bij uitloggen. Daarna is opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.</p>
-<p><strong>Wat het stelsel vastlegt.</strong> Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast in zijn eigen Logboek Dataverwerkingen: welke handeling, voor welke ondernemer, en of die lukte. Een handeling waarvan de vastlegging mislukt, telt niet als uitgevoerd; het magazijn slaat een aangeleverd bericht dan bijvoorbeeld niet op. Alleen het wissen van gegevens aan het einde van een sessie gaat dan toch door, met een waarschuwing aan de beheerder. Welke berichten precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.</p></div>
+<p><strong>Wat het stelsel vastlegt.</strong> Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast in zijn eigen Logboek Dataverwerkingen: welke handeling, voor welke ondernemer, en of die lukte. Bij het aanleveren en publiceren legt het magazijn de handeling vast vóórdat het hem uitvoert: mislukt de vastlegging, dan gebeurt er niets, en slaat het een aangeleverd bericht bijvoorbeeld niet op. Alle andere handelingen, in magazijn en uitvraag, worden vastgelegd nadat ze uitgevoerd zijn: mislukt de vastlegging daar, dan krijgt de aanroeper een foutmelding, maar is de handeling al gebeurd. Het wissen van gegevens aan het einde van een sessie gaat altijd door; mislukt de vastlegging, dan krijgt de beheerder een waarschuwing. Welke berichten precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.</p></div>
         </div>
       </div>
     </div>
