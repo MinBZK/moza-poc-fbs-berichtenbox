@@ -71,7 +71,7 @@
  <li>Om de 20 seconden controleert de uitvraag of de sessie nog loopt, en stuurt een teken van leven. Een openstaande verbinding verlengt de sessie niet: alleen activiteit van de ondernemer doet dat.</li>
  <li>Een magazijn meldt een nieuw bericht aan (use case 1, stap 7). De uitvraag zet het in de lijst van de ondernemer.</li>
  <li>De uitvraag draait op meerdere servers tegelijk. De server die de aanmelding ontving, laat via het tijdelijke geheugen alle andere servers weten dat er een nieuw bericht is. De server waarmee het portaal verbonden is, stuurt de kopgegevens naar het portaal.</li>
- <li>Het portaal toont het nieuwe bericht.</li>
+ <li>Het portaal toont het nieuwe bericht. In de lijst van de uitvraag staat een bericht dat tijdens de sessie bijkomt achteraan, niet bij de nieuwste: het portaal zet het zelf op zijn plek.</li>
  <li>Eindigt de sessie, door uitloggen of verlopen, dan meldt de uitvraag dat bij de eerstvolgende controle en sluit de verbinding.</li>
 </ol>
 <h2>Sequence diagram</h2>
@@ -102,7 +102,7 @@
 
     OND-&gt;&gt;IL: Logt uit (zie use case 2)
     FBS-&gt;&gt;FBS: Loopt de sessie nog? Nee
-    FBS--&gt;&gt;IL: Sessie verlopen, verbinding gesloten
+    FBS--&gt;&gt;IL: Sessie beëindigd, verbinding gesloten
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>
@@ -186,7 +186,7 @@
    <td>Elke 20s. Maximale duur van een verbinding 1u</td>
   </tr>
   <tr>
-   <td>Doorgeven tussen instanties</td>
+   <td>Doorgeven tussen servers (instanties)</td>
    <td>Redis pub/sub, één abonnement per instantie</td>
    <td>Alleen ontvanger-sleutel, berichtnummer en magazijn over het kanaal. Probe elke 30s, na twee gemiste probes worden alle streams van die instantie afgebroken</td>
   </tr>

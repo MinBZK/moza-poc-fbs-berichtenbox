@@ -70,7 +70,7 @@
  <li>De uitvraag stuurt het verwijderen naar het magazijn van de organisatie die het bericht stuurde.</li>
  <li>Het magazijn controleert of het bericht bij deze ondernemer hoort, en markeert het als verwijderd. Tekst en bijlagen blijven nog staan, maar het bericht komt in geen enkele lijst meer voor en is niet meer op te vragen.</li>
  <li>De uitvraag haalt het bericht uit de lijst, en onthoudt dat de ondernemer het zelf verwijderd heeft. Vraagt hij het opnieuw op zolang hij een sessie open heeft, dan hoort hij dat.</li>
- <li>Elke nacht om 03:00 (in de tijdzone van de server) ruimt de Retentie Service van het magazijn de berichten definitief op die zowel ten minste zeven jaar geleden verwijderd zijn als ten minste zeven jaar geleden ontvangen.</li>
+ <li>Elke nacht om 03:00 Nederlandse tijd ruimt het magazijn de berichten definitief op die zowel ten minste zeven jaar geleden verwijderd zijn als ten minste zeven jaar geleden ontvangen.</li>
 </ol>
 <h2>Sequence diagram</h2>
 <pre><code class="language-mermaid">sequenceDiagram
@@ -89,11 +89,11 @@
     Note over MAG: Legt het verwijderen vast in het logboek
     MAG--&gt;&gt;FBS: Verwijderd
     FBS-&gt;&gt;FBS: Haal het bericht uit de lijst en onthoud dat het verwijderd is
-    FBS--&gt;&gt;IL: Verwijderd
     Note over FBS: Legt het verwijderen vast in het logboek
+    FBS--&gt;&gt;IL: Verwijderd
     IL--&gt;&gt;OND: Het bericht is weg
 
-    Note over MAG: Later: elke nacht om 03:00, tijdzone van de server
+    Note over MAG: Later: elke nacht om 03:00 Nederlandse tijd
     loop In porties, tot alles opgeruimd is
         MAG-&gt;&gt;MAG: Verwijder berichten die 7 jaar geleden verwijderd en 7 jaar geleden ontvangen zijn definitief, met bijlagen en status
     end
@@ -178,7 +178,7 @@
   </tr>
   <tr>
    <td>Retentie</td>
-   <td><code>HardDeleteJob</code>, cron <code>0 0 3 * * ?</code> zonder tijdzone (JVM-default)</td>
+   <td><code>HardDeleteJob</code>, cron <code>0 0 3 * * ?</code> zonder tijdzone: JVM-default, in de image <code>TZ=Europe/Amsterdam</code></td>
    <td>Drempels <code>verwijderd_op</code> en <code>tijdstip_ontvangst</code> allebei ten minste 7 jaar (<code>P7Y</code>). Batches van 1000, hooguit 100.000 per run, <code>SKIP LOCKED</code> tussen instanties</td>
   </tr>
   <tr>

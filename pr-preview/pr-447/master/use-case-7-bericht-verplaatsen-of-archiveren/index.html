@@ -91,14 +91,15 @@
     MAG--&gt;&gt;FBS: Gewijzigd
     alt Bijwerken van de lijst lukt
         FBS-&gt;&gt;FBS: Werk het bericht in de lijst bij
+        Note over FBS: Legt de wijziging vast in het logboek
         FBS--&gt;&gt;IL: Bijgewerkt bericht
         IL--&gt;&gt;OND: Het bericht staat in de map
     else Bijwerken van de lijst mislukt
         FBS-&gt;&gt;FBS: Haal het bericht uit de lijst, tot het volgende ophalen
+        Note over FBS: Legt de mislukte wijziging vast in het logboek
         FBS--&gt;&gt;IL: Fout
         IL--&gt;&gt;OND: "Probeer het straks nog eens"
     end
-    Note over FBS: Legt de wijziging vast in het logboek
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>

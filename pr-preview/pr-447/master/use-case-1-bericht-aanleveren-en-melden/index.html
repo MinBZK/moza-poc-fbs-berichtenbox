@@ -101,7 +101,7 @@
         Note over MAG: Legt de levering vast in het logboek
         alt Aanmelden bij de uitvraag
             MAG-&gt;&gt;FBS: Nieuw bericht gepubliceerd (kopgegevens, zonder tekst)
-            FBS-&gt;&gt;FBS: Zet het bericht in de lijst, alleen als de ondernemer nu ingelogd is
+            FBS-&gt;&gt;FBS: Zet het bericht in de lijst, alleen als de ondernemer ingelogd is en al heeft opgehaald
             FBS--&gt;&gt;MAG: Ontvangen
         else Melden aan de Notificatie Service
             MAG-&gt;&gt;NOT: Nieuw bericht gepubliceerd
@@ -128,7 +128,7 @@
    <td>De organisatie krijgt een foutmelding met de reden</td>
   </tr>
   <tr>
-   <td>Een bijlage is groter dan 25 MiB, of de hele aanlevering groter dan 40 MB</td>
+   <td>Een bijlage is groter dan 25 MB, of de hele aanlevering groter dan 40 MB zoals verstuurd. Bijlagen gaan gecodeerd mee en wegen dan een derde zwaarder, dus samen passen er ongeveer 30 MB aan bestanden in</td>
    <td>Het magazijn weigert het bericht en slaat niets op</td>
    <td>Een foutmelding</td>
   </tr>
@@ -144,7 +144,7 @@
   </tr>
   <tr>
    <td>De opslag van het magazijn is onbereikbaar</td>
-   <td>Het magazijn weigert de aanlevering; omdat opslaan en plannen één geheel zijn, blijft er niets half achter. Mislukt meer dan de helft van de aanleveringen, dan weigert het magazijn een paar seconden lang elke aanlevering meteen</td>
+   <td>Het magazijn weigert de aanlevering; omdat opslaan en plannen één geheel zijn, blijft er niets half achter. Mislukt de helft of meer van de laatste twintig aanleveringen, dan weigert het magazijn een paar seconden lang elke aanlevering meteen</td>
    <td>Eerst een serverfout, daarna "tijdelijk niet beschikbaar"; later opnieuw aanleveren</td>
   </tr>
   <tr>
@@ -159,7 +159,7 @@
   </tr>
   <tr>
    <td>De uitvraag of de Notificatie Service is onbereikbaar</td>
-   <td>Het magazijn probeert het nog vier keer, ongeveer eens per minuut, en geeft die levering daarna op. Vraagt de bestemming zelf om later terug te komen, dan wacht hij zo lang (hooguit een uur). Een storing bij de ene bestemming houdt de andere niet op</td>
+   <td>Het magazijn probeert het nog vier keer, ongeveer eens per minuut, en geeft die levering daarna op. Vraagt de bestemming zelf om later terug te komen, dan wacht hij zo lang (hooguit een uur). Een storing bij de ene bestemming houdt de andere niet tegen, maar een bestemming die niet antwoordt, kan de andere vertragen</td>
    <td>De organisatie merkt niets: haar aanlevering was al aangenomen. Duurt de storing langer dan een paar minuten, dan krijgt de ondernemer geen melding</td>
   </tr>
   <tr>
@@ -183,8 +183,8 @@
 <ul>
  <li><strong>Verbinding via FSC.</strong> In het doelbeeld lopen alle verbindingen tussen organisaties via FSC, met wederzijds vertrouwen op basis van PKIoverheid-certificaten. Nu is dat per bestemming in te stellen, en loopt het aanmelden bij de uitvraag direct.</li>
  <li><strong>Wie mag aanleveren.</strong> In het doelbeeld controleert het magazijn wie aanlevert. Nu ligt die controle bij de netwerkrand vóór het magazijn. Het magazijn controleert ook niet of de opgegeven afzender de organisatie van dit magazijn is; de uitvraag kiest bij een aanmelding het magazijn op basis van die afzender.</li>
- <li><strong>Controle op bijlagen.</strong> Het model noemt een controle op grootte en aantal bijlagen. Nu gelden 25 MiB per bijlage en 40 MB per aanlevering; het aantal bijlagen is niet begrensd, en het magazijn kijkt alleen naar het opgegeven bestandstype, niet naar de inhoud.</li>
- <li><strong>Persoonsgegevens in de melding.</strong> De melding aan de uitvraag en de Notificatie Service bevat het identificatienummer van de ontvanger en het onderwerp, leesbaar. Het NL GOV-profiel voor CloudEvents vraagt terughoudendheid met gevoelige gegevens in een melding.</li>
+ <li><strong>Controle op bijlagen.</strong> Het model noemt een controle op grootte en aantal bijlagen. Nu gelden 25 MB per bijlage en 40 MB per aanlevering; het aantal bijlagen is niet begrensd, en het magazijn kijkt alleen naar het opgegeven bestandstype, niet naar de inhoud.</li>
+ <li><strong>Persoonsgegevens in aanmelding en melding.</strong> De aanmelding bij de uitvraag en de melding aan de Notificatie Service bevatten het identificatienummer van de ontvanger en het onderwerp, leesbaar. De afspraken voor zulke meldingen vragen om gevoelige gegevens daarin te versleutelen, of ze alleen op te laten halen.</li>
 </ul>
 <h2>Open vragen</h2>
 <ul>
@@ -209,7 +209,7 @@
   <tr>
    <td>Aanleveren</td>
    <td><code>POST /api/v1/aanleveringen</code> op het magazijn (<code>berichtenmagazijn-api.yaml</code>)</td>
-   <td><code>201</code> met <code>berichtId</code>. Fouten: <code>400</code> (ongeldig, bijlage niet <code>application/pdf</code> of groter dan <code>Bijlage.MAX_CONTENT_BYTES</code>), <code>403</code> (geen profiel of geen opt-in), <code>500</code> (logboek, opslag, Profiel Service onbereikbaar na twee retries), <code>503</code> (circuit breaker open, zonder <code>Retry-After</code>, of onduidelijk antwoord van de Profiel Service, met <code>Retry-After: 30</code>). Body boven <code>quarkus.http.limits.max-body-size</code> (40M): <code>413</code></td>
+   <td><code>201</code> met <code>berichtId</code>. Fouten: <code>400</code> (ongeldig, bijlage niet <code>application/pdf</code> of groter dan <code>Bijlage.MAX_CONTENT_BYTES</code>, 25 MiB), <code>403</code> (geen profiel of geen opt-in), <code>500</code> (logboek, opslag, Profiel Service onbereikbaar na twee retries), <code>503</code> (circuit breaker open, zonder <code>Retry-After</code>, of onduidelijk antwoord van de Profiel Service, met <code>Retry-After: 30</code>). Body boven <code>quarkus.http.limits.max-body-size</code> (40M, dus 40 MiB JSON met Base64-bijlagen): <code>413</code></td>
   </tr>
   <tr>
    <td>Toestemming</td>
@@ -219,7 +219,7 @@
   <tr>
    <td>Opslaan en plannen</td>
    <td>Eén transactie: bericht, bijlagen, en per bestemming een outbox-rij</td>
-   <td>Circuit breakers rond de Profiel Service en de database (20 verzoeken, 50% fout, 5s open)</td>
+   <td>Circuit breakers rond de Profiel Service en de database (venster van 20 verzoeken, open bij 50% fout of meer, 5s open)</td>
   </tr>
   <tr>
    <td>Publiceren</td>
@@ -234,7 +234,7 @@
   <tr>
    <td>Melden</td>
    <td>CloudEvent naar <code>NOTIFICATIE_URL</code></td>
-   <td><code>data</code> bevat <code>ontvanger</code> en <code>onderwerp</code>. In de lokale ontwikkelomgeving een stub</td>
+   <td><code>data</code> bevat <code>ontvanger</code> en <code>onderwerp</code> onversleuteld; het NL GOV-profiel voor CloudEvents wijst daarvoor versleuteling van <code>data</code> of een claim-check via <code>dataref</code> aan. In de ontwikkel- en testomgevingen een WireMock-stub</td>
   </tr>
   <tr>
    <td>Logboek</td>

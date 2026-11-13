@@ -60,7 +60,7 @@
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>Een PDF of afbeelding opent in het portaal. Andere bestanden worden gedownload, onder de bestandsnaam die de organisatie meegaf</td>
+   <td>Een PDF, PNG of JPEG opent in het portaal. Andere bestanden worden gedownload, onder de bestandsnaam die de organisatie meegaf</td>
   </tr>
  </tbody>
 </table>
@@ -88,12 +88,12 @@
     MAG-&gt;&gt;MAG: Zoek het bericht, controleer of het bij deze ondernemer hoort, zoek de bijlage
     Note over MAG: Legt de verstrekking vast in het logboek
     MAG--&gt;&gt;FBS: Bijlage met bestandstype
+    Note over FBS: Legt de verstrekking vast in het logboek
     alt Klein bestand
         FBS--&gt;&gt;IL: Bijlage in één keer
     else Groot bestand
         FBS--&gt;&gt;IL: Bijlage in delen, terwijl hij binnenkomt
     end
-    Note over FBS: Legt de verstrekking vast in het logboek
     alt PDF, PNG of JPEG
         IL--&gt;&gt;OND: Toont de bijlage
     else Ander bestandstype
@@ -177,7 +177,7 @@
   <tr>
    <td>Doorgeven</td>
    <td><code>BijlageDoorgifte</code></td>
-   <td>Tot 1 MiB in één keer, daarboven streaming. Slots per instantie: 3 per ontvanger, 20 in totaal. 60s zonder lezen breekt af</td>
+   <td>Tot 1 MiB in één keer, daarboven streaming. Slots per server (instantie): 3 per ontvanger, 20 in totaal. 60s zonder lezen breekt af</td>
   </tr>
   <tr>
    <td>Weergave</td>

@@ -98,10 +98,10 @@
     PRO--&gt;&gt;FBS: Organisaties
     FBS-&gt;&gt;FBS: Zoek het magazijn van elke organisatie op in het magazijnregister
     FBS--&gt;&gt;IL: Per magazijn: bevraging gestart
-    loop Elk magazijn, allemaal tegelijk
+    loop Per magazijn (de bevragingen lopen tegelijk)
         FBS-&gt;&gt;MAG: Berichten van deze ondernemer (kopgegevens, zonder tekst)
-        MAG--&gt;&gt;FBS: Berichten
         Note over MAG: Legt het verstrekken vast in het logboek
+        MAG--&gt;&gt;FBS: Berichten
         FBS--&gt;&gt;IL: Dit magazijn is klaar, met het aantal berichten
     end
     FBS-&gt;&gt;FBS: Bewaar de samengevoegde lijst zolang de ondernemer ingelogd is
