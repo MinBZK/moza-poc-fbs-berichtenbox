@@ -1,0 +1,288 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Standaarden voor elke dienst. Wat per dienst verschilt staat in diensten/<dienst>.yaml; wat per
+# omgeving verschilt (tag, hostnaam, adressen, geheimen) geef je bij de installatie mee.
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  compatibility:
+    openshift:
+      adaptSecurityContext: auto
+    omitEmptySeLinuxOptions: true
+
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+commonLabels:
+  app.kubernetes.io/part-of: fbs
+commonAnnotations: {}
+extraDeploy: []
+
+cluster:
+  # gateway-api (HTTPRoute, zoals Fundament met Envoy Gateway) of ingress.
+  routingMode: gateway-api
+  gateway:
+    name: ""
+    # Leeg = de namespace van de release.
+    namespace: ""
+    # Naam van de listener op de Gateway, verplicht bij een route: zonder hangt de route aan elke
+    # listener, ook aan een zonder TLS.
+    sectionName: https
+    annotations: {}
+
+dienst:
+  image:
+    registry: ghcr.io
+    repository: ""
+    # Verplicht, of een digest: main-<sha7> of pr-<n>-<sha7>, bij een herdraai of ready-for-review
+    # met -r<n>/-k<n> erachter, zoals de keten ze publiceert. Een meebewegende tag (latest, main)
+    # laat een herinstallatie stil een ander image draaien.
+    tag: ""
+    digest: ""
+    pullPolicy: Always
+    pullSecrets: []
+
+  replicaCount: 1
+  # Voor een dienst die nooit met twee instanties tegelijk mag draaien: de render faalt bij een
+  # ander aantal replica's dan één of een HPA, en een uitrol stopt de oude pod vóór de nieuwe start.
+  singleReplica: false
+
+  containerPorts:
+    http: 8080
+
+  # Verplicht: waar TLS van het inkomende verkeer eindigt. De chart ondersteunt alleen mesh: TLS
+  # eindigt vóór de dienst, en het laatste stuk naar de pod is platte HTTP. Kies dit alleen als dat
+  # stuk afgeschermd is (versleuteld pod-netwerk, service mesh): over die verbinding gaan het BSN in
+  # X-Ontvanger en de inhoud van berichten. TLS in de dienst zelf (app) vraagt een https-poort,
+  # probes op HTTPS en TLS vanaf de Gateway; die levert de chart niet.
+  tlsTermination: ""
+
+  # Losse instellingen als env. Geheimen niet hier, maar in een bestaand Secret
+  # (extraEnvVarsSecret), zodat ze niet in een values-bestand belanden.
+  env: {}
+  # De FBS_*_UNSAFE_*-kleppen zetten een TLS-eis uit. Zonder deze schakelaar weigert de render ze
+  # in dienst.env en extraEnvVars, in elke schrijfwijze, zodat ze niet ongemerkt in een echte
+  # installatie belanden. De controle vangt vergissingen, geen opzet: wat in extraEnvVarsCM,
+  # extraEnvVarsSecret, een gemount config-bestand (extraVolumes), een sidecar of extraDeploy staat,
+  # ziet de chart niet.
+  allowUnsafeFlags: false
+  extraEnvVars: []
+  extraEnvVarsCM: ""
+  extraEnvVarsSecret: ""
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /q/health/live
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /q/health/ready
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+  # Ruim: het magazijn draait Flyway-migraties vóór het zich gestart meldt.
+  startupProbe:
+    enabled: true
+    httpGet:
+      path: /q/health/started
+      port: http
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 36
+    successThreshold: 1
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  customStartupProbe: {}
+
+  # De JVM neemt standaard 80% van de geheugenlimiet als heap.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 50Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+      ephemeral-storage: 1Gi
+
+  podSecurityContext:
+    enabled: true
+    fsGroup: 185
+    fsGroupChangePolicy: OnRootMismatch
+    supplementalGroups: []
+    sysctls: []
+  # UID 185 is de gebruiker van het UBI-openjdk-image waar jib op bouwt.
+  containerSecurityContext:
+    enabled: true
+    seLinuxOptions: {}
+    runAsUser: 185
+    runAsGroup: 185
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    privileged: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Quarkus en Vert.x schrijven tijdelijke bestanden onder java.io.tmpdir.
+  tmpSizeLimit: 256Mi
+
+  # De render weigert beide: command vervangt het entrypoint, args de argumenten ervan, en zo is
+  # ook het profiel te zetten.
+  command: []
+  args: []
+  automountServiceAccountToken: false
+  hostAliases: []
+  deploymentAnnotations: {}
+  podLabels: {}
+  podAnnotations: {}
+  podAffinityPreset: ""
+  podAntiAffinityPreset: soft
+  nodeAffinityPreset:
+    type: ""
+    key: ""
+    values: []
+  affinity: {}
+  nodeSelector: {}
+  tolerations: []
+  updateStrategy:
+    type: RollingUpdate
+  priorityClassName: ""
+  topologySpreadConstraints: []
+  schedulerName: ""
+  runtimeClassName: ""
+  terminationGracePeriodSeconds: 30
+  lifecycleHooks: {}
+  # Een keystore uit een bestaand Secret, als bestand. Los van extraVolumes: Helm vervangt lijsten
+  # in plaats van ze samen te voegen, dus een eigen extraVolumes zou de keystore stil laten
+  # wegvallen.
+  keystore:
+    enabled: false
+    # Mag een template zijn.
+    secretName: ""
+    key: ""
+    mountPath: ""
+  extraVolumes: []
+  extraVolumeMounts: []
+  sidecars: []
+  initContainers: []
+
+  # Eén van de twee: staat minAvailable, dan vervalt maxUnavailable (Kubernetes weigert beide).
+  pdb:
+    create: true
+    minAvailable: ""
+    maxUnavailable: 1
+
+  autoscaling:
+    hpa:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPU: 75
+      targetMemory: ""
+
+service:
+  type: ClusterIP
+  ports:
+    http: 80
+  clusterIP: ""
+  annotations: {}
+  extraPorts: []
+  sessionAffinity: None
+  sessionAffinityConfig: {}
+
+networkPolicy:
+  enabled: true
+  # true laat inkomend verkeer van overal toe; standaard alleen de bronnen hieronder.
+  allowExternal: false
+  # true laat uitgaand verkeer naar overal toe; standaard alleen DNS, allowedEgressPorts en, met
+  # gatewayEgress, de Gateway.
+  allowExternalEgress: false
+  # Poorten van de DNS-resolver. Een NetworkPolicy ziet de poort ná de vertaling door de Service:
+  # op Gardener (Fundament) luistert CoreDNS op 8053 achter Service-poort 53.
+  dnsPorts: [53, 8053]
+  # Uitgaande TCP-poorten, naar elke bestemming. Per dienst in diensten/<dienst>.yaml. Wie de
+  # bestemmingen kent, zet hier [] en beschrijft ze met `to` in extraEgress.
+  allowedEgressPorts: []
+  # Uitgaand naar de proxy's van de Gateway, voor een https-adres van een dienst in hetzelfde
+  # cluster. Envoy Gateway laat een listener onder 1024 op die poort plus 10000 luisteren, en de
+  # NetworkPolicy ziet die poort, niet 443. Eigen selectors, los van die voor inkomend verkeer: de
+  # bestemming kan achter een andere Gateway staan dan de eigen route, of de dienst heeft er geen.
+  gatewayEgress:
+    enabled: false
+    ports: [10443]
+    namespaceMatchLabels:
+      kubernetes.io/metadata.name: envoy-gateway-system
+    # Verplicht als gatewayEgress aan staat: zonder podSelector telt elke pod in de namespace mee.
+    podMatchLabels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+  # Pods met het label client.fbs.minbzk.nl/<fullname>: "true" mogen de dienst aanroepen. Eén
+  # sleutel per doel, zodat een pod meerdere diensten kan aanroepen.
+  addExternalClientAccess: true
+  # Waar de proxy's van de eigen Gateway draaien, voor inkomend verkeer. Envoy Gateway zet ze in
+  # zijn eigen namespace, niet in die van de Gateway-resource; bij de deploymodus GatewayNamespace
+  # of met mergeGateways moeten deze selectors mee veranderen. Weghalen kan alleen met null: Helm
+  # voegt een lege map samen met deze standaard in plaats van hem te vervangen. Bij
+  # routingMode=ingress horen hier de labels van de Ingress-controller.
+  ingressNSMatchLabels:
+    kubernetes.io/metadata.name: envoy-gateway-system
+  # Alleen de proxy's van de eigen Gateway, niet die van andere Gateways in het cluster. Mag
+  # templates bevatten. Bij routingMode=ingress is de Gateway-naam leeg en weigert de render een
+  # route: zet dan de labels van de controller-pods, of null.
+  ingressNSPodMatchLabels:
+    gateway.envoyproxy.io/owning-gateway-name: '{{ .Values.cluster.gateway.name }}'
+    gateway.envoyproxy.io/owning-gateway-namespace: '{{ .Values.cluster.gateway.namespace | default (include "common.names.namespace" .) }}'
+  ingressPodMatchLabels: {}
+  extraIngress: []
+  extraEgress: []
+
+ingress:
+  enabled: false
+  # De API's authenticeren hun aanroepers niet: wie de route bereikt, bereikt de API. Een route
+  # vraagt daarom deze expliciete schakelaar. Zet hem alleen als de Gateway de toegang beperkt, of
+  # als de API openbaar hoort te zijn (het stelseldocument).
+  allowUnauthenticated: false
+  # Verplicht zodra ingress.enabled: de route faalt anders bij de render.
+  hostname: ""
+  # Alleen de API, het OpenAPI-document en /.well-known; /q (health, Swagger UI) blijft binnen het
+  # cluster. Een health-antwoord noemt bij een storing interne hostnamen en poorten. Type
+  # PathPrefix of Exact; een reguliere expressie zou de uitsluiting van /q omzeilen.
+  paths:
+    - type: PathPrefix
+      value: /api/v1
+    - type: Exact
+      value: /openapi.json
+    - type: PathPrefix
+      value: /.well-known
+  # Alleen bij routingMode=gateway-api. Paden met een stream (SSE): een eigen regel in de HTTPRoute
+  # zonder request-timeout. Envoy breekt een antwoord anders na 15 seconden af, ook een stream.
+  # Exact, en binnen een van de paden hierboven. Bij routingMode=ingress weigert de render ze: de
+  # Ingress kent geen timeout per pad, die hoort bij de controller.
+  streamPaths: []
+  # Alleen bij routingMode=gateway-api: de request-timeout van de gewone regel. Leeg = die van
+  # Envoy (15 seconden), en die loopt tot het hele antwoord binnen is, ook bij een grote bijlage.
+  requestTimeout: ""
+  # Alleen bij cluster.routingMode=ingress.
+  ingressClassName: ""
+  annotations: {}
+  # Alleen bij cluster.routingMode=ingress, en dan verplicht: TLS met het Secret <hostname>-tls,
+  # bijvoorbeeld van cert-manager via annotations. Bij gateway-api regelt de Gateway TLS.
+  tls: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false

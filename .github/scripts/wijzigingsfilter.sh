@@ -25,7 +25,9 @@ set -euo pipefail
 # niets over op; review is daar de maatregel.
 # `tools/adr-lint/` pint de ADR-linter voor ontwikkelaars; geen workflow draait hem. Zonder deze
 # uitsluiting kocht elke Dependabot-bump van die lockfile de volledige keten met drie previews.
-NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabot\.yml$|^\.editorconfig$|^\.gitignore$|^LICENSE$|^apis\.json$|^tools/adr-lint/'
+# `charts/` is de Helm-chart voor clusters buiten ZAD: geen Maven-module, geen image, geen
+# ZAD-component. ci-scripts.yml toetst hem op elke PR, zonder dit filter.
+NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabot\.yml$|^\.editorconfig$|^\.gitignore$|^LICENSE$|^apis\.json$|^tools/adr-lint/|^charts/'
 
 # Workflows waarvoor een preview geen bewijs oplevert. Los van NIET_DEPLOYBAAR omdat de unittests
 # deze lijst tegen de schijf kruiscontroleren: elke naam moet bestaan, en elke workflow op schijf

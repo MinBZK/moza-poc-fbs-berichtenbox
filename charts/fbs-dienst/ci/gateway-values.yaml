@@ -1,0 +1,24 @@
+# Zoals op Fundament: een HTTPRoute aan een Envoy Gateway in een andere namespace, config en
+# geheimen uit bestaande objecten.
+dienst:
+  image:
+    tag: main-0000000
+  tlsTermination: mesh
+  extraEnvVarsCM: fbs-config
+  extraEnvVarsSecret: fbs-geheimen
+  env:
+    PROFIEL_SERVICE_URL: https://profiel.{{ .Release.Namespace }}.example.nl
+    # Een getal vanaf 1e6: moet als 10485760 in de env komen, niet als exponent.
+    QUARKUS_HTTP_LIMITS_MAX_BODY_SIZE: 10485760
+
+cluster:
+  routingMode: gateway-api
+  gateway:
+    name: fundament-gateway
+    namespace: gateway-system
+    sectionName: https
+
+ingress:
+  enabled: true
+  allowUnauthenticated: true
+  hostname: dienst.fieldlab.example.nl

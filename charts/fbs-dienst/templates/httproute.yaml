@@ -1,0 +1,60 @@
+{{- /*
+SPDX-License-Identifier: EUPL-1.2
+Naar het voorbeeld van de app-charts van MinBZK/mijn-bureau-infra (bijvoorbeeld bureaublad), met
+twee afwijkingen. Een eigen parentRef, want common.httproute.parentRef zet sectionName vast op
+`https`. En geen HSTS-filter: de dienst zet die header zelf, en een tweede laag die hem met `set`
+overschrijft maakt de waarde in de dienst dode code.
+*/}}
+{{- if and .Values.ingress.enabled (eq .Values.cluster.routingMode "gateway-api") }}
+{{- $gw := .Values.cluster.gateway }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ template "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: {{ include "fbs-dienst.component" . }}
+  {{- with (include "common.httproute.annotations" .) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - name: {{ $gw.name }}
+      {{- with $gw.namespace }}
+      namespace: {{ . }}
+      {{- end }}
+      {{- with $gw.sectionName }}
+      sectionName: {{ . }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.ingress.hostname | quote }}
+  rules:
+    - matches:
+        {{- range .Values.ingress.paths }}
+        - path:
+            type: {{ .type }}
+            value: {{ .value | quote }}
+        {{- end }}
+      {{- with .Values.ingress.requestTimeout }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
+      backendRefs:
+        - name: {{ template "common.names.fullname" . }}
+          port: {{ .Values.service.ports.http }}
+    {{- with .Values.ingress.streamPaths }}
+    {{- /* Een Exact-match gaat in Gateway API vóór een PathPrefix, dus deze regel wint. */}}
+    - matches:
+        {{- range . }}
+        - path:
+            type: Exact
+            value: {{ . | quote }}
+        {{- end }}
+      timeouts:
+        # 0s: geen grens. Een stream eindigt aan de kant van de dienst.
+        request: 0s
+      backendRefs:
+        - name: {{ template "common.names.fullname" $ }}
+          port: {{ $.Values.service.ports.http }}
+    {{- end }}
+{{- end }}

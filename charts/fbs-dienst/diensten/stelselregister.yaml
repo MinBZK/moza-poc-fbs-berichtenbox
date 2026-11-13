@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Stelselregister: publiceert het magazijnregister als ondertekend stelseldocument. Geen database,
+# geen persoonsgegevens, geen uitgaande verbindingen.
+#
+# Mee te geven bij de installatie (zie docs/operator-handleiding-stelselregister.md):
+#   dienst.tlsTermination
+#   via env of extraEnvVarsCM: STELSELDOCUMENT_UITGEVER_OIN, STELSELDOCUMENT_OMGEVING,
+#     MAGAZIJN_A_URL, MAGAZIJN_B_URL (https)
+#   via extraEnvVarsSecret: STELSELDOCUMENT_KEYSTORE_WACHTWOORD
+#   een Secret <fullname>-keystore met de PKCS#12-keystore onder de data-key keystore.p12; de
+#     fullname is <release>-stelselregister, of de kale releasenaam als die "stelselregister" al
+#     bevat
+
+nameOverride: stelselregister
+
+dienst:
+  image:
+    repository: minbzk/fbs-stelselregister
+  containerPorts:
+    http: 8094
+
+  # Elke instantie ondertekent op een eigen moment, en een afnemer weigert een document met een
+  # oudere `iat` dan het laatste dat hij accepteerde. Twee instanties naast elkaar leveren hem dus
+  # afwisselend een document dat hij weigert.
+  singleReplica: true
+
+  env:
+    STELSELDOCUMENT_KEYSTORE_PAD: /etc/stelselregister/keystore.p12
+
+  keystore:
+    enabled: true
+    secretName: '{{ include "common.names.fullname" . }}-keystore'
+    key: keystore.p12
+    mountPath: /etc/stelselregister
+
+ingress:
+  # Het stelseldocument is openbaar en ondertekend: een afnemer controleert de handtekening, niet
+  # de aanroeper.
+  allowUnauthenticated: true
+
+networkPolicy:
+  allowedEgressPorts: []

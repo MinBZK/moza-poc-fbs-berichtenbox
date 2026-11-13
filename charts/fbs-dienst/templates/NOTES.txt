@@ -1,0 +1,32 @@
+{{ include "common.names.name" . }} ({{ include "fbs-dienst.image" . }}) is geïnstalleerd als {{ include "common.names.fullname" . }} in namespace {{ include "common.names.namespace" . }}.
+
+Gezondheid volgen:
+  kubectl -n {{ include "common.names.namespace" . }} rollout status deployment/{{ include "common.names.fullname" . }}
+
+Binnen het cluster: http://{{ include "common.names.fullname" . }}.{{ include "common.names.namespace" . }}.svc:{{ .Values.service.ports.http }}
+{{- if .Values.ingress.enabled }}
+Van buiten: https://{{ .Values.ingress.hostname }}/api/v1 (zonder authenticatie: elke aanroeper met toegang tot de Gateway bereikt de API)
+{{- if eq .Values.cluster.routingMode "gateway-api" }}
+De hostnaam moet in DNS naar de Gateway wijzen en passen bij listener {{ .Values.cluster.gateway.sectionName }}. Het adres:
+  kubectl -n {{ .Values.cluster.gateway.namespace | default (include "common.names.namespace" .) }} get gateway {{ .Values.cluster.gateway.name }}
+{{- end }}
+{{- end }}
+Aanroepers in de namespace krijgen toegang met het podlabel client.fbs.minbzk.nl/{{ include "common.names.fullname" . }}: "true"
+{{- $np := .Values.networkPolicy }}
+{{- if and (not .Values.ingress.enabled) (eq .Values.cluster.routingMode "gateway-api") $np.enabled (not $np.allowExternal) $np.ingressNSMatchLabels }}
+{{- $lege := list }}
+{{- with $np.ingressNSPodMatchLabels }}
+{{- range $sleutel, $waarde := (include "common.tplvalues.render" (dict "value" . "context" $) | fromYaml) }}
+{{- if not $waarde }}{{ $lege = append $lege $sleutel }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if $lege }}
+
+LET OP: zonder route en zonder cluster.gateway.name laat de NetworkPolicy geen Gateway binnen ({{ join ", " $lege }} is leeg).
+Maak je de route apart, zet dan cluster.gateway.name (en zo nodig cluster.gateway.namespace) op de Gateway van die route; anders geeft de Gateway een 503.
+{{- end }}
+{{- end }}
+{{- if eq (toString .Values.dienst.allowUnsafeFlags) "true" }}
+
+LET OP: dienst.allowUnsafeFlags staat aan. De dienst logt bij elke start welke TLS-eis uit staat.
+{{- end }}

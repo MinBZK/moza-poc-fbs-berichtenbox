@@ -109,6 +109,10 @@ apis.json
 verwacht "een bump van de ADR-linter" 'tools/adr-lint/package.json
 tools/adr-lint/package-lock.json' "$ALLES_UIT"
 
+verwacht "de Helm-chart" 'charts/fbs-dienst/values.yaml
+charts/policy/fbs.rego
+charts/controleer.sh' "$ALLES_UIT"
+
 # Documentatie ín een module trok voorheen wél een fuzz-ronde: de allowlist keek niet naar de
 # code-uitkomst. Vier uitkomsten die elkaar tegenspreken maken het filter onvoorspelbaar.
 verwacht "documentatie binnen een module kost geen fuzz-ronde" 'services/berichtenmagazijn/README.md' "$ALLES_UIT"
@@ -149,6 +153,8 @@ verwacht "het C4-model onder docs/ is geen code" 'docs/architecture/workspace.ds
 verwacht "een resource met een meta-naam binnen een module" 'services/berichtenmagazijn/src/main/resources/apis.json' "$ALLES_AAN"
 
 verwacht "een 'tools/adr-lint'-map bínnen een module is gewoon code" 'services/berichtenmagazijn/tools/adr-lint/lint.sh' "$ALLES_AAN"
+
+verwacht "een 'charts'-map bínnen een module is gewoon code" 'services/berichtenmagazijn/src/main/resources/charts/x.json' "$ALLES_AAN"
 
 verwacht "een fixture met .md middenin de naam is geen documentatie" 'services/berichtenuitvraag/src/test/resources/voorbeeld.md.json' "$ALLES_AAN"
 

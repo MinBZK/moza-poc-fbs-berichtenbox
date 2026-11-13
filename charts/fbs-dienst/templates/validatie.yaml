@@ -1,0 +1,4 @@
+{{- /*
+SPDX-License-Identifier: EUPL-1.2
+*/}}
+{{- include "fbs-dienst.validateValues" . -}}
