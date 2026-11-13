@@ -152,6 +152,7 @@ jobs:
             [.github/scripts/test-proeftuin-pin.sh]=139
             [.github/scripts/test-preview-resten.sh]=255
             [.github/scripts/test-selinux-label-guard.sh]=22
+            [.github/scripts/test-use-case-deelnemers.sh]=31
             [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223
@@ -226,12 +227,14 @@ jobs:
           # kan dan nog bestaan, dus ook hier: draaide hij. Een vervangende stub die één `OK:`
           # print haalt elke telling. Deze dragen elk een controle die nergens anders in de keten
           # wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf, de twee onder demo/lib/
-          # zijn de enige toets van de modus-keuze, en test-meet-fanout.sh de enige bewaking dat de
-          # fan-out-meting een niet-geleegde cache weigert.
+          # zijn de enige toets van de modus-keuze, test-meet-fanout.sh de enige bewaking dat de
+          # fan-out-meting een niet-geleegde cache weigert, en test-use-case-deelnemers.sh de enige
+          # plek waar de sequence diagrams van de use cases tegen het C4-model gelegd worden.
           for verplicht in .github/scripts/test-wijzigingsfilter.sh \
                            .github/scripts/test-uitrol-poort.sh \
                            .github/scripts/test-demo-grens.sh \
                            .github/scripts/test-jdk-handtekening.sh \
+                           .github/scripts/test-use-case-deelnemers.sh \
                            demo/lib/test-podman-modus.sh \
                            demo/lib/test-opstellingen.sh \
                            demo/test-meet-fanout.sh; do
