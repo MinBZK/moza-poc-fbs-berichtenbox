@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.time.Duration
 import java.time.Instant
@@ -29,11 +31,11 @@ class SessieVolgerTest {
     private val cache = MockBerichtenCache()
     private val aanmeldingen = MockAanmeldingen()
     private val sessies = GeheugenSessieRegister()
-    private val volger = SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR)
+    private val volger = SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, LEES_TIMEOUT)
 
     // Alleen voor de tests die de hartslag zelf toetsen. Elders zou een tik tussen twee stappen van
     // een test vallen en de telling van de items verstoren.
-    private val snel = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, MAX_DUUR)
+    private val snel = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, MAX_DUUR, LEES_TIMEOUT)
 
     private val ontvanger = Bsn("999993653")
     private val ander = Bsn("999990019")
@@ -111,9 +113,165 @@ class SessieVolgerTest {
         startSessie(ontvanger)
         val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
 
-        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), BerichtSleutel("00000001003214345000", UUID.randomUUID())).await().indefinitely()
+        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), BerichtSleutel("00000001003214345000", UUID.randomUUID()), Berichtwijziging.BIJGEKOMEN).await().indefinitely()
 
         assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.zonderHartslag())
+    }
+
+    @ParameterizedTest(name = "status={0}, map={1}")
+    @CsvSource("gelezen,", "ongelezen,Belasting", ",Archief", nullValues = [""])
+    fun `een gewijzigd bericht komt door met de status en map uit de cache`(status: String?, map: String?) {
+        startSessie(ontvanger)
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
+        val bijgewerkt = bericht(ontvanger).copy(status = status?.let(Leesstatus::fromWire), map = map)
+        cache.createBericht(bijgewerkt, ontvanger).await().indefinitely()
+
+        volger.meld(ontvanger, bijgewerkt.sleutel, Berichtwijziging.GEWIJZIGD).await().indefinitely()
+
+        volgend.wachtTot { items -> items.any { it is SessieGebeurtenis.BerichtGewijzigd } }
+        assertEquals(
+            SessieGebeurtenis.BerichtGewijzigd(bijgewerkt.magazijnId, bijgewerkt.berichtId, bijgewerkt.status, map),
+            volgend.zonderHartslag().last(),
+        )
+    }
+
+    @Test
+    fun `een gewijzigd bericht dat al weg is, wordt overgeslagen`() {
+        startSessie(ontvanger)
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
+
+        volger.meld(ontvanger, BerichtSleutel("00000001003214345000", UUID.randomUUID()), Berichtwijziging.GEWIJZIGD).await().indefinitely()
+
+        assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.zonderHartslag())
+    }
+
+    @Test
+    fun `een verwijderd bericht komt door met alleen zijn sleutel, zonder de cache te lezen`() {
+        // Het bericht staat na het verwijderen niet meer in de cache; er valt niets te lezen.
+        val nietLezendeCache = object : BerichtenCache by cache {
+            override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> =
+                fail("een verwijdering hoort de cache niet te lezen")
+        }
+        val volgerZonderLezen = SessieVolger(nietLezendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, LEES_TIMEOUT)
+        startSessie(ontvanger)
+        val volgend = volgerZonderLezen.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
+        volgend.wachtTot { it.isNotEmpty() }
+        val sleutel = BerichtSleutel("00000001003214345000", UUID.randomUUID())
+
+        volger.meld(ontvanger, sleutel, Berichtwijziging.VERWIJDERD).await().indefinitely()
+
+        volgend.wachtTot { items -> items.any { it is SessieGebeurtenis.BerichtVerwijderd } }
+        assertEquals(SessieGebeurtenis.BerichtVerwijderd(sleutel.magazijnId, sleutel.berichtId), volgend.zonderHartslag().last())
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Berichtwijziging::class)
+    internal fun `een melding in de sessie van een andere ontvanger komt niet door`(wijziging: Berichtwijziging) {
+        startSessie(ontvanger)
+        startSessie(ander)
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
+        val vanAnder = bericht(ander)
+        cache.createBericht(vanAnder, ander).await().indefinitely()
+
+        volger.meld(ander, vanAnder.sleutel, wijziging).await().indefinitely()
+
+        assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.zonderHartslag())
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Berichtwijziging::class, names = ["BIJGEKOMEN", "GEWIJZIGD"])
+    internal fun `een melding met de sleutel van andermans bericht geeft dat bericht niet door`(wijziging: Berichtwijziging) {
+        // De luisteraars kiest het kanaal op de eigen cacheKey; dat de inhoud van de eigen ontvanger
+        // is, controleert pas het lezen. Status en map van andermans bericht horen hier niet te komen.
+        startSessie(ontvanger)
+        val volgend = volg(ontvanger).also { it.wachtTot { items -> items.isNotEmpty() } }
+        val vanAnder = bericht(ander).copy(status = Leesstatus.GELEZEN, map = "Belasting")
+        cache.createBericht(vanAnder, ander).await().indefinitely()
+
+        volger.meld(ontvanger, vanAnder.sleutel, wijziging).await().indefinitely()
+
+        assertEquals(listOf(SessieGebeurtenis.VolgenGestart), volgend.zonderHartslag())
+    }
+
+    @Test
+    fun `een lezing die niet antwoordt, breekt de stream af in plaats van de latere meldingen op te houden`() {
+        val hangendeCache = object : BerichtenCache by cache {
+            override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> = Uni.createFrom().nothing()
+        }
+        val volgerMetHangendeLezing = SessieVolger(hangendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, Duration.ofMillis(200))
+        startSessie(ontvanger)
+        val volgend = volgerMetHangendeLezing.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
+        volgend.wachtTot { it.isNotEmpty() }
+
+        volger.meld(ontvanger, BerichtSleutel("00000001003214345000", UUID.randomUUID()), Berichtwijziging.GEWIJZIGD).await().indefinitely()
+
+        volgend.awaitFailure(Duration.ofSeconds(5))
+        assertTrue(volgend.failure is java.util.concurrent.TimeoutException, "fout: ${volgend.failure}")
+        wachtTotAfgemeld(BerichtenCache.cacheKey(ontvanger))
+    }
+
+    @ParameterizedTest(name = "lees-timeout {0}")
+    @ValueSource(strings = ["PT0S", "PT-1S"])
+    fun `een lees-timeout van nul of minder weigert te starten`(leesTimeout: String) {
+        val fout = assertThrows<IllegalArgumentException> {
+            SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, Duration.parse(leesTimeout))
+        }
+
+        assertTrue(fout.message!!.contains("berichtensessiecache.volg-lees-timeout"), fout.message)
+    }
+
+    @Test
+    fun `gebeurtenissen komen in de volgorde van melden, ook als het lezen van een eerdere trager is`() {
+        // Twee tabbladen markeren kort na elkaar: kwam het tweede antwoord vóór het eerste, dan bleef
+        // het scherm op de oude waarde staan.
+        val traag = bericht(ontvanger)
+        val vertragendeCache = object : BerichtenCache by cache {
+            override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> {
+                val lezing = cache.getById(sleutel, ontvanger)
+
+                return if (sleutel == traag.sleutel) lezing.onItem().delayIt().by(Duration.ofMillis(300)) else lezing
+            }
+        }
+        val volgerMetVertraging = SessieVolger(vertragendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, LEES_TIMEOUT)
+        startSessie(ontvanger)
+        cache.createBericht(traag, ontvanger).await().indefinitely()
+        val snelGelezen = bericht(ontvanger).copy(status = Leesstatus.GELEZEN)
+        cache.createBericht(snelGelezen, ontvanger).await().indefinitely()
+        val weg = BerichtSleutel("00000001003214345000", UUID.randomUUID())
+        val volgend = volgerMetVertraging.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
+        volgend.wachtTot { it.isNotEmpty() }
+
+        volger.meld(ontvanger, traag.sleutel, Berichtwijziging.BIJGEKOMEN).await().indefinitely()
+        volger.meld(ontvanger, snelGelezen.sleutel, Berichtwijziging.GEWIJZIGD).await().indefinitely()
+        volger.meld(ontvanger, weg, Berichtwijziging.VERWIJDERD).await().indefinitely()
+
+        volgend.wachtTot { items -> items.any { it is SessieGebeurtenis.BerichtVerwijderd } }
+        assertEquals(
+            listOf(
+                SessieGebeurtenis.VolgenGestart,
+                SessieGebeurtenis.BerichtBijgekomen(traag),
+                SessieGebeurtenis.BerichtGewijzigd(snelGelezen.magazijnId, snelGelezen.berichtId, Leesstatus.GELEZEN, null),
+                SessieGebeurtenis.BerichtVerwijderd(weg.magazijnId, weg.berichtId),
+            ),
+            volgend.zonderHartslag(),
+        )
+    }
+
+    @Test
+    fun `een leesfout op een gewijzigd bericht breekt de stream af`() {
+        val falendeCache = object : BerichtenCache by cache {
+            override fun getById(sleutel: BerichtSleutel, ontvanger: Identificatienummer): Uni<Bericht?> =
+                Uni.createFrom().failure(IllegalStateException("redis weg"))
+        }
+        val volgerMetFout = SessieVolger(falendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, LEES_TIMEOUT)
+        startSessie(ontvanger)
+        val volgend = volgerMetFout.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
+        volgend.wachtTot { it.isNotEmpty() }
+
+        volger.meld(ontvanger, BerichtSleutel("00000001003214345000", UUID.randomUUID()), Berichtwijziging.GEWIJZIGD).await().indefinitely()
+
+        volgend.awaitFailure()
+        wachtTotAfgemeld(BerichtenCache.cacheKey(ontvanger))
     }
 
     @Test
@@ -253,12 +411,12 @@ class SessieVolgerTest {
                 Uni.createFrom().failure(IllegalStateException("redis weg"))
         }
 
-        val volgerMetFout = SessieVolger(falendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR)
+        val volgerMetFout = SessieVolger(falendeCache, aanmeldingen, sessies, HARTSLAG, MAX_DUUR, LEES_TIMEOUT)
         startSessie(ontvanger)
         val volgend = volgerMetFout.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
         volgend.wachtTot { it.isNotEmpty() }
 
-        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), BerichtSleutel("00000001003214345000", UUID.randomUUID())).await().indefinitely()
+        aanmeldingen.meld(BerichtenCache.cacheKey(ontvanger), BerichtSleutel("00000001003214345000", UUID.randomUUID()), Berichtwijziging.BIJGEKOMEN).await().indefinitely()
 
         volgend.awaitFailure()
     }
@@ -275,20 +433,21 @@ class SessieVolgerTest {
         assertEquals(0, aanmeldingen.aantalLuisteraars(cacheKey))
     }
 
-    @Test
-    fun `meldAan meldt onder de cacheKey van de ontvanger`() {
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(Berichtwijziging::class)
+    internal fun `meld meldt onder de cacheKey van de ontvanger, met de soort wijziging`(wijziging: Berichtwijziging) {
         val sleutel = BerichtSleutel("00000001003214345000", UUID.randomUUID())
 
-        volger.meldAan(ontvanger, sleutel).await().indefinitely()
+        volger.meld(ontvanger, sleutel, wijziging).await().indefinitely()
 
-        assertEquals(listOf(BerichtenCache.cacheKey(ontvanger) to sleutel), aanmeldingen.meldingen)
+        assertEquals(listOf(Triple(BerichtenCache.cacheKey(ontvanger), sleutel, wijziging)), aanmeldingen.meldingen)
     }
 
     @ParameterizedTest(name = "hartslag {0}")
     @ValueSource(strings = ["PT0S", "PT-1S"])
     fun `een hartslag van nul of minder weigert te starten`(hartslag: String) {
         val fout = assertThrows<IllegalArgumentException> {
-            SessieVolger(cache, aanmeldingen, sessies, Duration.parse(hartslag), MAX_DUUR)
+            SessieVolger(cache, aanmeldingen, sessies, Duration.parse(hartslag), MAX_DUUR, LEES_TIMEOUT)
         }
 
         assertTrue(fout.message!!.contains("moet groter zijn dan 0"), fout.message)
@@ -297,7 +456,7 @@ class SessieVolgerTest {
     @Test
     fun `na de maximale duur eindigt de stream zonder SessieVerlopen, zodat de afnemer opnieuw verbindt`() {
         startSessie(ontvanger)
-        val kort = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, Duration.ofMillis(700))
+        val kort = SessieVolger(cache, aanmeldingen, sessies, SNELLE_HARTSLAG, Duration.ofMillis(700), LEES_TIMEOUT)
 
         val volgend = kort.volg(ontvanger, SESSIE).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE))
 
@@ -310,7 +469,7 @@ class SessieVolgerTest {
     @ValueSource(strings = ["PT30S", "PT1S"])
     fun `een maximale duur die niet boven de hartslag ligt, weigert te starten`(maxDuur: String) {
         val fout = assertThrows<IllegalArgumentException> {
-            SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, Duration.parse(maxDuur))
+            SessieVolger(cache, aanmeldingen, sessies, HARTSLAG, Duration.parse(maxDuur), LEES_TIMEOUT)
         }
 
         assertTrue(fout.message!!.contains("berichtensessiecache.volg-max-duur"))
@@ -354,7 +513,7 @@ class SessieVolgerTest {
 
     private fun meldAan(bericht: Bericht) {
         cache.createBericht(bericht, bericht.ontvanger).await().indefinitely()
-        volger.meldAan(bericht.ontvanger, bericht.sleutel).await().indefinitely()
+        volger.meld(bericht.ontvanger, bericht.sleutel, Berichtwijziging.BIJGEKOMEN).await().indefinitely()
     }
 
     private fun bericht(wie: Identificatienummer) = Bericht(
@@ -422,6 +581,7 @@ class SessieVolgerTest {
         val HARTSLAG: Duration = Duration.ofSeconds(30)
         val SNELLE_HARTSLAG: Duration = Duration.ofMillis(200)
         val MAX_DUUR: Duration = Duration.ofMinutes(1)
+        val LEES_TIMEOUT: Duration = Duration.ofSeconds(5)
 
         const val SESSIE = "sessie-van-deze-berichtenbox"
         const val ANDERE_SESSIE = "sessie-van-een-ander-tabblad"
