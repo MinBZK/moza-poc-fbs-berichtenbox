@@ -54,8 +54,8 @@ class CacheAwaitTimeoutWiringTest {
 @ApplicationScoped
 internal class TraagLockBerichtenCache : MockBerichtenCache() {
 
-    override fun trySetAggregationStatus(key: String, status: AggregationStatus): Uni<Boolean> =
-        super.trySetAggregationStatus(key, status).onItem().delayIt().by(Duration.ofSeconds(3))
+    override fun trySetAggregationStatus(key: String, status: AggregationStatus, ronde: String): Uni<Boolean> =
+        super.trySetAggregationStatus(key, status, ronde).onItem().delayIt().by(Duration.ofSeconds(3))
 }
 
 class CacheAwaitTimeoutTestProfile : QuarkusTestProfile {

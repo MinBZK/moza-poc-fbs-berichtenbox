@@ -33,12 +33,18 @@ class LogboekWeigeringInterceptorTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    private val sessies = mutableMapOf<String, String>()
+
+    /** Een geldige `X-Sessie` per ontvanger: elk verzoek onder `/api/v1/berichten` eist er een. */
+    private fun sessie(ontvanger: String): String = sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) }
+
     /** Per afgeronde actie: `null` zonder exceptie, anders of die exceptie aangekondigd was. */
     private val oordelen: MutableList<Boolean?> = Collections.synchronizedList(mutableListOf())
 
     @BeforeEach
     fun installeer() {
         sessiecache.reset()
+        sessies.clear()
         oordelen.clear()
 
         val processingHandler = mockk<ProcessingHandler>(relaxed = true)
@@ -94,6 +100,7 @@ class LogboekWeigeringInterceptorTest {
 
         given()
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie("BSN:999990019"))
             .header("Accept", "text/event-stream")
             .`when`()
             .get("/api/v1/berichten/_ophalen")
@@ -105,6 +112,7 @@ class LogboekWeigeringInterceptorTest {
 
     private fun lijst(paginaGrootte: Int? = null) = given()
         .header("X-Ontvanger", "BSN:999990019")
+        .header("X-Sessie", sessie("BSN:999990019"))
         .apply { if (paginaGrootte != null) queryParam("paginaGrootte", paginaGrootte) }
         .`when`()
         .get("/api/v1/berichten")

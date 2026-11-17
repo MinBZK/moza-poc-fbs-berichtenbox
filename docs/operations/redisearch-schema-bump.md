@@ -75,8 +75,8 @@ redis-cli -h <REDIS_HOST> -p 6379 FT.DROPINDEX berichten-idx-v4
 
 **Niet `FT.DROPINDEX berichten-idx-v4 DD`** — de `DD`-flag verwijdert ook de
 onderliggende `bericht:v4:*`-hashes. Dat is onnodig: alleen het index-schema
-wordt opnieuw gebouwd, de berichten zelf blijven via TTL geldig en worden door
-de stap-4-create automatisch opnieuw geïndexeerd.
+wordt opnieuw gebouwd, de berichten zelf blijven staan (ze horen bij een lopende
+sessie) en worden door de stap-4-create automatisch opnieuw geïndexeerd.
 
 Verifieer dat de drop is geslaagd:
 
@@ -112,12 +112,14 @@ Check dat het nieuwe veld (bv. `magazijnId`) in de `attributes`-sectie staat.
 
 RediSearch herindexeert hashes automatisch wanneer ze worden gewijzigd
 (`HSET`/`HDEL`). Bestaande berichten worden pas opnieuw geïndexeerd op het
-nieuwe veld wanneer ze opnieuw worden geschreven door `store()` (na de
-volgende ophaalsessie).
+nieuwe veld wanneer ze opnieuw worden geschreven (na de volgende ophaalronde
+van hun ontvanger).
 
-Bij urgent volledig herindexen: laat een gerichte cache-warming-flow lopen, of
-accepteer dat oude berichten op het nieuwe veld pas vindbaar zijn na natural
-TTL-rotatie (default 60s sessie-TTL).
+Er is geen natuurlijke rotatie: de berichten van een ontvanger blijven staan tot zijn
+laatste sessie eindigt (hoogstens `berichtensessiecache.sessie.max-duur`, default 12 uur).
+Oude berichten zijn op het nieuwe veld dus pas vindbaar zodra de ontvanger opnieuw ophaalt,
+een nieuwe sessie start (vers beeld) of zijn laatste sessie eindigt. Bij urgent volledig
+herindexen: laat een gerichte cache-warming-flow lopen.
 
 ### 7. Communiceer afronding
 
@@ -129,7 +131,7 @@ Search-endpoint is weer beschikbaar. Sluit het maintenance-window.
 |---|---|---|
 | `FT.DROPINDEX` returnt `(error) Unknown index name` | Index bestaat niet (al gedropt) | Stap 4: laat pods opnieuw starten; create wordt automatisch gedaan |
 | Pods loggen `RediSearch index 'berichten-idx-v4' kon niet worden aangemaakt` | Redis is overbelast of permissie-issue | Check Redis-logs, verifieer `quarkus.redis.hosts`-credentials |
-| Search retourneert 0 resultaten op zojuist opgeslagen bericht | Bericht is geschreven vóór de create | Wacht tot volgende `store()`-aanroep of trigger handmatig een ophaalsessie |
+| Search retourneert 0 resultaten op zojuist opgeslagen bericht | Bericht is geschreven vóór de create | Wacht tot de volgende ophaalronde van die ontvanger of trigger er handmatig een |
 | Pods loggen `Kan RediSearch indexen niet opvragen (Redis onbereikbaar bij startup?)` | Redis-cluster niet bereikbaar bij pod-start | Standard troubleshooting: netwerk, DNS, credentials |
 
 ## Toegepaste schema-bumps
@@ -163,8 +165,9 @@ Dit is functioneel noodzakelijk (eigenaar-checks, zoeken) en conform de logging-
 mag in Redis, nooit in applicatie-logs). Borg in de DPIA / het verwerkingsregister dat hiervoor
 versleuteling at-rest én in transport actief is, dat de **toegang tot de Redis-instance**
 beperkt is (authenticatie/ACL + netwerksegmentatie, least-privilege) en zo nodig wordt
-geaudit, en dat de bewaartermijn via de sessie-TTL geminimaliseerd blijft (BIO 9.x / AVG
-art. 32). Dit is een procesactie voor het team, geen codewijziging.
+geaudit, en dat de bewaartermijn de sessie volgt: actief wissen bij de laatste uitlog of het
+verlopen van de laatste sessie, met de Redis-TTL alleen als vangnet (BIO 9.x / AVG art. 32;
+de termijnen staan in de operator-handleiding van de uitvraag, *Verwerkingsregister en DPIA*). Dit is een procesactie voor het team, geen codewijziging.
 
 ## Schema-versie-bijhouden
 

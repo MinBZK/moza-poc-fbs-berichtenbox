@@ -91,16 +91,33 @@ aanleveren() {  # <magazijn-basis-url> <onderwerp>
     --data @- 2>"$ERRLOG"
 }
 
+# De uitvraag eist een sessie (X-Sessie) op elke /berichten-aanroep. Het id blijft in deze variabele:
+# nooit in een URL of in de uitvoer.
+SESSIE=""
+
+start_sessie() {
+  SESSIE="$(curl -sS -f --noproxy '*' --max-time 20 -X POST -H "X-Ontvanger: BSN:${BSN}" \
+    "${UITVRAAG_URL}/sessies" 2>"$ERRLOG" \
+    | sed -n 's/.*"sessieId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+
+  [ -n "$SESSIE" ]
+}
+
+beeindig_sessie() {
+  curl -sS -o /dev/null --noproxy '*' --max-time 20 -X DELETE -H "X-Ontvanger: BSN:${BSN}" \
+    -H "X-Sessie: ${SESSIE}" "${UITVRAAG_URL}/sessies/huidige" 2>"$ERRLOG" || true
+}
+
 # ophalen: vult de sessiecache van de uitvraag uit de magazijnen. Dit is de call die door de outway
 # gaat; `_ophalen` is een SSE-stream, dus we lezen 'm met een harde timeout leeg.
 ophalen() {
   curl -sS -o /dev/null --noproxy '*' --max-time "$OPHAAL_TIMEOUT" \
-    -H "X-Ontvanger: BSN:${BSN}" -H 'Accept: text/event-stream' \
+    -H "X-Ontvanger: BSN:${BSN}" -H "X-Sessie: ${SESSIE}" -H 'Accept: text/event-stream' \
     "${UITVRAAG_URL}/berichten/_ophalen" 2>"$ERRLOG"
 }
 
 berichten() {
-  curl -sS --noproxy '*' --max-time 20 -H "X-Ontvanger: BSN:${BSN}" \
+  curl -sS --noproxy '*' --max-time 20 -H "X-Ontvanger: BSN:${BSN}" -H "X-Sessie: ${SESSIE}" \
     "${UITVRAAG_URL}/berichten" 2>"$ERRLOG"
 }
 
@@ -229,10 +246,14 @@ else
   # Eén ophaling, bewust. Herproberen kan niet: de eerste ophaling vult de sessiecache voor deze
   # ontvanger, en elke volgende komt daaruit zonder het magazijn nog te bellen. Een tweede poging
   # zou dus niets nieuws meten en assert 2 juist rood maken.
-  if ! ophalen; then
+  if ! start_sessie; then
+    fout "sessie starten bij de uitvraag mislukte: $(fsc_last_error)"
+  elif ! ophalen; then
     fout "ophalen bij de uitvraag mislukte: $(fsc_last_error)"
+    beeindig_sessie
   else
     LIJST="$(berichten)" || LIJST=""
+    beeindig_sessie
 
     if printf '%s' "$LIJST" | grep -qF "$MERK"; then
       ok "de uitvraag levert het bericht van magazijn-a terug"

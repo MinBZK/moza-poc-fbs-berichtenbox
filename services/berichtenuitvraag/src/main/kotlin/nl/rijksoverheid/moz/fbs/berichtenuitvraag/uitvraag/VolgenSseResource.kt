@@ -94,6 +94,8 @@ class VolgenSseResource(
         @NotNull
         @Pattern(regexp = ONTVANGER_PATTERN)
         xOntvanger: String,
+        @HeaderParam("X-Sessie")
+        xSessie: String?,
     ): Multi<VolgGebeurtenis> {
         registreerLdvSubject(logboekContext, xOntvanger)
 
@@ -102,7 +104,8 @@ class VolgenSseResource(
         reserveer(ontvanger)
 
         val stream = try {
-            leesUitCache(log, "cache-volgen") { sessiecache.volg(ontvanger) }
+            // Een ontbrekende header wordt een lege id; die is geen sessie, dus weigert de cache hem.
+            leesUitCache(log, "cache-volgen") { sessiecache.volg(ontvanger, xSessie.orEmpty()) }
         } catch (e: Exception) {
             geefVrij(ontvanger)
 

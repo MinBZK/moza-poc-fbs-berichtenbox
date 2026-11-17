@@ -66,7 +66,7 @@ internal class AbonnementGesloten(melding: String) : IllegalStateException(meldi
  * Het kanaalbericht is de `cacheKey` plus `berichtId` en `magazijnId`; de inhoud leest de ontvangende pod
  * zelf uit de cache. De `cacheKey` is een SHA-256 zonder geheim over het identificatienummer en
  * dus een pseudoniem, geen anonimisering: een BSN is eruit terug te rekenen. Het kanaal verdient
- * daarom dezelfde bescherming als de sessie-keys (TLS en authenticatie op Redis).
+ * daarom dezelfde bescherming als de cache-keys van de ontvangers (TLS en authenticatie op Redis).
  *
  * Of het abonnement werkt, bewijst een eigen probe over het kanaal, niet de bevestiging van de
  * client: die komt niet altijd aan (Vert.x meldt dan `No handler waiting for message: [subscribe,
@@ -374,7 +374,7 @@ internal class RedisAanmeldingen(
     private class Luisteraar(val opBericht: (BerichtSleutel) -> Unit, val opStoring: (Throwable) -> Unit, val opEinde: () -> Unit)
 
     companion object {
-        // Zelfde versie als de sessie-keys: de cacheKey in het bericht heeft die vorm. Sinds v4
+        // Zelfde versie als de cache-keys: de cacheKey in het bericht heeft die vorm. Sinds v4
         // draagt het bericht ook de magazijnId, die een v3-pod niet zou kunnen lezen.
         const val KANAAL = "berichtensessiecache:v4:aanmeldingen"
         private const val SCHEIDING = ' '

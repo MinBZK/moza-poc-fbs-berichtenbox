@@ -86,6 +86,14 @@
             <artifactId>quarkus-junit</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Eén test draait het Lua-script van de console tegen een echte Redis (zie
+             LaatVerlopenRedisTest). Rechtstreeks en niet als Dev Service: de console wijst
+             quarkus.redis.hosts altijd zelf aan, en dan start Quarkus geen Dev Service. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- De parser die de ingerichte persona's leest zoals ze in de configuratie staan. Uit de
              test-jar van demo-personas: een tweede parser hier zou onopgemerkt anders lezen. -->
         <dependency>

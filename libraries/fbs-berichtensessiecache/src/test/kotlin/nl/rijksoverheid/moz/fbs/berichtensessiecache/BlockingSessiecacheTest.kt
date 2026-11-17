@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonParseException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.WebApplicationException
@@ -25,6 +26,15 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AbonnementGesloten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieVolger
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.sleutel
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieEinde
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieGeldigheid
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieRegister
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.SessieStart
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.StartUitkomst
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenCache
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.VeegKandidaat
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -32,6 +42,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijninschrijving
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import java.net.URI
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -40,6 +51,7 @@ import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnFoutStatus
@@ -68,8 +80,13 @@ class BlockingSessiecacheTest {
 
         override fun voorOin(oin: Oin) = inschrijvingen.firstOrNull { it.oin == oin }
     }
-    private val facade = BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 5)
+    // Standaard loopt er nog een sessie: de schrijftests gaan over het schrijven, niet over het kruisen.
+    // De ontvanger zelf en niet `any()`: MockK bouwt voor `any()` een Bsn zonder waarde.
     private val ontvanger = Bsn("999990019")
+    private val sessies = mockk<SessieRegister>().also {
+        every { it.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(false)
+    }
+    private val facade = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 5)
 
     private val gereed = AggregationStatus(status = OphalenStatus.GEREED, totaalMagazijnen = 1, geslaagd = 1)
     private val legePagina = BerichtenPagina(emptyList(), 0, 20, 0L, 0)
@@ -89,6 +106,9 @@ class BlockingSessiecacheTest {
         const val MAGAZIJN = "00000001003214345000"
         const val MAGAZIJN_B = "00000001823288444000"
         const val ONBEKEND_MAGAZIJN = "00000009999999999999"
+        const val SESSIE_ID = "AAAAAAAAAAAAAAAAAAAAAA"
+        const val TIMEOUT_MELDING = "Cache niet bereikbaar. Probeer het later opnieuw"
+        val GELDIGHEID = SessieGeldigheid(Instant.parse("2026-10-21T12:00:00Z"), Instant.parse("2026-10-21T23:45:00Z"))
 
         @JvmStatic
         fun ongeldigeMapnamen(): List<String> = listOf(" ", "   ", "\t", "a".repeat(Bericht.MAX_MAPNAAM_LENGTE + 1))
@@ -366,6 +386,7 @@ class BlockingSessiecacheTest {
 
         every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
             Uni.createFrom().failure(RuntimeException("redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns Uni.createFrom().item(Unit)
 
         assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, MAGAZIJN, id) }
     }
@@ -391,14 +412,14 @@ class BlockingSessiecacheTest {
     }
 
     @Test
-    fun `schrijfBericht zonder actieve sessie geeft GeenActieveSessie`() {
+    fun `schrijfBericht zonder opgehaalde lijst geeft GeenLijstInCache`() {
         stubStatus(null)
 
-        assertThrows<SessiecacheException.GeenActieveSessie> { facade.schrijfBericht(ontvanger, testBericht()) }
+        assertThrows<SessiecacheException.GeenLijstInCache> { facade.schrijfBericht(ontvanger, testBericht()) }
     }
 
     @Test
-    fun `schrijfBericht met actieve sessie levert het gevalideerde bericht`() {
+    fun `schrijfBericht met opgehaalde lijst levert het gevalideerde bericht`() {
         stubStatus(gereed)
         val bericht = testBericht()
 
@@ -430,54 +451,206 @@ class BlockingSessiecacheTest {
         assertSame(bericht, facade.schrijfBericht(ontvanger, bericht))
     }
 
+    @Test
+    fun `schrijfBericht dat kruist met het einde van de laatste sessie geeft GeenLijstInCache en meldt niets aan`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().item(true)
+
+        assertThrows<SessiecacheException.GeenLijstInCache> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verifyOrder {
+            service.createBericht(bericht, ontvanger)
+            sessies.ruimOpZonderSessie(ontvanger)
+        }
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+    }
+
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `schrijfBericht met een mislukte opruimcontrole markeert voor de veeg en is Onbereikbaar`(markerenFaalt: Boolean) {
+        // De aanleveraar moet het opnieuw proberen: of het bericht een sessie heeft, is niet bekend.
+        // De herlevering vindt dan geen status meer, dus alleen de veegtaak kan het nog opruimen.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            if (markerenFaalt) Uni.createFrom().failure(IllegalStateException("nog steeds weg")) else Uni.createFrom().item(Unit)
+
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+
+        assertEquals("redis weg", fout.cause?.message, "de oorspronkelijke fout hoort door te komen")
+        verifyOrder {
+            sessies.ruimOpZonderSessie(ontvanger)
+            sessies.markeerVoorVeeg(ontvanger)
+        }
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+    }
+
+    @Test
+    fun `een mislukt markeren voor de veeg geeft het alert zonder de ontvanger, ook als de fout hem noemt`() {
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().item(bericht)
+        every { sessies.ruimOpZonderSessie(ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            Uni.createFrom().failure(IllegalStateException("ERR bij ${ontvanger.waarde} (${BerichtenCache.kenmerk(ontvanger)})"))
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+        }
+
+        assertEquals(1, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+        regels.forEach { regel ->
+            assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel")
+            assertFalse(BerichtenCache.kenmerk(ontvanger) in regel, "kenmerk in de log: $regel")
+        }
+    }
+
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `schrijfBericht waarvan het schrijven zelf geen antwoord geeft, markeert voor de veeg en is Onbereikbaar`(markerenFaalt: Boolean) {
+        // Het aanmeldscript kan in Redis gedraaid hebben terwijl het antwoord wegviel; na een uitlog
+        // vindt de herlevering geen status meer, dus alleen de veegtaak kan het geschrevene nog vinden.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("verbinding weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            if (markerenFaalt) Uni.createFrom().failure(IllegalStateException("nog steeds weg")) else Uni.createFrom().item(Unit)
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.schrijfBericht(ontvanger, bericht) }
+
+            assertEquals("verbinding weg", fout.cause?.message, "de oorspronkelijke fout hoort door te komen")
+        }
+
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
+        verify(exactly = 0) { sessies.ruimOpZonderSessie(ontvanger) }
+        verify(exactly = 0) { volger.meldAan(ontvanger, bericht.sleutel) }
+        assertEquals(if (markerenFaalt) 1 else 0, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+        regels.forEach { regel -> assertFalse(ontvanger.waarde in regel, "BSN in de log: $regel") }
+    }
+
+    @Test
+    fun `schrijfBericht dat de validator afwijst, markeert niets`() {
+        // Een invoerfout: er is niets geschreven, dus ook niets voor de veegtaak.
+        stubStatus(gereed)
+        val bericht = testBericht()
+        every { service.createBericht(bericht, ontvanger) } returns Uni.createFrom().failure(IllegalArgumentException("te lang"))
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.schrijfBericht(ontvanger, bericht) }
+
+        verify(exactly = 0) { sessies.markeerVoorVeeg(ontvanger) }
+    }
+
+    @ParameterizedTest(name = "markeren faalt={0}")
+    @ValueSource(booleans = [false, true])
+    fun `verwijder waarvan het antwoord uitblijft, markeert voor de veeg en is Onbereikbaar`(markerenFaalt: Boolean) {
+        // De tombstone kan al geschreven zijn terwijl de opruimcontrole erna nooit liep.
+        val id = UUID.randomUUID()
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns
+            Uni.createFrom().failure(IllegalStateException("verbinding weg"))
+        every { sessies.markeerVoorVeeg(ontvanger) } returns
+            if (markerenFaalt) Uni.createFrom().failure(IllegalStateException("nog steeds weg")) else Uni.createFrom().item(Unit)
+
+        val regels = vangLog(BlockingSessiecache::class.java) {
+            assertThrows<SessiecacheException.Onbereikbaar> { facade.verwijder(ontvanger, MAGAZIJN, id) }
+        }
+
+        verify(exactly = 1) { sessies.markeerVoorVeeg(ontvanger) }
+        assertEquals(if (markerenFaalt) 1 else 0, regels.count { it.contains("[ALERT opruimen_na_schrijven]") }, "Log: $regels")
+    }
+
+    @Test
+    fun `een geslaagde verwijdering markeert niets`() {
+        val id = UUID.randomUUID()
+        every { service.verwijderBericht(BerichtSleutel(MAGAZIJN, id), ontvanger) } returns Uni.createFrom().voidItem()
+
+        facade.verwijder(ontvanger, MAGAZIJN, id)
+
+        verify(exactly = 0) { sessies.markeerVoorVeeg(ontvanger) }
+    }
+
     // --- volg ---
 
     @Test
     fun `volg kent dezelfde gating als lijst, vóór de stream`() {
+        stubLopendeSessie()
         stubStatus(null)
-        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger) }
+        assertThrows<SessiecacheException.NogNietGevuld> { facade.volg(ontvanger, SESSIE_ID) }
 
         stubStatus(AggregationStatus(status = OphalenStatus.BEZIG, totaalMagazijnen = 1))
-        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger) }
+        assertThrows<SessiecacheException.OphalenBezig> { facade.volg(ontvanger, SESSIE_ID) }
 
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
-    fun `volg geeft de stream van de volger door bij een afgeronde ophaling`() {
+    fun `volg geeft de stream van de volger door bij een lopende sessie en een afgeronde ophaling`() {
+        stubLopendeSessie()
         stubStatus(gereed)
         val stream = Multi.createFrom().item<SessieGebeurtenis>(SessieGebeurtenis.VolgenGestart)
         every { volger.actief() } returns Uni.createFrom().voidItem()
-        every { volger.volg(ontvanger) } returns stream
+        every { volger.volg(ontvanger, SESSIE_ID) } returns stream
 
-        assertSame(stream, facade.volg(ontvanger))
+        assertSame(stream, facade.volg(ontvanger, SESSIE_ID))
+        // Alleen lezen: een open berichtenbox is geen activiteit van de gebruiker.
+        verify(exactly = 1) { sessies.lees(SESSIE_ID, ontvanger) }
+        verify(exactly = 0) { sessies.raak(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `volg zonder lopende sessie gooit SessieOngeldig, vóór de stream en vóór de cache`() {
+        // Synchroon, zoals elke andere ongeldige sessie: een stream die meteen SessieVerlopen meldt,
+        // zou de afnemer een 200 geven op een verzoek dat niet mocht.
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().nullItem()
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { service.getAggregationStatus(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
+    }
+
+    @Test
+    fun `volg bij een storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
     fun `volg zonder werkend abonnement is Onbereikbaar, vóór de stream`() {
         // Anders valt de mislukking pas op een geopende stream: de afnemer ziet een lege, sluitende
         // 200 in plaats van een storing waarop hij kan wachten.
+        stubLopendeSessie()
         stubStatus(gereed)
         every { volger.actief() } returns Uni.createFrom().failure(IllegalStateException("probe kwam niet terug"))
 
-        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
     }
 
     @Test
     fun `volg op een stoppende pod is ook Onbereikbaar, vóór de stream`() {
         // Een gewone uitrol: de afnemer krijgt een 503 en verbindt bij een andere pod. De facade
         // logt dit niet als error per stream; dat de pod stopt, meldt hij zelf één keer.
+        stubLopendeSessie()
         stubStatus(gereed)
         every { volger.actief() } returns Uni.createFrom().failure(AbonnementGesloten("Deze pod stopt"))
 
-        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger) }
+        val fout = assertThrows<SessiecacheException.Onbereikbaar> { facade.volg(ontvanger, SESSIE_ID) }
 
         assertTrue(fout.cause is AbonnementGesloten)
         // Eigen melding, en daarmee aantoonbaar een eigen tak: het vangnet voor onbekende fouten
         // geeft ook Onbereikbaar, maar logt er een error met stack bij.
         assertEquals("Nieuwe berichten volgen kan nu niet. Probeer het straks opnieuw.", fout.message)
-        verify(exactly = 0) { volger.volg(ontvanger) }
+        verify(exactly = 0) { volger.volg(ontvanger, SESSIE_ID) }
+    }
+
+    private fun stubLopendeSessie() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(GELDIGHEID)
     }
 
     @Test
@@ -535,14 +708,344 @@ class BlockingSessiecacheTest {
         assertThrows<SessiecacheException.Onbereikbaar> { facade.lijst(ontvanger) }
     }
 
+    // --- sessies ---
+
+    @Test
+    fun `startSessie geeft de gestarte sessie door`() {
+        val start = SessieStart(SESSIE_ID, GELDIGHEID, restenOpgeruimd = true)
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
+
+        assertSame(start, facade.startSessie(ontvanger))
+    }
+
+    @Test
+    fun `startSessie geeft het plafond van de aanroeper door aan het register`() {
+        val plafond = Instant.parse("2026-10-21T13:00:00Z")
+        val start = SessieStart(SESSIE_ID, GELDIGHEID, restenOpgeruimd = false)
+        every { sessies.start(ontvanger, plafond) } returns Uni.createFrom().item(StartUitkomst.Gestart(start))
+
+        assertSame(start, facade.startSessie(ontvanger, plafond))
+    }
+
+    @Test
+    fun `startSessie op de grens gooit TeVeelSessies met de tijd tot er een plek vrijkomt`() {
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().item(StartUitkomst.LimietBereikt(Duration.ofSeconds(42)))
+
+        val fout = assertThrows<SessiecacheException.TeVeelSessies> { facade.startSessie(ontvanger) }
+
+        assertEquals(Duration.ofSeconds(42), fout.vrijOver)
+    }
+
+    @Test
+    fun `startSessie met een verstreken plafond gooit OngeldigeInvoer`() {
+        val plafond = Instant.parse("2020-01-01T00:00:00Z")
+        every { sessies.start(ontvanger, plafond) } returns Uni.createFrom().item(StartUitkomst.PlafondVerstreken)
+
+        assertThrows<SessiecacheException.OngeldigeInvoer> { facade.startSessie(ontvanger, plafond) }
+    }
+
+    @Test
+    fun `raakSessie zonder lopende sessie gooit SessieOngeldig`() {
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().nullItem()
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.raakSessie(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `raakSessie en leesSessie geven de geldigheid van een lopende sessie door`() {
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(GELDIGHEID)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(GELDIGHEID)
+
+        assertEquals(GELDIGHEID, facade.raakSessie(SESSIE_ID, ontvanger))
+        assertEquals(GELDIGHEID, facade.leesSessie(SESSIE_ID, ontvanger))
+    }
+
+    @Test
+    fun `leesSessie zonder lopende sessie gooit SessieOngeldig en verlengt niets`() {
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().nullItem()
+
+        assertThrows<SessiecacheException.SessieOngeldig> { facade.leesSessie(SESSIE_ID, ontvanger) }
+        verify(exactly = 0) { sessies.raak(SESSIE_ID, ontvanger) }
+    }
+
+    @Test
+    fun `beeindigSessie geeft de uitkomst door`() {
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().item(SessieEinde.BEEINDIGD)
+
+        assertEquals(SessieEinde.BEEINDIGD, facade.beeindigSessie(SESSIE_ID, ontvanger))
+    }
+
+    @Test
+    fun `een Redis-storing in het sessieregister is Onbereikbaar en geen ongeldige sessie`() {
+        // Een storing als ongeldige sessie melden zou elke ingelogde gebruiker uitloggen.
+        val storing = IllegalStateException("redis connection reset")
+        every { sessies.start(ontvanger, null) } returns Uni.createFrom().failure(storing)
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.lees(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(storing)
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.startSessie(ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.raakSessie(SESSIE_ID, ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.leesSessie(SESSIE_ID, ontvanger) }
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.beeindigSessie(SESSIE_ID, ontvanger) }
+    }
+
+    // --- verlopen sessies vegen ---
+
+    /** Een veegronde met de meldingen in volgorde, en of de kandidatenbatch vol was. */
+    private fun BlockingSessiecache.veeg(max: Int = 100): Pair<List<Opruiming>, Boolean> {
+        val gemeld = mutableListOf<Opruiming>()
+        val vol = ruimVerlopenSessiesOp(max) { gemeld += it }
+
+        return gemeld to vol
+    }
+
+    /** Een kandidaat met een leesbare ontvanger, zoals de index hem na een start kent. */
+    private fun kandidaat(n: Int): VeegKandidaat = Oin("%020d".format(n)).let { VeegKandidaat(BerichtenCache.kenmerk(it), it) }
+
+    private fun kenmerkVan(opruiming: Opruiming): String = when (opruiming) {
+        is Opruiming.VanOntvanger -> BerichtenCache.kenmerk(opruiming.ontvanger)
+        is Opruiming.ZonderOntvanger -> opruiming.kenmerk
+    }
+
+    @Test
+    fun `vegen meldt per ontvanger de uitkomst en loopt na een fout of timeout door`() {
+        // De gewiste ontvanger staat achteraan: een ronde die op een fout afbreekt, verliest hem.
+        val kandidaten = List(7) { kandidaat(it + 1) }
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().nothing()
+        every { sessies.veeg(kandidaten[1].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[2].kenmerk) } returns Uni.createFrom().failure(NumberFormatException("geen getal"))
+        every { sessies.veeg(kandidaten[3].kenmerk) } throws IllegalArgumentException("synchroon")
+        every { sessies.veeg(kandidaten[4].kenmerk) } returns Uni.createFrom().item(false)
+        every { sessies.veeg(kandidaten[5].kenmerk) } returns
+            Uni.createFrom().failure(IllegalStateException("client", java.util.concurrent.TimeoutException()))
+        every { sessies.veeg(kandidaten[6].kenmerk) } returns Uni.createFrom().item(true)
+        // Per kandidaat en niet met `any()`: dat bouwt een lege OIN, en die haalt de validatie niet.
+        kandidaten.forEach { every { sessies.stelUit(it.kenmerk) } returns Uni.createFrom().item(Unit) }
+
+        val (opruimingen, vol) = snel.veeg()
+
+        assertEquals(
+            listOf(
+                Opruiming.VanOntvanger(kandidaten[0].ontvanger!!, OpruimUitkomst.ONBEVESTIGD),
+                Opruiming.VanOntvanger(kandidaten[1].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[2].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[3].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[5].ontvanger!!, OpruimUitkomst.ONBEVESTIGD),
+                Opruiming.VanOntvanger(kandidaten[6].ontvanger!!, OpruimUitkomst.GEWIST),
+            ),
+            opruimingen,
+        )
+        assertFalse(vol)
+
+        // Ook een onbevestigde schuift naar achteren: hangt zijn script structureel, dan kost hij
+        // anders elke ronde de volle wachttijd. Alleen wie gewist is of niet geveegd hoefde, niet.
+        kandidaten.forEachIndexed { i, kandidaat ->
+            verify(exactly = if (i in setOf(0, 1, 2, 3, 5)) 1 else 0) { sessies.stelUit(kandidaat.kenmerk) }
+        }
+    }
+
+    @Test
+    fun `elke opruiming wordt gemeld voordat de volgende ontvanger geveegd wordt`() {
+        val kandidaten = List(3) { kandidaat(it + 1) }
+        val volgorde = mutableListOf<String>()
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        kandidaten.forEach { kandidaat ->
+            every { sessies.veeg(kandidaat.kenmerk) } answers {
+                volgorde += "veeg ${kandidaat.kenmerk}"
+                Uni.createFrom().item(true)
+            }
+        }
+
+        facade.ruimVerlopenSessiesOp { volgorde += "meld ${kenmerkVan(it)}" }
+
+        assertEquals(kandidaten.flatMap { listOf("veeg ${it.kenmerk}", "meld ${it.kenmerk}") }, volgorde)
+    }
+
+    @Test
+    fun `een fout uit de melding breekt de ronde af en komt door`() {
+        val kandidaten = List(2) { kandidaat(it + 1) }
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().item(true)
+
+        assertThrows<IllegalStateException> { facade.ruimVerlopenSessiesOp { throw IllegalStateException("logboek stuk") } }
+
+        verify(exactly = 0) { sessies.veeg(kandidaten[1].kenmerk) }
+    }
+
+    @ParameterizedTest(name = "{0} kandidaten bij max 3")
+    @ValueSource(ints = [0, 1, 2, 3])
+    fun `vegen meldt een volle batch alleen als er max kandidaten waren, ongeacht het aantal opruimingen`(aantal: Int) {
+        // Een kandidaat die een andere pod al veegde, wordt niet gemeld maar telt wel voor de batch.
+        val kandidaten = List(aantal) { kandidaat(it + 1) }
+        every { sessies.verlopen(3) } returns Uni.createFrom().item(kandidaten)
+        kandidaten.forEach { every { sessies.veeg(it.kenmerk) } returns Uni.createFrom().item(false) }
+
+        val (opruimingen, vol) = facade.veeg(max = 3)
+
+        assertEquals(emptyList<Opruiming>(), opruimingen)
+        assertEquals(aantal == 3, vol)
+    }
+
+    @Test
+    fun `een interrupt tijdens het vegen meldt de ontvanger als onbevestigd en stopt de ronde`() {
+        // De pod stopt: geen MISLUKT met uitstel, maar ook geen stilte, want het script kan gelopen hebben.
+        val kandidaten = List(3) { kandidaat(it + 1) }
+        val gemeld = mutableListOf<Opruiming>()
+        val gemeldMetVlag = mutableListOf<Boolean>()
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().item(true)
+        every { sessies.veeg(kandidaten[1].kenmerk) } answers {
+            Thread.currentThread().interrupt()
+            Uni.createFrom().nothing()
+        }
+
+        val vol = try {
+            facade.ruimVerlopenSessiesOp { opruiming ->
+                gemeld += opruiming
+                gemeldMetVlag += Thread.currentThread().isInterrupted
+            }.also { assertTrue(Thread.currentThread().isInterrupted, "de interrupt-vlag hoort hersteld te zijn") }
+        } finally {
+            Thread.interrupted()
+        }
+
+        assertFalse(vol)
+        assertEquals(
+            listOf(
+                Opruiming.VanOntvanger(kandidaten[0].ontvanger!!, OpruimUitkomst.GEWIST),
+                Opruiming.VanOntvanger(kandidaten[1].ontvanger!!, OpruimUitkomst.ONBEVESTIGD),
+            ),
+            gemeld,
+        )
+        assertEquals(listOf(false, false), gemeldMetVlag, "de melding hoort zonder vlag te lopen")
+        verify(exactly = 0) { sessies.veeg(kandidaten[2].kenmerk) }
+        kandidaten.forEach { verify(exactly = 0) { sessies.stelUit(it.kenmerk) } }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource("GEWIST,true", "MISLUKT,false")
+    fun `een kandidaat zonder leesbare ontvanger wordt geveegd en zonder ontvanger gemeld`(uitkomst: OpruimUitkomst, geveegd: Boolean) {
+        val kandidaat = VeegKandidaat("kenmerk-zonder-ontvanger", null)
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(listOf(kandidaat))
+        every { sessies.veeg(kandidaat.kenmerk) } returns
+            if (geveegd) Uni.createFrom().item(true) else Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.stelUit(kandidaat.kenmerk) } returns Uni.createFrom().item(Unit)
+
+        assertEquals(listOf(Opruiming.ZonderOntvanger(kandidaat.kenmerk, uitkomst)), facade.veeg().first)
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["fout", "timeout", "uitstel"])
+    fun `de veeg-, index- en uitstelpaden loggen de ontvanger niet, ook niet als een foutmelding hem noemt`(geval: String) {
+        val bsn = Bsn("999993653")
+        val kandidaat = VeegKandidaat(BerichtenCache.kenmerk(bsn), bsn)
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        val fout = IllegalStateException("ERR bij ${bsn.waarde} (${kandidaat.kenmerk})", java.util.concurrent.TimeoutException(bsn.waarde))
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(listOf(kandidaat))
+        every { sessies.veeg(kandidaat.kenmerk) } returns when (geval) {
+            "timeout" -> Uni.createFrom().failure(fout)
+            else -> Uni.createFrom().failure(IllegalStateException("ERR bij ${bsn.waarde}"))
+        }
+        every { sessies.stelUit(kandidaat.kenmerk) } returns
+            if (geval == "uitstel") Uni.createFrom().failure(fout) else Uni.createFrom().item(Unit)
+
+        val regels = vangLog(BlockingSessiecache::class.java) { snel.veeg() }
+
+        assertTrue(regels.isNotEmpty(), "het pad hoort te loggen")
+        regels.forEach { regel ->
+            assertFalse(bsn.waarde in regel, "BSN in de log: $regel")
+            assertFalse(kandidaat.kenmerk in regel, "kenmerk in de log: $regel")
+        }
+    }
+
+    @Test
+    fun `een mislukt uitstel na een mislukt opruimen laat de uitkomst MISLUKT en breekt de ronde niet af`() {
+        val kandidaten = List(3) { kandidaat(it + 1) }
+        every { sessies.verlopen(100) } returns Uni.createFrom().item(kandidaten)
+        every { sessies.veeg(kandidaten[0].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[1].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("ERR in script"))
+        every { sessies.veeg(kandidaten[2].kenmerk) } returns Uni.createFrom().item(true)
+        every { sessies.stelUit(kandidaten[0].kenmerk) } returns Uni.createFrom().failure(IllegalStateException("redis weg"))
+        every { sessies.stelUit(kandidaten[1].kenmerk) } throws IllegalStateException("synchroon")
+
+        assertEquals(
+            listOf(
+                Opruiming.VanOntvanger(kandidaten[0].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[1].ontvanger!!, OpruimUitkomst.MISLUKT),
+                Opruiming.VanOntvanger(kandidaten[2].ontvanger!!, OpruimUitkomst.GEWIST),
+            ),
+            facade.veeg().first,
+        )
+    }
+
+    @Test
+    fun `vegen zonder kandidaten meldt niets en geen volle batch`() {
+        every { sessies.verlopen(3) } returns Uni.createFrom().item(emptyList())
+
+        assertEquals(emptyList<Opruiming>() to false, facade.veeg(max = 3))
+    }
+
+    @Test
+    fun `vegen waarbij de kandidaten niet op te vragen zijn is Onbereikbaar`() {
+        every { sessies.verlopen(100) } returns Uni.createFrom().failure(IllegalStateException("redis connection reset"))
+
+        assertThrows<SessiecacheException.Onbereikbaar> { facade.veeg() }
+    }
+
+    // --- timeouts ---
+
+    @Test
+    fun `een await die de timeout overschrijdt is Onbereikbaar via de timeout-tak`() {
+        // Mutiny's TimeoutException (van `atMost`) is geen subklasse van die uit de JDK; beide horen
+        // als timeout herkend te worden en niet als willekeurige fout.
+        val snel = BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 1)
+        every { sessies.raak(SESSIE_ID, ontvanger) } returns Uni.createFrom().nothing()
+        every { sessies.beeindig(SESSIE_ID, ontvanger) } returns Uni.createFrom().failure(java.util.concurrent.TimeoutException())
+
+        val mutiny = assertThrows<SessiecacheException.Onbereikbaar> { snel.raakSessie(SESSIE_ID, ontvanger) }
+        val jdk = assertThrows<SessiecacheException.Onbereikbaar> { snel.beeindigSessie(SESSIE_ID, ontvanger) }
+
+        assertEquals(TIMEOUT_MELDING, mutiny.message)
+        assertTrue(mutiny.cause is io.smallrye.mutiny.TimeoutException, "Was: ${mutiny.cause}")
+        assertEquals(TIMEOUT_MELDING, jdk.message)
+    }
+
     // --- config-validatie facade-await-timeout ---
 
     @Test
     fun `facade-await-timeout van 0 wordt geweigerd bij constructie`() {
         val ex = assertThrows<IllegalArgumentException> {
-            BlockingSessiecache(service, volger, register, facadeAwaitTimeoutSeconds = 0)
+            BlockingSessiecache(service, volger, register, sessies, facadeAwaitTimeoutSeconds = 0)
         }
 
         assertTrue(ex.message!!.contains("facade-await-timeout-seconds"), "Was: ${ex.message}")
+    }
+
+    private fun vangLog(klasse: Class<*>, blok: () -> Unit): List<String> {
+        val regels = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val logger = java.util.logging.Logger.getLogger(klasse.name)
+        val vanger = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) {
+                val oorzaken = generateSequence(record.thrown) { it.cause }.joinToString("") { " | ${it.javaClass.name}: ${it.message}" }
+
+                regels += String.format(record.message, *(record.parameters ?: emptyArray())) + oorzaken
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+
+        logger.addHandler(vanger)
+
+        try {
+            blok()
+        } finally {
+            logger.removeHandler(vanger)
+        }
+
+        return regels
     }
 }

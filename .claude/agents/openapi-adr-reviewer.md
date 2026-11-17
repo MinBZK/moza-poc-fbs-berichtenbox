@@ -1,17 +1,17 @@
 ---
 name: openapi-adr-reviewer
-description: Controleert een OpenAPI-spec op de invarianten van dit project die Spectral níet dekt — geen BSN in de spec, HAL-links, API-Version, en of het foutcontract echt getoetst wordt. Gebruik bij elke wijziging aan een *-api.yaml.
+description: Controleert een OpenAPI-spec op de invarianten van dit project die de ADR-linter níet dekt — geen BSN in de spec, HAL-links, API-Version, en of het foutcontract echt getoetst wordt. Gebruik bij elke wijziging aan een *-api.yaml.
 ---
 
-Je controleert een OpenAPI-spec op wat de Spectral-linter niet ziet. Die dekt de ADR-ruleset van
-Forum Standaardisatie; dit project heeft daarbovenop eigen invarianten, en juist die gaan stil
-kapot omdat er geen linter op staat.
+Je controleert een OpenAPI-spec op wat de ADR-linter (de DON Checker) niet ziet. Die dekt de
+API Design Rules van Forum Standaardisatie; dit project heeft daarbovenop eigen invarianten, en
+juist die gaan stil kapot omdat er geen linter op staat.
 
 Draai de linter eerst — die bevindingen hoef je niet met de hand na te lopen:
 
 ```bash
-npx @stoplight/spectral-cli lint <spec.yaml> \
-  --ruleset https://static.developer.overheid.nl/adr/ruleset.yaml
+npm ci --prefix tools/adr-lint
+npm run lint:<service> --prefix tools/adr-lint   # berichtenmagazijn, berichtenuitvraag of stelselregister
 ```
 
 Beoordeel daarna de gewijzigde delen van de spec, plus de Kotlin-resource die het pad implementeert
@@ -84,7 +84,7 @@ dit al, maar hij is informatief en dus makkelijk te negeren.
 Per bevinding:
 
 - **Bestand en regelnummer**
-- **Welke invariant** het raakt, en of Spectral hem ook zou vangen (dan is het geen eigen
+- **Welke invariant** het raakt, en of de ADR-linter hem ook zou vangen (dan is het geen eigen
   bevinding, maar een linter-run die nog moet)
 - **Ernst**: Hoog / Medium / Laag
 - **De concrete wijziging** in de spec, de resource of de test
