@@ -65,7 +65,7 @@
         <maven-surefire-plugin.version>3.6.0</maven-surefire-plugin.version>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
-        <jandex-maven-plugin.version>3.6.0</jandex-maven-plugin.version>
+        <jandex-maven-plugin.version>3.6.1</jandex-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
         <logboekdataverwerking-wrapper.version>2.2.1</logboekdataverwerking-wrapper.version>
         <mockk.version>1.14.12</mockk.version>
