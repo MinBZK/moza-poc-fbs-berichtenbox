@@ -15,6 +15,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.generator.AanleverOpdracht
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.AanmeldWebhookClient
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.OntdubbelingService
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.Ontvanger
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringAankondiging
 import nl.rijksoverheid.moz.fbs.democonsole.storing.StoringService
 import nl.rijksoverheid.moz.fbs.democonsole.storing.Storingstoestand
@@ -94,7 +95,7 @@ class PaneelContractTest {
     fun leegDeOpnames() {
         VasteAanleverService.opdrachten.clear()
         VasteAanleverService.faalreden = null
-        VasteOntdubbelingService.nummers.clear()
+        VasteOntdubbelingService.ontvangers.clear()
         VasteSessieOpslag.opslag.leeg()
     }
 
@@ -421,7 +422,7 @@ class PaneelContractTest {
     @Test
     fun `de ontdubbeling zoekt het nummer bij de gekozen persona zelf op`() {
         assertEquals(200, speelOntdubbeling("?persona=pietersen").statusCode())
-        assertEquals(listOf(PIETERSEN_BSN), VasteOntdubbelingService.nummers)
+        assertEquals(listOf(Ontvanger(type = "BSN", waarde = PIETERSEN_BSN)), VasteOntdubbelingService.ontvangers)
     }
 
     /**
@@ -440,7 +441,7 @@ class PaneelContractTest {
             respons.body().contains("onbekende persona"),
             "geen keuze is iets anders dan een keuze die niet bestaat; die twee horen niet dezelfde melding te delen",
         )
-        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "valideren hoort vóór het aanmelden te gaan")
+        assertTrue(VasteOntdubbelingService.ontvangers.isEmpty(), "valideren hoort vóór het aanmelden te gaan")
     }
 
     /**
@@ -457,7 +458,7 @@ class PaneelContractTest {
             respons.body().filter(Char::isDigit).contains(PIETERSEN_BSN),
             "de melding hoort het aangeboden nummer niet te dragen (persona '$waarde')",
         )
-        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een nummer hoort niets aan te melden")
+        assertTrue(VasteOntdubbelingService.ontvangers.isEmpty(), "een nummer hoort niets aan te melden")
     }
 
     /** Hetzelfde adres dat de knop *Bericht plaatsen* aanroept; het draagt dezelfde parameter. */
@@ -483,64 +484,41 @@ class PaneelContractTest {
     @ValueSource(strings = ["%20pietersen", "pietersen%20", "Pietersen"])
     fun `een persona met een afwijkende schrijfwijze wordt niet alsnog aangenomen`(waarde: String) {
         assertEquals(404, speelOntdubbeling("?persona=$waarde").statusCode(), "persona '$waarde'")
-        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een niet-gevonden persona hoort niets aan te melden")
+        assertTrue(VasteOntdubbelingService.ontvangers.isEmpty(), "een niet-gevonden persona hoort niets aan te melden")
     }
 
     /**
-     * Het paneel filtert op de tekst `BSN:` in `ontvanger`, de resource kijkt naar `type`. Die regel
-     * staat hier nagebouwd, dus dit pint de resource-kant: elke persona die het paneel doorlaat
-     * hoort geaccepteerd te worden, elke andere geweigerd. Dat het script diezelfde regel houdt is
-     * hiermee niet bewezen — een filter dat verschuift laat deze test groen.
-     *
-     * De weigering is een 400 en geen 404: zo'n persona bestáát, en een 404 stuurt de bediener
-     * zoeken naar iets dat gewoon in de lijst staat.
+     * Het paneel biedt voor de ontdubbeling elke persona aan, en een berichtenbox kiest uit dezelfde
+     * personadienst. Een persona die de resource weigert, is in de berichtenbox dus wel te kiezen
+     * maar niet te demonstreren. Uit de omgeving-respons gelezen en niet uit een vaste lijst, zodat
+     * een persona die erbij komt vanzelf meedoet.
      */
     @Test
-    fun `elke persona die het paneel voor de ontdubbeling aanbiedt wordt geaccepteerd`() {
+    fun `elke ingerichte persona speelt de ontdubbeling met zijn eigen ontvanger`() {
         val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").toList()
-        val (metBsn, zonderBsn) = personas.partition { it.path("ontvanger").asText().startsWith("BSN:") }
+        val types = personas.map { it.path("ontvanger").asText().substringBefore(':') }.toSet()
 
-        // Met één persona zou dit "geeft de enige terug" niet van "zoekt per id op" onderscheiden.
-        assertTrue(metBsn.size >= 2, "minder dan twee BSN-persona's ingericht; dan toetst dit niets")
-        assertTrue(zonderBsn.isNotEmpty(), "zonder een persona zonder BSN blijft de andere helft ongetoetst")
+        // Met één type zou dit "zet het type vast" niet van "neemt het type van de persona" onderscheiden.
+        assertTrue(types.size >= 2, "minder dan twee types ingericht ($types); dan toetst dit niets")
 
-        metBsn.forEach { persona ->
-            VasteOntdubbelingService.nummers.clear()
+        personas.forEach { persona ->
+            VasteOntdubbelingService.ontvangers.clear()
 
-            val id = persona.path("id").asText()
-
-            // Zonder id zou de blank-check hieronder slagen op de verkeerde grond.
-            assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
-            assertEquals(200, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
-            assertEquals(
-                listOf(persona.path("ontvanger").asText().removePrefix("BSN:")),
-                VasteOntdubbelingService.nummers,
-                "persona '$id' hoort zijn eigen nummer op te leveren",
-            )
-        }
-
-        VasteOntdubbelingService.nummers.clear()
-
-        zonderBsn.forEach { persona ->
             val id = persona.path("id").asText()
             val ontvanger = persona.path("ontvanger").asText()
-            val respons = speelOntdubbeling("?persona=$id")
 
+            // Zonder id zou de blank-check van de resource het antwoord bepalen, niet de opzoeking.
+            // En zonder dubbele punt geven `substringBefore` en `substringAfter` allebei de héle
+            // waarde terug; dan faalt de laatste assertie op iets anders dan wat er mis is.
             assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
-            assertEquals(400, respons.statusCode(), "persona '$id'")
-
-            // Uit dezelfde bron als de persona zelf: een hardgecodeerd "KVK" laat deze test bij een
-            // andere personaset falen op het type in plaats van op wat er werkelijk mis is. Wel
-            // eerst de vorm toetsen — zonder dubbele punt geeft `substringBefore` de héle waarde
-            // terug, en dan zou deze assertie het nummer in de melding juist gaan eisen.
-            assertTrue(ontvanger.contains(':'), "ontvanger '$ontvanger' heeft niet de vorm <TYPE>:<WAARDE>")
-            assertTrue(
-                respons.body().contains(ontvanger.substringBefore(':')),
-                "de melding hoort te zeggen wat persona '$id' wél heeft",
+            assertTrue(ontvanger.contains(':'), "ontvanger van '$id' heeft niet de vorm <TYPE>:<WAARDE>")
+            assertEquals(200, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
+            assertEquals(
+                listOf(Ontvanger(type = ontvanger.substringBefore(':'), waarde = ontvanger.substringAfter(':'))),
+                VasteOntdubbelingService.ontvangers,
+                "persona '$id' hoort zijn eigen ontvanger op te leveren",
             )
         }
-
-        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een persona zonder BSN hoort niets aan te melden")
     }
 
     @Test
@@ -549,7 +527,7 @@ class PaneelContractTest {
 
         assertEquals(404, respons.statusCode())
         assertTrue(respons.body().contains("bestaat-niet"), "de melding hoort de gevraagde persona te noemen")
-        assertTrue(VasteOntdubbelingService.nummers.isEmpty(), "een onbekende persona hoort niets aan te melden")
+        assertTrue(VasteOntdubbelingService.ontvangers.isEmpty(), "een onbekende persona hoort niets aan te melden")
     }
 
     private fun speelOntdubbeling(query: String): HttpResponse<String> =
@@ -925,8 +903,8 @@ class VasteAanleverService(clients: MagazijnClients) : AanleverService(clients) 
 
 /**
  * Vaste demonstratie in plaats van hetzelfde CloudEvent tweemaal naar de uitvraag, die hier niet
- * draait. Neemt op met welk nummer de resource hem aanroept: dat is wat de persona-opzoeking moet
- * opleveren, en het staat niet in het antwoord. Thread-veilig en per test geleegd, om dezelfde
+ * draait. Neemt op met welke ontvanger de resource hem aanroept: dat is wat de persona-opzoeking
+ * moet opleveren, en het staat niet in het antwoord. Thread-veilig en per test geleegd, om dezelfde
  * reden als bij [VasteAanleverService].
  */
 @Mock
@@ -934,15 +912,15 @@ class VasteAanleverService(clients: MagazijnClients) : AanleverService(clients) 
 class VasteOntdubbelingService(@RestClient client: AanmeldWebhookClient) :
     OntdubbelingService(client, ObjectMapper()) {
 
-    override fun demonstreer(ontvangerBsn: String): OntdubbelingResultaat {
-        nummers += ontvangerBsn
+    override fun demonstreer(ontvanger: Ontvanger): OntdubbelingResultaat {
+        ontvangers += ontvanger
 
         return OntdubbelingResultaat(eventId = "vast-event-id", eersteStatus = 202, tweedeStatus = 202)
     }
 
     companion object {
 
-        val nummers: MutableList<String> = CopyOnWriteArrayList()
+        val ontvangers: MutableList<Ontvanger> = CopyOnWriteArrayList()
     }
 }
 
