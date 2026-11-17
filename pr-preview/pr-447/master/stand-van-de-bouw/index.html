@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stand van de bouw | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="./" class="is-active">Stand van de bouw</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Stand van de bouw</h1>
+<p>Voor ontwikkelaars: waar de software nog afwijkt van de use cases, met de plek in de code. De use cases zelf beschrijven het stelsel zoals het moet werken; wat voor alle use cases nog niet gebouwd is (eHerkenning, pseudoniemen, machtigingen, FSC, autorisatiebeleid), staat op de pagina met PoC-afwijkingen.</p>
+<h2>Afwijkingen per use case</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Use case</th>
+   <th>Wat nu anders werkt</th>
+   <th>Waar</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>1</td>
+   <td>Een bericht is vóór zijn publicatiedatum al op te halen; alleen aanmelding en melding wachten</td>
+   <td><code>BerichtRepository.lijstVoorOntvanger</code> en het detail filteren niet op <code>publicatietijdstip</code></td>
+  </tr>
+  <tr>
+   <td>1</td>
+   <td>Het magazijn controleert niet of de afzender-OIN de eigen organisatie is; de uitvraag kiest bij een aanmelding het magazijn op die OIN</td>
+   <td><code>BerichtOpslagService</code>, <code>AanmeldService.parse</code></td>
+  </tr>
+  <tr>
+   <td>1</td>
+   <td>Aanmelding en melding bevatten <code>ontvanger</code> en <code>onderwerp</code> onversleuteld</td>
+   <td><code>CloudEventBuilder.BerichtData</code>. Het NL GOV-profiel voor CloudEvents wijst versleuteling van <code>data</code> of een claim-check via <code>dataref</code> aan</td>
+  </tr>
+  <tr>
+   <td>1</td>
+   <td>Geen grens aan het aantal bijlagen, geen controle op de inhoud. Wel 25 MiB per bijlage en 40 MiB per request (inclusief Base64)</td>
+   <td><code>Bijlage.MAX_CONTENT_BYTES</code>, <code>quarkus.http.limits.max-body-size</code></td>
+  </tr>
+  <tr>
+   <td>1</td>
+   <td>Aanleveren is niet idempotent</td>
+   <td><code>PublicatieOutbox</code></td>
+  </tr>
+  <tr>
+   <td>1</td>
+   <td>De Publicatie Stream geeft na 5 pogingen per bestemming op, in de praktijk na zo'n 5 minuten</td>
+   <td><code>magazijn.publicatie.polling.interval</code> (60s), <code>max-pogingen</code></td>
+  </tr>
+  <tr>
+   <td>1</td>
+   <td>Profiel Service onbereikbaar na de retries geeft <code>500</code>, geen <code>503</code></td>
+   <td><code>BerichtValidatieService</code></td>
+  </tr>
+  <tr>
+   <td>2</td>
+   <td>Een voorkeur voor een OIN zonder magazijn in het register wordt stil overgeslagen</td>
+   <td>Sessiecache-aggregatie via <code>Magazijnregister</code></td>
+  </tr>
+  <tr>
+   <td>2, 11</td>
+   <td>Het logboek van het ophalen legt alleen het aantal mislukte magazijnen vast, niet welke</td>
+   <td><code>uitvraag-ophalen-sse</code></td>
+  </tr>
+  <tr>
+   <td>2</td>
+   <td>Een tweede ophaalronde geeft <code>409</code> met <code>type</code> <code>conflict</code>, niet <code>ophalen-bezig</code></td>
+   <td><code>BerichtensessiecacheService</code></td>
+  </tr>
+  <tr>
+   <td>4</td>
+   <td>Zoeken volgt Engelse stemming en stopwoorden, vindt geen accenten, geen meerdere woorden en geen leestekens</td>
+   <td><code>BerichtenCache</code>: RediSearch-index zonder <code>LANGUAGE</code>; <code>escapeRedisSearch</code> escapet elk teken buiten <code>[a-zA-Z0-9]</code>, ook de spatie</td>
+  </tr>
+  <tr>
+   <td>5, 9</td>
+   <td>De uitvraag legt een 4xx bij openen vast met status <code>Unset</code>, net als een geslaagde opening. Geen van beide logregels bevat het berichtnummer</td>
+   <td><code>uitvraag-bericht</code>, magazijn <code>ophalen-bericht</code></td>
+  </tr>
+  <tr>
+   <td>7</td>
+   <td>Mislukt na een geslaagde magazijnwijziging het bijwerken van de sessiecache, dan compenseert de uitvraag met <code>Sessiecache.verwijder</code>: die schrijft een tombstone, en een volgende opening geeft <code>410 bericht-verwijderd</code></td>
+   <td><code>BerichtBeheerService.invalideerCacheNaMagazijnWrite</code></td>
+  </tr>
+  <tr>
+   <td>7</td>
+   <td>Het magazijn geeft bij <code>PATCH</code> op andermans bericht <code>403</code>, bij lezen <code>404</code></td>
+   <td><code>BerichtAutorisatie.vereisOntvanger</code></td>
+  </tr>
+  <tr>
+   <td>8, 10</td>
+   <td>Het definitief opruimen logt alleen naar de applicatielog, met berichtnummer maar zonder ontvanger. Het model zegt dat de Retentie Service naar het LDV logt</td>
+   <td><code>HardDeleteJob</code></td>
+  </tr>
+  <tr>
+   <td>9, 10</td>
+   <td>Geen bewaartermijn op LDV-regels</td>
+   <td>LDV-configuratie per dienst</td>
+  </tr>
+  <tr>
+   <td>10</td>
+   <td>Geen opdracht om alle berichten van één ontvanger te wissen</td>
+   <td>Magazijn-API</td>
+  </tr>
+  <tr>
+   <td>11</td>
+   <td>Geen alert per magazijn dat lang niet levert</td>
+   <td>Sessiecache-aggregatie, circuit breaker per magazijn</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Wanneer het logboek vastlegt</h2>
+<p>De use cases zeggen dat elke verwerking in het logboek staat. De volgorde ten opzichte van de handeling verschilt per pad:</p>
+<ul>
+ <li><strong>Aanleveren en publiceren (magazijn):</strong> vóór de handeling. Mislukt de vastlegging, dan gebeurt er niets.</li>
+ <li><strong>Overige handlers met <code>@Logboek</code>:</strong> bij het verlaten van de methode, vóór het antwoord. Mislukt de vastlegging, dan krijgt de aanroeper een fout, terwijl een wijziging al is doorgevoerd.</li>
+ <li><strong>Ophalen (uitvraag):</strong> bij de start, met later een kind-regel met <code>ERROR</code> als het mislukt.</li>
+ <li><strong>Volgen (uitvraag):</strong> alleen bij de start; een afgebroken verbinding staat niet in het logboek.</li>
+ <li><strong>Wissen bij einde of start van een sessie:</strong> gaat altijd door; mislukt de vastlegging, dan volgt een alert. Alleen de Redis-TTL (vangnet) wist zonder logregel.</li>
+</ul>
+<h2>Koppelvlakken per use case</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Use case</th>
+   <th>Koppelvlak</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>1</td>
+   <td>Magazijn <code>POST /api/v1/aanleveringen</code>; Profiel Service <code>POST /api/profielservice/v1/partij</code>; uitvraag <code>POST /api/v1/aanmeldingen</code> (CloudEvent <code>nl.rijksoverheid.fbs.bericht.gepubliceerd</code>); CloudEvent naar <code>NOTIFICATIE_URL</code></td>
+  </tr>
+  <tr>
+   <td>2</td>
+   <td>Uitvraag <code>POST /api/v1/sessies</code>, <code>GET /api/v1/berichten/_ophalen</code> (SSE), <code>GET /api/v1/berichten</code>, <code>POST /api/v1/sessies/huidige/_verlengen</code>, <code>DELETE /api/v1/sessies/huidige</code>; magazijn <code>GET /api/v1/berichten</code></td>
+  </tr>
+  <tr>
+   <td>3</td>
+   <td>Uitvraag <code>GET /api/v1/berichten/_volgen</code> (SSE); doorgeven tussen instanties via Redis pub/sub</td>
+  </tr>
+  <tr>
+   <td>4</td>
+   <td>Uitvraag <code>GET /api/v1/berichten/_zoeken?q=</code></td>
+  </tr>
+  <tr>
+   <td>5</td>
+   <td>Uitvraag <code>GET /api/v1/berichten/{berichtId}?magazijnId=</code>; magazijn <code>GET /api/v1/berichten/{berichtId}</code></td>
+  </tr>
+  <tr>
+   <td>6</td>
+   <td>Uitvraag <code>GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}?magazijnId=</code>; magazijn idem zonder <code>magazijnId</code></td>
+  </tr>
+  <tr>
+   <td>7</td>
+   <td>Uitvraag <code>PATCH /api/v1/berichten/{berichtId}?magazijnId=</code> (<code>application/merge-patch+json</code>); magazijn <code>PATCH /api/v1/berichten/{berichtId}</code></td>
+  </tr>
+  <tr>
+   <td>8</td>
+   <td>Uitvraag <code>DELETE /api/v1/berichten/{berichtId}?magazijnId=</code>; magazijn <code>DELETE /api/v1/berichten/{berichtId}</code> (soft-delete); <code>HardDeleteJob</code> dagelijks 03:00 Europe/Amsterdam</td>
+  </tr>
+ </tbody>
+</table></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

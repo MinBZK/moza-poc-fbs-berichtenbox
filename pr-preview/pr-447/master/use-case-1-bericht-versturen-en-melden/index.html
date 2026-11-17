@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 1: Bericht versturen en melden | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="./" class="is-active">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 1: Bericht versturen en melden</h1>
+<p>Een organisatie verstuurt een bericht via haar berichtenmagazijn, en de ondernemer krijgt daar een melding van.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een overheidsorganisatie</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De organisatie heeft een bericht voor een ondernemer, bijvoorbeeld een besluit of een aanslag</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>Het bericht staat in het magazijn van de organisatie. Vanaf de publicatiedatum ziet de ondernemer het in zijn berichtenbox, en krijgt hij er een melding van</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De organisatie levert het bericht aan bij haar eigen magazijn: ontvanger, onderwerp, tekst, eventueel bijlagen, en eventueel een publicatiedatum.</li>
+ <li>Het magazijn controleert het bericht: is het compleet, zijn de bijlagen toegestaan en niet te groot, en komt het van de eigen organisatie?</li>
+ <li>Het magazijn vraagt de Profiel Service of de ondernemer berichten van deze organisatie via de berichtenbox wil ontvangen. Is de ontvanger zelf een overheidsorganisatie, dan vervalt deze stap.</li>
+ <li>Het magazijn legt de aanlevering vast in zijn logboek, bewaart het bericht, en plant de aanmelding en de melding.</li>
+ <li>De organisatie krijgt meteen antwoord: het bericht is aangenomen, met een berichtnummer.</li>
+ <li>Op de publicatiedatum (zonder datum: meteen) wordt het bericht zichtbaar in de berichtenbox. Het magazijn meldt het nieuwe bericht aan bij de uitvraag, en geeft het door aan de Notificatie Service.</li>
+ <li>Is de ondernemer op dat moment ingelogd, dan verschijnt het bericht in zijn geopende berichtenbox (use case 3). Anders ziet hij het de volgende keer dat hij inlogt.</li>
+ <li>De Notificatie Service zoekt de contactgegevens van de ondernemer op en stuurt hem een melding, bijvoorbeeld per e-mail. Dat deel hoort bij MijnOverheid Zakelijk, niet bij het berichtenstelsel.</li>
+</ol>
+<p>De aanmelding en de melding bevatten alleen wat nodig is. Persoonsgegevens gaan versleuteld mee, of worden apart bij het magazijn opgehaald.</p>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    participant ORG as Overheidsorganisatie
+    participant MAG as Berichtenmagazijn
+    participant PRO as Profiel Service
+    participant FBS as Berichten Uitvraag Systeem
+    participant NOT as Notificatie Service
+    actor OND as Ondernemer
+
+    ORG-&gt;&gt;MAG: Levert een bericht aan (ontvanger, onderwerp, tekst, bijlagen, publicatiedatum)
+    MAG-&gt;&gt;MAG: Compleet, bijlagen toegestaan, afzender is de eigen organisatie?
+    opt Ontvanger is een ondernemer, geen overheidsorganisatie
+        MAG-&gt;&gt;PRO: Wil de ontvanger berichten van deze organisatie via de berichtenbox?
+        PRO--&gt;&gt;MAG: Ja
+    end
+    Note over MAG: Legt de aanlevering vast in het logboek
+    MAG-&gt;&gt;MAG: Bewaar het bericht en plan aanmelding en melding
+    MAG--&gt;&gt;ORG: Aangenomen, met berichtnummer
+
+    Note over MAG: Op de publicatiedatum
+    MAG-&gt;&gt;MAG: Maak het bericht zichtbaar
+    par Aanmelden bij de uitvraag
+        MAG-)FBS: Nieuw bericht (kopgegevens, zonder tekst)
+        FBS-&gt;&gt;FBS: Zet het bericht in de lijst, als de ondernemer ingelogd is
+    and Melden aan de Notificatie Service
+        MAG-)NOT: Nieuw bericht
+        NOT-&gt;&gt;PRO: Contactgegevens van de ontvanger
+        NOT-)OND: Melding, bijvoorbeeld per e-mail
+    end
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de actor merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Het bericht is onvolledig, een bijlage is van een niet-toegestaan type, of het bericht is te groot</td>
+   <td>Het magazijn weigert het bericht en bewaart niets</td>
+   <td>De organisatie krijgt een foutmelding met de reden</td>
+  </tr>
+  <tr>
+   <td>Het bericht komt niet van de organisatie van dit magazijn</td>
+   <td>Het magazijn weigert het bericht</td>
+   <td>Een foutmelding</td>
+  </tr>
+  <tr>
+   <td>De ondernemer wil geen berichten van deze organisatie via de berichtenbox, of is daar niet bekend</td>
+   <td>Het magazijn weigert het bericht en bewaart niets</td>
+   <td>De organisatie hoort dat de ontvanger niet digitaal bereikbaar is, en moet het bericht langs een andere weg sturen</td>
+  </tr>
+  <tr>
+   <td>De Profiel Service is niet bereikbaar</td>
+   <td>Het magazijn probeert het een paar keer opnieuw en weigert daarna. Houdt de storing aan, dan weigert het een korte tijd elke aanlevering meteen</td>
+   <td>"Tijdelijk niet beschikbaar"; later opnieuw aanleveren</td>
+  </tr>
+  <tr>
+   <td>De opslag of het logboek van het magazijn werkt niet</td>
+   <td>Het magazijn bewaart niets: er blijft geen half bericht achter</td>
+   <td>Een foutmelding; later opnieuw aanleveren</td>
+  </tr>
+  <tr>
+   <td>De organisatie levert hetzelfde bericht twee keer aan, bijvoorbeeld omdat het antwoord uitbleef</td>
+   <td>Het magazijn herkent dat niet, en bewaart twee berichten</td>
+   <td>De ondernemer ziet het bericht dubbel</td>
+  </tr>
+  <tr>
+   <td>De uitvraag of de Notificatie Service is niet bereikbaar</td>
+   <td>Het magazijn probeert het enkele minuten opnieuw, en geeft het daarna op. Een storing bij de ene houdt de andere niet tegen</td>
+   <td>De organisatie merkt niets. De ondernemer ziet het bericht bij de volgende keer inloggen, maar krijgt bij een langere storing geen melding</td>
+  </tr>
+  <tr>
+   <td>De ondernemer is niet ingelogd</td>
+   <td>De uitvraag doet niets met de aanmelding</td>
+   <td>Niets: het bericht verschijnt bij de volgende keer inloggen</td>
+  </tr>
+  <tr>
+   <td>Een aanmelding komt twee keer binnen</td>
+   <td>De uitvraag herkent de herhaling</td>
+   <td>Niets</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Nog niet gerealiseerd</h2>
+<ul>
+ <li>Een bericht is nu al vóór zijn publicatiedatum te zien in de berichtenbox. Alleen de aanmelding en de melding wachten op die datum.</li>
+ <li>Het magazijn controleert nog niet of het bericht van de eigen organisatie komt.</li>
+ <li>De aanmelding en de melding bevatten het nummer van de ontvanger en het onderwerp nog leesbaar.</li>
+ <li>Het model noemt een grens aan het aantal bijlagen. Die is er nog niet, en het magazijn kijkt alleen naar het opgegeven bestandstype, niet naar de inhoud.</li>
+</ul>
+<h2>Open vragen</h2>
+<ul>
+ <li>Moet het magazijn een dubbele aanlevering herkennen, bijvoorbeeld aan een kenmerk dat de organisatie meegeeft?</li>
+ <li>Hoe lang moet het magazijn blijven proberen de aanmelding en de melding af te leveren? Nu is dat enkele minuten.</li>
+ <li>Mag een organisatie een bericht digitaal sturen als de ondernemer daar niet voor gekozen heeft? Nu weigert het magazijn dat. Of de wetgeving daar iets anders over zegt, wordt uitgezocht. De afspraak is dat die beslissing bij het magazijn ligt, niet bij de berichtenbox.</li>
+ <li>Heeft een bedrijf één berichtenbox, of hebben afdelingen hun eigen magazijn? Navragen bij de Belastingdienst.</li>
+ <li>Wie krijgt een melding bij een bericht voor een bedrijf: ook gemachtigden of helpers? Dan komen er meer contactgegevens uit de Profiel Service. Navragen bij de afnemers.</li>
+</ul></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

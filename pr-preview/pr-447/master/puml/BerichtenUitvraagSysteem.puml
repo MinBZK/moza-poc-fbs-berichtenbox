@@ -45,6 +45,12 @@ skinparam rectangle<<ProfielService>> {
   BorderColor #0b4884
   shadowing false
 }
+skinparam person<<Stelselbeheerder>> {
+  BackgroundColor #08427b
+  FontColor #ffffff
+  BorderColor #052e56
+  shadowing false
+}
 
 rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
   skinparam RectangleBorderColor<<group1>> #cccccc
@@ -63,9 +69,11 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 
 }
 
+person "==Stelselbeheerder\n<size:10>[Person]</size>\n\nBeheert het Federatief Berichtenstelsel: de stelselafspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten" <<Stelselbeheerder>> as Stelselbeheerder
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
 
+Stelselbeheerder .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Beheert, en zoekt bij vragen en storingen in het logboek van"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten-API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost : "<color:#707070>Haalt berichtenlijst op, en berichtinhoud of bijlagen per geopend bericht; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenUitvraagSysteem .[#707070,thickness=2].> Berichtenmagazijneigengehost : "<color:#707070>Haalt berichtenlijst op, en berichtinhoud of bijlagen per geopend bericht; beheert berichtstatus per gebruiker\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"

@@ -31,11 +31,11 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="./" class="is-active">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="./" class="is-active">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
         </ul>
       </aside>
       <div class="container is-fluid">
@@ -60,45 +60,41 @@
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>Het bericht staat in de gekozen map, bij de organisatie die het verstuurde, en blijft daar ook na uitloggen</td>
+   <td>Het bericht staat in de gekozen map, en blijft daar ook na uitloggen</td>
   </tr>
  </tbody>
 </table>
 <h2>Verloop</h2>
 <ol>
- <li>De ondernemer kiest een map voor een bericht. Archiveren is verplaatsen naar een map met die naam: er is geen aparte archiefstand. Een lege mapnaam zet het bericht terug in het Postvak IN.</li>
+ <li>De ondernemer kiest een map voor een bericht. Archiveren is verplaatsen naar een map met die naam. Zonder map staat het bericht in het Postvak IN.</li>
  <li>Het portaal geeft de wijziging door aan de uitvraag.</li>
- <li>De uitvraag stuurt de wijziging naar het magazijn van de organisatie die het bericht verstuurde. Daar staat de map, als eigenschap van het bericht. Er is geen centrale lijst van mappen; zie <a href="https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/mappen-bij-het-bericht.md" target="blank">Mappen horen bij het bericht</a>.</li>
- <li>Het magazijn controleert of het bericht bij deze ondernemer hoort, en slaat de map op.</li>
- <li>Daarna werkt de uitvraag de lijst in de sessie bij, en geeft het bijgewerkte bericht terug.</li>
+ <li>De uitvraag stuurt de wijziging naar het magazijn van de organisatie die het bericht verstuurde. Daar staat de map, als eigenschap van het bericht. Er is geen centrale lijst van mappen: een map bestaat zolang er een bericht in zit.</li>
+ <li>Het magazijn controleert of het bericht bij deze ondernemer hoort, en bewaart de map.</li>
+ <li>De uitvraag werkt de lijst bij, en het portaal toont het bericht in de nieuwe map.</li>
 </ol>
-<p>Eerst het magazijn, dan de lijst: het magazijn is de plek waar de wijziging blijft bestaan. Gaat het bijwerken van de lijst mis, dan staat de wijziging toch in het magazijn, en klopt de lijst weer na het volgende ophalen.</p>
+<p>Eerst het magazijn, dan de lijst: in het magazijn blijft de wijziging bestaan. Lukt het bijwerken van de lijst niet, dan klopt de lijst weer na het volgende ophalen.</p>
+<p>Een map hernoemen is elk bericht in die map wijzigen, bij elke organisatie waar die berichten staan.</p>
 <h2>Sequence diagram</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     autonumber
-    actor OND as Ondernemer / Zakelijke gebruiker
+    actor OND as Ondernemer
     participant IL as Interactielaag
     participant FBS as Berichten Uitvraag Systeem
     participant MAG as Berichtenmagazijn
 
-    OND-&gt;&gt;IL: Zet een bericht in map Belasting
+    OND-&gt;&gt;IL: Zet een bericht in de map Belasting
     IL-&gt;&gt;FBS: Wijzig het bericht: map Belasting
-    FBS-&gt;&gt;FBS: Zoek het magazijn van deze organisatie op
     FBS-&gt;&gt;MAG: Wijzig het bericht voor deze ondernemer: map Belasting
-    MAG-&gt;&gt;MAG: Zoek het bericht en controleer of het bij deze ondernemer hoort
-    MAG-&gt;&gt;MAG: Sla map en gelezen-stand op
+    MAG-&gt;&gt;MAG: Hoort het bericht bij deze ondernemer? Bewaar de map
     Note over MAG: Legt de wijziging vast in het logboek
     MAG--&gt;&gt;FBS: Gewijzigd
     alt Bijwerken van de lijst lukt
         FBS-&gt;&gt;FBS: Werk het bericht in de lijst bij
-        Note over FBS: Legt de wijziging vast in het logboek
         FBS--&gt;&gt;IL: Bijgewerkt bericht
         IL--&gt;&gt;OND: Het bericht staat in de map
-    else Bijwerken van de lijst mislukt
-        FBS-&gt;&gt;FBS: Haal het bericht uit de lijst, tot het volgende ophalen
-        Note over FBS: Legt de mislukte wijziging vast in het logboek
+    else Bijwerken van de lijst lukt niet
         FBS--&gt;&gt;IL: Fout
-        IL--&gt;&gt;OND: "Probeer het straks nog eens"
+        IL--&gt;&gt;OND: "Probeer het straks nog eens", de map is na opnieuw ophalen zichtbaar
     end
 </code></pre>
 <h2>Als het misgaat</h2>
@@ -112,19 +108,14 @@
  </thead>
  <tbody>
   <tr>
-   <td>De wijziging is leeg, of de mapnaam bestaat alleen uit spaties</td>
+   <td>De mapnaam is leeg of bestaat alleen uit spaties</td>
    <td>De uitvraag weigert</td>
    <td>Een melding dat de wijziging niet geldig is</td>
   </tr>
   <tr>
-   <td>Het bericht bestaat niet in het magazijn</td>
+   <td>Het bericht bestaat niet, of is van een ander</td>
    <td>Er verandert niets</td>
    <td>"Dit bericht is niet (meer) beschikbaar"</td>
-  </tr>
-  <tr>
-   <td>Het bericht is van een andere ontvanger</td>
-   <td>Het magazijn weigert. Bij lezen (use case 5) is dit antwoord gelijk aan dat voor een onbekend bericht; hier niet</td>
-   <td>Een melding dat hij geen toegang heeft</td>
   </tr>
   <tr>
    <td>Het bericht is al verwijderd</td>
@@ -132,60 +123,27 @@
    <td>"U hebt dit bericht verwijderd"</td>
   </tr>
   <tr>
-   <td>Het magazijn is onbereikbaar</td>
+   <td>Het magazijn is niet bereikbaar</td>
    <td>Er verandert niets</td>
    <td>"Probeer het straks nog eens"</td>
   </tr>
   <tr>
-   <td>Het magazijn heeft de wijziging opgeslagen, maar het bijwerken van de lijst mislukt</td>
-   <td>De uitvraag haalt het bericht uit de lijst, zodat er geen verouderde versie blijft staan. Hij gebruikt daarvoor dezelfde stap als verwijderen, en onthoudt dus ook dat het bericht verwijderd is. Lukt ook dat niet, dan krijgt de beheerder een waarschuwing</td>
-   <td>Een foutmelding, terwijl de wijziging wel bewaard is. Het bericht is uit de lijst verdwenen, en opent hij het toch, dan hoort hij ten onrechte dat hij het verwijderd heeft. Na opnieuw ophalen staat het bericht in de nieuwe map</td>
-  </tr>
-  <tr>
-   <td>Het magazijn heeft de wijziging opgeslagen, maar het bericht staat niet in de lijst</td>
-   <td>De beheerder krijgt een waarschuwing</td>
-   <td>"Dit bericht is niet (meer) beschikbaar", terwijl de wijziging wel bewaard is</td>
+   <td>Het magazijn heeft de wijziging bewaard, maar de lijst bijwerken lukt niet</td>
+   <td>De wijziging blijft bewaard in het magazijn</td>
+   <td>Een foutmelding. Na opnieuw ophalen staat het bericht in de nieuwe map</td>
   </tr>
  </tbody>
 </table>
-<p>Een map hernoemen is elk bericht in die map wijzigen, bij elke organisatie waar die berichten staan. Een lege map bestaat niet. Zie het stuk over mappen hierboven.</p>
-<h2>Doelarchitectuur</h2>
+<h2>Nog niet gerealiseerd</h2>
 <ul>
- <li><strong>Labels en mappen als stelselafspraak</strong> (open punt, nog niet in het model). Uit het overleg met Logius: magazijnen moeten allerlei labels en mappen kunnen opslaan. Dat wordt een eis aan elk magazijn, ook aan zelf gehoste.</li>
- <li><strong>Autorisatie.</strong> Zie use case 5.</li>
+ <li>Lukt het bijwerken van de lijst niet, dan haalt de uitvraag het bericht nu uit de lijst alsof het verwijderd is. Opent de ondernemer het daarna, dan hoort hij ten onrechte dat hij het verwijderd heeft, tot hij opnieuw ophaalt.</li>
+ <li>Is het bericht van een ander, dan antwoordt het magazijn bij wijzigen nu anders dan bij een onbekend bericht. Zo valt af te leiden dat het bericht bestaat.</li>
+ <li>De toets aan het beleid van de organisatie, zoals bij use case 5.</li>
 </ul>
-<h2>Technische verwijzing</h2>
-<table>
- <thead>
-  <tr>
-   <th>Stap</th>
-   <th>Koppelvlak</th>
-   <th>Opmerking</th>
-  </tr>
- </thead>
- <tbody>
-  <tr>
-   <td>Uitvraag</td>
-   <td><code>PATCH /api/v1/berichten/{berichtId}?magazijnId=</code>, <code>application/merge-patch+json</code></td>
-   <td>Velden <code>status</code> (<code>gelezen</code>, <code>ongelezen</code>) en <code>map</code> (max 128 tekens, <code>""</code> is Postvak IN). Geen veld voor archiveren</td>
-  </tr>
-  <tr>
-   <td>Magazijn</td>
-   <td><code>PATCH /api/v1/berichten/{berichtId}</code> met <code>X-Ontvanger</code></td>
-   <td><code>404</code> onbekend, <code>403</code> andermans bericht, <code>410</code> verwijderd. Upsert in <code>bericht_status</code></td>
-  </tr>
-  <tr>
-   <td>Lijst bijwerken</td>
-   <td><code>Sessiecache.werkBerichtBij</code></td>
-   <td>Bij een cachestoring: compenserende invalidatie via <code>Sessiecache.verwijder</code> (die ook een tombstone schrijft) en <code>502</code>. Mislukt ook die: alert <code>cache_desync_no_selfheal</code></td>
-  </tr>
-  <tr>
-   <td>Logboek</td>
-   <td>Uitvraag <code>uitvraag-patch</code>, magazijn <code>bijwerken-bericht-status</code></td>
-   <td></td>
-  </tr>
- </tbody>
-</table></div>
+<h2>Open vragen</h2>
+<ul>
+ <li>Magazijnen moeten allerlei labels en mappen kunnen bewaren. Dat wordt een eis aan elk magazijn, ook aan een zelf gehost magazijn. Dit staat nog niet in de stelselafspraken. (Uit het overleg met Logius.)</li>
+</ul></div>
         </div>
       </div>
     </div>

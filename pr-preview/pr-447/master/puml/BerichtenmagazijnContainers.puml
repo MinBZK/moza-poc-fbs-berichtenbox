@@ -67,7 +67,7 @@ skinparam rectangle<<NotificatieService>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam rectangle<<OrganisatieB>> {
+skinparam rectangle<<OverheidsorganisatiemagazijnbijBBO>> {
   BackgroundColor #8c8c8c
   FontColor #ffffff
   BorderColor #0b4884
@@ -101,7 +101,7 @@ skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
 
 rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
 rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
-rectangle "==Organisatie B\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OrganisatieB>> as OrganisatieB
+rectangle "==Overheidsorganisatie (magazijn bij BBO)\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OverheidsorganisatiemagazijnbijBBO>> as OverheidsorganisatiemagazijnbijBBO
 rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
 rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
 
@@ -119,7 +119,7 @@ Berichtenapp .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.Berichtenmagazi
 BerichtenUitvraagSysteem .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI : "<color:#707070>Haalt berichtenlijst met kopgegevens op, en berichtinhoud of bijlagen per geopend bericht\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Meldt nieuw bericht aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.PublicatieStream .[#707070,thickness=2].> NotificatieService : "<color:#707070>Stuurt bericht-events door\n<color:#707070><size:8>[CloudEvents webhook via FSC]</size>"
-OrganisatieB .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
+OverheidsorganisatiemagazijnbijBBO .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI : "<color:#707070>Levert berichten aan\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.BerichtValidatieService .[#707070,thickness=2].> ProfielService : "<color:#707070>Controleert of de ontvanger toestemming gegeven heeft\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 BerichtenmagazijnBBOgehost.BerichtenmagazijnOphaalenBeheerAPI .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.Dataopslag : "<color:#707070>Leest berichten en bijlagen; schrijft berichtstatus per gebruiker\n<color:#707070><size:8>[SQL/JDBC]</size>"
 BerichtenmagazijnBBOgehost.BerichtenmagazijnAanleverAPI .[#707070,thickness=2].> BerichtenmagazijnBBOgehost.Dataopslag : "<color:#707070>Schrijft berichten en bijlagen\n<color:#707070><size:8>[SQL/JDBC]</size>"

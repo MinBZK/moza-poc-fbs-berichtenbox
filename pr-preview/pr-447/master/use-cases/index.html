@@ -31,17 +31,17 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="./" class="is-active">Use cases</a><a href="../use-case-1-bericht-aanleveren-en-melden/" class="">Use case 1: Bericht aanleveren en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../beheervragen/" class="">Beheervragen</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="./" class="is-active">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../organisatie-a/" class="">Organisatie A</a><a href="../organisatie-b/" class="">Organisatie B</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
         </ul>
       </aside>
       <div class="container is-fluid">
         <div class="content p-3">
           <div><h1>Use cases</h1>
-<p>De diagrammen elders op deze site laten zien uit welke onderdelen het Federatief Berichtenstelsel bestaat. De use cases hieronder laten zien wat er gebeurt als iemand het gebruikt: wie wat doet, in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt als iets misgaat.</p>
+<p>De diagrammen elders op deze site laten zien uit welke onderdelen het Federatief Berichtenstelsel bestaat. De use cases hieronder laten zien wat er gebeurt als iemand het gebruikt of beheert: wie wat doet, in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt als iets misgaat.</p>
 <table>
  <thead>
   <tr>
@@ -53,12 +53,12 @@
  <tbody>
   <tr>
    <td>1</td>
-   <td>Een organisatie levert een bericht aan, en de ondernemer krijgt een melding</td>
-   <td>Organisatie</td>
+   <td>Een organisatie verstuurt een bericht, en de ondernemer krijgt een melding</td>
+   <td>Overheidsorganisatie</td>
   </tr>
   <tr>
    <td>2</td>
-   <td>Een ondernemer opent de berichtenbox en ziet de berichten uit alle magazijnen bij elkaar</td>
+   <td>Een ondernemer opent de berichtenbox en ziet de berichten van alle organisaties bij elkaar</td>
    <td>Ondernemer</td>
   </tr>
   <tr>
@@ -91,23 +91,37 @@
    <td>Een ondernemer verwijdert een bericht</td>
    <td>Ondernemer</td>
   </tr>
+  <tr>
+   <td>9</td>
+   <td>Een organisatie gaat na of een ondernemer een bericht heeft kunnen zien</td>
+   <td>Overheidsorganisatie, met de stelselbeheerder</td>
+  </tr>
+  <tr>
+   <td>10</td>
+   <td>Een ondernemer laat al zijn berichten wissen</td>
+   <td>Ondernemer, met de stelselbeheerder</td>
+  </tr>
+  <tr>
+   <td>11</td>
+   <td>Een magazijn is langere tijd onbereikbaar</td>
+   <td>Ondernemer, stelselbeheerder en organisatie</td>
+  </tr>
  </tbody>
 </table>
 <p>Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan staat in de views <em>RechtstreeksOphalen</em> van het architectuurmodel.</p>
-<p>Na de use cases volgt een pagina met drie vragen uit het beheer van het stelsel, en wat het stelsel daar nu wel en niet op kan antwoorden.</p>
 <h2>Zo lees je een use case</h2>
-<p>Elke use case heeft dezelfde opbouw:</p>
+<p>Een use case beschrijft hoe het stelsel moet werken. Elke use case heeft dezelfde opbouw:</p>
 <ul>
  <li><strong>Actor, aanleiding en resultaat</strong>: wie begint, waarom, en wat er is als het goed gaat.</li>
  <li><strong>Verloop</strong>: de stappen in gewone taal.</li>
  <li><strong>Sequence diagram</strong>: dezelfde stappen als plaatje. Van boven naar beneden is de tijd. Een doorgetrokken pijl is een verzoek, een gestippelde pijl het antwoord. Een pijl met een open punt is een verzoek waar de afzender niet op wacht. Een kader met <code>alt</code> toont alternatieven, <code>opt</code> iets dat alleen soms gebeurt, <code>loop</code> iets dat zich herhaalt en <code>par</code> dingen die tegelijk gebeuren.</li>
  <li><strong>Als het misgaat</strong>: per situatie wat het stelsel doet en wat de actor merkt.</li>
- <li><strong>Doelarchitectuur</strong>: waar het doelbeeld afwijkt van wat er nu draait.</li>
- <li><strong>Technische verwijzing</strong>: de koppelvlakken en instellingen achter het verloop, voor wie het in de code wil nalopen.</li>
+ <li><strong>Nog niet gerealiseerd</strong>: waar wat er nu gebouwd is nog anders werkt dan de use case beschrijft.</li>
+ <li><strong>Open vragen</strong>: keuzes die nog gemaakt moeten worden. Zolang een keuze open is, beschrijft de use case op dat punt hoe het nu werkt.</li>
 </ul>
-<p>De diagrammen tonen hoe het stelsel zich <strong>nu</strong> gedraagt. Wat in het doelbeeld anders gaat, staat bij de use case zelf en op de pagina met PoC-afwijkingen.</p>
+<p>Voor ontwikkelaars staat op de pagina "Stand van de bouw", na de use cases, per use case waar de software nog afwijkt, met de plek in de code.</p>
 <h2>De deelnemers</h2>
-<p>De diagrammen tonen het stelsel op het niveau van de systemen: één lijn voor het Berichten Uitvraag Systeem en één voor het Berichtenmagazijn, ook als een stap binnen zo'n systeem door verschillende onderdelen gaat. De tekst en de technische verwijzing noemen die onderdelen waar het ertoe doet. De namen zijn die uit het architectuurmodel, zodat je ze in de andere diagrammen terugvindt; bij elke wijziging in de repository controleert een script dat elke deelnemer een onderdeel uit het model is.</p>
+<p>De diagrammen tonen het stelsel op het niveau van de systemen. De namen komen uit het architectuurmodel, zodat je ze in de andere diagrammen terugvindt.</p>
 <table>
  <thead>
   <tr>
@@ -117,12 +131,12 @@
  </thead>
  <tbody>
   <tr>
-   <td>Ondernemer / Zakelijke gebruiker</td>
-   <td>De ontvanger van berichten, namens een onderneming</td>
+   <td>Ondernemer</td>
+   <td>Iemand die berichten ontvangt namens een onderneming</td>
   </tr>
   <tr>
-   <td>Organisatie B</td>
-   <td>Een overheidsorganisatie die berichten verstuurt</td>
+   <td>Overheidsorganisatie</td>
+   <td>Een organisatie die berichten verstuurt. Elke organisatie heeft haar eigen berichtenmagazijn</td>
   </tr>
   <tr>
    <td>Interactielaag</td>
@@ -130,11 +144,11 @@
   </tr>
   <tr>
    <td>Berichten Uitvraag Systeem</td>
-   <td>De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort (het magazijnregister), houdt de opgehaalde berichtenlijst van een ingelogde ondernemer vast in een tijdelijk geheugen, en neemt aanmeldingen van nieuwe berichten aan</td>
+   <td>De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort, en houdt de berichtenlijst van een ingelogde ondernemer vast zolang die ingelogd is</td>
   </tr>
   <tr>
    <td>Berichtenmagazijn</td>
-   <td>De opslag van de berichten van één organisatie. Elke organisatie heeft er één, zelf gehost of afgenomen bij BBO, en elk magazijn volgt dezelfde stelselafspraken over aanleveren, ophalen, beheren en aanmelden. De lijn in de diagrammen staat voor elk magazijn</td>
+   <td>De opslag van de berichten van één organisatie. Een organisatie host haar magazijn zelf of neemt het af bij BBO. Elk magazijn volgt dezelfde stelselafspraken, dus de lijn in de diagrammen staat voor elk magazijn</td>
   </tr>
   <tr>
    <td>Profiel Service</td>
@@ -144,13 +158,20 @@
    <td>Notificatie Service</td>
    <td>Dienst van MijnOverheid Zakelijk die de ondernemer laat weten dat er een bericht is, bijvoorbeeld per e-mail</td>
   </tr>
+  <tr>
+   <td>Stelselbeheerder</td>
+   <td>Beheert het stelsel: de afspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten. Welke organisatie die rol krijgt, maakt voor de use cases niet uit</td>
+  </tr>
  </tbody>
 </table>
 <h2>Wat voor alle use cases geldt</h2>
 <p><strong>Er is geen centrale opslag van berichten.</strong> Een bericht staat alleen in het magazijn van de organisatie die het verstuurde. De uitvraag houdt de berichtenlijst van een ondernemer alleen vast zolang hij ingelogd is, en wist die zodra zijn laatste sessie eindigt.</p>
-<p><strong>Inloggen is in deze opstelling nog niet gebouwd.</strong> Het portaal geeft bij elk verzoek mee om welke ondernemer het gaat, en start bij het inloggen een sessie bij de uitvraag. Elk verzoek over berichten moet bij een lopende sessie van die ondernemer horen. In het doelbeeld logt de ondernemer in met eHerkenning, en geeft de Interactielaag daarna een token uit dat bij elk verzoek bewijst wie hij is; zie de pagina met PoC-afwijkingen.</p>
-<p><strong>Een sessie verloopt.</strong> Na 15 minuten zonder activiteit, en uiterlijk na 12 uur, eindigt de sessie. Het portaal kan een kortere grens meegeven en beëindigt de sessie zelf bij uitloggen. Daarna is opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.</p>
-<p><strong>Wat het stelsel vastlegt.</strong> Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast in zijn eigen Logboek Dataverwerkingen: welke handeling, voor welke ondernemer, en of die lukte. Bij het aanleveren en publiceren legt het magazijn de handeling vast vóórdat het hem uitvoert: mislukt de vastlegging, dan gebeurt er niets, en slaat het een aangeleverd bericht bijvoorbeeld niet op. De meeste andere handelingen worden vastgelegd zodra ze klaar zijn en vóór het antwoord: mislukt de vastlegging, dan krijgt het portaal of de organisatie een foutmelding en geen gegevens, terwijl een wijziging dan al wel is doorgevoerd. Het ophalen wordt vastgelegd bij de start, en een mislukt ophalen komt er later bij. Het volgen wordt alleen bij de start vastgelegd: een afgebroken verbinding staat niet in het logboek. Het wissen van gegevens bij het einde of de start van een sessie gaat altijd door; mislukt de vastlegging, dan krijgt de beheerder een waarschuwing. Welke berichten precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.</p></div>
+<p><strong>Inloggen.</strong> De ondernemer logt in op het portaal met eHerkenning. Daarmee staat vast wie hij is en namens welke onderneming hij handelt. Het portaal start een sessie bij de uitvraag, en elk verzoek over berichten hoort bij zo'n sessie.</p>
+<p><strong>Een sessie verloopt.</strong> Na 15 minuten zonder activiteit, en uiterlijk na 12 uur, eindigt de sessie. Daarna is opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.</p>
+<p><strong>Elk magazijn kent de ondernemer onder een eigen pseudoniem.</strong> Een magazijn krijgt niet het nummer van de ondernemer, maar een versleutelde verwijzing die alleen voor dat magazijn bruikbaar is. Zo kunnen magazijnen hun gegevens niet onderling koppelen.</p>
+<p><strong>Verbindingen tussen organisaties zijn beveiligd en vastgelegd.</strong> Uitvraag, magazijnen en de diensten van MijnOverheid Zakelijk praten met elkaar via FSC: elke verbinding rust op een afspraak tussen twee organisaties, en beide kanten weten met wie ze praten.</p>
+<p><strong>Wat het stelsel vastlegt.</strong> Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast in zijn eigen Logboek Dataverwerkingen: welke handeling, voor wie, wanneer, en of die lukte. Er is geen centraal logboek. Wie wil weten wat er met een bericht gebeurd is, raadpleegt de logboeken van de betrokken diensten (use case 9).</p>
+<p><strong>Nog niet gerealiseerd, voor alle use cases.</strong> Inloggen met eHerkenning, de pseudoniemen per magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het portaal bij elk verzoek mee om welke ondernemer het gaat, krijgt elk magazijn het nummer van de ondernemer, en is per verbinding in te stellen of die via FSC loopt. Zie de pagina met PoC-afwijkingen.</p></div>
         </div>
       </div>
     </div>
