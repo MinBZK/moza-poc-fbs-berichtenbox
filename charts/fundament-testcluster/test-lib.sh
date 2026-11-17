@@ -158,6 +158,15 @@ gelijk "extra mapping op 0.0.0.0 naast loopback telt niet" 1 \
   "$(code_van sandbox_past v1.36.6+k3s1 '443/tcp -> 127.0.0.1:9443
 443/tcp -> 0.0.0.0:9444' 9443)"
 
+echo "== nieuw_uuid =="
+
+uuid_een=$(nieuw_uuid)
+uuid_twee=$(nieuw_uuid)
+patroon='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+gelijk "een UUID in kleine letters" 1 "$(grep -Ecq "$patroon" <<<"$uuid_een" && echo 1 || echo 0)"
+gelijk "elke aanroep een andere" 1 "$([ "$uuid_een" != "$uuid_twee" ] && echo 1 || echo 0)"
+
 echo "== poort_vrij =="
 
 vrije_poort=$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
@@ -165,7 +174,7 @@ python3 -I -m http.server --bind 127.0.0.1 "$vrije_poort" >/dev/null 2>&1 &
 server=$!
 
 for _ in $(seq 1 50); do
-  ss -ltn "sport = :$vrije_poort" | grep -q LISTEN && break
+  poort_luistert "$vrije_poort" && break
   sleep 0.1
 done
 
@@ -348,7 +357,8 @@ gelijk "onbekende dienst: exit 1" 1 "$(code_van values_dienst profiel tnt-fbs--f
 
 echo "== helm_route_args =="
 
-mapfile -t args < <(helm_route_args stelselregister)
+args=()
+while IFS= read -r regel; do args+=("$regel"); done < <(helm_route_args stelselregister)
 gelijk "vijf --set-paren, één woord per regel" 10 "${#args[@]}"
 gelijk "route aan" "--set ingress.enabled=true" "${args[0]} ${args[1]}"
 bevat "hostnaam" "ingress.hostname=stelselregister.fbs.localhost" "${args[*]}"
