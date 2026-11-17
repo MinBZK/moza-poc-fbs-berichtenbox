@@ -64,7 +64,8 @@ sequenceDiagram
 
 | Situatie | Wat het stelsel doet | Wat de ondernemer merkt |
 |---|---|---|
-| De ondernemer had al een melding van een bericht uit dit magazijn | De uitvraag kan het bericht niet openen | Hij heeft een melding van een bericht dat hij niet kan openen, en krijgt "Probeer het straks nog eens" |
+| De ondernemer heeft een melding van een bericht uit dit magazijn, en het magazijn leverde niet bij het ophalen | Het bericht staat niet in zijn lijst, en de uitvraag kan het niet openen | Hij heeft een melding van een bericht dat hij niet ziet, en de melding dat deze organisatie niet leverde |
+| Het magazijn valt uit nadat de berichten zijn opgehaald | Het bericht staat in de lijst, maar de uitvraag kan de tekst niet ophalen | "Probeer het straks nog eens" |
 | Het magazijn antwoordt traag in plaats van niet | De uitvraag wacht hooguit tien seconden, en behandelt het dan als niet geleverd | Als hierboven |
 | Het magazijn van een organisatie is niet bekend bij de uitvraag | De uitvraag bevraagt het niet | Berichten van die organisatie ontbreken (zie use case 2) |
 
@@ -73,6 +74,9 @@ sequenceDiagram
 - De uitvraag waarschuwt de stelselbeheerder nog niet als een magazijn langere tijd niet levert.
   De stelselbeheerder merkt het nu pas als iemand het meldt.
 - De uitvraag legt alleen vast hoeveel organisaties niet leverden, niet welke.
+- Opent de ondernemer een bericht uit een magazijn dat bij het ophalen niet leverde, bijvoorbeeld
+  via een link in de melding, dan hoort hij nu "Dit bericht is niet (meer) beschikbaar". Hij kan
+  dan denken dat het bericht weg is.
 
 ## Open vragen
 

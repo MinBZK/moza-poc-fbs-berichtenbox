@@ -60,5 +60,5 @@ sequenceDiagram
 - Wat in het overzicht voor alle use cases staat.
 - Het magazijn toetst een verzoek nog niet aan het beleid van de organisatie, inclusief
   machtigingen. Nu controleert het alleen of de ondernemer de ontvanger van het bericht is.
-- De logboeken leggen niet vast welk bericht gelezen is, en de uitvraag legt een geweigerde poging
-  net zo vast als een geslaagde. Zie use case 9.
+- De logboeken leggen niet vast welk bericht gelezen is, en de logregel van de uitvraag legt niet
+  vast of het openen lukte. Zie use case 9.

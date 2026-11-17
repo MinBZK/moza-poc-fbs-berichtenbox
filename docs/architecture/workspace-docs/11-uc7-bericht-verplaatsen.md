@@ -55,7 +55,7 @@ sequenceDiagram
 
 | Situatie | Wat het stelsel doet | Wat de ondernemer merkt |
 |---|---|---|
-| De mapnaam is leeg of bestaat alleen uit spaties | De uitvraag weigert | Een melding dat de wijziging niet geldig is |
+| De mapnaam bestaat alleen uit spaties | De uitvraag weigert | Een melding dat de wijziging niet geldig is |
 | Het bericht bestaat niet, of is van een ander | Er verandert niets | "Dit bericht is niet (meer) beschikbaar" |
 | Het bericht is al verwijderd | Er verandert niets | "U hebt dit bericht verwijderd" |
 | Het magazijn is niet bereikbaar | Er verandert niets | "Probeer het straks nog eens" |

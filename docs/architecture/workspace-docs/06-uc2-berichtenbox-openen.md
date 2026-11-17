@@ -93,6 +93,8 @@ sequenceDiagram
   magazijn, machtigingen en FSC.
 - Machtigingen bepalen nog niet welke magazijnen bevraagd worden; alleen de voorkeuren in de Profiel
   Service doen dat.
+- Loopt het ophalen al, dan geeft de uitvraag nu een algemeen conflict terug. Het portaal kan daaruit
+  niet opmaken dat het ophalen al bezig is.
 - Een organisatie waarvan het magazijn niet bekend is, wordt stil overgeslagen. De ondernemer ziet
   niet dat er een organisatie ontbreekt.
 

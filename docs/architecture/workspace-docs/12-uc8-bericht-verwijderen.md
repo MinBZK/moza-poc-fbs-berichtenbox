@@ -50,8 +50,7 @@ sequenceDiagram
 
 | Situatie | Wat het stelsel doet | Wat de ondernemer merkt |
 |---|---|---|
-| Het bericht bestaat niet | Er verandert niets | "Dit bericht is niet (meer) beschikbaar" |
-| Het bericht is van een ander | Het magazijn weigert | Een melding dat hij geen toegang heeft |
+| Het bericht bestaat niet, of is van een ander | Er verandert niets. Het antwoord is in beide gevallen hetzelfde, zodat niemand kan uitproberen welke berichten van anderen bestaan | "Dit bericht is niet (meer) beschikbaar" |
 | Het bericht is al verwijderd | Er verandert niets | Niets: het bericht is weg |
 | Het magazijn is niet bereikbaar | Er verandert niets | "Probeer het straks nog eens" |
 | Het magazijn heeft verwijderd, maar de lijst bijwerken lukt niet | De uitvraag probeert het nog eens. Lukt dat niet, dan krijgt de stelselbeheerder een waarschuwing | Een foutmelding, terwijl het bericht wel verwijderd is. Bij het volgende ophalen is het weg |
@@ -60,6 +59,8 @@ sequenceDiagram
 
 ## Nog niet gerealiseerd
 
+- Is het bericht van een ander, dan antwoordt het magazijn nu anders dan bij een onbekend bericht.
+  Zo valt af te leiden dat het bericht bestaat.
 - Het magazijn legt het definitief opruimen nog niet vast in zijn logboek, alleen in zijn
   technische log, en dan zonder de ontvanger.
 
@@ -68,4 +69,5 @@ sequenceDiagram
 - Kan een organisatie een bericht intrekken? De stelselafspraken kennen dat nog niet. Een zelf
   gehost magazijn kan het intern regelen; voor de ondernemer verdwijnt het bericht dan bij het
   volgende ophalen, zonder melding.
-- Alle berichten van een ondernemer in één keer wissen: zie use case 10.
+- Alle berichten van een ondernemer in één keer wissen, en hoe lang een bericht bewaard blijft dat
+  nooit verwijderd is: zie use case 10.

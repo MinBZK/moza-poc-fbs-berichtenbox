@@ -85,8 +85,11 @@ sequenceDiagram
   en de melding wachten op die datum.
 - Het magazijn controleert nog niet of het bericht van de eigen organisatie komt.
 - De aanmelding en de melding bevatten het nummer van de ontvanger en het onderwerp nog leesbaar.
-- Het model noemt een grens aan het aantal bijlagen. Die is er nog niet, en het magazijn kijkt alleen
-  naar het opgegeven bestandstype, niet naar de inhoud.
+- Als bijlage is nu alleen PDF toegestaan. Het model noemt een grens aan het aantal bijlagen; die
+  is er nog niet, en het magazijn kijkt alleen naar het opgegeven bestandstype, niet naar de
+  inhoud.
+- Is de Profiel Service niet bereikbaar, dan krijgt de organisatie nu een algemene serverfout, niet
+  "tijdelijk niet beschikbaar". Ze kan dan niet zien dat later opnieuw aanleveren zin heeft.
 
 ## Open vragen
 

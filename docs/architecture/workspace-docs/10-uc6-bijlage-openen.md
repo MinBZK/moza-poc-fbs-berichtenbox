@@ -58,5 +58,7 @@ sequenceDiagram
 
 ## Nog niet gerealiseerd
 
-Wat in het overzicht voor alle use cases staat, en de toets aan het beleid van de organisatie zoals
-bij use case 5.
+- Wat in het overzicht voor alle use cases staat, en de toets aan het beleid van de organisatie
+  zoals bij use case 5.
+- Het magazijn neemt nu alleen PDF-bijlagen aan (use case 1). Afbeeldingen en andere bestanden
+  komen dus nog niet voor.

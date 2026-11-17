@@ -52,7 +52,7 @@ architectuurmodel, zodat je ze in de andere diagrammen terugvindt.
 | Overheidsorganisatie | Een organisatie die berichten verstuurt. Elke organisatie heeft haar eigen berichtenmagazijn |
 | Interactielaag | Het portaal waarin de ondernemer zijn berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze |
 | Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort, en houdt de berichtenlijst van een ingelogde ondernemer vast zolang die ingelogd is |
-| Berichtenmagazijn | De opslag van de berichten van één organisatie. Een organisatie host haar magazijn zelf of neemt het af bij BBO. Elk magazijn volgt dezelfde stelselafspraken, dus de lijn in de diagrammen staat voor elk magazijn |
+| Berichtenmagazijn | De opslag van de berichten van één organisatie. Een organisatie host haar magazijn zelf of neemt een gedeeld magazijn af (in het model: bij BBO). Elk magazijn volgt dezelfde stelselafspraken, dus de lijn in de diagrammen staat voor elk magazijn |
 | Profiel Service | Dienst van MijnOverheid Zakelijk met de voorkeuren van de ondernemer: van welke organisaties hij berichten via de berichtenbox wil ontvangen |
 | Notificatie Service | Dienst van MijnOverheid Zakelijk die de ondernemer laat weten dat er een bericht is, bijvoorbeeld per e-mail |
 | Stelselbeheerder | Beheert het stelsel: de afspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten. Welke organisatie die rol krijgt, maakt voor de use cases niet uit |
@@ -75,7 +75,7 @@ nummer van de ondernemer, maar een versleutelde verwijzing die alleen voor dat m
 is. Zo kunnen magazijnen hun gegevens niet onderling koppelen.
 
 **Verbindingen tussen organisaties zijn beveiligd en vastgelegd.** Uitvraag, magazijnen en de
-diensten van MijnOverheid Zakelijk praten met elkaar via FSC: elke verbinding rust op een afspraak
+diensten van MijnOverheid Zakelijk praten met elkaar via FSC (Federatieve Service Connectiviteit): elke verbinding rust op een afspraak
 tussen twee organisaties, en beide kanten weten met wie ze praten.
 
 **Wat het stelsel vastlegt.** Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast
@@ -86,5 +86,5 @@ de betrokken diensten (use case 9).
 **Nog niet gerealiseerd, voor alle use cases.** Inloggen met eHerkenning, de pseudoniemen per
 magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het
 portaal bij elk verzoek mee om welke ondernemer het gaat, krijgt elk magazijn het nummer van de
-ondernemer, en is per verbinding in te stellen of die via FSC loopt. Zie de pagina met
-PoC-afwijkingen.
+ondernemer, en is per verbinding in te stellen of die via FSC loopt. De pagina "PoC-afwijkingen"
+houdt bij wat nog niet gebouwd is.

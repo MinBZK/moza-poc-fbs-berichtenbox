@@ -24,7 +24,8 @@ zijn eigen deel vast, in zijn eigen logboek. Het antwoord komt dus uit meerdere 
    draagt een kenmerk dat ook in het logboek van de uitvraag staat.
 4. Met die kenmerken vraagt de organisatie de stelselbeheerder wat er in de berichtenbox gebeurde.
    De stelselbeheerder zoekt in het logboek van de uitvraag: was de ondernemer ingelogd, is zijn
-   lijst getoond, en heeft hij dit bericht geopend?
+   lijst getoond, en heeft hij dit bericht geopend? Hij zoekt alleen naar dit bericht en deze
+   periode, en legt de raadpleging zelf ook vast in het logboek: ook dat is een verwerking.
 5. De organisatie legt de antwoorden naast elkaar.
 
 ## Sequence diagram
@@ -45,7 +46,8 @@ sequenceDiagram
     ORG->>MAG: Zoek in het logboek: berichten van deze ondernemer opgehaald, tekst van dit bericht verstrekt?
     MAG-->>ORG: Tijdstippen, met het kenmerk van elk verzoek
     ORG->>SB: Wat gebeurde er in de berichtenbox bij deze verzoeken?
-    SB->>FBS: Zoek in het logboek op die kenmerken
+    SB->>FBS: Zoek in het logboek op die kenmerken, alleen voor dit bericht en deze periode
+    Note over FBS: Legt de raadpleging vast in het logboek
     FBS-->>SB: Ingelogd, lijst opgehaald, bericht geopend
     SB-->>ORG: Bevindingen
 ```
@@ -64,8 +66,8 @@ sequenceDiagram
 
 - De logregels van aanleveren en openen bevatten het berichtnummer niet. Welk bericht het was,
   blijkt nu alleen bij benadering, uit tijdstippen.
-- De uitvraag legt een geweigerde poging om een bericht te openen net zo vast als een geslaagde.
-  Alleen de regel van het magazijn laat zien of de tekst echt verstrekt is.
+- De logregel van de uitvraag bij het openen legt niet vast of het openen lukte. Alleen de regel
+  van het magazijn laat zien of de tekst echt verstrekt is.
 - De uitvraag legt alleen vast hoeveel organisaties niet leverden, niet welke.
 - Een bericht is nu al vóór zijn publicatiedatum te zien (use case 1). Dat maakt het lastiger om te
   zeggen vanaf wanneer de ondernemer het kon zien.
@@ -81,3 +83,6 @@ sequenceDiagram
   zijn nummer. Meer vastleggen staat zo op gespannen voet met dataminimalisatie; een pseudoniem in
   het logboek in plaats van het nummer verzacht dat.
 - Hoe lang moeten logboekregels bewaard worden om zo'n vraag te kunnen beantwoorden?
+- **Op welke grondslag mag de stelselbeheerder gegevens uit het logboek van de uitvraag aan de
+  organisatie geven, en hoeveel?** Het logboek is bijgehouden voor verantwoording, niet voor een
+  geschil met de ondernemer. Gebruik voor dit nieuwe doel vraagt een toets of dat verenigbaar is.
