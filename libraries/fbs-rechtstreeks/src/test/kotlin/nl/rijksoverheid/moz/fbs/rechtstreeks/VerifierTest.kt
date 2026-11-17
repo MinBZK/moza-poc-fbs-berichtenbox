@@ -17,6 +17,7 @@ import org.junit.jupiter.params.provider.MethodSource
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.time.Duration
+import java.time.Instant
 import java.util.Base64
 
 class VerifierTest {
@@ -24,8 +25,13 @@ class VerifierTest {
     private val opzet = Opzet()
     private val verifier = opzet.verifier()
 
-    private fun expiresIn(uitgegeven: UitgegevenSessie, aes: ByteArray): Long =
-        JsonUtil.parseJson(TestApp.ontsleutelDir(uitgegeven.antwoord, aes))["expires_in"] as Long
+    /** Het antwoord bij het openen van de sessie, ontsleuteld zoals de app dat doet. */
+    private fun antwoord(uitgegeven: UitgegevenSessie, aes: ByteArray): Map<String, Any> =
+        JsonUtil.parseJson(TestApp.ontsleutelDir(uitgegeven.antwoord, aes))
+
+    /** Seconden van nu tot `geldigTot` in het antwoord van een magazijn. */
+    private fun looptijd(uitgegeven: UitgegevenSessie, aes: ByteArray): Long =
+        Duration.between(opzet.nu, Instant.parse(antwoord(uitgegeven, aes)["geldigTot"] as String)).seconds
 
     @Test
     fun `de challenge is getekend met de sleutel van het magazijn en draagt een verse nonce en tijdelijke sleutel`() {
@@ -63,11 +69,12 @@ class VerifierTest {
     fun `een geldig credential levert een sessie voor de ontvanger, met het token versleuteld onder de AES-sleutel`() {
         val (uitgegeven, aes) = opzet.sessie(verifier)
 
-        val antwoord = JsonUtil.parseJson(TestApp.ontsleutelDir(uitgegeven.antwoord, aes))
-        val token = antwoord["session_token"] as String
+        val antwoord = antwoord(uitgegeven, aes)
+        val token = antwoord["sessieToken"] as String
 
+        assertEquals(setOf("sessieToken", "geldigTot"), antwoord.keys)
         assertTrue(token.matches(Regex("[A-Za-z0-9]{32}")))
-        assertEquals(900L, antwoord["expires_in"])
+        assertEquals("2026-10-27T10:15:00Z", antwoord["geldigTot"])
 
         val sessie = verifier.sessie(token)
         val identiteit = sessie.identiteit as Identiteit.Ontvanger
@@ -107,14 +114,25 @@ class VerifierTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("grensgevallen")
-    fun `een credential op de grens levert nog een sessie`(geval: Grensgeval, expiresIn: Long) {
+    fun `een credential op de grens levert nog een sessie`(geval: Grensgeval, looptijd: Long) {
         val claims = opzet.vcClaims()
 
         geval.pasToe(opzet, claims)
 
         val (uitgegeven, aes) = opzet.sessie(verifier, claims)
 
-        assertEquals(expiresIn, expiresIn(uitgegeven, aes))
+        assertEquals(looptijd, looptijd(uitgegeven, aes))
+    }
+
+    @Test
+    fun `geldigTot is een hele seconde, en de sessie eindigt precies dan`() {
+        opzet.nu = opzet.nu.plusMillis(999)
+
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+        val geldigTot = antwoord(uitgegeven, aes)["geldigTot"] as String
+
+        assertEquals("2026-10-27T10:15:00Z", geldigTot)
+        assertEquals(Instant.parse(geldigTot), uitgegeven.sessie.verlooptOp)
     }
 
     @Test
@@ -171,7 +189,7 @@ class VerifierTest {
         assertEquals(Afwijzing.VERSLEUTELING_ONGELDIG, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, anderSleutel) }.reden)
         assertTrue(teGroot.length > Verifier.MAX_VERZOEK_TEKENS)
         assertEquals(Afwijzing.VERSLEUTELING_ONGELDIG, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, teGroot) }.reden)
-        assertEquals(Afwijzing.VERSLEUTELING_ONGELDIG, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, "geen.jwe") }.reden)
+        assertEquals(Afwijzing.VERSLEUTELING_ONGELDIG, assertThrows<JweOngeldigException> { verifier.ontsleutel(sessie, "geen.jwe") }.reden)
     }
 
     @Test
@@ -242,7 +260,7 @@ class VerifierTest {
     }
 
     @Test
-    fun `een verzoek onder de sessiesleutel met een extra headerveld wordt afgewezen`() {
+    fun `een verzoek onder de sessiesleutel met een extra headerveld is ongeldig`() {
         val (uitgegeven, aes) = opzet.sessie(verifier)
 
         // `apu` en `epk` mogen bij ECDH-ES wel; hier niet, zodat een verwisseling van de twee lijsten opvalt.
@@ -255,10 +273,49 @@ class VerifierTest {
         )
 
         headers.forEach { header ->
-            val fout = assertThrows<AfgewezenException> { verifier.ontsleutel(uitgegeven.sessie, TestApp.jweDir("{}", aes, header)) }
+            val fout = assertThrows<JweOngeldigException> { verifier.ontsleutel(uitgegeven.sessie, TestApp.jweDir("{}", aes, header)) }
 
             assertEquals(Afwijzing.HEADER_NIET_TOEGESTAAN, fout.reden)
         }
+    }
+
+    @Test
+    fun `een verzoek onder de sessiesleutel zonder typ JWE, of met een ander algoritme, is ongeldig`() {
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+        val sessie = uitgegeven.sessie
+
+        assertEquals(Afwijzing.TYP_ONJUIST, assertThrows<JweOngeldigException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes, typ = null)) }.reden)
+        assertEquals(Afwijzing.TYP_ONJUIST, assertThrows<JweOngeldigException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes, typ = "JWT")) }.reden)
+
+        assertEquals(
+            Afwijzing.ALGORITME_ONJUIST,
+            assertThrows<JweOngeldigException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes, mapOf("enc" to "A128GCM"))) }.reden,
+        )
+    }
+
+    @Test
+    fun `typ JWE telt zonder onderscheid in hoofdletters, zoals een mediatype`() {
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+        val challenge = opzet.challenge(verifier)
+
+        assertEquals("{}", verifier.ontsleutel(uitgegeven.sessie, TestApp.jweDir("{}", aes, typ = "jwe")))
+
+        verifier.voltooiMetCredential(
+            challenge.nonce,
+            TestApp.jweEcdh(JsonUtil.toJson(opzet.presentatie(challenge)), challenge.tijdelijk, typ = "Jwe"),
+            Opzet.CLIENT,
+        )
+    }
+
+    @Test
+    fun `invoer uit een ongeldige JWE komt nergens in de stacktrace`() {
+        val challenge = opzet.challenge(verifier)
+        val header = TestApp.b64url.encodeToString("BSN:999993653".toByteArray())
+
+        val fout = assertThrows<JweOngeldigException> { verifier.voltooiMetCredential(challenge.nonce, "$header.AA.AA.AA.AA", Opzet.CLIENT) }
+
+        assertEquals(Afwijzing.PRESENTATIE_ONLEESBAAR, fout.reden)
+        assertFalse(fout.stackTraceToString().contains("999993653"))
     }
 
     @Test
@@ -332,7 +389,9 @@ class VerifierTest {
         val uitgegeven = verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
 
         assertEquals(opzet.nu.plus(Duration.ofMinutes(10)), uitgegeven.sessie.verlooptOp)
-        assertEquals(600L, expiresIn(uitgegeven, aes))
+        assertEquals(setOf("session_token", "expires_in"), antwoord(uitgegeven, aes).keys)
+        assertEquals(uitgegeven.sessie.token, antwoord(uitgegeven, aes)["session_token"])
+        assertEquals(600L, antwoord(uitgegeven, aes)["expires_in"])
     }
 
     @Test
@@ -382,7 +441,7 @@ class VerifierTest {
 
     companion object {
 
-        private fun grens(naam: String, expiresIn: Long, geval: Grensgeval): Arguments = arguments(named(naam, geval), expiresIn)
+        private fun grens(naam: String, looptijd: Long, geval: Grensgeval): Arguments = arguments(named(naam, geval), looptijd)
 
         @JvmStatic
         fun grensgevallen(): List<Arguments> = listOf(
@@ -405,6 +464,9 @@ class VerifierTest {
         @JvmStatic
         fun eerstePogingen(): List<Arguments> = listOf(
             arguments(named("geen JWE", { _: Opzet, _: Opzet.Challenge -> "geen.jwe" })),
+            arguments(named("JWE zonder typ", { o: Opzet, c: Opzet.Challenge ->
+                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, typ = null)
+            })),
             arguments(named("epk naast de curve", { _: Opzet, c: Opzet.Challenge ->
                 TestApp.jweEcdh("{}", c.tijdelijk, mapOf("epk" to AfwijzingTest.NAAST_DE_CURVE))
             })),

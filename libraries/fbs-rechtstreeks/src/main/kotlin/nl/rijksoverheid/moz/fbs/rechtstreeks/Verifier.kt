@@ -8,9 +8,10 @@ import java.security.interfaces.ECPublicKey
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Base64
 
-/** Een nieuwe sessie, met [antwoord]: de JWE die de app terugkrijgt op `complete`. */
+/** Een nieuwe sessie, met [antwoord]: de JWE die de app terugkrijgt bij het openen van de sessie. */
 class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
 
 /**
@@ -20,7 +21,8 @@ class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
  * magazijn kan zo nooit per ongeluk een presentatie zonder vastgestelde identiteit aannemen.
  *
  * Elke afwijzing is een [AfgewezenException]; de aanroeper antwoordt daarop `401`, ongeacht de
- * reden. Is de opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`.
+ * reden. Een JWE die zonder sleutel al niet klopt, is een [JweOngeldigException]: `400`. Is de
+ * opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`.
  * Verloopt de eigen [VerifierSleutel] binnen [NONCE_GELDIG], dan gooit [maakChallenge] een
  * [IllegalStateException]: een configuratiefout, die als `500` hoort te eindigen. `client` is de herkomst van het verzoek en
  * telt mee voor de quota van de opslag.
@@ -65,7 +67,11 @@ class Verifier(
         )
     }
 
-    /** Stap 20 tot en met 26 voor een magazijn: alleen een credential van een App Manager. */
+    /**
+     * Stap 20 tot en met 26 voor een magazijn: alleen een credential van een App Manager. Het
+     * antwoord is de magazijnsessie in camelCase (`sessieToken`, `geldigTot`), zoals het contract
+     * van de tweede ingang hem vastlegt; de standaard legt de vorm niet vast.
+     */
     fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
         val nu = klok.instant()
         val presentatie = openPresentatie(nonce, versleuteldePresentatie, CERTIFICAAT_APP_MANAGER)
@@ -75,14 +81,21 @@ class Verifier(
 
         val geldig = minOf(SESSIE_GELDIG, Duration.between(nu, credential.exp))
         val thumbprint = Jose.thumbprint(credential.appSleutel)
+        val identiteit = Identiteit.Ontvanger(credential.ontvanger, thumbprint)
 
         // Het quotum per magazijn hangt aan de app-sleutel, want achter één kantooradres of CGNAT
         // werken veel ondernemers; een ruim plafond per adres over alle magazijnen samen houdt één
         // aanvaller met veel bewijzen binnen de perken.
-        return geefUit(presentatie.aesSleutel, Identiteit.Ontvanger(credential.ontvanger, thumbprint), geldig, nu, thumbprint, client)
+        return geefUit(presentatie.aesSleutel, identiteit, nu.plus(geldig), thumbprint, client) { sessie ->
+            mapOf("sessieToken" to sessie.token, "geldigTot" to sessie.verlooptOp.toString())
+        }
     }
 
-    /** Stap 20 tot en met 26 voor de App Manager: alleen een self-signed certificaat (4.4.1, stap 2). */
+    /**
+     * Stap 20 tot en met 26 voor de App Manager: alleen een self-signed certificaat (4.4.1, stap 2).
+     * De App Manager volgt de standaard letterlijk, dus het antwoord noemt `session_token` en
+     * `expires_in`.
+     */
     fun voltooiSelfSigned(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
         val nu = klok.instant()
         val presentatie = openPresentatie(nonce, versleuteldePresentatie, CERTIFICAAT_SELF_SIGNED)
@@ -92,7 +105,9 @@ class Verifier(
 
         val identiteit = Identiteit.AppSleutel(appSleutel, Jose.thumbprint(appSleutel))
 
-        return geefUit(presentatie.aesSleutel, identiteit, ACTIVATIE_GELDIG, nu, client, client)
+        return geefUit(presentatie.aesSleutel, identiteit, nu.plus(ACTIVATIE_GELDIG), client, client) { sessie ->
+            mapOf("session_token" to sessie.token, "expires_in" to Duration.between(nu, sessie.verlooptOp).seconds)
+        }
     }
 
     /** De sessie bij [token]; een onbekend of verlopen token wordt afgewezen. */
@@ -180,21 +195,24 @@ class Verifier(
         if (!klopt) throw AfgewezenException(Afwijzing.NONCEHANDTEKENING_ONGELDIG)
     }
 
+    /**
+     * Bewaart een nieuwe sessie en versleutelt [antwoord] onder haar sleutel. Het einde gaat naar
+     * hele seconden, naar beneden: zo is het moment dat de app terugkrijgt precies het einde, en
+     * nooit later.
+     */
     private fun geefUit(
         aesSleutel: ByteArray,
         identiteit: Identiteit,
-        geldig: Duration,
-        nu: Instant,
+        einde: Instant,
         houder: String,
         client: String,
+        antwoord: (Sessie) -> Map<String, Any>,
     ): UitgegevenSessie {
-        val sessie = Sessie(oin, sessietoken(), aesSleutel, identiteit, nu.plus(geldig))
+        val sessie = Sessie(oin, sessietoken(), aesSleutel, identiteit, einde.truncatedTo(ChronoUnit.SECONDS))
 
         sessies.bewaar(sessie, houder, client)
 
-        val antwoord = JsonUtil.toJson(mapOf("session_token" to sessie.token, "expires_in" to geldig.seconds))
-
-        return UitgegevenSessie(sessie, Jose.versleutelDir(antwoord, aesSleutel))
+        return UitgegevenSessie(sessie, Jose.versleutelDir(JsonUtil.toJson(antwoord(sessie)), aesSleutel))
     }
 
     private fun sessietoken(): String = buildString(TOKEN_LENGTE) {

@@ -8,8 +8,9 @@ import kotlin.random.Random
 
 /**
  * Eigenschap: één verminkt teken in een versleutelde of getekende invoer levert nooit een sessie of
- * een geldig verzoek op, en altijd een [AfgewezenException]; nooit een andere exception die bij de
- * aanroeper als `500` zou eindigen. Faalt een geval, dan staat de verminkte invoer in de melding.
+ * een geldig verzoek op, en altijd een [AfgewezenException] of, bij een verminkte JWE-header, een
+ * [JweOngeldigException]; nooit een andere exception die bij de aanroeper als `500` zou eindigen.
+ * Faalt een geval, dan staat de verminkte invoer in de melding.
  */
 class VerminkingTest {
 
@@ -48,6 +49,8 @@ class VerminkingTest {
             fail<Unit>("verminkte invoer werd aangenomen: $invoer")
         } catch (e: AfgewezenException) {
             // Zo hoort het.
+        } catch (e: JweOngeldigException) {
+            // Ook goed: de header van de JWE is verminkt.
         } catch (e: RuntimeException) {
             fail<Unit>("verminkte invoer gaf ${e.javaClass.name} in plaats van een afwijzing: $invoer", e)
         }
