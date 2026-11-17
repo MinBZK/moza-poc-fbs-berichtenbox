@@ -175,6 +175,16 @@ poort_vrij() {
   ! poort_luistert "$1"
 }
 
+# Een UUID voor een Idempotency-Key. `uuidgen` bestaat op macOS en de meeste Linux-distributies;
+# /proc alleen op Linux.
+nieuw_uuid() {
+  if command -v uuidgen >/dev/null; then
+    uuidgen | tr 'A-Z' 'a-z'
+  else
+    cat /proc/sys/kernel/random/uuid
+  fi
+}
+
 # Slaagt als er op <poort> (TCP, elk adres) een listener is. `ss` bestaat alleen op Linux; op macOS
 # is `lsof` de tool die hetzelfde vertelt.
 poort_luistert() {

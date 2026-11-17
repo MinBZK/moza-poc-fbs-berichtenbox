@@ -158,6 +158,15 @@ gelijk "extra mapping op 0.0.0.0 naast loopback telt niet" 1 \
   "$(code_van sandbox_past v1.36.6+k3s1 '443/tcp -> 127.0.0.1:9443
 443/tcp -> 0.0.0.0:9444' 9443)"
 
+echo "== nieuw_uuid =="
+
+uuid_een=$(nieuw_uuid)
+uuid_twee=$(nieuw_uuid)
+patroon='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+gelijk "een UUID in kleine letters" 1 "$(grep -Ecq "$patroon" <<<"$uuid_een" && echo 1 || echo 0)"
+gelijk "elke aanroep een andere" 1 "$([ "$uuid_een" != "$uuid_twee" ] && echo 1 || echo 0)"
+
 echo "== poort_vrij =="
 
 vrije_poort=$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')

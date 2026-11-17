@@ -279,7 +279,7 @@ api_key_maken() {
   antwoord=$(curl -s --cacert "$ca" -X POST \
     https://organization.fundament.localhost:8443/organization.v1.APIKeyService/CreateAPIKey \
     -H 'Content-Type: application/json' -H @"$WERK/auth-header" \
-    -H "Fun-Organization: $SYSTEM_ORGANISATIE_ID" -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" \
+    -H "Fun-Organization: $SYSTEM_ORGANISATIE_ID" -H "Idempotency-Key: $(nieuw_uuid)" \
     -d "{\"name\":\"$naam\",\"expiresIn\":\"1h\"}")
   rm -f "$WERK/auth-header"
 
