@@ -86,9 +86,7 @@
 
     OND-&gt;&gt;IL: Logt in en opent de berichtenbox
     IL-&gt;&gt;FBS: Start een sessie voor deze ondernemer
-    opt Gegevens van een eerdere sessie staan er nog
-        FBS-&gt;&gt;FBS: Wis die gegevens
-    end
+    FBS-&gt;&gt;FBS: Wis gegevens van een eerdere sessie, als die er nog staan
     FBS--&gt;&gt;IL: Sessie gestart
 
     IL-&gt;&gt;FBS: Haal de berichten op
@@ -110,9 +108,7 @@
 
     OND-&gt;&gt;IL: Logt uit
     IL-&gt;&gt;FBS: Beëindig de sessie
-    opt Dit was de laatste sessie van de ondernemer
-        FBS-&gt;&gt;FBS: Wis de berichtenlijst
-    end
+    FBS-&gt;&gt;FBS: Was dit de laatste sessie? Wis dan de berichtenlijst
     FBS--&gt;&gt;IL: Sessie beëindigd
 </code></pre>
 <h2>Als het misgaat</h2>
