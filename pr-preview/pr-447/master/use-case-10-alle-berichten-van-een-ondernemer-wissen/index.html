@@ -66,24 +66,30 @@
 </table>
 <h2>Verloop</h2>
 <ol>
- <li>De ondernemer dient één verzoek in bij de stelselbeheerder.</li>
- <li>Niemand weet centraal in welke magazijnen berichten van deze ondernemer staan: er is geen centrale opslag van berichten. De stelselbeheerder stuurt het verzoek daarom naar elke deelnemende organisatie.</li>
+ <li>De ondernemer logt in op het portaal en dient daar één verzoek in. Omdat hij ingelogd is, staat vast wie hij is: wissen is onomkeerbaar, dus niemand mag het voor een ander aanvragen.</li>
+ <li>Het portaal geeft het verzoek door aan de stelselbeheerder.</li>
+ <li>Er is geen centrale opslag van berichten, maar een magazijn neemt alleen berichten aan van organisaties waarvan de ondernemer berichten via de berichtenbox wil ontvangen (use case 1). De stelselbeheerder vraagt de Profiel Service welke organisaties dat zijn, nu en eerder, en stuurt het verzoek alleen naar die organisaties. Zo krijgen organisaties zonder relatie met de ondernemer zijn gegevens niet.</li>
  <li>Elke organisatie is verantwoordelijk voor de berichten in haar eigen magazijn, en beslist zelf over het verzoek. Ze toetst of een wettelijke plicht of de Archiefwet het wissen beperkt.</li>
  <li>Mag de organisatie wissen, dan geeft ze haar magazijn opdracht om alle berichten van deze ontvanger te wissen, met bijlagen. Het magazijn wist ze en legt dat vast in zijn logboek.</li>
  <li>De organisatie meldt de stelselbeheerder de uitkomst: gewist, deels gewist met de reden, niet gewist met de reden, of geen berichten gevonden. Organisaties aan wie ze de gegevens zelf verstrekte, brengt ze op de hoogte.</li>
- <li>De stelselbeheerder meldt de ondernemer de uitkomst per organisatie.</li>
+ <li>De stelselbeheerder meldt de ondernemer de uitkomst per organisatie, binnen een maand na het verzoek.</li>
 </ol>
-<p>De uitvraag hoeft niets te wissen: hij bewaart de berichtenlijst alleen zolang de ondernemer ingelogd is. Wat wel blijft, zijn de regels in de logboeken. Die verdwijnen na hun eigen bewaartermijn. Ook het bewijs van het wissen is zo'n regel, met het nummer van de ondernemer.</p>
+<p>De uitvraag hoeft niets te wissen: hij bewaart de berichtenlijst alleen zolang de ondernemer ingelogd is. Wat wel blijft, zijn de regels in de logboeken. Die verdwijnen na hun eigen bewaartermijn. Ook het bewijs van het wissen is zo'n regel, met het nummer van de ondernemer. De Notificatie Service kreeg bij elke melding het nummer en het onderwerp; die gegevens vallen onder haar eigen bewaartermijn, en ook zij hoort van de wissing.</p>
 <h2>Sequence diagram</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     autonumber
     actor OND as Ondernemer
+    participant IL as Interactielaag
     participant SB as Stelselbeheerder
+    participant PRO as Profiel Service
     participant ORG as Overheidsorganisatie
     participant MAG as Berichtenmagazijn
 
-    OND-&gt;&gt;SB: Wis al mijn berichten
-    loop Per deelnemende organisatie
+    OND-&gt;&gt;IL: Logt in en vraagt: wis al mijn berichten
+    IL-&gt;&gt;SB: Verzoek tot wissen, van deze ingelogde ondernemer
+    SB-&gt;&gt;PRO: Van welke organisaties ontving deze ondernemer berichten, nu en eerder?
+    PRO--&gt;&gt;SB: Organisaties
+    loop Per organisatie
         SB-&gt;&gt;ORG: Verzoek tot wissen voor deze ondernemer
         ORG-&gt;&gt;ORG: Beperkt een wettelijke plicht of de Archiefwet het wissen?
         alt Wissen mag, geheel of deels
@@ -109,7 +115,12 @@
  </thead>
  <tbody>
   <tr>
-   <td>Een organisatie reageert niet</td>
+   <td>Het verzoek komt niet van de ondernemer zelf</td>
+   <td>Het portaal neemt een verzoek alleen aan van wie ingelogd is, en dan alleen voor zijn eigen berichten</td>
+   <td>Een ander kan zijn berichten niet laten wissen</td>
+  </tr>
+  <tr>
+   <td>Een organisatie reageert niet binnen een maand</td>
    <td>De stelselbeheerder herinnert haar eraan, en meldt de ondernemer welke organisatie nog niet geantwoord heeft</td>
    <td>Een uitkomst met een open plek</td>
   </tr>
@@ -139,7 +150,7 @@
 <p>Deze use case is nog niet gebouwd en nog niet afgesproken.</p>
 <ul>
  <li>Een magazijn heeft geen opdracht om alle berichten van één ontvanger in één keer te wissen. De ondernemer kan alleen berichten één voor één verwijderen (use case 8), en dat is markeren, geen wissen: het magazijn ruimt ze pas na de bewaartermijn op.</li>
- <li>Er is geen werkwijze voor de stelselbeheerder om een verzoek door te zetten en de uitkomsten te verzamelen.</li>
+ <li>Er is geen werkwijze voor de stelselbeheerder om een verzoek door te zetten en de uitkomsten te verzamelen, en het portaal kent geen verzoek tot wissen.</li>
  <li>Het definitief opruimen staat nog niet in het logboek van het magazijn (use case 8).</li>
  <li>Voor de logboekregels is nog geen bewaartermijn ingesteld.</li>
 </ul>
@@ -148,6 +159,8 @@
  <li><strong>Loopt het verzoek via de stelselbeheerder, of per organisatie?</strong> De AVG legt het verzoek bij elke verantwoordelijke organisatie. Via de stelselbeheerder hoeft de ondernemer niet te weten welke organisaties berichten hebben, maar dan krijgt de stelselbeheerder een coördinerende rol die nog nergens is vastgelegd.</li>
  <li><strong>Wie heeft dit recht?</strong> Het hangt aan de rechtsvorm, niet aan het type nummer: een ondernemer met een BSN, een eenmanszaak, en de vennoten van een vof of maatschap, of die nu via het KVK-nummer of het RSIN zijn aangeschreven.</li>
  <li><strong>Wat gebeurt er bij een wissing met de logboekregels?</strong> Daar is een bewaartermijn en een afspraak voor nodig.</li>
+ <li><strong>Kent de Profiel Service eerdere voorkeuren?</strong> Een organisatie waarvoor de ondernemer zijn voorkeur heeft ingetrokken, kan nog berichten van hem hebben. Is die geschiedenis er niet, dan moet het verzoek breder rondgestuurd worden, en krijgen organisaties zonder relatie met de ondernemer zijn nummer en het feit dat hij een privacyrecht uitoefent.</li>
+ <li><strong>Hoe lang bewaart een magazijn een bericht dat nooit verwijderd is?</strong> Nu ruimt het magazijn alleen verwijderde berichten op; een bericht dat de ondernemer laat staan, blijft voor altijd.</li>
  <li>Laat een privacyjurist of de functionaris gegevensbescherming meekijken voordat deze use case naar Logius gaat.</li>
 </ul></div>
         </div>

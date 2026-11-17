@@ -68,8 +68,8 @@
    <td><code>CloudEventBuilder.BerichtData</code>. Het NL GOV-profiel voor CloudEvents wijst versleuteling van <code>data</code> of een claim-check via <code>dataref</code> aan</td>
   </tr>
   <tr>
-   <td>1</td>
-   <td>Geen grens aan het aantal bijlagen, geen controle op de inhoud. Wel 25 MiB per bijlage en 40 MiB per request (inclusief Base64)</td>
+   <td>1, 6</td>
+   <td>Alleen <code>application/pdf</code> als bijlage toegestaan. Geen grens aan het aantal bijlagen, geen controle op de inhoud. Wel 25 MiB per bijlage en 40 MiB per request (inclusief Base64)</td>
    <td><code>Bijlage.MAX_CONTENT_BYTES</code>, <code>quarkus.http.limits.max-body-size</code></td>
   </tr>
   <tr>
@@ -109,7 +109,7 @@
   </tr>
   <tr>
    <td>5, 9</td>
-   <td>De uitvraag legt een 4xx bij openen vast met status <code>Unset</code>, net als een geslaagde opening. Geen van beide logregels bevat het berichtnummer</td>
+   <td>De logregel van de uitvraag bij openen legt de uitkomst niet vast: een 4xx krijgt status <code>Unset</code>, net als een geslaagde opening. <code>Unset</code> is volgens de LDV-standaard juist voor een functionele weigering, dus niet "repareren" naar <code>Error</code>; wat ontbreekt is de uitkomst in de logregel. Geen van beide logregels bevat het berichtnummer</td>
    <td><code>uitvraag-bericht</code>, magazijn <code>ophalen-bericht</code></td>
   </tr>
   <tr>
@@ -118,9 +118,9 @@
    <td><code>BerichtBeheerService.invalideerCacheNaMagazijnWrite</code></td>
   </tr>
   <tr>
-   <td>7</td>
-   <td>Het magazijn geeft bij <code>PATCH</code> op andermans bericht <code>403</code>, bij lezen <code>404</code></td>
-   <td><code>BerichtAutorisatie.vereisOntvanger</code></td>
+   <td>7, 8</td>
+   <td><code>PATCH</code> en <code>DELETE</code> gaan in de uitvraag zonder controle op de sessielijst naar het magazijn. Dat geeft <code>403</code> voor andermans actieve bericht en <code>404</code> voor een onbekend bericht, en de uitvraag geeft die <code>403</code> door als <code>GEEN_TOEGANG</code>. Lezen en bijlagen kijken eerst in de lijst en geven in beide gevallen <code>404</code></td>
+   <td><code>BerichtBeheerService</code>, <code>BerichtAutorisatie.vereisOntvanger</code>, <code>UpstreamFault</code></td>
   </tr>
   <tr>
    <td>8, 10</td>
@@ -136,6 +136,16 @@
    <td>10</td>
    <td>Geen opdracht om alle berichten van één ontvanger te wissen</td>
    <td>Magazijn-API</td>
+  </tr>
+  <tr>
+   <td>10</td>
+   <td>Niet-verwijderde berichten worden nooit opgeruimd</td>
+   <td><code>BerichtRepository</code>: hard-delete selecteert alleen <code>verwijderd_op IS NOT NULL</code></td>
+  </tr>
+  <tr>
+   <td>11</td>
+   <td>Een bericht uit een magazijn dat bij het ophalen niet leverde, geeft bij openen <code>404 bericht-onbekend</code></td>
+   <td>Uitvraag <code>BerichtOphaalService</code>: eerst de sessielijst</td>
   </tr>
   <tr>
    <td>11</td>
