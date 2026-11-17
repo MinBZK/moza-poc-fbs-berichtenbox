@@ -1,30 +1,30 @@
 # Use cases
 
 De diagrammen elders op deze site laten zien uit welke onderdelen het Federatief Berichtenstelsel
-bestaat. De use cases hieronder laten zien wat er gebeurt als iemand het gebruikt: wie wat doet,
-in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt als iets misgaat.
+bestaat. De use cases hieronder laten zien wat er gebeurt als iemand het gebruikt of beheert: wie
+wat doet, in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt als iets misgaat.
 
 | Nr | Use case | Actor |
 |---|---|---|
-| 1 | Een organisatie levert een bericht aan, en de ondernemer krijgt een melding | Organisatie |
-| 2 | Een ondernemer opent de berichtenbox en ziet de berichten uit alle magazijnen bij elkaar | Ondernemer |
+| 1 | Een organisatie verstuurt een bericht, en de ondernemer krijgt een melding | Overheidsorganisatie |
+| 2 | Een ondernemer opent de berichtenbox en ziet de berichten van alle organisaties bij elkaar | Ondernemer |
 | 3 | Nieuwe berichten verschijnen terwijl de berichtenbox openstaat | Ondernemer |
 | 4 | Een ondernemer zoekt in de eigen berichten | Ondernemer |
 | 5 | Een ondernemer opent een bericht en leest het | Ondernemer |
 | 6 | Een ondernemer opent of downloadt een bijlage | Ondernemer |
 | 7 | Een ondernemer verplaatst een bericht naar een map of archiveert het | Ondernemer |
 | 8 | Een ondernemer verwijdert een bericht | Ondernemer |
+| 9 | Een organisatie gaat na of een ondernemer een bericht heeft kunnen zien | Overheidsorganisatie, met de stelselbeheerder |
+| 10 | Een ondernemer laat al zijn berichten wissen | Ondernemer, met de stelselbeheerder |
+| 11 | Een magazijn is langere tijd onbereikbaar | Ondernemer, stelselbeheerder en organisatie |
 
 Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag
 ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan
 staat in de views *RechtstreeksOphalen* van het architectuurmodel.
 
-Na de use cases volgt een pagina met drie vragen uit het beheer van het stelsel, en wat het stelsel daar
-nu wel en niet op kan antwoorden.
-
 ## Zo lees je een use case
 
-Elke use case heeft dezelfde opbouw:
+Een use case beschrijft hoe het stelsel moet werken. Elke use case heeft dezelfde opbouw:
 
 - **Actor, aanleiding en resultaat**: wie begint, waarom, en wat er is als het goed gaat.
 - **Verloop**: de stappen in gewone taal.
@@ -34,31 +34,28 @@ Elke use case heeft dezelfde opbouw:
   iets dat alleen soms gebeurt, `loop` iets dat zich herhaalt en `par` dingen die tegelijk
   gebeuren.
 - **Als het misgaat**: per situatie wat het stelsel doet en wat de actor merkt.
-- **Doelarchitectuur**: waar het doelbeeld afwijkt van wat er nu draait.
-- **Technische verwijzing**: de koppelvlakken en instellingen achter het verloop, voor wie het in de
-  code wil nalopen.
+- **Nog niet gerealiseerd**: waar wat er nu gebouwd is nog anders werkt dan de use case beschrijft.
+- **Open vragen**: keuzes die nog gemaakt moeten worden. Zolang een keuze open is, beschrijft de
+  use case op dat punt hoe het nu werkt.
 
-De diagrammen tonen hoe het stelsel zich **nu** gedraagt. Wat in het doelbeeld anders gaat, staat
-bij de use case zelf en op de pagina met PoC-afwijkingen.
+Voor ontwikkelaars staat op de pagina "Stand van de bouw", na de use cases, per use case waar de
+software nog afwijkt, met de plek in de code.
 
 ## De deelnemers
 
-De diagrammen tonen het stelsel op het niveau van de systemen: één lijn voor het Berichten
-Uitvraag Systeem en één voor het Berichtenmagazijn, ook als een stap binnen zo'n systeem door
-verschillende onderdelen gaat. De tekst en de technische verwijzing noemen die onderdelen waar het
-ertoe doet. De namen zijn die uit het architectuurmodel, zodat je ze in de andere diagrammen
-terugvindt; bij elke wijziging in de repository controleert een script dat elke deelnemer een
-onderdeel uit het model is.
+De diagrammen tonen het stelsel op het niveau van de systemen. De namen komen uit het
+architectuurmodel, zodat je ze in de andere diagrammen terugvindt.
 
 | Deelnemer | Wat het is |
 |---|---|
-| Ondernemer / Zakelijke gebruiker | De ontvanger van berichten, namens een onderneming |
-| Organisatie B | Een overheidsorganisatie die berichten verstuurt |
+| Ondernemer | Iemand die berichten ontvangt namens een onderneming |
+| Overheidsorganisatie | Een organisatie die berichten verstuurt. Elke organisatie heeft haar eigen berichtenmagazijn |
 | Interactielaag | Het portaal waarin de ondernemer zijn berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze |
-| Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort (het magazijnregister), houdt de opgehaalde berichtenlijst van een ingelogde ondernemer vast in een tijdelijk geheugen, en neemt aanmeldingen van nieuwe berichten aan |
-| Berichtenmagazijn | De opslag van de berichten van één organisatie. Elke organisatie heeft er één, zelf gehost of afgenomen bij BBO, en elk magazijn volgt dezelfde stelselafspraken over aanleveren, ophalen, beheren en aanmelden. De lijn in de diagrammen staat voor elk magazijn |
+| Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort, en houdt de berichtenlijst van een ingelogde ondernemer vast zolang die ingelogd is |
+| Berichtenmagazijn | De opslag van de berichten van één organisatie. Een organisatie host haar magazijn zelf of neemt het af bij BBO. Elk magazijn volgt dezelfde stelselafspraken, dus de lijn in de diagrammen staat voor elk magazijn |
 | Profiel Service | Dienst van MijnOverheid Zakelijk met de voorkeuren van de ondernemer: van welke organisaties hij berichten via de berichtenbox wil ontvangen |
 | Notificatie Service | Dienst van MijnOverheid Zakelijk die de ondernemer laat weten dat er een bericht is, bijvoorbeeld per e-mail |
+| Stelselbeheerder | Beheert het stelsel: de afspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten. Welke organisatie die rol krijgt, maakt voor de use cases niet uit |
 
 ## Wat voor alle use cases geldt
 
@@ -66,24 +63,28 @@ onderdeel uit het model is.
 organisatie die het verstuurde. De uitvraag houdt de berichtenlijst van een ondernemer alleen vast
 zolang hij ingelogd is, en wist die zodra zijn laatste sessie eindigt.
 
-**Inloggen is in deze opstelling nog niet gebouwd.** Het portaal geeft bij elk verzoek mee om welke
-ondernemer het gaat, en start bij het inloggen een sessie bij de uitvraag. Elk verzoek over
-berichten moet bij een lopende sessie van die ondernemer horen. In het doelbeeld logt de ondernemer
-in met eHerkenning, en geeft de Interactielaag daarna een token uit dat bij elk verzoek bewijst wie
-hij is; zie de pagina met PoC-afwijkingen.
+**Inloggen.** De ondernemer logt in op het portaal met eHerkenning. Daarmee staat vast wie hij is
+en namens welke onderneming hij handelt. Het portaal start een sessie bij de uitvraag, en elk
+verzoek over berichten hoort bij zo'n sessie.
 
 **Een sessie verloopt.** Na 15 minuten zonder activiteit, en uiterlijk na 12 uur, eindigt de sessie.
-Het portaal kan een kortere grens meegeven en beëindigt de sessie zelf bij uitloggen. Daarna is
-opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.
+Daarna is opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.
+
+**Elk magazijn kent de ondernemer onder een eigen pseudoniem.** Een magazijn krijgt niet het
+nummer van de ondernemer, maar een versleutelde verwijzing die alleen voor dat magazijn bruikbaar
+is. Zo kunnen magazijnen hun gegevens niet onderling koppelen.
+
+**Verbindingen tussen organisaties zijn beveiligd en vastgelegd.** Uitvraag, magazijnen en de
+diensten van MijnOverheid Zakelijk praten met elkaar via FSC: elke verbinding rust op een afspraak
+tussen twee organisaties, en beide kanten weten met wie ze praten.
 
 **Wat het stelsel vastlegt.** Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast
-in zijn eigen Logboek Dataverwerkingen: welke handeling, voor welke ondernemer, en of die lukte.
-Bij het aanleveren en publiceren legt het magazijn de handeling vast vóórdat het hem uitvoert:
-mislukt de vastlegging, dan gebeurt er niets, en slaat het een aangeleverd bericht bijvoorbeeld niet
-op. De meeste andere handelingen worden vastgelegd zodra ze klaar zijn en vóór het antwoord:
-mislukt de vastlegging, dan krijgt het portaal of de organisatie een foutmelding en geen gegevens,
-terwijl een wijziging dan al wel is doorgevoerd. Het ophalen wordt vastgelegd bij de start, en een
-mislukt ophalen komt er later bij. Het volgen wordt alleen bij de start vastgelegd: een afgebroken
-verbinding staat niet in het logboek. Het wissen van gegevens bij het einde of de start van een
-sessie gaat altijd door; mislukt de vastlegging, dan krijgt de beheerder een waarschuwing. Welke
-berichten precies getoond zijn, staat niet in het logboek; zie de pagina met beheervragen.
+in zijn eigen Logboek Dataverwerkingen: welke handeling, voor wie, wanneer, en of die lukte. Er is
+geen centraal logboek. Wie wil weten wat er met een bericht gebeurd is, raadpleegt de logboeken van
+de betrokken diensten (use case 9).
+
+**Nog niet gerealiseerd, voor alle use cases.** Inloggen met eHerkenning, de pseudoniemen per
+magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het
+portaal bij elk verzoek mee om welke ondernemer het gaat, krijgt elk magazijn het nummer van de
+ondernemer, en is per verbinding in te stellen of die via FSC loopt. Zie de pagina met
+PoC-afwijkingen.

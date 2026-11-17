@@ -29,8 +29,8 @@ klopt met het huidige gedrag, en de afwijking van de doelarchitectuur.
 
 De diagrammen tonen één lijn per systeem: het Berichten Uitvraag Systeem en het Berichtenmagazijn,
 plus de actoren en de diensten van MijnOverheid Zakelijk. De onderdelen binnen een systeem
-(Publicatie Stream, sessiecache, magazijnregister) staan in de tekst en de technische verwijzing
-waar het ertoe doet, niet in het diagram: op containerniveau werden de diagrammen te druk voor het
+(Publicatie Stream, sessiecache, magazijnregister) staan alleen op de pagina "Stand van de bouw",
+niet in de use cases: op containerniveau werden de diagrammen te druk voor het
 doel, een gedeeld beeld van het verloop.
 
 "Berichtenmagazijn" staat voor elk magazijn. Het model kent "Berichtenmagazijn (BBO-gehost)" en
@@ -67,18 +67,33 @@ wijziging onder `docs/architecture/`; een hernoemd element in het model zou daar
 langskomen. De suite staat daarom ook in de verplichte set van `ci-scripts.yml`, en de guard heeft
 daar een eigen stap tegen de echte documentatie.
 
-### Huidig gedrag, doelbeeld apart benoemd
+### Eindresultaat, niet de huidige code
 
-Het diagram toont wat er nu draait. Wat de doelarchitectuur anders doet (token in plaats van
-`X-Ontvanger`, BSNk-pseudoniemen, FSC verplicht, machtigingen), staat per use case in een eigen
-sectie. Zo blijft het diagram toetsbaar tegen de code. Gedrag dat de code heeft maar dat misschien
-niet bedoeld is (een bericht vóór zijn publicatiedatum zichtbaar, zoeken op meerdere woorden),
-staat als feit in de use case en als open vraag in de PR.
+Na de eerste review door de opdrachtgever: de use cases beschrijven het stelsel zoals het moet
+werken, voor lezers die de code niet bekijken. Waar de bouw nog afwijkt, staat dat kort onder "Nog
+niet gerealiseerd". Waar een keuze nog open is, beschrijft de use case op dat punt het huidige
+gedrag en staat de keuze onder "Open vragen". Wat voor alle use cases nog niet gebouwd is
+(eHerkenning, pseudoniemen, machtigingen, FSC), staat één keer in het overzicht.
 
-### Taal
+Endpoints, statuscodes, klassen en instellingen staan niet op de use-case-pagina's maar op één
+pagina voor ontwikkelaars, "Stand van de bouw": per use case de afwijking met de plek in de code,
+de volgorde waarin het logboek vastlegt, en de koppelvlakken.
 
-Bovenste deel per pagina zonder technische voorkennis; endpoints, statuscodes en codeverwijzingen
-in een afsluitende sectie "Technische verwijzing".
+### Algemene namen
+
+De deelnemers heten wat ze zijn, niet welk exemplaar uit het model ze zijn. Het model kreeg daarom
+algemene namen met de variant tussen haakjes: "Overheidsorganisatie (eigen magazijn)" en
+"Overheidsorganisatie (magazijn bij BBO)" in plaats van "Organisatie A" en "Organisatie B",
+"Ondernemer (zakelijke gebruiker)", en de medewerkers op dezelfde manier. Via de verkorte naam
+staat "Overheidsorganisatie" en "Ondernemer" in de diagrammen. Het model kreeg ook een persoon
+"Stelselbeheerder", de actor in de beheer-use-cases.
+
+### Beheersituaties zijn use cases
+
+De drie situaties uit het overleg met Logius (aantonen dat een bericht gezien kon worden, alle
+berichten van een ondernemer wissen, een magazijn dat lang plat ligt) zijn use case 9 tot en met
+11, ook waar ze nog niet gebouwd of afgesproken zijn. Het verloop daarvan is een voorstel; wat nog
+afgesproken moet worden, staat onder "Open vragen".
 
 ### Rechtstreeks ophalen nog niet uitgewerkt
 
@@ -92,7 +107,9 @@ ontwikkeling. Het overzicht verwijst naar de bestaande `dynamic`-views `Rechtstr
 |---|---|
 | `docs/architecture/workspace-docs/04-use-cases.md` | Overzicht, leeswijzer, deelnemers, wat voor alle use cases geldt |
 | `05-` t/m `12-` | Use case 1 t/m 8 uit het issue, één pagina per use case |
-| `13-beheervragen.md` | De drie beheersituaties uit het overleg met Logius: wat het stelsel nu wel en niet kan tonen |
+| `13-` t/m `15-` | Use case 9 t/m 11: de beheersituaties uit het overleg met Logius |
+| `16-use-cases-stand-van-de-bouw.md` | Voor ontwikkelaars: afwijkingen met de plek in de code, logboekvolgorde, koppelvlakken |
+| `docs/architecture/workspace.dsl` | Algemene namen voor organisaties, ondernemer en medewerkers, en de persoon Stelselbeheerder |
 | `.github/scripts/use-case-deelnemers.py` | Guard |
 | `.github/scripts/test-use-case-deelnemers.sh` | Testsuite van de guard, op fixtures en op de echte documentatie |
 | `.github/workflows/ci-scripts.yml` | Eigen stap voor de guard, verwacht aantal asserties van de suite, en de suite in de verplichte set |
