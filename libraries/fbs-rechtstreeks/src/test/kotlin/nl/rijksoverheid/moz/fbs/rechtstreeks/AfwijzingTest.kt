@@ -41,7 +41,7 @@ class AfwijzingTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("ongeldigeJwes")
-    fun `een JWE die zonder sleutel al niet klopt, is een ongeldig verzoek`(scenario: Scenario, reden: Afwijzing) {
+    fun `een JWE die zonder sleutel al niet klopt, is een ongeldig verzoek en laat de nonce staan`(scenario: Scenario, reden: JweFout) {
         val opzet = Opzet()
         val verifier = opzet.verifier()
         val challenge = opzet.challenge(verifier)
@@ -49,7 +49,10 @@ class AfwijzingTest {
         val fout = assertThrows<JweOngeldigException> { scenario.voerUit(opzet, verifier, challenge) }
 
         assertEquals(reden, fout.reden)
-        assertEquals(reden.name, fout.message)
+        assertEquals("jwe ongeldig: ${reden.name}", fout.message)
+
+        // De header gaat vóór de nonce, dus dezelfde challenge werkt nog.
+        verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)), Opzet.CLIENT)
     }
 
     companion object {
@@ -99,7 +102,7 @@ class AfwijzingTest {
                 verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
             }
 
-        private fun geval(naam: String, reden: Afwijzing, scenario: Scenario): Arguments = arguments(named(naam, scenario), reden)
+        private fun geval(naam: String, reden: Enum<*>, scenario: Scenario): Arguments = arguments(named(naam, scenario), reden)
 
         private fun vcMetHeader(opzet: Opzet, header: Map<String, Any>): String =
             TestApp.jws(header, opzet.vcClaims(), opzet.appManager.private)
@@ -265,7 +268,6 @@ class AfwijzingTest {
                 TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, epkExtra = mapOf("kid" to "1"))
             }),
             geval("presentatie geen JSON", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, c -> TestApp.jweEcdh("geen json", c.tijdelijk) }),
-            geval("presentatie net te groot", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c -> o.opgevuld(c, Verifier.MAX_PRESENTATIE_TEKENS + 1..Verifier.MAX_PRESENTATIE_TEKENS + 4) }),
         )
 
         /** Een geldige presentatie, waarvan alleen de header van de JWE afwijkt. */
@@ -278,35 +280,57 @@ class AfwijzingTest {
 
         @JvmStatic
         fun ongeldigeJwes(): List<Arguments> = listOf(
-            geval("geen JWE", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, _ -> "geen.jwe" }),
-            geval("header geen JSON", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, _ -> "Z2Vlbg.AA.AA.AA.AA" }),
-            geval("enc A128GCM", Afwijzing.ALGORITME_ONJUIST, metHeader(enc = "A128GCM")),
-            geval("alg ECDH-ES+A128KW", Afwijzing.ALGORITME_ONJUIST, metHeader(alg = "ECDH-ES+A128KW")),
-            geval("alg dir", Afwijzing.ALGORITME_ONJUIST, metHeader(header = mapOf("alg" to "dir"))),
-            geval("zonder enc", Afwijzing.ALGORITME_ONJUIST, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk).let { jwe ->
-                    val header = TestApp.header(jwe) - "enc"
-
-                    TestApp.b64url.encodeToString(JsonUtil.toJson(header).toByteArray()) + jwe.substring(jwe.indexOf('.'))
-                }
+            geval("geen JWE", JweFout.ONLEESBAAR, metJwe { _, _ -> "geen.jwe" }),
+            geval("header geen JSON", JweFout.ONLEESBAAR, metJwe { _, _ -> "Z2Vlbg.AA.AA.AA.AA" }),
+            geval("presentatie net te groot", JweFout.TE_GROOT, metJwe { o, c ->
+                o.opgevuld(c, Verifier.MAX_PRESENTATIE_TEKENS + 1..Verifier.MAX_PRESENTATIE_TEKENS + 4)
             }),
-            geval("zonder typ", Afwijzing.TYP_ONJUIST, metHeader(typ = null)),
-            geval("typ JWT", Afwijzing.TYP_ONJUIST, metHeader(typ = "JWT")),
-            geval("typ als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("typ" to 1))),
-            geval("alg als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("alg" to 1))),
-            geval("enc als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("enc" to 1))),
-            geval("apu als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("apu" to 5))),
-            geval("jku in de header", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("jku" to "https://aanvaller.example"))),
-            geval("crit in de header", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("crit" to listOf("exp")))),
-            geval("zip in de header", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("zip" to "DEF"))),
-            geval("epk als tekst", Afwijzing.HEADER_NIET_TOEGESTAAN, metHeader(header = mapOf("epk" to "x"))),
-            geval("zonder typ bij de App Manager", Afwijzing.TYP_ONJUIST, Scenario { opzet, verifier, challenge ->
-                val presentatie = opzet.presentatie(challenge, opzet.selfSigned(), Verifier.CERTIFICAAT_SELF_SIGNED)
-                val jwe = TestApp.jweEcdh(JsonUtil.toJson(presentatie), challenge.tijdelijk, typ = null)
+            geval("enc A128GCM", JweFout.ALGORITME_ONJUIST, metHeader(enc = "A128GCM")),
+            geval("alg ECDH-ES+A128KW", JweFout.ALGORITME_ONJUIST, metHeader(alg = "ECDH-ES+A128KW")),
+            geval("alg dir", JweFout.ALGORITME_ONJUIST, metHeader(header = mapOf("alg" to "dir"))),
+            // alg en enc zijn hoofdlettergevoelig, anders dan typ.
+            geval("alg in kleine letters", JweFout.ALGORITME_ONJUIST, metHeader(header = mapOf("alg" to "ecdh-es"))),
+            geval("enc in kleine letters", JweFout.ALGORITME_ONJUIST, metHeader(enc = "a256gcm")),
+            geval("zonder alg", JweFout.ALGORITME_ONJUIST, zonderHeaderveld("alg")),
+            geval("zonder enc", JweFout.ALGORITME_ONJUIST, zonderHeaderveld("enc")),
+            geval("zonder typ", JweFout.TYP_ONJUIST, metHeader(typ = null)),
+            geval("typ JWT", JweFout.TYP_ONJUIST, metHeader(typ = "JWT")),
+            geval("typ application/jose", JweFout.TYP_ONJUIST, metHeader(typ = "application/jose")),
+            geval("typ als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("typ" to 1))),
+            geval("alg als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("alg" to 1))),
+            geval("enc als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("enc" to 1))),
+            geval("apu als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("apu" to 5))),
+            geval("jku in de header", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("jku" to "https://aanvaller.example"))),
+            geval("crit in de header", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("crit" to listOf("exp")))),
+            geval("zip in de header", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("zip" to "DEF"))),
+            geval("epk als tekst", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("epk" to "x"))),
+            geval("onbekende nonce: de header gaat voor", JweFout.TYP_ONJUIST, Scenario { opzet, verifier, challenge ->
+                val jwe = TestApp.jweEcdh(JsonUtil.toJson(opzet.presentatie(challenge)), challenge.tijdelijk, typ = null)
 
-                verifier.voltooiSelfSigned(challenge.nonce, jwe, Opzet.CLIENT)
+                verifier.voltooiMetCredential("b25iZWtlbmRlIG5vbmNl", jwe, Opzet.CLIENT)
+            }),
+            geval("App Manager: zonder typ", JweFout.TYP_ONJUIST, bijAppManager { _, c, p -> TestApp.jweEcdh(p, c.tijdelijk, typ = null) }),
+            geval("App Manager: geen JWE", JweFout.ONLEESBAAR, bijAppManager { _, _, _ -> "geen.jwe" }),
+            geval("App Manager: alg dir", JweFout.ALGORITME_ONJUIST, bijAppManager { _, c, p -> TestApp.jweEcdh(p, c.tijdelijk, mapOf("alg" to "dir")) }),
+            geval("App Manager: jwk in de header", JweFout.HEADER_ONGELDIG, bijAppManager { o, c, p ->
+                TestApp.jweEcdh(p, c.tijdelijk, mapOf("jwk" to TestApp.jwk(o.app.public as ECPublicKey)))
             }),
         )
+
+        private fun zonderHeaderveld(veld: String) = metJwe { o, c ->
+            TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk).let { jwe ->
+                val header = TestApp.header(jwe) - veld
+
+                TestApp.b64url.encodeToString(JsonUtil.toJson(header).toByteArray()) + jwe.substring(jwe.indexOf('.'))
+            }
+        }
+
+        /** Een self-signed presentatie (als JSON) bij de App Manager, versleuteld door [jwe]. */
+        private fun bijAppManager(jwe: (Opzet, Opzet.Challenge, String) -> String) = Scenario { opzet, verifier, challenge ->
+            val presentatie = opzet.presentatie(challenge, opzet.selfSigned(), Verifier.CERTIFICAAT_SELF_SIGNED)
+
+            verifier.voltooiSelfSigned(challenge.nonce, jwe(opzet, challenge, JsonUtil.toJson(presentatie)), Opzet.CLIENT)
+        }
 
         private fun activeren(): List<Arguments> = listOf(
             geval("self-signed met andere sub", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned { selfSigned(sub = "iets anders") }),

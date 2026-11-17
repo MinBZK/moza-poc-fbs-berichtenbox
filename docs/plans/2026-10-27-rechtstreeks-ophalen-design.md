@@ -201,16 +201,27 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
      bijlage C.
    - **Strikt.** Per stap staan de toegestane algoritmen vast (`AlgorithmConstraints`). Een
      sleutel komt nooit uit een header (`jwk`, `jku`, `x5u`, `x5c`) en een header met `crit`
-     wordt geweigerd. Elke JWE draagt `typ` `JWE` (ADR `/encryption/jwe`; zonder onderscheid in
-     hoofdletters, zoals een mediatype). Een JWE-header met een ander `alg`, `enc` of `typ`, of
-     met een van die verboden velden, is een `JweOngeldigException`, en die wordt `400`, bij het
-     openen van een sessie en straks ook bij een versleuteld verzoek binnen de sessie. Die header
-     is zonder sleutel te lezen, dus het antwoord verraadt niets over de controles daarna. Wat
-     daarna faalt, ook een ongeldige `epk`, blijft een `AfgewezenException`, en die wordt `401`. Voor elke publieke EC-sleutel van buiten wordt gecontroleerd dat
-     het punt op de curve ligt. In `cnf.jwk` tellen alleen `kty`, `crv`, `x` en `y`; een `epk` mag
-     niets anders bevatten, omdat jose4j hem bij de key agreement zelf opnieuw inleest. Omdat
-     jose4j headerwaarden zonder controle naar tekst cast, staat ook het type van elke
-     headerwaarde vast; anders wordt een getal in `kid` een `500` in plaats van een `400` of `401`. `nbf`
+     wordt geweigerd. Elke JWE draagt `typ` `JWE` (ADR `/encryption/jwe`); als mediatype zonder
+     onderscheid in hoofdletters en met of zonder `application/` (RFC 7515, 4.1.9). `alg` en `enc`
+     zijn wel hoofdlettergevoelig.
+
+     Een JWE gaat in twee stappen. Eerst wat zonder sleutel te zien is: de lengte, de compacte vorm,
+     alleen toegestane headervelden met het juiste type, `alg`, `enc` en `typ`. Klopt daar iets
+     niet, dan volgt een `JweOngeldigException` (`400`), bij het openen van een sessie en straks ook
+     bij een versleuteld verzoek binnen de sessie. Dat gebeurt vóór de nonce gebruikt wordt, dus
+     het antwoord zegt niets over de nonce of over de controles daarna, en de nonce blijft
+     bruikbaar. Daarna gebruikt de Verifier de nonce, controleert de `epk` en ontsleutelt; wat dan
+     faalt, is een `AfgewezenException` (`401`) en verbruikt de nonce. De inhoud van de `epk` hoort
+     bewust bij die tweede stap: een `epk` die geen geldige sleutel is, is een poging op de sleutel
+     van de Verifier (invalid curve), en die mag niets kosteloos laten proberen. Beide exceptions
+     erven van de sealed `VerifierFout`, zodat een aanroeper die ze met `when` vertaalt, een nieuwe
+     soort niet kan missen; de statuscode kiest de aanroeper.
+
+     Voor elke publieke EC-sleutel van buiten wordt gecontroleerd dat het punt op de curve ligt.
+     In `cnf.jwk` tellen alleen `kty`, `crv`, `x` en `y`; een `epk` mag niets anders bevatten,
+     omdat jose4j hem bij de key agreement zelf opnieuw inleest. Omdat jose4j headerwaarden zonder
+     controle naar tekst cast, staat ook het type van elke headerwaarde vast; anders wordt een
+     getal in `kid` een `500` in plaats van een `400` of `401`. `nbf`
      (en daarmee `iat`) mag 60 seconden vooruit liggen, voor klokverschil met de App Manager
      (stap 6 van het toepassingsprofiel); van `exp` moet juist nog ten minste 60 seconden
      resteren. Nonce en sessie lopen op de eigen klok en hebben geen marge.
@@ -250,9 +261,10 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
      bewaren de AES-sleutel versleuteld, in een opslag met TTL zonder back-up. Daarvoor krijgen
      de opslag-interfaces dan de nonce en de serialisatie van een sessie in handen (`TODO(#1215)`
      in `ChallengeOpslag` en `SessieOpslag`).
-   - **Logging.** De library logt zelf niets. Een afwijzing draagt alleen een `Afwijzing`-reden, en
-     van een oorzaak uit jose4j alleen het type: jose4j neemt soms invoer letterlijk op in zijn
-     melding. De aanroeper logt de reden, nooit claims of de waarde van `ontvanger`.
+   - **Logging.** De library logt zelf niets. Een afwijzing draagt alleen een `Afwijzing`-reden
+     (een ongeldige JWE een `JweFout`), en van een oorzaak uit jose4j alleen de typen in de keten:
+     jose4j neemt soms invoer letterlijk op in zijn melding, en verpakt bijna alles in een kale
+     `JoseException`. De aanroeper logt de reden, nooit claims of de waarde van `ontvanger`.
 
 5. **Een eigen contract naast de magazijn-spec:
    `services/berichtenmagazijn/src/main/resources/openapi/rechtstreeks-ophalen-api.yaml`.** Zou
@@ -302,10 +314,10 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
 8. **Sessie: 15 minuten vast, niet te verlengen; een self-signed sessie bij de App Manager
    10 minuten.** De standaard zegt niets over de levensduur. Een
    korte, vaste geldigheid is het eenvoudigst, en een nieuwe sessie kost twee verzoeken. Een
-   sessie duurt nooit langer dan het VC: `geldigTot` ligt 15 minuten na de start, of eerder op
-   `exp` van het VC, afgerond naar beneden op een hele seconde. Een VC dat binnen 60 seconden
-   verloopt, levert geen sessie op (de app ververst het eerst, 4.3.4.1). Krijgt de app een `401`, dan begint hij opnieuw bij de
-   challenge. Het antwoord is camelCase, zoals `Sessie` van de uitvraag: de standaard legt de
+   sessie duurt nooit langer dan het VC: `geldigTot` is het vroegste van 15 minuten na de start
+   en `exp` van het VC, naar beneden afgerond op een hele seconde. Een VC dat binnen 60 seconden
+   verloopt, levert geen sessie op (de app ververst het eerst, 4.3.4.1). Krijgt de app een `401`,
+   dan begint hij opnieuw bij de challenge. Het antwoord is camelCase, zoals `Sessie` van de uitvraag: de standaard legt de
    vorm ervan niet vast. Het `sessieToken` is 32 willekeurige alfanumerieke tekens (de eis is ten
    minste 22, 4.3.4.2 stap 26) en gaat als `Bearer`-token in `Authorization` (RFC 6750). De
    standaard stuurt het token alleen bij de App Manager zonder schema mee (4.4.1 stap 20,
@@ -402,7 +414,7 @@ Deze tabel gaat als terugkoppeling naar de auteurs, net als die in het toepassin
 | Hybride ML-KEM-768 met ECIES ZOU MOETEN (3.3) | Alleen `ECDH-ES` | Geen JOSE-library kent `ML-KEM-768+ECDH-ES`; zie "Post-quantum" hieronder |
 | Revocatie van VC's met een Token Status List, en van de sleutels van Issuers en Verifiers (4.5) | Niet; een VC is ten hoogste 24 uur geldig, een sleutel verdwijnt met een nieuw stelseldocument | Buiten de eerste sprint |
 | TLS 1.3 (3.5) | Eis aan de ingress, niet in de dienst afgedwongen; voor productie ook hybride sleuteluitwisseling (`X25519MLKEM768`) | Zoals bij het stelselregister; zie "Post-quantum" hieronder |
-| Vorm en levensduur van het antwoord bij het openen van de sessie | Bij een magazijn een JWE met `sessieToken` en `geldigTot`; 15 minuten, niet langer dan het VC. Bij de App Manager (self-signed) `session_token` en `expires_in`; 10 minuten | De standaard noemt het token, niet de vorm van het antwoord |
+| Vorm en levensduur van het antwoord bij het openen van de sessie | Bij een magazijn een JWE met `sessieToken` en `geldigTot`; 15 minuten, niet langer dan het VC. Bij de App Manager (self-signed) `session_token`, zoals 4.4.1 het noemt, en `expires_in` in seconden, naar het voorbeeld van 4.4.2; 10 minuten | De standaard noemt het token, niet de vorm van het antwoord |
 | Levensduur van een nonce | 60 seconden, eenmalig | De standaard noemt geen levensduur |
 
 ### Post-quantum: wat het ontbreken van ML-KEM kost

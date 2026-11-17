@@ -25,8 +25,12 @@ import java.util.Base64
  * toegestane headervelden vast. Een header met een ander veld wordt geweigerd, dus ook elke manier
  * om een verificatiesleutel of certificaat mee te sturen (`jwk`, `jku`, `x5u`, `x5c`) en `crit`;
  * alleen de `epk` van `ECDH-ES` mag. Elke JWE draagt `typ` `JWE` (API Design Rules,
- * `/encryption/jwe`). Wat aan de header van een JWE niet klopt, is een [JweOngeldigException];
- * wat aan een JWS of aan de `epk` niet klopt, een [AfgewezenException].
+ * `/encryption/jwe`).
+ *
+ * Een JWE wordt in twee stappen verwerkt. [leesEcdh] en [leesDir] controleren wat zonder sleutel te
+ * zien is (lengte, vorm, headervelden en hun type, `alg`, `enc`, `typ`) en geven bij een fout een
+ * [JweOngeldigException]. Pas daarna gebruikt de Verifier de nonce of de sessie, en ontsleutelt
+ * hij; wat dan nog faalt, ook de inhoud van de `epk`, is een [AfgewezenException].
  *
  * jose4j cast headerwaarden zonder controle naar het verwachte type. Een getal waar tekst hoort,
  * zou daarom als `ClassCastException` ontsnappen en bij de aanroeper een `500` worden in plaats
@@ -40,6 +44,7 @@ internal object Jose {
 
     private const val P256_BYTES = 32
     private const val TYP_JWE = "JWE"
+    private const val MEDIATYPE_PREFIX = "application/"
 
     private val HEADER_JWS = setOf("alg", "typ", "kid")
     private val HEADER_JWE_ECDH = setOf("alg", "enc", "epk", "apu", "apv", "kid", "typ", "cty")
@@ -63,13 +68,11 @@ internal object Jose {
 
     /** Een JWS die nog niet geverifieerd is: header gecontroleerd, payload ongelezen. */
     fun leesJws(compact: String, reden: Afwijzing): JsonWebSignature {
-        val jws = try {
-            JsonWebSignature().apply { compactSerialization = compact }
+        val (jws, header) = try {
+            JsonWebSignature().apply { compactSerialization = compact }.let { it to header(it) }
         } catch (e: JoseException) {
             throw afgewezen(reden, e)
         }
-
-        val header = header(jws) ?: throw AfgewezenException(reden)
 
         if (!headerKlopt(header, HEADER_JWS)) throw AfgewezenException(Afwijzing.HEADER_NIET_TOEGESTAAN)
 
@@ -96,9 +99,21 @@ internal object Jose {
         return jsonObject(jws.unverifiedPayload, reden)
     }
 
-    /** Ontsleutelt een JWE met `ECDH-ES` en `A256GCM` met de private [tijdelijkeSleutel] van de challenge. */
-    fun ontsleutelEcdh(compact: String, tijdelijkeSleutel: Key): String {
-        val jwe = leesJwe(compact, HEADER_JWE_ECDH, KeyManagementAlgorithmIdentifiers.ECDH_ES, Afwijzing.PRESENTATIE_ONLEESBAAR)
+    /** Een JWE met `ECDH-ES` en `A256GCM` waarvan alles is gecontroleerd wat zonder sleutel te zien is. */
+    class EcdhJwe internal constructor(internal val jwe: JsonWebEncryption)
+
+    /** Een JWE met `dir` en `A256GCM` waarvan alles is gecontroleerd wat zonder sleutel te zien is. */
+    class DirJwe internal constructor(internal val jwe: JsonWebEncryption)
+
+    fun leesEcdh(compact: String, maxTekens: Int): EcdhJwe =
+        EcdhJwe(leesJwe(compact, maxTekens, HEADER_JWE_ECDH, KeyManagementAlgorithmIdentifiers.ECDH_ES))
+
+    fun leesDir(compact: String, maxTekens: Int): DirJwe =
+        DirJwe(leesJwe(compact, maxTekens, HEADER_JWE_DIR, KeyManagementAlgorithmIdentifiers.DIRECT))
+
+    /** Ontsleutelt met de private [tijdelijkeSleutel] van de challenge. */
+    fun ontsleutel(gelezen: EcdhJwe, tijdelijkeSleutel: Key): String {
+        val jwe = gelezen.jwe
         val epk = jwe.headers.getObjectHeaderValue("epk") as? Map<*, *>
             ?: throw AfgewezenException(Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG)
 
@@ -111,12 +126,9 @@ internal object Jose {
         return plaintext(jwe, tijdelijkeSleutel, Afwijzing.PRESENTATIE_ONLEESBAAR)
     }
 
-    /** Ontsleutelt een JWE met `dir` en `A256GCM` onder de sessiesleutel. */
-    fun ontsleutelDir(compact: String, aesSleutel: ByteArray): String {
-        val jwe = leesJwe(compact, HEADER_JWE_DIR, KeyManagementAlgorithmIdentifiers.DIRECT, Afwijzing.VERSLEUTELING_ONGELDIG)
-
-        return plaintext(jwe, AesKey(aesSleutel), Afwijzing.VERSLEUTELING_ONGELDIG)
-    }
+    /** Ontsleutelt onder de sessiesleutel. */
+    fun ontsleutel(gelezen: DirJwe, aesSleutel: ByteArray): String =
+        plaintext(gelezen.jwe, AesKey(aesSleutel), Afwijzing.VERSLEUTELING_ONGELDIG)
 
     /** Versleutelt [payload] als JWE met `dir` en `A256GCM` onder de sessiesleutel. */
     fun versleutelDir(payload: String, aesSleutel: ByteArray): String = JsonWebEncryption().run {
@@ -183,31 +195,40 @@ internal object Jose {
     }
 
     /**
-     * Leest een JWE en controleert de header, die zonder sleutel te lezen is: alleen [toegestaan]
-     * velden, [alg] met `A256GCM`, en `typ` `JWE`. De vergelijking van `typ` negeert hoofdletters,
-     * zoals bij een mediatype (RFC 7515, 4.1.9). De constraints van jose4j blijven daarnaast staan.
+     * Leest een JWE en controleert wat zonder sleutel te zien is: ten hoogste [maxTekens] tekens,
+     * alleen [toegestaan] velden met het juiste type, [alg] met `A256GCM`, en `typ` `JWE`. `alg` en
+     * `enc` zijn hoofdlettergevoelig (RFC 7515, 4.1.1); `typ` is een mediatype en dus niet, en mag
+     * met `application/` ervoor (4.1.9). De constraints van jose4j blijven daarnaast staan.
      */
-    private fun leesJwe(compact: String, toegestaan: Set<String>, alg: String, reden: Afwijzing): JsonWebEncryption {
-        val jwe = try {
-            JsonWebEncryption().apply { compactSerialization = compact }
+    private fun leesJwe(compact: String, maxTekens: Int, toegestaan: Set<String>, alg: String): JsonWebEncryption {
+        if (compact.length > maxTekens) throw JweOngeldigException(JweFout.TE_GROOT)
+
+        val (jwe, header) = try {
+            JsonWebEncryption().apply { compactSerialization = compact }.let { it to header(it) }
         } catch (e: JoseException) {
-            throw jweOngeldig(reden, e)
+            throw jweOngeldig(JweFout.ONLEESBAAR, e)
         }
 
-        val header = header(jwe) ?: throw JweOngeldigException(reden)
-
-        if (!headerKlopt(header, toegestaan)) throw JweOngeldigException(Afwijzing.HEADER_NIET_TOEGESTAAN)
+        if (!headerKlopt(header, toegestaan)) throw JweOngeldigException(JweFout.HEADER_ONGELDIG)
 
         if (header["alg"] != alg || header["enc"] != ContentEncryptionAlgorithmIdentifiers.AES_256_GCM) {
-            throw JweOngeldigException(Afwijzing.ALGORITME_ONJUIST)
+            throw JweOngeldigException(JweFout.ALGORITME_ONJUIST)
         }
 
-        if (!TYP_JWE.equals(header["typ"] as? String, ignoreCase = true)) throw JweOngeldigException(Afwijzing.TYP_ONJUIST)
+        if (!isJweTyp(header["typ"] as? String)) throw JweOngeldigException(JweFout.TYP_ONJUIST)
 
         jwe.setAlgorithmConstraints(AlgorithmConstraints(ConstraintType.PERMIT, alg))
         jwe.setContentEncryptionAlgorithmConstraints(ALLEEN_A256GCM)
 
         return jwe
+    }
+
+    private fun isJweTyp(typ: String?): Boolean {
+        if (typ == null) return false
+
+        val zonderPrefix = if (typ.startsWith(MEDIATYPE_PREFIX, ignoreCase = true)) typ.substring(MEDIATYPE_PREFIX.length) else typ
+
+        return zonderPrefix.equals(TYP_JWE, ignoreCase = true)
     }
 
     private fun plaintext(jwe: JsonWebEncryption, sleutel: Key, reden: Afwijzing): String {
@@ -223,12 +244,8 @@ internal object Jose {
         }
     }
 
-    /** De header als JSON-object; `null` als hij dat niet is. jose4j heeft hem dan al geweigerd, dus dit is een vangnet. */
-    private fun header(structuur: JsonWebStructure): Map<String, Any>? = try {
-        JsonUtil.parseJson(structuur.headers.fullHeaderAsJsonString)
-    } catch (ignored: JoseException) {
-        null
-    }
+    /** De header als JSON-object. jose4j heeft hem bij het inlezen al geparst, dus dit faalt alleen als dat verandert. */
+    private fun header(structuur: JsonWebStructure): Map<String, Any> = JsonUtil.parseJson(structuur.headers.fullHeaderAsJsonString)
 
     /** Alleen [toegestaan] velden, en elk met het type dat jose4j verwacht. */
     private fun headerKlopt(header: Map<String, Any>, toegestaan: Set<String>): Boolean =

@@ -12,7 +12,7 @@ import java.time.temporal.ChronoUnit
 import java.util.Base64
 
 /** Een nieuwe sessie, met [antwoord]: de JWE die de app terugkrijgt bij het openen van de sessie. */
-class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
+class UitgegevenSessie internal constructor(val sessie: Sessie, val antwoord: String)
 
 /**
  * De Verifier-kant van `CreateSession` (FSC voor Burgers 4.3.4), voor één organisatie met OIN
@@ -20,9 +20,13 @@ class UitgegevenSessie(val sessie: Sessie, val antwoord: String)
  * niet weet wie de gebruiker is, gebruikt [voltooiSelfSigned]. Het zijn bewust twee ingangen: een
  * magazijn kan zo nooit per ongeluk een presentatie zonder vastgestelde identiteit aannemen.
  *
- * Elke afwijzing is een [AfgewezenException]; de aanroeper antwoordt daarop `401`, ongeacht de
- * reden. Een JWE die zonder sleutel al niet klopt, is een [JweOngeldigException]: `400`. Is de
- * opslag vol, dan volgt [OpslagVolException] en antwoordt de aanroeper `503`.
+ * Alles wat de Verifier bij een verzoek van de app gooit, is een [VerifierFout]:
+ * - [JweOngeldigException]: de JWE klopt al niet zonder sleutel (zie [Jose]); de aanroeper
+ *   antwoordt `400`. Dat wordt gecontroleerd vóór de nonce of de sessie gebruikt wordt, dus de
+ *   nonce blijft dan bruikbaar;
+ * - [AfgewezenException]: elke andere afwijzing; de aanroeper antwoordt `401`, ongeacht de reden;
+ * - [OpslagVolException]: de aanroeper antwoordt `503`.
+ *
  * Verloopt de eigen [VerifierSleutel] binnen [NONCE_GELDIG], dan gooit [maakChallenge] een
  * [IllegalStateException]: een configuratiefout, die als `500` hoort te eindigen. `client` is de herkomst van het verzoek en
  * telt mee voor de quota van de opslag.
@@ -69,8 +73,8 @@ class Verifier(
 
     /**
      * Stap 20 tot en met 26 voor een magazijn: alleen een credential van een App Manager. Het
-     * antwoord is de magazijnsessie in camelCase (`sessieToken`, `geldigTot`), zoals het contract
-     * van de tweede ingang hem vastlegt; de standaard legt de vorm niet vast.
+     * antwoord is de magazijnsessie in camelCase (`sessieToken`, `geldigTot`), zoals `Magazijnsessie`
+     * in `rechtstreeks-ophalen-api.yaml` hem vastlegt; de standaard legt de vorm niet vast.
      */
     fun voltooiMetCredential(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
         val nu = klok.instant()
@@ -93,8 +97,8 @@ class Verifier(
 
     /**
      * Stap 20 tot en met 26 voor de App Manager: alleen een self-signed certificaat (4.4.1, stap 2).
-     * De App Manager volgt de standaard letterlijk, dus het antwoord noemt `session_token` en
-     * `expires_in`.
+     * Het antwoord noemt het token `session_token`, zoals 4.4.1; `expires_in` (seconden) is een
+     * eigen keuze naar het voorbeeld van 4.4.2, want de standaard legt de vorm niet vast.
      */
     fun voltooiSelfSigned(nonce: String, versleuteldePresentatie: String, client: String): UitgegevenSessie {
         val nu = klok.instant()
@@ -124,13 +128,16 @@ class Verifier(
         return Jose.versleutelDir(payload, sessie.aesSleutel)
     }
 
-    /** Ontsleutelt een verzoek dat de app onder de sessiesleutel versleutelde. */
+    /**
+     * Ontsleutelt een verzoek dat de app onder de sessiesleutel versleutelde. De aanroeper zocht de
+     * sessie al op met [sessie]; wie een token heeft, leert dus niets uit de volgorde.
+     */
     fun ontsleutel(sessie: Sessie, jwe: String): String {
+        val gelezen = Jose.leesDir(jwe, MAX_VERZOEK_TEKENS)
+
         vereisLopend(sessie)
 
-        if (jwe.length > MAX_VERZOEK_TEKENS) throw AfgewezenException(Afwijzing.VERSLEUTELING_ONGELDIG)
-
-        return Jose.ontsleutelDir(jwe, sessie.aesSleutel)
+        return Jose.ontsleutel(gelezen, sessie.aesSleutel)
     }
 
     private fun vereisLopend(sessie: Sessie) {
@@ -140,14 +147,14 @@ class Verifier(
     private class Presentatie(val nonceHandtekening: String, val certificaat: String, val aesSleutel: ByteArray)
 
     private fun openPresentatie(nonce: String, versleuteld: String, verwachtCertificaat: String): Presentatie {
+        // Eerst wat zonder sleutel te zien is: die fout zegt niets over de nonce, dus die blijft staan.
+        val gelezen = Jose.leesEcdh(versleuteld, MAX_PRESENTATIE_TEKENS)
+
         // De nonce is na deze regel verbruikt, ook als een controle hieronder faalt: herhaald
         // proberen met dezelfde challenge levert dus niets op.
         val tijdelijkeSleutel = challenges.neem(oin, nonce) ?: throw AfgewezenException(Afwijzing.NONCE_ONBEKEND)
 
-        // Een echte presentatie is een paar kilobyte; groter is alleen werk voor de ontsleuteling.
-        if (versleuteld.length > MAX_PRESENTATIE_TEKENS) throw AfgewezenException(Afwijzing.PRESENTATIE_ONLEESBAAR)
-
-        val velden = Jose.jsonObject(Jose.ontsleutelEcdh(versleuteld, tijdelijkeSleutel), Afwijzing.PRESENTATIE_ONLEESBAAR)
+        val velden = Jose.jsonObject(Jose.ontsleutel(gelezen, tijdelijkeSleutel), Afwijzing.PRESENTATIE_ONLEESBAAR)
 
         val nonceHandtekening = velden["app_nonce_signature"] as? String
         val soort = velden["certificate_type"] as? String
@@ -197,8 +204,8 @@ class Verifier(
 
     /**
      * Bewaart een nieuwe sessie en versleutelt [antwoord] onder haar sleutel. Het einde gaat naar
-     * hele seconden, naar beneden: zo is het moment dat de app terugkrijgt precies het einde, en
-     * nooit later.
+     * hele seconden, naar beneden: zo is `geldigTot` precies het einde, en een looptijd in seconden
+     * nooit langer dan de sessie werkelijk duurt.
      */
     private fun geefUit(
         aesSleutel: ByteArray,
@@ -235,7 +242,10 @@ class Verifier(
          */
         val ACTIVATIE_GELDIG: Duration = Duration.ofMinutes(10)
 
-        /** Gelijk aan `maxLength` van `encrypted_challenge_result` in het contract. */
+        /**
+         * Gelijk aan `maxLength` van `encrypted_challenge_result` in het contract. Een echte
+         * presentatie is een paar kilobyte; groter is alleen werk voor de ontsleuteling.
+         */
         const val MAX_PRESENTATIE_TEKENS = 65_536
 
         /** Bovengrens voor een verzoek binnen de sessie; ruim boven wat een app versleuteld stuurt. */
