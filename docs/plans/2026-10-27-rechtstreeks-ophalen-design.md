@@ -164,7 +164,7 @@ samen, sorteert ze op publicatietijdstip en toont welke magazijnen niet of te la
 | Nonce getekend met de sleutel uit `cnf.jwk` | Een gestolen VC zonder de sleutel uit de browser: het VC is niet overdraagbaar |
 | `registration_token` gebonden aan de thumbprint van de root app key | Een gestolen token dat een VC op een andere sleutel oplevert |
 | `aud` in de getekende nonce, gelijk aan de OIN van het aangesproken magazijn | Een magazijn dat de presentatie doorspeelt aan een ander magazijn |
-| Nonce eenmalig, 60 seconden, en verbruikt ook als een controle faalt | Een opgenomen sessieverzoek opnieuw afspelen; sleutelherstel door herhaald proberen |
+| Nonce eenmalig, 60 seconden, en verbruikt ook als een controle faalt; alleen een `400` op de envelop, die zonder sleutel te zien is, laat hem staan | Een opgenomen sessieverzoek opnieuw afspelen; sleutelherstel door herhaald proberen |
 | Nonces en sessies opgeslagen per OIN van het magazijn | In de simulator: een token of nonce van magazijn A dat bij magazijn B werkt |
 | Challenge getekend met een niet-verlopen magazijnsleutel uit het stelseldocument | Een nepmagazijn dat zich als een echt voordoet |
 | Presentatie versleuteld naar een tijdelijke sleutel | Meelezen van VC en AES-sleutel, ook als TLS ergens onderweg wordt opengebroken |
@@ -184,9 +184,9 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
 2. **Zelf bouwen, geen VORijk-onderdelen.** De VORijk-referentieonderdelen voor een
    bronorganisatie vragen per organisatie eigen diensten en databases. De simulator speelt 3 tot
    100 organisaties in één service; daar past dat niet in. We volgen de berichten van de
-   standaard wel letterlijk (veldnamen, JWS- en JWE-vormen), zodat de vergelijking eerlijk blijft.
-   Een bestaande VORijk-app kan niet zonder meer aansluiten: de scope, de claims in het VC en de
-   paden wijken af (zie "Afwijkingen").
+   standaard wel letterlijk (veldnamen, JWS- en JWE-vormen), zodat de vergelijking eerlijk blijft;
+   alleen `typ` `JWE` eisen we erbij. Een bestaande VORijk-app kan niet zonder meer aansluiten: de
+   scope, de claims in het VC, `typ` in de JWE en de paden wijken af (zie "Afwijkingen").
 
 3. **Browsersleutel: WebCrypto, P-256, niet-exporteerbaar, in IndexedDB.** Past precies in de
    standaard. Zie "Verkenning" voor de afweging met passkeys.
@@ -248,7 +248,8 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    toch afwijken, leveren de namen uit de standaard alleen herkenbaarheid op. We volgen daarom de
    API Design Rules: het `/api/v1`-prefix, één eigen subtree, en zelfstandige naamwoorden
    (`/core/naming-resources`): `POST /rechtstreeks/challenges` en `POST /rechtstreeks/sessies`.
-   De berichten zelf (veldnamen, JWS- en JWE-vormen) volgen de standaard wel letterlijk. Een
+   De berichten zelf (veldnamen, JWS- en JWE-vormen) volgen de standaard wel letterlijk, op de
+   verplichte `typ` in een JWE na. Een
    eigen subtree vraagt de codegenerator ook: zou het basispad van een tag de routes van een
    andere tag afvangen, dan laat de generator dat basispad vallen en antwoordt Quarkus REST met
    405 (zie het commentaar boven `tags` in `berichtenmagazijn-api.yaml`). Een proefgeneratie
@@ -279,7 +280,7 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    minste 22, 4.3.4.2 stap 26) en gaat als `Bearer`-token in `Authorization` (RFC 6750). De
    standaard stuurt het token alleen bij de App Manager zonder schema mee (4.4.1 stap 20,
    `/credential` en `/unregister_app`); hoe een dienst het ontvangt, laat hij open. De App
-   Manager volgt 4.4.1 letterlijk. In de code heet dit de **magazijnsessie**, met
+   Manager volgt 4.4.1 daarin letterlijk. In de code heet dit de **magazijnsessie**, met
    opzet anders dan de inlogsessie van de uitvraag (#943, `X-Sessie`). Die twee hebben niets met
    elkaar te maken. Het token alleen is een bearer-token. Voor lezen is dat genoeg, want elk
    antwoord is versleuteld met de AES-sleutel van de sessie. Een verzoek dat iets verandert
@@ -367,6 +368,7 @@ Deze tabel gaat als terugkoppeling naar de auteurs, net als die in het toepassin
 | `public_key` per organisatie (voorbeeld in 4.1.1.1) | Lijst `public_keys` met `kid` en `exp` | Sleutelwissel met overlap; verloopdatum per sleutel (4.6) |
 | `/v1/challenge` en `/v1/complete` van een sessie-dienst uit de vindbaarheidsconfiguratie (4.2, 4.3.4.2) | `POST <magazijn_url>/api/v1/rechtstreeks/challenges` en `…/sessies`, beide `201` | Geen vindbaarheidsconfiguratie; zie ontwerpkeuze 5 en 6 |
 | `session_aes_key` van 16 bytes (4.3.4.1) | 32 bytes | De standaard spreekt zichzelf tegen; zie ontwerpkeuze 9 |
+| JWE-header met `enc`, `alg` en `kid`, zonder `typ` (3.4) | Elke JWE draagt `typ` `JWE`; zonder geeft `400`, ook bij de App Manager | ADR `/encryption/jwe`. Een app die precies volgens de standaard versleutelt, moet `typ` toevoegen |
 | Hybride ML-KEM-768 met ECIES ZOU MOETEN (3.3) | Alleen `ECDH-ES` | Geen JOSE-library kent `ML-KEM-768+ECDH-ES`; zie "Post-quantum" hieronder |
 | Revocatie van VC's met een Token Status List, en van de sleutels van Issuers en Verifiers (4.5) | Niet; een VC is ten hoogste 24 uur geldig, een sleutel verdwijnt met een nieuw stelseldocument | Buiten de eerste sprint |
 | TLS 1.3 (3.5) | Eis aan de ingress, niet in de dienst afgedwongen; voor productie ook hybride sleuteluitwisseling (`X25519MLKEM768`) | Zoals bij het stelselregister; zie "Post-quantum" hieronder |
@@ -461,9 +463,9 @@ magazijn, dus de Verifier-library komt eerst.
 | PR | Inhoud | Issue | Aantoonbaar met |
 |---|---|---|---|
 | **0. Ontwerp + contract** | Dit document, `rechtstreeks-ophalen-api.yaml`, gekozen variant in de architectuur | #1213 (keuze vastleggen) | Review; Spectral op de spec; proefgeneratie |
-| **1. Verifier-library** | `libraries/fbs-rechtstreeks`: challenge maken, presentatie en VC controleren (beide certificaattypen), sessies, begrensde opslag in het geheugen | #1213, #1215 | Unit- en property-based tests met een Kotlin-testclient in de rol van app: elke rij uit "Wat elke controle tegenhoudt" als afwijzing, plus een token van magazijn A bij magazijn B |
+| **1. Verifier-library** | `libraries/fbs-rechtstreeks`: challenge maken, presentatie en VC controleren (beide certificaattypen), sessies, begrensde opslag in het geheugen | #1213, #1215 | Unit- en property-based tests met een Kotlin-testclient in de rol van app: elke rij uit "Wat elke controle tegenhoudt" als afwijzing (`401`) of ongeldig verzoek (`400`), plus een token van magazijn A bij magazijn B |
 | **2. Sleutel + demo-App Manager** | `demo/app-manager` (activeren volgens 4.4.1, persona-keuze, VC uitgeven en verversen, binding van het `registration_token`, vaste terug-URL); App Manager en sleutels in het stelseldocument en het toepassingsprofiel; `demo/berichten-app` met de sleutel en het activeren | #1213, #1214 | Een VC per persona; een VC met een andere sleutel faalt; een `registration_token` met een andere sleutel faalt; de sleutel is niet te exporteren (browsertest) |
-| **3. Magazijnsessie in de simulator** | Sleutel per gesimuleerd magazijn (register, stelseldocument, `genereer-magazijnen.py`); `challenges`/`sessies`; CORS met preflight | #1215 | Geldig VC geeft een sessie; ongeldig VC, verkeerde handtekening, verkeerde `aud` of hergebruikte nonce geeft `401`; een JWE-header met een ander `alg`, `enc` of `typ` geeft `400`; volle nonce-opslag geeft `503`; CORS-headers ook op `401`; contracttest op alle statussen, plus de compacte string tegen het patroon van `CompactJws`/`CompactJwe` en de payload na verifiëren tegen het `x-payload`-schema (de validator slaat `application/jose` over); `challenges` en `sessies` geven `201` |
+| **3. Magazijnsessie in de simulator** | Sleutel per gesimuleerd magazijn (register, stelseldocument, `genereer-magazijnen.py`); `challenges`/`sessies`; CORS met preflight | #1215 | Geldig VC geeft een sessie; ongeldig VC, verkeerde handtekening, verkeerde `aud` of hergebruikte nonce geeft `401`; een JWE-header met een ander `alg`, `enc` of `typ` geeft `400` en laat de nonce bruikbaar; volle nonce-opslag geeft `503`; CORS-headers ook op `401`; contracttest op alle statussen, plus de compacte string tegen het patroon van `CompactJws`/`CompactJwe` en de payload na verifiëren tegen het `x-payload`-schema (de validator slaat `application/jose` over); `challenges` en `sessies` geven `201` |
 | **4. Berichten lezen in de simulator** | `GET /rechtstreeks/berichten` en `/{berichtId}`, versleuteld, alleen voor de ontvanger uit de sessie | #1215 (deels) | Alleen de berichten van de eigen ontvanger; een bericht van een ander of een verwijderd bericht geeft `404`; een verlopen of onbekende sessie geeft `401`; het 200-antwoord valideert na ontsleutelen tegen het `x-payload`-schema |
 | **5. Berichten-app: ophalen en samenvoegen** | Stelseldocument ophalen en controleren, parallel bij elk magazijn ophalen, samenvoegen en sorteren, niet-reagerende magazijnen tonen; knop in het bedieningspaneel die de Berichten-app opent | #1216, #1211 | Eén gesorteerde lijst voor een persona; een gestopt magazijn wordt bij naam getoond; de CSP staat geen inline script toe en noemt in `connect-src` alleen de geconfigureerde adressen |
 

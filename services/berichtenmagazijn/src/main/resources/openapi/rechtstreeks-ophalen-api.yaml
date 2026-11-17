@@ -40,17 +40,19 @@ info:
 
     | `type` | Status | Situatie |
     |---|---|---|
-    | `urn:fbs:fout:ongeldig-verzoek` | 400, 406, 415 | Het verzoek zelf klopt niet; bij `sessies` alleen de buitenste envelop: de JSON en de header van de JWE (`alg`, `enc`, `typ`, geen verboden velden) |
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 406, 415 | Het verzoek zelf klopt niet; bij `sessies` alleen de buitenste envelop: de JSON, de lengte en de header van de JWE (`alg`, `enc`, `typ`, alleen toegestane velden met het juiste type) |
     | `urn:fbs:fout:geen-toegang` | 401 | Presentatie afgewezen, nonce onbekend, verlopen of al gebruikt, of sessie onbekend of verlopen |
     | `urn:fbs:fout:bericht-onbekend` | 404 | Het bericht bestaat niet, is verwijderd, of hoort niet bij de ontvanger van de sessie |
     | `urn:fbs:fout:niet-gevonden` | 404 | Het pad bestaat (nog) niet, zoals het bijlagepad waar een bijlagelink naar wijst |
     | `urn:fbs:fout:tijdelijk-niet-beschikbaar` | 503 | Tijdelijk niet beschikbaar, ook als er te veel openstaande challenges zijn; `Retry-After` zegt wanneer opnieuw |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
 
-    Alles wat bij `sessies` ná het ontsleutelen misgaat, geeft dezelfde `401` met dezelfde body:
-    het antwoord verraadt niet welke controle faalde, en ook niet of het ontsleutelen lukte. De
-    `400` op de header verraadt niets: die is zonder sleutel te lezen. Bij
-    een `401` op `berichten` begint de app opnieuw bij stap 1.
+    Bij `sessies` controleert het magazijn eerst de envelop en de header van de JWE. Die zijn
+    zonder sleutel te lezen, en dat gebeurt vóór de nonce wordt gebruikt: een `400` laat de nonce
+    bruikbaar en zegt niets over de nonce of over de controles daarna. Alles wat daarna misgaat
+    (de nonce, de `epk`, het ontsleutelen, de presentatie) geeft dezelfde `401` met dezelfde body
+    en verbruikt de nonce: het antwoord verraadt niet welke controle faalde, en ook niet of het
+    ontsleutelen lukte. Bij een `401` op `berichten` begint de app opnieuw bij stap 1.
 
     Anders dan de eerste ingang onderscheidt deze ingang "bestaat niet", "is verwijderd" en "hoort
     bij een ander" niet: alle drie zijn `404`. De app is de eindgebruiker zelf, en die hoeft het bestaan van
@@ -168,9 +170,11 @@ paths:
 
         Alleen `ES256` (JWS), `ECDH-ES` met `A256GCM` (deze JWE) en `dir` met `A256GCM` (het
         antwoord) worden geaccepteerd. Een JWE-header met een ander `alg` of `enc`, zonder `typ`
-        `JWE`, of met `jwk`, `jku`, `x5u`, `x5c` of `crit`, geeft `400` (ADR `/encryption/jwe`);
-        in een JWS binnen de presentatie geeft dat `401`. Daarna is de nonce verbruikt, ook als
-        een controle faalde.
+        `JWE` (zonder onderscheid in hoofdletters, met of zonder `application/`), met een ander
+        veld dan `alg`, `enc`, `epk`, `apu`, `apv`, `kid`, `typ` en `cty` (dus ook zonder `jwk`,
+        `jku`, `x5u`, `x5c` of `crit`), of met een waarde van het verkeerde type, geeft `400`
+        (ADR `/encryption/jwe`), en de nonce blijft bruikbaar. In een JWS binnen de presentatie
+        geeft hetzelfde `401`. Na elke andere controle is de nonce verbruikt, ook als die faalde.
 
         Het antwoord is een JWE, versleuteld met `session_aes_key`, met als payload
         `Magazijnsessie`. Dat de app het kan ontsleutelen, bewijst dat dit magazijn de
@@ -509,14 +513,16 @@ components:
           type: string
           format: date-time
           description: |
-            Het moment waarop de sessie verloopt: 15 minuten na de start, of eerder op `exp` van het
-            Verifiable Credential. Een sessie wordt niet verlengd.
+            Het moment waarop de sessie verloopt: het vroegste van 15 minuten na de start en `exp`
+            van het Verifiable Credential, naar beneden afgerond op een hele seconde. Een sessie
+            wordt niet verlengd.
 
   responses:
     BadRequest:
       description: |
         Het verzoek is syntactisch onjuist of mist verplichte velden. Bij `sessies` ook: de header
-        van de JWE noemt een ander `alg` of `enc`, mist `typ` `JWE`, of bevat een verboden veld.
+        van de JWE noemt een ander `alg` of `enc`, mist `typ` `JWE`, of bevat een veld dat niet
+        mag of een waarde van het verkeerde type. De nonce blijft dan bruikbaar.
       headers:
         API-Version:
           $ref: '#/components/headers/API-Version'
