@@ -136,7 +136,7 @@ poorten_naar_buiten() {
   while IFS='|' read -r naam poorten; do
     IFS=',' read -ra bindingen <<<"$poorten"
 
-    for binding in "${bindingen[@]}"; do
+    for binding in ${bindingen[@]+"${bindingen[@]}"}; do
       binding=${binding# }
 
       case "$binding" in
@@ -172,7 +172,17 @@ kubectl_niet_gevonden() {
 
 # Slaagt als niemand op 127.0.0.1:<poort> luistert. Ook een listener op alle adressen bezet hem.
 poort_vrij() {
-  ! ss -ltnH "sport = :$1" | grep -q .
+  ! poort_luistert "$1"
+}
+
+# Slaagt als er op <poort> (TCP, elk adres) een listener is. `ss` bestaat alleen op Linux; op macOS
+# is `lsof` de tool die hetzelfde vertelt.
+poort_luistert() {
+  if command -v ss >/dev/null; then
+    ss -ltnH "sport = :$1" | grep -q .
+  else
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  fi
 }
 
 # --- Manifests -----------------------------------------------------------------------------------
@@ -514,7 +524,7 @@ EOF
 }
 
 # De helm-argumenten voor een route aan de https-listener van Gateway web, één per regel (lees ze
-# met mapfile). allowUnauthenticated: de route staat alleen op loopback open.
+# met een read-lus). allowUnauthenticated: de route staat alleen op loopback open.
 helm_route_args() {
   local dienst=$1
 

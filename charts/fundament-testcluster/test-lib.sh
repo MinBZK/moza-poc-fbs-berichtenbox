@@ -165,7 +165,7 @@ python3 -I -m http.server --bind 127.0.0.1 "$vrije_poort" >/dev/null 2>&1 &
 server=$!
 
 for _ in $(seq 1 50); do
-  ss -ltn "sport = :$vrije_poort" | grep -q LISTEN && break
+  poort_luistert "$vrije_poort" && break
   sleep 0.1
 done
 
@@ -348,7 +348,8 @@ gelijk "onbekende dienst: exit 1" 1 "$(code_van values_dienst profiel tnt-fbs--f
 
 echo "== helm_route_args =="
 
-mapfile -t args < <(helm_route_args stelselregister)
+args=()
+while IFS= read -r regel; do args+=("$regel"); done < <(helm_route_args stelselregister)
 gelijk "vijf --set-paren, één woord per regel" 10 "${#args[@]}"
 gelijk "route aan" "--set ingress.enabled=true" "${args[0]} ${args[1]}"
 bevat "hostnaam" "ingress.hostname=stelselregister.fbs.localhost" "${args[*]}"

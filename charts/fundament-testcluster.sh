@@ -160,12 +160,14 @@ platform_gereed() {
 # containers, als "<container>|<bindingen>". Faalt als docker faalt: een lege lijst mag dan niet
 # als "in orde" lezen.
 docker_poorten() {
-  local netwerk lijst ids=()
+  local netwerk lijst id ids=()
 
   # Geen < <(...): de exitcode van een process substitution gaat verloren.
   for netwerk in k3d-fundament k3d-fundament-plugin; do
     lijst=$(docker ps -aq --filter "network=$netwerk") || return 1
-    [ -z "$lijst" ] || mapfile -t -O "${#ids[@]}" ids <<<"$lijst"
+    while IFS= read -r id; do
+      [ -z "$id" ] || ids+=("$id")
+    done <<<"$lijst"
   done
 
   [ "${#ids[@]}" -gt 0 ] || return 0
@@ -187,8 +189,14 @@ alleen_loopback() {
   return 1
 }
 
+# De map met de lokale CA van mkcert. Een mise-shim van mkcert werkt alleen in een map waar mise
+# een versie voor kent; die kent de worktree van Fundament, buiten die map faalt hij.
+mkcert_caroot() {
+  mkcert -CAROOT 2>/dev/null || mise exec -C "$WORKTREE" -- mkcert -CAROOT
+}
+
 console_antwoordt() {
-  curl -sf -o /dev/null --max-time 5 --cacert "$(mkcert -CAROOT)/rootCA.pem" https://console.fundament.localhost:8443/
+  curl -sf -o /dev/null --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" https://console.fundament.localhost:8443/
 }
 
 # Hun cluster-create, maar met de poorten en registry op loopback en zonder de huidige context te
@@ -260,7 +268,7 @@ platform_op() {
 # tweede met dezelfde (already_exists).
 api_key_maken() {
   local ca token antwoord naam
-  ca="$(mkcert -CAROOT)/rootCA.pem"
+  ca="$(mkcert_caroot)/rootCA.pem"
   naam=fbs-fundament-testcluster-$(date -u +%Y%m%dT%H%M%S)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')
 
   token=$(curl -sf --cacert "$ca" -X POST https://authn.fundament.localhost:8443/login/password \
@@ -624,7 +632,8 @@ installeer_beheerder() {
 
   for dienst in "${DIENSTEN[@]}"; do
     losse_route_weg "$dienst"
-    mapfile -t route < <(helm_route_args "$dienst")
+    route=()
+    while IFS= read -r regel; do route+=("$regel"); done < <(helm_route_args "$dienst")
     installeer_dienst "$dienst" "${route[@]}" || stop 1 "installeren van $dienst als beheerder faalde"
   done
 }
@@ -663,7 +672,8 @@ installeer_projectlid() {
   done
 
   for dienst in "${DIENSTEN[@]}"; do
-    mapfile -t route < <(helm_route_args "$dienst")
+    route=()
+    while IFS= read -r regel; do route+=("$regel"); done < <(helm_route_args "$dienst")
     dienst_args "$dienst"
     hm template "${DIENST_ARGS[@]}" "${route[@]}" --show-only templates/httproute.yaml | kc apply -n "$NS" -f - >/dev/null
     echo "OK: route van $dienst apart gemaakt door de beheerder"
@@ -870,7 +880,7 @@ EOF
 op() {
   : "${TAG:?zet TAG op een gepubliceerde image-tag, bijvoorbeeld main-<sha7> van de laatste main-commit}"
   [[ $REPLICAS =~ ^[1-9][0-9]?$ ]] || stop 2 "REPLICAS moet een geheel getal van 1 tot 99 zijn"
-  vereis_tools docker mise git jq curl ss openssl mkcert
+  vereis_tools docker mise git jq curl openssl mkcert "$(command -v ss >/dev/null && echo ss || echo lsof)"
   # type -P: kubectl en helm zijn hierboven vangfuncties, command -v zou die vinden.
   type -P kubectl >/dev/null && type -P helm >/dev/null || stop 2 "kubectl en helm moeten op het PATH staan"
 
