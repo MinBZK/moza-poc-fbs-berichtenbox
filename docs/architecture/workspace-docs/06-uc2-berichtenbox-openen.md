@@ -42,9 +42,7 @@ sequenceDiagram
 
     OND->>IL: Logt in en opent de berichtenbox
     IL->>FBS: Start een sessie voor deze ondernemer
-    opt Gegevens van een eerdere sessie staan er nog
-        FBS->>FBS: Wis die gegevens
-    end
+    FBS->>FBS: Wis gegevens van een eerdere sessie, als die er nog staan
     FBS-->>IL: Sessie gestart
 
     IL->>FBS: Haal de berichten op
@@ -66,9 +64,7 @@ sequenceDiagram
 
     OND->>IL: Logt uit
     IL->>FBS: Beëindig de sessie
-    opt Dit was de laatste sessie van de ondernemer
-        FBS->>FBS: Wis de berichtenlijst
-    end
+    FBS->>FBS: Was dit de laatste sessie? Wis dan de berichtenlijst
     FBS-->>IL: Sessie beëindigd
 ```
 
