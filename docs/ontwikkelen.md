@@ -99,7 +99,9 @@ elke PR, met de versies die daar gepind staan. Raakt een wijziging de chart, dra
 clusterproef: alleen die laat zien dat de pods echt starten en de Gateway ze bereikt.
 `fundament-testcluster.sh` zet het lokale platform van Fundament op, met de plug-ins zoals het
 fieldlab ze installeert, en installeert de diensten in twee rollen. De eerste keer duurt dat lang,
-omdat het alle images van Fundament bouwt. Voorwaarden en afwijkingen staan in
+omdat het alle images van Fundament bouwt. Daarna blijft de opstelling draaien en kost ze ook
+zonder verkeer merkbaar stroom: laten staan, pauzeren of opruimen is na elke proef een keuze, en
+`op` sluit af met de opties. Voorwaarden en afwijkingen staan in
 [`charts/README.md`](../charts/README.md#proef-op-een-fundament-sandbox).
 
 ## Een tweede magazijn draaien

@@ -798,7 +798,8 @@ controleer() {
   done
 
   if [ "$fouten" -ne 0 ]; then
-    echo "$fouten controle(s) niet in orde. De opstelling blijft staan voor onderzoek met kubectl --context $SANDBOX_CONTEXT -n $NS; weg met: $0 af"
+    echo "$fouten controle(s) niet in orde. De opstelling blijft staan voor onderzoek met kubectl --context $SANDBOX_CONTEXT -n $NS."
+    na_afloop
     exit 1
   fi
 
@@ -845,6 +846,25 @@ af() {
   fi
 }
 
+# Wat er na een proef met de opstelling gebeurt, is een keuze van wie hem draait: laten staan scheelt
+# een volgende keer de opbouw, maar de twee clusters houden ook zonder verkeer de processor wakker
+# (op een laptop op batterij bijna een derde van het verbruik bij stilstand), en met restart-policy
+# unless-stopped komen draaiende clusters na een herstart vanzelf terug. Pauzeren via k3d, niet met
+# docker stop/start: alleen k3d cluster start zet host.k3d.internal terug in CoreDNS.
+na_afloop() {
+  cat <<EOF
+
+De opstelling blijft draaien en kost ook zonder verkeer stroom; na een herstart van de machine start
+hij vanzelf weer. Kies:
+  laten draaien   niets doen
+  pauzeren        (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament)
+                  hervatten, vóór een volgende op of controleer:
+                  (cd $WORKTREE && mise exec -- k3d cluster start fundament fundament-plugin)
+  opruimen        $0 af --met-platform
+                  (alleen af laat het platform draaien; opnieuw opzetten bouwt alle images van Fundament)
+EOF
+}
+
 # --- Subcommando's -------------------------------------------------------------------------------
 
 op() {
@@ -876,6 +896,8 @@ op() {
       controleer
       ;;
   esac
+
+  na_afloop
 }
 
 main() {

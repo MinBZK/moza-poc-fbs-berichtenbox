@@ -168,6 +168,14 @@ docker compose up -d                                             # Redis, WireMo
 faalt de resolution van de `libraries/`-jars die nog niet in de lokale Maven-repository staan.
 De JaCoCo-90%-gate hangt aan de fase `test`, detekt aan `verify`.
 
+**Na een clusterproef ligt de keuze bij de gebruiker.** `charts/fundament-testcluster.sh` en
+`charts/lokaal-testcluster.sh` laten clusters achter die ook zonder verkeer stroom kosten: op
+batterij gemeten bijna een derde van het verbruik bij stilstand. Draaide de proef vanuit Claude,
+vraag dan na afloop of de opstelling mag blijven draaien, gepauzeerd of opgeruimd moet worden, met
+pauzeren of opruimen als aanbeveling; beslis het niet zelf. Pauzeer en hervat de Fundament-clusters
+met `k3d cluster stop`/`start` via `mise exec` in de worktree die het script noemt (`k3d` staat niet
+op het PATH), nooit met `docker stop`/`start`: dan mist CoreDNS daarna `host.k3d.internal`.
+
 ### Build- en test-warnings nalopen
 
 Bij elke wijziging de build-/test-output op waarschuwingen controleren en per stuk

@@ -297,6 +297,20 @@ weigering na het opzetten laat staan wat er al draait. Ruim het dan meteen op me
 
 De containers starten na een herstart van de machine vanzelf weer.
 
+**Na een proef is wat er met de opstelling gebeurt jouw keuze**; `op` sluit af met de opties.
+Laten staan scheelt een volgende keer de opbouw, maar de twee clusters kosten ook zonder verkeer
+stroom: op een laptop op batterij gemeten ruim 6 W, bijna een derde van het verbruik bij stilstand.
+Werk je op batterij, of heb je de opstelling voorlopig niet nodig, pauzeer hem dan in de worktree
+van Fundament (de melding noemt het pad):
+
+```bash
+mise exec -- k3d cluster stop fundament-plugin fundament     # pauzeren; blijft ook na een herstart uit
+mise exec -- k3d cluster start fundament fundament-plugin    # hervatten, vóór een volgende op of controleer
+```
+
+Niet met `docker stop` en `docker start`, om dezelfde reden als hieronder bij een wissel van
+netwerk. Opruimen gaat met `af --met-platform`; een kale `af` laat het platform draaien.
+
 **Na een wissel van netwerk**, zoals op het fieldlab, vraagt een k3d-node zijn DNS nog aan de
 server van het vorige netwerk. Docker legt die vast bij het starten van de container. Nieuwe pods
 blijven dan in ImagePullBackOff hangen. `op` controleert dat vooraf. Herstel het door beide
