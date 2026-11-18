@@ -70,9 +70,9 @@ ondertekent dus met een sleutel die het document aanwijst.
   `APP_MANAGER_SLEUTEL_PAD` op de sleutel uit dit script. Komt hij later als container in de stack,
   dan moet hij de sleutel als bind-mount kunnen lezen; nu is het bestand alleen voor de eigenaar
   leesbaar.
-- **De simulator die de App Manager vertrouwt.** Op de branch van het ophalen
-  (`simulator.rechtstreeks.app-managers`) bestaat die configuratie al. Daar kan hetzelfde script
-  een tweede properties-bestand schrijven.
+- **De simulator die de App Manager vertrouwt.** Met MinBZK/MijnOverheidZakelijk#1216 krijgt de
+  simulator `simulator.rechtstreeks.app-managers`. Daarvoor kan hetzelfde script een tweede
+  properties-bestand schrijven.
 - **ZAD.** Daar draait geen App Manager. Het stelselregister op ZAD blijft zonder App Managers.
 
 ## Verificatie
