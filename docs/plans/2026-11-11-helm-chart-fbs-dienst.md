@@ -137,6 +137,17 @@ charts/
     uit de velden van het Secret `<cluster>-app`, met `sslmode=verify-full` tegen de CA uit `<cluster>-ca`.
   - De Gateway krijgt een publiek IPv4-adres zonder DNS. De hostnaam van de route (eigen A-record of
     sslip.io) is pas bekend als de Gateway er staat; daarom eerst de Gateway, dan de chart.
+- **Een gedeelde organisatie op het fieldlab** (bericht van de organisatie, 2026-11-18): elk
+  cluster delen meerdere teams, en iedereen is beheerder van elk project. De chart verandert
+  daarvoor niet, want hij blijft al binnen de eigen namespace. De README vraagt wel:
+  - alleen proefgegevens, en geheimen die alleen voor dat cluster bestaan. Een Secret is voor
+    elk team leesbaar; met een ondertekensleutel van een andere omgeving kan iedereen in de
+    organisatie een stelseldocument tekenen dat die omgeving vertrouwt;
+  - een prefix per product op de projectnaam (`fbs-`), en een team-label via `commonLabels`;
+  - een `Issuer` in de eigen namespace in plaats van een `ClusterIssuer`, en `allowedRoutes` op
+    `Same`.
+
+  Herstel uit git na een storing of een vergissing van een ander team is een eigen issue.
 - **Afhankelijkheden buiten de chart.** PostgreSQL, Redis met RediSearch en het logboek horen bij
   MinBZK/MijnOverheidZakelijk#1536. De chart verwijst er alleen naar via env.
 
