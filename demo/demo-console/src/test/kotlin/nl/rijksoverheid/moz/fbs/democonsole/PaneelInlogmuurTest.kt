@@ -1,10 +1,10 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.CsvSource
+import java.io.File
 
 /**
  * Bewaakt dat een verlopen inlogsessie het paneel niet als kapot laat overkomen.
@@ -26,24 +26,22 @@ class PaneelInlogmuurTest {
 
     private val script: String = PaneelBestanden.script()
 
-    private val boxScript: String = PaneelBestanden.boxScript()
+    @Test
+    fun `elke pagina van dit component laadt het inlogmuur-script als eerste`() {
+        // Elke pagina hier valt achter dezelfde muur; een pagina die het script niet laadt, valt
+        // terug op het oude gedrag zonder dat iets dat meldt. Alle pagina's en niet een vaste lijst,
+        // zodat een nieuwe pagina vanzelf meetelt.
+        val paginas = File(PaneelBestanden.RESOURCES_PAD).walkTopDown().filter { it.extension == "html" }.toList()
 
-    @ParameterizedTest(name = "{0} laadt het inlogmuur-script vóór {1}")
-    @CsvSource("index.html,bediening.js", "berichtenbox.html,berichtenbox.js")
-    fun `elke pagina van dit component laadt het inlogmuur-script eerst`(pagina: String, eigenScript: String) {
-        // Beide pagina's komen van dit component en vallen dus achter dezelfde muur; een pagina die
-        // het script niet laadt, valt terug op het oude gedrag zonder dat iets dat meldt.
-        val bron = if (pagina == "index.html") PaneelBestanden.paneel() else PaneelBestanden.boxPagina()
+        assertTrue(paginas.any { it.name == "index.html" }, "index.html niet gevonden; deze test meet dan de verkeerde bestanden")
 
-        val muurTag = bron.indexOf("""src="inlogmuur.js"""")
-        val eigenTag = bron.indexOf("""src="$eigenScript"""")
-
-        assertTrue(muurTag >= 0, "$pagina laadt inlogmuur.js niet")
-        assertTrue(eigenTag >= 0, "$pagina laadt $eigenScript niet")
-
-        // De volgorde is de invariant: het eigen script roept de muur-functies aan zodra het zijn
+        // De volgorde is de invariant: een eigen script roept de muur-functies aan zodra het zijn
         // eerste aanvraag doet, en dat kan al vóór de laatste regel van de pagina gebeuren.
-        assertTrue(muurTag < eigenTag, "$pagina laadt inlogmuur.js ná $eigenScript")
+        val verkeerd = paginas
+            .associate { pagina -> pagina.name to SCRIPT_TAG.findAll(pagina.readText()).map { it.groupValues[1] }.toList() }
+            .filterValues { it.isNotEmpty() && it.first() != "inlogmuur.js" }
+
+        assertEquals(emptyMap<String, List<String>>(), verkeerd, "laadt inlogmuur.js niet als eerste script")
     }
 
     @Test
@@ -90,13 +88,12 @@ class PaneelInlogmuurTest {
 
     @Test
     fun `elke plek die een mislukte aanvraag toont, raadpleegt eerst de muur`() {
-        // Alle drie de plekken waar een 403 zichtbaar wordt: de knoppen, de toestandsbalk en het
-        // laden van de omgeving in de berichtenbox. Eén ervan overslaan levert precies de storing
-        // op die dit script moet wegnemen — op één plek, wat het lastiger maakt te herkennen.
+        // Beide plekken waar een 403 zichtbaar wordt: de knoppen en de toestandsbalk. Eén ervan
+        // overslaan levert precies de storing op die dit script moet wegnemen — op één plek, wat
+        // het lastiger maakt te herkennen.
         val zonderControle = mapOf(
             "roep" to functieBody(script, "roep"),
             "lees" to functieBody(script, "lees"),
-            "berichtenbox.js" to boxScript,
         ).filterValues { !it.contains("inlogsessieVerlopen(") }.keys
 
         assertEquals(emptySet<String>(), zonderControle, "raadpleegt de inlogmuur niet bij een mislukte aanvraag")
@@ -153,12 +150,7 @@ class PaneelInlogmuurTest {
         // Eén ingang voor melden en herstellen: een aanroeper die de tekst zelf opschrijft, meldt
         // wel dat je uitgelogd bent maar doet er niets aan — en dat is de toestand van vóór dit
         // script.
-        val elders = mapOf(
-            "bediening.js" to script,
-            "berichtenbox.js" to boxScript,
-        ).filterValues { it.contains("uitgelogd") }.keys
-
-        assertEquals(emptySet<String>(), elders, "schrijft de melding over uitloggen zelf op i.p.v. muurMelding()")
+        assertFalse(script.contains("uitgelogd"), "bediening.js schrijft de melding over uitloggen zelf op i.p.v. muurMelding()")
         assertTrue(inlogmuur.contains("uitgelogd"), "muurMelding() zegt niet dat je uitgelogd bent")
     }
 
@@ -177,6 +169,12 @@ class PaneelInlogmuurTest {
         assertTrue(einde > 0, "einde van functie $naam niet gevonden")
 
         return rest.substring(0, einde)
+    }
+
+    private companion object {
+
+        /** Het bronadres van elke `<script>`-tag, in de volgorde van de pagina. */
+        val SCRIPT_TAG = Regex("""<script\b[^>]*\bsrc="([^"]+)"""")
     }
 
     /** Zonder commentaar, zodat een toelichting die een regel citeert niet voor die regel doorgaat. */

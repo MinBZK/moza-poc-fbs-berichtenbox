@@ -8,14 +8,6 @@ import java.util.Optional
 interface OmgevingConfig {
 
     /**
-     * Het adres van de uitvraag zoals de *browser* het moet gebruiken. Bewust los van
-     * `quarkus.rest-client.uitvraag.url`, dat de console zelf server-side aanroept en
-     * container-interne DNS mag zijn: dat adres is vanuit een browser onbereikbaar. Leeg laten
-     * betekent "leid het af uit de browser-locatie", wat lokaal het gewenste gedrag is.
-     */
-    fun uitvraagBasis(): Optional<String>
-
-    /**
      * Het adres van de berichtenbox zoals de *browser* het moet gebruiken, voor het frame in het
      * paneel. Leeg laten betekent "hij staat op deze origin", wat lokaal klopt: de demo-proxy zet
      * de berichtenbox en dit paneel achter hetzelfde adres. Op een gedeelde omgeving is er geen

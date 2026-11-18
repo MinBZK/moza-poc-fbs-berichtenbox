@@ -53,7 +53,6 @@ class OmgevingResourceTest {
     }
 
     private fun resource(
-        basis: String?,
         vararg proxies: String,
         simulator: Boolean = true,
         sessiecache: Boolean = true,
@@ -62,7 +61,6 @@ class OmgevingResourceTest {
         generator: DemoBerichtGenerator = generator("pietersen" to "J. Pietersen"),
     ): OmgevingResource {
         val config = mockk<OmgevingConfig> {
-            every { uitvraagBasis() } returns Optional.ofNullable(basis)
             every { sessiecache() } returns sessiecache
             every { simulator() } returns simulator
             every { berichtenboxUrl() } returns Optional.ofNullable(berichtenbox)
@@ -74,54 +72,40 @@ class OmgevingResourceTest {
     }
 
     @Test
-    fun `zonder geconfigureerde basis blijft het veld leeg zodat de pagina terugvalt`() {
-        // Lokaal is er geen vaste basis: de pagina leidt hem dan af uit de browser-locatie, wat
-        // ook op een VM- of containeradres werkt. Een verzonnen default zou dat breken.
-        assertEquals("", resource(null).omgeving().uitvraagBasis)
-    }
-
-    @Test
-    fun `een geconfigureerde basis komt ongewijzigd door`() {
-        val basis = "https://uitvraag-demo-mpfb-8wh.example/api/v1"
-
-        assertEquals(basis, resource(basis).omgeving().uitvraagBasis)
-    }
-
-    @Test
     fun `storingen spiegelt het register, gesorteerd`() {
         assertEquals(
             listOf("aanmeld", "profiel", "redis"),
-            resource(null, "redis", "profiel", "aanmeld").omgeving().storingen,
+            resource("redis", "profiel", "aanmeld").omgeving().storingen,
         )
     }
 
     @Test
     fun `een omgeving zonder storingen levert een lege lijst en geen fout`() {
-        assertEquals(emptyList<String>(), resource(null).omgeving().storingen)
+        assertEquals(emptyList<String>(), resource().omgeving().storingen)
     }
 
     @Test
     fun `een omgeving met precies één storing levert een lijst met dat ene element`() {
         // Onderscheidt "geeft het enige element terug" van "discrimineert per naam" — een lijst
         // van meerdere elementen dekt dat verschil niet.
-        assertEquals(listOf("redis"), resource(null, "redis").omgeving().storingen)
+        assertEquals(listOf("redis"), resource("redis").omgeving().storingen)
     }
 
     @Test
     fun `een ingerichte simulator komt als true door`() {
         // Het paneel moet vooraf weten of deze omgeving gesimuleerde magazijnen kent, anders leest
         // een mislukte uitlezing als "niet ingericht".
-        assertEquals(true, resource(null).omgeving().simulator)
+        assertEquals(true, resource().omgeving().simulator)
     }
 
     @Test
     fun `een omgeving zonder simulator meldt false zodat de pagina die knoppen weglaat`() {
-        assertEquals(false, resource(null, simulator = false).omgeving().simulator)
+        assertEquals(false, resource(simulator = false).omgeving().simulator)
     }
 
     @Test
     fun `een bereikbare sessiecache komt als true door`() {
-        assertEquals(true, resource(null).omgeving().sessiecache)
+        assertEquals(true, resource().omgeving().sessiecache)
     }
 
     @Test
@@ -129,20 +113,18 @@ class OmgevingResourceTest {
         // De sessiecache staat in een ander project dan de console. Waar het verkeer daarheen niet
         // openstaat, geeft de knop gegarandeerd een fout; hem tonen kost tijdens een demo uitleg
         // die niets toevoegt.
-        assertEquals(false, resource(null, sessiecache = false).omgeving().sessiecache)
+        assertEquals(false, resource(sessiecache = false).omgeving().sessiecache)
     }
 
     @Test
     fun `de persona-lijst komt mee in het antwoord`() {
-        // Het paneel en de wegwerp-berichtenbox lezen hem hieruit, dus een lege lijst is iets
-        // anders dan een ontbrekend veld: het eerste betekent "niets ingericht", het tweede
-        // "deze module is niet bij te werken".
-        assertEquals(emptyList<String>(), resource(null).omgeving().personas.map { it.id })
+        // Het paneel leest hem hieruit, dus een lege lijst is iets anders dan een ontbrekend veld:
+        // het eerste betekent "niets ingericht", het tweede "deze module is niet bij te werken".
+        assertEquals(emptyList<String>(), resource().omgeving().personas.map { it.id })
 
         assertEquals(
             listOf("pietersen", "vandijk"),
             resource(
-                null,
                 personas = listOf(persona("pietersen", "999993653"), persona("vandijk", "999996666")),
             ).omgeving().personas.map { it.id },
         )
@@ -154,14 +136,14 @@ class OmgevingResourceTest {
         // een keuzelijst die er normaal uitziet terwijl elke keuze een 404 geeft.
         assertEquals(
             listOf("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"),
-            resource(null, generator = generator("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"))
+            resource(generator = generator("pietersen" to "J. Pietersen", "bakkerij" to "Bakkerij De Vroege Vogel"))
                 .omgeving().berichtPersonas.map { it.id to it.label },
         )
     }
 
     @Test
     fun `berichtPersonas met precies één persona levert een lijst met dat ene element`() {
-        assertEquals(listOf("pietersen"), resource(null).omgeving().berichtPersonas.map { it.id })
+        assertEquals(listOf("pietersen"), resource().omgeving().berichtPersonas.map { it.id })
     }
 
     @Test
@@ -169,14 +151,14 @@ class OmgevingResourceTest {
         // Lokaal zet de demo-proxy de berichtenbox op dezelfde origin; daar is een adres uit de
         // configuratie niet alleen overbodig maar ook fout zodra iemand de stack op een ander
         // adres opent.
-        assertEquals("", resource(null).omgeving().berichtenboxUrl)
+        assertEquals("", resource().omgeving().berichtenboxUrl)
     }
 
     @Test
     fun `een geconfigureerde berichtenbox komt ongewijzigd door`() {
         val url = "https://proeftuin-demo-mpfm-w3h.example/moza/berichtenbox/"
 
-        assertEquals(url, resource(null, berichtenbox = url).omgeving().berichtenboxUrl)
+        assertEquals(url, resource(berichtenbox = url).omgeving().berichtenboxUrl)
     }
 
     private companion object {

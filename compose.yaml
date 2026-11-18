@@ -349,22 +349,20 @@ services:
       LDV_POSTGRES_URL: jdbc:postgresql://postgres-uitvraag:5432/ldv_logging
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv
-      # CORS voor de Berichtenbox-UI (:8095). Runtime-property, dus geen rebuild nodig, en
-      # alleen in het demo-profiel. Methods en headers blijven ongezet; die spiegelt Quarkus
-      # uit het preflight-verzoek.
+      # CORS voor de berichtenbox van de proeftuin (:8096) en de demo-proxy (:8097).
+      # Runtime-property, dus geen rebuild nodig, en alleen in het demo-profiel. Methods en
+      # headers blijven ongezet; die spiegelt Quarkus uit het preflight-verzoek.
+      #
+      # Nodig al gaat hun API-verkeer server-side door hun nginx: een browser stuurt bij elke
+      # schrijf-request (PATCH, zoals een bericht uit zijn map halen) zijn eigen origin mee, de
+      # proxy geeft die door, en voor de uitvraag is dat een vreemde origin: zonder deze regels een
+      # 403 "CORS Rejected". Lezen merkt er niets van, omdat een browser bij een GET naar zijn
+      # eigen origin geen Origin stuurt.
       QUARKUS_HTTP_CORS_ENABLED: "true"
       # De allowlist hoort er expliciet bij: enabled zónder origins laat Quarkus alleen
-      # same-origin door, en de UI op :8095 roept deze API op :8086 aan — dat is cross-origin
-      # en zou 403 geven. De UI leidt de API-host bovendien af uit de browser-locatie, dus elk
-      # adres waarop de demo geopend wordt moet hier staan. Zet DEMO_HOST op het VM- of
-      # container-adres; de default localhost dekt de gewone lokale demo.
-      #
-      # De proeftuin (:8096) en de demo-proxy (:8097) staan er ook op, al gaat hun API-verkeer
-      # server-side door hun nginx. Een browser stuurt bij elke schrijf-request (PATCH, zoals een
-      # bericht uit zijn map halen) zijn eigen origin mee, de proxy geeft die door, en voor de
-      # uitvraag is dat een vreemde origin: zonder deze regels een 403 "CORS Rejected". Lezen
-      # merkt er niets van, omdat een browser bij een GET naar zijn eigen origin geen Origin stuurt.
-      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8095,http://127.0.0.1:8095,http://${DEMO_HOST:-localhost}:8095,http://localhost:8096,http://127.0.0.1:8096,http://${DEMO_HOST:-localhost}:8096,http://localhost:8097,http://127.0.0.1:8097,http://${DEMO_HOST:-localhost}:8097"
+      # same-origin door. Elk adres waarop de demo geopend wordt moet hier staan; zet DEMO_HOST op
+      # het VM- of container-adres, de default localhost dekt de gewone lokale demo.
+      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8096,http://127.0.0.1:8096,http://${DEMO_HOST:-localhost}:8096,http://localhost:8097,http://127.0.0.1:8097,http://${DEMO_HOST:-localhost}:8097"
       # Korte inactiviteitstermijn voor de demo: een sessie verloopt na ~2 min zonder verzoek.
       # Alleen demo; prod houdt PT15M.
       BERICHTENSESSIECACHE_SESSIE_INACTIVITEIT: PT2M
@@ -437,8 +435,7 @@ services:
     ports:
       # Uitsluitend op loopback publiceren. Deze console heeft geen authenticatie en
       # POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases; op 0.0.0.0 is dat
-      # vanaf het hele netwerk bereikbaar. De Berichtenbox-UI praat sowieso alleen vanaf
-      # localhost (vaste API-basis localhost:8086 plus de CORS-allowlist van de uitvraag).
+      # vanaf het hele netwerk bereikbaar.
       # NIET via DEMO_BIND — dat adres stuurt de niet-destructieve diensten. Wie de demo van buiten
       # de machine wil bedienen (of van buiten een dev-container, die een eigen netns heeft), zet
       # DEMO_BEDIENING_BIND bewust ruimer en accepteert daarmee dat het legen bereikbaar wordt.

@@ -12,14 +12,14 @@ import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
 
 /**
- * Wat de statische pagina's over hun omgeving moeten weten. Zonder dit endpoint zou de
- * Berichtenbox-pagina zijn API-adres moeten raden en zouden de storingsknoppen per omgeving
- * verschillen — twee varianten van dezelfde pagina, die gegarandeerd uit elkaar lopen.
+ * Wat het paneel over zijn omgeving moet weten. Zonder dit endpoint zouden de storingsknoppen en
+ * het adres van de berichtenbox per omgeving in de pagina staan — varianten van dezelfde pagina,
+ * die gegarandeerd uit elkaar lopen.
  *
- * `personas` staat hier omdat de twee pagina's die deze module zelf serveert — het paneel en de
- * wegwerp-berichtenbox — een keuzelijst van identiteiten nodig hebben. Het adres `/api/demo/personas`
- * hoort bij de personadienst en wordt hier bewust niet ook beantwoord; de lijst komt uit dezelfde
- * `PersonaService` als die dienst gebruikt — de jar van `demo-personas` — dus er is één bron.
+ * `personas` staat hier omdat het paneel een keuzelijst van identiteiten nodig heeft. Het adres
+ * `/api/demo/personas` hoort bij de personadienst en wordt hier bewust niet ook beantwoord; de
+ * lijst komt uit dezelfde `PersonaService` als die dienst gebruikt — de jar van `demo-personas` —
+ * dus er is één bron.
  *
  * `berichtPersonas` staat naast `personas` en niet erin: dit is de deelverzameling waarvoor de
  * console kán aanleveren — zonder magazijn is er geen bestemming, en een keuze die alleen een fout
@@ -35,7 +35,6 @@ import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
  * onderscheid legt het een mislukte uitlezing uit als "niet ingericht".
  */
 data class Omgeving(
-    val uitvraagBasis: String,
     val personas: List<PersonaDto>,
     val berichtPersonas: List<Doelpersona>,
     val berichtenboxUrl: String,
@@ -55,7 +54,6 @@ class OmgevingResource(
 
     @GET
     fun omgeving(): Omgeving = Omgeving(
-        uitvraagBasis = config.uitvraagBasis().orElse(""),
         personas = personaService.alle().map { it.naarDto() },
         berichtPersonas = generator.doelgroep(),
         berichtenboxUrl = config.berichtenboxUrl().orElse(""),

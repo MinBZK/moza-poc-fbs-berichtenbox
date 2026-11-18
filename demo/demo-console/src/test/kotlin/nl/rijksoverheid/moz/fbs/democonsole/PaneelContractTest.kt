@@ -201,9 +201,9 @@ class PaneelContractTest {
     }
 
     @Test
-    fun `de omgeving draagt de persona-lijst voor de twee pagina's van deze module`() {
-        // Het paneel en de wegwerp-berichtenbox lezen hem hieruit; zonder dit veld blijft hun
-        // keuzelijst leeg en meldt de pagina dat er niets is ingericht. Op de geparste boom, want
+    fun `de omgeving draagt de persona-lijst voor het paneel`() {
+        // Het paneel leest hem hieruit; zonder dit veld blijven zijn keuzelijsten leeg en meldt het
+        // dat er niets is ingericht. Op de geparste boom, want
         // een assertie op ruwe tekst hangt aan de veldvolgorde en aan een niet-lege lijst.
         val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas")
 
