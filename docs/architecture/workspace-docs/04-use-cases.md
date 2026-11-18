@@ -9,7 +9,7 @@ wat doet, in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt a
 | 1 | Een organisatie verstuurt een bericht, en de ondernemer krijgt een melding | Overheidsorganisatie |
 | 2 | Een ondernemer opent de berichtenbox en ziet de berichten van alle organisaties bij elkaar | Ondernemer |
 | 3 | Nieuwe berichten verschijnen terwijl de berichtenbox openstaat | Ondernemer |
-| 4 | Een ondernemer zoekt in de eigen berichten | Ondernemer |
+| 4 | Een ondernemer zoekt op een woord uit de tekst van berichten en bijlagen | Ondernemer |
 | 5 | Een ondernemer opent een bericht en leest het | Ondernemer |
 | 6 | Een ondernemer opent of downloadt een bijlage | Ondernemer |
 | 7 | Een ondernemer verplaatst een bericht naar een map of archiveert het | Ondernemer |
@@ -17,6 +17,7 @@ wat doet, in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt a
 | 9 | Een organisatie gaat na of een ondernemer een bericht heeft kunnen zien | Overheidsorganisatie, met de stelselbeheerder |
 | 10 | Een ondernemer laat al zijn berichten wissen | Ondernemer, met de stelselbeheerder |
 | 11 | Een magazijn is langere tijd onbereikbaar | Ondernemer, stelselbeheerder en organisatie |
+| 12 | Een ondernemer filtert en sorteert zijn berichten op onderwerp, afzender, map of datum | Ondernemer |
 
 Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag
 ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan

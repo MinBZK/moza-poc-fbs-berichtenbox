@@ -19,7 +19,7 @@ PoC-afwijkingen.
 | 2 | Een voorkeur voor een OIN zonder magazijn in het register wordt stil overgeslagen | Sessiecache-aggregatie via `Magazijnregister` |
 | 2, 11 | Het logboek van het ophalen legt alleen het aantal mislukte magazijnen vast, niet welke | `uitvraag-ophalen-sse` |
 | 2 | Een tweede ophaalronde geeft `409` met `type` `conflict`, niet `ophalen-bezig` | `BerichtensessiecacheService` |
-| 4 | Zoeken volgt Engelse stemming en stopwoorden, vindt geen accenten, geen meerdere woorden en geen leestekens | `BerichtenCache`: RediSearch-index zonder `LANGUAGE`; `escapeRedisSearch` escapet elk teken buiten `[a-zA-Z0-9]`, ook de spatie |
+| 4 | Niet gebouwd: de magazijn-API kent geen zoekfunctie. De bestaande `_zoeken` van de uitvraag zoekt alleen in `onderwerp`, wordt door de berichtenbox niet gebruikt en wordt opgeheven (#1287). Hij volgt Engelse stemming en stopwoorden, vindt geen accenten, geen meerdere woorden en geen leestekens | `BerichtenCache`: RediSearch-index zonder `LANGUAGE`; `escapeRedisSearch` escapet elk teken buiten `[a-zA-Z0-9]`, ook de spatie |
 | 5, 9 | De logregel van de uitvraag bij openen legt de uitkomst niet vast: een 4xx krijgt status `Unset`, net als een geslaagde opening. `Unset` is volgens de LDV-standaard juist voor een functionele weigering, dus niet "repareren" naar `Error`; wat ontbreekt is de uitkomst in de logregel. Geen van beide logregels bevat het berichtnummer | `uitvraag-bericht`, magazijn `ophalen-bericht` |
 | 7 | Mislukt na een geslaagde magazijnwijziging het bijwerken van de sessiecache, dan compenseert de uitvraag met `Sessiecache.verwijder`: die schrijft een tombstone, en een volgende opening geeft `410 bericht-verwijderd` | `BerichtBeheerService.invalideerCacheNaMagazijnWrite` |
 | 7, 8 | `PATCH` en `DELETE` gaan in de uitvraag zonder controle op de sessielijst naar het magazijn. Dat geeft `403` voor andermans actieve bericht en `404` voor een onbekend bericht, en de uitvraag geeft die `403` door als `GEEN_TOEGANG`. Lezen en bijlagen kijken eerst in de lijst en geven in beide gevallen `404` | `BerichtBeheerService`, `BerichtAutorisatie.vereisOntvanger`, `UpstreamFault` |
@@ -51,7 +51,8 @@ handeling verschilt per pad:
 | 1 | Magazijn `POST /api/v1/aanleveringen`; Profiel Service `POST /api/profielservice/v1/partij`; uitvraag `POST /api/v1/aanmeldingen` (CloudEvent `nl.rijksoverheid.fbs.bericht.gepubliceerd`); CloudEvent naar `NOTIFICATIE_URL` |
 | 2 | Uitvraag `POST /api/v1/sessies`, `GET /api/v1/berichten/_ophalen` (SSE), `GET /api/v1/berichten`, `POST /api/v1/sessies/huidige/_verlengen`, `DELETE /api/v1/sessies/huidige`; magazijn `GET /api/v1/berichten` |
 | 3 | Uitvraag `GET /api/v1/berichten/_volgen` (SSE); doorgeven tussen instanties via Redis pub/sub |
-| 4 | Uitvraag `GET /api/v1/berichten/_zoeken?q=` |
+| 4 | Nog geen; nu alleen uitvraag `GET /api/v1/berichten/_zoeken?q=` (onderwerp, op te heffen) |
+| 12 | Uitvraag `GET /api/v1/berichten?pagina&paginaGrootte` (tot 200 per pagina, `_links.next` volgen); filteren en sorteren in de browser, zie `docs/plans/2026-09-30-filteren-zoeken-sorteren-in-de-browser.md` |
 | 5 | Uitvraag `GET /api/v1/berichten/{berichtId}?magazijnId=`; magazijn `GET /api/v1/berichten/{berichtId}` |
 | 6 | Uitvraag `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}?magazijnId=`; magazijn idem zonder `magazijnId` |
 | 7 | Uitvraag `PATCH /api/v1/berichten/{berichtId}?magazijnId=` (`application/merge-patch+json`); magazijn `PATCH /api/v1/berichten/{berichtId}` |
