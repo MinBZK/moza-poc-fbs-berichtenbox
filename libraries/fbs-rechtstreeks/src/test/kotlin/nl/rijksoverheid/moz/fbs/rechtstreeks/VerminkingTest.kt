@@ -7,9 +7,11 @@ import org.junit.jupiter.params.provider.ValueSource
 import kotlin.random.Random
 
 /**
- * Eigenschap: één verminkt teken in een versleutelde of getekende invoer levert nooit een sessie of
+ * Eigenschap: één verminkt teken in een versleutelde of ondertekende invoer levert nooit een sessie of
  * een geldig verzoek op, en altijd een [AfgewezenException]; nooit een andere exception die bij de
- * aanroeper als `500` zou eindigen. Faalt een geval, dan staat de verminkte invoer in de melding.
+ * aanroeper als `500` zou eindigen. Een [JweOngeldigException] mag alleen als de verminking de
+ * buitenste JWE zonder sleutel al ongeldig maakt: in de header, of door een extra `.`. Faalt een
+ * geval, dan staat de verminkte invoer in de melding.
  */
 class VerminkingTest {
 
@@ -31,7 +33,10 @@ class VerminkingTest {
         TestApp.random = java.security.SecureRandom()
     }
 
-    private fun verminkt(tekst: String, random: Random): String {
+    /** De verminkte tekst, en of de verminking in de header zat of een `.` toevoegde. */
+    private class Verminkt(val tekst: String, val zonderSleutelTeZien: Boolean)
+
+    private fun verminkt(tekst: String, random: Random): Verminkt {
         // Niet het laatste teken van een base64url-deel: daarin zitten ongebruikte bits, dus een
         // ander teken kan dezelfde bytes opleveren en dan is er niets verminkt.
         val plekken = tekst.indices.filter { tekst[it] != '.' && it + 1 < tekst.length && tekst[it + 1] != '.' }
@@ -39,15 +44,18 @@ class VerminkingTest {
         val alfabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_."
         val vervanging = alfabet.filter { it != tekst[plek] }.random(random)
 
-        return tekst.substring(0, plek) + vervanging + tekst.substring(plek + 1)
+        return Verminkt(tekst.substring(0, plek) + vervanging + tekst.substring(plek + 1), plek < tekst.indexOf('.') || vervanging == '.')
     }
 
-    private fun verwachtAfwijzing(invoer: String, actie: (String) -> Unit) {
+    /** [magOngeldigeJwe]: de verminking maakte de buitenste JWE zonder sleutel al ongeldig, dus `400` mag. */
+    private fun verwachtAfwijzing(invoer: String, magOngeldigeJwe: Boolean, actie: (String) -> Unit) {
         try {
             actie(invoer)
             fail<Unit>("verminkte invoer werd aangenomen: $invoer")
         } catch (e: AfgewezenException) {
             // Zo hoort het.
+        } catch (e: JweOngeldigException) {
+            if (!magOngeldigeJwe) fail<Unit>("verminking buiten de header gaf ${e.reden} in plaats van een afwijzing: $invoer", e)
         } catch (e: RuntimeException) {
             fail<Unit>("verminkte invoer gaf ${e.javaClass.name} in plaats van een afwijzing: $invoer", e)
         }
@@ -61,7 +69,9 @@ class VerminkingTest {
         val challenge = opzet.challenge(verifier)
         val versleuteld = opzet.versleuteld(challenge, opzet.presentatie(challenge))
 
-        verwachtAfwijzing(verminkt(versleuteld, Random(seed))) { verifier.voltooiMetCredential(challenge.nonce, it, Opzet.CLIENT) }
+        val verminking = verminkt(versleuteld, Random(seed))
+
+        verwachtAfwijzing(verminking.tekst, verminking.zonderSleutelTeZien) { verifier.voltooiMetCredential(challenge.nonce, it, Opzet.CLIENT) }
     }
 
     @ParameterizedTest(name = "seed {0}")
@@ -74,9 +84,9 @@ class VerminkingTest {
         val presentatie = opzet.presentatie(challenge)
         val veld = if (random.nextBoolean()) "certificate" else "app_nonce_signature"
 
-        presentatie[veld] = verminkt(presentatie[veld] as String, random)
+        presentatie[veld] = verminkt(presentatie[veld] as String, random).tekst
 
-        verwachtAfwijzing(presentatie[veld] as String) {
+        verwachtAfwijzing(presentatie[veld] as String, magOngeldigeJwe = false) {
             verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
         }
     }
@@ -87,9 +97,9 @@ class VerminkingTest {
         val opzet = opzet(seed)
         val verifier = opzet.verifier()
         val challenge = opzet.challenge(verifier)
-        val presentatie = opzet.presentatie(challenge, verminkt(opzet.selfSigned(), Random(seed)), Verifier.CERTIFICAAT_SELF_SIGNED)
+        val presentatie = opzet.presentatie(challenge, verminkt(opzet.selfSigned(), Random(seed)).tekst, Verifier.CERTIFICAAT_SELF_SIGNED)
 
-        verwachtAfwijzing(presentatie["certificate"] as String) {
+        verwachtAfwijzing(presentatie["certificate"] as String, magOngeldigeJwe = false) {
             verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
         }
     }
@@ -101,6 +111,8 @@ class VerminkingTest {
         val verifier = opzet.verifier()
         val (uitgegeven, aes) = opzet.sessie(verifier)
 
-        verwachtAfwijzing(verminkt(TestApp.jweDir("""{"page":0}""", aes), Random(seed))) { verifier.ontsleutel(uitgegeven.sessie, it) }
+        val verminking = verminkt(TestApp.jweDir("""{"page":0}""", aes), Random(seed))
+
+        verwachtAfwijzing(verminking.tekst, verminking.zonderSleutelTeZien) { verifier.ontsleutel(uitgegeven.sessie, it) }
     }
 }

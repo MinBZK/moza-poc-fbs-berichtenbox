@@ -27,7 +27,7 @@ import kotlin.reflect.KClass
  *
  * De payload van `GET /berichten/_ophalen` stond jarenlang als `type: string` in de spec, zodat een
  * afnemer de woordenlijst alleen uit onze broncode kon halen. Nu die woordenlijst wél gepubliceerd
- * is, kan ze weer gaan achterlopen — en géén enkele bestaande gate merkt dat: Spectral blijft groen
+ * is, kan ze weer gaan achterlopen — en géén enkele bestaande gate merkt dat: de ADR-linter blijft groen
  * bij een toegevoegde enum-waarde, en `swagger-request-validator` valideert geen SSE-body.
  *
  * De asserties lopen daarom beide kanten op. Wat de code stuurt moet in de spec staan (anders leest

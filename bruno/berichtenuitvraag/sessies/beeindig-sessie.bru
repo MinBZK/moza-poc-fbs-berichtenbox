@@ -1,0 +1,22 @@
+meta {
+  name: 5. Sessie beëindigen
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrlUitvraag}}/sessies/huidige
+  body: none
+  auth: none
+}
+
+headers {
+  X-Ontvanger: {{ontvangerHeaderPersoon}}
+  X-Sessie: {{sessie}}
+  traceparent: 00-{{traceId}}-{{parentSpanId}}-01
+}
+
+docs {
+  Geeft 204, ook als de sessie al verlopen of onbekend is. Alleen een ontbrekende of niet goed
+  gevormde `X-Sessie` geeft 401. Het portaal stuurt dit bij uitloggen en bij zijn eigen time-out.
+}

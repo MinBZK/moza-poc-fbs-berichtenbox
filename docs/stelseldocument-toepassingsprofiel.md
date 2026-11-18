@@ -1,7 +1,7 @@
 # Toepassingsprofiel stelseldocument
 
 Dit document legt vast hoe het Federatief Berichtenstelsel (FBS) het stelseldocument uit
-[BK Connect draft-00](https://vorijk.nl/standaard/connect/draft-bk-connect-00.html) invult. De
+[FSC voor Burgers](https://docs.fsc4b.nl/specs/protocol/) invult, de opvolger van BK Connect. De
 standaard laat pad, vorm van de handtekening, sleuteldistributie en geldigheidsduur aan een
 toepassingsprofiel (sectie 2.2.2).
 
@@ -13,7 +13,7 @@ ze staan onderaan bij de afwijkingen.
 | | |
 |---|---|
 | Versie van dit document | 0.1 |
-| Gelezen tekst van de standaard | draft-00, zoals gepubliceerd op 2026-10-08 |
+| Gelezen tekst van de standaard | BK Connect draft-00, zoals gepubliceerd op 2026-10-08; nagelopen tegen FSC voor Burgers, werkversie 13 oktober 2026, dat dezelfde sectienummering houdt |
 | Stelselbeheerder | Logius |
 | Dienst | `services/stelselregister` |
 | Machineleesbare beschrijving | `/openapi.json` van de dienst |
@@ -186,7 +186,7 @@ onbruikbaar maakt, ook als een andere omgeving ooit dezelfde root en OIN zou kri
   90 dagen. Bij een ernstig lek is een nieuwe root de enige harde maatregel.
 - **Nieuwe root:** vraagt een nieuwe build van elke app en wordt vooraf aangekondigd.
 
-## Afwijkingen van BK Connect draft-00
+## Afwijkingen van FSC voor Burgers
 
 | Eis | Stand |
 |---|---|
@@ -213,4 +213,4 @@ keten in `x5c` met een vastgelegde root is de keuze van dit profiel.
 | camelCase, Nederlands | snake_case, Engels in de payload | de payload volgt een externe standaard |
 | `servers` met een absolute https-URL | relatieve base-path `/api/v1` | de host verschilt per omgeving; zoals bij de andere API's in deze repository |
 | alles onder de versie-prefix, met `API-Version` | `/.well-known/jwks.json` en `/.well-known/security.txt` staan op de root, zonder `API-Version` | hun RFC's leggen het pad vast; ze horen niet bij de API |
-| signing volgens de ADR-module (JAdES, PS256) — een conceptmodule, geen verplichting | JWS compact met ES256 | BK Connect eist ECDSA of EdDSA |
+| signing volgens de ADR-module (JAdES, PS256), sinds september 2026 vastgesteld | JWS compact met ES256 | FSC voor Burgers eist ECDSA of EdDSA (3.1) |

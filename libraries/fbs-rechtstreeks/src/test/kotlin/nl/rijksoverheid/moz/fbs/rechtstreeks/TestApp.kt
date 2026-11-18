@@ -109,10 +109,10 @@ object TestApp {
         KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.getDecoder().decode(base64))) as ECPublicKey
 
     /**
-     * JWE met `ECDH-ES` naar RFC 7518 §4.6, standaard met `A256GCM`. Met [alg] `ECDH-ES+A128KW`
-     * wordt een CEK ingepakt. [header] voegt velden toe of overschrijft ze; een eigen `epk` daarin
-     * vervangt alleen de header, de key agreement blijft met het eigen tijdelijke paar. [epkExtra]
-     * voegt leden toe aan de echte `epk`.
+     * JWE met `ECDH-ES` naar RFC 7518 §4.6, standaard met `A256GCM` en `typ` `JWE`; [typ] `null`
+     * laat `typ` weg. Met [alg] `ECDH-ES+A128KW` wordt een CEK ingepakt. [header] voegt velden toe
+     * of overschrijft ze; een eigen `epk` daarin vervangt alleen de header, de key agreement blijft
+     * met het eigen tijdelijke paar. [epkExtra] voegt leden toe aan de echte `epk`.
      */
     fun jweEcdh(
         payload: String,
@@ -121,6 +121,7 @@ object TestApp {
         alg: String = "ECDH-ES",
         enc: String = "A256GCM",
         epkExtra: Map<String, Any?> = emptyMap(),
+        typ: String? = "JWE",
     ): String {
         val tijdelijk = sleutelpaar()
 
@@ -131,7 +132,7 @@ object TestApp {
         }
 
         val epk = jwk(tijdelijk.public as ECPublicKey) + epkExtra
-        val volledigeHeader = mapOf("alg" to alg, "enc" to enc, "epk" to epk) + header
+        val volledigeHeader = mapOf("alg" to alg, "enc" to enc, "epk" to epk) + metTyp(typ) + header
         val cekBits = if (enc == "A128GCM") 128 else 256
 
         if (alg == "ECDH-ES+A128KW") {
@@ -149,14 +150,19 @@ object TestApp {
         return aesGcm(deel(JsonUtil.toJson(volledigeHeader)), payload, concatKdf(z, enc, cekBits), versleuteldeSleutel = "")
     }
 
-    fun jweDir(payload: String, sleutel: ByteArray, header: Map<String, Any> = emptyMap()): String =
-        aesGcm(deel(JsonUtil.toJson(mapOf("alg" to "dir", "enc" to "A256GCM") + header)), payload, sleutel, versleuteldeSleutel = "")
+    fun jweDir(payload: String, sleutel: ByteArray, header: Map<String, Any> = emptyMap(), typ: String? = "JWE"): String {
+        val volledigeHeader = mapOf("alg" to "dir", "enc" to "A256GCM") + metTyp(typ) + header
+
+        return aesGcm(deel(JsonUtil.toJson(volledigeHeader)), payload, sleutel, versleuteldeSleutel = "")
+    }
+
+    private fun metTyp(typ: String?): Map<String, Any> = typ?.let { mapOf("typ" to it) } ?: emptyMap()
 
     fun ontsleutelDir(compact: String, sleutel: ByteArray): String {
         val delen = compact.split('.')
 
         check(delen.size == 5 && delen[1].isEmpty()) { "geen JWE met dir" }
-        check(header(compact) == mapOf("alg" to "dir", "enc" to "A256GCM")) { "onverwachte header" }
+        check(header(compact) == mapOf("alg" to "dir", "enc" to "A256GCM", "typ" to "JWE")) { "onverwachte header" }
 
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(Cipher.DECRYPT_MODE, SecretKeySpec(sleutel, "AES"), GCMParameterSpec(128, b64urlDecoder.decode(delen[2])))

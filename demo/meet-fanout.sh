@@ -107,19 +107,22 @@ VERVAL_PAD="/api/demo/sessie/verlopen"
 VERVAL_ADRES="$CONSOLE$VERVAL_PAD"
 
 # De ondernemer van de vorige ronde, en of de uitvraag al bevestigde dat het paneel haar Redis leegt.
+# Tot die toets geweest is, laat de ronde haar sessie lopen en zet het id in SESSIEBESTAND.
 VORIGE_NAAM=""
 VORIGE_ONTVANGER=""
 GETOETST=nee
+SESSIEBESTAND="$STROMEN/sessie-voor-toets"
 
 # Elke ronde begint met een lege sessiecache: `_ophalen` leest die cache niet, maar zo begint elke
 # ronde vanuit dezelfde toestand, zonder `:lock` van een eerdere, afgebroken aanvraag voor dezelfde
 # ondernemer. Deze stap mag dus niet stil mislukken, en twee dingen moeten kloppen:
 #   - het paneel bevestigt elk legen zelf (`gewisteKeys`). De statuscode alleen bewijst niets: een
 #     inlogmuur kan doorverwijzen, wat `curl -f` doorlaat, of de inlogpagina met 200 teruggeven;
-#   - de gemeten uitvraag ziet daarna geen sessie meer. Pas dat bewijst dat het paneel dezelfde
-#     Redis leegde als waar de uitvraag uit leest. Eén keer per run volstaat, want het paneel wist
-#     alle sessies tegelijk, en elke toets is een verwerking in het logboek van de uitvraag. Op de
-#     ondernemer van de vorige ronde: die had zeker een sessie, dus "geen sessie meer" bewijst iets.
+#   - de gemeten uitvraag kent daarna de sessie van de vorige ronde niet meer. Pas dat bewijst dat
+#     het paneel dezelfde Redis leegde als waar de uitvraag uit leest. Eén keer per run volstaat,
+#     want het paneel wist alle sessies tegelijk, en elke toets is een verwerking in het logboek van
+#     de uitvraag. Daarom laat alleen de eerste ronde haar sessie lopen: die liep zeker, dus "geen
+#     sessie meer" bewijst iets.
 vervalcache() {
     leeg_via_paneel
 
@@ -187,17 +190,19 @@ leeg_via_paneel() {
     esac
 }
 
-# Zonder sessie geeft de uitvraag `409` met `type` `nog-niet-opgehaald`, net als vóór een eerste
-# ophaalronde. Op `type` en niet op `title` of `detail`: alleen de codes liggen in de API vast. Dat een
-# geleegde sessie déze code geeft, is wel gedrag van de uitvraag en geen vastgelegd contract — de spec
-# omschrijft hem als "nog geen ophaalronde geweest". Verandert dat, dan stopt de meting hier luid.
-# `paginaGrootte=1`: gaat de toets mis, dan wordt er zo min mogelijk van de ondernemer gelezen.
+# Een sessie die niet meer bestaat, geeft `401` met `type` `sessie-ongeldig`. Op `type` en niet op
+# `title` of `detail`: alleen de codes liggen in de API vast. `paginaGrootte=1`: gaat de toets mis,
+# dan wordt er zo min mogelijk van de ondernemer gelezen. Het id gaat via een header-bestand naar curl,
+# zodat het niet in de proceslijst staat.
 toets_bij_uitvraag() {
     local naam="$1" ontvanger="$2" antwoord status type rc=0
 
     antwoord="$(curl -q -sS --max-time 30 --max-filesize 1M -H "X-Ontvanger: $ontvanger" \
+        -H @<(printf 'X-Sessie: %s\n' "$(cat "$SESSIEBESTAND")") \
         -H "Accept: application/json, application/problem+json" \
         "$API/berichten?paginaGrootte=1" -w '\n%{http_code}')" || rc=$?
+
+    rm -f "$SESSIEBESTAND"
 
     if [ "$rc" -ne 0 ]; then
         stop_meting "de uitvraag op $UITVRAAG gaf na het legen geen (volledig) antwoord (curl-exitcode $rc)"
@@ -207,11 +212,11 @@ toets_bij_uitvraag() {
     type="$(probleemtype <<< "${antwoord%$'\n'*}")" || true
 
     case "$status|$type" in
-        "409|urn:fbs:fout:nog-niet-opgehaald")
+        "401|urn:fbs:fout:sessie-ongeldig")
             return 0
             ;;
-        "200|"*)
-            stop_meting "de uitvraag op $UITVRAAG ziet na het legen nog een sessie voor $naam, dus het paneel leegde een andere Redis"
+        "200|"* | "409|urn:fbs:fout:nog-niet-opgehaald")
+            stop_meting "de uitvraag op $UITVRAAG kent na het legen nog de sessie van $naam, dus het paneel leegde een andere Redis"
             ;;
         "503|urn:fbs:fout:ophalen-mislukt")
             stop_meting "de uitvraag op $UITVRAAG kent na het legen nog een mislukte ronde voor $naam, dus het paneel leegde een andere Redis"
@@ -223,7 +228,7 @@ toets_bij_uitvraag() {
             stop_meting "de uitvraag op $UITVRAAG bereikt haar tijdelijke berichtenopslag niet"
             ;;
         *)
-            stop_meting "de uitvraag op $UITVRAAG gaf na het legen HTTP $status${type:+ ($type)} voor $naam, en niet nog-niet-opgehaald"
+            stop_meting "de uitvraag op $UITVRAAG gaf na het legen HTTP $status${type:+ ($type)} voor $naam, en niet sessie-ongeldig"
             ;;
     esac
 }
@@ -303,15 +308,17 @@ stop_meting() {
 # Eén ophaalronde: aanvraag, klok en ontleding in hetzelfde proces. Schrijft de ruwe stroom met een
 # tijdstempel in milliseconden sinds het versturen van de aanvraag, en print de zes getallen.
 meet() {
-    python3 - "$API" "$1" "$2" "$3" <<'PY'
+    python3 - "$API" "$1" "$2" "$3" "${4:-}" <<'PY'
 import json
+import os
 import sys
 import time
 import urllib.error
 import urllib.request
 
-# De naam voor de meldingen, het identificatienummer alleen voor de aanvraag.
-api, naam, ontvanger, bestand = sys.argv[1:5]
+# De naam voor de meldingen, het identificatienummer alleen voor de aanvraag. Met een sessiebestand
+# blijft de sessie na de ronde lopen, voor de toets na het volgende legen; anders logt de ronde uit.
+api, naam, ontvanger, bestand, sessiebestand = sys.argv[1:6]
 
 
 def leesbaar(tekst):
@@ -319,9 +326,20 @@ def leesbaar(tekst):
     return "".join(c if c.isprintable() else "?" for c in str(tekst))[:200]
 
 
+# Elke ronde een eigen sessie: de uitvraag eist X-Sessie, en vervalcache() wist de sessies tussen de
+# rondes. Het id is een credential en wordt niet geprint.
+try:
+    with urllib.request.urlopen(urllib.request.Request(
+        f"{api}/sessies", headers={"X-Ontvanger": ontvanger}, method="POST",
+    ), timeout=30) as antwoord:
+        sessie = json.load(antwoord)["sessieId"]
+except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as fout:
+    print(f"FOUT: sessie starten voor {naam} mislukte: {leesbaar(fout)}", file=sys.stderr)
+    sys.exit(1)
+
 verzoek = urllib.request.Request(
     f"{api}/berichten/_ophalen",
-    headers={"X-Ontvanger": ontvanger, "Accept": "text/event-stream"},
+    headers={"X-Ontvanger": ontvanger, "X-Sessie": sessie, "Accept": "text/event-stream"},
     method="GET",
 )
 
@@ -356,6 +374,20 @@ except urllib.error.HTTPError as fout:
 except (urllib.error.URLError, TimeoutError) as fout:
     print(f"FOUT: de ophaalronde voor {naam} mislukte: {leesbaar(fout)}", file=sys.stderr)
     sys.exit(1)
+finally:
+    if sessiebestand:
+        # Alleen voor de eigen gebruiker leesbaar: het id is een credential.
+        with open(sessiebestand, "x", encoding="utf-8", opener=lambda p, f: os.open(p, f, 0o600)) as uit:
+            uit.write(sessie)
+    else:
+        # Beëindigen is idempotent; een mislukking laat de sessie hooguit verlopen.
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                f"{api}/sessies/huidige",
+                headers={"X-Ontvanger": ontvanger, "X-Sessie": sessie}, method="DELETE",
+            ), timeout=30).close()
+        except (urllib.error.URLError, TimeoutError):
+            pass
 
 if not regels:
     print(f"FOUT: geen enkel event ontvangen voor {naam}; de stroom staat in {bestand}", file=sys.stderr)
@@ -419,7 +451,13 @@ for regel in "${ONDERNEMERS[@]}"; do
 
         # Eerst in een variabele: bij een `read <<<` uit een commando-substitutie blijft een
         # mislukte ronde onopgemerkt, want dan telt alleen de exitcode van `read`.
-        uitkomst="$(meet "$naam" "$ontvanger" "$STROMEN/$naam-$ronde.tsv")"
+        sessiebestand=""
+
+        if [ "$GETOETST" = nee ] && [ -z "$VORIGE_ONTVANGER" ]; then
+            sessiebestand="$SESSIEBESTAND"
+        fi
+
+        uitkomst="$(meet "$naam" "$ontvanger" "$STROMEN/$naam-$ronde.tsv" "$sessiebestand")"
         VORIGE_NAAM="$naam"
         VORIGE_ONTVANGER="$ontvanger"
 

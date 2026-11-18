@@ -9,6 +9,7 @@ import io.quarkus.redis.datasource.keys.ReactiveKeyCommands
 import io.quarkus.redis.datasource.list.ReactiveListCommands
 import io.quarkus.redis.datasource.value.ReactiveValueCommands
 import io.smallrye.mutiny.Uni
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.TestSessieConfig
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
@@ -38,7 +39,7 @@ class TombstoneFoutpadenTest {
     private val cache = RedisBerichtenCache(
         redis = redis,
         objectMapper = ObjectMapper(),
-        ttl = Duration.ofHours(12),
+        sessieConfig = TestSessieConfig(),
         aggregationLockTtl = Duration.ofMinutes(2),
         startupRedisearchTimeoutSeconds = 5,
         redisBatchgrootte = 256,
@@ -71,7 +72,8 @@ class TombstoneFoutpadenTest {
         // niets meer te invalideren heeft.
         stubRedisCommands()
         stubEigenBericht()
-        every { values.set(any(), any(), any()) } returns
+        // De tombstone en zijn plek in de sleutelset gaan in één transactie.
+        every { redis.withTransaction(any()) } returns
             Uni.createFrom().failure(RuntimeException("OOM command not allowed"))
 
         // Faalt de Uni, dan gooit `await` hier — dát is de assertie.

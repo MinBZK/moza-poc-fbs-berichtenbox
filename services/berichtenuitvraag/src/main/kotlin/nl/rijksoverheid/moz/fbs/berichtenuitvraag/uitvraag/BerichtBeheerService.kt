@@ -76,9 +76,10 @@ class BerichtBeheerService(
                 // geen transport-storing: de client-request passeerde immers al de magazijn-
                 // validatie, dus hoort de cache hier geen client-fout te geven. Niet compenseren,
                 // maar wél met hetzelfde alert-anker als de dubbele-faal-tak loggen: magazijn↔cache
-                // desyncen zonder self-heal tot de TTL — dezelfde operationele impact als een
-                // storing-desync, dus géén stille warnf maar een alertbare errorf. Status propageert.
-                log.errorf(e, "%s cache-PATCH niet-storing ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
+                // desyncen tot de volgende ophaalronde of het einde van de laatste sessie — dezelfde
+                // operationele impact als een storing-desync, dus géén stille warnf maar een
+                // alertbare errorf. Status propageert.
+                log.errorf(e, "%s cache-PATCH niet-storing ná geslaagde magazijn-PATCH; magazijn↔cache stale tot de volgende ophaalronde of het einde van de laatste sessie. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
 
                 throw e.naApiFout()
             }
@@ -90,10 +91,10 @@ class BerichtBeheerService(
 
         if (bijgewerkt == null) {
             // Bericht bestaat in het magazijn (de write slaagde) maar niet (meer) in de
-            // cache — verlopen TTL of eerdere invalidate. Zelfde alert-anker: de magazijn-
+            // cache, bijvoorbeeld door een eerdere invalidate. Zelfde alert-anker: de magazijn-
             // mutatie is doorgevoerd terwijl de client een 404 ziet; zichtbaar maken i.p.v.
             // stil als gewone not-found wegschrijven.
-            log.errorf("%s cache-PATCH miste het bericht ná geslaagde magazijn-PATCH; magazijn↔cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
+            log.errorf("%s cache-PATCH miste het bericht ná geslaagde magazijn-PATCH; magazijn↔cache stale tot de volgende ophaalronde of het einde van de laatste sessie. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
 
             throw FbsFoutException(
                 Foutcode.BERICHT_ONBEKEND,
@@ -123,7 +124,7 @@ class BerichtBeheerService(
             sessiecache.verwijder(ontvangerId, magazijnId, berichtId)
         } catch (e: SessiecacheException) {
             if (!e.isStoring()) {
-                log.errorf(e, "%s cache-DELETE niet-storing ná geslaagde magazijn-DELETE; magazijn↔cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
+                log.errorf(e, "%s cache-DELETE niet-storing ná geslaagde magazijn-DELETE; magazijn↔cache stale tot de volgende ophaalronde of het einde van de laatste sessie. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
 
                 throw e.naApiFout()
             }
@@ -139,12 +140,12 @@ class BerichtBeheerService(
             sessiecache.verwijder(ontvanger, magazijnId, berichtId)
         } catch (e: SessiecacheException) {
             // Dubbele cache-faal: de write naar de cache faalde én de compenserende
-            // invalidate faalde. De cache blijft stale tot de TTL zonder self-heal —
-            // errorf (niet warnf) zodat een aanhoudende cache-outage alertbaar is i.p.v.
-            // te verdrinken in warnings. Vooraan een stabiele marker zodat de Loki-alert-
+            // invalidate faalde. De cache blijft stale tot de volgende ophaalronde of het einde van
+            // de laatste sessie — errorf (niet warnf) zodat een aanhoudende cache-outage alertbaar
+            // is i.p.v. te verdrinken in warnings. Vooraan een stabiele marker zodat de Loki-alert-
             // rule daarop ankert i.p.v. op de (vertaalbare) proza. Pak bij de volgende
             // project-brede metric-toevoeging een echte counter op.
-            log.errorf(e, "%s compensatie-invalidate faalde ná cache-write-faal; cache stale tot TTL. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
+            log.errorf(e, "%s compensatie-invalidate faalde ná cache-write-faal; cache stale tot de volgende ophaalronde of het einde van de laatste sessie. berichtId=%s magazijnId=%s", ALERT_CACHE_DESYNC, berichtId, magazijnId)
         }
     }
 

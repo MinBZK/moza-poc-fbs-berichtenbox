@@ -313,6 +313,41 @@ class ProblemExceptionMapperTest {
         assertNull(respons.getHeaderString("Retry-After"))
     }
 
+    // Een 429 zonder Retry-After laat de afnemer raden wanneer opnieuw proberen zin heeft.
+    @Test
+    fun `een 4xx draagt zijn Retry-After ook over`() {
+        val respons = mapper.toResponse(waeMetRetryAfter(429, "30"))
+
+        assertEquals(429, respons.status)
+        assertEquals("30", respons.getHeaderString("Retry-After"))
+    }
+
+    @Test
+    fun `een 4xx van upstream met een buitensporige Retry-After krijgt er geen`() {
+        val respons = mapper.toResponse(waeMetRetryAfter(429, "604800"))
+
+        assertNull(respons.getHeaderString("Retry-After"))
+    }
+
+    /**
+     * De grens beschermt tegen de waarde van een upstream. Een eigen aanwijzing kiezen we zelf, en
+     * die mag langer zijn: de tijd tot een sessie verloopt, ligt al snel boven de vijf minuten.
+     */
+    @ParameterizedTest(name = "status {0}")
+    @ValueSource(ints = [429, 503])
+    fun `een eigen aanwijzing boven de grens gaat wel mee`(status: Int) {
+        val fout = FbsFoutException(Foutcode.TE_VEEL_SESSIES, Response.Status.fromStatusCode(status), "vol", retryAfterSeconden = 900)
+
+        assertEquals("900", mapper.toResponse(fout).getHeaderString("Retry-After"))
+    }
+
+    @Test
+    fun `een negatieve eigen aanwijzing gaat niet mee`() {
+        val fout = FbsFoutException(Foutcode.TE_VEEL_SESSIES, Response.Status.TOO_MANY_REQUESTS, "vol", retryAfterSeconden = -1)
+
+        assertNull(mapper.toResponse(fout).getHeaderString("Retry-After"))
+    }
+
     @Test
     fun `een FbsFoutException levert zijn eigen kenmerk`() {
         val fout = FbsFoutException(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE, "weg")
