@@ -7,7 +7,7 @@ import org.junit.jupiter.params.provider.ValueSource
 import kotlin.random.Random
 
 /**
- * Eigenschap: één verminkt teken in een versleutelde of getekende invoer levert nooit een sessie of
+ * Eigenschap: één verminkt teken in een versleutelde of ondertekende invoer levert nooit een sessie of
  * een geldig verzoek op, en altijd een [AfgewezenException]; nooit een andere exception die bij de
  * aanroeper als `500` zou eindigen. Een [JweOngeldigException] mag alleen als de verminking de
  * buitenste JWE zonder sleutel al ongeldig maakt: in de header, of door een extra `.`. Faalt een

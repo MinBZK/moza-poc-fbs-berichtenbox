@@ -44,7 +44,7 @@ class Verifier(
 
     private val credentials = CredentialControle(appManagers, scope)
 
-    /** Stap 2 tot en met 9: een nonce en een tijdelijk sleutelpaar, de challenge getekend met de sleutel van deze Verifier. */
+    /** Stap 2 tot en met 9: een nonce en een tijdelijk sleutelpaar, de challenge ondertekend met de sleutel van deze Verifier. */
     fun maakChallenge(client: String): String {
         val nu = klok.instant()
 
@@ -61,7 +61,7 @@ class Verifier(
 
         challenges.bewaar(oin, nonce, client, tijdelijk.private as ECPrivateKey, nu.plus(NONCE_GELDIG))
 
-        return Jose.teken(
+        return Jose.onderteken(
             mapOf(
                 "sub" to "challenge",
                 "nonce" to nonce,

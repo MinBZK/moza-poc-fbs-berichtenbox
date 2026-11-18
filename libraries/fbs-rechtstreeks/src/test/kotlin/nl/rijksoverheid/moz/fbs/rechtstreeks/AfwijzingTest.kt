@@ -111,7 +111,7 @@ class AfwijzingTest {
         fun `scenario's`(): List<Arguments> = credential() + binding() + presentatie() + versleuteling() + activeren()
 
         private fun credential(): List<Arguments> = listOf(
-            geval("credential getekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, metCertificaat { it.vc(sleutel = TestApp.sleutelpaar().private) }),
+            geval("credential ondertekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, metCertificaat { it.vc(sleutel = TestApp.sleutelpaar().private) }),
             geval("onbekende App Manager", Afwijzing.APP_MANAGER_ONBEKEND, metCredential { put("iss", "00000000000000009999") }),
             geval("onbekende sleutel-id", Afwijzing.APP_MANAGER_ONBEKEND, metCertificaat { it.vc(kid = "andere-sleutel") }),
             geval("andere scope", Afwijzing.SCOPE_ONJUIST, metCredential { put("scope", "nl.vorijk.oauth_scope.blauwe_knop") }),
@@ -188,13 +188,13 @@ class AfwijzingTest {
         )
 
         private fun binding(): List<Arguments> = listOf(
-            geval("nonce getekend met een andere sleutel dan in het credential", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
+            geval("nonce ondertekend met een andere sleutel dan in het credential", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
                 p["app_nonce_signature"] = nonceHandtekening(c.nonce, sleutel = TestApp.sleutelpaar().private)
             }),
             geval("aud van een ander magazijn", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
                 p["app_nonce_signature"] = nonceHandtekening(c.nonce, aud = Opzet.ANDER_MAGAZIJN_OIN)
             }),
-            geval("andere nonce getekend", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, _ ->
+            geval("andere nonce ondertekend", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, _ ->
                 p["app_nonce_signature"] = nonceHandtekening("ZWVuIGFuZGVyZSBub25jZQ==")
             }),
             geval("andere sub in de nonce-handtekening", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
@@ -334,7 +334,7 @@ class AfwijzingTest {
 
         private fun activeren(): List<Arguments> = listOf(
             geval("self-signed met andere sub", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned { selfSigned(sub = "iets anders") }),
-            geval("self-signed getekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned {
+            geval("self-signed ondertekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned {
                 TestApp.es256(mapOf("sub" to Verifier.CERTIFICAAT_SELF_SIGNED, "cnf" to mapOf("jwk" to TestApp.jwk(app.public as ECPublicKey))), TestApp.sleutelpaar().private)
             }),
             geval("self-signed zonder cnf", Afwijzing.APPSLEUTEL_ONGELDIG, selfSigned { TestApp.es256(mapOf("sub" to Verifier.CERTIFICAAT_SELF_SIGNED), app.private) }),
@@ -344,7 +344,7 @@ class AfwijzingTest {
                 TestApp.es256(mapOf("sub" to Verifier.CERTIFICAAT_SELF_SIGNED, "cnf" to mapOf("jwk" to jwk)), app.private)
             }),
             geval("self-signed met een credential als certificaat", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned { vc() }),
-            geval("self-signed met een nonce getekend door een andere sleutel", Afwijzing.NONCEHANDTEKENING_ONGELDIG, Scenario { opzet, verifier, challenge ->
+            geval("self-signed met een nonce ondertekend door een andere sleutel", Afwijzing.NONCEHANDTEKENING_ONGELDIG, Scenario { opzet, verifier, challenge ->
                 val presentatie = opzet.presentatie(challenge, opzet.selfSigned(), Verifier.CERTIFICAAT_SELF_SIGNED).apply {
                     put("app_nonce_signature", opzet.nonceHandtekening(challenge.nonce, sleutel = TestApp.sleutelpaar().private))
                 }

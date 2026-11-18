@@ -56,8 +56,8 @@ internal object Jose {
     private val ALLEEN_ES256 = AlgorithmConstraints(ConstraintType.PERMIT, AlgorithmIdentifiers.ECDSA_USING_P256_CURVE_AND_SHA256)
     private val ALLEEN_A256GCM = AlgorithmConstraints(ConstraintType.PERMIT, ContentEncryptionAlgorithmIdentifiers.AES_256_GCM)
 
-    /** Tekent [claims] als JWS (compact, ES256). */
-    fun teken(claims: Map<String, Any>, sleutel: VerifierSleutel): String = JsonWebSignature().run {
+    /** Ondertekent [claims] als JWS (compact, ES256). */
+    fun onderteken(claims: Map<String, Any>, sleutel: VerifierSleutel): String = JsonWebSignature().run {
         payload = JsonUtil.toJson(claims)
         algorithmHeaderValue = AlgorithmIdentifiers.ECDSA_USING_P256_CURVE_AND_SHA256
         setHeader("typ", "jwt")

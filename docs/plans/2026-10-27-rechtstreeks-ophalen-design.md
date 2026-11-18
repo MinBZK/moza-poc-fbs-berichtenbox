@@ -221,10 +221,11 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
      In `cnf.jwk` tellen alleen `kty`, `crv`, `x` en `y`; een `epk` mag niets anders bevatten,
      omdat jose4j hem bij de key agreement zelf opnieuw inleest. Omdat jose4j headerwaarden zonder
      controle naar tekst cast, staat ook het type van elke headerwaarde vast; anders wordt een
-     getal in `kid` een `500` in plaats van een `400` of `401`. `nbf`
-     (en daarmee `iat`) mag 60 seconden vooruit liggen, voor klokverschil met de App Manager
-     (stap 6 van het toepassingsprofiel); van `exp` moet juist nog ten minste 60 seconden
-     resteren. Nonce en sessie lopen op de eigen klok en hebben geen marge.
+     getal in `kid` een `500` in plaats van een `400` of `401`.
+
+     `nbf` (en daarmee `iat`) mag 60 seconden vooruit liggen, voor klokverschil met de App Manager
+     (stap 6 van het toepassingsprofiel); van `exp` moet juist nog ten minste 60 seconden resteren.
+     Nonce en sessie lopen op de eigen klok en hebben geen marge.
    - **Zonder CDI.** De kern is gewone Kotlin, zoals `fbs-kern`; de diensten bedraden hem zelf.
      De library leest JSON met jose4j. Wat versleuteld terug moet, krijgt hij als tekst van de
      dienst, die het met zijn eigen `ObjectMapper` maakt, zodat `non_null` ook daar geldt; alleen

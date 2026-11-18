@@ -34,7 +34,7 @@ class VerifierTest {
         Duration.between(opzet.nu, Instant.parse(antwoord(uitgegeven, aes)["geldigTot"] as String)).seconds
 
     @Test
-    fun `de challenge is getekend met de sleutel van het magazijn en draagt een verse nonce en tijdelijke sleutel`() {
+    fun `de challenge is ondertekend met de sleutel van het magazijn en draagt een verse nonce en tijdelijke sleutel`() {
         val eerste = opzet.challenge(verifier)
         val tweede = opzet.challenge(verifier)
 
@@ -47,7 +47,7 @@ class VerifierTest {
     }
 
     @Test
-    fun `met een eigen sleutel die binnen de levensduur van een nonce verloopt, tekent de Verifier niet`() {
+    fun `met een eigen sleutel die binnen de levensduur van een nonce verloopt, ondertekent de Verifier niet`() {
         opzet.magazijnSleutelGeldigTot = opzet.nu.plusSeconds(60)
 
         assertThrows<IllegalStateException> { opzet.verifier().maakChallenge(Opzet.CLIENT) }
