@@ -22,3 +22,6 @@ COPY demo-profiel/mappings /home/wiremock/mappings/demo-profiel
 # persona's hierboven (5), die alleen de twee echte magazijnen dragen. Zonder deze laag draait de
 # demo nog steeds, met een fan-out van twee; de map is daarom leeg-maar-aanwezig in git.
 COPY demo-profiel/generated /home/wiremock/mappings/demo-profiel-generated
+# Admin-API dicht op ZAD, hetzelfde script als het externe-stubs-image.
+COPY --chmod=755 externe-stubs/admin-dicht.sh /admin-dicht.sh
+ENTRYPOINT ["/admin-dicht.sh"]

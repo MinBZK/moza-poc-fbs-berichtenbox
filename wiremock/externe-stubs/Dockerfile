@@ -10,3 +10,6 @@ FROM wiremock/wiremock:3.13.2@sha256:fd27e46090916e85326229e5102ee169ae729059f33
 # Nederlandse tijd, zodat logtijden overeenkomen met de klok van wie meekijkt.
 ENV TZ=Europe/Amsterdam
 COPY mappings /home/wiremock/mappings
+# Admin-API dicht op ZAD; het waarom staat in het script.
+COPY --chmod=755 admin-dicht.sh /admin-dicht.sh
+ENTRYPOINT ["/admin-dicht.sh"]

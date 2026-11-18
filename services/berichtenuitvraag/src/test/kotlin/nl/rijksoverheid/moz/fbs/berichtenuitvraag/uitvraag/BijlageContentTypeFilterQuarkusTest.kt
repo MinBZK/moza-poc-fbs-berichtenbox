@@ -2,9 +2,14 @@ package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
+import io.restassured.RestAssured
 import io.restassured.RestAssured.given
+import io.restassured.builder.RequestSpecBuilder
+import jakarta.inject.Inject
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.nullValue
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -21,6 +26,24 @@ import org.junit.jupiter.params.provider.ValueSource
 // meer zet (dat zou Dev Services voor de keten-E2E onderdrukken).
 @TestProfile(MockSessiecacheProfile::class)
 class BijlageContentTypeFilterQuarkusTest {
+
+    @Inject
+    lateinit var sessiecache: MockSessiecache
+
+    // Het test-endpoint valt, zoals elk pad dat niet vrijgesteld is, onder de sessiecontrole.
+    @BeforeEach
+    fun metSessie() {
+        sessiecache.reset()
+        RestAssured.requestSpecification = RequestSpecBuilder()
+            .addHeader("X-Ontvanger", "BSN:999990019")
+            .addHeader("X-Sessie", sessiecache.sessieVoor())
+            .build()
+    }
+
+    @AfterEach
+    fun zonderSessie() {
+        RestAssured.requestSpecification = null
+    }
 
     @Test
     fun `onparsebaar MIME-type valt end-to-end terug op octet-stream + download`() {
@@ -169,7 +192,8 @@ class BijlageContentTypeFilterQuarkusTest {
             .`when`()
             .get("/api/v1/berichten")
             .then()
-            .statusCode(400)
+            // Met de sessie uit metSessie: de (lege) lijst van de mock.
+            .statusCode(200)
             .header("X-Frame-Options", equalTo("DENY"))
     }
 }

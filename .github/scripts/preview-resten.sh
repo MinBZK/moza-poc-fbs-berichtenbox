@@ -9,8 +9,9 @@
 #
 # SELECTIE. Alleen namen van de vorm `pr-<n>` (ZAD-deployment, GitHub-omgeving) en tags met de prefix
 # `pr-<n>-` of precies `pr-<n>` tellen. `test`, de `fsc-*`-peers en `main-<sha>`-tags vallen daar per
-# constructie buiten. Het nummer zelf bepaalt niets: de opruiming die erop volgt, bouwt de te
-# verwijderen namen opnieuw op uit een gevalideerd getal en weigert een PR die niet gesloten is.
+# constructie buiten; voor die laatste geldt een eigen bewaartermijn (`main-tags`). Het nummer zelf
+# bepaalt niets: de opruiming die erop volgt, bouwt de te verwijderen namen opnieuw op uit een
+# gevalideerd getal en weigert een PR die niet gesloten is.
 #
 # ONLEESBAAR IS GEEN LEEG. Elke bron heeft een canary die er altijd in hoort te staan (`test` als
 # deployment en omgeving); een lijst zonder canary is een kapotte meting en levert exitcode 2.
@@ -32,6 +33,10 @@
 #   ongetagd <package>          ruimt ongetagde ghcr-versies op die nergens meer bij horen:
 #                               `<package>\t<uitkomst>\t<aantal>\t<toelichting>` (ORG, GH_TOKEN,
 #                               VERWIJDER=true om echt te verwijderen, VERWIJDER_MAX als plafond)
+#   uitgerold                   de tag `main-<sha7>` van de laatste geslaagde uitrol van main (REPO)
+#   main-tags <package>         ruimt `main-<sha>`-versies op buiten de bewaartermijn; uitvoer,
+#                               omgeving en plafond als bij ongetagd (zonder GH_TOKEN, met UITGEROLD)
+#   per-package <soort>         main-tags of ongetagd over alle PAKKETTEN, met één gedeeld PLAFOND
 #   bevindingen                 wat er na een run te melden is (NEEDS, CANCELLED, OPRUIMEN)
 #   issue <bevindingen>         houdt het meld-issue bij (REPO, RUN_URL)
 #   noodmelding                 minimaal issue als de melding zelf mislukte (REPO, RUN_URL)
@@ -48,6 +53,9 @@ GH=${PREVIEW_GH:-gh}
 CURL=${PREVIEW_CURL:-curl}
 NU=${PREVIEW_NU:-$(date -u +%s)}
 WACHT=${PREVIEW_WACHT:-10}
+# Tussen twee verwijderingen: GitHub begrenst schrijvende aanroepen ook per minuut (secundaire limiet),
+# en een run verwijdert er tot 250.
+PAUZE=${PREVIEW_PAUZE:-1}
 
 # Een PR die net gesloten is, wordt nog door zijn eigen close-event opgeruimd. Daar een tweede
 # opruiming naast starten zou in dezelfde concurrency-groep belanden, en GitHub annuleert dan de
@@ -56,6 +64,10 @@ readonly RECENT_GESLOTEN_SECONDEN=$((24 * 3600))
 
 # Ongetagde versies die jonger zijn, kunnen nog bij een push horen die op dit moment loopt.
 readonly ONGETAGD_MINIMUM_SECONDEN=$((7 * 24 * 3600))
+
+# De bewaartermijn van `main-<sha>`-versies, zie `main_tags`.
+readonly MAIN_BEWAAR_AANTAL=10
+readonly MAIN_BEWAAR_SECONDEN=$((14 * 24 * 3600))
 
 onbepaald() {
   echo "$*" >&2
@@ -378,7 +390,7 @@ ongetagd() {
     '' | *[!0-9]*) onbepaald "VERWIJDER_MAX moet een getal zijn." ;;
   esac
 
-  local versies kandidaten getagd token digest type ids id fouten=0 rest
+  local versies kandidaten getagd token digest type id
 
   versies=$(api "orgs/$ORG/packages/container/$pkg/versions?per_page=100" --paginate | jq -sc 'add') \
     || onbepaald "De versies van $pkg zijn niet op te vragen."
@@ -394,6 +406,13 @@ ongetagd() {
 
   local aantal
   aantal=$(grep -c . <<<"$kandidaten")
+
+  # Een opgebruikt plafond onderzoekt niets; het token en de mediatypes zouden alleen tijd kosten.
+  if [ "${VERWIJDER:-false}" = true ] && [ "$max" -eq 0 ]; then
+    printf '%s\tuitgesteld\t%s\tniet onderzocht: plafond van 0 verwijderingen of %s manifests per run\n' \
+      "$pkg" "$aantal" "${MANIFEST_MAX:-300}"
+    return 0
+  fi
 
   token=$("$CURL" -sSf --max-time 30 --retry 3 -u "x:$GH_TOKEN" \
     "$REGISTRY/token?scope=repository:$ORG/$pkg:pull" | jq -er .token) || {
@@ -471,8 +490,61 @@ ongetagd() {
 
   [ -n "$verwijderen" ] || return 0
 
+  verwijder_versies "$pkg" "$verwijderen"
+}
+
+# Draait `main-tags` of `ongetagd` over alle PAKKETTEN, met één plafond (PLAFOND) voor allemaal: wat
+# een package verwijderde of probeerde te verwijderen, gaat eraf voor de volgende. Een package dat
+# omvalt, levert een `onbepaald`-regel. Het kan al verwijderd hebben, en hoeveel is onbekend; de rest
+# van de aanroep verwijdert daarom niets meer.
+per_package() {
+  local soort=${1:-} budget=${PLAFOND:-} pkg uit gebruikt
+
+  case "$soort" in
+    main-tags | ongetagd) ;;
+    *) onbepaald "Gebruik: PAKKETTEN=… PLAFOND=… $0 per-package main-tags|ongetagd" ;;
+  esac
+
+  [ -n "${PAKKETTEN:-}" ] || onbepaald "PAKKETTEN is verplicht."
+
+  case "$budget" in
+    '' | *[!0-9]*) onbepaald "PLAFOND moet een getal zijn." ;;
+  esac
+
+  local fouten reden
+  fouten=$(mktemp)
+
+  for pkg in $PAKKETTEN; do
+    # Als eigen proces en niet als functie: binnen `if !` staat errexit uit, en een functie die daar
+    # halverwege faalt, zou doorlopen.
+    if ! uit=$(VERWIJDER_MAX="$budget" bash "${BASH_SOURCE[0]}" "$soort" "$pkg" 2>"$fouten"); then
+      # De laatste regel is de reden waarmee het script stopte; een ontbrekende uitgerolde versie
+      # vraagt een ander onderzoek dan een onleesbare lijst.
+      reden=$(tail -n 1 "$fouten" | tr '\t' ' ')
+      uit=$(printf '%s\tonbepaald\t\t%s' "$pkg" "${reden:-onbekende fout}")
+      budget=0
+    fi
+
+    cat "$fouten" >&2
+
+    [ -z "$uit" ] || printf '%s\n' "$uit"
+
+    # Elke poging telt mee, ook een geweigerde: die kost evengoed een API-aanroep.
+    gebruikt=$(awk -F'\t' '$2 == "verwijderd" || $2 == "mislukt" { s += $3 } END { print s + 0 }' <<<"$uit")
+    budget=$((budget > gebruikt ? budget - gebruikt : 0))
+  done
+
+  rm -f "$fouten"
+}
+
+# Verwijdert de versies met de gegeven ids (één per regel) en meet na wat er weg is:
+# `<package>\tverwijderd\t<aantal>\t`, plus een regel `mislukt` voor wat er nog staat.
+verwijder_versies() {
+  local pkg=$1 verwijderen=$2 id ids rest fouten=0
+
   for id in $verwijderen; do
     api "orgs/$ORG/packages/container/$pkg/versions/$id" -X DELETE >/dev/null 2>&1 || fouten=$((fouten + 1))
+    sleep "$PAUZE"
   done
 
   # Nameten op de lijst, niet op de exitcodes: een weigering van GitHub (de downloadteller) komt
@@ -486,6 +558,95 @@ ongetagd() {
   if [ "$rest" -gt 0 ]; then
     printf '%s\tmislukt\t%s\tstaan na het verwijderen nog in de lijst (%s weigeringen)\n' "$pkg" "$rest" "$fouten"
   fi
+}
+
+# De tag van de laatste geslaagde uitrol van main: van de geslaagde push-runs van deploy.yml op main
+# de laatst gestarte. Een geslaagde run heeft elk project uitgerold (uitrol-poort bewaakt dat); een
+# rode run op een nieuwe commit kan deels uitgerold hebben, maar alleen een nieuwere versie, en die
+# blijft in `main_tags` toch staan. Op startmoment en niet op aanmaakmoment: een herstarte oudere run
+# rolt zijn eigen, oudere versie uit, staat in de lijst op zijn aanmaakmoment, maar krijgt een nieuw
+# startmoment. Honderd runs dekt het venster van dertig dagen waarin GitHub een herstart toestaat.
+#
+# Niet gedekt, en alleen beschermd zolang de versie bij de nieuwste of binnen de termijn valt:
+# - wat iemand met de hand terugzet (`zadctl deployment update-image`), want dat staat in geen run;
+# - een herstart van een oudere run die nog loopt of mislukt, want die is niet `success`. Loopt hij
+#   nog, dan is dat een venster van minuten; daarna staat de versie weer bovenaan.
+# Een versie met een andere tag dan `main-<sha7>` blijft altijd staan; zo houd je er een vast.
+uitgerold() {
+  [ -n "${REPO:-}" ] || onbepaald "Gebruik: REPO=… $0 uitgerold"
+
+  local sha
+  sha=$(api "repos/$REPO/actions/workflows/deploy.yml/runs?branch=main&event=push&status=success&per_page=100" \
+    | jq -er '.workflow_runs | max_by(.run_started_at) | .head_sha | select(test("^[0-9a-f]{40}$"))') \
+    || onbepaald "De laatste geslaagde uitrol van main is niet vast te stellen."
+
+  printf 'main-%s\n' "${sha:0:7}"
+}
+
+# Elke push naar main levert per package een versie met tag `main-<sha7>` op, en niets ruimde die op.
+# Na de volgende uitrol draait niemand er nog op, maar ze blijven staan, en `ongetagd` vraagt van
+# elke getagde versie het mediatype op: zonder bewaartermijn wordt elke run langzamer.
+#
+# Weg gaat alleen een versie die uitsluitend `main-<sha7>`-tags draagt, ouder is dan de laatst
+# uitgerolde (UITGEROLD, zie `uitgerold`), minstens MAIN_BEWAAR_SECONDEN oud is én niet bij de
+# MAIN_BEWAAR_AANTAL nieuwste main-versies van het package hoort.
+#
+# De bouw-jobs pushen hun tag vóór de uitrol. Blijft de uitrol rood terwijl er gemerged wordt, dan
+# komen er versies bij waar niets op draait, en zou een telling alleen de versie van `test` en de
+# `fsc-*`-peers na genoeg merges laten vallen. Daarom de uitgerolde versie als ondergrens; ontbreekt
+# die in het package, dan is niet vast te stellen wat er draait. Het aantal en de termijn houden
+# daarnaast recente versies bij de hand om naar terug te gaan; wat ouder is, is uit de commit
+# opnieuw te bouwen.
+#
+# Uitvoer en plafond zoals bij `ongetagd`: `<package>\t<uitkomst>\t<aantal>\t<toelichting>`, oudste
+# eerst, hoogstens VERWIJDER_MAX per aanroep, en alleen met VERWIJDER=true echt verwijderen.
+main_tags() {
+  local pkg=${1:-} max=${VERWIJDER_MAX:-100}
+  [ -n "$pkg" ] && [ -n "${ORG:-}" ] || onbepaald "Gebruik: ORG=… UITGEROLD=… $0 main-tags <package>"
+
+  case "$max" in
+    '' | *[!0-9]*) onbepaald "VERWIJDER_MAX moet een getal zijn." ;;
+  esac
+
+  [[ "${UITGEROLD:-}" =~ ^main-[0-9a-f]{7}$ ]] || onbepaald "UITGEROLD moet een tag main-<sha7> zijn."
+
+  local versies kandidaten aantal
+
+  versies=$(api "orgs/$ORG/packages/container/$pkg/versions?per_page=100" --paginate | jq -sc 'add') \
+    || onbepaald "De versies van $pkg zijn niet op te vragen."
+
+  jq -e --arg u "$UITGEROLD" 'any(.[]; any((.metadata.container.tags // [])[]; . == $u))' <<<"$versies" >/dev/null \
+    || onbepaald "De uitgerolde versie $UITGEROLD staat niet in $pkg; niet vast te stellen wat er draait."
+
+  # De ids, oudste eerst. Een versie met daarnaast een andere tag blijft staan en telt dus ook niet
+  # mee voor de nieuwste: die bescherming geldt de versies die anders weg zouden gaan.
+  kandidaten=$(jq -r --argjson nu "$NU" --argjson min "$MAIN_BEWAAR_SECONDEN" --argjson n "$MAIN_BEWAAR_AANTAL" \
+    --arg u "$UITGEROLD" '
+    (first(.[] | select(any((.metadata.container.tags // [])[]; . == $u))) | .created_at) as $grens
+    | [.[] | (.metadata.container.tags // []) as $t
+      | select(($t | length) > 0 and all($t[]; test("^main-[0-9a-f]{7}$")))]
+    | sort_by(.created_at) | reverse | .[$n:] | reverse[]
+    | select(.created_at < $grens)
+    | select($nu - (.created_at | fromdateiso8601) >= $min)
+    | .id' <<<"$versies") \
+    || onbepaald "De versies van $pkg zijn niet te beoordelen."
+
+  [ -n "$kandidaten" ] || return 0
+
+  aantal=$(grep -c . <<<"$kandidaten")
+
+  if [ "${VERWIJDER:-false}" != true ]; then
+    printf '%s\tte-verwijderen\t%s\talleen geïnventariseerd\n' "$pkg" "$aantal"
+    return 0
+  fi
+
+  if [ "$aantal" -gt "$max" ]; then
+    printf '%s\tuitgesteld\t%s\tplafond van %s verwijderingen per run\n' "$pkg" "$((aantal - max))" "$max"
+  fi
+
+  [ "$max" -gt 0 ] || return 0
+
+  verwijder_versies "$pkg" "$(head -n "$max" <<<"$kandidaten")"$'\n'
 }
 
 # De stand tussen runs, als regels `<soort>\t<n>`, in het artefact `preview-resten-stand`:
@@ -599,7 +760,7 @@ vorige_stand() {
 # Invoer via de omgeving:
 #   CANCELLED  github.cancelled()
 #   OPRUIMEN   true als deze run hoorde op te ruimen
-#   NEEDS      toJSON(needs) van de meldjob, met de outputs van zad, inventaris, opruimen en ongetagd
+#   NEEDS      toJSON(needs) van de meldjob, met de outputs van zad, inventaris, opruimen, main-tags en ongetagd
 bevindingen() {
   [ -n "${NEEDS+gezet}" ] && [ -n "${CANCELLED+gezet}" ] || onbepaald "NEEDS en CANCELLED zijn verplicht."
   jq -e 'type == "object"' <<<"$NEEDS" >/dev/null 2>&1 || onbepaald "NEEDS is geen toJSON(needs)-uitvoer."
@@ -612,7 +773,7 @@ bevindingen() {
 
   # `opruimen` mag overslaan als er niets op te ruimen was of de run alleen inventariseert; elke
   # andere job hoort te slagen.
-  for job in zad inventaris ongetagd; do
+  for job in zad inventaris main-tags ongetagd; do
     resultaat=$(jq -r --arg j "$job" '.[$j].result // "ontbreekt"' <<<"$NEEDS")
     [ "$resultaat" = success ] || printf 'onbepaald\t%s\tde job eindigde als %s\n' "$job" "$resultaat"
   done
@@ -667,6 +828,12 @@ bevindingen() {
     $2 == "mislukt"    { print "ongetagd-mislukt\t" $1 "\t" $3 " ongetagde versie(s) " $4 }
     $2 == "uitgesteld" { print "ongetagd-uitgesteld\t" $1 "\t" $3 " ongetagde versie(s) " $4 }
     $2 == "onbepaald"  { print "onbepaald\tghcr:" $1 "\t" $4 }'
+
+  # Uitgestelde main-versies zijn geen rest maar een achterstand die elke run kleiner wordt; een
+  # melding daarover zou bij de eerste runs wekenlang open blijven staan zonder dat er iets te doen is.
+  jq -r '.["main-tags"].outputs.uitkomsten // ""' <<<"$NEEDS" | awk -F'\t' '
+    $2 == "mislukt"   { print "main-tags-mislukt\t" $1 "\t" $3 " main-versie(s) " $4 }
+    $2 == "onbepaald" { print "onbepaald\tghcr-main:" $1 "\t" $4 }'
 }
 
 readonly ISSUE_TITEL='Achtergebleven preview-resten'
@@ -756,6 +923,7 @@ issue() {
     echo "- **geen-pr** — een naam \`pr-<n>\` zonder PR in deze repo. Met de hand onderzoeken; de automatische opruiming weigert dit nummer terecht."
     echo "- **vreemd-pakket** — een package van deze repo dat niet in \`EIGEN_IMAGES\` (deploy.yml) staat. Opnemen in de lijst, of het package met de hand opruimen."
     echo "- **ongetagd-bewaard / ongetagd-mislukt** — ongetagde ghcr-versies die niet aantoonbaar los staan, of die GitHub weigerde te verwijderen."
+    echo "- **main-tags-mislukt** — \`main-<sha>\`-versies buiten de bewaartermijn die GitHub weigerde te verwijderen."
   )
 
   if [ -z "$nummer" ]; then
@@ -816,6 +984,9 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     zad | github | classificeer | kies | opruimen | ongetagd | bevindingen | issue | noodmelding) "$opdracht" "$@" ;;
     vorige-stand) vorige_stand "$@" ;;
     nieuwe-stand) nieuwe_stand "$@" ;;
-    *) onbepaald "Gebruik: $0 zad|github|classificeer|kies|opruimen|ongetagd|bevindingen|issue|noodmelding|vorige-stand|nieuwe-stand …" ;;
+    main-tags) main_tags "$@" ;;
+    uitgerold) uitgerold "$@" ;;
+    per-package) per_package "$@" ;;
+    *) onbepaald "Gebruik: $0 zad|github|classificeer|kies|opruimen|ongetagd|uitgerold|main-tags|per-package|bevindingen|issue|noodmelding|vorige-stand|nieuwe-stand …" ;;
   esac
 fi

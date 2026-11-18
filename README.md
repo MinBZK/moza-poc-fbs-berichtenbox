@@ -127,7 +127,7 @@ Verder lezen:
 - [Aanpak en keuzes van de PoC](docs/aanpak-en-keuzes.md) — waarom federatief, welke standaarden
 - [Demo-runbook](docs/demo-runbook.md) — de demo-stack en alle scenario's
 - [Operator-handleiding magazijn](docs/operator-handleiding.md) — verplichte productie-overrides, LDV, outbox
-- [Operator-handleiding uitvraag](docs/operator-handleiding-uitvraag.md) — sessiecache-TLS, timeout-invarianten, cache-TTL's
+- [Operator-handleiding uitvraag](docs/operator-handleiding-uitvraag.md) — sessiecache-TLS, timeout-invarianten, sessietermijnen
 - [Operator-handleiding stelselregister](docs/operator-handleiding-stelselregister.md) — de ondertekensleutel, wisselen en bewaken
 - [Toepassingsprofiel stelseldocument](docs/stelseldocument-toepassingsprofiel.md) — hoe een app het stelseldocument ophaalt en verifieert
 - [`docs/operations/`](docs/operations/) — runbooks per operationele procedure (alerts, schema-bumps)

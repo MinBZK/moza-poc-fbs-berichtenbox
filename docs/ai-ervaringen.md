@@ -102,7 +102,7 @@ gegenereerd, met name tests, dat twee ontwikkelaars dat onmogelijk allemaal
 grondig kunnen reviewen.
 
 We gaan uit van goede kwaliteit en leunen op een brede set QA-tooling (detekt,
-JaCoCo-drempel, CodeQL, Spectral, OpenSSF Scorecard) en de overheid-skills om de
+JaCoCo-drempel, CodeQL, de ADR-linter, OpenSSF Scorecard) en de overheid-skills om de
 (test)kwaliteit te borgen.
 
 Daarnaast willen we vooral functioneel testen. Op de backlog staat een
@@ -159,7 +159,7 @@ dit automatisch aantonen en daarmee CC forceren om het op te lossen.
 - [Scorecard](https://github.com/ossf/scorecard) scant op open source richtlijnen.
 - [JaCoCo](https://www.jacoco.org/jacoco/) garandeert een code coverage van 90%. Dat
   is geen garantie op goede tests, maar wel dat hij bijna alle paden langs moet gaan.
-- [Spectral linting](https://github.com/stoplightio/spectral) controleert de OpenAPI
+- De [DON Checker](https://github.com/developer-overheid-nl/don-checker) (op OpenLint, de opvolger van Spectral) controleert de OpenAPI
   spec op consistentie en andere problemen.
 
 De meeste hiervan hebben we toegevoegd omdat we terugkerend zagen dat dit niet goed

@@ -466,7 +466,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           # Expliciet aan, ook al verifieert de action Temurin sinds v6 standaard: een wissel naar
@@ -589,7 +589,8 @@ jobs:
           docker run -d --rm --name profiel-controle -p 8089:8080 "$DEMO_IMG"
 
           for _ in $(seq 30); do
-            curl -sf http://localhost:8089/__admin/mappings >/dev/null && break
+            # Niet /__admin: die staat in dit image dicht (wiremock/externe-stubs/admin-dicht.sh).
+            curl -sf http://localhost:8089/gezondheid >/dev/null && break
             sleep 1
           done
 
@@ -704,7 +705,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           verify-signature: true
@@ -1013,7 +1014,7 @@ jobs:
       # deze uitrol rendert ze meteen mee.
       - name: Deploy uitvraag-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1049,7 +1050,7 @@ jobs:
       # bij de componentenlijst in `meta`. De inbound-regels voor de Toxiproxy's staan al in het
       # projectbestand (`preview-klaarzetten`), dus deze uitrol rendert ze meteen mee.
       - name: Deploy externe-stubs-project
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -1087,7 +1088,7 @@ jobs:
     steps:
       - name: Deploy stelselregister-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_STELSELREGISTER }}
           project-id: ${{ env.PROJECT_STELSELREGISTER }}
@@ -1194,7 +1195,7 @@ jobs:
 
       - name: Deploy magazijnen-project
         id: deploy
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -1302,7 +1303,7 @@ jobs:
       name: test
     steps:
       - name: Deploy uitvraag-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1322,7 +1323,7 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/logius/deploy/zad/upsert-peer.sh.
       - name: Deploy uitvraag-project (fsc-logius — FSC-peer)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
           project-id: ${{ env.PROJECT_UITVRAAG }}
@@ -1359,7 +1360,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy externe-stubs-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_PROFIEL }}
           project-id: ${{ env.PROJECT_EXTERNE_STUBS }}
@@ -1392,7 +1393,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy stelselregister-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_STELSELREGISTER }}
           project-id: ${{ env.PROJECT_STELSELREGISTER }}
@@ -1423,7 +1424,7 @@ jobs:
       contents: read
     steps:
       - name: Deploy magazijnen-project (test)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}
@@ -1445,7 +1446,7 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
       - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
-        uses: RijksICTGilde/zad-actions/deploy@b612e5968bb88c2c9c05da30f0be2e96b98f78c6 # v4.3.2
+        uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}
           project-id: ${{ env.PROJECT_MAGAZIJNEN }}

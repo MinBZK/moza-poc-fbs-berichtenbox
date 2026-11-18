@@ -50,9 +50,13 @@ class AanmeldResourceTest {
     @Inject
     lateinit var dedup: MockAanmeldDeduplicatie
 
+    /** Een lopende sessie van de standaard-ontvanger; zonder die weigert de sessiecontrole elk berichtenpad. */
+    private lateinit var sessie: String
+
     @BeforeEach
     fun reset() {
         sessiecache.reset()
+        sessie = sessiecache.sessieVoor()
         dedup.reset()
     }
 
@@ -122,6 +126,7 @@ class AanmeldResourceTest {
         given()
             .filter(validator)
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
             .`when`().get("/api/v1/berichten")
             .then()
             .statusCode(200)
@@ -131,8 +136,8 @@ class AanmeldResourceTest {
     }
 
     @Test
-    fun `geen actieve sessie geeft 202 maar schrijft niets`() {
-        sessiecache.schrijfFouten.add(SessiecacheException.GeenActieveSessie("geen sessie"))
+    fun `geen opgehaalde lijst geeft 202 maar schrijft niets`() {
+        sessiecache.schrijfFouten.add(SessiecacheException.GeenLijstInCache("geen sessie"))
 
         given()
             .contentType(cloudEventsJson)
@@ -217,8 +222,8 @@ class AanmeldResourceTest {
         val id = "evt-herlevering"
         val berichtId = UUID.randomUUID()
 
-        // Eerste levering: geen actieve sessie → 202, niets geschreven, marker vrijgegeven.
-        sessiecache.schrijfFouten.add(SessiecacheException.GeenActieveSessie("geen sessie"))
+        // Eerste levering: geen opgehaalde lijst → 202, niets geschreven, marker vrijgegeven.
+        sessiecache.schrijfFouten.add(SessiecacheException.GeenLijstInCache("geen sessie"))
         given()
             .contentType(cloudEventsJson)
             .body(event(id = id, berichtId = berichtId))

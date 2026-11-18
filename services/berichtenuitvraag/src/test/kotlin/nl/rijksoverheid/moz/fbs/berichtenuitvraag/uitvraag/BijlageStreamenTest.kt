@@ -77,6 +77,11 @@ class BijlageStreamenTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    private val sessies = mutableMapOf<String, String>()
+
+    /** Een geldige `X-Sessie` per ontvanger: elk verzoek onder `/api/v1/berichten` eist er een. */
+    private fun sessie(ontvanger: String): String = sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) }
+
     @Inject
     lateinit var streams: Bijlagestreams
 
@@ -109,6 +114,7 @@ class BijlageStreamenTest {
     fun zetKlaar() {
         BijlageMagazijnStub.reset()
         sessiecache.reset()
+        sessies.clear()
         every { processingHandler.startSpan(any(), any()) } returns Span.wrap(LOGBOEK_SPAN)
         QuarkusMock.installMockForType(processingHandler, ProcessingHandler::class.java)
         sessiecache.zet(
@@ -150,6 +156,7 @@ class BijlageStreamenTest {
     private fun verzoek(methode: String = "GET"): HttpRequest =
         HttpRequest.newBuilder(URI.create(adres))
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie("BSN:999990019"))
             .timeout(Duration.ofSeconds(20))
             .method(methode, HttpRequest.BodyPublishers.noBody())
             .build()
@@ -205,6 +212,7 @@ class BijlageStreamenTest {
         val antwoord = given()
             .apply { if (grootte > 0) filter(CONTRACT) }
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie("BSN:999990019"))
             .`when`()
             .get(adres)
             .then()
@@ -290,6 +298,7 @@ class BijlageStreamenTest {
         given()
             .filter(CONTRACT)
             .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie("BSN:999990019"))
             .`when`()
             .get(adres)
             .then()
@@ -376,7 +385,7 @@ class BijlageStreamenTest {
 
         Socket(berichten.host, berichten.port).use { socket ->
             val pad = URI.create(adres).let { "${it.rawPath}?${it.rawQuery}" }
-            val verzoekregels = "$methode $pad HTTP/1.1\r\nHost: localhost\r\nX-Ontvanger: BSN:999990019\r\n\r\n"
+            val verzoekregels = "$methode $pad HTTP/1.1\r\nHost: localhost\r\nX-Ontvanger: BSN:999990019\r\nX-Sessie: ${sessie("BSN:999990019")}\r\n\r\n"
             socket.getOutputStream().write(verzoekregels.toByteArray())
             socket.getOutputStream().flush()
 

@@ -16,13 +16,17 @@ class StoringServiceTest {
     private val instantie = mockk<ToxiproxyClient>(relaxed = false)
     private val tweede = mockk<ToxiproxyClient>(relaxed = false)
 
+    // Vóór `service`: Kotlin initialiseert velden in volgorde. Relaxed, dus bewaakt() is false en
+    // een test zonder eigen aankondiging ziet geen extra uitlezing.
+    private val stil = mockk<StoringAankondiging>(relaxed = true)
+
     private fun registerMet(vararg clients: Pair<String, ToxiproxyClient>) =
         mockk<ToxiproxyRegister> {
             every { namen() } returns clients.map { it.first }.toSet()
             every { client(any()) } answers { clients.toMap()[firstArg()] ?: error("niet geconfigureerd") }
         }
 
-    private val service = StoringService(registerMet("magazijn-a" to instantie, "magazijn-b" to instantie))
+    private val service = StoringService(stil, registerMet("magazijn-a" to instantie, "magazijn-b" to instantie))
 
     // Response via MockK (relaxed sluit .use()/close() af) i.p.v. Response.ok().build(),
     // dat een JAX-RS RuntimeDelegate vereist die in een pure unittest kan ontbreken.
@@ -104,7 +108,7 @@ class StoringServiceTest {
         every { instantie.zetProxy(any(), any()) } returns ok()
         every { tweede.zetProxy(any(), any()) } returns ok()
 
-        StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
+        StoringService(stil, registerMet("profiel" to instantie, "redis" to tweede)).reset()
 
         verify { instantie.zetProxy("profiel", ProxyPatch(enabled = true)) }
         verify { tweede.zetProxy("redis", ProxyPatch(enabled = true)) }
@@ -116,7 +120,7 @@ class StoringServiceTest {
         every { tweede.proxies() } returns emptyMap()
 
         val fout = assertThrows(IllegalStateException::class.java) {
-            StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
+            StoringService(stil, registerMet("profiel" to instantie, "redis" to tweede)).reset()
         }
 
         assertTrue(fout.message!!.contains("proxies.json"), "melding moet de lokale oorzaak noemen, was: ${fout.message}")
@@ -158,7 +162,7 @@ class StoringServiceTest {
     fun `reset faalt als er geen enkele proxy geconfigureerd is`() {
         // Lege TOXIPROXY_*_URL's schakelen elke proxy uit; het register is dan leeg. Zonder guard
         // zou de lege forEach niets doen en de resource "alles normaal" laten melden.
-        val fout = assertThrows(IllegalStateException::class.java) { StoringService(registerMet()).reset() }
+        val fout = assertThrows(IllegalStateException::class.java) { StoringService(stil, registerMet()).reset() }
 
         assertTrue(
             fout.message!!.contains("Geen enkele proxy geconfigureerd"),
@@ -190,7 +194,7 @@ class StoringServiceTest {
         every { tweede.zetProxy(any(), any()) } returns ok()
 
         assertThrows(IllegalStateException::class.java) {
-            StoringService(registerMet("profiel" to instantie, "redis" to tweede)).reset()
+            StoringService(stil, registerMet("profiel" to instantie, "redis" to tweede)).reset()
         }
 
         verify { tweede.zetProxy("redis", ProxyPatch(enabled = true)) }
@@ -205,6 +209,7 @@ class StoringServiceTest {
         )
 
         val status = StoringService(
+            stil,
             registerMet("magazijn-a" to instantie, "magazijn-b" to instantie, "redis" to instantie),
         ).status()
 
@@ -255,14 +260,14 @@ class StoringServiceTest {
         every { instantie.proxies() } throws IllegalStateException("verbinding geweigerd")
         every { tweede.proxies() } returns mapOf("redis" to ProxyStatus(enabled = false))
 
-        val status = StoringService(registerMet("profiel" to instantie, "redis" to tweede)).status()
+        val status = StoringService(stil, registerMet("profiel" to instantie, "redis" to tweede)).status()
 
         assertEquals(mapOf("profiel" to Storingstoestand.ONBEKEND, "redis" to Storingstoestand.UIT), status)
     }
 
     @Test
     fun `status zonder geconfigureerde proxies levert een lege map en geen fout`() {
-        assertEquals(emptyMap<String, Storingstoestand>(), StoringService(registerMet()).status())
+        assertEquals(emptyMap<String, Storingstoestand>(), StoringService(stil, registerMet()).status())
     }
 
     @Test
@@ -276,7 +281,7 @@ class StoringServiceTest {
 
         assertEquals(
             mapOf("redis" to Storingstoestand.UIT),
-            StoringService(registerMet("redis" to instantie)).status(),
+            StoringService(stil, registerMet("redis" to instantie)).status(),
         )
     }
 
@@ -289,6 +294,7 @@ class StoringServiceTest {
         )
 
         val status = StoringService(
+            stil,
             registerMet("redis" to instantie, "aanmeld" to instantie, "profiel" to instantie),
         ).status()
 
@@ -340,5 +346,94 @@ class StoringServiceTest {
 
         assertEquals(true, gelezen.getValue("magazijn-a").enabled)
         assertEquals(listOf("latency_downstream"), gelezen.getValue("magazijn-a").toxics.map { it.name })
+    }
+
+    @Test
+    fun `uit op een bewaakte proxy kondigt de overgang aan met de toestand ervoor en erna`() {
+        val aankondiging = mockk<StoringAankondiging>(relaxed = true) { every { bewaakt("redis") } returns true }
+        every { instantie.zetProxy(any(), any()) } returns ok()
+        every { instantie.proxies() } returnsMany listOf(
+            mapOf("redis" to ProxyStatus(enabled = true)),
+            mapOf("redis" to ProxyStatus(enabled = false)),
+        )
+
+        StoringService(aankondiging, registerMet("redis" to instantie)).uit("redis")
+
+        verify { aankondiging.overgang("redis", Storingstoestand.NORMAAL, Storingstoestand.UIT) }
+    }
+
+    @Test
+    fun `traag op een bewaakte proxy kondigt de overgang aan`() {
+        val aankondiging = mockk<StoringAankondiging>(relaxed = true) { every { bewaakt("redis") } returns true }
+        every { instantie.voegToxicToe(any(), any()) } returns ok()
+        every { instantie.proxies() } returnsMany listOf(
+            mapOf("redis" to ProxyStatus(enabled = true)),
+            mapOf("redis" to ProxyStatus(enabled = true, toxics = listOf(ToxicStatus("latency_downstream")))),
+        )
+
+        StoringService(aankondiging, registerMet("redis" to instantie)).traag("redis", 6000)
+
+        verify { aankondiging.overgang("redis", Storingstoestand.NORMAAL, Storingstoestand.TRAAG) }
+    }
+
+    @Test
+    fun `een onleesbare toestand vooraf houdt de knop niet tegen`() {
+        // Zonder vangnet zou een haperende uitlezing vóór de knop de storing zelf tegenhouden:
+        // de aankondiging is bijzaak, de knop niet.
+        val aankondiging = mockk<StoringAankondiging>(relaxed = true) { every { bewaakt("redis") } returns true }
+        every { instantie.zetProxy(any(), any()) } returns ok()
+        every { instantie.proxies() } throws IllegalStateException("weg") andThen
+            mapOf("redis" to ProxyStatus(enabled = false))
+
+        val toestand = StoringService(aankondiging, registerMet("redis" to instantie)).uit("redis")
+
+        assertEquals(Storingstoestand.UIT, toestand)
+        verify { aankondiging.overgang("redis", Storingstoestand.ONBEKEND, Storingstoestand.UIT) }
+    }
+
+    @Test
+    fun `een knop zonder aankondiging leest Toxiproxy niet extra uit`() {
+        every { instantie.zetProxy(any(), any()) } returns ok()
+        every { instantie.proxies() } returns mapOf("magazijn-b" to ProxyStatus(enabled = false))
+
+        service.uit("magazijn-b")
+
+        verify(exactly = 1) { instantie.proxies() }
+        verify(exactly = 0) { stil.overgang(any(), any(), any()) }
+    }
+
+    @Test
+    fun `reset kondigt het herstel van een bewaakte proxy aan`() {
+        val aankondiging = mockk<StoringAankondiging>(relaxed = true) { every { bewaakt("redis") } returns true }
+        every { instantie.zetProxy(any(), any()) } returns ok()
+        every { instantie.proxies() } returnsMany listOf(
+            mapOf("redis" to ProxyStatus(enabled = false)),
+            mapOf("redis" to ProxyStatus(enabled = false)),
+            mapOf("redis" to ProxyStatus(enabled = true)),
+        )
+
+        StoringService(aankondiging, registerMet("redis" to instantie)).reset()
+
+        verify { aankondiging.overgang("redis", Storingstoestand.UIT, Storingstoestand.NORMAAL) }
+    }
+
+    @Test
+    fun `reset kondigt ook aan als het herstel elders mislukt`() {
+        // De bewaking meldt het herstel van Redis hoe dan ook; dat een andere instantie niet
+        // meewilde, mag die aankondiging niet opslokken.
+        val aankondiging = mockk<StoringAankondiging>(relaxed = true) { every { bewaakt("redis") } returns true }
+        every { instantie.zetProxy(any(), any()) } returns ok()
+        every { instantie.proxies() } returnsMany listOf(
+            mapOf("redis" to ProxyStatus(enabled = false)),
+            mapOf("redis" to ProxyStatus(enabled = false)),
+            mapOf("redis" to ProxyStatus(enabled = true)),
+        )
+        every { tweede.proxies() } throws IllegalStateException("weg")
+
+        assertThrows(IllegalStateException::class.java) {
+            StoringService(aankondiging, registerMet("redis" to instantie, "profiel" to tweede)).reset()
+        }
+
+        verify { aankondiging.overgang("redis", Storingstoestand.UIT, Storingstoestand.NORMAAL) }
     }
 }

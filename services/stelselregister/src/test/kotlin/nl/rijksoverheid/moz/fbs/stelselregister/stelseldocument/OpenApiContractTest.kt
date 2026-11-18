@@ -13,6 +13,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.swagger.v3.oas.models.OpenAPI
 import io.swagger.v3.parser.OpenAPIV3Parser
+import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -42,6 +43,16 @@ class OpenApiContractTest {
             )
             .build(),
     )
+    // Voor het verzoek dat bewust een te lange header stuurt: alleen het antwoord telt.
+    private val alleenAntwoordOpTeLangeHeader = OpenApiValidationFilter(
+        OpenApiInteractionValidator.createForSpecificationUrl(specPad)
+            .withLevelResolver(
+                LevelResolver.create()
+                    .withLevel("validation.request.parameter.schema.maxLength", ValidationReport.Level.IGNORE)
+                    .build(),
+            )
+            .build(),
+    )
     private val spec: OpenAPI = OpenAPIV3Parser().read(specPad)
     private val schemas = SchemaValidator(spec, MessageResolver())
 
@@ -63,6 +74,18 @@ class OpenApiContractTest {
         val etag = given().get(pad).then().extract().header("ETag")
 
         given().filter(filter).header("If-None-Match", etag).`when`().get(pad).then().statusCode(304)
+    }
+
+    @Test
+    fun `een 400 bij een te lange If-None-Match respecteert het foutcontract`() {
+        given().filter(alleenAntwoordOpTeLangeHeader).header("If-None-Match", "a".repeat(513))
+            .`when`().get(pad)
+            .then().statusCode(400).body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+    }
+
+    @Test
+    fun `een If-None-Match van precies de maximale lengte levert het document`() {
+        given().filter(filter).header("If-None-Match", "a".repeat(512)).`when`().get(pad).then().statusCode(200)
     }
 
     @Test

@@ -23,6 +23,13 @@ updates:
       # https://github.com/atlassian/openapi-request-validator/pull/24
       - dependency-name: "com.networknt:json-schema-validator"
         update-types: ["version-update:semver-major"]
+  # Wekelijks: de ADR-linter draait alleen op een ontwikkelmachine en leest uitsluitend onze eigen
+  # specs. Een nieuwe versie brengt soms een nieuwe ADR-versie met strengere regels mee; die PR is
+  # dus ook het moment om `npm run lint` in tools/adr-lint opnieuw te draaien.
+  - package-ecosystem: "npm"
+    directory: "/tools/adr-lint"
+    schedule:
+      interval: "weekly"
   # Dagelijks: Dependabot genereert geen alerts voor container-images, dus voor de
   # images uit compose.yaml (die via pin-consistency.yml ook de ZAD-runtime-pins
   # sturen) is deze version-update-ronde het enige signaal dat er een nieuwe versie is.
