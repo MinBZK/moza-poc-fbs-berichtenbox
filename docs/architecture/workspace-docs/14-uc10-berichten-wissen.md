@@ -75,7 +75,7 @@ sequenceDiagram
 | Een organisatie reageert niet binnen een maand | De stelselbeheerder herinnert haar eraan, en meldt de ontvanger welke organisatie nog niet geantwoord heeft | Een uitkomst met een open plek |
 | Een magazijn is niet bereikbaar | De organisatie wist zodra het magazijn weer werkt | De uitkomst van die organisatie komt later |
 | Een wettelijke plicht of de Archiefwet verbiedt het wissen | De organisatie wist niet, of alleen een deel | De reden, per organisatie |
-| Alleen voor ondernemers: de ontvanger is een rechtspersoon, zoals een bv of nv | Het recht op wissing geldt niet voor de onderneming zelf. Het geldt wel voor personen over wie een bericht gaat | De stelselbeheerder legt dat uit |
+| Alleen voor ondernemers: de ontvanger is een rechtspersoon, zoals een bv of nv | Een bv of nv heeft het recht op wissing niet zelf (AVG, overweging 14). Personen over wie een bericht gaat hebben het wel, voor de gegevens over hen, zoals de directeur van een eenpersoons-bv. Een jurist toetst dit per geval | De stelselbeheerder legt dat uit. Zo'n persoon kan zelf een verzoek doen |
 | De ontvanger is ingelogd tijdens het wissen | De lijst klopt pas weer na het volgende ophalen | Gewiste berichten staan nog in de lijst, maar zijn niet meer te openen |
 
 ## Nog niet gerealiseerd
