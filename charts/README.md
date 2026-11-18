@@ -46,8 +46,8 @@ dienst:
 
 cluster:
   gateway:
-    name: fundament-gateway
-    namespace: gateway-system
+    name: web                # in de eigen namespace, zie "Op Fundament"
+    sectionName: https
 
 ingress:
   enabled: true
@@ -102,20 +102,45 @@ Gateway. Aanroepers binnen het cluster komen binnen met het podlabel
 Zo ziet een cluster van het fieldlab eruit (Kubernetes 1.36, Envoy Gateway 1.9 met Gateway API
 1.6), en wat dat van de installatie vraagt:
 
-- **Namespace.** Maak de namespace in de console; hij heet dan `tnt-<project>--<naam>`. Installeer
-  zonder `--create-namespace`: een namespace die je met kubectl of Helm maakt, geeft projectleden
-  geen rechten.
+- **Gedeelde organisatie.** Op het fieldlab delen meerdere teams één organisatie en één cluster,
+  en iedereen is beheerder van elk project. Elk ander team kan dus elk Secret lezen en elk object
+  wijzigen of verwijderen. Daaruit volgt:
+  - alleen proefgegevens en demo-persona's, geen echte berichten of BSN's;
+  - sleutels en wachtwoorden die alleen voor dat cluster bestaan. Het stelselregister krijgt er
+    een eigen ondertekensleutel: met de sleutel van een andere omgeving kan iedereen in de
+    organisatie een stelseldocument tekenen dat die omgeving vertrouwt;
+  - values en manifests in git, zodat de opstelling na een storing of een vergissing van een
+    ander team snel opnieuw te installeren is.
+- **Namespace.** Maak project en namespace in de console; de namespace heet dan
+  `tnt-<project>--<naam>`. Begin de projectnaam met het prefix van het product, voor dit stelsel
+  `fbs-` (bijvoorbeeld `fbs-poc` of `fbs-fe`), zodat andere teams zien van wie een project is.
+  Installeer zonder `--create-namespace`: een namespace die je met kubectl of Helm maakt, geeft
+  projectleden geen rechten.
+- **Team-label.** Zet in de values van de omgeving een label met het team, bijvoorbeeld
+  `commonLabels: {team: mijnoverheid-zakelijk}`; dan staat het op elk object van de chart, en
+  ziet wie in het cluster kijkt van wie het is (`-l team=mijnoverheid-zakelijk`). Het vult de standaard `app.kubernetes.io/part-of: fbs` aan. De selectors gebruiken alleen naam en
+  instance, dus een label erbij of eraf breekt een upgrade niet.
 - **Rechten.** Projectbeheerders hebben in hun namespace de ClusterRole `admin`. De chart maakt
   alleen objecten binnen de namespace, en een beleidsregel weigert andere soorten, ook via
   `extraDeploy`. HTTPRoute hoort niet bij de standaardrol `admin` van Kubernetes; het fieldlab
   maakt routes wel met `kubectl apply`, maar dat het met jouw rol mag, controleer je met
-  `kubectl auth can-i create httproutes -n <namespace>`. Mag het niet, installeer dan met
-  `ingress.enabled=false` en maak de route apart.
+  `kubectl auth can-i create httproutes -n <namespace>`. Een projectlid met alleen `admin` krijgt
+  daar `no`. Installeer dan met `ingress.enabled=false`, maar mét `cluster.gateway.name` (en
+  `cluster.gateway.namespace` als de Gateway elders staat): daarop laat de NetworkPolicy de
+  proxy's van de Gateway binnen. Zonder die naam geeft de Gateway een 503; NOTES.txt waarschuwt
+  dan. Een beheerder maakt de route met dezelfde values, zodat de render hem eerst toetst:
+  `helm template <release> charts/fbs-dienst -f ... --set ingress.enabled=true
+  --show-only templates/httproute.yaml | kubectl apply -f -`.
 - **Gateway.** Fundament installeert Envoy Gateway (GatewayClass `eg`) maar maakt geen Gateway.
-  Maak die zelf in de eigen namespace, bijvoorbeeld `web` met een listener `https` op 443 en een
-  certificaat via cert-manager, en zet `cluster.gateway.name=web` en
-  `cluster.gateway.sectionName=https`. `cluster.gateway.namespace` mag leeg blijven. De proxy's
-  draaien in `envoy-gateway-system`; daar staat de NetworkPolicy al op ingesteld.
+  Maak die zelf in de eigen namespace, bijvoorbeeld `web` met een listener `https` op 443, en zet
+  `cluster.gateway.name=web` en `cluster.gateway.sectionName=https`. `cluster.gateway.namespace`
+  mag leeg blijven. De proxy's draaien in `envoy-gateway-system`; daar staat de NetworkPolicy al
+  op ingesteld. Op een gedeeld cluster:
+  - het certificaat via cert-manager met een `Issuer` in de eigen namespace (annotatie
+    `cert-manager.io/issuer` op de Gateway), geen `ClusterIssuer`: die geldt voor het hele
+    cluster, en elk team kan hem wijzigen of verwijderen;
+  - `allowedRoutes` op de listener op de standaard `Same` laten, zodat alleen routes uit de eigen
+    namespace aan de Gateway hangen.
 - **Hostnaam.** De Gateway krijgt een publiek IPv4-adres, maar Fundament maakt geen DNS. Volgorde:
   maak eerst de Gateway, wacht op het adres (`kubectl get gateway web`), en installeer dan de chart
   met als `ingress.hostname` een eigen A-record of `<ip-met-streepjes>.sslip.io`. Die hostnaam moet
@@ -128,7 +153,9 @@ Zo ziet een cluster van het fieldlab eruit (Kubernetes 1.36, Envoy Gateway 1.9 m
   containers zonder eigen requests en limits. De chart zet ze zelf, dus die botsen niet.
 - **Database.** PostgreSQL komt uit CloudNativePG, met een Secret `<cluster>-app`.
   [`voorbeelden/berichtenmagazijn-cnpg.yaml`](voorbeelden/berichtenmagazijn-cnpg.yaml) laat zien
-  hoe het magazijn en zijn logboek daaruit verbinden, met TLS.
+  hoe het magazijn en zijn logboek daaruit verbinden, met `sslmode=verify-full` tegen de CA uit
+  `<cluster>-ca`: via het logboek gaan BSN's over die verbinding, en `require` controleert niet
+  welke server antwoordt.
 
 ## Wat de chart standaard afdwingt
 

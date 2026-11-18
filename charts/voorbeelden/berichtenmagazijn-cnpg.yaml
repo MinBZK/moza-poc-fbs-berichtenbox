@@ -14,9 +14,12 @@
 # en `jdbc-uri` zet het wachtwoord in de URL; daarom stelt de pod het JDBC-adres zelf samen uit de
 # losse velden. Kubernetes vult $(NAAM) in met een variabele die eerder in de lijst staat.
 #
-# De server spreekt standaard TLS met een eigen CA. sslmode=require versleutelt zonder die CA te
-# controleren; dat is wat de LDV-validator eist. Voor verify-full moet de CA uit het Secret
-# `<cluster>-ca` in de pod en in de URL (sslrootcert).
+# De server spreekt TLS met een eigen CA, uit het Secret `<cluster>-ca`. Over deze verbinding gaan
+# via het logboek BSN's; daarom verify-full: de pod controleert het certificaat tegen die CA en de
+# hostnaam `<cluster>-rw` uit het app-Secret. Met alleen sslmode=require is de verbinding versleuteld,
+# maar kan een pod die zich als de database-Service voordoet het verkeer onderscheppen. Van dat
+# Secret komt alleen ca.crt in de pod, niet de sleutel ca.key. Een Cluster met een eigen server-CA
+# (spec.certificates.serverCASecret) heeft een ander Secret; zet dan dat in extraVolumes.
 #
 # Het logboek schrijft in dezelfde database, in het schema van DB_SCHEMA (zie
 # diensten/berichtenmagazijn.yaml).
@@ -34,12 +37,23 @@ dienst:
     - name: DB_PASSWORD
       valueFrom: {secretKeyRef: {name: db-app, key: password}}
     - name: DB_JDBC_URL
-      value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=require
+      value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=verify-full&sslrootcert=/etc/fbs/db-ca/ca.crt
     - name: LDV_POSTGRES_URL
-      value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=require
+      value: jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=verify-full&sslrootcert=/etc/fbs/db-ca/ca.crt
     - name: LDV_POSTGRES_USERNAME
       value: $(DB_USERNAME)
     - name: LDV_POSTGRES_PASSWORD
       value: $(DB_PASSWORD)
+  extraVolumes:
+    - name: db-ca
+      secret:
+        secretName: db-ca
+        items:
+          - key: ca.crt
+            path: ca.crt
+  extraVolumeMounts:
+    - name: db-ca
+      mountPath: /etc/fbs/db-ca
+      readOnly: true
   env:
     DB_SCHEMA: magazijn
