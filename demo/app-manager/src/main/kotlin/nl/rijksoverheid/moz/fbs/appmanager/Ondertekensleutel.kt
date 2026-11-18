@@ -57,17 +57,15 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
     private fun laad(launchMode: LaunchMode): KeyPair {
         val pad = config.sleutelPad().orElse(null) ?: return wegwerp(launchMode)
 
-        // Elke fout bij het lezen noemt de property, zodat de operator weet waar hij moet kijken.
+        // Elke fout bij het lezen noemt de property, zodat de operator weet waar hij moet kijken. Kotlin
+        // kent geen multi-catch; de `when` kiest de typen, de rest gaat ongewijzigd door.
         return try {
             leesPem(Files.readString(Path.of(pad)))
-        } catch (fout: IOException) {
-            throw onbruikbaar(pad, fout)
-        } catch (fout: GeneralSecurityException) {
-            throw onbruikbaar(pad, fout)
-        } catch (fout: IllegalArgumentException) {
-            throw onbruikbaar(pad, fout)
-        } catch (fout: IllegalStateException) {
-            throw onbruikbaar(pad, fout)
+        } catch (fout: Exception) {
+            throw when (fout) {
+                is IOException, is GeneralSecurityException, is IllegalArgumentException, is IllegalStateException -> onbruikbaar(pad, fout)
+                else -> fout
+            }
         }
     }
 
