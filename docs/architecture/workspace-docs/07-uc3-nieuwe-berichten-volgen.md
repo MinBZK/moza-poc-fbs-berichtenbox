@@ -75,4 +75,4 @@ Wat in het overzicht voor alle use cases staat. Het volgen zelf werkt zoals besc
 ## Open vragen
 
 - Een nieuw bericht verschijnt alleen meteen als de ontvanger ingelogd is. Anders is de ontvanger
-  aangewezen op de melding uit use case 1. Is dat voldoende? (Uit het overleg met Logius.)
+  aangewezen op de melding uit use case 1. Is dat voldoende?

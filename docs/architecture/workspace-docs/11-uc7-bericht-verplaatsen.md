@@ -73,5 +73,4 @@ sequenceDiagram
 ## Open vragen
 
 - Magazijnen moeten allerlei labels en mappen kunnen bewaren. Dat wordt een eis aan elk magazijn,
-  ook aan een zelf gehost magazijn. Dit staat nog niet in de stelselafspraken. (Uit het overleg met
-  Logius.)
+  ook aan een zelf gehost magazijn. Dit staat nog niet in de stelselafspraken.
