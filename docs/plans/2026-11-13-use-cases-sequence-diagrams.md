@@ -83,9 +83,29 @@ de volgorde waarin het logboek vastlegt, en de koppelvlakken.
 
 De deelnemers heten wat ze zijn, niet welk exemplaar uit het model ze zijn. Het model kreeg daarom
 algemene namen met de variant tussen haakjes: "Overheidsorganisatie (eigen magazijn)" en
-"Overheidsorganisatie (magazijn bij BBO)" in plaats van "Organisatie A" en "Organisatie B",
-"Ondernemer (zakelijke gebruiker)", en de medewerkers op dezelfde manier. Via de verkorte naam
-staat "Overheidsorganisatie" en "Ondernemer" in de diagrammen. Het model kreeg ook een persoon
+"Overheidsorganisatie (magazijn bij BBO)" in plaats van "Organisatie A" en "Organisatie B", en de
+medewerkers op dezelfde manier. Via de verkorte naam staat "Overheidsorganisatie" in de diagrammen.
+
+### Generiek voor burgers en ondernemers
+
+De use cases gelden voor burgers en ondernemers, allebei "de ontvanger". In het model heten de
+personen "Ontvanger (burger)" en "Ontvanger (ondernemer)"; de diagrammen tonen "Ontvanger".
+Uitgangspunt van de opdrachtgever: één Profiel Service voor beide (op termijn mogelijk twee), en één
+identiteitsneutrale Notificatie Service, voor één overheidsbeleving. Waar het verschil ertoe doet,
+staat het bij de use case: DigiD of eHerkenning, een pseudoniem alleen voor een BSN, het recht op
+wissing (elke burger, bij ondernemers afhankelijk van de rechtsvorm), en de vragen uit het
+Logius-overleg die alleen voor bedrijven gelden.
+
+### Filteren en zoeken gescheiden
+
+Use case 12 beschrijft filteren en sorteren op kopgegevens, zoals de berichtenbox dat nu in de
+browser doet. Use case 4 beschrijft zoeken in de tekst en bijlagen, bij de magazijnen zelf; dat is
+nog niet gebouwd (MinBZK/MijnOverheidZakelijk#1598).
+
+### Issues bij wat nog niet gerealiseerd is
+
+Elk punt onder "Nog niet gerealiseerd" linkt naar een issue in MijnOverheidZakelijk. Wat nog geen
+issue had, is aangemaakt als #1586 tot en met #1598, onder #1564. Het model kreeg ook een persoon
 "Stelselbeheerder", de actor in de beheer-use-cases.
 
 ### Beheersituaties zijn use cases

@@ -4,9 +4,9 @@ Nieuwe berichten verschijnen terwijl de berichtenbox openstaat.
 
 | | |
 |---|---|
-| **Actor** | Een ondernemer met een geopende berichtenbox |
-| **Aanleiding** | Een organisatie publiceert een bericht voor de ondernemer terwijl hij ingelogd is (use case 1) |
-| **Resultaat** | Het bericht verschijnt in de geopende berichtenbox, zonder dat de ondernemer hoeft te verversen |
+| **Actor** | Een ontvanger (burger of ondernemer) met een geopende berichtenbox |
+| **Aanleiding** | Een organisatie publiceert een bericht voor de ontvanger, terwijl de ontvanger ingelogd is (use case 1) |
+| **Resultaat** | Het bericht verschijnt in de geopende berichtenbox, zonder dat de ontvanger hoeft te verversen |
 
 ## Verloop
 
@@ -14,15 +14,14 @@ Nieuwe berichten verschijnen terwijl de berichtenbox openstaat.
    open om nieuwe berichten te horen.
 2. De uitvraag meldt dat het volgen begonnen is. Het portaal leest de lijst dan nog één keer, zodat
    er niets verloren gaat tussen ophalen en volgen.
-3. Zolang de verbinding openstaat, laat de uitvraag regelmatig weten dat hij er nog is, en
-   controleert hij of de sessie nog loopt.
+3. Zolang de verbinding openstaat, geeft de uitvraag regelmatig een teken van leven, en controleert
+   de uitvraag of de sessie nog loopt.
 4. Een magazijn meldt een nieuw bericht aan (use case 1). De uitvraag zet het in de lijst van de
-   ondernemer en geeft de kopgegevens door aan het portaal.
+   ontvanger en geeft de kopgegevens door aan het portaal.
 5. Het portaal toont het nieuwe bericht op zijn plek in de lijst.
-6. Eindigt de sessie, door uitloggen of verlopen, dan meldt de uitvraag dat en sluit hij de
-   verbinding.
+6. Eindigt de sessie, door uitloggen of verlopen, dan meldt de uitvraag dat en sluit de verbinding.
 
-Een openstaande verbinding houdt de sessie niet in leven: alleen activiteit van de ondernemer doet
+Een openstaande verbinding houdt de sessie niet in leven: alleen activiteit van de ontvanger doet
 dat.
 
 ## Sequence diagram
@@ -30,7 +29,7 @@ dat.
 ```mermaid
 sequenceDiagram
     autonumber
-    actor OND as Ondernemer
+    actor ONT as Ontvanger
     participant IL as Interactielaag
     participant FBS as Berichten Uitvraag Systeem
     participant MAG as Berichtenmagazijn
@@ -51,19 +50,19 @@ sequenceDiagram
         MAG-)FBS: Nieuw bericht (zie use case 1)
         FBS->>FBS: Zet het bericht in de lijst
         FBS-->>IL: Bericht bijgekomen (kopgegevens)
-        IL-->>OND: Het bericht verschijnt in de berichtenbox
+        IL-->>ONT: Het bericht verschijnt in de berichtenbox
     end
 
-    OND->>IL: Logt uit (zie use case 2)
+    ONT->>IL: Logt uit (zie use case 2)
     FBS-->>IL: Sessie beëindigd, verbinding gesloten
 ```
 
 ## Als het misgaat
 
-| Situatie | Wat het stelsel doet | Wat de ondernemer merkt |
+| Situatie | Wat het stelsel doet | Wat de ontvanger merkt |
 |---|---|---|
-| De ondernemer is niet ingelogd | De uitvraag doet niets met het nieuwe bericht | Niets. Het bericht verschijnt bij de volgende keer inloggen |
-| Er staan te veel berichtenboxen tegelijk open, voor deze ondernemer of in totaal | De uitvraag weigert de verbinding | Het portaal probeert het even later opnieuw. Tot dan verschijnen nieuwe berichten pas na verversen |
+| De ontvanger is niet ingelogd | De uitvraag doet niets met het nieuwe bericht | Niets. Het bericht verschijnt bij de volgende keer inloggen |
+| Er staan te veel berichtenboxen tegelijk open, voor deze ontvanger of in totaal | De uitvraag weigert de verbinding | Het portaal probeert het even later opnieuw. Tot dan verschijnen nieuwe berichten pas na verversen |
 | De sessie eindigt | De uitvraag meldt dat en sluit de verbinding | Het portaal vraagt om opnieuw in te loggen |
 | De verbinding valt weg, of staat lang open | De verbinding wordt gesloten | Het portaal verbindt opnieuw en leest de lijst opnieuw |
 | Het doorgeven van één nieuw bericht mislukt | Het bericht staat wel in de lijst, maar het portaal hoort het niet | Het bericht verschijnt pas na verversen |
@@ -75,5 +74,5 @@ Wat in het overzicht voor alle use cases staat. Het volgen zelf werkt zoals besc
 
 ## Open vragen
 
-- De ondernemer ziet een nieuw bericht alleen meteen als hij ingelogd is. Anders is hij aangewezen
-  op de melding uit use case 1. Is dat voldoende? (Uit het overleg met Logius.)
+- Een nieuw bericht verschijnt alleen meteen als de ontvanger ingelogd is. Anders is de ontvanger
+  aangewezen op de melding uit use case 1. Is dat voldoende? (Uit het overleg met Logius.)

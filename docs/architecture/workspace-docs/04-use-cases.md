@@ -4,20 +4,23 @@ De diagrammen elders op deze site laten zien uit welke onderdelen het Federatief
 bestaat. De use cases hieronder laten zien wat er gebeurt als iemand het gebruikt of beheert: wie
 wat doet, in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt als iets misgaat.
 
+De use cases gelden voor burgers en ondernemers. Ze noemen allebei "de ontvanger". Waar iets
+alleen voor een van beide geldt, staat dat erbij.
+
 | Nr | Use case | Actor |
 |---|---|---|
-| 1 | Een organisatie verstuurt een bericht, en de ondernemer krijgt een melding | Overheidsorganisatie |
-| 2 | Een ondernemer opent de berichtenbox en ziet de berichten van alle organisaties bij elkaar | Ondernemer |
-| 3 | Nieuwe berichten verschijnen terwijl de berichtenbox openstaat | Ondernemer |
-| 4 | Een ondernemer zoekt op een woord uit de tekst van berichten en bijlagen | Ondernemer |
-| 5 | Een ondernemer opent een bericht en leest het | Ondernemer |
-| 6 | Een ondernemer opent of downloadt een bijlage | Ondernemer |
-| 7 | Een ondernemer verplaatst een bericht naar een map of archiveert het | Ondernemer |
-| 8 | Een ondernemer verwijdert een bericht | Ondernemer |
-| 9 | Een organisatie gaat na of een ondernemer een bericht heeft kunnen zien | Overheidsorganisatie, met de stelselbeheerder |
-| 10 | Een ondernemer laat al zijn berichten wissen | Ondernemer, met de stelselbeheerder |
-| 11 | Een magazijn is langere tijd onbereikbaar | Ondernemer, stelselbeheerder en organisatie |
-| 12 | Een ondernemer filtert en sorteert zijn berichten op onderwerp, afzender, map of datum | Ondernemer |
+| 1 | Een organisatie verstuurt een bericht, en de ontvanger krijgt een melding | Overheidsorganisatie |
+| 2 | De ontvanger opent de berichtenbox en ziet de berichten van alle organisaties bij elkaar | Ontvanger |
+| 3 | Nieuwe berichten verschijnen terwijl de berichtenbox openstaat | Ontvanger |
+| 4 | De ontvanger zoekt op een woord uit de tekst van berichten en bijlagen | Ontvanger |
+| 5 | De ontvanger opent een bericht en leest het | Ontvanger |
+| 6 | De ontvanger opent of downloadt een bijlage | Ontvanger |
+| 7 | De ontvanger verplaatst een bericht naar een map of archiveert het | Ontvanger |
+| 8 | De ontvanger verwijdert een bericht | Ontvanger |
+| 9 | Een organisatie gaat na of de ontvanger een bericht heeft kunnen zien | Overheidsorganisatie, met de stelselbeheerder |
+| 10 | De ontvanger laat alle eigen berichten wissen | Ontvanger, met de stelselbeheerder |
+| 11 | Een magazijn is langere tijd onbereikbaar | Ontvanger, stelselbeheerder en organisatie |
+| 12 | De ontvanger filtert en sorteert de berichten op onderwerp, afzender, map of datum | Ontvanger |
 
 Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag
 ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan
@@ -49,31 +52,33 @@ architectuurmodel, zodat je ze in de andere diagrammen terugvindt.
 
 | Deelnemer | Wat het is |
 |---|---|
-| Ondernemer | Iemand die berichten ontvangt namens een onderneming |
+| Ontvanger | Een burger, of iemand die berichten ontvangt namens een onderneming |
 | Overheidsorganisatie | Een organisatie die berichten verstuurt. Elke organisatie heeft haar eigen berichtenmagazijn |
-| Interactielaag | Het portaal waarin de ondernemer zijn berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze |
-| Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort, en houdt de berichtenlijst van een ingelogde ondernemer vast zolang die ingelogd is |
+| Interactielaag | Het portaal waarin de ontvanger de berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze |
+| Berichten Uitvraag Systeem | De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort, en houdt de berichtenlijst van een ingelogde ontvanger vast zolang die ingelogd is |
 | Berichtenmagazijn | De opslag van de berichten van één organisatie. Een organisatie host haar magazijn zelf of neemt een gedeeld magazijn af (in het model: bij BBO). Elk magazijn volgt dezelfde stelselafspraken, dus de lijn in de diagrammen staat voor elk magazijn |
-| Profiel Service | Dienst van MijnOverheid Zakelijk met de voorkeuren van de ondernemer: van welke organisaties hij berichten via de berichtenbox wil ontvangen |
-| Notificatie Service | Dienst van MijnOverheid Zakelijk die de ondernemer laat weten dat er een bericht is, bijvoorbeeld per e-mail |
+| Profiel Service | Dienst met de voorkeuren van de ontvanger: van welke organisaties die berichten via de berichtenbox wil ontvangen. Er is één Profiel Service voor burgers en ondernemers; op termijn kunnen dat er twee worden |
+| Notificatie Service | Dienst die de ontvanger laat weten dat er een bericht is, bijvoorbeeld per e-mail. Hij is identiteitsneutraal: één dienst voor burgers en ondernemers, zodat het melden overal hetzelfde voelt |
 | Stelselbeheerder | Beheert het stelsel: de afspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten. Welke organisatie die rol krijgt, maakt voor de use cases niet uit |
 
 ## Wat voor alle use cases geldt
 
 **Er is geen centrale opslag van berichten.** Een bericht staat alleen in het magazijn van de
-organisatie die het verstuurde. De uitvraag houdt de berichtenlijst van een ondernemer alleen vast
-zolang hij ingelogd is, en wist die zodra zijn laatste sessie eindigt.
+organisatie die het verstuurde. De uitvraag houdt de berichtenlijst van een ontvanger alleen vast
+zolang die ingelogd is, en wist de lijst zodra de laatste sessie eindigt.
 
-**Inloggen.** De ondernemer logt in op het portaal met eHerkenning. Daarmee staat vast wie hij is
-en namens welke onderneming hij handelt. Het portaal start een sessie bij de uitvraag, en elk
+**Inloggen.** Een burger logt in op het portaal met DigiD, een ondernemer met eHerkenning. Daarmee
+staat vast wie de ontvanger is, en voor wie of namens wie die handelt. Machtigingen werken in die
+twee stelsels verschillend. Het portaal start een sessie bij de uitvraag, en elk
 verzoek over berichten hoort bij zo'n sessie.
 
 **Een sessie verloopt.** Na 15 minuten zonder activiteit, en uiterlijk na 12 uur, eindigt de sessie.
 Daarna is opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.
 
-**Elk magazijn kent de ondernemer onder een eigen pseudoniem.** Een magazijn krijgt niet het
-nummer van de ondernemer, maar een versleutelde verwijzing die alleen voor dat magazijn bruikbaar
-is. Zo kunnen magazijnen hun gegevens niet onderling koppelen.
+**Elk magazijn kent een persoon onder een eigen pseudoniem.** Is de ontvanger een burger of een
+ondernemer met een BSN, dan krijgt een magazijn niet het BSN, maar een versleutelde verwijzing die
+alleen voor dat magazijn bruikbaar is. Zo kunnen magazijnen hun gegevens niet onderling koppelen.
+Een onderneming met een openbaar nummer (KVK-nummer of RSIN) krijgt geen pseudoniem.
 
 **Verbindingen tussen organisaties zijn beveiligd en vastgelegd.** Uitvraag, magazijnen en de
 diensten van MijnOverheid Zakelijk praten met elkaar via FSC (Federatieve Service Connectiviteit): elke verbinding rust op een afspraak
@@ -84,8 +89,8 @@ in zijn eigen Logboek Dataverwerkingen: welke handeling, voor wie, wanneer, en o
 geen centraal logboek. Wie wil weten wat er met een bericht gebeurd is, raadpleegt de logboeken van
 de betrokken diensten (use case 9).
 
-**Nog niet gerealiseerd, voor alle use cases.** Inloggen met eHerkenning, de pseudoniemen per
-magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het
-portaal bij elk verzoek mee om welke ondernemer het gaat, krijgt elk magazijn het nummer van de
-ondernemer, en is per verbinding in te stellen of die via FSC loopt ([#414](https://github.com/MinBZK/MijnOverheidZakelijk/issues/414), [#415](https://github.com/MinBZK/MijnOverheidZakelijk/issues/415), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552)). De pagina "PoC-afwijkingen"
+**Nog niet gerealiseerd, voor alle use cases.** Inloggen met DigiD of eHerkenning, de
+pseudoniemen per magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig)
+gebouwd. Nu geeft het portaal bij elk verzoek mee om welke ontvanger het gaat, krijgt elk magazijn
+het nummer van de ontvanger, en is per verbinding in te stellen of die via FSC loopt ([#414](https://github.com/MinBZK/MijnOverheidZakelijk/issues/414), [#415](https://github.com/MinBZK/MijnOverheidZakelijk/issues/415), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552)). De pagina "PoC-afwijkingen"
 houdt bij wat nog niet gebouwd is.
