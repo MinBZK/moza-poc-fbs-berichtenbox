@@ -19,13 +19,14 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
             "structurizr.groupSeparator" "/"
         }
 
-        burger = person "Burger" "Ontvangt berichten en notificaties van overheidsorganisaties"
-        ondernemer = person "Ondernemer / Zakelijke gebruiker" "Ontvangt berichten en notificaties van overheidsorganisaties"
-        medewerkerA = person "Medewerker A" "Verstuurt berichten namens Organisatie A"
-        medewerkerB = person "Medewerker B" "Verstuurt berichten namens Organisatie B"
+        burger = person "Ontvanger (burger)" "Burger die berichten en notificaties van overheidsorganisaties ontvangt"
+        ondernemer = person "Ontvanger (ondernemer)" "Ondernemer of zakelijke gebruiker die berichten en notificaties van overheidsorganisaties ontvangt"
+        medewerkerA = person "Medewerker (eigen magazijn)" "Verstuurt berichten namens een overheidsorganisatie met een eigen berichtenmagazijn"
+        medewerkerB = person "Medewerker (magazijn bij BBO)" "Verstuurt berichten namens een overheidsorganisatie die haar berichtenmagazijn bij BBO afneemt"
+        stelselbeheerder = person "Stelselbeheerder" "Beheert het Federatief Berichtenstelsel: de stelselafspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten"
 
-        profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" "Extern Systeem"
-        notificatieService = softwareSystem "Notificatie Service" "Multi-channel notificatiebezorging via e-mail, SMS en app (MoZa)" "Extern Systeem"
+        profielService = softwareSystem "Profiel Service" "Contactgegevens, communicatievoorkeuren en toestemmingsbeheer van burgers en ondernemers (MoZa)" "Extern Systeem"
+        notificatieService = softwareSystem "Notificatie Service" "Identiteitsneutrale notificatiebezorging via e-mail, SMS en app, voor burgers en ondernemers (MoZa)" "Extern Systeem"
         interactielaag = softwareSystem "Interactielaag" "Portaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" "Extern Systeem" {
             properties {
                 "architectuur.oidc" "De Interactielaag fungeert als OpenID Provider / Authorization Server conform OIDC NL GOV v1.0.1 en OAuth NL profiel v1.1.0. Ontvangt SAML 2.0 assertions van DigiD (burgers) en eHerkenning (zakelijke gebruikers), transformeert deze naar signed JWT bearer tokens (RFC 9068) met PP als sub-claim (burgers) of KvK/RSIN en machtigingsclaims (ondernemers). Publiceert een JWKS endpoint waarmee de Token Validatie in de Berichten Uitvraag Service de tokenhandtekening verifieert. Verplichte claims: iss, sub, aud, exp, iat, jti, acr (eIDAS-niveau). Client authenticatie via private_key_jwt of mTLS met PKIoverheid-certificaat."
@@ -34,8 +35,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         eHerkenning = softwareSystem "eHerkenning" "Authenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" "Extern Systeem"
         digiD = softwareSystem "DigiD" "Authenticatie voor burgers" "Extern Systeem"
 
-        orgA = softwareSystem "Organisatie A" "Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn" "Deelnemer"
-        orgB = softwareSystem "Organisatie B" "Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" "Deelnemer"
+        orgA = softwareSystem "Overheidsorganisatie (eigen magazijn)" "Deelnemende overheidsorganisatie - host zelf een berichtenmagazijn" "Deelnemer"
+        orgB = softwareSystem "Overheidsorganisatie (magazijn bij BBO)" "Deelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" "Deelnemer"
 
         group "Federatief Berichtenstelsel (FBS)" {
 
@@ -190,6 +191,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
 
         medewerkerA -> orgA "Verstuurt berichten via" "HTTPS"
         medewerkerB -> orgB "Verstuurt berichten via" "HTTPS"
+        stelselbeheerder -> berichtenUitvraagSysteem "Beheert, en zoekt bij vragen en storingen in het logboek van"
+        stelselbeheerder -> stelselregister "Houdt de deelnemende organisaties en hun magazijnen bij in"
 
         burger -> interactielaag "Bekijkt berichten, zoekt, organiseert in mappen, verwijdert" "HTTPS (browser/app)"
         burger -> digiD "Logt in" "HTTPS (browser redirect)"

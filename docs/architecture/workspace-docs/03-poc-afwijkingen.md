@@ -22,7 +22,8 @@ oplossingsrichting voor keten-brede authenticatie en autorisatie binnen MOZa.
   in de PoC. Identificatie loopt rechtstreeks via getypeerde ontvanger-identificatienummers.
 - **FSC-transportlaag** (Inway/Outway/Manager/Directory, mTLS met PKIoverheid, ondertekende
   contracten) — relaties gemarkeerd als `Digikoppeling REST API via FSC` zijn in de PoC
-  gewone HTTP/REST-clients zonder FSC-infrastructuur.
+  gewone HTTP/REST-clients. Per verbinding is in te stellen dat het verkeer via een eigen
+  FSC-outway loopt (met een grant-hash); zonder die instelling gaat het direct.
 - **AuthZEN PEP/PDP** — de Autorisatie Service is in het model een PEP/PDP-container; de PoC
   doet ontvanger-autorisatie centraal in-process via `opslag/BerichtAutorisatie` in
   berichtenmagazijn (één `vereisOntvanger`-check, geen externe PDP).

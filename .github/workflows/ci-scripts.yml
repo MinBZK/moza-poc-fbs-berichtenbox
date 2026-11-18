@@ -1,11 +1,13 @@
 # De scripts onder .github/scripts/ beslissen wát de rest van de CI doet: wijzigingsfilter.sh
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
-# demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
-# handtekening controleert. De suites onder demo/lib/ toetsen de modus-keuze waarmee elke lokale
-# opstelling start, en demo/test-meet-fanout.sh toetst dat de fan-out-meting een niet-geleegde
-# cache weigert; die horen bij een required check, en draaien daarom hier. Een fout daarin is
-# stil — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
+# demonstratiecode afhangt, jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
+# handtekening controleert, en use-case-deelnemers.py bewaakt dat elk sequence diagram in de
+# architectuurdocumentatie alleen elementen uit het C4-model noemt. De suites onder demo/lib/
+# toetsen de modus-keuze waarmee elke lokale opstelling start, en demo/test-meet-fanout.sh toetst
+# dat de fan-out-meting een niet-geleegde cache weigert; die horen bij een required check, en
+# draaien daarom hier. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped' en dat
+# telt als succes voor branch protection.
 # Vandaar een eigen, lichte workflow: shellcheck, actionlint en de bash-unittests, zonder de docker
 # build van de FSC-harness.
 name: CI-scripts
@@ -90,6 +92,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: .github/scripts/fuzz-basis-modules.sh
 
+      - name: De sequence diagrams in de architectuurdocumentatie volgen het C4-model
+        # De suite hieronder toetst deze guard tegen fixtures én de echte documentatie; deze stap
+        # laat hem los op docs/architecture, zodat een deelnemer die niet (meer) in het model staat
+        # als eigen regel in de log staat. Hier en niet in architecture.yml: die heeft een
+        # pad-filter en is geen required check, en een hernoemd element in het model raakt de
+        # diagrammen ook als docs/architecture/workspace-docs zelf niet gewijzigd is.
+        if: ${{ !cancelled() }}
+        run: python3 -I .github/scripts/use-case-deelnemers.py docs/architecture/workspace.dsl docs/architecture/workspace-docs
+
       - name: shellcheck + bash-unittests
         # Ook draaien als actionlint viel: twee losse signalen zijn in één run meer waard dan één.
         if: ${{ !cancelled() }}
@@ -152,6 +163,7 @@ jobs:
             [.github/scripts/test-proeftuin-pin.sh]=139
             [.github/scripts/test-preview-resten.sh]=255
             [.github/scripts/test-selinux-label-guard.sh]=22
+            [.github/scripts/test-use-case-deelnemers.sh]=102
             [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223
@@ -226,12 +238,14 @@ jobs:
           # kan dan nog bestaan, dus ook hier: draaide hij. Een vervangende stub die één `OK:`
           # print haalt elke telling. Deze dragen elk een controle die nergens anders in de keten
           # wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf, de twee onder demo/lib/
-          # zijn de enige toets van de modus-keuze, en test-meet-fanout.sh de enige bewaking dat de
-          # fan-out-meting een niet-geleegde cache weigert.
+          # zijn de enige toets van de modus-keuze, test-meet-fanout.sh de enige bewaking dat de
+          # fan-out-meting een niet-geleegde cache weigert, en test-use-case-deelnemers.sh de enige
+          # toets van de diagram-guard zelf: de stap hierboven draait hem alleen op de echte docs.
           for verplicht in .github/scripts/test-wijzigingsfilter.sh \
                            .github/scripts/test-uitrol-poort.sh \
                            .github/scripts/test-demo-grens.sh \
                            .github/scripts/test-jdk-handtekening.sh \
+                           .github/scripts/test-use-case-deelnemers.sh \
                            demo/lib/test-podman-modus.sh \
                            demo/lib/test-opstellingen.sh \
                            demo/test-meet-fanout.sh; do
