@@ -96,10 +96,18 @@ sequenceDiagram
     en stuurt met een `303` door naar een adres zonder token; het token werkt één keer;
   - het `registration_token` komt terug in het fragment (`#registration_token=…`), dat de server
     van de app nooit ziet, en de app wist het meteen met `history.replaceState`;
-  - App Manager en app zetten `Referrer-Policy: no-referrer`.
+  - App Manager en app zetten `Referrer-Policy: no-referrer`;
+  - de cookie heet `__Host-activatie` (`Secure`, `Path=/`, zonder `Domain`), zodat een andere host
+    op hetzelfde domein hem niet kan planten. `SameSite=Lax` geldt per site en niet per origin;
+    daarom eist de keuze ook een `Origin` van de App Manager zelf. De doorverwijzing na de keuze
+    is daarna nog maar tien seconden opnieuw op te vragen, voor een dubbele submit.
 - De pagina van de Berichten-app verdwijnt tijdens de navigatie. De app bewaart de AES-sleutel
   daarom vooraf als niet-exporteerbare AES-GCM-`CryptoKey` in IndexedDB, en het `session_token`
   in `sessionStorage`.
+- **Bekend restrisico: het quotum op keuzes.** Een keuze leeft een dag; per adres (IPv6: per /64)
+  mogen er 50 open staan, in totaal 10.000. Wie veel adressen heeft, kan het totaal vullen en het
+  activeren dan een dag voor iedereen blokkeren; een zaal achter één adres loopt na 50 activeringen
+  vast. Voor de demo is dat geaccepteerd; de oplossing staat in MinBZK/MijnOverheidZakelijk#1599.
 - Het **Verifiable Credential** (VC, 4.3.1) is een JWS van de App Manager. Er staan in: de public
   key van de app (`cnf.jwk`), de scope, de OIN van de App Manager (`iss`), de geldigheid (`iat`,
   `nbf`, `exp`, ten hoogste 24 uur) en de ontvanger (zie ontwerpkeuze 7).
@@ -388,6 +396,10 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
     - op de preflight (`OPTIONS`), zonder token: `204` met `Access-Control-Allow-Methods: GET,
       POST`, `Access-Control-Allow-Headers: Authorization, Content-Type` (een `*` dekt
       `Authorization` niet) en `Access-Control-Max-Age: 600`.
+
+    De App Manager gebruikt de CORS van Quarkus: die spiegelt de `Origin` in plaats van een
+    letterlijke `*`, en beantwoordt de preflight met `200`. Zonder `Allow-Credentials` is dat
+    gelijkwaardig.
 
     Het magazijn heeft CORS nu uit (`quarkus.http.cors.enabled=false`), en `/api/v1/openapi.json`
     zet zijn ene header zelf in `SpecificatieResource` en beantwoordt geen preflight. Voor

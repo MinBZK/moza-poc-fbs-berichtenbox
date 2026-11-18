@@ -7,9 +7,11 @@ import jakarta.enterprise.inject.Produces
 import jakarta.inject.Singleton
 import nl.rijksoverheid.moz.fbs.rechtstreeks.VerifierSleutel
 import org.jboss.logging.Logger
+import java.io.IOException
 import java.math.BigInteger
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.AlgorithmParameters
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
 import java.security.KeyPair
@@ -18,6 +20,7 @@ import java.security.Signature
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
@@ -35,7 +38,7 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
     private val log = Logger.getLogger(Ondertekensleutel::class.java)
     private val paar: KeyPair = laad(LaunchMode.current())
 
-    /** De publieke helft; die staat in het stelseldocument, en de tests controleren er credentials mee. */
+    /** De publieke helft; die hoort in het stelseldocument, en de tests controleren er credentials mee. */
     val publiek: ECPublicKey = paar.public as ECPublicKey
 
     /** De private helft; daarmee ondertekent de App Manager ook de credentials die hij uitgeeft. */
@@ -54,12 +57,22 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
     private fun laad(launchMode: LaunchMode): KeyPair {
         val pad = config.sleutelPad().orElse(null) ?: return wegwerp(launchMode)
 
+        // Elke fout bij het lezen noemt de property, zodat de operator weet waar hij moet kijken.
         return try {
             leesPem(Files.readString(Path.of(pad)))
+        } catch (fout: IOException) {
+            throw onbruikbaar(pad, fout)
         } catch (fout: GeneralSecurityException) {
-            throw IllegalStateException("app-manager.sleutel-pad ($pad) bevat geen bruikbare EC-sleutel", fout)
+            throw onbruikbaar(pad, fout)
+        } catch (fout: IllegalArgumentException) {
+            throw onbruikbaar(pad, fout)
+        } catch (fout: IllegalStateException) {
+            throw onbruikbaar(pad, fout)
         }
     }
+
+    private fun onbruikbaar(pad: String, fout: Exception): IllegalStateException =
+        IllegalStateException("app-manager.sleutel-pad ($pad) bevat geen bruikbare P-256-sleutel: ${fout.message}", fout)
 
     private fun wegwerp(launchMode: LaunchMode): KeyPair {
         check(launchMode.isDevOrTest) { "app-manager.sleutel-pad ontbreekt; alleen een ontwikkel- of testbuild maakt een wegwerpsleutel" }
@@ -77,6 +90,11 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
         private val BLOK = Regex("-----BEGIN ([A-Z ]+)-----([^-]+)-----END \\1-----")
         private const val COORDINAAT_BYTES = 32
 
+        private val P256: ECParameterSpec = AlgorithmParameters.getInstance("EC").run {
+            init(ECGenParameterSpec("secp256r1"))
+            getParameterSpec(ECParameterSpec::class.java)
+        }
+
         /** Leest een PEM met een private key (PKCS#8) en de bijbehorende public key (SPKI). */
         fun leesPem(pem: String): KeyPair {
             val blokken = BLOK.findAll(pem).associate { it.groupValues[1] to Base64.getMimeDecoder().decode(it.groupValues[2]) }
@@ -86,7 +104,10 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
 
             val paar = KeyPair(sleutels.generatePublic(X509EncodedKeySpec(publiek)), sleutels.generatePrivate(PKCS8EncodedKeySpec(privaat)))
 
-            // Twee blokken die niet bij elkaar horen, gaven een App Manager die ondertekent met een
+            // ES256 vraagt P-256; een andere curve zou pas bij het eerste credential misgaan.
+            require((paar.public as? ECPublicKey)?.params?.curve == P256.curve) { "de sleutel van de App Manager ligt niet op P-256" }
+
+            // Twee blokken die niet bij elkaar horen, geven een App Manager die ondertekent met een
             // sleutel die niemand kan controleren.
             require(horenBijElkaar(paar)) { "het PUBLIC KEY-blok hoort niet bij de private key van de App Manager" }
 

@@ -21,7 +21,7 @@ class Bedrading {
     @Produces
     @Singleton
     fun verifier(config: AppManagerConfig, sleutel: VerifierSleutel, klok: Clock): Verifier {
-        val opslag = GeheugenOpslag(klok)
+        val opslag = GeheugenOpslag(klok, maxChallengesPerClient = config.sessiesPerClient(), maxSessiesPerHouder = config.sessiesPerClient())
 
         return Verifier(
             oin = config.oin(),
