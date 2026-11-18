@@ -23,10 +23,10 @@ import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 
 /**
- * De sleutel waarmee de App Manager challenges en credentials tekent. Hij komt uit een PEM-bestand
+ * De sleutel waarmee de App Manager challenges en credentials ondertekent. Hij komt uit een PEM-bestand
  * met een `PRIVATE KEY`- en een `PUBLIC KEY`-blok; alleen een ontwikkel- of testbuild valt zonder
  * bestand terug op een wegwerpsleutel. Die terugval hangt aan de launch mode en niet aan het
- * profiel, zodat een uitgerold image nooit met een wegwerpsleutel tekent.
+ * profiel, zodat een uitgerold image nooit met een wegwerpsleutel ondertekent.
  */
 @Startup
 @ApplicationScoped
@@ -38,12 +38,12 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
     /** De publieke helft; die staat in het stelseldocument, en de tests controleren er credentials mee. */
     val publiek: ECPublicKey = paar.public as ECPublicKey
 
-    /** De private helft; daarmee tekent de App Manager ook de credentials die hij uitgeeft. */
+    /** De private helft; daarmee ondertekent de App Manager ook de credentials die hij uitgeeft. */
     internal val privaat: ECPrivateKey = paar.private as ECPrivateKey
 
     init {
         // De coördinaten zijn publiek; zo kan wie het stelselregister inricht ze overnemen.
-        log.infof("App Manager %s tekent met kid=%s x=%s y=%s", config.oin(), config.kid(), x(publiek), y(publiek))
+        log.infof("App Manager %s ondertekent met kid=%s x=%s y=%s", config.oin(), config.kid(), x(publiek), y(publiek))
     }
 
     /** Zonder proxy: VerifierSleutel is een final klasse uit een library. */
@@ -64,7 +64,7 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
     private fun wegwerp(launchMode: LaunchMode): KeyPair {
         check(launchMode.isDevOrTest) { "app-manager.sleutel-pad ontbreekt; alleen een ontwikkel- of testbuild maakt een wegwerpsleutel" }
 
-        log.warn("Geen app-manager.sleutel-pad gezet: de App Manager tekent met een wegwerpsleutel")
+        log.warn("Geen app-manager.sleutel-pad gezet: de App Manager ondertekent met een wegwerpsleutel")
 
         return KeyPairGenerator.getInstance("EC").run {
             initialize(ECGenParameterSpec("secp256r1"))
@@ -86,7 +86,7 @@ class Ondertekensleutel(private val config: AppManagerConfig) {
 
             val paar = KeyPair(sleutels.generatePublic(X509EncodedKeySpec(publiek)), sleutels.generatePrivate(PKCS8EncodedKeySpec(privaat)))
 
-            // Twee blokken die niet bij elkaar horen, gaven een App Manager die tekent met een
+            // Twee blokken die niet bij elkaar horen, gaven een App Manager die ondertekent met een
             // sleutel die niemand kan controleren.
             require(horenBijElkaar(paar)) { "het PUBLIC KEY-blok hoort niet bij de private key van de App Manager" }
 

@@ -30,10 +30,10 @@ class CredentialUitgifte(
         }
     }
 
-    fun teken(appSleutel: ECPublicKey, ontvanger: String): String {
+    fun onderteken(appSleutel: ECPublicKey, ontvanger: String): String {
         val moment = klok.instant()
 
-        // Een magazijn toetst de sleutel op `iat`; met een verlopen sleutel getekend is het credential waardeloos.
+        // Een magazijn toetst de sleutel op `iat`; met een verlopen sleutel ondertekend is het credential waardeloos.
         check(moment.isBefore(config.sleutelGeldigTot())) { "de sleutel van de App Manager is verlopen op ${config.sleutelGeldigTot()}" }
 
         val nu = moment.epochSecond

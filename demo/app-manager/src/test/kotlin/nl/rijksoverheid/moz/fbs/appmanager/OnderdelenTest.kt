@@ -96,7 +96,7 @@ class OnderdelenTest {
 
     @Test
     fun `een volle opslag geeft 503 met Retry-After`() {
-        val antwoord = OpslagVolMapper().toResponse(OpslagVolException(Duration.ofSeconds(12)))
+        val antwoord = VerifierFoutMapper().toResponse(OpslagVolException(Duration.ofSeconds(12)))
 
         assertEquals(503, antwoord.status)
         assertEquals("12", antwoord.headers.getFirst("Retry-After").toString())
@@ -140,12 +140,12 @@ class OnderdelenTest {
     }
 
     @Test
-    fun `met een verlopen sleutel tekent de App Manager geen credential`(@TempDir map: Path) {
+    fun `met een verlopen sleutel ondertekent de App Manager geen credential`(@TempDir map: Path) {
         val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
         val config = config(pemBestand(map), geldigTot = klok.nu)
         val uitgifte = CredentialUitgifte(config, Ondertekensleutel(config), klok)
 
-        assertThrows(IllegalStateException::class.java) { uitgifte.teken(paar().public as java.security.interfaces.ECPublicKey, "KVK:90000014") }
+        assertThrows(IllegalStateException::class.java) { uitgifte.onderteken(paar().public as java.security.interfaces.ECPublicKey, "KVK:90000014") }
     }
 
     @Test

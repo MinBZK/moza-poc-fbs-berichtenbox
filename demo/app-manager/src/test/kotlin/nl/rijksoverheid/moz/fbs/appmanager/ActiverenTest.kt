@@ -44,7 +44,8 @@ class ActiverenTest {
         val aes: ByteArray = TestApp.aesSleutel()
         lateinit var sessieToken: String
 
-        fun maakSessie(): App {
+        /** [eerstZonderTyp]: stuur de presentatie eerst zonder `typ` `JWE`; dat hoort `400` te geven en de nonce te laten staan. */
+        fun maakSessie(eerstZonderTyp: Boolean = false): App {
             val challenge = given().post("/v1/challenge").then().statusCode(200).extract().asString()
             val claims = TestApp.verifieerJws(challenge, sleutel.publiek)
             val nonce = claims["nonce"] as String
@@ -57,6 +58,13 @@ class ActiverenTest {
                 "certificate" to TestApp.es256(mapOf("sub" to "certificate_type_self_signed", "cnf" to mapOf("jwk" to jwk)), paar.private),
                 "session_aes_key" to Base64.getEncoder().encodeToString(aes),
             )
+
+            if (eerstZonderTyp) {
+                given().contentType(ContentType.JSON)
+                    .body(mapOf("nonce" to nonce, "encrypted_challenge_result" to TestApp.jweEcdh(JsonUtil.toJson(presentatie), tijdelijk, typ = null)))
+                    .post("/v1/complete")
+                    .then().statusCode(400).contentType("application/problem+json").body(containsString("urn:fbs:fout:ongeldig-verzoek"))
+            }
 
             val antwoord = given().contentType(ContentType.JSON)
                 .body(mapOf("nonce" to nonce, "encrypted_challenge_result" to TestApp.jweEcdh(JsonUtil.toJson(presentatie), tijdelijk)))
@@ -147,6 +155,18 @@ class ActiverenTest {
     }
 
     @Test
+    fun `een JWE die zonder sleutel al niet klopt, geeft 400 en laat de nonce staan`() {
+        val app = App().maakSessie(eerstZonderTyp = true)
+
+        // Binnen de sessie hetzelfde: een registration_token-verzoek zonder typ is ongeldig, niet afgewezen.
+        given().header("Authorization", app.sessieToken).contentType("application/jose")
+            .body(TestApp.jweDir("{}", app.aes, typ = null)).post("/credential")
+            .then().statusCode(400).contentType("application/problem+json")
+        given().header("Authorization", app.sessieToken).contentType("application/jose").body("x").post("/credential")
+            .then().statusCode(400)
+    }
+
+    @Test
     fun `het session_token in de URL werkt één keer`() {
         val app = App().maakSessie()
 
@@ -208,16 +228,26 @@ class ActiverenTest {
     }
 
     @Test
-    fun `een onvolledige of ongeldige presentatie wordt afgewezen`() {
+    fun `een onvolledige envelop of een onleesbare JWE is een ongeldig verzoek`() {
         given().contentType(ContentType.JSON).body(mapOf("nonce" to "x")).post("/v1/complete")
-            .then().statusCode(401).contentType("application/problem+json")
-        given().contentType(ContentType.JSON).body("{}").post("/v1/complete").then().statusCode(401)
+            .then().statusCode(400).contentType("application/problem+json")
+        given().contentType(ContentType.JSON).body("{}").post("/v1/complete").then().statusCode(400)
         given().contentType(ContentType.JSON).body(mapOf("nonce" to "x", "encrypted_challenge_result" to "y")).post("/v1/complete")
-            .then().statusCode(401)
+            .then().statusCode(400)
 
         listOf("""{"nonce":{},"encrypted_challenge_result":"y"}""", """{"nonce":["x"]}""", "[]", "\"tekst\"", "{kapot").forEach { body ->
-            given().contentType(ContentType.JSON).body(body).post("/v1/complete").then().statusCode(401).contentType("application/problem+json")
+            given().contentType(ContentType.JSON).body(body).post("/v1/complete").then().statusCode(400).contentType("application/problem+json")
         }
+    }
+
+    @Test
+    fun `een geldige JWE met een onbekende nonce wordt afgewezen`() {
+        val tijdelijk = TestApp.sleutelpaar().public as ECPublicKey
+
+        given().contentType(ContentType.JSON)
+            .body(mapOf("nonce" to "b25iZWtlbmRlIG5vbmNl", "encrypted_challenge_result" to TestApp.jweEcdh("{}", tijdelijk)))
+            .post("/v1/complete")
+            .then().statusCode(401).contentType("application/problem+json")
     }
 
     @Test

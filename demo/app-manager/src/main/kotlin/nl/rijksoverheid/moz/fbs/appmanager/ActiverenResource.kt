@@ -17,8 +17,6 @@ import jakarta.ws.rs.core.MediaType
 import jakarta.ws.rs.core.NewCookie
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
-import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
-import nl.rijksoverheid.moz.fbs.rechtstreeks.Afwijzing
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Identiteit
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Sessie
 import nl.rijksoverheid.moz.fbs.rechtstreeks.Verifier
@@ -38,7 +36,8 @@ import java.net.URLDecoder
  * 4. `/credential`, dat op dat token een credential uitgeeft voor de sleutel van die sessie.
  *
  * Bodies worden hier zelf gelezen in plaats van door JAX-RS: een kapotte invoer hoort een `400` of
- * `401` te geven, geen `500` uit de parser van het framework.
+ * `401` te geven, geen `500` uit de parser van het framework. Een envelop of JWE die zonder sleutel
+ * al niet klopt, is `400` en laat de nonce staan; alles daarna is `401`.
  */
 @Path("/")
 class ActiverenResource(
@@ -67,7 +66,7 @@ class ActiverenResource(
         val nonce = velden?.get("nonce")?.takeIf(JsonNode::isTextual)?.asText()
         val presentatie = velden?.get("encrypted_challenge_result")?.takeIf(JsonNode::isTextual)?.asText()
 
-        if (nonce == null || presentatie == null) throw AfgewezenException(Afwijzing.PRESENTATIE_ONVOLLEDIG)
+        if (nonce == null || presentatie == null) throw EnvelopOngeldig()
 
         return verifier.voltooiSelfSigned(nonce, presentatie, client(verzoek)).antwoord
     }
@@ -82,12 +81,12 @@ class ActiverenResource(
     fun registreer(@QueryParam("session_token") sessieToken: String?, @CookieParam(COOKIE) koppeling: String?): Response {
         if (sessieToken != null) {
             val (sessie, _) = appSessie(sessieToken)
-            val id = registraties.koppel(sessieToken, sessie.verlooptOp) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+            val id = registraties.koppel(sessieToken, sessie.verlooptOp) ?: throw ActivatieAfgewezen(Activatiefout.SESSIE_ONBEKEND)
 
             return Response.seeOther(URI.create(REGISTER_APP)).cookie(cookie(id, maxAge = -1)).build()
         }
 
-        appSessie(koppeling?.let(registraties::sessieToken) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND))
+        appSessie(koppeling?.let(registraties::sessieToken) ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND))
 
         val terug = URI.create(config.terugUrl())
         val csp = "default-src 'none'; form-action 'self' ${terug.scheme}://${terug.authority}; frame-ancestors 'none'; base-uri 'none'"
@@ -104,7 +103,7 @@ class ActiverenResource(
             ?: return Response.status(Response.Status.BAD_REQUEST).entity("onbekende persona").type(MediaType.TEXT_PLAIN).build()
         koppeling?.let(registraties::afgerond)?.let { return doorverwijzing(it) }
 
-        val sessieToken = koppeling?.let(registraties::sessieToken) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        val sessieToken = koppeling?.let(registraties::sessieToken) ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND)
         val (sessie, app) = appSessie(sessieToken)
 
         // Eerst registreren, dan pas de koppeling verbruiken: bij een volle opslag kan de gebruiker zo
@@ -121,7 +120,7 @@ class ActiverenResource(
             if (terug == null) registraties.vergeet(token)
         }
 
-        return doorverwijzing(terug ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND))
+        return doorverwijzing(terug ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND))
     }
 
     private fun doorverwijzing(terug: String): Response =
@@ -133,25 +132,25 @@ class ActiverenResource(
     @Consumes(JOSE)
     @Produces(JOSE)
     fun credential(@HeaderParam("Authorization") sessieToken: String?, body: String): String {
-        val (sessie, app) = appSessie(sessieToken ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND))
+        val (sessie, app) = appSessie(sessieToken ?: throw ActivatieAfgewezen(Activatiefout.SESSIE_ONBEKEND))
         val verzoek = leesJson(verifier.ontsleutel(sessie, body))
 
         val klopt = verzoek != null && verzoek.path("sub").asText() == "registration_token" && verzoek.path("iss").asText() == APP_ISS
 
-        if (verzoek == null || !klopt) throw AfgewezenException(Afwijzing.PRESENTATIE_ONVOLLEDIG)
+        if (verzoek == null || !klopt) throw ActivatieAfgewezen(Activatiefout.VERZOEK_ONGELDIG)
 
         val registratie = registraties.registratie(verzoek.path("registration_token").asText())
-            ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+            ?: throw ActivatieAfgewezen(Activatiefout.REGISTRATIE_ONBEKEND)
 
         // Alleen de sleutel die bij het activeren de persona koos: een gestolen token levert zo geen
         // credential op een andere sleutel op. Een poging daartoe hoort in de log op te vallen.
         if (registratie.thumbprint != app.thumbprint) {
             log.warnf("Een registration_token is aangeboden met een andere sleutel (thumbprint %s)", app.thumbprint)
 
-            throw AfgewezenException(Afwijzing.APPSLEUTEL_ONGELDIG)
+            throw ActivatieAfgewezen(Activatiefout.ANDERE_SLEUTEL)
         }
 
-        return verifier.versleutel(sessie, uitgifte.teken(app.publicKey, registratie.ontvanger))
+        return verifier.versleutel(sessie, uitgifte.onderteken(app.publicKey, registratie.ontvanger))
     }
 
     private fun registratiebericht(token: String): String =
@@ -159,7 +158,7 @@ class ActiverenResource(
 
     private fun appSessie(token: String): Pair<Sessie, Identiteit.AppSleutel> {
         val sessie = verifier.sessie(token)
-        val app = sessie.identiteit as? Identiteit.AppSleutel ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        val app = sessie.identiteit as? Identiteit.AppSleutel ?: throw ActivatieAfgewezen(Activatiefout.SESSIE_ONBEKEND)
 
         return sessie to app
     }

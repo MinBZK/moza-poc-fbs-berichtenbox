@@ -24,7 +24,7 @@ interface AppManagerConfig {
      */
     fun sleutelPad(): Optional<String>
 
-    /** Tot wanneer de sleutel in het stelseldocument geldt; vanaf dat moment tekent de App Manager niet meer. */
+    /** Tot wanneer de sleutel in het stelseldocument geldt; vanaf dat moment ondertekent de App Manager niet meer. */
     @WithDefault("2099-01-01T00:00:00Z")
     fun sleutelGeldigTot(): Instant
 
