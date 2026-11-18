@@ -16,18 +16,18 @@ info:
     ## Verloop
 
     1. `POST /rechtstreeks/challenges` — het magazijn geeft een nonce en een tijdelijke public key,
-       getekend met zijn eigen sleutel. De app controleert die handtekening met de sleutel uit
+       ondertekend met zijn eigen sleutel. De app controleert die handtekening met de sleutel uit
        `public_keys` van dit magazijn in het stelseldocument die de `kid` aanwijst, en die nog
        niet verlopen is.
     2. `POST /rechtstreeks/sessies` — de app stuurt een Verifiable Presentation, versleuteld naar
        de tijdelijke public key. Daarin: het Verifiable Credential van de App Manager, de nonce
-       getekend met de sleutel van de app, en een AES-sleutel voor de sessie. Het magazijn
+       ondertekend met de sleutel van de app, en een AES-sleutel voor de sessie. Het magazijn
        antwoordt met een sessietoken, versleuteld met die AES-sleutel.
     3. `GET /rechtstreeks/berichten` en `GET /rechtstreeks/berichten/{berichtId}` met
        `Authorization: Bearer <sessieToken>` — het antwoord is versleuteld met de AES-sleutel van de
        sessie.
 
-    Wat getekend of versleuteld over de lijn gaat, staat hier als `CompactJws` of `CompactJwe`.
+    Wat ondertekend of versleuteld over de lijn gaat, staat hier als `CompactJws` of `CompactJwe`.
     Het schema van de inhoud staat ernaast onder `x-payload`. Elke JWE draagt `typ` `JWE`.
 
     De ontvanger komt uit het Verifiable Credential en dus uit de sessie, nooit uit het verzoek.
@@ -109,8 +109,8 @@ paths:
       description: |
         Stap 2 tot en met 9 van `CreateSession` (4.3.4.2). Zonder body. Het magazijn maakt een
         nonce van ten minste 16 willekeurige bytes en een tijdelijk P-256-sleutelpaar; de nonce
-        is 60 seconden bruikbaar, één keer. Het antwoord is een JWS, getekend met de sleutel van
-        dit magazijn, met als payload `Challenge`. Er ontstaat een challenge zonder eigen adres:
+        is 60 seconden bruikbaar, één keer. Het antwoord is een JWS, ondertekend met de sleutel
+        van dit magazijn, met als payload `Challenge`. Er ontstaat een challenge zonder eigen adres:
         `201` zonder `Location`.
 
         Header: `alg` `ES256`, `typ` `jwt`, `kid` van de sleutel van dit magazijn in
@@ -122,7 +122,7 @@ paths:
       security: []
       responses:
         '201':
-          description: Getekende challenge
+          description: Ondertekende challenge
           headers:
             API-Version:
               $ref: '#/components/headers/API-Version'
@@ -158,13 +158,13 @@ paths:
         controleert de Verifiable Presentation volgens 4.3.4.1:
 
         - `certificate_type` is `app_manager_jwt_certificate`;
-        - het Verifiable Credential in `certificate` is getekend met de sleutel die `iss` en `kid`
-          aanwijzen in `app_managers` van een geverifieerd stelseldocument, en die sleutel was
-          geldig op `iat` (4.6.2);
+        - het Verifiable Credential in `certificate` is ondertekend met de sleutel die `iss` en
+          `kid` aanwijzen in `app_managers` van een geverifieerd stelseldocument, en die sleutel
+          was geldig op `iat` (4.6.2);
         - het credential is nu geldig (`nbf`, `exp`, met 60 seconden marge), `iat` ligt niet in de
           toekomst, `nbf` niet vóór `iat`, `exp` ten hoogste 24 uur na `iat` en ten minste
           60 seconden na nu; het heeft de scope van deze dienst en een geldige `ontvanger`;
-        - `app_nonce_signature` is getekend met de sleutel uit `cnf.jwk` van het credential, met
+        - `app_nonce_signature` is ondertekend met de sleutel uit `cnf.jwk` van het credential, met
           `sub` `challenge_response`, `aud` de OIN van dit magazijn en de nonce;
         - `session_aes_key` is 32 bytes na base64-decoding.
 
@@ -422,7 +422,7 @@ components:
       properties:
         app_nonce_signature:
           type: string
-          description: JWS (ES256) met `sub` `challenge_response`, `aud` de OIN van het magazijn en `nonce`, getekend met de sleutel van de app.
+          description: JWS (ES256) met `sub` `challenge_response`, `aud` de OIN van het magazijn en `nonce`, ondertekend met de sleutel van de app.
         certificate_type:
           type: string
           enum: [app_manager_jwt_certificate]
@@ -440,8 +440,8 @@ components:
     VerifiableCredential:
       type: object
       description: |
-        Payload van het Verifiable Credential (4.3.1), getekend door de App Manager (`ES256`, `kid`
-        van een sleutel uit `app_managers` in het stelseldocument). FBS vervangt `bsn`,
+        Payload van het Verifiable Credential (4.3.1), ondertekend door de App Manager (`ES256`,
+        `kid` van een sleutel uit `app_managers` in het stelseldocument). FBS vervangt `bsn`,
         `given_name` en `family_name` door alleen `ontvanger`: meer heeft het magazijn niet nodig.
       required: [cnf, scope, iss, iat, nbf, exp, ontvanger]
       properties:
