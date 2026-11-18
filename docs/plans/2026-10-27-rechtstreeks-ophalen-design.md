@@ -196,34 +196,76 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    - **JOSE.** Gebouwd op `jose4j` (in de Quarkus-BOM), dat JWS `ES256`, JWE `ECDH-ES` en
      `dir`/`A256GCM` kan. Het stelselregister gebruikt `jose4j` alleen in zijn tests, als
      onafhankelijke controle van zijn eigen handtekening; hier wordt het een productie-dependency.
-     De tests van de library controleren daarom met vaste testvectoren en met `java.security`
-     rechtstreeks.
+     De tests van de library spelen de app daarom met de JCA (`java.security`, `javax.crypto`)
+     in plaats van jose4j, en toetsen de Concat KDF van die testapp aan de vector uit RFC 7518
+     bijlage C.
    - **Strikt.** Per stap staan de toegestane algoritmen vast (`AlgorithmConstraints`). Een
      sleutel komt nooit uit een header (`jwk`, `jku`, `x5u`, `x5c`) en een header met `crit`
-     wordt geweigerd. Elke JWE draagt `typ` `JWE` (ADR `/encryption/jwe`). Een JWE-header met
-     een ander `alg`, `enc` of `typ`, of met een van die verboden velden, geeft bij het openen
-     van een sessie `400`: die header is zonder sleutel te lezen, dus het antwoord verraadt niets
-     over de controles daarna. Voor elke publieke EC-sleutel van buiten wordt gecontroleerd dat
-     het punt op de curve ligt. Alle tijdcontroles (VC, nonce, sessie) gebruiken dezelfde marge
-     van 60 seconden, zoals stap 6 van het toepassingsprofiel.
+     wordt geweigerd. Elke JWE draagt `typ` `JWE` (ADR `/encryption/jwe`); als mediatype zonder
+     onderscheid in hoofdletters en met of zonder `application/` (RFC 7515, 4.1.9). `alg` en `enc`
+     zijn wel hoofdlettergevoelig.
+
+     Een JWE gaat in twee stappen. Eerst wat zonder sleutel te zien is: de lengte, de compacte vorm,
+     alleen toegestane headervelden met het juiste type, `alg`, `enc` en `typ`. Klopt daar iets
+     niet, dan volgt een `JweOngeldigException` (`400`), bij het openen van een sessie en straks ook
+     bij een versleuteld verzoek binnen de sessie. Dat gebeurt vóór de nonce gebruikt wordt, dus
+     het antwoord zegt niets over de nonce of over de controles daarna, en de nonce blijft
+     bruikbaar. Daarna gebruikt de Verifier de nonce, controleert de `epk` en ontsleutelt; wat dan
+     faalt, is een `AfgewezenException` (`401`) en verbruikt de nonce. De inhoud van de `epk` hoort
+     bewust bij die tweede stap: een `epk` die geen geldige sleutel is, is een poging op de sleutel
+     van de Verifier (invalid curve), en die mag niets kosteloos laten proberen. Beide exceptions
+     erven van de sealed `VerifierFout`, zodat een aanroeper die ze met `when` vertaalt, een nieuwe
+     soort niet kan missen; de statuscode kiest de aanroeper.
+
+     Voor elke publieke EC-sleutel van buiten wordt gecontroleerd dat het punt op de curve ligt.
+     In `cnf.jwk` tellen alleen `kty`, `crv`, `x` en `y`; een `epk` mag niets anders bevatten,
+     omdat jose4j hem bij de key agreement zelf opnieuw inleest. Omdat jose4j headerwaarden zonder
+     controle naar tekst cast, staat ook het type van elke headerwaarde vast; anders wordt een
+     getal in `kid` een `500` in plaats van een `400` of `401`.
+
+     `nbf` (en daarmee `iat`) mag 60 seconden vooruit liggen, voor klokverschil met de App Manager
+     (stap 6 van het toepassingsprofiel); van `exp` moet juist nog ten minste 60 seconden resteren.
+     Nonce en sessie lopen op de eigen klok en hebben geen marge.
    - **Zonder CDI.** De kern is gewone Kotlin, zoals `fbs-kern`; de diensten bedraden hem zelf.
-     JSON gaat door een `ObjectMapper` die de dienst meegeeft, zodat `non_null` ook geldt voor wat
-     versleuteld over de lijn gaat.
+     De library leest JSON met jose4j. Wat versleuteld terug moet, krijgt hij als tekst van de
+     dienst, die het met zijn eigen `ObjectMapper` maakt, zodat `non_null` ook daar geldt; alleen
+     het antwoord bij het openen van een sessie bouwt hij zelf: voor een magazijn `sessieToken` en
+     `geldigTot`, voor de App Manager `session_token` en `expires_in`.
    - **Opslag.** Nonces en sessies staan achter een interface, met als sleutel de OIN van het
-     magazijn plus de nonce of het token. De opslag in het geheugen is begrensd: een maximum aantal
-     openstaande nonces, totaal en per client-IP (daarboven `503` met `Retry-After`), en
-     opruimen na verloop en na gebruik. Het quotum per IP zorgt dat een site die zijn bezoekers
-     challenges laat aanvragen alleen zichzelf blokkeert. Dat is genoeg voor de simulator en de
-     App Manager, die met één instantie draaien. Het echte magazijn draait met meer replica's.
+     magazijn plus de nonce of het token. De opslag in het geheugen is begrensd, met `503` en
+     `Retry-After` daarboven, en ruimt bij elke aanroep op:
+     - challenges per magazijn en client-adres, zodat één browser bij 100 gesimuleerde magazijnen
+       tegelijk een challenge kan vragen, met een plafond per client over alle magazijnen samen;
+     - sessies met credential per app-sleutel, niet per adres: achter één kantooradres of CGNAT
+       werken veel ondernemers, en zo'n sessie vraagt al een geldig bewijs. Dat werkt alleen als
+       een bewijs iets kost (inloggen met DigiD); bij de demo-App Manager kost het niets. Daarom
+       houden plafonds over alle magazijnen samen, per app-sleutel en (ruim) per adres, één
+       aanvaller met veel bewijzen binnen de perken;
+     - self-signed sessies (activeren) per adres, en korter geldig (10 minuten), omdat ze niets
+       kosten;
+     - een totaal dat het geheugen beschermt. Wie met veel adressen tegelijk komt, kan het vullen;
+       daartegen helpt alleen de stateless nonce hieronder.
+
+     Het client-adres komt achter een ingress van de vertrouwde proxy
+     (`quarkus.http.proxy.proxy-address-forwarding` met `trusted-proxies`), nooit uit een header
+     die de client zelf zet; anders deelt iedereen het adres van de proxy. Een IPv6-adres telt per
+     /64. Een verlopen sessie weigert de Verifier ook als een lopend verzoek hem nog vasthoudt; de
+     sleutel wordt niet gewist, want dan zou zo'n verzoek onder nullen versleutelen. Voor de
+     simulator en de App Manager, die met één instantie draaien, is dit aanvaardbaar. Het echte
+     magazijn draait met meer replica's.
      Daar komt geen database-write per anonieme challenge: de nonce wordt stateless. De tijdelijke
      private key gaat, versleuteld en geauthenticeerd met een inpaksleutel, mee in de nonce (die
      daarom tot 256 tekens mag zijn), met een korte lijst van verbruikte nonces die alle
      replica's delen (TTL ten minste 120 seconden). De inpaksleutel staat alleen in het geheugen,
      rouleert elke paar minuten en wordt na twee keer de levensduur van een nonce vernietigd.
      Zo blijft de forward secrecy van de tijdelijke sleutels beperkt tot dat venster. Sessies
-     bewaren de AES-sleutel versleuteld, in een opslag met TTL zonder back-up.
-   - **Logging.** De library logt nooit claims uit een VC en nooit de waarde van `ontvanger`, ook
-     niet bij een afwijzing. Intern logt hij alleen welke controle faalde.
+     bewaren de AES-sleutel versleuteld, in een opslag met TTL zonder back-up. Daarvoor krijgen
+     de opslag-interfaces dan de nonce en de serialisatie van een sessie in handen (`TODO(#1215)`
+     in `ChallengeOpslag` en `SessieOpslag`).
+   - **Logging.** De library logt zelf niets. Een afwijzing draagt alleen een `Afwijzing`-reden
+     (een ongeldige JWE een `JweFout`), en van een oorzaak uit jose4j alleen de typen in de keten:
+     jose4j neemt soms invoer letterlijk op in zijn melding, en verpakt bijna alles in een kale
+     `JoseException`. De aanroeper logt de reden, nooit claims of de waarde van `ontvanger`.
 
 5. **Een eigen contract naast de magazijn-spec:
    `services/berichtenmagazijn/src/main/resources/openapi/rechtstreeks-ophalen-api.yaml`.** Zou
@@ -270,12 +312,13 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
    eHerkenning-machtiging in het VC komt, blijft open; de demo slaat dat over, net als het
    inloggen.
 
-8. **Sessie: 15 minuten vast, niet te verlengen.** De standaard zegt niets over de levensduur. Een
+8. **Sessie: 15 minuten vast, niet te verlengen; een self-signed sessie bij de App Manager
+   10 minuten.** De standaard zegt niets over de levensduur. Een
    korte, vaste geldigheid is het eenvoudigst, en een nieuwe sessie kost twee verzoeken. Een
-   sessie duurt nooit langer dan het VC: `geldigTot` ligt 15 minuten na de start, of eerder op
-   `exp` van het VC, en een VC dat binnen 60 seconden verloopt, levert geen sessie op (de app
-   ververst het eerst, 4.3.4.1). Krijgt de app een `401`, dan begint hij opnieuw bij de
-   challenge. Het antwoord is camelCase, zoals `Sessie` van de uitvraag: de standaard legt de
+   sessie duurt nooit langer dan het VC: `geldigTot` is het vroegste van 15 minuten na de start
+   en `exp` van het VC, naar beneden afgerond op een hele seconde. Een VC dat binnen 60 seconden
+   verloopt, levert geen sessie op (de app ververst het eerst, 4.3.4.1). Krijgt de app een `401`,
+   dan begint hij opnieuw bij de challenge. Het antwoord is camelCase, zoals `Sessie` van de uitvraag: de standaard legt de
    vorm ervan niet vast. Het `sessieToken` is 32 willekeurige alfanumerieke tekens (de eis is ten
    minste 22, 4.3.4.2 stap 26) en gaat als `Bearer`-token in `Authorization` (RFC 6750). De
    standaard stuurt het token alleen bij de App Manager zonder schema mee (4.4.1 stap 20,
@@ -372,7 +415,7 @@ Deze tabel gaat als terugkoppeling naar de auteurs, net als die in het toepassin
 | Hybride ML-KEM-768 met ECIES ZOU MOETEN (3.3) | Alleen `ECDH-ES` | Geen JOSE-library kent `ML-KEM-768+ECDH-ES`; zie "Post-quantum" hieronder |
 | Revocatie van VC's met een Token Status List, en van de sleutels van Issuers en Verifiers (4.5) | Niet; een VC is ten hoogste 24 uur geldig, een sleutel verdwijnt met een nieuw stelseldocument | Buiten de eerste sprint |
 | TLS 1.3 (3.5) | Eis aan de ingress, niet in de dienst afgedwongen; voor productie ook hybride sleuteluitwisseling (`X25519MLKEM768`) | Zoals bij het stelselregister; zie "Post-quantum" hieronder |
-| Vorm en levensduur van het antwoord bij het openen van de sessie | JWE met `sessieToken` en `geldigTot`; 15 minuten, niet langer dan het VC | De standaard noemt het token, niet de vorm van het antwoord |
+| Vorm en levensduur van het antwoord bij het openen van de sessie | Bij een magazijn een JWE met `sessieToken` en `geldigTot`; 15 minuten, niet langer dan het VC. Bij de App Manager (self-signed) `session_token`, zoals 4.4.1 het noemt, en `expires_in` in seconden, naar het voorbeeld van 4.4.2; 10 minuten | De standaard noemt het token, niet de vorm van het antwoord |
 | Levensduur van een nonce | 60 seconden, eenmalig | De standaard noemt geen levensduur |
 
 ### Post-quantum: wat het ontbreken van ML-KEM kost
