@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="./" class="is-active">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="./" class="is-active">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -68,7 +68,7 @@
   </tr>
   <tr>
    <td>4</td>
-   <td>Een ondernemer zoekt in de eigen berichten</td>
+   <td>Een ondernemer zoekt op een woord uit de tekst van berichten en bijlagen</td>
    <td>Ondernemer</td>
   </tr>
   <tr>
@@ -105,6 +105,11 @@
    <td>11</td>
    <td>Een magazijn is langere tijd onbereikbaar</td>
    <td>Ondernemer, stelselbeheerder en organisatie</td>
+  </tr>
+  <tr>
+   <td>12</td>
+   <td>Een ondernemer filtert en sorteert zijn berichten op onderwerp, afzender, map of datum</td>
+   <td>Ondernemer</td>
   </tr>
  </tbody>
 </table>
@@ -171,7 +176,7 @@
 <p><strong>Elk magazijn kent de ondernemer onder een eigen pseudoniem.</strong> Een magazijn krijgt niet het nummer van de ondernemer, maar een versleutelde verwijzing die alleen voor dat magazijn bruikbaar is. Zo kunnen magazijnen hun gegevens niet onderling koppelen.</p>
 <p><strong>Verbindingen tussen organisaties zijn beveiligd en vastgelegd.</strong> Uitvraag, magazijnen en de diensten van MijnOverheid Zakelijk praten met elkaar via FSC (Federatieve Service Connectiviteit): elke verbinding rust op een afspraak tussen twee organisaties, en beide kanten weten met wie ze praten.</p>
 <p><strong>Wat het stelsel vastlegt.</strong> Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast in zijn eigen Logboek Dataverwerkingen: welke handeling, voor wie, wanneer, en of die lukte. Er is geen centraal logboek. Wie wil weten wat er met een bericht gebeurd is, raadpleegt de logboeken van de betrokken diensten (use case 9).</p>
-<p><strong>Nog niet gerealiseerd, voor alle use cases.</strong> Inloggen met eHerkenning, de pseudoniemen per magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het portaal bij elk verzoek mee om welke ondernemer het gaat, krijgt elk magazijn het nummer van de ondernemer, en is per verbinding in te stellen of die via FSC loopt. De pagina "PoC-afwijkingen" houdt bij wat nog niet gebouwd is.</p></div>
+<p><strong>Nog niet gerealiseerd, voor alle use cases.</strong> Inloggen met eHerkenning, de pseudoniemen per magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het portaal bij elk verzoek mee om welke ondernemer het gaat, krijgt elk magazijn het nummer van de ondernemer, en is per verbinding in te stellen of die via FSC loopt (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/414" target="blank">#414</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/415" target="blank">#415</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/552" target="blank">#552</a>). De pagina "PoC-afwijkingen" houdt bij wat nog niet gebouwd is.</p></div>
         </div>
       </div>
     </div>

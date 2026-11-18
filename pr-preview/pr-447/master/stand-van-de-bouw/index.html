@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-eigen-berichten/" class="">Use case 4: Zoeken in de eigen berichten</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="./" class="is-active">Stand van de bouw</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="./" class="is-active">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -49,6 +49,7 @@
    <th>Use case</th>
    <th>Wat nu anders werkt</th>
    <th>Waar</th>
+   <th>Issue</th>
   </tr>
  </thead>
  <tbody>
@@ -56,101 +57,121 @@
    <td>1</td>
    <td>Een bericht is vóór zijn publicatiedatum al op te halen; alleen aanmelding en melding wachten</td>
    <td><code>BerichtRepository.lijstVoorOntvanger</code> en het detail filteren niet op <code>publicatietijdstip</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1586" target="blank">#1586</a></td>
   </tr>
   <tr>
    <td>1</td>
    <td>Het magazijn controleert niet of de afzender-OIN de eigen organisatie is; de uitvraag kiest bij een aanmelding het magazijn op die OIN</td>
    <td><code>BerichtOpslagService</code>, <code>AanmeldService.parse</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1587" target="blank">#1587</a></td>
   </tr>
   <tr>
    <td>1</td>
    <td>Aanmelding en melding bevatten <code>ontvanger</code> en <code>onderwerp</code> onversleuteld</td>
    <td><code>CloudEventBuilder.BerichtData</code>. Het NL GOV-profiel voor CloudEvents wijst versleuteling van <code>data</code> of een claim-check via <code>dataref</code> aan</td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1588" target="blank">#1588</a></td>
   </tr>
   <tr>
    <td>1, 6</td>
    <td>Alleen <code>application/pdf</code> als bijlage toegestaan. Geen grens aan het aantal bijlagen, geen controle op de inhoud. Wel 25 MiB per bijlage en 40 MiB per request (inclusief Base64)</td>
    <td><code>Bijlage.MAX_CONTENT_BYTES</code>, <code>quarkus.http.limits.max-body-size</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1589" target="blank">#1589</a></td>
   </tr>
   <tr>
    <td>1</td>
    <td>Aanleveren is niet idempotent</td>
    <td><code>PublicatieOutbox</code></td>
+   <td>– (open vraag)</td>
   </tr>
   <tr>
    <td>1</td>
    <td>De Publicatie Stream geeft na 5 pogingen per bestemming op, in de praktijk na zo'n 5 minuten</td>
    <td><code>magazijn.publicatie.polling.interval</code> (60s), <code>max-pogingen</code></td>
+   <td>– (open vraag)</td>
   </tr>
   <tr>
    <td>1</td>
    <td>Profiel Service onbereikbaar na de retries geeft <code>500</code>, geen <code>503</code></td>
    <td><code>BerichtValidatieService</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1590" target="blank">#1590</a></td>
   </tr>
   <tr>
    <td>2</td>
    <td>Een voorkeur voor een OIN zonder magazijn in het register wordt stil overgeslagen</td>
    <td>Sessiecache-aggregatie via <code>Magazijnregister</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591" target="blank">#1591</a></td>
   </tr>
   <tr>
    <td>2, 11</td>
    <td>Het logboek van het ophalen legt alleen het aantal mislukte magazijnen vast, niet welke</td>
    <td><code>uitvraag-ophalen-sse</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592" target="blank">#1592</a></td>
   </tr>
   <tr>
    <td>2</td>
    <td>Een tweede ophaalronde geeft <code>409</code> met <code>type</code> <code>conflict</code>, niet <code>ophalen-bezig</code></td>
    <td><code>BerichtensessiecacheService</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1590" target="blank">#1590</a></td>
   </tr>
   <tr>
    <td>4</td>
-   <td>Zoeken volgt Engelse stemming en stopwoorden, vindt geen accenten, geen meerdere woorden en geen leestekens</td>
+   <td>Niet gebouwd: de magazijn-API kent geen zoekfunctie. De bestaande <code>_zoeken</code> van de uitvraag zoekt alleen in <code>onderwerp</code>, wordt door de berichtenbox niet gebruikt en wordt opgeheven (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1287" target="blank">#1287</a>). Hij volgt Engelse stemming en stopwoorden, vindt geen accenten, geen meerdere woorden en geen leestekens</td>
    <td><code>BerichtenCache</code>: RediSearch-index zonder <code>LANGUAGE</code>; <code>escapeRedisSearch</code> escapet elk teken buiten <code>[a-zA-Z0-9]</code>, ook de spatie</td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1598" target="blank">#1598</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1287" target="blank">#1287</a></td>
   </tr>
   <tr>
    <td>5, 9</td>
    <td>De logregel van de uitvraag bij openen legt de uitkomst niet vast: een 4xx krijgt status <code>Unset</code>, net als een geslaagde opening. <code>Unset</code> is volgens de LDV-standaard juist voor een functionele weigering, dus niet "repareren" naar <code>Error</code>; wat ontbreekt is de uitkomst in de logregel. Geen van beide logregels bevat het berichtnummer</td>
    <td><code>uitvraag-bericht</code>, magazijn <code>ophalen-bericht</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592" target="blank">#1592</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1381" target="blank">#1381</a></td>
   </tr>
   <tr>
    <td>7</td>
    <td>Mislukt na een geslaagde magazijnwijziging het bijwerken van de sessiecache, dan compenseert de uitvraag met <code>Sessiecache.verwijder</code>: die schrijft een tombstone, en een volgende opening geeft <code>410 bericht-verwijderd</code></td>
    <td><code>BerichtBeheerService.invalideerCacheNaMagazijnWrite</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1593" target="blank">#1593</a></td>
   </tr>
   <tr>
    <td>7, 8</td>
    <td><code>PATCH</code> en <code>DELETE</code> gaan in de uitvraag zonder controle op de sessielijst naar het magazijn. Dat geeft <code>403</code> voor andermans actieve bericht en <code>404</code> voor een onbekend bericht, en de uitvraag geeft die <code>403</code> door als <code>GEEN_TOEGANG</code>. Lezen en bijlagen kijken eerst in de lijst en geven in beide gevallen <code>404</code></td>
    <td><code>BerichtBeheerService</code>, <code>BerichtAutorisatie.vereisOntvanger</code>, <code>UpstreamFault</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1594" target="blank">#1594</a></td>
   </tr>
   <tr>
    <td>8, 10</td>
    <td>Het definitief opruimen logt alleen naar de applicatielog, met berichtnummer maar zonder ontvanger. Het model zegt dat de Retentie Service naar het LDV logt</td>
    <td><code>HardDeleteJob</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/549" target="blank">#549</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1489" target="blank">#1489</a></td>
   </tr>
   <tr>
    <td>9, 10</td>
    <td>Geen bewaartermijn op LDV-regels</td>
    <td>LDV-configuratie per dienst</td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1595" target="blank">#1595</a></td>
   </tr>
   <tr>
    <td>10</td>
    <td>Geen opdracht om alle berichten van één ontvanger te wissen</td>
    <td>Magazijn-API</td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596" target="blank">#1596</a></td>
   </tr>
   <tr>
    <td>10</td>
    <td>Niet-verwijderde berichten worden nooit opgeruimd</td>
    <td><code>BerichtRepository</code>: hard-delete selecteert alleen <code>verwijderd_op IS NOT NULL</code></td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597" target="blank">#1597</a></td>
   </tr>
   <tr>
    <td>11</td>
    <td>Een bericht uit een magazijn dat bij het ophalen niet leverde, geeft bij openen <code>404 bericht-onbekend</code></td>
    <td>Uitvraag <code>BerichtOphaalService</code>: eerst de sessielijst</td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591" target="blank">#1591</a></td>
   </tr>
   <tr>
    <td>11</td>
    <td>Geen alert per magazijn dat lang niet levert</td>
    <td>Sessiecache-aggregatie, circuit breaker per magazijn</td>
+   <td><a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1480" target="blank">#1480</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1478" target="blank">#1478</a></td>
   </tr>
  </tbody>
 </table>
@@ -186,7 +207,11 @@
   </tr>
   <tr>
    <td>4</td>
-   <td>Uitvraag <code>GET /api/v1/berichten/_zoeken?q=</code></td>
+   <td>Nog geen; nu alleen uitvraag <code>GET /api/v1/berichten/_zoeken?q=</code> (onderwerp, op te heffen)</td>
+  </tr>
+  <tr>
+   <td>12</td>
+   <td>Uitvraag <code>GET /api/v1/berichten?pagina&amp;paginaGrootte</code> (tot 200 per pagina, <code>_links.next</code> volgen); filteren en sorteren in de browser, zie <code>docs/plans/2026-09-30-filteren-zoeken-sorteren-in-de-browser.md</code></td>
   </tr>
   <tr>
    <td>5</td>
