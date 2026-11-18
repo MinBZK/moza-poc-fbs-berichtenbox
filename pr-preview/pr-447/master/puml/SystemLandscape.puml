@@ -45,12 +45,6 @@ skinparam rectangle<<Berichtenmagazijneigengehost>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam person<<Burger>> {
-  BackgroundColor #08427b
-  FontColor #ffffff
-  BorderColor #052e56
-  shadowing false
-}
 skinparam rectangle<<DigiD>> {
   BackgroundColor #666666
   FontColor #ffffff
@@ -81,7 +75,13 @@ skinparam rectangle<<NotificatieService>> {
   BorderColor #0b4884
   shadowing false
 }
-skinparam person<<Ondernemerzakelijkegebruiker>> {
+skinparam person<<Ontvangerburger>> {
+  BackgroundColor #08427b
+  FontColor #ffffff
+  BorderColor #052e56
+  shadowing false
+}
+skinparam person<<Ontvangerondernemer>> {
   BackgroundColor #08427b
   FontColor #ffffff
   BorderColor #052e56
@@ -142,18 +142,18 @@ rectangle "Federatief Berichtenstelsel (FBS)" <<group1>> as group1 {
 
 }
 
-person "==Burger\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Burger>> as Burger
+person "==Ontvanger (burger)\n<size:10>[Person]</size>\n\nBurger die berichten en notificaties van overheidsorganisaties ontvangt" <<Ontvangerburger>> as Ontvangerburger
 rectangle "==DigiD\n<size:10>[Software System]</size>\n\nAuthenticatie voor burgers" <<DigiD>> as DigiD
 rectangle "==Overheidsorganisatie (eigen magazijn)\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - host zelf een berichtenmagazijn" <<Overheidsorganisatieeigenmagazijn>> as Overheidsorganisatieeigenmagazijn
 rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp
 rectangle "==App Manager\n<size:10>[Software System]</size>\n\nLaat de burger inloggen met DigiD of de ondernemer met eHerkenning, en geeft daarna een credential uit aan de app: een bevestiging van de identiteit, gebonden aan het sleutelpaar van de app (BK Connect). Hoe de machtiging van een ondernemer daarin meekomt, is nog open." <<AppManager>> as AppManager
 rectangle "==Overheidsorganisatie (magazijn bij BBO)\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OverheidsorganisatiemagazijnbijBBO>> as OverheidsorganisatiemagazijnbijBBO
-person "==Ondernemer (zakelijke gebruiker)\n<size:10>[Person]</size>\n\nOntvangt berichten en notificaties van overheidsorganisaties" <<Ondernemerzakelijkegebruiker>> as Ondernemerzakelijkegebruiker
+person "==Ontvanger (ondernemer)\n<size:10>[Person]</size>\n\nOndernemer of zakelijke gebruiker die berichten en notificaties van overheidsorganisaties ontvangt" <<Ontvangerondernemer>> as Ontvangerondernemer
 person "==Medewerker (eigen magazijn)\n<size:10>[Person]</size>\n\nVerstuurt berichten namens een overheidsorganisatie met een eigen berichtenmagazijn" <<Medewerkereigenmagazijn>> as Medewerkereigenmagazijn
 person "==Medewerker (magazijn bij BBO)\n<size:10>[Person]</size>\n\nVerstuurt berichten namens een overheidsorganisatie die haar berichtenmagazijn bij BBO afneemt" <<MedewerkermagazijnbijBBO>> as MedewerkermagazijnbijBBO
 person "==Stelselbeheerder\n<size:10>[Person]</size>\n\nBeheert het Federatief Berichtenstelsel: de stelselafspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten" <<Stelselbeheerder>> as Stelselbeheerder
-rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
-rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer van burgers en ondernemers (MoZa)" <<ProfielService>> as ProfielService
+rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nIdentiteitsneutrale notificatiebezorging via e-mail, SMS en app, voor burgers en ondernemers (MoZa)" <<NotificatieService>> as NotificatieService
 rectangle "==Interactielaag\n<size:10>[Software System]</size>\n\nPortaal of app waarmee burgers en ondernemers communiceren met het berichtenstelsel" <<Interactielaag>> as Interactielaag
 rectangle "==eHerkenning\n<size:10>[Software System]</size>\n\nAuthenticatie en machtigingen voor zakelijke gebruikers — stelsel met machtigingenvoorziening en dienstencatalogus" <<eHerkenning>> as eHerkenning
 
@@ -161,18 +161,18 @@ Medewerkereigenmagazijn .[#707070,thickness=2].> Overheidsorganisatieeigenmagazi
 MedewerkermagazijnbijBBO .[#707070,thickness=2].> OverheidsorganisatiemagazijnbijBBO : "<color:#707070>Verstuurt berichten via\n<color:#707070><size:8>[HTTPS]</size>"
 Stelselbeheerder .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Beheert, en zoekt bij vragen en storingen in het logboek van"
 Stelselbeheerder .[#707070,thickness=2].> Stelselregister : "<color:#707070>Houdt de deelnemende organisaties en hun magazijnen bij in"
-Burger .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
-Burger .[#707070,thickness=2].> DigiD : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
-Ondernemerzakelijkegebruiker .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
-Ondernemerzakelijkegebruiker .[#707070,thickness=2].> eHerkenning : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
-NotificatieService .[#707070,thickness=2].> Burger : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
-NotificatieService .[#707070,thickness=2].> Ondernemerzakelijkegebruiker : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
+Ontvangerburger .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
+Ontvangerburger .[#707070,thickness=2].> DigiD : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
+Ontvangerondernemer .[#707070,thickness=2].> Interactielaag : "<color:#707070>Bekijkt berichten, zoekt, organiseert in mappen, verwijdert\n<color:#707070><size:8>[HTTPS (browser/app)]</size>"
+Ontvangerondernemer .[#707070,thickness=2].> eHerkenning : "<color:#707070>Logt in\n<color:#707070><size:8>[HTTPS (browser redirect)]</size>"
+NotificatieService .[#707070,thickness=2].> Ontvangerburger : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
+NotificatieService .[#707070,thickness=2].> Ontvangerondernemer : "<color:#707070>Notificeert over nieuwe berichten\n<color:#707070><size:8>[E-mail, SMS, app-notificatie]</size>"
 Interactielaag .[#707070,thickness=2].> BerichtenUitvraagSysteem : "<color:#707070>Berichten-API-aanroepen namens burger of ondernemer\n<color:#707070><size:8>[Digikoppeling REST API via FSC (JWT bearer token)]</size>"
 Interactielaag .[#707070,thickness=2].> ProfielService : "<color:#707070>Toestemming bekijken en wijzigen\n<color:#707070><size:8>[Digikoppeling REST API via FSC]</size>"
 Interactielaag .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
 Interactielaag .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie zakelijke gebruikers\n<color:#707070><size:8>[SAML 2.0]</size>"
-Burger .[#707070,thickness=2].> Berichtenapp : "<color:#707070>Bekijkt berichten van alle deelnemende organisaties\n<color:#707070><size:8>[App op eigen apparaat]</size>"
-Ondernemerzakelijkegebruiker .[#707070,thickness=2].> Berichtenapp : "<color:#707070>Bekijkt berichten van alle deelnemende organisaties, namens de onderneming\n<color:#707070><size:8>[App op eigen apparaat]</size>"
+Ontvangerburger .[#707070,thickness=2].> Berichtenapp : "<color:#707070>Bekijkt berichten van alle deelnemende organisaties\n<color:#707070><size:8>[App op eigen apparaat]</size>"
+Ontvangerondernemer .[#707070,thickness=2].> Berichtenapp : "<color:#707070>Bekijkt berichten van alle deelnemende organisaties, namens de onderneming\n<color:#707070><size:8>[App op eigen apparaat]</size>"
 Berichtenapp .[#707070,thickness=2].> AppManager : "<color:#707070>Laat de identiteit van de gebruiker bevestigen en ontvangt een credential\n<color:#707070><size:8>[HTTPS]</size>"
 AppManager .[#707070,thickness=2].> DigiD : "<color:#707070>Authenticatie burgers\n<color:#707070><size:8>[SAML 2.0]</size>"
 AppManager .[#707070,thickness=2].> eHerkenning : "<color:#707070>Authenticatie en machtigingen zakelijke gebruikers\n<color:#707070><size:8>[SAML 2.0]</size>"

@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="./" class="is-active">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="./" class="is-active">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -41,7 +41,7 @@
       <div class="container is-fluid">
         <div class="content p-3">
           <div><h1>Use case 1: Bericht versturen en melden</h1>
-<p>Een organisatie verstuurt een bericht via haar berichtenmagazijn, en de ondernemer krijgt daar een melding van.</p>
+<p>Een organisatie verstuurt een bericht via haar berichtenmagazijn, en een burger of ondernemer (de ontvanger) krijgt daar een melding van.</p>
 <table>
  <thead>
   <tr>
@@ -56,11 +56,11 @@
   </tr>
   <tr>
    <td><strong>Aanleiding</strong></td>
-   <td>De organisatie heeft een bericht voor een ondernemer, bijvoorbeeld een besluit of een aanslag</td>
+   <td>De organisatie heeft een bericht voor een ontvanger (burger of ondernemer), bijvoorbeeld een besluit of een aanslag</td>
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>Het bericht staat in het magazijn van de organisatie. Vanaf de publicatiedatum ziet de ondernemer het in zijn berichtenbox, en krijgt hij er een melding van</td>
+   <td>Het bericht staat in het magazijn van de organisatie. Vanaf de publicatiedatum staat het in de berichtenbox van de ontvanger, en krijgt de ontvanger er een melding van</td>
   </tr>
  </tbody>
 </table>
@@ -68,12 +68,12 @@
 <ol>
  <li>De organisatie levert het bericht aan bij haar eigen magazijn: ontvanger, onderwerp, tekst, eventueel bijlagen, en eventueel een publicatiedatum.</li>
  <li>Het magazijn controleert het bericht: is het compleet, zijn de bijlagen toegestaan en niet te groot, en komt het van de eigen organisatie?</li>
- <li>Het magazijn vraagt de Profiel Service of de ondernemer berichten van deze organisatie via de berichtenbox wil ontvangen. Is de ontvanger zelf een overheidsorganisatie, dan vervalt deze stap.</li>
+ <li>Het magazijn vraagt de Profiel Service of de ontvanger berichten van deze organisatie via de berichtenbox wil ontvangen. Is de ontvanger zelf een overheidsorganisatie, dan vervalt deze stap.</li>
  <li>Het magazijn legt de aanlevering vast in zijn logboek, bewaart het bericht, en plant de aanmelding en de melding.</li>
  <li>De organisatie krijgt meteen antwoord: het bericht is aangenomen, met een berichtnummer.</li>
  <li>Op de publicatiedatum (zonder datum: meteen) wordt het bericht zichtbaar in de berichtenbox. Het magazijn meldt het nieuwe bericht aan bij de uitvraag, en geeft het door aan de Notificatie Service.</li>
- <li>Is de ondernemer op dat moment ingelogd, dan verschijnt het bericht in zijn geopende berichtenbox (use case 3). Anders ziet hij het de volgende keer dat hij inlogt.</li>
- <li>De Notificatie Service zoekt de contactgegevens van de ondernemer op en stuurt hem een melding, bijvoorbeeld per e-mail. Dat deel hoort bij MijnOverheid Zakelijk, niet bij het berichtenstelsel.</li>
+ <li>Is de ontvanger op dat moment ingelogd, dan verschijnt het bericht in de geopende berichtenbox (use case 3). Anders staat het er de volgende keer dat de ontvanger inlogt.</li>
+ <li>De Notificatie Service zoekt de contactgegevens van de ontvanger op en stuurt een melding, bijvoorbeeld per e-mail. Dat deel hoort niet bij het berichtenstelsel.</li>
 </ol>
 <p>De aanmelding en de melding bevatten alleen wat nodig is. Persoonsgegevens gaan versleuteld mee, of worden apart bij het magazijn opgehaald.</p>
 <h2>Sequence diagram</h2>
@@ -84,11 +84,11 @@
     participant PRO as Profiel Service
     participant FBS as Berichten Uitvraag Systeem
     participant NOT as Notificatie Service
-    actor OND as Ondernemer
+    actor ONT as Ontvanger
 
     ORG-&gt;&gt;MAG: Levert een bericht aan (ontvanger, onderwerp, tekst, bijlagen, publicatiedatum)
     MAG-&gt;&gt;MAG: Compleet, bijlagen toegestaan, afzender is de eigen organisatie?
-    opt Ontvanger is een ondernemer, geen overheidsorganisatie
+    opt Ontvanger is een burger of ondernemer, geen overheidsorganisatie
         MAG-&gt;&gt;PRO: Wil de ontvanger berichten van deze organisatie via de berichtenbox?
         PRO--&gt;&gt;MAG: Ja
     end
@@ -100,11 +100,11 @@
     MAG-&gt;&gt;MAG: Maak het bericht zichtbaar
     par Aanmelden bij de uitvraag
         MAG-)FBS: Nieuw bericht (kopgegevens, zonder tekst)
-        FBS-&gt;&gt;FBS: Zet het bericht in de lijst, als de ondernemer ingelogd is
+        FBS-&gt;&gt;FBS: Zet het bericht in de lijst, als de ontvanger ingelogd is
     and Melden aan de Notificatie Service
         MAG-)NOT: Nieuw bericht
         NOT-&gt;&gt;PRO: Contactgegevens van de ontvanger
-        NOT-)OND: Melding, bijvoorbeeld per e-mail
+        NOT-)ONT: Melding, bijvoorbeeld per e-mail
     end
 </code></pre>
 <h2>Als het misgaat</h2>
@@ -128,7 +128,7 @@
    <td>Een foutmelding</td>
   </tr>
   <tr>
-   <td>De ondernemer wil geen berichten van deze organisatie via de berichtenbox, of is daar niet bekend</td>
+   <td>De ontvanger wil geen berichten van deze organisatie via de berichtenbox, of is daar niet bekend</td>
    <td>Het magazijn weigert het bericht en bewaart niets</td>
    <td>De organisatie hoort dat de ontvanger niet digitaal bereikbaar is, en moet het bericht langs een andere weg sturen</td>
   </tr>
@@ -145,15 +145,15 @@
   <tr>
    <td>De organisatie levert hetzelfde bericht twee keer aan, bijvoorbeeld omdat het antwoord uitbleef</td>
    <td>Het magazijn herkent dat niet, en bewaart twee berichten</td>
-   <td>De ondernemer ziet het bericht dubbel</td>
+   <td>De ontvanger ziet het bericht dubbel</td>
   </tr>
   <tr>
    <td>De uitvraag of de Notificatie Service is niet bereikbaar</td>
    <td>Het magazijn probeert het enkele minuten opnieuw, en geeft het daarna op. Een storing bij de ene houdt de andere niet tegen</td>
-   <td>De organisatie merkt niets. De ondernemer ziet het bericht bij de volgende keer inloggen, maar krijgt bij een langere storing geen melding</td>
+   <td>De organisatie merkt niets. Het bericht staat er bij de volgende keer inloggen, maar bij een langere storing komt er geen melding</td>
   </tr>
   <tr>
-   <td>De ondernemer is niet ingelogd</td>
+   <td>De ontvanger is niet ingelogd</td>
    <td>De uitvraag doet niets met de aanmelding</td>
    <td>Niets: het bericht verschijnt bij de volgende keer inloggen</td>
   </tr>
@@ -176,9 +176,9 @@
 <ul>
  <li>Moet het magazijn een dubbele aanlevering herkennen, bijvoorbeeld aan een kenmerk dat de organisatie meegeeft?</li>
  <li>Hoe lang moet het magazijn blijven proberen de aanmelding en de melding af te leveren? Nu is dat enkele minuten.</li>
- <li>Mag een organisatie een bericht digitaal sturen als de ondernemer daar niet voor gekozen heeft? Nu weigert het magazijn dat. Of de wetgeving daar iets anders over zegt, wordt uitgezocht. De afspraak is dat die beslissing bij het magazijn ligt, niet bij de berichtenbox.</li>
- <li>Heeft een bedrijf één berichtenbox, of hebben afdelingen hun eigen magazijn? Navragen bij de Belastingdienst.</li>
- <li>Wie krijgt een melding bij een bericht voor een bedrijf: ook gemachtigden of helpers? Dan komen er meer contactgegevens uit de Profiel Service. Navragen bij de afnemers.</li>
+ <li>Mag een organisatie een bericht digitaal sturen als de ontvanger daar niet voor gekozen heeft? Nu weigert het magazijn dat. Of de wetgeving daar iets anders over zegt, wordt uitgezocht, en het antwoord kan voor burgers anders uitvallen dan voor ondernemers. De afspraak is dat die beslissing bij het magazijn ligt, niet bij de berichtenbox.</li>
+ <li>Alleen voor ondernemers: heeft een bedrijf één berichtenbox, of hebben afdelingen hun eigen magazijn? Navragen bij de Belastingdienst.</li>
+ <li>Alleen voor ondernemers: wie krijgt een melding bij een bericht voor een bedrijf, ook gemachtigden of helpers? Dan komen er meer contactgegevens uit de Profiel Service. Navragen bij de afnemers.</li>
 </ul></div>
         </div>
       </div>

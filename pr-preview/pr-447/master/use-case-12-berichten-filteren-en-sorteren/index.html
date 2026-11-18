@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="./" class="is-active">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="./" class="is-active">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -41,7 +41,7 @@
       <div class="container is-fluid">
         <div class="content p-3">
           <div><h1>Use case 12: Berichten filteren en sorteren</h1>
-<p>Een ondernemer filtert en sorteert zijn berichten op de kopgegevens: onderwerp, afzender, map en datum.</p>
+<p>De ontvanger, een burger of ondernemer, filtert en sorteert de eigen berichten op de kopgegevens: onderwerp, afzender, map en datum.</p>
 <table>
  <thead>
   <tr>
@@ -52,15 +52,15 @@
  <tbody>
   <tr>
    <td><strong>Actor</strong></td>
-   <td>Een ondernemer met een geopende berichtenbox</td>
+   <td>De ontvanger, met een geopende berichtenbox</td>
   </tr>
   <tr>
    <td><strong>Aanleiding</strong></td>
-   <td>De ondernemer zoekt een bericht terug, bijvoorbeeld alles van de Belastingdienst, alles in de map "Belasting", of een bericht met "aanslag" in het onderwerp</td>
+   <td>De ontvanger zoekt een bericht terug, bijvoorbeeld alles van de Belastingdienst, alles in de map "Belasting", of een bericht met "aanslag" in het onderwerp</td>
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>De berichtenbox toont alleen de berichten die bij het filter passen, in de gekozen volgorde. Ontbreekt een organisatie, dan ziet hij dat het resultaat onvolledig is</td>
+   <td>De berichtenbox toont alleen de berichten die bij het filter passen, in de gekozen volgorde. Ontbreekt een organisatie, dan is te zien dat het resultaat onvolledig is</td>
   </tr>
  </tbody>
 </table>
@@ -69,15 +69,15 @@
 <p>Filteren en sorteren gebeuren in de berichtenbox zelf, over de volledige lijst die bij het ophalen is samengesteld (use case 2). De lijst bevat alleen kopgegevens: afzender, onderwerp, datum, map en of het bericht gelezen is.</p>
 <ol>
  <li>Na het ophalen haalt het portaal de volledige berichtenlijst op bij de uitvraag, in een paar pagina's.</li>
- <li>De ondernemer typt een woord uit het onderwerp, of kiest een afzender of een map. De keuze aan afzenders en mappen leidt het portaal af uit de berichten zelf.</li>
- <li>De ondernemer kiest een volgorde: op datum (nieuwste of oudste eerst), op afzender of op onderwerp.</li>
+ <li>De ontvanger typt een woord uit het onderwerp, of kiest een afzender of een map. De keuze aan afzenders en mappen leidt het portaal af uit de berichten zelf.</li>
+ <li>De ontvanger kiest een volgorde: op datum (nieuwste of oudste eerst), op afzender of op onderwerp.</li>
  <li>Het portaal toont het resultaat meteen, zonder de uitvraag of de magazijnen opnieuw te vragen. Filter, zoekterm en volgorde zijn te combineren.</li>
  <li>Komt er een nieuw bericht binnen terwijl de berichtenbox openstaat (use case 3), dan verschijnt het alleen als het bij het filter past, op de plek die bij de volgorde hoort.</li>
 </ol>
 <h2>Sequence diagram</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     autonumber
-    actor OND as Ondernemer
+    actor ONT as Ontvanger
     participant IL as Interactielaag
     participant FBS as Berichten Uitvraag Systeem
 
@@ -85,12 +85,12 @@
         IL-&gt;&gt;FBS: Geef de berichtenlijst (volgende pagina)
         FBS--&gt;&gt;IL: Berichten (kopgegevens)
     end
-    OND-&gt;&gt;IL: Kiest afzender Belastingdienst en sorteert op datum
+    ONT-&gt;&gt;IL: Kiest afzender Belastingdienst en sorteert op datum
     IL-&gt;&gt;IL: Filter en sorteer de lijst
-    IL--&gt;&gt;OND: Toont de passende berichten
+    IL--&gt;&gt;ONT: Toont de passende berichten
     FBS--&gt;&gt;IL: Bericht bijgekomen (zie use case 3)
     IL-&gt;&gt;IL: Past het bij het filter? Zet het op zijn plek
-    IL--&gt;&gt;OND: Toont het nieuwe bericht, als het past
+    IL--&gt;&gt;ONT: Toont het nieuwe bericht, als het past
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>
@@ -98,7 +98,7 @@
   <tr>
    <th>Situatie</th>
    <th>Wat het stelsel doet</th>
-   <th>Wat de ondernemer merkt</th>
+   <th>Wat de ontvanger merkt</th>
   </tr>
  </thead>
  <tbody>
@@ -108,7 +108,7 @@
    <td>De berichtenbox meldt dat het resultaat onvolledig is, en welke organisatie ontbreekt</td>
   </tr>
   <tr>
-   <td>Een organisatie heeft meer dan 500 berichten voor deze ondernemer</td>
+   <td>Een organisatie heeft meer dan 500 berichten voor deze ontvanger</td>
    <td>De uitvraag neemt er 500 mee</td>
    <td>De berichtenbox meldt dat er meer berichten zijn dan getoond</td>
   </tr>
@@ -123,7 +123,7 @@
    <td>Het bericht verschijnt zodra het filter het toelaat</td>
   </tr>
   <tr>
-   <td>De ondernemer zoekt een map waar geen bericht meer in zit</td>
+   <td>De ontvanger zoekt een map waar geen bericht meer in zit</td>
    <td>Een map bestaat alleen zolang er een bericht in zit (use case 7)</td>
    <td>De map staat niet in de keuzelijst</td>
   </tr>
@@ -131,11 +131,11 @@
 </table>
 <h2>Nog niet gerealiseerd</h2>
 <ul>
- <li>Het nieuwe MOZa-portaal meldt niet welke organisaties niet leverden. Een gefilterde lijst ziet er dan volledig uit terwijl hij dat niet is (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1453" target="blank">#1453</a>).</li>
+ <li>Het nieuwe MOZa-portaal meldt niet welke organisaties niet leverden. Een gefilterde lijst ziet er dan volledig uit terwijl die dat niet is (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1453" target="blank">#1453</a>).</li>
 </ul>
 <h2>Open vragen</h2>
 <ul>
- <li>Blijft filteren in de browser houdbaar als een ondernemer berichten van veel organisaties ontvangt? De lijst is begrensd op 500 berichten per organisatie, zonder tekst.</li>
+ <li>Blijft filteren in de browser houdbaar als een ontvanger berichten van veel organisaties ontvangt? De lijst is begrensd op 500 berichten per organisatie, zonder tekst.</li>
 </ul></div>
         </div>
       </div>

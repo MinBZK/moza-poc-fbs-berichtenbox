@@ -99,8 +99,8 @@ skinparam rectangle<<BerichtenmagazijnBBOgehost>> {
   shadowing false
 }
 
-rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer (MoZa)" <<ProfielService>> as ProfielService
-rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nMulti-channel notificatiebezorging via e-mail, SMS en app (MoZa)" <<NotificatieService>> as NotificatieService
+rectangle "==Profiel Service\n<size:10>[Software System]</size>\n\nContactgegevens, communicatievoorkeuren en toestemmingsbeheer van burgers en ondernemers (MoZa)" <<ProfielService>> as ProfielService
+rectangle "==Notificatie Service\n<size:10>[Software System]</size>\n\nIdentiteitsneutrale notificatiebezorging via e-mail, SMS en app, voor burgers en ondernemers (MoZa)" <<NotificatieService>> as NotificatieService
 rectangle "==Overheidsorganisatie (magazijn bij BBO)\n<size:10>[Software System]</size>\n\nDeelnemende overheidsorganisatie - neemt een berichtenmagazijn af bij BBO" <<OverheidsorganisatiemagazijnbijBBO>> as OverheidsorganisatiemagazijnbijBBO
 rectangle "==Berichten Uitvraag Systeem\n<size:10>[Software System]</size>\n\nCentraal systeem voor het uitvragen, beheren en aanleveren van berichten in het Federatief Berichtenstelsel" <<BerichtenUitvraagSysteem>> as BerichtenUitvraagSysteem
 rectangle "==Berichten-app\n<size:10>[Software System]</size>\n\nApp op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." <<Berichtenapp>> as Berichtenapp

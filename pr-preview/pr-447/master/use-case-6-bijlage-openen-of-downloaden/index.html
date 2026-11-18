@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="./" class="is-active">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ondernemer-wissen/" class="">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="./" class="is-active">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -41,7 +41,7 @@
       <div class="container is-fluid">
         <div class="content p-3">
           <div><h1>Use case 6: Bijlage openen of downloaden</h1>
-<p>Een ondernemer opent of downloadt een bijlage bij een bericht.</p>
+<p>Een burger of ondernemer (de ontvanger) opent of downloadt een bijlage bij een bericht.</p>
 <table>
  <thead>
   <tr>
@@ -52,11 +52,11 @@
  <tbody>
   <tr>
    <td><strong>Actor</strong></td>
-   <td>Een ondernemer die een bericht heeft geopend (use case 5)</td>
+   <td>Een ontvanger (burger of ondernemer) die een bericht heeft geopend (use case 5)</td>
   </tr>
   <tr>
    <td><strong>Aanleiding</strong></td>
-   <td>De ondernemer klikt op een bijlage</td>
+   <td>De ontvanger klikt op een bijlage</td>
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
@@ -66,33 +66,33 @@
 </table>
 <h2>Verloop</h2>
 <ol>
- <li>De ondernemer klikt op een bijlage. Het portaal vraagt die op bij de uitvraag.</li>
- <li>De uitvraag kijkt of het bericht in de lijst van deze ondernemer staat.</li>
- <li>De uitvraag vraagt de bijlage op bij het magazijn van de organisatie. Het magazijn controleert of de bijlage bij een bericht van deze ondernemer hoort.</li>
- <li>De uitvraag geeft de bijlage door aan het portaal. Een groot bestand gaat in delen, terwijl het binnenkomt, zodat de ondernemer niet hoeft te wachten tot alles binnen is.</li>
+ <li>De ontvanger klikt op een bijlage. Het portaal vraagt die op bij de uitvraag.</li>
+ <li>De uitvraag kijkt of het bericht in de lijst van deze ontvanger staat.</li>
+ <li>De uitvraag vraagt de bijlage op bij het magazijn van de organisatie. Het magazijn controleert of de bijlage bij een bericht van deze ontvanger hoort.</li>
+ <li>De uitvraag geeft de bijlage door aan het portaal. Een groot bestand gaat in delen, terwijl het binnenkomt, zodat de ontvanger niet hoeft te wachten tot alles binnen is.</li>
  <li>Een PDF of afbeelding mag het portaal direct tonen. Elk ander bestand biedt de browser aan als download.</li>
 </ol>
 <h2>Sequence diagram</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     autonumber
-    actor OND as Ondernemer
+    actor ONT as Ontvanger
     participant IL as Interactielaag
     participant FBS as Berichten Uitvraag Systeem
     participant MAG as Berichtenmagazijn
 
-    OND-&gt;&gt;IL: Klikt op een bijlage
+    ONT-&gt;&gt;IL: Klikt op een bijlage
     IL-&gt;&gt;FBS: Geef de bijlage
-    FBS-&gt;&gt;FBS: Staat dit bericht in de lijst van deze ondernemer?
-    FBS-&gt;&gt;MAG: Geef de bijlage, voor deze ondernemer
-    MAG-&gt;&gt;MAG: Hoort de bijlage bij een bericht van deze ondernemer?
+    FBS-&gt;&gt;FBS: Staat dit bericht in de lijst van deze ontvanger?
+    FBS-&gt;&gt;MAG: Geef de bijlage, voor deze ontvanger
+    MAG-&gt;&gt;MAG: Hoort de bijlage bij een bericht van deze ontvanger?
     Note over MAG: Legt het verstrekken vast in het logboek
     MAG--&gt;&gt;FBS: Bijlage
     Note over FBS: Legt het verstrekken vast in het logboek
     FBS--&gt;&gt;IL: Bijlage, een groot bestand in delen
     alt PDF of afbeelding
-        IL--&gt;&gt;OND: Toont de bijlage
+        IL--&gt;&gt;ONT: Toont de bijlage
     else Ander bestand
-        IL--&gt;&gt;OND: Biedt de bijlage aan als download
+        IL--&gt;&gt;ONT: Biedt de bijlage aan als download
     end
 </code></pre>
 <h2>Als het misgaat</h2>
@@ -101,7 +101,7 @@
   <tr>
    <th>Situatie</th>
    <th>Wat het stelsel doet</th>
-   <th>Wat de ondernemer merkt</th>
+   <th>Wat de ontvanger merkt</th>
   </tr>
  </thead>
  <tbody>
@@ -111,7 +111,7 @@
    <td>"Deze bijlage is niet (meer) beschikbaar"</td>
   </tr>
   <tr>
-   <td>De ondernemer heeft het bericht verwijderd</td>
+   <td>De ontvanger heeft het bericht verwijderd</td>
    <td>De uitvraag weigert</td>
    <td>"U hebt dit bericht verwijderd"</td>
   </tr>
@@ -126,7 +126,7 @@
    <td>Het bestand wordt gedownload</td>
   </tr>
   <tr>
-   <td>De ondernemer downloadt veel grote bestanden tegelijk</td>
+   <td>De ontvanger downloadt veel grote bestanden tegelijk</td>
    <td>De uitvraag weigert de volgende tot er een klaar is</td>
    <td>"Te veel downloads tegelijk", even later opnieuw proberen</td>
   </tr>

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Use case 10: Alle berichten van een ondernemer wissen | MOZa PoC Federatief Berichtenstelsel</title>
+    <title>Use case 10: Alle berichten van een ontvanger wissen | MOZa PoC Federatief Berichtenstelsel</title>
     <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
     <link href="../../style.css" rel="stylesheet">
     <link href="./../style-branding.css" rel="stylesheet">
@@ -31,7 +31,7 @@
       <aside class="menu p-3">
         <p class="menu-label">General</p>
         <ul class="menu-list has-site-branding">
-          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ondernemer-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ondernemer een bericht heeft kunnen zien</a><a href="./" class="is-active">Use case 10: Alle berichten van een ondernemer wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="./" class="is-active">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
         </ul>
         <p class="menu-label">Software systems</p>
         <ul class="menu-list has-site-branding">
@@ -40,8 +40,8 @@
       </aside>
       <div class="container is-fluid">
         <div class="content p-3">
-          <div><h1>Use case 10: Alle berichten van een ondernemer wissen</h1>
-<p>Een ondernemer laat al zijn berichten wissen, met een beroep op het recht op gegevenswissing.</p>
+          <div><h1>Use case 10: Alle berichten van een ontvanger wissen</h1>
+<p>Een burger of ondernemer (de ontvanger) laat alle eigen berichten wissen, met een beroep op het recht op gegevenswissing.</p>
 <table>
  <thead>
   <tr>
@@ -52,45 +52,45 @@
  <tbody>
   <tr>
    <td><strong>Actor</strong></td>
-   <td>Een ondernemer die een natuurlijk persoon is, met de stelselbeheerder en de verzendende organisaties</td>
+   <td>Een ontvanger die een natuurlijk persoon is: elke burger, en een ondernemer zonder rechtspersoonlijkheid. Met de stelselbeheerder en de verzendende organisaties</td>
   </tr>
   <tr>
    <td><strong>Aanleiding</strong></td>
-   <td>De ondernemer wil dat al zijn berichten, met bijlagen, uit het stelsel verdwijnen</td>
+   <td>De ontvanger wil dat alle eigen berichten, met bijlagen, uit het stelsel verdwijnen</td>
   </tr>
   <tr>
    <td><strong>Resultaat</strong></td>
-   <td>Elke organisatie heeft de berichten in haar magazijn gewist, of uitgelegd waarom ze dat (deels) niet mag. De ondernemer krijgt per organisatie de uitkomst, en het wissen is vastgelegd</td>
+   <td>Elke organisatie heeft de berichten in haar magazijn gewist, of uitgelegd waarom ze dat (deels) niet mag. De ontvanger krijgt per organisatie de uitkomst, en het wissen is vastgelegd</td>
   </tr>
  </tbody>
 </table>
 <h2>Verloop</h2>
 <ol>
- <li>De ondernemer logt in op het portaal en dient daar één verzoek in. Omdat hij ingelogd is, staat vast wie hij is: wissen is onomkeerbaar, dus niemand mag het voor een ander aanvragen.</li>
+ <li>De ontvanger logt in op het portaal en dient daar één verzoek in. Na het inloggen staat vast wie het verzoek doet: wissen is onomkeerbaar, dus niemand mag het voor een ander aanvragen.</li>
  <li>Het portaal geeft het verzoek door aan de stelselbeheerder.</li>
- <li>Er is geen centrale opslag van berichten, maar een magazijn neemt alleen berichten aan van organisaties waarvan de ondernemer berichten via de berichtenbox wil ontvangen (use case 1). De stelselbeheerder vraagt de Profiel Service welke organisaties dat zijn, nu en eerder, en stuurt het verzoek alleen naar die organisaties. Zo krijgen organisaties zonder relatie met de ondernemer zijn gegevens niet.</li>
+ <li>Er is geen centrale opslag van berichten, maar een magazijn neemt alleen berichten aan van organisaties waarvan de ontvanger berichten via de berichtenbox wil ontvangen (use case 1). De stelselbeheerder vraagt de Profiel Service welke organisaties dat zijn, nu en eerder, en stuurt het verzoek alleen naar die organisaties. Zo krijgen organisaties zonder relatie met de ontvanger diens gegevens niet.</li>
  <li>Elke organisatie is verantwoordelijk voor de berichten in haar eigen magazijn, en beslist zelf over het verzoek. Ze toetst of een wettelijke plicht of de Archiefwet het wissen beperkt.</li>
  <li>Mag de organisatie wissen, dan geeft ze haar magazijn opdracht om alle berichten van deze ontvanger te wissen, met bijlagen. Het magazijn wist ze en legt dat vast in zijn logboek.</li>
  <li>De organisatie meldt de stelselbeheerder de uitkomst: gewist, deels gewist met de reden, niet gewist met de reden, of geen berichten gevonden. Organisaties aan wie ze de gegevens zelf verstrekte, brengt ze op de hoogte.</li>
- <li>De stelselbeheerder meldt de ondernemer de uitkomst per organisatie, binnen een maand na het verzoek.</li>
+ <li>De stelselbeheerder meldt de ontvanger de uitkomst per organisatie, binnen een maand na het verzoek.</li>
 </ol>
-<p>De uitvraag hoeft niets te wissen: hij bewaart de berichtenlijst alleen zolang de ondernemer ingelogd is. Wat wel blijft, zijn de regels in de logboeken. Die verdwijnen na hun eigen bewaartermijn. Ook het bewijs van het wissen is zo'n regel, met het nummer van de ondernemer. De Notificatie Service kreeg bij elke melding het nummer en het onderwerp; die gegevens vallen onder haar eigen bewaartermijn, en ook zij hoort van de wissing.</p>
+<p>De uitvraag hoeft niets te wissen: die bewaart de berichtenlijst alleen zolang de ontvanger ingelogd is. Wat wel blijft, zijn de regels in de logboeken. Die verdwijnen na hun eigen bewaartermijn. Ook het bewijs van het wissen is zo'n regel, met het nummer van de ontvanger. De Notificatie Service kreeg bij elke melding het nummer en het onderwerp; die gegevens vallen onder haar eigen bewaartermijn, en ook zij hoort van de wissing.</p>
 <h2>Sequence diagram</h2>
 <pre><code class="language-mermaid">sequenceDiagram
     autonumber
-    actor OND as Ondernemer
+    actor ONT as Ontvanger
     participant IL as Interactielaag
     participant SB as Stelselbeheerder
     participant PRO as Profiel Service
     participant ORG as Overheidsorganisatie
     participant MAG as Berichtenmagazijn
 
-    OND-&gt;&gt;IL: Logt in en vraagt: wis al mijn berichten
-    IL-&gt;&gt;SB: Verzoek tot wissen, van deze ingelogde ondernemer
-    SB-&gt;&gt;PRO: Van welke organisaties ontving deze ondernemer berichten, nu en eerder?
+    ONT-&gt;&gt;IL: Logt in en vraagt: wis al mijn berichten
+    IL-&gt;&gt;SB: Verzoek tot wissen, van deze ingelogde ontvanger
+    SB-&gt;&gt;PRO: Van welke organisaties ontving deze ontvanger berichten, nu en eerder?
     PRO--&gt;&gt;SB: Organisaties
     loop Per organisatie
-        SB-&gt;&gt;ORG: Verzoek tot wissen voor deze ondernemer
+        SB-&gt;&gt;ORG: Verzoek tot wissen voor deze ontvanger
         ORG-&gt;&gt;ORG: Beperkt een wettelijke plicht of de Archiefwet het wissen?
         alt Wissen mag, geheel of deels
             ORG-&gt;&gt;MAG: Wis alle berichten van deze ontvanger, met bijlagen
@@ -102,7 +102,7 @@
             ORG--&gt;&gt;SB: Niet gewist, met de reden
         end
     end
-    SB--&gt;&gt;OND: Uitkomst per organisatie
+    SB--&gt;&gt;ONT: Uitkomst per organisatie
 </code></pre>
 <h2>Als het misgaat</h2>
 <table>
@@ -110,18 +110,18 @@
   <tr>
    <th>Situatie</th>
    <th>Wat het stelsel doet</th>
-   <th>Wat de ondernemer merkt</th>
+   <th>Wat de ontvanger merkt</th>
   </tr>
  </thead>
  <tbody>
   <tr>
-   <td>Het verzoek komt niet van de ondernemer zelf</td>
-   <td>Het portaal neemt een verzoek alleen aan van wie ingelogd is, en dan alleen voor zijn eigen berichten</td>
-   <td>Een ander kan zijn berichten niet laten wissen</td>
+   <td>Het verzoek komt niet van de ontvanger zelf</td>
+   <td>Het portaal neemt een verzoek alleen aan van wie ingelogd is, en dan alleen voor de eigen berichten</td>
+   <td>Een ander kan deze berichten niet laten wissen</td>
   </tr>
   <tr>
    <td>Een organisatie reageert niet binnen een maand</td>
-   <td>De stelselbeheerder herinnert haar eraan, en meldt de ondernemer welke organisatie nog niet geantwoord heeft</td>
+   <td>De stelselbeheerder herinnert haar eraan, en meldt de ontvanger welke organisatie nog niet geantwoord heeft</td>
    <td>Een uitkomst met een open plek</td>
   </tr>
   <tr>
@@ -135,13 +135,13 @@
    <td>De reden, per organisatie</td>
   </tr>
   <tr>
-   <td>De ontvanger is een rechtspersoon, zoals een bv of nv</td>
+   <td>Alleen voor ondernemers: de ontvanger is een rechtspersoon, zoals een bv of nv</td>
    <td>Het recht op wissing geldt niet voor de onderneming zelf. Het geldt wel voor personen over wie een bericht gaat</td>
    <td>De stelselbeheerder legt dat uit</td>
   </tr>
   <tr>
-   <td>De ondernemer is ingelogd tijdens het wissen</td>
-   <td>Zijn lijst klopt pas weer na het volgende ophalen</td>
+   <td>De ontvanger is ingelogd tijdens het wissen</td>
+   <td>De lijst klopt pas weer na het volgende ophalen</td>
    <td>Gewiste berichten staan nog in de lijst, maar zijn niet meer te openen</td>
   </tr>
  </tbody>
@@ -149,18 +149,18 @@
 <h2>Nog niet gerealiseerd</h2>
 <p>Deze use case is nog niet gebouwd en nog niet afgesproken (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596" target="blank">#1596</a>).</p>
 <ul>
- <li>Een magazijn heeft geen opdracht om alle berichten van één ontvanger in één keer te wissen. De ondernemer kan alleen berichten één voor één verwijderen (use case 8), en dat is markeren, geen wissen: het magazijn ruimt ze pas na de bewaartermijn op (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596" target="blank">#1596</a>).</li>
+ <li>Een magazijn heeft geen opdracht om alle berichten van één ontvanger in één keer te wissen. De ontvanger kan alleen berichten één voor één verwijderen (use case 8), en dat is markeren, geen wissen: het magazijn ruimt ze pas na de bewaartermijn op (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596" target="blank">#1596</a>).</li>
  <li>Er is geen werkwijze voor de stelselbeheerder om een verzoek door te zetten en de uitkomsten te verzamelen, en het portaal kent geen verzoek tot wissen (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596" target="blank">#1596</a>).</li>
  <li>Het definitief opruimen staat nog niet in het logboek van het magazijn (use case 8) (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/549" target="blank">#549</a>).</li>
  <li>Voor de logboekregels is nog geen bewaartermijn ingesteld (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1595" target="blank">#1595</a>).</li>
 </ul>
 <h2>Open vragen</h2>
 <ul>
- <li><strong>Loopt het verzoek via de stelselbeheerder, of per organisatie?</strong> De AVG legt het verzoek bij elke verantwoordelijke organisatie. Via de stelselbeheerder hoeft de ondernemer niet te weten welke organisaties berichten hebben, maar dan krijgt de stelselbeheerder een coördinerende rol die nog nergens is vastgelegd.</li>
- <li><strong>Wie heeft dit recht?</strong> Het hangt aan de rechtsvorm, niet aan het type nummer: een ondernemer met een BSN, een eenmanszaak, en de vennoten van een vof of maatschap, of die nu via het KVK-nummer of het RSIN zijn aangeschreven.</li>
+ <li><strong>Loopt het verzoek via de stelselbeheerder, of per organisatie?</strong> De AVG legt het verzoek bij elke verantwoordelijke organisatie. Via de stelselbeheerder hoeft de ontvanger niet te weten welke organisaties berichten hebben, maar dan krijgt de stelselbeheerder een coördinerende rol die nog nergens is vastgelegd.</li>
+ <li><strong>Wie heeft dit recht?</strong> Elke burger. Bij ondernemers hangt het aan de rechtsvorm, niet aan het type nummer: een ondernemer met een BSN, een eenmanszaak, en de vennoten van een vof of maatschap, of die nu via het KVK-nummer of het RSIN zijn aangeschreven.</li>
  <li><strong>Wat gebeurt er bij een wissing met de logboekregels?</strong> Daar is een bewaartermijn en een afspraak voor nodig.</li>
- <li><strong>Kent de Profiel Service eerdere voorkeuren?</strong> Een organisatie waarvoor de ondernemer zijn voorkeur heeft ingetrokken, kan nog berichten van hem hebben. Is die geschiedenis er niet, dan moet het verzoek breder rondgestuurd worden, en krijgen organisaties zonder relatie met de ondernemer zijn nummer en het feit dat hij een privacyrecht uitoefent.</li>
- <li><strong>Hoe lang bewaart een magazijn een bericht dat nooit verwijderd is?</strong> Nu ruimt het magazijn alleen verwijderde berichten op; een bericht dat de ondernemer laat staan, blijft voor altijd (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597" target="blank">#1597</a>).</li>
+ <li><strong>Kent de Profiel Service eerdere voorkeuren?</strong> Een organisatie waarvoor de ontvanger de voorkeur heeft ingetrokken, kan nog berichten hebben. Is die geschiedenis er niet, dan moet het verzoek breder rondgestuurd worden, en krijgen organisaties zonder relatie met de ontvanger diens nummer en het feit dat die een privacyrecht uitoefent.</li>
+ <li><strong>Hoe lang bewaart een magazijn een bericht dat nooit verwijderd is?</strong> Nu ruimt het magazijn alleen verwijderde berichten op; een bericht dat de ontvanger laat staan, blijft voor altijd (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597" target="blank">#1597</a>).</li>
  <li>Laat een privacyjurist of de functionaris gegevensbescherming meekijken voordat deze use case naar Logius gaat.</li>
 </ul></div>
         </div>
