@@ -340,7 +340,7 @@ done
 git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove ~/.cache/fbs-fundament-testcluster/fundament-b9c12531
 ```
 
-Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss` (op
+Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl` (7.76 of nieuwer), `ss` (op
 macOS `lsof`), `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
 - `HTTPS_POORT` (standaard 9443);
 - `REPLICAS` (standaard 2): pods per dienst. Twee toetst ook wat één pod verbergt: een tweede pod

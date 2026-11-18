@@ -327,6 +327,12 @@ waren twee hoge bevindingen: de omgang met `FUNDAMENT_TEST_ENV`, en tests die oo
 bewaakte code slaagden (de export van het subnet, de poortcontrole na het aanmaken) of ontbraken
 (`sandbox_op`, `plugin_hervatten`). Beide zijn opgelost; elke nieuwe test is met een mutatie van
 het script rood gezien. De reden die eerst voor de eigen `skaffold run` stond, klopte niet.
+In een tweede ronde (code en tests) geen hoge of middelzware bevindingen in de code. Wel ontbrak een
+test die toetst dat `op` en `af` de weigering in de test-VM ook aanroepen; die is erbij, net als
+tests voor de meldingen met de kubeconfig, de poortcontrole direct na het aanmaken van de sandbox
+en een map van mkcert zonder CA. De suite zet de instellingen uit de shell van wie hem draait uit,
+zodat bijvoorbeeld een eigen `HTTPS_POORT` geen verwachting verschuift. `--fail-with-body` vraagt
+curl 7.76 of nieuwer; de README noemt dat.
 
 Live, met images `main-7ab403f`:
 

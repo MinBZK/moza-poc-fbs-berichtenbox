@@ -462,6 +462,8 @@ echo "== het script zelf, met stubs =="
 SCRIPT="$HIER/../fundament-testcluster.sh"
 TESTCACHE=$(mktemp -d)
 trap 'rm -rf "$TESTCACHE"' EXIT
+# Instellingen uit de shell van wie de suite draait, mogen de verwachte waarden niet verschuiven.
+unset FUNDAMENT_K3D_SUBNET HTTPS_POORT REPLICAS FUNDAMENT_REF FUNDAMENT_REPO FUNCTL_API_KEY TAG
 
 # Draait een stuk bash met het script gesourcet, in een eigen shell; stubs in $1 overschrijven
 # functies van het script.
@@ -504,6 +506,10 @@ code=0
 uitvoer=$(in_script "$VAN_ONS_STUBS IMAGE=docker.io/rancher/k3s:v1.33.5-k3s1; sandbox_van_ons") || code=$?
 gelijk "sandbox_van_ons: andere versie: exit 1" 1 "$code"
 code=0
+uitvoer=$(in_script "$VAN_ONS_STUBS IMAGE=docker.io/library/nginx:1.29; sandbox_van_ons") || code=$?
+gelijk "sandbox_van_ons: geen k3s-image: exit 1" 1 "$code"
+bevat "sandbox_van_ons: geen k3s-image: zegt waarom" "onbekend (image docker.io/library/nginx:1.29)" "$uitvoer"
+code=0
 uitvoer=$(in_script "$VAN_ONS_STUBS IP=0.0.0.0; sandbox_van_ons") || code=$?
 gelijk "sandbox_van_ons: https op alle adressen: exit 1" 1 "$code"
 code=0
@@ -541,10 +547,15 @@ uitvoer=$(in_script "$SANDBOX_STUBS sandbox_op") || code=$?
 gelijk "sandbox_op: eigen sandbox: exit 0" 0 "$code"
 bevat "sandbox_op: eigen sandbox: gestart via hun recipe" "RECIPE plugins cluster-start" "$uitvoer"
 bevat "sandbox_op: relays via hun recipe" "RECIPE plugins sandbox-catalog" "$uitvoer"
+# Direct na het aanmaken, niet pas aan het eind: daartussen bouwt plugins deploy minutenlang.
+code=0
+uitvoer=$(in_script "$SANDBOX_STUBS SANDBOX=nee; POORTEN='k3d-fundament-plugin-serverlb|0.0.0.0:9443->443/tcp'; sandbox_op") || code=$?
+gelijk "sandbox_op: nieuwe sandbox met een open poort: exit 2" 2 "$code"
+bevat_niet "sandbox_op: nieuwe sandbox met een open poort: geen plugins deploy" "RECIPE plugins deploy" "$uitvoer"
 code=0
 uitvoer=$(in_script "$SANDBOX_STUBS fj() { case \"\$*\" in \"plugins cluster-start\") return 1 ;; esac; }; sandbox_op") || code=$?
 gelijk "sandbox_op: starten faalt: exit 1" 1 "$code"
-bevat "sandbox_op: starten faalt: noemt de opruiming" "af" "$uitvoer"
+bevat "sandbox_op: starten faalt: noemt de opruiming" "ruim hem op met" "$uitvoer"
 # De relays hebben geen hostpoort meer; staat er na hun recipe toch iets open, dan is dat een fout.
 code=0
 uitvoer=$(in_script "$SANDBOX_STUBS POORTEN='fun-authn-relay|0.0.0.0:38081->8080/tcp'; sandbox_op") || code=$?
@@ -561,13 +572,15 @@ rm -rf "$TESTCACHE/fbs-fundament-testcluster"
 
 # --- plugin_hervatten: de hash van een goedgekeurde versie uit de catalogus op het platform ---
 
-HERVAT_STUBS='bestaande_versie() { echo 1.2.3; }; versie_uit_catalogus() { echo "approved id-1"; }; fj() { :; };
-mkcert_caroot() { echo /ca; };'
+CA_MAP=$(mktemp -d "$TESTCACHE/ca.XXXXXX")
+: >"$CA_MAP/rootCA.pem"
+HERVAT_STUBS="bestaande_versie() { echo 1.2.3; }; versie_uit_catalogus() { echo 'approved id-1'; }; fj() { :; };
+mkcert_caroot() { echo '$CA_MAP'; };"
 code=0
 uitvoer=$(in_script "$HERVAT_STUBS curl() { echo \"CURL \$*\" >&2; echo \"curl: (7) Failed to connect\" >&2; return 7; }; plugin_hervatten cert-manager x") || code=$?
 gelijk "plugin_hervatten: catalogus onbereikbaar: exit 1" 1 "$code"
 bevat "plugin_hervatten: via de route op het platform" "https://marketplace-catalog-api.fundament.localhost:8443/catalog.v1.CatalogService/GetPluginDefinition" "$uitvoer"
-bevat "plugin_hervatten: getoetst tegen de lokale CA" "--cacert /ca/rootCA.pem" "$uitvoer"
+bevat "plugin_hervatten: getoetst tegen de lokale CA" "--cacert $CA_MAP/rootCA.pem" "$uitvoer"
 bevat "plugin_hervatten: noemt de verbinding, niet een ontbrekende hash" "gaf geen antwoord" "$uitvoer"
 bevat_niet "plugin_hervatten: geen 'geen hash'" "geen hash" "$uitvoer"
 # Een HTTP-fout (ontbrekende route of versie) is ook geen antwoord: curl faalt alleen met --fail-with-body.
@@ -580,6 +593,11 @@ code=0
 uitvoer=$(in_script "$HERVAT_STUBS mkcert_caroot() { return 1; }; curl() { echo CURL-AANGEROEPEN; }; plugin_hervatten cert-manager x") || code=$?
 gelijk "plugin_hervatten: geen CA: exit 2" 2 "$code"
 bevat_niet "plugin_hervatten: geen CA: geen curl" "CURL-AANGEROEPEN" "$uitvoer"
+code=0
+uitvoer=$(in_script "$HERVAT_STUBS mkcert_caroot() { echo '$TESTCACHE/leeg'; }; curl() { echo CURL-AANGEROEPEN; }; plugin_hervatten cert-manager x") || code=$?
+gelijk "plugin_hervatten: map zonder CA: exit 2" 2 "$code"
+bevat "plugin_hervatten: map zonder CA: noemt mkcert -install" "mkcert -install" "$uitvoer"
+bevat_niet "plugin_hervatten: map zonder CA: geen curl" "CURL-AANGEROEPEN" "$uitvoer"
 
 # --- de test-VM van Fundament ---
 
@@ -592,6 +610,23 @@ gelijk "geen_test_vm: in hun test-VM: exit 2" 2 "$code"
 code=0
 uitvoer=$(in_script 'in_test_vm() { false; }; geen_test_vm') || code=$?
 gelijk "geen_test_vm: op de host: exit 0" 0 "$code"
+
+# De weigering moet in op en af zitten vóór er iets gebeurt, niet alleen als losse functie.
+code=0
+uitvoer=$(in_script 'in_test_vm() { true; }; vereis_tools() { :; }; af() { echo AF-BEREIKT; }; main af') || code=$?
+gelijk "af in hun test-VM: exit 2" 2 "$code"
+bevat_niet "af in hun test-VM: ruimt niets op" "AF-BEREIKT" "$uitvoer"
+code=0
+uitvoer=$(TAG=main-1234567 in_script 'in_test_vm() { true; }; vereis_tools() { :; }; werkmap() { echo WERK-BEREIKT; }; main op') || code=$?
+gelijk "op in hun test-VM: exit 2" 2 "$code"
+bevat_niet "op in hun test-VM: begint niet" "WERK-BEREIKT" "$uitvoer"
+
+# Wat de gebruiker uit een melding overtypt, moet dezelfde kubeconfig noemen als het script.
+uitvoer=$(in_script 'echo "$KC_SANDBOX"; echo "$KC_PLATFORM"')
+gelijk "melding: kubectl voor de sandbox noemt de kubeconfig" 1 \
+  "$(grep -c -- "^kubectl --kubeconfig $TESTCACHE/fbs-fundament-testcluster/fundament-[0-9a-f]\{8\}/.dev/kubeconfig --context k3d-fundament-plugin$" <<<"$uitvoer")"
+gelijk "melding: kubectl voor het platform noemt de kubeconfig" 1 \
+  "$(grep -c -- "^kubectl --kubeconfig $TESTCACHE/fbs-fundament-testcluster/fundament-[0-9a-f]\{8\}/.dev/kubeconfig --context k3d-fundament$" <<<"$uitvoer")"
 
 # --- controleer zonder opstelling op deze FUNDAMENT_REF ---
 
@@ -789,6 +824,10 @@ code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Error from server (NotFound): deployments.apps \"organization-api\" not found' >&2; return 1 ;; esac; }; platform_op") || code=$?
 gelijk "platform_op: niet uitgerold: exit 0" 0 "$code"
 bevat "platform_op: niet uitgerold: uitrollen met hun recipe" "UITROL deploy local" "$uitvoer"
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS fj() { return 1; }; kcp() { return 0; }; platform_op") || code=$?
+gelijk "platform_op: starten faalt: exit 1" 1 "$code"
+bevat "platform_op: starten faalt: noemt opnieuw opzetten" "af --met-platform" "$uitvoer"
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; platform_op") || code=$?
 gelijk "platform_op: al uitgerold: exit 0" 0 "$code"

@@ -428,6 +428,8 @@ plugin_hervatten() {
   # De catalogus is anoniem, en het platform publiceert hem op zijn eigen Gateway.
   local ca antwoord hash image
   ca=$(mkcert_caroot) || stop 2 "mkcert vindt zijn CA niet (mkcert -CAROOT)"
+  # mkcert -CAROOT noemt de map ook als er nog geen CA in staat.
+  [ -f "$ca/rootCA.pem" ] || stop 2 "geen CA van mkcert in $ca; installeer hem met: mkcert -install"
   antwoord=$(curl -sS --fail-with-body --max-time 10 --cacert "$ca/rootCA.pem" -X POST \
     https://marketplace-catalog-api.fundament.localhost:8443/catalog.v1.CatalogService/GetPluginDefinition \
     -H 'Content-Type: application/json' \
