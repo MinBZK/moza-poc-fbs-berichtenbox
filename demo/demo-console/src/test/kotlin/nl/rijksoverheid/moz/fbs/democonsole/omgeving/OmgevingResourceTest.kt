@@ -122,11 +122,13 @@ class OmgevingResourceTest {
         // het eerste betekent "niets ingericht", het tweede "deze module is niet bij te werken".
         assertEquals(emptyList<String>(), resource().omgeving().personas.map { it.id })
 
+        // Met het label erbij: een omzetting die de id in beide velden zet, compileert en toont een
+        // keuzelijst van sleutels.
         assertEquals(
-            listOf("pietersen", "vandijk"),
+            listOf("pietersen" to "Pietersen", "vandijk" to "Vandijk"),
             resource(
                 personas = listOf(persona("pietersen", "999993653"), persona("vandijk", "999996666")),
-            ).omgeving().personas.map { it.id },
+            ).omgeving().personas.map { it.id to it.label },
         )
     }
 

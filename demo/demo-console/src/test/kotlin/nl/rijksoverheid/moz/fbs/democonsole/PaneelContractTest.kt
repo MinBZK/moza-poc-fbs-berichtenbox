@@ -501,8 +501,8 @@ class PaneelContractTest {
     @Test
     fun `elke ingerichte persona speelt de ontdubbeling met zijn eigen ontvanger`() {
         val ids = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").map { it.path("id").asText() }
-        val ontvangers = personaService.alle().associate { it.id to it.ontvanger }
-        val types = ontvangers.values.map { it.substringBefore(':') }.toSet()
+        val ontvangers = personaService.alle().associate { it.id to Ontvanger(type = it.type, waarde = it.waarde) }
+        val types = ontvangers.values.map { it.type }.toSet()
 
         assertEquals(ontvangers.keys.toList(), ids, "de omgeving-respons noemt andere persona's dan de personadienst")
 
@@ -512,16 +512,11 @@ class PaneelContractTest {
         ids.forEach { id ->
             VasteOntdubbelingService.ontvangers.clear()
 
-            val ontvanger = ontvangers.getValue(id)
-
             // Zonder id zou de blank-check van de resource het antwoord bepalen, niet de opzoeking.
-            // En zonder dubbele punt geven `substringBefore` en `substringAfter` allebei de héle
-            // waarde terug; dan faalt de laatste assertie op iets anders dan wat er mis is.
             assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
-            assertTrue(ontvanger.contains(':'), "ontvanger van '$id' heeft niet de vorm <TYPE>:<WAARDE>")
             assertEquals(200, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
             assertEquals(
-                listOf(Ontvanger(type = ontvanger.substringBefore(':'), waarde = ontvanger.substringAfter(':'))),
+                listOf(ontvangers.getValue(id)),
                 VasteOntdubbelingService.ontvangers,
                 "persona '$id' hoort zijn eigen ontvanger op te leveren",
             )

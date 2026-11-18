@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.runtime.Startup
 import io.quarkus.test.common.http.TestHTTPResource
@@ -126,9 +127,18 @@ class PersonaConfiguratieTest {
 
         assertEquals(personaService.alle().map { listOf(it.id, it.label) }, geleverd)
 
-        // Op de ruwe tekst en niet op veldnamen: een nummer dat onder een andere naam of in een
-        // ander veld van het antwoord terugkomt, telt net zo goed.
-        val gelekt = personaService.alle().map { it.waarde }.filter { respons.body().contains(it) }
+        // Elke waarde in het antwoord en niet alleen de bekende velden: een nummer dat onder een andere
+        // naam terugkomt, telt net zo goed. Alleen de cijfers per waarde, zodat `999-993-653` ook
+        // telt; per waarde en niet over de hele tekst, anders plakken cijfers van buren aan elkaar.
+        val waarden = mutableListOf<String>()
+
+        fun verzamel(knoop: JsonNode) {
+            if (knoop.isValueNode) waarden += knoop.asText().filter(Char::isDigit) else knoop.forEach(::verzamel)
+        }
+
+        verzamel(ObjectMapper().readTree(respons.body()))
+
+        val gelekt = personaService.alle().map { it.waarde }.filter { nummer -> waarden.any { it.contains(nummer) } }
 
         assertEquals(emptyList<String>(), gelekt, "het omgevingsantwoord draagt identificatienummers")
     }

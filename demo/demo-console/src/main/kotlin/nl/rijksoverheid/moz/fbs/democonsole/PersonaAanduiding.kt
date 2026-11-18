@@ -40,7 +40,7 @@ private val VEILIG_IN_MELDING = Regex("""[\w.@+-]{1,64}""")
  *
  * Draagt de waarde een identificatienummer, dan een 400 die hem niet herhaalt. Een persona
  * aanwijzen met zijn nummer blijft te verwachten verkeerd gebruik — het paneel toont het nummer
- * niet, maar de berichtenbox en de personadienst wel — en elke weigering gaat via [DemoFoutMapper]
+ * niet, maar de personadienst en het runbook wel — en elke weigering gaat via [DemoFoutMapper]
  * onverkort naar de applicatielog, waar het niet hoort.
  *
  * Pas ná de opzoeking en niet ervoor: een ingerichte persona is per definitie in orde, ook als zijn
