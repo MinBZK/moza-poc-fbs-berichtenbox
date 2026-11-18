@@ -7,28 +7,28 @@ PoC-afwijkingen.
 
 ## Afwijkingen per use case
 
-| Use case | Wat nu anders werkt | Waar |
-|---|---|---|
-| 1 | Een bericht is vóór zijn publicatiedatum al op te halen; alleen aanmelding en melding wachten | `BerichtRepository.lijstVoorOntvanger` en het detail filteren niet op `publicatietijdstip` |
-| 1 | Het magazijn controleert niet of de afzender-OIN de eigen organisatie is; de uitvraag kiest bij een aanmelding het magazijn op die OIN | `BerichtOpslagService`, `AanmeldService.parse` |
-| 1 | Aanmelding en melding bevatten `ontvanger` en `onderwerp` onversleuteld | `CloudEventBuilder.BerichtData`. Het NL GOV-profiel voor CloudEvents wijst versleuteling van `data` of een claim-check via `dataref` aan |
-| 1, 6 | Alleen `application/pdf` als bijlage toegestaan. Geen grens aan het aantal bijlagen, geen controle op de inhoud. Wel 25 MiB per bijlage en 40 MiB per request (inclusief Base64) | `Bijlage.MAX_CONTENT_BYTES`, `quarkus.http.limits.max-body-size` |
-| 1 | Aanleveren is niet idempotent | `PublicatieOutbox` |
-| 1 | De Publicatie Stream geeft na 5 pogingen per bestemming op, in de praktijk na zo'n 5 minuten | `magazijn.publicatie.polling.interval` (60s), `max-pogingen` |
-| 1 | Profiel Service onbereikbaar na de retries geeft `500`, geen `503` | `BerichtValidatieService` |
-| 2 | Een voorkeur voor een OIN zonder magazijn in het register wordt stil overgeslagen | Sessiecache-aggregatie via `Magazijnregister` |
-| 2, 11 | Het logboek van het ophalen legt alleen het aantal mislukte magazijnen vast, niet welke | `uitvraag-ophalen-sse` |
-| 2 | Een tweede ophaalronde geeft `409` met `type` `conflict`, niet `ophalen-bezig` | `BerichtensessiecacheService` |
-| 4 | Niet gebouwd: de magazijn-API kent geen zoekfunctie. De bestaande `_zoeken` van de uitvraag zoekt alleen in `onderwerp`, wordt door de berichtenbox niet gebruikt en wordt opgeheven (#1287). Hij volgt Engelse stemming en stopwoorden, vindt geen accenten, geen meerdere woorden en geen leestekens | `BerichtenCache`: RediSearch-index zonder `LANGUAGE`; `escapeRedisSearch` escapet elk teken buiten `[a-zA-Z0-9]`, ook de spatie |
-| 5, 9 | De logregel van de uitvraag bij openen legt de uitkomst niet vast: een 4xx krijgt status `Unset`, net als een geslaagde opening. `Unset` is volgens de LDV-standaard juist voor een functionele weigering, dus niet "repareren" naar `Error`; wat ontbreekt is de uitkomst in de logregel. Geen van beide logregels bevat het berichtnummer | `uitvraag-bericht`, magazijn `ophalen-bericht` |
-| 7 | Mislukt na een geslaagde magazijnwijziging het bijwerken van de sessiecache, dan compenseert de uitvraag met `Sessiecache.verwijder`: die schrijft een tombstone, en een volgende opening geeft `410 bericht-verwijderd` | `BerichtBeheerService.invalideerCacheNaMagazijnWrite` |
-| 7, 8 | `PATCH` en `DELETE` gaan in de uitvraag zonder controle op de sessielijst naar het magazijn. Dat geeft `403` voor andermans actieve bericht en `404` voor een onbekend bericht, en de uitvraag geeft die `403` door als `GEEN_TOEGANG`. Lezen en bijlagen kijken eerst in de lijst en geven in beide gevallen `404` | `BerichtBeheerService`, `BerichtAutorisatie.vereisOntvanger`, `UpstreamFault` |
-| 8, 10 | Het definitief opruimen logt alleen naar de applicatielog, met berichtnummer maar zonder ontvanger. Het model zegt dat de Retentie Service naar het LDV logt | `HardDeleteJob` |
-| 9, 10 | Geen bewaartermijn op LDV-regels | LDV-configuratie per dienst |
-| 10 | Geen opdracht om alle berichten van één ontvanger te wissen | Magazijn-API |
-| 10 | Niet-verwijderde berichten worden nooit opgeruimd | `BerichtRepository`: hard-delete selecteert alleen `verwijderd_op IS NOT NULL` |
-| 11 | Een bericht uit een magazijn dat bij het ophalen niet leverde, geeft bij openen `404 bericht-onbekend` | Uitvraag `BerichtOphaalService`: eerst de sessielijst |
-| 11 | Geen alert per magazijn dat lang niet levert | Sessiecache-aggregatie, circuit breaker per magazijn |
+| Use case | Wat nu anders werkt | Waar | Issue |
+|---|---|---|---|
+| 1 | Een bericht is vóór zijn publicatiedatum al op te halen; alleen aanmelding en melding wachten | `BerichtRepository.lijstVoorOntvanger` en het detail filteren niet op `publicatietijdstip` | [#1586](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1586) |
+| 1 | Het magazijn controleert niet of de afzender-OIN de eigen organisatie is; de uitvraag kiest bij een aanmelding het magazijn op die OIN | `BerichtOpslagService`, `AanmeldService.parse` | [#1587](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1587) |
+| 1 | Aanmelding en melding bevatten `ontvanger` en `onderwerp` onversleuteld | `CloudEventBuilder.BerichtData`. Het NL GOV-profiel voor CloudEvents wijst versleuteling van `data` of een claim-check via `dataref` aan | [#1588](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1588) |
+| 1, 6 | Alleen `application/pdf` als bijlage toegestaan. Geen grens aan het aantal bijlagen, geen controle op de inhoud. Wel 25 MiB per bijlage en 40 MiB per request (inclusief Base64) | `Bijlage.MAX_CONTENT_BYTES`, `quarkus.http.limits.max-body-size` | [#1589](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1589) |
+| 1 | Aanleveren is niet idempotent | `PublicatieOutbox` | – (open vraag) |
+| 1 | De Publicatie Stream geeft na 5 pogingen per bestemming op, in de praktijk na zo'n 5 minuten | `magazijn.publicatie.polling.interval` (60s), `max-pogingen` | – (open vraag) |
+| 1 | Profiel Service onbereikbaar na de retries geeft `500`, geen `503` | `BerichtValidatieService` | [#1590](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1590) |
+| 2 | Een voorkeur voor een OIN zonder magazijn in het register wordt stil overgeslagen | Sessiecache-aggregatie via `Magazijnregister` | [#1591](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591) |
+| 2, 11 | Het logboek van het ophalen legt alleen het aantal mislukte magazijnen vast, niet welke | `uitvraag-ophalen-sse` | [#1592](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592) |
+| 2 | Een tweede ophaalronde geeft `409` met `type` `conflict`, niet `ophalen-bezig` | `BerichtensessiecacheService` | [#1590](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1590) |
+| 4 | Niet gebouwd: de magazijn-API kent geen zoekfunctie. De bestaande `_zoeken` van de uitvraag zoekt alleen in `onderwerp`, wordt door de berichtenbox niet gebruikt en wordt opgeheven ([#1287](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1287)). Hij volgt Engelse stemming en stopwoorden, vindt geen accenten, geen meerdere woorden en geen leestekens | `BerichtenCache`: RediSearch-index zonder `LANGUAGE`; `escapeRedisSearch` escapet elk teken buiten `[a-zA-Z0-9]`, ook de spatie | [#1598](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1598), [#1287](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1287) |
+| 5, 9 | De logregel van de uitvraag bij openen legt de uitkomst niet vast: een 4xx krijgt status `Unset`, net als een geslaagde opening. `Unset` is volgens de LDV-standaard juist voor een functionele weigering, dus niet "repareren" naar `Error`; wat ontbreekt is de uitkomst in de logregel. Geen van beide logregels bevat het berichtnummer | `uitvraag-bericht`, magazijn `ophalen-bericht` | [#1592](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592), [#1381](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1381) |
+| 7 | Mislukt na een geslaagde magazijnwijziging het bijwerken van de sessiecache, dan compenseert de uitvraag met `Sessiecache.verwijder`: die schrijft een tombstone, en een volgende opening geeft `410 bericht-verwijderd` | `BerichtBeheerService.invalideerCacheNaMagazijnWrite` | [#1593](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1593) |
+| 7, 8 | `PATCH` en `DELETE` gaan in de uitvraag zonder controle op de sessielijst naar het magazijn. Dat geeft `403` voor andermans actieve bericht en `404` voor een onbekend bericht, en de uitvraag geeft die `403` door als `GEEN_TOEGANG`. Lezen en bijlagen kijken eerst in de lijst en geven in beide gevallen `404` | `BerichtBeheerService`, `BerichtAutorisatie.vereisOntvanger`, `UpstreamFault` | [#1594](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1594) |
+| 8, 10 | Het definitief opruimen logt alleen naar de applicatielog, met berichtnummer maar zonder ontvanger. Het model zegt dat de Retentie Service naar het LDV logt | `HardDeleteJob` | [#549](https://github.com/MinBZK/MijnOverheidZakelijk/issues/549), [#1489](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1489) |
+| 9, 10 | Geen bewaartermijn op LDV-regels | LDV-configuratie per dienst | [#1595](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1595) |
+| 10 | Geen opdracht om alle berichten van één ontvanger te wissen | Magazijn-API | [#1596](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596) |
+| 10 | Niet-verwijderde berichten worden nooit opgeruimd | `BerichtRepository`: hard-delete selecteert alleen `verwijderd_op IS NOT NULL` | [#1597](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597) |
+| 11 | Een bericht uit een magazijn dat bij het ophalen niet leverde, geeft bij openen `404 bericht-onbekend` | Uitvraag `BerichtOphaalService`: eerst de sessielijst | [#1591](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591) |
+| 11 | Geen alert per magazijn dat lang niet levert | Sessiecache-aggregatie, circuit breaker per magazijn | [#1480](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1480), [#1478](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1478) |
 
 ## Wanneer het logboek vastlegt
 

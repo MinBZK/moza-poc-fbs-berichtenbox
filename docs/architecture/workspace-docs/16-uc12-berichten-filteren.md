@@ -62,7 +62,7 @@ sequenceDiagram
 ## Nog niet gerealiseerd
 
 - Het nieuwe MOZa-portaal meldt niet welke organisaties niet leverden. Een gefilterde lijst ziet er
-  dan volledig uit terwijl hij dat niet is (#1453).
+  dan volledig uit terwijl hij dat niet is ([#1453](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1453)).
 
 ## Open vragen
 

@@ -82,14 +82,14 @@ sequenceDiagram
 ## Nog niet gerealiseerd
 
 - Een bericht is nu al vóór zijn publicatiedatum te zien in de berichtenbox. Alleen de aanmelding
-  en de melding wachten op die datum.
-- Het magazijn controleert nog niet of het bericht van de eigen organisatie komt.
-- De aanmelding en de melding bevatten het nummer van de ontvanger en het onderwerp nog leesbaar.
+  en de melding wachten op die datum ([#1586](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1586)).
+- Het magazijn controleert nog niet of het bericht van de eigen organisatie komt ([#1587](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1587)).
+- De aanmelding en de melding bevatten het nummer van de ontvanger en het onderwerp nog leesbaar ([#1588](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1588)).
 - Als bijlage is nu alleen PDF toegestaan. Het model noemt een grens aan het aantal bijlagen; die
   is er nog niet, en het magazijn kijkt alleen naar het opgegeven bestandstype, niet naar de
-  inhoud.
+  inhoud ([#1589](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1589)).
 - Is de Profiel Service niet bereikbaar, dan krijgt de organisatie nu een algemene serverfout, niet
-  "tijdelijk niet beschikbaar". Ze kan dan niet zien dat later opnieuw aanleveren zin heeft.
+  "tijdelijk niet beschikbaar". Ze kan dan niet zien dat later opnieuw aanleveren zin heeft ([#1590](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1590)).
 
 ## Open vragen
 

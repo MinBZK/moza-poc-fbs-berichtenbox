@@ -87,5 +87,5 @@ de betrokken diensten (use case 9).
 **Nog niet gerealiseerd, voor alle use cases.** Inloggen met eHerkenning, de pseudoniemen per
 magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het
 portaal bij elk verzoek mee om welke ondernemer het gaat, krijgt elk magazijn het nummer van de
-ondernemer, en is per verbinding in te stellen of die via FSC loopt. De pagina "PoC-afwijkingen"
+ondernemer, en is per verbinding in te stellen of die via FSC loopt ([#414](https://github.com/MinBZK/MijnOverheidZakelijk/issues/414), [#415](https://github.com/MinBZK/MijnOverheidZakelijk/issues/415), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552)). De pagina "PoC-afwijkingen"
 houdt bij wat nog niet gebouwd is.

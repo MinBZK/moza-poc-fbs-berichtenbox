@@ -72,11 +72,11 @@ sequenceDiagram
 ## Nog niet gerealiseerd
 
 - De uitvraag waarschuwt de stelselbeheerder nog niet als een magazijn langere tijd niet levert.
-  De stelselbeheerder merkt het nu pas als iemand het meldt.
-- De uitvraag legt alleen vast hoeveel organisaties niet leverden, niet welke.
+  De stelselbeheerder merkt het nu pas als iemand het meldt ([#1480](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1480), [#1478](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1478)).
+- De uitvraag legt alleen vast hoeveel organisaties niet leverden, niet welke ([#1592](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592)).
 - Opent de ondernemer een bericht uit een magazijn dat bij het ophalen niet leverde, bijvoorbeeld
   via een link in de melding, dan hoort hij nu "Dit bericht is niet (meer) beschikbaar". Hij kan
-  dan denken dat het bericht weg is.
+  dan denken dat het bericht weg is ([#1591](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591)).
 
 ## Open vragen
 

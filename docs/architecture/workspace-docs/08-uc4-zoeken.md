@@ -64,11 +64,11 @@ sequenceDiagram
 
 ## Nog niet gerealiseerd
 
-Deze use case is nog niet gebouwd (#1225 sloot zonder realisatie).
+Deze use case is nog niet gebouwd ([#1598](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1598)). Eerder besproken in [#1225](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1225), dat zonder realisatie is gesloten.
 
 - De magazijnen kennen geen zoekfunctie, en de stelselafspraken zeggen er niets over.
 - De uitvraag heeft nog een eigen zoekfunctie die alleen in het onderwerp zoekt. De berichtenbox
-  gebruikt die niet, en hij wordt opgeheven (#1287).
+  gebruikt die niet, en hij wordt opgeheven ([#1287](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1287)).
 
 ## Open vragen
 

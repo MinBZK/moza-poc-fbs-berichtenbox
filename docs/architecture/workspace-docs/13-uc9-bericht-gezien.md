@@ -65,13 +65,13 @@ sequenceDiagram
 ## Nog niet gerealiseerd
 
 - De logregels van aanleveren en openen bevatten het berichtnummer niet. Welk bericht het was,
-  blijkt nu alleen bij benadering, uit tijdstippen.
+  blijkt nu alleen bij benadering, uit tijdstippen ([#1592](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592)).
 - De logregel van de uitvraag bij het openen legt niet vast of het openen lukte. Alleen de regel
-  van het magazijn laat zien of de tekst echt verstrekt is.
-- De uitvraag legt alleen vast hoeveel organisaties niet leverden, niet welke.
+  van het magazijn laat zien of de tekst echt verstrekt is ([#1592](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592), [#1381](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1381)).
+- De uitvraag legt alleen vast hoeveel organisaties niet leverden, niet welke ([#1592](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592)).
 - Een bericht is nu al vóór zijn publicatiedatum te zien (use case 1). Dat maakt het lastiger om te
-  zeggen vanaf wanneer de ondernemer het kon zien.
-- Voor de logboekregels is nog geen bewaartermijn ingesteld.
+  zeggen vanaf wanneer de ondernemer het kon zien ([#1586](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1586)).
+- Voor de logboekregels is nog geen bewaartermijn ingesteld ([#1595](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1595)).
 
 ## Open vragen
 

@@ -59,6 +59,6 @@ sequenceDiagram
 
 - Wat in het overzicht voor alle use cases staat.
 - Het magazijn toetst een verzoek nog niet aan het beleid van de organisatie, inclusief
-  machtigingen. Nu controleert het alleen of de ondernemer de ontvanger van het bericht is.
+  machtigingen. Nu controleert het alleen of de ondernemer de ontvanger van het bericht is ([#418](https://github.com/MinBZK/MijnOverheidZakelijk/issues/418)).
 - De logboeken leggen niet vast welk bericht gelezen is, en de logregel van de uitvraag legt niet
-  vast of het openen lukte. Zie use case 9.
+  vast of het openen lukte ([#1592](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592), [#1381](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1381)). Zie use case 9.

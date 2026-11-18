@@ -79,15 +79,15 @@ sequenceDiagram
 
 ## Nog niet gerealiseerd
 
-Deze use case is nog niet gebouwd en nog niet afgesproken.
+Deze use case is nog niet gebouwd en nog niet afgesproken ([#1596](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596)).
 
 - Een magazijn heeft geen opdracht om alle berichten van één ontvanger in één keer te wissen. De
   ondernemer kan alleen berichten één voor één verwijderen (use case 8), en dat is markeren, geen
-  wissen: het magazijn ruimt ze pas na de bewaartermijn op.
+  wissen: het magazijn ruimt ze pas na de bewaartermijn op ([#1596](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596)).
 - Er is geen werkwijze voor de stelselbeheerder om een verzoek door te zetten en de uitkomsten te
-  verzamelen, en het portaal kent geen verzoek tot wissen.
-- Het definitief opruimen staat nog niet in het logboek van het magazijn (use case 8).
-- Voor de logboekregels is nog geen bewaartermijn ingesteld.
+  verzamelen, en het portaal kent geen verzoek tot wissen ([#1596](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596)).
+- Het definitief opruimen staat nog niet in het logboek van het magazijn (use case 8) ([#549](https://github.com/MinBZK/MijnOverheidZakelijk/issues/549)).
+- Voor de logboekregels is nog geen bewaartermijn ingesteld ([#1595](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1595)).
 
 ## Open vragen
 
@@ -105,6 +105,6 @@ Deze use case is nog niet gebouwd en nog niet afgesproken.
   moet het verzoek breder rondgestuurd worden, en krijgen organisaties zonder relatie met de
   ondernemer zijn nummer en het feit dat hij een privacyrecht uitoefent.
 - **Hoe lang bewaart een magazijn een bericht dat nooit verwijderd is?** Nu ruimt het magazijn
-  alleen verwijderde berichten op; een bericht dat de ondernemer laat staan, blijft voor altijd.
+  alleen verwijderde berichten op; een bericht dat de ondernemer laat staan, blijft voor altijd ([#1597](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597)).
 - Laat een privacyjurist of de functionaris gegevensbescherming meekijken voordat deze use case
   naar Logius gaat.

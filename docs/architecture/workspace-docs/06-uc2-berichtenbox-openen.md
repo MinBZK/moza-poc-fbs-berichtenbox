@@ -86,13 +86,13 @@ sequenceDiagram
 ## Nog niet gerealiseerd
 
 - Wat in het overzicht voor alle use cases staat: inloggen met eHerkenning, pseudoniemen per
-  magazijn, machtigingen en FSC.
+  magazijn, machtigingen en FSC ([#414](https://github.com/MinBZK/MijnOverheidZakelijk/issues/414), [#415](https://github.com/MinBZK/MijnOverheidZakelijk/issues/415), [#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552)).
 - Machtigingen bepalen nog niet welke magazijnen bevraagd worden; alleen de voorkeuren in de Profiel
-  Service doen dat.
+  Service doen dat ([#552](https://github.com/MinBZK/MijnOverheidZakelijk/issues/552)).
 - Loopt het ophalen al, dan geeft de uitvraag nu een algemeen conflict terug. Het portaal kan daaruit
-  niet opmaken dat het ophalen al bezig is.
+  niet opmaken dat het ophalen al bezig is ([#1590](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1590)).
 - Een organisatie waarvan het magazijn niet bekend is, wordt stil overgeslagen. De ondernemer ziet
-  niet dat er een organisatie ontbreekt.
+  niet dat er een organisatie ontbreekt ([#1591](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591)).
 
 ## Open vragen
 

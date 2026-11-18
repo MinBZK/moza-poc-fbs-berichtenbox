@@ -65,10 +65,10 @@ sequenceDiagram
 
 - Lukt het bijwerken van de lijst niet, dan haalt de uitvraag het bericht nu uit de lijst alsof het
   verwijderd is. Opent de ondernemer het daarna, dan hoort hij ten onrechte dat hij het verwijderd
-  heeft, tot hij opnieuw ophaalt.
+  heeft, tot hij opnieuw ophaalt ([#1593](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1593)).
 - Is het bericht van een ander, dan antwoordt het magazijn bij wijzigen nu anders dan bij een
-  onbekend bericht. Zo valt af te leiden dat het bericht bestaat.
-- De toets aan het beleid van de organisatie, zoals bij use case 5.
+  onbekend bericht. Zo valt af te leiden dat het bericht bestaat ([#1594](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1594)).
+- De toets aan het beleid van de organisatie, zoals bij use case 5 ([#418](https://github.com/MinBZK/MijnOverheidZakelijk/issues/418)).
 
 ## Open vragen
 

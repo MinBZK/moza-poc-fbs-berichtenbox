@@ -60,9 +60,9 @@ sequenceDiagram
 ## Nog niet gerealiseerd
 
 - Is het bericht van een ander, dan antwoordt het magazijn nu anders dan bij een onbekend bericht.
-  Zo valt af te leiden dat het bericht bestaat.
+  Zo valt af te leiden dat het bericht bestaat ([#1594](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1594)).
 - Het magazijn legt het definitief opruimen nog niet vast in zijn logboek, alleen in zijn
-  technische log, en dan zonder de ontvanger.
+  technische log, en dan zonder de ontvanger ([#549](https://github.com/MinBZK/MijnOverheidZakelijk/issues/549), [#1489](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1489)).
 
 ## Open vragen
 
@@ -70,4 +70,4 @@ sequenceDiagram
   gehost magazijn kan het intern regelen; voor de ondernemer verdwijnt het bericht dan bij het
   volgende ophalen, zonder melding.
 - Alle berichten van een ondernemer in één keer wissen, en hoe lang een bericht bewaard blijft dat
-  nooit verwijderd is: zie use case 10.
+  nooit verwijderd is: zie use case 10 ([#1596](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1596), [#1597](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597)).
