@@ -108,6 +108,11 @@ sequenceDiagram
   mogen er 50 open staan, in totaal 10.000. Wie veel adressen heeft, kan het totaal vullen en het
   activeren dan een dag voor iedereen blokkeren; een zaal achter één adres loopt na 50 activeringen
   vast. Voor de demo is dat geaccepteerd; de oplossing staat in MinBZK/MijnOverheidZakelijk#1599.
+  Daarbij hoort een tweede grens: alle keuzes staan achter één lock, en elke aanroep ruimt eerst
+  alles op en telt per adres. Dat kost 2,5 µs bij 100 items en 350 µs bij 10.000 (gemeten op 22
+  cores). In een gewone demo is dat minder dan de cryptografie per activering; met een volle
+  opslag kunnen er nog zo'n 500 activeringen per seconde door, en wie het quotum vult, maakt elk
+  ander verzoek trager.
 - Het **Verifiable Credential** (VC, 4.3.1) is een JWS van de App Manager. Er staan in: de public
   key van de app (`cnf.jwk`), de scope, de OIN van de App Manager (`iss`), de geldigheid (`iat`,
   `nbf`, `exp`, ten hoogste 24 uur) en de ontvanger (zie ontwerpkeuze 7).
@@ -259,8 +264,12 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
      die de client zelf zet; anders deelt iedereen het adres van de proxy. Een IPv6-adres telt per
      /64. Een verlopen sessie weigert de Verifier ook als een lopend verzoek hem nog vasthoudt; de
      sleutel wordt niet gewist, want dan zou zo'n verzoek onder nullen versleutelen. Voor de
-     simulator en de App Manager, die met één instantie draaien, is dit aanvaardbaar. Het echte
-     magazijn draait met meer replica's.
+     simulator en de App Manager, die met één instantie draaien, is dit aanvaardbaar. Wel staat de
+     hele opslag achter één lock, en elke aanroep ruimt eerst alles op: de tijd onder het lock
+     groeit met de vulling, tot 50.000 sessies. In de simulator, waar elke app 100 magazijnen
+     tegelijk aanspreekt, raakt dat het eerst; opruimen hooguit eens per seconde en tellers per
+     client zijn de verbetering (MinBZK/MijnOverheidZakelijk#1599). Het echte magazijn draait met
+     meer replica's.
      Daar komt geen database-write per anonieme challenge: de nonce wordt stateless. De tijdelijke
      private key gaat, versleuteld en geauthenticeerd met een inpaksleutel, mee in de nonce (die
      daarom tot 256 tekens mag zijn), met een korte lijst van verbruikte nonces die alle
