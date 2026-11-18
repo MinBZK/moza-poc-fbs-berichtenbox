@@ -155,6 +155,26 @@
                 </executions>
             </plugin>
 
+            <!-- Testklassen over parallelle forks; elke fork start een eigen Quarkus en eigen
+                 Dev Services-containers. quarkus-jacoco wist zijn databestand bij de eerste
+                 start in een JVM: met één gedeeld bestand gooit de ene fork de dekking van de
+                 andere weg, dus schrijft elke fork naar een eigen bestand (merge-exec voegt ze
+                 samen). Het eigen rapport van de extensie gaat uit: per fork zou het een
+                 deelrapport over hetzelfde pad schrijven; gate en rapport komen uit de
+                 samengevoegde data van jacoco-maven-plugin. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <forkCount>${fbs.test.forks}</forkCount>
+                    <reuseForks>true</reuseForks>
+                    <systemPropertyVariables>
+                        <quarkus.jacoco.data-file>${project.build.directory}/jacoco-quarkus-${surefire.forkNumber}.exec</quarkus.jacoco.data-file>
+                        <quarkus.jacoco.report>false</quarkus.jacoco.report>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -178,12 +198,13 @@
                 </configuration>
                 <executions>
                     <!-- prepare-agent zet jacoco.exec voor pure JUnit-tests (niet @QuarkusTest).
-                         Quarkus-tests schrijven naar jacoco-quarkus.exec via eigen instrumentatie. -->
+                         Quarkus-tests schrijven per fork naar jacoco-quarkus-<n>.exec via eigen instrumentatie. -->
                     <execution>
                         <id>prepare-agent</id>
                         <goals><goal>prepare-agent</goal></goals>
                     </execution>
-                    <!-- Merge beide exec-bestanden tot één combined.exec voor report+check. -->
+                    <!-- Merge jacoco.exec en de Quarkus-bestanden van elke fork tot één
+                         jacoco-merged.exec voor report+check. -->
                     <execution>
                         <id>merge-exec</id>
                         <phase>test</phase>
@@ -194,7 +215,7 @@
                                     <directory>${project.build.directory}</directory>
                                     <includes>
                                         <include>jacoco.exec</include>
-                                        <include>jacoco-quarkus.exec</include>
+                                        <include>jacoco-quarkus-*.exec</include>
                                     </includes>
                                 </fileSet>
                             </fileSets>
