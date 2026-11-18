@@ -57,7 +57,7 @@ magazijn en parallel.
 
 De Berichten-app maakt met WebCrypto een ECDSA-sleutelpaar op P-256 (toegestaan in 3.1; JWS met
 `ES256`) met `extractable: false`, en bewaart het `CryptoKey`-object in IndexedDB. Script op
-dezelfde origin kan de sleutel gebruiken om te tekenen, maar kan hem niet uitlezen: `exportKey`
+dezelfde origin kan de sleutel gebruiken om te ondertekenen, maar kan hem niet uitlezen: `exportKey`
 weigert. Dit is de **root app key**: de sleutel waaraan de App Manager straks de identiteit
 bindt. Waarom deze route en geen passkey: zie "Verkenning".
 
@@ -77,7 +77,7 @@ sequenceDiagram
     Note over AM: Standaard: DigiD. Demo: kies een persona.
     AM-->>App: redirect naar de vaste terug-URL met registration_token (JWE, AES-sleutel)
     App->>AM: POST /credential, Authorization: session_token, body JWE(registration_token)
-    AM-->>App: Verifiable Credential (JWS, getekend door de App Manager)
+    AM-->>App: Verifiable Credential (JWS, ondertekend door de App Manager)
 ```
 
 - `CreateSession` met een **self-signed certificaat** bewijst dat de app de private key bezit van
@@ -121,7 +121,7 @@ sequenceDiagram
     participant M as Magazijn
     App->>M: POST /rechtstreeks/challenges
     Note over M: nonce (≥16 bytes) + tijdelijk sleutelpaar, 60 s geldig
-    M-->>App: 201, JWS {sub: challenge, nonce, ephemeral_organization_ec_public_key}, getekend met de magazijnsleutel
+    M-->>App: 201, JWS {sub: challenge, nonce, ephemeral_organization_ec_public_key}, ondertekend met de magazijnsleutel
     Note over App: controleer de handtekening met de sleutel uit public_keys (kid) in het stelseldocument
     Note over App: maak AES-sleutel (256 bit) en de Verifiable Presentation
     App->>M: POST /rechtstreeks/sessies {nonce, encrypted_challenge_result: JWE(ECDH-ES)}
@@ -130,7 +130,7 @@ sequenceDiagram
 ```
 
 De **Verifiable Presentation** (4.3.4.1) bevat het VC, de AES-sleutel voor de sessie, en een JWS
-waarmee de app de nonce tekent met zijn root app key (`sub: challenge_response`, `aud`: OIN van
+waarmee de app de nonce ondertekent met zijn root app key (`sub: challenge_response`, `aud`: OIN van
 het magazijn). De app versleutelt dat geheel naar de tijdelijke public key van het magazijn
 (JWE, `ECDH-ES`, `A256GCM`). Alleen dat magazijn kan het openen.
 
@@ -161,18 +161,18 @@ samen, sorteert ze op publicatietijdstip en toont welke magazijnen niet of te la
 | `nbf`/`exp` van het VC; `iat` niet in de toekomst, `nbf` niet vóór `iat`, `exp − iat` ten hoogste 24 uur; sleutel van de App Manager geldig op `iat` (4.6.2) | Een oud bewijs, en een bewijs dat met een gelekte App Manager-sleutel ver vooruit is uitgegeven |
 | Het magazijn accepteert alleen `app_manager_jwt_certificate`; de library heeft voor de twee certificaattypen aparte ingangen | Een self-signed presentatie, zonder vastgestelde identiteit, bij een magazijn |
 | `scope` van het VC | Een bewijs voor een andere dienst dat hier wordt aangeboden |
-| Nonce getekend met de sleutel uit `cnf.jwk` | Een gestolen VC zonder de sleutel uit de browser: het VC is niet overdraagbaar |
+| Nonce ondertekend met de sleutel uit `cnf.jwk` | Een gestolen VC zonder de sleutel uit de browser: het VC is niet overdraagbaar |
 | `registration_token` gebonden aan de thumbprint van de root app key | Een gestolen token dat een VC op een andere sleutel oplevert |
-| `aud` in de getekende nonce, gelijk aan de OIN van het aangesproken magazijn | Een magazijn dat de presentatie doorspeelt aan een ander magazijn |
+| `aud` in de ondertekende nonce, gelijk aan de OIN van het aangesproken magazijn | Een magazijn dat de presentatie doorspeelt aan een ander magazijn |
 | Nonce eenmalig, 60 seconden, en verbruikt ook als een controle faalt; alleen een `400` op de envelop, die zonder sleutel te zien is, laat hem staan | Een opgenomen sessieverzoek opnieuw afspelen; sleutelherstel door herhaald proberen |
 | Nonces en sessies opgeslagen per OIN van het magazijn | In de simulator: een token of nonce van magazijn A dat bij magazijn B werkt |
-| Challenge getekend met een niet-verlopen magazijnsleutel uit het stelseldocument | Een nepmagazijn dat zich als een echt voordoet |
+| Challenge ondertekend met een niet-verlopen magazijnsleutel uit het stelseldocument | Een nepmagazijn dat zich als een echt voordoet |
 | Presentatie versleuteld naar een tijdelijke sleutel | Meelezen van VC en AES-sleutel, ook als TLS ergens onderweg wordt opengebroken |
 | Antwoorden versleuteld met de AES-sleutel van de sessie | Een gestolen sessietoken waarmee je alleen ciphertext krijgt |
 | Vaste terug-URL, tokens in fragment en cookie, `no-referrer` | Een aanvaller die het `registration_token` van een slachtoffer naar zich toe laat sturen of uit een log haalt |
 
 Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van de app draait
-(XSS). Dat kan tekenen zolang de pagina open staat. Ontwerpkeuze 12 gaat daarover.
+(XSS). Dat kan ondertekenen zolang de pagina open staat. Ontwerpkeuze 12 gaat daarover.
 
 ## Ontwerpkeuzes
 
@@ -469,16 +469,16 @@ Uit `/encryption/jwe` volgen we wel: compacte serialisatie, `enc` `A256GCM`, `ty
 Dit is een **bureauverkenning**: gebaseerd op de WebAuthn-specificatie en de standaard, niet
 gemeten in een browser. Wat ze opleverde:
 
-1. **Een passkey-handtekening is geen JWS.** WebAuthn tekent `authenticatorData` plus de hash van
-   `clientDataJSON` (met de challenge, de origin en het type). Het veld `app_nonce_signature` moet
-   een JWS zijn (3.1, 4.3.4.1). Elk magazijn moet dan een tweede handtekeningvorm leren
+1. **Een passkey-handtekening is geen JWS.** WebAuthn ondertekent `authenticatorData` plus de
+   hash van `clientDataJSON` (met de challenge, de origin en het type). Het veld
+   `app_nonce_signature` moet een JWS zijn (3.1, 4.3.4.1). Elk magazijn moet dan een tweede handtekeningvorm leren
    controleren, met een WebAuthn-library.
 2. **Elke handtekening vraagt een handeling van de gebruiker.** `navigator.credentials.get()`
    toont steeds een dialoog: vingerafdruk, pincode of op zijn minst een klik. Een sessie met 100
    magazijnen betekent dan 100 bevestigingen. Werkbaar wordt het alleen als de passkey één keer
-   een kortlevende browsersleutel tekent, die daarna de nonces tekent. Dat is een eigen
+   een kortlevende browsersleutel ondertekent, die daarna de nonces ondertekent. Dat is een eigen
    certificaatketen die verder afwijkt van de standaard, en de nonces worden dan toch weer
-   getekend met een sleutel buiten de beveiligde chip.
+   ondertekend met een sleutel buiten de beveiligde chip.
 3. **Ook een passkey is niet altijd onkopieerbaar.** Passkeys in iCloud-sleutelhanger of
    Google Wachtwoordbeheer worden via de cloud naar andere apparaten gekopieerd. Afdwingen dat
    een passkey aan één apparaat vastzit, vraagt attestation, en die geven gesynchroniseerde
@@ -486,14 +486,14 @@ gemeten in een browser. Wat ze opleverde:
 4. **De browsersleutel past precies, met bekende grenzen.** ES256 met een sleutel die script niet
    kan exporteren. Maar hij zit niet in een beveiligde chip: hij staat in het browserprofiel op
    schijf, dus malware of wie het profiel kopieert, kan hem klonen. Script op dezelfde origin kan
-   er ongemerkt mee tekenen (ontwerpkeuze 12). En de browser kan de opslag wissen; Safari doet dat
-   na zeven dagen zonder bezoek. Dan activeert de app opnieuw bij de App Manager, en dat is in de
-   demo één klik.
+   er ongemerkt mee ondertekenen (ontwerpkeuze 12). En de browser kan de opslag wissen; Safari
+   doet dat na zeven dagen zonder bezoek. Dan activeert de app opnieuw bij de App Manager, en dat
+   is in de demo één klik.
 
 **Besluit:** de browsersleutel. Een passkey heeft één echt voordeel: elke handtekening vraagt een
-gebaar van de gebruiker en is gebonden aan de origin, dus script kan niet ongemerkt tekenen. Maar
-met 100 magazijnen is dat voordeel alleen te houden als de passkey een browsersleutel tekent, en
-dan is het weg. Voor de magazijnen is het in beide gevallen een gewone ES256-sleutel. Wel
+gebaar van de gebruiker en is gebonden aan de origin, dus script kan niet ongemerkt
+ondertekenen. Maar met 100 magazijnen is dat voordeel alleen te houden als de passkey een
+browsersleutel ondertekent, en dan is het weg. Voor de magazijnen is het in beide gevallen een gewone ES256-sleutel. Wel
 interessant voor VORijk: een passkey als **inlogmiddel bij de App Manager**, in plaats van DigiD
 bij elke herregistratie. Dat raakt de magazijnen niet en kan later.
 
