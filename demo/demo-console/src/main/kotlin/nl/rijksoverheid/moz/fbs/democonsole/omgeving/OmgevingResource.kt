@@ -7,9 +7,7 @@ import jakarta.ws.rs.core.MediaType
 import nl.rijksoverheid.moz.fbs.democonsole.generator.DemoBerichtGenerator
 import nl.rijksoverheid.moz.fbs.democonsole.generator.Doelpersona
 import nl.rijksoverheid.moz.fbs.democonsole.storing.ToxiproxyRegister
-import nl.rijksoverheid.moz.fbs.demopersonas.PersonaDto
 import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
-import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
 
 /**
  * Wat het paneel over zijn omgeving moet weten. Zonder dit endpoint zouden de storingsknoppen en
@@ -21,10 +19,14 @@ import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
  * lijst komt uit dezelfde `PersonaService` als die dienst gebruikt — de jar van `demo-personas` —
  * dus er is één bron.
  *
+ * Per persona alleen de id en het label, en niet de `PersonaDto` van de personadienst: die draagt ook
+ * het identificatienummer, en dat gebruikt het paneel nergens. Een berichtenbox heeft het wél nodig
+ * om een sessie te starten en leest het daarom bij de personadienst, niet hier.
+ *
  * `berichtPersonas` staat naast `personas` en niet erin: dit is de deelverzameling waarvoor de
  * console kán aanleveren — zonder magazijn is er geen bestemming, en een keuze die alleen een fout
  * kan opleveren hoort niet in het paneel. Die kennis zit in de inrichting van dit paneel en niet in
- * `PersonaDto`, dat een berichtenbox leest en het aantal magazijnen bewust weglaat. De lijst komt
+ * de personadienst, die het aantal magazijnen bewust weglaat. De lijst komt
  * van de generator en niet van de personadienst, omdat die van de generator precies de persona's
  * bevat waarvoor hij een bericht kán maken: met een ingericht magazijn én een organisatie waarvoor
  * hij sjablonen heeft — het init-blok van de generator eist beide.
@@ -35,13 +37,16 @@ import nl.rijksoverheid.moz.fbs.demopersonas.naarDto
  * onderscheid legt het een mislukte uitlezing uit als "niet ingericht".
  */
 data class Omgeving(
-    val personas: List<PersonaDto>,
+    val personas: List<PaneelPersona>,
     val berichtPersonas: List<Doelpersona>,
     val berichtenboxUrl: String,
     val storingen: List<String>,
     val simulator: Boolean,
     val sessiecache: Boolean,
 )
+
+/** Een persona zoals het paneel hem kent: om aan te wijzen en te tonen, zonder zijn nummer. */
+data class PaneelPersona(val id: String, val label: String)
 
 @Path("/api/demo/omgeving")
 @Produces(MediaType.APPLICATION_JSON)
@@ -54,7 +59,7 @@ class OmgevingResource(
 
     @GET
     fun omgeving(): Omgeving = Omgeving(
-        personas = personaService.alle().map { it.naarDto() },
+        personas = personaService.alle().map { PaneelPersona(id = it.id, label = it.label) },
         berichtPersonas = generator.doelgroep(),
         berichtenboxUrl = config.berichtenboxUrl().orElse(""),
         storingen = register.namen().sorted(),

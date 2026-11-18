@@ -1716,7 +1716,7 @@ function geleden(tijd) {
     return 'om ' + new Date(tijd).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 }
 
-/* Alleen tijd en inhoud; de persona's zijn daarin al door `personaInfo` ontdaan van hun nummers.
+/* Alleen tijd en inhoud; de persona's zijn daarin al door `personaInfo` tot id en label beperkt.
  * Storage kan gooien wanneer site-data geblokkeerd is; het blad werkt dan zonder geheugen. */
 function bewaarInfo() {
     const bewaard = {};
@@ -2237,10 +2237,10 @@ function klokTijd(moment) {
     return 'om ' + tijd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-/* Per persona alleen de id, het label en of er een echt magazijn voor is. Nooit de persona zelf: die
- * draagt ook zijn BSN of KVK-nummer, en dit belandt in sessionStorage. De id is een naam en nooit een
- * nummer (de personadienst weigert er een); hij koppelt de persona's aan de berichtpersona's en aan
- * de lopende sessies. */
+/* Per persona alleen de id, het label en of er een echt magazijn voor is: dit belandt in
+ * sessionStorage, en daar hoort niets in dat het omgevingsantwoord er later bij zou krijgen. De id
+ * is een naam en nooit een nummer (de personadienst weigert er een); hij koppelt de persona's aan de
+ * berichtpersona's en aan de lopende sessies. */
 function personaInfo(omgeving) {
     if (!omgeving || typeof omgeving !== 'object' || !Array.isArray(omgeving.personas)) return null;
 

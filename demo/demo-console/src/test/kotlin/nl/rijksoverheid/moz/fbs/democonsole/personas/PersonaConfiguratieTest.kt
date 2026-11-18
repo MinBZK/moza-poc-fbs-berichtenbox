@@ -109,7 +109,7 @@ class PersonaConfiguratieTest {
     }
 
     @Test
-    fun `levert de keuzelijst mee in de omgeving, met de bron in kleine letters`() {
+    fun `levert de keuzelijst mee in de omgeving, zonder identificatienummers`() {
         // Via /api/demo/omgeving: het personas-adres hoort bij de personadienst, en deze module
         // beantwoordt het bewust niet. Het paneel leest de lijst hier.
         val respons = HttpClient.newHttpClient().send(
@@ -121,12 +121,15 @@ class PersonaConfiguratieTest {
         assertTrue(respons.headers().firstValue("content-type").orElse("").startsWith("application/json"))
 
         val geleverd = ObjectMapper().readTree(respons.body()).path("personas").map {
-            listOf(it.path("id").asText(), it.path("label").asText(), it.path("ontvanger").asText(), it.path("bron").asText())
+            listOf(it.path("id").asText(), it.path("label").asText())
         }
 
-        assertEquals(
-            personaService.alle().map { listOf(it.id, it.label, it.ontvanger, it.bron.name.lowercase()) },
-            geleverd,
-        )
+        assertEquals(personaService.alle().map { listOf(it.id, it.label) }, geleverd)
+
+        // Op de ruwe tekst en niet op veldnamen: een nummer dat onder een andere naam of in een
+        // ander veld van het antwoord terugkomt, telt net zo goed.
+        val gelekt = personaService.alle().map { it.waarde }.filter { respons.body().contains(it) }
+
+        assertEquals(emptyList<String>(), gelekt, "het omgevingsantwoord draagt identificatienummers")
     }
 }

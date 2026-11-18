@@ -39,9 +39,9 @@ private val VEILIG_IN_MELDING = Regex("""[\w.@+-]{1,64}""")
  * De weigering voor een aanduiding die geen ingerichte persona blijkt te zijn.
  *
  * Draagt de waarde een identificatienummer, dan een 400 die hem niet herhaalt. Een persona
- * aanwijzen met zijn nummer is het te verwachten verkeerde gebruik — het antwoord van de
- * Persona's-knop toont `ontvanger` voluit, dus de bediener heeft dat nummer voor zich — en elke
- * weigering gaat via [DemoFoutMapper] onverkort naar de applicatielog, waar het niet hoort.
+ * aanwijzen met zijn nummer blijft te verwachten verkeerd gebruik — het paneel toont het nummer
+ * niet, maar de berichtenbox en de personadienst wel — en elke weigering gaat via [DemoFoutMapper]
+ * onverkort naar de applicatielog, waar het niet hoort.
  *
  * Pas ná de opzoeking en niet ervoor: een ingerichte persona is per definitie in orde, ook als zijn
  * id toevallig cijfers draagt. Zou deze controle vooraan staan, dan wees hij een persona af die in

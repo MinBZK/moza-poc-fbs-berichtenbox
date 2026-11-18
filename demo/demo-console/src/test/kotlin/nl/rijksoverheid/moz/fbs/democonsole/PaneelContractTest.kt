@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.test.Mock
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
+import jakarta.inject.Inject
 import jakarta.inject.Singleton
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
@@ -29,6 +30,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorStand
 import nl.rijksoverheid.moz.fbs.democonsole.sessie.GeheugenSessieOpslag
 import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessieOpslag
 import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessiecacheSleutels
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -86,6 +88,9 @@ class PaneelContractTest {
 
     @TestHTTPResource("/")
     lateinit var basis: URL
+
+    @Inject
+    lateinit var personaService: PersonaService
 
     // Onvoorwaardelijk en niet in de testbody: de dubbels vervangen hun service voor élke
     // @QuarkusTest van deze module, dus de eerste test die een ander vulpad aanroept zou anders
@@ -209,7 +214,7 @@ class PaneelContractTest {
 
         assertTrue(personas.isArray, "veld personas ontbreekt of is geen lijst")
         personas.forEach {
-            assertEquals(setOf("id", "label", "ontvanger", "bron"), it.fieldNames().asSequence().toSet())
+            assertEquals(setOf("id", "label"), it.fieldNames().asSequence().toSet())
         }
     }
 
@@ -490,22 +495,24 @@ class PaneelContractTest {
     /**
      * Het paneel biedt voor de ontdubbeling elke persona aan, en een berichtenbox kiest uit dezelfde
      * personadienst. Een persona die de resource weigert, is in de berichtenbox dus wel te kiezen
-     * maar niet te demonstreren. Uit de omgeving-respons gelezen en niet uit een vaste lijst, zodat
-     * een persona die erbij komt vanzelf meedoet.
+     * maar niet te demonstreren. De id's uit de omgeving-respons, zodat een persona die erbij komt
+     * vanzelf meedoet; de verwachte ontvanger uit de personadienst, want die respons draagt hem niet.
      */
     @Test
     fun `elke ingerichte persona speelt de ontdubbeling met zijn eigen ontvanger`() {
-        val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").toList()
-        val types = personas.map { it.path("ontvanger").asText().substringBefore(':') }.toSet()
+        val ids = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").map { it.path("id").asText() }
+        val ontvangers = personaService.alle().associate { it.id to it.ontvanger }
+        val types = ontvangers.values.map { it.substringBefore(':') }.toSet()
+
+        assertEquals(ontvangers.keys.toList(), ids, "de omgeving-respons noemt andere persona's dan de personadienst")
 
         // Met één type zou dit "zet het type vast" niet van "neemt het type van de persona" onderscheiden.
         assertTrue(types.size >= 2, "minder dan twee types ingericht ($types); dan toetst dit niets")
 
-        personas.forEach { persona ->
+        ids.forEach { id ->
             VasteOntdubbelingService.ontvangers.clear()
 
-            val id = persona.path("id").asText()
-            val ontvanger = persona.path("ontvanger").asText()
+            val ontvanger = ontvangers.getValue(id)
 
             // Zonder id zou de blank-check van de resource het antwoord bepalen, niet de opzoeking.
             // En zonder dubbele punt geven `substringBefore` en `substringAfter` allebei de héle
@@ -724,7 +731,7 @@ class PaneelContractTest {
 
         /**
          * Hoe een bediener het nummer in de parameter kan krijgen: kaal, met witruimte of een punt
-         * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel uit `ontvanger`, met een
+         * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel van de personadienst, met een
          * voorloopnul, en met scheidingstekens ertussen. Alle acht afgeleid van de constante, zodat
          * er geen tweede nummer in dit bestand staat.
          */
