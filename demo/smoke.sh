@@ -17,6 +17,10 @@
 # stuurt geen header mee, dus de proxy moet hem uit dat cookie maken. Rechtstreeks bij de uitvraag
 # is dat niet te zien.
 #
+# Stap 7 eist dat het stelseldocument de demo-App Manager noemt met de sleutel die
+# demo/environment/app-manager/pki/maak-sleutel.sh maakte. Zonder die bedrading is `app_managers`
+# leeg, en dat valt pas op bij een app die geen enkel credential geaccepteerd krijgt.
+#
 # Vereist een draaiende stack:  docker compose --profile demo up -d
 set -euo pipefail
 
@@ -24,6 +28,9 @@ MAGAZIJN_A="${MAGAZIJN_A:-http://localhost:8090}"
 MAGAZIJN_B="${MAGAZIJN_B:-http://localhost:8091}"
 UITVRAAG="${UITVRAAG:-http://localhost:8086}"
 DEMO_PROXY="${DEMO_PROXY:-http://localhost:8097}"
+STELSELREGISTER="${STELSELREGISTER:-http://localhost:8094}"
+APP_MANAGER_PROPERTIES="$(dirname "$0")/environment/app-manager/pki/out/stelselregister/app-managers.properties"
+DEMO_APP_MANAGER_OIN="00000000000000001100"
 BSN="${BSN:-999993653}"
 ONTVANGER="BSN:$BSN"
 
@@ -34,7 +41,7 @@ ONTVANGER="BSN:$BSN"
 AFZENDER_OIN_A="${AFZENDER_OIN_A:-00000000000000100000}"
 AFZENDER_OIN_B="${AFZENDER_OIN_B:-00000001823288444000}"
 
-echo "1/6 health"
+echo "1/7 health"
 for url in "$MAGAZIJN_A" "$MAGAZIJN_B" "$UITVRAAG"; do
     curl -sf "$url/q/health/ready" > /dev/null \
         || { echo "FOUT: $url niet gezond"; exit 1; }
@@ -103,11 +110,11 @@ pdf_met_tekst() {
 bijlage_tekst="Rookproef-bijlage $stempel"
 bijlage_a="[{\"naam\": \"rookproef.pdf\", \"mimeType\": \"application/pdf\", \"inhoud\": \"$(pdf_met_tekst "$bijlage_tekst" | base64 | tr -d '\n')\"}]"
 
-echo "2/6 bericht aanleveren bij magazijn A, met een bijlage"
+echo "2/7 bericht aanleveren bij magazijn A, met een bijlage"
 lever_aan A "$MAGAZIJN_A" "$AFZENDER_OIN_A" "$onderwerp_a" "$bijlage_a"
 bericht_a="$toegekend"
 
-echo "3/6 bericht aanleveren bij magazijn B"
+echo "3/7 bericht aanleveren bij magazijn B"
 lever_aan B "$MAGAZIJN_B" "$AFZENDER_OIN_B" "$onderwerp_b"
 
 # Elke /berichten-aanroep eist een sessie (X-Sessie). Het id gaat nooit in een URL of in de uitvoer.
@@ -124,7 +131,7 @@ beeindig_sessie() {
         || { echo "FOUT: sessie beëindigen voor $1 mislukte"; exit 1; }
 }
 
-echo "4/6 ophalen via uitvraag"
+echo "4/7 ophalen via uitvraag"
 SESSIE=$(start_sessie "$ONTVANGER") || exit 1
 [ -n "$SESSIE" ] || { echo "FOUT: de uitvraag gaf geen sessieId terug"; exit 1; }
 # De sessiecache vult zich pas na een ophaal-ronde; GET /berichten leest alleen de cache.
@@ -179,7 +186,7 @@ for onderwerp in "$onderwerp_a" "$onderwerp_b"; do
 done
 
 # De sessie van $ONTVANGER blijft lopen tot na stap 6: die leest het bericht van stap 2 opnieuw.
-echo "5/6 fan-out van de ondernemers"
+echo "5/7 fan-out van de ondernemers"
 
 # De ondernemers halen op bij 3, 15, 45 en 100 organisaties; de kleinere zitten volledig in de
 # grotere. Dat is de hele reden dat de simulator bestaat, en het is precies het soort ding dat stil
@@ -217,7 +224,7 @@ fanout "KVK:90000001"  45  "grootbedrijf"
 fanout "KVK:90000003"  100 "landelijk concern"
 fanout "KVK:90000015"  100 "mappen-demo"
 
-echo "6/6 bijlage via de demo-proxy, met de ontvanger en de sessie alleen in cookies"
+echo "6/7 bijlage via de demo-proxy, met de ontvanger en de sessie alleen in cookies"
 # Elke curl en grep hier met `|| true`: onder `set -e` stopt een verbindingsfout of een lege grep
 # het script anders zonder melding, en dan komt de FOUT-regel met de oorzaak nooit op het scherm.
 # Een onbereikbare proxy meldt zich zo als HTTP 000.
@@ -255,4 +262,35 @@ fi
 
 beeindig_sessie "$ONTVANGER" "$SESSIE"
 
-echo "OK: keten werkt end-to-end via beide magazijnen, de ondernemers halen op bij 3/15/45/100 organisaties, en een bijlage komt via de demo-proxy binnen"
+echo "7/7 stelseldocument noemt de demo-App Manager"
+# Op de x uit de properties en niet alleen op de OIN: een stelselregister dat nog met een eerdere
+# sleutel draait, noemt de App Manager wel, maar wijst een sleutel aan die niemand meer heeft.
+verwachte_x=$(sed -n 's/^stelseldocument\.app-managers\."[0-9]*"\.sleutels\."[^"]*"\.x=//p' "$APP_MANAGER_PROPERTIES" 2>/dev/null || true)
+
+if [[ -z "$verwachte_x" ]]; then
+    echo "FOUT: geen sleutel in $APP_MANAGER_PROPERTIES; draai demo/environment/app-manager/pki/maak-sleutel.sh"
+    exit 1
+fi
+
+document=$(curl -sf -H 'Accept: application/jose' "$STELSELREGISTER/api/v1/stelseldocument") \
+    || { echo "FOUT: $STELSELREGISTER/api/v1/stelseldocument gaf geen document"; exit 1; }
+
+# Alleen de payload lezen; de handtekening controleren is het werk van een afnemer, niet van deze proef.
+gevonden_x=$(python3 -c '
+import base64, json, sys
+
+payload = sys.argv[1].split(".")[1]
+document = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+
+for app_manager in document["app_managers"]:
+    if app_manager["oin"] == sys.argv[2]:
+        print(" ".join(sleutel["jwk"]["x"] for sleutel in app_manager["public_keys"]))
+' "$document" "$DEMO_APP_MANAGER_OIN")
+
+if [[ " $gevonden_x " != *" $verwachte_x "* ]]; then
+    echo "FOUT: het stelseldocument noemt App Manager $DEMO_APP_MANAGER_OIN niet met x=$verwachte_x (gevonden: '${gevonden_x}')"
+    echo "      Herstart het stelselregister na maak-sleutel.sh: hij leest de properties alleen bij de start."
+    exit 1
+fi
+
+echo "OK: keten werkt end-to-end via beide magazijnen, de ondernemers halen op bij 3/15/45/100 organisaties, een bijlage komt via de demo-proxy binnen, en het stelseldocument noemt de demo-App Manager"

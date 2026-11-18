@@ -163,6 +163,9 @@ fi
 # De sleutelketen van het stelselregister. Maakt alleen wat ontbreekt; een bestaande root blijft
 # staan, zodat een app die hem heeft vastgelegd na een herstart van de stack blijft werken.
 "$ROOT/demo/environment/stelselregister/pki/maak-keten.sh"
+# De sleutel van de demo-App Manager, met dezelfde regel: een bestaande blijft staan, zodat een App
+# Manager die ermee draait na een herstart van de stack nog in het stelseldocument staat.
+"$ROOT/demo/environment/app-manager/pki/maak-sleutel.sh"
 
 # --- starten ----------------------------------------------------------------------------------
 

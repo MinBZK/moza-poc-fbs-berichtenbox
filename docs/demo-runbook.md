@@ -92,10 +92,13 @@ Alleen de infra, zonder de services — om die zelf in dev-mode te draaien met `
 > zelf aan — als **directory**. `magazijnen-stubs.properties` wordt dan een map,
 > `SMALLRYE_CONFIG_LOCATIONS` wijst naar een map, de uitvraag start niet, en het generatiescript
 > kan dat bestand daarna ook niet meer schrijven (eerst `rm -rf demo/generated/`). Het is één
-> idempotent commando; sla het niet over.
+> idempotent commando; sla het niet over. Hetzelfde geldt voor de sleutels:
+> `demo/environment/stelselregister/pki/maak-keten.sh` en
+> `demo/environment/app-manager/pki/maak-sleutel.sh`. Beide laten een bestaande sleutel staan.
 
-Controleer de keten met een rookproef: aanleveren bij beide magazijnen, ophalen via de uitvraag, en een
-bijlage ophalen via de demo-proxy zoals de browser dat doet:
+Controleer de keten met een rookproef: aanleveren bij beide magazijnen, ophalen via de uitvraag, een
+bijlage ophalen via de demo-proxy zoals de browser dat doet, en controleren dat het stelseldocument de
+demo-App Manager noemt:
 
 ```bash
 ./demo/smoke.sh
@@ -156,7 +159,7 @@ Twee beperkingen daarbij:
 
 Het script kiest de engine (onder podman zoekt het de API-socket en start het die zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de demo-images gebouwd
-zijn, genereert de stub-artefacten en de sleutelketen van het stelselregister, en controleert na elke start dat elke container draait. Redis,
+zijn, genereert de stub-artefacten, de sleutelketen van het stelselregister en de sleutel van de demo-App Manager, en controleert na elke start dat elke container draait. Redis,
 de vier Postgres-instanties, de profiel-stub, de magazijn-simulator, Toxiproxy en de services
 worden daarnaast functioneel gepolld; de overige WireMock-stubs alleen op "draait".
 
@@ -226,7 +229,7 @@ demo/up.sh down
 | demo-console | 8095 | Bedieningspaneel + Berichtenbox-UI |
 | berichtenuitvraag | 8086 | Ophalen/tonen/beheren van berichten |
 | berichtenmagazijn-a / -b | 8090 / 8091 | Twee echte magazijnen (RVO / Belastingdienst) |
-| stelselregister | 8094 | Het magazijnregister als ondertekend stelseldocument (`/api/v1/stelseldocument`); de root om het te verifiëren staat in `demo/environment/stelselregister/pki/out/root.pem` |
+| stelselregister | 8094 | Het magazijnregister als ondertekend stelseldocument (`/api/v1/stelseldocument`); de root om het te verifiëren staat in `demo/environment/stelselregister/pki/out/root.pem`. Noemt de demo-App Manager met de sleutel uit `demo/environment/app-manager/pki/` |
 | magazijn-simulator | 8092 | Eén service die n gesimuleerde magazijnen bedient, elk op `/magazijn/<OIN>`; slaat echt op en kan per magazijn traag, haperend of onbereikbaar zijn |
 | magazijn-a / -b (WireMock) | 8081 / 8082 | Overblijfsel-stubs; starten óók zonder `--profile demo`, maar niets bevraagt ze |
 | toxiproxy | 8474 (admin) | Netwerkstoringen tussen uitvraag/magazijn en afhankelijkheden |
