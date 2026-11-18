@@ -4,6 +4,7 @@ import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
+import nl.rijksoverheid.moz.fbs.democonsole.ontdubbeling.Ontvanger
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -36,7 +37,7 @@ class PersonaMetCijfersTest {
     @BeforeEach
     @AfterEach
     fun leegDeOpnames() {
-        VasteOntdubbelingService.nummers.clear()
+        VasteOntdubbelingService.ontvangers.clear()
     }
 
     @Test
@@ -49,7 +50,7 @@ class PersonaMetCijfersTest {
         )
 
         assertEquals(200, respons.statusCode(), respons.body())
-        assertEquals(listOf(BSN), VasteOntdubbelingService.nummers)
+        assertEquals(listOf(Ontvanger(type = "BSN", waarde = BSN)), VasteOntdubbelingService.ontvangers)
     }
 
     class MetCijfersInDeId : QuarkusTestProfile {
