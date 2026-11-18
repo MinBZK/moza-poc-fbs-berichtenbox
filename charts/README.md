@@ -288,7 +288,8 @@ van platform en sandbox. Zo valt een platform op dat met een oudere versie van F
 gemaakt, toen die zijn poorten nog op alle adressen zette. Een weigering na het opzetten laat staan
 wat er al draait. Ruim het dan meteen op met `af --met-platform`.
 
-De containers starten na een herstart van de machine vanzelf weer.
+De containers starten na een herstart van de machine vanzelf weer. Draai daarna `op`: na een
+herstart van Docker kunnen de relays een ander adres hebben, en `op` koppelt ze opnieuw.
 
 **Na een proef is wat er met de opstelling gebeurt jouw keuze**; `op` sluit af met de opties.
 Laten staan scheelt een volgende keer de opbouw, maar de twee clusters kosten ook zonder verkeer
@@ -314,8 +315,8 @@ mise exec -- k3d cluster stop fundament-plugin fundament
 mise exec -- k3d cluster start fundament fundament-plugin
 ```
 
-Niet met `docker restart`: `k3d cluster start` zet bij het starten ook de adressen van het
-netwerk opnieuw in CoreDNS, en Fundament herstart zijn clusters zelf ook via k3d.
+Niet met `docker restart`, maar via k3d, zoals Fundaments eigen `cluster-start`: k3d zet bij het
+starten ook de adressen van het netwerk opnieuw in CoreDNS.
 
 **Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: alles staat op
 loopback, maar de opstelling draagt een openbaar seed-wachtwoord en registries zonder
@@ -328,7 +329,7 @@ daarna ook in een Secret in het platformcluster. Wie die sleutel heeft, kan elke
 van deze machine onderscheppen. De pin op `FUNDAMENT_REF` dekt alleen de broncode van Fundament:
 hun builds halen base-images en Helm-charts op tag op.
 
-**Een opstelling van vóór 18 november** (Fundament `b9c12531`) zette zijn poorten nog deels op alle
+**Een opstelling op de vorige pin** (Fundament `b9c12531`) zette zijn poorten nog deels op alle
 adressen; `op` weigert die. Ruim hem op met `af --met-platform`. Die versie schreef de contexten in
 `~/.kube/config` en had een eigen worktree; haal die resten daarna zelf weg:
 
@@ -336,7 +337,7 @@ adressen; `op` weigert die. Ruim hem op met `af --met-platform`. Die versie schr
 for c in k3d-fundament k3d-fundament-plugin; do
   kubectl config delete-context $c; kubectl config delete-cluster $c; kubectl config delete-user admin@$c
 done
-git -C ~/dev/fundament worktree remove ~/.cache/fbs-fundament-testcluster/fundament-b9c12531
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove ~/.cache/fbs-fundament-testcluster/fundament-b9c12531
 ```
 
 Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss` (op
@@ -355,5 +356,6 @@ macOS `lsof`), `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
 
 Ook dit script noemt bij elke aanroep de context, en daarbij de kubeconfig in de worktree van
 Fundament (`.dev/kubeconfig`): daar zetten hun recipes de contexten van beide clusters, en
-`~/.kube/config` en je huidige context blijven onaangeroerd. Een kale `kubectl` of `helm` in het
-script breekt het af.
+`~/.kube/config` en je huidige context blijven onaangeroerd. Het zet daarom `FUNDAMENT_TEST_ENV`
+uit en weigert in hun test-VM: daar schrijven hun recipes wel in `~/.kube/config`. Een kale
+`kubectl` of `helm` in het script breekt het af.

@@ -16,13 +16,16 @@
 # recipes uit, met de rechten van Docker. Voor het publiceren van de plug-ins maakt het zelf een
 # API-key met het lokale seed-account; FUNCTL_API_KEY gaat voor.
 #
-# Elke kubectl- en helm-aanroep noemt de kubeconfig van de worktree en de context. De contexten
-# staan in die kubeconfig, niet in ~/.kube/config: de proefinstallatie heeft een onveilige klep
-# (Redis zonder TLS) en mag niet in een echt cluster belanden als iemand tijdens het draaien elders
-# van context wisselt.
+# Elke kubectl- en helm-aanroep noemt de context en de kubeconfig van de worktree; daar zetten
+# Fundaments recipes beide contexten. In ~/.kube/config kan een context met dezelfde naam naar een
+# ander cluster wijzen, en de proefinstallatie heeft een onveilige klep (Redis zonder TLS).
 #
 # Exitcodes: 0 in orde, 1 een controle faalde, 2 een voorwaarde ontbreekt.
 set -euo pipefail
+
+# Met deze variabele schrijven Fundaments recipes hun contexten in de kubeconfig van de aanroeper
+# (zonder KUBECONFIG ~/.kube/config) en wisselen ze daar de huidige context. Hij is voor hun test-VM.
+unset FUNDAMENT_TEST_ENV
 
 CHARTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$CHARTS/.." && pwd)
@@ -85,6 +88,18 @@ helm() {
 
 # Een recipe van Fundament, in de worktree en met de tools uit hun mise.toml.
 fj() { (cd "$WORKTREE" && mise exec -- just "$@"); }
+
+# Voor de meldingen: wat de gebruiker zelf intypt, moet dezelfde kubeconfig noemen.
+readonly KC_SANDBOX="kubectl --kubeconfig $KUBECONFIG_LOKAAL --context $SANDBOX_CONTEXT"
+readonly KC_PLATFORM="kubectl --kubeconfig $KUBECONFIG_LOKAAL --context $PLATFORM_CONTEXT"
+
+# In hun test-VM (dit bestand) volgen hun recipes de kubeconfig van de shell, ook als
+# FUNDAMENT_TEST_ENV niet gezet is.
+in_test_vm() { [ -e /etc/fundament-test-env ]; }
+
+geen_test_vm() {
+  ! in_test_vm || stop 2 "dit is de test-VM van Fundament (/etc/fundament-test-env); daar schrijven hun recipes in ~/.kube/config. Draai de opstelling op de host"
+}
 
 stap() { echo "== $* =="; }
 
@@ -214,7 +229,7 @@ platform_op() {
   stap "Fundament-platform ($PLATFORM_CONTEXT)"
 
   if platform_bestaat; then
-    fj cluster-start >/dev/null
+    fj cluster-start >/dev/null || stop 1 "het platform starten faalde (melding hierboven); opnieuw opzetten kan met: $0 af --met-platform en $0 op"
   else
     platform_maken
   fi
@@ -227,22 +242,18 @@ platform_op() {
 
   if uitvoer=$(kcp -n fundament get deployment organization-api -o name 2>&1); then
     wacht_tot 600 "platform gereed" platform_gereed ||
-      stop 1 "het platform draait maar wordt niet gereed; zie: kubectl --context $PLATFORM_CONTEXT -n fundament get pods. Opnieuw uitrollen wist het: $0 af --met-platform en $0 op"
+      stop 1 "het platform draait maar wordt niet gereed; zie: $KC_PLATFORM -n fundament get pods. Opnieuw uitrollen wist het: $0 af --met-platform en $0 op"
   elif ! kubectl_niet_gevonden "$uitvoer"; then
     # Uitrollen over een bestaand platform wist zijn databases; alleen bij een zekere NotFound.
     echo "$uitvoer" >&2
     stop 1 "kon niet vaststellen of het platform al is uitgerold"
   else
-    # Zoals `just dev`, maar eenmalig. Niet `just deploy local`: dat noemt geen kube-context en
-    # rolt uit naar de huidige context van de kubeconfig in de worktree, en die zetten hun recipes
-    # voor de sandbox op de sandbox.
     echo "Platform uitrollen; de eerste keer bouwt dit alle images van Fundament en duurt het lang."
-    (cd "$WORKTREE" && mise exec -- skaffold run --kube-context "$PLATFORM_CONTEXT" --profile env-local \
-      --default-repo=localhost:5111)
+    fj deploy local
   fi
 
   wacht_tot 900 "console bereikbaar op https://console.fundament.localhost:8443" console_antwoordt ||
-    stop 1 "de console antwoordt niet; zie: kubectl --context $PLATFORM_CONTEXT -n fundament get pods"
+    stop 1 "de console antwoordt niet; zie: $KC_PLATFORM -n fundament get pods"
 
   alleen_loopback ||
     stop 2 "het platform publiceert poorten op alle adressen (hierboven); ruim het op met: $0 af --met-platform"
@@ -311,21 +322,24 @@ functl_inloggen() {
 # containerconfiguratie en niet via de API: zo is ook een gestopte sandbox te herkennen, en een die
 # nog in de kubeconfig van een vorige FUNDAMENT_REF staat.
 sandbox_van_ons() {
-  local image mappings
+  local image mappings versie
 
-  image=$(docker inspect -f '{{.Config.Image}}' k3d-fundament-plugin-server-0 2>/dev/null) || return 1
-  mappings=$(docker inspect k3d-fundament-plugin-serverlb 2>/dev/null | mappings_uit_inspect) || return 1
-  sandbox_past "$(k3s_versie_uit_image "$image" || true)" "$mappings" "$HTTPS_POORT"
+  image=$(docker inspect -f '{{.Config.Image}}' k3d-fundament-plugin-server-0 2>/dev/null) ||
+    { echo "docker inspect k3d-fundament-plugin-server-0 faalde." >&2; return 1; }
+  mappings=$(docker inspect k3d-fundament-plugin-serverlb 2>/dev/null | mappings_uit_inspect) ||
+    { echo "docker inspect k3d-fundament-plugin-serverlb faalde; is de load balancer van de sandbox weg?" >&2; return 1; }
+  versie=$(k3s_versie_uit_image "$image") || versie="onbekend (image $image)"
+  sandbox_past "$versie" "$mappings" "$HTTPS_POORT"
 }
 
 # Weigert vóór er iets wordt aangemaakt of gestart: een sandbox die niet van ons is, een bezette
-# poort, of een platform of sandbox met poorten op alle adressen (gemaakt met de recipes van
-# Fundament zelf).
+# poort, of een platform of sandbox met poorten op alle adressen (van een oudere versie van
+# Fundament).
 voorcontrole() {
-  # Ook zonder platform of sandbox: een afgebroken create van Fundament laat bijvoorbeeld een
-  # registry op alle adressen achter.
+  # Ook zonder platform of sandbox: een afgebroken create van een oudere versie laat bijvoorbeeld
+  # een registry op alle adressen achter.
   alleen_loopback ||
-    stop 2 "op de netwerken van deze opstelling publiceert een container poorten op alle adressen (hierboven), ook als hij nu gestopt is. Is het platform met de recipes van Fundament zelf gemaakt, ruim het dan op met: $0 af --met-platform"
+    stop 2 "op de netwerken van deze opstelling publiceert een container poorten op alle adressen (hierboven), ook als hij nu gestopt is. Is de opstelling met een oudere versie van Fundament gemaakt, ruim hem dan op met: $0 af --met-platform"
 
   if sandbox_bestaat; then
     sandbox_van_ons || stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: $0 af"
@@ -338,8 +352,8 @@ voorcontrole() {
 # (pullPolicy Always). Docker legt de DNS-server van de host vast bij het starten van een
 # container. Na een wissel van netwerk, zoals op het fieldlab, vraagt de node het dus nog aan de
 # server van het vorige netwerk, en blijft elke nieuwe pod in ImagePullBackOff hangen. Herstarten
-# via k3d, zoals Fundament het doet, niet met docker restart: k3d zet bij het starten ook de
-# adressen van het netwerk opnieuw in CoreDNS.
+# via k3d, zoals Fundaments eigen cluster-start, niet met docker restart: k3d zet bij het starten
+# ook de adressen van het netwerk opnieuw in CoreDNS.
 sandbox_dns_werkt() {
   wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io ||
     stop 1 "de sandbox-node kan ghcr.io niet opzoeken. Na een wissel van netwerk helpt een herstart van beide clusters: (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin)"
@@ -354,7 +368,7 @@ sandbox_op() {
   if sandbox_bestaat; then
     sandbox_van_ons || stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: $0 af"
     # Start hem als hij gepauzeerd is, en zet de context in de kubeconfig van de worktree.
-    fj plugins cluster-start >/dev/null
+    fj plugins cluster-start >/dev/null || stop 1 "de sandbox starten faalde (melding hierboven); ruim hem op met: $0 af"
     echo "OK: sandbox bestaat al"
   else
     (cd "$WORKTREE/plugins" && PWD=$WORKTREE/plugins KUBECONFIG=$KUBECONFIG_LOKAAL mise exec -- \
@@ -412,11 +426,15 @@ plugin_hervatten() {
   esac
 
   # De catalogus is anoniem, en het platform publiceert hem op zijn eigen Gateway.
-  local antwoord hash image
-  antwoord=$(curl -s --max-time 10 --cacert "$(mkcert_caroot)/rootCA.pem" -X POST \
+  local ca antwoord hash image
+  ca=$(mkcert_caroot) || stop 2 "mkcert vindt zijn CA niet (mkcert -CAROOT)"
+  antwoord=$(curl -sS --fail-with-body --max-time 10 --cacert "$ca/rootCA.pem" -X POST \
     https://marketplace-catalog-api.fundament.localhost:8443/catalog.v1.CatalogService/GetPluginDefinition \
     -H 'Content-Type: application/json' \
-    -d "{\"name\":{\"organizationName\":\"system\",\"pluginName\":\"$naam\"},\"version\":\"$versie\"}")
+    -d "{\"name\":{\"organizationName\":\"system\",\"pluginName\":\"$naam\"},\"version\":\"$versie\"}") || {
+    echo "$antwoord" >&2
+    stop 1 "de catalogus op het platform gaf geen antwoord voor $naam $versie (melding van curl hierboven)"
+  }
   hash=$(hash_uit_catalogus "$antwoord") || { echo "$antwoord" >&2; stop 1 "geen hash in de catalogus voor $naam $versie"; }
 
   # De registry van de sandbox verdwijnt met `af`, en publish heeft het image net opnieuw gebouwd;
@@ -459,7 +477,7 @@ plugin_op() {
 
   wacht_tot 600 "$installatie draait" installatie_klaar "$installatie" || {
     kc get plugininstallation "$installatie" -o jsonpath='{.status.message}{"\n"}' >&2 || true
-    stop 1 "$installatie draait niet; zie: kubectl --context $SANDBOX_CONTEXT get plugininstallation $installatie -o yaml"
+    stop 1 "$installatie draait niet; zie: $KC_SANDBOX get plugininstallation $installatie -o yaml"
   }
 }
 
@@ -486,7 +504,7 @@ plugins_op() {
   wacht_tot 300 "CRD van CloudNativePG" kc get crd clusters.postgresql.cnpg.io ||
     stop 1 "de CRD clusters.postgresql.cnpg.io ontbreekt"
   wacht_tot 600 "cert-manager met Gateway-ondersteuning" cert_manager_met_gateway ||
-    stop 1 "cert-manager draait zonder Gateway-ondersteuning; zie: kubectl --context $SANDBOX_CONTEXT get plugininstallation system--cert-manager -o yaml"
+    stop 1 "cert-manager draait zonder Gateway-ondersteuning; zie: $KC_SANDBOX get plugininstallation system--cert-manager -o yaml"
 }
 
 # --- Voorzieningen in de namespace ---------------------------------------------------------------
@@ -523,7 +541,7 @@ voorzieningen_op() {
   wacht_tot 300 "certificaat web-tls van de Gateway" kc -n "$NS" get secret web-tls ||
     stop 1 "cert-manager maakte geen certificaat web-tls voor Gateway web"
   wacht_tot 300 "Gateway web Programmed" conditie_klaar gateway web Programmed ||
-    stop 1 "Gateway web is niet Programmed; zie: kubectl --context $SANDBOX_CONTEXT -n $NS describe gateway web"
+    stop 1 "Gateway web is niet Programmed; zie: $KC_SANDBOX -n $NS describe gateway web"
 
   stap "databases (CloudNativePG)"
 
@@ -535,7 +553,7 @@ voorzieningen_op() {
 
   for db in db ldv-uitvraag; do
     wacht_tot 600 "database $db gezond" database_gezond "$db" ||
-      stop 1 "database $db is niet gezond; zie: kubectl --context $SANDBOX_CONTEXT -n $NS describe cluster.postgresql.cnpg.io $db"
+      stop 1 "database $db is niet gezond; zie: $KC_SANDBOX -n $NS describe cluster.postgresql.cnpg.io $db"
     kc -n "$NS" get secret "$db-app" >/dev/null || stop 1 "Secret $db-app ontbreekt"
   done
 
@@ -782,7 +800,7 @@ controleer() {
   done
 
   if [ "$fouten" -ne 0 ]; then
-    echo "$fouten controle(s) niet in orde. De opstelling blijft staan voor onderzoek met kubectl --context $SANDBOX_CONTEXT -n $NS."
+    echo "$fouten controle(s) niet in orde. De opstelling blijft staan voor onderzoek met $KC_SANDBOX -n $NS."
     na_afloop
     exit 1
   fi
@@ -854,6 +872,7 @@ EOF
 op() {
   : "${TAG:?zet TAG op een gepubliceerde image-tag, bijvoorbeeld main-<sha7> van de laatste main-commit}"
   [[ $REPLICAS =~ ^[1-9][0-9]?$ ]] || stop 2 "REPLICAS moet een geheel getal van 1 tot 99 zijn"
+  geen_test_vm
   vereis_tools docker mise git jq curl openssl mkcert "$(command -v ss >/dev/null && echo ss || echo lsof)"
   # type -P: kubectl en helm zijn hierboven vangfuncties, command -v zou die vinden.
   type -P kubectl >/dev/null && type -P helm >/dev/null || stop 2 "kubectl en helm moeten op het PATH staan"
@@ -906,6 +925,7 @@ main() {
       ;;
     af)
       vereis_tools docker git mise jq
+      geen_test_vm
 
       case "${2:-}" in
         "") af nee ;;
@@ -916,6 +936,8 @@ main() {
     controleer)
       [ "$#" -eq 1 ] || stop 2 "controleer kent geen argumenten"
       vereis_tools curl
+      [ -f "$KUBECONFIG_LOKAAL" ] ||
+        stop 2 "geen opstelling op Fundament ${FUNDAMENT_REF:0:8} ($KUBECONFIG_LOKAAL ontbreekt); zet dezelfde FUNDAMENT_REF als bij op, of draai eerst op"
       werkmap
       controleer
       ;;

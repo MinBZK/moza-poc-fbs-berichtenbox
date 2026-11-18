@@ -285,38 +285,48 @@ hieronder).
 
 ### Pin-ophoging naar Fundament `e18ad710` (2026-11-18)
 
-Fundament loste de meeste bevindingen van 12 november upstream op (#658, #659, #660, #662, #663,
-#665, en #682 als opvolger van #657). De pin gaat daarom van `b9c12531` naar `e18ad710`, zonder te
-wachten op #661 (`functl auth status`).
+Fundament loste de meeste bevindingen van 12 november upstream op (fundament-oss/fundament#658,
+#659, #660, #662, #663, #665, en #682 als opvolger van #657). De pin gaat daarom van `b9c12531` naar
+`e18ad710`, zonder te wachten op fundament-oss/fundament#661 (`functl auth status`).
 
 Wat eruit ging:
 - `k3d_config_loopback` en het zelf aanmaken van netwerk en platform: hun `just cluster-create` zet
   alles op loopback, ook de Kubernetes-API, en leest `FUNDAMENT_K3D_SUBNET`. Onze variabele heet nu
-  ook zo.
+  ook zo, en wordt geëxporteerd: hun Justfile leest hem uit de omgeving.
+- De eigen `skaffold run`: `just deploy local` pusht nu naar `localhost:5111`, en zijn profiel
+  `env-local` zet de kube-context zelf op `k3d-fundament`.
 - De eigen socat-relays met een hostpoort: hun `just plugins sandbox-catalog` hangt de relays aan
   beide Docker-netwerken, zonder hostpoort. De hash van een al goedgekeurde versie komt nu van de
-  route van de catalogus op het platform (`marketplace-catalog-api.fundament.localhost:8443`).
+  route van de catalogus op het platform (`marketplace-catalog-api.fundament.localhost:8443`). Hun
+  recipe start `alpine/socat` zonder tag of digest; ons eigen image was op digest gepind.
 - De uitzondering voor `->6443` in de poortcontrole: een API op alle adressen is nu een cluster van
   een oudere versie.
 
 Wat bleef, en waarom:
-- **De eigen `skaffold run --kube-context`.** `just deploy local` pusht nu naar het goede adres,
-  maar noemt geen kube-context. Het rolt uit naar de huidige context van `.dev/kubeconfig`, en
-  hun recipes voor de sandbox zetten die op de sandbox.
 - **Het eigen aanmaken van de sandbox.** Hun `just plugins cluster-create` kent geen k3s-image en
   geen extra poort; wij hebben 1.36 en https op `127.0.0.1:$HTTPS_POORT` nodig. Het gebruikt nu hun
   config ongewijzigd.
-- **`functl org set` als test op een sessie**, tot #661 er is.
+- **`functl org set` als test op een sessie**, tot fundament-oss/fundament#661 er is.
 - **Pinnen op de hash van de definitie.** Na #682 kan een installatie zonder hash, maar gepind ligt
   dichter bij het fieldlab.
 
 Nieuw:
-- De contexten staan in `$WORKTREE/.dev/kubeconfig`; `kc`, `kcp` en `hm` geven die mee.
-  `~/.kube/config` blijft onaangeroerd (checksum voor en na de run gelijk).
+- De contexten staan in `$WORKTREE/.dev/kubeconfig`; `kc`, `kcp` en `hm` geven die mee, en de
+  meldingen noemen hem ook. `~/.kube/config` blijft onaangeroerd (checksum voor en na de run gelijk).
+  Hun recipes volgen in hun test-VM (`FUNDAMENT_TEST_ENV=1` of `/etc/fundament-test-env`) de
+  kubeconfig van de shell; het script zet de variabele uit en weigert in die VM.
 - `sandbox_van_ons` leest het k3s-image en de poortbindingen uit `docker inspect`, niet via de API.
   Daarmee is ook een gestopte sandbox te herkennen, en een die nog in de kubeconfig van de vorige
-  pin staat. `op` start een gestopte sandbox met hun `just plugins cluster-start`. Dat lost vraag
-  1 uit de PR op.
+  pin staat. `op` start een gestopte sandbox met hun `just plugins cluster-start`. Zo blokkeert een
+  gepauzeerde sandbox `op` en `af` niet meer.
+- Een catalogus die niet of met een HTTP-fout antwoordt, meldt het script als zodanig, niet als een
+  ontbrekende hash.
+
+Review: een codereview, een review van de tests, van de foutafhandeling en van het commentaar. Er
+waren twee hoge bevindingen: de omgang met `FUNDAMENT_TEST_ENV`, en tests die ook zonder de
+bewaakte code slaagden (de export van het subnet, de poortcontrole na het aanmaken) of ontbraken
+(`sandbox_op`, `plugin_hervatten`). Beide zijn opgelost; elke nieuwe test is met een mutatie van
+het script rood gezien. De reden die eerst voor de eigen `skaffold run` stond, klopte niet.
 
 Live, met images `main-7ab403f`:
 
@@ -327,4 +337,4 @@ Live, met images `main-7ab403f`:
 | Gepauzeerd met `k3d cluster stop`, dan `op` | groen; de sandbox wordt herkend en gestart, de API-poorten blijven gelijk |
 | `af`, dan `op` | groen; de hashes komen uit de catalogus via de route op het platform |
 | Poorten | alles op loopback; de relays zonder hostpoort |
-| Huidige kube-context | blijft `kind-mijnbureau` |
+| Huidige kube-context | blijft ongewijzigd |

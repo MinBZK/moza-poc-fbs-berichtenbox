@@ -150,6 +150,8 @@ gelijk "registry met poort" "v1.36.6-k3s1" "$(k3s_versie_uit_image localhost:500
 gelijk "geen k3s-image: niets" "" "$(k3s_versie_uit_image docker.io/library/nginx:1.29 || true)"
 gelijk "geen k3s-image: exit 1" 1 "$(code_van k3s_versie_uit_image docker.io/library/nginx:1.29)"
 gelijk "leeg: exit 1" 1 "$(code_van k3s_versie_uit_image '')"
+gelijk "alleen een digest: exit 1" 1 "$(code_van k3s_versie_uit_image rancher/k3s@sha256:88d3fac10eb4a429d3c5275f4868fe4b13620f6bbca5bdb5dca0627ac76ae2a0)"
+gelijk "een naam die op k3s lijkt: exit 1" 1 "$(code_van k3s_versie_uit_image evil/notk3s:v1.36.6-k3s1)"
 
 echo "== mappings_uit_inspect =="
 
@@ -508,14 +510,95 @@ code=0
 uitvoer=$(in_script 'docker() { return 1; }; sandbox_van_ons') || code=$?
 gelijk "sandbox_van_ons: docker faalt: exit 1" 1 "$code"
 
-# Het platform komt uit hun eigen recipe, met ons subnet; die leest FUNDAMENT_K3D_SUBNET.
-uitvoer=$(in_script 'fj() { echo "RECIPE $* subnet=$FUNDAMENT_K3D_SUBNET"; }; docker_poorten() { :; }; platform_maken') || true
+# Het platform komt uit hun eigen recipe, met ons subnet. Hun Justfile leest FUNDAMENT_K3D_SUBNET uit
+# de omgeving; daarom leest de stub hem in een kindproces, zodat alleen een export telt.
+uitvoer=$(in_script 'fj() { bash -c "echo RECIPE \$* subnet=\${FUNDAMENT_K3D_SUBNET-AFWEZIG}" _ "$@"; }; docker_poorten() { :; }; platform_maken') || true
 gelijk "platform_maken: hun cluster-create met het subnet" "RECIPE cluster-create subnet=172.29.0.0/16" "$uitvoer"
-uitvoer=$(FUNDAMENT_K3D_SUBNET=10.99.0.0/16 in_script 'fj() { echo "subnet=$FUNDAMENT_K3D_SUBNET"; }; docker_poorten() { :; }; platform_maken') || true
+uitvoer=$(FUNDAMENT_K3D_SUBNET=10.99.0.0/16 in_script 'fj() { bash -c "echo subnet=\${FUNDAMENT_K3D_SUBNET-AFWEZIG}"; }; docker_poorten() { :; }; platform_maken') || true
 gelijk "platform_maken: een eigen subnet gaat mee" "subnet=10.99.0.0/16" "$uitvoer"
+# Fundament bepaalt de k3d-config nu zelf; deze controle is wat een open poort nog tegenhoudt.
+code=0
+uitvoer=$(in_script 'fj() { :; }; docker_poorten() { echo "k3d-fundament-serverlb|0.0.0.0:54328->54328/tcp"; }; platform_maken') || code=$?
+gelijk "platform_maken: poort op alle adressen na het aanmaken: exit 2" 2 "$code"
+bevat "platform_maken: noemt de opruiming" "af --met-platform" "$uitvoer"
 code=0
 uitvoer=$(in_script 'fj() { return 1; }; platform_maken') || code=$?
 gelijk "platform_maken: recipe faalt: exit 2" 2 "$code"
+
+# --- sandbox_op ---
+
+# Naar stderr: het script stuurt de stdout van cluster-start naar /dev/null.
+SANDBOX_STUBS='fj() { echo "RECIPE $*" >&2; }; sandbox_dns_werkt() { :; };
+sandbox_bestaat() { [ "${SANDBOX:-ja}" = ja ]; }; sandbox_van_ons() { [ "${VAN_ONS:-ja}" = ja ]; };
+docker_poorten() { printf "%s\n" "${POORTEN:-}"; }; mkdir -p "$WORKTREE/plugins";
+mise() { echo "MISE KUBECONFIG=$KUBECONFIG $*"; };'
+code=0
+uitvoer=$(in_script "$SANDBOX_STUBS VAN_ONS=nee; sandbox_op") || code=$?
+gelijk "sandbox_op: vreemde sandbox: exit 2" 2 "$code"
+bevat_niet "sandbox_op: vreemde sandbox wordt niet gestart" "plugins cluster-start" "$uitvoer"
+code=0
+uitvoer=$(in_script "$SANDBOX_STUBS sandbox_op") || code=$?
+gelijk "sandbox_op: eigen sandbox: exit 0" 0 "$code"
+bevat "sandbox_op: eigen sandbox: gestart via hun recipe" "RECIPE plugins cluster-start" "$uitvoer"
+bevat "sandbox_op: relays via hun recipe" "RECIPE plugins sandbox-catalog" "$uitvoer"
+code=0
+uitvoer=$(in_script "$SANDBOX_STUBS fj() { case \"\$*\" in \"plugins cluster-start\") return 1 ;; esac; }; sandbox_op") || code=$?
+gelijk "sandbox_op: starten faalt: exit 1" 1 "$code"
+bevat "sandbox_op: starten faalt: noemt de opruiming" "af" "$uitvoer"
+# De relays hebben geen hostpoort meer; staat er na hun recipe toch iets open, dan is dat een fout.
+code=0
+uitvoer=$(in_script "$SANDBOX_STUBS POORTEN='fun-authn-relay|0.0.0.0:38081->8080/tcp'; sandbox_op") || code=$?
+gelijk "sandbox_op: open poort na sandbox-catalog: exit 2" 2 "$code"
+code=0
+uitvoer=$(in_script "$SANDBOX_STUBS SANDBOX=nee; sandbox_op") || code=$?
+gelijk "sandbox_op: nieuwe sandbox: exit 0" 0 "$code"
+bevat "sandbox_op: nieuwe sandbox op het k3s-image van 1.36" "--image $(sed -n 's/^readonly K3S_IMAGE=//p' "$SCRIPT")" "$uitvoer"
+bevat "sandbox_op: nieuwe sandbox met https op loopback" "-p 127.0.0.1:9443:443@loadbalancer" "$uitvoer"
+bevat "sandbox_op: nieuwe sandbox in de kubeconfig van de worktree" "KUBECONFIG=$TESTCACHE/fbs-fundament-testcluster/fundament-" "$uitvoer"
+bevat "sandbox_op: nieuwe sandbox met hun config" "--config=sandbox/k3d-config.yaml" "$uitvoer"
+# De stubs maakten een worktree-map; de tests van af gaan uit van een lege cache.
+rm -rf "$TESTCACHE/fbs-fundament-testcluster"
+
+# --- plugin_hervatten: de hash van een goedgekeurde versie uit de catalogus op het platform ---
+
+HERVAT_STUBS='bestaande_versie() { echo 1.2.3; }; versie_uit_catalogus() { echo "approved id-1"; }; fj() { :; };
+mkcert_caroot() { echo /ca; };'
+code=0
+uitvoer=$(in_script "$HERVAT_STUBS curl() { echo \"CURL \$*\" >&2; echo \"curl: (7) Failed to connect\" >&2; return 7; }; plugin_hervatten cert-manager x") || code=$?
+gelijk "plugin_hervatten: catalogus onbereikbaar: exit 1" 1 "$code"
+bevat "plugin_hervatten: via de route op het platform" "https://marketplace-catalog-api.fundament.localhost:8443/catalog.v1.CatalogService/GetPluginDefinition" "$uitvoer"
+bevat "plugin_hervatten: getoetst tegen de lokale CA" "--cacert /ca/rootCA.pem" "$uitvoer"
+bevat "plugin_hervatten: noemt de verbinding, niet een ontbrekende hash" "gaf geen antwoord" "$uitvoer"
+bevat_niet "plugin_hervatten: geen 'geen hash'" "geen hash" "$uitvoer"
+# Een HTTP-fout (ontbrekende route of versie) is ook geen antwoord: curl faalt alleen met --fail-with-body.
+code=0
+uitvoer=$(in_script "$HERVAT_STUBS curl() { echo '{\"code\":\"not_found\"}'; case \"\$*\" in *--fail-with-body*) return 22 ;; esac; }; plugin_hervatten cert-manager x") || code=$?
+gelijk "plugin_hervatten: HTTP-fout: exit 1" 1 "$code"
+bevat "plugin_hervatten: HTTP-fout: noemt de catalogus" "gaf geen antwoord" "$uitvoer"
+bevat "plugin_hervatten: HTTP-fout: toont het antwoord" "not_found" "$uitvoer"
+code=0
+uitvoer=$(in_script "$HERVAT_STUBS mkcert_caroot() { return 1; }; curl() { echo CURL-AANGEROEPEN; }; plugin_hervatten cert-manager x") || code=$?
+gelijk "plugin_hervatten: geen CA: exit 2" 2 "$code"
+bevat_niet "plugin_hervatten: geen CA: geen curl" "CURL-AANGEROEPEN" "$uitvoer"
+
+# --- de test-VM van Fundament ---
+
+# Met FUNDAMENT_TEST_ENV schrijven hun recipes in ~/.kube/config; het script zet hem uit.
+uitvoer=$(FUNDAMENT_TEST_ENV=1 in_script 'bash -c "echo \${FUNDAMENT_TEST_ENV-weg}"')
+gelijk "FUNDAMENT_TEST_ENV gaat niet mee naar hun recipes" "weg" "$uitvoer"
+code=0
+uitvoer=$(in_script 'in_test_vm() { true; }; geen_test_vm') || code=$?
+gelijk "geen_test_vm: in hun test-VM: exit 2" 2 "$code"
+code=0
+uitvoer=$(in_script 'in_test_vm() { false; }; geen_test_vm') || code=$?
+gelijk "geen_test_vm: op de host: exit 0" 0 "$code"
+
+# --- controleer zonder opstelling op deze FUNDAMENT_REF ---
+
+code=0
+uitvoer=$(FUNDAMENT_REF=0000000000000000000000000000000000000000 in_script 'main controleer') || code=$?
+gelijk "controleer: geen kubeconfig in de worktree: exit 2" 2 "$code"
+bevat "controleer: noemt FUNDAMENT_REF" "FUNDAMENT_REF" "$uitvoer"
 code=0
 uitvoer=$(in_script 'helm list') || code=$?
 gelijk "kale helm: exit 2" 2 "$code"
@@ -684,8 +767,8 @@ gelijk "alleen_loopback: docker faalt: niet in orde" 1 "$code"
 code=0
 uitvoer=$(in_script 'docker() { return 1; }; wacht_tot() { shift 2; "$@"; }; sandbox_dns_werkt') || code=$?
 gelijk "sandbox_dns_werkt: geen DNS: exit 1" 1 "$code"
-# Via k3d, zoals Fundament het doet, niet docker restart: k3d zet bij het starten ook de adressen
-# van het netwerk opnieuw in CoreDNS.
+# Via k3d, zoals Fundaments eigen cluster-start, niet docker restart: k3d zet bij het starten ook de
+# adressen van het netwerk opnieuw in CoreDNS.
 bevat "sandbox_dns_werkt: noemt de herstart via k3d" "k3d cluster stop fundament-plugin fundament" "$uitvoer"
 bevat_niet "sandbox_dns_werkt: geen docker restart" "docker restart" "$uitvoer"
 code=0
@@ -695,7 +778,7 @@ bevat "sandbox_dns_werkt: zoekt de registry van de images op" "nslookup ghcr.io"
 
 # --- platform_op: alleen uitrollen als het platform er aantoonbaar niet is ---
 
-PLATFORM_STUBS='platform_bestaat() { true; }; fj() { :; }; mise() { echo "UITROL $*"; };
+PLATFORM_STUBS='platform_bestaat() { true; }; fj() { case "$*" in deploy*) echo "UITROL $*" ;; esac; };
 wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; };
 docker_poorten() { :; }; mkdir -p "$WORKTREE";'
 code=0
@@ -705,7 +788,7 @@ bevat_niet "platform_op: API-fout: niet opnieuw uitrollen" "UITROL" "$uitvoer"
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Error from server (NotFound): deployments.apps \"organization-api\" not found' >&2; return 1 ;; esac; }; platform_op") || code=$?
 gelijk "platform_op: niet uitgerold: exit 0" 0 "$code"
-bevat "platform_op: niet uitgerold: uitrollen" "UITROL exec -- skaffold run" "$uitvoer"
+bevat "platform_op: niet uitgerold: uitrollen met hun recipe" "UITROL deploy local" "$uitvoer"
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; platform_op") || code=$?
 gelijk "platform_op: al uitgerold: exit 0" 0 "$code"
