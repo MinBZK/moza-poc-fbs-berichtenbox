@@ -57,7 +57,17 @@ pin-bump mergen. Live getest is hij met de preview-image van MinBZK/moza-poc#180
 ## Verificatie
 
 - `./mvnw clean verify -pl demo/demo-console -am`.
-- Lokaal de demo-stack met de proeftuin van MinBZK/moza-poc#180: persona kiezen, ophalen, een
-  bericht opvoeren dat zonder nieuwe ronde verschijnt, ontdubbeling.
+- Lokaal de demo-stack (hostnet) met de proeftuin van MinBZK/moza-poc#180
+  (`ghcr.io/minbzk/moza-poc/preview:pr-180-2d9bad0`), in een headless browser via CDP:
+  - het paneel toont het frame, `berichtenbox.html` geeft 404;
+  - eerste bezoek: sessie, 409, `_ophalen`, `_volgen`;
+  - *Bericht plaatsen*: het bericht staat na ~3,6 s in de lijst, zonder één verzoek van de
+    berichtenbox — dus via de aanmelding en `_volgen`, niet via een nieuwe ronde;
+  - *Tweemaal hetzelfde event sturen*: precies één bericht erbij;
+  - herladen start geen nieuwe ronde; sessies van de persona beëindigen plus een klik wel;
+  - scenario 3 (magazijn A uit) en 9 (profiel uit, na 30 s) tonen hun melding;
+  - CORS: een PATCH met de origin van de demo-proxy slaagt, met die van de console (`:8095`) 403.
+- Scenario 15 bleek in de proeftuin niet als afkap-melding te zien: die toont één melding, en bij
+  Grootbedrijf wint "niet geleverd". Het runbook wijst daarvoor naar de netwerk-tab en de log.
 - Na de merge op ZAD: de CORS-regex van de uitvraag en de alias `UITVRAAG_BASIS` op `democonsole`
   in Operations Manager bijwerken; de repo beschrijft ze alleen.
