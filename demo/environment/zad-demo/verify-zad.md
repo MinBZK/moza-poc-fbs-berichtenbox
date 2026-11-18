@@ -134,7 +134,8 @@ Een nieuwe ophaalronde komt er pas als de sessies van de persona weg zijn: Info 
 open → *Alle sessies van deze persona beëindigen*, en klik daarna in de berichtenbox. Hieronder heet
 dat "een nieuwe ronde".
 
-**Druk op `Profielservice uit`** en start een nieuwe ronde. Verwacht: het ophalen faalt, want de
+**Druk op `Profielservice uit`**, wacht een halve minuut en start een nieuwe ronde. Zonder
+wachten slaagt de ronde nog: de uitvraag onthoudt de organisaties per ontvanger 30 seconden. Verwacht: het ophalen faalt, want de
 **uitvraag** kan niet bepalen welke magazijnen bij deze ontvanger horen. Druk op **Alles normaal**
 en start opnieuw een ronde — nu slaagt het.
 
@@ -181,7 +182,7 @@ adres niet, dus een leeg frame komt hier nooit door een mislukte toets. Staat de
 open het adres dan los in de browser: geeft het daar een pagina, dan is het frame het probleem;
 geeft het een fout, dan staat het proeftuin-component niet of wijst de alias mis.
 
-Kies daarna in de berichtenbox een testaccount van het stelsel — `Garage Van Dijk B.V.` is er een
+Kies daarna in de berichtenbox een testaccount van het stelsel — `Aangesloten onderneming 4 (met bijlagen)` (Garage Van Dijk B.V.) is er een
 met een KVK-nummer. Verwacht berichten. Krijg je "Er gaat iets mis met het ophalen van uw berichten
 bij de bronnen", kijk dan eerst hier:
 

@@ -111,7 +111,7 @@ class PersonaConfiguratieTest {
     @Test
     fun `levert de keuzelijst mee in de omgeving, met de bron in kleine letters`() {
         // Via /api/demo/omgeving: het personas-adres hoort bij de personadienst, en deze module
-        // beantwoordt het bewust niet. De twee pagina's die zij wél serveert lezen de lijst hier.
+        // beantwoordt het bewust niet. Het paneel leest de lijst hier.
         val respons = HttpClient.newHttpClient().send(
             HttpRequest.newBuilder(omgevingUrl.toURI()).GET().build(),
             HttpResponse.BodyHandlers.ofString(),

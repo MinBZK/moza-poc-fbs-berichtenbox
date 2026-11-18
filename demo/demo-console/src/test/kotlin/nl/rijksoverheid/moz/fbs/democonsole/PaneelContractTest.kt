@@ -646,6 +646,18 @@ class PaneelContractTest {
     }
 
     @Test
+    fun `de omgeving levert precies de velden die het paneel leest`() {
+        // Een hernoemd veld laat een keuzelijst of knoppengroep stil verdwijnen, en een veld dat
+        // niemand meer leest blijft anders ongemerkt staan. Afgeleid uit het script, zodat een
+        // nieuwe lezing in het paneel deze test meteen laat meetellen.
+        val geleverd = ObjectMapper().readTree(haalJson(omgevingUrl)).fieldNames().asSequence().toSet()
+        val gelezen = Regex("""\bomgeving\.([A-Za-z]+)""").findAll(PaneelBestanden.script()).map { it.groupValues[1] }.toSet()
+
+        assertTrue(gelezen.isNotEmpty(), "geen enkele lezing van omgeving.* in bediening.js; deze test meet dan niets")
+        assertEquals(gelezen, geleverd)
+    }
+
+    @Test
     fun `de omgeving levert het adres van de berichtenbox`() {
         // Het paneel toont de berichtenbox in een frame en kent zelf alleen het lokale pad achter
         // de demo-proxy. Ontbreekt dit veld, dan valt het frame op een gedeelde omgeving terug op

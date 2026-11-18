@@ -196,7 +196,7 @@ services:
       MAGAZIJN_OIN: "00000000000000100000"
       # Downstreams (aanmeld=echte uitvraag-webhook, notificatie) lopen via Toxiproxy zodat fase 5
       # ze per knop kan uitschakelen. Transparant bij normaal bedrijf. De aanmeld-levering laat een
-      # nieuw bericht live in de sessiecache belanden (mits de lijst van de ontvanger opgehaald is), zodat 'Vernieuw' werkt.
+      # nieuw bericht live in de sessiecache belanden (mits de lijst van de ontvanger opgehaald is), zodat een open berichtenbox het via _volgen laat zien.
       AANMELD_URL: http://toxiproxy:18086/api/v1/aanmeldingen
       NOTIFICATIE_URL: http://toxiproxy:18084/events
       PROFIEL_SERVICE_URL: http://profiel-service:8080
@@ -473,7 +473,8 @@ services:
 
   # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
   # of Eleventy op de machine vraagt. Zijn nginx zet het API-verkeer server-side door, dus de
-  # browser praat met één origin en er is geen CORS nodig.
+  # browser praat met één origin; alleen schrijfverzoeken dragen die origin mee, en daarvoor staat
+  # hij op de CORS-allowlist van de uitvraag.
   #
   # Gepind op digest. Die bepaalt wat er getrokken wordt; `latest` staat er alleen bij als
   # leesbare aanduiding van wat het is — hun main — en wordt nergens geverifieerd. Alleen die tag

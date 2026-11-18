@@ -381,13 +381,14 @@ herlading. Een nieuwe ronde komt er pas als de laatste sessie van die persona we
   tegelijk. Klik daarna in de berichtenbox: die start een nieuwe sessie, de cache is leeg, en de
   ronde loopt.
 - **Als ondernemer:** *Uitloggen* in de kop van de proeftuin en opnieuw inloggen met hetzelfde
-  testaccount. Uitloggen beëindigt de sessies van dat tabblad.
+  testaccount. Uitloggen beëindigt alleen de sessies van dát tabblad: heeft een ander tabblad
+  dezelfde persona open, dan houdt dat de cache in leven en blijft de ronde uit. Sluit dat tabblad
+  eerst, of gebruik de weg via het paneel.
 
-Heeft een ander tabblad dezelfde persona open, dan houdt dat de cache in leven en blijft de ronde
-uit: sluit dat tabblad eerst. De scenario's in §9 zeggen "nieuwe ronde" waar dit nodig is.
+De scenario's in §9 zeggen "nieuwe ronde" waar dit nodig is.
 
 De twee persona's met 45 en 100 organisaties laten ook zien wat er nog niet af is: een deel van die
-organisaties valt buiten de lijst met de melding "tijdelijk niet beschikbaar". Weet dat vóór je die
+organisaties telt als niet geleverd, terwijl er niets stuk is. Weet dat vóór je die
 persona's kiest — zie
 [Een beperking die tijdens een demonstratie opvalt](ontwikkelen.md#een-beperking-die-tijdens-een-demonstratie-opvalt).
 
@@ -538,10 +539,8 @@ de simulator herstarten na regenereren.
 De demo dekt de 14 scenario's uit de eisen, plus #15 (niet alles opgehaald). 14 zijn nu speelbaar; #14 (load/stress) en de rode vlag
 volgen in fase 7.
 
-**Elk scenario speel je in de berichtenbox van de proeftuin** (§5b), met het paneel ernaast. Een
-tweede berichtenbox is er niet: de eigen pagina van de demo-console is verwijderd
-(MinBZK/MijnOverheidZakelijk#1055), en het MOZa-portaal neemt de rol van de proeftuin later over
-(MinBZK/MijnOverheidZakelijk#1345). De proeftuin toont wat de ondernemer ziet. Wat hij niet toont,
+**Elk scenario speel je in de berichtenbox van de proeftuin** (§5b), met het paneel ernaast. Het
+MOZa-portaal neemt die rol later over (MinBZK/MijnOverheidZakelijk#1345). De proeftuin toont wat de ondernemer ziet. Wat hij niet toont,
 de uitkomst per organisatie en het technische foutdetail, laat je zien in de log van de uitvraag
 (`demo/up.sh compose logs -f berichtenuitvraag`) of in de netwerk-tab van de browser.
 
@@ -648,13 +647,14 @@ leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's
 - **Ontdubbeling en de live-push** vereisen een berichtenbox met een lopende sessie voor die
   persona: open hem eerst. Een nieuw bericht verschijnt als binnenkomer alleen op de eerste pagina
   van Postvak IN.
-- **Een nieuwe ronde blijft uit** zolang een ander tabblad dezelfde persona open heeft; zie §6.
+- **Na uitloggen blijft een nieuwe ronde uit** zolang een ander tabblad dezelfde persona open
+  heeft; zie §6.
 - **Twee keer vullen zonder legen** geeft dubbele berichten (het magazijn kent eigen ID's toe) —
   daarom eerst *Magazijnen legen*.
 - **Na een reset loopt de Berichtenbox een halve minuut achter.** Zet je een organisatie terug op
   normaal — met *Alles normaal (reset)* of *Legen en gedrag terugzetten* — dan staat het magazijn
   meteen goed (controleer met *Toon magazijnen en hun gedrag*), maar meldt de Berichtenbox hem nog
-  even als *tijdelijk niet beschikbaar*. De uitvraag houdt per organisatie bij hoe vaak die achter
+  even als niet geleverd (in de log van de uitvraag: *tijdelijk niet beschikbaar*). De uitvraag houdt per organisatie bij hoe vaak die achter
   elkaar stukging en slaat hem na drie storingen 30 seconden over
   (`berichtensessiecache.magazijn-circuit.open-seconds`), zodat één kapotte leverancier niet elke
   ophaalronde ophoudt. Die teller zit in de uitvraag en niet in het magazijn, dus geen enkele knop

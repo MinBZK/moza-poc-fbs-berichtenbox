@@ -213,13 +213,13 @@ origin mee, de proxy geeft die door, en voor de uitvraag is dat een vreemde orig
 proeftuin in de regex een `403 CORS Rejected - Invalid origin` zonder body. Lezen merkt er niets
 van, omdat een browser bij een GET naar zijn eigen origin geen `Origin` stuurt.
 
-De console hoort er niet op: het paneel roept de uitvraag niet vanuit de browser aan, alleen
-server-side voor de ontdubbeling.
-
 Hetzelfde geldt voor de previews van de proeftuin in hun eigen repository (`proef-pr<n>-…` in
 project `pm-5sj`): die wijzen naar de uitvraag van `test`, zodat hun werk tegen onze keten te
 bekijken is. Hun overige deployments (`poc`, `gebruikersonderzoek`, `release-…`) staan er bewust
 niet op.
+
+De console hoort er niet op: het paneel roept de uitvraag niet vanuit de browser aan, alleen
+server-side voor de ontdubbeling.
 
 Elke deployment heeft een eigen origin (`proeftuin-test-…`, `proeftuin-pr-<n>-…`), en previews
 komen en gaan. Eén regex dekt ze allemaal; Quarkus leest een waarde tussen schuine strepen als
@@ -228,7 +228,7 @@ reguliere expressie. In het uitvraag-project:
 ```bash
 zadctl -p mpfb-8wh env add -c uitvraag \
   QUARKUS_HTTP_CORS_ENABLED=true \
-  'QUARKUS_HTTP_CORS_ORIGINS=/https://(proeftuin-.+-mpfm-w3h|proef-pr[0-9]+-pm-5sj).rig.prd1.gn2.quattro.rijksapps.nl/'
+  'QUARKUS_HTTP_CORS_ORIGINS=/https://(proeftuin-[a-z0-9-]+-mpfm-w3h|proef-pr[0-9]+-pm-5sj)[.]rig[.]prd1[.]gn2[.]quattro[.]rijksapps[.]nl/'
 ```
 
 Bestaat de waarde al, gebruik dan `env set` in plaats van `env add`.
@@ -236,8 +236,9 @@ Bestaat de waarde al, gebruik dan `env set` in plaats van `env add`.
 **Geen backslashes in die waarde.** Een geëscapete variant
 (`https:\/\/proeftuin-…\.rig\.…`) laat de SOPS-stap van Operations Manager falen op
 `uitvraag-user-secret.to-sops.yaml`, en dan blokkeert élke uitrol van dit project tot de waarde
-terug is. De ongeëscapete punten matchen breder dan strikt nodig, maar alleen binnen een domein dat
-we zelf beheren.
+terug is. Een punt staat daarom als `[.]`: een kale punt matcht elk teken, en dan valt ook
+`proeftuin-x-mpfm-w3h-rig-prd1-gn2-quattro-rijksapps.nl` eronder, een domein dat iedereen kan
+registreren. Om dezelfde reden staat er `[a-z0-9-]+` en geen `.+`.
 
 Methods en headers blijven ongezet; Quarkus spiegelt die uit het preflight-verzoek, zoals compose
 het lokaal ook doet. De property heet `quarkus.http.cors.enabled` en niet `quarkus.http.cors`.
@@ -246,9 +247,11 @@ Controleer het met een preflight, en toets meteen dat het géén wildcard werd: 
 krijgt een `access-control-allow-origin` terug, de console en `kwaadaardig.example` melden
 "geweigerd".
 
-Toets daarbij eerst de HTTP-status en pas daarna de header. Zonder die eerste toets meldt de lus
-"geweigerd" voor élke origin zodra de uitvraag niet antwoordt — en dat is precies de uitkomst die
-je voor `kwaadaardig.example` wilt zien, dus een dode uitvraag leest hier als een geslaagde controle:
+Toets daarbij eerst de HTTP-status en pas daarna de header. Quarkus weigert een preflight met
+`403`; alleen díe status, zonder `access-control-allow-origin`, telt als geweigerd. Elke andere
+fout zegt niets: een dode uitvraag of een ingress die `502` geeft, zou anders lezen als de
+geslaagde weigering die je voor `kwaadaardig.example` wilt zien. De proeftuin vooraan is de
+controle dat de uitvraag leeft:
 
 ```bash
 for o in https://proeftuin-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://kwaadaardig.example; do
@@ -259,6 +262,9 @@ for o in https://proeftuin-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https
 
   case "$antwoord" in
     *STATUS=200*|*STATUS=204*) ;;
+    *STATUS=403*)
+      printf '%s' "$antwoord" | grep -qi '^access-control-allow-origin:' \
+        || { echo "geweigerd: $o"; continue; } ;;
     *) echo "onverwachte status voor $o; deze toets zegt niets:"; printf '%s\n' "$antwoord" | tail -2; continue ;;
   esac
 

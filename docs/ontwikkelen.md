@@ -210,8 +210,8 @@ hem daarom allebei.
 
 Zolang [#1038](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1038) openstaat:
 
-- Bij tientallen aangesloten organisaties valt een deel buiten de lijst, met de melding "tijdelijk
-  niet beschikbaar" terwijl er niets stuk is. Vermoedelijk treft dat steeds dezelfde organisaties,
+- Bij tientallen aangesloten organisaties valt een deel buiten de lijst: de berichtenbox meldt ze
+  als niet geleverd, de uitvraag als "tijdelijk niet beschikbaar", terwijl er niets stuk is. Vermoedelijk treft dat steeds dezelfde organisaties,
   want ze worden in vaste volgorde bevraagd. Zichtbaar bij de persona's met 45 en 100 organisaties.
 
 ## API-requests handmatig uitvoeren (Bruno)

@@ -157,17 +157,18 @@ for oin in "$AFZENDER_OIN_A" "$AFZENDER_OIN_B"; do
         || { echo "FOUT: geen geslaagde bevraging van magazijn $oin in de ophaal-stream"; exit 1; }
 done
 
-# De berichtenbox-console leest deze velden rechtstreeks uit de stroom. De spec beschrijft ze,
-# maar dat is een belofte op papier: deze controle bewijst dat een draaiende keten ze ook
-# werkelijk stuurt. Zonder haar valt een hernoeming pas op in de browser — waar de console
-# stilletjes stopt met bijwerken in plaats van een fout te tonen.
+# Een berichtenbox leest deze velden rechtstreeks uit de stroom. De spec beschrijft ze, maar dat
+# is een belofte op papier: deze controle bewijst dat een draaiende keten ze ook werkelijk stuurt.
+# Zonder haar valt een hernoeming pas op in de browser, waar de voortgang stilletjes stopt in
+# plaats van een fout te tonen. De hele lijst van de spec en niet alleen wat de proeftuin nu
+# leest: het portaal dat hem opvolgt, kan elk van deze velden gaan gebruiken.
 for veld in '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' \
     '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-voltooid"' \
     '"event"[[:space:]]*:[[:space:]]*"ophalen-gereed"' \
     '"magazijnId"' '"naam"' '"aantalBerichten"' '"totaalBerichten"' '"nietOpgehaald"' \
     '"totaalMagazijnen"'; do
     grep -Eq "$veld" "$stream" \
-        || { echo "FOUT: de ophaal-stream mist $veld, dat de berichtenbox-console wél verwacht"; exit 1; }
+        || { echo "FOUT: de ophaal-stream mist $veld, dat de spec belooft"; exit 1; }
 done
 
 lijst=/tmp/smoke-berichten.json
