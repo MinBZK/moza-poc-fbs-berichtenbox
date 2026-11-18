@@ -107,5 +107,4 @@ Deze use case is nog niet gebouwd en nog niet afgesproken ([#1596](https://githu
   nummer en het feit dat die een privacyrecht uitoefent.
 - **Hoe lang bewaart een magazijn een bericht dat nooit verwijderd is?** Nu ruimt het magazijn
   alleen verwijderde berichten op; een bericht dat de ontvanger laat staan, blijft voor altijd ([#1597](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597)).
-- Laat een privacyjurist of de functionaris gegevensbescherming meekijken voordat deze use case
-  naar Logius gaat.
+- Een privacyjurist of de functionaris gegevensbescherming moet deze use case nog beoordelen.
