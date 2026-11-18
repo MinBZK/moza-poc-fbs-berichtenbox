@@ -234,7 +234,7 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
   bouwt dit alle images van Fundament;
 - **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite;
 - **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
-  de relays van de sandbox naar het platform;
+  de relays van de sandbox naar het platform (Fundaments `just plugins sandbox-catalog`);
 - **de plug-ins**: publiceren, goedkeuren en installeren;
 - **in `tnt-fbs--fbs`**: Gateway `web` met een https-listener en een certificaat van cert-manager
   uit een lokale CA, twee databases uit CloudNativePG (PostgreSQL 18, TLS) en Redis Stack;
@@ -277,23 +277,16 @@ Wat hier kan omdat de routes alleen op loopback staan, maar op het fieldlab een 
   `REDIS_UNPROTECTED`.
 
 Wat er op de machine openstaat:
-- **op loopback:** de https-poort, de console (8443), de registries (5111, 5112) en de database
-  van het platform (54328);
-- **op het host-adres van de sandbox-bridge** (bijvoorbeeld `172.25.0.1`): de relays naar de
-  catalogus (38080) en de inlog van het platform (38081). Dat adres is van de host zelf. Elke
-  container op de machine kan erbij, en een buur op hetzelfde netwerk die er een route naartoe
-  legt ook. Via 38081 haalt hij met het openbare seed-wachtwoord een beheerderstoken voor het
-  lokale platform. Fundament's eigen `just plugins sandbox-catalog` zet de relays zelfs op
-  0.0.0.0; het script gebruikt die recipe daarom niet;
-- **op alle adressen:** de Kubernetes-API's van beide k3d-clusters. Anoniem geven die 401, maar
-  ze accepteren wel tokens.
+- **op loopback:** de https-poort, de console (8443), de registries (5111, 5112), de database
+  van het platform (54328) en de Kubernetes-API's van beide clusters;
+- **zonder hostpoort:** de relays naar de catalogus en de inlog van het platform. Ze hangen aan
+  beide Docker-netwerken; alleen containers op die netwerken kunnen erbij.
 
-Publiceert een andere container van de opstelling een poort op alle adressen, ook als hij gestopt
-is, dan weigert `op`. Dat gebeurt vóórdat het iets aanmaakt of start, en nog een keer na het
-opzetten van platform en sandbox. Zo valt een platform op dat met Fundaments eigen recipes is
-gemaakt, of een k3d-config waarvan het script de poorten niet heeft kunnen herschrijven. Een
-weigering na het opzetten laat staan wat er al draait. Ruim het dan meteen op met
-`af --met-platform`.
+Publiceert een container van de opstelling een poort op alle adressen, ook als hij gestopt is,
+dan weigert `op`. Dat gebeurt vóórdat het iets aanmaakt of start, en nog een keer na het opzetten
+van platform en sandbox. Zo valt een platform op dat met een oudere versie van Fundament is
+gemaakt, toen die zijn poorten nog op alle adressen zette. Een weigering na het opzetten laat staan
+wat er al draait. Ruim het dan meteen op met `af --met-platform`.
 
 De containers starten na een herstart van de machine vanzelf weer.
 
@@ -321,16 +314,13 @@ mise exec -- k3d cluster stop fundament-plugin fundament
 mise exec -- k3d cluster start fundament fundament-plugin
 ```
 
-Niet met `docker restart`: alleen `k3d cluster start` zet `host.k3d.internal` terug in CoreDNS, en
-zonder die naam bereikt de plugin-controller het platform niet meer.
+Niet met `docker restart`: `k3d cluster start` zet bij het starten ook de adressen van het
+netwerk opnieuw in CoreDNS, en Fundament herstart zijn clusters zelf ook via k3d.
 
-**Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: ruim de opstelling op
-met `charts/fundament-testcluster.sh af --met-platform`. Wil je hem houden, stop dan op zijn minst
-de clusters en de relays:
-
-```bash
-docker stop $(docker ps -q --filter name=k3d-fundament) fun-catalog-relay fun-authn-relay
-```
+**Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: alles staat op
+loopback, maar de opstelling draagt een openbaar seed-wachtwoord en registries zonder
+authenticatie. Ruim hem op met `charts/fundament-testcluster.sh af --met-platform`, of pauzeer
+hem zoals hierboven.
 
 Het lokale platform installeert bij het aanmaken de mkcert-CA in de trust-stores van de machine
 en van de browsers (`mkcert -install`, met `certutil`). De private sleutel van die CA staat
@@ -338,18 +328,32 @@ daarna ook in een Secret in het platformcluster. Wie die sleutel heeft, kan elke
 van deze machine onderscheppen. De pin op `FUNDAMENT_REF` dekt alleen de broncode van Fundament:
 hun builds halen base-images en Helm-charts op tag op.
 
-Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss`,
-`openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
+**Een opstelling van vóór 18 november** (Fundament `b9c12531`) zette zijn poorten nog deels op alle
+adressen; `op` weigert die. Ruim hem op met `af --met-platform`. Die versie schreef de contexten in
+`~/.kube/config` en had een eigen worktree; haal die resten daarna zelf weg:
+
+```bash
+for c in k3d-fundament k3d-fundament-plugin; do
+  kubectl config delete-context $c; kubectl config delete-cluster $c; kubectl config delete-user admin@$c
+done
+git -C ~/dev/fundament worktree remove ~/.cache/fbs-fundament-testcluster/fundament-b9c12531
+```
+
+Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl`, `ss` (op
+macOS `lsof`), `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
 - `HTTPS_POORT` (standaard 9443);
 - `REPLICAS` (standaard 2): pods per dienst. Twee toetst ook wat één pod verbergt: een tweede pod
   die niet start, en twee pods die tegelijk migreren. Het stelselregister blijft op één: zijn
   chart-values zetten `singleReplica`. Spreiding over nodes en de PodDisruptionBudget toetst de
   proef niet; de sandbox heeft één node;
-- `FUNDAMENT_SUBNET` (standaard `172.29.0.0/16`): Fundament neemt anders 172.19, dat op een
-  machine met meer compose-projecten vaak bezet is;
+- `FUNDAMENT_K3D_SUBNET` (standaard `172.29.0.0/16`), dezelfde variabele als in Fundaments eigen
+  recipes: Fundament neemt anders 172.19, dat op een machine met meer compose-projecten vaak
+  bezet is;
 - `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte. Zet hem met `read -rs
   FUNCTL_API_KEY && export FUNCTL_API_KEY`, niet inline: dan belandt hij niet in de
   shellgeschiedenis.
 
-Ook dit script noemt bij elke aanroep de context, en het wisselt de huidige context niet. Een
-kale `kubectl` of `helm` in het script breekt het af.
+Ook dit script noemt bij elke aanroep de context, en daarbij de kubeconfig in de worktree van
+Fundament (`.dev/kubeconfig`): daar zetten hun recipes de contexten van beide clusters, en
+`~/.kube/config` en je huidige context blijven onaangeroerd. Een kale `kubectl` of `helm` in het
+script breekt het af.

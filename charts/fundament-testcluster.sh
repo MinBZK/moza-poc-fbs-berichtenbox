@@ -16,9 +16,10 @@
 # recipes uit, met de rechten van Docker. Voor het publiceren van de plug-ins maakt het zelf een
 # API-key met het lokale seed-account; FUNCTL_API_KEY gaat voor.
 #
-# Elke kubectl- en helm-aanroep noemt de context, en het script wisselt de huidige context niet:
-# de proefinstallatie heeft een onveilige klep (Redis zonder TLS) en mag niet in een echt cluster
-# belanden als iemand tijdens het draaien elders van context wisselt.
+# Elke kubectl- en helm-aanroep noemt de kubeconfig van de worktree en de context. De contexten
+# staan in die kubeconfig, niet in ~/.kube/config: de proefinstallatie heeft een onveilige klep
+# (Redis zonder TLS) en mag niet in een echt cluster belanden als iemand tijdens het draaien elders
+# van context wisselt.
 #
 # Exitcodes: 0 in orde, 1 een controle faalde, 2 een voorwaarde ontbreekt.
 set -euo pipefail
@@ -35,21 +36,24 @@ readonly PLATFORM_CONTEXT=k3d-fundament
 readonly NS=tnt-fbs--fbs
 HTTPS_POORT=${HTTPS_POORT:-9443}
 FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
-FUNDAMENT_REF=${FUNDAMENT_REF:-b9c1253103f0121ec061507fc241580b94bc3ab4}
-FUNDAMENT_SUBNET=${FUNDAMENT_SUBNET:-172.29.0.0/16}
+FUNDAMENT_REF=${FUNDAMENT_REF:-e18ad710f62966769f03bf5a9505ce4c91f198b0}
+# Fundament neemt anders 172.19.0.0/16, alleen om 172.18 (Gardener) te ontwijken; op een machine met
+# meer compose-projecten is dat subnet vaak al bezet. Hun cluster-create leest dezelfde variabele.
+export FUNDAMENT_K3D_SUBNET=${FUNDAMENT_K3D_SUBNET:-172.29.0.0/16}
 # Twee replica's: zo toetst de proef ook wat één pod verbergt (een tweede pod die niet start,
 # twee pods die tegelijk migreren). Niet voor een dienst die de chart op één replica vastzet
 # (singleReplica).
 REPLICAS=${REPLICAS:-2}
-readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_SUBNET REPLICAS
+readonly HTTPS_POORT FUNDAMENT_REPO FUNDAMENT_REF FUNDAMENT_K3D_SUBNET REPLICAS
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster
 WORKTREE=$CACHE/fundament-${FUNDAMENT_REF:0:8}
-readonly CACHE WORKTREE
+# Hier schrijven Fundaments recipes de contexten van beide clusters, en wisselen ze die ook.
+KUBECONFIG_LOKAAL=$WORKTREE/.dev/kubeconfig
+readonly CACHE WORKTREE KUBECONFIG_LOKAAL
 
 readonly CURL_IMAGE=docker.io/curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40
 readonly REDIS_IMAGE=docker.io/redis/redis-stack-server:7.4.0-v3@sha256:7d8e657d60d525534d6abe96e7645ab30ef1b4f1ffedc6eeb2d4d4283b3a49b9
 readonly K3S_IMAGE=docker.io/rancher/k3s:v1.36.6-k3s1@sha256:88d3fac10eb4a429d3c5275f4868fe4b13620f6bbca5bdb5dca0627ac76ae2a0
-readonly SOCAT_IMAGE=docker.io/alpine/socat@sha256:e8a6e8868a8e6e01d9c2c321a8f8d4474d2d741d962462e5c5a124a8e66a0055
 
 # De organisatie system publiceert de first-party plug-ins (seeddata van Fundament).
 readonly SYSTEM_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000000
@@ -58,16 +62,14 @@ readonly SYSTEM_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000000
 readonly PLUGINS=(gateway-api/envoy-gateway:gateway-api-envoy cert-manager:cert-manager cloudnativepg:cloudnativepg)
 # Een geseede DCIM-gebruiker van Fundament die versies mag goedkeuren (zoals in test-env).
 readonly REVIEWER=alice@acme-corp.com
-# De relays van de sandbox naar het platform: de poorten en NodePorts van hun sandbox-catalog.
-readonly CATALOGUS_POORT=38080 AUTHN_POORT=38081
 
 # Een eigen functl-configuratie: de sessie van deze opstelling mag die van de gebruiker niet
 # overschrijven.
 export FUNCTL_CONFIG_DIR=$CACHE/functl
 
-kc() { command kubectl --context "$SANDBOX_CONTEXT" "$@"; }
-kcp() { command kubectl --context "$PLATFORM_CONTEXT" "$@"; }
-hm() { command helm --kube-context "$SANDBOX_CONTEXT" "$@"; }
+kc() { command kubectl --kubeconfig "$KUBECONFIG_LOKAAL" --context "$SANDBOX_CONTEXT" "$@"; }
+kcp() { command kubectl --kubeconfig "$KUBECONFIG_LOKAAL" --context "$PLATFORM_CONTEXT" "$@"; }
+hm() { command helm --kubeconfig "$KUBECONFIG_LOKAAL" --kube-context "$SANDBOX_CONTEXT" "$@"; }
 
 # Een kale aanroep zou de huidige context van de gebruiker gebruiken, en dat kan een echt cluster
 # zijn. Elke aanroep loopt via kc, kcp of hm; deze vangen wat daar toch omheen gaat.
@@ -175,8 +177,8 @@ docker_poorten() {
 }
 
 # Slaagt als geen container van de opstelling, ook geen gestopte, een poort op alle adressen
-# publiceert, behalve de Kubernetes-API's (zie poorten_naar_buiten). Een platform dat met Fundaments
-# eigen recipes is gemaakt, of een k3d-config die k3d_config_loopback niet herkent, valt hier op.
+# publiceert. Fundament bindt alles aan loopback; dit vangt een platform dat nog met een oudere
+# versie is gemaakt, of een k3d-config die weer een poort openzet.
 alleen_loopback() {
   local poorten open
 
@@ -199,24 +201,11 @@ console_antwoordt() {
   curl -sf -o /dev/null --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" https://console.fundament.localhost:8443/
 }
 
-# Hun cluster-create, maar met de poorten en registry op loopback en zonder de huidige context te
-# wisselen.
 platform_maken() {
-  # Fundament maakt het netwerk anders zelf op 172.19.0.0/16, alleen om 172.18 (Gardener) te
-  # ontwijken; op een machine met meer compose-projecten is dat subnet vaak al bezet.
-  if ! docker network inspect k3d-fundament >/dev/null 2>&1; then
-    docker network create --subnet "$FUNDAMENT_SUBNET" k3d-fundament >/dev/null ||
-      stop 2 "subnet $FUNDAMENT_SUBNET is bezet (zet FUNDAMENT_SUBNET op een vrij /16)"
-  fi
-
-  k3d_config_loopback <"$WORKTREE/deploy/k3d/config.yaml" >"$WERK/platform-k3d.yaml"
-  (cd "$WORKTREE" && PWD=$WORKTREE mise exec -- k3d cluster create --config="$WERK/platform-k3d.yaml" \
-    --kubeconfig-switch-context=false)
+  fj cluster-create || stop 2 "het platform aanmaken faalde (melding hierboven)"
   # Meteen, niet pas na de uitrol: die bouwt de eerste keer lang, met een eventueel open poort.
   alleen_loopback ||
     stop 2 "het nieuwe platform publiceert poorten op alle adressen (hierboven); ruim het op met: $0 af --met-platform"
-  fj setup-certs
-  fj setup-gateway
 }
 
 # Het platform. Uitrollen alleen als het er nog niet is: elke uitrol wist zijn databases, en
@@ -244,9 +233,9 @@ platform_op() {
     echo "$uitvoer" >&2
     stop 1 "kon niet vaststellen of het platform al is uitgerold"
   else
-    # Zoals `just dev`, maar eenmalig. Niet `just deploy local`: dat pusht naar
-    # k3d-registry.localhost:5111 (SKAFFOLD_DEFAULT_REPO uit hun mise.toml), een naam die de
-    # node niet kent; de mirror in de k3d-config dekt alleen localhost:5111.
+    # Zoals `just dev`, maar eenmalig. Niet `just deploy local`: dat noemt geen kube-context en
+    # rolt uit naar de huidige context van de kubeconfig in de worktree, en die zetten hun recipes
+    # voor de sandbox op de sandbox.
     echo "Platform uitrollen; de eerste keer bouwt dit alle images van Fundament en duurt het lang."
     (cd "$WORKTREE" && mise exec -- skaffold run --kube-context "$PLATFORM_CONTEXT" --profile env-local \
       --default-repo=localhost:5111)
@@ -318,10 +307,15 @@ functl_inloggen() {
   echo "OK: functl ingelogd voor de organisatie system"
 }
 
-# Slaagt als de bestaande sandbox van deze opstelling kan zijn (zie sandbox_past).
+# Slaagt als de bestaande sandbox van deze opstelling kan zijn (zie sandbox_past). Uit de
+# containerconfiguratie en niet via de API: zo is ook een gestopte sandbox te herkennen, en een die
+# nog in de kubeconfig van een vorige FUNDAMENT_REF staat.
 sandbox_van_ons() {
-  sandbox_past "$(kc version -o json 2>/dev/null | jq -r '.serverVersion.gitVersion // ""')" \
-    "$(docker port k3d-fundament-plugin-serverlb 2>/dev/null)" "$HTTPS_POORT"
+  local image mappings
+
+  image=$(docker inspect -f '{{.Config.Image}}' k3d-fundament-plugin-server-0 2>/dev/null) || return 1
+  mappings=$(docker inspect k3d-fundament-plugin-serverlb 2>/dev/null | mappings_uit_inspect) || return 1
+  sandbox_past "$(k3s_versie_uit_image "$image" || true)" "$mappings" "$HTTPS_POORT"
 }
 
 # Weigert vóór er iets wordt aangemaakt of gestart: een sandbox die niet van ons is, een bezette
@@ -340,62 +334,40 @@ voorcontrole() {
   fi
 }
 
-# Hun sandbox-catalog, maar met de relays op het gateway-adres van het sandbox-netwerk
-# (host.k3d.internal) in plaats van 0.0.0.0: via de authn-relay kan anders iedereen op hetzelfde
-# netwerk met het openbare seed-wachtwoord een beheerderstoken halen.
-relays_op() {
-  kcp apply -f "$WORKTREE/plugins/sandbox/marketplace-catalog-api-nodeport.yaml" >/dev/null
-  kcp apply -f "$WORKTREE/plugins/sandbox/authn-api-nodeport.yaml" >/dev/null
-
-  local node_ip
-  node_ip=$(docker inspect k3d-fundament-server-0 --format '{{(index .NetworkSettings.Networks "k3d-fundament").IPAddress}}')
-  SANDBOX_GATEWAY=$(docker network inspect k3d-fundament-plugin --format '{{(index .IPAM.Config 0).Gateway}}')
-  [ -n "$node_ip" ] && [ -n "$SANDBOX_GATEWAY" ] || stop 1 "kon de adressen voor de relays niet bepalen"
-
-  local relay poort nodeport
-
-  for relay in fun-catalog-relay:$CATALOGUS_POORT:30080 fun-authn-relay:$AUTHN_POORT:30081; do
-    IFS=: read -r relay poort nodeport <<<"$relay"
-    docker rm -f "$relay" >/dev/null 2>&1 || true
-    docker run -d --name "$relay" --network k3d-fundament --restart unless-stopped \
-      -p "$SANDBOX_GATEWAY:$poort:8080" "$SOCAT_IMAGE" \
-      "TCP-LISTEN:8080,fork,reuseaddr" "TCP:$node_ip:$nodeport" >/dev/null
-  done
-
-  echo "OK: relays naar het platform op $SANDBOX_GATEWAY (host.k3d.internal)"
-}
-
 # De node moet de registry van de images kunnen opzoeken: de chart haalt ze bij elke start
 # (pullPolicy Always). Docker legt de DNS-server van de host vast bij het starten van een
 # container. Na een wissel van netwerk, zoals op het fieldlab, vraagt de node het dus nog aan de
 # server van het vorige netwerk, en blijft elke nieuwe pod in ImagePullBackOff hangen. Herstarten
-# via k3d, niet met docker restart: alleen k3d cluster start zet host.k3d.internal terug in
-# CoreDNS, en zonder die naam bereikt de plugin-controller het platform niet meer.
+# via k3d, zoals Fundament het doet, niet met docker restart: k3d zet bij het starten ook de
+# adressen van het netwerk opnieuw in CoreDNS.
 sandbox_dns_werkt() {
   wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io ||
     stop 1 "de sandbox-node kan ghcr.io niet opzoeken. Na een wissel van netwerk helpt een herstart van beide clusters: (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin)"
 }
 
-# De sandbox van Fundament, maar op Kubernetes 1.36, met de https-poort en de registry op loopback,
-# en zonder de huidige context te wisselen (wat `just plugins cluster-create` wel doet).
+# De sandbox van Fundament, maar op Kubernetes 1.36 en met de https-poort van de Gateway op
+# loopback: hun `just plugins cluster-create` kent geen image of extra poort. De context komt in de
+# kubeconfig van de worktree, waar hun recipes hem verwachten.
 sandbox_op() {
   stap "sandbox ($SANDBOX_CONTEXT, Kubernetes 1.36)"
 
   if sandbox_bestaat; then
     sandbox_van_ons || stop 2 "deze sandbox is niet van deze opstelling; ruim hem op met: $0 af"
+    # Start hem als hij gepauzeerd is, en zet de context in de kubeconfig van de worktree.
+    fj plugins cluster-start >/dev/null
     echo "OK: sandbox bestaat al"
   else
-    k3d_config_loopback <"$WORKTREE/plugins/sandbox/k3d-config.yaml" >"$WERK/sandbox-k3d.yaml"
-    (cd "$WORKTREE/plugins" && PWD=$WORKTREE/plugins mise exec -- k3d cluster create --config="$WERK/sandbox-k3d.yaml" \
-      --image "$K3S_IMAGE" -p "127.0.0.1:$HTTPS_POORT:443@loadbalancer" \
-      --kubeconfig-switch-context=false --wait)
+    (cd "$WORKTREE/plugins" && PWD=$WORKTREE/plugins KUBECONFIG=$KUBECONFIG_LOKAAL mise exec -- \
+      k3d cluster create --config=sandbox/k3d-config.yaml --image "$K3S_IMAGE" \
+      -p "127.0.0.1:$HTTPS_POORT:443@loadbalancer" --kubeconfig-switch-context=false --wait)
     alleen_loopback || stop 2 "de nieuwe sandbox publiceert poorten op alle adressen (hierboven); ruim hem op met: $0 af"
   fi
 
   sandbox_dns_werkt
   fj plugins deploy
   fj plugin-sandbox-kubeconfig
-  relays_op
+  # De relays naar de catalogus en de inlog van het platform, zonder hostpoort.
+  fj plugins sandbox-catalog
 
   alleen_loopback || stop 2 "de sandbox publiceert poorten op alle adressen (hierboven); ruim hem op met: $0 af"
 }
@@ -439,8 +411,10 @@ plugin_hervatten() {
       ;;
   esac
 
+  # De catalogus is anoniem, en het platform publiceert hem op zijn eigen Gateway.
   local antwoord hash image
-  antwoord=$(curl -s --max-time 10 -X POST "http://$SANDBOX_GATEWAY:$CATALOGUS_POORT/catalog.v1.CatalogService/GetPluginDefinition" \
+  antwoord=$(curl -s --max-time 10 --cacert "$(mkcert_caroot)/rootCA.pem" -X POST \
+    https://marketplace-catalog-api.fundament.localhost:8443/catalog.v1.CatalogService/GetPluginDefinition \
     -H 'Content-Type: application/json' \
     -d "{\"name\":{\"organizationName\":\"system\",\"pluginName\":\"$naam\"},\"version\":\"$versie\"}")
   hash=$(hash_uit_catalogus "$antwoord") || { echo "$antwoord" >&2; stop 1 "geen hash in de catalogus voor $naam $versie"; }
@@ -859,8 +833,8 @@ af() {
 # Wat er na een proef met de opstelling gebeurt, is een keuze van wie hem draait: laten staan scheelt
 # een volgende keer de opbouw, maar de twee clusters houden ook zonder verkeer de processor wakker
 # (op een laptop op batterij bijna een derde van het verbruik bij stilstand), en met restart-policy
-# unless-stopped komen draaiende clusters na een herstart vanzelf terug. Pauzeren via k3d, niet met
-# docker stop/start: alleen k3d cluster start zet host.k3d.internal terug in CoreDNS.
+# unless-stopped komen draaiende clusters na een herstart vanzelf terug. Pauzeren via k3d, zoals
+# Fundament het doet, niet met docker stop/start.
 na_afloop() {
   cat <<EOF
 

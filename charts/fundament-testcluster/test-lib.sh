@@ -141,6 +141,26 @@ gelijk "Running zonder ready" 1 "$(code_van plugin_staat_klaar '{"status":{"phas
 gelijk "lege invoer" 1 "$(code_van plugin_staat_klaar '')"
 gelijk "geen JSON" 1 "$(code_van plugin_staat_klaar 'Error from server (NotFound)')"
 
+echo "== k3s_versie_uit_image =="
+
+gelijk "tag met digest" "v1.36.6-k3s1" \
+  "$(k3s_versie_uit_image docker.io/rancher/k3s:v1.36.6-k3s1@sha256:88d3fac10eb4a429d3c5275f4868fe4b13620f6bbca5bdb5dca0627ac76ae2a0)"
+gelijk "tag zonder digest" "v1.33.5-k3s1" "$(k3s_versie_uit_image rancher/k3s:v1.33.5-k3s1)"
+gelijk "registry met poort" "v1.36.6-k3s1" "$(k3s_versie_uit_image localhost:5000/rancher/k3s:v1.36.6-k3s1)"
+gelijk "geen k3s-image: niets" "" "$(k3s_versie_uit_image docker.io/library/nginx:1.29 || true)"
+gelijk "geen k3s-image: exit 1" 1 "$(code_van k3s_versie_uit_image docker.io/library/nginx:1.29)"
+gelijk "leeg: exit 1" 1 "$(code_van k3s_versie_uit_image '')"
+
+echo "== mappings_uit_inspect =="
+
+# Zoals `docker port`, maar uit de configuratie: ook een gestopte container heeft ze daar.
+gelijk "loopback en een lege HostIp" "443/tcp -> 127.0.0.1:9443
+6443/tcp -> 0.0.0.0:41837" "$(mappings_uit_inspect <<<'[{"HostConfig":{"PortBindings":{"443/tcp":[{"HostIp":"127.0.0.1","HostPort":"9443"}],"6443/tcp":[{"HostIp":"","HostPort":"41837"}]}}}]' | sort)"
+gelijk "twee bindingen op één poort" "443/tcp -> 0.0.0.0:9444
+443/tcp -> 127.0.0.1:9443" "$(mappings_uit_inspect <<<'[{"HostConfig":{"PortBindings":{"443/tcp":[{"HostIp":"127.0.0.1","HostPort":"9443"},{"HostIp":"0.0.0.0","HostPort":"9444"}]}}}]' | sort)"
+gelijk "geen bindingen: niets" "" "$(mappings_uit_inspect <<<'[{"HostConfig":{"PortBindings":null}}]')"
+gelijk "geen container (lege lijst): niets" "" "$(mappings_uit_inspect <<<'[]')"
+
 echo "== sandbox_past =="
 
 MAPPINGS='443/tcp -> 127.0.0.1:9443
@@ -290,28 +310,6 @@ gelijk "korte SHA" 1 "$(code_van is_commit_sha b9c12531)"
 gelijk "branchnaam" 1 "$(code_van is_commit_sha master)"
 gelijk "hoofdletters" 1 "$(code_van is_commit_sha B9C1253103F0121EC061507FC241580B94BC3AB4)"
 
-echo "== k3d_config_loopback =="
-
-K3D_CONFIG='ports:
-  - port: 127.0.0.1:8443:443
-    nodeFilters:
-      - loadbalancer
-  - port: 54328:54328
-    nodeFilters:
-      - loadbalancer
-registries:
-  create:
-    name: "registry.localhost"
-    host: "0.0.0.0"
-    hostPort: "5111"'
-c=$(k3d_config_loopback <<<"$K3D_CONFIG")
-bevat "database-poort op loopback" "port: 127.0.0.1:54328:54328" "$c"
-bevat "registry op loopback" 'host: "127.0.0.1"' "$c"
-bevat "loopback-poort blijft" "port: 127.0.0.1:8443:443" "$c"
-bevat_niet "geen 0.0.0.0 meer" "0.0.0.0" "$c"
-bevat "de rest blijft" 'hostPort: "5111"' "$c"
-gelijk "poort met hostIP blijft één keer geprefixt" 1 "$(grep -c '127.0.0.1:8443' <<<"$c")"
-
 echo "== image_uit_definitie =="
 
 gelijk "image met digest uit de manifest" \
@@ -404,15 +402,20 @@ gelijk "alleen 000, zonder exitcode: geen bewijs" 1 "$(code_van probe_geweigerd 
 
 echo "== poorten_naar_buiten =="
 
-gelijk "alles op loopback of het bridge-adres: niets" "" "$(poorten_naar_buiten <<'EOF'
-k3d-fundament-serverlb|80/tcp, 127.0.0.1:54328->54328/tcp, 127.0.0.1:8443->443/tcp, 0.0.0.0:43917->6443/tcp, [::]:43917->6443/tcp
-fun-authn-relay|172.25.0.1:38081->8080/tcp
+gelijk "alles op loopback, of zonder hostpoort: niets" "" "$(poorten_naar_buiten <<'EOF'
+k3d-fundament-serverlb|80/tcp, 127.0.0.1:54328->54328/tcp, 127.0.0.1:8443->443/tcp, 127.0.0.1:43917->6443/tcp
+fun-authn-relay|
 k3d-fundament-server-0|
 registry.localhost|127.0.0.1:5111->5000/tcp
 EOF
 )"
 gelijk "database op alle adressen" "k3d-fundament-serverlb 0.0.0.0:54328->54328/tcp" \
-  "$(poorten_naar_buiten <<<'k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 0.0.0.0:54328->54328/tcp, 0.0.0.0:43917->6443/tcp')"
+  "$(poorten_naar_buiten <<<'k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 0.0.0.0:54328->54328/tcp, 127.0.0.1:43917->6443/tcp')"
+# Fundament bindt ook de Kubernetes-API aan loopback; een API op alle adressen is dus een cluster van
+# een oudere versie, en geen uitzondering meer.
+gelijk "Kubernetes-API op alle adressen telt mee" "k3d-fundament-serverlb 0.0.0.0:43917->6443/tcp
+k3d-fundament-serverlb [::]:43917->6443/tcp" \
+  "$(poorten_naar_buiten <<<'k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 0.0.0.0:43917->6443/tcp, [::]:43917->6443/tcp')"
 gelijk "IPv6 in beide notaties" "registry.localhost [::]:5111->5000/tcp
 registry.localhost :::5112->5000/tcp" \
   "$(poorten_naar_buiten <<<'registry.localhost|[::]:5111->5000/tcp, :::5112->5000/tcp')"
@@ -438,7 +441,8 @@ INSPECT='[
 b=$(poortbindingen_uit_inspect <<<"$INSPECT")
 bevat "loopback blijft loopback" "k3d-fundament-serverlb|127.0.0.1:8443->443/tcp" "$b"
 bevat "lege HostIp wordt 0.0.0.0" "gestopt|0.0.0.0:54328->54328/tcp" "$b"
-gelijk "samen met poorten_naar_buiten: gestopt en IPv6, niet de API" "gestopt 0.0.0.0:54328->54328/tcp
+gelijk "samen met poorten_naar_buiten: de API, gestopt en IPv6" "k3d-fundament-serverlb 0.0.0.0:43917->6443/tcp
+gestopt 0.0.0.0:54328->54328/tcp
 zes :::5111->5000/tcp" "$(poorten_naar_buiten <<<"$b")"
 code=$(code_van poortbindingen_uit_inspect <<<"geen json")
 [ "$code" -ne 0 ] && ok "kapotte JSON: exit niet 0" || faal "kapotte JSON gaf exit 0"
@@ -472,6 +476,46 @@ code=0
 uitvoer=$(in_script 'kubectl get pods') || code=$?
 gelijk "kale kubectl: exit 2" 2 "$code"
 bevat "kale kubectl: melding" "zonder vaste context" "$uitvoer"
+
+# De contexten staan in de kubeconfig van de worktree. Zonder --kubeconfig zou kubectl ze zoeken in
+# ~/.kube/config, waar een context met dezelfde naam naar een ander cluster kan wijzen.
+uitvoer=$(in_script 'command() { echo "$*"; }; kc get pods; kcp get pods; hm list')
+gelijk "kc: kubeconfig van de worktree en de sandbox" 1 \
+  "$(grep -c -- "^kubectl --kubeconfig $TESTCACHE/fbs-fundament-testcluster/fundament-[0-9a-f]\{8\}/.dev/kubeconfig --context k3d-fundament-plugin get pods$" <<<"$uitvoer")"
+gelijk "kcp: kubeconfig van de worktree en het platform" 1 \
+  "$(grep -c -- "^kubectl --kubeconfig $TESTCACHE/fbs-fundament-testcluster/fundament-[0-9a-f]\{8\}/.dev/kubeconfig --context k3d-fundament get pods$" <<<"$uitvoer")"
+gelijk "hm: kubeconfig van de worktree en de sandbox" 1 \
+  "$(grep -c -- "^helm --kubeconfig $TESTCACHE/fbs-fundament-testcluster/fundament-[0-9a-f]\{8\}/.dev/kubeconfig --kube-context k3d-fundament-plugin list$" <<<"$uitvoer")"
+
+# Of de sandbox van ons is, volgt uit de containerconfiguratie en niet uit de API: zo is ook een
+# gestopte sandbox te herkennen, en een die nog in de kubeconfig van een vorige FUNDAMENT_REF staat.
+VAN_ONS_STUBS='kc() { echo "API GEVRAAGD" >&2; return 1; };
+docker() { case "$*" in
+  "inspect -f {{.Config.Image}} k3d-fundament-plugin-server-0") echo "${IMAGE:-docker.io/rancher/k3s:v1.36.6-k3s1@sha256:aa}" ;;
+  "inspect k3d-fundament-plugin-serverlb") echo "[{\"HostConfig\":{\"PortBindings\":{\"443/tcp\":[{\"HostIp\":\"${IP:-127.0.0.1}\",\"HostPort\":\"9443\"}]}}}]" ;;
+  *) return 1 ;; esac; };'
+code=0
+uitvoer=$(in_script "$VAN_ONS_STUBS sandbox_van_ons") || code=$?
+gelijk "sandbox_van_ons: 1.36 op loopback, zonder API: exit 0" 0 "$code"
+bevat_niet "sandbox_van_ons: vraagt de API niet" "API GEVRAAGD" "$uitvoer"
+code=0
+uitvoer=$(in_script "$VAN_ONS_STUBS IMAGE=docker.io/rancher/k3s:v1.33.5-k3s1; sandbox_van_ons") || code=$?
+gelijk "sandbox_van_ons: andere versie: exit 1" 1 "$code"
+code=0
+uitvoer=$(in_script "$VAN_ONS_STUBS IP=0.0.0.0; sandbox_van_ons") || code=$?
+gelijk "sandbox_van_ons: https op alle adressen: exit 1" 1 "$code"
+code=0
+uitvoer=$(in_script 'docker() { return 1; }; sandbox_van_ons') || code=$?
+gelijk "sandbox_van_ons: docker faalt: exit 1" 1 "$code"
+
+# Het platform komt uit hun eigen recipe, met ons subnet; die leest FUNDAMENT_K3D_SUBNET.
+uitvoer=$(in_script 'fj() { echo "RECIPE $* subnet=$FUNDAMENT_K3D_SUBNET"; }; docker_poorten() { :; }; platform_maken') || true
+gelijk "platform_maken: hun cluster-create met het subnet" "RECIPE cluster-create subnet=172.29.0.0/16" "$uitvoer"
+uitvoer=$(FUNDAMENT_K3D_SUBNET=10.99.0.0/16 in_script 'fj() { echo "subnet=$FUNDAMENT_K3D_SUBNET"; }; docker_poorten() { :; }; platform_maken') || true
+gelijk "platform_maken: een eigen subnet gaat mee" "subnet=10.99.0.0/16" "$uitvoer"
+code=0
+uitvoer=$(in_script 'fj() { return 1; }; platform_maken') || code=$?
+gelijk "platform_maken: recipe faalt: exit 2" 2 "$code"
 code=0
 uitvoer=$(in_script 'helm list') || code=$?
 gelijk "kale helm: exit 2" 2 "$code"
@@ -612,8 +656,11 @@ code=0
 uitvoer=$(in_script "$VOOR_STUBS SANDBOX=ja; voorcontrole") || code=$?
 gelijk "voorcontrole: eigen sandbox: exit 0" 0 "$code"
 code=0
-uitvoer=$(in_script "$VOOR_STUBS PLATFORM=ja; POORTEN='k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 0.0.0.0:43917->6443/tcp'; voorcontrole") || code=$?
+uitvoer=$(in_script "$VOOR_STUBS PLATFORM=ja; POORTEN='k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 127.0.0.1:43917->6443/tcp'; voorcontrole") || code=$?
 gelijk "voorcontrole: platform op loopback: exit 0" 0 "$code"
+code=0
+uitvoer=$(in_script "$VOOR_STUBS PLATFORM=ja; POORTEN='k3d-fundament-serverlb|127.0.0.1:8443->443/tcp, 0.0.0.0:43917->6443/tcp'; voorcontrole") || code=$?
+gelijk "voorcontrole: platform van een oudere versie, API op alle adressen: exit 2" 2 "$code"
 code=0
 uitvoer=$(in_script "$VOOR_STUBS PLATFORM=ja; POORTEN='k3d-fundament-serverlb|0.0.0.0:54328->54328/tcp'; voorcontrole") || code=$?
 gelijk "voorcontrole: platform met poorten op alle adressen: exit 2" 2 "$code"
@@ -637,8 +684,8 @@ gelijk "alleen_loopback: docker faalt: niet in orde" 1 "$code"
 code=0
 uitvoer=$(in_script 'docker() { return 1; }; wacht_tot() { shift 2; "$@"; }; sandbox_dns_werkt') || code=$?
 gelijk "sandbox_dns_werkt: geen DNS: exit 1" 1 "$code"
-# Via k3d, niet docker restart: alleen k3d cluster start zet host.k3d.internal terug in CoreDNS,
-# en zonder die naam bereikt de plugin-controller het platform niet meer.
+# Via k3d, zoals Fundament het doet, niet docker restart: k3d zet bij het starten ook de adressen
+# van het netwerk opnieuw in CoreDNS.
 bevat "sandbox_dns_werkt: noemt de herstart via k3d" "k3d cluster stop fundament-plugin fundament" "$uitvoer"
 bevat_niet "sandbox_dns_werkt: geen docker restart" "docker restart" "$uitvoer"
 code=0

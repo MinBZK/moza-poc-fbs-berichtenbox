@@ -77,10 +77,23 @@ plugin_staat_klaar() {
   jq -e '.status.phase == "Running" and .status.ready == true' <<<"$1" >/dev/null 2>&1 || return 1
 }
 
+# De Kubernetes-versie uit de tag van een k3s-image (rancher/k3s:v1.36.6-k3s1@sha256:...).
+k3s_versie_uit_image() {
+  sed -nE 's#^(.*/)?k3s:(v[0-9][^@]*)(@.*)?$#\2#p' <<<"$1" | grep . || return 1
+}
+
+# De poortbindingen uit `docker inspect` (JSON op stdin) in de vorm van `docker port`:
+# "443/tcp -> 127.0.0.1:9443". Uit de configuratie, zodat ook een gestopte container ze heeft. Een
+# lege HostIp is alle adressen.
+mappings_uit_inspect() {
+  jq -r '.[] | (.HostConfig.PortBindings // {}) | to_entries[] | .key as $doel | (.value // [])[]
+    | $doel + " -> " + (if (.HostIp // "") == "" then "0.0.0.0" else .HostIp end) + ":" + .HostPort'
+}
+
 # Slaagt als een bestaande sandbox van deze opstelling kan zijn: Kubernetes 1.36 en de https-poort
 # op loopback. Een sandbox van `just plugins cluster-create` heeft die mapping niet; die stil
 # gebruiken zou een Gateway opleveren die van buiten onbereikbaar is.
-#   $1 serverversie (kubectl version), $2 uitvoer van `docker port <serverlb>`, $3 de https-poort
+#   $1 Kubernetes-versie, $2 mappings in de vorm van `docker port <serverlb>`, $3 de https-poort
 sandbox_past() {
   local versie=$1 mappings=$2 poort=$3
 
@@ -110,16 +123,6 @@ is_commit_sha() {
   [[ $1 =~ ^[0-9a-f]{40}$ ]]
 }
 
-# Een k3d-config van Fundament met hun poorten en registry op loopback in plaats van 0.0.0.0. Zij
-# binden 8443 al bewust op loopback; de database (54328) en de registries (plain HTTP, zonder
-# authenticatie) niet, en die horen niet op het netwerk van een laptop op een gedeelde wifi.
-# Leest de config op stdin.
-k3d_config_loopback() {
-  sed -E \
-    -e 's/^([[:space:]]*- port: )([0-9]+:[0-9]+)[[:space:]]*$/\1127.0.0.1:\2/' \
-    -e 's/^([[:space:]]*host: )"0\.0\.0\.0"/\1"127.0.0.1"/'
-}
-
 # Het image van een plug-in uit zijn definitie (de manifest uit de catalogus), met digest. Na een
 # opgeruimde registry moet precies dat image er weer zijn, anders start de plug-in niet.
 image_uit_definitie() {
@@ -127,8 +130,8 @@ image_uit_definitie() {
 }
 
 # Gepubliceerde poorten op alle adressen (0.0.0.0 of ::), uit regels "<container>|<poorten>" van
-# docker ps; print "<container> <binding>" per poort. De Kubernetes-API (->6443) telt niet mee: die
-# zet k3d met de configs van Fundament op alle adressen. Anoniem geeft hij 401; de README noemt hem.
+# docker ps; print "<container> <binding>" per poort. Ook de Kubernetes-API telt mee: die bindt
+# Fundament net als de rest aan loopback.
 poorten_naar_buiten() {
   local naam poorten binding
   local -a bindingen
@@ -140,7 +143,6 @@ poorten_naar_buiten() {
       binding=${binding# }
 
       case "$binding" in
-        *"->6443/tcp") ;;
         0.0.0.0:* | "[::]:"* | :::*) echo "$naam $binding" ;;
       esac
     done

@@ -282,3 +282,49 @@ hieronder).
 - **`sslmode=require` controleert de server niet.** Het voorbeeld met CNPG beschrijft dit al als
   keuze. De vraag is of `verify-full` met `<cluster>-ca` op het fieldlab de standaard moet zijn: daar
   gaan BSN's via het logboek over deze verbinding.
+
+### Pin-ophoging naar Fundament `e18ad710` (2026-11-18)
+
+Fundament loste de meeste bevindingen van 12 november upstream op (#658, #659, #660, #662, #663,
+#665, en #682 als opvolger van #657). De pin gaat daarom van `b9c12531` naar `e18ad710`, zonder te
+wachten op #661 (`functl auth status`).
+
+Wat eruit ging:
+- `k3d_config_loopback` en het zelf aanmaken van netwerk en platform: hun `just cluster-create` zet
+  alles op loopback, ook de Kubernetes-API, en leest `FUNDAMENT_K3D_SUBNET`. Onze variabele heet nu
+  ook zo.
+- De eigen socat-relays met een hostpoort: hun `just plugins sandbox-catalog` hangt de relays aan
+  beide Docker-netwerken, zonder hostpoort. De hash van een al goedgekeurde versie komt nu van de
+  route van de catalogus op het platform (`marketplace-catalog-api.fundament.localhost:8443`).
+- De uitzondering voor `->6443` in de poortcontrole: een API op alle adressen is nu een cluster van
+  een oudere versie.
+
+Wat bleef, en waarom:
+- **De eigen `skaffold run --kube-context`.** `just deploy local` pusht nu naar het goede adres,
+  maar noemt geen kube-context. Het rolt uit naar de huidige context van `.dev/kubeconfig`, en
+  hun recipes voor de sandbox zetten die op de sandbox.
+- **Het eigen aanmaken van de sandbox.** Hun `just plugins cluster-create` kent geen k3s-image en
+  geen extra poort; wij hebben 1.36 en https op `127.0.0.1:$HTTPS_POORT` nodig. Het gebruikt nu hun
+  config ongewijzigd.
+- **`functl org set` als test op een sessie**, tot #661 er is.
+- **Pinnen op de hash van de definitie.** Na #682 kan een installatie zonder hash, maar gepind ligt
+  dichter bij het fieldlab.
+
+Nieuw:
+- De contexten staan in `$WORKTREE/.dev/kubeconfig`; `kc`, `kcp` en `hm` geven die mee.
+  `~/.kube/config` blijft onaangeroerd (checksum voor en na de run gelijk).
+- `sandbox_van_ons` leest het k3s-image en de poortbindingen uit `docker inspect`, niet via de API.
+  Daarmee is ook een gestopte sandbox te herkennen, en een die nog in de kubeconfig van de vorige
+  pin staat. `op` start een gestopte sandbox met hun `just plugins cluster-start`. Dat lost vraag
+  1 uit de PR op.
+
+Live, met images `main-7ab403f`:
+
+| Situatie | Uitkomst |
+|---|---|
+| `af --met-platform` met het nieuwe script op een opstelling van `b9c12531` | gelukt; de oude contexten in `~/.kube/config` en de oude worktree blijven achter (README noemt de opruiming) |
+| Vanaf nul, beide rollen | groen |
+| Gepauzeerd met `k3d cluster stop`, dan `op` | groen; de sandbox wordt herkend en gestart, de API-poorten blijven gelijk |
+| `af`, dan `op` | groen; de hashes komen uit de catalogus via de route op het platform |
+| Poorten | alles op loopback; de relays zonder hostpoort |
+| Huidige kube-context | blijft `kind-mijnbureau` |

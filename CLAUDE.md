@@ -174,7 +174,8 @@ batterij gemeten bijna een derde van het verbruik bij stilstand. Draaide de proe
 vraag dan na afloop of de opstelling mag blijven draaien, gepauzeerd of opgeruimd moet worden, met
 pauzeren of opruimen als aanbeveling; beslis het niet zelf. Pauzeer en hervat de Fundament-clusters
 met `k3d cluster stop`/`start` via `mise exec` in de worktree die het script noemt (`k3d` staat niet
-op het PATH), nooit met `docker stop`/`start`: dan mist CoreDNS daarna `host.k3d.internal`.
+op het PATH), nooit met `docker stop`/`start`: alleen k3d zet bij het starten de adressen van het netwerk
+opnieuw in CoreDNS.
 
 ### Build- en test-warnings nalopen
 
