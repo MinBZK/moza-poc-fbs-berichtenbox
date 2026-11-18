@@ -3,12 +3,13 @@ package nl.rijksoverheid.moz.fbs.appmanager
 import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.rechtstreeks.OpslagVolException
 import org.jboss.logging.Logger
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.HexFormat
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Een gekozen persona, gebonden aan de sleutel van de app die erom vroeg. `toString` laat ontvanger
@@ -40,6 +41,10 @@ class Registraties(private val klok: Clock) {
     private class Afgerond(val terug: String, val verlooptOp: Instant)
 
     private val willekeur = SecureRandom()
+
+    // Alleen in het geheugen, nieuw bij elke start: zonder deze sleutel is een vingerafdruk in de log
+    // niet terug te rekenen naar een adres, ook niet door alle IPv4-adressen te proberen.
+    private val logsleutel = SecretKeySpec(ByteArray(LOGSLEUTEL_BYTES).also(willekeur::nextBytes), HMAC)
     private val gebruikteSessieTokens = HashMap<String, Instant>()
     private val koppelingen = HashMap<String, Koppeling>()
     private val afgerond = HashMap<String, Afgerond>()
@@ -170,9 +175,12 @@ class Registraties(private val klok: Clock) {
         repeat(TOKEN_LENGTE) { append(TOKEN_TEKENS[willekeur.nextInt(TOKEN_TEKENS.length)]) }
     }
 
-    /** Herkenbaar in de log zonder het adres zelf te noemen. */
-    private fun vingerafdruk(client: String): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(client.toByteArray())).take(VINGERAFDRUK_TEKENS)
+    /** Binnen één run herkenbaar in de log, zonder het adres zelf te noemen. */
+    private fun vingerafdruk(client: String): String {
+        val mac = Mac.getInstance(HMAC).apply { init(logsleutel) }
+
+        return HexFormat.of().formatHex(mac.doFinal(client.toByteArray())).take(VINGERAFDRUK_TEKENS)
+    }
 
     companion object {
         private val log: Logger = Logger.getLogger(Registraties::class.java)
@@ -186,5 +194,7 @@ class Registraties(private val klok: Clock) {
         private const val TOKEN_LENGTE = 32
         private const val TOKEN_TEKENS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         private const val VINGERAFDRUK_TEKENS = 12
+        private const val LOGSLEUTEL_BYTES = 32
+        private const val HMAC = "HmacSHA256"
     }
 }
