@@ -312,8 +312,8 @@ components:
         public_keys:
           type: array
           description: |
-            De sleutels waarmee de App Manager credentials tekent, gesorteerd op `kid`. Meer dan één
-            tijdens een sleutelwissel.
+            De sleutels waarmee de App Manager credentials ondertekent, gesorteerd op `kid`. Meer
+            dan één tijdens een sleutelwissel.
           minItems: 1
           items:
             $ref: '#/components/schemas/AppManagerSleutel'

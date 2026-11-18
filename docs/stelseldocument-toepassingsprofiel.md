@@ -87,9 +87,9 @@ credential uit (FSC voor Burgers 4.3.1). Met deze lijst is het document ook een 
 voor magazijnen: een magazijn voert dezelfde zes verificatiestappen uit als een app, en vertrouwt
 een credential alleen via deze lijst.
 
-- `public_keys` zijn de sleutels waarmee de App Manager tekent, gesorteerd op `kid`. Elke sleutel
-  heeft een `kid`, een `exp` (seconden sinds 1970) en een `jwk`: een publieke EC-sleutel op P-256
-  met precies `kty`, `crv`, `x` en `y`. Tijdens een sleutelwissel staat er meer dan één.
+- `public_keys` zijn de sleutels waarmee de App Manager ondertekent, gesorteerd op `kid`. Elke
+  sleutel heeft een `kid`, een `exp` (seconden sinds 1970) en een `jwk`: een publieke EC-sleutel op
+  P-256 met precies `kty`, `crv`, `x` en `y`. Tijdens een sleutelwissel staat er meer dan één.
 - Een magazijn zoekt de sleutel van een credential op met `iss` (de OIN hierboven) en de `kid` uit
   de header van het credential. Een credential zonder `kid`, of met een sleutel die niet in deze
   lijst staat, wordt geweigerd; een sleutel die in het credential zelf meekomt, wordt nooit gebruikt.
@@ -97,8 +97,9 @@ een credential alleen via deze lijst.
   het algoritme dus nooit uit de header over.
 - De sleutel moet geldig zijn geweest op `iat` van het credential (4.6.2): `iat` ligt vóór `exp` van
   de sleutel. Omdat een aanvaller met een gelekte sleutel `iat` zelf kiest, gelden daarnaast:
-  `nbf` niet vóór `iat` en hooguit 60 seconden vooruit, `exp` van het credential nog niet voorbij,
-  en `exp − iat` ten hoogste 24 uur. Een verlopen sleutel is daarmee uiterlijk 24 uur na zijn `exp`
+  `nbf` niet vóór `iat` en hooguit 60 seconden vooruit, `exp` van het credential nog niet voorbij
+  (bij het openen van een magazijnsessie nog ten minste 60 seconden), en `exp − iat` ten hoogste
+  24 uur. Een verlopen sleutel is daarmee uiterlijk 24 uur na zijn `exp`
   waardeloos.
 - De scope van een credential voor FBS is `nl.rijksoverheid.moz.fbs.berichten`. Hoe de sleutel van
   de App Manager wordt opgezocht, laat de standaard per scope aan het toepassingsprofiel (4.3.3);
