@@ -55,7 +55,7 @@ class BerichtenAppTest {
         val proces = ProcessBuilder(listOf("node") + argumenten).redirectErrorStream(true).redirectOutput(log.toFile()).start()
         val klaar = proces.waitFor(TIJDSLIMIET_SECONDEN, TimeUnit.SECONDS)
 
-        // `node --test` start per bestand een eigen proces; die moeten mee, anders blijven ze draaien.
+        // Een proces dat het script zelf start, moet mee; anders blijft het draaien.
         if (!klaar) {
             proces.descendants().forEach { it.destroyForcibly() }
             proces.destroyForcibly()

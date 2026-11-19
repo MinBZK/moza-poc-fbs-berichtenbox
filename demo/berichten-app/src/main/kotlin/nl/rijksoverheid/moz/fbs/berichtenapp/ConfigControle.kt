@@ -25,8 +25,6 @@ class ConfigControle(config: BerichtenAppConfig) {
 
         private val SCHEMA = setOf("http", "https")
 
-        private val GEBRUIKER = Regex("//[^/@]*@")
-
         /**
          * Absoluut, zonder gebruikersnaam, query of fragment, en eindigend op `/`: de app plakt er de
          * paden van de standaard achter. Het pad bevat alleen tekens die in een CSP-bron niets
@@ -34,8 +32,10 @@ class ConfigControle(config: BerichtenAppConfig) {
          */
         fun controleerAppManagerUrl(ruwAdres: String, ontwikkel: Boolean) {
             val uri = runCatching { URI.create(ruwAdres) }.getOrNull()
-            // De melding komt in het bootlog; een wachtwoord in het adres hoort daar niet in.
-            val adres = ruwAdres.replace(GEBRUIKER, "//")
+            // De melding komt in het bootlog; een wachtwoord in het adres hoort daar niet in. Daarom
+            // alleen schema, host en pad, en niets van een adres zonder herkenbare host: daar kan een
+            // wachtwoord met een `/` of `@` in het pad terechtgekomen zijn.
+            val adres = uri?.takeIf { it.host != null }?.let { "${it.scheme}://${it.host}${it.rawPath.orEmpty()}" } ?: "(geen geldige URL)"
             val vorm = uri != null && uri.scheme in SCHEMA && uri.host != null && uri.rawUserInfo == null &&
                 uri.rawQuery == null && uri.rawFragment == null && PAD.matches(uri.rawPath)
 

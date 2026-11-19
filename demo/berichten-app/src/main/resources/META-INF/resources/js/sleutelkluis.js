@@ -2,7 +2,7 @@
 // script op deze origin kan ermee ondertekenen of ontsleutelen, maar de private key niet uitlezen.
 const DATABASE = 'berichten-app';
 const OPSLAG = 'kluis';
-const SLEUTELPAAR = 'sleutelpaar';
+export const SLEUTELPAAR = 'sleutelpaar';
 
 /** Het lopende activeren: sessietoken en AES-sleutel, tot de app terug is van de App Manager. */
 export const ACTIVATIE = 'activatie';
@@ -173,13 +173,6 @@ async function transactie(modus, actie) {
         tx = database.transaction(OPSLAG, modus);
         verzoek = actie(tx.objectStore(OPSLAG));
       } catch (fout) {
-        // Verzoeken die al in de transactie stonden, mogen niet alsnog weggeschreven worden.
-        try {
-          tx?.abort();
-        } catch {
-          // De transactie was al afgerond of nooit begonnen.
-        }
-
         mislukt(new KluisFout('de opslag weigerde de bewerking', { cause: fout }));
 
         return;

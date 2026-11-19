@@ -33,13 +33,17 @@ class ConfigControleTest {
         assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = true) }
     }
 
-    @Test
-    fun `een wachtwoord in een afgewezen adres komt niet in de melding`() {
-        val fout = assertThrows(IllegalArgumentException::class.java) {
-            ConfigControle.controleerAppManagerUrl("https://iemand:geheim@app-manager.example/", ontwikkel = false)
-        }
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "https://iemand:geheim@app-manager.example/", "https://iemand:ge/heim@app-manager.example/",
+            "https://a@b:geheim@app-manager.example/", "https://iemand:geheim@app-manager.example",
+        ],
+    )
+    fun `een wachtwoord in een afgewezen adres komt niet in de melding`(adres: String) {
+        val fout = assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = false) }
 
-        assertFalse(fout.message!!.contains("geheim"), fout.message)
+        assertFalse(fout.message!!.contains("heim"), fout.message)
     }
 
     @ParameterizedTest

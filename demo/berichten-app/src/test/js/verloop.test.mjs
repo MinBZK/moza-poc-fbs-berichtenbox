@@ -86,12 +86,46 @@ test('een activering die een ander tabblad begon, blijft voor dat tabblad staan'
   metEenAndere.setItem(ACTIVATIE_SESSIE, 'sessie-van-een-ander-tabblad');
 
   for (const sessie of [zonderActivering, metEenAndere]) {
-    await assert.rejects(rondActiverenAf({ ...omgeving, sessie }), (fout) => fout instanceof Melding && fout.message.includes('ander tabblad'));
+    await assert.rejects(rondActiverenAf({ ...omgeving, sessie }), (fout) => fout instanceof Melding && /begonnen, gewist of verlopen/.test(fout.message));
   }
 
   assert.equal((await kluis.haal(kluis.ACTIVATIE)).sessieToken, 'sessie-1');
   assert.equal(await kluis.haal(kluis.REGISTRATIE), undefined);
 });
+
+test('begint een tweede tabblad te activeren terwijl het eerste bij de App Manager is, dan rondt alleen het tweede af', async () => {
+  const { omgeving } = await terugVanAppManager();
+  const tweede = nepSessie();
+
+  await activeer({ ...omgeving, sessie: tweede });
+
+  await assert.rejects(rondActiverenAf(omgeving), (fout) => fout instanceof Melding && /begonnen, gewist of verlopen/.test(fout.message));
+  assert.equal((await kluis.haal(kluis.ACTIVATIE)).sessieToken, 'sessie-2');
+  assert.equal(await kluis.haal(kluis.REGISTRATIE), undefined);
+});
+
+for (const [omstandigheid, tussendoor] of [
+  ['alleen wist', () => kluis.wis()],
+  ['wist en een nieuw sleutelpaar maakt', async () => { await kluis.wis(); await kluis.sleutelpaar(); }],
+]) {
+  test(`als een ander tabblad tijdens het activeren ${omstandigheid}, komt er geen registratie bij een verdwenen sleutel`, async () => {
+    const appManager = nepAppManager();
+    const sessie = nepSessie();
+    const wistBijComplete = async (adres, opties) => {
+      if (new URL(adres).pathname === '/v1/complete') await tussendoor();
+
+      return appManager.fetch(adres, opties);
+    };
+
+    await activeer({ appManager: APP_MANAGER, kluis, sessie, fetch: wistBijComplete });
+
+    const fragment = await registratiebericht({ sub: 'registration_token', iss: BASIS, registration_token: 'r1' }, appManager.sessieSleutel());
+
+    await assert.rejects(rondActiverenAf({ appManager: APP_MANAGER, kluis, sessie, fetch: appManager.fetch, fragment }), (fout) => fout instanceof Melding
+      && /begonnen, gewist of verlopen/.test(fout.message));
+    assert.equal(await kluis.haal(kluis.REGISTRATIE), undefined);
+  });
+}
 
 for (const stap of ['haal', 'vervangRegistratie']) {
   test(`weigert de opslag bij terugkomst (${stap}), dan zegt de melding dat opnieuw activeren nodig is`, async () => {
@@ -116,7 +150,7 @@ test('wist een ander tabblad tussen de controle en het bewaren, dan blijft het g
   const { omgeving } = await terugVanAppManager();
   const wistTussendoor = { ...kluis, vervangRegistratie: async (...argumenten) => { await kluis.wis(); return kluis.vervangRegistratie(...argumenten); } };
 
-  await assert.rejects(rondActiverenAf({ ...omgeving, kluis: wistTussendoor }), (fout) => fout instanceof Melding && fout.message.includes('ander tabblad'));
+  await assert.rejects(rondActiverenAf({ ...omgeving, kluis: wistTussendoor }), (fout) => fout instanceof Melding && /begonnen, gewist of verlopen/.test(fout.message));
   assert.equal(await kluis.haal(kluis.REGISTRATIE), undefined);
 });
 
@@ -131,7 +165,7 @@ test('activeert een ander tabblad opnieuw terwijl het bewijs onderweg is, dan ko
     return antwoord;
   };
 
-  await assert.rejects(rondActiverenAf({ ...omgeving, fetch: anderTabbladTussendoor }), (fout) => fout instanceof Melding && fout.message.includes('ander tabblad'));
+  await assert.rejects(rondActiverenAf({ ...omgeving, fetch: anderTabbladTussendoor }), (fout) => fout instanceof Melding && /niet bewaard/.test(fout.message));
   assert.equal(await kluis.haal(kluis.REGISTRATIE), 'r2');
   assert.equal(await kluis.haal(kluis.CREDENTIAL), undefined);
 });
@@ -214,7 +248,7 @@ test('activeert een ander tabblad intussen opnieuw, dan wist een afgewezen oude 
   };
 
   await assert.rejects(vernieuw({ appManager: APP_MANAGER, kluis, fetch: anderTabbladTussendoor }), (fout) => fout instanceof Melding
-    && fout.message.includes('ander tabblad'));
+    && /niet bewaard/.test(fout.message));
   assert.equal(await kluis.haal(kluis.REGISTRATIE), 'r2');
 });
 
@@ -233,7 +267,7 @@ test('een bewijs voor een registratie die intussen vervangen is, wordt niet bewa
   };
 
   await assert.rejects(vernieuw({ appManager: APP_MANAGER, kluis, fetch: anderTabbladTussendoor }), (fout) => fout instanceof Melding
-    && fout.message.includes('ander tabblad'));
+    && /niet bewaard/.test(fout.message));
   assert.equal(await kluis.haal(kluis.CREDENTIAL), undefined);
 });
 
@@ -285,7 +319,7 @@ test('de status noemt de ontvanger en zegt of het bewijs verlopen is', async () 
   const erna = new Date(1_800_000_000_000);
 
   assert.equal(statustekst(undefined, undefined), 'Deze browser is nog niet geactiveerd.');
-  assert.match(statustekst('r1', undefined), /nog geen bewijs/);
+  assert.equal(statustekst('r1', undefined), 'Gekoppeld, maar er is nog geen bewijs.');
   assert.match(statustekst('r1', credential, ervoor), /^Geactiveerd voor KVK:90000014\. Het bewijs is geldig tot /);
   assert.match(statustekst('r1', credential, erna), /^Geactiveerd voor KVK:90000014\. Het bewijs is verlopen/);
 });

@@ -3,9 +3,9 @@
 // mee, zodat dezelfde code in de browser en in de tests onder Node draait.
 import { errors } from '../vendor/jose/index.js';
 import {
-  ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
+  ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, publiekeJwk, registratieAdres,
 } from './activeren.js';
-import { ACTIVATIE, KluisFout, REGISTRATIE } from './sleutelkluis.js';
+import { ACTIVATIE, KluisFout, REGISTRATIE, SLEUTELPAAR } from './sleutelkluis.js';
 
 // Het session_token van het activeren overleeft zo de navigatie naar de App Manager, maar niet het
 // sluiten van het tabblad. In de kluis staat het samen met de AES-sleutel (niet te exporteren),
@@ -40,7 +40,9 @@ export async function activeer({ appManager, kluis, sessie, fetch = globalThis.f
   const { sessieToken, aesSleutel } = await maakSessie({ basis: appManager.url, oin: appManager.oin, sleutelpaar, fetch });
 
   sessie.setItem(ACTIVATIE_SESSIE, sessieToken);
-  await kluis.bewaar(ACTIVATIE, { sessieToken, aesSleutel });
+  // Met de publieke sleutel erbij: wist een ander tabblad tijdens deze aanroep de kluis, dan hoort
+  // de registratie straks bij een sleutel die er niet meer is.
+  await kluis.bewaar(ACTIVATIE, { sessieToken, aesSleutel, jwk: await publiekeJwk(sleutelpaar.publicKey) });
 
   return registratieAdres(appManager.url, sessieToken);
 }
@@ -57,6 +59,13 @@ export async function rondActiverenAf({ appManager, fragment, kluis, sessie, fet
 
   // Hoort de activering in de kluis bij een ander tabblad, dan blijft hij voor dat tabblad staan.
   if (!sessieToken || activatie?.sessieToken !== sessieToken) throw new Melding(ANDER_BEGONNEN);
+
+  // Ander sleutelpaar dan bij het begin: een ander tabblad wiste de kluis terwijl dit tabblad
+  // activeerde. Een sleutel wisselt alleen via wissen, en dat haalt ook de activering weg; tussen
+  // deze controle en het bewaren hieronder kan het dus niet meer misgaan.
+  const paar = await kluisOfOpnieuw(() => kluis.haal(SLEUTELPAAR), 'De app kon het activeren niet afronden.');
+
+  if (!paar || !zelfdeSleutel(await publiekeJwk(paar.publicKey), activatie.jwk)) throw new Melding(ANDER_BEGONNEN);
 
   const { aesSleutel } = activatie;
   const registratieToken = await leesRegistratie(fragment, aesSleutel, appManager.url);
@@ -114,6 +123,10 @@ export async function vernieuw({ appManager, kluis, fetch = globalThis.fetch }) 
   if (!await kluis.bewaarCredential(registratieToken, credential)) throw new Melding(ANDER_TABBLAD);
 }
 
+function zelfdeSleutel(a, b) {
+  return a.kty === b?.kty && a.crv === b?.crv && a.x === b?.x && a.y === b?.y;
+}
+
 /** Een KluisFout wordt een melding die zegt dat opnieuw activeren nodig is. */
 async function kluisOfOpnieuw(actie, wat) {
   try {
@@ -134,7 +147,7 @@ export async function wis({ kluis, sessie }) {
 export function statustekst(registratie, credential, nu = new Date()) {
   if (!registratie) return 'Deze browser is nog niet geactiveerd.';
 
-  // Zonder vervolgstap: die staat in de melding erboven, en na een fout helpt vernieuwen niet altijd.
+  // Zonder vervolgstap: die staat in de foutmelding, en na een fout helpt vernieuwen niet altijd.
   if (!credential) return 'Gekoppeld, maar er is nog geen bewijs.';
 
   const { ontvanger, verlooptOp } = leesCredential(credential);
