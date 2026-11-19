@@ -27,7 +27,7 @@ een collectie mee die je vertrouwt.
 Het credential komt van een **lokale App Manager** die alleen op je eigen machine bestaat, en niet
 van de demo-App Manager (`demo/app-manager`). Bij die demo kies je een persona in de browser, en
 een simulator vertrouwt zijn sleutel alleen als je hem met de hand instelt; elke herstart van de
-App Manager maakt er een nieuwe. Het pre-request-script van `3-sessie-starten` ondertekent het
+App Manager maakt er een nieuwe. Het pre-request-script van `4-sessie-starten` ondertekent het
 credential daarom zelf, met een sleutel die je één keer maakt:
 
 ```bash
@@ -78,8 +78,12 @@ is. En nooit `npx @usebruno/cli@latest`.
 | `9-ongeldig-token` | foutpad: `401` met `WWW-Authenticate: Bearer realm="<OIN>", error="invalid_token"` |
 | `10-zonder-token` | foutpad: `401` met alleen de realm |
 
-Elke request van de tweede ingang toetst ook de headers die het contract op elk antwoord eist:
-`API-Version` en de CORS-headers.
+Elke request van de tweede ingang toetst ook de headers die het contract op elk antwoord eist,
+foutantwoorden inbegrepen: `API-Version` en de CORS-headers.
+
+Requests 1 en 2 schrijven bij elke run een bericht in de database van de simulator, met
+`Bruno-test:` in het onderwerp. Gebruikt de demo dezelfde database, dan staan die berichten daar
+ook; start voor een demo met een schone database.
 
 Na een ontsleuteld antwoord toont Bruno de payload in plaats van de JWE; de asserts lopen op die
 payload. Het sessietoken en de AES-sleutel staan in runtime-variabelen
@@ -96,8 +100,13 @@ npm test
 ## Afhankelijkheden
 
 `@usebruno/cli` pint een deel van zijn afhankelijkheden exact, ook versies met bekende advisories.
-Dependabot kan die niet ophogen. Daarom staan `axios`, `form-data` en `js-yaml` onder `overrides` in
-`package.json`. Bekijk die opnieuw bij elke bump van de CLI: misschien zijn ze dan overbodig, of
-juist te oud. Wat overblijft (`npm audit`) zijn `@faker-js/faker` 9, waarvan de fix een nieuwe major
-vraagt, en een aantal moderate meldingen. Dat risico nemen we: de CLI draait alleen op een
-ontwikkelmachine, tegen localhost, met een collectie uit deze repo.
+Dependabot kan die niet ophogen. Daarom staan `axios`, `form-data`, `js-yaml` en `yaml` onder
+`overrides` in `package.json`, als ondergrens (`^`), zodat een nieuwere versie binnen dezelfde major
+nog mee kan. Dependabot past `overrides` zelf niet aan: bij een advisory op een van deze vier hoog
+je de ondergrens met de hand op. `npm test` faalt als een override lager uitkomt dan wat een
+`@usebruno`-pakket zelf vastpint, zoals na een bump van de CLI. Bekijk de overrides bij elke bump
+van de CLI opnieuw; misschien zijn ze dan overbodig. Wat overblijft (`npm audit`: 12 meldingen, waarvan 4 high) zijn `@faker-js/faker` 9, waarvan de
+fix een nieuwe major vraagt, en moderate meldingen. Dat risico nemen we: de CLI draait alleen op een
+ontwikkelmachine, tegen localhost, met een collectie uit deze repo. Bruno geeft geen invoer van
+buiten aan faker. Dependabot kan deze meldingen niet oplossen; ze horen in het dashboard als
+aanvaard te staan, met deze reden.

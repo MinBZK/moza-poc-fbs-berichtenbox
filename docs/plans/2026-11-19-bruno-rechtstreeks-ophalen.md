@@ -78,10 +78,14 @@ Daarom ondertekent het pre-request-script het credential zelf:
   sessie leven één run in het geheugen van het script.
 - `@usebruno/cli` en `jose` staan vast in `bruno/berichtenmagazijn/package.json` en de lockfile.
   Dependabot houdt ze bij met een cooldown van veertien dagen, in één PR per ronde.
-- De CLI pint `axios`, `form-data` en `js-yaml` exact, op versies met bekende advisories; een
-  security update van Dependabot kan die niet ophogen. `overrides` zetten ze op versies van minstens
-  twee weken oud (axios 1.21.0, form-data 4.0.6, js-yaml 4.3.2). Dat brengt `npm audit` van 18
-  meldingen (8 high) naar 14 (4 high). Wat blijft, is `@faker-js/faker` 9 (de fix vraagt een nieuwe
+- De CLI pint `axios`, `form-data`, `js-yaml` en `yaml` exact, op versies met bekende advisories;
+  een security update van Dependabot kan die niet ophogen. `overrides` geven een ondergrens
+  (`^1.21.0`, `^4.0.6`, `^4.3.2`, `^2.8.3`), geen exacte versie: Dependabot past `overrides` niet
+  aan, en een exacte waarde zou ook de lockfile-update van een security fix tegenhouden. De
+  lockfile is opgebouwd met `npm install --before=2026-11-05`, zodat ook geen transitieve versie
+  jonger is dan twee weken. `lib/overrides.test.mjs` faalt als een override lager uitkomt dan wat
+  een `@usebruno`-pakket vastpint; een override wint anders zonder melding. `npm audit` gaat van 18
+  meldingen (8 high) naar 12 (4 high). Wat blijft, is `@faker-js/faker` 9 (de fix vraagt een nieuwe
   major onder `@usebruno/requests`) en moderate meldingen: aanvaard, omdat de CLI alleen op een
   ontwikkelmachine tegen localhost draait met een collectie uit deze repo.
 - In commando's `npm run rechtstreeks`, niet `npx bru`: zonder lokale installatie haalt `npx` het
@@ -94,9 +98,11 @@ Bruno toont dan de payload, en de `assert`-blokken lopen erop. Elke request van 
 toetst status, `Content-Type`, `API-Version` en de CORS-headers die het contract op elk antwoord
 eist; de geslaagde ook `Cache-Control: no-store` en de vorm van de payload. Naast het hoofdpad
 staan de foutpaden die het contract benadrukt: een tweede poging met dezelfde nonce (401), een
-bericht van een andere ontvanger (404, met een tweede demo-persona, Grootbedrijf B.V.), een
-onbekend token en geen token (401, RFC 6750). De lijst wordt getoetst op alleen berichten van de
-ontvanger uit de sessie. Het sessietoken en de AES-sleutel staan in runtime-variabelen (`bru.setVar`),
+bericht van een andere ontvanger (404, met een tweede demo-persona, Grootbedrijf B.V.), even
+onherkenbaar als een bericht dat niet bestaat, een onbekend token en geen token (401, RFC 6750).
+De lijst wordt getoetst op alleen berichten van de ontvanger uit de sessie, en het totaal tegen dat
+van de eerste ingang (via `bru.sendRequest` in het script). Niet opgenomen: het `400`-pad waarbij de
+nonce bruikbaar blijft, en `406`; de tests van de simulator dekken ze. Het sessietoken en de AES-sleutel staan in runtime-variabelen (`bru.setVar`),
 die Bruno niet in een bestand schrijft. In het antwoordvenster van `sessies` staat het token niet,
 alleen dat het de vorm uit de spec heeft.
 
@@ -116,11 +122,13 @@ demo-persona Garage Van Dijk B.V.). `zad` krijgt ze niet: de tweede ingang staat
 
 - `npm test` in `bruno/berichtenmagazijn`: de JOSE-code tegen jose.
 - `bru run rechtstreeks --env lokaal --sandbox developer` tegen een simulator in ontwikkelmodus, met
-  PostgreSQL op podman: 10 requests, 69 asserts en 4 tests groen.
+  PostgreSQL op podman: 10 requests, 73 asserts en 7 tests groen. `npm test`: 39 tests.
 - Mutaties in een kopie van de collectie (`bru run` of `npm test`), onder meer de ontvanger in het
   credential, het algoritme-id en de lengte in de Concat KDF, `typ` uit de JWE, `aud` van de
   nonce-handtekening, base64url voor de AES-sleutel, de scope, een vaste app-sleutel, een leeg
   antwoord, een ander bericht-id, de realm, de header-asserts, de controles op header, curve, IV,
-  `kid`, `typ`, `alg` en het aantal delen. 27 mutaties, 27 gevangen.
+  `kid`, `typ`, `alg` en het aantal delen, een lekkend totaal, een bericht van een andere
+  ontvanger, een afwijkende 404 en een override die een vastgepinde versie terugzet. 33 mutaties,
+  33 gevangen.
 - Niet in CI: geen workflow draait `bru run`. Dat vraagt een simulator met database in de job en een
   sleutel per run; dat is een keuze voor de opdrachtgever.

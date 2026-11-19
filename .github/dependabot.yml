@@ -82,9 +82,9 @@ updates:
       default-days: 7
   # Wekelijks: de Bruno-CLI en jose voor de Bruno-collectie van het magazijn. Alleen voor een
   # ontwikkelmachine; geen workflow draait ze. Veertien dagen wachten: de CLI draait scripts uit de
-  # collectie met toegang tot Node. Security updates wachten niet op die termijn, maar de CLI pint
-  # een deel van zijn afhankelijkheden exact; daarvoor staan `overrides` in package.json, die een
-  # bump van de CLI opnieuw moet bekijken. Eén PR per ronde: ze kosten elk een CI-run.
+  # collectie met toegang tot Node. Security updates wachten niet op die termijn, maar kunnen een
+  # afhankelijkheid die de CLI exact pint niet ophogen, en `overrides` past Dependabot niet aan; zie
+  # de README van de collectie. Eén PR per ronde: ze kosten elk een CI-run.
   - package-ecosystem: "npm"
     directory: "/bruno/berichtenmagazijn"
     schedule:

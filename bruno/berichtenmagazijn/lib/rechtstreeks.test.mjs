@@ -116,6 +116,12 @@ describe('ontsleutelDir', () => {
     assert.throws(() => r.ontsleutelDir(jwe, sleutel), /IV of tag/);
   });
 
+  for (const [naam, aanpassen] of [['vier', (d) => d.slice(0, 4)], ['zes', (d) => [...d, 'extra']]]) {
+    it(`weigert een JWE met ${naam} delen`, () => {
+      assert.throws(() => r.ontsleutelDir(aanpassen(r.jweDir('{}', sleutel).split('.')).join('.'), sleutel), /vijf delen/);
+    });
+  }
+
   it('weigert een JWE met een versleutelde sleutel', () => {
     const delen = r.jweDir('{}', sleutel).split('.');
 
@@ -146,6 +152,8 @@ describe('leesChallenge', () => {
   for (const [naam, header] of [
     ['met ES384', { alg: 'ES384', typ: 'jwt', kid: 'k' }],
     ['zonder typ', { alg: 'ES256', kid: 'k' }],
+    ['met een lege kid', { alg: 'ES256', typ: 'jwt', kid: '' }],
+    ['met een kid die geen tekst is', { alg: 'ES256', typ: 'jwt', kid: 7 }],
   ]) {
     it(`weigert een header ${naam}`, () => {
       const [, payload, handtekening] = challenge().jws.split('.');

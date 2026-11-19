@@ -18,7 +18,9 @@ assert {
   res.status: eq 401
   res.headers["content-type"]: startsWith application/problem+json
   res.headers["www-authenticate"]: eq 'Bearer realm="{{simulatorOin}}"'
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
   res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
   res.body.type: eq urn:fbs:fout:geen-toegang
 }
 

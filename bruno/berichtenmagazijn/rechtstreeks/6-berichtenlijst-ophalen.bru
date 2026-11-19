@@ -22,6 +22,18 @@ headers {
   Accept: application/jose
 }
 
+script:pre-request {
+  // Het totaal van deze ontvanger volgens de eerste ingang: zo valt op als de tweede ingang ook de
+  // berichten van anderen telt.
+  const telling = await bru.sendRequest({
+    method: 'GET',
+    url: `${bru.interpolate('{{baseUrlSimulator}}')}/berichten?pageSize=1`,
+    headers: { 'X-Ontvanger': bru.getEnvVar('rechtstreeksOntvanger') },
+  });
+
+  bru.setVar('rechtstreeksAantal', telling.data.totalElements);
+}
+
 script:post-response {
   const { leesAntwoord } = require('./lib/rechtstreeks.js');
 
@@ -54,6 +66,10 @@ tests {
     berichten.forEach((b) => expect(`${b.ontvanger.type}:${b.ontvanger.waarde}`).to.equal(bru.getEnvVar('rechtstreeksOntvanger')));
   });
 
+  test("totalElements telt alleen de berichten van de ontvanger uit de sessie", function () {
+    expect(res.getBody().totalElements).to.equal(bru.getVar('rechtstreeksAantal'));
+  });
+
   test("elk bericht wijst naar de tweede ingang", function () {
     res.getBody().berichten.forEach((b) => expect(b._links.self.href).to.contain(`/rechtstreeks/berichten/${b.berichtId}`));
   });
@@ -61,5 +77,7 @@ tests {
 
 docs {
   Dezelfde lijst als `GET /berichten` van de eerste ingang, voor de ontvanger uit de sessie. Het
-  antwoord is versleuteld met de AES-sleutel van de sessie; Bruno toont het ontsleuteld.
+  antwoord is versleuteld met de AES-sleutel van de sessie; Bruno toont het ontsleuteld. Het
+  pre-request-script vraagt het totaal van dezelfde ontvanger op bij de eerste ingang, om het
+  totaal hier mee te vergelijken.
 }

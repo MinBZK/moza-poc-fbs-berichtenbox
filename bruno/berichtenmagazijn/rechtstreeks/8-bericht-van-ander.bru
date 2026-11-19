@@ -18,12 +18,33 @@ headers {
   Accept: application/jose
 }
 
+script:post-response {
+  // Een id dat niet bestaat, binnen dezelfde sessie: het antwoord moet niet te onderscheiden zijn.
+  const onbekend = await bru.sendRequest({
+    method: 'GET',
+    url: `${bru.interpolate('{{baseUrlSimulator}}')}/rechtstreeks/berichten/00000000-0000-0000-0000-000000000000`,
+    headers: { Authorization: `Bearer ${bru.getVar('rechtstreeksSessieToken')}`, Accept: 'application/jose' },
+    validateStatus: () => true,
+  });
+
+  bru.setVar('rechtstreeksOnbekend', JSON.stringify({ status: onbekend.status, type: onbekend.data?.type, title: onbekend.data?.title }));
+}
+
 assert {
   res.status: eq 404
   res.headers["content-type"]: startsWith application/problem+json
   res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
   res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
   res.body.type: eq urn:fbs:fout:bericht-onbekend
+}
+
+tests {
+  test("een bericht van een ander is niet te onderscheiden van een bericht dat niet bestaat", function () {
+    const { status, type, title } = res.getBody();
+
+    expect(JSON.parse(bru.getVar('rechtstreeksOnbekend'))).to.deep.equal({ status, type, title });
+  });
 }
 
 docs {
