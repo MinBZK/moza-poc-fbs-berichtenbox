@@ -31,18 +31,28 @@ van verlopen, geen sleutel en geen identiteit. `zoek` blijft wat het is. Een nie
 
 Gekozen: B.
 
-- **Geheugen.** Begrensd op `maxSessies` (standaard 50.000) en op een bewaartermijn (standaard een
-  uur). Per vermelding is dat een hash van 32 bytes plus de verwijzing naar de Verifier-OIN en een
-  `Instant`, dus enkele megabytes in het slechtste geval. Bij een volle verzameling valt de oudste
-  vermelding weg. Die verliest dan alleen het onderscheid, niet de afwijzing: zo'n token wordt
-  `SESSIE_ONBEKEND`.
-- **Geheim.** Het token zelf blijft niet bewaard, alleen de SHA-256-hash. Het token is na het
-  verlopen waardeloos, maar zo staat er ook in een heap-dump niets dat op een geldig token lijkt.
+- **Geheugen.** Begrensd op vier keer `maxSessies` (standaard 200.000) en op een bewaartermijn
+  (standaard een uur). Vier keer, omdat onder volle last in een uur zoveel sessies van een kwartier
+  verlopen; met één keer zou de termijn juist dan krimpen tot één sessieduur. Per vermelding gaat
+  het om de eerste 128 bit van de hash, de verwijzing naar de Verifier-OIN, een `Instant` en de
+  entry in de map: ruwweg honderd bytes, dus zo'n twintig megabyte in het slechtste geval.
+- **Volgorde.** Bij een volle verzameling valt de vroegst verlopen vermelding weg, ook als er in één
+  opruimronde meerdere verlopen. Die verliest dan alleen het onderscheid, niet de afwijzing: zo'n
+  token wordt `SESSIE_ONBEKEND`. Omdat elke ronde in volgorde van verlopen toevoegt, kan het snoeien
+  op termijn en op omvang vanaf de kop stoppen.
+- **Geheim.** Het token zelf blijft niet bewaard, alleen de eerste 128 bit van de SHA-256. Het token
+  is na het verlopen waardeloos, maar zo staat er ook in een heap-dump niets dat op een geldig token
+  lijkt. 128 bit volstaat om een token van ruim 190 bit terug te herkennen.
+- **Kosten onder de lock.** De opslag deelt één lock over alle Verifiers. De hash gaat erbuiten,
+  `verlopen` ruimt niet nog eens op, en een token zonder de vorm van een uitgegeven token bereikt de
+  opslag niet.
 - **Vangnet van de opslag.** Ongewijzigd. `ruimOp` blijft bij elke aanroep opruimen, de quota
   tellen alleen levende sessies, en de nieuwe verzameling telt nergens mee.
 - **Bewaartermijn.** Een uur dekt een app die even op de achtergrond stond. Een token dat langer
   geleden verliep, heet weer `SESSIE_ONBEKEND`. De operator ziet het verschil dan niet meer, maar
-  bij die afstand is het ook geen gewone "net verlopen"-situatie meer.
+  bij die afstand is het ook geen gewone "net verlopen"-situatie meer. Ook een token van vóór een
+  herstart van de dienst heet `SESSIE_ONBEKEND`: de opslag zit in het geheugen. `SESSIE_ONBEKEND`
+  betekent dus niet per se "verzonnen".
 
 ## Stappen
 
@@ -52,12 +62,15 @@ Gekozen: B.
 3. `Verifier.sessie` vraagt bij een gemiste `zoek` naar `verlopen` en wijst af met de juiste reden.
    `vereisLopend` (de sessie verloopt terwijl het verzoek loopt) wijst af met `SESSIE_VERLOPEN`.
 4. Simulator: `VerifierFoutMapper` zet `error="invalid_token"` voor beide redenen.
+5. Simulator, los hiervan: de 404-regel van `ProblemExceptionMapper` noemt foutcode en magazijn-OIN,
+   zodat een 404 en een 401 bij hetzelfde magazijn ook zonder access-log bij elkaar te zoeken zijn.
 
 ## Verificatie
 
-- Library: onbekend, verlopen, verlopen tijdens het verzoek (`versleutel` en `ontsleutel`), de grens
-  op precies `verlooptOp` en een seconde ervoor, het token van een andere Verifier, en de opslag
-  na de bewaartermijn en bij een volle verzameling.
+- Library: onbekend, een token zonder de juiste vorm, verlopen, verlopen tijdens het verzoek
+  (`versleutel` en `ontsleutel`), de grens op precies `verlooptOp` en een milliseconde ervoor, het
+  token van een andere Verifier, en de opslag na de bewaartermijn en bij een volle verzameling, ook
+  als meerdere sessies in één ronde verlopen.
 - Simulator (`RechtstreeksVerloopTest`, verzetbare klok): een verlopen en een onbekend token geven
   exact hetzelfde antwoord (status, `WWW-Authenticate`, body op `instance` na), en de log noemt
   `SESSIE_VERLOPEN` respectievelijk `SESSIE_ONBEKEND`.

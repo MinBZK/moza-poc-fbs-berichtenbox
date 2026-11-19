@@ -8,6 +8,7 @@ import jakarta.validation.Path
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.Logvanger
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -52,6 +53,17 @@ class FoutMappersTest {
         // Bij een 4xx is de melding juist nuttig: dat is wat de aanroeper nodig heeft om te zien wat
         // er mis is.
         assertEquals("Bericht bestaat niet", problem.detail)
+    }
+
+    /** Het beheerpad kiest geen magazijn; de regel zegt dat dan, in plaats van een leeg veld. */
+    @Test
+    fun `een clientfout zonder gekozen magazijn noemt dat in de log`() {
+        val log = Logvanger().use { logvanger ->
+            ProblemExceptionMapper(MagazijnContext()).toResponse(NotFoundException("Geen gesimuleerd magazijn"))
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("foutcode=niet-gevonden, magazijn=geen)"), log)
     }
 
     /**

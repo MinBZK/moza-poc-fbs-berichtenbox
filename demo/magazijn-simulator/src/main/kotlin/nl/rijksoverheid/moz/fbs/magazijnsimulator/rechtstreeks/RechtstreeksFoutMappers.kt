@@ -37,7 +37,7 @@ class VerifierFoutMapper(private val context: MagazijnContext) : ExceptionMapper
                 log.infof("Rechtstreeks verzoek bij magazijn %s afgewezen (%s): %s %s", oin, foutId, fout.reden, fout.cause?.message.orEmpty())
 
                 // Alleen bij die redenen is er een token getoetst; bij het openen van een sessie gaat het om de presentatie.
-                // Onbekend en verlopen geven de app hetzelfde antwoord: alleen de log onderscheidt ze.
+                // Ook verlopen: zonder error="invalid_token" zou de header het verschil met onbekend verraden.
                 geenToegang(oin, foutId, tokenGetoetst = fout.reden in TOKEN_AFGEWEZEN)
             }
 

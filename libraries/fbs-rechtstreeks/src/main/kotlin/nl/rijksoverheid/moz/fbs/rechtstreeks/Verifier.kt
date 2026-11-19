@@ -115,9 +115,14 @@ class Verifier(
     }
 
     /** De sessie bij [token]; een onbekend of verlopen token wordt afgewezen. */
-    fun sessie(token: String): Sessie =
-        sessies.zoek(oin, token)
+    fun sessie(token: String): Sessie {
+        // Een token zonder de vorm van een uitgegeven token heeft nooit een sessie gehad. De opslag
+        // hoeft het niet te zien: elke vraag daar kost een ronde onder de lock die alle Verifiers delen.
+        if (token.length != TOKEN_LENGTE || token.any { it !in TOKEN_TEKENS }) throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+
+        return sessies.zoek(oin, token)
             ?: throw AfgewezenException(if (sessies.verlopen(oin, token)) Afwijzing.SESSIE_VERLOPEN else Afwijzing.SESSIE_ONBEKEND)
+    }
 
     /**
      * Versleutelt een antwoord onder de sessiesleutel (`dir`, `A256GCM`). Een sessie die verliep

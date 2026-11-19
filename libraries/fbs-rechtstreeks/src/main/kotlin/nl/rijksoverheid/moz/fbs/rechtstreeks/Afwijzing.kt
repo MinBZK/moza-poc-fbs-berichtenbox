@@ -23,12 +23,15 @@ enum class Afwijzing {
     ONTVANGER_ONGELDIG,
     APPSLEUTEL_ONGELDIG,
     NONCEHANDTEKENING_ONGELDIG,
+    /**
+     * Het token is bij deze Verifier niet (meer) bekend: verzonnen, van vóór een herstart van de
+     * dienst, of langer geleden verlopen dan de opslag onthoudt.
+     */
     SESSIE_ONBEKEND,
 
     /**
-     * Het token hoorde kort geleden bij een sessie die nu verlopen is. Voor de app hetzelfde
-     * antwoord als [SESSIE_ONBEKEND]; de log onderscheidt zo een verzonnen token van een app die
-     * over de grens liep.
+     * Het token hoorde kort geleden bij een sessie die nu verlopen is: een app die over de grens
+     * liep. Voor de app hetzelfde antwoord als [SESSIE_ONBEKEND]; alleen de log onderscheidt ze.
      */
     SESSIE_VERLOPEN,
     VERSLEUTELING_ONGELDIG,
