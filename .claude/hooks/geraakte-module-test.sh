@@ -86,7 +86,8 @@ if [[ "$snel" != true || "${FBS_HOOK_TESTS:-1}" == "0" ]]; then
             echo "  (start Testcontainers; Docker of Podman moet draaien)"
             ;;
         demo/berichten-app)
-            # BerichtenAppTest hangt via een bestandspad aan deze JS, niet via de reactor.
+            # BerichtenAppTest leest deze JS via een bestandspad; de reactor zet de module alleen
+            # eerder, voor node_modules, en draait bij een wijziging hier de App Manager niet mee.
             echo "  ./mvnw clean test -pl demo/app-manager -am   (draait deze browsercode tegen de App Manager)"
             ;;
     esac

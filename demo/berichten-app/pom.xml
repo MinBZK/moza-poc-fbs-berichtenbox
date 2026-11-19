@@ -115,6 +115,22 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <!-- copy-resources slaat een ontbrekende bronmap zonder fout over. Zonder deze
+                         controle komt er een jar zonder jose uit (bijvoorbeeld met -DskipTests), en
+                         start de app in de browser niet. -->
+                    <execution>
+                        <id>jose-aanwezig</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>node</executable>
+                            <arguments>
+                                <argument>-e</argument>
+                                <argument>require('node:fs').accessSync(process.argv[1])</argument>
+                                <argument>${project.build.outputDirectory}/META-INF/resources/vendor/jose/index.js</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>
@@ -142,8 +158,8 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- Dezelfde 90%-gate als de App Manager: de Kotlin-kant is klein, maar zet de CSP en de
-                 adressen waar de sleutel van de app mee praat. -->
+            <!-- Dezelfde 90%-gate als de App Manager: de Kotlin-kant is klein, maar toetst het adres
+                 dat in connect-src en in config.json komt. -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>

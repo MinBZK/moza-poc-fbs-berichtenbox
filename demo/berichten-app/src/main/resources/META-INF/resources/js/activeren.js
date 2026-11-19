@@ -11,8 +11,8 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export class ActiverenFout extends Error {
-  constructor(melding, status, stap) {
-    super(melding);
+  constructor(melding, status, stap, opties) {
+    super(melding, opties);
     this.name = 'ActiverenFout';
     this.status = status;
     this.stap = stap;
@@ -43,9 +43,17 @@ export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.f
     throw new ActiverenFout('onverwachte challenge');
   }
 
-  const tijdelijk = await crypto.subtle.importKey(
-    'spki', base64(claims.ephemeral_organization_ec_public_key), { name: 'ECDH', namedCurve: 'P-256' }, true, [],
-  );
+  // Een sleutel die niet te lezen is, ligt aan de App Manager, niet aan de app.
+  let tijdelijk;
+
+  try {
+    tijdelijk = await crypto.subtle.importKey(
+      'spki', base64(claims.ephemeral_organization_ec_public_key), { name: 'ECDH', namedCurve: 'P-256' }, true, [],
+    );
+  } catch (fout) {
+    throw new ActiverenFout('onbruikbare tijdelijke sleutel in de challenge', undefined, 'challenge', { cause: fout });
+  }
+
   const ruw = crypto.getRandomValues(new Uint8Array(AES_BYTES));
   const aesSleutel = await crypto.subtle.importKey('raw', ruw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
   const jwk = await publiekeJwk(sleutelpaar.publicKey);
@@ -69,9 +77,9 @@ export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.f
     body: JSON.stringify({ nonce: claims.nonce, encrypted_challenge_result: versleuteld }),
   }), 'complete');
 
-  const { session_token: sessieToken } = JSON.parse(await ontsleutel(antwoord, aesSleutel));
+  const sessieToken = JSON.parse(await ontsleutel(antwoord, aesSleutel))?.session_token;
 
-  if (typeof sessieToken !== 'string') throw new ActiverenFout('geen sessietoken in het antwoord');
+  if (typeof sessieToken !== 'string') throw new ActiverenFout('geen sessietoken in het antwoord', undefined, 'complete');
 
   return { sessieToken, aesSleutel };
 }
@@ -86,8 +94,9 @@ export function registratieAdres(basis, sessieToken) {
 }
 
 /**
- * Het `registration_token` uit het fragment van de terug-URL. Het bericht moet van [issuer] komen:
- * een bericht van een ander adres is niet van onze App Manager.
+ * Het `registration_token` uit het fragment van de terug-URL. Het bericht moet van `issuer` komen:
+ * een bericht van een ander adres is niet van onze App Manager. `issuer` is het adres van de App
+ * Manager uit de configuratie; dat moet gelijk zijn aan `app-manager.issuer-url` van de App Manager.
  */
 export async function leesRegistratie(fragment, aesSleutel, issuer) {
   const jwe = new URLSearchParams(fragment.replace(/^#/, '')).get('registration_token');
@@ -96,9 +105,13 @@ export async function leesRegistratie(fragment, aesSleutel, issuer) {
 
   const bericht = JSON.parse(await ontsleutel(jwe, aesSleutel));
 
-  if (bericht.sub !== 'registration_token' || bericht.iss !== issuer || typeof bericht.registration_token !== 'string') {
+  if (bericht?.sub !== 'registration_token' || typeof bericht.registration_token !== 'string') {
     throw new ActiverenFout('onverwacht registratiebericht');
   }
+
+  // De waarden staan in de melding, die alleen naar de console gaat: een verschil in configuratie
+  // is anders niet te vinden.
+  if (bericht.iss !== issuer) throw new ActiverenFout(`registratiebericht van ${bericht.iss}, verwacht ${issuer}`);
 
   return bericht.registration_token;
 }
@@ -167,7 +180,12 @@ async function verbind(fetch, adres, opties) {
 async function tekstVan(antwoord, stap) {
   if (!antwoord.ok) throw new ActiverenFout(`${stap} mislukt (HTTP ${antwoord.status})`, antwoord.status, stap);
 
-  return antwoord.text();
+  try {
+    return await antwoord.text();
+  } catch (fout) {
+    // Het antwoord brak halverwege af: dat is de verbinding, niet de inhoud.
+    throw new VerbindingFout(`${stap}: antwoord afgebroken`, { cause: fout });
+  }
 }
 
 function base64(tekst) {

@@ -19,7 +19,15 @@ class ConfigControleTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["", "/relatief/", "https://app-manager.example", "https://app-manager.example/?a=1", "https://app-manager.example/#x", "geen url/"])
+    @ValueSource(
+        strings = [
+            "", "/relatief/", "https://app-manager.example", "https://app-manager.example/?a=1", "https://app-manager.example/#x", "geen url/",
+            "ftp://app-manager.example/", "https://iemand@app-manager.example/",
+            // Tekens die in de CSP-header een eigen richtlijn of bron zouden maken.
+            "https://app-manager.example/a;script-src/", "https://app-manager.example/a,b/", "https://app-manager.example/'unsafe-inline'/",
+            "https://app-manager.example/a%20b/",
+        ],
+    )
     fun `een adres dat de app niet kan aanvullen wordt geweigerd`(adres: String) {
         assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = true) }
     }

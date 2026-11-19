@@ -1,39 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CompactEncrypt, CompactSign, compactDecrypt } from 'jose';
+import { CompactEncrypt, CompactSign, compactDecrypt, decodeJwt, errors } from 'jose';
 import {
-  ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
+  ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, publiekeJwk, registratieAdres,
 } from '../../main/resources/META-INF/resources/js/activeren.js';
 import { maakSleutelpaar } from '../../main/resources/META-INF/resources/js/sleutelkluis.js';
+import {
+  BASIS, OIN, aesSleutel, credentialMet, nepAppManager, nepFetch, registratiebericht,
+} from './hulp.mjs';
 
-const BASIS = 'https://app-manager.test/';
 const encoder = new TextEncoder();
-
-function aesSleutel() {
-  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-}
-
-async function registratiebericht(velden, sleutel) {
-  const jwe = await new CompactEncrypt(encoder.encode(JSON.stringify(velden)))
-    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM', typ: 'JWE' })
-    .encrypt(sleutel);
-
-  return `#registration_token=${jwe}`;
-}
-
-/** Een fetch die per pad één antwoord geeft en onthoudt wat hij kreeg. */
-function nepFetch(antwoorden) {
-  const verzoeken = [];
-  const fetch = async (adres, opties) => {
-    verzoeken.push({ adres: String(adres), opties });
-
-    const [status, tekst] = antwoorden[new URL(adres).pathname] ?? [404, ''];
-
-    return new Response(tekst, { status });
-  };
-
-  return { fetch, verzoeken };
-}
 
 test('het registratieadres zet het session_token als query-parameter, gecodeerd', () => {
   assert.equal(registratieAdres(BASIS, 'a+b/c'), 'https://app-manager.test/register_app?session_token=a%2Bb%2Fc');
@@ -63,7 +39,7 @@ test('een registratiebericht met een andere iss, een ander sub of zonder token w
 test('een registratiebericht onder een andere sleutel wordt geweigerd', async () => {
   const fragment = await registratiebericht({ sub: 'registration_token', iss: BASIS, registration_token: 'r1' }, await aesSleutel());
 
-  await assert.rejects(leesRegistratie(fragment, await aesSleutel(), BASIS));
+  await assert.rejects(leesRegistratie(fragment, await aesSleutel(), BASIS), errors.JOSEError);
 });
 
 test('zonder registration_token in het fragment is er niets te lezen', async () => {
@@ -118,7 +94,10 @@ test('een fout van de App Manager komt terug met zijn status en de stap', async 
 test('het verzoek om een credential draagt het sessietoken in Authorization en is versleuteld', async () => {
   const { fetch, verzoeken } = nepFetch({ '/credential': [401, ''] });
 
-  await assert.rejects(haalCredential({ basis: BASIS, sessieToken: 'sessie-1', aesSleutel: await aesSleutel(), registratieToken: 'geheim', fetch }));
+  await assert.rejects(
+    haalCredential({ basis: BASIS, sessieToken: 'sessie-1', aesSleutel: await aesSleutel(), registratieToken: 'geheim', fetch }),
+    { name: 'ActiverenFout', status: 401 },
+  );
 
   const { opties } = verzoeken[0];
 
@@ -129,12 +108,6 @@ test('het verzoek om een credential draagt het sessietoken in Authorization en i
   // De App Manager weigert een JWE zonder typ JWE met een 400 (API Design Rules, /encryption/jwe).
   assert.deepEqual(JSON.parse(Buffer.from(opties.body.split('.')[0], 'base64url')), { alg: 'dir', enc: 'A256GCM', typ: 'JWE' });
 });
-
-async function credentialMet(claims) {
-  const { privateKey } = await maakSleutelpaar();
-
-  return new CompactSign(encoder.encode(JSON.stringify(claims))).setProtectedHeader({ alg: 'ES256' }).sign(privateKey);
-}
 
 test('van een credential toont de app de ontvanger en het verloopmoment', async () => {
   const credential = await credentialMet({ ontvanger: 'KVK:90000014', exp: 1_800_000_000 });
@@ -175,4 +148,85 @@ test('een antwoord op complete zonder sessietoken wordt geweigerd', async () => 
   };
 
   await assert.rejects(maakSessie({ basis: BASIS, oin: '00000000000000001100', sleutelpaar: app, fetch }), ActiverenFout);
+});
+
+test('een sessie levert het sessietoken en een AES-sleutel die niet te exporteren is', async () => {
+  const sleutelpaar = await maakSleutelpaar();
+  const appManager = nepAppManager();
+
+  const { sessieToken, aesSleutel: sleutel } = await maakSessie({ basis: BASIS, oin: OIN, sleutelpaar, fetch: appManager.fetch });
+  const [presentatie] = appManager.log.presentaties;
+  const nonceHandtekening = decodeJwt(presentatie.app_nonce_signature);
+
+  assert.equal(sessieToken, 'sessie-1');
+  assert.equal(sleutel.extractable, false);
+  assert.equal(sleutel.algorithm.name, 'AES-GCM');
+  assert.equal(presentatie.certificate_type, 'certificate_type_self_signed');
+  assert.deepEqual(decodeJwt(presentatie.certificate), { sub: 'certificate_type_self_signed', cnf: { jwk: await publiekeJwk(sleutelpaar.publicKey) } });
+  assert.deepEqual(nonceHandtekening, { sub: 'challenge_response', aud: OIN, nonce: 'nonce-0' });
+  assert.equal(Buffer.from(presentatie.session_aes_key, 'base64').length, 32);
+});
+
+test('een 400 van de App Manager komt terug als fout met die status, bij complete en bij credential', async () => {
+  const sleutelpaar = await maakSleutelpaar();
+
+  await assert.rejects(
+    maakSessie({ basis: BASIS, oin: OIN, sleutelpaar, fetch: nepAppManager({ status: { '/v1/complete': 400 } }).fetch }),
+    { name: 'ActiverenFout', status: 400, stap: 'complete' },
+  );
+
+  const { fetch } = nepFetch({ '/credential': [400, ''] });
+
+  await assert.rejects(
+    haalCredential({ basis: BASIS, sessieToken: 's', aesSleutel: await aesSleutel(), registratieToken: 'r', fetch }),
+    { name: 'ActiverenFout', status: 400, stap: 'credential' },
+  );
+});
+
+test('een challenge met een onbruikbare tijdelijke sleutel is een fout van de App Manager', async () => {
+  const sleutelpaar = await maakSleutelpaar();
+
+  for (const sleutel of ['geen base64!', Buffer.from('geen sleutel').toString('base64')]) {
+    const jws = await new CompactSign(encoder.encode(JSON.stringify({ sub: 'challenge', nonce: 'n', ephemeral_organization_ec_public_key: sleutel })))
+      .setProtectedHeader({ alg: 'ES256' })
+      .sign(sleutelpaar.privateKey);
+    const { fetch } = nepFetch({ '/v1/challenge': [200, jws] });
+
+    await assert.rejects(maakSessie({ basis: BASIS, oin: OIN, sleutelpaar, fetch }), { name: 'ActiverenFout', stap: 'challenge' });
+  }
+});
+
+test('een registratiebericht met een ander sleutelalgoritme dan dir wordt geweigerd, ook onder de juiste sleutel', async () => {
+  const sleutel = await aesSleutel();
+  const jwe = await new CompactEncrypt(encoder.encode(JSON.stringify({ sub: 'registration_token', iss: BASIS, registration_token: 'r1' })))
+    .setProtectedHeader({ alg: 'A256GCMKW', enc: 'A256GCM', typ: 'JWE' })
+    .encrypt(sleutel);
+
+  await assert.rejects(leesRegistratie(`#registration_token=${jwe}`, sleutel, BASIS), { code: 'ERR_JOSE_ALG_NOT_ALLOWED' });
+});
+
+test('een registratiebericht van een andere iss noemt beide adressen in de melding voor de console', async () => {
+  const sleutel = await aesSleutel();
+  const fragment = await registratiebericht({ sub: 'registration_token', iss: 'https://ander.test/', registration_token: 'r1' }, sleutel);
+
+  await assert.rejects(leesRegistratie(fragment, sleutel, BASIS), (fout) => fout instanceof ActiverenFout
+    && fout.message.includes('https://ander.test/') && fout.message.includes(BASIS));
+});
+
+test('een App Manager die bij complete of credential wegvalt, of halverwege afbreekt, geeft een VerbindingFout', async () => {
+  const sleutelpaar = await maakSleutelpaar();
+  const echt = nepAppManager();
+  const valtWegBij = (pad) => async (adres, opties) => {
+    if (new URL(adres).pathname === pad) throw new TypeError('fetch failed');
+
+    return echt.fetch(adres, opties);
+  };
+  const afgebroken = async () => new Response(new ReadableStream({ start(stroom) { stroom.error(new Error('weg')); } }));
+
+  await assert.rejects(maakSessie({ basis: BASIS, oin: OIN, sleutelpaar, fetch: valtWegBij('/v1/complete') }), VerbindingFout);
+  await assert.rejects(
+    haalCredential({ basis: BASIS, sessieToken: 's', aesSleutel: await aesSleutel(), registratieToken: 'r', fetch: valtWegBij('/credential') }),
+    VerbindingFout,
+  );
+  await assert.rejects(maakSessie({ basis: BASIS, oin: OIN, sleutelpaar, fetch: afgebroken }), VerbindingFout);
 });

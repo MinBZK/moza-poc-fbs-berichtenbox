@@ -19,17 +19,25 @@ class ConfigControle(config: BerichtenAppConfig) {
     companion object {
         private val OIN = Regex("\\d{20}")
 
+        // Het adres komt letterlijk in de CSP-header: een `;`, `,`, spatie of quote in het pad zou daar
+        // een eigen richtlijn of bron toevoegen.
+        private val PAD = Regex("[A-Za-z0-9._~/-]*")
+
+        private val SCHEMA = setOf("http", "https")
+
         /**
-         * Absoluut, zonder query of fragment, en eindigend op `/`: de app plakt er de paden van de
-         * standaard achter. Buiten ontwikkel- en testmodus https, want de app stuurt er het
-         * `session_token` heen.
+         * Absoluut, zonder gebruikersnaam, query of fragment, en eindigend op `/`: de app plakt er de
+         * paden van de standaard achter. Het pad bevat alleen tekens die in een CSP-bron niets
+         * betekenen. Buiten ontwikkel- en testmodus https, want de app stuurt er het `session_token` heen.
          */
         fun controleerAppManagerUrl(adres: String, ontwikkel: Boolean) {
             val uri = runCatching { URI.create(adres) }.getOrNull()
-            val vorm = uri != null && uri.isAbsolute && uri.host != null && uri.rawQuery == null && uri.rawFragment == null
+            val vorm = uri != null && uri.scheme in SCHEMA && uri.host != null && uri.rawUserInfo == null &&
+                uri.rawQuery == null && uri.rawFragment == null && PAD.matches(uri.rawPath)
 
             require(vorm && adres.endsWith("/")) {
-                "berichten-app.app-manager-url ($adres) moet een absolute URL zijn die op / eindigt, zonder query of fragment"
+                "berichten-app.app-manager-url ($adres) moet een absolute http(s)-URL zijn die op / eindigt, " +
+                    "zonder gebruikersnaam, query of fragment, met een pad van alleen letters, cijfers en ._~/-"
             }
 
             require(ontwikkel || uri.scheme == "https") { "berichten-app.app-manager-url ($adres) moet https zijn" }

@@ -3,8 +3,7 @@
 // en de Origin van de keuzepagina meesturen, de persona kiezen), doet het script na. Schrijft één
 // regel JSON naar stdout.
 //
-//   node tegen-app-manager.mjs <basis> <issuer> <oin> <persona>
-import { decodeJwt } from 'jose';
+//   node --import ./jose-uit-npm.mjs tegen-app-manager.mjs <basis> <issuer> <oin> <persona>
 import {
   haalCredential, leesRegistratie, maakSessie, publiekeJwk, registratieAdres,
 } from '../../main/resources/META-INF/resources/js/activeren.js';
@@ -41,6 +40,5 @@ console.log(JSON.stringify({
   terug: terug.origin + terug.pathname,
   credential,
   vers,
-  cnf: decodeJwt(credential).cnf.jwk,
   jwk: await publiekeJwk(sleutelpaar.publicKey),
 }));

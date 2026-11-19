@@ -102,8 +102,9 @@ sequenceDiagram
     daarom eist de keuze ook een `Origin` van de App Manager zelf. De doorverwijzing na de keuze
     is daarna nog maar tien seconden opnieuw op te vragen, voor een dubbele submit.
 - De pagina van de Berichten-app verdwijnt tijdens de navigatie. De app bewaart de AES-sleutel
-  daarom vooraf als niet-exporteerbare AES-GCM-`CryptoKey` in IndexedDB, en het `session_token`
-  in `sessionStorage`.
+  daarom vooraf als niet-exporteerbare AES-GCM-`CryptoKey` in IndexedDB, samen met het
+  `session_token`. Het tabblad dat het activeren begon, houdt dat token ook in `sessionStorage`;
+  bij terugkomst rondt alleen dat tabblad af, zodat een tweede tabblad geen activering overneemt.
 - **Bekend restrisico: het quotum op keuzes.** Een keuze leeft een dag; per adres (IPv6: per /64)
   mogen er 50 open staan, in totaal 10.000. Wie veel adressen heeft, kan het totaal vullen en het
   activeren dan een dag voor iedereen blokkeren; een zaal achter één adres loopt na 50 activeringen
@@ -385,9 +386,11 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
     - alles uit magazijnen en het stelseldocument gaat via `textContent` de pagina in, nooit via
       `innerHTML`;
     - een strikte CSP als response-header (in een `<meta>` werkt `frame-ancestors` niet):
-      `default-src 'none'; script-src 'self'; style-src 'self'; connect-src <stelselregister>
-      <App Manager> <magazijnen>; frame-ancestors 'none'; base-uri 'none'; form-action 'none';
-      require-trusted-types-for 'script'`, zonder inline script. `connect-src` komt per omgeving
+      `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' <stelselregister>
+      <App Manager> <magazijnen>; img-src 'self'; frame-ancestors 'none'; base-uri 'none';
+      form-action 'none'; require-trusted-types-for 'script'; trusted-types 'none'`, zonder inline
+      script. `'self'` in `connect-src` is voor de eigen `config.json`; `trusted-types 'none'` staat
+      geen enkele policy toe, dus ook geen HTML-sink. `connect-src` komt per omgeving
       uit de configuratie; de lokale stack draait op `http://localhost`;
     - JOSE in de browser via `jose` (panva), met een vaste versie uit npm. De build haalt hem met
       `npm ci` (getoetst aan de lockfile) en zet hem op de eigen origin, niet op een CDN; Dependabot

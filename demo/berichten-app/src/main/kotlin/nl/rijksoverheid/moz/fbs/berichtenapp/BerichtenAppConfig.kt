@@ -8,8 +8,9 @@ import io.smallrye.config.WithDefault
 interface BerichtenAppConfig {
 
     /**
-     * Het publieke adres van de App Manager, eindigend op `/`. Het is ook de `iss` die de App
-     * Manager in het registratiebericht zet; de app weigert een bericht met een andere.
+     * Het publieke adres van de App Manager, eindigend op `/`. De app verwacht het ook als `iss` van
+     * het registratiebericht en weigert een bericht met een andere; het moet dus gelijk zijn aan
+     * `app-manager.issuer-url` van de App Manager.
      */
     fun appManagerUrl(): String
 

@@ -4,6 +4,11 @@ const DATABASE = 'berichten-app';
 const OPSLAG = 'kluis';
 const SLEUTELPAAR = 'sleutelpaar';
 
+/** Het lopende activeren: sessietoken en AES-sleutel, tot de app terug is van de App Manager. */
+export const ACTIVATIE = 'activatie';
+export const REGISTRATIE = 'registratie';
+export const CREDENTIAL = 'credential';
+
 let lopend = null;
 
 /** Een fout van de opslag in de browser, los van de App Manager. */
@@ -20,10 +25,11 @@ export function maakSleutelpaar() {
 }
 
 /**
- * Het sleutelpaar van deze browser; bij het eerste gebruik gemaakt. Twee aanroepen tegelijk krijgen
- * hetzelfde paar: anders kan de App Manager de identiteit aan een sleutel binden die de kluis niet
- * bewaart, en weigert hij later elk vernieuwen. Alleen zolang de aanroep loopt: daarna leest elke
- * aanroep de kluis opnieuw, want een ander tabblad kan hem intussen gewist hebben.
+ * Het sleutelpaar van deze browser; bij het eerste gebruik gemaakt. Twee aanroepen tegelijk delen
+ * één poging, zodat er niet twee paren gemaakt worden. Dat de bewaarde sleutel wint, ook tegen een
+ * ander tabblad, regelt `add` met de terugval op `ConstraintError` in `haalOfMaak`. Alleen zolang de
+ * aanroep loopt: daarna leest elke aanroep de kluis opnieuw, want een ander tabblad kan hem
+ * intussen gewist hebben.
  */
 export function sleutelpaar() {
   lopend ??= haalOfMaak().finally(() => {
@@ -41,6 +47,7 @@ async function haalOfMaak() {
   const nieuw = await maakSleutelpaar();
 
   try {
+    // `add` en niet `put`: een paar dat er al staat, mag nooit overschreven worden.
     await transactie('readwrite', (opslag) => opslag.add(nieuw, SLEUTELPAAR));
 
     return nieuw;
@@ -65,14 +72,52 @@ export function verwijder(naam) {
 }
 
 /**
- * Een nieuw `registration_token`, en het credential van de vorige registratie weg, in één
- * transactie: anders kan het bewijs van een andere persona naast de nieuwe registratie blijven staan.
+ * Een nieuw `registration_token`, in één transactie met het wissen van het credential van de vorige
+ * registratie en van het afgeronde activeren: anders kan het bewijs van een andere persona naast de
+ * nieuwe registratie blijven staan, of blijft het activeren half staan.
  */
 export function vervangRegistratie(token) {
   return transactie('readwrite', (opslag) => {
-    opslag.delete('credential');
+    opslag.delete(CREDENTIAL);
+    opslag.delete(ACTIVATIE);
 
-    return opslag.put(token, 'registratie');
+    return opslag.put(token, REGISTRATIE);
+  });
+}
+
+/**
+ * Bewaart een credential, maar alleen als [token] nog de registratie is: een ander tabblad kan
+ * intussen opnieuw geactiveerd hebben, en dan hoort dit credential er niet meer bij. Geeft terug of
+ * het bewaard is.
+ */
+export function bewaarCredential(token, credential) {
+  return alsRegistratie(token, (opslag) => opslag.put(credential, CREDENTIAL));
+}
+
+/**
+ * Wist registratie en credential, maar alleen als [token] nog de registratie is; anders zou een
+ * afgewezen oud token de nieuwe activering van een ander tabblad wissen. Geeft terug of er gewist is.
+ */
+export function vergeetRegistratie(token) {
+  return alsRegistratie(token, (opslag) => {
+    opslag.delete(REGISTRATIE);
+    opslag.delete(CREDENTIAL);
+  });
+}
+
+function alsRegistratie(token, actie) {
+  return transactie('readwrite', (opslag) => {
+    const uitkomst = { result: false };
+    const huidig = opslag.get(REGISTRATIE);
+
+    huidig.onsuccess = () => {
+      if (huidig.result !== token) return;
+
+      actie(opslag);
+      uitkomst.result = true;
+    };
+
+    return uitkomst;
   });
 }
 
@@ -83,12 +128,34 @@ export function wis() {
 
 function open() {
   return new Promise((gelukt, mislukt) => {
-    const verzoek = indexedDB.open(DATABASE, 1);
+    let verzoek;
+    let afgewezen = false;
+
+    try {
+      verzoek = indexedDB.open(DATABASE, 1);
+    } catch (fout) {
+      // Een SecurityError, bijvoorbeeld als de browser opslag voor deze origin verbiedt.
+      mislukt(new KluisFout('de opslag is niet te openen', { cause: fout }));
+
+      return;
+    }
 
     verzoek.onupgradeneeded = () => verzoek.result.createObjectStore(OPSLAG);
-    verzoek.onsuccess = () => gelukt(verzoek.result);
+    verzoek.onsuccess = () => {
+      // Na een onblocked kan de opening later toch lukken; die verbinding gebruikt niemand meer.
+      if (afgewezen) {
+        verzoek.result.close();
+
+        return;
+      }
+
+      gelukt(verzoek.result);
+    };
     verzoek.onerror = () => mislukt(new KluisFout('de opslag is niet te openen', { cause: verzoek.error }));
-    verzoek.onblocked = () => mislukt(new KluisFout('de opslag is bezet door een ander tabblad met een oudere versie'));
+    verzoek.onblocked = () => {
+      afgewezen = true;
+      mislukt(new KluisFout('de opslag is bezet door een ander tabblad met een oudere versie'));
+    };
   });
 }
 
@@ -109,7 +176,7 @@ async function transactie(modus, actie) {
         return;
       }
 
-      tx.oncomplete = () => gelukt(verzoek.result);
+      tx.oncomplete = () => gelukt(verzoek?.result);
       // Pas bij abort staat de fout op de transactie; in onerror is tx.error nog null. Een
       // ConstraintError gaat ongewijzigd door: daaraan herkent haalOfMaak een ander tabblad.
       tx.onabort = () => {

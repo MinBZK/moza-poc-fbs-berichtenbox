@@ -156,8 +156,8 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am     # Tests sessiecache-library (Docker vereist)
 ./mvnw clean test -pl demo/demo-console -am                      # Tests demo-console (Docker vereist voor één Redis-test)
 ./mvnw clean test -pl demo/demo-personas -am                     # Tests personadienst (pure JVM + één @QuarkusTest)
-./mvnw clean test -pl demo/app-manager -am                       # Tests demo-App Manager (@QuarkusTest, geen Docker; node voor de koppeltest)
-./mvnw clean test -pl demo/berichten-app -am                     # Tests Berichten-app (@QuarkusTest plus JS onder Node; node vereist)
+./mvnw clean test -pl demo/app-manager -am                       # Tests demo-App Manager (@QuarkusTest, geen Docker; node en npm voor de koppeltest)
+./mvnw clean test -pl demo/berichten-app -am                     # Tests Berichten-app (@QuarkusTest plus JS onder Node; node en npm vereist)
 ./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
@@ -238,7 +238,7 @@ Wat je hoe dan ook moet weten:
 | `libraries/fbs-common/`                | Gedeeld cross-cutting: JAX-RS filters, exception mappers, `profiel/` (Profiel-serviceclient, voorkeuren, toestemming), `fsc/` (outway-headers, outbound-TLS) en de LDV-validators |
 | `demo/`                                | Demonstratiecode: modules, FSC-harness, stubgenerator — nooit productie (`demo/README.md`) |
 | `demo/app-manager/`                    | De demo-App Manager: activeren volgens FSC voor Burgers 4.4.1, persona-keuze in plaats van DigiD; geeft credentials uit voor rechtstreeks ophalen |
-| `demo/berichten-app/`                  | De Berichten-app (browser): sleutel via WebCrypto, activeren bij de App Manager, `jose` meegeleverd onder `vendor/`. Strikte CSP; inhoud alleen via `textContent`. `BerichtenAppTest` in de App Manager draait deze JS tegen de echte App Manager |
+| `demo/berichten-app/`                  | De Berichten-app (browser): sleutel via WebCrypto, activeren bij de App Manager, `jose` uit npm (de build zet hem onder `/vendor/jose`, Dependabot houdt hem bij). Strikte CSP; inhoud alleen via `textContent`. `BerichtenAppTest` in de App Manager draait deze JS tegen de echte App Manager |
 | `demo/demo-personas/`                  | De demo-identiteiten als eigen dienst (`GET /api/demo/personas`); apart van het paneel zodat een berichtenbox de lijst kan lezen zonder bij de knoppen te kunnen |
 | `demo/demo-console/`                   | Demo-bedieningspaneel (geen JaCoCo-gate; pure-JVM-tests en `@QuarkusTest`s zonder Docker, plus één test die het eigen Lua-script tegen een echte Redis draait: Docker vereist) |
 | `demo/magazijn-simulator/`             | Eén service die zich als veel magazijnen voordoet, per pad-prefix `/magazijn/<OIN>`. Genereert uit `berichtenmagazijn-api.yaml` van het echte magazijn — die koppeling is een pad-verwijzing (`api.spec.file`) en staat niet in de reactor-graaf |

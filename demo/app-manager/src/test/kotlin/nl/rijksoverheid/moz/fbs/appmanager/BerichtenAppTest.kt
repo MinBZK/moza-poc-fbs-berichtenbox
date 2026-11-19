@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /**
@@ -39,9 +40,10 @@ class BerichtenAppTest {
 
             assertEquals("KVK:90000014", claims["ontvanger"], veld)
             assertEquals(AppManagerConfig.DEMO_OIN, claims["iss"], veld)
+            // Beide credentials horen bij de sleutel van de app, ook het verse uit een nieuwe sessie.
+            assertEquals(resultaat["jwk"], (claims["cnf"] as Map<*, *>)["jwk"], veld)
+            assertTrue((claims["exp"] as Number).toLong() > Instant.now().epochSecond, "$veld is al verlopen")
         }
-
-        assertEquals(resultaat["jwk"], resultaat["cnf"])
     }
 
     private fun node(vararg argumenten: String): String {

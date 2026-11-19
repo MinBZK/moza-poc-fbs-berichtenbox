@@ -71,8 +71,12 @@ updates:
           - "github/codeql-action*"
   # Wekelijks: de JavaScript-bibliotheken van de Berichten-app (jose). De Maven-build haalt ze met
   # `npm ci` uit deze lockfile, dus een bump is meteen de versie die de app laadt. Security updates
-  # dekken npm, dus een advisory komt los van dit schema.
+  # dekken npm, dus een advisory komt los van dit schema. Een versie gaat pas mee na zeven dagen: een
+  # gekaapte release wordt in die tijd meestal ontdekt en ingetrokken, en deze code draait naast de
+  # sleutel van de gebruiker. Security updates wachten niet op die termijn.
   - package-ecosystem: "npm"
     directory: "/demo/berichten-app"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7

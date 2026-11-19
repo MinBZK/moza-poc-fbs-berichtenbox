@@ -1,8 +1,12 @@
 {
   "name": "fbs-demo-berichten-app",
   "private": true,
+  "type": "module",
   "description": "De JavaScript-bibliotheken van de Berichten-app. De Maven-build draait npm ci en zet jose op /vendor/jose; Dependabot houdt de versie bij.",
-  "devDependencies": {
+  "dependencies": {
     "jose": "6.2.13"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.8"
   }
 }
