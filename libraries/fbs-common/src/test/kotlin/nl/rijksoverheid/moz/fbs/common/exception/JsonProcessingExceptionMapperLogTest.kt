@@ -5,6 +5,8 @@ import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
+import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -39,6 +41,7 @@ class JsonProcessingExceptionMapperLogTest {
         verwachtPad: String,
     ) {
         val fout = runCatching { objectMapper.readValue(json, type) }.exceptionOrNull() as JsonProcessingException
+
         val antwoord = if (fout is MismatchedInputException) {
             MismatchedInputExceptionMapper().toResponse(fout)
         } else {
@@ -90,7 +93,8 @@ class JsonProcessingExceptionMapperLogTest {
             listOf(
                 Arguments.of("niet-passend type", waarde, """{"ontvanger": {"waarde": "$waarde"}}""", JANEE_PER_VELD, "ontvanger.waarde"),
                 Arguments.of("onbekende enumwaarde", waarde, """{"ontvanger": {"type": "$waarde"}}""", SOORT_PER_VELD, "ontvanger.type"),
-                Arguments.of("onleesbare JSON", waarde, """{"ontvanger": {"waarde": ${waarde}x}}""", GETAL_PER_VELD, "geen"),
+                // Met een letter vooraan: alleen dan noemt Jackson het hele token in zijn melding.
+                Arguments.of("onleesbare JSON", waarde, """{"ontvanger": {"waarde": x$waarde}}""", GETAL_PER_VELD, "geen"),
                 Arguments.of("waarde als sleutel", waarde, """{"$waarde": {"x": "abc"}}""", GETAL_PER_VELD, "?.x"),
             )
         }

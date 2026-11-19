@@ -79,16 +79,16 @@ private fun jsonFoutAntwoord(exception: JsonProcessingException): Response {
     val foutId = UUID.randomUUID()
 
     // Op info, net als de clientfouten in ProblemExceptionMapper: zonder uitgezonden regel is het
-    // `instance`-id uit het antwoord nergens terug te vinden, en dat is waar iemand mee aanklopt.
+    // `instance`-id uit het antwoord nergens terug te vinden, en dat is waar iemand mee aanklopt. De
+    // stack alleen op debug: bij een clientfout zegt hij niets.
     log.infof(
-        Foutspoor.van(exception),
         "Onleesbare of niet-passende JSON (foutId=%s, type=%s, veld=%s, positie=%s)",
         foutId,
         exception.javaClass.name,
-        (exception as? JsonMappingException)?.let { fout -> Veldpad.van(fout.path.map { it.fieldName ?: it.index }) }
-            ?: "geen",
-        exception.location?.let { "${it.lineNr}:${it.columnNr}" } ?: "onbekend",
+        jsonVeld(exception),
+        jsonPositie(exception),
     )
+    log.debugf(Foutspoor.van(exception), "Onleesbare of niet-passende JSON (foutId=%s)", foutId)
 
     return problemResponse(
         status = Response.Status.BAD_REQUEST.statusCode,
@@ -97,6 +97,14 @@ private fun jsonFoutAntwoord(exception: JsonProcessingException): Response {
         foutId = foutId,
     )
 }
+
+/** Het veld dat niet paste, zoals het in de log mag; `geen` als Jackson het niet kent. */
+internal fun jsonVeld(exception: JsonProcessingException): String =
+    (exception as? JsonMappingException)?.let { fout -> Veldpad.van(fout.path.map { it.fieldName ?: it.index }) } ?: "geen"
+
+/** Regel en kolom in de body; nooit de bron zelf, die Jackson in `location.toString` kan opnemen. */
+internal fun jsonPositie(exception: JsonProcessingException): String =
+    exception.location?.let { "${it.lineNr}:${it.columnNr}" } ?: "onbekend"
 
 private fun serialisatieFoutAntwoord(exception: JsonProcessingException): Response {
     val foutId = UUID.randomUUID()

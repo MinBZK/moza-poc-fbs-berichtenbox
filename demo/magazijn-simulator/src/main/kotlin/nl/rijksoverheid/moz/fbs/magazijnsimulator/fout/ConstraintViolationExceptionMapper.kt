@@ -19,9 +19,10 @@ import java.util.UUID
  * begrensd zodat een request met honderden ongeldige velden geen even grote tussenstring bouwt; de
  * lengte van het eindresultaat begrenst [problemResponse] zelf.
  *
- * Bewust géén gevalideerde wáárde in de melding: `X-Ontvanger` kan een BSN dragen, en dat hoort
- * nooit in een antwoord of een log terecht te komen. De meldingen van Bean Validation noemen alleen
- * de regel, niet de invoer.
+ * Bewust géén gevalideerde wáárde in antwoord of log: `X-Ontvanger` kan een BSN dragen. De
+ * standaardmeldingen van Bean Validation noemen alleen de regel; in `detail` mogen ze daarom mee. De
+ * log neemt ook de melding niet over: een eigen `message` met `${validatedValue}` zou de invoer
+ * alsnog noemen.
  */
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
@@ -33,8 +34,7 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
 
         // Op info: een geweigerde parameter is geen incident, maar op debug wordt de regel bij het
         // effectieve niveau niet uitgezonden en is het `instance`-id uit het antwoord onvindbaar.
-        // Per schending het pad en de soort regel, niet de waarde of de melding: die kunnen de
-        // aangeboden ontvanger noemen.
+        // Per schending het pad en de soort regel, niet de waarde of de melding.
         log.infof(
             "Ongeldige invoer, %d schending(en) (foutId=%s, schendingen=%s)",
             exception.constraintViolations.size,
@@ -70,6 +70,7 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
                 knoop.name?.let(::add)
             }
         }
+
         val regel = schending.constraintDescriptor?.annotation?.annotationClass?.simpleName ?: "onbekend"
 
         return "${Veldpad.van(segmenten)} ($regel)"

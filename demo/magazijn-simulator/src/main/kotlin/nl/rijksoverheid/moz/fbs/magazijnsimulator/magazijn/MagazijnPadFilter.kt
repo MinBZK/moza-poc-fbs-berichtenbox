@@ -5,6 +5,7 @@ import jakarta.ws.rs.container.ContainerRequestFilter
 import jakarta.ws.rs.container.PreMatching
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.problemResponse
 import org.jboss.logging.Logger
 import java.net.URI
@@ -96,12 +97,13 @@ class MagazijnPadFilter(
     } catch (ex: IllegalArgumentException) {
         // Op info en niet hoger: dit is invoer van een aanroeper, geen storing. Wél zichtbaar zonder
         // debug aan te zetten, want de 404 die hieruit volgt verrast iemand die een pad stuurt dat
-        // er van buiten correct uitziet.
-        log.infof(ex, "Pad niet te herschrijven tot een geldige URI")
+        // er van buiten correct uitziet. Het spoor en niet de exceptie: de melding citeert de hele
+        // aangeboden URI, met de query erbij.
+        log.infof(Foutspoor.van(ex), "Pad niet te herschrijven tot een geldige URI")
 
         null
     } catch (ex: URISyntaxException) {
-        log.infof(ex, "Pad niet te herschrijven tot een geldige URI")
+        log.infof(Foutspoor.van(ex), "Pad niet te herschrijven tot een geldige URI")
 
         null
     }

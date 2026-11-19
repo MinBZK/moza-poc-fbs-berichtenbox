@@ -25,16 +25,17 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
 
     // De melding van Jackson blijft uit de log, op elk niveau: `Cannot deserialize value … from
     // String "<invoer>"` zet een stuk van de aangeboden waarde erin, en dat kan een BSN zijn. Type,
-    // veldpad en positie zeggen wat er niet paste; het spoor houdt de stack van de keten. Op info,
-    // als de andere clientfouten: op debug staat het id uit `instance` in productie nergens.
+    // veldpad en positie zeggen wat er niet paste. Op info, als de andere clientfouten: op debug
+    // staat het id uit `instance` in productie nergens. De stack alleen op debug: bij een clientfout
+    // zegt hij niets, en elke kapotte body zou anders tientallen regels opleveren.
     log.infof(
-        Foutspoor.van(exception),
         "JSON-invoer niet te lezen (errorId=%s, type=%s, veld=%s, positie=%s)",
         errorId,
         exception.javaClass.name,
-        (exception as? JsonMappingException)?.let(::veldpadVoorLog) ?: "geen",
-        exception.location?.let { "${it.lineNr}:${it.columnNr}" } ?: "onbekend",
+        jsonVeld(exception),
+        jsonPositie(exception),
     )
+    log.debugf(Foutspoor.van(exception), "JSON-invoer niet te lezen (errorId=%s)", errorId)
 
     val detail = when (exception) {
         is MismatchedInputException -> {
@@ -60,8 +61,13 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
     )
 }
 
-private fun veldpadVoorLog(exception: JsonMappingException): String =
-    Veldpad.van(exception.path.map { it.fieldName ?: it.index })
+/** Het veld dat niet paste, zoals het in de log mag; `geen` als Jackson het niet kent. */
+internal fun jsonVeld(exception: JsonProcessingException): String =
+    (exception as? JsonMappingException)?.let { fout -> Veldpad.van(fout.path.map { it.fieldName ?: it.index }) } ?: "geen"
+
+/** Regel en kolom in de body; nooit de bron zelf, die Jackson in `location.toString` kan opnemen. */
+internal fun jsonPositie(exception: JsonProcessingException): String =
+    exception.location?.let { "${it.lineNr}:${it.columnNr}" } ?: "onbekend"
 
 /**
  * Mapt generieke Jackson [JsonProcessingException]s naar een 400 Problem JSON.

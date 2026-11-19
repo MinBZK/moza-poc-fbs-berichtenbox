@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
@@ -43,8 +44,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (status >= SERVERFOUT_VANAF) {
             // De melding blijft uit de log: bij een exception van elders kan die gebruikersinvoer
-            // dragen, en die van elke cause ook. Het spoor levert de stack en de typen, en het
-            // correlatie-id koppelt log en antwoord aan elkaar.
+            // dragen, en die van elke cause ook. Het correlatie-id koppelt log en antwoord aan elkaar.
             log.errorf(Foutspoor.van(exception), "Serverfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
 
             // Bij een 5xx gaat de melding niet naar de client: die kan interne details dragen, en er
@@ -54,8 +54,20 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         // Ook een clientfout krijgt een regel, op INFO. Het antwoord draagt een correlatie-id, en een
         // id dat nergens in de log staat is geen correlatie maar een sierletter. De melding blijft
-        // eruit om dezelfde reden als hierboven: die kan invoer dragen.
-        log.infof("Clientfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
+        // eruit om dezelfde reden als hierboven: die kan invoer dragen. Quarkus pakt een kapotte of
+        // niet-passende body in als 400 met de Jackson-fout als cause; daarvan gaan type, veld en
+        // positie mee.
+        val jsonFout = exception.cause as? JsonProcessingException
+
+        log.infof(
+            "Clientfout %d (foutId=%s, type=%s, oorzaak=%s, veld=%s, positie=%s)",
+            status,
+            foutId,
+            exception.javaClass.name,
+            exception.cause?.javaClass?.name ?: "geen",
+            jsonFout?.let(::jsonVeld) ?: "geen",
+            jsonFout?.let(::jsonPositie) ?: "onbekend",
+        )
 
         return problemResponse(
             status = status,

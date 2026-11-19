@@ -32,8 +32,6 @@ class UncaughtExceptionMapper : ExceptionMapper<Throwable> {
     override fun toResponse(exception: Throwable): Response {
         val foutId = UUID.randomUUID()
 
-        // Het spoor en niet de exceptie: die drukt haar melding en die van elke cause af, en een
-        // database-driver zet daar de volledige rij in, met de ontvanger.
         log.errorf(Foutspoor.van(exception), "Onverwachte fout (foutId=%s, type=%s)", foutId, exception.javaClass.name)
 
         return problemResponse(

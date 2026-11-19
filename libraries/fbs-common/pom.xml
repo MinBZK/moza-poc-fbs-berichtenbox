@@ -104,6 +104,14 @@
             <artifactId>resteasy-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Logvanger: vangt logregels op om te toetsen dat er geen persoonsgegevens in staan. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-kern</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

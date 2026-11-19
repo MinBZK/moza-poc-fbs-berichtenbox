@@ -34,11 +34,12 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
         val errorId = UUID.randomUUID()
 
         // Per schending alleen het pad en de soort regel. Een schending draagt de aangeboden waarde
-        // (`invalidValue`), en haar melding en `toString` kunnen die ook noemen; een BSN in
-        // `X-Ontvanger` hoort op geen enkel logniveau in de applicatielog.
+        // (`invalidValue`); een eigen melding met `${validatedValue}` en het pad van een map-sleutel
+        // noemen haar ook. Een BSN in `X-Ontvanger` hoort op geen enkel logniveau in de log.
         log.infof(
-            "Validatiefout (errorId=%s, schendingen=%s)",
+            "Validatiefout (errorId=%s, aantal=%d, schendingen=%s)",
             errorId,
+            exception.constraintViolations.size,
             exception.constraintViolations
                 .asSequence()
                 .take(MAX_VIOLATIONS_IN_DETAIL)
@@ -77,6 +78,7 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
                 knoop.name?.let(::add)
             }
         }
+
         val regel = schending.constraintDescriptor?.annotation?.annotationClass?.simpleName ?: "onbekend"
 
         return "${Veldpad.van(segmenten)} ($regel)"

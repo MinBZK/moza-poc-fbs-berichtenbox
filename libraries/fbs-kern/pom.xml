@@ -99,6 +99,20 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- De testhulp die logregels opvangt, gaat mee als test-jar: stelsel en demo toetsen er
+                 allebei mee dat er geen persoonsgegevens in de log komen, en een kopie per module
+                 zou bij een aanscherping op één plek achterblijven. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

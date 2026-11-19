@@ -6,6 +6,7 @@ import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import org.hibernate.exception.ConstraintViolationException
 import org.jboss.logging.Logger
 import java.net.URI
@@ -40,8 +41,11 @@ class DbConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolation
                 .build()
         } else {
             val errorId = UUID.randomUUID()
+            // Het spoor en niet de exceptie: PostgreSQL zet bij een NOT NULL- of CHECK-schending
+            // `Failing row contains (…)` in de melding, de hele rij met de ontvanger erin. De
+            // SQLState reist in het spoor mee.
             log.errorf(
-                exception,
+                Foutspoor.van(exception),
                 "DB-constraint geschonden (errorId=%s): state=%s constraint=%s",
                 errorId,
                 sqlState ?: "(onbekend)",

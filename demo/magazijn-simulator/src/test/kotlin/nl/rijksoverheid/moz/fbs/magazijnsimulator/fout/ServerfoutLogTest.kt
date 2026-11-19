@@ -2,7 +2,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
 import com.fasterxml.jackson.core.JsonGenerationException
 import jakarta.ws.rs.WebApplicationException
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.Logvanger
+import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

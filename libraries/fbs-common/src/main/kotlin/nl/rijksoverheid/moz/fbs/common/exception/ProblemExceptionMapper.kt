@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
@@ -70,14 +71,21 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
             // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
             // PII. Correlatie via errorId (= `urn:uuid:` in `instance`) + cause-type. Ook hier
             // het spoor en niet de exceptie: een kapotte JSON-body komt als 400 met de
-            // Jackson-fout als cause binnen, en die melding citeert de aangeboden invoer.
+            // Jackson-fout als cause binnen, en die melding citeert de aangeboden invoer. Veld en
+            // positie van die fout gaan wel mee, en de foutcode houdt twee 401's uit elkaar nu de
+            // melding ontbreekt.
+            val jsonFout = exception.cause as? JsonProcessingException
+
             log.infov(
                 Foutspoor.van(exception),
-                "Client error {0} (errorId={1}, type={2}, cause={3})",
+                "Client error {0} (errorId={1}, type={2}, cause={3}, foutcode={4}, veld={5}, positie={6})",
                 status,
                 errorId,
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
+                foutcode.name,
+                jsonFout?.let(::jsonVeld) ?: "geen",
+                jsonFout?.let(::jsonPositie) ?: "onbekend",
             )
             metRetryAfter(
                 exception,

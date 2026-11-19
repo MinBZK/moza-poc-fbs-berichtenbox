@@ -6,9 +6,14 @@ import io.restassured.RestAssured.given
 import io.restassured.response.ExtractableResponse
 import io.restassured.response.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldMockProfile
+import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.kern.testhulp.QUARKUS_REST_MET_INVOER
+import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
+import org.eclipse.microprofile.config.ConfigProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
@@ -18,11 +23,12 @@ import java.util.UUID
 /**
  * Een magazijn dat een aanmelding met een foute ontvanger stuurt, of een portaal dat een sessie
  * start met een foute `X-Ontvanger`, krijgt een 400 — en mag daarmee geen stuk van het BSN in de
- * applicatielog zetten, op geen enkel niveau. Een melding van Jackson of Bean Validation citeert de
- * invoer; de log noemt daarom alleen het id, het type en het veld.
+ * applicatielog zetten, op geen enkel niveau. De melding van Jackson citeert de invoer; de log noemt
+ * daarom alleen het id, het type, het veld en de positie.
  *
  * Elke waarde valt op een andere plek af: met een letter erin bij de spec-regex, te kort bij de
- * lengtecontrole, negen cijfers bij de elfproef.
+ * lengtecontrole, negen cijfers bij de elfproef. Waar een domeininvariant de waarde afwijst, is er
+ * geen veld om te noemen; die gevallen bewaken dat de log ook daar niets van de waarde overneemt.
  */
 @QuarkusTest
 @TestProfile(AanmeldMockProfile::class)
@@ -34,7 +40,7 @@ class PersoonsgegevensUitDeLogTest {
         geval: String,
         waarde: String,
         ontvanger: String,
-        verwachtInLog: String,
+        verwachtInLog: String?,
     ) {
         val (antwoord, log) = metLog {
             given()
@@ -60,7 +66,19 @@ class PersoonsgegevensUitDeLogTest {
                 .extract()
         }
 
-        assertAlleenIdEnVeld(antwoord, log, waarde, verwachtInLog = "")
+        // De spec-regex vraagt hier alleen cijfers; lengte en elfproef zijn domeininvarianten.
+        val verwacht = if (waarde.all(Char::isDigit)) null else "startSessie.arg0 (Pattern)"
+
+        assertAlleenIdEnVeld(antwoord, log, waarde, verwacht)
+    }
+
+    @Test
+    fun `de categorieën van Quarkus REST die een onleesbare body loggen, staan vast op INFO`() {
+        QUARKUS_REST_MET_INVOER.forEach { categorie ->
+            val niveau = ConfigProvider.getConfig().getValue("quarkus.log.category.\"$categorie\".level", String::class.java)
+
+            assertEquals("INFO", niveau, categorie)
+        }
     }
 
     private fun aanmelding(ontvanger: String): String = """
@@ -91,13 +109,14 @@ class PersoonsgegevensUitDeLogTest {
         antwoord: ExtractableResponse<Response>,
         log: String,
         waarde: String,
-        verwachtInLog: String,
+        verwachtInLog: String?,
     ) {
         assertEquals(400, antwoord.statusCode(), antwoord.asString())
 
         val foutId = antwoord.path<String>("instance").removePrefix("urn:uuid:")
         assertTrue(log.contains(foutId), "het id uit 'instance' hoort in de log: $log")
-        assertTrue(log.contains(verwachtInLog), "'$verwachtInLog' hoort in de log: $log")
+
+        verwachtInLog?.let { assertTrue(log.contains(it), "'$it' hoort in de log: $log") }
 
         herkenbareDelen(waarde).forEach { deel ->
             assertFalse(log.contains(deel), "'$deel' uit '$waarde' hoort niet in de log: $log")
@@ -110,13 +129,16 @@ class PersoonsgegevensUitDeLogTest {
 
         @JvmStatic
         fun aanmeldingen() = listOf("99999365", "99999365x", "999993654").flatMap { waarde ->
-            // De vorm uit de header in de body: Jackson citeert de tekst letterlijk in zijn melding.
+            // "Als tekst" is de vorm uit de header in de body; Jackson citeert de tekst letterlijk.
+            // "Onleesbaar" begint met een letter: alleen dan noemt Jackson het hele token. Een
+            // ongeldige waarde wijst het domeinobject af, als cause van de 400; dat noemt geen veld.
+            // Het type is in dit model tekst, en de aanmeldservice toetst het zelf met een vaste melding.
             listOf(
-                Arguments.of("als tekst", waarde, "\"BSN:$waarde\"", "veld="),
-                Arguments.of("als waarde", waarde, """{"type": "BSN", "waarde": "$waarde"}""", ""),
-                Arguments.of("als type", waarde, """{"type": "$waarde", "waarde": "999990019"}""", ""),
-                Arguments.of("als lijst", waarde, """{"type": "BSN", "waarde": ["$waarde"]}""", "veld="),
-                Arguments.of("onleesbaar", waarde, """{"type": "BSN", "waarde": ${waarde}x}""", ""),
+                Arguments.of("als tekst", waarde, "\"BSN:$waarde\"", "veld=data.ontvanger,"),
+                Arguments.of("als waarde", waarde, """{"type": "BSN", "waarde": "$waarde"}""", "cause=DomainValidationException"),
+                Arguments.of("als type", waarde, """{"type": "$waarde", "waarde": "999990019"}""", null),
+                Arguments.of("als lijst", waarde, """{"type": "BSN", "waarde": ["$waarde"]}""", "veld=data.ontvanger.waarde,"),
+                Arguments.of("onleesbaar", waarde, """{"type": "BSN", "waarde": x$waarde}""", "positie=13:"),
             )
         }
     }

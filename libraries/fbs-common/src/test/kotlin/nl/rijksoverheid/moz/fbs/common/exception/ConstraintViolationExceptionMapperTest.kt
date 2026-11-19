@@ -7,6 +7,8 @@ import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
 import jakarta.validation.constraints.Pattern
 import jakarta.validation.metadata.ConstraintDescriptor
+import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -183,22 +185,35 @@ class ConstraintViolationExceptionMapperTest {
         violation(listOf(knoop(propertyName)), message, ongeldigeWaarde = null)
 
     /**
-     * Een schending zoals Hibernate Validator haar aanlevert, inclusief de aangeboden waarde in
-     * `invalidValue` en in `toString`: precies wat er níét in de log mag komen.
+     * Een schending zoals Hibernate Validator haar aanlevert: de aangeboden waarde in `invalidValue`,
+     * in een eigen melding met `${validatedValue}` en daarmee in `toString`, en een map-sleutel in
+     * het pad. Precies wat er níét in de log mag komen.
      */
     private fun violation(knopen: List<Path.Node>, message: String, ongeldigeWaarde: Any?): ConstraintViolation<Any> {
         val violation = mockk<ConstraintViolation<Any>>()
         val path = mockk<Path>()
         val descriptor = mockk<ConstraintDescriptor<*>>()
+        val pad = alsHibernateValidator(knopen)
         every { path.iterator() } answers { knopen.toMutableList().iterator() }
-        every { path.toString() } returns knopen.joinToString(".") { it.name ?: "" }
+        every { path.toString() } returns pad
         every { descriptor.annotation } returns PATTERN
         every { violation.propertyPath } returns path
         every { violation.message } returns message
         every { violation.invalidValue } returns ongeldigeWaarde
         every { violation.constraintDescriptor } returns descriptor
-        every { violation.toString() } returns "ConstraintViolationImpl{invalidValue=$ongeldigeWaarde, message='$message'}"
+        every { violation.toString() } returns
+            "ConstraintViolationImpl{interpolatedMessage='$message', propertyPath=$pad, rootBeanClass=class Object, " +
+            "messageTemplate='{jakarta.validation.constraints.Pattern.message}'}"
         return violation
+    }
+
+    /** Zoals `PathImpl.toString`: een element in een collectie met zijn positie of sleutel tussen haken. */
+    private fun alsHibernateValidator(knopen: List<Path.Node>): String = buildString {
+        knopen.forEach { knoop ->
+            if (knoop.isInIterable) append('[').append(knoop.index ?: knoop.key ?: "").append(']')
+
+            knoop.name?.let { naam -> append(if (isEmpty()) naam else ".$naam") }
+        }
     }
 
     private fun knoop(naam: String?, inCollectie: Boolean = false, index: Int? = null): Path.Node {

@@ -134,6 +134,12 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
   applicatielog (AVG art. 5 lid 1c, BIO 12.4.1). LDV is de enige plek voor
   `dataSubjectId`; de service forceert dit via `LogboekContextDefaultFilter`
   + `FoutBeschrijving.saneer()`.
+* **DEBUG aanzetten mag, behalve op twee categorieën van Quarkus REST.**
+  `org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler` en
+  `org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext` loggen een onleesbare
+  body met de melding van Jackson, en die citeert de invoer, ook een BSN. Ze staan vast op INFO in
+  `application.properties`, en DEBUG op de root of op `org.jboss.resteasy.reactive` bereikt ze
+  niet. Zet ze niet zelf op DEBUG of TRACE. Dit geldt ook voor de berichten-uitvraag.
 * **Categorie-logs**: zoek op `categorie=` in MISLUKT/retry-logs voor
   programmatische aggregatie van foutsoorten.
 * **`Content-Disposition` op een bijlage-download kan persoonsgegevens dragen.** De header
