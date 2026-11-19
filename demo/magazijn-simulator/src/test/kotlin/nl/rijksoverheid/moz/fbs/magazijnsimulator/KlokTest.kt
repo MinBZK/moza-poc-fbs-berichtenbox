@@ -15,7 +15,9 @@ import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.everyItem
 import org.junit.jupiter.api.Test
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 
 /**
@@ -39,9 +41,12 @@ class KlokTest : MagazijnTestBasis() {
     @Singleton
     class VasteKlokProducer {
 
+        /** Staat stil op [MOMENT]; een test die verloop toetst, verzet hem en zet hem daarna terug. */
+        val klok = VerzetbareKlok(MOMENT)
+
         @Produces
         @ApplicationScoped
-        fun clock(): Clock = Clock.fixed(MOMENT, ZoneOffset.UTC)
+        fun clock(): Clock = klok
     }
 
     @Test
@@ -106,12 +111,25 @@ class KlokTest : MagazijnTestBasis() {
         .statusCode(201)
         .extract().path("berichtId")
 
-    private companion object {
-        const val ONTVANGER_HEADER = "X-Ontvanger"
-        const val ONTVANGER = "KVK:90000001"
-        const val MAGAZIJN = "00000009000000000001"
-        const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
+    companion object {
+        private const val ONTVANGER_HEADER = "X-Ontvanger"
+        private const val ONTVANGER = "KVK:90000001"
+        private const val MAGAZIJN = "00000009000000000001"
+        private const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
 
         val MOMENT: Instant = Instant.parse("2026-09-02T10:00:00Z")
     }
+}
+
+/** Een vaste klok die een test vooruit kan zetten, zonder dat de rest van de suite een andere tijd ziet. */
+class VerzetbareKlok(private val basis: Instant) : Clock() {
+
+    @Volatile
+    var verschuiving: Duration = Duration.ZERO
+
+    override fun getZone(): ZoneId = ZoneOffset.UTC
+
+    override fun withZone(zone: ZoneId?): Clock = this
+
+    override fun instant(): Instant = basis.plus(verschuiving)
 }

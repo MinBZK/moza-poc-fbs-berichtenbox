@@ -1,10 +1,16 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 
+import com.atlassian.oai.validator.OpenApiInteractionValidator
+import com.atlassian.oai.validator.model.Request
+import com.atlassian.oai.validator.model.SimpleResponse
+import com.atlassian.oai.validator.report.LevelResolver
+import com.atlassian.oai.validator.report.ValidationReport
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.KlokTest
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.App
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.Companion.COMPACT_JWE
@@ -14,6 +20,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.Companion.valideer
 import nl.rijksoverheid.moz.fbs.rechtstreeks.TestApp
 import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.equalTo
 import org.jose4j.json.JsonUtil
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -22,6 +29,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.net.URI
 import java.time.Clock
+import java.time.Duration
 
 /**
  * Berichten lezen via de tweede ingang: de ontvanger komt uit de magazijnsessie, het antwoord is
@@ -33,6 +41,9 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
 
     @Inject
     lateinit var klok: Clock
+
+    @Inject
+    lateinit var klokProducer: KlokTest.VasteKlokProducer
 
     /** Een app met een sessie bij magazijn A, voor de ontvanger uit zijn credential. */
     private inner class Sessie {
@@ -47,6 +58,7 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
 
         fun lees(jwe: String): Map<String, Any> {
             assertTrue(COMPACT_JWE.matches(jwe))
+            assertEquals(mapOf("alg" to "dir", "enc" to "A256GCM", "typ" to "JWE"), TestApp.header(jwe))
 
             return JsonUtil.parseJson(TestApp.ontsleutelDir(jwe, app.aes))
         }
@@ -115,7 +127,9 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         val link = URI.create((((bijlage["_links"] as Map<*, *>)["self"] as Map<*, *>)["href"] as String)).path
 
         assertTrue(link.startsWith("/magazijn/$MAGAZIJN_A/api/v1/rechtstreeks/berichten/$berichtId/bijlagen/"), link)
-        given().header("Authorization", sessie.bearer).get(link).then().statusCode(404).header("Access-Control-Allow-Origin", "*")
+        given().header("Authorization", sessie.bearer).get(link)
+            .then().statusCode(404).header("Access-Control-Allow-Origin", "*")
+            .contentType("application/problem+json").body("type", equalTo("urn:fbs:fout:niet-gevonden"))
     }
 
     @Test
@@ -132,6 +146,8 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         val vanEenAnder = leverAan(ANDERE_ONTVANGER, "Niet voor jou")
         val verwijderd = leverAan(ONTVANGER, "Weggegooid")
 
+        // Een eigen actief bericht ernaast: een query die het id negeert, zou dat teruggeven.
+        leverAan(ONTVANGER, "Eigen, actief")
         given().header("X-Ontvanger", ONTVANGER).delete("${basis(MAGAZIJN_A)}/berichten/$verwijderd").then().statusCode(204)
 
         val sessie = Sessie()
@@ -144,7 +160,7 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
                 .header("Access-Control-Allow-Origin", "*")
                 .extract()
 
-            // Alles behalve het id in de tekst en het correlatie-id: daaraan mag niets verschillen.
+            // De body op het id en het correlatie-id na, en de namen van de headers op Date na: daarin mag niets verschillen.
             val body = JsonUtil.parseJson(antwoord.asString())
                 .filterKeys { it != "instance" }
                 .mapValues { (naam, waarde) -> if (naam == "detail") (waarde as String).replace(id, "<id>") else waarde }
@@ -209,6 +225,61 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
     }
 
     @Test
+    fun `bij meerdere eigen berichten geeft elk id zijn eigen bericht`() {
+        val eerste = leverAan(ONTVANGER, "Eerste")
+        val tweede = leverAan(ONTVANGER, "Tweede")
+        val sessie = Sessie()
+
+        listOf(eerste, tweede, eerste).forEach { id ->
+            val bericht = sessie.lees(
+                given().header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$id")
+                    .then().statusCode(200).extract().asString(),
+            )
+
+            assertEquals(id, bericht["berichtId"])
+        }
+    }
+
+    @Test
+    fun `hetzelfde nummer onder een ander type is van een ander`() {
+        // 111222333 haalt de elfproef als BSN én als RSIN.
+        val app = App(klok.instant(), claims = mapOf("ontvanger" to "RSIN:111222333"))
+        val bearer = "Bearer ${app.sessie(MAGAZIJN_A)}"
+        val vanBsn = leverAan("BSN:111222333", "Zelfde cijfers, ander type")
+
+        val lijst = JsonUtil.parseJson(
+            TestApp.ontsleutelDir(
+                given().header("Authorization", bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
+                    .then().statusCode(200).extract().asString(),
+                app.aes,
+            ),
+        )
+
+        assertEquals(0, (lijst["berichten"] as List<*>).size)
+        given().header("Authorization", bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$vanBsn").then().statusCode(404)
+    }
+
+    @Test
+    fun `een verlopen sessie geeft op elk berichtpad 401`() {
+        val berichtId = leverAan(ONTVANGER, "Verloopt")
+        val sessie = Sessie()
+
+        try {
+            klokProducer.klok.verschuiving = SESSIEDUUR.minusSeconds(1)
+            given().header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$berichtId").then().statusCode(200)
+
+            klokProducer.klok.verschuiving = SESSIEDUUR
+
+            listOf("berichten", "berichten/$berichtId").forEach { pad ->
+                valideer(MAGAZIJN_A).header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/$pad")
+                    .then().statusCode(401).header("WWW-Authenticate", ONGELDIG_TOKEN)
+            }
+        } finally {
+            klokProducer.klok.verschuiving = Duration.ZERO
+        }
+    }
+
+    @Test
     fun `een paginering buiten de grenzen van het contract geeft 400`() {
         val sessie = Sessie()
 
@@ -223,8 +294,33 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         val berichtId = leverAan(ONTVANGER, "Contract")
         val sessie = Sessie()
 
-        valideer(MAGAZIJN_A).header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten").then().statusCode(200)
-        valideer(MAGAZIJN_A).header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$berichtId").then().statusCode(200)
+        listOf("/berichten", "/berichten/$berichtId").forEach { pad ->
+            val jwe = valideer(MAGAZIJN_A).header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks$pad")
+                .then().statusCode(200).extract().asString()
+
+            // De validator slaat application/jose over; de payload hoort bij het schema waar `x-payload` naar wijst.
+            valideerPayload(pad, TestApp.ontsleutelDir(jwe, sessie.app.aes))
+        }
+    }
+
+    /** `x-payload` van de berichtpaden wijst naar `BerichtenLijst` en `Bericht` van de eerste ingang. */
+    private fun valideerPayload(pad: String, payload: String) {
+        val rapport = OpenApiInteractionValidator.createForSpecificationUrl("openapi/berichtenmagazijn-api.yaml")
+            .withBasePathOverride(basis(MAGAZIJN_A))
+            .withLevelResolver(
+                LevelResolver.create()
+                    // De headers horen bij het JWE-antwoord, niet bij de payload.
+                    .withLevel("validation.response.header", ValidationReport.Level.IGNORE)
+                    .build(),
+            )
+            .build()
+            .validateResponse(
+                "${basis(MAGAZIJN_A)}$pad",
+                Request.Method.GET,
+                SimpleResponse.Builder.ok().withContentType("application/json").withBody(payload).build(),
+            )
+
+        assertTrue(!rapport.hasErrors(), rapport.toString())
     }
 
     private fun leverAan(ontvanger: String, onderwerp: String, magazijn: String = MAGAZIJN_A, bijlage: Boolean = false): String {
@@ -252,6 +348,7 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         const val ONTVANGER = RechtstreeksTest.ONTVANGER
         const val ANDERE_ONTVANGER = "KVK:90000001"
         const val ZONDER_TOKEN = "Bearer realm=\"$MAGAZIJN_A\""
+        val SESSIEDUUR: Duration = Duration.ofMinutes(15)
         const val ONGELDIG_TOKEN = "Bearer realm=\"$MAGAZIJN_A\", error=\"invalid_token\""
     }
 }
