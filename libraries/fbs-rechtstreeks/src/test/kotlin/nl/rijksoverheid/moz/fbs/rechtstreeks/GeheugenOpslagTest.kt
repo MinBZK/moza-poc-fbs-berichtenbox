@@ -210,6 +210,8 @@ class GeheugenOpslagTest {
         (0 until aantal).forEach { assertFalse(opslag.verlopen("m", "t$it"), "een levende sessie is niet verlopen") }
 
         opzet.nu = opzet.nu.plusSeconds(10)
+        // Zoals de Verifier: een gemiste zoek ruimt op, dus het antwoord komt uit de verzameling.
+        opslag.zoek("m", "iets")
 
         (0 until aantal).forEach { assertTrue(opslag.verlopen("m", "t$it"), "t$it is verlopen") }
 
@@ -223,6 +225,7 @@ class GeheugenOpslagTest {
 
         opslag.bewaar(sessie("m", "t", Duration.ofSeconds(10)), "c", "c")
         opzet.nu = opzet.nu.plusSeconds(10).plus(Duration.ofMinutes(10)).minusSeconds(1)
+        opslag.zoek("m", "iets")
 
         assertTrue(opslag.verlopen("m", "t"))
 

@@ -186,7 +186,10 @@ class VerifierTest {
 
     @Test
     fun `een token dat nooit een sessie had, is onbekend`() {
+        // Met een verlopen token in de verzameling, zodat het onderscheid echt op het token rust.
         opzet.sessie(verifier)
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15))
+        verifier.maakChallenge("ander")
 
         assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie("Verzonnen".padEnd(32, '0')) }.reden)
     }
@@ -594,7 +597,14 @@ class VerifierTest {
 
     companion object {
         @JvmStatic
-        fun misvormdeTokens() = listOf("", "a".repeat(31), "a".repeat(33), "a".repeat(31) + "-")
+        fun misvormdeTokens() = listOf(
+            "",
+            "a".repeat(31),
+            "a".repeat(33),
+            "a".repeat(31) + "-",
+            "-" + "a".repeat(31),
+            "a".repeat(31) + "é",
+        )
 
         private fun grens(naam: String, looptijd: Long, geval: Grensgeval): Arguments = arguments(named(naam, geval), looptijd)
 
