@@ -20,6 +20,11 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+// Onder de query-timeout van 10 s, zodat een vergeten latch de bevraging niet laat verlopen.
+private const val TEGENHOUDEN_MAX_S = 8L
 
 @Alternative
 @ApplicationScoped
@@ -89,6 +94,14 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
         var shouldTimeoutB = false
         var shouldHttpFailA: Int? = null
         var shouldHttpFailB: Int? = null
+
+        /** Telt af bij elke bevraging, zodat een test weet dat een ophaalronde loopt. */
+        @Volatile
+        var bevraagd: CountDownLatch? = null
+
+        /** Houdt elke bevraging vast tot deze latch valt, zodat een test iets kan doen terwijl de ronde loopt. */
+        @Volatile
+        var tegenhouden: CountDownLatch? = null
     }
 
     override fun getAllMagazijnen(): Map<String, IngeschrevenMagazijn> = mapOf(
@@ -119,6 +132,8 @@ internal class MockMagazijnClientFactory : MagazijnClientFactory(
         val magazijnBerichten = berichten.map { it.toMagazijnBericht() }
 
         every { client.getBerichten(any(), any(), any(), any()) } answers {
+            bevraagd?.countDown()
+            tegenhouden?.await(TEGENHOUDEN_MAX_S, TimeUnit.SECONDS)
             if (shouldTimeout()) Thread.sleep(15_000)
             if (shouldFail()) throw ProcessingException("Magazijn niet beschikbaar")
             httpFailStatus()?.let { status -> throw WebApplicationException(status) }

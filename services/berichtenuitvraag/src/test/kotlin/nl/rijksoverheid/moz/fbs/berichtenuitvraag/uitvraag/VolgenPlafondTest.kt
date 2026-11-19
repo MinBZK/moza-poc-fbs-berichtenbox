@@ -28,6 +28,9 @@ class VolgenPlafondTest {
     @Inject
     lateinit var sessiecache: MockSessiecache
 
+    /** Per ontvanger één sessie; het plafond telt open streams, niet sessies. */
+    private val sessies = mutableMapOf<String, String>()
+
     @BeforeEach
     fun openBlijvendeStream() {
         sessiecache.reset()
@@ -123,6 +126,7 @@ class VolgenPlafondTest {
     private fun open(ontvanger: String): HttpURLConnection =
         (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection).apply {
             setRequestProperty("X-Ontvanger", ontvanger)
+            setRequestProperty("X-Sessie", sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) })
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
             readTimeout = 2000

@@ -47,10 +47,10 @@ server {
     }
 
     # Een bijlage opent de berichtenbox met een gewone <a href>, zonder eigen header. De ontvanger
-    # staat daarom in het cookie `ontvanger` en wordt hier weer X-Ontvanger; zonder die header
-    # antwoordt de uitvraag met 400. Niet via de proeftuin, die dat ook doet: zijn BACKEND_KETEN wijst
-    # naar een containernaam die in hostnet niet resolvet. Een regex-location gaat vóór elk gewoon
-    # prefix, dus deze wint van /api/v1/.
+    # en de sessie staan daarom in de cookies `ontvanger` en `sessie`, en worden hier weer
+    # X-Ontvanger en X-Sessie; zonder die headers antwoordt de uitvraag met 400 of 401. Niet via de
+    # proeftuin, die dat ook doet: zijn BACKEND_KETEN wijst naar een containernaam die in hostnet niet
+    # resolvet. Een regex-location gaat vóór elk gewoon prefix, dus deze wint van /api/v1/.
     #
     # Daardoor erft hij ook de HTTP/1.1 van /api/v1/ niet, en nginx spreekt standaard 1.0. Dan eindigt
     # een gestreamde bijlage zonder Content-Length met het sluiten van de connection, en is een
@@ -60,6 +60,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header X-Ontvanger $cookie_ontvanger;
+        proxy_set_header X-Sessie $cookie_sessie;
     }
 
     # De keten. De ophaalronde is een SSE-stream: zonder deze vier regels komt de voortgang per

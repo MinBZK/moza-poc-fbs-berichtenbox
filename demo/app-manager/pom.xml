@@ -20,7 +20,7 @@
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
-        <!-- De Verifier-kant van CreateSession: hetzelfde protocol dat een magazijn straks spreekt. -->
+        <!-- De Verifier-kant van CreateSession: hetzelfde protocol als bij een magazijn. -->
         <dependency>
             <groupId>nl.rijksoverheid.moz</groupId>
             <artifactId>fbs-rechtstreeks</artifactId>

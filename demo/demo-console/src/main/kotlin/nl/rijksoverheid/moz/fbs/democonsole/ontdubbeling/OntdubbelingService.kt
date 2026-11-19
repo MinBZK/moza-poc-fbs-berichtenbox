@@ -12,9 +12,9 @@ data class OntdubbelingResultaat(val eventId: String, val eersteStatus: Int, val
 /**
  * Demonstreert ontdubbeling op de aanmeld-webhook: bouwt één CloudEvent en levert het tweemaal met
  * hetzelfde `id` af. De uitvraag dedupliceert op `id` (keyspace `aanmeld:event:`), dus er ontstaat
- * één bericht — mits de ontvanger een actieve sessie heeft (anders wordt de marker vrijgegeven en
- * verschijnt niets). Id en berichtId worden per aanroep vers gegenereerd zodat opeenvolgende demo's
- * niet tegen elkaars 24u-marker dedupliceren.
+ * één bericht — mits de berichtenlijst van de ontvanger al opgehaald is (anders wordt de marker
+ * vrijgegeven en verschijnt niets). Id en berichtId worden per aanroep vers gegenereerd zodat
+ * opeenvolgende demo's niet tegen elkaars 24u-marker dedupliceren.
  */
 @ApplicationScoped
 class OntdubbelingService(
@@ -22,9 +22,9 @@ class OntdubbelingService(
     private val mapper: ObjectMapper,
 ) {
 
-    fun demonstreer(ontvangerBsn: String): OntdubbelingResultaat {
+    fun demonstreer(ontvanger: Ontvanger): OntdubbelingResultaat {
         val eventId = UUID.randomUUID().toString()
-        val payload = mapper.writeValueAsString(bouwEvent(eventId, ontvangerBsn))
+        val payload = mapper.writeValueAsString(bouwEvent(eventId, ontvanger))
 
         val eerste = post(payload)
         val tweede = post(payload)
@@ -34,7 +34,7 @@ class OntdubbelingService(
 
     private fun post(payload: String): Int = client.meldAan(payload).use { it.status }
 
-    private fun bouwEvent(eventId: String, ontvangerBsn: String): AanmeldEvent {
+    private fun bouwEvent(eventId: String, ontvanger: Ontvanger): AanmeldEvent {
         val nu = OffsetDateTime.now().toString()
         val berichtId = UUID.randomUUID().toString()
 
@@ -49,7 +49,7 @@ class OntdubbelingService(
             data = AanmeldData(
                 berichtId = berichtId,
                 afzender = AFZENDER_OIN,
-                ontvanger = Ontvanger(type = "BSN", waarde = ontvangerBsn),
+                ontvanger = ontvanger,
                 onderwerp = "Demo: ontdubbeling",
                 tijdstipOntvangst = nu,
                 publicatietijdstip = nu,

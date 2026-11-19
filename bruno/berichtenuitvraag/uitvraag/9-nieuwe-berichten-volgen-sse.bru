@@ -1,5 +1,5 @@
 meta {
-  name: 9. Nieuwe berichten volgen (SSE, blijft open)
+  name: 9. Berichten volgen (SSE, blijft open)
   type: http
   seq: 9
 }
@@ -11,11 +11,14 @@ get {
 
 headers {
   X-Ontvanger: {{ontvangerHeaderPersoon}}
+  X-Sessie: {{sessie}}
   Accept: text/event-stream
   traceparent: 00-{{traceId}}-{{parentSpanId}}-01
 }
 
 docs {
   Eerst request 1 (ophalen) laten afronden, anders 409. Houd deze open en meld daarna met
-  aanmeld/8 een bericht aan: dat verschijnt hier als `bericht-bijgekomen`.
+  aanmeld/8 een bericht aan: dat verschijnt hier als `bericht-bijgekomen`. Een PATCH of DELETE
+  op een bericht (ook vanuit deze sessie) verschijnt als `bericht-gewijzigd` of
+  `bericht-verwijderd`.
 }

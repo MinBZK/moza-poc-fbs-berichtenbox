@@ -74,13 +74,6 @@ class PersonaConfiguratieTest {
     }
 
     @Test
-    fun `er is minstens één persona met een BSN, want de ontdubbeling draait daarop`() {
-        // `bediening.js` filtert de keuzelijst van de ontdubbeling op `BSN:`. Zonder zo'n persona
-        // staat die knop stil uit, met een melding die naar de inrichting wijst.
-        assertTrue(personaService.alle().any { it.type == "BSN" })
-    }
-
-    @Test
     fun `beide beans worden bij het starten gebouwd, niet pas bij de eerste aanroep`() {
         // Zonder deze assertie kan @Startup verdwijnen zonder dat één test rood wordt: injectie
         // bouwt de bean toch wel, dus geen enkele andere test merkt het verschil.

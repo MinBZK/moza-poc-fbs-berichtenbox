@@ -23,7 +23,9 @@ sealed interface Identiteit {
 
 /**
  * Een opgezette sessie. [aesSleutel] versleutelt elk antwoord; [token] alleen geeft dus geen
- * leesbare gegevens. `toString` laat beide weg.
+ * leesbare gegevens. `toString` laat beide weg. [verlooptOp] is altijd een hele seconde: alleen
+ * [Verifier] maakt een sessie, en die rondt af, zodat het einde gelijk is aan `geldigTot` in het
+ * antwoord aan de app.
  */
 class Sessie internal constructor(
     val verifier: String,

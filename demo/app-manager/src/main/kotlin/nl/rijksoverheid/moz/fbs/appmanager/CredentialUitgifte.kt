@@ -10,7 +10,7 @@ import java.time.Clock
 import java.time.Duration
 
 /**
- * Tekent het Verifiable Credential (FSC voor Burgers 4.3.1, stap 28 van 4.4.1): de sleutel van de
+ * Ondertekent het Verifiable Credential (FSC voor Burgers 4.3.1, stap 28 van 4.4.1): de sleutel van de
  * app in `cnf`, de ontvanger die de gebruiker koos, en een korte geldigheid. FBS zet `ontvanger` in
  * plaats van `bsn`, `given_name` en `family_name`: niet elke ontvanger is een burger, en het
  * magazijn heeft geen naam nodig.
@@ -25,16 +25,15 @@ class CredentialUitgifte(
 
     init {
         require(config.credentialGeldig() in MINIMALE_LOOPTIJD..MAXIMALE_LOOPTIJD) {
-            "app-manager.credential-geldig (${config.credentialGeldig()}) moet tussen $MINIMALE_LOOPTIJD en $MAXIMALE_LOOPTIJD liggen: " +
-                "een magazijn weigert een credential daarbuiten"
+            "app-manager.credential-geldig (${config.credentialGeldig()}) moet tussen $MINIMALE_LOOPTIJD en $MAXIMALE_LOOPTIJD liggen"
         }
     }
 
-    fun teken(appSleutel: ECPublicKey, ontvanger: String): String {
+    fun onderteken(appSleutel: ECPublicKey, ontvanger: String): String {
         val moment = klok.instant()
 
-        // Een magazijn toetst de sleutel op `iat`; met een verlopen sleutel getekend is het credential waardeloos.
-        check(moment.isBefore(config.sleutelGeldigTot())) { "de sleutel van de App Manager is verlopen op ${config.sleutelGeldigTot()}" }
+        // Een magazijn toetst de sleutel op `iat`; met een verlopen sleutel ondertekend is het credential waardeloos.
+        if (!moment.isBefore(config.sleutelGeldigTot())) throw SleutelVerlopen()
 
         val nu = moment.epochSecond
 
@@ -61,7 +60,7 @@ class CredentialUitgifte(
     private companion object {
         val MAXIMALE_LOOPTIJD: Duration = Duration.ofHours(24)
 
-        /** Een magazijn weigert een credential dat binnen een minuut verloopt. */
+        /** Zie [AppManagerConfig.credentialGeldig]. */
         val MINIMALE_LOOPTIJD: Duration = Duration.ofMinutes(2)
     }
 }

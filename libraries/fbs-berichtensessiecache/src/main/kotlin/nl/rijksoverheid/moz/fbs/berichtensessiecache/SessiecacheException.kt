@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache
 
+import java.time.Duration
+
 /**
  * Foutsemantiek van de synchrone [Sessiecache]-facade als gesloten hiërarchie.
  *
@@ -34,14 +36,30 @@ sealed class SessiecacheException(message: String, cause: Throwable? = null) : R
     /** Ongeldige invoer in een facade-call (lege patch, ontvanger-mismatch, limiet-overschrijding). */
     class OngeldigeInvoer(message: String, cause: Throwable? = null) : SessiecacheException(message, cause)
 
-    /** Geen actieve sessie voor de ontvanger (aanmeld-schrijfpad). */
-    class GeenActieveSessie(message: String) : SessiecacheException(message)
+    /**
+     * Er staat voor de ontvanger geen opgehaalde lijst in de cache om een aangemeld bericht in bij
+     * te schrijven: er is nog niet opgehaald, of de lijst is met de laatste sessie opgeruimd.
+     */
+    class GeenLijstInCache(message: String) : SessiecacheException(message)
 
     /**
-     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone leeft — die
-     * krijgt bij het verwijderen de sessie-TTL mee en schuift daarna niet mee met leesverkeer —
-     * en daarna is het weer een gewone misser. Wordt nooit gegooid voor een bericht van een
-     * andere ontvanger: die krijgt de misser die hij ook voor een onbekend bericht zou krijgen.
+     * De ontvanger verwijderde dit bericht zelf. Alleen bekend zolang de tombstone bestaat: die
+     * hoort bij de gegevens van de ontvanger en verdwijnt met het opruimen na zijn laatste sessie.
+     * In een volgende sessie is het weer een gewone misser. Wordt nooit gegooid voor een bericht van
+     * een andere ontvanger: die krijgt de misser die hij ook voor een onbekend bericht zou krijgen.
      */
     class BerichtVerwijderd(message: String) : SessiecacheException(message)
+
+    /**
+     * Het sessie-id is geen lopende sessie van deze ontvanger: onbekend, verlopen of van een ander.
+     * Eén geval, zodat een aanroeper niet kan aftasten welke id's ooit bestonden.
+     */
+    class SessieOngeldig(message: String) : SessiecacheException(message)
+
+    /**
+     * De ontvanger heeft al het maximum aantal lopende sessies; een nieuwe start wordt geweigerd.
+     * [vrijOver] is de tijd tot de vroegst verlopende van die sessies verloopt, als er in die sessie
+     * niets meer gebeurt; een verzoek erin schuift het op, dus het is een aanwijzing en geen belofte.
+     */
+    class TeVeelSessies(message: String, val vrijOver: Duration) : SessiecacheException(message)
 }

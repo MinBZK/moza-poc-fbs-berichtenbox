@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -54,6 +56,31 @@ class OnderdelenTest {
     }
 
     @Test
+    fun `een sleutel op een andere curve dan P-256 wordt met een duidelijke melding geweigerd`() {
+        val p384 = KeyPairGenerator.getInstance("EC").run {
+            initialize(ECGenParameterSpec("secp384r1"))
+            generateKeyPair()
+        }
+
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            Ondertekensleutel.leesPem(pem("PRIVATE KEY", p384.private.encoded) + pem("PUBLIC KEY", p384.public.encoded))
+        }
+
+        assertTrue(fout.message!!.contains("P-256"), fout.message)
+    }
+
+    @Test
+    fun `een sleutelpad dat niet bestaat of geen sleutel bevat, noemt de property`(@TempDir map: Path) {
+        val leeg = map.resolve("leeg.pem").also { Files.writeString(it, "geen sleutel") }
+
+        listOf(map.resolve("bestaat-niet.pem").toString(), leeg.toString()).forEach { bestand ->
+            val fout = assertThrows(IllegalStateException::class.java) { Ondertekensleutel(config(bestand)) }
+
+            assertTrue(fout.message!!.contains("app-manager.sleutel-pad"), fout.message)
+        }
+    }
+
+    @Test
     fun `de keuzepagina escapet labels en ids`() {
         val persona = DemoPersona("a\"b", "<script>&'", "KVK", "90000014", emptyList(), PersonaBron.KETEN)
 
@@ -69,6 +96,17 @@ class OnderdelenTest {
         val config = config(pemBestand(map), credentialGeldig = Duration.ofHours(25))
 
         assertThrows(IllegalArgumentException::class.java) { CredentialUitgifte(config, Ondertekensleutel(config), Clock.systemUTC()) }
+    }
+
+    @Test
+    fun `een credential van precies twee minuten of 24 uur mag`(@TempDir map: Path) {
+        val pad = pemBestand(map)
+
+        listOf(Duration.ofMinutes(2), Duration.ofHours(24)).forEach { looptijd ->
+            val config = config(pad, credentialGeldig = looptijd)
+
+            CredentialUitgifte(config, Ondertekensleutel(config), Clock.systemUTC())
+        }
     }
 
     @Test
@@ -95,27 +133,88 @@ class OnderdelenTest {
     }
 
     @Test
-    fun `een volle opslag geeft 503 met Retry-After`() {
-        val antwoord = OpslagVolMapper().toResponse(OpslagVolException(Duration.ofSeconds(12)))
+    fun `een volle opslag geeft 503 met Retry-After, op een protocolpad als problem+json en in de browser als pagina`() {
+        val protocol = Foutvertaling().vertaal(OpslagVolException(Duration.ofSeconds(12)), "/v1/challenge")
+        val browser = Foutvertaling().vertaal(OpslagVolException(Duration.ofSeconds(12)), "/register_app/kies")
 
-        assertEquals(503, antwoord.status)
-        assertEquals("12", antwoord.headers.getFirst("Retry-After").toString())
+        assertEquals(503, protocol.status)
+        assertEquals("12", protocol.headers.getFirst("Retry-After").toString())
+        assertEquals("application/problem+json", protocol.mediaType.toString())
+        assertEquals(503, browser.status)
+        assertEquals("12", browser.headers.getFirst("Retry-After").toString())
+        assertTrue(browser.mediaType.toString().startsWith("text/html"), browser.mediaType.toString())
     }
 
+    @Test
+    fun `een verlopen sleutel geeft 503 en geen 500`() {
+        val antwoord = Foutvertaling().sleutelVerlopenAntwoord("/v1/challenge")
+
+        assertEquals(503, antwoord.status)
+        assertEquals("300", antwoord.headers.getFirst("Retry-After").toString())
+    }
+
+    @Test
+    fun `de doorverwijzing na een keuze is maar kort opnieuw op te vragen`() {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+        val registraties = Registraties(klok)
+        val koppeling = registraties.koppel("s", klok.nu.plusSeconds(600))!!
+        val token = registraties.registreer("KVK:90000014", "tp", "c", Duration.ofHours(1))
+
+        registraties.bevestig(koppeling, token, "terug")
+
+        klok.nu = klok.nu.plus(Registraties.HERHAALVENSTER).minusSeconds(1)
+
+        assertEquals("terug", registraties.afgerond(koppeling))
+
+        klok.nu = klok.nu.plusSeconds(1)
+
+        assertNull(registraties.afgerond(koppeling))
+    }
+
+    @Test
+    fun `een registratie verloopt precies op haar einde`() {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+        val registraties = Registraties(klok)
+        val token = registraties.registreer("KVK:90000014", "tp", "c", Duration.ofSeconds(30))
+
+        klok.nu = klok.nu.plusSeconds(29)
+
+        assertEquals("tp", registraties.registratie(token)?.thumbprint)
+
+        klok.nu = klok.nu.plusSeconds(1)
+
+        assertNull(registraties.registratie(token))
+    }
+
+    @Test
+    fun `boven het totaal voor alle clients samen komt er geen registratie meer bij`() {
+        val registraties = Registraties(VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z")))
+
+        repeat(Registraties.MAX_AANTAL) { registraties.registreer("KVK:90000014", "tp$it", "client-$it", Duration.ofHours(1)) }
+
+        assertThrows(OpslagVolException::class.java) { registraties.registreer("KVK:90000014", "nog een", "nieuwe client", Duration.ofHours(1)) }
+    }
+
+    @Suppress("LongParameterList")
     private fun config(
         pad: String?,
         credentialGeldig: Duration = Duration.ofHours(1),
         geldigTot: Instant = Instant.MAX,
         registratieGeldig: Duration = Duration.ofDays(1),
+        terugUrl: String = "https://app.test/",
+        issuerUrl: String = "https://app-manager.test/",
+        oin: String = AppManagerConfig.DEMO_OIN,
+        kid: String = "k",
     ) = object : AppManagerConfig {
-        override fun oin() = AppManagerConfig.DEMO_OIN
-        override fun kid() = "k"
+        override fun oin() = oin
+        override fun kid() = kid
         override fun sleutelPad() = Optional.ofNullable(pad)
         override fun sleutelGeldigTot() = geldigTot
-        override fun issuerUrl() = "https://app-manager.test/"
-        override fun terugUrl() = "https://app.test/"
+        override fun issuerUrl() = issuerUrl
+        override fun terugUrl() = terugUrl
         override fun credentialGeldig() = credentialGeldig
         override fun registratieGeldig() = registratieGeldig
+        override fun sessiesPerClient() = 20
     }
 
     private fun pemBestand(map: Path): String {
@@ -140,12 +239,12 @@ class OnderdelenTest {
     }
 
     @Test
-    fun `met een verlopen sleutel tekent de App Manager geen credential`(@TempDir map: Path) {
+    fun `met een verlopen sleutel ondertekent de App Manager geen credential`(@TempDir map: Path) {
         val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
         val config = config(pemBestand(map), geldigTot = klok.nu)
         val uitgifte = CredentialUitgifte(config, Ondertekensleutel(config), klok)
 
-        assertThrows(IllegalStateException::class.java) { uitgifte.teken(paar().public as java.security.interfaces.ECPublicKey, "KVK:90000014") }
+        assertThrows(SleutelVerlopen::class.java) { uitgifte.onderteken(paar().public as java.security.interfaces.ECPublicKey, "KVK:90000014") }
     }
 
     @Test
@@ -153,7 +252,7 @@ class OnderdelenTest {
         ConfigControle.controleerAdres("x", "https://app.test/", ontwikkel = false)
         ConfigControle.controleerAdres("x", "http://localhost:8099/", ontwikkel = true)
 
-        listOf("/relatief", "https://app.test/#iets", "geen url", "http://app.test/").forEach { adres ->
+        listOf("/relatief", "https://app.test/#iets", "geen url", "http://app.test/", "https:app.test", "https:///pad").forEach { adres ->
             assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAdres("x", adres, ontwikkel = false) }
         }
     }
@@ -239,6 +338,31 @@ class OnderdelenTest {
     }
 
     @Test
+    fun `een sleutel die precies na de levensduur van een nonce verloopt, mag`() {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(pad = null, geldigTot = klok.nu.plusSeconds(60)), klok) }
+
+        ConfigControle(config(pad = null, geldigTot = klok.nu.plusSeconds(61)), klok)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["terug-http", "issuer-http", "issuer-zonder-slash", "oin", "kid"])
+    fun `buiten ontwikkel- en testmodus blokkeert een verkeerde instelling de start`(fout: String) {
+        val klok = VerstelbareKlok(Instant.parse("2026-10-27T10:00:00Z"))
+
+        val config = when (fout) {
+            "terug-http" -> config(pad = null, terugUrl = "http://app.test/")
+            "issuer-http" -> config(pad = null, issuerUrl = "http://app-manager.test/")
+            "issuer-zonder-slash" -> config(pad = null, issuerUrl = "https://app-manager.test")
+            "oin" -> config(pad = null, oin = "123")
+            else -> config(pad = null, kid = " ")
+        }
+
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config, klok) }
+    }
+
+    @Test
     fun `een formulierveld wordt gedecodeerd, en een kapotte encoding geeft niets`() {
         assertEquals("a b", ActiverenResource.formulierveld("x=1&persona=a+b", "persona"))
         assertNull(ActiverenResource.formulierveld("persona=%zz", "persona"))
@@ -247,7 +371,7 @@ class OnderdelenTest {
     }
 }
 
-/** Een klok die een test vooruit zet; een benoemde klasse, omdat Quarkus een anonieme in de tests niet kan transformeren. */
+/** Een klok die een test vooruit zet. */
 class VerstelbareKlok(var nu: Instant) : Clock() {
     override fun getZone(): ZoneOffset = ZoneOffset.UTC
 

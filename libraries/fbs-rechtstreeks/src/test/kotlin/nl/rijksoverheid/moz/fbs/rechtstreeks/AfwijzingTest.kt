@@ -16,12 +16,13 @@ import java.util.Base64
 /**
  * De controles uit "Wat elke controle tegenhoudt" in het ontwerp die deze library uitvoert, elk als
  * afwijzing: één aanpassing aan een verder geldig verzoek, en de reden die de Verifier dan moet
- * geven. Verbruik van de nonce, scheiding per magazijn en de duur van een sessie staan in
- * [VerifierTest].
+ * geven. Een JWE die zonder sleutel al niet klopt, is geen afwijzing maar een ongeldig verzoek
+ * (`400`); die gevallen staan apart. Verbruik van de nonce, scheiding per magazijn en de duur van
+ * een sessie staan in [VerifierTest].
  */
 class AfwijzingTest {
 
-    /** Een scenario krijgt een verse opzet en een challenge, en doet zelf de `complete`. */
+    /** Een scenario krijgt een verse opzet en een challenge, en opent zelf de sessie. */
     fun interface Scenario {
         fun voerUit(opzet: Opzet, verifier: Verifier, challenge: Opzet.Challenge)
     }
@@ -36,6 +37,22 @@ class AfwijzingTest {
         val fout = assertThrows<AfgewezenException> { scenario.voerUit(opzet, verifier, challenge) }
 
         assertEquals(reden, fout.reden)
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("ongeldigeJwes")
+    fun `een JWE die zonder sleutel al niet klopt, is een ongeldig verzoek en laat de nonce staan`(scenario: Scenario, reden: JweFout) {
+        val opzet = Opzet()
+        val verifier = opzet.verifier()
+        val challenge = opzet.challenge(verifier)
+
+        val fout = assertThrows<JweOngeldigException> { scenario.voerUit(opzet, verifier, challenge) }
+
+        assertEquals(reden, fout.reden)
+        assertEquals("jwe ongeldig: ${reden.name}", fout.message)
+
+        // De header gaat vóór de nonce, dus dezelfde challenge werkt nog.
+        verifier.voltooiMetCredential(challenge.nonce, opzet.versleuteld(challenge, opzet.presentatie(challenge)), Opzet.CLIENT)
     }
 
     companion object {
@@ -85,7 +102,7 @@ class AfwijzingTest {
                 verifier.voltooiSelfSigned(challenge.nonce, opzet.versleuteld(challenge, presentatie), Opzet.CLIENT)
             }
 
-        private fun geval(naam: String, reden: Afwijzing, scenario: Scenario): Arguments = arguments(named(naam, scenario), reden)
+        private fun geval(naam: String, reden: Enum<*>, scenario: Scenario): Arguments = arguments(named(naam, scenario), reden)
 
         private fun vcMetHeader(opzet: Opzet, header: Map<String, Any>): String =
             TestApp.jws(header, opzet.vcClaims(), opzet.appManager.private)
@@ -94,7 +111,7 @@ class AfwijzingTest {
         fun `scenario's`(): List<Arguments> = credential() + binding() + presentatie() + versleuteling() + activeren()
 
         private fun credential(): List<Arguments> = listOf(
-            geval("credential getekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, metCertificaat { it.vc(sleutel = TestApp.sleutelpaar().private) }),
+            geval("credential ondertekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, metCertificaat { it.vc(sleutel = TestApp.sleutelpaar().private) }),
             geval("onbekende App Manager", Afwijzing.APP_MANAGER_ONBEKEND, metCredential { put("iss", "00000000000000009999") }),
             geval("onbekende sleutel-id", Afwijzing.APP_MANAGER_ONBEKEND, metCertificaat { it.vc(kid = "andere-sleutel") }),
             geval("andere scope", Afwijzing.SCOPE_ONJUIST, metCredential { put("scope", "nl.vorijk.oauth_scope.blauwe_knop") }),
@@ -171,13 +188,13 @@ class AfwijzingTest {
         )
 
         private fun binding(): List<Arguments> = listOf(
-            geval("nonce getekend met een andere sleutel dan in het credential", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
+            geval("nonce ondertekend met een andere sleutel dan in het credential", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
                 p["app_nonce_signature"] = nonceHandtekening(c.nonce, sleutel = TestApp.sleutelpaar().private)
             }),
             geval("aud van een ander magazijn", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
                 p["app_nonce_signature"] = nonceHandtekening(c.nonce, aud = Opzet.ANDER_MAGAZIJN_OIN)
             }),
-            geval("andere nonce getekend", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, _ ->
+            geval("andere nonce ondertekend", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, _ ->
                 p["app_nonce_signature"] = nonceHandtekening("ZWVuIGFuZGVyZSBub25jZQ==")
             }),
             geval("andere sub in de nonce-handtekening", Afwijzing.NONCEHANDTEKENING_ONGELDIG, metPresentatie { p, c ->
@@ -217,33 +234,12 @@ class AfwijzingTest {
             geval("versleuteld naar een andere sleutel", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c ->
                 TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), TestApp.sleutelpaar().public as ECPublicKey)
             }),
-            geval("enc A128GCM", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, enc = "A128GCM")
-            }),
-            geval("alg ECDH-ES+A128KW", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, alg = "ECDH-ES+A128KW")
-            }),
-            geval("alg als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("alg" to 1))
-            }),
-            geval("enc als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("enc" to 1))
-            }),
-            geval("apu als getal", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("apu" to 5))
-            }),
-            geval("jku in de header", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("jku" to "https://aanvaller.example"))
-            }),
             geval("zonder epk", Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG, metJwe { o, c ->
                 TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk).let { jwe ->
                     val header = TestApp.header(jwe) - "epk"
 
                     TestApp.b64url.encodeToString(JsonUtil.toJson(header).toByteArray()) + jwe.substring(jwe.indexOf('.'))
                 }
-            }),
-            geval("epk als tekst", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("epk" to "x"))
             }),
             geval("epk met x groter dan het veld", Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG, metJwe { o, c ->
                 TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, epkExtra = mapOf("x" to TE_GROOT))
@@ -271,17 +267,74 @@ class AfwijzingTest {
             geval("epk met kid", Afwijzing.TIJDELIJKE_SLEUTEL_ONGELDIG, metJwe { o, c ->
                 TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, epkExtra = mapOf("kid" to "1"))
             }),
-            geval("geen JWE", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, _ -> "geen.jwe" }),
             geval("presentatie geen JSON", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { _, c -> TestApp.jweEcdh("geen json", c.tijdelijk) }),
-            geval("presentatie net te groot", Afwijzing.PRESENTATIE_ONLEESBAAR, metJwe { o, c -> o.opgevuld(c, Verifier.MAX_PRESENTATIE_TEKENS + 1..Verifier.MAX_PRESENTATIE_TEKENS + 4) }),
-            geval("zip in de header", Afwijzing.HEADER_NIET_TOEGESTAAN, metJwe { o, c ->
-                TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, mapOf("zip" to "DEF"))
+        )
+
+        /** Een geldige presentatie, waarvan alleen de header van de JWE afwijkt. */
+        private fun metHeader(
+            alg: String = "ECDH-ES",
+            enc: String = "A256GCM",
+            typ: String? = "JWE",
+            header: Map<String, Any> = emptyMap(),
+        ) = metJwe { o, c -> TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk, header, alg, enc, typ = typ) }
+
+        @JvmStatic
+        fun ongeldigeJwes(): List<Arguments> = listOf(
+            geval("geen JWE", JweFout.ONLEESBAAR, metJwe { _, _ -> "geen.jwe" }),
+            geval("header geen JSON", JweFout.ONLEESBAAR, metJwe { _, _ -> "Z2Vlbg.AA.AA.AA.AA" }),
+            geval("presentatie net te groot", JweFout.TE_GROOT, metJwe { o, c ->
+                o.opgevuld(c, Verifier.MAX_PRESENTATIE_TEKENS + 1..Verifier.MAX_PRESENTATIE_TEKENS + 4)
+            }),
+            geval("enc A128GCM", JweFout.ALGORITME_ONJUIST, metHeader(enc = "A128GCM")),
+            geval("alg ECDH-ES+A128KW", JweFout.ALGORITME_ONJUIST, metHeader(alg = "ECDH-ES+A128KW")),
+            geval("alg dir", JweFout.ALGORITME_ONJUIST, metHeader(header = mapOf("alg" to "dir"))),
+            // alg en enc zijn hoofdlettergevoelig, anders dan typ.
+            geval("alg in kleine letters", JweFout.ALGORITME_ONJUIST, metHeader(header = mapOf("alg" to "ecdh-es"))),
+            geval("enc in kleine letters", JweFout.ALGORITME_ONJUIST, metHeader(enc = "a256gcm")),
+            geval("zonder alg", JweFout.ALGORITME_ONJUIST, zonderHeaderveld("alg")),
+            geval("zonder enc", JweFout.ALGORITME_ONJUIST, zonderHeaderveld("enc")),
+            geval("zonder typ", JweFout.TYP_ONJUIST, metHeader(typ = null)),
+            geval("typ JWT", JweFout.TYP_ONJUIST, metHeader(typ = "JWT")),
+            geval("typ application/jose", JweFout.TYP_ONJUIST, metHeader(typ = "application/jose")),
+            geval("typ als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("typ" to 1))),
+            geval("alg als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("alg" to 1))),
+            geval("enc als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("enc" to 1))),
+            geval("apu als getal", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("apu" to 5))),
+            geval("jku in de header", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("jku" to "https://aanvaller.example"))),
+            geval("crit in de header", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("crit" to listOf("exp")))),
+            geval("zip in de header", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("zip" to "DEF"))),
+            geval("epk als tekst", JweFout.HEADER_ONGELDIG, metHeader(header = mapOf("epk" to "x"))),
+            geval("onbekende nonce: de header gaat voor", JweFout.TYP_ONJUIST, Scenario { opzet, verifier, challenge ->
+                val jwe = TestApp.jweEcdh(JsonUtil.toJson(opzet.presentatie(challenge)), challenge.tijdelijk, typ = null)
+
+                verifier.voltooiMetCredential("b25iZWtlbmRlIG5vbmNl", jwe, Opzet.CLIENT)
+            }),
+            geval("App Manager: zonder typ", JweFout.TYP_ONJUIST, bijAppManager { _, c, p -> TestApp.jweEcdh(p, c.tijdelijk, typ = null) }),
+            geval("App Manager: geen JWE", JweFout.ONLEESBAAR, bijAppManager { _, _, _ -> "geen.jwe" }),
+            geval("App Manager: alg dir", JweFout.ALGORITME_ONJUIST, bijAppManager { _, c, p -> TestApp.jweEcdh(p, c.tijdelijk, mapOf("alg" to "dir")) }),
+            geval("App Manager: jwk in de header", JweFout.HEADER_ONGELDIG, bijAppManager { o, c, p ->
+                TestApp.jweEcdh(p, c.tijdelijk, mapOf("jwk" to TestApp.jwk(o.app.public as ECPublicKey)))
             }),
         )
 
+        private fun zonderHeaderveld(veld: String) = metJwe { o, c ->
+            TestApp.jweEcdh(JsonUtil.toJson(o.presentatie(c)), c.tijdelijk).let { jwe ->
+                val header = TestApp.header(jwe) - veld
+
+                TestApp.b64url.encodeToString(JsonUtil.toJson(header).toByteArray()) + jwe.substring(jwe.indexOf('.'))
+            }
+        }
+
+        /** Een self-signed presentatie (als JSON) bij de App Manager, versleuteld door [jwe]. */
+        private fun bijAppManager(jwe: (Opzet, Opzet.Challenge, String) -> String) = Scenario { opzet, verifier, challenge ->
+            val presentatie = opzet.presentatie(challenge, opzet.selfSigned(), Verifier.CERTIFICAAT_SELF_SIGNED)
+
+            verifier.voltooiSelfSigned(challenge.nonce, jwe(opzet, challenge, JsonUtil.toJson(presentatie)), Opzet.CLIENT)
+        }
+
         private fun activeren(): List<Arguments> = listOf(
             geval("self-signed met andere sub", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned { selfSigned(sub = "iets anders") }),
-            geval("self-signed getekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned {
+            geval("self-signed ondertekend met een andere sleutel", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned {
                 TestApp.es256(mapOf("sub" to Verifier.CERTIFICAAT_SELF_SIGNED, "cnf" to mapOf("jwk" to TestApp.jwk(app.public as ECPublicKey))), TestApp.sleutelpaar().private)
             }),
             geval("self-signed zonder cnf", Afwijzing.APPSLEUTEL_ONGELDIG, selfSigned { TestApp.es256(mapOf("sub" to Verifier.CERTIFICAAT_SELF_SIGNED), app.private) }),
@@ -291,7 +344,7 @@ class AfwijzingTest {
                 TestApp.es256(mapOf("sub" to Verifier.CERTIFICAAT_SELF_SIGNED, "cnf" to mapOf("jwk" to jwk)), app.private)
             }),
             geval("self-signed met een credential als certificaat", Afwijzing.HANDTEKENING_ONGELDIG, selfSigned { vc() }),
-            geval("self-signed met een nonce getekend door een andere sleutel", Afwijzing.NONCEHANDTEKENING_ONGELDIG, Scenario { opzet, verifier, challenge ->
+            geval("self-signed met een nonce ondertekend door een andere sleutel", Afwijzing.NONCEHANDTEKENING_ONGELDIG, Scenario { opzet, verifier, challenge ->
                 val presentatie = opzet.presentatie(challenge, opzet.selfSigned(), Verifier.CERTIFICAAT_SELF_SIGNED).apply {
                     put("app_nonce_signature", opzet.nonceHandtekening(challenge.nonce, sleutel = TestApp.sleutelpaar().private))
                 }

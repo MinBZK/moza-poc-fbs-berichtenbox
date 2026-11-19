@@ -5,9 +5,9 @@ import java.security.interfaces.ECPublicKey
 import java.time.Instant
 
 /**
- * De sleutel waarmee een Verifier zijn challenges tekent. [kid] is de sleutel-id waaronder de
+ * De sleutel waarmee een Verifier zijn challenges ondertekent. [kid] is de sleutel-id waaronder de
  * public key in het stelseldocument staat; de app kiest daarop de sleutel om te controleren, en
- * weigert hem na [geldigTot] (4.6.1). Daarom tekent de Verifier na dat moment niet meer.
+ * weigert hem na [geldigTot] (4.6.1). Daarom ondertekent de Verifier na dat moment niet meer.
  */
 class VerifierSleutel(val kid: String, internal val privateKey: ECPrivateKey, val geldigTot: Instant) {
 
