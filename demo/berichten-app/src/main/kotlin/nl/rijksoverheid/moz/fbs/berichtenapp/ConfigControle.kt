@@ -15,7 +15,7 @@ class ConfigControle(config: BerichtenAppConfig) {
 
         controleerAdres("berichten-app.app-manager-url", config.appManagerUrl(), ontwikkel)
         controleerAdres("berichten-app.stelselregister-url", config.stelselregisterUrl(), ontwikkel)
-        config.magazijnen().ifPresent { controleerOrigins("berichten-app.magazijnen", it, ontwikkel) }
+        controleerOrigins("berichten-app.magazijnen", config.magazijnen().orElse(""), ontwikkel)
 
         require(OIN.matches(config.appManagerOin())) { "berichten-app.app-manager-oin (${config.appManagerOin()}) is geen OIN van 20 cijfers" }
     }
@@ -25,13 +25,23 @@ class ConfigControle(config: BerichtenAppConfig) {
         private val ORIGIN = Regex("^[a-z][a-z0-9+.-]*://[A-Za-z0-9.-]+(:[0-9]{1,5})?$")
 
         /**
-         * Origins (`scheme://host[:port]`), gescheiden door witruimte. Ze gaan letterlijk de CSP in:
-         * een pad, `*` of `;` zou `connect-src` verruimen of een richtlijn toevoegen.
+         * Origins (`scheme://host[:port]`), gescheiden door spaties. Ze gaan letterlijk de CSP in:
+         * een pad, `*` of `;` zou `connect-src` verruimen of een richtlijn toevoegen, en een regeleinde
+         * of tab maakt de header ongeldig; zo'n teken haalt de controle per origin niet. Buiten
+         * ontwikkel- en testmodus ten minste één: zonder blokkeert de browser elk magazijn, en dat
+         * ziet de gebruiker als "niet bereikbaar".
+         *
+         * Een afgewezen origin staat met zijn plaats in de melding en niet met zijn waarde: die komt
+         * in het bootlog, en een origin die de controle niet haalt, kan een wachtwoord bevatten.
          */
         fun controleerOrigins(naam: String, waarde: String, ontwikkel: Boolean) {
-            waarde.split(Regex("\\s+")).filter(String::isNotEmpty).forEach { origin ->
-                require(ORIGIN.matches(origin)) { "$naam: $origin is geen origin (scheme://host[:port])" }
-                require(ontwikkel || origin.startsWith("https://")) { "$naam: $origin moet https zijn" }
+            val origins = waarde.split(' ').filter(String::isNotEmpty)
+
+            require(ontwikkel || origins.isNotEmpty()) { "$naam is leeg; zonder magazijn-origins blokkeert de browser elk magazijn" }
+
+            origins.forEachIndexed { index, origin ->
+                require(ORIGIN.matches(origin)) { "$naam: origin ${index + 1} is geen origin (scheme://host[:port])" }
+                require(ontwikkel || origin.startsWith("https://")) { "$naam: origin ${index + 1} ($origin) moet https zijn" }
             }
         }
 

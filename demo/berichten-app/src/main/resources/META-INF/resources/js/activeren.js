@@ -119,7 +119,7 @@ async function openSessie({ challengeAdres, sessieAdres, tokenVeld, oin, sleutel
     body: JSON.stringify({ nonce: claims.nonce, encrypted_challenge_result: versleuteld }),
   }), sessieStap);
 
-  const sessieToken = JSON.parse(await ontsleutel(antwoord, aesSleutel))?.[tokenVeld];
+  const sessieToken = leesJson(await ontsleutel(antwoord, aesSleutel), sessieStap)?.[tokenVeld];
 
   if (typeof sessieToken !== 'string') throw new ActiverenFout('geen sessietoken in het antwoord', undefined, sessieStap);
 
@@ -134,7 +134,7 @@ export async function haalVersleuteld({ adres, sessieToken, aesSleutel, fetch = 
   const url = new URL(adres);
   const antwoord = await tekstVan(await verbind(fetch, url, { headers: { Authorization: `Bearer ${sessieToken}` } }), laatsteSegment(url));
 
-  return JSON.parse(await ontsleutel(antwoord, aesSleutel));
+  return leesJson(await ontsleutel(antwoord, aesSleutel), laatsteSegment(url));
 }
 
 /** Waar de gebruiker heen gaat om een persona te kiezen (4.4.1, stap 7). */
@@ -239,6 +239,18 @@ async function tekstVan(antwoord, stap) {
   } catch (fout) {
     // Het antwoord brak halverwege af: dat is de verbinding, niet de inhoud.
     throw new VerbindingFout(`${stap}: antwoord afgebroken`, { cause: fout });
+  }
+}
+
+/**
+ * Zonder de SyntaxError als oorzaak: die neemt een stuk van de invoer in zijn melding op, en hier is
+ * dat ontsleutelde inhoud die anders in de console belandt.
+ */
+function leesJson(tekst, stap) {
+  try {
+    return JSON.parse(tekst);
+  } catch {
+    throw new ActiverenFout('antwoord is geen JSON', undefined, stap);
   }
 }
 

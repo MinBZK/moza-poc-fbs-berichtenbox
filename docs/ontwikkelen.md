@@ -146,8 +146,9 @@ await crypto.subtle.exportKey('pkcs8', paar.privateKey);
 ```
 
 **Berichten ophalen** leest de magazijnen uit het stelseldocument (`berichten-app.stelselregister-url`,
-in ontwikkelmodus `http://localhost:8094/`) en haalt bij elk tegelijk op via de tweede ingang. Lokaal
-de hele keten doorlopen vraagt nog drie dingen die met de compose-bedrading komen: een stelselregister
+in ontwikkelmodus `http://localhost:8094/`) en haalt via de tweede ingang parallel op, hooguit zes
+magazijnen tegelijk. Lokaal de hele keten doorlopen vraagt drie dingen die de compose-bedrading nog
+niet levert (MinBZK/MijnOverheidZakelijk#1216): een stelselregister
 dat de gesimuleerde magazijnen noemt met een adres dat de browser bereikt, een simulator die de
 sleutel van de App Manager vertrouwt (`simulator.rechtstreeks.app-managers."<OIN>".sleutels."<kid>"`,
 met de coördinaten die de App Manager bij de start logt), en die magazijn-origins in

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { CompactSign } from 'jose';
 import { ActiverenFout, VerbindingFout } from '../../main/resources/META-INF/resources/js/activeren.js';
 import {
-  GELIJKTIJDIG, MAX_MAGAZIJNEN, StelseldocumentFout, haalAllesOp, haalOpBij, leesStelseldocument, reden,
+  FOUT_IN_DE_APP, GELIJKTIJDIG, MAX_BERICHTEN_PER_MAGAZIJN, MAX_MAGAZIJNEN, StelseldocumentFout, haalAllesOp, haalOpBij,
+  leesStelseldocument, reden,
 } from '../../main/resources/META-INF/resources/js/ophalen.js';
 import { maakSleutelpaar } from '../../main/resources/META-INF/resources/js/sleutelkluis.js';
 import { nepMagazijn } from './hulp.mjs';
@@ -12,7 +13,7 @@ const A = { oin: '00000009000000000001', naam: 'Magazijn A', url: 'https://a.tes
 const B = { oin: '00000009000000000002', naam: 'Magazijn B', url: 'https://b.test' };
 const C = { oin: '00000009000000000003', naam: 'Magazijn C', url: 'https://c.test' };
 
-/** Alleen de payload telt voor `leesStelseldocument`; de handtekening wordt nog niet getoetst. */
+/** Alleen de payload telt voor `leesStelseldocument`; de handtekening toetst hij niet (TODO(#1216)). */
 function stelseldocumentZonderSleutel(organizations) {
   const deel = (waarde) => Buffer.from(JSON.stringify(waarde)).toString('base64url');
 
@@ -33,7 +34,7 @@ test('het stelseldocument levert de magazijnen, zonder slash aan het eind van he
     { oin: B.oin, name: B.naam, magazijn_url: B.url },
   ]);
 
-  assert.deepEqual(leesStelseldocument(jws), [A, B]);
+  assert.deepEqual(leesStelseldocument(jws), { magazijnen: [A, B], overgeslagen: 0 });
 });
 
 test('een organisatie met een onbruikbare OIN, naam of adres valt weg; de rest blijft', async () => {
@@ -44,15 +45,33 @@ test('een organisatie met een onbruikbare OIN, naam of adres valt weg; de rest b
     { oin: B.oin, name: B.naam, magazijn_url: 'ftp://b.test' },
     { oin: B.oin, name: B.naam, magazijn_url: 'https://b.test/?pad=x' },
     { oin: B.oin, name: B.naam, magazijn_url: 'https://b.test/#x' },
+    // Een array of getal laat new URL en een regex het als tekst lezen; het hoort toch weg te vallen.
+    { oin: B.oin, name: B.naam, magazijn_url: [B.url] },
+    { oin: [B.oin], name: B.naam, magazijn_url: B.url },
+    { oin: 9000000000000000002, name: B.naam, magazijn_url: B.url },
     null,
     { oin: C.oin, name: C.naam, magazijn_url: C.url },
   ]);
 
-  assert.deepEqual(leesStelseldocument(jws), [C]);
+  assert.deepEqual(leesStelseldocument(jws), { magazijnen: [C], overgeslagen: 10 });
+});
+
+test('een OIN die twee keer in het stelseldocument staat, telt één keer: de eerste', async () => {
+  const jws = await stelseldocument([
+    { oin: A.oin, name: A.naam, magazijn_url: A.url },
+    { oin: A.oin, name: 'Nagemaakt', magazijn_url: 'https://elders.test' },
+    { oin: B.oin, name: B.naam, magazijn_url: B.url },
+  ]);
+
+  assert.deepEqual(leesStelseldocument(jws), { magazijnen: [A, B], overgeslagen: 1 });
+});
+
+test('een stelseldocument waarvan geen enkele organisatie bruikbaar is, is zelf onbruikbaar', () => {
+  assert.throws(() => leesStelseldocument(stelseldocumentZonderSleutel([{ oin: '1' }, null])), StelseldocumentFout);
 });
 
 test('een leeg stelseldocument levert geen magazijnen; een document zonder lijst of geen JWS is een fout', async () => {
-  assert.deepEqual(leesStelseldocument(await stelseldocument([])), []);
+  assert.deepEqual(leesStelseldocument(await stelseldocument([])), { magazijnen: [], overgeslagen: 0 });
   assert.throws(() => leesStelseldocument('geen jws'), StelseldocumentFout);
 
   const { privateKey } = await maakSleutelpaar();
@@ -109,7 +128,7 @@ test('de volgorde gaat op het moment, ook met een fractie of offset; zonder tijd
 
 test('als alle magazijnen falen, komt elk met zijn reden terug en zijn er geen berichten', async () => {
   const haal = async (magazijn) => {
-    throw magazijn === A ? new ActiverenFout('x', 401) : new VerbindingFout('weg', { cause: new TypeError('fetch failed') });
+    throw magazijn === A ? new ActiverenFout('x', 401, 'sessies') : new VerbindingFout('weg', { cause: new TypeError('fetch failed') });
   };
 
   const { berichten, mislukt } = await haalAllesOp([A, B, C], {}, haal);
@@ -137,8 +156,20 @@ test('nooit meer dan het vaste aantal magazijnen tegelijk', async () => {
   assert.equal(hoogste, GELIJKTIJDIG);
 });
 
-test('een stelseldocument met meer dan het maximum aan magazijnen wordt geweigerd', async () => {
-  const organisaties = Array.from({ length: MAX_MAGAZIJNEN + 1 }, (_, i) => ({ oin: String(i).padStart(20, '0'), name: `M${i}`, magazijn_url: 'https://m.test' }));
+for (const [aantal, toegestaan] of [[MAX_MAGAZIJNEN, true], [MAX_MAGAZIJNEN + 1, false]]) {
+  test(`een stelseldocument met ${aantal} organisaties wordt ${toegestaan ? 'gelezen' : 'geweigerd'}`, () => {
+    const organisaties = Array.from({ length: aantal }, (_, i) => ({ oin: String(i).padStart(20, '0'), name: `M${i}`, magazijn_url: 'https://m.test' }));
+    const lees = () => leesStelseldocument(stelseldocumentZonderSleutel(organisaties));
+
+    if (toegestaan) assert.equal(lees().magazijnen.length, aantal); else assert.throws(lees, StelseldocumentFout);
+  });
+}
+
+test('de grens geldt voor de organisaties in het document, ook de onbruikbare', () => {
+  const organisaties = [
+    ...Array.from({ length: MAX_MAGAZIJNEN }, () => ({ oin: 'onbruikbaar' })),
+    { oin: A.oin, name: A.naam, magazijn_url: A.url },
+  ];
 
   assert.throws(() => leesStelseldocument(stelseldocumentZonderSleutel(organisaties)), StelseldocumentFout);
 });
@@ -151,18 +182,26 @@ test('de reden is een korte Nederlandse tekst per soort fout', () => {
   assert.equal(reden(new ActiverenFout('x', 503)), 'tijdelijk niet beschikbaar');
   assert.equal(reden(new ActiverenFout('x', 404)), 'gaf een fout (404)');
   assert.equal(reden(new SyntaxError('kapot')), 'gaf een onbruikbaar antwoord');
+  assert.equal(reden(new ActiverenFout('onverwachte berichtenlijst', undefined, 'berichten')), 'gaf een onbruikbaar antwoord');
+  assert.equal(reden(new ActiverenFout('x', 401, 'sessies')), 'weigerde het bewijs');
+  assert.equal(reden(new ActiverenFout('x', 401, 'berichten')), 'nam de sessie niet aan');
+  // Een fout in de app zelf ligt niet aan het magazijn.
+  assert.equal(reden(new TypeError("Cannot read properties of undefined (reading 'privateKey')")), FOUT_IN_DE_APP);
 });
 
-test('een magazijn dat blijft hangen, telt na de wachttijd als niet op tijd', async () => {
+test('een magazijn dat blijft hangen, telt na de timeout als niet op tijd', async () => {
   const hangt = (adres, opties) => new Promise((gelukt, mislukt) => {
     opties.signal.addEventListener('abort', () => mislukt(opties.signal.reason));
   });
 
-  const opties = { sleutelpaar: await maakSleutelpaar(), credential: 'x', fetch: hangt, wachttijdMs: 30 };
+  const opties = { sleutelpaar: await maakSleutelpaar(), credential: 'x', fetch: hangt, timeoutMs: 30 };
 
+  const begin = Date.now();
   const { mislukt } = await haalAllesOp([A], opties);
 
   assert.equal(mislukt[0].reden, 'antwoordde niet op tijd');
+  // De opgegeven timeout, niet de standaard van tien seconden.
+  assert.ok(Date.now() - begin < 2_000, `duurde ${Date.now() - begin} ms`);
   await assert.rejects(haalOpBij(A, opties), VerbindingFout);
 });
 
@@ -198,4 +237,29 @@ test('een sessie-antwoord met het veld van de App Manager in plaats van sessieTo
     { name: 'ActiverenFout', stap: 'sessies' },
   );
   assert.deepEqual(magazijn.log.autorisaties, []);
+});
+
+for (const [aantal, gelukt] of [[MAX_BERICHTEN_PER_MAGAZIJN, true], [MAX_BERICHTEN_PER_MAGAZIJN + 1, false]]) {
+  test(`een lijst van ${aantal} berichten is ${gelukt ? 'bruikbaar' : 'onbruikbaar'}, en de andere magazijnen tellen gewoon mee`, async () => {
+    const berichten = Array.from({ length: aantal }, (_, i) => ({ onderwerp: `B${i}`, publicatietijdstip: '2026-10-27T10:00:00Z' }));
+    const groot = nepMagazijn(berichten);
+    const klein = nepMagazijn([{ onderwerp: 'Gewoon', publicatietijdstip: '2026-10-27T11:00:00Z' }]);
+    const fetch = (adres, opties) => (String(adres).startsWith(A.url) ? groot : klein).fetch(adres, opties);
+
+    const { berichten: samen, mislukt } = await haalAllesOp([A, B], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch });
+
+    assert.equal(samen.length, gelukt ? aantal + 1 : 1);
+    assert.deepEqual(mislukt.map((m) => [m.oin, m.reden]), gelukt ? [] : [[A.oin, 'gaf een onbruikbaar antwoord']]);
+  });
+}
+
+test('een ontsleuteld antwoord dat geen JSON is, geeft een fout zonder de inhoud als oorzaak', async () => {
+  const magazijn = nepMagazijn([], { sessieAntwoord: () => '{"sessieToken":"BSN:999999990",]' });
+
+  const fout = await haalOpBij(A, { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: magazijn.fetch }).catch((f) => f);
+
+  assert.equal(fout.name, 'ActiverenFout');
+  assert.equal(fout.stap, 'sessies');
+  assert.equal(fout.cause, undefined);
+  assert.doesNotMatch(fout.message, /999999990/);
 });

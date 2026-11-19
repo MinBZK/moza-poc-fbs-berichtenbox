@@ -218,7 +218,7 @@ test('Berichten ophalen toont de lijst met datum, magazijn en onderwerp, en noem
   ];
   const verzoeken = [];
   const overig = async (adres, opties) => {
-    verzoeken.push(String(adres));
+    verzoeken.push({ adres: String(adres), opties });
 
     if (String(adres) === 'https://stelselregister.test/api/v1/stelseldocument') return new Response(await onderteken({ organizations }));
 
@@ -229,13 +229,19 @@ test('Berichten ophalen toont de lijst met datum, magazijn en onderwerp, en noem
 
   await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
   tabblad.elementen.ophalen.klik();
-  await wacht(() => tabblad.elementen.overzicht.textContent !== '', 'overzicht');
+  await wacht(() => !['', 'Bezig met ophalen…'].includes(tabblad.elementen.overzicht.textContent), 'overzicht');
 
-  assert.equal(tabblad.elementen.overzicht.textContent, '1 bericht(en) uit 1 van de 2 magazijnen.');
-  assert.deepEqual(tabblad.elementen.berichten.kinderen.map((li) => li.textContent.split(' · ').slice(1)), [['Magazijn A', 'Aanslag']]);
+  assert.equal(tabblad.elementen.overzicht.textContent, '1 bericht uit 1 van de 2 magazijnen.');
+  assert.deepEqual(tabblad.elementen.berichten.kinderen.map((li) => li.textContent), [`${LANGE_DATUM('2026-10-27T10:00:00Z')} · Magazijn A · Aanslag`]);
   assert.deepEqual(tabblad.elementen.mislukt.kinderen.map((li) => li.textContent), ['Magazijn B: tijdelijk niet beschikbaar']);
   assert.equal(tabblad.elementen['niet-bereikt'].hidden, false);
   assert.equal(tabblad.elementen.fout.textContent, '');
+
+  const [stelsel] = verzoeken;
+
+  assert.equal(stelsel.adres, 'https://stelselregister.test/api/v1/stelseldocument');
+  assert.equal(stelsel.opties.headers.Accept, 'application/jose');
+  assert.ok(stelsel.opties.signal instanceof AbortSignal);
 });
 
 test('na Activering wissen verdwijnt een opgehaalde lijst', async () => {
@@ -278,3 +284,130 @@ for (const [omstandigheid, stelselregister, verwacht] of [
     assert.deepEqual(tabblad.elementen.berichten.kinderen, []);
   });
 }
+
+/** Een omgeving met een stelselregister dat [organizations] noemt, en per host een magazijn. */
+function stelsel(organizations, magazijnen) {
+  return async (adres, opties) => {
+    if (String(adres).startsWith('https://stelselregister.test/')) return new Response(await onderteken({ organizations }));
+
+    const host = new URL(adres).host;
+
+    return magazijnen[host] ? magazijnen[host](adres, opties) : new Response('', { status: 404 });
+  };
+}
+
+const LANGE_DATUM = (tijdstip) => new Date(tijdstip).toLocaleString('nl-NL', { dateStyle: 'long', timeStyle: 'short' });
+const ORG_A = { oin: '00000009000000000001', name: 'Magazijn A', magazijn_url: 'https://a.test' };
+const ORG_B = { oin: '00000009000000000002', name: 'Magazijn B', magazijn_url: 'https://b.test' };
+const goed = (onderwerp) => nepMagazijn([{ onderwerp, publicatietijdstip: '2026-10-27T10:00:00Z' }]).fetch;
+const status = (code) => async () => new Response('', { status: code });
+const weigert = () => nepMagazijn([], { sessieStatus: 401 }).fetch;
+
+for (const [omstandigheid, organizations, magazijnen, overzicht, nietBereiktZichtbaar] of [
+  ['een leeg stelseldocument', [], {}, 'Het stelseldocument noemt geen magazijnen.', false],
+  ['alle magazijnen goed', [ORG_A, ORG_B], { 'a.test': goed('A'), 'b.test': goed('B') }, '2 berichten uit 2 van de 2 magazijnen.', false],
+  ['alle magazijnen leeg', [ORG_A], { 'a.test': nepMagazijn([]).fetch }, 'Geen berichten uit 1 van de 1 magazijn.', false],
+  ['elk magazijn weigert het bewijs', [ORG_A, ORG_B], { 'a.test': weigert(), 'b.test': weigert() }, null, true],
+  ['een weigert, een is te druk', [ORG_A, ORG_B], { 'a.test': weigert(), 'b.test': status(503) }, 'Geen berichten uit 0 van de 2 magazijnen.', true],
+  ['een onbruikbare organisatie', [ORG_A, { oin: '1' }], { 'a.test': goed('A') }, '1 bericht uit 1 van de 1 magazijn. 1 organisatie uit het stelseldocument overgeslagen: het adres of de gegevens zijn onbruikbaar.', false],
+]) {
+  test(`het overzicht bij ${omstandigheid}`, async () => {
+    await geactiveerd(4_000_000_000);
+
+    const tabblad = await laadApp({ overig: stelsel(organizations, magazijnen) });
+
+    await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+    tabblad.elementen.ophalen.klik();
+    await wacht(() => !['', 'Bezig met ophalen…'].includes(tabblad.elementen.overzicht.textContent), 'overzicht');
+
+    // De 401 bij het openen van de sessie: dan ligt het aan het bewijs.
+    if (overzicht === null) assert.match(tabblad.elementen.overzicht.textContent, /Geen enkel magazijn nam het bewijs aan/);
+    else assert.equal(tabblad.elementen.overzicht.textContent, overzicht);
+
+    assert.equal(tabblad.elementen['niet-bereikt'].hidden, !nietBereiktZichtbaar);
+  });
+}
+
+test('een tweede ophaalbeurt die mislukt, laat de lijst van de eerste niet staan', async () => {
+  await geactiveerd(4_000_000_000);
+
+  let stelselStatus = 200;
+  const omgeving = stelsel([ORG_A], { 'a.test': goed('A') });
+  const overig = async (adres, opties) => (String(adres).includes('stelselregister') && stelselStatus !== 200
+    ? new Response('', { status: stelselStatus })
+    : omgeving(adres, opties));
+
+  const tabblad = await laadApp({ overig });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'eerste lijst');
+
+  stelselStatus = 503;
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.fout.textContent !== '', 'foutmelding');
+
+  assert.match(tabblad.elementen.fout.textContent, /HTTP 503/);
+  assert.deepEqual(tabblad.elementen.berichten.kinderen, []);
+  assert.equal(tabblad.elementen['niet-bereikt'].hidden, true);
+  assert.equal(tabblad.elementen.overzicht.textContent, '');
+});
+
+test('is het bewijs na het laden verlopen, dan haalt de knop niets op en zegt de pagina waarom', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const verzoeken = [];
+  const tabblad = await laadApp({ overig: async (adres) => { verzoeken.push(String(adres)); return new Response('', { status: 500 }); } });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  assert.equal(await kluis.bewaarCredential('r1', await credentialMet({ ontvanger: 'KVK:90000014', exp: 1 })), true);
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.fout.textContent !== '', 'foutmelding');
+
+  assert.match(tabblad.elementen.fout.textContent, /geen geldig bewijs/);
+  assert.deepEqual(verzoeken, []);
+});
+
+test('een bericht zonder tijdstip staat er met "(geen datum)"', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const tabblad = await laadApp({ overig: stelsel([ORG_A], { 'a.test': nepMagazijn([{ onderwerp: 'Zonder' }]).fetch }) });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst');
+
+  assert.equal(tabblad.elementen.berichten.kinderen[0].textContent, '(geen datum) · Magazijn A · Zonder');
+});
+
+test('wordt het bewijs vernieuwd voor een andere ondernemer, dan verdwijnt de lijst van de vorige', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const ander = await credentialMet({ ontvanger: 'KVK:90000001', exp: 4_000_000_000 });
+  const tabblad = await laadApp({ appManager: nepAppManager({ credential: ander }), overig: stelsel([ORG_A], { 'a.test': goed('A') }) });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst');
+
+  tabblad.elementen.vernieuwen.klik();
+  await wacht(() => tabblad.elementen.status.textContent.includes('KVK:90000001'), 'status na vernieuwen');
+
+  assert.deepEqual(tabblad.elementen.berichten.kinderen, []);
+});
+
+test('hetzelfde bewijs vernieuwen laat de lijst staan', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const zelfde = await credentialMet({ ontvanger: 'KVK:90000014', exp: 4_100_000_000 });
+  const tabblad = await laadApp({ appManager: nepAppManager({ credential: zelfde }), overig: stelsel([ORG_A], { 'a.test': goed('A') }) });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst');
+
+  tabblad.elementen.vernieuwen.klik();
+  await wacht(() => !tabblad.elementen.vernieuwen.disabled, 'klaar met vernieuwen');
+
+  assert.equal(tabblad.elementen.berichten.kinderen.length, 1);
+});

@@ -129,8 +129,11 @@ export function nepAppManager({ credential = 'nog geen credential', status = {} 
 /**
  * Een magazijn in het klein volgens het contract van de tweede ingang: `POST challenges` en
  * `POST sessies` (beide 201), het antwoord camelCase, en de lijst alleen met `Bearer <sessieToken>`.
+ * [sessieStatus] laat het openen van de sessie met die status mislukken.
  */
-export function nepMagazijn(berichten, { sessieAntwoord = (sessieToken) => ({ sessieToken, geldigTot: '2026-10-27T10:15:00Z' }) } = {}) {
+export function nepMagazijn(berichten, {
+  sessieAntwoord = (sessieToken) => ({ sessieToken, geldigTot: '2026-10-27T10:15:00Z' }), sessieStatus,
+} = {}) {
   const tijdelijk = new Map();
   const sessies = new Map();
   const log = { presentaties: [], autorisaties: [] };
@@ -148,6 +151,8 @@ export function nepMagazijn(berichten, { sessieAntwoord = (sessieToken) => ({ se
     }
 
     if (pad.endsWith('/rechtstreeks/sessies') && opties.method === 'POST') {
+      if (sessieStatus) return new Response('', { status: sessieStatus });
+
       const { nonce, encrypted_challenge_result: jwe } = JSON.parse(opties.body);
 
       assert.deepEqual({ ...header(jwe), epk: undefined }, { alg: 'ECDH-ES', enc: 'A256GCM', typ: 'JWE', epk: undefined });

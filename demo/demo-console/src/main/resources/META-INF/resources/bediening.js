@@ -263,6 +263,9 @@ function toonBerichtenApp(url) {
 
     const bruikbaar = adres !== null && (adres.protocol === 'https:' || adres.protocol === 'http:');
 
+    // Zonder de waarde: wie hem instelde, kent hem, en de console is geen plek voor configuratie.
+    if (url && !bruikbaar) console.warn('BERICHTEN_APP_URL is geen absoluut http(s)-adres; de knop naar de Berichten-app blijft weg');
+
     document.getElementById('groep-berichten-app').hidden = !bruikbaar;
 
     if (bruikbaar) document.getElementById('berichten-app').href = adres.href;

@@ -158,7 +158,7 @@ docker compose up -d                                             # Redis, WireMo
 ./mvnw clean test -pl demo/demo-personas -am                     # Tests personadienst (pure JVM + één @QuarkusTest)
 ./mvnw clean test -pl demo/app-manager -am                       # Tests demo-App Manager (@QuarkusTest, geen Docker; node en npm voor de koppeltest)
 ./mvnw clean test -pl demo/berichten-app -am                     # Tests Berichten-app (@QuarkusTest plus JS onder Node; node en npm vereist)
-./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist; node voor BerichtenAppTest)
+./mvnw clean test -pl demo/magazijn-simulator -am                 # Tests magazijn-simulator (Docker vereist; node en npm voor BerichtenAppTest)
 ./mvnw clean test -pl services/berichtenuitvraag -am             # Tests berichtenuitvraag (Docker vereist)
 ./mvnw clean test -pl services/berichtenmagazijn -am             # Tests berichtenmagazijn (Docker vereist)
 ./mvnw clean test -pl services/stelselregister -am               # Tests stelselregister (geen Docker; testsleutels via keytool)

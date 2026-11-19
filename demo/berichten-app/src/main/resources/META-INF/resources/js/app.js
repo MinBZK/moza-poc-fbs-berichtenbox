@@ -1,7 +1,7 @@
 // De pagina: knoppen en teksten rond het verloop in verloop.js, en de berichtenlijst uit ophalen.js.
 // Tekst uit tokens, credentials en magazijnen gaat alleen via textContent de pagina in.
 import { leesCredential } from './activeren.js';
-import { WACHTTIJD_MS, haalAllesOp, leesStelseldocument } from './ophalen.js';
+import { FOUT_IN_DE_APP, TIMEOUT_MS, haalAllesOp, leesStelseldocument } from './ophalen.js';
 import * as kluis from './sleutelkluis.js';
 import {
   Melding, OPSLAG_GEWEIGERD, activeer, melding, neemFragment, rondActiverenAf, statustekst, vernieuw, wis,
@@ -20,6 +20,10 @@ let vertrokken = false;
 let terugTimer;
 let ingesteld = false;
 
+// Voor wie de getoonde lijst is opgehaald: wisselt de ontvanger (een ander tabblad activeerde
+// opnieuw), dan hoort de lijst er niet meer bij.
+let lijstVoor = null;
+
 async function laadConfig() {
   try {
     const antwoord = await fetch('config.json');
@@ -30,6 +34,8 @@ async function laadConfig() {
     const { appManager, stelselregister } = config;
 
     if (typeof appManager?.url === 'string' && typeof appManager?.oin === 'string' && typeof stelselregister?.url === 'string') return config;
+
+    if (antwoord.ok) console.error('config.json mist appManager.url, appManager.oin of stelselregister.url');
   } catch (fout) {
     console.error(fout);
   }
@@ -63,13 +69,14 @@ async function toon() {
     const registratie = await kluis.haal(kluis.REGISTRATIE);
     const credential = await kluis.haal(kluis.CREDENTIAL);
 
-    const geldig = Boolean(credential) && leesCredential(credential).verlooptOp > new Date();
+    const bewijs = credential ? leesCredential(credential) : null;
+    const geldig = bewijs !== null && bewijs.verlooptOp > new Date();
 
-    // Een lijst die bij een eerdere ondernemer of een vervallen bewijs hoort, blijft niet staan.
-    if (!geldig) leegBerichten();
+    // Een lijst die bij een andere ondernemer of een vervallen bewijs hoort, blijft niet staan.
+    if (!geldig || bewijs.ontvanger !== lijstVoor) leegBerichten();
 
     zetKnoppen({ activeren: true, vernieuwen: Boolean(registratie), wissen: true, ophalen: geldig });
-    element('status').textContent = statustekst(registratie, credential);
+    zetStatus(statustekst(registratie, credential));
   } catch (fout) {
     console.error(fout);
     leegBerichten();
@@ -86,60 +93,81 @@ async function toon() {
   }
 }
 
-/** Bij elk magazijn uit het stelseldocument tegelijk, met het bewijs uit de kluis. */
+/** Bij de magazijnen uit het stelseldocument, met het bewijs uit de kluis. */
 async function haalBerichtenOp(stelselregister) {
   leegBerichten();
 
   const credential = await kluis.haal(kluis.CREDENTIAL);
+  const bewijs = credential ? leesCredential(credential) : null;
 
-  if (!credential || leesCredential(credential).verlooptOp <= new Date()) {
-    throw new Melding('Er is geen geldig bewijs. Kies Bewijs vernieuwen.');
-  }
+  if (!bewijs || bewijs.verlooptOp <= new Date()) throw new Melding('Er is geen geldig bewijs. Kies Bewijs vernieuwen.');
 
-  let antwoord;
+  // In het overzicht en niet in de status: daar komt straks de uitkomst, en de status keert na de
+  // actie terug naar zijn oude tekst. Zo kondigt een schermlezer alleen aan wat nieuw is.
+  element('overzicht').textContent = 'Bezig met ophalen…';
 
+  let jws;
+
+  // Het lezen van de body valt ook onder de timeout; een afgebroken body is net zo goed onbereikbaar.
   try {
-    antwoord = await fetch(new URL('api/v1/stelseldocument', stelselregister.url), {
+    const antwoord = await fetch(new URL('api/v1/stelseldocument', stelselregister.url), {
       headers: { Accept: 'application/jose' },
-      signal: AbortSignal.timeout(WACHTTIJD_MS),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+
+    if (!antwoord.ok) throw new Melding(`Het stelselregister gaf geen lijst van magazijnen (HTTP ${antwoord.status}). Probeer het later opnieuw.`);
+
+    jws = await antwoord.text();
   } catch (fout) {
+    if (fout instanceof Melding) throw fout;
+
     throw new Melding('Het stelselregister is niet te bereiken. Probeer het later opnieuw.', { cause: fout });
   }
 
-  if (!antwoord.ok) throw new Melding(`Het stelselregister gaf geen lijst van magazijnen (HTTP ${antwoord.status}). Probeer het later opnieuw.`);
-
-  const magazijnen = leesStelseldocument(await antwoord.text());
+  const { magazijnen, overgeslagen } = leesStelseldocument(jws);
   const uitkomst = await haalAllesOp(magazijnen, { sleutelpaar: await kluis.sleutelpaar(), credential });
 
-  uitkomst.mislukt.forEach(({ naam, oin, oorzaak }) => console.warn(`Magazijn ${naam} (${oin}) niet opgehaald`, oorzaak));
-  toonBerichten(uitkomst, magazijnen.length);
+  uitkomst.mislukt.forEach(({ naam, oin, reden, oorzaak }) => {
+    const log = reden === FOUT_IN_DE_APP ? console.error : console.warn;
+
+    log(`Magazijn ${naam} (${oin}) niet opgehaald`, oorzaak);
+  });
+  lijstVoor = bewijs.ontvanger;
+  toonBerichten(uitkomst, magazijnen.length, overgeslagen);
 }
 
-function toonBerichten({ berichten, mislukt }, aantal) {
+function toonBerichten({ berichten, mislukt }, aantal, overgeslagen) {
   element('berichten').replaceChildren(
     ...berichten.map((bericht) => regel(`${datum(bericht.publicatietijdstip)} · ${bericht.magazijn} · ${bericht.onderwerp}`)),
   );
 
   element('mislukt').replaceChildren(...mislukt.map((magazijn) => regel(`${magazijn.naam}: ${magazijn.reden}`)));
   element('niet-bereikt').hidden = mislukt.length === 0;
-  element('overzicht').textContent = overzicht(berichten.length, mislukt, aantal);
+  element('overzicht').textContent = overzicht(berichten.length, mislukt, aantal, overgeslagen);
 }
 
-function overzicht(aantalBerichten, mislukt, aantal) {
+/** Het overzicht boven de lijst, in gewone zinnen. */
+function overzicht(aantalBerichten, mislukt, aantal, overgeslagen) {
   if (aantal === 0) return 'Het stelseldocument noemt geen magazijnen.';
 
-  const tekst = `${aantalBerichten} bericht(en) uit ${aantal - mislukt.length} van de ${aantal} magazijnen.`;
+  const berichtenTekst = aantalBerichten === 0 ? 'Geen berichten' : `${aantalBerichten} ${aantalBerichten === 1 ? 'bericht' : 'berichten'}`;
+  const magazijnTekst = aantal === 1 ? 'magazijn' : 'magazijnen';
+  const delen = [`${berichtenTekst} uit ${aantal - mislukt.length} van de ${aantal} ${magazijnTekst}.`];
 
-  // Weigert elk magazijn het bewijs, dan ligt het aan het bewijs en niet aan de magazijnen.
-  if (mislukt.length === aantal && mislukt.every((magazijn) => magazijn.reden === 'weigerde het bewijs')) {
-    return `${tekst} Geen enkel magazijn nam het bewijs aan; kies Bewijs vernieuwen en probeer het opnieuw.`;
+  if (overgeslagen > 0) {
+    delen.push(`${overgeslagen} ${overgeslagen === 1 ? 'organisatie' : 'organisaties'} uit het stelseldocument overgeslagen: het adres of de gegevens zijn onbruikbaar.`);
   }
 
-  return tekst;
+  const allemaal = (tekst) => mislukt.length === aantal && mislukt.every((magazijn) => magazijn.reden === tekst);
+
+  // Weigert elk magazijn het bewijs, dan ligt het aan het bewijs en niet aan de magazijnen.
+  if (allemaal('weigerde het bewijs')) delen.push('Geen enkel magazijn nam het bewijs aan; kies Bewijs vernieuwen en probeer het opnieuw.');
+
+  return delen.join(' ');
 }
 
 function leegBerichten() {
+  lijstVoor = null;
   element('berichten').replaceChildren();
   element('mislukt').replaceChildren();
   element('niet-bereikt').hidden = true;
@@ -157,7 +185,12 @@ function regel(tekst) {
 function datum(tijdstip) {
   const moment = new Date(tijdstip);
 
-  return Number.isNaN(moment.getTime()) ? '(geen datum)' : moment.toLocaleString('nl-NL');
+  return Number.isNaN(moment.getTime()) ? '(geen datum)' : moment.toLocaleString('nl-NL', { dateStyle: 'long', timeStyle: 'short' });
+}
+
+/** Alleen bij een andere tekst: een gelijke tekst opnieuw zetten laat een schermlezer hem herhalen. */
+function zetStatus(tekst) {
+  if (element('status').textContent !== tekst) element('status').textContent = tekst;
 }
 
 /** Zonder geladen instellingen hangt er niets aan de knoppen; dan blijven ze uit. */
@@ -172,11 +205,16 @@ function meld(fout) {
   element('fout').textContent = melding(fout);
 }
 
-/** Eén actie tegelijk: een dubbele klik start geen tweede activering. */
+/**
+ * Eén actie tegelijk: een dubbele klik start geen tweede activering. Zonder [tekst] blijft de status
+ * staan; dan meldt de actie zelf dat hij bezig is.
+ */
 async function bezig(knop, tekst, actie) {
   zetKnoppen({});
   element('fout').textContent = '';
-  element('status').textContent = tekst;
+
+  if (tekst) element('status').textContent = tekst;
+
 
   try {
     await actie();
@@ -250,7 +288,8 @@ function start() {
       }, NAVIGATIE_MS);
     });
     koppel('vernieuwen', 'Bezig met vernieuwen…', () => vernieuw(omgeving));
-    koppel('ophalen', 'Bezig met ophalen…', () => haalBerichtenOp(stelselregister));
+    // Mislukt het, dan leegt toon() daarna het overzicht: de lijst hoort dan bij niemand.
+    koppel('ophalen', null, () => haalBerichtenOp(stelselregister));
     element('wissen').addEventListener('click', () => {
       if (confirm('De sleutel en het bewijs van deze browser worden verwijderd. Daarna moet u opnieuw activeren.')) {
         bezig(element('wissen'), 'Bezig met wissen…', () => wis(omgeving));

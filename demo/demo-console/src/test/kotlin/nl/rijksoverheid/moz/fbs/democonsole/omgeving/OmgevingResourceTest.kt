@@ -69,6 +69,7 @@ class OmgevingResourceTest {
             every { berichtenboxUrl() } returns Optional.ofNullable(berichtenbox)
             every { berichtenAppUrl() } returns Optional.ofNullable(berichtenApp)
         }
+
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
         val personaService = mockk<PersonaService> { every { alle() } returns personas }
 
