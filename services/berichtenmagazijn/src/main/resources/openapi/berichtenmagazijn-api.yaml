@@ -768,10 +768,11 @@ components:
           type: string
           format: uri-reference
           description: |
-            Een absolute-path reference zonder schema en host, bijvoorbeeld
-            `/api/v1/berichten?page=1&pageSize=20`. Los hem op tegen het adres waarop je dit
-            antwoord opvroeg (RFC 3986 §5); zo volg je de link met hetzelfde schema en dezelfde
-            host als je aanroep, ook als je via je eigen outway aanroept of het magazijn achter
+            Een URI-reference. Los hem altijd op tegen het adres waarop je dit antwoord
+            opvroeg (RFC 3986 §5) en gebruik hem niet als volledige URL. Dit magazijn levert
+            een absolute-path reference, bijvoorbeeld `/api/v1/berichten?page=1&pageSize=20`;
+            het pad kan een prefix vóór `/api/v1` dragen. Zo volg je de link met het schema en
+            de host van je eigen aanroep, ook via je eigen outway of als het magazijn achter
             een ingress staat die TLS beëindigt.
 
     Problem:

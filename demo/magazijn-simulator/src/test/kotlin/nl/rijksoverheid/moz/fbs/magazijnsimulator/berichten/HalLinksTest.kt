@@ -145,7 +145,7 @@ class HalLinksTest : MagazijnTestBasis() {
     private fun lijst(page: Int, pageSize: Int, afzender: String? = null): String =
         "$BASIS/berichten?page=$page&pageSize=$pageSize" + afzender?.let { "&afzender=$it" }.orEmpty()
 
-    /** Elke bijlage-link exact, per bijlage-id; minstens twee, zodat "steeds dezelfde" opvalt. */
+    /** Elke bijlage-link exact, per bijlage-id; precies twee, zodat "steeds dezelfde" opvalt. */
     private fun assertBijlageLinks(berichtId: String, antwoord: JsonPath) {
         val aantal = antwoord.getList<Any>("bijlagen").size
 
@@ -169,6 +169,7 @@ class HalLinksTest : MagazijnTestBasis() {
 
     private fun aanlevering(aantalBijlagen: Int): String {
         val inhoud = Base64.getEncoder().encodeToString("%PDF-1.4".toByteArray())
+
         val bijlagen = if (aantalBijlagen == 0) {
             ""
         } else {
