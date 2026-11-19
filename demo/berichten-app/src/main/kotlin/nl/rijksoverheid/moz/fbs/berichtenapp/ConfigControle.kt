@@ -28,11 +28,11 @@ class ConfigControle(config: BerichtenAppConfig) {
          * Origins (`scheme://host[:port]`), gescheiden door spaties. Ze gaan letterlijk de CSP in:
          * een pad, `*` of `;` zou `connect-src` verruimen of een richtlijn toevoegen, en een regeleinde
          * of tab maakt de header ongeldig; zo'n teken haalt de controle per origin niet. Buiten
-         * ontwikkel- en testmodus ten minste één: zonder blokkeert de browser elk magazijn, en dat
-         * ziet de gebruiker als "niet bereikbaar".
+         * ontwikkel- en testmodus ten minste één: zonder blokkeert de browser elk magazijn.
          *
-         * Een afgewezen origin staat met zijn plaats in de melding en niet met zijn waarde: die komt
-         * in het bootlog, en een origin die de controle niet haalt, kan een wachtwoord bevatten.
+         * Een origin die het patroon niet haalt, staat met zijn plaats in de melding en niet met zijn
+         * waarde: die komt in het bootlog en kan een wachtwoord bevatten. Een origin die het patroon
+         * wel haalt, kan dat niet en staat er voluit.
          */
         fun controleerOrigins(naam: String, waarde: String, ontwikkel: Boolean) {
             val origins = waarde.split(' ').filter(String::isNotEmpty)

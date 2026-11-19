@@ -8,6 +8,7 @@ import { CompactEncrypt, CompactSign, compactDecrypt, decodeJwt } from '../vendo
 export const APP_ISS = 'bk-connect://app/';
 
 const AES_BYTES = 32;
+const TOKEN = /^[\x21-\x7e]+$/;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -121,7 +122,9 @@ async function openSessie({ challengeAdres, sessieAdres, tokenVeld, oin, sleutel
 
   const sessieToken = leesJson(await ontsleutel(antwoord, aesSleutel), sessieStap)?.[tokenVeld];
 
-  if (typeof sessieToken !== 'string') throw new ActiverenFout('geen sessietoken in het antwoord', undefined, sessieStap);
+  // Het token gaat een header in; een regeleinde of spatie daarin laat fetch falen alsof het magazijn
+  // onbereikbaar is.
+  if (typeof sessieToken !== 'string' || !TOKEN.test(sessieToken)) throw new ActiverenFout('geen bruikbaar sessietoken in het antwoord', undefined, sessieStap);
 
   return { sessieToken, aesSleutel };
 }
@@ -156,7 +159,7 @@ export async function leesRegistratie(fragment, aesSleutel, issuer) {
 
   if (!jwe) throw new ActiverenFout('geen registration_token in het fragment');
 
-  const bericht = JSON.parse(await ontsleutel(jwe, aesSleutel));
+  const bericht = leesJson(await ontsleutel(jwe, aesSleutel), 'registratie');
 
   if (bericht?.sub !== 'registration_token' || typeof bericht.registration_token !== 'string') {
     throw new ActiverenFout('onverwacht registratiebericht');

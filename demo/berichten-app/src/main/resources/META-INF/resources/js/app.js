@@ -20,8 +20,8 @@ let vertrokken = false;
 let terugTimer;
 let ingesteld = false;
 
-// Voor wie de getoonde lijst is opgehaald: wisselt de ontvanger (een ander tabblad activeerde
-// opnieuw), dan hoort de lijst er niet meer bij.
+// Voor wie de getoonde lijst is opgehaald: wisselt de ontvanger (na vernieuwen of activeren, ook
+// vanuit een ander tabblad), dan hoort de lijst er niet meer bij.
 let lijstVoor = null;
 
 async function laadConfig() {
@@ -132,22 +132,22 @@ async function haalBerichtenOp(stelselregister) {
 
     log(`Magazijn ${naam} (${oin}) niet opgehaald`, oorzaak);
   });
+
   lijstVoor = bewijs.ontvanger;
   toonBerichten(uitkomst, magazijnen.length, overgeslagen);
 }
 
-function toonBerichten({ berichten, mislukt }, aantal, overgeslagen) {
+function toonBerichten({ berichten, mislukt, afgekapt }, aantal, overgeslagen) {
   element('berichten').replaceChildren(
     ...berichten.map((bericht) => regel(`${datum(bericht.publicatietijdstip)} · ${bericht.magazijn} · ${bericht.onderwerp}`)),
   );
 
   element('mislukt').replaceChildren(...mislukt.map((magazijn) => regel(`${magazijn.naam}: ${magazijn.reden}`)));
   element('niet-bereikt').hidden = mislukt.length === 0;
-  element('overzicht').textContent = overzicht(berichten.length, mislukt, aantal, overgeslagen);
+  element('overzicht').textContent = overzicht(berichten.length, mislukt, afgekapt, aantal, overgeslagen);
 }
 
-/** Het overzicht boven de lijst, in gewone zinnen. */
-function overzicht(aantalBerichten, mislukt, aantal, overgeslagen) {
+function overzicht(aantalBerichten, mislukt, afgekapt, aantal, overgeslagen) {
   if (aantal === 0) return 'Het stelseldocument noemt geen magazijnen.';
 
   const berichtenTekst = aantalBerichten === 0 ? 'Geen berichten' : `${aantalBerichten} ${aantalBerichten === 1 ? 'bericht' : 'berichten'}`;
@@ -157,6 +157,9 @@ function overzicht(aantalBerichten, mislukt, aantal, overgeslagen) {
   if (overgeslagen > 0) {
     delen.push(`${overgeslagen} ${overgeslagen === 1 ? 'organisatie' : 'organisaties'} uit het stelseldocument overgeslagen: het adres of de gegevens zijn onbruikbaar.`);
   }
+
+  // TODO(#1216): de volgende pagina's ophalen; tot dan zegt de pagina dat de lijst niet compleet is.
+  afgekapt.forEach(({ naam, getoond, totaal }) => delen.push(`${naam}: de nieuwste ${getoond} van ${totaal} berichten.`));
 
   const allemaal = (tekst) => mislukt.length === aantal && mislukt.every((magazijn) => magazijn.reden === tekst);
 
@@ -209,34 +212,37 @@ function meld(fout) {
  * Eén actie tegelijk: een dubbele klik start geen tweede activering. Zonder [tekst] blijft de status
  * staan; dan meldt de actie zelf dat hij bezig is.
  */
-async function bezig(knop, tekst, actie) {
+async function bezig(knop, tekst, actie, focusNa) {
   zetKnoppen({});
   element('fout').textContent = '';
 
   if (tekst) element('status').textContent = tekst;
 
+  let gelukt = true;
 
   try {
     await actie();
   } catch (fout) {
+    gelukt = false;
     meld(fout);
   } finally {
     if (!vertrokken) {
       await toon();
 
       // De knop met focus ging tijdens de actie uit; zet de focus terug voor wie met het toetsenbord
-      // werkt. Bleef die knop uit (vernieuwen zonder registratie), dan naar Activeren.
-      const terug = knop?.disabled ? element('activeren') : knop;
+      // werkt. Bleef die knop uit (vernieuwen zonder registratie), dan naar Activeren. Wijst de actie
+      // zelf een plek aan, dan daarheen: een focuswissel breekt een lopende aankondiging af.
+      const terug = focusNa?.(gelukt) ?? (knop?.disabled ? element('activeren') : knop);
 
       if (terug && !terug.disabled) terug.focus();
     }
   }
 }
 
-function koppel(id, tekst, actie) {
+function koppel(id, tekst, actie, focusNa) {
   const knop = element(id);
 
-  knop.addEventListener('click', () => bezig(knop, tekst, actie));
+  knop.addEventListener('click', () => bezig(knop, tekst, actie, focusNa));
 }
 
 function start() {
@@ -261,6 +267,11 @@ function start() {
     toon();
   });
   addEventListener('pagehide', () => clearTimeout(terugTimer));
+  // Een ander tabblad kan de kluis intussen gewist of opnieuw geactiveerd hebben; bij terugkomst klopt
+  // de pagina dan weer.
+  addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !vertrokken) toon();
+  });
 
   bezig(null, 'Laden…', async () => {
     let config;
@@ -288,8 +299,9 @@ function start() {
       }, NAVIGATIE_MS);
     });
     koppel('vernieuwen', 'Bezig met vernieuwen…', () => vernieuw(omgeving));
-    // Mislukt het, dan leegt toon() daarna het overzicht: de lijst hoort dan bij niemand.
-    koppel('ophalen', null, () => haalBerichtenOp(stelselregister));
+    // Mislukt het, dan leegt toon() daarna het overzicht: de lijst hoort dan bij niemand. De focus gaat
+    // naar de uitkomst, zodat een schermlezer die voorleest in plaats van de knop.
+    koppel('ophalen', null, () => haalBerichtenOp(stelselregister), (gelukt) => element(gelukt ? 'overzicht' : 'fout'));
     element('wissen').addEventListener('click', () => {
       if (confirm('De sleutel en het bewijs van deze browser worden verwijderd. Daarna moet u opnieuw activeren.')) {
         bezig(element('wissen'), 'Bezig met wissen…', () => wis(omgeving));

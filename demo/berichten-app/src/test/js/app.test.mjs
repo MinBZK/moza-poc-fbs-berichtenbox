@@ -270,6 +270,7 @@ for (const [omstandigheid, stelselregister, verwacht] of [
   ['niet bereikbaar', async () => { throw new TypeError('fetch failed'); }, /stelselregister is niet te bereiken/],
   ['met een HTTP-fout', async () => new Response('', { status: 503 }), /HTTP 503/],
   ['met een onleesbaar document', async () => new Response('geen jws'), /lijst van magazijnen is niet te lezen/],
+  ['met een afgebroken antwoord', async () => new Response(new ReadableStream({ pull(c) { c.error(new TypeError('network error')); } })), /stelselregister is niet te bereiken/],
 ]) {
   test(`is het stelselregister ${omstandigheid}, dan zegt de pagina het en blijft de lijst leeg`, async () => {
     await geactiveerd(4_000_000_000);
@@ -310,6 +311,10 @@ for (const [omstandigheid, organizations, magazijnen, overzicht, nietBereiktZich
   ['elk magazijn weigert het bewijs', [ORG_A, ORG_B], { 'a.test': weigert(), 'b.test': weigert() }, null, true],
   ['een weigert, een is te druk', [ORG_A, ORG_B], { 'a.test': weigert(), 'b.test': status(503) }, 'Geen berichten uit 0 van de 2 magazijnen.', true],
   ['een onbruikbare organisatie', [ORG_A, { oin: '1' }], { 'a.test': goed('A') }, '1 bericht uit 1 van de 1 magazijn. 1 organisatie uit het stelseldocument overgeslagen: het adres of de gegevens zijn onbruikbaar.', false],
+  ['twee onbruikbare organisaties', [ORG_A, { oin: '1' }, { oin: '2' }], { 'a.test': goed('A') }, '1 bericht uit 1 van de 1 magazijn. 2 organisaties uit het stelseldocument overgeslagen: het adres of de gegevens zijn onbruikbaar.', false],
+  ['een magazijn met meer berichten dan opgehaald', [ORG_A], {
+    'a.test': nepMagazijn([{ onderwerp: 'A', publicatietijdstip: '2026-10-27T10:00:00Z' }], { lijstAntwoord: (l) => ({ berichten: l, totalElements: 250 }) }).fetch,
+  }, '1 bericht uit 1 van de 1 magazijn. Magazijn A: de nieuwste 1 van 250 berichten.', false],
 ]) {
   test(`het overzicht bij ${omstandigheid}`, async () => {
     await geactiveerd(4_000_000_000);
@@ -410,4 +415,64 @@ test('hetzelfde bewijs vernieuwen laat de lijst staan', async () => {
   await wacht(() => !tabblad.elementen.vernieuwen.disabled, 'klaar met vernieuwen');
 
   assert.equal(tabblad.elementen.berichten.kinderen.length, 1);
+});
+
+test('na het ophalen staat de focus op het overzicht, na een fout op de melding', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const gefocust = [];
+  let stelselStatus = 200;
+  const omgeving = stelsel([ORG_A], { 'a.test': goed('A') });
+  const tabblad = await laadApp({
+    overig: async (adres, opties) => (String(adres).includes('stelselregister') && stelselStatus !== 200
+      ? new Response('', { status: stelselStatus })
+      : omgeving(adres, opties)),
+  });
+
+  ['overzicht', 'fout', 'ophalen'].forEach((id) => { tabblad.elementen[id].focus = () => gefocust.push(id); });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => gefocust.length === 1, 'focus na ophalen');
+
+  stelselStatus = 503;
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => gefocust.length === 2, 'focus na de fout');
+
+  assert.deepEqual(gefocust, ['overzicht', 'fout']);
+});
+
+test('een bewijs dat verloopt terwijl de lijst er staat, haalt de lijst weg zodra de pagina weer zichtbaar is', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const tabblad = await laadApp({ overig: stelsel([ORG_A], { 'a.test': goed('A') }) });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst');
+
+  assert.equal(await kluis.bewaarCredential('r1', await credentialMet({ ontvanger: 'KVK:90000014', exp: 1 })), true);
+  globalThis.document.visibilityState = 'visible';
+  tabblad.venster.visibilitychange();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 0, 'lijst weg');
+
+  assert.equal(tabblad.elementen.overzicht.textContent, '');
+  assert.equal(tabblad.elementen.ophalen.disabled, true);
+});
+
+test('wisselt een ander tabblad de ondernemer, dan verdwijnt de lijst zodra de pagina weer zichtbaar is', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const tabblad = await laadApp({ overig: stelsel([ORG_A], { 'a.test': goed('A') }) });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst');
+
+  assert.equal(await kluis.bewaarCredential('r1', await credentialMet({ ontvanger: 'KVK:90000001', exp: 4_000_000_000 })), true);
+  globalThis.document.visibilityState = 'visible';
+  tabblad.venster.visibilitychange();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 0, 'lijst weg');
+
+  assert.match(tabblad.elementen.status.textContent, /KVK:90000001/);
 });

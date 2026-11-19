@@ -129,14 +129,16 @@ export function nepAppManager({ credential = 'nog geen credential', status = {} 
 /**
  * Een magazijn in het klein volgens het contract van de tweede ingang: `POST challenges` en
  * `POST sessies` (beide 201), het antwoord camelCase, en de lijst alleen met `Bearer <sessieToken>`.
- * [sessieStatus] laat het openen van de sessie met die status mislukken.
+ * [sessieStatus] laat het openen van de sessie met die status mislukken; [lijstAntwoord] maakt de
+ * ontsleutelde inhoud van de lijst.
  */
 export function nepMagazijn(berichten, {
   sessieAntwoord = (sessieToken) => ({ sessieToken, geldigTot: '2026-10-27T10:15:00Z' }), sessieStatus,
+  lijstAntwoord = (lijst) => ({ berichten: lijst, totalElements: lijst.length }),
 } = {}) {
   const tijdelijk = new Map();
   const sessies = new Map();
-  const log = { presentaties: [], autorisaties: [] };
+  const log = { presentaties: [], autorisaties: [], lijstAdressen: [] };
   const fetch = async (adres, opties = {}) => {
     const pad = new URL(adres).pathname;
 
@@ -172,12 +174,13 @@ export function nepMagazijn(berichten, {
       const autorisatie = opties.headers?.Authorization;
 
       log.autorisaties.push(autorisatie);
+      log.lijstAdressen.push(String(adres));
 
       const sleutel = sessies.get(autorisatie?.replace(/^Bearer /, ''));
 
       if (!autorisatie?.startsWith('Bearer ') || !sleutel) return new Response('', { status: 401 });
 
-      return new Response(await versleutelDir({ berichten }, sleutel));
+      return new Response(await versleutelDir(lijstAntwoord(berichten), sleutel));
     }
 
     return new Response('', { status: 404 });

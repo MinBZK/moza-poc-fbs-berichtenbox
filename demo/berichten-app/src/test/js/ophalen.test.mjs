@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CompactSign } from 'jose';
+import { CompactSign, errors } from 'jose';
 import { ActiverenFout, VerbindingFout } from '../../main/resources/META-INF/resources/js/activeren.js';
 import {
   FOUT_IN_DE_APP, GELIJKTIJDIG, MAX_BERICHTEN_PER_MAGAZIJN, MAX_MAGAZIJNEN, StelseldocumentFout, haalAllesOp, haalOpBij,
@@ -41,29 +41,44 @@ test('een organisatie met een onbruikbare OIN, naam of adres valt weg; de rest b
   const jws = await stelseldocument([
     { oin: '123', name: 'Kort', magazijn_url: 'https://x.test' },
     { oin: A.oin, magazijn_url: A.url },
-    { oin: B.oin, name: B.naam, magazijn_url: 'geen url' },
-    { oin: B.oin, name: B.naam, magazijn_url: 'ftp://b.test' },
-    { oin: B.oin, name: B.naam, magazijn_url: 'https://b.test/?pad=x' },
-    { oin: B.oin, name: B.naam, magazijn_url: 'https://b.test/#x' },
+    { oin: `00000009000000000101`, name: B.naam, magazijn_url: 'geen url' },
+    { oin: `00000009000000000102`, name: B.naam, magazijn_url: 'ftp://b.test' },
+    { oin: `00000009000000000103`, name: B.naam, magazijn_url: 'https://b.test/?pad=x' },
+    { oin: `00000009000000000104`, name: B.naam, magazijn_url: 'https://b.test/#x' },
     // Een array of getal laat new URL en een regex het als tekst lezen; het hoort toch weg te vallen.
-    { oin: B.oin, name: B.naam, magazijn_url: [B.url] },
+    { oin: `00000009000000000105`, name: B.naam, magazijn_url: [B.url] },
     { oin: [B.oin], name: B.naam, magazijn_url: B.url },
     { oin: 9000000000000000002, name: B.naam, magazijn_url: B.url },
+    // Een gebruikersnaam laat de fetch van de browser falen; een lege naam geeft een lege regel.
+    { oin: `00000009000000000106`, name: B.naam, magazijn_url: 'https://beheer:geheim@b.test' },
+    { oin: `00000009000000000107`, name: ' ', magazijn_url: B.url },
+    { oin: `00000009000000000108`, name: B.naam, magazijn_url: `https://b.test/${'a'.repeat(2048)}` },
     null,
     { oin: C.oin, name: C.naam, magazijn_url: C.url },
   ]);
 
-  assert.deepEqual(leesStelseldocument(jws), { magazijnen: [C], overgeslagen: 10 });
+  assert.deepEqual(leesStelseldocument(jws), { magazijnen: [C], overgeslagen: 13 });
 });
 
-test('een OIN die twee keer in het stelseldocument staat, telt één keer: de eerste', async () => {
+test('een OIN die twee keer in het stelseldocument staat, maakt het document onbruikbaar', async () => {
   const jws = await stelseldocument([
     { oin: A.oin, name: A.naam, magazijn_url: A.url },
-    { oin: A.oin, name: 'Nagemaakt', magazijn_url: 'https://elders.test' },
     { oin: B.oin, name: B.naam, magazijn_url: B.url },
+    { oin: A.oin, name: 'Nagemaakt', magazijn_url: 'https://elders.test' },
   ]);
 
-  assert.deepEqual(leesStelseldocument(jws), { magazijnen: [A, B], overgeslagen: 1 });
+  assert.throws(() => leesStelseldocument(jws), { name: 'StelseldocumentFout', message: new RegExp(A.oin) });
+});
+
+test('een adres met een lange reeks slashes aan het eind kost geen kwadratische tijd', () => {
+  const lang = `${A.url}${'/'.repeat(2000)}`;
+  const organisaties = Array.from({ length: MAX_MAGAZIJNEN }, (_, i) => ({ oin: String(i).padStart(20, '0'), name: `M${i}`, magazijn_url: lang }));
+  const begin = Date.now();
+
+  const { magazijnen } = leesStelseldocument(stelseldocumentZonderSleutel(organisaties));
+
+  assert.equal(magazijnen[0].url, A.url);
+  assert.ok(Date.now() - begin < 1_000, `duurde ${Date.now() - begin} ms`);
 });
 
 test('een stelseldocument waarvan geen enkele organisatie bruikbaar is, is zelf onbruikbaar', () => {
@@ -83,10 +98,10 @@ test('een leeg stelseldocument levert geen magazijnen; een document zonder lijst
 for (const aantal of [0, 1, 3]) {
   test(`bij ${aantal} magazijn(en) komen alle berichten samen, nieuwste eerst`, async () => {
     const magazijnen = [A, B, C].slice(0, aantal);
-    const haal = async (magazijn) => [
+    const haal = async (magazijn) => lijst([
       { onderwerp: `${magazijn.naam} oud`, publicatietijdstip: `2026-10-0${magazijnen.indexOf(magazijn) + 1}T10:00:00Z` },
       { onderwerp: `${magazijn.naam} nieuw`, publicatietijdstip: `2026-10-2${magazijnen.indexOf(magazijn) + 1}T10:00:00Z` },
-    ];
+    ]);
 
     const { berichten, mislukt } = await haalAllesOp(magazijnen, {}, haal);
     const tijden = berichten.map((b) => b.publicatietijdstip);
@@ -102,7 +117,7 @@ test('een magazijn dat faalt, houdt de rest niet op en wordt bij naam genoemd', 
   const haal = async (magazijn) => {
     if (magazijn === B) throw fout;
 
-    return [{ onderwerp: magazijn.naam, publicatietijdstip: '2026-10-27T10:00:00Z', magazijn: magazijn.naam }];
+    return lijst([{ onderwerp: magazijn.naam, publicatietijdstip: '2026-10-27T10:00:00Z', magazijn: magazijn.naam }]);
   };
 
   const { berichten, mislukt } = await haalAllesOp([A, B, C], {}, haal);
@@ -113,13 +128,13 @@ test('een magazijn dat faalt, houdt de rest niet op en wordt bij naam genoemd', 
 });
 
 test('de volgorde gaat op het moment, ook met een fractie of offset; zonder tijdstip achteraan', async () => {
-  const haal = async () => [
+  const haal = async () => lijst([
     { onderwerp: 'zonder' },
     { onderwerp: 'tien uur', publicatietijdstip: '2026-10-27T10:00:00Z' },
     { onderwerp: 'half elf, in offset', publicatietijdstip: '2026-10-27T12:30:00+02:00' },
     { onderwerp: 'tien uur en een halve seconde', publicatietijdstip: '2026-10-27T10:00:00.500Z' },
     { onderwerp: 'half tien, in offset', publicatietijdstip: '2026-10-27T11:30:00+02:00' },
-  ];
+  ]);
 
   const { berichten } = await haalAllesOp([A], {}, haal);
 
@@ -147,7 +162,7 @@ test('nooit meer dan het vaste aantal magazijnen tegelijk', async () => {
     await new Promise((klaar) => setTimeout(klaar, 5));
     bezig -= 1;
 
-    return [];
+    return lijst([]);
   };
 
   const { mislukt } = await haalAllesOp(magazijnen, {}, haal);
@@ -181,11 +196,11 @@ test('de reden is een korte Nederlandse tekst per soort fout', () => {
   assert.equal(reden(new VerbindingFout('weg', { cause: new TypeError('fetch failed') })), 'niet bereikbaar');
   assert.equal(reden(new ActiverenFout('x', 503)), 'tijdelijk niet beschikbaar');
   assert.equal(reden(new ActiverenFout('x', 404)), 'gaf een fout (404)');
-  assert.equal(reden(new SyntaxError('kapot')), 'gaf een onbruikbaar antwoord');
+  assert.equal(reden(new errors.JWEInvalid('kapot')), 'gaf een onbruikbaar antwoord');
   assert.equal(reden(new ActiverenFout('onverwachte berichtenlijst', undefined, 'berichten')), 'gaf een onbruikbaar antwoord');
   assert.equal(reden(new ActiverenFout('x', 401, 'sessies')), 'weigerde het bewijs');
   assert.equal(reden(new ActiverenFout('x', 401, 'berichten')), 'nam de sessie niet aan');
-  // Een fout in de app zelf ligt niet aan het magazijn.
+  assert.equal(reden(new ActiverenFout('x', 401, 'challenges')), 'gaf een fout (401)');
   assert.equal(reden(new TypeError("Cannot read properties of undefined (reading 'privateKey')")), FOUT_IN_DE_APP);
 });
 
@@ -221,9 +236,10 @@ test('bij een magazijn: challenge, sessie met het credential, en de lijst met he
   const sleutelpaar = await maakSleutelpaar();
   const magazijn = nepMagazijn([{ onderwerp: 'Aanslag', publicatietijdstip: '2026-10-27T10:00:00Z' }]);
 
-  const berichten = await haalOpBij(A, { sleutelpaar, credential: 'het-credential', fetch: magazijn.fetch });
+  const uitkomst = await haalOpBij(A, { sleutelpaar, credential: 'het-credential', fetch: magazijn.fetch });
 
-  assert.deepEqual(berichten, [{ onderwerp: 'Aanslag', publicatietijdstip: '2026-10-27T10:00:00Z', magazijn: A.naam }]);
+  assert.deepEqual(uitkomst, { berichten: [{ onderwerp: 'Aanslag', publicatietijdstip: '2026-10-27T10:00:00Z', magazijn: A.naam }], totaal: 1 });
+  assert.equal(new URL(magazijn.log.lijstAdressen[0]).searchParams.get('pageSize'), String(MAX_BERICHTEN_PER_MAGAZIJN));
   assert.equal(magazijn.log.presentaties[0].certificate_type, 'app_manager_jwt_certificate');
   assert.equal(magazijn.log.presentaties[0].certificate, 'het-credential');
   assert.match(magazijn.log.autorisaties[0], /^Bearer token1x+$/);
@@ -262,4 +278,101 @@ test('een ontsleuteld antwoord dat geen JSON is, geeft een fout zonder de inhoud
   assert.equal(fout.stap, 'sessies');
   assert.equal(fout.cause, undefined);
   assert.doesNotMatch(fout.message, /999999990/);
+});
+
+/** De uitkomst van één magazijn zoals haalOpBij hem geeft. */
+function lijst(berichten, totaal = berichten.length) {
+  return { berichten, totaal };
+}
+
+test('een lijst die geen JSON is, geeft een fout zonder de ontsleutelde inhoud als oorzaak', async () => {
+  const magazijn = nepMagazijn([], { lijstAntwoord: () => '{"berichten":[{"onderwerp":"BSN 999999990"}],' });
+
+  const fout = await haalOpBij(A, { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: magazijn.fetch }).catch((f) => f);
+
+  assert.equal(fout.stap, 'berichten');
+  assert.equal(fout.cause, undefined);
+  assert.doesNotMatch(fout.message, /999999990/);
+});
+
+for (const [omstandigheid, kapot] of [
+  ['een challenge die geen JWS is', (adres) => adres.endsWith('/challenges')],
+  ['een lijst die geen JWE is', (adres) => adres.includes('/rechtstreeks/berichten')],
+]) {
+  test(`${omstandigheid} is een onbruikbaar antwoord van het magazijn, geen fout in de app`, async () => {
+    const magazijn = nepMagazijn([]);
+    const fetch = (adres, opties) => (kapot(String(adres)) ? Promise.resolve(new Response('a.b.c.d.e', { status: 201 })) : magazijn.fetch(adres, opties));
+
+    const { mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch });
+
+    assert.equal(mislukt[0].reden, 'gaf een onbruikbaar antwoord');
+  });
+}
+
+test('de timeout geldt per verzoek: drie trage verzoeken die elk op tijd zijn, lukken samen', async () => {
+  const magazijn = nepMagazijn([{ onderwerp: 'Traag', publicatietijdstip: '2026-10-27T10:00:00Z' }]);
+  const traag = async (adres, opties) => {
+    await new Promise((klaar) => { setTimeout(klaar, 60); });
+
+    return magazijn.fetch(adres, opties);
+  };
+
+  const { berichten, mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: traag, timeoutMs: 100 });
+
+  assert.deepEqual(mislukt, []);
+  assert.equal(berichten.length, 1);
+});
+
+test('voor de drie verzoeken samen geldt een ruimere grens', async () => {
+  const magazijn = nepMagazijn([]);
+  const traag = async (adres, opties) => {
+    await new Promise((klaar, weg) => {
+      setTimeout(klaar, 90);
+      opties.signal.addEventListener('abort', () => weg(opties.signal.reason));
+    });
+
+    return magazijn.fetch(adres, opties);
+  };
+
+  const { mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: traag, timeoutMs: 100 });
+
+  assert.equal(mislukt[0]?.reden, 'antwoordde niet op tijd');
+});
+
+test('heeft een magazijn meer berichten dan de app ophaalt, dan staat dat in de uitkomst', async () => {
+  const magazijn = nepMagazijn([{ onderwerp: 'Eerste', publicatietijdstip: '2026-10-27T10:00:00Z' }], {
+    lijstAntwoord: (lijstje) => ({ berichten: lijstje, totalElements: 250 }),
+  });
+
+  const { berichten, afgekapt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: magazijn.fetch });
+
+  assert.equal(berichten.length, 1);
+  assert.deepEqual(afgekapt.map(({ oin, getoond, totaal }) => [oin, getoond, totaal]), [[A.oin, 1, 250]]);
+});
+
+test('een sessietoken dat niet in een header past, is een onbruikbaar antwoord en geen onbereikbaar magazijn', async () => {
+  const magazijn = nepMagazijn([], { sessieAntwoord: () => ({ sessieToken: 'een\ntoken', geldigTot: '2026-10-27T10:15:00Z' }) });
+
+  const { mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: magazijn.fetch });
+
+  assert.equal(mislukt[0].reden, 'gaf een onbruikbaar antwoord');
+  assert.deepEqual(magazijn.log.autorisaties, []);
+});
+
+test('één verzoek boven de timeout valt af, ook als het totaal nog niet op is', async () => {
+  const magazijn = nepMagazijn([]);
+  const eersteTraag = async (adres, opties) => {
+    if (String(adres).endsWith('/challenges')) {
+      await new Promise((klaar, weg) => {
+        setTimeout(klaar, 150);
+        opties.signal.addEventListener('abort', () => weg(opties.signal.reason));
+      });
+    }
+
+    return magazijn.fetch(adres, opties);
+  };
+
+  const { mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: eersteTraag, timeoutMs: 100 });
+
+  assert.equal(mislukt[0]?.reden, 'antwoordde niet op tijd');
 });
