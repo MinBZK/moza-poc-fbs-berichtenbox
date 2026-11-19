@@ -70,15 +70,49 @@ test('een OIN die twee keer in het stelseldocument staat, maakt het document onb
   assert.throws(() => leesStelseldocument(jws), { name: 'StelseldocumentFout', message: new RegExp(A.oin) });
 });
 
-test('een adres met een lange reeks slashes aan het eind kost geen kwadratische tijd', () => {
-  const lang = `${A.url}${'/'.repeat(2000)}`;
+test('een adres met een lange reeks slashes en een teken erachter kost geen kwadratische tijd', () => {
+  const lang = `https://a.test/${'/'.repeat(2030)}x`;
   const organisaties = Array.from({ length: MAX_MAGAZIJNEN }, (_, i) => ({ oin: String(i).padStart(20, '0'), name: `M${i}`, magazijn_url: lang }));
   const begin = Date.now();
 
   const { magazijnen } = leesStelseldocument(stelseldocumentZonderSleutel(organisaties));
 
-  assert.equal(magazijnen[0].url, A.url);
-  assert.ok(Date.now() - begin < 1_000, `duurde ${Date.now() - begin} ms`);
+  assert.equal(magazijnen[0].url, lang);
+  // Kwadratisch kost dit bijna een seconde; lineair een paar milliseconden.
+  assert.ok(Date.now() - begin < 300, `duurde ${Date.now() - begin} ms`);
+});
+
+for (const [omschrijving, org, blijft] of [
+  ['een naam van precies de grens', { name: 'n'.repeat(2048), magazijn_url: 'https://b.test' }, true],
+  ['een naam boven de grens', { name: 'n'.repeat(2049), magazijn_url: 'https://b.test' }, false],
+  ['een adres van precies de grens', { name: 'B', magazijn_url: `https://b.test/${'a'.repeat(2048 - 15)}` }, true],
+  ['een adres boven de grens', { name: 'B', magazijn_url: `https://b.test/${'a'.repeat(2049 - 15)}` }, false],
+  ['alleen een gebruikersnaam in het adres', { name: 'B', magazijn_url: 'https://beheer@b.test' }, false],
+  ['alleen een wachtwoord in het adres', { name: 'B', magazijn_url: 'https://:geheim@b.test' }, false],
+]) {
+  test(`${omschrijving}: ${blijft ? 'blijft' : 'valt weg'}`, () => {
+    const { magazijnen } = leesStelseldocument(stelseldocumentZonderSleutel([{ oin: B.oin, ...org }, { oin: C.oin, name: C.naam, magazijn_url: C.url }]));
+
+    assert.deepEqual(magazijnen.map((m) => m.oin), blijft ? [B.oin, C.oin] : [C.oin]);
+  });
+}
+
+test('een dubbele OIN maakt het document onbruikbaar, ook als de eerste vermelding zelf onbruikbaar was', () => {
+  const organisaties = [{ oin: A.oin, name: ' ', magazijn_url: A.url }, { oin: A.oin, name: A.naam, magazijn_url: A.url }];
+
+  assert.throws(() => leesStelseldocument(stelseldocumentZonderSleutel(organisaties)), StelseldocumentFout);
+});
+
+test('de console noemt de OIN van elke overgeslagen organisatie, en geen andere waarde', (t) => {
+  const waarschuwing = t.mock.method(console, 'warn', () => {});
+
+  leesStelseldocument(stelseldocumentZonderSleutel([
+    { oin: A.oin, name: A.naam, magazijn_url: 'geen url' },
+    { oin: '999999990', name: 'BSN', magazijn_url: B.url },
+    { oin: C.oin, name: C.naam, magazijn_url: C.url },
+  ]));
+
+  assert.deepEqual(waarschuwing.mock.calls[0].arguments[1], [A.oin, '(geen geldige OIN)']);
 });
 
 test('een stelseldocument waarvan geen enkele organisatie bruikbaar is, is zelf onbruikbaar', () => {
@@ -311,13 +345,17 @@ for (const [omstandigheid, kapot] of [
 
 test('de timeout geldt per verzoek: drie trage verzoeken die elk op tijd zijn, lukken samen', async () => {
   const magazijn = nepMagazijn([{ onderwerp: 'Traag', publicatietijdstip: '2026-10-27T10:00:00Z' }]);
+  // Samen boven één timeout, elk eronder, en samen ruim onder het totaal.
   const traag = async (adres, opties) => {
-    await new Promise((klaar) => { setTimeout(klaar, 60); });
+    await new Promise((klaar, weg) => {
+      setTimeout(klaar, 110);
+      opties.signal.addEventListener('abort', () => weg(opties.signal.reason));
+    });
 
     return magazijn.fetch(adres, opties);
   };
 
-  const { berichten, mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: traag, timeoutMs: 100 });
+  const { berichten, mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: traag, timeoutMs: 200 });
 
   assert.deepEqual(mislukt, []);
   assert.equal(berichten.length, 1);
@@ -350,14 +388,16 @@ test('heeft een magazijn meer berichten dan de app ophaalt, dan staat dat in de 
   assert.deepEqual(afgekapt.map(({ oin, getoond, totaal }) => [oin, getoond, totaal]), [[A.oin, 1, 250]]);
 });
 
-test('een sessietoken dat niet in een header past, is een onbruikbaar antwoord en geen onbereikbaar magazijn', async () => {
-  const magazijn = nepMagazijn([], { sessieAntwoord: () => ({ sessieToken: 'een\ntoken', geldigTot: '2026-10-27T10:15:00Z' }) });
+for (const token of ['', 'een token', 'tök€n', 'een\ttoken', 'een\ntoken']) {
+  test(`een sessietoken ${JSON.stringify(token)} is een onbruikbaar antwoord en geen onbereikbaar magazijn`, async () => {
+    const magazijn = nepMagazijn([], { sessieAntwoord: () => ({ sessieToken: token, geldigTot: '2026-10-27T10:15:00Z' }) });
 
-  const { mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: magazijn.fetch });
+    const { mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: magazijn.fetch });
 
-  assert.equal(mislukt[0].reden, 'gaf een onbruikbaar antwoord');
-  assert.deepEqual(magazijn.log.autorisaties, []);
-});
+    assert.equal(mislukt[0].reden, 'gaf een onbruikbaar antwoord');
+    assert.deepEqual(magazijn.log.autorisaties, []);
+  });
+}
 
 test('één verzoek boven de timeout valt af, ook als het totaal nog niet op is', async () => {
   const magazijn = nepMagazijn([]);
@@ -376,3 +416,29 @@ test('één verzoek boven de timeout valt af, ook als het totaal nog niet op is'
 
   assert.equal(mislukt[0]?.reden, 'antwoordde niet op tijd');
 });
+
+for (const aantalAfgekapt of [0, 1, 2]) {
+  test(`bij ${aantalAfgekapt} afgekapte magazijn(en) noemt de uitkomst precies die`, async () => {
+    const magazijnen = [A, B, C];
+    const nep = new Map(magazijnen.map((m, i) => [m.url, nepMagazijn([{ onderwerp: m.naam, publicatietijdstip: '2026-10-27T10:00:00Z' }], {
+      lijstAntwoord: (l) => ({ berichten: l, totalElements: i >= magazijnen.length - aantalAfgekapt ? 250 : l.length }),
+    })]));
+    const fetch = (adres, opties) => nep.get([...nep.keys()].find((url) => String(adres).startsWith(url))).fetch(adres, opties);
+
+    const { afgekapt } = await haalAllesOp(magazijnen, { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch });
+
+    assert.deepEqual(afgekapt.map((m) => m.oin), magazijnen.slice(magazijnen.length - aantalAfgekapt).map((m) => m.oin));
+  });
+}
+
+for (const totalElements of ['250', 1.5, null, undefined]) {
+  test(`een onbruikbare totalElements (${String(totalElements)}) telt als een volledige lijst`, async () => {
+    const magazijn = nepMagazijn([{ onderwerp: 'A', publicatietijdstip: '2026-10-27T10:00:00Z' }], { lijstAntwoord: (l) => ({ berichten: l, totalElements }) });
+
+    const { berichten, afgekapt, mislukt } = await haalAllesOp([A], { sleutelpaar: await maakSleutelpaar(), credential: 'c', fetch: magazijn.fetch });
+
+    assert.equal(berichten.length, 1);
+    assert.deepEqual(afgekapt, []);
+    assert.deepEqual(mislukt, []);
+  });
+}

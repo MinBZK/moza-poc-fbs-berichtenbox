@@ -66,6 +66,8 @@ class BerichtenAppTest : MagazijnTestBasis() {
         assertEquals(listOf("Ook bij C", "Bij A", "Bij C"), berichten.map { (it as Map<*, *>)["onderwerp"] })
         assertEquals(listOf("Magazijn C", "Magazijn A", "Magazijn C"), berichten.map { (it as Map<*, *>)["magazijn"] })
         assertEquals(listOf(mapOf("oin" to ONBEKEND, "reden" to "gaf een fout (404)")), resultaat["mislukt"])
+        // De simulator noemt `totalElements`; drie berichten passen op de ene pagina die de app vraagt.
+        assertEquals(emptyList<Any>(), resultaat["afgekapt"])
     }
 
     private fun leverAan(magazijn: String, onderwerp: String, publicatietijdstip: Instant) {

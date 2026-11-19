@@ -24,6 +24,9 @@ let ingesteld = false;
 // vanuit een ander tabblad), dan hoort de lijst er niet meer bij.
 let lijstVoor = null;
 
+// Of er een actie loopt; zie [bezig].
+let actief = false;
+
 async function laadConfig() {
   try {
     const antwoord = await fetch('config.json');
@@ -43,9 +46,12 @@ async function laadConfig() {
   throw new Melding('De app kan haar instellingen niet laden. Herlaad de pagina of probeer het later opnieuw.');
 }
 
-/** WebCrypto bestaat alleen in een secure context; sessionStorage en IndexedDB kunnen uit staan. */
+/**
+ * WebCrypto bestaat alleen in een secure context; sessionStorage en IndexedDB kunnen uit staan. Zonder
+ * AbortSignal.any zou elk magazijn als "niet bereikbaar" tellen, terwijl het aan de browser ligt.
+ */
 function browserGeschikt() {
-  if (!globalThis.isSecureContext || !globalThis.crypto?.subtle) return false;
+  if (!globalThis.isSecureContext || !globalThis.crypto?.subtle || typeof AbortSignal?.any !== 'function') return false;
 
   try {
     sessionStorage.setItem('opslagtest', '1');
@@ -158,7 +164,7 @@ function overzicht(aantalBerichten, mislukt, afgekapt, aantal, overgeslagen) {
     delen.push(`${overgeslagen} ${overgeslagen === 1 ? 'organisatie' : 'organisaties'} uit het stelseldocument overgeslagen: het adres of de gegevens zijn onbruikbaar.`);
   }
 
-  // TODO(#1216): de volgende pagina's ophalen; tot dan zegt de pagina dat de lijst niet compleet is.
+  // Zolang alleen de eerste pagina komt, zegt het overzicht dat de lijst niet compleet is.
   afgekapt.forEach(({ naam, getoond, totaal }) => delen.push(`${naam}: de nieuwste ${getoond} van ${totaal} berichten.`));
 
   const allemaal = (tekst) => mislukt.length === aantal && mislukt.every((magazijn) => magazijn.reden === tekst);
@@ -212,37 +218,36 @@ function meld(fout) {
  * Eén actie tegelijk: een dubbele klik start geen tweede activering. Zonder [tekst] blijft de status
  * staan; dan meldt de actie zelf dat hij bezig is.
  */
-async function bezig(knop, tekst, actie, focusNa) {
+async function bezig(knop, tekst, actie) {
+  actief = true;
   zetKnoppen({});
   element('fout').textContent = '';
 
   if (tekst) element('status').textContent = tekst;
 
-  let gelukt = true;
-
   try {
     await actie();
   } catch (fout) {
-    gelukt = false;
     meld(fout);
   } finally {
+    actief = false;
+
     if (!vertrokken) {
       await toon();
 
       // De knop met focus ging tijdens de actie uit; zet de focus terug voor wie met het toetsenbord
-      // werkt. Bleef die knop uit (vernieuwen zonder registratie), dan naar Activeren. Wijst de actie
-      // zelf een plek aan, dan daarheen: een focuswissel breekt een lopende aankondiging af.
-      const terug = focusNa?.(gelukt) ?? (knop?.disabled ? element('activeren') : knop);
+      // werkt. Bleef die knop uit (vernieuwen zonder registratie), dan naar Activeren.
+      const terug = knop?.disabled ? element('activeren') : knop;
 
       if (terug && !terug.disabled) terug.focus();
     }
   }
 }
 
-function koppel(id, tekst, actie, focusNa) {
+function koppel(id, tekst, actie) {
   const knop = element(id);
 
-  knop.addEventListener('click', () => bezig(knop, tekst, actie, focusNa));
+  knop.addEventListener('click', () => bezig(knop, tekst, actie));
 }
 
 function start() {
@@ -268,9 +273,10 @@ function start() {
   });
   addEventListener('pagehide', () => clearTimeout(terugTimer));
   // Een ander tabblad kan de kluis intussen gewist of opnieuw geactiveerd hebben; bij terugkomst klopt
-  // de pagina dan weer.
+  // de pagina dan weer. Niet tijdens een actie: dan zou toon() de knoppen weer aanzetten, en de actie
+  // roept toon() aan het eind zelf aan.
   addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !vertrokken) toon();
+    if (document.visibilityState === 'visible' && !vertrokken && !actief) toon();
   });
 
   bezig(null, 'Laden…', async () => {
@@ -299,9 +305,8 @@ function start() {
       }, NAVIGATIE_MS);
     });
     koppel('vernieuwen', 'Bezig met vernieuwen…', () => vernieuw(omgeving));
-    // Mislukt het, dan leegt toon() daarna het overzicht: de lijst hoort dan bij niemand. De focus gaat
-    // naar de uitkomst, zodat een schermlezer die voorleest in plaats van de knop.
-    koppel('ophalen', null, () => haalBerichtenOp(stelselregister), (gelukt) => element(gelukt ? 'overzicht' : 'fout'));
+    // Mislukt het, dan leegt toon() daarna het overzicht: de lijst hoort dan bij niemand.
+    koppel('ophalen', null, () => haalBerichtenOp(stelselregister));
     element('wissen').addEventListener('click', () => {
       if (confirm('De sleutel en het bewijs van deze browser worden verwijderd. Daarna moet u opnieuw activeren.')) {
         bezig(element('wissen'), 'Bezig met wissen…', () => wis(omgeving));

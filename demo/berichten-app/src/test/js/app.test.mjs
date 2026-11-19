@@ -315,6 +315,10 @@ for (const [omstandigheid, organizations, magazijnen, overzicht, nietBereiktZich
   ['een magazijn met meer berichten dan opgehaald', [ORG_A], {
     'a.test': nepMagazijn([{ onderwerp: 'A', publicatietijdstip: '2026-10-27T10:00:00Z' }], { lijstAntwoord: (l) => ({ berichten: l, totalElements: 250 }) }).fetch,
   }, '1 bericht uit 1 van de 1 magazijn. Magazijn A: de nieuwste 1 van 250 berichten.', false],
+  ['twee magazijnen met meer berichten dan opgehaald', [ORG_A, ORG_B], {
+    'a.test': nepMagazijn([{ onderwerp: 'A', publicatietijdstip: '2026-10-27T10:00:00Z' }], { lijstAntwoord: (l) => ({ berichten: l, totalElements: 250 }) }).fetch,
+    'b.test': nepMagazijn([{ onderwerp: 'B', publicatietijdstip: '2026-10-27T10:00:00Z' }], { lijstAntwoord: (l) => ({ berichten: l, totalElements: 30 }) }).fetch,
+  }, '2 berichten uit 2 van de 2 magazijnen. Magazijn A: de nieuwste 1 van 250 berichten. Magazijn B: de nieuwste 1 van 30 berichten.', false],
 ]) {
   test(`het overzicht bij ${omstandigheid}`, async () => {
     await geactiveerd(4_000_000_000);
@@ -417,30 +421,6 @@ test('hetzelfde bewijs vernieuwen laat de lijst staan', async () => {
   assert.equal(tabblad.elementen.berichten.kinderen.length, 1);
 });
 
-test('na het ophalen staat de focus op het overzicht, na een fout op de melding', async () => {
-  await geactiveerd(4_000_000_000);
-
-  const gefocust = [];
-  let stelselStatus = 200;
-  const omgeving = stelsel([ORG_A], { 'a.test': goed('A') });
-  const tabblad = await laadApp({
-    overig: async (adres, opties) => (String(adres).includes('stelselregister') && stelselStatus !== 200
-      ? new Response('', { status: stelselStatus })
-      : omgeving(adres, opties)),
-  });
-
-  ['overzicht', 'fout', 'ophalen'].forEach((id) => { tabblad.elementen[id].focus = () => gefocust.push(id); });
-
-  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
-  tabblad.elementen.ophalen.klik();
-  await wacht(() => gefocust.length === 1, 'focus na ophalen');
-
-  stelselStatus = 503;
-  tabblad.elementen.ophalen.klik();
-  await wacht(() => gefocust.length === 2, 'focus na de fout');
-
-  assert.deepEqual(gefocust, ['overzicht', 'fout']);
-});
 
 test('een bewijs dat verloopt terwijl de lijst er staat, haalt de lijst weg zodra de pagina weer zichtbaar is', async () => {
   await geactiveerd(4_000_000_000);
@@ -475,4 +455,51 @@ test('wisselt een ander tabblad de ondernemer, dan verdwijnt de lijst zodra de p
   await wacht(() => tabblad.elementen.berichten.kinderen.length === 0, 'lijst weg');
 
   assert.match(tabblad.elementen.status.textContent, /KVK:90000001/);
+});
+
+test('wordt de pagina zichtbaar terwijl het ophalen loopt, dan blijven de knoppen uit en de voortgang staan', async () => {
+  await geactiveerd(4_000_000_000);
+
+  let laatLos;
+  const hangt = new Promise((klaar) => { laatLos = klaar; });
+  const omgeving = stelsel([ORG_A], { 'a.test': goed('A') });
+  const tabblad = await laadApp({
+    overig: async (adres, opties) => {
+      if (String(adres).includes('stelselregister')) await hangt;
+
+      return omgeving(adres, opties);
+    },
+  });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.overzicht.textContent === 'Bezig met ophalen…', 'bezig');
+
+  globalThis.document.visibilityState = 'visible';
+  tabblad.venster.visibilitychange();
+  await new Promise((klaar) => { echteSetTimeout(klaar, 50); });
+
+  assert.equal(tabblad.elementen.ophalen.disabled, true);
+  assert.equal(tabblad.elementen.wissen.disabled, true);
+  assert.equal(tabblad.elementen.overzicht.textContent, 'Bezig met ophalen…');
+
+  laatLos();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst na afloop');
+});
+
+test('een verborgen pagina werkt zich niet bij', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const tabblad = await laadApp({ overig: stelsel([ORG_A], { 'a.test': goed('A') }) });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst');
+
+  await kluis.wis();
+  globalThis.document.visibilityState = 'hidden';
+  tabblad.venster.visibilitychange();
+  await new Promise((klaar) => { echteSetTimeout(klaar, 50); });
+
+  assert.equal(tabblad.elementen.berichten.kinderen.length, 1);
 });

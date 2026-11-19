@@ -26,9 +26,10 @@ const credential = await new CompactSign(new TextEncoder().encode(JSON.stringify
   ontvanger,
 }))).setProtectedHeader({ alg: 'ES256', typ: 'jwt', kid }).sign(appManager);
 
-const { berichten, mislukt } = await haalAllesOp(JSON.parse(magazijnenJson), { sleutelpaar, credential });
+const { berichten, mislukt, afgekapt } = await haalAllesOp(JSON.parse(magazijnenJson), { sleutelpaar, credential });
 
 console.log(JSON.stringify({
   berichten: berichten.map(({ onderwerp, magazijn, publicatietijdstip }) => ({ onderwerp, magazijn, publicatietijdstip })),
   mislukt: mislukt.map(({ oin, reden }) => ({ oin, reden })),
+  afgekapt: afgekapt.map(({ oin, getoond, totaal }) => ({ oin, getoond, totaal })),
 }));

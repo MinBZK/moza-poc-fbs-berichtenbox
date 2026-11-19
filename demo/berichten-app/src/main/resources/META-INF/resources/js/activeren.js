@@ -122,8 +122,8 @@ async function openSessie({ challengeAdres, sessieAdres, tokenVeld, oin, sleutel
 
   const sessieToken = leesJson(await ontsleutel(antwoord, aesSleutel), sessieStap)?.[tokenVeld];
 
-  // Het token gaat een header in; een regeleinde of spatie daarin laat fetch falen alsof het magazijn
-  // onbereikbaar is.
+  // Het token gaat een header in: een regeleinde of een teken buiten ASCII laat fetch falen alsof het
+  // magazijn onbereikbaar is, en een spatie past niet in de Bearer-syntax.
   if (typeof sessieToken !== 'string' || !TOKEN.test(sessieToken)) throw new ActiverenFout('geen bruikbaar sessietoken in het antwoord', undefined, sessieStap);
 
   return { sessieToken, aesSleutel };

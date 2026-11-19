@@ -28,8 +28,8 @@ export const MAX_BERICHTEN_PER_MAGAZIJN = 100;
 
 const OIN = /^[0-9]{20}$/;
 
-// Een adres of naam uit het document gaat door een regex en de pagina in; zonder grens kan één
-// organisatie het tabblad laten vastlopen (`/\/+$/` is kwadratisch op een lange reeks slashes).
+// Een adres of naam uit het document gaat de pagina in; zonder grens kan één organisatie het tabblad
+// laten vastlopen.
 const MAX_TEKST = 2048;
 
 export class StelseldocumentFout extends Error {
@@ -83,7 +83,7 @@ export function leesStelseldocument(jws) {
       return;
     }
 
-    magazijnen.push({ oin, naam: org.name, url: org.magazijn_url.replace(/\/+$/, '') });
+    magazijnen.push({ oin, naam: org.name, url: zonderSlashAanHetEind(org.magazijn_url) });
   });
 
   // Eén regel, niet één per organisatie: een groot document zou de console anders laten vollopen.
@@ -117,7 +117,7 @@ export async function haalOpBij(magazijn, { sleutelpaar, credential, fetch = glo
   }
 
   const berichten = lijst.berichten.map((bericht) => ({ ...bericht, magazijn: magazijn.naam }));
-  const totaal = Number.isInteger(lijst.totalElements) ? Math.max(lijst.totalElements, berichten.length) : berichten.length;
+  const totaal = Number.isInteger(lijst.totalElements) ? lijst.totalElements : berichten.length;
 
   return { berichten, totaal };
 }
@@ -181,7 +181,7 @@ export const FOUT_IN_DE_APP = 'kon niet worden opgehaald door een fout in de app
 
 /** Een korte, Nederlandse reden voor de gebruiker; de oorzaak zelf hoort in de console. */
 export function reden(fout) {
-  // De timeout komt altijd verpakt: verbind maakt er een VerbindingFout van.
+  // De timeout komt altijd verpakt: verbind en tekstVan maken er een VerbindingFout van.
   if (fout?.cause?.name === 'TimeoutError') return 'antwoordde niet op tijd';
 
   if (fout?.name === 'VerbindingFout') return 'niet bereikbaar';
@@ -217,4 +217,16 @@ function bruikbaarAdres(adres) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Lineair. `/\/+$/` probeert de reeks slashes vanaf elke slash opnieuw als er nog een teken achter
+ * staat, en is daardoor kwadratisch.
+ */
+function zonderSlashAanHetEind(adres) {
+  let eind = adres.length;
+
+  while (eind > 0 && adres[eind - 1] === '/') eind -= 1;
+
+  return adres.slice(0, eind);
 }
