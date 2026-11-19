@@ -45,10 +45,13 @@ internal interface SessieRegister {
     /**
      * `true` als [ontvanger] een lopende sessie heeft die vóór [moment] begon. Een sessie die later
      * begon, telt niet: wie uitlogt en meteen weer inlogt, heeft daarna alleen een nieuwe sessie.
-     * [moment] komt van de klok van de pod en de starttijden van die van Redis; een verschil tussen
-     * die twee klokken verschuift de grens met evenveel.
+     * [moment] is een tijd op de klok van het register ([nu]), niet op die van de pod: de twee lopen
+     * niet gelijk, en een sessie die vlak vóór het moment begon, zou dan ná het moment vallen.
      */
     fun heeftSessieGestartVoor(ontvanger: Identificatienummer, moment: Instant): Uni<Boolean>
+
+    /** De klok waarmee het register zijn starttijden en verloop bijhoudt. */
+    fun nu(): Uni<Instant>
 
     /**
      * Wist alle gegevens van [ontvanger] als er geen lopende sessie meer is, in één atomaire stap;
@@ -209,6 +212,10 @@ internal class RedisSessieRegister(
         return voerUit(SessieScripts.GESTART_VOOR, ontvanger, argumenten).map { it.toInteger() == 1 }
     }
 
+    // Dezelfde bron als `tijdInMs()` in de scripts.
+    override fun nu(): Uni<Instant> =
+        redis.execute("TIME").map { Instant.ofEpochSecond(it.get(0).toLong(), it.get(1).toLong() * NANOS_PER_MICRO) }
+
     override fun ruimOpZonderSessie(ontvanger: Identificatienummer): Uni<Boolean> {
         val argumenten = listOf(BerichtenCache.kenmerk(ontvanger), ontvanger.toCanonicalString(), config.dataTtl.toMillis().toString(), indexTtlMs)
 
@@ -275,6 +282,9 @@ internal class RedisSessieRegister(
 
         /** 128 bits; zie [Sessiecache.SESSIE_ID_VORM]. */
         private const val SESSIE_ID_BYTES = 16
+
+        /** `TIME` geeft seconden en microseconden. */
+        private const val NANOS_PER_MICRO = 1_000L
 
         private val RANDOM = SecureRandom()
         private val HEX = HexFormat.of()

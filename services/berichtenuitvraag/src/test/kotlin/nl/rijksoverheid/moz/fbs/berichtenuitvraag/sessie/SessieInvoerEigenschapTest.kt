@@ -81,10 +81,12 @@ class SessieInvoerEigenschapTest {
             verwachtWeigering("geval $i: DELETE, X-Sessie=${zichtbaar(sessie)}", ontvangerGeldig = true) {
                 given().header("X-Ontvanger", ontvanger).header("X-Sessie", sessie).delete("/api/v1/sessies/huidige")
             }
-        }
 
-        given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).get("/api/v1/sessies/huidige")
-            .then().statusCode(200)
+            // Per geval verlengen: alle gevallen samen duren op een drukke runner langer dan de
+            // inactiviteit van het profiel, en een verlopen sessie zou hier als gewist lezen.
+            given().header("X-Ontvanger", ontvanger).header("X-Sessie", echt).post("/api/v1/sessies/huidige/_verlengen")
+                .then().statusCode(200)
+        }
     }
 
     private fun verwachtWeigering(geval: String, ontvangerGeldig: Boolean, verzoek: () -> Response) {
