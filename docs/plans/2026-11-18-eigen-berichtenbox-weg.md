@@ -38,9 +38,9 @@ en straks het MOZa-portaal (MinBZK/MijnOverheidZakelijk#1345, #1453).
 
 Sinds MinBZK/moza-poc-fbs-berichtenbox#421 eist de uitvraag een inlogsessie. De gepinde proeftuin
 kent die nog niet; dat doet MinBZK/moza-poc#180. Tot die PR gemerged is en de proeftuin-pin bij is,
-is de eigen pagina de enige berichtenbox van de demo die werkt. Deze PR mag daarom pas na die
-pin-bump mergen. Live getest is hij met de preview-image van MinBZK/moza-poc#180 via
-`PROEFTUIN_IMAGE`.
+heeft de demo daardoor geen berichtenbox die berichten ophaalt. Dat is geen merge-voorwaarde
+(opdrachtgever, 2026-11-18): de sessieafhandeling in de proeftuin komt er. Live getest is deze PR
+met de preview-image van MinBZK/moza-poc#180 via `PROEFTUIN_IMAGE`.
 
 ## Ontwerpkeuzes
 
