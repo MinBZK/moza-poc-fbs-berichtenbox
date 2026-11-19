@@ -56,8 +56,7 @@ class RechtstreeksTest {
         }
     }
 
-    // De klok van de simulator, niet die van de test: KlokTest zet met @Priority een vaste klok aan,
-    // en die geldt in alle tests van deze module.
+    // De klok van de simulator, niet die van de test: die staat stil (VasteKlokProducer).
     @Inject
     lateinit var klok: Clock
 
