@@ -5,12 +5,13 @@ import com.atlassian.oai.validator.model.Request
 import com.atlassian.oai.validator.model.SimpleResponse
 import com.atlassian.oai.validator.report.LevelResolver
 import com.atlassian.oai.validator.report.ValidationReport
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.KlokTest
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.App
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.Companion.COMPACT_JWE
@@ -29,7 +30,6 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.net.URI
 import java.time.Clock
-import java.time.Duration
 
 /**
  * Berichten lezen via de tweede ingang: de ontvanger komt uit de magazijnsessie, het antwoord is
@@ -42,9 +42,6 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
     @Inject
     lateinit var klok: Clock
 
-    @Inject
-    lateinit var klokProducer: KlokTest.VasteKlokProducer
-
     /** Een app met een sessie bij magazijn A, voor de ontvanger uit zijn credential. */
     private inner class Sessie {
         val app = App(klok.instant())
@@ -56,12 +53,7 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
                 .then().statusCode(200).contentType("application/jose").extract().asString(),
         )
 
-        fun lees(jwe: String): Map<String, Any> {
-            assertTrue(COMPACT_JWE.matches(jwe))
-            assertEquals(mapOf("alg" to "dir", "enc" to "A256GCM", "typ" to "JWE"), TestApp.header(jwe))
-
-            return JsonUtil.parseJson(TestApp.ontsleutelDir(jwe, app.aes))
-        }
+        fun lees(jwe: String): Map<String, Any> = JsonUtil.parseJson(ontsleutel(jwe, app.aes))
     }
 
     @ParameterizedTest
@@ -245,38 +237,27 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         // 111222333 haalt de elfproef als BSN én als RSIN.
         val app = App(klok.instant(), claims = mapOf("ontvanger" to "RSIN:111222333"))
         val bearer = "Bearer ${app.sessie(MAGAZIJN_A)}"
+        val vanRsin = leverAan("RSIN:111222333", "Voor de RSIN")
         val vanBsn = leverAan("BSN:111222333", "Zelfde cijfers, ander type")
 
         val lijst = JsonUtil.parseJson(
-            TestApp.ontsleutelDir(
+            ontsleutel(
                 given().header("Authorization", bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
                     .then().statusCode(200).extract().asString(),
                 app.aes,
             ),
         )
+        val eigen = JsonUtil.parseJson(
+            ontsleutel(
+                given().header("Authorization", bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$vanRsin")
+                    .then().statusCode(200).extract().asString(),
+                app.aes,
+            ),
+        )
 
-        assertEquals(0, (lijst["berichten"] as List<*>).size)
+        assertEquals(listOf(vanRsin), (lijst["berichten"] as List<*>).map { (it as Map<*, *>)["berichtId"] })
+        assertEquals(vanRsin, eigen["berichtId"])
         given().header("Authorization", bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$vanBsn").then().statusCode(404)
-    }
-
-    @Test
-    fun `een verlopen sessie geeft op elk berichtpad 401`() {
-        val berichtId = leverAan(ONTVANGER, "Verloopt")
-        val sessie = Sessie()
-
-        try {
-            klokProducer.klok.verschuiving = SESSIEDUUR.minusSeconds(1)
-            given().header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$berichtId").then().statusCode(200)
-
-            klokProducer.klok.verschuiving = SESSIEDUUR
-
-            listOf("berichten", "berichten/$berichtId").forEach { pad ->
-                valideer(MAGAZIJN_A).header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/$pad")
-                    .then().statusCode(401).header("WWW-Authenticate", ONGELDIG_TOKEN)
-            }
-        } finally {
-            klokProducer.klok.verschuiving = Duration.ZERO
-        }
     }
 
     @Test
@@ -299,11 +280,23 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
                 .then().statusCode(200).extract().asString()
 
             // De validator slaat application/jose over; de payload hoort bij het schema waar `x-payload` naar wijst.
-            valideerPayload(pad, TestApp.ontsleutelDir(jwe, sessie.app.aes))
+            valideerPayload(pad, ontsleutel(jwe, sessie.app.aes))
         }
     }
 
-    /** `x-payload` van de berichtpaden wijst naar `BerichtenLijst` en `Bericht` van de eerste ingang. */
+    @Test
+    fun `x-payload van de berichtpaden wijst naar de schema's waartegen de payload getoetst wordt`() {
+        val spec = ObjectMapper(YAMLFactory()).readTree(javaClass.classLoader.getResource("openapi/rechtstreeks-ophalen-api.yaml"))
+
+        mapOf("/rechtstreeks/berichten" to "BerichtenLijst", "/rechtstreeks/berichten/{berichtId}" to "Bericht").forEach { (pad, schema) ->
+            val ref = spec.path("paths").path(pad).path("get").path("responses").path("200")
+                .path("content").path("application/jose").path("x-payload").path("\$ref").asText()
+
+            assertEquals("./berichtenmagazijn-api.yaml#/components/schemas/$schema", ref)
+        }
+    }
+
+    /** De payload tegen het 200-schema van dezelfde operatie op de eerste ingang; zie de test op `x-payload`. */
     private fun valideerPayload(pad: String, payload: String) {
         val rapport = OpenApiInteractionValidator.createForSpecificationUrl("openapi/berichtenmagazijn-api.yaml")
             .withBasePathOverride(basis(MAGAZIJN_A))
@@ -323,32 +316,39 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         assertTrue(!rapport.hasErrors(), rapport.toString())
     }
 
-    private fun leverAan(ontvanger: String, onderwerp: String, magazijn: String = MAGAZIJN_A, bijlage: Boolean = false): String {
-        val (type, waarde) = ontvanger.split(':')
-        val bijlagen = if (bijlage) """, "bijlagen": [{"naam": "bijlage.pdf", "mimeType": "application/pdf", "inhoud": "cGRm"}]""" else ""
-
-        return given()
-            .contentType(ContentType.JSON)
-            .body(
-                """
-                {
-                  "afzender": "$magazijn",
-                  "ontvanger": {"type": "$type", "waarde": "$waarde"},
-                  "onderwerp": "$onderwerp",
-                  "inhoud": "Inhoud van een demo-bericht."$bijlagen
-                }
-                """.trimIndent(),
-            )
-            .post("${basis(magazijn)}/aanleveringen")
-            .then().statusCode(201)
-            .extract().path("berichtId")
-    }
-
-    private companion object {
+    companion object {
         const val ONTVANGER = RechtstreeksTest.ONTVANGER
         const val ANDERE_ONTVANGER = "KVK:90000001"
         const val ZONDER_TOKEN = "Bearer realm=\"$MAGAZIJN_A\""
-        val SESSIEDUUR: Duration = Duration.ofMinutes(15)
         const val ONGELDIG_TOKEN = "Bearer realm=\"$MAGAZIJN_A\", error=\"invalid_token\""
+
+        /** Een antwoord van een berichtpad: compacte JWE met `typ` `JWE`, ontsleuteld met [aes]. */
+        fun ontsleutel(jwe: String, aes: ByteArray): String {
+            assertTrue(COMPACT_JWE.matches(jwe))
+            assertEquals(mapOf("alg" to "dir", "enc" to "A256GCM", "typ" to "JWE"), TestApp.header(jwe))
+
+            return TestApp.ontsleutelDir(jwe, aes)
+        }
+
+        fun leverAan(ontvanger: String, onderwerp: String, magazijn: String = MAGAZIJN_A, bijlage: Boolean = false): String {
+            val (type, waarde) = ontvanger.split(':')
+            val bijlagen = if (bijlage) """, "bijlagen": [{"naam": "bijlage.pdf", "mimeType": "application/pdf", "inhoud": "cGRm"}]""" else ""
+
+            return given()
+                .contentType(ContentType.JSON)
+                .body(
+                    """
+                    {
+                      "afzender": "$magazijn",
+                      "ontvanger": {"type": "$type", "waarde": "$waarde"},
+                      "onderwerp": "$onderwerp",
+                      "inhoud": "Inhoud van een demo-bericht."$bijlagen
+                    }
+                    """.trimIndent(),
+                )
+                .post("${basis(magazijn)}/aanleveringen")
+                .then().statusCode(201)
+                .extract().path("berichtId")
+        }
     }
 }
