@@ -25,9 +25,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * credential. Welk magazijn, staat in [MagazijnContext]; de paden komen uit
  * [RechtstreeksOphalenApi]. Wat de Verifier gooit, vertaalt [VerifierFoutMapper].
  *
- * De berichten komen uit dezelfde [BerichtService] als op de eerste ingang. Alleen de ontvanger
- * komt hier uit de sessie in plaats van uit `X-Ontvanger`, en het antwoord gaat versleuteld onder
- * de AES-sleutel van de sessie de deur uit.
+ * De berichten komen uit dezelfde [BerichtService] als op de eerste ingang. Verschillen: de
+ * ontvanger komt uit de sessie in plaats van uit `X-Ontvanger`, andermans bericht is een `404` in
+ * plaats van een `403` ([BerichtService.haalOpVoorOntvanger]), en het antwoord gaat versleuteld
+ * onder de AES-sleutel van de sessie de deur uit.
  */
 class SimulatorRechtstreeksResource(
     private val context: MagazijnContext,
@@ -70,7 +71,7 @@ class SimulatorRechtstreeksResource(
         val verifier = verifier()
         val sessie = verifier.sessie(token)
         // Een magazijn geeft alleen sessies op een credential uit, dus altijd met een ontvanger.
-        val identiteit = sessie.identiteit as? Identiteit.Ontvanger ?: error("magazijnsessie zonder ontvanger")
+        val identiteit = sessie.identiteit as? Identiteit.Ontvanger ?: error("magazijnsessie zonder ontvanger bij magazijn ${context.magazijn.oin}")
 
         return Magazijnsessie(verifier, sessie, identiteit.ontvanger)
     }
@@ -93,7 +94,7 @@ class SimulatorRechtstreeksResource(
     }
 
     companion object {
-        // Gelijk aan de @Path van RechtstreeksOphalenApi; de linktest in RechtstreeksBerichtenTest bewaakt de koppeling.
+        // Gelijk aan de @Path van RechtstreeksOphalenApi; de tests op de links in RechtstreeksBerichtenTest bewaken de koppeling.
         private const val RECHTSTREEKS = "rechtstreeks"
 
         private val log: Logger = Logger.getLogger(SimulatorRechtstreeksResource::class.java)

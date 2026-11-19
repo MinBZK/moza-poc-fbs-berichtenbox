@@ -103,8 +103,8 @@ class BerichtRepository(
 
     /**
      * Een actief bericht van [ontvanger], of `null`; de ontvanger zit in de query zelf. Voor de tweede
-     * ingang, die op andermans bericht hetzelfde antwoordt als op een onbekend bericht: beide gevallen
-     * lopen zo hetzelfde pad, ook in de responstijd.
+     * ingang, die op andermans, een verwijderd en een onbekend bericht hetzelfde antwoordt: alle drie
+     * lopen zo dezelfde query en dezelfde code, zonder aparte controle achteraf.
      */
     fun zoekVoorOntvanger(magazijnDbId: Long, berichtId: UUID, ontvanger: Identificatienummer): Bericht? =
         find(
