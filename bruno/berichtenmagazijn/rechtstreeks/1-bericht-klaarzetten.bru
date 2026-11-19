@@ -1,0 +1,43 @@
+meta {
+  name: 1. Bericht klaarzetten (eerste ingang)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrlSimulator}}/aanleveringen
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "afzender": "{{simulatorOin}}",
+    "ontvanger": { "type": "{{rechtstreeksOntvangerType}}", "waarde": "{{rechtstreeksOntvangerWaarde}}" },
+    "onderwerp": "Rechtstreeks opgehaald",
+    "inhoud": "Dit bericht komt via de tweede ingang bij de app van de ondernemer."
+  }
+}
+
+script:pre-request {
+  // Dezelfde ontvanger als in het credential van request 3, anders blijft de lijst leeg.
+  const [type, waarde] = bru.getEnvVar('rechtstreeksOntvanger').split(':');
+
+  bru.setVar('rechtstreeksOntvangerType', type);
+  bru.setVar('rechtstreeksOntvangerWaarde', waarde);
+}
+
+script:post-response {
+  bru.setVar('rechtstreeksBerichtId', res.getBody()?.berichtId);
+}
+
+assert {
+  res.status: eq 201
+  res.body.berichtId: isString
+}
+
+docs {
+  Levert bij het gesimuleerde magazijn een bericht aan voor Garage Van Dijk B.V. (demo-persona,
+  `KVK:90000014`), zodat de lijst en het bericht hierna iets te tonen hebben. Dit is de eerste
+  ingang van de simulator, voor de ontvanger uit `rechtstreeksOntvanger`.
+}

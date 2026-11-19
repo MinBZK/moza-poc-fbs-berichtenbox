@@ -1,0 +1,40 @@
+meta {
+  name: 5. Bericht ophalen
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten/{{rechtstreeksBerichtId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{rechtstreeksSessieToken}}
+}
+
+headers {
+  Accept: application/jose
+}
+
+script:post-response {
+  const { leesAntwoord } = require('./lib/rechtstreeks.js');
+
+  if (res.getStatus() === 200) res.setBody(leesAntwoord(res.getBody(), bru.getVar('rechtstreeksAesSleutel')));
+}
+
+assert {
+  res.status: eq 200
+  res.headers["content-type"]: startsWith application/jose
+  res.headers["cache-control"]: eq no-store
+  res.body.berichtId: eq {{rechtstreeksBerichtId}}
+  res.body.onderwerp: eq Rechtstreeks opgehaald
+  res.body.inhoud: isString
+  res.body._links.self.href: endsWith /rechtstreeks/berichten/{{rechtstreeksBerichtId}}
+}
+
+docs {
+  Eén bericht met inhoud, als het hoort bij de ontvanger uit de sessie. Een bericht van een ander
+  geeft `404`, net als een bericht dat niet bestaat.
+}

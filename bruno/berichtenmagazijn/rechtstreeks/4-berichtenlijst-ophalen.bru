@@ -1,0 +1,53 @@
+meta {
+  name: 4. Berichtenlijst ophalen
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten?pageSize=20
+  body: none
+  auth: bearer
+}
+
+params:query {
+  pageSize: 20
+}
+
+auth:bearer {
+  token: {{rechtstreeksSessieToken}}
+}
+
+headers {
+  Accept: application/jose
+}
+
+script:post-response {
+  const { leesAntwoord } = require('./lib/rechtstreeks.js');
+
+  if (res.getStatus() === 200) res.setBody(leesAntwoord(res.getBody(), bru.getVar('rechtstreeksAesSleutel')));
+}
+
+assert {
+  res.status: eq 200
+  res.headers["content-type"]: startsWith application/jose
+  res.headers["cache-control"]: eq no-store
+  res.body.berichten: isArray
+  res.body.totalElements: isNumber
+  res.body._links.self.href: contains /rechtstreeks/berichten
+}
+
+tests {
+  test("de lijst bevat het klaargezette bericht, van de ontvanger uit de sessie", function () {
+    const bericht = res.getBody().berichten.find((b) => b.berichtId === bru.getVar('rechtstreeksBerichtId'));
+
+    expect(bericht).to.be.an('object');
+    expect(`${bericht.ontvanger.type}:${bericht.ontvanger.waarde}`).to.equal(bru.getEnvVar('rechtstreeksOntvanger'));
+    expect(bericht._links.self.href).to.contain(`/rechtstreeks/berichten/${bericht.berichtId}`);
+  });
+}
+
+docs {
+  Dezelfde lijst als `GET /berichten` van de eerste ingang, voor de ontvanger uit de sessie. Het
+  antwoord is versleuteld met de AES-sleutel van de sessie; Bruno toont het ontsleuteld.
+}

@@ -80,3 +80,13 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+  # Wekelijks: de Bruno-CLI en jose voor de Bruno-collectie van het magazijn. Alleen voor een
+  # ontwikkelmachine; geen workflow draait ze. Veertien dagen wachten: de CLI draait scripts uit de
+  # collectie met toegang tot Node, en met die termijn gaat er geen versie mee die jonger is dan
+  # twee weken. Security updates wachten niet op die termijn.
+  - package-ecosystem: "npm"
+    directory: "/bruno/berichtenmagazijn"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
