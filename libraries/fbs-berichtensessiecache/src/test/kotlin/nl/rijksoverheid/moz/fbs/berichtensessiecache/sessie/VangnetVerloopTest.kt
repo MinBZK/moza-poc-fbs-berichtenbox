@@ -65,9 +65,8 @@ class VangnetVerloopTest {
         // Positieve controle: zonder deze zou een zoekopdracht die nooit iets vindt ook "leeg" opleveren.
         assertTrue(zoekTotaal(bsn) >= 1, "de zoekindex kent vooraf het overgebleven bericht")
 
-        // Peilen in plaats van een vaste wachttijd: de gegevens verlopen een vangnet-TTL na hun laatste
-        // schrijfactie, de index een maximale duur na een vangnet-TTL vanaf de start van de sessie. Wat
-        // de test langer wacht dan nodig, gaat van het venster daartussen af.
+        // Peilen in plaats van een vaste wachttijd: elke milliseconde te lang wachten gaat af van het
+        // venster tot de index verloopt (zie KortVangnetRedisTestProfile).
         wachtTotVerlopen(k, berichten)
 
         assertEquals(0L, zoekTotaal(bsn), "de zoekindex kent nog een verlopen bericht")
@@ -120,7 +119,7 @@ class VangnetVerloopTest {
         val einde = System.nanoTime() + MAX_WACHTEN.toNanos()
 
         while (sleutelsOnder(prefix).isNotEmpty() || berichten.any { bestaat(BerichtenCache.berichtKey(it.sleutel)) }) {
-            assertTrue(System.nanoTime() < einde, "niet verlopen binnen $MAX_WACHTEN: ${sleutelsOnder(prefix)}")
+            assertTrue(System.nanoTime() < einde) { "niet verlopen binnen $MAX_WACHTEN: ${sleutelsOnder(prefix)}" }
             Thread.sleep(PEILING_MS)
         }
     }
