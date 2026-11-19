@@ -23,8 +23,9 @@ headers {
 }
 
 script:pre-request {
-  // Het totaal van deze ontvanger volgens de eerste ingang: zo valt op als de tweede ingang ook de
-  // berichten van anderen telt.
+  // Het totaal van deze ontvanger volgens de eerste ingang. Beide ingangen tellen in de simulator via
+  // dezelfde query, dus dit toetst dat de tweede ingang niet anders telt, niet de telling zelf; die
+  // toetsen de tests van de simulator.
   const telling = await bru.sendRequest({
     method: 'GET',
     url: `${bru.interpolate('{{baseUrlSimulator}}')}/berichten?pageSize=1`,
@@ -66,7 +67,7 @@ tests {
     berichten.forEach((b) => expect(`${b.ontvanger.type}:${b.ontvanger.waarde}`).to.equal(bru.getEnvVar('rechtstreeksOntvanger')));
   });
 
-  test("totalElements telt alleen de berichten van de ontvanger uit de sessie", function () {
+  test("totalElements is gelijk aan dat van de eerste ingang voor dezelfde ontvanger", function () {
     expect(res.getBody().totalElements).to.equal(bru.getVar('rechtstreeksAantal'));
   });
 
@@ -78,6 +79,6 @@ tests {
 docs {
   Dezelfde lijst als `GET /berichten` van de eerste ingang, voor de ontvanger uit de sessie. Het
   antwoord is versleuteld met de AES-sleutel van de sessie; Bruno toont het ontsleuteld. Het
-  pre-request-script vraagt het totaal van dezelfde ontvanger op bij de eerste ingang, om het
-  totaal hier mee te vergelijken.
+  pre-request-script vraagt het totaal van dezelfde ontvanger op bij de eerste ingang; het totaal
+  hier moet daaraan gelijk zijn.
 }

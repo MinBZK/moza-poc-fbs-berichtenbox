@@ -20,14 +20,21 @@ headers {
 
 script:post-response {
   // Een id dat niet bestaat, binnen dezelfde sessie: het antwoord moet niet te onderscheiden zijn.
+  // Eerst weg, zodat een mislukte vergelijking niet slaagt op de waarde van een vorige run.
+  bru.deleteVar('rechtstreeksOnbekend');
+
+  const nil = '00000000-0000-0000-0000-000000000000';
   const onbekend = await bru.sendRequest({
     method: 'GET',
-    url: `${bru.interpolate('{{baseUrlSimulator}}')}/rechtstreeks/berichten/00000000-0000-0000-0000-000000000000`,
+    url: `${bru.interpolate('{{baseUrlSimulator}}')}/rechtstreeks/berichten/${nil}`,
     headers: { Authorization: `Bearer ${bru.getVar('rechtstreeksSessieToken')}`, Accept: 'application/jose' },
     validateStatus: () => true,
   });
 
-  bru.setVar('rechtstreeksOnbekend', JSON.stringify({ status: onbekend.status, type: onbekend.data?.type, title: onbekend.data?.title }));
+  const { type, title, detail } = onbekend.data ?? {};
+
+  // `detail` noemt het gevraagde id; buiten dat id moet hij gelijk zijn.
+  bru.setVar('rechtstreeksOnbekend', JSON.stringify({ status: onbekend.status, type, title, detail: detail?.replace(nil, '<id>') }));
 }
 
 assert {
@@ -41,9 +48,11 @@ assert {
 
 tests {
   test("een bericht van een ander is niet te onderscheiden van een bericht dat niet bestaat", function () {
-    const { status, type, title } = res.getBody();
+    const { status, type, title, detail } = res.getBody();
 
-    expect(JSON.parse(bru.getVar('rechtstreeksOnbekend'))).to.deep.equal({ status, type, title });
+    expect(JSON.parse(bru.getVar('rechtstreeksOnbekend'))).to.deep.equal({
+      status, type, title, detail: detail?.replace(bru.getVar('rechtstreeksAnderBerichtId'), '<id>'),
+    });
   });
 }
 

@@ -74,7 +74,7 @@ is. En nooit `npx @usebruno/cli@latest`.
 | `5-nonce-opnieuw` | foutpad: hetzelfde verzoek nog eens geeft `401`, want een nonce is één keer bruikbaar |
 | `6-berichtenlijst-ophalen` | `Authorization: Bearer {{rechtstreeksSessieToken}}`; toont de ontsleutelde lijst, met alleen berichten van de ontvanger uit de sessie |
 | `7-bericht-ophalen` | het klaargezette bericht, ontsleuteld |
-| `8-bericht-van-ander` | foutpad: het bericht van request 2 geeft `404` |
+| `8-bericht-van-ander` | foutpad: het bericht van request 2 geeft `404`, gelijk aan dat van een bericht dat niet bestaat |
 | `9-ongeldig-token` | foutpad: `401` met `WWW-Authenticate: Bearer realm="<OIN>", error="invalid_token"` |
 | `10-zonder-token` | foutpad: `401` met alleen de realm |
 
@@ -101,11 +101,14 @@ npm test
 
 `@usebruno/cli` pint een deel van zijn afhankelijkheden exact, ook versies met bekende advisories.
 Dependabot kan die niet ophogen. Daarom staan `axios`, `form-data`, `js-yaml` en `yaml` onder
-`overrides` in `package.json`, als ondergrens (`^`), zodat een nieuwere versie binnen dezelfde major
-nog mee kan. Dependabot past `overrides` zelf niet aan: bij een advisory op een van deze vier hoog
-je de ondergrens met de hand op. `npm test` faalt als een override lager uitkomt dan wat een
-`@usebruno`-pakket zelf vastpint, zoals na een bump van de CLI. Bekijk de overrides bij elke bump
-van de CLI opnieuw; misschien zijn ze dan overbodig. Wat overblijft (`npm audit`: 12 meldingen, waarvan 4 high) zijn `@faker-js/faker` 9, waarvan de
+`overrides` in `package.json`, als ondergrens (`^`). Een security fix binnen dezelfde major komt
+dan via de lockfile-update van Dependabot. Vraagt de fix een nieuwe major, dan pas je de override
+met de hand aan: Dependabot wijzigt `overrides` zelf niet.
+
+Een override wint zonder melding, ook van een hogere versie die een nieuwe CLI zelf vraagt.
+`npm test` faalt dan (`lib/overrides.test.mjs`, op de lockfile). Geen workflow draait die test:
+**draai `npm test` op elke Dependabot-PR voor deze map** voor je hem goedkeurt. Bekijk bij een bump
+van de CLI ook of de overrides nog nodig zijn. Wat overblijft (`npm audit`: 12 meldingen, waarvan 4 high) zijn `@faker-js/faker` 9, waarvan de
 fix een nieuwe major vraagt, en moderate meldingen. Dat risico nemen we: de CLI draait alleen op een
 ontwikkelmachine, tegen localhost, met een collectie uit deze repo. Bruno geeft geen invoer van
 buiten aan faker. Dependabot kan deze meldingen niet oplossen; ze horen in het dashboard als
