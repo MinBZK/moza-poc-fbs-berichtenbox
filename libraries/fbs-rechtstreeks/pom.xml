@@ -65,6 +65,20 @@
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
+            <!-- TestApp (de app-kant van het protocol op de JCA) gaat mee als test-jar: de
+                 App Manager toetst zijn ingangen ermee, zonder een tweede client die uit de pas
+                 kan lopen. TODO(#1215): de magazijnsessie in de simulator ook. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
