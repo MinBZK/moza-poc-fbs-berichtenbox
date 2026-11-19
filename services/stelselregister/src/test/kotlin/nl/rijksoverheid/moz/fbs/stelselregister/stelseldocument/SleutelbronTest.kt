@@ -71,6 +71,7 @@ class SleutelbronTest {
         override fun geldigheid() = Duration.ofHours(24)
         override fun verversen() = Duration.ofHours(1)
         override fun keystore() = keystore(pad, wachtwoord)
+        override fun appManagers() = emptyMap<String, StelseldocumentConfig.AppManagerConfig>()
     }
 
     // De bean zelf, niet alleen de losse functie: de launch mode waarmee hij gebouwd is bepaalt
