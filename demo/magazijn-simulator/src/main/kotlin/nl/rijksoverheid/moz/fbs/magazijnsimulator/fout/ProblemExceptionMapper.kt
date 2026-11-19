@@ -60,24 +60,18 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         return problemResponse(
             status = status,
             title = title,
-            detail = clientDetail(exception, status),
+            detail = clientDetail(exception),
             foutId = foutId,
             foutcode = foutcode,
         )
     }
 
     /**
-     * Het `detail` van een 4xx. Een [SimulatorFout] houdt zijn eigen melding. Voor de rest kan de
-     * melding uit het framework komen, en die beschrijft dan diens interne werking. Bij de statussen
-     * die het framework zelf produceert, krijgt het antwoord daarom de vaste tekst uit
-     * [FrameworkfoutDetail], net als bij het echte magazijn. Eigen code die zo'n status geeft,
-     * gebruikt een [SimulatorFout] en houdt zo zijn melding.
+     * Het `detail` van een 4xx: bij een fout van het framework de vaste tekst van
+     * [FrameworkfoutDetail], net als bij het echte magazijn; anders de veilige melding.
      */
-    private fun clientDetail(exception: WebApplicationException, status: Int): String? {
-        if (exception !is SimulatorFout) FrameworkfoutDetail.voorStatus(status)?.let { return it }
-
-        return veiligDetail(exception.message)
-    }
+    private fun clientDetail(exception: WebApplicationException): String? =
+        FrameworkfoutDetail.voor(exception) ?: veiligDetail(exception.message)
 
     /**
      * Bij een 4xx is de melding juist nuttig — "Bericht X bestaat niet in magazijn Y" is precies wat
@@ -90,9 +84,6 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (opgeschoond.isNullOrBlank()) return null
 
-        // De standaardmelding van het framework ("HTTP 400 Bad Request") voegt niets toe aan `title`
-        // en `status`, en zet er een Engelse zin in een verder Nederlandstalig antwoord. Beter geen
-        // `detail` dan die.
         if (FrameworkfoutDetail.isStandaardmelding(opgeschoond)) return null
 
         return if (INTERNE_SPOREN.containsMatchIn(opgeschoond)) null else opgeschoond

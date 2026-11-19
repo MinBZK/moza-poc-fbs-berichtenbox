@@ -20,8 +20,8 @@ import java.util.UUID
  *   geknipt, stacktrace-achtige content gefilterd) en in `detail` opgenomen. Zo blijven
  *   eigen `throw WebApplicationException("Header X verplicht", 400)` constructies nuttig,
  *   terwijl Jakarta-defaults en per ongeluk doorgegeven interne messages geen kanaal
- *   krijgen om bijv. stacktraces of SQL-fragmenten door te geven. Een 404, 405, 406 of 415 die
- *   niet uit een [FbsFoutException] komt, krijgt een vaste tekst (zie [clientDetail]).
+ *   krijgen om bijv. stacktraces of SQL-fragmenten door te geven. Een fout van het framework
+ *   zelf krijgt een vaste tekst (zie [clientDetail]).
  */
 @Provider
 class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
@@ -84,7 +84,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 problemResponse(
                     status = status,
                     title = title,
-                    detail = clientDetail(exception, status),
+                    detail = clientDetail(exception),
                     foutcode = foutcode,
                     instance = URI.create("urn:uuid:$errorId"),
                 ),
@@ -94,20 +94,17 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 }
 
 /**
- * Het `detail` van een 4xx. Een [FbsFoutException] houdt zijn eigen melding. Voor de rest kan de
- * melding ook uit het framework komen, en die beschrijft dan diens interne werking. Bij de statussen
- * die het framework zelf produceert, krijgt het antwoord daarom de vaste tekst uit
- * [FrameworkfoutDetail]. Eigen code die zo'n status geeft, gebruikt een [FbsFoutException] en houdt
- * zo zijn melding.
+ * Het `detail` van een 4xx: de vaste tekst van [FrameworkfoutDetail] bij een fout van het framework,
+ * geen `detail` bij diens standaardmelding, en anders de gesaneerde melding.
  */
-private fun clientDetail(exception: WebApplicationException, status: Int): String? {
-    if (exception !is FbsFoutException) {
-        FrameworkfoutDetail.voorStatus(status)?.let { return it }
+private fun clientDetail(exception: WebApplicationException): String? {
+    FrameworkfoutDetail.voor(exception)?.let { return it }
 
-        if (exception.message?.let(FrameworkfoutDetail::isStandaardmelding) == true) return null
-    }
+    val melding = exception.message
 
-    return sanitizeClientDetail(exception.message)
+    if (melding != null && FrameworkfoutDetail.isStandaardmelding(melding)) return null
+
+    return sanitizeClientDetail(melding)
 }
 
 private const val MAX_CLIENT_DETAIL_LENGTH = 500
@@ -124,9 +121,8 @@ private val CONTROL_CHARS_PATTERN = Regex("""[\u0000-\u001F\u007F]""")
  * - strip controltekens die logs/terminals kunnen vervuilen;
  * - kapt af op [MAX_CLIENT_DETAIL_LENGTH] tekens.
  *
- * Eigen exception-messages ("Header X ontbreekt") overleven dit ongeschonden; Jakarta-
- * defaults ("HTTP 404 Not Found") ook. Stack-achtige content uit onbedoelde code-paden
- * wordt uitgefilterd.
+ * Eigen exception-messages ("Header X ontbreekt") overleven dit ongeschonden. Stack-achtige
+ * content uit onbedoelde code-paden wordt uitgefilterd.
  */
 internal fun sanitizeClientDetail(message: String?): String? {
     if (message.isNullOrBlank()) return null

@@ -7,6 +7,7 @@ import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.NotAcceptableException
+import jakarta.ws.rs.NotAllowedException
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.NotSupportedException
 import jakarta.ws.rs.WebApplicationException
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -64,10 +66,24 @@ class FoutMappersTest {
      */
     @ParameterizedTest
     @MethodSource("frameworkfouten")
-    fun `een frameworkfout krijgt de vaste tekst in plaats van zijn eigen melding`(exception: WebApplicationException) {
+    fun `een frameworkfout krijgt de vaste tekst in plaats van zijn eigen melding`(
+        exception: WebApplicationException,
+        verwacht: String,
+    ) {
         val problem = ProblemExceptionMapper().toResponse(exception).entity as Problem
 
-        assertEquals(FrameworkfoutDetail.voorStatus(exception.response.status), problem.detail)
+        assertEquals(verwacht, problem.detail)
+    }
+
+    /**
+     * Dezelfde status van elders, zoals een 415 die een dienst van een andere dienst doorgeeft,
+     * zegt niets over het verzoek van de afnemer. Die krijgt de vaste tekst dus niet.
+     */
+    @Test
+    fun `een gewone WebApplicationException met een frameworkstatus houdt zijn melding`() {
+        val problem = ProblemExceptionMapper().toResponse(WebApplicationException("magazijn weigerde (415)", 415)).entity as Problem
+
+        assertEquals("magazijn weigerde (415)", problem.detail)
     }
 
     @Test
@@ -347,14 +363,26 @@ class FoutMappersTest {
         const val PROBLEM_JSON = "application/problem+json"
         const val MAX_DETAIL = 500
 
-        /** De meldingen zoals Quarkus REST ze meegeeft, plus de kale standaardmelding. */
+        /** De exceptions zoals Quarkus REST ze gooit, met de tekst die het antwoord hoort te krijgen. */
         @JvmStatic
-        fun frameworkfouten(): List<WebApplicationException> = listOf(
-            NotFoundException("Unable to find matching target resource method"),
-            NotFoundException(),
-            WebApplicationException("HTTP 405 Method Not Allowed", 405),
-            NotAcceptableException("The accept header value did not match the value in @Produces"),
-            NotSupportedException("The content-type header value did not match the value in @Consumes"),
+        fun frameworkfouten(): List<Arguments> = listOf(
+            Arguments.of(
+                NotFoundException("Unable to find matching target resource method"),
+                FrameworkfoutDetail.PAD_ONBEKEND,
+            ),
+            Arguments.of(
+                NotFoundException(NumberFormatException("For input string: \"abc\"")),
+                FrameworkfoutDetail.PARAMETER_ONGELDIG,
+            ),
+            Arguments.of(NotAllowedException("GET"), FrameworkfoutDetail.METHODE_NIET_TOEGESTAAN),
+            Arguments.of(
+                NotAcceptableException("The accept header value did not match the value in @Produces"),
+                FrameworkfoutDetail.ACCEPT_NIET_TE_LEVEREN,
+            ),
+            Arguments.of(
+                NotSupportedException("The content-type header value did not match the value in @Consumes"),
+                FrameworkfoutDetail.MEDIATYPE_NIET_ONDERSTEUND,
+            ),
         )
     }
 }

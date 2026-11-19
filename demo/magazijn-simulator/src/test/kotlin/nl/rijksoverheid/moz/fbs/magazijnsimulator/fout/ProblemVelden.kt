@@ -10,6 +10,9 @@ sealed interface DetailVerwachting {
     /** Geen `detail`-veld. */
     data object Afwezig : DetailVerwachting
 
+    /** Een `detail`-veld waarvan de inhoud hier niet vastligt. */
+    data object Aanwezig : DetailVerwachting
+
     /** Precies deze tekst. */
     data class Precies(val tekst: String) : DetailVerwachting
 
@@ -36,7 +39,7 @@ fun assertProblemVelden(antwoord: Response, status: Int, foutcode: Foutcode, det
     assertTrue((velden["instance"] as String).startsWith("urn:uuid:"), "instance: ${velden["instance"]}")
 
     when (detail) {
-        DetailVerwachting.Afwezig -> Unit
+        DetailVerwachting.Afwezig, DetailVerwachting.Aanwezig -> Unit
         is DetailVerwachting.Precies -> assertEquals(detail.tekst, velden["detail"])
         is DetailVerwachting.Bevat -> assertTrue(
             (velden["detail"] as String).contains(detail.stuk),

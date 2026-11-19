@@ -1,9 +1,14 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
+import com.atlassian.oai.validator.OpenApiInteractionValidator
+import com.atlassian.oai.validator.report.LevelResolver
+import com.atlassian.oai.validator.report.ValidationReport
+import com.atlassian.oai.validator.restassured.OpenApiValidationFilter
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import io.restassured.response.Response
+import io.restassured.specification.RequestSpecification
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
@@ -41,12 +46,29 @@ class ProblemVeldenTest : MagazijnTestBasis() {
     @MethodSource("gevallen")
     fun `elk foutantwoord heeft precies de velden die bij zijn soort horen`(
         @Suppress("UNUSED_PARAMETER") naam: String,
-        verzoek: () -> Response,
+        verzoek: (RequestSpecification) -> Response,
         status: Int,
         foutcode: Foutcode,
         detail: DetailVerwachting,
     ) {
-        assertProblemVelden(verzoek(), status, foutcode, detail)
+        assertProblemVelden(verzoek(given()), status, foutcode, detail)
+    }
+
+    /**
+     * Dezelfde frameworkfouten, nu op een operatie die de spec kent en met de validator ertussen. Zo
+     * merkt een test het ook als het antwoord buiten de veldenset om van de spec afwijkt, zoals
+     * een ontbrekende `API-Version`. Alleen het antwoord telt; het verzoek schendt de spec met opzet.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("gevallenOpSpecOperaties")
+    fun `een frameworkfout op een operatie uit de spec voldoet aan de spec`(
+        @Suppress("UNUSED_PARAMETER") naam: String,
+        verzoek: (RequestSpecification) -> Response,
+        status: Int,
+        foutcode: Foutcode,
+        detail: DetailVerwachting,
+    ) {
+        assertProblemVelden(verzoek(given().filter(alleenAntwoordValidatie)), status, foutcode, detail)
     }
 
     /** Een storing komt uit het gedrag-filter en niet uit een mapper; ook die mag geen extra veld dragen. */
@@ -54,13 +76,11 @@ class ProblemVeldenTest : MagazijnTestBasis() {
     fun `een gesimuleerde storing heeft geen extra veld`() {
         assertTrue(magazijnen.stelGedragBij(MAGAZIJN, Gedrag(GedragModus.STUK, latencyP50Ms = 0, latencyP95Ms = 0)))
 
-        val antwoord = given().header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten")
-
         assertProblemVelden(
-            antwoord,
-            antwoord.statusCode,
-            Foutcode.voorStatus(antwoord.statusCode),
-            DetailVerwachting.Bevat("ingesteld op stuk"),
+            given().header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten"),
+            Gedrag.STANDAARD_FOUT_STATUS,
+            Foutcode.TIJDELIJK_NIET_BESCHIKBAAR,
+            DetailVerwachting.Precies("Dit magazijn is ingesteld op stuk"),
         )
     }
 
@@ -68,60 +88,115 @@ class ProblemVeldenTest : MagazijnTestBasis() {
         const val ONTVANGER_HEADER = "X-Ontvanger"
         const val ONTVANGER = "KVK:90000001"
         const val MAGAZIJN = "00000009000000000003"
+        const val ONBEKEND_MAGAZIJN = "00000009000000009999"
         const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
         const val BERICHT_ID = "11111111-2222-3333-4444-555555555555"
 
-        private fun vast(status: Int) = DetailVerwachting.Precies(FrameworkfoutDetail.voorStatus(status)!!)
+        val alleenAntwoordValidatie = OpenApiValidationFilter(
+            OpenApiInteractionValidator
+                .createForSpecificationUrl("openapi/berichtenmagazijn-api.yaml")
+                .withBasePathOverride(BASIS)
+                .withLevelResolver(
+                    LevelResolver.create()
+                        .withLevel("validation.request", ValidationReport.Level.IGNORE)
+                        .build(),
+                )
+                .build(),
+        )
 
         private fun geval(
             naam: String,
             status: Int,
             foutcode: Foutcode,
             detail: DetailVerwachting,
-            verzoek: () -> Response,
+            verzoek: (RequestSpecification) -> Response,
         ): Arguments = Arguments.of(naam, verzoek, status, foutcode, detail)
+
+        private val geenUuid = geval(
+            "bericht-id dat geen UUID is",
+            404,
+            Foutcode.NIET_GEVONDEN,
+            DetailVerwachting.Precies(FrameworkfoutDetail.PARAMETER_ONGELDIG),
+        ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten/geen-uuid") }
+
+        private val acceptNietTeLeveren = geval(
+            "Accept niet te leveren",
+            406,
+            Foutcode.ONGELDIG_VERZOEK,
+            DetailVerwachting.Precies(FrameworkfoutDetail.ACCEPT_NIET_TE_LEVEREN),
+        ) { it.header(ONTVANGER_HEADER, ONTVANGER).accept("application/xml").get("$BASIS/berichten") }
+
+        private val mediatypeNietOndersteund = geval(
+            "Content-Type niet ondersteund",
+            415,
+            Foutcode.ONGELDIG_VERZOEK,
+            DetailVerwachting.Precies(FrameworkfoutDetail.MEDIATYPE_NIET_ONDERSTEUND),
+        ) { it.contentType(ContentType.TEXT).body("geen json").post("$BASIS/aanleveringen") }
+
+        @JvmStatic
+        fun gevallenOpSpecOperaties(): Stream<Arguments> =
+            Stream.of(geenUuid, acceptNietTeLeveren, mediatypeNietOndersteund)
 
         @JvmStatic
         fun gevallen(): Stream<Arguments> = Stream.of(
             geval("onbekend bericht", 404, Foutcode.BERICHT_ONBEKEND, DetailVerwachting.Bevat(MAGAZIJN)) {
-                given().header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten/$BERICHT_ID")
+                it.header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten/$BERICHT_ID")
             },
-            geval("ontbrekende ontvanger", 400, Foutcode.ONGELDIG_VERZOEK, DetailVerwachting.Bevat("must not be null")) {
-                given().get("$BASIS/berichten")
+            // De melding van Bean Validation ligt hier niet vast: dit gaat over de velden.
+            geval("ontbrekende ontvanger", 400, Foutcode.ONGELDIG_VERZOEK, DetailVerwachting.Aanwezig) {
+                it.get("$BASIS/berichten")
             },
             // Afgebroken JSON vertaalt Quarkus al vóór de mapper-keuze naar een kale 400; de
             // standaardmelding daarvan voegt niets toe, dus geen detail.
             geval("afgebroken JSON", 400, Foutcode.ONGELDIG_VERZOEK, DetailVerwachting.Afwezig) {
-                given().contentType(ContentType.JSON).body("""{"afzender":""").post("$BASIS/aanleveringen")
+                it.contentType(ContentType.JSON).body("""{"afzender":""").post("$BASIS/aanleveringen")
             },
             geval("JSON die niet past", 400, Foutcode.ONGELDIG_VERZOEK, DetailVerwachting.Bevat("JSON")) {
-                given().contentType(ContentType.JSON).body("""{"afzender": 42}""").post("$BASIS/aanleveringen")
+                it.contentType(ContentType.JSON).body("""{"afzender": 42}""").post("$BASIS/aanleveringen")
             },
-            geval("onbekend pad onder een bericht", 404, Foutcode.NIET_GEVONDEN, vast(404)) {
-                given().header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten/$BERICHT_ID/bijlagen/$BERICHT_ID/x")
+            geval(
+                "onbekend pad onder een bericht",
+                404,
+                Foutcode.NIET_GEVONDEN,
+                DetailVerwachting.Precies(FrameworkfoutDetail.PAD_ONBEKEND),
+            ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten/$BERICHT_ID/bijlagen/$BERICHT_ID/x") },
+            geval(
+                "onbekend pad in de API",
+                404,
+                Foutcode.NIET_GEVONDEN,
+                DetailVerwachting.Precies(FrameworkfoutDetail.PAD_ONBEKEND),
+            ) { it.get("$BASIS/bestaat-niet") },
+            geenUuid,
+            geval(
+                "page dat geen getal is",
+                404,
+                Foutcode.NIET_GEVONDEN,
+                DetailVerwachting.Precies(FrameworkfoutDetail.PARAMETER_ONGELDIG),
+            ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten?page=abc") },
+            geval(
+                "onbekend magazijn",
+                404,
+                Foutcode.NIET_GEVONDEN,
+                DetailVerwachting.Bevat(ONBEKEND_MAGAZIJN),
+            ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("/magazijn/$ONBEKEND_MAGAZIJN/api/v1/berichten") },
+            // Het OIN is publiek en hoort voluit in de melding te staan.
+            geval(
+                "onbekend magazijn op het beheerpad",
+                404,
+                Foutcode.NIET_GEVONDEN,
+                DetailVerwachting.Precies("Geen gesimuleerd magazijn met OIN $ONBEKEND_MAGAZIJN"),
+            ) {
+                it.contentType(ContentType.JSON).body("""{"modus": "STUK"}""")
+                    .put("/beheer/magazijnen/$ONBEKEND_MAGAZIJN/gedrag")
             },
-            geval("onbekend pad in de API", 404, Foutcode.NIET_GEVONDEN, vast(404)) {
-                given().get("$BASIS/bestaat-niet")
-            },
-            geval("bericht-id dat geen UUID is", 404, Foutcode.NIET_GEVONDEN, vast(404)) {
-                given().header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten/geen-uuid")
-            },
-            geval("onbekend magazijn", 404, Foutcode.NIET_GEVONDEN, DetailVerwachting.Bevat("00000009000000009999")) {
-                given().header(ONTVANGER_HEADER, ONTVANGER).get("/magazijn/00000009000000009999/api/v1/berichten")
-            },
-            geval("onbekend magazijn op het beheerpad", 404, Foutcode.NIET_GEVONDEN, DetailVerwachting.Bevat("OIN")) {
-                given().contentType(ContentType.JSON).body("""{"modus": "STUK"}""")
-                    .put("/beheer/magazijnen/00000009000000009999/gedrag")
-            },
-            geval("methode niet toegestaan", 405, Foutcode.ONGELDIG_VERZOEK, vast(405)) {
-                given().header(ONTVANGER_HEADER, ONTVANGER).put("$BASIS/berichten")
-            },
-            geval("Accept niet te leveren", 406, Foutcode.ONGELDIG_VERZOEK, vast(406)) {
-                given().header(ONTVANGER_HEADER, ONTVANGER).accept("application/xml").get("$BASIS/berichten")
-            },
-            geval("Content-Type niet ondersteund", 415, Foutcode.ONGELDIG_VERZOEK, vast(415)) {
-                given().contentType(ContentType.TEXT).body("geen json").post("$BASIS/aanleveringen")
-            },
+            geval(
+                "methode niet toegestaan",
+                405,
+                Foutcode.ONGELDIG_VERZOEK,
+                DetailVerwachting.Precies(FrameworkfoutDetail.METHODE_NIET_TOEGESTAAN),
+            ) { it.header(ONTVANGER_HEADER, ONTVANGER).put("$BASIS/berichten") },
+            acceptNietTeLeveren,
+            mediatypeNietOndersteund,
         )
     }
 }
