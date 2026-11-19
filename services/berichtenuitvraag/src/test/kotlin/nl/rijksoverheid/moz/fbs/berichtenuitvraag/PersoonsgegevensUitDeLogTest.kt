@@ -6,7 +6,7 @@ import io.restassured.RestAssured.given
 import io.restassured.response.ExtractableResponse
 import io.restassured.response.Response
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.aanmeld.AanmeldMockProfile
-import nl.rijksoverheid.moz.fbs.kern.testhulp.FRAMEWORK_WORTELS
+import nl.rijksoverheid.moz.fbs.kern.testhulp.ALLES
 import nl.rijksoverheid.moz.fbs.kern.testhulp.REST_CLIENT_LOGGING
 import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
 import nl.rijksoverheid.moz.fbs.kern.testhulp.QUARKUS_REST_MET_INVOER
@@ -78,9 +78,11 @@ class PersoonsgegevensUitDeLogTest {
     fun `de categorieën die invoer loggen, staan vast op INFO, ook voor een DEBUG op de categorie zelf`() {
         val config = ConfigProvider.getConfig()
 
-        (QUARKUS_REST_MET_INVOER + REST_CLIENT_LOGGING).forEach { categorie ->
+        val vast = QUARKUS_REST_MET_INVOER.associateWith { "INFO" } + REST_CLIENT_LOGGING.associateWith { "WARN" }
+
+        vast.forEach { (categorie, niveau) ->
             listOf("level", "min-level").forEach { sleutel ->
-                assertEquals("INFO", config.getValue("quarkus.log.category.\"$categorie\".$sleutel", String::class.java), "$categorie $sleutel")
+                assertEquals(niveau, config.getValue("quarkus.log.category.\"$categorie\".$sleutel", String::class.java), "$categorie $sleutel")
             }
         }
 
@@ -91,14 +93,14 @@ class PersoonsgegevensUitDeLogTest {
 
     /**
      * De klem werkt alleen als hij de categorieën noemt waar Quarkus werkelijk logt; een nieuwe versie
-     * kan er een hernoemen of toevoegen. Deze canary zet het framework open (de test-JVM past de
-     * klem niet toe) en eist dat elke regel met een stuk van de waarde uit een geklemde categorie komt.
+     * kan er een hernoemen of toevoegen. Deze canary zet de root open (de test-JVM past de klem niet
+     * toe) en eist dat elke regel met een stuk van de waarde uit een geklemde categorie komt.
      */
     @Test
     fun `alleen geklemde categorieën van het framework citeren de invoer`() {
         val waarde = "99999365x"
 
-        val bronnen = Logvanger(open = FRAMEWORK_WORTELS).use { logvanger ->
+        val bronnen = Logvanger(open = ALLES).use { logvanger ->
             listOf("\"BSN:$waarde\"", """{"type": "BSN", "waarde": x$waarde}""").forEach { ontvanger ->
                 given().contentType("application/cloudevents+json").body(aanmelding(ontvanger)).`when`().post("/api/v1/aanmeldingen")
             }

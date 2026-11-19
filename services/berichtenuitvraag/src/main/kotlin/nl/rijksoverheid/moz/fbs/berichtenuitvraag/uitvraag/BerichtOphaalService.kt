@@ -10,6 +10,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.Bericht
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
 import java.io.IOException
@@ -96,8 +97,16 @@ class BerichtOphaalService(
         } catch (e: JsonProcessingException) {
             // Een 200 met een body die niet op het contract past. Zonder deze tak landt hij op de
             // Jackson-mapper, die er een 400 van maakt: de gebruiker leest dan dat zíjn verzoek
-            // fout is terwijl de fout volledig bovenstrooms zit.
-            log.errorf(e, "%s: onleesbaar antwoord (schema-drift?) berichtId=%s magazijnId=%s → 502", MAGAZIJN_DETAIL, berichtId, magazijnId)
+            // fout is terwijl de fout volledig bovenstrooms zit. Het spoor en niet de exceptie: de
+            // melding van Jackson citeert het token dat niet paste, en dat kan een ontvanger zijn.
+            log.errorf(
+                Foutspoor.van(e),
+                "%s: onleesbaar antwoord (schema-drift?) berichtId=%s magazijnId=%s type=%s → 502",
+                MAGAZIJN_DETAIL,
+                berichtId,
+                magazijnId,
+                e.javaClass.name,
+            )
 
             throw upstreamBadGateway("$MAGAZIJN_DETAIL: onleesbaar antwoord", e)
         }

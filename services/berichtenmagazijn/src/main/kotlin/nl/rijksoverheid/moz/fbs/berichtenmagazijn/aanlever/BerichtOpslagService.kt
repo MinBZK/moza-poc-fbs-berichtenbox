@@ -173,8 +173,8 @@ class BerichtOpslagService(
             // mogelijk blijft óók wanneer de mapper het detail maskeert. De waarde van
             // afzender/ontvanger blijft buiten de applicatielog: ontvanger kan een BSN zijn
             // en persoonsgegevens horen niet in de reguliere log (AVG art. 5 lid 1c,
-            // BIO 12.4.1). LDV is de juiste plek voor dataSubjectId. Daarom ook het spoor en niet
-            // de exceptie: de melding van de driver kan de rij of het statement citeren.
+            // BIO 12.4.1). LDV is de juiste plek voor dataSubjectId. Om dezelfde reden het spoor en
+            // niet de exceptie: de melding van de driver kan de rij of het statement citeren.
             log.errorf(
                 Foutspoor.van(ex),
                 "Opslaan mislukt berichtId=%s ontvangerType=%s onderwerp.length=%d inhoud.length=%d",

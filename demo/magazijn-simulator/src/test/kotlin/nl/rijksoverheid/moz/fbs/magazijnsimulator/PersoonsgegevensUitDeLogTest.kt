@@ -5,7 +5,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import io.restassured.response.ExtractableResponse
 import io.restassured.response.Response
-import nl.rijksoverheid.moz.fbs.kern.testhulp.FRAMEWORK_WORTELS
+import nl.rijksoverheid.moz.fbs.kern.testhulp.ALLES
 import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
 import nl.rijksoverheid.moz.fbs.kern.testhulp.QUARKUS_REST_MET_INVOER
 import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
@@ -82,7 +82,7 @@ class PersoonsgegevensUitDeLogTest {
     fun `de categorieën die invoer loggen, staan vast op INFO, ook voor een DEBUG op de categorie zelf`() {
         val config = ConfigProvider.getConfig()
 
-        (QUARKUS_REST_MET_INVOER).forEach { categorie ->
+        QUARKUS_REST_MET_INVOER.forEach { categorie ->
             listOf("level", "min-level").forEach { sleutel ->
                 assertEquals("INFO", config.getValue("quarkus.log.category.\"$categorie\".$sleutel", String::class.java), "$categorie $sleutel")
             }
@@ -90,15 +90,27 @@ class PersoonsgegevensUitDeLogTest {
     }
 
     /**
+     * Zonder deze instelling zet PostgreSQL bij een NOT NULL- of CHECK-schending de hele rij in zijn
+     * melding, met de ontvanger, en Hibernate logt die op WARN voordat een mapper eraan toekomt.
+     */
+    @Test
+    fun `de database zet geen rij in zijn foutmelding`() {
+        val waarde = ConfigProvider.getConfig()
+            .getValue("quarkus.datasource.jdbc.additional-jdbc-properties.logServerErrorDetail", String::class.java)
+
+        assertEquals("false", waarde)
+    }
+
+    /**
      * De klem werkt alleen als hij de categorieën noemt waar Quarkus werkelijk logt; een nieuwe versie
-     * kan er een hernoemen of toevoegen. Deze canary zet het framework open (de test-JVM past de
-     * klem niet toe) en eist dat elke regel met een stuk van de waarde uit een geklemde categorie komt.
+     * kan er een hernoemen of toevoegen. Deze canary zet de root open (de test-JVM past de klem niet
+     * toe) en eist dat elke regel met een stuk van de waarde uit een geklemde categorie komt.
      */
     @Test
     fun `alleen geklemde categorieën van het framework citeren de invoer`() {
         val waarde = "99999365x"
 
-        val bronnen = Logvanger(open = FRAMEWORK_WORTELS).use { logvanger ->
+        val bronnen = Logvanger(open = ALLES).use { logvanger ->
             listOf("\"BSN:$waarde\"", """{"type": "$waarde", "waarde": "999993653"}""", """{"type": "BSN", "waarde": x$waarde}""")
                 .forEach { ontvanger ->
                     given().contentType(ContentType.JSON)

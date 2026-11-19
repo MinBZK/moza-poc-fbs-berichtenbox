@@ -66,7 +66,7 @@ class Logvanger(categorie: String = "nl.rijksoverheid.moz", open: List<String> =
     private fun weergave(regel: LogRecord): String = listOfNotNull(
         regel.message,
         regel.parameters?.let { parameters -> runCatching { MessageFormat.format(regel.message, *parameters) }.getOrNull() },
-        regel.parameters?.joinToString(" | ") { it.toString() },
+        regel.parameters?.joinToString(" | ") { "$it" },
         regel.thrown?.stackTraceToString(),
     ).joinToString("\n")
 
@@ -98,8 +98,14 @@ val QUARKUS_REST_MET_INVOER = listOf(
     "WebApplicationException",
 )
 
-/** De categorie waarin de REST-client headers en bodies logt; diensten met een client zetten haar vast. */
-const val REST_CLIENT_LOGGING = "org.jboss.resteasy.reactive.client.logging"
+/**
+ * De categorieën waarin de REST-client verzoek en antwoord logt, op INFO; diensten met een client
+ * zetten ze vast op WARN.
+ */
+val REST_CLIENT_LOGGING = listOf(
+    "org.jboss.resteasy.reactive.client.logging",
+    "org.jboss.resteasy.reactive.client.logging.DefaultClientLogger",
+)
 
-/** Wat een canary openzet: de wortels waaronder het framework logt, en de kale categorie van Quarkus REST. */
-val FRAMEWORK_WORTELS = listOf("org", "io", "com", "WebApplicationException")
+/** Wat een canary openzet: de root, zodat ook een categorie met een kale naam meetelt. */
+val ALLES = listOf("")

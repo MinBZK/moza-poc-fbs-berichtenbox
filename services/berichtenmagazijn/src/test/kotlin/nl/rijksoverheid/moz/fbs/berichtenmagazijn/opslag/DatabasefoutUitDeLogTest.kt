@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test
 /**
  * PostgreSQL zet bij een NOT NULL-schending `Failing row contains (…)` in zijn melding, met de hele
  * rij, en Hibernate logt die melding op WARN nog voor een exception mapper eraan toekomt. Zonder die
- * Detail (`logServerErrorDetail=false`) noemt de log kolom en constraint, maar niet de ontvanger.
+ * Detail (`logServerErrorDetail=false`) noemt de log de kolom of de constraint, maar niet de ontvanger.
  */
 @QuarkusTest
 class DatabasefoutUitDeLogTest {

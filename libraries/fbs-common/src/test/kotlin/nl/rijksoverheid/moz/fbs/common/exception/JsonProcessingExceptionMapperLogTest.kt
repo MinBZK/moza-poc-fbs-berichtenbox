@@ -1,10 +1,12 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
+import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
+import com.fasterxml.jackson.databind.exc.ValueInstantiationException
 import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
 import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
 import org.junit.jupiter.api.AfterEach
@@ -78,7 +80,7 @@ class JsonProcessingExceptionMapperLogTest {
     abstract class NietTeBouwen
 
     @Test
-    fun `een model dat Jackson niet kan bouwen, is een eigen fout en komt op error met het spoor`() {
+    fun `een model dat Jackson niet kan bouwen, is een eigen fout, op error met het spoor en een 500`() {
         val fout = runCatching { objectMapper.readValue("{}", NietTeBouwen::class.java) }.exceptionOrNull() as JsonProcessingException
 
         val (antwoord, log) = Logvanger().use { logvanger ->
@@ -87,7 +89,40 @@ class JsonProcessingExceptionMapperLogTest {
 
         assertTrue(log.contains("Jackson-fout buiten de invoer"), log)
         assertTrue(log.contains(fout.javaClass.name), log)
-        assertTrue(antwoord.status == 400, "het antwoord blijft een 400")
+        assertTrue(antwoord.status == 500, "een eigen fout is geen fout van de aanroeper")
+    }
+
+    /** Zoals de gegenereerde enums: een onbekende waarde weigert `fromValue` met de waarde in de melding. */
+    enum class GegenereerdType {
+        BSN;
+
+        companion object {
+            @JvmStatic
+            @JsonCreator
+            fun fromValue(waarde: String): GegenereerdType =
+                entries.firstOrNull { it.name == waarde } ?: throw IllegalArgumentException("Unexpected value '$waarde'")
+        }
+    }
+
+    class MetGegenereerdType {
+        var type: GegenereerdType? = null
+    }
+
+    @Test
+    fun `een onbekende waarde voor een gegenereerde enum is invoer, op info en een 400`() {
+        val waarde = "99999365x"
+        val fout = runCatching { objectMapper.readValue("""{"type": "$waarde"}""", MetGegenereerdType::class.java) }
+            .exceptionOrNull() as JsonProcessingException
+
+        assertTrue(fout is ValueInstantiationException, "verwacht een ValueInstantiationException: ${fout.javaClass.name}")
+
+        val antwoord = JsonProcessingExceptionMapper().toResponse(fout)
+
+        val log = logvanger.tekst()
+        assertGeenDeelVan(waarde, log)
+        assertTrue(log.contains("JSON-invoer niet te lezen"), log)
+        assertFalse(log.contains("Jackson-fout buiten de invoer"), log)
+        assertTrue(antwoord.status == 400, "een onbekende waarde is een fout van de aanroeper")
     }
 
     private fun assertGeenDeelVan(waarde: String, log: String) {
