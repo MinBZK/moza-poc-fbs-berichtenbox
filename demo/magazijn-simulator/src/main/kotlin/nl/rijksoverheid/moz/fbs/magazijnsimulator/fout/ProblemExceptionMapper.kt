@@ -33,8 +33,6 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (response.entity is Problem) return response
 
-        // Een parameter die niet te converteren is, levert in Jakarta REST een 404 op; het pad
-        // bestaat wel, en de spec declareert daarvoor een 400. Het echte magazijn doet hetzelfde.
         val status = if (FrameworkfoutDetail.isOngeldigeParameter(exception)) {
             Response.Status.BAD_REQUEST.statusCode
         } else {
@@ -62,7 +60,13 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         // Ook een clientfout krijgt een regel, op INFO. Het antwoord draagt een correlatie-id, en een
         // id dat nergens in de log staat is geen correlatie maar een sierletter. De melding blijft
         // eruit om dezelfde reden als hierboven: die kan invoer dragen.
-        log.infof("Clientfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
+        log.infof(
+            "Clientfout %d (foutId=%s, type=%s, cause=%s)",
+            status,
+            foutId,
+            exception.javaClass.name,
+            exception.cause?.javaClass?.simpleName ?: "geen",
+        )
 
         return problemResponse(
             status = status,

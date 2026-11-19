@@ -82,6 +82,21 @@ class OpenApiContractTest {
 
     private val ontvanger = "BSN:999990019"
 
+    private val alleenAntwoordValidatie = OpenApiValidationFilter(
+        OpenApiInteractionValidator
+            .createForSpecificationUrl("openapi/berichtenuitvraag-api.yaml")
+            .withLevelResolver(
+                LevelResolver.create()
+                    .withLevel("validation.request", ValidationReport.Level.IGNORE)
+                    // Zonder deze twee valideert de filter niets als het pad of de methode niet in
+                    // de spec staat, en blijft de test stil groen.
+                    .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
+                    .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
+                    .build(),
+            )
+            .build(),
+    )
+
     @Inject
     lateinit var sessiecache: MockSessiecache
 
@@ -742,6 +757,25 @@ class OpenApiContractTest {
             .then()
             .contentType("application/problem+json")
             .body("type", startsWith("urn:fbs:fout:"))
+    }
+
+    /**
+     * Een pad- of queryparameter die niet te converteren is: 400 met de vaste tekst, zoals de spec
+     * declareert, en geen 404 zoals Jakarta REST zelf zou geven. Met de validator op het antwoord;
+     * het verzoek schendt de spec met opzet.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["/api/v1/berichten?pagina=abc", "/api/v1/berichten/geen-uuid?magazijnId=00000001003214345000"])
+    fun `een ongeldige parameter geeft een valide 400 met de vaste tekst`(pad: String) {
+        given()
+            .filter(alleenAntwoordValidatie)
+            .header("X-Ontvanger", ONTVANGER_HEADER)
+            .header("X-Sessie", sessie)
+            .`when`().get(pad)
+            .then()
+            .statusCode(400)
+            .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+            .body("detail", equalTo(FrameworkfoutDetail.PARAMETER_ONGELDIG))
     }
 
     /**

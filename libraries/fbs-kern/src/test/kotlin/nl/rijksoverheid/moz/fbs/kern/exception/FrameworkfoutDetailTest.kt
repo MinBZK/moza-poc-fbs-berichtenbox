@@ -61,7 +61,7 @@ class FrameworkfoutDetailTest {
     }
 
     @Test
-    fun `alleen een 404 met een conversiefout als oorzaak is een ongeldige parameter`() {
+    fun `alleen een NotFoundException met een oorzaak is een ongeldige parameter`() {
         assertTrue(FrameworkfoutDetail.isOngeldigeParameter(NotFoundException(NumberFormatException("abc"))))
         assertFalse(FrameworkfoutDetail.isOngeldigeParameter(NotFoundException("Unable to find matching target resource method")))
         assertFalse(FrameworkfoutDetail.isOngeldigeParameter(BadRequestException(IllegalStateException("kapot"))))
@@ -70,7 +70,7 @@ class FrameworkfoutDetailTest {
 
     @ParameterizedTest
     @ValueSource(
-        strings = ["HTTP 400 Bad Request", "HTTP 404 Not Found", "HTTP 405", " HTTP 415 Unsupported Media Type ", "HTTP 406 Not Acceptable"],
+        strings = ["HTTP 400 Bad Request", "HTTP 404 Not Found", "HTTP 405", " HTTP 415 Unsupported Media Type ", "HTTP 406 Not Acceptable", "HTTP 422 Unknown code"],
     )
     fun `de standaardmelding van het framework wordt herkend`(melding: String) {
         assertTrue(FrameworkfoutDetail.isStandaardmelding(melding))

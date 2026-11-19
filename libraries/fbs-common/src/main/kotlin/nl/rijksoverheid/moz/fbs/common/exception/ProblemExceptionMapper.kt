@@ -29,8 +29,6 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
     private val log = Logger.getLogger(ProblemExceptionMapper::class.java)
 
     override fun toResponse(exception: WebApplicationException): Response {
-        // Een parameter die niet te converteren is, levert in Jakarta REST een 404 op; het pad
-        // bestaat wel, en de spec declareert daarvoor een 400.
         val status = if (FrameworkfoutDetail.isOngeldigeParameter(exception)) {
             Response.Status.BAD_REQUEST.statusCode
         } else {
@@ -125,7 +123,8 @@ private fun clientDetail(exception: WebApplicationException): String? {
 }
 
 /**
- * Of [exception] van de REST-client van Quarkus komt. Die markeert zijn fouten met deze interface.
+ * Of [exception] van de REST-client van Quarkus komt. Die markeert zijn fouten met de interface
+ * `ResteasyReactiveClientProblem`.
  * Herkend op naam en niet met `is`: de library waarin hij staat brengt een eigen `RuntimeDelegate`
  * mee, en die zou als dependency hier elke `Response.status(...)` buiten Quarkus laten falen.
  */

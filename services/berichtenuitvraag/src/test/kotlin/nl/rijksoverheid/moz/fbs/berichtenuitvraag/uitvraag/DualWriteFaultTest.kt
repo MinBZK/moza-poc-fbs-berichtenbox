@@ -178,9 +178,10 @@ class DualWriteFaultTest {
      * Een weigering van het magazijn die de uitvraag ongewijzigd doorgeeft. De melding van de
      * REST-client noemt onze klasse- en methodenamen; die horen niet in een foutantwoord, en de
      * vaste tekst van een frameworkfout (die naar het verzoek van de afnemer wijst) ook niet.
+     * Alleen de statussen die de spec op deze operatie declareert.
      */
     @ParameterizedTest
-    @ValueSource(ints = [400, 405, 406, 409, 415, 422])
+    @ValueSource(ints = [400, 409, 415])
     fun `PATCH magazijn-weigering geeft geen klassenaam en geen frameworktekst door`(status: Int) {
         val id = UUID.randomUUID()
         seedBericht(id)

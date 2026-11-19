@@ -17,8 +17,9 @@ import jakarta.ws.rs.core.Response
  * Rules hoort zo'n technisch detail niet in een foutantwoord. Een afnemer heeft wel iets aan uitleg.
  * Daarom krijgt zo'n antwoord een vaste zin in plaats van een leeg veld.
  *
- * De keuze hangt aan het type van de exception en niet aan de status. Eigen code gooit deze types
- * niet, maar een `WebApplicationException` of een eigen subklasse daarvan. Een fout met dezelfde
+ * De keuze hangt aan het type van de exception en niet aan de status. Eigen code gooit geen
+ * `NotFoundException`, `NotAllowedException`, `NotAcceptableException` of `NotSupportedException`,
+ * maar een `WebApplicationException` of een eigen subklasse daarvan. Een fout met dezelfde
  * status die van een andere dienst komt, zoals een 415 die de uitvraag van het magazijn doorgeeft,
  * zegt niets over het verzoek van de afnemer en krijgt deze tekst dus ook niet.
  *
@@ -32,6 +33,8 @@ object FrameworkfoutDetail {
     const val METHODE_NIET_TOEGESTAAN = "Deze HTTP-methode is op dit pad niet toegestaan."
     const val ACCEPT_NIET_TE_LEVEREN = "Geen van de mediatypes uit de Accept-header kan worden geleverd."
     const val MEDIATYPE_NIET_ONDERSTEUND = "Het mediatype uit de Content-Type-header wordt op dit pad niet ondersteund."
+
+    private const val ONBEKENDE_STATUS = "Unknown code"
 
     private val STANDAARDMELDING = Regex("""HTTP (\d{3})(?: (.+))?""")
 
@@ -54,14 +57,17 @@ object FrameworkfoutDetail {
         exception is NotFoundException && exception.cause != null
 
     /**
-     * Of [melding] de standaardmelding van het framework is, zoals "HTTP 400 Bad Request": precies
-     * de status en zijn reason phrase. Die voegt niets toe aan `title` en `status`; beter geen
+     * Of [melding] de standaardmelding van het framework is, zoals "HTTP 400 Bad Request": de status,
+     * eventueel gevolgd door precies zijn reason phrase. Een status die Jakarta REST niet kent (422)
+     * krijgt van Quarkus de reason phrase "Unknown code". Die voegt niets toe aan `title` en `status`; beter geen
      * `detail` dan die. Een eigen melding die zo begint ("HTTP 409 Bericht is al gelezen") blijft.
      */
     fun isStandaardmelding(melding: String): Boolean {
         val treffer = STANDAARDMELDING.matchEntire(melding.trim()) ?: return false
         val reden = treffer.groupValues[2]
 
-        return reden.isEmpty() || reden == Response.Status.fromStatusCode(treffer.groupValues[1].toInt())?.reasonPhrase
+        val verwacht = Response.Status.fromStatusCode(treffer.groupValues[1].toInt())?.reasonPhrase ?: ONBEKENDE_STATUS
+
+        return reden.isEmpty() || reden == verwacht
     }
 }

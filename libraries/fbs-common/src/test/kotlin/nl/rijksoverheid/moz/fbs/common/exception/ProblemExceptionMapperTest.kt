@@ -468,6 +468,14 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
+    fun `ook een subklasse van een REST-client-fout noemt geen klassenaam`() {
+        val problem = mapper.toResponse(AfgeleideClientFout("when invoking REST Client method: 'nl.x.Client#y'", 409))
+            .entity as Problem
+
+        assertEquals(DOORGEGEVEN_WEIGERING_DETAIL, problem.detail)
+    }
+
+    @Test
     fun `een parameter die niet te converteren is wordt een 400 met de vaste tekst`() {
         val respons = mapper.toResponse(NotFoundException(NumberFormatException("For input string: \"abc\"")))
         val problem = respons.entity as Problem
@@ -496,8 +504,10 @@ class ProblemExceptionMapperTest {
     }
 
     /** Zoals `ClientWebApplicationException` van Quarkus: een gewone exception met de markering. */
-    private class NagebootsteClientFout(melding: String, status: Int) :
+    private open class NagebootsteClientFout(melding: String, status: Int) :
         WebApplicationException(melding, status), ResteasyReactiveClientProblem
+
+    private class AfgeleideClientFout(melding: String, status: Int) : NagebootsteClientFout(melding, status)
 
     private fun waeMetRetryAfter(status: Int, waarde: String) =
         WebApplicationException(Response.status(status).header("Retry-After", waarde).build())

@@ -86,8 +86,8 @@ class FrameworkfoutenTest {
                 .withLevelResolver(
                     LevelResolver.create()
                         .withLevel("validation.request", ValidationReport.Level.IGNORE)
-                        // Zonder deze twee valideert de filter niets als het pad niet in de spec
-                        // gevonden wordt, en blijft de test stil groen.
+                        // Zonder deze twee valideert de filter niets als het pad of de methode
+                        // niet in de spec staat, en blijft de test stil groen.
                         .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
                         .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
                         .build(),
