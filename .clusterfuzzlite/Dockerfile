@@ -8,7 +8,7 @@
 #
 # Een verouderde pin is expres geen blokkade: de build werkt dan gewoon, Maven haalt op wat er in
 # de warme repository ontbreekt. Alleen de voorbereiding is trager tot de pin-PR gemerged is.
-FROM ghcr.io/minbzk/fbs-fuzz-base@sha256:14b5718793a29bf9988727c6adafa5707e86331e0e7d3b66214d1b6917755450
+FROM ghcr.io/minbzk/fbs-fuzz-base@sha256:d138ae737b51984545f23924efa9c9b4691ee1cb8acd59140f65943c906373fd
 COPY . $SRC/moza-poc-fbs-berichtenbox
 WORKDIR $SRC/moza-poc-fbs-berichtenbox
 RUN chmod +x mvnw
