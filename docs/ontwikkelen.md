@@ -96,11 +96,12 @@ Over die forks:
   andere module forks, dan horen de map en `TestClassesIndexTest` daar ook in. Een achtergebleven
   bestand `target/test-classes/test-classes.idx` van een build zonder die map laat het kopiëren
   van de map falen; `clean` lost dat op.
-- Elke fork moet zijn eigen poort kunnen pakken. Een testconfiguratie met een vaste
-  `quarkus.http.test-port` of een vaste WireMock-poort laat forks op elkaar botsen; gebruik
-  `quarkus.http.test-port=0` en `wireMockConfig().dynamicPort()`. Alleen in een module die zelf
-  een HTTP-server start: de sessiecache heeft er geen, en daar levert de sleutel alleen een
-  "Unrecognized configuration key"-waarschuwing op.
+- Elke fork moet zijn eigen poort kunnen pakken, en elke module ook, want onder `-T` lopen ze naast
+  elkaar. Een vaste `quarkus.http.test-port`, de standaard 8081 incluis, of een vaste WireMock-poort
+  laat ze op elkaar botsen (`QuarkusBindException: Port already bound: 8081`); zet
+  `quarkus.http.test-port=0` in de testconfiguratie en gebruik `wireMockConfig().dynamicPort()`.
+  Alleen in een module die zelf een HTTP-server start: de sessiecache heeft er geen, en daar levert
+  de sleutel alleen een "Unrecognized configuration key"-waarschuwing op.
 - De tests zonder Quarkus draaien daarna apart, in de Surefire-executie `gewone-tests` met één
   fork. In één JVM met Quarkus-tests kan een MockK-mock uit zo'n test een latere `any()` in een
   Quarkus-test breken (`InstantiationError` op een interface); `TestsoortFilter` in de

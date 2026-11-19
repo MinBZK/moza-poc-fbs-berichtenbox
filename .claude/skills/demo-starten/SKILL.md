@@ -65,9 +65,6 @@ alleen in een cookie, zoals de browser dat doet bij een klik op een bijlage.
   zoek naar een proxy- of DNS-probleem.
 - **Het bedieningspaneel blijft altijd op loopback** (poort 8095). Het heeft geen authenticatie en
   zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
-- **De stack bezet poort 8081.** Elke `@QuarkusTest` faalt daarop met "Failed to start quarkus" /
-  "Port already bound" — een melding die de oorzaak niet noemt. De stack hoeft niet plat: voeg
-  `-Dquarkus.http.test-port=0` toe aan de Maven-aanroep.
 - **Een storing uitlokken doe je hier, niet op ZAD.** De storingsknoppen van het magazijn bestaan
   daar niet, en een profiel-storing raakt de aanlevering er niet: die gaat direct, niet via
   toxiproxy.

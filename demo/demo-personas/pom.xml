@@ -74,7 +74,10 @@
             </plugin>
             <!-- De testhulp die de ingerichte persona's leest, gaat mee als test-jar: de
                  demo-console toetst zijn eigen dataset ertegen en mag daar geen tweede parser
-                 voor bouwen. Twee parsers die uiteenlopen zouden allebei groen blijven. -->
+                 voor bouwen. Twee parsers die uiteenlopen zouden allebei groen blijven.
+                 Zonder de eigen testconfiguratie: Quarkus leest elke application.properties op
+                 het classpath, en die van deze module zou dan ook in de tests van de console
+                 gelden. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -83,6 +86,11 @@
                         <goals>
                             <goal>test-jar</goal>
                         </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>application.properties</exclude>
+                            </excludes>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
