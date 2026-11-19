@@ -5,6 +5,7 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.Foutspoor
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import org.jboss.logging.Logger
 import java.net.URI
 import java.util.UUID
@@ -19,7 +20,8 @@ import java.util.UUID
  *   geknipt, stacktrace-achtige content gefilterd) en in `detail` opgenomen. Zo blijven
  *   eigen `throw WebApplicationException("Header X verplicht", 400)` constructies nuttig,
  *   terwijl Jakarta-defaults en per ongeluk doorgegeven interne messages geen kanaal
- *   krijgen om bijv. stacktraces of SQL-fragmenten door te geven.
+ *   krijgen om bijv. stacktraces of SQL-fragmenten door te geven. Een 404, 405, 406 of 415 die
+ *   niet uit een [FbsFoutException] komt, krijgt een vaste tekst (zie [clientDetail]).
  */
 @Provider
 class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
@@ -82,13 +84,30 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 problemResponse(
                     status = status,
                     title = title,
-                    detail = sanitizeClientDetail(exception.message),
+                    detail = clientDetail(exception, status),
                     foutcode = foutcode,
                     instance = URI.create("urn:uuid:$errorId"),
                 ),
             )
         }
     }
+}
+
+/**
+ * Het `detail` van een 4xx. Een [FbsFoutException] houdt zijn eigen melding. Voor de rest kan de
+ * melding ook uit het framework komen, en die beschrijft dan diens interne werking. Bij de statussen
+ * die het framework zelf produceert, krijgt het antwoord daarom de vaste tekst uit
+ * [FrameworkfoutDetail]. Eigen code die zo'n status geeft, gebruikt een [FbsFoutException] en houdt
+ * zo zijn melding.
+ */
+private fun clientDetail(exception: WebApplicationException, status: Int): String? {
+    if (exception !is FbsFoutException) {
+        FrameworkfoutDetail.voorStatus(status)?.let { return it }
+
+        if (exception.message?.let(FrameworkfoutDetail::isStandaardmelding) == true) return null
+    }
+
+    return sanitizeClientDetail(exception.message)
 }
 
 private const val MAX_CLIENT_DETAIL_LENGTH = 500

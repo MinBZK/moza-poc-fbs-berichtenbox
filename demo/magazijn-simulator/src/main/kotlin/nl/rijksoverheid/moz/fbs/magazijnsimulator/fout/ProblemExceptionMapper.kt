@@ -4,6 +4,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
 import org.jboss.logging.Logger
 import java.util.UUID
@@ -59,10 +60,23 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         return problemResponse(
             status = status,
             title = title,
-            detail = veiligDetail(exception.message),
+            detail = clientDetail(exception, status),
             foutId = foutId,
             foutcode = foutcode,
         )
+    }
+
+    /**
+     * Het `detail` van een 4xx. Een [SimulatorFout] houdt zijn eigen melding. Voor de rest kan de
+     * melding uit het framework komen, en die beschrijft dan diens interne werking. Bij de statussen
+     * die het framework zelf produceert, krijgt het antwoord daarom de vaste tekst uit
+     * [FrameworkfoutDetail], net als bij het echte magazijn. Eigen code die zo'n status geeft,
+     * gebruikt een [SimulatorFout] en houdt zo zijn melding.
+     */
+    private fun clientDetail(exception: WebApplicationException, status: Int): String? {
+        if (exception !is SimulatorFout) FrameworkfoutDetail.voorStatus(status)?.let { return it }
+
+        return veiligDetail(exception.message)
     }
 
     /**
@@ -79,7 +93,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         // De standaardmelding van het framework ("HTTP 400 Bad Request") voegt niets toe aan `title`
         // en `status`, en zet er een Engelse zin in een verder Nederlandstalig antwoord. Beter geen
         // `detail` dan die.
-        if (STANDAARDMELDING.matches(opgeschoond)) return null
+        if (FrameworkfoutDetail.isStandaardmelding(opgeschoond)) return null
 
         return if (INTERNE_SPOREN.containsMatchIn(opgeschoond)) null else opgeschoond
     }
@@ -89,9 +103,6 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         /** Alles onder spatie is een controlteken; die horen niet in een antwoord. */
         const val EERSTE_LEESBARE_TEKEN = 0x20
-
-        /** Wat Quarkus zelf invult als er geen echte melding is. */
-        val STANDAARDMELDING = Regex("""HTTP \d{3}( .*)?""")
 
         /** Stacktrace-achtige inhoud: een `at `-frame of een bron-verwijzing met regelnummer. */
         val INTERNE_SPOREN = Regex("""\bat [\w.$]+\(|\.(java|kt):\d+""")

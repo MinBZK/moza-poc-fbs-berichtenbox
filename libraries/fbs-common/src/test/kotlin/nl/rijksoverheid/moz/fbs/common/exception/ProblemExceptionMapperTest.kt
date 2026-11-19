@@ -2,9 +2,12 @@ package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.InternalServerErrorException
+import jakarta.ws.rs.NotAcceptableException
 import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.NotSupportedException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -15,6 +18,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.text.MessageFormat
 import java.util.logging.Handler
@@ -50,13 +54,13 @@ class ProblemExceptionMapperTest {
 
     @Test
     fun `behoudt 4xx detail zodat client weet wat er mis is`() {
-        val response = mapper.toResponse(NotFoundException("bericht niet gevonden"))
+        val response = mapper.toResponse(BadRequestException("bericht niet leesbaar"))
 
-        assertEquals(404, response.status)
+        assertEquals(400, response.status)
         val problem = response.entity as Problem
-        assertEquals(404, problem.status)
-        assertEquals("Not Found", problem.title)
-        assertEquals("bericht niet gevonden", problem.detail)
+        assertEquals(400, problem.status)
+        assertEquals("Bad Request", problem.title)
+        assertEquals("bericht niet leesbaar", problem.detail)
         // 4xx krijgt een correlation-id voor support-traceability (zonder detail te maskeren).
         assertNotNull(problem.instance)
         assertTrue(problem.instance!!.toString().startsWith("urn:uuid:"))
@@ -415,6 +419,47 @@ class ProblemExceptionMapperTest {
         assertTrue(problem.type.toString().startsWith("urn:fbs:fout:"), "onverwacht kenmerk ${problem.type}")
     }
 
+    /**
+     * Een 404, 405, 406 of 415 komt meestal uit het framework, en diens melding beschrijft zijn eigen
+     * werking. Die gaat niet mee; het antwoord krijgt de vaste tekst uit [FrameworkfoutDetail].
+     */
+    @ParameterizedTest
+    @MethodSource("frameworkfouten")
+    fun `een frameworkfout krijgt de vaste tekst in plaats van zijn eigen melding`(exception: WebApplicationException) {
+        val problem = mapper.toResponse(exception).entity as Problem
+
+        assertEquals(FrameworkfoutDetail.voorStatus(exception.response.status), problem.detail)
+    }
+
+    @Test
+    fun `een eigen 404 houdt zijn melding`() {
+        val fout = FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
+
+        val problem = mapper.toResponse(fout).entity as Problem
+
+        assertEquals("Bericht niet gevonden", problem.detail)
+    }
+
+    @Test
+    fun `de standaardmelding van het framework op een andere status levert geen detail`() {
+        val problem = mapper.toResponse(BadRequestException()).entity as Problem
+
+        assertNull(problem.detail)
+    }
+
     private fun waeMetRetryAfter(status: Int, waarde: String) =
         WebApplicationException(Response.status(status).header("Retry-After", waarde).build())
+
+    private companion object {
+
+        /** De meldingen zoals Quarkus REST ze meegeeft, plus de kale standaardmelding. */
+        @JvmStatic
+        fun frameworkfouten(): List<WebApplicationException> = listOf(
+            NotFoundException("Unable to find matching target resource method"),
+            NotFoundException(),
+            WebApplicationException("HTTP 405 Method Not Allowed", 405),
+            NotAcceptableException("The accept header value did not match the value in @Produces"),
+            NotSupportedException("The content-type header value did not match the value in @Consumes"),
+        )
+    }
 }
