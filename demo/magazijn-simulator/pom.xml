@@ -43,7 +43,7 @@
             <artifactId>fbs-kern</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- De Verifier-kant van rechtstreeks ophalen: dezelfde code die het echte magazijn straks gebruikt. -->
+        <!-- De Verifier-kant van rechtstreeks ophalen uit de library, geen eigen kopie in de simulator. -->
         <dependency>
             <groupId>nl.rijksoverheid.moz</groupId>
             <artifactId>fbs-rechtstreeks</artifactId>
@@ -178,8 +178,8 @@
                             <inputSpec>${api.spec.dir}/rechtstreeks-ophalen-api.yaml</inputSpec>
                             <generatorName>jaxrs-spec</generatorName>
                             <output>${project.build.directory}/generated-sources/openapi</output>
-                            <apiPackage>${api.base.package}.rechtstreeks.api</apiPackage>
-                            <modelPackage>${api.base.package}.rechtstreeks.api.model</modelPackage>
+                            <apiPackage>${api.base.package}.api.rechtstreeks</apiPackage>
+                            <modelPackage>${api.base.package}.api.rechtstreeks.model</modelPackage>
                             <apisToGenerate>RechtstreeksOphalen</apisToGenerate>
                             <modelsToGenerate>MagazijnsessieVerzoek</modelsToGenerate>
                             <schemaMappings>

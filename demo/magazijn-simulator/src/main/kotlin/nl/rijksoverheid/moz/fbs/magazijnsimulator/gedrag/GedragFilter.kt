@@ -60,6 +60,9 @@ class GedragFilter(
 
         if (gedrag.modus == GedragModus.NORMAAL && gedrag.latencyP50Ms == 0) return
 
+        // Op de tweede ingang kent het contract alleen `503`; de log noemt wat de app werkelijk krijgt.
+        val foutStatus = if (rechtstreeks) Response.Status.SERVICE_UNAVAILABLE.statusCode else gedrag.foutStatus
+
         if (!wacht(uitvoering.vertragingMs(magazijn.oin, gedrag))) {
             requestContext.abortWith(afgebroken(rechtstreeks))
 
@@ -72,22 +75,25 @@ class GedragFilter(
         // alsnog een gezond antwoord met echte berichten krijgen: dan spreekt het magazijn zijn eigen
         // overzicht tegen. Het antwoord komt dus te laat én zegt dat er niets te halen viel.
         if (gedrag.modus == GedragModus.UIT) {
-            meld(magazijn.oin, gedrag, gedrag.foutStatus)
-            requestContext.abortWith(storing(gedrag, rechtstreeks))
+            meld(magazijn.oin, gedrag, foutStatus)
+            requestContext.abortWith(storing(gedrag, foutStatus, rechtstreeks))
 
             return
         }
 
         if (gedrag.modus == GedragModus.MALFORMED) {
-            meld(magazijn.oin, gedrag, Response.Status.OK.statusCode)
+            // Een geslaagde POST wordt 201 in CreatedStatusFilter; de log noemt wat de app krijgt.
+            val geslaagd = if (requestContext.method == "POST") Response.Status.CREATED else Response.Status.OK
+
+            meld(magazijn.oin, gedrag, geslaagd.statusCode)
             requestContext.abortWith(onbruikbaarAntwoord(rechtstreeks))
 
             return
         }
 
         if (uitvoering.valtOm(magazijn.oin, gedrag)) {
-            meld(magazijn.oin, gedrag, gedrag.foutStatus)
-            requestContext.abortWith(storing(gedrag, rechtstreeks))
+            meld(magazijn.oin, gedrag, foutStatus)
+            requestContext.abortWith(storing(gedrag, foutStatus, rechtstreeks))
         }
     }
 
@@ -136,8 +142,9 @@ class GedragFilter(
     )
 
     /**
-     * Een antwoord dat de aanroeper wél krijgt maar niet kan gebruiken: status 200, `application/json`,
-     * en een body die niet aan het schema voldoet.
+     * Een antwoord dat de aanroeper wél krijgt maar niet kan gebruiken: een geslaagde status met een
+     * body die niet aan het contract voldoet (`application/json` op de eerste ingang, `application/jose`
+     * die geen JWS of JWE is op de tweede).
      *
      * Dit is de tak die de Berichtenbox ánders behandelt dan onbereikbaarheid — hij telt niet mee
      * voor de circuit breaker — en die zonder deze modus in een demo nooit geraakt wordt, terwijl
@@ -149,18 +156,14 @@ class GedragFilter(
         Response.ok().type(MediaType.APPLICATION_JSON_TYPE).entity(ONBRUIKBARE_BODY).build()
     }
 
-    private fun storing(gedrag: Gedrag, rechtstreeks: Boolean): Response {
-        val status = if (rechtstreeks) Response.Status.SERVICE_UNAVAILABLE.statusCode else gedrag.foutStatus
-
-        return metRetryAfter(
-            problemResponse(
-                status = status,
-                title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error",
-                detail = "Dit magazijn is ingesteld op ${gedrag.modus.name.lowercase()}",
-            ),
-            rechtstreeks,
-        )
-    }
+    private fun storing(gedrag: Gedrag, status: Int, rechtstreeks: Boolean): Response = metRetryAfter(
+        problemResponse(
+            status = status,
+            title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error",
+            detail = "Dit magazijn is ingesteld op ${gedrag.modus.name.lowercase()}",
+        ),
+        rechtstreeks,
+    )
 
     private fun metRetryAfter(antwoord: Response, rechtstreeks: Boolean): Response =
         if (rechtstreeks) Response.fromResponse(antwoord).header("Retry-After", OPNIEUW_NA_SECONDEN).build() else antwoord

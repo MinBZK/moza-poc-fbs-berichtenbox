@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.security.KeyFactory
 import java.security.KeyPair
+import java.security.PrivateKey
 import java.security.interfaces.ECPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
@@ -63,9 +64,16 @@ class RechtstreeksTest {
     lateinit var magazijnen: GesimuleerdeMagazijnen
 
     /** Een app met een eigen sleutel en een credential van de test-App Manager op die sleutel. */
-    class App(nu: Instant, val paar: KeyPair = TestApp.sleutelpaar(), claims: Map<String, Any> = emptyMap(), kid: String = KID) {
+    class App(
+        nu: Instant,
+        val paar: KeyPair = TestApp.sleutelpaar(),
+        claims: Map<String, Any> = emptyMap(),
+        kid: String = KID,
+        uitgever: PrivateKey = appManager().private,
+        private val nonceSleutel: PrivateKey = paar.private,
+    ) {
         val aes: ByteArray = TestApp.aesSleutel()
-        val credential: String = TestApp.es256(credentialClaims(paar, nu) + claims, appManager().private, kid)
+        val credential: String = TestApp.es256(credentialClaims(paar, nu) + claims, uitgever, kid)
 
         /** Het sessieverzoek voor een nieuwe challenge van magazijn [oin], met de nonce ondertekend voor [aud]. */
         fun sessieVerzoek(oin: String, aud: String = oin, certificaatSoort: String = "app_manager_jwt_certificate"): Pair<String, Map<String, Any>> {
@@ -87,7 +95,7 @@ class RechtstreeksTest {
             val nonce = challenge["nonce"] as String
 
             val presentatie = mapOf(
-                "app_nonce_signature" to TestApp.es256(mapOf("sub" to "challenge_response", "aud" to aud, "nonce" to nonce), paar.private),
+                "app_nonce_signature" to TestApp.es256(mapOf("sub" to "challenge_response", "aud" to aud, "nonce" to nonce), nonceSleutel),
                 "certificate_type" to certificaatSoort,
                 "certificate" to credential,
                 "session_aes_key" to Base64.getEncoder().encodeToString(aes),
@@ -214,6 +222,71 @@ class RechtstreeksTest {
 
         given().contentType(ContentType.JSON).body(verlopen.sessieVerzoek(MAGAZIJN_A).first).post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
             .then().statusCode(401)
+
+        // Een bekende kid, maar ondertekend met een andere sleutel dan die van de App Manager.
+        val vervalst = App(nu, uitgever = TestApp.sleutelpaar().private)
+
+        given().contentType(ContentType.JSON).body(vervalst.sessieVerzoek(MAGAZIJN_A).first).post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
+            .then().statusCode(401)
+
+        // De juiste sleutel en kid, maar een uitgever die niet vertrouwd is: de sleutel hoort bij iss, niet alleen bij kid.
+        val andereUitgever = App(nu, claims = mapOf("iss" to "00000000000000001200"))
+
+        given().contentType(ContentType.JSON).body(andereUitgever.sessieVerzoek(MAGAZIJN_A).first).post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
+            .then().statusCode(401)
+
+        // De nonce ondertekend met een andere sleutel dan die in cnf.jwk: een gestolen credential.
+        val gestolen = App(nu, nonceSleutel = TestApp.sleutelpaar().private)
+
+        given().contentType(ContentType.JSON).body(gestolen.sessieVerzoek(MAGAZIJN_A).first).post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
+            .then().statusCode(401)
+    }
+
+    @Test
+    fun `een afgewezen presentatie noemt geen ongeldig token, ook niet als de app er een meestuurt`() {
+        val (body, _) = App(klok.instant(), kid = "onbekend").sessieVerzoek(MAGAZIJN_A)
+
+        given().contentType(ContentType.JSON).header("Authorization", "Bearer oud-token").body(body).post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
+            .then().statusCode(401).header("WWW-Authenticate", "Bearer realm=\"$MAGAZIJN_A\"")
+    }
+
+    @Test
+    fun `een volle sessie-opslag geeft 503, en daarna is de nonce verbruikt`() {
+        // Eén app-sleutel bij C, tot het quotum per houder vol is. Met de vaste klok verlopen die
+        // sessies in deze testrun niet; alleen deze app gebruikt die sleutel.
+        val app = App(klok.instant())
+        val statussen = (1..MAX_SESSIES_PER_HOUDER).map {
+            given().contentType(ContentType.JSON).body(app.sessieVerzoek(MAGAZIJN_C).first).post("${basis(MAGAZIJN_C)}/rechtstreeks/sessies")
+                .then().extract().statusCode()
+        }
+
+        assertEquals(List(MAX_SESSIES_PER_HOUDER) { 201 }, statussen)
+
+        val (body, _) = app.sessieVerzoek(MAGAZIJN_C)
+
+        valideer(MAGAZIJN_C).contentType(ContentType.JSON).body(body).post("${basis(MAGAZIJN_C)}/rechtstreeks/sessies")
+            .then().statusCode(503).header("Retry-After", "900").header("Access-Control-Allow-Origin", "*")
+
+        // Wat de spec bij ServiceUnavailable zegt: de nonce kan dan al verbruikt zijn.
+        given().contentType(ContentType.JSON).body(body).post("${basis(MAGAZIJN_C)}/rechtstreeks/sessies")
+            .then().statusCode(401)
+    }
+
+    @Test
+    fun `een herhaalde Authorization-header faalt dicht, ook als een van beide geldig is`() {
+        val token = App(klok.instant()).sessie(MAGAZIJN_A)
+
+        listOf(listOf("Bearer $token", "Bearer onbekend"), listOf("Bearer onbekend", "Bearer $token"), listOf("Bearer $token", "Bearer $token")).forEach { waarden ->
+            waarden.fold(given()) { verzoek, waarde -> verzoek.header("Authorization", waarde) }
+                .get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
+                .then().statusCode(401).header("WWW-Authenticate", "Bearer realm=\"$MAGAZIJN_A\"")
+        }
+    }
+
+    @Test
+    fun `een geslaagd antwoord is application-jose, ook als de app alleen problem-json accepteert`() {
+        given().accept("application/problem+json").post("${basis(MAGAZIJN_A)}/rechtstreeks/challenges")
+            .then().statusCode(201).contentType("application/jose")
     }
 
     @Test
@@ -266,6 +339,10 @@ class RechtstreeksTest {
 
                 valideer(MAGAZIJN_C).post("${basis(MAGAZIJN_C)}/rechtstreeks/challenges")
                     .then().statusCode(503).header("Retry-After", "30").header("Access-Control-Allow-Origin", "*")
+                valideer(MAGAZIJN_C).contentType(ContentType.JSON).body("{}").post("${basis(MAGAZIJN_C)}/rechtstreeks/sessies")
+                    .then().statusCode(503).header("Retry-After", "30")
+                valideer(MAGAZIJN_C).get("${basis(MAGAZIJN_C)}/rechtstreeks/berichten")
+                    .then().statusCode(503).header("Retry-After", "30")
             }
 
             magazijnen.stelGedragBij(MAGAZIJN_C, Gedrag(GedragModus.MALFORMED))
@@ -275,6 +352,11 @@ class RechtstreeksTest {
                 .contentType("application/jose").extract().asString()
 
             assertFalse(COMPACT_JWS.matches(onbruikbaar))
+
+            val geenSessie = given().contentType(ContentType.JSON).body("{}").post("${basis(MAGAZIJN_C)}/rechtstreeks/sessies")
+                .then().statusCode(201).contentType("application/jose").extract().asString()
+
+            assertFalse(COMPACT_JWE.matches(geenSessie))
         } finally {
             magazijnen.herstelGedrag()
         }
@@ -294,7 +376,8 @@ class RechtstreeksTest {
         val vol = valideer(MAGAZIJN_B).post("${basis(MAGAZIJN_B)}/rechtstreeks/challenges").then()
             .statusCode(503).header("Access-Control-Allow-Origin", "*").extract()
 
-        assertTrue(vol.header("Retry-After").toInt() >= 1)
+        // Met de vaste klok verloopt de oudste nonce precies na zijn levensduur.
+        assertEquals("60", vol.header("Retry-After"))
     }
 
     @Test
@@ -305,10 +388,23 @@ class RechtstreeksTest {
             .options("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
             .then().statusCode(204)
             .header("Access-Control-Allow-Origin", "*")
-            .header("Access-Control-Allow-Headers", containsString("Authorization"))
-            .header("Access-Control-Allow-Methods", containsString("POST"))
+            .header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            .header("Access-Control-Allow-Methods", "GET, POST")
             .header("Access-Control-Max-Age", "600")
+            .header("API-Version", containsString("."))
             .header("Access-Control-Allow-Credentials", nullValue())
+
+        given().header("Origin", "https://app.test")
+            .header("Access-Control-Request-Method", "GET")
+            .header("Access-Control-Request-Headers", "authorization")
+            .options("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
+            .then().statusCode(204).header("Access-Control-Allow-Methods", "GET, POST")
+
+        // Een pad dat er alleen op lijkt, valt erbuiten.
+        given().header("Origin", "https://app.test")
+            .header("Access-Control-Request-Method", "POST")
+            .options("${basis(MAGAZIJN_A)}/rechtstreeksx")
+            .then().header("Access-Control-Allow-Origin", nullValue())
     }
 
     @Test
@@ -332,12 +428,38 @@ class RechtstreeksTest {
         valideer(MAGAZIJN_A).contentType(ContentType.JSON).body("{}").post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies").then().statusCode(400)
     }
 
+    @Test
+    fun `de foutantwoorden van het framework op de tweede ingang voldoen aan het contract`() {
+        val token = App(klok.instant()).sessie(MAGAZIJN_A)
+        val berichten = "${basis(MAGAZIJN_A)}/rechtstreeks/berichten"
+
+        valideer(MAGAZIJN_A).accept(ContentType.JSON).post("${basis(MAGAZIJN_A)}/rechtstreeks/challenges")
+            .then().statusCode(406).header("Access-Control-Allow-Origin", "*")
+        valideer(MAGAZIJN_A).accept(ContentType.JSON).contentType(ContentType.JSON).body("{}").post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
+            .then().statusCode(406)
+        valideer(MAGAZIJN_A).contentType(ContentType.TEXT).body("x").post("${basis(MAGAZIJN_A)}/rechtstreeks/sessies")
+            .then().statusCode(415).header("Access-Control-Allow-Origin", "*")
+        valideer(MAGAZIJN_A).accept(ContentType.JSON).header("Authorization", "Bearer $token").get(berichten).then().statusCode(406)
+        // Validatie gaat vóór de sessie: ook zonder token een 400.
+        valideer(MAGAZIJN_A).queryParam("pageSize", 0).get(berichten).then().statusCode(400)
+        valideer(MAGAZIJN_A).header("Authorization", "Bearer $token").queryParam("pageSize", 0).get(berichten).then().statusCode(400)
+        valideer(MAGAZIJN_A).header("Authorization", "Bearer $token").get("$berichten/geen-uuid").then().statusCode(404)
+        valideer(MAGAZIJN_A).header("Authorization", "Bearer onbekend").get("$berichten/$BERICHT_ID").then().statusCode(401)
+    }
+
     /** Toetst alleen de antwoorden: de foutgevallen sturen bewust een verzoek dat niet aan de spec voldoet. */
     private fun valideer(oin: String) = given().filter(
         OpenApiValidationFilter(
             OpenApiInteractionValidator.createForSpecificationUrl("openapi/rechtstreeks-ophalen-api.yaml")
                 .withBasePathOverride(basis(oin))
-                .withLevelResolver(LevelResolver.create().withLevel("validation.request", ValidationReport.Level.IGNORE).build())
+                .withLevelResolver(
+                    LevelResolver.create()
+                        .withLevel("validation.request", ValidationReport.Level.IGNORE)
+                        // Zonder deze twee slaagt een test op een pad dat niet in de spec staat stil, zonder iets te toetsen.
+                        .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
+                        .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
+                        .build(),
+                )
                 .build(),
         ),
     )
@@ -352,6 +474,7 @@ class RechtstreeksTest {
         const val APP_MANAGER_OIN = "00000000000000001100"
         const val KID = "test-1"
         const val MAX_CHALLENGES_PER_CLIENT = 20
+        const val MAX_SESSIES_PER_HOUDER = 20
 
         private const val SLEUTEL_PROPERTY = "fbs.test.rechtstreeks.app-manager"
 

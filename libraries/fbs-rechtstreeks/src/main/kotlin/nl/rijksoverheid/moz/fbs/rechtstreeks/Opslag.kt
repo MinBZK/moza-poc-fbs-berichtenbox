@@ -82,9 +82,9 @@ interface SessieOpslag {
  * het, en daartegen helpt alleen een stateless nonce (zie [ChallengeOpslag]).
  *
  * De aanroeper bepaalt `client`. Achter een ingress is dat het adres dat de vertrouwde proxy
- * doorgeeft (Quarkus: `quarkus.http.proxy.proxy-address-forwarding` met `trusted-proxies`), nooit
- * een header die de client zelf kan zetten; anders deelt iedereen het adres van de proxy. Een
- * IPv6-adres telt per /64.
+ * doorgeeft, nooit een waarde die de client zelf kan zetten; anders deelt iedereen het adres van de
+ * proxy. Niet `quarkus.http.proxy.proxy-address-forwarding`: dat neemt de eerste waarde van
+ * `X-Forwarded-For`, en die kiest de client. Een IPv6-adres telt per /64.
  */
 class GeheugenOpslag(
     private val klok: Clock,

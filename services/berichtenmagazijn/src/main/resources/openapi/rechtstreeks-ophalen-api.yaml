@@ -67,7 +67,7 @@ info:
     - een preflight (`OPTIONS`) krijgt zonder sessietoken `204` met
       `Access-Control-Allow-Methods: GET, POST`,
       `Access-Control-Allow-Headers: Authorization, Content-Type` en
-      `Access-Control-Max-Age: 600`;
+      `Access-Control-Max-Age: 600`, en ook daar `API-Version`;
     - er gaan geen credentials mee: toegang hangt aan het sessietoken in `Authorization`, niet
       aan een cookie.
 

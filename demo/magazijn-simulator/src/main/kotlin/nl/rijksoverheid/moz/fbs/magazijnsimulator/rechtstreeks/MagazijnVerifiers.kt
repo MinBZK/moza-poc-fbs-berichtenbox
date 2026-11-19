@@ -20,9 +20,8 @@ import java.util.concurrent.ConcurrentHashMap
  * sessies per OIN, dus een token van magazijn A werkt niet bij magazijn B.
  *
  * Elk magazijn ondertekent zijn challenges met een eigen sleutel, gemaakt bij de eerste challenge. De
- * `kid` draagt het moment van de start, zodat dezelfde `kid` nooit twee sleutels aanwijst. De app
- * controleert die handtekening nog niet; zodra dat tegen het stelseldocument gebeurt, moeten de
- * public keys daar staan.
+ * `kid` draagt het moment van de start, zodat dezelfde `kid` nooit twee sleutels aanwijst. Zolang
+ * de sleutel nergens gepubliceerd staat, kan een app hem niet tegen het stelseldocument controleren.
  * TODO(#1215): sleutels per OIN uit de set van genereer-magazijnen.py, gepubliceerd in het stelseldocument.
  */
 @Startup
@@ -36,7 +35,7 @@ class MagazijnVerifiers(config: RechtstreeksConfig, private val klok: Clock) {
     private val start = klok.instant().epochSecond
     private val verifiers = ConcurrentHashMap<String, Verifier>()
 
-    val vertrouwdeProxies: List<ClientAdres.Netwerk> = config.vertrouwdeProxies().orElse(emptyList()).map(ClientAdres.Netwerk::van)
+    val vertrouwdeProxies: List<ClientAdres.Netwerk> = vertrouwdeProxies(config)
 
     init {
         val aantal = appManagers.keys.map { it.first }.distinct().size
@@ -46,6 +45,9 @@ class MagazijnVerifiers(config: RechtstreeksConfig, private val klok: Clock) {
         } else {
             log.infof("Rechtstreeks ophalen: %d App Manager(s) vertrouwd", aantal)
         }
+
+        // Achter een ingress deelt dan iedereen het adres van de router, en daarmee één quotum.
+        if (vertrouwdeProxies.isEmpty()) log.info("Rechtstreeks ophalen: geen vertrouwde proxies; het quotum telt per directe peer")
 
         appManagers.filterValues { !it.geldigTot.isAfter(klok.instant()) }.keys.forEach { (oin, kid) ->
             log.warnf("Rechtstreeks ophalen: sleutel %s van App Manager %s is verlopen", kid, oin)
@@ -72,6 +74,15 @@ class MagazijnVerifiers(config: RechtstreeksConfig, private val klok: Clock) {
 
         private val ONBEPAALD: Instant = Instant.parse("9999-12-31T00:00:00Z")
         private val OIN = Regex("[0-9]{20}")
+
+        /** Fail-fast bij de start, met de naam van de instelling in de melding. */
+        fun vertrouwdeProxies(config: RechtstreeksConfig): List<ClientAdres.Netwerk> = config.vertrouwdeProxies().orElse(emptyList()).map { netwerk ->
+            try {
+                ClientAdres.Netwerk.van(netwerk)
+            } catch (fout: IllegalArgumentException) {
+                throw IllegalArgumentException("simulator.rechtstreeks.vertrouwde-proxies: \"$netwerk\" is geen netwerk (adres/prefix)", fout)
+            }
+        }
 
         /** Fail-fast bij de start: een kapotte sleutel in de configuratie hoort de boot te laten falen. */
         fun appManagerSleutels(config: RechtstreeksConfig): Map<Pair<String, String>, AppManagerSleutel> =

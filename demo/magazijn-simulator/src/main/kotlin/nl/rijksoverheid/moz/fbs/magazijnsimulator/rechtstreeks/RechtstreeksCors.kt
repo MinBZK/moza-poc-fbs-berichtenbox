@@ -40,6 +40,8 @@ class RechtstreeksCors {
                 .putHeader("Access-Control-Allow-Methods", "GET, POST")
                 .putHeader("Access-Control-Allow-Headers", "Authorization, Content-Type")
                 .putHeader("Access-Control-Max-Age", MAX_AGE_SECONDEN)
+                // Ook hier, want dit antwoord komt niet langs de ApiVersionFilter van JAX-RS.
+                .putHeader("API-Version", ApiInfo.SPEC_VERSION)
                 .end()
 
             return

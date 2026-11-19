@@ -8,11 +8,15 @@ import java.net.InetAddress
  * Wie een quotum van rechtstreeks ophalen draagt: het IP-adres van de aanroeper, voor IPv6 per /64,
  * want één aansluiting krijgt daar een hele /64.
  *
- * Achter een vertrouwde proxy geldt de láátste waarde van `X-Forwarded-For`, over alle regels van
- * die header samen: die waarde zette de proxy zelf. Alles ervóór kan de client verzinnen, en de
- * OpenShift-router (HAProxy) laat een meegestuurde header staan en zet het echte adres in een eigen
- * regel erachter. Daarom niet `quarkus.http.proxy.proxy-address-forwarding`, dat de eerste waarde
- * neemt.
+ * Achter een vertrouwde proxy telt `X-Forwarded-For`, over alle regels van die header samen, van
+ * achteren gelezen: de eerste waarde die zelf geen vertrouwde proxy is. Die zette de laatste proxy;
+ * alles ervóór kan de client verzinnen, want de OpenShift-router (HAProxy) laat een meegestuurde
+ * header staan en zet het echte adres in een eigen regel erachter. Daarom niet
+ * `quarkus.http.proxy.proxy-address-forwarding`, dat de eerste waarde neemt. Vertrouwde waarden
+ * overslaan is voor twee proxies achter elkaar; anders deelt iedereen het adres van de eerste.
+ *
+ * Een vertrouwde peer zonder bruikbare waarde geeft [ONBEKEND], niet het adres van de proxy: zo
+ * valt een proxy op die de header niet zet.
  */
 object ClientAdres {
 
@@ -21,11 +25,21 @@ object ClientAdres {
     /** [xForwardedFor] bevat elke regel van de header, in volgorde. */
     fun bepaal(peer: String?, xForwardedFor: List<String>, vertrouwd: List<Netwerk>): String {
         val direct = ip(peer)
-        val laatste = xForwardedFor.lastOrNull()?.substringAfterLast(',')?.trim()
-        val achterProxy = direct != null && laatste != null && vertrouwd.any { it.bevat(direct) }
-        val adres = if (achterProxy) ip(zonderPoort(laatste)) else direct
 
-        return sleutel(adres)
+        if (direct == null || vertrouwd.none { it.bevat(direct) }) return sleutel(direct)
+
+        val keten = xForwardedFor.flatMap { it.split(',') }.map { ip(zonderPoort(it.trim())) }
+
+        // Een onleesbare waarde breekt de keten: wat ervóór staat, is niet meer aan een proxy toe te schrijven.
+        val vanAchteren = keten.asReversed().takeWhile { it != null }.filterNotNull()
+        val client = vanAchteren.firstOrNull { adres -> vertrouwd.none { it.bevat(adres) } }
+
+        if (client != null) return sleutel(client)
+
+        // Alleen vertrouwde adressen: de client zit zelf in een proxy-netwerk. De verste waarde telt.
+        if (vanAchteren.size == keten.size) return sleutel(vanAchteren.lastOrNull())
+
+        return ONBEKEND
     }
 
     /** Alleen een IP-literal telt: op een naam zou `InetAddress` een DNS-lookup doen. */

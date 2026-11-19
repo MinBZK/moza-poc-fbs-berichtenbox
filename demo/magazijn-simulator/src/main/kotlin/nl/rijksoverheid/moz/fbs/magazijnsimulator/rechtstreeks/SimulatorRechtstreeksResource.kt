@@ -2,8 +2,8 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.RechtstreeksOphalenApi
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.model.MagazijnsessieVerzoek
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.rechtstreeks.RechtstreeksOphalenApi
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.rechtstreeks.model.MagazijnsessieVerzoek
 import org.jboss.logging.Logger
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -36,7 +36,9 @@ class SimulatorRechtstreeksResource(
      * TODO(#1215): berichten lezen binnen de magazijnsessie.
      */
     private fun nogNiet(): Nothing {
-        val token = bearerToken(verzoek.current?.request()?.getHeader(AUTHORIZATION)) ?: throw SessieOntbreektException()
+        // Een herhaalde header faalt dicht: een proxy die de laatste leest, zou een ander token beoordelen.
+        val waarden = verzoek.current?.request()?.headers()?.getAll(AUTHORIZATION).orEmpty()
+        val token = waarden.singleOrNull()?.let(::bearerToken) ?: throw SessieOntbreektException()
 
         verifier().sessie(token)
 

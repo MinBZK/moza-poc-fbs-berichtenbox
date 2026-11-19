@@ -47,8 +47,26 @@ class ClientAdresTest {
     fun `zonder vertrouwde proxy telt het adres van de peer, ook als er een X-Forwarded-For meekomt`() {
         assertEquals("192.0.2.1", bepaal("192.0.2.1", "198.51.100.7", proxy))
         assertEquals("10.128.3.4", bepaal("10.128.3.4", "198.51.100.7", emptyList()))
-        assertEquals("10.128.3.4", bepaal("10.128.3.4", null, proxy))
         assertEquals(ClientAdres.ONBEKEND, bepaal(null, "198.51.100.7", proxy))
+    }
+
+    @Test
+    fun `een vertrouwde proxy zonder X-Forwarded-For geeft onbekend en niet zijn eigen adres`() {
+        assertEquals(ClientAdres.ONBEKEND, bepaal("10.128.3.4", null, proxy))
+        assertEquals(ClientAdres.ONBEKEND, ClientAdres.bepaal("10.128.3.4", listOf(""), proxy))
+    }
+
+    @Test
+    fun `achter twee vertrouwde proxies telt het eerste adres van achteren dat geen proxy is`() {
+        // Client, router, daarna een tweede proxy die het adres van de router toevoegt.
+        assertEquals("198.51.100.7", bepaal("10.128.3.4", "198.51.100.7, 10.129.0.1", proxy))
+        // Een verzonnen waarde vóór het echte adres telt niet, ook niet als die in het proxy-netwerk ligt.
+        assertEquals("198.51.100.7", bepaal("10.128.3.4", "6.6.6.6, 198.51.100.7, 10.129.0.1", proxy))
+        assertEquals("198.51.100.7", bepaal("10.128.3.4", "10.130.0.9, 198.51.100.7, 10.129.0.1", proxy))
+        // Alleen proxy-adressen: de verste waarde, de client zit dan zelf in dat netwerk.
+        assertEquals("10.130.0.9", bepaal("10.128.3.4", "10.130.0.9, 10.129.0.1", proxy))
+        // Onleesbaar tussen de proxies in: wat ervóór staat, is niet meer te vertrouwen.
+        assertEquals(ClientAdres.ONBEKEND, bepaal("10.128.3.4", "198.51.100.7, unknown, 10.129.0.1", proxy))
     }
 
     @Test

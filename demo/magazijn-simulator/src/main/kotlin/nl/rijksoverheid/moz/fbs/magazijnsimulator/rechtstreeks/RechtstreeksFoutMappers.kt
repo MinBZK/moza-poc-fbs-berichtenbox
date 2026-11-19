@@ -1,6 +1,5 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 
-import io.quarkus.vertx.http.runtime.CurrentVertxRequest
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
@@ -8,6 +7,7 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.problemResponse
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
+import nl.rijksoverheid.moz.fbs.rechtstreeks.Afwijzing
 import nl.rijksoverheid.moz.fbs.rechtstreeks.JweOngeldigException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.OpslagVolException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.VerifierFout
@@ -15,22 +15,19 @@ import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.UUID
 
-/** De berichtpaden van de tweede ingang bestaan in het contract, maar de simulator vult ze nog niet. */
-class NogNietBeschikbaarException : RuntimeException("berichten lezen via de tweede ingang volgt nog")
+/** De berichtpaden van de tweede ingang bestaan in het contract; zie `TODO(#1215)` in [SimulatorRechtstreeksResource]. */
+class NogNietBeschikbaarException : RuntimeException("berichtpaden van de tweede ingang zijn niet beschikbaar")
 
-/** Een berichtpad zonder `Authorization: Bearer <token>`; voor de app dezelfde `401` als een onbekende sessie. */
+/** Een berichtpad zonder precies één `Authorization: Bearer <token>`; voor de app dezelfde `401` als een onbekende sessie. */
 class SessieOntbreektException : RuntimeException("geen Bearer-token")
 
 /**
- * Alles wat de Verifier gooit, naar één antwoord per soort. De `when` heeft geen `else`: komt er in
- * de library een soort bij, dan wijst de compiler deze plek aan.
- *
- * Elke afwijzing is voor de app dezelfde `401`, zonder detail over welke controle faalde; alleen de
- * log krijgt de reden, met het correlatie-id uit `instance`. Een JWE die zonder sleutel al niet
- * klopt, is een `400`: dat ziet de app zelf, en de nonce is dan nog niet gebruikt.
+ * Alles wat de Verifier gooit, naar één antwoord per soort. Elke afwijzing is voor de app dezelfde
+ * `401`, zonder detail over welke controle faalde; alleen de log krijgt de reden, met het
+ * correlatie-id uit `instance`.
  */
 @Provider
-class VerifierFoutMapper(private val context: MagazijnContext, private val verzoek: CurrentVertxRequest) : ExceptionMapper<VerifierFout> {
+class VerifierFoutMapper(private val context: MagazijnContext) : ExceptionMapper<VerifierFout> {
 
     private val log = Logger.getLogger(VerifierFoutMapper::class.java)
 
@@ -38,12 +35,12 @@ class VerifierFoutMapper(private val context: MagazijnContext, private val verzo
         val oin = context.magazijn.oin
         val foutId = UUID.randomUUID()
 
-        // De oorzaak is in de library al teruggebracht tot de typen in de keten: veilig om te loggen.
         return when (fout) {
             is AfgewezenException -> {
                 log.infof("Rechtstreeks verzoek bij magazijn %s afgewezen (%s): %s %s", oin, foutId, fout.reden, fout.cause?.message.orEmpty())
 
-                geenToegang(oin, foutId, metToken())
+                // Alleen bij die reden is er een token getoetst; bij het openen van een sessie gaat het om de presentatie.
+                geenToegang(oin, foutId, tokenGetoetst = fout.reden == Afwijzing.SESSIE_ONBEKEND)
             }
 
             is JweOngeldigException -> {
@@ -62,8 +59,6 @@ class VerifierFoutMapper(private val context: MagazijnContext, private val verzo
             }
         }
     }
-
-    private fun metToken(): Boolean = SimulatorRechtstreeksResource.bearerToken(verzoek.current?.request()?.getHeader(AUTHORIZATION)) != null
 }
 
 @Provider
@@ -76,7 +71,7 @@ class SessieOntbreektMapper(private val context: MagazijnContext) : ExceptionMap
 
         log.infof("Rechtstreeks verzoek bij magazijn %s zonder Bearer-token (%s)", context.magazijn.oin, foutId)
 
-        return geenToegang(context.magazijn.oin, foutId, metToken = false)
+        return geenToegang(context.magazijn.oin, foutId, tokenGetoetst = false)
     }
 }
 
@@ -102,13 +97,14 @@ class NogNietBeschikbaarMapper(private val context: MagazijnContext) : Exception
 /**
  * `WWW-Authenticate` is verplicht bij een `401` (RFC 9110) en draagt de OIN als realm, zodat de app
  * weet bij welk magazijn hij opnieuw begint. `error="invalid_token"` alleen als er een Bearer-token
- * meekwam: zonder, ook bij een ander schema of een kaal token, hoort er geen foutcode in (RFC 6750, 3.1).
+ * getoetst en afgewezen is; zonder token, of bij een afgewezen presentatie, hoort er geen foutcode
+ * in (RFC 6750, 3.1).
  */
-private fun geenToegang(oin: String, foutId: UUID, metToken: Boolean): Response {
-    val uitdaging = if (metToken) "Bearer realm=\"$oin\", error=\"invalid_token\"" else "Bearer realm=\"$oin\""
+private fun geenToegang(oin: String, foutId: UUID, tokenGetoetst: Boolean): Response {
+    val wwwAuthenticate = if (tokenGetoetst) "Bearer realm=\"$oin\", error=\"invalid_token\"" else "Bearer realm=\"$oin\""
 
     return Response.fromResponse(problemResponse(UNAUTHORIZED, "Unauthorized", foutId = foutId, foutcode = Foutcode.GEEN_TOEGANG))
-        .header("WWW-Authenticate", uitdaging)
+        .header("WWW-Authenticate", wwwAuthenticate)
         .build()
 }
 
