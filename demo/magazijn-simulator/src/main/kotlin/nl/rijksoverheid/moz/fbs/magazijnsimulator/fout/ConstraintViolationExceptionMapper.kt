@@ -34,7 +34,6 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
 
         // Op info: een geweigerde parameter is geen incident, maar op debug wordt de regel bij het
         // effectieve niveau niet uitgezonden en is het `instance`-id uit het antwoord onvindbaar.
-        // Per schending het pad en de soort regel, niet de waarde of de melding.
         log.infof(
             "Ongeldige invoer, %d schending(en) (foutId=%s, schendingen=%s)",
             exception.constraintViolations.size,

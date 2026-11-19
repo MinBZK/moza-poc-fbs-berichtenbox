@@ -99,11 +99,11 @@ class MagazijnPadFilter(
         // debug aan te zetten, want de 404 die hieruit volgt verrast iemand die een pad stuurt dat
         // er van buiten correct uitziet. Het spoor en niet de exceptie: de melding citeert de hele
         // aangeboden URI, met de query erbij.
-        log.infof(Foutspoor.van(ex), "Pad niet te herschrijven tot een geldige URI")
+        log.infof(Foutspoor.van(ex), "Pad niet te herschrijven tot een geldige URI (magazijn=%s)", oin)
 
         null
     } catch (ex: URISyntaxException) {
-        log.infof(Foutspoor.van(ex), "Pad niet te herschrijven tot een geldige URI")
+        log.infof(Foutspoor.van(ex), "Pad niet te herschrijven tot een geldige URI (magazijn=%s)", oin)
 
         null
     }

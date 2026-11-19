@@ -139,7 +139,7 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
-    fun `de stacktrace in de 4xx-log draagt de types, maar geen message van de keten`() {
+    fun `de 4xx-stack staat op debug, met de types maar geen message van de keten`() {
         // Zo komt een kapotte JSON-body binnen: een 400 met de Jackson-fout als cause, en die
         // melding citeert de aangeboden invoer.
         val jsonFout = jacksonFout("""{"ontvanger": x999993653}""", Any::class.java)
@@ -147,7 +147,9 @@ class ProblemExceptionMapperTest {
 
         mapper.toResponse(exception)
 
-        val thrown = records.single { it.level == Level.INFO }.thrown
+        assertNull(records.single { it.level == Level.INFO }.thrown, "de info-regel draagt geen stack")
+
+        val thrown = records.single { it.level == Level.FINE }.thrown
         assertNotNull(thrown, "de stack moet in LogRecord.thrown blijven staan")
         val weergave = thrown.stackTraceToString()
 

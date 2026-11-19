@@ -42,6 +42,9 @@ class JsonProcessingExceptionMapperLogTest {
     ) {
         val fout = runCatching { objectMapper.readValue(json, type) }.exceptionOrNull() as JsonProcessingException
 
+        // Zonder citaat zou dit geval een mapper die de melding logt niet vangen.
+        assertTrue(herkenbareDelen(waarde).any { fout.message!!.contains(it) }, "Jackson citeert de waarde niet meer: ${fout.message}")
+
         val antwoord = if (fout is MismatchedInputException) {
             MismatchedInputExceptionMapper().toResponse(fout)
         } else {
@@ -70,6 +73,21 @@ class JsonProcessingExceptionMapperLogTest {
         val log = logvanger.tekst()
         assertGeenDeelVan("999993653", log)
         assertTrue(log.contains(IllegalStateException::class.java.name), "het type van de cause hoort in het spoor: $log")
+    }
+
+    abstract class NietTeBouwen
+
+    @Test
+    fun `een model dat Jackson niet kan bouwen, is een eigen fout en komt op error met het spoor`() {
+        val fout = runCatching { objectMapper.readValue("{}", NietTeBouwen::class.java) }.exceptionOrNull() as JsonProcessingException
+
+        val (antwoord, log) = Logvanger().use { logvanger ->
+            JsonProcessingExceptionMapper().toResponse(fout) to logvanger.tekst()
+        }
+
+        assertTrue(log.contains("Jackson-fout buiten de invoer"), log)
+        assertTrue(log.contains(fout.javaClass.name), log)
+        assertTrue(antwoord.status == 400, "het antwoord blijft een 400")
     }
 
     private fun assertGeenDeelVan(waarde: String, log: String) {

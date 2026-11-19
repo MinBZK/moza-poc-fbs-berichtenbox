@@ -41,9 +41,8 @@ class DbConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolation
                 .build()
         } else {
             val errorId = UUID.randomUUID()
-            // Het spoor en niet de exceptie: PostgreSQL zet bij een NOT NULL- of CHECK-schending
-            // `Failing row contains (…)` in de melding, de hele rij met de ontvanger erin. De
-            // SQLState reist in het spoor mee.
+            // Het spoor en niet de exceptie: de melding van een driver kan de rij of het statement
+            // citeren, met de ontvanger erin.
             log.errorf(
                 Foutspoor.van(exception),
                 "DB-constraint geschonden (errorId=%s): state=%s constraint=%s",

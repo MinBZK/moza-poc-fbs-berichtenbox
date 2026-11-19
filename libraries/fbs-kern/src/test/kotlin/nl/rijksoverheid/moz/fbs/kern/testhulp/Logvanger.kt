@@ -10,21 +10,22 @@ import java.util.logging.Logger
  * Vangt elke logregel op en geeft er alles van terug wat een log-backend kan uitschrijven: de
  * melding, de losse parameters en de stacktrace van `thrown`. De eigen code ([categorie]) staat
  * daarbij op het laagste niveau, zodat ook een debug-regel meetelt; de rest logt op zijn gewone
- * niveau.
+ * niveau, tenzij hij in [open] staat.
  *
  * De parameters apart, omdat een backend die anders formatteert dan deze test toch elke parameter
  * uitschrijft; een waarde die alleen in een parameter staat, staat dus ook in de log.
  *
- * De categorieën van Quarkus REST in [QUARKUS_REST_MET_INVOER] zet de vanger níét open. De test-JVM
+ * De categorieën van Quarkus REST in [QUARKUS_REST_MET_INVOER] staan standaard níét open. De test-JVM
  * draait op de `LogManager` van de JDK, en daar past Quarkus zijn logconfiguratie niet toe; open
- * gezet zou de vanger hier een lek melden dat de klem in `application.properties` in een draaiende
- * dienst tegenhoudt. Dat die klem er staat, toetst elke dienst apart.
+ * gezet zou de vanger een lek melden dat de klem in `application.properties` in een draaiende dienst
+ * tegenhoudt. Juist dat maakt [open] bruikbaar als canary: wat er dan lekt, moet uit een geklemde
+ * categorie komen.
  */
-class Logvanger(categorie: String = "nl.rijksoverheid.moz") : AutoCloseable {
+class Logvanger(categorie: String = "nl.rijksoverheid.moz", open: List<String> = emptyList()) : AutoCloseable {
 
     private val root: Logger = Logger.getLogger("")
-    private val eigen: Logger = Logger.getLogger(categorie)
-    private val vorigNiveau: Level? = eigen.level
+    private val opengezet: List<Logger> = (listOf(categorie) + open).map { Logger.getLogger(it) }
+    private val vorigeNiveaus: List<Level?> = opengezet.map { it.level }
     private val regels = mutableListOf<LogRecord>()
 
     private val handler = object : Handler() {
@@ -39,7 +40,7 @@ class Logvanger(categorie: String = "nl.rijksoverheid.moz") : AutoCloseable {
 
     init {
         handler.level = Level.ALL
-        eigen.level = Level.ALL
+        opengezet.forEach { it.level = Level.ALL }
         root.addHandler(handler)
     }
 
@@ -48,18 +49,30 @@ class Logvanger(categorie: String = "nl.rijksoverheid.moz") : AutoCloseable {
      * parameters (`infov`) staat er ook opgemaakt in, zodat een test op de vorm van de regel kan
      * toetsen.
      */
-    fun tekst(): String = synchronized(regels) { regels.toList() }.joinToString("\n") { regel ->
-        listOfNotNull(
-            regel.message,
-            regel.parameters?.let { parameters -> runCatching { MessageFormat.format(regel.message, *parameters) }.getOrNull() },
-            regel.parameters?.joinToString(" | ") { it.toString() },
-            regel.thrown?.stackTraceToString(),
-        ).joinToString("\n")
-    }
+    fun tekst(): String = opgevangen().joinToString("\n") { weergave(it) }
+
+    /**
+     * De categorieën die iets uit [fragmenten] uitschreven. De kant van de testclient
+     * (`org.apache.http`) telt niet mee: die logt het eigen verzoek van de test.
+     */
+    fun bronnenVan(fragmenten: List<String>): Set<String> = opgevangen()
+        .filterNot { it.loggerName.orEmpty().startsWith("org.apache.http") }
+        .filter { regel -> weergave(regel).let { tekst -> fragmenten.any(tekst::contains) } }
+        .map { it.loggerName.orEmpty() }
+        .toSet()
+
+    private fun opgevangen(): List<LogRecord> = synchronized(regels) { regels.toList() }
+
+    private fun weergave(regel: LogRecord): String = listOfNotNull(
+        regel.message,
+        regel.parameters?.let { parameters -> runCatching { MessageFormat.format(regel.message, *parameters) }.getOrNull() },
+        regel.parameters?.joinToString(" | ") { it.toString() },
+        regel.thrown?.stackTraceToString(),
+    ).joinToString("\n")
 
     override fun close() {
         root.removeHandler(handler)
-        eigen.level = vorigNiveau
+        opengezet.zip(vorigeNiveaus).forEach { (logger, niveau) -> logger.level = niveau }
     }
 }
 
@@ -74,11 +87,19 @@ fun herkenbareDelen(waarde: String): List<String> =
 const val MINIMALE_FRAGMENTLENGTE = 6
 
 /**
- * De categorieën van Quarkus REST die een onleesbare body op DEBUG of TRACE loggen met de exceptie
- * zelf, en daarmee de melding van Jackson. Elke dienst die JSON met een ontvanger aanneemt, zet ze
- * vast op INFO.
+ * De categorieën van Quarkus REST die een onleesbare body of een niet te converteren parameter op
+ * DEBUG of TRACE loggen met de exceptie zelf, en daarmee de invoer. Elke dienst die JSON met een
+ * ontvanger aanneemt, zet ze vast op INFO, met `level` en `min-level`.
  */
 val QUARKUS_REST_MET_INVOER = listOf(
     "org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler",
+    "org.jboss.resteasy.reactive.server.handlers.ParameterHandler",
     "org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext",
+    "WebApplicationException",
 )
+
+/** De categorie waarin de REST-client headers en bodies logt; diensten met een client zetten haar vast. */
+const val REST_CLIENT_LOGGING = "org.jboss.resteasy.reactive.client.logging"
+
+/** Wat een canary openzet: de wortels waaronder het framework logt, en de kale categorie van Quarkus REST. */
+val FRAMEWORK_WORTELS = listOf("org", "io", "com", "WebApplicationException")

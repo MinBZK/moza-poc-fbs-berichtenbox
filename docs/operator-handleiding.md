@@ -132,14 +132,20 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
 
 * **PII**: persoonsgegevens (BSN, RSIN, KvK) horen **niet** in de reguliere
   applicatielog (AVG art. 5 lid 1c, BIO 12.4.1). LDV is de enige plek voor
-  `dataSubjectId`; de service forceert dit via `LogboekContextDefaultFilter`
-  + `FoutBeschrijving.saneer()`.
-* **DEBUG aanzetten mag, behalve op twee categorieën van Quarkus REST.**
-  `org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler` en
-  `org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext` loggen een onleesbare
-  body met de melding van Jackson, en die citeert de invoer, ook een BSN. Ze staan vast op INFO in
-  `application.properties`, en DEBUG op de root of op `org.jboss.resteasy.reactive` bereikt ze
-  niet. Zet ze niet zelf op DEBUG of TRACE. Dit geldt ook voor de berichten-uitvraag.
+  `dataSubjectId`; de service forceert dit via `LogboekContextDefaultFilter`.
+* **DEBUG op `nl.rijksoverheid.moz` mag; elders let je op.** De eigen code logt een exceptie als
+  `Foutspoor` (types en stack, geen meldingen) en een veld als `Veldpad`. `FoutBeschrijving.saneer()`
+  haalt alleen lange cijferreeksen weg en is geen garantie. Bibliotheken citeren de invoer wel. Deze
+  categorieën staan daarom vast op INFO, met `level` én `min-level` in `application.properties`, zodat
+  ook een DEBUG op precies die categorie niets opent:
+  `org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler`,
+  `org.jboss.resteasy.reactive.server.handlers.ParameterHandler`,
+  `org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext`, `WebApplicationException`
+  en `org.jboss.resteasy.reactive.client.logging` (de REST-client; `X-Ontvanger` en `X-Sessie` zijn
+  daar ook gemaskeerd). De database-driver laat de rij uit zijn foutmelding
+  (`logServerErrorDetail=false`). Zet de root niet op DEBUG: andere bibliotheken zijn niet
+  nagelopen. Een `415` zonder logregel komt hierdoor: de reden staat op DEBUG in
+  `RequestDeserializeHandler`.
 * **Categorie-logs**: zoek op `categorie=` in MISLUKT/retry-logs voor
   programmatische aggregatie van foutsoorten.
 * **`Content-Disposition` op een bijlage-download kan persoonsgegevens dragen.** De header

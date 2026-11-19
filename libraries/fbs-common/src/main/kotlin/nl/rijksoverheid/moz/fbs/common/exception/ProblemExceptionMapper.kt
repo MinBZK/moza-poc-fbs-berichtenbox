@@ -69,15 +69,15 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         } else {
             // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de
             // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
-            // PII. Correlatie via errorId (= `urn:uuid:` in `instance`) + cause-type. Ook hier
-            // het spoor en niet de exceptie: een kapotte JSON-body komt als 400 met de
-            // Jackson-fout als cause binnen, en die melding citeert de aangeboden invoer. Veld en
-            // positie van die fout gaan wel mee, en de foutcode houdt twee 401's uit elkaar nu de
-            // melding ontbreekt.
+            // PII. Correlatie via errorId (= `urn:uuid:` in `instance`) + cause-type. Een kapotte
+            // JSON-body komt als 400 met de Jackson-fout als cause binnen, en die melding citeert de
+            // aangeboden invoer: veld en positie gaan mee, de melding niet. De foutcode houdt twee
+            // 401's uit elkaar, omdat de melding uit de log blijft. De stack alleen op debug, en als
+            // spoor: bij een clientfout zegt hij niets, en elk anoniem verzoek zou er anders
+            // tientallen regels van opleveren.
             val jsonFout = exception.cause as? JsonProcessingException
 
             log.infov(
-                Foutspoor.van(exception),
                 "Client error {0} (errorId={1}, type={2}, cause={3}, foutcode={4}, veld={5}, positie={6})",
                 status,
                 errorId,
@@ -87,6 +87,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 jsonFout?.let(::jsonVeld) ?: "geen",
                 jsonFout?.let(::jsonPositie) ?: "onbekend",
             )
+            log.debugv(Foutspoor.van(exception), "Client error {0} (errorId={1})", status, errorId)
             metRetryAfter(
                 exception,
                 problemResponse(

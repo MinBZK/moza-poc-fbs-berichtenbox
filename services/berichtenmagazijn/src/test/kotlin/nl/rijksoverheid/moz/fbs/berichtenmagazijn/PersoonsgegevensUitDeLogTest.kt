@@ -5,6 +5,8 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import io.restassured.response.ExtractableResponse
 import io.restassured.response.Response
+import nl.rijksoverheid.moz.fbs.kern.testhulp.FRAMEWORK_WORTELS
+import nl.rijksoverheid.moz.fbs.kern.testhulp.REST_CLIENT_LOGGING
 import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
 import nl.rijksoverheid.moz.fbs.kern.testhulp.QUARKUS_REST_MET_INVOER
 import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
@@ -78,12 +80,45 @@ class PersoonsgegevensUitDeLogTest {
     }
 
     @Test
-    fun `de categorieën van Quarkus REST die een onleesbare body loggen, staan vast op INFO`() {
-        QUARKUS_REST_MET_INVOER.forEach { categorie ->
-            val niveau = ConfigProvider.getConfig().getValue("quarkus.log.category.\"$categorie\".level", String::class.java)
+    fun `de categorieën die invoer loggen, staan vast op INFO, ook voor een DEBUG op de categorie zelf`() {
+        val config = ConfigProvider.getConfig()
 
-            assertEquals("INFO", niveau, categorie)
+        (QUARKUS_REST_MET_INVOER + REST_CLIENT_LOGGING).forEach { categorie ->
+            listOf("level", "min-level").forEach { sleutel ->
+                assertEquals("INFO", config.getValue("quarkus.log.category.\"$categorie\".$sleutel", String::class.java), "$categorie $sleutel")
+            }
         }
+
+        val gemaskeerd = config.getValue("quarkus.rest-client.logging.masked-headers", String::class.java).split(',')
+
+        assertTrue(gemaskeerd.containsAll(listOf("X-Ontvanger", "X-Sessie")), gemaskeerd.toString())
+    }
+
+    /**
+     * De klem werkt alleen als hij de categorieën noemt waar Quarkus werkelijk logt; een nieuwe versie
+     * kan er een hernoemen of toevoegen. Deze canary zet het framework open (de test-JVM past de
+     * klem niet toe) en eist dat elke regel met een stuk van de waarde uit een geklemde categorie komt.
+     */
+    @Test
+    fun `alleen geklemde categorieën van het framework citeren de invoer`() {
+        val waarde = "99999365x"
+
+        val bronnen = Logvanger(open = FRAMEWORK_WORTELS).use { logvanger ->
+            listOf("\"BSN:$waarde\"", """{"type": "$waarde", "waarde": "999993653"}""", """{"type": "BSN", "waarde": x$waarde}""")
+                .forEach { ontvanger ->
+                    given().contentType(ContentType.JSON)
+                        .body("""{"afzender": "$AFZENDER", "ontvanger": $ontvanger, "onderwerp": "o", "inhoud": "i"}""")
+                        .`when`().post("$BASIS/aanleveringen")
+                }
+
+            given().header("X-Ontvanger", "KVK:90000001").`when`().get("$BASIS/berichten?page=$waarde")
+
+            logvanger.bronnenVan(herkenbareDelen(waarde))
+        }
+
+        assertTrue(bronnen.isNotEmpty(), "de canary lokt niets uit en bewijst dus niets")
+        assertTrue(QUARKUS_REST_MET_INVOER.containsAll(bronnen), "ongeklemde categorieën citeren de invoer: ${bronnen - QUARKUS_REST_MET_INVOER.toSet()}")
+        assertTrue("org.jboss.resteasy.reactive.server.handlers.ParameterHandler" in bronnen, "de parameter-route lokt niets uit: $bronnen")
     }
 
     private fun metLog(verzoek: () -> ExtractableResponse<Response>): Pair<ExtractableResponse<Response>, String> =

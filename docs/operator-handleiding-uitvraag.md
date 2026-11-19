@@ -470,6 +470,17 @@ dezelfde bescherming te krijgen als de rest van Redis (TLS en authenticatie).
 
 ## Aandachtspunten in bedrijf
 
+- **Persoonsgegevens in de applicatielog.** BSN, RSIN en KvK horen er niet in (AVG art. 5 lid 1c,
+  BIO 12.4.1). DEBUG op `nl.rijksoverheid.moz` mag: de eigen code logt een exceptie als `Foutspoor`
+  (types en stack, geen meldingen) en een veld als `Veldpad`. Bibliotheken citeren de invoer wel.
+  Deze categorieën staan daarom vast op INFO, met `level` én `min-level` in `application.properties`,
+  zodat ook een DEBUG op precies die categorie niets opent:
+  `org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler`,
+  `org.jboss.resteasy.reactive.server.handlers.ParameterHandler`,
+  `org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext`, `WebApplicationException`
+  en `org.jboss.resteasy.reactive.client.logging` (de REST-client; `X-Ontvanger` en `X-Sessie` zijn
+  daar ook gemaskeerd). Zet de root niet op DEBUG: andere bibliotheken zijn niet nagelopen. Een `415`
+  zonder logregel komt hierdoor: de reden staat op DEBUG in `RequestDeserializeHandler`.
 - **Een 404 van de Profiel-service** heeft een eigen runbook:
   [`operations/profiel-404-alert.md`](operations/profiel-404-alert.md).
 - **Een RediSearch-schemawijziging** vraagt een gecontroleerde index-herbouw:

@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
 import nl.rijksoverheid.moz.fbs.kern.exception.DomainValidationException
+import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -109,6 +110,27 @@ class DomainValidationExceptionMapperTest {
             "CRLF mag niet in log (log-injection) — gevonden: $output",
         )
         assertTrue(output.contains("[REDACTED]"), "BSN-redactie marker moet aanwezig — gevonden: $output")
+    }
+
+    /**
+     * De melding van een cause valt niet onder de afspraak over domeinmeldingen en kan van een
+     * bibliotheek komen. Tekst en zes cijfers, want saneren haalt alleen lange cijferreeksen weg.
+     */
+    @Test
+    fun `van de cause komt alleen het type in de log, niet de melding`() {
+        val exception = DomainValidationException(
+            "Ontvanger ongeldig",
+            IllegalArgumentException("Jan de Vries, ontvanger 999993"),
+        )
+
+        val log = Logvanger().use { logvanger ->
+            DomainValidationExceptionMapper().toResponse(exception)
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("causeType=IllegalArgumentException"), log)
+        assertFalse(log.contains("Jan de Vries"), log)
+        assertFalse(log.contains("999993"), log)
     }
 
     @Test

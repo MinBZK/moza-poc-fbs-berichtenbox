@@ -308,6 +308,21 @@ class FoutMappersTest {
         assertFalse(log.contains("99999"), log)
     }
 
+    /** Ook een sleutel die op een veldnaam lijkt, zoals een naam: een map-sleutel is altijd invoer. */
+    @ParameterizedTest
+    @ValueSource(strings = ["999993653", "JanJansen"])
+    fun `de sleutel van een element in een map komt als vraagteken in de log`(sleutel: String) {
+        val schending = VasteSchending("waarde", "ongeldig", sleutelInMap = sleutel)
+
+        val log = Logvanger().use { logvanger ->
+            ConstraintViolationExceptionMapper().toResponse(ConstraintViolationException(setOf(schending)))
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("schendingen=?.waarde (onbekend)"), log)
+        assertFalse(log.contains(sleutel), log)
+    }
+
     private fun schendingen(vararg velden: Pair<String, String>): ConstraintViolationException =
         ConstraintViolationException(velden.map { (naam, melding) -> VasteSchending(naam, melding) }.toSet())
 
@@ -320,10 +335,11 @@ class FoutMappersTest {
         private val naam: String,
         private val melding: String,
         private val ongeldig: Any? = null,
+        private val sleutelInMap: Any? = null,
     ) : ConstraintViolation<Any> {
         override fun toString(): String = "ConstraintViolationImpl{interpolatedMessage='$melding', propertyPath=$naam, invalidValue=$ongeldig}"
         override fun getMessage(): String = melding
-        override fun getPropertyPath(): Path = VastPad(naam)
+        override fun getPropertyPath(): Path = VastPad(naam, sleutelInMap)
         override fun getMessageTemplate(): String = melding
         override fun getRootBean(): Any? = null
         override fun getRootBeanClass(): Class<Any>? = null
@@ -335,16 +351,17 @@ class FoutMappersTest {
         override fun <U : Any?> unwrap(type: Class<U>?): U = throw UnsupportedOperationException()
     }
 
-    private class VastPad(private val naam: String) : Path {
-        override fun iterator(): MutableIterator<Path.Node> = mutableListOf<Path.Node>(VasteNode(naam)).iterator()
-        override fun toString(): String = naam
+    private class VastPad(private val naam: String, private val sleutel: Any?) : Path {
+        override fun iterator(): MutableIterator<Path.Node> = mutableListOf<Path.Node>(VasteNode(naam, sleutel)).iterator()
+        override fun toString(): String = if (sleutel == null) naam else "[$sleutel].$naam"
     }
 
-    private class VasteNode(private val naam: String) : Path.Node {
+    /** Met een [sleutel]: een element in een map, zoals Hibernate Validator het aanlevert. */
+    private class VasteNode(private val naam: String, private val sleutel: Any?) : Path.Node {
         override fun getName(): String = naam
-        override fun isInIterable(): Boolean = false
+        override fun isInIterable(): Boolean = sleutel != null
         override fun getIndex(): Int? = null
-        override fun getKey(): Any? = null
+        override fun getKey(): Any? = sleutel
         override fun getKind(): jakarta.validation.ElementKind = jakarta.validation.ElementKind.PARAMETER
         override fun <T : Path.Node?> `as`(nodeType: Class<T>?): T = throw UnsupportedOperationException()
     }

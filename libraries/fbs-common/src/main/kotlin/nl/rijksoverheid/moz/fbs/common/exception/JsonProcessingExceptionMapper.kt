@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.core.exc.StreamConstraintsException
+import com.fasterxml.jackson.core.exc.StreamReadException
 import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
 import jakarta.annotation.Priority
@@ -28,14 +30,20 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
     // veldpad en positie zeggen wat er niet paste. Op info, als de andere clientfouten: op debug
     // staat het id uit `instance` in productie nergens. De stack alleen op debug: bij een clientfout
     // zegt hij niets, en elke kapotte body zou anders tientallen regels opleveren.
-    log.infof(
-        "JSON-invoer niet te lezen (errorId=%s, type=%s, veld=%s, positie=%s)",
-        errorId,
-        exception.javaClass.name,
-        jsonVeld(exception),
-        jsonPositie(exception),
-    )
-    log.debugf(Foutspoor.van(exception), "JSON-invoer niet te lezen (errorId=%s)", errorId)
+    if (isLeeskant(exception)) {
+        log.infof(
+            "JSON-invoer niet te lezen (errorId=%s, type=%s, veld=%s, positie=%s)",
+            errorId,
+            exception.javaClass.name,
+            jsonVeld(exception),
+            jsonPositie(exception),
+        )
+        log.debugf(Foutspoor.van(exception), "JSON-invoer niet te lezen (errorId=%s)", errorId)
+    } else {
+        // Een model dat Jackson niet kan bouwen, of een antwoord dat niet te schrijven is, is een
+        // fout van onszelf: op error, met het spoor. Het antwoord blijft een 400.
+        log.errorf(Foutspoor.van(exception), "Jackson-fout buiten de invoer (errorId=%s, type=%s)", errorId, exception.javaClass.name)
+    }
 
     val detail = when (exception) {
         is MismatchedInputException -> {
@@ -60,6 +68,10 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
         instance = URI.create("urn:uuid:$errorId"),
     )
 }
+
+/** Wat de aanroeper aanbood en niet paste; de rest van de familie komt uit eigen code of model. */
+private fun isLeeskant(exception: JsonProcessingException): Boolean =
+    exception is StreamReadException || exception is StreamConstraintsException || exception is MismatchedInputException
 
 /** Het veld dat niet paste, zoals het in de log mag; `geen` als Jackson het niet kent. */
 internal fun jsonVeld(exception: JsonProcessingException): String =
