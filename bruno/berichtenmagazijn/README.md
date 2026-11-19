@@ -105,8 +105,9 @@ Dependabot kan die niet ophogen. Daarom staan `axios`, `form-data`, `js-yaml` en
 dan via de lockfile-update van Dependabot. Vraagt de fix een nieuwe major, dan pas je de override
 met de hand aan: Dependabot wijzigt `overrides` zelf niet.
 
-Een override wint zonder melding, ook van een hogere versie die een nieuwe CLI zelf vraagt.
-`npm test` faalt dan (`lib/overrides.test.mjs`, op de lockfile). Geen workflow draait die test:
+Een override geldt voor de hele boom en wint zonder melding, ook van een hogere versie of een
+andere major die een pakket in de boom van de CLI zelf vraagt. `npm test` faalt dan
+(`lib/overrides.test.mjs`, op de lockfile). Geen workflow draait die test:
 **draai `npm test` op elke Dependabot-PR voor deze map** voor je hem goedkeurt. Bekijk bij een bump
 van de CLI ook of de overrides nog nodig zijn. Wat overblijft (`npm audit`: 12 meldingen, waarvan 4 high) zijn `@faker-js/faker` 9, waarvan de
 fix een nieuwe major vraagt, en moderate meldingen. Dat risico nemen we: de CLI draait alleen op een

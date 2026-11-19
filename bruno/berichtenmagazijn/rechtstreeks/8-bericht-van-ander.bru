@@ -31,10 +31,10 @@ script:post-response {
     validateStatus: () => true,
   });
 
-  const { type, title, detail } = onbekend.data ?? {};
+  // De hele body behalve `instance` (een correlatie-id per verzoek); `detail` noemt het gevraagde id.
+  const { instance, ...rest } = onbekend.data ?? {};
 
-  // `detail` noemt het gevraagde id; buiten dat id moet hij gelijk zijn.
-  bru.setVar('rechtstreeksOnbekend', JSON.stringify({ status: onbekend.status, type, title, detail: detail?.replace(nil, '<id>') }));
+  bru.setVar('rechtstreeksOnbekend', JSON.stringify({ httpStatus: onbekend.status, ...rest, detail: rest.detail?.replace(nil, '<id>') ?? null }));
 }
 
 assert {
@@ -48,10 +48,10 @@ assert {
 
 tests {
   test("een bericht van een ander is niet te onderscheiden van een bericht dat niet bestaat", function () {
-    const { status, type, title, detail } = res.getBody();
+    const { instance, ...rest } = res.getBody();
 
     expect(JSON.parse(bru.getVar('rechtstreeksOnbekend'))).to.deep.equal({
-      status, type, title, detail: detail?.replace(bru.getVar('rechtstreeksAnderBerichtId'), '<id>'),
+      httpStatus: res.getStatus(), ...rest, detail: rest.detail?.replace(bru.getVar('rechtstreeksAnderBerichtId'), '<id>') ?? null,
     });
   });
 }

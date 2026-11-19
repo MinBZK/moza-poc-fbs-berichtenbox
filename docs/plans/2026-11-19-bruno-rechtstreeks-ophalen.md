@@ -85,8 +85,8 @@ Daarom ondertekent het pre-request-script het credential zelf:
   binnen dezelfde major dus niet landen. Een fix in een nieuwe major vraagt handwerk. De
   lockfile is opgebouwd met `npm install --before=2026-11-05`, zodat ook geen transitieve versie
   jonger is dan twee weken. `lib/overrides.test.mjs` faalt als een override lager uitkomt dan wat
-  een `@usebruno`-pakket vraagt (exact of als range, ook genest); een override wint anders zonder
-  melding. De test leest de lockfile, maar geen workflow draait hem: de README vraagt hem op elke
+  een pakket in de boom vraagt (exact of als range, ook genest), of een andere major oplegt; een
+  override wint anders zonder melding. De test leest de lockfile, maar geen workflow draait hem: de README vraagt hem op elke
   Dependabot-PR met de hand. `npm audit` gaat van 18
   meldingen (8 high) naar 12 (4 high). Wat blijft, is `@faker-js/faker` 9 (de fix vraagt een nieuwe
   major onder `@usebruno/requests`) en moderate meldingen: aanvaard, omdat de CLI alleen op een
@@ -132,7 +132,8 @@ demo-persona Garage Van Dijk B.V.). `zad` krijgt ze niet: de tweede ingang staat
   nonce-handtekening, base64url voor de AES-sleutel, de scope, een vaste app-sleutel, een leeg
   antwoord, een ander bericht-id, de realm, de header-asserts, de controles op header, curve, IV,
   `kid`, `typ`, `alg` en het aantal delen, een lekkend totaal, een bericht van een andere
-  ontvanger, een afwijkende 404 (`title` of `detail`), en overrides die een gevraagde versie
-  terugzetten (exact, als range, genest). 37 mutaties, 37 gevangen.
+  ontvanger, een afwijkende 404 (`detail` of een extra veld), en overrides die een gevraagde versie
+  terugzetten (exact, als range, genest, transitief) of een andere major opleggen. 39 mutaties, 39
+  gevangen.
 - Niet in CI: geen workflow draait `bru run`. Dat vraagt een simulator met database in de job en een
   sleutel per run; dat is een keuze voor de opdrachtgever.

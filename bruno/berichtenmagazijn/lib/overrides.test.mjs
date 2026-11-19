@@ -1,6 +1,6 @@
-// Een override in package.json wint zonder melding, ook van een hogere versie die een nieuwe CLI
-// zelf vraagt. Deze test faalt als een override zo een afhankelijkheid van een @usebruno-pakket
-// terugzet. Hij leest de lockfile, dus wat gecommit is, en heeft geen `npm ci` nodig.
+// Een override in package.json geldt voor de hele boom en wint zonder melding, ook van een hogere
+// versie of een andere major die een pakket in de boom van de CLI zelf vraagt. Deze test faalt dan.
+// Hij leest de lockfile, dus wat gecommit is, en heeft geen `npm ci` nodig.
 //
 //   npm test
 import { readFileSync } from 'node:fs';
@@ -16,12 +16,16 @@ const bruno = Object.entries(packages).filter(([pad]) => /(^|\/)node_modules\/@u
 
 /** De versie die Node vanuit [pad] voor [naam] vindt: eerst genest, dan steeds een niveau hoger. */
 function gevonden(pad, naam) {
-  for (let basis = pad; ; basis = basis.replace(/\/?node_modules\/(@[^/]+\/)?[^/]+$/, '')) {
+  for (let basis = pad; ;) {
     const kandidaat = packages[`${basis ? `${basis}/` : ''}node_modules/${naam}`];
 
     if (kandidaat) return kandidaat.version;
 
-    if (basis === '') return undefined;
+    const hoger = basis.replace(/\/?node_modules\/(@[^/]+\/)?[^/]+$/, '');
+
+    if (basis === '' || hoger === basis) return undefined;
+
+    basis = hoger;
   }
 }
 
@@ -45,10 +49,13 @@ describe('overrides', () => {
     }
   });
 
+  // Elk pakket in de boom, niet alleen @usebruno: de override zet ook hun afhankelijkheden.
+  const afnemers = Object.entries(packages).filter(([pad]) => pad !== '');
+
   for (const naam of Object.keys(overrides)) {
-    it(`${naam} staat niet lager dan wat een @usebruno-pakket vraagt`, () => {
-      for (const [pad, pakket] of bruno) {
-        const spec = pakket.dependencies?.[naam];
+    it(`${naam} past bij wat elk pakket in de boom vraagt`, () => {
+      for (const [pad, pakket] of afnemers) {
+        const spec = { ...pakket.peerDependencies, ...pakket.optionalDependencies, ...pakket.dependencies }[naam];
 
         if (!spec) continue;
 
@@ -58,6 +65,11 @@ describe('overrides', () => {
         assert.ok(grens, `${pad} vraagt ${naam}@${spec}; die vorm kent deze test niet`);
         assert.ok(versie, `${pad} vraagt ${naam}, maar de lockfile heeft het niet`);
         assert.ok(vergelijk(versie, grens) >= 0, `${pad} vraagt ${naam}@${spec}, de override geeft ${versie}`);
+
+        // Een exacte versie of `^` belooft dezelfde major; een override mag daar niet overheen.
+        if (/^(\^|v?\d)/.test(spec.trim())) {
+          assert.equal(versie.split('.')[0], grens.split('.')[0], `${pad} vraagt ${naam}@${spec}, de override geeft ${versie}`);
+        }
       }
     });
   }
