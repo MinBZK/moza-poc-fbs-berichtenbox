@@ -180,6 +180,51 @@ class VerifierTest {
 
         opzet.nu = opzet.nu.plusSeconds(1)
 
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+    }
+
+    @Test
+    fun `een token dat nooit een sessie had, is onbekend`() {
+        opzet.sessie(verifier)
+
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie("Verzonnen0123456789abcdefghijkl") }.reden)
+    }
+
+    /**
+     * Elke aanroep van de opslag ruimt verlopen sessies op, ook die van een andere app. Zonder het
+     * geheugen van verlopen tokens zou de app die terugkomt dan "onbekend" krijgen.
+     */
+    @Test
+    fun `een verlopen sessie blijft verlopen, ook als een andere aanroep hem al opruimde`() {
+        val token = opzet.sessie(verifier).first.sessie.token
+
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15))
+        verifier.maakChallenge("ander")
+
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+    }
+
+    @Test
+    fun `een verlopen token van het ene magazijn is bij een ander onbekend`() {
+        val ander = opzet.verifier(Opzet.ANDER_MAGAZIJN_OIN)
+        val token = opzet.sessie(verifier).first.sessie.token
+
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15))
+
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { ander.sessie(token) }.reden)
+    }
+
+    @Test
+    fun `na de bewaartermijn is een verlopen token weer onbekend`() {
+        val token = opzet.sessie(verifier).first.sessie.token
+
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15)).plus(Duration.ofHours(1)).minusSeconds(1)
+
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+
+        opzet.nu = opzet.nu.plusSeconds(1)
+
         assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
     }
 
@@ -403,8 +448,8 @@ class VerifierTest {
         // Een willekeurige andere aanroep ruimt de verlopen sessie op terwijl dit verzoek hem nog vasthoudt.
         verifier.maakChallenge("ander")
 
-        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.versleutel(sessie, "{}") }.reden)
-        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes)) }.reden)
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.versleutel(sessie, "{}") }.reden)
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes)) }.reden)
     }
 
     @Test
