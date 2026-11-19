@@ -57,6 +57,11 @@ jobs:
           verify-signature: true
           java-version: 21
           cache: maven
+      # De compile-fase van de Berichten-app draait `npm ci` voor jose. Dezelfde vaste major als in
+      # test.yml, zodat een nieuw runner-image de versie niet ongemerkt verschuift.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
       - name: Initialize CodeQL
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:

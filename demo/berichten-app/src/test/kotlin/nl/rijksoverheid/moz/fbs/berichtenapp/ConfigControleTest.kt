@@ -1,0 +1,64 @@
+package nl.rijksoverheid.moz.fbs.berichtenapp
+
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+
+class ConfigControleTest {
+
+    @Test
+    fun `een absoluut adres dat op een slash eindigt is goed, en http alleen in ontwikkelmodus`() {
+        ConfigControle.controleerAppManagerUrl("https://app-manager.example/", ontwikkel = false)
+        ConfigControle.controleerAppManagerUrl("https://app-manager.example/pad/", ontwikkel = false)
+        ConfigControle.controleerAppManagerUrl("http://localhost:8093/", ontwikkel = true)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            ConfigControle.controleerAppManagerUrl("http://app-manager.example/", ontwikkel = false)
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "", "/relatief/", "https://app-manager.example", "https://app-manager.example/?a=1", "https://app-manager.example/#x", "geen url/",
+            "ftp://app-manager.example/", "https://iemand@app-manager.example/",
+            // Tekens die in de CSP-header een eigen richtlijn of bron zouden maken.
+            "https://app-manager.example/a;script-src/", "https://app-manager.example/a,b/", "https://app-manager.example/'unsafe-inline'/",
+            "https://app-manager.example/a%20b/",
+        ],
+    )
+    fun `een adres dat de app niet kan aanvullen wordt geweigerd`(adres: String) {
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = true) }
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = [
+            "https://iemand:geheim@app-manager.example/", "https://iemand:ge/heim@app-manager.example/",
+            "https://a@b:geheim@app-manager.example/", "https://iemand:geheim@app-manager.example",
+        ],
+    )
+    fun `een wachtwoord in een afgewezen adres komt niet in de melding`(adres: String) {
+        val fout = assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = false) }
+
+        assertFalse(fout.message!!.contains("heim"), fout.message)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["", "0000000000000000110", "000000000000000011000", "0000000000000000110x"])
+    fun `een OIN van iets anders dan 20 cijfers blokkeert de start`(oin: String) {
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle(config(oin)) }
+    }
+
+    @Test
+    fun `de demo-OIN is goed`() {
+        ConfigControle(config(BerichtenAppConfig.DEMO_APP_MANAGER_OIN))
+    }
+
+    private fun config(oin: String) = object : BerichtenAppConfig {
+        override fun appManagerUrl() = "https://app-manager.example/"
+        override fun appManagerOin() = oin
+    }
+}

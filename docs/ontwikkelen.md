@@ -34,7 +34,8 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-rechtstreeks -am          # pure JVM
 ./mvnw clean test -pl demo/demo-console -am                   # Docker vereist voor één Redis-test (Testcontainers)
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
-./mvnw clean test -pl demo/app-manager -am                     # @QuarkusTest, geen Docker
+./mvnw clean test -pl demo/app-manager -am                     # @QuarkusTest, geen Docker; node en npm voor de koppeltest met de Berichten-app
+./mvnw clean test -pl demo/berichten-app -am                   # @QuarkusTest plus de browsercode onder Node (node en npm op het PATH)
 ./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
@@ -47,6 +48,14 @@ De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Servic
 start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij wijst
 `quarkus.redis.hosts` altijd zelf aan, en dan start Quarkus geen Dev Service. Zijn andere tests
 draaien zonder Docker.
+
+Twee modules hebben Node nodig (`node` en `npm` op het `PATH`, versie 20.6 of nieuwer: de tests
+laden `jose` via een resolve-hook, met `module.registerHooks` of op oudere versies `module.register`). De build van de Berichten-app draait
+`npm ci` en zet `jose` uit npm op `/vendor/jose`; daarvoor moet de npm-registry bereikbaar zijn,
+net als Maven Central. Daarna draait ze de tests van haar browsercode met `node --test`, met
+`fake-indexeddb` voor de opslag in de browser. De App Manager draait diezelfde code in
+`BerichtenAppTest` tegen zichzelf: dat is de toets dat browser en Verifier-library elkaars JWS en
+JWE lezen. Zonder Node falen beide; de tests slaan niet over.
 
 ### Tijdens het werk: alleen de geraakte testklassen
 
@@ -110,6 +119,30 @@ Over die forks:
   testbronnen legt uit hoe. Wat bij welke executie hoort, volgt uit `@QuarkusTest` op de klasse
   of een omsluitende klasse. In de uitvoer staan daarom twee testtellingen per module; een
   `-Dtest` die maar één soort raakt, meldt in de andere executie `Tests run: 0`.
+
+### Rechtstreeks ophalen: activeren in de browser
+
+App Manager en Berichten-app draaien in ontwikkelmodus al op elkaars adressen (8093 en 8099):
+
+```bash
+./mvnw install -pl demo/app-manager,demo/berichten-app -am -DskipTests
+./mvnw quarkus:dev -pl demo/app-manager     # zonder -am: anders start de personadienst
+./mvnw quarkus:dev -pl demo/berichten-app   # in een tweede terminal
+```
+
+Open `http://localhost:8099/`, kies **Activeren** en daarna een persona. Terug in de app staat het
+credential van die ondernemer, op een sleutel die de browser niet kan exporteren. De App Manager
+houdt registraties in het geheugen: na een herstart werkt **Bewijs vernieuwen** niet meer en
+activeer je opnieuw.
+
+Dat de sleutel echt niet te exporteren is, controleer je in de console van de DevTools op die
+pagina. De poging tot exporteren moet mislukken met een `InvalidAccessError`:
+
+```js
+const db = await new Promise((ok) => { const v = indexedDB.open('berichten-app'); v.onsuccess = () => ok(v.result); });
+const paar = await new Promise((ok) => { const v = db.transaction('kluis').objectStore('kluis').get('sleutelpaar'); v.onsuccess = () => ok(v.result); });
+await crypto.subtle.exportKey('pkcs8', paar.privateKey);
+```
 
 ## Kwaliteitsgates
 
