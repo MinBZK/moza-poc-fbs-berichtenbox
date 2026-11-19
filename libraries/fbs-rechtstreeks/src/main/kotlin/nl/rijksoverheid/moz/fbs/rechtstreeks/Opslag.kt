@@ -1,11 +1,13 @@
 package nl.rijksoverheid.moz.fbs.rechtstreeks
 
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.security.MessageDigest
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.util.Base64
 
 /** Wie een magazijnsessie heeft: een ontvanger uit een credential, of alleen een app-sleutel. */
 sealed interface Identiteit {
@@ -69,6 +71,13 @@ interface SessieOpslag {
 
     /** De sessie, of `null` als hij onbekend of verlopen is. */
     fun zoek(verifier: String, token: String): Sessie?
+
+    /**
+     * Of [token] kort geleden nog een sessie bij [verifier] had die nu verlopen is. Alleen voor de
+     * reden in de log: een `false` zegt niet dat het token verzonnen is, want de opslag onthoudt
+     * verlopen tokens begrensd.
+     */
+    fun verlopen(verifier: String, token: String): Boolean
 }
 
 /**
@@ -85,6 +94,11 @@ interface SessieOpslag {
  * doorgeeft, nooit een waarde die de client zelf kan zetten; anders deelt iedereen het adres van de
  * proxy. Niet `quarkus.http.proxy.proxy-address-forwarding`: dat neemt de eerste waarde van
  * `X-Forwarded-For`, en die kiest de client. Een IPv6-adres telt per /64.
+ *
+ * Een verlopen sessie laat een vingerafdruk van haar token achter, [verlopenOnthouden] lang en
+ * hoogstens [maxVerlopen] tegelijk, zodat de log een verlopen token van een verzonnen kan
+ * onderscheiden (zie [verlopen]). Zonder die verzameling ruimt de eerste aanroep van wie dan ook
+ * de sessie op, en is "verlopen" niet meer te zien. Ze telt voor geen enkel quotum mee.
  */
 class GeheugenOpslag(
     private val klok: Clock,
@@ -95,6 +109,8 @@ class GeheugenOpslag(
     private val maxPerClientOverVerifiers: Int = 200,
     private val maxSessiesPerHouderOverVerifiers: Int = 2_000,
     private val maxSessiesPerClientOverVerifiers: Int = 2_000,
+    private val maxVerlopen: Int = maxSessies,
+    private val verlopenOnthouden: Duration = Duration.ofHours(1),
 ) : ChallengeOpslag, SessieOpslag {
 
     init {
@@ -106,9 +122,11 @@ class GeheugenOpslag(
             maxPerClientOverVerifiers,
             maxSessiesPerHouderOverVerifiers,
             maxSessiesPerClientOverVerifiers,
+            maxVerlopen,
         )
 
         require(grenzen.all { it > 0 }) { "elke grens moet groter dan nul zijn" }
+        require(verlopenOnthouden > Duration.ZERO) { "de bewaartermijn van verlopen tokens moet groter dan nul zijn" }
     }
 
     private class Openstaand(val verifier: String, val client: String, val sleutel: ECPrivateKey, val verlooptOp: Instant)
@@ -117,6 +135,9 @@ class GeheugenOpslag(
 
     private val challenges = HashMap<Pair<String, String>, Openstaand>()
     private val sessies = HashMap<Pair<String, String>, Bewaard>()
+
+    /** Per Verifier en vingerafdruk van het token: wanneer de sessie verliep. In volgorde van opruimen. */
+    private val verlopenTokens = LinkedHashMap<Pair<String, String>, Instant>()
 
     @Synchronized
     override fun bewaar(verifier: String, nonce: String, client: String, sleutel: ECPrivateKey, verlooptOp: Instant) {
@@ -170,6 +191,13 @@ class GeheugenOpslag(
         return sessies[verifier to token]?.sessie
     }
 
+    @Synchronized
+    override fun verlopen(verifier: String, token: String): Boolean {
+        ruimOp()
+
+        return (verifier to vingerafdruk(token)) in verlopenTokens
+    }
+
     /**
      * Verwijdert wat verlopen is, bij elke aanroep, zodat een tijdelijke private key of sessiesleutel
      * niet in het geheugen blijft wachten op nieuw verkeer. De sleutel zelf wordt niet gewist: een
@@ -180,10 +208,29 @@ class GeheugenOpslag(
         val nu = klok.instant()
 
         challenges.values.removeIf { !it.verlooptOp.isAfter(nu) }
-        sessies.values.removeIf { !it.sessie.verlooptOp.isAfter(nu) }
+
+        val afgelopen = sessies.entries.filter { !it.value.sessie.verlooptOp.isAfter(nu) }
+
+        afgelopen.forEach { (sleutel, bewaard) ->
+            sessies.remove(sleutel)
+            verlopenTokens[sleutel.first to vingerafdruk(sleutel.second)] = bewaard.sessie.verlooptOp
+        }
+
+        verlopenTokens.values.removeIf { verlopenOp -> !verlopenOp.plus(verlopenOnthouden).isAfter(nu) }
+
+        // De oudste eerst: die verliest alleen het onderscheid en wordt weer een onbekend token.
+        val teVeel = verlopenTokens.size - maxVerlopen
+
+        if (teVeel > 0) verlopenTokens.keys.take(teVeel).forEach(verlopenTokens::remove)
 
         return nu
     }
+
+    /** Het token zelf blijft niet bewaard: ook verlopen hoort het niet in een heap-dump. */
+    private fun vingerafdruk(token: String): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.UTF_8)),
+        )
 
     private fun wachttijd(momenten: List<Instant>, nu: Instant): Duration =
         Duration.between(nu, maxOf(momenten.minOrNull() ?: nu, nu.plusSeconds(1)))

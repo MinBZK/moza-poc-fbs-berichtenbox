@@ -24,6 +24,13 @@ enum class Afwijzing {
     APPSLEUTEL_ONGELDIG,
     NONCEHANDTEKENING_ONGELDIG,
     SESSIE_ONBEKEND,
+
+    /**
+     * Het token hoorde kort geleden bij een sessie die nu verlopen is. Voor de app hetzelfde
+     * antwoord als [SESSIE_ONBEKEND]; de log onderscheidt zo een verzonnen token van een app die
+     * over de grens liep.
+     */
+    SESSIE_VERLOPEN,
     VERSLEUTELING_ONGELDIG,
 }
 

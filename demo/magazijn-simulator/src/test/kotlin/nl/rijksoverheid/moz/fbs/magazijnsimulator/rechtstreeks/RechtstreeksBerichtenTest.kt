@@ -12,6 +12,7 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.Logvanger
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.App
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.Companion.COMPACT_JWE
@@ -24,6 +25,7 @@ import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.jose4j.json.JsonUtil
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -177,6 +179,42 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         assertEquals(0, (lijst["berichten"] as List<*>).size)
         given().header("Authorization", sessie.bearer).header("X-Ontvanger", ANDERE_ONTVANGER)
             .get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$vanEenAnder").then().statusCode(404)
+    }
+
+    /**
+     * Zonder access-log koppelt alleen de logregel een 404 aan de 401 van dezelfde app bij hetzelfde
+     * magazijn. Op beide ingangen noemt de 404-regel daarom het magazijn en de foutcode.
+     */
+    @Test
+    fun `de 404-regel noemt op beide ingangen het magazijn en de foutcode`() {
+        val onbekend = "11111111-2222-3333-4444-555555555555"
+        val sessie = Sessie()
+
+        val tweedeIngang = metLog {
+            given().header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$onbekend")
+                .then().statusCode(404)
+        }
+        val eersteIngang = metLog {
+            given().header("X-Ontvanger", ONTVANGER).get("${basis(MAGAZIJN_A)}/berichten/$onbekend").then().statusCode(404)
+        }
+        val afgewezen = metLog {
+            given().header("Authorization", "Bearer onbekend").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$onbekend")
+                .then().statusCode(401)
+        }
+
+        listOf(tweedeIngang, eersteIngang).forEach { log ->
+            assertTrue(log.contains("Clientfout 404"), log)
+            assertTrue(log.contains("foutcode=bericht-onbekend"), log)
+            assertTrue(log.contains("magazijn=$MAGAZIJN_A"), log)
+            assertFalse(log.contains(ONTVANGER.substringAfter(':')), "de ontvanger hoort niet in de log: $log")
+        }
+
+        assertTrue(afgewezen.contains(MAGAZIJN_A), afgewezen)
+    }
+
+    private fun metLog(verzoek: () -> Unit): String = Logvanger().use { logvanger ->
+        verzoek()
+        logvanger.tekst()
     }
 
     @Test

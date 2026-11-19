@@ -116,7 +116,8 @@ class Verifier(
 
     /** De sessie bij [token]; een onbekend of verlopen token wordt afgewezen. */
     fun sessie(token: String): Sessie =
-        sessies.zoek(oin, token) ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        sessies.zoek(oin, token)
+            ?: throw AfgewezenException(if (sessies.verlopen(oin, token)) Afwijzing.SESSIE_VERLOPEN else Afwijzing.SESSIE_ONBEKEND)
 
     /**
      * Versleutelt een antwoord onder de sessiesleutel (`dir`, `A256GCM`). Een sessie die verliep
@@ -141,7 +142,7 @@ class Verifier(
     }
 
     private fun vereisLopend(sessie: Sessie) {
-        if (!klok.instant().isBefore(sessie.verlooptOp)) throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        if (!klok.instant().isBefore(sessie.verlooptOp)) throw AfgewezenException(Afwijzing.SESSIE_VERLOPEN)
     }
 
     private class Presentatie(val nonceHandtekening: String, val certificaat: String, val aesSleutel: ByteArray)

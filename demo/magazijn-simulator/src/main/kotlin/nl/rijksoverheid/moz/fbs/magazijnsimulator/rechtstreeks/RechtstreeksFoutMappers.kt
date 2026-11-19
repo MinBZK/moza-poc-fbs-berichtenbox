@@ -36,8 +36,9 @@ class VerifierFoutMapper(private val context: MagazijnContext) : ExceptionMapper
             is AfgewezenException -> {
                 log.infof("Rechtstreeks verzoek bij magazijn %s afgewezen (%s): %s %s", oin, foutId, fout.reden, fout.cause?.message.orEmpty())
 
-                // Alleen bij die reden is er een token getoetst; bij het openen van een sessie gaat het om de presentatie.
-                geenToegang(oin, foutId, tokenGetoetst = fout.reden == Afwijzing.SESSIE_ONBEKEND)
+                // Alleen bij die redenen is er een token getoetst; bij het openen van een sessie gaat het om de presentatie.
+                // Onbekend en verlopen geven de app hetzelfde antwoord: alleen de log onderscheidt ze.
+                geenToegang(oin, foutId, tokenGetoetst = fout.reden in TOKEN_AFGEWEZEN)
             }
 
             is JweOngeldigException -> {
@@ -96,6 +97,8 @@ private fun tijdelijkNietBeschikbaar(foutId: UUID, seconden: Long): Response = R
 internal fun naarBoven(duur: Duration): Long = ((duur.toMillis() + MILLIS_PER_SECONDE - 1) / MILLIS_PER_SECONDE).coerceAtLeast(1)
 
 internal const val AUTHORIZATION = "Authorization"
+
+private val TOKEN_AFGEWEZEN = setOf(Afwijzing.SESSIE_ONBEKEND, Afwijzing.SESSIE_VERLOPEN)
 
 private const val BAD_REQUEST = 400
 private const val UNAUTHORIZED = 401
