@@ -32,9 +32,11 @@ van verlopen, geen sleutel en geen identiteit. `zoek` blijft wat het is. Een nie
 Gekozen: B.
 
 - **Geheugen.** Begrensd op zes keer `maxSessies` (standaard 300.000) en op een bewaartermijn
-  (standaard een uur). Zes keer, omdat onder volle last in een uur zoveel sessies van de kortste
-  soort verlopen: tien minuten, bij self-signed in de App Manager. Met minder zou de termijn juist
-  onder volle last krimpen, en zou `SESSIE_ONBEKEND` stijgen zonder dat er iets verzonnen wordt.
+  (standaard een uur). Zes keer, omdat onder volle last in een uur zoveel sessies van tien minuten
+  verlopen, de gewone duur bij self-signed in de App Manager. Met minder zou de termijn juist onder
+  volle last krimpen, en zou `SESSIE_ONBEKEND` stijgen zonder dat er iets verzonnen wordt. Een
+  magazijnsessie kan korter zijn, tot zestig seconden als het credential bijna verloopt; op dat
+  randgeval is het plafond niet afgestemd, en de oudste vermelding verliest dan het onderscheid.
   Per vermelding gaat het om de eerste 128 bit van de hash, de verwijzing naar de Verifier-OIN, een
   `Instant` en de entry in de map: ruwweg honderd bytes, dus zo'n dertig megabyte in het slechtste
   geval.
@@ -65,7 +67,8 @@ Gekozen: B.
    `ruimOp` en snoeit haar daar ook, op termijn en op omvang.
 3. `Verifier.sessie` vraagt bij een gemiste `zoek` naar `verlopen` en wijst af met de juiste reden.
    `vereisLopend` (de sessie verloopt terwijl het verzoek loopt) wijst af met `SESSIE_VERLOPEN`.
-4. Simulator: `VerifierFoutMapper` zet `error="invalid_token"` voor beide redenen.
+4. `Afwijzing.tokenAfgewezen` markeert beide redenen, zonder standaardwaarde; `VerifierFoutMapper`
+   in de simulator zet op grond daarvan `error="invalid_token"`.
 5. Simulator, los hiervan: de 404-regel van `ProblemExceptionMapper` noemt foutcode en magazijn-OIN,
    zodat een 404 en een 401 bij hetzelfde magazijn ook zonder access-log bij elkaar te zoeken zijn.
 

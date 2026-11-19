@@ -99,8 +99,9 @@ interface SessieOpslag {
  * hoogstens [maxVerlopen] tegelijk, zodat de log een token dat net verliep apart kan noemen (zie
  * [verlopen]). Zonder die verzameling ruimt de eerste aanroep van wie dan ook de sessie op, en is
  * "verlopen" niet meer te zien. Ze telt voor geen enkel quotum mee. Het standaardplafond is zes
- * keer [maxSessies]: zoveel sessies van de kortste soort (tien minuten, self-signed) verlopen er
- * onder volle last in een uur, dus houdt de opslag elk verlopen token de hele [verlopenOnthouden].
+ * keer [maxSessies]: genoeg voor sessies van tien minuten of langer onder volle last. Kortere
+ * sessies (een credential dat bijna verloopt) kunnen de termijn inkorten; de oudste vermelding
+ * verliest dan alleen het onderscheid.
  */
 class GeheugenOpslag(
     private val klok: Clock,
