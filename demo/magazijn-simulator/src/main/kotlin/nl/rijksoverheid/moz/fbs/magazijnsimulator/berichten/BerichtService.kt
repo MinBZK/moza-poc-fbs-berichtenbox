@@ -168,9 +168,6 @@ class BerichtService(
      * De ontvanger-check van de eerste ingang; de tweede zet de ontvanger in de query
      * ([haalOpVoorOntvanger]). Type én waarde tellen mee: `RSIN:999993653` is een ander
      * identificatienummer dan `BSN:999993653`, ook al is de cijferreeks gelijk.
-     *
-     * De waarde blijft uit de log — die kan een BSN zijn. Het bericht-id en het type volstaan om een
-     * geweigerde aanroep terug te vinden.
      */
     private fun vereisOntvanger(bericht: Bericht, ontvanger: Identificatienummer) {
         if (bericht.ontvanger != ontvanger) {
