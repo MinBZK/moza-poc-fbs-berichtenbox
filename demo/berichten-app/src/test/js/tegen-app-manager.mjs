@@ -1,6 +1,7 @@
 // Het hele activeren met de code van de Berichten-app tegen een draaiende App Manager. De tests van
 // de App Manager starten dit script; wat de browser zelf doet (de doorverwijzingen volgen, de cookie
-// meesturen, de persona kiezen), doet het script na. Schrijft één regel JSON naar stdout.
+// en de Origin van de keuzepagina meesturen, de persona kiezen), doet het script na. Schrijft één
+// regel JSON naar stdout.
 //
 //   node tegen-app-manager.mjs <basis> <issuer> <oin> <persona>
 import { decodeJwt } from 'jose';
@@ -21,7 +22,8 @@ if (omwisseling.status !== 303 || !cookie) throw new Error(`register_app gaf ${o
 const keuze = await fetch(new URL('register_app/kies', basis), {
   method: 'POST',
   redirect: 'manual',
-  headers: { Cookie: cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+  // De keuzepagina staat op de App Manager zelf; een browser zet die origin in de Origin-header.
+  headers: { Cookie: cookie, Origin: new URL(issuer).origin, 'Content-Type': 'application/x-www-form-urlencoded' },
   body: new URLSearchParams({ persona }).toString(),
 });
 

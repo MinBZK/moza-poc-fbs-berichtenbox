@@ -14,7 +14,7 @@ test('de private key van de app is niet te exporteren, in geen enkel formaat', a
   }
 });
 
-test('met de sleutel tekent de app, en de handtekening klopt met de public key', async () => {
+test('met de sleutel ondertekent de app, en de handtekening klopt met de public key', async () => {
   const { privateKey, publicKey } = await maakSleutelpaar();
   const bericht = new TextEncoder().encode('challenge_response');
   const algoritme = { name: 'ECDSA', hash: 'SHA-256' };

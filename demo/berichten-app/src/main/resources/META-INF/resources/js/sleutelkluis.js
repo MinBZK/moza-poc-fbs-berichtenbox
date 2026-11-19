@@ -1,5 +1,5 @@
 // De sleutels en tokens van de app in IndexedDB. Een CryptoKey gaat als object de database in:
-// script op deze origin kan ermee tekenen of ontsleutelen, maar de private key niet uitlezen.
+// script op deze origin kan ermee ondertekenen of ontsleutelen, maar de private key niet uitlezen.
 const DATABASE = 'berichten-app';
 const OPSLAG = 'kluis';
 const SLEUTELPAAR = 'sleutelpaar';

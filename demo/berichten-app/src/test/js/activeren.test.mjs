@@ -15,7 +15,7 @@ function aesSleutel() {
 
 async function registratiebericht(velden, sleutel) {
   const jwe = await new CompactEncrypt(encoder.encode(JSON.stringify(velden)))
-    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM', typ: 'JWE' })
     .encrypt(sleutel);
 
   return `#registration_token=${jwe}`;
@@ -126,6 +126,8 @@ test('het verzoek om een credential draagt het sessietoken in Authorization en i
   assert.equal(opties.headers['Content-Type'], 'application/jose');
   assert.equal(opties.body.split('.').length, 5);
   assert.equal(opties.body.includes('geheim'), false);
+  // De App Manager weigert een JWE zonder typ JWE met een 400 (API Design Rules, /encryption/jwe).
+  assert.deepEqual(JSON.parse(Buffer.from(opties.body.split('.')[0], 'base64url')), { alg: 'dir', enc: 'A256GCM', typ: 'JWE' });
 });
 
 async function credentialMet(claims) {

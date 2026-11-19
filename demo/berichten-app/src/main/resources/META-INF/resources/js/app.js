@@ -200,6 +200,10 @@ function melding(fout) {
 
   if (fout instanceof ActiverenFout && fout.status === 401) return 'De App Manager wees het verzoek af. Probeer het opnieuw.';
 
+  // Een 400 wijst op een fout in de app zelf of een App Manager die een andere versie spreekt;
+  // opnieuw proberen helpt dan niet.
+  if (fout instanceof ActiverenFout && fout.status === 400) return 'De App Manager begrijpt het verzoek van de app niet. Meld dit aan de beheerder.';
+
   if (fout instanceof ActiverenFout && fout.status === 503) return 'De App Manager is even te druk. Probeer het over een minuut opnieuw.';
 
   if (fout instanceof ActiverenFout && fout.status) return 'De App Manager gaf een fout. Probeer het later opnieuw.';

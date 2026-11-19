@@ -51,16 +51,16 @@ export async function maakSessie({ basis, oin, sleutelpaar, fetch = globalThis.f
   const jwk = await publiekeJwk(sleutelpaar.publicKey);
 
   const presentatie = JSON.stringify({
-    app_nonce_signature: await teken({ sub: 'challenge_response', aud: oin, nonce: claims.nonce }, sleutelpaar.privateKey),
+    app_nonce_signature: await onderteken({ sub: 'challenge_response', aud: oin, nonce: claims.nonce }, sleutelpaar.privateKey),
     certificate_type: 'certificate_type_self_signed',
-    certificate: await teken({ sub: 'certificate_type_self_signed', cnf: { jwk } }, sleutelpaar.privateKey),
+    certificate: await onderteken({ sub: 'certificate_type_self_signed', cnf: { jwk } }, sleutelpaar.privateKey),
     session_aes_key: base64Tekst(ruw),
   });
 
   ruw.fill(0);
 
   const versleuteld = await new CompactEncrypt(encoder.encode(presentatie))
-    .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A256GCM' })
+    .setProtectedHeader({ alg: 'ECDH-ES', enc: 'A256GCM', typ: 'JWE' })
     .encrypt(tijdelijk);
 
   const antwoord = await tekstVan(await verbind(fetch, new URL('v1/complete', basis), {
@@ -110,7 +110,7 @@ export async function haalCredential({ basis, sessieToken, aesSleutel, registrat
     iss: APP_ISS,
     registration_token: registratieToken,
   })))
-    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+    .setProtectedHeader({ alg: 'dir', enc: 'A256GCM', typ: 'JWE' })
     .encrypt(aesSleutel);
 
   const antwoord = await tekstVan(await verbind(fetch, new URL('credential', basis), {
@@ -141,7 +141,7 @@ export async function publiekeJwk(publicKey) {
   return { kty, crv, x, y };
 }
 
-function teken(claims, privateKey) {
+function onderteken(claims, privateKey) {
   return new CompactSign(encoder.encode(JSON.stringify(claims)))
     .setProtectedHeader({ alg: 'ES256', typ: 'jwt' })
     .sign(privateKey);
