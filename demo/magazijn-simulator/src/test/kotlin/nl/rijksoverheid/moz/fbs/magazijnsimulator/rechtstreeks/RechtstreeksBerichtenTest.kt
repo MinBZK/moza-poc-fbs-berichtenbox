@@ -12,6 +12,8 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.Logvanger
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.herkenbareDelen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.App
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.Companion.COMPACT_JWE
@@ -24,6 +26,7 @@ import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.jose4j.json.JsonUtil
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -177,6 +180,51 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
         assertEquals(0, (lijst["berichten"] as List<*>).size)
         given().header("Authorization", sessie.bearer).header("X-Ontvanger", ANDERE_ONTVANGER)
             .get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$vanEenAnder").then().statusCode(404)
+    }
+
+    /**
+     * Zonder access-log is de OIN het enige dat een 404 en een 401 bij hetzelfde magazijn met elkaar
+     * verbindt. Op beide ingangen noemt de 404-regel daarom het magazijn en de foutcode, bij elk
+     * magazijn zijn eigen OIN.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = [MAGAZIJN_A, MAGAZIJN_B])
+    fun `de 404-regel noemt op beide ingangen het magazijn en de foutcode`(magazijn: String) {
+        val onbekend = "11111111-2222-3333-4444-555555555555"
+        val ander = if (magazijn == MAGAZIJN_A) MAGAZIJN_B else MAGAZIJN_A
+        val bearer = "Bearer ${App(klok.instant()).sessie(magazijn)}"
+
+        val tweedeIngang = metLog {
+            given().header("Authorization", bearer).get("${basis(magazijn)}/rechtstreeks/berichten/$onbekend")
+                .then().statusCode(404)
+        }
+
+        val eersteIngang = metLog {
+            given().header("X-Ontvanger", ONTVANGER).get("${basis(magazijn)}/berichten/$onbekend").then().statusCode(404)
+        }
+
+        val afgewezen = metLog {
+            given().header("Authorization", "Bearer onbekend").get("${basis(magazijn)}/rechtstreeks/berichten/$onbekend")
+                .then().statusCode(401)
+        }
+
+        listOf(tweedeIngang, eersteIngang).forEach { log ->
+            assertTrue(log.contains("Clientfout 404"), log)
+            assertTrue(log.contains("foutcode=bericht-onbekend, magazijn=$magazijn)"), log)
+            assertFalse(log.contains(ander), "de OIN van een ander magazijn hoort niet in de regel: $log")
+
+            // De OIN eruit: die is publiek en deelt toevallig cijferreeksen met de test-ontvanger.
+            herkenbareDelen(ONTVANGER.substringAfter(':')).forEach { deel ->
+                assertFalse(log.replace(magazijn, "").contains(deel), "de ontvanger hoort niet in de log: $log")
+            }
+        }
+
+        assertTrue(afgewezen.contains("bij magazijn $magazijn afgewezen"), afgewezen)
+    }
+
+    private fun metLog(verzoek: () -> Unit): String = Logvanger().use { logvanger ->
+        verzoek()
+        logvanger.tekst()
     }
 
     @Test

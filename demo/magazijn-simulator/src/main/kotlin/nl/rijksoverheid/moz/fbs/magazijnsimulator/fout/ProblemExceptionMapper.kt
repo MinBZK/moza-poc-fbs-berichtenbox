@@ -5,6 +5,7 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import org.jboss.logging.Logger
 import java.util.UUID
 
@@ -23,7 +24,7 @@ import java.util.UUID
  * zelf logt. Een 500 zonder logregel is in een demo met honderd magazijnen niet te herleiden.
  */
 @Provider
-class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
+class ProblemExceptionMapper(private val context: MagazijnContext) : ExceptionMapper<WebApplicationException> {
 
     private val log = Logger.getLogger(ProblemExceptionMapper::class.java)
 
@@ -53,8 +54,17 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         // Ook een clientfout krijgt een regel, op INFO. Het antwoord draagt een correlatie-id, en een
         // id dat nergens in de log staat is geen correlatie maar een sierletter. De melding blijft
-        // eruit om dezelfde reden als hierboven: die kan invoer dragen.
-        log.infof("Clientfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
+        // eruit om dezelfde reden als hierboven: die kan invoer dragen. Foutcode en magazijn wel:
+        // zonder access-log is de OIN het enige dat een 404 en een 401 bij hetzelfde magazijn met
+        // elkaar verbindt, en de OIN is publiek. Het beheerpad kiest geen magazijn.
+        log.infof(
+            "Clientfout %d (foutId=%s, type=%s, foutcode=%s, magazijn=%s)",
+            status,
+            foutId,
+            exception.javaClass.name,
+            foutcode.code,
+            context.magazijnOfNiets?.oin ?: "geen",
+        )
 
         return problemResponse(
             status = status,

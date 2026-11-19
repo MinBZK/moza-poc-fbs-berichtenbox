@@ -40,13 +40,13 @@ class Opzet(private val willekeur: java.security.SecureRandom = java.security.Se
         }
     }
 
-    fun verifier(oin: String = MAGAZIJN_OIN, opslag: GeheugenOpslag = this.opslag): Verifier = Verifier(
+    fun verifier(oin: String = MAGAZIJN_OIN, opslag: GeheugenOpslag = this.opslag, sessies: SessieOpslag = opslag): Verifier = Verifier(
         oin = oin,
         sleutel = VerifierSleutel(MAGAZIJN_KID, magazijnSleutel.private as ECPrivateKey, magazijnSleutelGeldigTot),
         appManagers = appManagers,
         scope = SCOPE,
         challenges = opslag,
-        sessies = opslag,
+        sessies = sessies,
         klok = klok,
         willekeur = willekeur,
     )

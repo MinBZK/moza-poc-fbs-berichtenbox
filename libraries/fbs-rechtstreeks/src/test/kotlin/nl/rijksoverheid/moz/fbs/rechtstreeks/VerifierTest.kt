@@ -14,6 +14,7 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.Arguments.arguments
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.time.Duration
@@ -177,6 +178,93 @@ class VerifierTest {
         opzet.nu = opzet.nu.plusSeconds(899)
 
         verifier.sessie(token)
+
+        opzet.nu = opzet.nu.plusSeconds(1)
+
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+    }
+
+    @Test
+    fun `een token dat nooit een sessie had, is onbekend`() {
+        // Met een verlopen token in de verzameling, zodat het onderscheid echt op het token rust.
+        opzet.sessie(verifier)
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15))
+        verifier.maakChallenge("ander")
+
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie("Verzonnen".padEnd(32, '0')) }.reden)
+    }
+
+    @Test
+    fun `alleen de redenen bij een getoetst sessietoken vragen om invalid_token`() {
+        assertEquals(
+            setOf(Afwijzing.SESSIE_ONBEKEND, Afwijzing.SESSIE_VERLOPEN),
+            Afwijzing.entries.filter { it.tokenAfgewezen }.toSet(),
+        )
+    }
+
+    /** Telt hoe vaak de Verifier de opslag naar een sessie vraagt. */
+    private class TellendeOpslag(private val echt: GeheugenOpslag) : SessieOpslag by echt {
+        var vragen = 0
+
+        override fun zoek(verifier: String, token: String): Sessie? {
+            vragen++
+
+            return echt.zoek(verifier, token)
+        }
+    }
+
+    /** Leeg, één te kort, één te lang, en de juiste lengte met één teken dat een uitgegeven token niet heeft. */
+    @ParameterizedTest
+    @MethodSource("misvormdeTokens")
+    fun `een token zonder de vorm van een uitgegeven token is onbekend, zonder de opslag te vragen`(token: String) {
+        val tellend = TellendeOpslag(opzet.opslag)
+        val metTeller = opzet.verifier(sessies = tellend)
+
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { metTeller.sessie(token) }.reden)
+        assertEquals(0, tellend.vragen, "de opslag hoort het token niet te zien")
+    }
+
+    @Test
+    fun `een token met de vorm van een uitgegeven token gaat wel naar de opslag`() {
+        val tellend = TellendeOpslag(opzet.opslag)
+        val metTeller = opzet.verifier(sessies = tellend)
+
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { metTeller.sessie("a".repeat(32)) }.reden)
+        assertEquals(1, tellend.vragen)
+    }
+
+    /**
+     * Elke aanroep van de opslag ruimt verlopen sessies op, ook die van een andere app. Zonder het
+     * geheugen van verlopen tokens zou de app die terugkomt dan "onbekend" krijgen.
+     */
+    @Test
+    fun `een verlopen sessie blijft verlopen, ook als een andere aanroep hem al opruimde`() {
+        val token = opzet.sessie(verifier).first.sessie.token
+
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15))
+        verifier.maakChallenge("ander")
+
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+    }
+
+    @Test
+    fun `een verlopen token van het ene magazijn is bij een ander onbekend`() {
+        val ander = opzet.verifier(Opzet.ANDER_MAGAZIJN_OIN)
+        val token = opzet.sessie(verifier).first.sessie.token
+
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15))
+
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { ander.sessie(token) }.reden)
+    }
+
+    @Test
+    fun `na de bewaartermijn is een verlopen token weer onbekend`() {
+        val token = opzet.sessie(verifier).first.sessie.token
+
+        opzet.nu = opzet.nu.plus(Duration.ofMinutes(15)).plus(Duration.ofHours(1)).minusSeconds(1)
+
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
 
         opzet.nu = opzet.nu.plusSeconds(1)
 
@@ -394,6 +482,18 @@ class VerifierTest {
     }
 
     @Test
+    fun `een milliseconde voor het verlopen werkt een sessie nog, voor elke stap`() {
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+
+        opzet.nu = uitgegeven.sessie.verlooptOp.minusMillis(1)
+
+        val sessie = verifier.sessie(uitgegeven.sessie.token)
+
+        assertEquals("{}", TestApp.ontsleutelDir(verifier.versleutel(sessie, "{}"), aes))
+        assertEquals("verzoek", verifier.ontsleutel(sessie, TestApp.jweDir("verzoek", aes)))
+    }
+
+    @Test
     fun `een sessie die verloopt terwijl het verzoek loopt, wordt niet meer gebruikt om te versleutelen`() {
         val (uitgegeven, aes) = opzet.sessie(verifier)
         val sessie = verifier.sessie(uitgegeven.sessie.token)
@@ -403,8 +503,8 @@ class VerifierTest {
         // Een willekeurige andere aanroep ruimt de verlopen sessie op terwijl dit verzoek hem nog vasthoudt.
         verifier.maakChallenge("ander")
 
-        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.versleutel(sessie, "{}") }.reden)
-        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes)) }.reden)
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.versleutel(sessie, "{}") }.reden)
+        assertEquals(Afwijzing.SESSIE_VERLOPEN, assertThrows<AfgewezenException> { verifier.ontsleutel(sessie, TestApp.jweDir("{}", aes)) }.reden)
     }
 
     @Test
@@ -496,6 +596,15 @@ class VerifierTest {
     }
 
     companion object {
+        @JvmStatic
+        fun misvormdeTokens() = listOf(
+            "",
+            "a".repeat(31),
+            "a".repeat(33),
+            "a".repeat(31) + "-",
+            "-" + "a".repeat(31),
+            "a".repeat(31) + "é",
+        )
 
         private fun grens(naam: String, looptijd: Long, geval: Grensgeval): Arguments = arguments(named(naam, geval), looptijd)
 

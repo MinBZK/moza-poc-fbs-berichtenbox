@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.rechtstreeks
 
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.time.Clock
@@ -69,6 +71,13 @@ interface SessieOpslag {
 
     /** De sessie, of `null` als hij onbekend of verlopen is. */
     fun zoek(verifier: String, token: String): Sessie?
+
+    /**
+     * Of [token] kort geleden nog een sessie bij [verifier] had die nu verlopen is. Alleen voor de
+     * reden in de log: een `false` zegt niet dat het token verzonnen is, want de opslag onthoudt
+     * verlopen tokens begrensd.
+     */
+    fun verlopen(verifier: String, token: String): Boolean
 }
 
 /**
@@ -85,6 +94,14 @@ interface SessieOpslag {
  * doorgeeft, nooit een waarde die de client zelf kan zetten; anders deelt iedereen het adres van de
  * proxy. Niet `quarkus.http.proxy.proxy-address-forwarding`: dat neemt de eerste waarde van
  * `X-Forwarded-For`, en die kiest de client. Een IPv6-adres telt per /64.
+ *
+ * Een verlopen sessie laat een vingerafdruk van haar token achter, [verlopenOnthouden] lang en
+ * hoogstens [maxVerlopen] tegelijk, zodat de log een token dat net verliep apart kan noemen (zie
+ * [verlopen]). Zonder die verzameling ruimt de eerste aanroep van wie dan ook de sessie op, en is
+ * "verlopen" niet meer te zien. Ze telt voor geen enkel quotum mee. Het standaardplafond is zes
+ * keer [maxSessies]: genoeg voor sessies van tien minuten of langer onder volle last. Kortere
+ * sessies (een credential dat bijna verloopt) kunnen de termijn inkorten; de oudste vermelding
+ * verliest dan alleen het onderscheid.
  */
 class GeheugenOpslag(
     private val klok: Clock,
@@ -95,6 +112,8 @@ class GeheugenOpslag(
     private val maxPerClientOverVerifiers: Int = 200,
     private val maxSessiesPerHouderOverVerifiers: Int = 2_000,
     private val maxSessiesPerClientOverVerifiers: Int = 2_000,
+    private val maxVerlopen: Int = maxSessies * VERLOPEN_PER_SESSIEPLEK,
+    private val verlopenOnthouden: Duration = Duration.ofHours(1),
 ) : ChallengeOpslag, SessieOpslag {
 
     init {
@@ -106,17 +125,42 @@ class GeheugenOpslag(
             maxPerClientOverVerifiers,
             maxSessiesPerHouderOverVerifiers,
             maxSessiesPerClientOverVerifiers,
+            maxVerlopen,
         )
 
         require(grenzen.all { it > 0 }) { "elke grens moet groter dan nul zijn" }
+        require(verlopenOnthouden > Duration.ZERO) { "de bewaartermijn van verlopen tokens moet groter dan nul zijn" }
     }
 
     private class Openstaand(val verifier: String, val client: String, val sleutel: ECPrivateKey, val verlooptOp: Instant)
 
-    private class Bewaard(val houder: String, val client: String, val sessie: Sessie)
+    private class Bewaard(val houder: String, val client: String, val sessie: Sessie, val afdruk: Vingerafdruk)
+
+    /**
+     * De eerste 128 bit van de SHA-256 van een token, per Verifier. Het token zelf blijft niet
+     * bewaard: ook verlopen hoort het niet in een heap-dump. 128 bit volstaat om een token van ruim
+     * 190 bit terug te herkennen, en houdt een vermelding klein.
+     */
+    private data class Vingerafdruk(val verifier: String, val hoog: Long, val laag: Long) {
+        companion object {
+            fun van(verifier: String, token: String): Vingerafdruk {
+                val hash = ByteBuffer.wrap(MessageDigest.getInstance("SHA-256").digest(token.toByteArray(Charsets.UTF_8)))
+
+                return Vingerafdruk(verifier, hash.long, hash.long)
+            }
+        }
+    }
 
     private val challenges = HashMap<Pair<String, String>, Openstaand>()
     private val sessies = HashMap<Pair<String, String>, Bewaard>()
+
+    /**
+     * Wanneer de sessie bij een vingerafdruk verliep, oplopend. [ruimOp] voegt in volgorde van
+     * verlopen toe, en wat er in een latere ronde bij komt, verliep na het moment van de vorige:
+     * snoeien kan dus vanaf de kop. Dat geldt zolang de klok niet terugloopt; doet hij dat, dan
+     * blijft een vermelding hooguit iets langer staan, en [verlopen] toetst de termijn zelf.
+     */
+    private val verlopenTokens = LinkedHashMap<Vingerafdruk, Instant>()
 
     @Synchronized
     override fun bewaar(verifier: String, nonce: String, client: String, sleutel: ECPrivateKey, verlooptOp: Instant) {
@@ -141,8 +185,14 @@ class GeheugenOpslag(
         return challenges.remove(verifier to nonce)?.sleutel
     }
 
-    @Synchronized
+    // Geen @Synchronized op de methode: de hash hoort buiten de lock, die alle Verifiers delen.
     override fun bewaar(sessie: Sessie, houder: String, client: String) {
+        val afdruk = Vingerafdruk.van(sessie.verifier, sessie.token)
+
+        synchronized(this) { bewaar(sessie, houder, client, afdruk) }
+    }
+
+    private fun bewaar(sessie: Sessie, houder: String, client: String, afdruk: Vingerafdruk) {
         val nu = ruimOp()
         val vanHouder = sessies.values.filter { it.houder == houder }
         val bijVerifier = vanHouder.filter { it.sessie.verifier == sessie.verifier }
@@ -160,7 +210,7 @@ class GeheugenOpslag(
 
         if (sessies.size >= maxSessies) throw OpslagVolException(wachttijd(sessies.values.map { it.sessie.verlooptOp }, nu))
 
-        sessies[sessie.verifier to sessie.token] = Bewaard(houder, client, sessie)
+        sessies[sessie.verifier to sessie.token] = Bewaard(houder, client, sessie, afdruk)
     }
 
     @Synchronized
@@ -168,6 +218,22 @@ class GeheugenOpslag(
         ruimOp()
 
         return sessies[verifier to token]?.sessie
+    }
+
+    /**
+     * Zonder [ruimOp]: dit volgt op een gemiste [zoek], die net heeft opgeruimd, en een tweede ronde
+     * zou een verzonnen token dubbel zo duur maken onder de lock die alle Verifiers delen.
+     */
+    override fun verlopen(verifier: String, token: String): Boolean {
+        val afdruk = Vingerafdruk.van(verifier, token)
+
+        synchronized(this) {
+            val nu = klok.instant()
+
+            val verlopenOp = sessies[verifier to token]?.sessie?.verlooptOp ?: verlopenTokens[afdruk] ?: return false
+
+            return !verlopenOp.isAfter(nu) && verlopenOp.plus(verlopenOnthouden).isAfter(nu)
+        }
     }
 
     /**
@@ -180,11 +246,36 @@ class GeheugenOpslag(
         val nu = klok.instant()
 
         challenges.values.removeIf { !it.verlooptOp.isAfter(nu) }
-        sessies.values.removeIf { !it.sessie.verlooptOp.isAfter(nu) }
+
+        val afgelopen = sessies.entries
+            .filter { !it.value.sessie.verlooptOp.isAfter(nu) }
+            .sortedBy { it.value.sessie.verlooptOp }
+
+        afgelopen.forEach { (sleutel, bewaard) ->
+            sessies.remove(sleutel)
+            verlopenTokens[bewaard.afdruk] = bewaard.sessie.verlooptOp
+        }
+
+        val oudsteEerst = verlopenTokens.values.iterator()
+
+        while (oudsteEerst.hasNext() && !oudsteEerst.next().plus(verlopenOnthouden).isAfter(nu)) oudsteEerst.remove()
+
+        // Een vermelding die zo wegvalt, verliest alleen het onderscheid en wordt weer een onbekend token.
+        val teVeel = verlopenTokens.size - maxVerlopen
+        val teSchrappen = verlopenTokens.keys.iterator()
+
+        repeat(teVeel.coerceAtLeast(0)) {
+            teSchrappen.next()
+            teSchrappen.remove()
+        }
 
         return nu
     }
 
     private fun wachttijd(momenten: List<Instant>, nu: Instant): Duration =
         Duration.between(nu, maxOf(momenten.minOrNull() ?: nu, nu.plusSeconds(1)))
+
+    private companion object {
+        const val VERLOPEN_PER_SESSIEPLEK = 6
+    }
 }
