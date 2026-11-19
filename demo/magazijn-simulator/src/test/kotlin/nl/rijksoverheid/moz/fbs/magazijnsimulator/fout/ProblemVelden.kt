@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
 import io.restassured.response.Response
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.ApiInfo
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 
@@ -28,6 +29,8 @@ sealed interface DetailVerwachting {
 fun assertProblemVelden(antwoord: Response, status: Int, foutcode: Foutcode, detail: DetailVerwachting) {
     assertEquals(status, antwoord.statusCode, antwoord.asString())
     assertEquals("application/problem+json", antwoord.contentType.substringBefore(';'))
+    // De spec maakt de header niet verplicht, dus de validator vangt een ontbrekende niet.
+    assertEquals(ApiInfo.SPEC_VERSION, antwoord.header("API-Version"))
 
     val velden = antwoord.jsonPath().getMap<String, Any?>("$")
     val verwacht = setOf("type", "title", "status", "instance") +

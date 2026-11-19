@@ -162,17 +162,17 @@ class MagazijnPadFilterTest : MagazijnTestBasis() {
     /**
      * Accolades zijn geen geldige URI-tekens, maar gecodeerd is `%7Bid%7D` een pad dat elke client
      * kan sturen. Quarkus REST bouwt `UriInfo.requestUri` met een `UriBuilder` die accolades als
-     * URI-template leest, dus dit is precies het pad waarlangs een onvindbaar bericht een 500 zou
-     * kunnen worden in plaats van de 404 die een echt magazijn geeft.
+     * URI-template leest, dus dit is precies het pad waarlangs een ongeldig bericht-id een 500 zou
+     * kunnen worden in plaats van de 400 die een echt magazijn geeft: `{id}` is geen UUID.
      */
     @Test
-    fun `een pad met gecodeerde accolades levert 404 problem+json en geen serverfout`() {
+    fun `een pad met gecodeerde accolades levert 400 problem+json en geen serverfout`() {
         given()
             .urlEncodingEnabled(false)
             .header(ONTVANGER_HEADER, ONTVANGER)
             .`when`().get("/magazijn/$MAGAZIJN_EEN/api/v1/berichten/%7Bid%7D")
             .then()
-            .statusCode(404)
+            .statusCode(400)
             .contentType("application/problem+json")
     }
 

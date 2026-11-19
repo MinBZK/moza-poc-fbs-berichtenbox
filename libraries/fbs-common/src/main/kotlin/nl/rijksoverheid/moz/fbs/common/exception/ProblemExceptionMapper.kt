@@ -29,7 +29,14 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
     private val log = Logger.getLogger(ProblemExceptionMapper::class.java)
 
     override fun toResponse(exception: WebApplicationException): Response {
-        val status = exception.response?.status ?: 500
+        // Een parameter die niet te converteren is, levert in Jakarta REST een 404 op; het pad
+        // bestaat wel, en de spec declareert daarvoor een 400.
+        val status = if (FrameworkfoutDetail.isOngeldigeParameter(exception)) {
+            Response.Status.BAD_REQUEST.statusCode
+        } else {
+            exception.response?.status ?: 500
+        }
+
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val errorId = UUID.randomUUID()
 
@@ -94,11 +101,21 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 }
 
 /**
+ * Wat een afnemer leest als een andere dienst een verzoek van ons weigerde en de fout ongewijzigd
+ * doorkomt. De melding van de REST-client noemt onze klasse- en methodenamen ("when invoking REST
+ * Client method: 'nl…MagazijnClient#patchBericht'"), en die horen niet in een foutantwoord.
+ */
+const val DOORGEGEVEN_WEIGERING_DETAIL = "Een andere dienst in de keten weigerde het verzoek."
+
+/**
  * Het `detail` van een 4xx: de vaste tekst van [FrameworkfoutDetail] bij een fout van het framework,
- * geen `detail` bij diens standaardmelding, en anders de gesaneerde melding.
+ * een vaste tekst bij een doorgegeven weigering van een REST-client, geen `detail` bij de
+ * standaardmelding, en anders de gesaneerde melding.
  */
 private fun clientDetail(exception: WebApplicationException): String? {
     FrameworkfoutDetail.voor(exception)?.let { return it }
+
+    if (isDoorgegevenClientFout(exception)) return DOORGEGEVEN_WEIGERING_DETAIL
 
     val melding = exception.message
 
@@ -106,6 +123,17 @@ private fun clientDetail(exception: WebApplicationException): String? {
 
     return sanitizeClientDetail(melding)
 }
+
+/**
+ * Of [exception] van de REST-client van Quarkus komt. Die markeert zijn fouten met deze interface.
+ * Herkend op naam en niet met `is`: de library waarin hij staat brengt een eigen `RuntimeDelegate`
+ * mee, en die zou als dependency hier elke `Response.status(...)` buiten Quarkus laten falen.
+ */
+private fun isDoorgegevenClientFout(exception: WebApplicationException): Boolean =
+    generateSequence<Class<*>>(exception.javaClass) { it.superclass }
+        .any { klasse -> klasse.interfaces.any { it.name == CLIENT_FOUT_INTERFACE } }
+
+private const val CLIENT_FOUT_INTERFACE = "org.jboss.resteasy.reactive.ResteasyReactiveClientProblem"
 
 private const val MAX_CLIENT_DETAIL_LENGTH = 500
 

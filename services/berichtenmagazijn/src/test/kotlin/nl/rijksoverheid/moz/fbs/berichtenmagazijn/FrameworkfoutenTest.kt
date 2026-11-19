@@ -12,6 +12,7 @@ import io.restassured.specification.RequestSpecification
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -63,6 +64,8 @@ class FrameworkfoutenTest {
     private fun assertFrameworkfout(antwoord: Response, status: Int, foutcode: Foutcode, detail: String) {
         assertEquals(status, antwoord.statusCode, antwoord.asString())
         assertEquals("application/problem+json", antwoord.contentType.substringBefore(';'))
+        // De spec maakt de header niet verplicht, dus de validator vangt een ontbrekende niet.
+        assertNotNull(antwoord.header("API-Version"), "API-Version ontbreekt")
 
         val velden = antwoord.jsonPath().getMap<String, Any?>("$")
 
@@ -83,6 +86,10 @@ class FrameworkfoutenTest {
                 .withLevelResolver(
                     LevelResolver.create()
                         .withLevel("validation.request", ValidationReport.Level.IGNORE)
+                        // Zonder deze twee valideert de filter niets als het pad niet in de spec
+                        // gevonden wordt, en blijft de test stil groen.
+                        .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
+                        .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
                         .build(),
                 )
                 .build(),
@@ -98,8 +105,8 @@ class FrameworkfoutenTest {
 
         private val geenUuid = geval(
             "bericht-id dat geen UUID is",
-            404,
-            Foutcode.NIET_GEVONDEN,
+            400,
+            Foutcode.ONGELDIG_VERZOEK,
             FrameworkfoutDetail.PARAMETER_ONGELDIG,
         ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("/api/v1/berichten/geen-uuid") }
 
@@ -117,9 +124,16 @@ class FrameworkfoutenTest {
             FrameworkfoutDetail.MEDIATYPE_NIET_ONDERSTEUND,
         ) { it.contentType(ContentType.TEXT).body("geen json").post("/api/v1/aanleveringen") }
 
+        private val pageGeenGetal = geval(
+            "page dat geen getal is",
+            400,
+            Foutcode.ONGELDIG_VERZOEK,
+            FrameworkfoutDetail.PARAMETER_ONGELDIG,
+        ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("/api/v1/berichten?page=abc") }
+
         @JvmStatic
         fun gevallenOpSpecOperaties(): Stream<Arguments> =
-            Stream.of(geenUuid, acceptNietTeLeveren, mediatypeNietOndersteund)
+            Stream.of(geenUuid, pageGeenGetal, acceptNietTeLeveren, mediatypeNietOndersteund)
 
         @JvmStatic
         fun gevallen(): Stream<Arguments> = Stream.of(
@@ -130,9 +144,7 @@ class FrameworkfoutenTest {
                 it.get("/api/v1/bestaat-niet")
             },
             geenUuid,
-            geval("page dat geen getal is", 404, Foutcode.NIET_GEVONDEN, FrameworkfoutDetail.PARAMETER_ONGELDIG) {
-                it.header(ONTVANGER_HEADER, ONTVANGER).get("/api/v1/berichten?page=abc")
-            },
+            pageGeenGetal,
             geval(
                 "methode niet toegestaan",
                 405,

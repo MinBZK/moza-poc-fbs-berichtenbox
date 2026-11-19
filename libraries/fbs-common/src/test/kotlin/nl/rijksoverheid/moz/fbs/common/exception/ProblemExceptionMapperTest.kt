@@ -9,6 +9,7 @@ import jakarta.ws.rs.NotSupportedException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
+import org.jboss.resteasy.reactive.ResteasyReactiveClientProblem
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -447,6 +448,37 @@ class ProblemExceptionMapperTest {
         assertEquals("magazijn weigerde (415)", problem.detail)
     }
 
+    /**
+     * Een weigering van een andere dienst die ongewijzigd doorkomt. De melding van de REST-client
+     * noemt onze klasse- en methodenamen, en de sanering haalt die er niet uit.
+     */
+    @Test
+    fun `een doorgegeven fout van een REST-client noemt geen klassenaam`() {
+        val fout = NagebootsteClientFout(
+            "Received: 'Unsupported Media Type, status code 415' when invoking REST Client method: " +
+                "'nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MagazijnClient#patchBericht'",
+            415,
+        )
+
+        val respons = mapper.toResponse(fout)
+        val problem = respons.entity as Problem
+
+        assertEquals(415, respons.status)
+        assertEquals(DOORGEGEVEN_WEIGERING_DETAIL, problem.detail)
+    }
+
+    @Test
+    fun `een parameter die niet te converteren is wordt een 400 met de vaste tekst`() {
+        val respons = mapper.toResponse(NotFoundException(NumberFormatException("For input string: \"abc\"")))
+        val problem = respons.entity as Problem
+
+        assertEquals(400, respons.status)
+        assertEquals(400, problem.status)
+        assertEquals("Bad Request", problem.title)
+        assertEquals(Foutcode.ONGELDIG_VERZOEK.uri, problem.type)
+        assertEquals(FrameworkfoutDetail.PARAMETER_ONGELDIG, problem.detail)
+    }
+
     @Test
     fun `een eigen 404 houdt zijn melding`() {
         val fout = FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
@@ -462,6 +494,10 @@ class ProblemExceptionMapperTest {
 
         assertNull(problem.detail)
     }
+
+    /** Zoals `ClientWebApplicationException` van Quarkus: een gewone exception met de markering. */
+    private class NagebootsteClientFout(melding: String, status: Int) :
+        WebApplicationException(melding, status), ResteasyReactiveClientProblem
 
     private fun waeMetRetryAfter(status: Int, waarde: String) =
         WebApplicationException(Response.status(status).header("Retry-After", waarde).build())

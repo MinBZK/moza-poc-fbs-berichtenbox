@@ -87,6 +87,18 @@ class FoutMappersTest {
     }
 
     @Test
+    fun `een parameter die niet te converteren is wordt een 400 met de vaste tekst`() {
+        val respons = ProblemExceptionMapper().toResponse(NotFoundException(NumberFormatException("abc")))
+        val problem = respons.entity as Problem
+
+        assertEquals(400, respons.status)
+        assertEquals(400, problem.status)
+        assertEquals("Bad Request", problem.title)
+        assertEquals(Foutcode.ONGELDIG_VERZOEK.uri, problem.type)
+        assertEquals(FrameworkfoutDetail.PARAMETER_ONGELDIG, problem.detail)
+    }
+
+    @Test
     fun `een eigen 404 houdt zijn melding`() {
         val fout = SimulatorFout(Foutcode.NIET_GEVONDEN, Response.Status.NOT_FOUND, "Geen gesimuleerd magazijn met OIN 1")
 

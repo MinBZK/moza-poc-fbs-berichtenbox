@@ -33,7 +33,14 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (response.entity is Problem) return response
 
-        val status = response.status
+        // Een parameter die niet te converteren is, levert in Jakarta REST een 404 op; het pad
+        // bestaat wel, en de spec declareert daarvoor een 400. Het echte magazijn doet hetzelfde.
+        val status = if (FrameworkfoutDetail.isOngeldigeParameter(exception)) {
+            Response.Status.BAD_REQUEST.statusCode
+        } else {
+            response.status
+        }
+
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val foutId = UUID.randomUUID()
 

@@ -99,6 +99,10 @@ class ProblemVeldenTest : MagazijnTestBasis() {
                 .withLevelResolver(
                     LevelResolver.create()
                         .withLevel("validation.request", ValidationReport.Level.IGNORE)
+                        // Zonder deze twee valideert de filter niets als het pad niet in de spec
+                        // gevonden wordt, en blijft de test stil groen.
+                        .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
+                        .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
                         .build(),
                 )
                 .build(),
@@ -114,8 +118,8 @@ class ProblemVeldenTest : MagazijnTestBasis() {
 
         private val geenUuid = geval(
             "bericht-id dat geen UUID is",
-            404,
-            Foutcode.NIET_GEVONDEN,
+            400,
+            Foutcode.ONGELDIG_VERZOEK,
             DetailVerwachting.Precies(FrameworkfoutDetail.PARAMETER_ONGELDIG),
         ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten/geen-uuid") }
 
@@ -133,9 +137,16 @@ class ProblemVeldenTest : MagazijnTestBasis() {
             DetailVerwachting.Precies(FrameworkfoutDetail.MEDIATYPE_NIET_ONDERSTEUND),
         ) { it.contentType(ContentType.TEXT).body("geen json").post("$BASIS/aanleveringen") }
 
+        private val pageGeenGetal = geval(
+            "page dat geen getal is",
+            400,
+            Foutcode.ONGELDIG_VERZOEK,
+            DetailVerwachting.Precies(FrameworkfoutDetail.PARAMETER_ONGELDIG),
+        ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten?page=abc") }
+
         @JvmStatic
         fun gevallenOpSpecOperaties(): Stream<Arguments> =
-            Stream.of(geenUuid, acceptNietTeLeveren, mediatypeNietOndersteund)
+            Stream.of(geenUuid, pageGeenGetal, acceptNietTeLeveren, mediatypeNietOndersteund)
 
         @JvmStatic
         fun gevallen(): Stream<Arguments> = Stream.of(
@@ -146,8 +157,8 @@ class ProblemVeldenTest : MagazijnTestBasis() {
             geval("ontbrekende ontvanger", 400, Foutcode.ONGELDIG_VERZOEK, DetailVerwachting.Aanwezig) {
                 it.get("$BASIS/berichten")
             },
-            // Afgebroken JSON vertaalt Quarkus al vóór de mapper-keuze naar een kale 400; de
-            // standaardmelding daarvan voegt niets toe, dus geen detail.
+            // Afgebroken JSON vertaalt Quarkus al vóór de mapper-keuze naar een gewone 400. Die is
+            // niet te onderscheiden van een eigen 400, en de standaardmelding geeft geen detail.
             geval("afgebroken JSON", 400, Foutcode.ONGELDIG_VERZOEK, DetailVerwachting.Afwezig) {
                 it.contentType(ContentType.JSON).body("""{"afzender":""").post("$BASIS/aanleveringen")
             },
@@ -167,12 +178,7 @@ class ProblemVeldenTest : MagazijnTestBasis() {
                 DetailVerwachting.Precies(FrameworkfoutDetail.PAD_ONBEKEND),
             ) { it.get("$BASIS/bestaat-niet") },
             geenUuid,
-            geval(
-                "page dat geen getal is",
-                404,
-                Foutcode.NIET_GEVONDEN,
-                DetailVerwachting.Precies(FrameworkfoutDetail.PARAMETER_ONGELDIG),
-            ) { it.header(ONTVANGER_HEADER, ONTVANGER).get("$BASIS/berichten?page=abc") },
+            pageGeenGetal,
             geval(
                 "onbekend magazijn",
                 404,

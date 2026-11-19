@@ -56,11 +56,22 @@ class FrameworkfoutDetailTest {
     @Test
     fun `een andere exception-soort van Jakarta REST krijgt geen vaste zin`() {
         assertNull(FrameworkfoutDetail.voor(BadRequestException("melding")))
+        assertNull(FrameworkfoutDetail.voor(BadRequestException(IllegalStateException("kapot"))))
         assertNull(FrameworkfoutDetail.voor(ForbiddenException("melding")))
     }
 
+    @Test
+    fun `alleen een 404 met een conversiefout als oorzaak is een ongeldige parameter`() {
+        assertTrue(FrameworkfoutDetail.isOngeldigeParameter(NotFoundException(NumberFormatException("abc"))))
+        assertFalse(FrameworkfoutDetail.isOngeldigeParameter(NotFoundException("Unable to find matching target resource method")))
+        assertFalse(FrameworkfoutDetail.isOngeldigeParameter(BadRequestException(IllegalStateException("kapot"))))
+        assertFalse(FrameworkfoutDetail.isOngeldigeParameter(WebApplicationException(IllegalStateException("x"), 404)))
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = ["HTTP 400 Bad Request", "HTTP 404 Not Found", "HTTP 405", " HTTP 415 Unsupported Media Type "])
+    @ValueSource(
+        strings = ["HTTP 400 Bad Request", "HTTP 404 Not Found", "HTTP 405", " HTTP 415 Unsupported Media Type ", "HTTP 406 Not Acceptable"],
+    )
     fun `de standaardmelding van het framework wordt herkend`(melding: String) {
         assertTrue(FrameworkfoutDetail.isStandaardmelding(melding))
     }
@@ -74,6 +85,9 @@ class FrameworkfoutDetailTest {
             "Zie HTTP 404 Not Found",
             "HTTP 4045",
             "HTTP 400 (header X-Ontvanger: 12)",
+            "HTTP 409 Bericht is al gelezen",
+            "HTTP 404 Not Found: bericht 12",
+            "HTTP 499 Onbekend",
         ],
     )
     fun `een eigen melding is geen standaardmelding`(melding: String) {
