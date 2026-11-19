@@ -1,11 +1,8 @@
 {
   "name": "fbs-demo-berichten-app",
   "private": true,
-  "description": "Houdt de meegeleverde jose bij: Dependabot leest dit bestand, de app laadt jose uit src/main/resources/META-INF/resources/vendor/jose. Na een nieuwe versie: npm ci --ignore-scripts && npm run vendor.",
+  "description": "De JavaScript-bibliotheken van de Berichten-app. De Maven-build draait npm ci en zet jose op /vendor/jose; Dependabot houdt de versie bij.",
   "devDependencies": {
     "jose": "6.2.13"
-  },
-  "scripts": {
-    "vendor": "node vendor-jose.mjs"
   }
 }

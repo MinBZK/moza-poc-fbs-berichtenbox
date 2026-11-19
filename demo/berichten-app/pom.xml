@@ -50,6 +50,10 @@
         </dependency>
     </dependencies>
 
+    <properties>
+        <exec-maven-plugin.version>3.5.0</exec-maven-plugin.version>
+    </properties>
+
     <build>
         <sourceDirectory>src/main/kotlin</sourceDirectory>
         <testSourceDirectory>src/test/kotlin</testSourceDirectory>
@@ -86,6 +90,57 @@
                         <version>${kotlin.version}</version>
                     </dependency>
                 </dependencies>
+            </plugin>
+            <!-- jose komt uit npm, niet uit een kopie in git: zo biedt Dependabot een nieuwe versie aan
+                 als gewone PR. `npm ci` toetst het pakket aan de integrity in package-lock.json;
+                 daarna gaat dist/webapi naar /vendor/jose op de eigen origin, want de CSP staat
+                 alleen script van deze origin toe. Node en npm moeten dus op het PATH staan. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>npm-ci</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>npm</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <arguments>
+                                <argument>ci</argument>
+                                <argument>--ignore-scripts</argument>
+                                <argument>--no-audit</argument>
+                                <argument>--no-fund</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>jose</id>
+                        <phase>process-resources</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/META-INF/resources/vendor/jose</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/node_modules/jose/dist/webapi</directory>
+                                </resource>
+                                <resource>
+                                    <directory>${project.basedir}/node_modules/jose</directory>
+                                    <includes>
+                                        <include>LICENSE.md</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <!-- Dezelfde 90%-gate als de App Manager: de Kotlin-kant is klein, maar zet de CSP en de
                  adressen waar de sleutel van de app mee praat. -->

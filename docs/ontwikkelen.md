@@ -46,10 +46,12 @@ ongewijzigde code.
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
 (Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten.
 
-Twee modules hebben Node nodig (`node` op het `PATH`, versie 20 of nieuwer). De Berichten-app
-draait de tests van haar browsercode met `node --test`. De App Manager draait diezelfde code in
-`BerichtenAppTest` tegen zichzelf: dat is de toets dat browser en Verifier-library elkaars JWS en
-JWE lezen. Zonder Node falen beide tests; ze slaan niet over.
+Twee modules hebben Node nodig (`node` en `npm` op het `PATH`, versie 20 of nieuwer). De build van
+de Berichten-app draait `npm ci` en zet `jose` uit npm op `/vendor/jose`; daarvoor moet de
+npm-registry bereikbaar zijn, net als Maven Central. Daarna draait ze de tests van haar browsercode
+met `node --test`. De App Manager draait diezelfde code in `BerichtenAppTest` tegen zichzelf: dat is
+de toets dat browser en Verifier-library elkaars JWS en JWE lezen. Zonder Node falen beide; de
+tests slaan niet over.
 
 ### Rechtstreeks ophalen: activeren in de browser
 

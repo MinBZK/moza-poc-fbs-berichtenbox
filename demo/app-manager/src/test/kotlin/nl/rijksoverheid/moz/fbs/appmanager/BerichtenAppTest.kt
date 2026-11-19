@@ -29,7 +29,7 @@ class BerichtenAppTest {
 
     @Test
     fun `de Berichten-app activeert met een niet-exporteerbare sleutel en haalt twee keer een credential op`() {
-        val uitvoer = node(SCRIPT, basis.toString(), "https://app-manager.test/", AppManagerConfig.DEMO_OIN, "vandijk")
+        val uitvoer = node("--import", HAAK, SCRIPT, basis.toString(), "https://app-manager.test/", AppManagerConfig.DEMO_OIN, "vandijk")
         val resultaat = JsonUtil.parseJson(uitvoer.lines().last { it.isNotBlank() })
 
         assertEquals("https://app.test/", resultaat["terug"])
@@ -66,5 +66,12 @@ class BerichtenAppTest {
     private companion object {
         const val TIJDSLIMIET_SECONDEN = 60L
         val SCRIPT: String = Path.of("../berichten-app/src/test/js/tegen-app-manager.mjs").toAbsolutePath().normalize().toString()
+
+        /**
+         * Laat de browsercode jose uit `node_modules` van de Berichten-app laden. Die map vult de build
+         * van de Berichten-app (`npm ci`); de test-dependency op die module in de pom zet haar
+         * daarom eerder in de reactor.
+         */
+        val HAAK: String = Path.of("../berichten-app/src/test/js/jose-uit-npm.mjs").toAbsolutePath().normalize().toUri().toString()
     }
 }

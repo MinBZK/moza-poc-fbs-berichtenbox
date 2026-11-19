@@ -62,10 +62,9 @@ updates:
           - "*"
         exclude-patterns:
           - "github/codeql-action*"
-  # Wekelijks: de Berichten-app levert jose mee als kopie onder vendor/jose, die Dependabot zelf niet
-  # ziet. package.json en de lockfile staan er alleen voor dit signaal; security updates dekken npm,
-  # dus een advisory komt los van dit schema. Een bump blijft rood (VendorJoseTest) tot iemand in
-  # demo/berichten-app `npm ci --ignore-scripts && npm run vendor` draait en de nieuwe kopie commit.
+  # Wekelijks: de JavaScript-bibliotheken van de Berichten-app (jose). De Maven-build haalt ze met
+  # `npm ci` uit deze lockfile, dus een bump is meteen de versie die de app laadt. Security updates
+  # dekken npm, dus een advisory komt los van dit schema.
   - package-ecosystem: "npm"
     directory: "/demo/berichten-app"
     schedule:

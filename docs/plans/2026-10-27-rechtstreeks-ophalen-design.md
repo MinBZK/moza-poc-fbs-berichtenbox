@@ -343,9 +343,10 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
       <App Manager> <magazijnen>; frame-ancestors 'none'; base-uri 'none'; form-action 'none';
       require-trusted-types-for 'script'`, zonder inline script. `connect-src` komt per omgeving
       uit de configuratie; de lokale stack draait op `http://localhost`;
-    - JOSE in de browser via `jose` (panva), als ESM-bestand met een vaste versie meegeleverd in
-      de module, niet van een CDN. Die library kan JWS en JWE `ECDH-ES` met WebCrypto-sleutels,
-      ook niet-exporteerbare;
+    - JOSE in de browser via `jose` (panva), met een vaste versie uit npm. De build haalt hem met
+      `npm ci` (getoetst aan de lockfile) en zet hem op de eigen origin, niet op een CDN; Dependabot
+      houdt de versie bij. Die library kan JWS en JWE `ECDH-ES` met WebCrypto-sleutels, ook
+      niet-exporteerbare;
     - bijlagen worden later gedownload, niet inline getoond op de origin van de app.
 
 13. **CORS op de tweede ingang en de App Manager.** De app draait op een andere origin dan de

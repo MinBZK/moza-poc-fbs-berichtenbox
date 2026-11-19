@@ -22,7 +22,8 @@ class JavascriptTest {
 
         assertTrue(bestanden.isNotEmpty(), "geen JS-tests gevonden")
 
-        val uitvoer = node(listOf("--test", "--test-reporter=tap") + bestanden)
+        // De hook laat de browsercode jose uit node_modules laden; de build zet hem pas in target/.
+        val uitvoer = node(listOf("--import", "./src/test/js/jose-uit-npm.mjs", "--test", "--test-reporter=tap") + bestanden)
         val geslaagd = telling(uitvoer, "pass")
 
         assertTrue(geslaagd >= bestanden.size, "te weinig geslaagde JS-tests ($geslaagd):\n$uitvoer")
