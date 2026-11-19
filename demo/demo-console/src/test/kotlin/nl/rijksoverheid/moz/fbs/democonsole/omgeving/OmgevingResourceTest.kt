@@ -58,6 +58,7 @@ class OmgevingResourceTest {
         simulator: Boolean = true,
         sessiecache: Boolean = true,
         berichtenbox: String? = null,
+        berichtenApp: String? = null,
         personas: List<DemoPersona> = emptyList(),
         generator: DemoBerichtGenerator = generator("pietersen" to "J. Pietersen"),
     ): OmgevingResource {
@@ -66,6 +67,7 @@ class OmgevingResourceTest {
             every { sessiecache() } returns sessiecache
             every { simulator() } returns simulator
             every { berichtenboxUrl() } returns Optional.ofNullable(berichtenbox)
+            every { berichtenAppUrl() } returns Optional.ofNullable(berichtenApp)
         }
         val register = mockk<ToxiproxyRegister> { every { namen() } returns proxies.toSet() }
         val personaService = mockk<PersonaService> { every { alle() } returns personas }
@@ -177,6 +179,18 @@ class OmgevingResourceTest {
         val url = "https://proeftuin-demo-mpfm-w3h.example/moza/berichtenbox/"
 
         assertEquals(url, resource(null, berichtenbox = url).omgeving().berichtenboxUrl)
+    }
+
+    @Test
+    fun `zonder Berichten-app is het adres leeg, zodat het paneel geen knop toont`() {
+        assertEquals("", resource(null).omgeving().berichtenAppUrl)
+    }
+
+    @Test
+    fun `een geconfigureerde Berichten-app komt ongewijzigd door`() {
+        val url = "https://berichtenapp-test-mpfm-w3h.example/"
+
+        assertEquals(url, resource(null, berichtenApp = url).omgeving().berichtenAppUrl)
     }
 
     private companion object {

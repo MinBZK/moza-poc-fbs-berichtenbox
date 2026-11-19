@@ -172,7 +172,7 @@ jobs:
           verify-signature: true
           java-version: 21
           cache: maven
-      # De Berichten-app en de App Manager draaien browsercode onder Node (WebCrypto, fetch). Een
+      # De Berichten-app, de App Manager en de simulator draaien browsercode onder Node (WebCrypto, fetch). Een
       # vaste major, zodat een nieuw runner-image de versie niet ongemerkt verschuift.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

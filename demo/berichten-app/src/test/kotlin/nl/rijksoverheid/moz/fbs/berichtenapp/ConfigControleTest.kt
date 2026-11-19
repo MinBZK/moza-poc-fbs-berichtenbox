@@ -5,17 +5,18 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.util.Optional
 
 class ConfigControleTest {
 
     @Test
     fun `een absoluut adres dat op een slash eindigt is goed, en http alleen in ontwikkelmodus`() {
-        ConfigControle.controleerAppManagerUrl("https://app-manager.example/", ontwikkel = false)
-        ConfigControle.controleerAppManagerUrl("https://app-manager.example/pad/", ontwikkel = false)
-        ConfigControle.controleerAppManagerUrl("http://localhost:8093/", ontwikkel = true)
+        ConfigControle.controleerAdres("x", "https://app-manager.example/", ontwikkel = false)
+        ConfigControle.controleerAdres("x", "https://app-manager.example/pad/", ontwikkel = false)
+        ConfigControle.controleerAdres("x", "http://localhost:8093/", ontwikkel = true)
 
         assertThrows(IllegalArgumentException::class.java) {
-            ConfigControle.controleerAppManagerUrl("http://app-manager.example/", ontwikkel = false)
+            ConfigControle.controleerAdres("x", "http://app-manager.example/", ontwikkel = false)
         }
     }
 
@@ -30,7 +31,18 @@ class ConfigControleTest {
         ],
     )
     fun `een adres dat de app niet kan aanvullen wordt geweigerd`(adres: String) {
-        assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = true) }
+        assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAdres("x", adres, ontwikkel = true) }
+    }
+
+    @Test
+    fun `magazijn-origins zijn origins zonder pad, wildcard of puntkomma, en https buiten ontwikkelmodus`() {
+        ConfigControle.controleerOrigins("x", "https://a.example  https://b.example:8443", ontwikkel = false)
+        ConfigControle.controleerOrigins("x", "http://localhost:8092", ontwikkel = true)
+        ConfigControle.controleerOrigins("x", "", ontwikkel = false)
+
+        listOf("https://a.example/pad", "*", "https://*.example", "https://a.example; script-src *", "https:", "http://a.example").forEach { waarde ->
+            assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerOrigins("x", waarde, ontwikkel = false) }
+        }
     }
 
     @ParameterizedTest
@@ -41,7 +53,7 @@ class ConfigControleTest {
         ],
     )
     fun `een wachtwoord in een afgewezen adres komt niet in de melding`(adres: String) {
-        val fout = assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = false) }
+        val fout = assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAdres("x", adres, ontwikkel = false) }
 
         assertFalse(fout.message!!.contains("heim"), fout.message)
     }
@@ -60,5 +72,7 @@ class ConfigControleTest {
     private fun config(oin: String) = object : BerichtenAppConfig {
         override fun appManagerUrl() = "https://app-manager.example/"
         override fun appManagerOin() = oin
+        override fun stelselregisterUrl() = "https://stelselregister.example/"
+        override fun magazijnen(): Optional<String> = Optional.empty()
     }
 }

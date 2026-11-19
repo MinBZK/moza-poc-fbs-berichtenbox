@@ -1,5 +1,5 @@
-// Gedeelde hulp voor de JS-tests: een nep-App Manager die de berichten echt ontsleutelt en ondertekent,
-// zodat een test het hele verloop kan doorlopen zonder een draaiende App Manager. Geen .test.mjs:
+// Gedeelde hulp voor de JS-tests: een nep-App Manager en een nep-magazijn die de berichten echt
+// ontsleutelen en ondertekenen, zodat een test het hele verloop kan doorlopen zonder draaiende diensten. Geen .test.mjs:
 // JavascriptTest draait alleen die bestanden.
 import assert from 'node:assert/strict';
 import { CompactEncrypt, CompactSign, compactDecrypt } from 'jose';
@@ -124,4 +124,59 @@ export function nepAppManager({ credential = 'nog geen credential', status = {} 
   };
 
   return { fetch, log, sessieSleutel: (token = `sessie-${sessies.size}`) => sessies.get(token) };
+}
+
+/**
+ * Een magazijn in het klein volgens het contract van de tweede ingang: `POST challenges` en
+ * `POST sessies` (beide 201), het antwoord camelCase, en de lijst alleen met `Bearer <sessieToken>`.
+ */
+export function nepMagazijn(berichten, { sessieAntwoord = (sessieToken) => ({ sessieToken, geldigTot: '2026-10-27T10:15:00Z' }) } = {}) {
+  const tijdelijk = new Map();
+  const sessies = new Map();
+  const log = { presentaties: [], autorisaties: [] };
+  const fetch = async (adres, opties = {}) => {
+    const pad = new URL(adres).pathname;
+
+    if (pad.endsWith('/rechtstreeks/challenges') && opties.method === 'POST') {
+      const paar = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+      const nonce = `nonce-${tijdelijk.size}`;
+      const spki = Buffer.from(await crypto.subtle.exportKey('spki', paar.publicKey)).toString('base64');
+
+      tijdelijk.set(nonce, paar.privateKey);
+
+      return new Response(await onderteken({ sub: 'challenge', nonce, ephemeral_organization_ec_public_key: spki }), { status: 201 });
+    }
+
+    if (pad.endsWith('/rechtstreeks/sessies') && opties.method === 'POST') {
+      const { nonce, encrypted_challenge_result: jwe } = JSON.parse(opties.body);
+
+      assert.deepEqual({ ...header(jwe), epk: undefined }, { alg: 'ECDH-ES', enc: 'A256GCM', typ: 'JWE', epk: undefined });
+
+      const { plaintext } = await compactDecrypt(jwe, tijdelijk.get(nonce));
+      const presentatie = JSON.parse(decoder.decode(plaintext));
+      const sleutel = await crypto.subtle.importKey('raw', Buffer.from(presentatie.session_aes_key, 'base64'), 'AES-GCM', false, ['encrypt', 'decrypt']);
+      const sessieToken = `token${sessies.size + 1}`.padEnd(32, 'x');
+
+      log.presentaties.push(presentatie);
+      sessies.set(sessieToken, sleutel);
+
+      return new Response(await versleutelDir(sessieAntwoord(sessieToken), sleutel), { status: 201 });
+    }
+
+    if (pad.endsWith('/rechtstreeks/berichten')) {
+      const autorisatie = opties.headers?.Authorization;
+
+      log.autorisaties.push(autorisatie);
+
+      const sleutel = sessies.get(autorisatie?.replace(/^Bearer /, ''));
+
+      if (!autorisatie?.startsWith('Bearer ') || !sleutel) return new Response('', { status: 401 });
+
+      return new Response(await versleutelDir({ berichten }, sleutel));
+    }
+
+    return new Response('', { status: 404 });
+  };
+
+  return { fetch, log };
 }

@@ -6,9 +6,10 @@ import { IDBFactory } from 'fake-indexeddb';
 import * as kluis from '../../main/resources/META-INF/resources/js/sleutelkluis.js';
 import { activeer } from '../../main/resources/META-INF/resources/js/verloop.js';
 import {
-  BASIS, OIN, credentialMet, nepAppManager, registratiebericht,
+  BASIS, OIN, credentialMet, nepAppManager, nepMagazijn, onderteken, registratiebericht, registreer,
 } from './hulp.mjs';
 
+const CONFIG = { appManager: { url: BASIS, oin: OIN }, stelselregister: { url: 'https://stelselregister.test/' } };
 const APP = new URL('../../main/resources/META-INF/resources/js/app.js', import.meta.url);
 const echteSetTimeout = globalThis.setTimeout;
 let exemplaar = 0;
@@ -19,7 +20,10 @@ function element(id) {
   return {
     id,
     disabled: false,
+    hidden: false,
     textContent: '',
+    kinderen: [],
+    replaceChildren(...kinderen) { this.kinderen = kinderen; },
     addEventListener: (type, functie) => { luisteraars[type] = functie; },
     focus() {},
     klik: () => luisteraars.click?.(),
@@ -41,13 +45,21 @@ function nepSessie() {
  * een functie die het hele antwoord maakt (een Response is maar één keer te lezen);
  * de time-out na het vertrek (15 s) wordt vastgehouden in plaats van afgewacht.
  */
-async function laadApp({ config = { appManager: { url: BASIS, oin: OIN } }, hash = '', appManager = nepAppManager(), sessie = nepSessie() } = {}) {
-  const elementen = Object.fromEntries(['status', 'fout', 'activeren', 'vernieuwen', 'wissen'].map((id) => [id, element(id)]));
+async function laadApp({
+  config = CONFIG, hash = '', appManager = nepAppManager(), sessie = nepSessie(), overig = async () => new Response('', { status: 404 }),
+} = {}) {
+  const elementen = Object.fromEntries(
+    ['status', 'fout', 'activeren', 'vernieuwen', 'wissen', 'ophalen', 'overzicht', 'berichten', 'niet-bereikt', 'mislukt'].map((id) => [id, element(id)]),
+  );
   const venster = {};
   const tabblad = { elementen, venster, vertrokkenNaar: [], timers: [], gewist: [], sessie };
 
   Object.assign(globalThis, {
-    document: { documentElement: { dataset: {} }, getElementById: (id) => elementen[id] ?? null },
+    document: {
+      documentElement: { dataset: {} },
+      getElementById: (id) => elementen[id] ?? null,
+      createElement: (soort) => ({ soort, textContent: '' }),
+    },
     isSecureContext: true,
     sessionStorage: sessie,
     location: { hash, pathname: '/', search: '', assign: (adres) => tabblad.vertrokkenNaar.push(adres) },
@@ -57,7 +69,7 @@ async function laadApp({ config = { appManager: { url: BASIS, oin: OIN } }, hash
     fetch: async (adres, opties) => {
       if (adres === 'config.json') return typeof config === 'function' ? config() : Response.json(config);
 
-      return appManager.fetch(adres, opties);
+      return String(adres).startsWith(BASIS) ? appManager.fetch(adres, opties) : overig(adres, opties);
     },
     setTimeout: (functie, ms) => {
       if (ms !== 15_000) return echteSetTimeout(functie, ms);
@@ -151,7 +163,8 @@ test('terug met Vorige uit de cache zet de knoppen weer aan; een gewone pageshow
 
 for (const [omstandigheid, config] of [
   ['een HTTP-fout', () => new Response('', { status: 500 })],
-  ['instellingen zonder OIN', { appManager: { url: BASIS } }],
+  ['instellingen zonder OIN', { ...CONFIG, appManager: { url: BASIS } }],
+  ['instellingen zonder stelselregister', { appManager: CONFIG.appManager }],
   ['geen JSON', () => new Response('<html>', { status: 200 })],
 ]) {
   for (const metFragment of [false, true]) {
@@ -176,3 +189,92 @@ test('weigert de browser opslag, dan blijven de knoppen uit en zegt de status wa
   await wacht(() => /geen opslag toe/.test(tabblad.elementen.status.textContent), 'status zonder opslag');
   assert.ok(['activeren', 'vernieuwen', 'wissen'].every((id) => tabblad.elementen[id].disabled));
 });
+
+/** Een kluis met een registratie en een credential dat verloopt op [exp] (seconden sinds 1970). */
+async function geactiveerd(exp) {
+  globalThis.indexedDB = new IDBFactory();
+  await registreer(kluis, 'r1');
+  assert.equal(await kluis.bewaarCredential('r1', await credentialMet({ ontvanger: 'KVK:90000014', exp })), true);
+}
+
+for (const [omstandigheid, exp, aan] of [['zonder bewijs', undefined, false], ['met een verlopen bewijs', 1, false], ['met een geldig bewijs', 4_000_000_000, true]]) {
+  test(`Berichten ophalen is ${aan ? 'aan' : 'uit'} ${omstandigheid}`, async () => {
+    if (exp) await geactiveerd(exp); else globalThis.indexedDB = new IDBFactory();
+
+    const tabblad = await laadApp();
+
+    await wacht(() => knoppenAan(tabblad), 'knoppen na het laden');
+    assert.equal(tabblad.elementen.ophalen.disabled, !aan);
+  });
+}
+
+test('Berichten ophalen toont de lijst met datum, magazijn en onderwerp, en noemt het magazijn dat niet antwoordde', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const magazijn = nepMagazijn([{ onderwerp: 'Aanslag', publicatietijdstip: '2026-10-27T10:00:00Z' }]);
+  const organizations = [
+    { oin: '00000009000000000001', name: 'Magazijn A', magazijn_url: 'https://a.test' },
+    { oin: '00000009000000000002', name: 'Magazijn B', magazijn_url: 'https://b.test' },
+  ];
+  const verzoeken = [];
+  const overig = async (adres, opties) => {
+    verzoeken.push(String(adres));
+
+    if (String(adres) === 'https://stelselregister.test/api/v1/stelseldocument') return new Response(await onderteken({ organizations }));
+
+    return String(adres).startsWith('https://a.test/') ? magazijn.fetch(adres, opties) : new Response('', { status: 503 });
+  };
+
+  const tabblad = await laadApp({ overig });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.overzicht.textContent !== '', 'overzicht');
+
+  assert.equal(tabblad.elementen.overzicht.textContent, '1 bericht(en) uit 1 van de 2 magazijnen.');
+  assert.deepEqual(tabblad.elementen.berichten.kinderen.map((li) => li.textContent.split(' · ').slice(1)), [['Magazijn A', 'Aanslag']]);
+  assert.deepEqual(tabblad.elementen.mislukt.kinderen.map((li) => li.textContent), ['Magazijn B: tijdelijk niet beschikbaar']);
+  assert.equal(tabblad.elementen['niet-bereikt'].hidden, false);
+  assert.equal(tabblad.elementen.fout.textContent, '');
+});
+
+test('na Activering wissen verdwijnt een opgehaalde lijst', async () => {
+  await geactiveerd(4_000_000_000);
+
+  const magazijn = nepMagazijn([{ onderwerp: 'Aanslag', publicatietijdstip: '2026-10-27T10:00:00Z' }]);
+  const organizations = [{ oin: '00000009000000000001', name: 'Magazijn A', magazijn_url: 'https://a.test' }];
+  const overig = async (adres, opties) => (String(adres).includes('stelselregister')
+    ? new Response(await onderteken({ organizations }))
+    : magazijn.fetch(adres, opties));
+
+  const tabblad = await laadApp({ overig });
+
+  await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+  tabblad.elementen.ophalen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 1, 'lijst');
+
+  tabblad.elementen.wissen.klik();
+  await wacht(() => tabblad.elementen.berichten.kinderen.length === 0, 'lijst leeg na wissen');
+
+  assert.equal(tabblad.elementen.overzicht.textContent, '');
+  assert.equal(tabblad.elementen.ophalen.disabled, true);
+});
+
+for (const [omstandigheid, stelselregister, verwacht] of [
+  ['niet bereikbaar', async () => { throw new TypeError('fetch failed'); }, /stelselregister is niet te bereiken/],
+  ['met een HTTP-fout', async () => new Response('', { status: 503 }), /HTTP 503/],
+  ['met een onleesbaar document', async () => new Response('geen jws'), /lijst van magazijnen is niet te lezen/],
+]) {
+  test(`is het stelselregister ${omstandigheid}, dan zegt de pagina het en blijft de lijst leeg`, async () => {
+    await geactiveerd(4_000_000_000);
+
+    const tabblad = await laadApp({ overig: stelselregister });
+
+    await wacht(() => !tabblad.elementen.ophalen.disabled, 'ophaalknop aan');
+    tabblad.elementen.ophalen.klik();
+    await wacht(() => tabblad.elementen.fout.textContent !== '', 'foutmelding');
+
+    assert.match(tabblad.elementen.fout.textContent, verwacht);
+    assert.deepEqual(tabblad.elementen.berichten.kinderen, []);
+  });
+}

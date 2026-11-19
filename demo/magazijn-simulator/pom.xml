@@ -127,6 +127,16 @@
             <type>test-jar</type>
             <scope>test</scope>
         </dependency>
+        <!-- Alleen voor de volgorde in de reactor: BerichtenAppTest draait de browsercode van de
+             Berichten-app, en die laadt jose uit haar node_modules, die haar build vult. Als pom,
+             zodat er geen klassen of configuratie van die app op dit classpath komen. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>demo-berichten-app</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
