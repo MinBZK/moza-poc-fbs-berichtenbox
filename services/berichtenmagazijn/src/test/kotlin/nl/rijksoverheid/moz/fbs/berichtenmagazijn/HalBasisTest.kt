@@ -3,21 +3,26 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.ValueSource
 
 class HalBasisTest {
 
-    @ParameterizedTest(name = "root-path {0} + rest-path {1}")
-    @CsvSource(
-        "/, /api/v1, /api/v1/berichten",
-        "/, api/v1, /api/v1/berichten",
-        "/fbs, /api/v1, /fbs/api/v1/berichten",
-        "/fbs/, /api/v1/, /fbs/api/v1/berichten",
-    )
-    fun `de basis is een pad zonder schema en host`(rootPad: String, restPad: String, verwacht: String) {
-        val uri = HalBasis(rootPad, restPad).builder().path("berichten").build()
+    @ParameterizedTest(name = "root-path \"{0}\"")
+    @ValueSource(strings = ["/", ""])
+    fun `zonder root-path is de basis het base-path uit de spec`(rootPad: String) {
+        val uri = HalBasis(rootPad).builder().path("berichten").build()
 
-        assertEquals(verwacht, uri.toString())
+        assertEquals("/api/v1/berichten", uri.toString())
+        assertNull(uri.scheme)
+        assertNull(uri.rawAuthority)
+    }
+
+    @ParameterizedTest(name = "root-path \"{0}\"")
+    @ValueSource(strings = ["/fbs", "/fbs/", "fbs", "fbs/"])
+    fun `een root-path komt voor het base-path, altijd met voorloop-slash`(rootPad: String) {
+        val uri = HalBasis(rootPad).builder().path("berichten").build()
+
+        assertEquals("/fbs/api/v1/berichten", uri.toString())
         assertNull(uri.scheme)
         assertNull(uri.rawAuthority)
     }

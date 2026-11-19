@@ -20,7 +20,7 @@ import java.util.UUID
 
 class BerichtDtoMapperTest {
 
-    // Spiegelt `HalBasis` at runtime: die bevat de `/api/v1`-prefix uit `quarkus.rest.path`
+    // Spiegelt wat `HalBasis` in de draaiende dienst levert: die bevat de `/api/v1`-prefix
     // al, dus de mapper voegt hem niet nog eens toe.
     private fun baseUri() = UriBuilder.fromPath("/api/v1")
 

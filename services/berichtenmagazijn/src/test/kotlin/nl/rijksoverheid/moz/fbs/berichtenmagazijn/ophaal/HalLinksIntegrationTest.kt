@@ -2,9 +2,11 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ophaal
 
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
+import io.restassured.path.json.JsonPath
 import io.restassured.specification.RequestSpecification
 import jakarta.inject.Inject
 import jakarta.transaction.Transactional
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtStatusRepository
@@ -12,12 +14,12 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bijlage
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
+import org.eclipse.microprofile.config.ConfigProvider
 import org.hamcrest.Matchers.equalTo
-import org.hamcrest.Matchers.everyItem
 import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.hasSize
-import org.hamcrest.Matchers.matchesRegex
 import org.hamcrest.Matchers.not
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -27,8 +29,9 @@ import java.util.UUID
 
 /**
  * De HAL-links zijn absolute-path references: geen schema en geen host uit het verzoek. Achter een
- * ingress die TLS beëindigt komt het verzoek als plain http binnen, en de `Host`-header kiest de
- * aanroeper; geen van beide mag in een link terechtkomen.
+ * ingress die TLS beëindigt komt het verzoek als plain http binnen, en buiten ZAD (compose, lokaal,
+ * achter een andere proxy) kiest de aanroeper de `Host`-header; geen van beide mag in een link
+ * terechtkomen.
  */
 @QuarkusTest
 class HalLinksIntegrationTest {
@@ -49,7 +52,7 @@ class HalLinksIntegrationTest {
     fun `lijst negeert een vervalste Host en X-Forwarded-Proto http`() {
         repeat(3) { insertBericht() }
 
-        vervalst()
+        val lijst = vervalst()
             .`when`().get("/api/v1/berichten?page=0&pageSize=2&afzender=$AFZENDER")
             .then()
             .statusCode(200)
@@ -58,23 +61,57 @@ class HalLinksIntegrationTest {
             .body("_links.last.href", equalTo(lijst(page = 1, pageSize = 2, afzender = AFZENDER)))
             .body("_links.next.href", equalTo(lijst(page = 1, pageSize = 2, afzender = AFZENDER)))
             .body("berichten", hasSize<Any>(2))
-            .body("berichten._links.self.href", everyItem(matchesRegex(BERICHT_HREF)))
+            .extract().jsonPath()
+
+        // Per bericht exact: een link die bij elk item naar hetzelfde bericht wijst, past ook op een
+        // patroon.
+        repeat(2) { i ->
+            assertEquals(
+                "/api/v1/berichten/${lijst.getString("berichten[$i].berichtId")}",
+                lijst.getString("berichten[$i]._links.self.href"),
+            )
+        }
     }
 
     @Test
-    fun `detail en bijlage negeren een vervalste Host en X-Forwarded-Proto http`() {
+    fun `detail en bijlagen negeren een vervalste Host en X-Forwarded-Proto http`() {
         val bericht = insertBericht()
-        val bijlageId = insertBijlage(bericht.berichtId)
+        val bijlagen = listOf(insertBijlage(bericht.berichtId), insertBijlage(bericht.berichtId))
 
-        vervalst()
+        val detail = vervalst()
             .`when`().get("/api/v1/berichten/${bericht.berichtId}")
             .then()
             .statusCode(200)
             .body("_links.self.href", equalTo("/api/v1/berichten/${bericht.berichtId}"))
-            .body(
-                "bijlagen[0]._links.self.href",
-                equalTo("/api/v1/berichten/${bericht.berichtId}/bijlagen/$bijlageId"),
-            )
+            .extract().jsonPath()
+
+        assertEquals(verwachteBijlageLinks(bericht.berichtId, bijlagen), bijlageLinks(detail))
+    }
+
+    @Test
+    fun `statuswijziging negeert een vervalste Host en X-Forwarded-Proto http`() {
+        val bericht = insertBericht()
+        val bijlagen = listOf(insertBijlage(bericht.berichtId), insertBijlage(bericht.berichtId))
+
+        val gewijzigd = vervalst()
+            .contentType("application/merge-patch+json")
+            .body("""{"gelezen": true}""")
+            .`when`().patch("/api/v1/berichten/${bericht.berichtId}")
+            .then()
+            .statusCode(200)
+            .body("_links.self.href", equalTo("/api/v1/berichten/${bericht.berichtId}"))
+            .extract().jsonPath()
+
+        assertEquals(verwachteBijlageLinks(bericht.berichtId, bijlagen), bijlageLinks(gewijzigd))
+    }
+
+    /**
+     * De links komen uit het base-path van de spec, de routering uit `quarkus.rest.path`. Lopen die
+     * uiteen, dan wijst elke link naar een pad dat niet bestaat.
+     */
+    @Test
+    fun `het base-path van de links is het pad waarop de API draait`() {
+        assertEquals(ApiInfo.BASE_PATH, ConfigProvider.getConfig().getValue("quarkus.rest.path", String::class.java))
     }
 
     /**
@@ -129,6 +166,14 @@ class HalLinksIntegrationTest {
     private fun lijst(page: Int, pageSize: Int, afzender: String? = null): String =
         "/api/v1/berichten?page=$page&pageSize=$pageSize" + afzender?.let { "&afzender=$it" }.orEmpty()
 
+    private fun verwachteBijlageLinks(berichtId: UUID, bijlagen: List<UUID>): Map<String, String> =
+        bijlagen.associate { it.toString() to "/api/v1/berichten/$berichtId/bijlagen/$it" }
+
+    private fun bijlageLinks(antwoord: JsonPath): Map<String, String> =
+        (0 until antwoord.getList<Any>("bijlagen").size).associate { i ->
+            antwoord.getString("bijlagen[$i].bijlageId") to antwoord.getString("bijlagen[$i]._links.self.href")
+        }
+
     @Transactional
     fun insertBericht(): Bericht {
         val bericht = Bericht(
@@ -167,6 +212,5 @@ class HalLinksIntegrationTest {
         const val ONTVANGER_HEADER = "BSN:999993653"
         const val AFZENDER = "00000001003214345000"
         const val VREEMDE_HOST = "evil.example"
-        const val BERICHT_HREF = "^/api/v1/berichten/[0-9a-f-]{36}$"
     }
 }

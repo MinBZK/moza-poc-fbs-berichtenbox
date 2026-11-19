@@ -370,7 +370,7 @@ components:
       description: Versie van de API
       schema:
         type: string
-        example: "0.3.0"
+        example: "0.5.1"
 
   parameters:
     OntvangerHeader:
@@ -770,8 +770,9 @@ components:
           description: |
             Een absolute-path reference zonder schema en host, bijvoorbeeld
             `/api/v1/berichten?page=1&pageSize=20`. Los hem op tegen het adres waarop je dit
-            antwoord opvroeg (RFC 3986 §5); zo volg je de link via dezelfde verbinding, ook
-            achter een outway of een ingress die TLS beëindigt.
+            antwoord opvroeg (RFC 3986 §5); zo volg je de link met hetzelfde schema en dezelfde
+            host als je aanroep, ook als je via je eigen outway aanroept of het magazijn achter
+            een ingress staat die TLS beëindigt.
 
     Problem:
       type: object

@@ -108,9 +108,9 @@ object MagazijnPad {
      * (`/magazijn/<OIN>/api/v1`), zonder schema en host.
      *
      * Schema en host mogen niet uit het verzoek komen. Achter de ingress van ZAD eindigt TLS bij de
-     * router en is het schema hier `http`: een https-app blokkeert de link dan als mixed content, of
-     * stuurt zijn token bij het volgen eerst in klare tekst. De host komt uit de `Host`-header, die de
-     * aanroeper zelf kiest. Een relatieve verwijzing lost de client op tegen het adres dat hij zelf
+     * router en is het schema van het verzoek `http`: een browser-app op een https-origin blokkeert
+     * de link dan als mixed content, en een client die hem volgt stuurt zijn `X-Ontvanger` eerst in
+     * klare tekst. De host komt uit de `Host`-header, die de aanroeper zelf kiest. Een relatieve verwijzing lost de client op tegen het adres dat hij zelf
      * aanriep (RFC 3986 §5); de spec laat dat toe (`Link.href` is `uri-reference`).
      *
      * Het prefix staat hier, naast de code die het eraf haalt, en niet in `UriInfo.baseUri`: Quarkus

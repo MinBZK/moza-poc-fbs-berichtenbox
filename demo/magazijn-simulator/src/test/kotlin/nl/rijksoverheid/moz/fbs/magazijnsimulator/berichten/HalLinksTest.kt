@@ -3,13 +3,12 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import io.restassured.path.json.JsonPath
 import io.restassured.specification.RequestSpecification
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import org.hamcrest.Matchers.equalTo
-import org.hamcrest.Matchers.everyItem
 import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.hasSize
-import org.hamcrest.Matchers.matchesRegex
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -19,8 +18,9 @@ import java.util.Base64
 
 /**
  * De HAL-links zijn absolute-path references met het magazijn-prefix: geen schema en geen host uit
- * het verzoek. Achter de ingress van ZAD komt het verzoek als plain http binnen, en de `Host`-header
- * kiest de aanroeper; geen van beide mag in een link terechtkomen.
+ * het verzoek. Achter de ingress van ZAD komt het verzoek als plain http binnen, en buiten ZAD
+ * (compose, lokaal, achter een andere proxy) kiest de aanroeper de `Host`-header; geen van beide mag
+ * in een link terechtkomen.
  */
 @QuarkusTest
 class HalLinksTest : MagazijnTestBasis() {
@@ -29,7 +29,7 @@ class HalLinksTest : MagazijnTestBasis() {
     fun `lijst negeert een vervalste Host en X-Forwarded-Proto http`() {
         repeat(3) { leverAan() }
 
-        vervalst()
+        val lijst = vervalst()
             .`when`().get("$BASIS/berichten?page=0&pageSize=2&afzender=$MAGAZIJN")
             .then()
             .statusCode(200)
@@ -38,12 +38,21 @@ class HalLinksTest : MagazijnTestBasis() {
             .body("_links.last.href", equalTo(lijst(page = 1, pageSize = 2, afzender = MAGAZIJN)))
             .body("_links.next.href", equalTo(lijst(page = 1, pageSize = 2, afzender = MAGAZIJN)))
             .body("berichten", hasSize<Any>(2))
-            .body("berichten._links.self.href", everyItem(matchesRegex(BERICHT_HREF)))
+            .extract().jsonPath()
+
+        // Per bericht exact: een link die bij elk item naar hetzelfde bericht wijst, past ook op een
+        // patroon.
+        repeat(2) { i ->
+            assertEquals(
+                "$BASIS/berichten/${lijst.getString("berichten[$i].berichtId")}",
+                lijst.getString("berichten[$i]._links.self.href"),
+            )
+        }
     }
 
     @Test
-    fun `detail en bijlage negeren een vervalste Host en X-Forwarded-Proto http`() {
-        val berichtId = leverAan(metBijlage = true)
+    fun `detail en bijlagen negeren een vervalste Host en X-Forwarded-Proto http`() {
+        val berichtId = leverAan(aantalBijlagen = 2)
 
         val detail = vervalst()
             .`when`().get("$BASIS/berichten/$berichtId")
@@ -52,17 +61,30 @@ class HalLinksTest : MagazijnTestBasis() {
             .extract().jsonPath()
 
         assertEquals("$BASIS/berichten/$berichtId", detail.getString("_links.self.href"))
-        assertEquals(
-            "$BASIS/berichten/$berichtId/bijlagen/${detail.getString("bijlagen[0].bijlageId")}",
-            detail.getString("bijlagen[0]._links.self.href"),
-        )
+        assertBijlageLinks(berichtId, detail)
+    }
+
+    @Test
+    fun `statuswijziging negeert een vervalste Host en X-Forwarded-Proto http`() {
+        val berichtId = leverAan(aantalBijlagen = 2)
+
+        val gewijzigd = vervalst()
+            .contentType("application/merge-patch+json")
+            .body("""{"gelezen": true}""")
+            .`when`().patch("$BASIS/berichten/$berichtId")
+            .then()
+            .statusCode(200)
+            .extract().jsonPath()
+
+        assertEquals("$BASIS/berichten/$berichtId", gewijzigd.getString("_links.self.href"))
+        assertBijlageLinks(berichtId, gewijzigd)
     }
 
     @Test
     fun `aanleveren negeert een vervalste Host en X-Forwarded-Proto http`() {
         val antwoord = vervalst()
             .contentType(ContentType.JSON)
-            .body(aanlevering(metBijlage = false))
+            .body(aanlevering(aantalBijlagen = 0))
             .`when`().post("$BASIS/aanleveringen")
             .then()
             .statusCode(201)
@@ -123,21 +145,38 @@ class HalLinksTest : MagazijnTestBasis() {
     private fun lijst(page: Int, pageSize: Int, afzender: String? = null): String =
         "$BASIS/berichten?page=$page&pageSize=$pageSize" + afzender?.let { "&afzender=$it" }.orEmpty()
 
-    private fun leverAan(metBijlage: Boolean = false): String = given()
+    /** Elke bijlage-link exact, per bijlage-id; minstens twee, zodat "steeds dezelfde" opvalt. */
+    private fun assertBijlageLinks(berichtId: String, antwoord: JsonPath) {
+        val aantal = antwoord.getList<Any>("bijlagen").size
+
+        assertEquals(2, aantal)
+
+        repeat(aantal) { i ->
+            assertEquals(
+                "$BASIS/berichten/$berichtId/bijlagen/${antwoord.getString("bijlagen[$i].bijlageId")}",
+                antwoord.getString("bijlagen[$i]._links.self.href"),
+            )
+        }
+    }
+
+    private fun leverAan(aantalBijlagen: Int = 0): String = given()
         .contentType(ContentType.JSON)
-        .body(aanlevering(metBijlage))
+        .body(aanlevering(aantalBijlagen))
         .`when`().post("$BASIS/aanleveringen")
         .then()
         .statusCode(201)
         .extract().path("berichtId")
 
-    private fun aanlevering(metBijlage: Boolean): String {
-        val bijlagen = if (metBijlage) {
-            val inhoud = Base64.getEncoder().encodeToString("%PDF-1.4".toByteArray())
-
-            """, "bijlagen": [{"naam": "test.pdf", "mimeType": "application/pdf", "inhoud": "$inhoud"}]"""
-        } else {
+    private fun aanlevering(aantalBijlagen: Int): String {
+        val inhoud = Base64.getEncoder().encodeToString("%PDF-1.4".toByteArray())
+        val bijlagen = if (aantalBijlagen == 0) {
             ""
+        } else {
+            val lijst = (1..aantalBijlagen).joinToString(", ") { n ->
+                """{"naam": "bijlage-$n.pdf", "mimeType": "application/pdf", "inhoud": "$inhoud"}"""
+            }
+
+            """, "bijlagen": [$lijst]"""
         }
 
         return """
@@ -155,6 +194,5 @@ class HalLinksTest : MagazijnTestBasis() {
         const val MAGAZIJN = "00000009000000000001"
         const val BASIS = "/magazijn/$MAGAZIJN/api/v1"
         const val VREEMDE_HOST = "evil.example"
-        const val BERICHT_HREF = "^/magazijn/$MAGAZIJN/api/v1/berichten/[0-9a-f-]{36}$"
     }
 }

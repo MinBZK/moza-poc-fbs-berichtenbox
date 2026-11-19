@@ -72,6 +72,7 @@ class AanleverResourceLdvTest {
     private val logregels = listOf(Logregel(SpanContext.getInvalid(), "logregel", null, null))
     private val publicatieConfig = mockk<PublicatieConfig>()
     private val span = mockk<Span>(relaxed = true)
+
     private val httpHeaders = mockk<HttpHeaders>().apply {
         every { getHeaderString("traceparent") } returns null
         every { requestHeaders } returns MultivaluedHashMap()
@@ -82,7 +83,7 @@ class AanleverResourceLdvTest {
         logboekContext = logboekContext,
         processingHandler = processingHandler,
         publicatieConfig = publicatieConfig,
-        halBasis = HalBasis("/", "/api/v1"),
+        halBasis = HalBasis("/"),
         httpHeaders = httpHeaders,
     )
 

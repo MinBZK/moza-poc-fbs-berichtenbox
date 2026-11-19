@@ -81,7 +81,7 @@ class AanleverResourceIntegrationTest {
     }
 
     @Test
-    fun `POST berichten negeert een vervalste Host en X-Forwarded-Proto http in _links_self`() {
+    fun `aanleveren negeert een vervalste Host en X-Forwarded-Proto http in _links_self`() {
         val antwoord = given()
             .contentType(ContentType.JSON)
             .header("Host", "evil.example")

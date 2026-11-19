@@ -45,9 +45,8 @@ De verwachting uit #417 klopt dus voor beide diensten: schema `http`, host de pu
 - De OpenShift-router van ZAD laat een meegestuurde `X-Forwarded-*` staan en zet zijn eigen waarde
   erachter (vastgesteld voor `X-Forwarded-For` bij het quotum van de tweede ingang, comment bij
   `simulator.rechtstreeks.vertrouwde-proxies` in #416). Quarkus neemt met
-  `proxy-address-forwarding` de eerste waarde: die kiest de client zelf. Aanzetten maakt schema én
-  host dus door de client te kiezen, ook met `trusted-proxies`, want de router ís de vertrouwde
-  proxy.
+  `proxy-address-forwarding` de eerste waarde: die kiest de client zelf. Aanzetten laat de client
+  dus schema én host kiezen, ook met `trusted-proxies`, want de router ís de vertrouwde proxy.
 - Een verzoek met een vervalste `Host` (`Host: evil.example` naar het adres van magazijna) haalt de
   pod niet: de router routeert op host en geeft 404. Op ZAD is Host-vergiftiging dus niet
   uitvoerbaar; in compose, lokaal en achter een andere proxy wel.
@@ -108,8 +107,11 @@ https buiten dev/test en fail-fast bij boot.
 - \+ zelfde vorm als de uitvraag al levert.
 - \+ valt binnen het contract: het schema blijft `uri-reference`. Wel verandert de waarde die een
   afnemer ziet; omdat niemand de links nu volgt, raakt dat in de praktijk geen afnemer.
-- − een proxy die een pad-prefix wegknipt (`/fbs/magazijn/...` naar `/...`) breekt de links. Dat
-  doet A ook, tenzij de geconfigureerde basis precies dat prefix draagt. Geen van onze hops knipt.
+- − een hop die een pad-prefix wegknipt (`/fbs/magazijn/...` naar `/...`) breekt de links. Bij A
+  breken ze net zo, tenzij de geconfigureerde basis precies dat prefix draagt. Een FSC-`endpoint_url`
+  met een pad erin is zo'n hop. Vandaag knipt geen hop: geen dienst zet `quarkus.http.root-path` en
+  de `endpoint_url` van magazijn-a is de root van de dienst. Die voorwaarde staat in de KDoc van
+  `HalBasis`.
 - − een Java-client die een link volgt, moet `requestUri.resolve(href)` doen in plaats van de href
   direct te gebruiken.
 
@@ -125,7 +127,7 @@ https buiten dev/test en fail-fast bij boot.
 **Gekozen: B.** Het is het kleinst, het hangt nergens van af dat buiten de dienst gelijk moet
 blijven, en het is de enige van de drie die ook klopt voor een afnemer achter FSC. Het raakt het
 schema van het contract niet en de deploy-configuratie niet. Wat wél verandert is de linkvorm; die
-zetten we als beschrijving bij `Link` in de spec, zodat een afnemer weet dat hij moet oplossen
+zetten we als beschrijving bij `Link.href` in de spec, zodat een afnemer weet dat hij moet oplossen
 tegen het adres van het verzoek.
 
 ## Structuur
@@ -133,7 +135,9 @@ tegen het adres van het verzoek.
 Eén plek per dienst bepaalt de basis:
 
 - **berichtenmagazijn:** `HalBasis` (nieuw, CDI-bean) levert een `UriBuilder` op
-  `quarkus.http.root-path` + `quarkus.rest.path`, zonder schema en host. `BerichtenResource` en
+  `quarkus.http.root-path` + het base-path uit de spec (`ApiInfo.BASE_PATH`), zonder schema en
+  host. Niet `quarkus.rest.path`: die ligt bij de build vast, en een runtime-override zou de links
+  laten afwijken van de routering. Een test bewaakt dat beide gelijk zijn. `BerichtenResource` en
   `AanleverResource` gebruiken hem in plaats van `uriInfo.baseUriBuilder`; `UriInfo` verdwijnt uit
   beide.
 - **simulator:** `MagazijnPad.basisUri(oin)` levert `/magazijn/<OIN>/api/v1` zonder `UriInfo`.
