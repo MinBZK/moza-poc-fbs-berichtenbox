@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenapp
 
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -30,6 +31,15 @@ class ConfigControleTest {
     )
     fun `een adres dat de app niet kan aanvullen wordt geweigerd`(adres: String) {
         assertThrows(IllegalArgumentException::class.java) { ConfigControle.controleerAppManagerUrl(adres, ontwikkel = true) }
+    }
+
+    @Test
+    fun `een wachtwoord in een afgewezen adres komt niet in de melding`() {
+        val fout = assertThrows(IllegalArgumentException::class.java) {
+            ConfigControle.controleerAppManagerUrl("https://iemand:geheim@app-manager.example/", ontwikkel = false)
+        }
+
+        assertFalse(fout.message!!.contains("geheim"), fout.message)
     }
 
     @ParameterizedTest

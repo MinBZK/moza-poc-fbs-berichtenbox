@@ -54,7 +54,11 @@ class JavascriptTest {
         val proces = ProcessBuilder(listOf("node") + argumenten).redirectErrorStream(true).redirectOutput(log.toFile()).start()
         val klaar = proces.waitFor(TIJDSLIMIET_SECONDEN, TimeUnit.SECONDS)
 
-        if (!klaar) proces.destroyForcibly()
+        // `node --test` start per bestand een eigen proces; die moeten mee, anders blijven ze draaien.
+        if (!klaar) {
+            proces.descendants().forEach { it.destroyForcibly() }
+            proces.destroyForcibly()
+        }
 
         val uitvoer = Files.readString(log)
 

@@ -109,9 +109,10 @@ export async function leesRegistratie(fragment, aesSleutel, issuer) {
     throw new ActiverenFout('onverwacht registratiebericht');
   }
 
-  // De waarden staan in de melding, die alleen naar de console gaat: een verschil in configuratie
-  // is anders niet te vinden.
-  if (bericht.iss !== issuer) throw new ActiverenFout(`registratiebericht van ${bericht.iss}, verwacht ${issuer}`);
+  // Het bericht is al met onze eigen sessiesleutel ontsleuteld, dus een andere iss is een verschil in
+  // instellingen en geen aanval of storing. De waarden staan in de melding, die alleen naar de console
+  // gaat: anders is het verschil niet te vinden.
+  if (bericht.iss !== issuer) throw new ActiverenFout(`registratiebericht van ${bericht.iss}, verwacht ${issuer}`, undefined, 'instelling');
 
   return bericht.registration_token;
 }

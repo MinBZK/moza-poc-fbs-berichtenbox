@@ -9,7 +9,13 @@ const KNOPPEN = ['activeren', 'vernieuwen', 'wissen'];
 
 const element = (id) => document.getElementById(id);
 
+// Na het vertrek naar de App Manager blijven de knoppen uit, zodat een tweede klik geen tweede
+// activering start terwijl de navigatie loopt. Breekt de gebruiker de navigatie af (Esc, Stop), dan
+// komen ze na NAVIGATIE_MS terug.
+const NAVIGATIE_MS = 15_000;
+
 let vertrokken = false;
+let terugTimer;
 let ingesteld = false;
 
 async function laadConfig() {
@@ -133,6 +139,7 @@ function start() {
     vertrokken = false;
     toon();
   });
+  addEventListener('pagehide', () => clearTimeout(terugTimer));
 
   bezig(null, 'Laden…', async () => {
     let appManager;
@@ -153,6 +160,10 @@ function start() {
 
       location.assign(adres);
       vertrokken = true;
+      terugTimer = setTimeout(() => {
+        vertrokken = false;
+        toon();
+      }, NAVIGATIE_MS);
     });
     koppel('vernieuwen', 'Bezig met vernieuwen…', () => vernieuw(omgeving));
     element('wissen').addEventListener('click', () => {

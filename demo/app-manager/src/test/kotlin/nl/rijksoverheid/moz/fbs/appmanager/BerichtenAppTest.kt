@@ -29,11 +29,12 @@ class BerichtenAppTest {
     lateinit var basis: URL
 
     @Test
-    fun `de Berichten-app activeert met een niet-exporteerbare sleutel en haalt twee keer een credential op`() {
+    fun `de Berichten-app activeert met een niet-exporteerbare sleutel, haalt twee keer een credential op en vergeet een onbekende registratie`() {
         val uitvoer = node("--import", HAAK, SCRIPT, basis.toString(), "https://app-manager.test/", AppManagerConfig.DEMO_OIN, "vandijk")
         val resultaat = JsonUtil.parseJson(uitvoer.lines().last { it.isNotBlank() })
 
         assertEquals("https://app.test/", resultaat["terug"])
+        assertEquals(true, resultaat["onbekendVergeten"], "een registratie die de App Manager niet kent, blijft staan")
 
         listOf("credential", "vers").forEach { veld ->
             val claims = TestApp.verifieerJws(resultaat[veld] as String, sleutel.publiek)
@@ -54,7 +55,11 @@ class BerichtenAppTest {
         val proces = ProcessBuilder(listOf("node") + argumenten).redirectErrorStream(true).redirectOutput(log.toFile()).start()
         val klaar = proces.waitFor(TIJDSLIMIET_SECONDEN, TimeUnit.SECONDS)
 
-        if (!klaar) proces.destroyForcibly()
+        // `node --test` start per bestand een eigen proces; die moeten mee, anders blijven ze draaien.
+        if (!klaar) {
+            proces.descendants().forEach { it.destroyForcibly() }
+            proces.destroyForcibly()
+        }
 
         val uitvoer = Files.readString(log)
 

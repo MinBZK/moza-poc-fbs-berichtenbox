@@ -25,17 +25,21 @@ class ConfigControle(config: BerichtenAppConfig) {
 
         private val SCHEMA = setOf("http", "https")
 
+        private val GEBRUIKER = Regex("//[^/@]*@")
+
         /**
          * Absoluut, zonder gebruikersnaam, query of fragment, en eindigend op `/`: de app plakt er de
          * paden van de standaard achter. Het pad bevat alleen tekens die in een CSP-bron niets
          * betekenen. Buiten ontwikkel- en testmodus https, want de app stuurt er het `session_token` heen.
          */
-        fun controleerAppManagerUrl(adres: String, ontwikkel: Boolean) {
-            val uri = runCatching { URI.create(adres) }.getOrNull()
+        fun controleerAppManagerUrl(ruwAdres: String, ontwikkel: Boolean) {
+            val uri = runCatching { URI.create(ruwAdres) }.getOrNull()
+            // De melding komt in het bootlog; een wachtwoord in het adres hoort daar niet in.
+            val adres = ruwAdres.replace(GEBRUIKER, "//")
             val vorm = uri != null && uri.scheme in SCHEMA && uri.host != null && uri.rawUserInfo == null &&
                 uri.rawQuery == null && uri.rawFragment == null && PAD.matches(uri.rawPath)
 
-            require(vorm && adres.endsWith("/")) {
+            require(vorm && ruwAdres.endsWith("/")) {
                 "berichten-app.app-manager-url ($adres) moet een absolute http(s)-URL zijn die op / eindigt, " +
                     "zonder gebruikersnaam, query of fragment, met een pad van alleen letters, cijfers en ._~/-"
             }

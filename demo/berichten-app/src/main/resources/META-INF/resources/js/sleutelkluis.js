@@ -74,14 +74,15 @@ export function verwijder(naam) {
 /**
  * Een nieuw `registration_token`, in één transactie met het wissen van het credential van de vorige
  * registratie en van het afgeronde activeren: anders kan het bewijs van een andere persona naast de
- * nieuwe registratie blijven staan, of blijft het activeren half staan.
+ * nieuwe registratie blijven staan, of blijft het activeren half staan. Alleen als het activeren in
+ * de kluis nog dat van [sessieToken] is: een ander tabblad kan intussen gewist of zelf een activering
+ * begonnen hebben. Geeft terug of het token bewaard is.
  */
-export function vervangRegistratie(token) {
-  return transactie('readwrite', (opslag) => {
+export function vervangRegistratie(token, sessieToken) {
+  return als(ACTIVATIE, (activatie) => activatie?.sessieToken === sessieToken, (opslag) => {
     opslag.delete(CREDENTIAL);
     opslag.delete(ACTIVATIE);
-
-    return opslag.put(token, REGISTRATIE);
+    opslag.put(token, REGISTRATIE);
   });
 }
 
@@ -91,7 +92,7 @@ export function vervangRegistratie(token) {
  * het bewaard is.
  */
 export function bewaarCredential(token, credential) {
-  return alsRegistratie(token, (opslag) => opslag.put(credential, CREDENTIAL));
+  return als(REGISTRATIE, (huidig) => huidig === token, (opslag) => opslag.put(credential, CREDENTIAL));
 }
 
 /**
@@ -99,19 +100,20 @@ export function bewaarCredential(token, credential) {
  * afgewezen oud token de nieuwe activering van een ander tabblad wissen. Geeft terug of er gewist is.
  */
 export function vergeetRegistratie(token) {
-  return alsRegistratie(token, (opslag) => {
+  return als(REGISTRATIE, (huidig) => huidig === token, (opslag) => {
     opslag.delete(REGISTRATIE);
     opslag.delete(CREDENTIAL);
   });
 }
 
-function alsRegistratie(token, actie) {
+/** Lezen en schrijven in één transactie, zodat geen ander tabblad ertussen kan; geeft terug of [actie] liep. */
+function als(naam, voorwaarde, actie) {
   return transactie('readwrite', (opslag) => {
     const uitkomst = { result: false };
-    const huidig = opslag.get(REGISTRATIE);
+    const huidig = opslag.get(naam);
 
     huidig.onsuccess = () => {
-      if (huidig.result !== token) return;
+      if (!voorwaarde(huidig.result)) return;
 
       actie(opslag);
       uitkomst.result = true;
@@ -171,6 +173,13 @@ async function transactie(modus, actie) {
         tx = database.transaction(OPSLAG, modus);
         verzoek = actie(tx.objectStore(OPSLAG));
       } catch (fout) {
+        // Verzoeken die al in de transactie stonden, mogen niet alsnog weggeschreven worden.
+        try {
+          tx?.abort();
+        } catch {
+          // De transactie was al afgerond of nooit begonnen.
+        }
+
         mislukt(new KluisFout('de opslag weigerde de bewerking', { cause: fout }));
 
         return;

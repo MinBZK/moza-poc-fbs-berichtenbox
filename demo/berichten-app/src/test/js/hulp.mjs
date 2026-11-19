@@ -56,12 +56,19 @@ export function nepFetch(antwoorden) {
   return { fetch, verzoeken };
 }
 
+/** Zet een registratie in de kluis zoals een afgerond activeren dat doet. */
+export async function registreer(kluis, token) {
+  await kluis.bewaar(kluis.ACTIVATIE, { sessieToken: token });
+  assert.equal(await kluis.vervangRegistratie(token, token), true);
+}
+
 /**
  * Een App Manager in het klein. Elke challenge krijgt een eigen tijdelijke sleutel; `complete`
- * ontsleutelt de presentatie en eist dezelfde header als de echte App Manager; `credential` eist een
- * bekend sessietoken en geeft [credential] versleuteld terug. [status] zet per pad een foutstatus.
+ * ontsleutelt de presentatie, eist dezelfde header als de echte App Manager en geeft per sessie een
+ * eigen token (`sessie-1`, `sessie-2`, …); `credential` eist een bekend sessietoken en geeft
+ * [credential] versleuteld terug. [status] zet per pad een foutstatus.
  */
-export function nepAppManager({ credential = 'nog geen credential', status = {}, sessieToken = 'sessie-1' } = {}) {
+export function nepAppManager({ credential = 'nog geen credential', status = {} } = {}) {
   const sessies = new Map();
   const tijdelijk = new Map();
   const log = { presentaties: [], credentialVerzoeken: [] };
@@ -91,6 +98,8 @@ export function nepAppManager({ credential = 'nog geen credential', status = {},
       const ruw = Buffer.from(presentatie.session_aes_key, 'base64');
       const sleutel = await crypto.subtle.importKey('raw', ruw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 
+      const sessieToken = `sessie-${sessies.size + 1}`;
+
       log.presentaties.push(presentatie);
       sessies.set(sessieToken, sleutel);
 
@@ -114,5 +123,5 @@ export function nepAppManager({ credential = 'nog geen credential', status = {},
     return new Response('', { status: 404 });
   };
 
-  return { fetch, log, sessieSleutel: (token = sessieToken) => sessies.get(token) };
+  return { fetch, log, sessieSleutel: (token = `sessie-${sessies.size}`) => sessies.get(token) };
 }

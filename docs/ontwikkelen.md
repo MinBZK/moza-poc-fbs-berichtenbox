@@ -50,7 +50,7 @@ start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij 
 draaien zonder Docker.
 
 Twee modules hebben Node nodig (`node` en `npm` op het `PATH`, versie 20.6 of nieuwer: de tests
-laden `jose` via een resolve-hook met `module.register`). De build van de Berichten-app draait
+laden `jose` via een resolve-hook, met `module.registerHooks` of op oudere versies `module.register`). De build van de Berichten-app draait
 `npm ci` en zet `jose` uit npm op `/vendor/jose`; daarvoor moet de npm-registry bereikbaar zijn,
 net als Maven Central. Daarna draait ze de tests van haar browsercode met `node --test`, met
 `fake-indexeddb` voor de opslag in de browser. De App Manager draait diezelfde code in

@@ -48,27 +48,24 @@ export async function activeer({ appManager, kluis, sessie, fetch = globalThis.f
 /** Terug van de App Manager: het token uit het fragment halen en er een bewijs mee ophalen. */
 export async function rondActiverenAf({ appManager, fragment, kluis, sessie, fetch = globalThis.fetch }) {
   const sessieToken = sessie.getItem(ACTIVATIE_SESSIE);
-  const activatie = await kluis.haal(ACTIVATIE);
 
   sessie.removeItem(ACTIVATIE_SESSIE);
 
+  // Het fragment is al uit de geschiedenis: lukt de opslag hier niet, dan is het token weg en helpt
+  // herladen niet.
+  const activatie = await kluisOfOpnieuw(() => kluis.haal(ACTIVATIE), 'De app kon het activeren niet afronden.');
+
   // Hoort de activering in de kluis bij een ander tabblad, dan blijft hij voor dat tabblad staan.
-  if (!sessieToken || activatie?.sessieToken !== sessieToken) {
-    throw new Melding(`Het activeren is in een ander tabblad begonnen of verlopen. ${OPNIEUW_ACTIVEREN}`);
-  }
+  if (!sessieToken || activatie?.sessieToken !== sessieToken) throw new Melding(ANDER_BEGONNEN);
 
   const { aesSleutel } = activatie;
   const registratieToken = await leesRegistratie(fragment, aesSleutel, appManager.url);
 
-  // Het fragment is al uit de geschiedenis; lukt bewaren niet, dan is het token weg en helpt
-  // herladen niet. De activering in de kluis verdwijnt pas als het token er staat.
-  try {
-    await kluis.vervangRegistratie(registratieToken);
-  } catch (fout) {
-    if (fout instanceof KluisFout) throw new Melding(`De app kon de koppeling niet bewaren. ${OPSLAG_GEWEIGERD} ${OPNIEUW_ACTIVEREN}`, { cause: fout });
+  // De activering in de kluis verdwijnt pas als het token er staat, en alleen als hij nog van dit
+  // tabblad is.
+  const bewaard = await kluisOfOpnieuw(() => kluis.vervangRegistratie(registratieToken, sessieToken), 'De app kon de koppeling niet bewaren.');
 
-    throw fout;
-  }
+  if (!bewaard) throw new Melding(ANDER_BEGONNEN);
 
   let credential;
 
@@ -78,7 +75,7 @@ export async function rondActiverenAf({ appManager, fragment, kluis, sessie, fet
   } catch (fout) {
     // Alleen wat een volgende poging kan verhelpen; bij een 400 of een onleesbaar antwoord helpt
     // vernieuwen niet, en dan geldt de gewone melding.
-    if (fout instanceof VerbindingFout || (fout instanceof ActiverenFout && [401, 503].includes(fout.status))) {
+    if (fout instanceof VerbindingFout || (fout instanceof ActiverenFout && (fout.status === 401 || fout.status >= 500))) {
       throw new Melding('De koppeling is gelukt, maar het bewijs is nog niet opgehaald. Kies Bewijs vernieuwen om het af te ronden.', { cause: fout });
     }
 
@@ -117,6 +114,17 @@ export async function vernieuw({ appManager, kluis, fetch = globalThis.fetch }) 
   if (!await kluis.bewaarCredential(registratieToken, credential)) throw new Melding(ANDER_TABBLAD);
 }
 
+/** Een KluisFout wordt een melding die zegt dat opnieuw activeren nodig is. */
+async function kluisOfOpnieuw(actie, wat) {
+  try {
+    return await actie();
+  } catch (fout) {
+    if (fout instanceof KluisFout) throw new Melding(`${wat} ${OPSLAG_GEWEIGERD} ${OPNIEUW_ACTIVEREN}`, { cause: fout });
+
+    throw fout;
+  }
+}
+
 export async function wis({ kluis, sessie }) {
   await kluis.wis();
   sessie.removeItem(ACTIVATIE_SESSIE);
@@ -126,7 +134,8 @@ export async function wis({ kluis, sessie }) {
 export function statustekst(registratie, credential, nu = new Date()) {
   if (!registratie) return 'Deze browser is nog niet geactiveerd.';
 
-  if (!credential) return 'Gekoppeld, maar er is nog geen bewijs. Kies Bewijs vernieuwen.';
+  // Zonder vervolgstap: die staat in de melding erboven, en na een fout helpt vernieuwen niet altijd.
+  if (!credential) return 'Gekoppeld, maar er is nog geen bewijs.';
 
   const { ontvanger, verlooptOp } = leesCredential(credential);
 
@@ -142,6 +151,8 @@ export function melding(fout) {
   if (fout instanceof VerbindingFout) return 'Geen verbinding met de App Manager. Controleer uw verbinding en probeer het opnieuw.';
 
   if (fout instanceof KluisFout) return OPSLAG_GEWEIGERD;
+
+  if (fout instanceof ActiverenFout && fout.stap === 'instelling') return 'De app en de App Manager zijn verschillend ingesteld. Meld dit aan de beheerder.';
 
   if (fout instanceof ActiverenFout && fout.status === 401) return 'De App Manager wees het verzoek af. Probeer het opnieuw.';
 
@@ -160,4 +171,5 @@ export function melding(fout) {
   return 'Er ging iets mis in de app. Herlaad de pagina en probeer het opnieuw.';
 }
 
+const ANDER_BEGONNEN = `Het activeren is in een ander tabblad begonnen, gewist of verlopen. ${OPNIEUW_ACTIVEREN}`;
 const ANDER_TABBLAD = 'In een ander tabblad is intussen opnieuw geactiveerd of gewist; dit bewijs is niet bewaard. Herlaad de pagina.';

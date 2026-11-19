@@ -7,10 +7,12 @@
 import {
   haalCredential, leesRegistratie, maakSessie, publiekeJwk, registratieAdres,
 } from '../../main/resources/META-INF/resources/js/activeren.js';
-import { maakSleutelpaar } from '../../main/resources/META-INF/resources/js/sleutelkluis.js';
+import * as kluis from '../../main/resources/META-INF/resources/js/sleutelkluis.js';
+import { Melding, vernieuw } from '../../main/resources/META-INF/resources/js/verloop.js';
+import { IDBFactory } from 'fake-indexeddb';
 
 const [basis, issuer, oin, persona] = process.argv.slice(2);
-const sleutelpaar = await maakSleutelpaar();
+const sleutelpaar = await kluis.maakSleutelpaar();
 const activatie = await maakSessie({ basis, oin, sleutelpaar });
 
 const omwisseling = await fetch(registratieAdres(basis, activatie.sessieToken), { redirect: 'manual' });
@@ -36,7 +38,15 @@ const credential = await haalCredential({ basis, ...activatie, registratieToken 
 const later = await maakSessie({ basis, oin, sleutelpaar });
 const vers = await haalCredential({ basis, ...later, registratieToken });
 
+// Een registratie die de App Manager niet kent: vernieuwen moet hem uit de kluis halen. Dat leunt op
+// de 401 van de App Manager; zo toetst de keten het, niet alleen elk van beide kanten.
+globalThis.indexedDB = new IDBFactory();
+await kluis.bewaar(kluis.REGISTRATIE, 'onbekend');
+
+const afgewezen = await vernieuw({ appManager: { url: basis, oin }, kluis }).then(() => null, (fout) => fout);
+
 console.log(JSON.stringify({
+  onbekendVergeten: afgewezen instanceof Melding && await kluis.haal(kluis.REGISTRATIE) === undefined,
   terug: terug.origin + terug.pathname,
   credential,
   vers,
