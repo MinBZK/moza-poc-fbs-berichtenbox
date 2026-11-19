@@ -109,9 +109,10 @@ https buiten dev/test en fail-fast bij boot.
   afnemer ziet; omdat niemand de links nu volgt, raakt dat in de praktijk geen afnemer.
 - − een hop die een pad-prefix wegknipt (`/fbs/magazijn/...` naar `/...`) breekt de links. Bij A
   breken ze net zo, tenzij de geconfigureerde basis precies dat prefix draagt. Een FSC-`endpoint_url`
-  met een pad erin is zo'n hop. Vandaag knipt geen hop: geen dienst zet `quarkus.http.root-path` en
-  de `endpoint_url` van magazijn-a is de root van de dienst. Die voorwaarde staat in de KDoc van
-  `HalBasis`.
+  met een pad erin breekt ze ook, maar andersom: de inway zet dat pad vóór elk verzoek, dus een
+  gevolgde link draagt het dubbel. Publiceer daarom op de root van de dienst. Vandaag is dat overal
+  zo: geen dienst zet `quarkus.http.root-path` en de `endpoint_url` van magazijn-a is de root van de
+  dienst. Die voorwaarde staat in de KDoc van `HalBasis`.
 - − een Java-client die een link volgt, moet `requestUri.resolve(href)` doen in plaats van de href
   direct te gebruiken.
 

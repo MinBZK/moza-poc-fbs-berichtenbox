@@ -17,9 +17,10 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
  * (RFC 3986 §5); de spec laat dat toe (`Link.href` is `uri-reference`).
  *
  * Dat klopt zolang het pad dat de afnemer aanroept gelijk is aan het pad dat het magazijn ziet. Een
- * FSC-`endpoint_url` met een pad erin breekt dat: de inway zet dat pad vóór elk verzoek, ook vóór
- * een gevolgde link, die het dan dubbel draagt. Publiceer het magazijn daarom op de root van de
- * dienst; een `quarkus.http.root-path` werkt alleen als de afnemer hem zelf ook aanroept.
+ * FSC-`endpoint_url` met een pad erin breekt dat zodra dat pad het magazijn bereikt: de inway zet
+ * het vóór elk verzoek, ook vóór een gevolgde link, die het dan dubbel draagt. Publiceer het
+ * magazijn daarom op de root van de dienst; een `quarkus.http.root-path` werkt alleen als de
+ * afnemer hem zelf ook aanroept.
  *
  * Het base-path komt uit de spec ([ApiInfo.BASE_PATH]) en niet uit `quarkus.rest.path`: die laatste
  * ligt bij de build vast, en een runtime-override zou de links laten afwijken van de routering

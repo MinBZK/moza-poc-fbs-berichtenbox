@@ -769,11 +769,11 @@ components:
           format: uri-reference
           description: |
             Een URI-reference. Los hem altijd op tegen het adres waarop je dit antwoord
-            opvroeg (RFC 3986 §5) en gebruik hem niet als volledige URL. Dit magazijn levert
-            een absolute-path reference, bijvoorbeeld `/api/v1/berichten?page=1&pageSize=20`;
-            het pad kan een prefix vóór `/api/v1` dragen. Zo volg je de link met het schema en
-            de host van je eigen aanroep, ook via je eigen outway of als het magazijn achter
-            een ingress staat die TLS beëindigt.
+            opvroeg (RFC 3986 §5) en gebruik hem niet als volledige URL; zo volg je de link
+            met het schema en de host van je eigen aanroep, ook via je eigen outway of als
+            het magazijn achter een ingress staat die TLS beëindigt. Dit magazijn levert een
+            absolute-path reference, bijvoorbeeld `/api/v1/berichten?page=1&pageSize=20`;
+            het pad kan een prefix vóór `/api/v1` dragen.
 
     Problem:
       type: object
