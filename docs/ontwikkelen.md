@@ -87,6 +87,12 @@ Over die forks:
   opstart van enkele seconden.
 - JaCoCo schrijft per fork een eigen databestand (`target/jacoco-quarkus-<n>.exec`); de build voegt
   ze samen vóór de gate. Lees de dekking zoals altijd in `target/site/jacoco/`.
+- De forks delen `target/test-classes`. Quarkus schrijft daar bij elke start `test-classes.idx` en
+  verwijdert dat bij het stoppen, terwijl een andere fork die map kan doorlopen; die faalt dan
+  bij de discovery met een `NoSuchFileException`. Daarom staat er in de testresources een
+  niet-lege map `test-classes.idx/`: Quarkus kan het bestand dan niet aanmaken of verwijderen en
+  bouwt de index elke keer opnieuw op (`leesmij.txt` in die map legt het uit). Krijgt een andere
+  module forks, dan hoort die map daar ook in.
 - Elke fork moet zijn eigen poort kunnen pakken. Een testconfiguratie met een vaste
   `quarkus.http.test-port` of een vaste WireMock-poort laat forks op elkaar botsen; gebruik
   `quarkus.http.test-port=0` en `wireMockConfig().dynamicPort()`. Alleen in een module die zelf
