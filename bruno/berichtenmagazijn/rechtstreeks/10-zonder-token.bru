@@ -1,0 +1,28 @@
+meta {
+  name: 10. Zonder sessietoken (401)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/jose
+}
+
+assert {
+  res.status: eq 401
+  res.headers["content-type"]: startsWith application/problem+json
+  res.headers["www-authenticate"]: eq 'Bearer realm="{{simulatorOin}}"'
+  res.headers["access-control-allow-origin"]: eq *
+  res.body.type: eq urn:fbs:fout:geen-toegang
+}
+
+docs {
+  Zonder `Authorization`: `401` met alleen de realm. RFC 6750 §3: een verzoek zonder token krijgt
+  geen foutcode.
+}

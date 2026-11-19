@@ -31,13 +31,12 @@ describe('es256', () => {
 
     assert.deepEqual(protectedHeader, { alg: 'ES256', typ: 'jwt', kid: 'k1' });
     assert.deepEqual(JSON.parse(new TextDecoder().decode(payload)), { sub: 'x' });
-    assert.deepEqual(r.verifieerEs256(jws, publicKey), { sub: 'x' });
   });
 
-  it('weigert een handtekening van een andere sleutel', () => {
-    const jws = r.es256({ sub: 'x' }, generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey);
+  it('laat kid weg als er geen is', async () => {
+    const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
 
-    assert.throws(() => r.verifieerEs256(jws, generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey), /klopt niet/);
+    assert.deepEqual((await jose.compactVerify(r.es256({}, privateKey), publicKey)).protectedHeader, { alg: 'ES256', typ: 'jwt' });
   });
 });
 
@@ -75,6 +74,7 @@ describe('ontsleutelDir', () => {
     ['zonder typ', { alg: 'dir', enc: 'A256GCM' }],
     ['met een ander enc', { alg: 'dir', enc: 'A128GCM' }],
     ['met een extra veld', { alg: 'dir', enc: 'A256GCM', typ: 'JWE', kid: 'x' }],
+    ['met typ JWT', { alg: 'dir', enc: 'A256GCM', typ: 'JWT' }],
   ]) {
     it(`weigert een header ${naam}`, async () => {
       const jwe = await maak(header, '{}', header.enc === 'A128GCM' ? sleutel.subarray(0, 16) : sleutel);
@@ -82,6 +82,14 @@ describe('ontsleutelDir', () => {
       assert.throws(() => r.ontsleutelDir(jwe, sleutel), /onverwachte JWE-header/);
     });
   }
+
+  it('weigert een ander alg met dezelfde velden', () => {
+    const delen = r.jweDir('{}', sleutel).split('.');
+
+    delen[0] = Buffer.from(JSON.stringify({ alg: 'A256KW', enc: 'A256GCM', typ: 'JWE' })).toString('base64url');
+
+    assert.throws(() => r.ontsleutelDir(delen.join('.'), sleutel), /onverwachte JWE-header/);
+  });
 
   it('weigert een antwoord met een andere sleutel', async () => {
     assert.throws(() => r.ontsleutelDir(r.jweDir('{}', randomBytes(32)), sleutel));
@@ -134,6 +142,28 @@ describe('leesChallenge', () => {
   it('weigert een challenge zonder kid', () => assert.throws(() => r.leesChallenge(challenge({ kid: null }).jws), /header/));
 
   it('weigert een tijdelijke sleutel op P-384', () => assert.throws(() => r.leesChallenge(challenge({ curve: 'P-384' }).jws), /P-256/));
+
+  for (const [naam, header] of [
+    ['met ES384', { alg: 'ES384', typ: 'jwt', kid: 'k' }],
+    ['zonder typ', { alg: 'ES256', kid: 'k' }],
+  ]) {
+    it(`weigert een header ${naam}`, () => {
+      const [, payload, handtekening] = challenge().jws.split('.');
+      const jws = [Buffer.from(JSON.stringify(header)).toString('base64url'), payload, handtekening].join('.');
+
+      assert.throws(() => r.leesChallenge(jws), /header/);
+    });
+  }
+
+  it('weigert een payload zonder tijdelijke sleutel', () => {
+    const jws = r.es256({ sub: 'challenge', nonce: 'bm9uY2Utdm9vci1kZS10ZXN0LTEyMw==' }, generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey, 'k');
+
+    assert.throws(() => r.leesChallenge(jws), /payload/);
+  });
+
+  for (const compact of ['a.b', 'a.b.c.d']) {
+    it(`weigert ${compact} als JWS`, () => assert.throws(() => r.leesChallenge(compact), /drie delen/));
+  }
 });
 
 describe('bouwSessieverzoek', () => {
@@ -157,6 +187,8 @@ describe('bouwSessieverzoek', () => {
 
     assert.deepEqual(Object.keys(presentatie).sort(), ['app_nonce_signature', 'certificate', 'certificate_type', 'session_aes_key']);
     assert.equal(presentatie.certificate_type, 'app_manager_jwt_certificate');
+    // Base64 met padding, geen base64url: het magazijn decodeert `format: byte`.
+    assert.match(presentatie.session_aes_key, /^[A-Za-z0-9+/]{43}=$/);
     assert.equal(Buffer.from(presentatie.session_aes_key, 'base64').toString('base64url'), aesSleutel);
     assert.equal(Buffer.from(aesSleutel, 'base64url').length, 32);
 
@@ -165,7 +197,7 @@ describe('bouwSessieverzoek', () => {
 
     assert.deepEqual(credential.protectedHeader, { alg: 'ES256', typ: 'jwt', kid: 'bruno-lokaal' });
     assert.deepEqual({ ...claims, cnf: undefined }, {
-      cnf: undefined, scope: r.SCOPE, iss: '00000000000000001199', iat: NU, nbf: NU, exp: NU + 3600, ontvanger: 'KVK:90000014',
+      cnf: undefined, scope: 'nl.rijksoverheid.moz.fbs.berichten', iss: '00000000000000001199', iat: NU, nbf: NU, exp: NU + 3600, ontvanger: 'KVK:90000014',
     });
     assert.deepEqual(Object.keys(claims.cnf.jwk).sort(), ['crv', 'kty', 'x', 'y']);
 
@@ -176,11 +208,21 @@ describe('bouwSessieverzoek', () => {
     });
   });
 
-  it('geeft elke keer een andere AES-sleutel en app-sleutel', () => {
+  it('geeft elke keer een andere AES-sleutel en app-sleutel', async () => {
     const appManager = { oin: '00000000000000001199', kid: 'k', sleutel: generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey };
-    const maak = () => r.bouwSessieverzoek({ challenge: r.leesChallenge(challenge().jws), magazijnOin: MAGAZIJN, ontvanger: 'KVK:90000014', appManager, nu: NU });
 
-    assert.notEqual(maak().aesSleutel, maak().aesSleutel);
+    const maak = async () => {
+      const { jws, tijdelijk } = challenge();
+      const { body, aesSleutel } = r.bouwSessieverzoek({ challenge: r.leesChallenge(jws), magazijnOin: MAGAZIJN, ontvanger: 'KVK:90000014', appManager, nu: NU });
+      const { plaintext } = await jose.compactDecrypt(body.encrypted_challenge_result, tijdelijk.privateKey);
+
+      return { aesSleutel, jwk: jose.decodeJwt(JSON.parse(new TextDecoder().decode(plaintext)).certificate).cnf.jwk };
+    };
+
+    const [een, twee] = [await maak(), await maak()];
+
+    assert.notEqual(een.aesSleutel, twee.aesSleutel);
+    assert.notEqual(een.jwk.x, twee.jwk.x);
   });
 });
 

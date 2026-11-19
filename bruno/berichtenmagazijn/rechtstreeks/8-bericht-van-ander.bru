@@ -1,0 +1,32 @@
+meta {
+  name: 8. Bericht van een andere ontvanger (404)
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten/{{rechtstreeksAnderBerichtId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{rechtstreeksSessieToken}}
+}
+
+headers {
+  Accept: application/jose
+}
+
+assert {
+  res.status: eq 404
+  res.headers["content-type"]: startsWith application/problem+json
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.body.type: eq urn:fbs:fout:bericht-onbekend
+}
+
+docs {
+  Het bericht van request 2 bestaat wel, maar hoort bij een andere ontvanger. De tweede ingang
+  onderscheidt dat niet van een bericht dat niet bestaat: allebei `404`, onversleuteld.
+}

@@ -3,8 +3,10 @@
 // publieke helft op stdout als de instellingen waarmee een lokale simulator hem vertrouwt. Bestaat
 // `.env` al met een sleutel, dan hergebruikt het script die en toont het de instellingen opnieuw.
 //
-// Geen enkele omgeving behalve een ontwikkelmachine krijgt deze instellingen: ze staan in geen enkel
-// ingecheckt bestand, en de sleutel ontstaat pas hier.
+// De sleutel ontstaat pas hier en staat in geen enkel ingecheckt bestand. Dat hij alleen op een
+// ontwikkelmachine vertrouwd wordt, is een afspraak: de simulator neemt de instellingen in elk profiel
+// aan. Zet ze daarom nooit op een gedeelde of ZAD-omgeving. `geldig-tot` ligt negentig dagen vooruit,
+// zodat een vergeten instelling vanzelf vervalt.
 import { createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -22,11 +24,12 @@ function bestaande() {
   return regel ? regel.slice(VARIABELE.length + 1).trim() : null;
 }
 
+const GELDIG_DAGEN = 90;
 let pkcs8 = bestaande();
 
-if (pkcs8 === null) {
+if (pkcs8 === null || pkcs8 === '') {
   if (existsSync(env)) {
-    console.error(`${env} bestaat al, zonder ${VARIABELE}. Voeg de sleutel niet blind toe: kijk eerst wat er staat.`);
+    console.error(`${env} bestaat al, zonder bruikbare ${VARIABELE}. Voeg de sleutel niet blind toe: kijk eerst wat er staat.`);
     process.exit(1);
   }
 
@@ -43,7 +46,8 @@ if (pkcs8 === null) {
 }
 
 const { x, y } = createPublicKey(createPrivateKey({ key: Buffer.from(pkcs8, 'base64url'), format: 'der', type: 'pkcs8' })).export({ format: 'jwk' });
+const geldigTot = new Date(Date.now() + GELDIG_DAGEN * 24 * 3600 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const prefix = `-Dsimulator.rechtstreeks.app-managers.${oin}.sleutels.${kid}`;
 
-console.error('Start de simulator met deze instellingen (alleen lokaal, in ontwikkelmodus):');
-console.log(`${prefix}.x=${x} ${prefix}.y=${y} ${prefix}.geldig-tot=2099-01-01T00:00:00Z`);
+console.error('Start de simulator met deze instellingen, alleen op deze machine:');
+console.log(`${prefix}.x=${x} ${prefix}.y=${y} ${prefix}.geldig-tot=${geldigTot}`);

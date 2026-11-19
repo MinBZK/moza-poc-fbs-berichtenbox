@@ -51,8 +51,9 @@ Daarom ondertekent het pre-request-script het credential zelf:
   (`00000000000000001100`).
 - Geen sleutel en geen vertrouwde publieke sleutel in een ingecheckt bestand, ook niet onder
   `%dev`. Een simulator vertrouwt hem alleen als hij met die instellingen op de commandoregel
-  start. Een ZAD-omgeving krijgt ze dus niet, tenzij iemand ze daar met de hand zet. De README
-  waarschuwt daarvoor.
+  start. Een ZAD-omgeving krijgt ze dus niet, tenzij iemand ze daar met de hand zet: de simulator
+  neemt ze in elk profiel aan, dus dat is een afspraak en geen afdwinging. De README waarschuwt
+  ervoor, en `geldig-tot` ligt negentig dagen vooruit, zodat een vergeten instelling vervalt.
 
 ### 3. De scriptruntime: developer-sandbox, `node:crypto`, geen jose
 
@@ -69,20 +70,33 @@ Daarom ondertekent het pre-request-script het credential zelf:
 - Daarom staat de JOSE-code in `lib/rechtstreeks.js` op `node:crypto`. Alleen wat het magazijn
   accepteert: ES256, `ECDH-ES` met Concat KDF en `A256GCM`, `dir` met `A256GCM`. Dat volgt het
   voorbeeld van `TestApp` in `fbs-rechtstreeks`: een tweede implementatie naast jose (de app) en
-  jose4j (de Verifier). De code toetst zich ook tegen jose 6.2.13, dezelfde versie als de app
-  (`npm test`, `lib/rechtstreeks.test.mjs`): wat de ene maakt, moet de andere lezen.
+  jose4j (de Verifier). De code toetst zich ook tegen jose (`npm test`,
+  `lib/rechtstreeks.test.mjs`): wat de ene maakt, moet de andere lezen. Nu 6.2.13, net als de app;
+  door de langere cooldown hier kan een bump een week later komen dan bij de app.
 - Uit de Berichten-app komt de volgorde van `openSessie` (`js/activeren.js`). Niet overgenomen is de
   niet-exporteerbare WebCrypto-sleutel: Bruno heeft geen kluis, en de sleutels van de app en de
   sessie leven één run in het geheugen van het script.
 - `@usebruno/cli` en `jose` staan vast in `bruno/berichtenmagazijn/package.json` en de lockfile.
-  Dependabot houdt ze bij met een cooldown van veertien dagen.
+  Dependabot houdt ze bij met een cooldown van veertien dagen, in één PR per ronde.
+- De CLI pint `axios`, `form-data` en `js-yaml` exact, op versies met bekende advisories; een
+  security update van Dependabot kan die niet ophogen. `overrides` zetten ze op versies van minstens
+  twee weken oud (axios 1.21.0, form-data 4.0.6, js-yaml 4.3.2). Dat brengt `npm audit` van 18
+  meldingen (8 high) naar 14 (4 high). Wat blijft, is `@faker-js/faker` 9 (de fix vraagt een nieuwe
+  major onder `@usebruno/requests`) en moderate meldingen: aanvaard, omdat de CLI alleen op een
+  ontwikkelmachine tegen localhost draait met een collectie uit deze repo.
+- In commando's `npm run rechtstreeks`, niet `npx bru`: zonder lokale installatie haalt `npx` het
+  npm-pakket `bru` op, dat iets anders is.
 
 ### 4. Wat de requests tonen en toetsen
 
 Na het ontsleutelen vervangt het post-response-script de body door de payload (`res.setBody`).
-Bruno toont dan de payload, en de `assert`-blokken lopen erop. Status, `Content-Type`
-`application/jose` en `Cache-Control: no-store` toetsen ze altijd; elke request toetst daarnaast de
-vorm van de payload. Het sessietoken en de AES-sleutel staan in runtime-variabelen (`bru.setVar`),
+Bruno toont dan de payload, en de `assert`-blokken lopen erop. Elke request van de tweede ingang
+toetst status, `Content-Type`, `API-Version` en de CORS-headers die het contract op elk antwoord
+eist; de geslaagde ook `Cache-Control: no-store` en de vorm van de payload. Naast het hoofdpad
+staan de foutpaden die het contract benadrukt: een tweede poging met dezelfde nonce (401), een
+bericht van een andere ontvanger (404, met een tweede demo-persona, Grootbedrijf B.V.), een
+onbekend token en geen token (401, RFC 6750). De lijst wordt getoetst op alleen berichten van de
+ontvanger uit de sessie. Het sessietoken en de AES-sleutel staan in runtime-variabelen (`bru.setVar`),
 die Bruno niet in een bestand schrijft. In het antwoordvenster van `sessies` staat het token niet,
 alleen dat het de vorm uit de spec heeft.
 
@@ -102,10 +116,11 @@ demo-persona Garage Van Dijk B.V.). `zad` krijgt ze niet: de tweede ingang staat
 
 - `npm test` in `bruno/berichtenmagazijn`: de JOSE-code tegen jose.
 - `bru run rechtstreeks --env lokaal --sandbox developer` tegen een simulator in ontwikkelmodus, met
-  PostgreSQL op podman: 6 requests, 32 asserts en 2 tests groen.
-- Mutaties in een kopie van de collectie (`bru run` of `npm test`): de ontvanger in het credential,
-  het algoritme-id in de Concat KDF, `typ` uit de JWE, `aud` van de nonce-handtekening, een leeg
-  antwoord, een ander bericht-id, de realm in `WWW-Authenticate`, de lengte in de KDF, de
-  header-, curve-, IV- en `kid`-controle. Twaalf mutaties, twaalf gevangen.
+  PostgreSQL op podman: 10 requests, 69 asserts en 4 tests groen.
+- Mutaties in een kopie van de collectie (`bru run` of `npm test`), onder meer de ontvanger in het
+  credential, het algoritme-id en de lengte in de Concat KDF, `typ` uit de JWE, `aud` van de
+  nonce-handtekening, base64url voor de AES-sleutel, de scope, een vaste app-sleutel, een leeg
+  antwoord, een ander bericht-id, de realm, de header-asserts, de controles op header, curve, IV,
+  `kid`, `typ`, `alg` en het aantal delen. 27 mutaties, 27 gevangen.
 - Niet in CI: geen workflow draait `bru run`. Dat vraagt een simulator met database in de job en een
   sleutel per run; dat is een keuze voor de opdrachtgever.

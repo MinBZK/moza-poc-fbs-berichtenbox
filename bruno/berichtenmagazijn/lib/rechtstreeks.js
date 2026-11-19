@@ -51,24 +51,6 @@ function leesJws(compact) {
   return { header: leesDeel(delen[0]), payload: leesDeel(delen[1]) };
 }
 
-/** De payload als de ES256-handtekening klopt met [publicKey]; anders een fout. */
-function verifieerEs256(compact, publicKey) {
-  const delen = String(compact).split('.');
-
-  if (delen.length !== 3) throw new Error('geen compacte JWS (drie delen)');
-
-  if (leesDeel(delen[0]).alg !== 'ES256') throw new Error('JWS is niet ES256');
-
-  const klopt = crypto.verify(
-    'sha256', Buffer.from(`${delen[0]}.${delen[1]}`, 'ascii'),
-    { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(delen[2], 'base64url'),
-  );
-
-  if (!klopt) throw new Error('handtekening klopt niet');
-
-  return leesDeel(delen[1]);
-}
-
 /** Concat KDF (NIST SP 800-56A) zoals RFC 7518 §4.6.2 hem invult: één ronde SHA-256, zonder apu/apv. */
 function concatKdf(z, algoritme, bits) {
   const id = Buffer.from(algoritme, 'ascii');
@@ -115,8 +97,9 @@ function aesGcm(header, payload, sleutel) {
 }
 
 /**
- * Een antwoord van het magazijn: JWE met `dir` en A256GCM. Een andere header weigeren we, net als de
- * Berichten-app: een magazijn dat iets anders stuurt, wijkt af van het contract.
+ * Een antwoord van het magazijn: JWE met `dir` en A256GCM, met precies `alg`, `enc` en `typ` `JWE`.
+ * Strenger dan het contract, dat ook `kid` en `cty` toelaat, en dan de Berichten-app: deze requests
+ * zijn er om te laten zien wat het magazijn stuurt, dus elke afwijking van wat het nu stuurt, valt op.
  */
 function ontsleutelDir(compact, sleutel) {
   const delen = String(compact).split('.');
@@ -124,9 +107,9 @@ function ontsleutelDir(compact, sleutel) {
   if (delen.length !== 5 || delen[1] !== '') throw new Error('geen compacte JWE met dir (vijf delen, lege sleutel)');
 
   const header = leesDeel(delen[0]);
-  const sleutels = Object.keys(header).sort().join(',');
+  const velden = Object.keys(header).sort().join(',');
 
-  if (sleutels !== 'alg,enc,typ' || header.alg !== 'dir' || header.enc !== 'A256GCM' || header.typ !== 'JWE') {
+  if (velden !== 'alg,enc,typ' || header.alg !== 'dir' || header.enc !== 'A256GCM' || header.typ !== 'JWE') {
     throw new Error(`onverwachte JWE-header: ${JSON.stringify(header)}`);
   }
 
@@ -153,7 +136,7 @@ function ontsleutelDir(compact, sleutel) {
 function leesChallenge(compact) {
   const { header, payload } = leesJws(compact);
 
-  if (header.alg !== 'ES256' || typeof header.kid !== 'string' || header.kid === '') {
+  if (header.alg !== 'ES256' || header.typ !== 'jwt' || typeof header.kid !== 'string' || header.kid === '') {
     throw new Error(`onverwachte challenge-header: ${JSON.stringify(header)}`);
   }
 
@@ -183,7 +166,8 @@ function appManagerSleutel(pkcs8) {
 }
 
 /**
- * Stap 10 tot en met 20 van `CreateSession`: een nieuw sleutelpaar voor de app, een credential van
+ * Stap 13 tot en met 20 van `CreateSession` (de controle van de challenge, stap 10 tot en met 12,
+ * ontbreekt; zie [leesChallenge]): een nieuw sleutelpaar voor de app, een credential van
  * de lokale App Manager op die sleutel, de ondertekende nonce, een nieuwe AES-sleutel, en de
  * presentatie versleuteld naar de tijdelijke sleutel uit de challenge. Geeft de body en de
  * AES-sleutel (base64url); de private key van de app is daarna niet meer nodig.
@@ -244,5 +228,4 @@ module.exports = {
   ontsleutelDir,
   publiekeJwk,
   sleutelpaar,
-  verifieerEs256,
 };

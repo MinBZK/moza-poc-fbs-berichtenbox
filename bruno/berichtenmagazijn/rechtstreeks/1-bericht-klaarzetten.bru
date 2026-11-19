@@ -20,7 +20,7 @@ body:json {
 }
 
 script:pre-request {
-  // Dezelfde ontvanger als in het credential van request 3, anders blijft de lijst leeg.
+  // Dezelfde ontvanger als in het credential van request 4, anders blijft de lijst leeg.
   const [type, waarde] = bru.getEnvVar('rechtstreeksOntvanger').split(':');
 
   bru.setVar('rechtstreeksOntvangerType', type);

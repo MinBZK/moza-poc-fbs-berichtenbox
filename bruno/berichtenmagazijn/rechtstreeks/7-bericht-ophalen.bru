@@ -1,7 +1,7 @@
 meta {
-  name: 5. Bericht ophalen
+  name: 7. Bericht ophalen
   type: http
-  seq: 5
+  seq: 7
 }
 
 get {
@@ -28,6 +28,9 @@ assert {
   res.status: eq 200
   res.headers["content-type"]: startsWith application/jose
   res.headers["cache-control"]: eq no-store
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
   res.body.berichtId: eq {{rechtstreeksBerichtId}}
   res.body.onderwerp: eq Rechtstreeks opgehaald
   res.body.inhoud: isString
@@ -36,5 +39,5 @@ assert {
 
 docs {
   Eén bericht met inhoud, als het hoort bij de ontvanger uit de sessie. Een bericht van een ander
-  geeft `404`, net als een bericht dat niet bestaat.
+  geeft `404` (request 8).
 }

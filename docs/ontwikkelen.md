@@ -354,11 +354,12 @@ docker compose --profile demo up -d postgres-simulator
 ./mvnw install -pl demo/magazijn-simulator -am -DskipTests
 ./mvnw quarkus:dev -pl demo/magazijn-simulator $(npm --prefix bruno/berichtenmagazijn run -s sleutel 2>/dev/null)
 # in een tweede terminal:
-cd bruno/berichtenmagazijn && npx bru run rechtstreeks --env lokaal --sandbox developer
+npm run rechtstreeks --prefix bruno/berichtenmagazijn   # bru run rechtstreeks --env lokaal --sandbox developer
 ```
 
-`@usebruno/cli` staat vast in `bruno/berichtenmagazijn/package-lock.json`; `npx` start die versie
-uit `node_modules`. Nooit `npx @usebruno/cli@latest`.
+`@usebruno/cli` staat vast in `bruno/berichtenmagazijn/package-lock.json`; `npm run` start die
+versie uit `node_modules`. Geen kale `npx bru` (zonder lokale installatie is dat een ander
+npm-pakket) en nooit `npx @usebruno/cli@latest`.
 
 ## Configuratie
 

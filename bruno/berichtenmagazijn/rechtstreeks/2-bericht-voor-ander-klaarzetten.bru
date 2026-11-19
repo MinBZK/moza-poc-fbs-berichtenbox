@@ -1,0 +1,42 @@
+meta {
+  name: 2. Bericht voor een andere ontvanger klaarzetten (eerste ingang)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrlSimulator}}/aanleveringen
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "afzender": "{{simulatorOin}}",
+    "ontvanger": { "type": "{{rechtstreeksAnderType}}", "waarde": "{{rechtstreeksAnderWaarde}}" },
+    "onderwerp": "Niet voor de ontvanger uit de sessie",
+    "inhoud": "Dit bericht hoort de sessie van request 4 niet te zien."
+  }
+}
+
+script:pre-request {
+  const [type, waarde] = bru.getEnvVar('rechtstreeksAndereOntvanger').split(':');
+
+  bru.setVar('rechtstreeksAnderType', type);
+  bru.setVar('rechtstreeksAnderWaarde', waarde);
+}
+
+script:post-response {
+  bru.setVar('rechtstreeksAnderBerichtId', res.getBody()?.berichtId);
+}
+
+assert {
+  res.status: eq 201
+  res.body.berichtId: isString
+}
+
+docs {
+  Een bericht bij hetzelfde magazijn voor een andere demo-persona (`rechtstreeksAndereOntvanger`,
+  Grootbedrijf B.V.). Request 6 toetst dat de lijst het niet bevat, request 8 dat het niet te openen
+  is.
+}

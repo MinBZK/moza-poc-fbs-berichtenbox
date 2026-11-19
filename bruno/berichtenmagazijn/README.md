@@ -38,9 +38,11 @@ npm run sleutel              # maakt .env (gitignored) en toont de instellingen 
 
 De private key staat daarna in `bruno/berichtenmagazijn/.env`. Die sleutel is **alleen voor
 lokaal gebruik**: niet inchecken, niet delen, en zet de instellingen nooit op een gedeelde of
-ZAD-omgeving. Hij staat in geen enkel ingecheckt bestand, en een simulator vertrouwt hem alleen als
-je hem met de instellingen hieronder start. Het credential hoort bij de demo-persona Garage Van
-Dijk B.V. (`KVK:90000014`, `rechtstreeksOntvanger`).
+ZAD-omgeving. Dat is een afspraak, geen afdwinging: de simulator neemt de instellingen in elk
+profiel aan. Wel staat de sleutel in geen enkel ingecheckt bestand, en `geldig-tot` ligt negentig
+dagen vooruit, zodat een vergeten instelling vanzelf vervalt. Het credential hoort bij de
+demo-persona Garage Van Dijk B.V. (`KVK:90000014`, `rechtstreeksOntvanger`); request 2 zet een
+bericht klaar voor Grootbedrijf B.V. (`KVK:90000001`, `rechtstreeksAndereOntvanger`).
 
 Start de simulator met die instellingen (vanuit de root van de repo, met de database uit compose):
 
@@ -50,34 +52,52 @@ docker compose --profile demo up -d postgres-simulator
 ./mvnw quarkus:dev -pl demo/magazijn-simulator $(npm --prefix bruno/berichtenmagazijn run -s sleutel 2>/dev/null)
 ```
 
-Bij de start logt de simulator `Rechtstreeks ophalen: 1 App Manager(s) vertrouwd`. Draai dan de
-map, in deze volgorde:
+Bij de start logt de simulator `Rechtstreeks ophalen: 1 App Manager(s) vertrouwd`. Staat er
+`geen App Manager vertrouwd`, draai dan `npm run sleutel` los: de `2>/dev/null` hierboven verbergt
+zijn foutmelding. Draai daarna de map; de requests hangen in deze volgorde van elkaar af:
 
 ```bash
 cd bruno/berichtenmagazijn
-npx bru run rechtstreeks --env lokaal --sandbox developer   # of: npm run rechtstreeks
+npm run rechtstreeks     # bru run rechtstreeks --env lokaal --sandbox developer
 ```
 
-`npx` start hier de vastgezette CLI uit `node_modules`; haal hem nooit los op met
-`npx @usebruno/cli@latest`.
+`npm run` start de vastgezette CLI uit `node_modules`, en faalt als die er niet is. Gebruik geen
+kale `npx bru`: zonder `npm ci` in deze map haalt `npx` het npm-pakket `bru` op, dat iets heel anders
+is. En nooit `npx @usebruno/cli@latest`.
 
 | Request | Wat het laat zien |
 |---|---|
 | `1-bericht-klaarzetten` | levert via de eerste ingang een bericht aan voor de ontvanger, zodat de lijst iets toont |
-| `2-challenge-opvragen` | kaal verzoek; toont header en payload van de JWS. De handtekening is niet te controleren: de simulator ondertekent met een wegwerpsleutel die in geen stelseldocument staat |
-| `3-sessie-starten` | bouwt de hele `CreateSession`: app-sleutelpaar, credential, `app_nonce_signature` (ES256), AES-sleutel van 32 bytes, JWE met `ECDH-ES` en `A256GCM`. Ontsleutelt het antwoord (`dir`) |
-| `4-berichtenlijst-ophalen` | `Authorization: Bearer {{rechtstreeksSessieToken}}`; toont de ontsleutelde lijst |
-| `5-bericht-ophalen` | het klaargezette bericht, ontsleuteld |
-| `6-ongeldig-token` | foutpad: `401` met `WWW-Authenticate: Bearer realm="<OIN>", error="invalid_token"` |
+| `2-bericht-voor-ander-klaarzetten` | hetzelfde voor een andere demo-persona; requests 6 en 8 toetsen dat de sessie dat bericht niet ziet |
+| `3-challenge-opvragen` | kaal verzoek; toont header en payload van de JWS. De handtekening is niet te controleren: de simulator ondertekent met een wegwerpsleutel die in geen stelseldocument staat |
+| `4-sessie-starten` | bouwt de hele `CreateSession`: app-sleutelpaar, credential, `app_nonce_signature` (ES256), AES-sleutel van 32 bytes, JWE met `ECDH-ES` en `A256GCM`. Ontsleutelt het antwoord (`dir`) |
+| `5-nonce-opnieuw` | foutpad: hetzelfde verzoek nog eens geeft `401`, want een nonce is één keer bruikbaar |
+| `6-berichtenlijst-ophalen` | `Authorization: Bearer {{rechtstreeksSessieToken}}`; toont de ontsleutelde lijst, met alleen berichten van de ontvanger uit de sessie |
+| `7-bericht-ophalen` | het klaargezette bericht, ontsleuteld |
+| `8-bericht-van-ander` | foutpad: het bericht van request 2 geeft `404` |
+| `9-ongeldig-token` | foutpad: `401` met `WWW-Authenticate: Bearer realm="<OIN>", error="invalid_token"` |
+| `10-zonder-token` | foutpad: `401` met alleen de realm |
+
+Elke request van de tweede ingang toetst ook de headers die het contract op elk antwoord eist:
+`API-Version` en de CORS-headers.
 
 Na een ontsleuteld antwoord toont Bruno de payload in plaats van de JWE; de asserts lopen op die
 payload. Het sessietoken en de AES-sleutel staan in runtime-variabelen
 (`rechtstreeksSessieToken`, `rechtstreeksAesSleutel`) en nooit in een bestand. Een sessie duurt
 hooguit vijftien minuten en een challenge zestig seconden: draai bij een `401` opnieuw vanaf
-request 2.
+request 3.
 
 De JOSE-code toetst zichzelf tegen jose als tweede implementatie, zonder simulator:
 
 ```bash
 npm test
 ```
+
+## Afhankelijkheden
+
+`@usebruno/cli` pint een deel van zijn afhankelijkheden exact, ook versies met bekende advisories.
+Dependabot kan die niet ophogen. Daarom staan `axios`, `form-data` en `js-yaml` onder `overrides` in
+`package.json`. Bekijk die opnieuw bij elke bump van de CLI: misschien zijn ze dan overbodig, of
+juist te oud. Wat overblijft (`npm audit`) zijn `@faker-js/faker` 9, waarvan de fix een nieuwe major
+vraagt, en een aantal moderate meldingen. Dat risico nemen we: de CLI draait alleen op een
+ontwikkelmachine, tegen localhost, met een collectie uit deze repo.
