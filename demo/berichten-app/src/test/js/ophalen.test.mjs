@@ -240,7 +240,14 @@ test('de reden is een korte Nederlandse tekst per soort fout', () => {
 
 test('een magazijn dat blijft hangen, telt na de timeout als niet op tijd', async () => {
   const hangt = (adres, opties) => new Promise((gelukt, mislukt) => {
-    opties.signal.addEventListener('abort', () => mislukt(opties.signal.reason));
+    // De timer van AbortSignal.timeout houdt de event loop niet vast; zonder deze stopt Node 22 het
+    // testproces voordat de abort komt.
+    const vast = setTimeout(() => {}, 10_000);
+
+    opties.signal.addEventListener('abort', () => {
+      clearTimeout(vast);
+      mislukt(opties.signal.reason);
+    });
   });
 
   const opties = { sleutelpaar: await maakSleutelpaar(), credential: 'x', fetch: hangt, timeoutMs: 30 };
