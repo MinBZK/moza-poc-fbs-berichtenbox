@@ -134,6 +134,28 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
+    fun `de stacktrace in de 4xx-log draagt de types, maar geen message van de keten`() {
+        // Zo komt een kapotte JSON-body binnen: een 400 met de Jackson-fout als cause, en die
+        // melding citeert de aangeboden invoer.
+        val exception = BadRequestException(
+            "Ontvanger Jan de Vries ongeldig",
+            com.fasterxml.jackson.core.JsonParseException(null, "Unrecognized token '999993653x'"),
+        )
+
+        mapper.toResponse(exception)
+
+        val thrown = records.single { it.level == Level.INFO }.thrown
+        assertNotNull(thrown, "de stack moet in LogRecord.thrown blijven staan")
+        val weergave = thrown.stackTraceToString()
+
+        listOf("Jan de Vries", "99999365").forEach { fragment ->
+            assertFalse(weergave.contains(fragment), "'$fragment' hoort niet in de applicatielog: $weergave")
+        }
+
+        assertTrue(weergave.contains("com.fasterxml.jackson.core.JsonParseException"), weergave)
+    }
+
+    @Test
     fun `5xx-log bevat GEEN exception-message (PII-protectie consistent met 4xx)`() {
         // Round 11 L1: 5xx-tak laat nu OOK exception.message weg uit de
         // log-regel. Stack-trace blijft via 1e arg. Cause-type wordt 2e

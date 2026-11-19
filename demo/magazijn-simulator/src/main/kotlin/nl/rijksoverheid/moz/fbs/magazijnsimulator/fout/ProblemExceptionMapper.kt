@@ -4,6 +4,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
 import org.jboss.logging.Logger
 import java.util.UUID
@@ -42,9 +43,9 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (status >= SERVERFOUT_VANAF) {
             // De melding blijft uit de log: bij een exception van elders kan die gebruikersinvoer
-            // dragen. Het exception-object levert de stack, en het correlatie-id koppelt log en
-            // antwoord aan elkaar.
-            log.errorf(exception, "Serverfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
+            // dragen, en die van elke cause ook. Het spoor levert de stack en de typen, en het
+            // correlatie-id koppelt log en antwoord aan elkaar.
+            log.errorf(Foutspoor.van(exception), "Serverfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
 
             // Bij een 5xx gaat de melding niet naar de client: die kan interne details dragen, en er
             // is hier niets dat dat nog kan onderscheiden.

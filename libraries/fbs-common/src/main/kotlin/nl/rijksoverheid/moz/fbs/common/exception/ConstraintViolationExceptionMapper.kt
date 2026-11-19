@@ -1,10 +1,14 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
+import jakarta.validation.ConstraintViolation
 import jakarta.validation.ConstraintViolationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Veldpad
 import org.jboss.logging.Logger
+import java.net.URI
+import java.util.UUID
 
 /**
  * Mapt Bean Validation [jakarta.validation.ConstraintViolationException] (uit `@Valid`/`@NotNull`/`@Pattern`
@@ -27,7 +31,19 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
     private val log = Logger.getLogger(ConstraintViolationExceptionMapper::class.java)
 
     override fun toResponse(exception: ConstraintViolationException): Response {
-        log.debugf("Validatiefout: %s", exception.constraintViolations)
+        val errorId = UUID.randomUUID()
+
+        // Per schending alleen het pad en de soort regel. Een schending draagt de aangeboden waarde
+        // (`invalidValue`), en haar melding en `toString` kunnen die ook noemen; een BSN in
+        // `X-Ontvanger` hoort op geen enkel logniveau in de applicatielog.
+        log.infof(
+            "Validatiefout (errorId=%s, schendingen=%s)",
+            errorId,
+            exception.constraintViolations
+                .asSequence()
+                .take(MAX_VIOLATIONS_IN_DETAIL)
+                .joinToString(", ") { schendingVoorLog(it) },
+        )
 
         // .take(MAX_VIOLATIONS_IN_DETAIL) begrenst memory-pressure bij N=10000+
         // violations (groot request met veel @Pattern-velden) — sanitizeClientDetail
@@ -47,7 +63,23 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
             title = "Bad Request",
             detail = sanitizeClientDetail(rawDetail),
             foutcode = Foutcode.ONGELDIG_VERZOEK,
+            instance = URI.create("urn:uuid:$errorId"),
         )
+    }
+
+    private fun schendingVoorLog(schending: ConstraintViolation<*>): String {
+        val segmenten = buildList<Any?> {
+            schending.propertyPath.forEach { knoop ->
+                // Van een element in een collectie alleen de positie: een map-sleutel is invoer,
+                // en wordt via `null` onleesbaar.
+                if (knoop.isInIterable) add(knoop.index)
+
+                knoop.name?.let(::add)
+            }
+        }
+        val regel = schending.constraintDescriptor?.annotation?.annotationClass?.simpleName ?: "onbekend"
+
+        return "${Veldpad.van(segmenten)} ($regel)"
     }
 
     companion object {

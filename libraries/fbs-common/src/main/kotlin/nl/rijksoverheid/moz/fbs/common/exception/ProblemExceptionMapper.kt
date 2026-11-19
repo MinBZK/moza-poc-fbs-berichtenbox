@@ -4,7 +4,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
-import nl.rijksoverheid.moz.fbs.common.Foutspoor
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import org.jboss.logging.Logger
 import java.net.URI
 import java.util.UUID
@@ -68,9 +68,11 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         } else {
             // 4xx: gesaneerde message naar de client (`sanitizeClientDetail`), maar uit de
             // log gelaten — 4xx-message is vaak user-input en saneer dekt geen niet-numerieke
-            // PII. Correlatie via errorId (= `urn:uuid:` in `instance`) + cause-type.
+            // PII. Correlatie via errorId (= `urn:uuid:` in `instance`) + cause-type. Ook hier
+            // het spoor en niet de exceptie: een kapotte JSON-body komt als 400 met de
+            // Jackson-fout als cause binnen, en die melding citeert de aangeboden invoer.
             log.infov(
-                exception,
+                Foutspoor.van(exception),
                 "Client error {0} (errorId={1}, type={2}, cause={3})",
                 status,
                 errorId,

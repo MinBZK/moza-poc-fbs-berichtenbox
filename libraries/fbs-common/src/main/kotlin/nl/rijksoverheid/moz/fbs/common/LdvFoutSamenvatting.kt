@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.common
 
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
+
 /**
  * Fout-representatie voor het Logboek Dataverwerkingen: draagt het type van de
  * oorspronkelijke fout, nooit zijn message.

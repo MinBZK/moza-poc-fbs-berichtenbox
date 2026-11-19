@@ -1,13 +1,18 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
 import jakarta.annotation.Priority
 import jakarta.ws.rs.Priorities
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
+import nl.rijksoverheid.moz.fbs.kern.exception.Veldpad
 import org.jboss.logging.Logger
+import java.net.URI
+import java.util.UUID
 
 private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.exception.JsonProcessingExceptionMapper")
 
@@ -16,10 +21,20 @@ private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.exce
 private val SAFE_PATH_PATTERN = Regex("""^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*|\[\d+])*$""")
 
 internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingException): Response {
-    // Jackson-boodschappen bevatten vaak class-/package-namen en input fragments. Nooit
-    // verbatim terug — wel intern loggen. Debug-niveau: malformed JSON is een client-fout
-    // en veroorzaakt anders onnodig log-volume bij een kapotte of kwaadwillende client.
-    log.debugf(exception, "JSON-deserialisatiefout (detail niet naar client): %s", exception.originalMessage)
+    val errorId = UUID.randomUUID()
+
+    // De melding van Jackson blijft uit de log, op elk niveau: `Cannot deserialize value … from
+    // String "<invoer>"` zet een stuk van de aangeboden waarde erin, en dat kan een BSN zijn. Type,
+    // veldpad en positie zeggen wat er niet paste; het spoor houdt de stack van de keten. Op info,
+    // als de andere clientfouten: op debug staat het id uit `instance` in productie nergens.
+    log.infof(
+        Foutspoor.van(exception),
+        "JSON-invoer niet te lezen (errorId=%s, type=%s, veld=%s, positie=%s)",
+        errorId,
+        exception.javaClass.name,
+        (exception as? JsonMappingException)?.let(::veldpadVoorLog) ?: "geen",
+        exception.location?.let { "${it.lineNr}:${it.columnNr}" } ?: "onbekend",
+    )
 
     val detail = when (exception) {
         is MismatchedInputException -> {
@@ -36,8 +51,17 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
         else -> "Ongeldige JSON-invoer."
     }
 
-    return problemResponse(status = 400, title = "Bad Request", detail = detail, foutcode = Foutcode.ONGELDIG_VERZOEK)
+    return problemResponse(
+        status = 400,
+        title = "Bad Request",
+        detail = detail,
+        foutcode = Foutcode.ONGELDIG_VERZOEK,
+        instance = URI.create("urn:uuid:$errorId"),
+    )
 }
+
+private fun veldpadVoorLog(exception: JsonMappingException): String =
+    Veldpad.van(exception.path.map { it.fieldName ?: it.index })
 
 /**
  * Mapt generieke Jackson [JsonProcessingException]s naar een 400 Problem JSON.

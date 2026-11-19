@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.common
+package nl.rijksoverheid.moz.fbs.kern.exception
 
 import java.sql.SQLException
 import java.util.Collections
@@ -10,12 +10,16 @@ import java.util.IdentityHashMap
  *
  * Een logger die een exceptie meekrijgt, drukt met de stacktrace ook de message af, en die
  * van elke cause en suppressed fout. Die messages zijn niet te vertrouwen: een database-driver
- * zet er het volledige `INSERT`-statement in, een HTTP-client een fragment van het antwoord.
- * Saneren met [FoutBeschrijving.saneer] volstaat niet, want dat laat vrije tekst ongemoeid.
+ * zet er het volledige `INSERT`-statement in, een HTTP-client een fragment van het antwoord,
+ * en Jackson een stuk van de aangeboden JSON. Saneren door cijferreeksen weg te halen
+ * volstaat niet, want dat laat vrije tekst ongemoeid.
  *
  * De stack blijft behouden, als throwable: log-pipelines die op het `thrown`-veld filteren
  * blijven werken. Van een [SQLException] gaat de SQLState mee; dat is een vaste code en
  * vaak het enige dat de oorzaak nog onderscheidt.
+ *
+ * Hoort bij de regels die stelsel en demo delen: ook de demo-diensten krijgen invoer met een
+ * BSN, en hangen niet aan `fbs-common`.
  */
 class Foutspoor private constructor(beschrijving: String, oorzaak: Foutspoor?) :
     RuntimeException(beschrijving, oorzaak, true, true) {

@@ -3,12 +3,15 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.exc.StreamConstraintsException
 import com.fasterxml.jackson.core.exc.StreamReadException
+import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
 import jakarta.annotation.Priority
 import jakarta.ws.rs.Priorities
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
+import nl.rijksoverheid.moz.fbs.kern.exception.Veldpad
 import org.jboss.logging.Logger
 import java.util.UUID
 
@@ -41,9 +44,9 @@ import java.util.UUID
  * niet onder [StreamReadException]. Op twee subtypes toetsen liet zo'n aanlevering als 500 naar
  * buiten komen, terwijl het echte magazijn er 400 op geeft.
  *
- * De melding van Jackson gaat níét mee naar de client. Die noemt veldnamen, klassenamen en soms een
- * stuk van de aangeboden waarde; dat laatste kan een BSN zijn. In de log staat hij wel — daar is hij
- * nodig om te zien wát er niet paste.
+ * De melding van Jackson gaat niet mee, naar de client noch naar de log. Die noemt veldnamen,
+ * klassenamen en soms een stuk van de aangeboden waarde; dat laatste kan een BSN zijn. Wát er niet
+ * paste, zegt de log met het type, het veldpad en de positie in de body.
  */
 @Provider
 @Priority(Priorities.USER - JSON_MAPPER_VOORRANG)
@@ -77,7 +80,15 @@ private fun jsonFoutAntwoord(exception: JsonProcessingException): Response {
 
     // Op info, net als de clientfouten in ProblemExceptionMapper: zonder uitgezonden regel is het
     // `instance`-id uit het antwoord nergens terug te vinden, en dat is waar iemand mee aanklopt.
-    log.infof(exception, "Onleesbare of niet-passende JSON (foutId=%s)", foutId)
+    log.infof(
+        Foutspoor.van(exception),
+        "Onleesbare of niet-passende JSON (foutId=%s, type=%s, veld=%s, positie=%s)",
+        foutId,
+        exception.javaClass.name,
+        (exception as? JsonMappingException)?.let { fout -> Veldpad.van(fout.path.map { it.fieldName ?: it.index }) }
+            ?: "geen",
+        exception.location?.let { "${it.lineNr}:${it.columnNr}" } ?: "onbekend",
+    )
 
     return problemResponse(
         status = Response.Status.BAD_REQUEST.statusCode,
@@ -90,7 +101,7 @@ private fun jsonFoutAntwoord(exception: JsonProcessingException): Response {
 private fun serialisatieFoutAntwoord(exception: JsonProcessingException): Response {
     val foutId = UUID.randomUUID()
 
-    log.errorf(exception, "Antwoord niet te serialiseren (foutId=%s, type=%s)", foutId, exception.javaClass.name)
+    log.errorf(Foutspoor.van(exception), "Antwoord niet te serialiseren (foutId=%s, type=%s)", foutId, exception.javaClass.name)
 
     return problemResponse(
         status = Response.Status.INTERNAL_SERVER_ERROR.statusCode,
