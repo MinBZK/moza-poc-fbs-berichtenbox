@@ -111,6 +111,6 @@ class RechtstreeksVerloopTest : MagazijnTestBasis() {
         val SESSIEDUUR: Duration = Duration.ofMinutes(15)
 
         /** Dezelfde vorm als een uitgegeven token, zodat alleen de opslag het verschil kent. */
-        val VERZONNEN_TOKEN = "Verzonnen".padEnd(32, '0')
+        val VERZONNEN_TOKEN = "VerzonnenTokenZonderEnigeSessieX"
     }
 }

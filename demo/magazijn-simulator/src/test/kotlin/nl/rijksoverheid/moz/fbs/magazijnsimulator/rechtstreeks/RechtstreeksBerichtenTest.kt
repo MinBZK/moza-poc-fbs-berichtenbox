@@ -212,8 +212,10 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
             assertTrue(log.contains("Clientfout 404"), log)
             assertTrue(log.contains("foutcode=bericht-onbekend, magazijn=$magazijn)"), log)
             assertFalse(log.contains(ander), "de OIN van een ander magazijn hoort niet in de regel: $log")
+
+            // De OIN eruit: die is publiek en deelt toevallig cijferreeksen met de test-ontvanger.
             herkenbareDelen(ONTVANGER.substringAfter(':')).forEach { deel ->
-                assertFalse(log.contains(deel), "de ontvanger hoort niet in de log: $log")
+                assertFalse(log.replace(magazijn, "").contains(deel), "de ontvanger hoort niet in de log: $log")
             }
         }
 

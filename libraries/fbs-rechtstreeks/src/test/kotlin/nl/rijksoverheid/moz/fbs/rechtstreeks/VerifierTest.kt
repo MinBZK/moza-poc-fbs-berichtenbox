@@ -191,10 +191,43 @@ class VerifierTest {
         assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie("Verzonnen".padEnd(32, '0')) }.reden)
     }
 
+    @Test
+    fun `alleen de redenen bij een getoetst sessietoken vragen om invalid_token`() {
+        assertEquals(
+            setOf(Afwijzing.SESSIE_ONBEKEND, Afwijzing.SESSIE_VERLOPEN),
+            Afwijzing.entries.filter { it.tokenAfgewezen }.toSet(),
+        )
+    }
+
+    /** Telt hoe vaak de Verifier de opslag naar een sessie vraagt. */
+    private class TellendeOpslag(private val echt: GeheugenOpslag) : SessieOpslag by echt {
+        var vragen = 0
+
+        override fun zoek(verifier: String, token: String): Sessie? {
+            vragen++
+
+            return echt.zoek(verifier, token)
+        }
+    }
+
+    /** Leeg, één te kort, één te lang, en de juiste lengte met één teken dat een uitgegeven token niet heeft. */
     @ParameterizedTest
-    @ValueSource(strings = ["", "kort", "Verzonnen0123456789abcdefghijk", "Verzonnen0123456789abcdefghijklm", "Verzonnen0123456789abcdefghij-k"])
-    fun `een token zonder de vorm van een uitgegeven token is onbekend`(token: String) {
-        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
+    @MethodSource("misvormdeTokens")
+    fun `een token zonder de vorm van een uitgegeven token is onbekend, zonder de opslag te vragen`(token: String) {
+        val tellend = TellendeOpslag(opzet.opslag)
+        val metTeller = opzet.verifier(sessies = tellend)
+
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { metTeller.sessie(token) }.reden)
+        assertEquals(0, tellend.vragen, "de opslag hoort het token niet te zien")
+    }
+
+    @Test
+    fun `een token met de vorm van een uitgegeven token gaat wel naar de opslag`() {
+        val tellend = TellendeOpslag(opzet.opslag)
+        val metTeller = opzet.verifier(sessies = tellend)
+
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { metTeller.sessie("a".repeat(32)) }.reden)
+        assertEquals(1, tellend.vragen)
     }
 
     /**
@@ -560,6 +593,8 @@ class VerifierTest {
     }
 
     companion object {
+        @JvmStatic
+        fun misvormdeTokens() = listOf("", "a".repeat(31), "a".repeat(33), "a".repeat(31) + "-")
 
         private fun grens(naam: String, looptijd: Long, geval: Grensgeval): Arguments = arguments(named(naam, geval), looptijd)
 

@@ -7,7 +7,6 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.problemResponse
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
-import nl.rijksoverheid.moz.fbs.rechtstreeks.Afwijzing
 import nl.rijksoverheid.moz.fbs.rechtstreeks.JweOngeldigException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.OpslagVolException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.VerifierFout
@@ -36,9 +35,7 @@ class VerifierFoutMapper(private val context: MagazijnContext) : ExceptionMapper
             is AfgewezenException -> {
                 log.infof("Rechtstreeks verzoek bij magazijn %s afgewezen (%s): %s %s", oin, foutId, fout.reden, fout.cause?.message.orEmpty())
 
-                // Alleen bij die redenen is er een token getoetst; bij het openen van een sessie gaat het om de presentatie.
-                // Ook verlopen: zonder error="invalid_token" zou de header het verschil met onbekend verraden.
-                geenToegang(oin, foutId, tokenGetoetst = fout.reden in TOKEN_AFGEWEZEN)
+                geenToegang(oin, foutId, tokenGetoetst = fout.reden.tokenAfgewezen)
             }
 
             is JweOngeldigException -> {
@@ -97,8 +94,6 @@ private fun tijdelijkNietBeschikbaar(foutId: UUID, seconden: Long): Response = R
 internal fun naarBoven(duur: Duration): Long = ((duur.toMillis() + MILLIS_PER_SECONDE - 1) / MILLIS_PER_SECONDE).coerceAtLeast(1)
 
 internal const val AUTHORIZATION = "Authorization"
-
-private val TOKEN_AFGEWEZEN = setOf(Afwijzing.SESSIE_ONBEKEND, Afwijzing.SESSIE_VERLOPEN)
 
 private const val BAD_REQUEST = 400
 private const val UNAUTHORIZED = 401
