@@ -226,8 +226,26 @@ class BijlageGrenzenTest {
         assertTrue(records.none { it.loggerName == UncaughtExceptionMapper::class.java.name })
     }
 
+    /**
+     * De plafond-tests houden downloads open terwijl ze een derde aanvraag doen; duurt dat langer dan
+     * de stilstandgrens, dan breekt de uitvraag de open downloads af. De eerste aanroep via
+     * RestAssured met het contract kost ruim een seconde (client en spec inladen), en die hoort
+     * buiten dat venster. Een onbekend bericht komt niet bij het magazijn en neemt geen plek in.
+     */
+    private fun warmContractOp() {
+        given()
+            .filter(CONTRACT)
+            .header("X-Ontvanger", "BSN:${ontvangers[2]}")
+            .header("X-Sessie", sessie("BSN:${ontvangers[2]}"))
+            .`when`()
+            .get("$berichten/${UUID.randomUUID()}/bijlagen/${UUID.randomUUID()}?magazijnId=${BijlageMagazijnStub.OIN}")
+            .then()
+            .statusCode(404)
+    }
+
     @Test
     fun `boven het plafond per ontvanger volgt een 503, en na afloop is er weer plek`() {
+        warmContractOp()
         houdtDeRestVast()
 
         lopendeDownload(ontvangers[0]).use { lopend ->
@@ -251,6 +269,7 @@ class BijlageGrenzenTest {
 
     @Test
     fun `boven het plafond van de pod volgt een 503, ook voor een ontvanger zonder download`() {
+        warmContractOp()
         houdtDeRestVast()
 
         lopendeDownload(ontvangers[0]).use { eerste ->
