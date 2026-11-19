@@ -246,6 +246,52 @@ class GeheugenOpslagTest {
         assertTrue(opslag.verlopen("m", "nieuw"))
     }
 
+    /**
+     * Verlopen er meer sessies tegelijk dan het plafond toelaat, dan vallen de vroegst verlopen weg.
+     * Meerdere volgordes van verlopen, zodat de volgorde van de onderliggende map niet toevallig
+     * dezelfde is.
+     */
+    @ParameterizedTest(name = "stap {0}")
+    @ValueSource(ints = [1, 3, 7, 9])
+    fun `ook binnen één opruimronde verliest het oudste verlopen token het eerst zijn onderscheid`(stap: Int) {
+        val opslag = GeheugenOpslag(opzet.klok, maxVerlopen = 5)
+        val looptijd = (0 until 10).associate { i -> "t$i" to (i * stap % 10 + 1).toLong() }
+
+        looptijd.forEach { (token, seconden) -> opslag.bewaar(sessie("m", token, Duration.ofSeconds(seconden)), token, token) }
+
+        opzet.nu = opzet.nu.plusSeconds(10)
+        opslag.zoek("m", "iets")
+
+        val onthouden = looptijd.keys.filter { opslag.verlopen("m", it) }.toSet()
+
+        assertEquals(looptijd.filterValues { it > 5 }.keys, onthouden)
+    }
+
+    @Test
+    fun `standaard onthoudt de opslag vier verlopen tokens per plek voor een sessie`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxSessies = 1)
+
+        (1..5).forEach { i ->
+            opslag.bewaar(sessie("m", "t$i", Duration.ofSeconds(1)), "h", "c")
+            opzet.nu = opzet.nu.plusSeconds(1)
+            opslag.zoek("m", "iets")
+        }
+
+        assertFalse(opslag.verlopen("m", "t1"))
+        assertTrue((2..5).all { opslag.verlopen("m", "t$it") })
+    }
+
+    @Test
+    fun `een sessie die verliep maar nog niet is opgeruimd, is ook verlopen`() {
+        val opslag = GeheugenOpslag(opzet.klok)
+
+        opslag.bewaar(sessie("m", "t", Duration.ofSeconds(1)), "h", "c")
+        opzet.nu = opzet.nu.plusSeconds(1)
+
+        assertTrue(opslag.verlopen("m", "t"))
+        assertFalse(opslag.verlopen("m", "u"))
+    }
+
     @Test
     fun `verlopen tokens tellen voor geen quotum mee`() {
         val opslag = GeheugenOpslag(opzet.klok, maxSessies = 1, maxSessiesPerHouder = 1, maxSessiesPerClientOverVerifiers = 1)

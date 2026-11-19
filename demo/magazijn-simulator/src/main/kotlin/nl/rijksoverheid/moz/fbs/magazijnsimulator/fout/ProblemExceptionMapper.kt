@@ -55,8 +55,8 @@ class ProblemExceptionMapper(private val context: MagazijnContext) : ExceptionMa
         // Ook een clientfout krijgt een regel, op INFO. Het antwoord draagt een correlatie-id, en een
         // id dat nergens in de log staat is geen correlatie maar een sierletter. De melding blijft
         // eruit om dezelfde reden als hierboven: die kan invoer dragen. Foutcode en magazijn wel:
-        // zonder access-log koppelt alleen de OIN een 404 aan de 401 van dezelfde app bij hetzelfde
-        // magazijn, en de OIN is publiek. Het beheerpad kiest geen magazijn.
+        // zonder access-log is de OIN het enige dat een 404 en een 401 bij hetzelfde magazijn met
+        // elkaar verbindt, en de OIN is publiek. Het beheerpad kiest geen magazijn.
         log.infof(
             "Clientfout %d (foutId=%s, type=%s, foutcode=%s, magazijn=%s)",
             status,

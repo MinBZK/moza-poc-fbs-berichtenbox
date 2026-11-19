@@ -9,6 +9,7 @@ import io.restassured.response.Response
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.Logvanger
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.herkenbareDelen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.VasteKlokProducer
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksBerichtenTest.Companion.ONGELDIG_TOKEN
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksBerichtenTest.Companion.ONTVANGER
@@ -87,6 +88,11 @@ class RechtstreeksVerloopTest : MagazijnTestBasis() {
         assertTrue(logOnbekend.contains("SESSIE_ONBEKEND"), logOnbekend)
         assertFalse(logVerlopen.contains("SESSIE_ONBEKEND"), logVerlopen)
         assertFalse(logOnbekend.contains("SESSIE_VERLOPEN"), logOnbekend)
+
+        // Het token is een geheim, ook verlopen of verzonnen.
+        listOf(token to logVerlopen, VERZONNEN_TOKEN to logOnbekend).forEach { (geheim, log) ->
+            herkenbareDelen(geheim).forEach { deel -> assertFalse(log.contains(deel), "het token hoort niet in de log: $log") }
+        }
     }
 
     private fun afgewezen(token: String, berichtId: String): Pair<ExtractableResponse<Response>, String> =

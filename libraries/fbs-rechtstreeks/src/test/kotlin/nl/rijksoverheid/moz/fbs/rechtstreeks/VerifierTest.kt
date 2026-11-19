@@ -14,6 +14,7 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.Arguments.arguments
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.time.Duration
@@ -187,7 +188,13 @@ class VerifierTest {
     fun `een token dat nooit een sessie had, is onbekend`() {
         opzet.sessie(verifier)
 
-        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie("Verzonnen0123456789abcdefghijkl") }.reden)
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie("Verzonnen".padEnd(32, '0')) }.reden)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["", "kort", "Verzonnen0123456789abcdefghijk", "Verzonnen0123456789abcdefghijklm", "Verzonnen0123456789abcdefghij-k"])
+    fun `een token zonder de vorm van een uitgegeven token is onbekend`(token: String) {
+        assertEquals(Afwijzing.SESSIE_ONBEKEND, assertThrows<AfgewezenException> { verifier.sessie(token) }.reden)
     }
 
     /**
@@ -436,6 +443,18 @@ class VerifierTest {
 
         assertTrue(jwe.length in (Verifier.MAX_VERZOEK_TEKENS - 3)..Verifier.MAX_VERZOEK_TEKENS)
         assertEquals("a".repeat(opvulling), verifier.ontsleutel(uitgegeven.sessie, jwe))
+    }
+
+    @Test
+    fun `een milliseconde voor het verlopen werkt een sessie nog, voor elke stap`() {
+        val (uitgegeven, aes) = opzet.sessie(verifier)
+
+        opzet.nu = uitgegeven.sessie.verlooptOp.minusMillis(1)
+
+        val sessie = verifier.sessie(uitgegeven.sessie.token)
+
+        assertEquals("{}", TestApp.ontsleutelDir(verifier.versleutel(sessie, "{}"), aes))
+        assertEquals("verzoek", verifier.ontsleutel(sessie, TestApp.jweDir("verzoek", aes)))
     }
 
     @Test

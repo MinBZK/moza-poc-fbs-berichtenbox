@@ -13,6 +13,7 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.Logvanger
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.herkenbareDelen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.App
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.RechtstreeksTest.Companion.COMPACT_JWE
@@ -182,34 +183,41 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
     }
 
     /**
-     * Zonder access-log koppelt alleen de logregel een 404 aan de 401 van dezelfde app bij hetzelfde
-     * magazijn. Op beide ingangen noemt de 404-regel daarom het magazijn en de foutcode.
+     * Zonder access-log is de OIN het enige dat een 404 en een 401 bij hetzelfde magazijn met elkaar
+     * verbindt. Op beide ingangen noemt de 404-regel daarom het magazijn en de foutcode, bij elk
+     * magazijn zijn eigen OIN.
      */
-    @Test
-    fun `de 404-regel noemt op beide ingangen het magazijn en de foutcode`() {
+    @ParameterizedTest
+    @ValueSource(strings = [MAGAZIJN_A, MAGAZIJN_B])
+    fun `de 404-regel noemt op beide ingangen het magazijn en de foutcode`(magazijn: String) {
         val onbekend = "11111111-2222-3333-4444-555555555555"
-        val sessie = Sessie()
+        val ander = if (magazijn == MAGAZIJN_A) MAGAZIJN_B else MAGAZIJN_A
+        val bearer = "Bearer ${App(klok.instant()).sessie(magazijn)}"
 
         val tweedeIngang = metLog {
-            given().header("Authorization", sessie.bearer).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$onbekend")
+            given().header("Authorization", bearer).get("${basis(magazijn)}/rechtstreeks/berichten/$onbekend")
                 .then().statusCode(404)
         }
+
         val eersteIngang = metLog {
-            given().header("X-Ontvanger", ONTVANGER).get("${basis(MAGAZIJN_A)}/berichten/$onbekend").then().statusCode(404)
+            given().header("X-Ontvanger", ONTVANGER).get("${basis(magazijn)}/berichten/$onbekend").then().statusCode(404)
         }
+
         val afgewezen = metLog {
-            given().header("Authorization", "Bearer onbekend").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$onbekend")
+            given().header("Authorization", "Bearer onbekend").get("${basis(magazijn)}/rechtstreeks/berichten/$onbekend")
                 .then().statusCode(401)
         }
 
         listOf(tweedeIngang, eersteIngang).forEach { log ->
             assertTrue(log.contains("Clientfout 404"), log)
-            assertTrue(log.contains("foutcode=bericht-onbekend"), log)
-            assertTrue(log.contains("magazijn=$MAGAZIJN_A"), log)
-            assertFalse(log.contains(ONTVANGER.substringAfter(':')), "de ontvanger hoort niet in de log: $log")
+            assertTrue(log.contains("foutcode=bericht-onbekend, magazijn=$magazijn)"), log)
+            assertFalse(log.contains(ander), "de OIN van een ander magazijn hoort niet in de regel: $log")
+            herkenbareDelen(ONTVANGER.substringAfter(':')).forEach { deel ->
+                assertFalse(log.contains(deel), "de ontvanger hoort niet in de log: $log")
+            }
         }
 
-        assertTrue(afgewezen.contains(MAGAZIJN_A), afgewezen)
+        assertTrue(afgewezen.contains("bij magazijn $magazijn afgewezen"), afgewezen)
     }
 
     private fun metLog(verzoek: () -> Unit): String = Logvanger().use { logvanger ->
