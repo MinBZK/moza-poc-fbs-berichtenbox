@@ -77,7 +77,8 @@ sowieso):
 `-T 1C` bouwt onafhankelijke modules naast elkaar: de demo-modules lopen dan naast de keten
 fbs-common → sessiecache → uitvraag. Binnen fbs-berichtensessiecache en berichtenuitvraag draaien
 de testklassen bovendien over drie Surefire-forks, elk met een eigen Quarkus en eigen Dev
-Services-containers. Een fout die je in één JVM wilt nalopen, draai je met `-Dfbs.test.forks=1`.
+Services-containers. Een fout in de Quarkus-tests die je in één JVM wilt nalopen, draai je met
+`-Dfbs.test.forks=1`; de gewone tests draaien altijd apart (zie hieronder).
 
 Over die forks:
 
@@ -98,6 +99,12 @@ Over die forks:
   `quarkus.http.test-port=0` en `wireMockConfig().dynamicPort()`. Alleen in een module die zelf
   een HTTP-server start: de sessiecache heeft er geen, en daar levert de sleutel alleen een
   "Unrecognized configuration key"-waarschuwing op.
+- De tests zonder Quarkus draaien daarna apart, in de Surefire-executie `gewone-tests` met één
+  fork. In één JVM met Quarkus-tests kan een MockK-mock uit zo'n test een latere `any()` in een
+  Quarkus-test breken (`InstantiationError` op een interface); `TestsoortFilter` in de
+  testbronnen legt uit hoe. Wat bij welke executie hoort, volgt uit `@QuarkusTest` op de klasse
+  of een omsluitende klasse. In de uitvoer staan daarom twee testtellingen per module; een
+  `-Dtest` die maar één soort raakt, meldt in de andere executie `Tests run: 0`.
 
 ## Kwaliteitsgates
 

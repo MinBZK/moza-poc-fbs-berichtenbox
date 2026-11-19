@@ -210,8 +210,30 @@
                     <systemPropertyVariables>
                         <quarkus.jacoco.data-file>${project.build.directory}/jacoco-quarkus-${surefire.forkNumber}.exec</quarkus.jacoco.data-file>
                         <quarkus.jacoco.report>false</quarkus.jacoco.report>
+                        <fbs.test.soort>quarkus</fbs.test.soort>
                     </systemPropertyVariables>
                 </configuration>
+                <!-- De gewone tests (zonder Quarkus) in een eigen executie: in een fork met
+                     Quarkus-tests kunnen hun MockK-proxy's een latere Quarkus-test breken
+                     (TestsoortFilter legt uit hoe). Ze zijn snel, dus één fork.
+                     prod.mode.tests zet de classloader van Quarkus uit: anders bouwt Quarkus bij
+                     de discovery elke Quarkus-testklasse op, wat hier een halve minuut kost en
+                     het databestand van een Quarkus-fork overschrijft. Dat databestand krijgt
+                     hier daarom ook een eigen naam. -->
+                <executions>
+                    <execution>
+                        <id>gewone-tests</id>
+                        <goals><goal>test</goal></goals>
+                        <configuration>
+                            <forkCount>1</forkCount>
+                            <systemPropertyVariables>
+                                <fbs.test.soort>gewoon</fbs.test.soort>
+                                <prod.mode.tests>true</prod.mode.tests>
+                                <quarkus.jacoco.data-file>${project.build.directory}/jacoco-quarkus-gewoon.exec</quarkus.jacoco.data-file>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>
