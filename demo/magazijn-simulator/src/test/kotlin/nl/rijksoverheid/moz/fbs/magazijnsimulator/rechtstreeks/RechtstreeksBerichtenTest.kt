@@ -286,13 +286,18 @@ class RechtstreeksBerichtenTest : MagazijnTestBasis() {
 
     @Test
     fun `x-payload van de berichtpaden wijst naar de schema's waartegen de payload getoetst wordt`() {
-        val spec = ObjectMapper(YAMLFactory()).readTree(javaClass.classLoader.getResource("openapi/rechtstreeks-ophalen-api.yaml"))
+        val yaml = ObjectMapper(YAMLFactory())
+        val tweedeIngang = javaClass.classLoader.getResourceAsStream("openapi/rechtstreeks-ophalen-api.yaml").use(yaml::readTree)
+        val eersteIngang = javaClass.classLoader.getResourceAsStream("openapi/berichtenmagazijn-api.yaml").use(yaml::readTree)
 
-        mapOf("/rechtstreeks/berichten" to "BerichtenLijst", "/rechtstreeks/berichten/{berichtId}" to "Bericht").forEach { (pad, schema) ->
-            val ref = spec.path("paths").path(pad).path("get").path("responses").path("200")
+        mapOf("/berichten" to "BerichtenLijst", "/berichten/{berichtId}" to "Bericht").forEach { (pad, schema) ->
+            val xPayload = tweedeIngang.path("paths").path("/rechtstreeks$pad").path("get").path("responses").path("200")
                 .path("content").path("application/jose").path("x-payload").path("\$ref").asText()
+            val getoetst = eersteIngang.path("paths").path(pad).path("get").path("responses").path("200")
+                .path("content").path("application/json").path("schema").path("\$ref").asText()
 
-            assertEquals("./berichtenmagazijn-api.yaml#/components/schemas/$schema", ref)
+            assertEquals("./berichtenmagazijn-api.yaml#/components/schemas/$schema", xPayload)
+            assertEquals("#/components/schemas/$schema", getoetst)
         }
     }
 

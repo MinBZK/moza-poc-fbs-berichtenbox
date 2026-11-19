@@ -19,9 +19,9 @@ import org.junit.jupiter.api.Test
 import java.time.Duration
 
 /**
- * Een magazijnsessie die verloopt. Eigen profiel en dus een eigen applicatie: de klok verzetten
- * laat ook de challenges en sessies verlopen die andere tests in dezelfde applicatie nog nodig
- * hebben.
+ * Een magazijnsessie die verloopt. Eigen profiel en dus een eigen applicatie: de opslag van
+ * challenges en sessies is applicatiebreed, en de tests van de tweede ingang rekenen erop dat er
+ * onder de vaste klok niets uit verloopt. Eén verzetting ruimt alles op.
  */
 @QuarkusTest
 @TestProfile(RechtstreeksVerloopTest.Profiel::class)

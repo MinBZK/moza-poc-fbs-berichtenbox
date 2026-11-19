@@ -16,8 +16,8 @@ import java.time.ZoneOffset
  * alternative aan zonder dat een profiel hem hoeft te noemen. Zo is elk tijdstip in een antwoord
  * exact te toetsen.
  *
- * De klok staat stil op [MOMENT]. Een test die verloop toetst, verzet hem in een eigen profiel:
- * een verzetting verloopt ook de challenges en sessies van andere tests in dezelfde applicatie.
+ * De klok staat stil op [MOMENT]. Een test die hem verzet, draait onder een eigen profiel (zie
+ * `RechtstreeksVerloopTest`).
  */
 @Alternative
 @Priority(1)
