@@ -7,7 +7,8 @@ import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
 
 /**
- * Zet de status van een geslaagde `POST` op 201, zoals de spec voor `/aanleveringen` voorschrijft.
+ * Zet de status van een geslaagde `POST` op 201, zoals de spec voor `/aanleveringen` voorschrijft, en
+ * die van de tweede ingang voor `/rechtstreeks/challenges` en `/rechtstreeks/sessies`.
  *
  * De generator maakt methodes die het antwoordtype teruggeven (`returnResponse=false`), en dan is de
  * statuscode niet per methode te kiezen — Quarkus zou 200 sturen. Het echte magazijn lost dat op
@@ -22,9 +23,6 @@ class CreatedStatusFilter : ContainerResponseFilter {
 
     override fun filter(requestContext: ContainerRequestContext, responseContext: ContainerResponseContext) {
         if (MagazijnPad.isBeheerPad(requestContext.uriInfo.path)) return
-
-        // challenge en complete antwoorden 200, zoals de standaard: er ontstaat geen resource met een eigen adres.
-        if (requestContext.uriInfo.path.startsWith("/rechtstreeks/")) return
 
         if (requestContext.method == "POST" && responseContext.status == HTTP_OK) {
             responseContext.status = HTTP_CREATED

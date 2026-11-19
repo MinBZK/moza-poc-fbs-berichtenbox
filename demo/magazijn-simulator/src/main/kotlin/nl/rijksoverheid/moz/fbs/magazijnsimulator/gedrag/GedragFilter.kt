@@ -40,7 +40,7 @@ import org.jboss.logging.Logger
  * **Ook op de tweede ingang (rechtstreeks ophalen)**, want een magazijn in storing is dat voor elke
  * app. Daar volgt het antwoord wel het contract van die ingang: een storing is een `503` met
  * `Retry-After` (ook bij `WEIGERT`, want een `403` kent dat contract niet), en een onbruikbaar
- * antwoord is een `200` met `application/jose` dat geen JWS of JWE is.
+ * antwoord is een geslaagd antwoord met `application/jose` dat geen JWS of JWE is.
  */
 @Provider
 class GedragFilter(

@@ -165,8 +165,8 @@
                         </configuration>
                     </execution>
                     <!-- De tweede ingang (rechtstreeks ophalen) uit zijn eigen contract, in een eigen
-                         pakket. Alleen het verzoekmodel van complete: de antwoorden zijn versleuteld
-                         en dus tekst. De schemaMappings wijzen de gedeelde modellen (BerichtenLijst,
+                         pakket. Alleen het verzoekmodel van het openen van een sessie: de antwoorden
+                         zijn versleuteld en dus tekst. De schemaMappings wijzen de gedeelde modellen (BerichtenLijst,
                          Bericht, Problem) naar de eerste generatie, zodat een volgende generatie ze
                          niet dubbel aanmaakt zodra de berichtpaden ze in hun signatuur gebruiken.
                          Een eigen execution erft de configuratie van `generate` niet; vandaar de
@@ -181,7 +181,7 @@
                             <apiPackage>${api.base.package}.rechtstreeks.api</apiPackage>
                             <modelPackage>${api.base.package}.rechtstreeks.api.model</modelPackage>
                             <apisToGenerate>RechtstreeksOphalen</apisToGenerate>
-                            <modelsToGenerate>CompleteVerzoek</modelsToGenerate>
+                            <modelsToGenerate>MagazijnsessieVerzoek</modelsToGenerate>
                             <schemaMappings>
                                 <schemaMapping>Problem=${api.base.package}.api.model.Problem</schemaMapping>
                                 <schemaMapping>BerichtenLijst=${api.base.package}.api.model.BerichtenLijst</schemaMapping>

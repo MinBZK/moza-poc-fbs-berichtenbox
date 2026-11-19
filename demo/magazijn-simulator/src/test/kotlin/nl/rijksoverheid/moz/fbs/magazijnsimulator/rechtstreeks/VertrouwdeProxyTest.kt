@@ -26,15 +26,15 @@ class VertrouwdeProxyTest {
             given()
                 .header("X-Forwarded-For", "6.6.6.$i")
                 .header("X-Forwarded-For", ECHT_ADRES)
-                .post("/magazijn/$MAGAZIJN/api/v1/rechtstreeks/challenge")
+                .post("/magazijn/$MAGAZIJN/api/v1/rechtstreeks/challenges")
                 .then().extract().statusCode()
         }
 
-        assertEquals(List(MAX_CHALLENGES_PER_CLIENT) { 200 } + 503, statussen)
+        assertEquals(List(MAX_CHALLENGES_PER_CLIENT) { 201 } + 503, statussen)
 
         // Een ander echt adres achter dezelfde proxy heeft zijn eigen quotum.
-        given().header("X-Forwarded-For", "198.51.100.8").post("/magazijn/$MAGAZIJN/api/v1/rechtstreeks/challenge")
-            .then().statusCode(200)
+        given().header("X-Forwarded-For", "198.51.100.8").post("/magazijn/$MAGAZIJN/api/v1/rechtstreeks/challenges")
+            .then().statusCode(201)
     }
 
     private companion object {

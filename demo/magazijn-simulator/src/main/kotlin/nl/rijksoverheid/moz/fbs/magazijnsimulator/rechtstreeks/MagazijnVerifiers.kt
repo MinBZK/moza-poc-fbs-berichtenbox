@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Eén [Verifier] per gesimuleerd magazijn, met één gedeelde opslag. De opslag bewaart nonces en
  * sessies per OIN, dus een token van magazijn A werkt niet bij magazijn B.
  *
- * Elk magazijn tekent zijn challenges met een eigen sleutel, gemaakt bij de eerste challenge. De
+ * Elk magazijn ondertekent zijn challenges met een eigen sleutel, gemaakt bij de eerste challenge. De
  * `kid` draagt het moment van de start, zodat dezelfde `kid` nooit twee sleutels aanwijst. De app
  * controleert die handtekening nog niet; zodra dat tegen het stelseldocument gebeurt, moeten de
  * public keys daar staan.
@@ -42,7 +42,7 @@ class MagazijnVerifiers(config: RechtstreeksConfig, private val klok: Clock) {
         val aantal = appManagers.keys.map { it.first }.distinct().size
 
         if (aantal == 0) {
-            log.warn("Rechtstreeks ophalen: geen App Manager vertrouwd; elke complete geeft 401")
+            log.warn("Rechtstreeks ophalen: geen App Manager vertrouwd; elk sessieverzoek geeft 401")
         } else {
             log.infof("Rechtstreeks ophalen: %d App Manager(s) vertrouwd", aantal)
         }

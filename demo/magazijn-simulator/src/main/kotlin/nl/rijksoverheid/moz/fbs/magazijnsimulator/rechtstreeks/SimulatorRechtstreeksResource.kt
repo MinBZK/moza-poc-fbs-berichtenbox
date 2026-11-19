@@ -3,9 +3,7 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.RechtstreeksOphalenApi
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.model.CompleteVerzoek
-import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
-import nl.rijksoverheid.moz.fbs.rechtstreeks.Afwijzing
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks.api.model.MagazijnsessieVerzoek
 import org.jboss.logging.Logger
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -13,8 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * De tweede ingang van een gesimuleerd magazijn: een magazijnsessie op een credential van een App
  * Manager (FSC voor Burgers 4.3.4). Welk magazijn, staat in [MagazijnContext]; de paden komen uit
- * [RechtstreeksOphalenApi]. Een afwijzing en een volle opslag worden `401` en `503` in
- * [RechtstreeksFoutMappers].
+ * [RechtstreeksOphalenApi]. Wat de Verifier gooit, vertaalt [VerifierFoutMapper].
  */
 class SimulatorRechtstreeksResource(
     private val context: MagazijnContext,
@@ -24,8 +21,8 @@ class SimulatorRechtstreeksResource(
 
     override fun maakChallenge(): String = verifier().maakChallenge(client())
 
-    override fun voltooiSessie(completeVerzoek: CompleteVerzoek): String =
-        verifier().voltooiMetCredential(completeVerzoek.nonce, completeVerzoek.encryptedChallengeResult, client()).antwoord
+    override fun startMagazijnsessie(magazijnsessieVerzoek: MagazijnsessieVerzoek): String =
+        verifier().voltooiMetCredential(magazijnsessieVerzoek.nonce, magazijnsessieVerzoek.encryptedChallengeResult, client()).antwoord
 
     override fun getRechtstreeksBerichten(page: Int, pageSize: Int): String = nogNiet()
 
@@ -39,7 +36,7 @@ class SimulatorRechtstreeksResource(
      * TODO(#1215): berichten lezen binnen de magazijnsessie.
      */
     private fun nogNiet(): Nothing {
-        val token = verzoek.current?.request()?.getHeader("Authorization") ?: throw AfgewezenException(Afwijzing.SESSIE_ONBEKEND)
+        val token = bearerToken(verzoek.current?.request()?.getHeader(AUTHORIZATION)) ?: throw SessieOntbreektException()
 
         verifier().sessie(token)
 
@@ -60,8 +57,15 @@ class SimulatorRechtstreeksResource(
         return sleutel
     }
 
-    private companion object {
-        val log: Logger = Logger.getLogger(SimulatorRechtstreeksResource::class.java)
-        val onbekendGemeld = AtomicBoolean(false)
+    companion object {
+        private val log: Logger = Logger.getLogger(SimulatorRechtstreeksResource::class.java)
+        private val onbekendGemeld = AtomicBoolean(false)
+        private val BEARER = Regex("^Bearer +([^ ]+) *$", RegexOption.IGNORE_CASE)
+
+        /**
+         * Het token uit `Authorization: Bearer <token>` (RFC 6750, 2.1), of `null` zonder dat schema.
+         * Het schema is hoofdletterongevoelig (RFC 9110, 11.1); een kaal token zonder schema telt niet.
+         */
+        internal fun bearerToken(header: String?): String? = header?.let { BEARER.matchEntire(it)?.groupValues?.get(1) }
     }
 }
