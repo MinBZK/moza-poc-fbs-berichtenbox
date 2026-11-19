@@ -9,6 +9,7 @@ import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
+import io.restassured.specification.RequestSpecification
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.rechtstreeks.TestApp
 import org.hamcrest.Matchers.containsString
@@ -304,34 +305,6 @@ class RechtstreeksTest {
     }
 
     @Test
-    fun `de berichtpaden vragen een geldige sessie als Bearer-token en zijn daarna nog niet beschikbaar`() {
-        val zonderToken = "Bearer realm=\"$MAGAZIJN_A\""
-        val ongeldigToken = "Bearer realm=\"$MAGAZIJN_A\", error=\"invalid_token\""
-
-        valideer(MAGAZIJN_A).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
-            .then().statusCode(401).header("WWW-Authenticate", zonderToken)
-        valideer(MAGAZIJN_A).header("Authorization", "Bearer onbekend").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
-            .then().statusCode(401).header("WWW-Authenticate", ongeldigToken)
-
-        val token = App(klok.instant()).sessie(MAGAZIJN_A)
-
-        // Een geldig token zonder schema, of onder een ander schema, is geen Bearer-token: 401 zonder foutcode.
-        listOf(token, "Basic $token", "Bearer").forEach { waarde ->
-            valideer(MAGAZIJN_A).header("Authorization", waarde).get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
-                .then().statusCode(401).header("WWW-Authenticate", zonderToken)
-        }
-
-        valideer(MAGAZIJN_A).header("Authorization", "Bearer $token").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten")
-            .then().statusCode(503).header("Retry-After", "3600")
-        // Het schema is hoofdletterongevoelig (RFC 9110, 11.1).
-        valideer(MAGAZIJN_A).header("Authorization", "bearer $token").get("${basis(MAGAZIJN_A)}/rechtstreeks/berichten/$BERICHT_ID")
-            .then().statusCode(503)
-
-        // Een sessie van A geldt niet bij B.
-        given().header("Authorization", "Bearer $token").get("${basis(MAGAZIJN_B)}/rechtstreeks/berichten").then().statusCode(401)
-    }
-
-    @Test
     fun `een magazijn in storing antwoordt op de tweede ingang volgens het contract`() {
         try {
             listOf(Gedrag(GedragModus.STUK), Gedrag(GedragModus.WEIGERT, foutStatus = 403)).forEach { gedrag ->
@@ -409,7 +382,7 @@ class RechtstreeksTest {
 
     @Test
     fun `de eerste ingang blijft zonder CORS`() {
-        given().header("Origin", "https://app.test").header("X-Ontvanger", "KVK:90000014").get("${basis(MAGAZIJN_A)}/berichten")
+        given().header("Origin", "https://app.test").header("X-Ontvanger", ONTVANGER).get("${basis(MAGAZIJN_A)}/berichten")
             .then().statusCode(200).header("Access-Control-Allow-Origin", nullValue())
         given().header("Origin", "https://app.test")
             .header("Access-Control-Request-Method", "GET")
@@ -447,27 +420,11 @@ class RechtstreeksTest {
         valideer(MAGAZIJN_A).header("Authorization", "Bearer onbekend").get("$berichten/$BERICHT_ID").then().statusCode(401)
     }
 
-    /** Toetst alleen de antwoorden: de foutgevallen sturen bewust een verzoek dat niet aan de spec voldoet. */
-    private fun valideer(oin: String) = given().filter(
-        OpenApiValidationFilter(
-            OpenApiInteractionValidator.createForSpecificationUrl("openapi/rechtstreeks-ophalen-api.yaml")
-                .withBasePathOverride(basis(oin))
-                .withLevelResolver(
-                    LevelResolver.create()
-                        .withLevel("validation.request", ValidationReport.Level.IGNORE)
-                        // Zonder deze twee slaagt een test op een pad dat niet in de spec staat stil, zonder iets te toetsen.
-                        .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
-                        .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
-                        .build(),
-                )
-                .build(),
-        ),
-    )
-
     companion object {
         const val MAGAZIJN_A = "00000009000000000001"
         const val MAGAZIJN_B = "00000009000000000002"
         const val MAGAZIJN_C = "00000009000000000003"
+        const val ONTVANGER = "KVK:90000014"
         const val BERICHT_ID = "11111111-2222-3333-4444-555555555555"
         val COMPACT_JWS = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
         val COMPACT_JWE = Regex("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$")
@@ -500,6 +457,23 @@ class RechtstreeksTest {
 
         fun basis(oin: String) = "/magazijn/$oin/api/v1"
 
+        /** Toetst alleen de antwoorden: de foutgevallen sturen bewust een verzoek dat niet aan de spec voldoet. */
+        fun valideer(oin: String): RequestSpecification = given().filter(
+            OpenApiValidationFilter(
+                OpenApiInteractionValidator.createForSpecificationUrl("openapi/rechtstreeks-ophalen-api.yaml")
+                    .withBasePathOverride(basis(oin))
+                    .withLevelResolver(
+                        LevelResolver.create()
+                            .withLevel("validation.request", ValidationReport.Level.IGNORE)
+                            // Zonder deze twee slaagt een test op een pad dat niet in de spec staat stil, zonder iets te toetsen.
+                            .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
+                            .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
+                            .build(),
+                    )
+                    .build(),
+            ),
+        )
+
         fun credentialClaims(paar: KeyPair, nu: Instant): Map<String, Any> =
             mapOf(
                 "cnf" to mapOf("jwk" to TestApp.jwk(paar.public as ECPublicKey)),
@@ -508,7 +482,7 @@ class RechtstreeksTest {
                 "iat" to nu.epochSecond,
                 "nbf" to nu.epochSecond,
                 "exp" to nu.plus(Duration.ofHours(1)).epochSecond,
-                "ontvanger" to "KVK:90000014",
+                "ontvanger" to ONTVANGER,
             )
 
         fun payload(jws: String): Map<String, Any> = JsonUtil.parseJson(String(Base64.getUrlDecoder().decode(jws.split('.')[1])))

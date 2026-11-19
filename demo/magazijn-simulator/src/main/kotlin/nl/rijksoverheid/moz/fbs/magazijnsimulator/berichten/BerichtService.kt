@@ -60,6 +60,10 @@ class BerichtService(
         return bericht
     }
 
+    /** Voor de tweede ingang; zie [nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtRepository.zoekVoorOntvanger]. */
+    fun haalOpVoorOntvanger(berichtId: UUID, ontvanger: Identificatienummer): Bericht =
+        repository.zoekVoorOntvanger(magazijnDbId(), berichtId, ontvanger) ?: throw nietGevonden(berichtId)
+
     /**
      * De autorisatie hangt aan het bericht, niet aan de bijlage: eerst het bericht ophalen (404 of
      * 403), dan pas de bijlage zoeken. Een bestaande bijlage-id onder een ánder bericht levert
