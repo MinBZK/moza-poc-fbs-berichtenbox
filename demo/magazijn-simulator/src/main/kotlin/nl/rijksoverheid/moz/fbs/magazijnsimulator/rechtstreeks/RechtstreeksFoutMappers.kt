@@ -15,9 +15,6 @@ import org.jboss.logging.Logger
 import java.time.Duration
 import java.util.UUID
 
-/** De berichtpaden van de tweede ingang bestaan in het contract; zie `TODO(#1215)` in [SimulatorRechtstreeksResource]. */
-class NogNietBeschikbaarException : RuntimeException("berichtpaden van de tweede ingang zijn niet beschikbaar")
-
 /** Een berichtpad zonder precies één `Authorization: Bearer <token>`; voor de app dezelfde `401` als een onbekende sessie. */
 class SessieOntbreektException : RuntimeException("geen Bearer-token")
 
@@ -72,25 +69,6 @@ class SessieOntbreektMapper(private val context: MagazijnContext) : ExceptionMap
         log.infof("Rechtstreeks verzoek bij magazijn %s zonder Bearer-token (%s)", context.magazijn.oin, foutId)
 
         return geenToegang(context.magazijn.oin, foutId, tokenGetoetst = false)
-    }
-}
-
-/** Geen storing, dus op info en zonder stacktrace: een app vraagt hier gewoon om. */
-@Provider
-class NogNietBeschikbaarMapper(private val context: MagazijnContext) : ExceptionMapper<NogNietBeschikbaarException> {
-
-    private val log = Logger.getLogger(NogNietBeschikbaarMapper::class.java)
-
-    override fun toResponse(fout: NogNietBeschikbaarException): Response {
-        val foutId = UUID.randomUUID()
-
-        log.infof("Rechtstreeks berichtenpad bij magazijn %s gevraagd (%s); nog niet beschikbaar", context.magazijn.oin, foutId)
-
-        return tijdelijkNietBeschikbaar(foutId, NOG_NIET_OPNIEUW_NA)
-    }
-
-    private companion object {
-        const val NOG_NIET_OPNIEUW_NA = 3600L
     }
 }
 
