@@ -1,6 +1,6 @@
 // De pagina: activeren, het bewijs vernieuwen en de activering wissen. Tekst uit tokens en
 // credentials gaat alleen via textContent de pagina in.
-import { errors } from '../vendor/jose-6.2.13/index.js';
+import { errors } from '../vendor/jose/index.js';
 import * as kluis from './sleutelkluis.js';
 import {
   ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,

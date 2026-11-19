@@ -47,7 +47,7 @@ class PaginaTest {
 
     @Test
     fun `de scripts en de meegeleverde jose komen als JavaScript van deze origin`() {
-        listOf("/js/app.js", "/js/activeren.js", "/js/sleutelkluis.js", "/vendor/jose-6.2.13/index.js").forEach { pad ->
+        listOf("/js/app.js", "/js/activeren.js", "/js/sleutelkluis.js", "/vendor/jose/index.js").forEach { pad ->
             given().get(pad).then().statusCode(200).contentType(containsString("javascript"))
         }
     }

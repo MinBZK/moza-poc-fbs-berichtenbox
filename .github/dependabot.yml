@@ -62,3 +62,11 @@ updates:
           - "*"
         exclude-patterns:
           - "github/codeql-action*"
+  # Wekelijks: de Berichten-app levert jose mee als kopie onder vendor/jose, die Dependabot zelf niet
+  # ziet. package.json en de lockfile staan er alleen voor dit signaal; security updates dekken npm,
+  # dus een advisory komt los van dit schema. Een bump blijft rood (VendorJoseTest) tot iemand in
+  # demo/berichten-app `npm ci --ignore-scripts && npm run vendor` draait en de nieuwe kopie commit.
+  - package-ecosystem: "npm"
+    directory: "/demo/berichten-app"
+    schedule:
+      interval: "weekly"

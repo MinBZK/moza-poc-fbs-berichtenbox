@@ -1,7 +1,7 @@
 // De app-kant van CreateSession met een self-signed certificaat en van het activeren bij de App
 // Manager (FSC voor Burgers 4.3.4 en 4.4.1). Zonder DOM en zonder opslag: wie aanroept, geeft
 // sleutels en fetch mee, zodat dezelfde code in de browser en in de tests onder Node draait.
-import { CompactEncrypt, CompactSign, compactDecrypt, decodeJwt } from '../vendor/jose-6.2.13/index.js';
+import { CompactEncrypt, CompactSign, compactDecrypt, decodeJwt } from '../vendor/jose/index.js';
 
 /** Vaste `iss` van de app in het verzoek om een credential (4.4.1, stap 19). */
 export const APP_ISS = 'bk-connect://app/';

@@ -11,18 +11,20 @@ De app-kant van rechtstreeks ophalen, als webpagina. Het ontwerp staat in
 
 ## Meegeleverde `jose`
 
-`vendor/jose-6.2.13/` is `dist/webapi/` uit het npm-pakket `jose@6.2.13` (panva, MIT, licentie
-ernaast), ongewijzigd. Uit het pakket gehaald met:
-
-```bash
-npm pack jose@6.2.13   # integrity sha512-7TIg10ZE1x82YediN+lcrPNvGMKge9yFHQD+Qho/b8y2adfugU3AsvvHfxV0fzyFllT6l9xCjf4RWY9g/Z9PJQ==
-tar xzf jose-6.2.13.tgz
-cp -r package/dist/webapi src/main/resources/META-INF/resources/vendor/jose-6.2.13
-cp package/LICENSE.md src/main/resources/META-INF/resources/vendor/jose-6.2.13/
-```
+`vendor/jose/` is `dist/webapi/` uit het npm-pakket `jose` (panva, MIT, licentie ernaast),
+ongewijzigd. Welke versie, staat in `vendor/jose/BRON.json`, met de integrity uit de lockfile.
 
 Meegeleverd en niet van een CDN: de CSP staat alleen script van deze origin toe, en een script van
-buiten zou kunnen tekenen met de sleutel van de app. Bij een nieuwe versie: de map vervangen, de
-importpaden in `js/`, `src/test/js/` en `PaginaTest` aanpassen, en de hash hierboven bijwerken.
-Dependabot ziet deze map niet: een advisory voor `jose` volg je via
-<https://github.com/panva/jose/security/advisories>.
+buiten zou kunnen ondertekenen met de sleutel van de app.
+
+`package.json` en `package-lock.json` staan er alleen om de kopie bij te houden: Dependabot leest
+ze en biedt een nieuwe versie of een security-fix aan als PR. Zo'n PR blijft rood (`VendorJoseTest`)
+tot de kopie is ververst:
+
+```bash
+cd demo/berichten-app
+npm ci --ignore-scripts   # toetst het pakket aan de integrity in package-lock.json
+npm run vendor            # vervangt vendor/jose en schrijft BRON.json
+```
+
+De importpaden noemen geen versie, dus verder hoeft er niets te veranderen.

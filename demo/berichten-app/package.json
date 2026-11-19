@@ -1,0 +1,11 @@
+{
+  "name": "fbs-demo-berichten-app",
+  "private": true,
+  "description": "Houdt de meegeleverde jose bij: Dependabot leest dit bestand, de app laadt jose uit src/main/resources/META-INF/resources/vendor/jose. Na een nieuwe versie: npm ci --ignore-scripts && npm run vendor.",
+  "devDependencies": {
+    "jose": "6.2.13"
+  },
+  "scripts": {
+    "vendor": "node vendor-jose.mjs"
+  }
+}

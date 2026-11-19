@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CompactEncrypt, CompactSign, compactDecrypt } from '../../main/resources/META-INF/resources/vendor/jose-6.2.13/index.js';
+import { CompactEncrypt, CompactSign, compactDecrypt } from '../../main/resources/META-INF/resources/vendor/jose/index.js';
 import {
   ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, registratieAdres,
 } from '../../main/resources/META-INF/resources/js/activeren.js';
