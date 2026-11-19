@@ -93,11 +93,12 @@ Over die forks:
   niet-lege map `test-classes.idx/`: Quarkus kan het bestand dan niet aanmaken of verwijderen en
   bouwt de index elke keer opnieuw op (`leesmij.txt` in die map legt het uit). Krijgt een andere
   module forks, dan hoort die map daar ook in.
-- Elke fork moet zijn eigen poort kunnen pakken. Een testconfiguratie met een vaste
-  `quarkus.http.test-port` of een vaste WireMock-poort laat forks op elkaar botsen; gebruik
-  `quarkus.http.test-port=0` en `wireMockConfig().dynamicPort()`. Alleen in een module die zelf
-  een HTTP-server start: de sessiecache heeft er geen, en daar levert de sleutel alleen een
-  "Unrecognized configuration key"-waarschuwing op.
+- Elke fork moet zijn eigen poort kunnen pakken, en elke module ook, want onder `-T` lopen ze naast
+  elkaar. Een vaste `quarkus.http.test-port`, de standaard 8081 incluis, of een vaste WireMock-poort
+  laat ze op elkaar botsen (`QuarkusBindException: Port already bound: 8081`); zet
+  `quarkus.http.test-port=0` in de testconfiguratie en gebruik `wireMockConfig().dynamicPort()`.
+  Alleen in een module die zelf een HTTP-server start: de sessiecache heeft er geen, en daar levert
+  de sleutel alleen een "Unrecognized configuration key"-waarschuwing op.
 
 ## Kwaliteitsgates
 
