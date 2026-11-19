@@ -69,5 +69,7 @@ met de preview-image van MinBZK/moza-poc#180 via `PROEFTUIN_IMAGE`.
   - CORS: een PATCH met de origin van de demo-proxy slaagt, met die van de console (`:8095`) 403.
 - Scenario 15 bleek in de proeftuin niet als afkap-melding te zien: die toont één melding, en bij
   Grootbedrijf wint "niet geleverd". Het runbook wijst daarvoor naar de netwerk-tab en de log.
-- Na de merge op ZAD: de CORS-regex van de uitvraag en de alias `UITVRAAG_BASIS` op `democonsole`
-  in Operations Manager bijwerken; de repo beschrijft ze alleen.
+- Op ZAD de CORS-regex van de uitvraag en de alias `UITVRAAG_BASIS` op `democonsole` in Operations
+  Manager bijgewerkt, al vóór de merge (2026-11-19): de eigen pagina werd niet meer gebruikt. De
+  repo beschrijft ze alleen. De preflight-lus uit §4 op `test` laat de proeftuin en `proef-pr180`
+  toe, en weigert `democonsole` en vreemde origins.
