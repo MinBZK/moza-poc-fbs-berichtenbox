@@ -4,11 +4,14 @@ Quarkus schrijft bij elke teststart een index van de testklassen naar
 target/test-classes/test-classes.idx en verwijdert dat bestand weer als die Quarkus stopt. Deze
 module draait zijn tests in meer forks tegelijk, die allemaal dezelfde target/test-classes
 delen. Stopt Quarkus in de ene fork terwijl een andere fork die map doorloopt om een nieuwe
-classloader op te bouwen, dan verdwijnt het bestand tussen het lezen van de map en het openen
-ervan. De andere fork faalt dan bij de discovery met een NoSuchFileException op
+classloader op te bouwen, dan verdwijnt het bestand tussen het lezen van de map en het opvragen
+van zijn attributen. De andere fork faalt dan bij de discovery met een NoSuchFileException op
 test-classes.idx, en elke testklasse die hij op dat moment laadt, valt uit.
 
 Met een niet-lege map op die plek kan Quarkus het bestand niet aanmaken en niet verwijderen. Beide
 fouten vangt Quarkus zelf af. Het leest de index dan niet uit het bestand, maar bouwt hem opnieuw
 op uit de testklassen; dat kost per start enkele tientallen milliseconden. In target/test-classes
 verandert tijdens de tests daardoor niets meer.
+
+Dit bestand zet ook de forks aan: het profiel test-forks in de root-pom is alleen actief als het
+bestaat. TestClassesIndexTest borgt dat Quarkus de map laat staan.
