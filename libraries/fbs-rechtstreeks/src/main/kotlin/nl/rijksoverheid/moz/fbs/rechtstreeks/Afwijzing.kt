@@ -5,8 +5,12 @@ import java.time.Duration
 /**
  * Welke controle een verzoek afwees. Alleen voor de eigen log van de Verifier: naar de app gaat
  * voor elke reden hetzelfde antwoord (`401`), zodat de app niet kan afleiden welke controle faalde.
+ *
+ * [tokenAfgewezen] zegt of er een sessietoken getoetst en afgewezen is; een aanroeper zet dan
+ * `error="invalid_token"` in `WWW-Authenticate` (RFC 6750, 3.1). Het hoort hier en niet bij de
+ * aanroeper: een nieuwe tokenreden zonder die vlag zou de app via de header het verschil verraden.
  */
-enum class Afwijzing {
+enum class Afwijzing(val tokenAfgewezen: Boolean = false) {
     NONCE_ONBEKEND,
     PRESENTATIE_ONLEESBAAR,
     PRESENTATIE_ONVOLLEDIG,
@@ -27,13 +31,13 @@ enum class Afwijzing {
      * Het token is bij deze Verifier niet (meer) bekend: verzonnen, van vóór een herstart van de
      * dienst, of langer geleden verlopen dan de opslag onthoudt.
      */
-    SESSIE_ONBEKEND,
+    SESSIE_ONBEKEND(tokenAfgewezen = true),
 
     /**
      * Het token hoorde kort geleden bij een sessie die nu verlopen is: een app die over de grens
      * liep. Voor de app hetzelfde antwoord als [SESSIE_ONBEKEND]; alleen de log onderscheidt ze.
      */
-    SESSIE_VERLOPEN,
+    SESSIE_VERLOPEN(tokenAfgewezen = true),
     VERSLEUTELING_ONGELDIG,
 }
 

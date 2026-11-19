@@ -31,15 +31,19 @@ van verlopen, geen sleutel en geen identiteit. `zoek` blijft wat het is. Een nie
 
 Gekozen: B.
 
-- **Geheugen.** Begrensd op vier keer `maxSessies` (standaard 200.000) en op een bewaartermijn
-  (standaard een uur). Vier keer, omdat onder volle last in een uur zoveel sessies van een kwartier
-  verlopen; met één keer zou de termijn juist dan krimpen tot één sessieduur. Per vermelding gaat
-  het om de eerste 128 bit van de hash, de verwijzing naar de Verifier-OIN, een `Instant` en de
-  entry in de map: ruwweg honderd bytes, dus zo'n twintig megabyte in het slechtste geval.
+- **Geheugen.** Begrensd op zes keer `maxSessies` (standaard 300.000) en op een bewaartermijn
+  (standaard een uur). Zes keer, omdat onder volle last in een uur zoveel sessies van de kortste
+  soort verlopen: tien minuten, bij self-signed in de App Manager. Met minder zou de termijn juist
+  onder volle last krimpen, en zou `SESSIE_ONBEKEND` stijgen zonder dat er iets verzonnen wordt.
+  Per vermelding gaat het om de eerste 128 bit van de hash, de verwijzing naar de Verifier-OIN, een
+  `Instant` en de entry in de map: ruwweg honderd bytes, dus zo'n dertig megabyte in het slechtste
+  geval.
 - **Volgorde.** Bij een volle verzameling valt de vroegst verlopen vermelding weg, ook als er in één
   opruimronde meerdere verlopen. Die verliest dan alleen het onderscheid, niet de afwijzing: zo'n
   token wordt `SESSIE_ONBEKEND`. Omdat elke ronde in volgorde van verlopen toevoegt, kan het snoeien
-  op termijn en op omvang vanaf de kop stoppen.
+  op termijn en op omvang vanaf de kop stoppen. Dat geldt zolang de klok niet terugloopt; doet hij
+  dat (een NTP-stap), dan blijft een vermelding hooguit iets langer staan, en `verlopen` toetst de
+  termijn zelf.
 - **Geheim.** Het token zelf blijft niet bewaard, alleen de eerste 128 bit van de SHA-256. Het token
   is na het verlopen waardeloos, maar zo staat er ook in een heap-dump niets dat op een geldig token
   lijkt. 128 bit volstaat om een token van ruim 190 bit terug te herkennen.

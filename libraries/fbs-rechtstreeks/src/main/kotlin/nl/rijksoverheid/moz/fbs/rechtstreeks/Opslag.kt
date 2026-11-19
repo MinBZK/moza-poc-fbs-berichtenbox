@@ -98,8 +98,9 @@ interface SessieOpslag {
  * Een verlopen sessie laat een vingerafdruk van haar token achter, [verlopenOnthouden] lang en
  * hoogstens [maxVerlopen] tegelijk, zodat de log een token dat net verliep apart kan noemen (zie
  * [verlopen]). Zonder die verzameling ruimt de eerste aanroep van wie dan ook de sessie op, en is
- * "verlopen" niet meer te zien. Ze telt voor geen enkel quotum mee. Het standaardplafond is vier
- * keer [maxSessies]: zoveel sessies van een kwartier verlopen er onder volle last in een uur.
+ * "verlopen" niet meer te zien. Ze telt voor geen enkel quotum mee. Het standaardplafond is zes
+ * keer [maxSessies]: zoveel sessies van de kortste soort (tien minuten, self-signed) verlopen er
+ * onder volle last in een uur, dus houdt de opslag elk verlopen token de hele [verlopenOnthouden].
  */
 class GeheugenOpslag(
     private val klok: Clock,
@@ -155,7 +156,8 @@ class GeheugenOpslag(
     /**
      * Wanneer de sessie bij een vingerafdruk verliep, oplopend. [ruimOp] voegt in volgorde van
      * verlopen toe, en wat er in een latere ronde bij komt, verliep na het moment van de vorige:
-     * snoeien kan dus vanaf de kop.
+     * snoeien kan dus vanaf de kop. Dat geldt zolang de klok niet terugloopt; doet hij dat, dan
+     * blijft een vermelding hooguit iets langer staan, en [verlopen] toetst de termijn zelf.
      */
     private val verlopenTokens = LinkedHashMap<Vingerafdruk, Instant>()
 
@@ -273,6 +275,6 @@ class GeheugenOpslag(
         Duration.between(nu, maxOf(momenten.minOrNull() ?: nu, nu.plusSeconds(1)))
 
     private companion object {
-        const val VERLOPEN_PER_SESSIEPLEK = 4
+        const val VERLOPEN_PER_SESSIEPLEK = 6
     }
 }

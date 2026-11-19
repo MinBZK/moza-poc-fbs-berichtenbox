@@ -267,18 +267,19 @@ class GeheugenOpslagTest {
         assertEquals(looptijd.filterValues { it > 5 }.keys, onthouden)
     }
 
+    /** Twee plekken, dus twaalf; met dertien verlopen tokens valt precies het oudste weg. */
     @Test
-    fun `standaard onthoudt de opslag vier verlopen tokens per plek voor een sessie`() {
-        val opslag = GeheugenOpslag(opzet.klok, maxSessies = 1)
+    fun `standaard onthoudt de opslag zes verlopen tokens per plek voor een sessie`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxSessies = 2)
 
-        (1..5).forEach { i ->
+        (1..13).forEach { i ->
             opslag.bewaar(sessie("m", "t$i", Duration.ofSeconds(1)), "h", "c")
             opzet.nu = opzet.nu.plusSeconds(1)
             opslag.zoek("m", "iets")
         }
 
         assertFalse(opslag.verlopen("m", "t1"))
-        assertTrue((2..5).all { opslag.verlopen("m", "t$it") })
+        assertTrue((2..13).all { opslag.verlopen("m", "t$it") })
     }
 
     @Test
