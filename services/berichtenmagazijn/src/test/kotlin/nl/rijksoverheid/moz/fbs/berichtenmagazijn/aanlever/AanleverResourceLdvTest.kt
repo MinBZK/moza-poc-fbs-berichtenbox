@@ -15,12 +15,11 @@ import jakarta.transaction.HeuristicRollbackException
 import jakarta.transaction.RollbackException
 import jakarta.ws.rs.core.HttpHeaders
 import jakarta.ws.rs.core.MultivaluedHashMap
-import jakarta.ws.rs.core.UriBuilder
-import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.HalBasis
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Identificatienummer as IdentificatienummerDto
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.MislukteUitkomst
@@ -37,7 +36,6 @@ import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
-import java.net.URI
 import java.sql.SQLException
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -74,9 +72,6 @@ class AanleverResourceLdvTest {
     private val logregels = listOf(Logregel(SpanContext.getInvalid(), "logregel", null, null))
     private val publicatieConfig = mockk<PublicatieConfig>()
     private val span = mockk<Span>(relaxed = true)
-    private val uriInfo = mockk<UriInfo>().apply {
-        every { baseUriBuilder } answers { UriBuilder.fromUri(URI.create("http://localhost/")) }
-    }
     private val httpHeaders = mockk<HttpHeaders>().apply {
         every { getHeaderString("traceparent") } returns null
         every { requestHeaders } returns MultivaluedHashMap()
@@ -87,7 +82,7 @@ class AanleverResourceLdvTest {
         logboekContext = logboekContext,
         processingHandler = processingHandler,
         publicatieConfig = publicatieConfig,
-        uriInfo = uriInfo,
+        halBasis = HalBasis("/", "/api/v1"),
         httpHeaders = httpHeaders,
     )
 

@@ -1,8 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.aanlever
 
 import jakarta.enterprise.context.ApplicationScoped
-import jakarta.ws.rs.core.Context
-import jakarta.ws.rs.core.UriInfo
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.IdentificatienummerType
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
@@ -28,7 +26,6 @@ import java.util.UUID
 class SimulatorAanleverResource(
     private val service: BerichtService,
     private val magazijnContext: MagazijnContext,
-    @param:Context private val uriInfo: UriInfo,
 ) : AanleverApi {
 
     override fun leverBerichtAan(berichtAanleverenRequest: BerichtAanleverenRequest): BerichtResponse {
@@ -53,7 +50,7 @@ class SimulatorAanleverResource(
 
         return BerichtDtoMapper.naarBerichtResponse(
             bericht,
-            MagazijnPad.basisUri(uriInfo, magazijnContext.magazijn.oin),
+            MagazijnPad.basisUri(magazijnContext.magazijn.oin),
         )
     }
 }

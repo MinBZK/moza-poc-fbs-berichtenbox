@@ -4,10 +4,10 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.InternalServerErrorException
 import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
-import jakarta.ws.rs.core.UriInfo
 import org.jboss.logging.Logger
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logboek
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.HalBasis
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.BerichtenApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.Bericht
@@ -46,7 +46,7 @@ class BerichtenResource(
     private val ophaalService: BerichtOphaalService,
     private val beheerService: BerichtBeheerService,
     private val logboekContext: LogboekContext,
-    @param:Context private val uriInfo: UriInfo,
+    private val halBasis: HalBasis,
     @param:Context private val request: ContainerRequestContext,
 ) : BerichtenApi {
 
@@ -69,7 +69,7 @@ class BerichtenResource(
             pageSize = pageSize ?: DEFAULT_PAGE_SIZE,
         )
 
-        return BerichtDtoMapper.toBerichtenLijst(pagina, afzender, uriInfo.baseUriBuilder)
+        return BerichtDtoMapper.toBerichtenLijst(pagina, afzender, halBasis.builder())
     }
 
     @Logboek(
@@ -81,7 +81,7 @@ class BerichtenResource(
         registreerLdvSubject(ontvanger)
         val bericht = ophaalService.haalBerichtOp(berichtId, ontvanger)
 
-        return BerichtDtoMapper.toBericht(bericht, uriInfo.baseUriBuilder)
+        return BerichtDtoMapper.toBericht(bericht, halBasis.builder())
     }
 
     @Logboek(
@@ -136,7 +136,7 @@ class BerichtenResource(
             ),
         )
 
-        return BerichtDtoMapper.toBericht(bericht, uriInfo.baseUriBuilder)
+        return BerichtDtoMapper.toBericht(bericht, halBasis.builder())
     }
 
     @Logboek(

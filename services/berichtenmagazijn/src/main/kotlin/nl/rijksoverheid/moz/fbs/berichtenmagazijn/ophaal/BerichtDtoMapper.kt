@@ -22,7 +22,7 @@ import java.util.UUID
 
 /**
  * Mapt domeinobjecten naar de gegenereerde API-modellen. Bouwt HAL-links op
- * basis van een meegegeven `baseUri` (typisch [jakarta.ws.rs.core.UriInfo.getBaseUriBuilder]).
+ * basis van een meegegeven `baseUri`, uit [nl.rijksoverheid.moz.fbs.berichtenmagazijn.HalBasis].
  *
  * Het mapper-object houdt geen state aan; alle methodes zijn pure functies.
  * Daardoor kan het gerust gedeeld worden tussen Ophaal- en Beheer-resources.
