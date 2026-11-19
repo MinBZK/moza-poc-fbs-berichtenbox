@@ -89,8 +89,6 @@ if [[ "$snel" != true || "${FBS_HOOK_TESTS:-1}" == "0" ]]; then
             ;;
     esac
 
-    echo "  Draait de demo-stack? Voeg -Dquarkus.http.test-port=0 toe, anders botst elke"
-    echo "  @QuarkusTest op de bezette poort 8081."
     exit 0
 fi
 
