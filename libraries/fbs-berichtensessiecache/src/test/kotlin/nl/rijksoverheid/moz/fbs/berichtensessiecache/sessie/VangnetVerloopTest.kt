@@ -16,7 +16,6 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -28,10 +27,9 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Het vangnet zelf, tegen een echte Redis met een vangnet-TTL van drie seconden uit
- * [KortVangnetRedisTestProfile]: wat er gebeurt als niemand actief opruimt, en de grens per
- * ontvanger op een andere waarde dan de standaard. De verloopindex is stelselbreed; elke test begint
- * daarom met een lege index.
+ * Het vangnet zelf, tegen een echte Redis met de korte TTL's uit [KortVangnetRedisTestProfile]: wat
+ * er gebeurt als niemand actief opruimt, en de grens per ontvanger op een andere waarde dan de
+ * standaard. De verloopindex is stelselbreed; elke test begint daarom met een lege index.
  */
 @QuarkusTest
 @TestProfile(KortVangnetRedisTestProfile::class)
@@ -56,6 +54,7 @@ class VangnetVerloopTest {
         val bsn = Bsn("999993653")
         val k = BerichtenCache.cacheKey(bsn)
         redis.key().del("$k:sessies", "$k:sessies:plafond").await().atMost(WACHTTIJD)
+        val gestart = System.nanoTime()
         sessiecache.startSessie(bsn)
         val berichten = List(2) { bericht(bsn) }
         berichtenCache.store(k, berichten).await().atMost(WACHTTIJD)
@@ -66,14 +65,15 @@ class VangnetVerloopTest {
         // Positieve controle: zonder deze zou een zoekopdracht die nooit iets vindt ook "leeg" opleveren.
         assertTrue(zoekTotaal(bsn) >= 1, "de zoekindex kent vooraf het overgebleven bericht")
 
-        Thread.sleep(DATA_TTL_MS + MARGE_MS)
+        // Peilen in plaats van een vaste wachttijd: elke milliseconde te lang wachten gaat af van het
+        // venster tot de index verloopt (zie KortVangnetRedisTestProfile).
+        wachtTotVerlopen(k, berichten)
 
-        assertEquals(emptyList<String>(), sleutelsOnder(k))
-        berichten.forEach { assertFalse(bestaat(BerichtenCache.berichtKey(it.sleutel)), "${it.sleutel} niet verlopen") }
         assertEquals(0L, zoekTotaal(bsn), "de zoekindex kent nog een verlopen bericht")
 
-        // De index heeft geen TTL en houdt de ontvanger vast, maar alleen als kenmerk.
-        assertEquals(listOf(BerichtenCache.kenmerk(bsn)), indexLeden())
+        // De index verloopt pas na de gegevens en houdt de ontvanger vast, maar alleen als kenmerk.
+        val verstreken = Duration.ofNanos(System.nanoTime() - gestart)
+        assertEquals(listOf(BerichtenCache.kenmerk(bsn)), indexLeden(), "index leeg, $verstreken na de start van de sessie")
         assertTrue(indexLeden().none { bsn.waarde in it })
 
         val gemeld = mutableListOf<Opruiming>()
@@ -115,6 +115,15 @@ class VangnetVerloopTest {
 
     private fun bestaat(sleutel: String): Boolean = redis.key().exists(sleutel).await().atMost(WACHTTIJD)
 
+    private fun wachtTotVerlopen(prefix: String, berichten: List<Bericht>) {
+        val einde = System.nanoTime() + MAX_WACHTEN.toNanos()
+
+        while (sleutelsOnder(prefix).isNotEmpty() || berichten.any { bestaat(BerichtenCache.berichtKey(it.sleutel)) }) {
+            assertTrue(System.nanoTime() < einde) { "niet verlopen binnen $MAX_WACHTEN: ${sleutelsOnder(prefix)}" }
+            Thread.sleep(PEILING_MS)
+        }
+    }
+
     private fun zoekTotaal(voor: Identificatienummer): Long =
         redis.search().ftSearch(BerichtenCache.SEARCH_INDEX, "@ontvanger:{${voor.waarde}}")
             .await().atMost(WACHTTIJD).count().toLong()
@@ -122,9 +131,9 @@ class VangnetVerloopTest {
     private companion object {
         val WACHTTIJD: Duration = Duration.ofSeconds(5)
 
-        // Maximale duur plus marge uit het profiel; de marge hierna dekt de traagheid van de test zelf.
-        const val DATA_TTL_MS = 3_000L
-        const val MARGE_MS = 700L
+        /** Bovengrens, ruim boven de vangnet-TTL uit [KortVangnetRedisTestProfile]; niet de verwachte wachttijd. */
+        val MAX_WACHTEN: Duration = Duration.ofSeconds(15)
+        const val PEILING_MS = 50L
         private val teller = AtomicLong(System.nanoTime())
 
         fun nieuweOntvanger() = Oin(teller.incrementAndGet().toString().padStart(20, '0').takeLast(20))
