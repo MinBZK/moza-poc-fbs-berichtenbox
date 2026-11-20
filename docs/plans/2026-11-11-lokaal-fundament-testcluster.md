@@ -436,7 +436,7 @@ Live, met images `main-ae73d9d`:
 |---|---|
 | `af --met-platform` met het nieuwe script op een opstelling van `e18ad710` | gelukt; daarna de oude worktree weg met het commando uit de README |
 | Vanaf nul, beide rollen | groen in 16 minuten; functl via `not_logged_in` en een nieuwe key |
-| Gepauzeerd met `k3d cluster stop`, dan `op --rol beheerder` | zonder wachtstap rood (`org set`, breaker twaalf seconden open); met de wachtstap groen, via "al ingelogd". In de laatste run stond de breaker acht seconden open en wachtte `op` dat uit |
+| Gepauzeerd met `k3d cluster stop`, dan `op --rol beheerder` | zonder wachtstap rood (`org set`, breaker twaalf seconden open); met de wachtstap groen, via "al ingelogd". Met de laatste versie stond de breaker veertig seconden open, en wachtte `op` dat uit (groen in 5 minuten) |
 | `af`, dan `op --rol beheerder` | groen in 5,5 minuten; nieuwe key, plug-ins uit de catalogus |
 | Poorten | alles op loopback; de relays zonder hostpoort |
 | `~/.kube/config` | sha256 voor en na gelijk |
