@@ -115,14 +115,44 @@ echo "== functl_fout_soort =="
 
 gelijk "geen listing" geen-listing \
   "$(functl_fout_soort 'Error: no listing named "cloudnativepg" in this organization — pass --create to reserve it')"
-gelijk "unauthenticated" niet-ingelogd "$(functl_fout_soort 'unauthenticated: invalid api key')"
-gelijk "http 401" niet-ingelogd "$(functl_fout_soort 'request failed: 401 Unauthorized')"
-gelijk "nog nooit ingelogd" niet-ingelogd \
-  "$(functl_fout_soort "Error: not authenticated: run 'functl auth login' to authenticate")"
 gelijk "versie bestaat al" bestaat-al \
   "$(functl_fout_soort 'Error: already_exists: version "1.21.3" already exists for this plugin')"
 gelijk "iets anders" onbekend "$(functl_fout_soort 'connection refused')"
-gelijk "401 in een poortnummer is geen 401" onbekend "$(functl_fout_soort 'dial tcp 127.0.0.1:34012: connection refused')"
+
+echo "== functl_sessie =="
+
+# De vorm uit functl/pkg/cli/auth.go van Fundament (sinds fundament-oss/fundament#661).
+gelijk "ingelogd" ingelogd \
+  "$(functl_sessie '{"authenticated":true,"organization_ids":["019b4000-0000-7000-8000-000000000000"],"user_id":"01","user_name":"platform-admin"}')"
+# Zo schrijft functl het echt: ingesprongen, over meer regels (json.Indent).
+gelijk "ingelogd, ingesprongen zoals functl het schrijft" ingelogd "$(functl_sessie '{
+  "authenticated": true,
+  "organization_ids": null,
+  "user_id": "01",
+  "user_name": "platform-admin"
+}')"
+gelijk "nooit ingelogd" niet-ingelogd \
+  "$(functl_sessie '{"authenticated":false,"hint":"Run '"'"'functl auth login'"'"' to authenticate.","message":"not logged in","reason":"not_logged_in"}')"
+gelijk "key geweigerd" niet-ingelogd \
+  "$(functl_sessie '{"authenticated":false,"hint":"...","message":"credentials rejected, they may be invalid or expired","reason":"rejected"}')"
+# Een reden die functl er later bij krijgt, zegt niet dat een nieuwe key helpt.
+gelijk "onbekende reden: exit 1" 1 "$(code_van functl_sessie '{"authenticated":false,"reason":"suspended"}')"
+gelijk "niet ingelogd zonder reden: exit 1" 1 "$(code_van functl_sessie '{"authenticated":false}')"
+gelijk "authenticated als tekst: exit 1" 1 "$(code_van functl_sessie '{"authenticated":"true"}')"
+gelijk "zonder authenticated: exit 1" 1 "$(code_van functl_sessie '{"reason":"not_logged_in"}')"
+# Zo antwoordde functl vóór #661, met exit 0.
+gelijk "de tekst van een oude functl: exit 1" 1 \
+  "$(code_van functl_sessie 'Not authenticated
+Run '"'"'functl auth login'"'"' to authenticate')"
+gelijk "lege uitvoer: exit 1" 1 "$(code_van functl_sessie '')"
+
+echo "== connect_code =="
+
+gelijk "unauthenticated" unauthenticated "$(connect_code '{"code":"unauthenticated","message":"no authorization header or auth cookie found"}')"
+gelijk "unavailable" unavailable "$(connect_code '{"code":"unavailable","message":"service temporarily unavailable"}')"
+gelijk "geen code: exit 1" 1 "$(code_van connect_code '{"message":"x"}')"
+gelijk "een getal als code (gRPC-stijl): exit 1" 1 "$(code_van connect_code '{"code":16}')"
+gelijk "geen JSON (Envoy): exit 1" 1 "$(code_van connect_code 'no healthy upstream')"
 
 echo "== api_key_uit_antwoord =="
 
@@ -811,10 +841,154 @@ uitvoer=$(in_script 'docker() { echo "docker $*"; }; wacht_tot() { shift 2; "$@"
 gelijk "sandbox_dns_werkt: DNS werkt: exit 0" 0 "$code"
 bevat "sandbox_dns_werkt: zoekt de registry van de images op" "nslookup ghcr.io" "$uitvoer"
 
+# Een kapotte DNS in de node toont zich anders pas als een rollout die niet klaar komt, zonder
+# oorzaak. controleer noemt hem zelf, met de remedie, en controleert de diensten daarna nog.
+CONTROLEER_STUBS='WERK=$(mktemp -d -p "$XDG_CACHE_HOME"); echo ca >"$WERK/lokale-ca.crt"; controleer_dienst() { echo "DIENST $1"; }; na_afloop() { echo NA_AFLOOP; };'
+code=0
+uitvoer=$(in_script "$CONTROLEER_STUBS sandbox_dns_ok() { return 1; }; controleer") || code=$?
+gelijk "controleer: geen DNS in de sandbox-node: exit 1" 1 "$code"
+bevat "controleer: geen DNS: controleert de diensten nog" "DIENST stelselregister" "$uitvoer"
+bevat "controleer: geen DNS: sluit af met de keuzes" "NA_AFLOOP" "$uitvoer"
+bevat "controleer: geen DNS: noemt de herstart via k3d" "k3d cluster stop fundament-plugin fundament" "$uitvoer"
+bevat "controleer: geen DNS: noemt de herstart van de machine" "herstart van de machine" "$uitvoer"
+code=0
+uitvoer=$(in_script "$CONTROLEER_STUBS sandbox_dns_ok() { return 0; }; controleer") || code=$?
+gelijk "controleer: DNS werkt: exit 0" 0 "$code"
+uitvoer=$(in_script 'vereis_tools() { echo "TOOLS $*"; exit 9; }; main controleer') || true
+bevat "controleer: vraagt docker voor de DNS-controle" "TOOLS curl docker" "$uitvoer"
+
+# --- het slotbericht ---
+
+# Na een herstart van de machine start Docker de containers, niet k3d; zonder herstart via k3d bleven
+# de pods een dag in ImagePullBackOff hangen.
+uitvoer=$(in_script 'na_afloop')
+bevat "na_afloop: na een herstart van de machine via k3d herstarten" \
+  "k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin" "$uitvoer"
+bevat "na_afloop: en daarna op" "TAG=<tag> " "$uitvoer"
+gelijk "na_afloop: de herstart draait k3d uit de worktree van Fundament" 1 \
+  "$(grep -cE "^  \\(cd $TESTCACHE/fbs-fundament-testcluster/fundament-[0-9a-f]{8} && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin\\)\$" <<<"$uitvoer")"
+bevat_niet "na_afloop: belooft niet dat hij vanzelf weer start" "vanzelf" "$uitvoer"
+bevat_niet "na_afloop: geen docker restart" "docker restart" "$uitvoer"
+
+# --- functl ---
+
+# De sessie volgt uit `functl auth status -o json`. Debuglog op stderr (mise zet FUNCTL_DEBUG aan)
+# hoort niet bij de JSON. De stubs loggen naar een bestand: het script slikt de uitvoer van een
+# geslaagde recipe in.
+FUNCTL_STUBS='WERK=$(mktemp -d -p "$XDG_CACHE_HOME"); LOG=$WERK/aanroepen; : >"$LOG"; trap "cat \"$LOG\"" EXIT;
+api_key_maken() { echo "KEY GEMAAKT" >>"$LOG"; [ -z "${KEY_FAALT:-}" ] || return 1; echo fun_nieuw; };
+fj() { case "$*" in
+  "functl auth status -o json") echo "STATUS GEVRAAGD" >>"$LOG"; echo "time=... level=DEBUG msg=GetUserInfo" >&2
+    [ -z "${STATUS_FAALT:-}" ] || { echo "Error: could not reach https://authn.fundament.localhost:8443: unavailable" >&2; return 1; }
+    echo "$STATUS" ;;
+  "functl auth login") echo "LOGIN met $(cat)" >>"$LOG"; [ -z "${LOGIN_FAALT:-}" ] || return 1 ;;
+  "functl org set 019b4000-0000-7000-8000-000000000000") echo "ORG SET" >>"$LOG"; [ -z "${ORG_FAALT:-}" ] || return 1 ;;
+  *) echo "ONVERWACHT fj $*" >>"$LOG"; return 1 ;;
+esac; };'
+INGELOGD='{"authenticated":true,"organization_ids":[],"user_id":"01","user_name":"platform-admin"}'
+code=0
+uitvoer=$(STATUS=$INGELOGD in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: ingelogd: exit 0" 0 "$code"
+bevat "functl_inloggen: ingelogd: debuglog op stderr stoort niet" "OK: functl was al ingelogd" "$uitvoer"
+bevat "functl_inloggen: ingelogd: kiest de organisatie" "ORG SET" "$uitvoer"
+bevat_niet "functl_inloggen: ingelogd: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+bevat_niet "functl_inloggen: ingelogd: niet opnieuw inloggen" "LOGIN" "$uitvoer"
+bevat_niet "functl_inloggen: ingelogd: alleen de verwachte recipes" "ONVERWACHT" "$uitvoer"
+for reden in not_logged_in rejected; do
+  code=0
+  uitvoer=$(STATUS="{\"authenticated\":false,\"reason\":\"$reden\"}" in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+  gelijk "functl_inloggen: $reden: exit 0" 0 "$code"
+  bevat "functl_inloggen: $reden: logt in met een nieuwe key" "LOGIN met fun_nieuw" "$uitvoer"
+  bevat "functl_inloggen: $reden: kiest daarna de organisatie" "ORG SET" "$uitvoer"
+done
+uitvoer=$(STATUS='{"authenticated":false,"reason":"rejected","message":"credentials rejected, they may be invalid or expired"}' \
+  in_script "$FUNCTL_STUBS functl_inloggen") || true
+bevat "functl_inloggen: rejected: zegt waarom er een nieuwe key komt" "credentials rejected" "$uitvoer"
+code=0
+uitvoer=$(STATUS='{"authenticated":false,"reason":"not_logged_in"}' KEY_FAALT=1 in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: geen key te maken: exit 1" 1 "$code"
+bevat "functl_inloggen: geen key te maken: zegt dat" "kon geen API-key maken" "$uitvoer"
+bevat_niet "functl_inloggen: geen key te maken: niet inloggen" "LOGIN" "$uitvoer"
+code=0
+uitvoer=$(STATUS='{"authenticated":false,"reason":"not_logged_in"}' LOGIN_FAALT=1 in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: login faalt: exit 1" 1 "$code"
+bevat "functl_inloggen: login faalt: zegt dat" "functl auth login faalde" "$uitvoer"
+bevat_niet "functl_inloggen: login faalt: geen org set" "ORG SET" "$uitvoer"
+bevat_niet "functl_inloggen: login faalt zonder eigen key: noemt FUNCTL_API_KEY niet" "FUNCTL_API_KEY" "$uitvoer"
+uitvoer=$(FUNCTL_API_KEY=fun_oud LOGIN_FAALT=1 in_script "$FUNCTL_STUBS functl_inloggen") || true
+bevat "functl_inloggen: login faalt met eigen key: noemt FUNCTL_API_KEY" "FUNCTL_API_KEY" "$uitvoer"
+# Niet te controleren: een nieuwe key lost een onbereikbaar platform niet op, en verbergt de oorzaak.
+code=0
+uitvoer=$(STATUS_FAALT=1 in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: status niet te controleren: exit 1" 1 "$code"
+bevat "functl_inloggen: status niet te controleren: zegt dat" "kon de sessie niet controleren" "$uitvoer"
+bevat "functl_inloggen: status niet te controleren: toont de melding van functl" "could not reach" "$uitvoer"
+bevat_niet "functl_inloggen: status niet te controleren: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+bevat_niet "functl_inloggen: status niet te controleren: niet inloggen" "LOGIN" "$uitvoer"
+code=0
+uitvoer=$(STATUS='Not authenticated' in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: onbekend antwoord: exit 1" 1 "$code"
+bevat "functl_inloggen: onbekend antwoord: toont het" "Not authenticated" "$uitvoer"
+bevat "functl_inloggen: onbekend antwoord: toont ook stderr" "level=DEBUG" "$uitvoer"
+bevat_niet "functl_inloggen: onbekend antwoord: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+code=0
+uitvoer=$(STATUS=$INGELOGD ORG_FAALT=1 in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: ingelogd maar org set faalt: exit 1" 1 "$code"
+bevat "functl_inloggen: ingelogd maar org set faalt: zegt dat" "functl org set faalde" "$uitvoer"
+code=0
+uitvoer=$(FUNCTL_API_KEY=fun_eigen in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: eigen key: exit 0" 0 "$code"
+bevat "functl_inloggen: eigen key: logt daarmee in" "LOGIN met fun_eigen" "$uitvoer"
+bevat_niet "functl_inloggen: eigen key: vraagt geen status" "STATUS GEVRAAGD" "$uitvoer"
+bevat_niet "functl_inloggen: eigen key: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+
+# Een key of adres uit de shell gaat in functl vóór zijn configuratie, en kan naar een echt platform
+# wijzen.
+uitvoer=$(FUNDAMENT_API_KEY=k FUNCTL_API_ENDPOINT=https://a.invalid \
+  FUNCTL_AUTHN_URL=https://b.invalid FUNCTL_REGISTRY_URL=c.invalid \
+  in_script 'bash -c "env | grep -E \"^(FUNDAMENT_API_KEY|FUNCTL_API_ENDPOINT|FUNCTL_AUTHN_URL|FUNCTL_REGISTRY_URL)=\" || echo geen"')
+gelijk "de functl-instellingen uit de shell gaan niet mee naar functl" geen "$uitvoer"
+
+# Zonder sessie vraagt `functl auth status` het platform niets; api_key_maken is dan de eerste die
+# merkt dat het niet antwoordt, en moet zeggen waarom.
+KEY_STUBS='WERK=$(mktemp -d -p "$XDG_CACHE_HOME"); mkcert_caroot() { echo /ca; };'
+code=0
+uitvoer=$(in_script "$KEY_STUBS curl() { echo 'curl: (7) Failed to connect to authn.fundament.localhost port 8443' >&2; return 7; }; api_key_maken") || code=$?
+gelijk "api_key_maken: authn onbereikbaar: exit 1" 1 "$code"
+bevat "api_key_maken: authn onbereikbaar: toont de melding van curl" "Failed to connect" "$uitvoer"
+# Zonder -S zwijgt curl over een geweigerde verbinding of TLS-fout; met alleen -f valt het antwoord
+# van een 4xx of 5xx weg.
+uitvoer=$(in_script "$KEY_STUBS curl() { echo \"CURL \$*\" >&2; return 7; }; api_key_maken") || true
+bevat "api_key_maken: curl met melding (-sS)" "CURL -sS " "$uitvoer"
+bevat "api_key_maken: curl met het foutantwoord" " --fail-with-body " "$uitvoer"
+uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"error\":\"invalid credentials\"}'; return 22; }; api_key_maken") || true
+bevat "api_key_maken: login geweigerd: toont het foutantwoord" "invalid credentials" "$uitvoer"
+code=0
+uitvoer=$(in_script "$KEY_STUBS mkcert_caroot() { return 1; }; curl() { echo CURL-AANGEROEPEN >&2; }; api_key_maken") || code=$?
+gelijk "api_key_maken: geen CA: exit 1" 1 "$code"
+bevat "api_key_maken: geen CA: zegt dat" "mkcert vindt zijn CA niet" "$uitvoer"
+bevat_niet "api_key_maken: geen CA: geen curl" "CURL-AANGEROEPEN" "$uitvoer"
+# curl kan ook na een geslaagd antwoord falen; dan staat het token in wat curl gaf.
+uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"access_token\":\"geheim-token\"}'; return 28; }; api_key_maken") || true
+bevat_niet "api_key_maken: curl faalt na een geslaagd antwoord: toont het token niet" "geheim-token" "$uitvoer"
+uitvoer=$(in_script "$KEY_STUBS curl() { printf '%s' '{\"access_token\":\"geheim-token\",\"expi'; return 28; }; api_key_maken") || true
+bevat_niet "api_key_maken: afgekapt antwoord: toont het token niet" "geheim-token" "$uitvoer"
+# De key is wat op stdout komt; functl auth login leest alleen de eerste regel. Beide aanroepen met
+# de melding van curl en een tijdslimiet.
+uitvoer=$(in_script "$KEY_STUBS curl() { echo \"CURL \$*\" >>\"\$WERK/curl\"; case \"\$*\" in *login/password*) echo '{\"access_token\":\"t\"}' ;; *) echo '{\"token\":\"fun_k\"}' ;; esac; };
+  key=\$(api_key_maken); echo \"KEY=[\$key]\"; cat \"\$WERK/curl\"")
+bevat "api_key_maken: alleen de key op stdout" "KEY=[fun_k]" "$uitvoer"
+gelijk "api_key_maken: beide aanroepen met -sS en een tijdslimiet" 2 "$(grep -E -- '^CURL ' <<<"$uitvoer" | grep -- ' -sS ' | grep -c -- ' --max-time [0-9]')"
+gelijk "api_key_maken: het toegangstoken niet op de commandoregel" 0 "$(grep -c -- 'Bearer' <<<"$uitvoer")"
+# Een geslaagd login-antwoord dat de parser niet herkent, kan toch een token bevatten.
+uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"accessToken\":\"geheim-token\"}'; }; api_key_maken") || true
+bevat "api_key_maken: onbekend login-antwoord: zegt dat" "geen access_token" "$uitvoer"
+bevat_niet "api_key_maken: onbekend login-antwoord: toont het niet" "geheim-token" "$uitvoer"
+
 # --- platform_op: alleen uitrollen als het platform er aantoonbaar niet is ---
 
 PLATFORM_STUBS='platform_bestaat() { true; }; fj() { case "$*" in deploy*) echo "UITROL $*" ;; esac; };
-wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; };
+wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; }; organisatie_api_stabiel() { true; }; organisatie_api_open() { false; };
 docker_poorten() { :; }; mkdir -p "$WORKTREE";'
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Unable to connect to the server: dial tcp 127.0.0.1:43917: connect: connection refused' >&2; return 1 ;; esac; }; platform_op") || code=$?
@@ -828,6 +1002,73 @@ code=0
 uitvoer=$(in_script "$PLATFORM_STUBS fj() { return 1; }; kcp() { return 0; }; platform_op") || code=$?
 gelijk "platform_op: starten faalt: exit 1" 1 "$code"
 bevat "platform_op: starten faalt: noemt opnieuw opzetten" "af --met-platform" "$uitvoer"
+
+# Na een hervatting is de Deployment van organization-api al gereed terwijl zijn circuit breaker nog
+# elk verzoek weigert; functl org set faalde dan met unavailable.
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; };
+  organisatie_api_stabiel() { ORG_API_LAATSTE='{\"code\":\"unavailable\",\"message\":\"service temporarily unavailable\"}'; false; }; platform_op") || code=$?
+gelijk "platform_op: organization-api weigert nog: exit 1" 1 "$code"
+bevat "platform_op: organization-api weigert nog: noemt de breaker" "circuit breaker" "$uitvoer"
+bevat "platform_op: organization-api weigert nog: toont het laatste antwoord" "service temporarily unavailable" "$uitvoer"
+bevat "platform_op: organization-api weigert nog: logs per deployment" "logs deploy/organization-api, en " "$uitvoer"
+# Ook na een verse uitrol: CreateAPIKey is de eerstvolgende aanroep op organization-api.
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Error from server (NotFound): deployments.apps \"organization-api\" not found' >&2; return 1 ;; esac; };
+  organisatie_api_stabiel() { false; }; platform_op") || code=$?
+gelijk "platform_op: na een verse uitrol ook wachten op organization-api: exit 1" 1 "$code"
+bevat "platform_op: na een verse uitrol: eerst uitgerold" "UITROL deploy local" "$uitvoer"
+bevat "platform_op: na een verse uitrol: dan gewacht op organization-api" "circuit breaker" "$uitvoer"
+# Dicht op één moment is niet genoeg: de breaker kan een peiling later alsnog opengaan.
+# Aangeroepen zoals wacht_tot het doet: daar staat errexit in de functie uit.
+STABIEL_STUBS='sleep() { :; }; authz_worker_gereed() { [ -z "${WORKER_NIET_GEREED:-}" ]; };
+organisatie_api_open() { echo x >>"$XDG_CACHE_HOME/peilingen"; n=$(wc -l <"$XDG_CACHE_HOME/peilingen"); [ "$n" != "${FAALT_BIJ:-0}" ]; };'
+for geval in '0|0|4' '1|1|1' '3|1|3' '4|1|4'; do
+  IFS='|' read -r bij verwacht peilingen <<<"$geval"
+  rm -f "$TESTCACHE/peilingen"
+  code=0
+  uitvoer=$(FAALT_BIJ=$bij in_script "$STABIEL_STUBS if organisatie_api_stabiel; then exit 0; else exit 1; fi") || code=$?
+  gelijk "organisatie_api_stabiel: peiling $bij open (0 = geen): exit $verwacht" "$verwacht" "$code"
+  gelijk "organisatie_api_stabiel: peiling $bij open: $peilingen peiling(en)" "$peilingen" "$(wc -l <"$TESTCACHE/peilingen")"
+done
+rm -f "$TESTCACHE/peilingen"
+code=0
+uitvoer=$(WORKER_NIET_GEREED=1 in_script "$STABIEL_STUBS if organisatie_api_stabiel; then exit 0; else echo \"\$ORG_API_LAATSTE\"; exit 1; fi") || code=$?
+gelijk "organisatie_api_stabiel: authz-worker niet gereed: exit 1" 1 "$code"
+gelijk "organisatie_api_stabiel: authz-worker niet gereed: geen peiling van organization-api" 0 "$( [ -f "$TESTCACHE/peilingen" ] && wc -l <"$TESTCACHE/peilingen" || echo 0)"
+bevat "organisatie_api_stabiel: authz-worker niet gereed: zegt dat" "authz-worker niet gereed" "$uitvoer"
+rm -f "$TESTCACHE/peilingen"
+# Van de pods, niet van de Deployment: die toont na een hervatting nog de stand van vóór de pauze.
+for geval in 'authz-worker-1 - True|0' 'authz-worker-1 - False|1' '|1'; do
+  code=0
+  uitvoer=$(in_script "kcp() { echo \"KCP \$*\" >>\"\$XDG_CACHE_HOME/kcp\"; printf '%s\\n' '${geval%|*}'; }; if authz_worker_gereed; then exit 0; else exit 1; fi") || code=$?
+  gelijk "authz_worker_gereed: '${geval%|*}': exit ${geval#*|}" "${geval#*|}" "$code"
+done
+bevat "authz_worker_gereed: kijkt naar de pods van de worker" "-n fundament get pods -l app.kubernetes.io/name=authz-worker" "$(cat "$TESTCACHE/kcp")"
+rm -f "$TESTCACHE/kcp"
+uitvoer=$(in_script 'sleep() { echo "SLAAP $1"; }; authz_worker_gereed() { true; }; organisatie_api_open() { true; }; organisatie_api_stabiel')
+gelijk "organisatie_api_stabiel: 15 s tussen eerste en laatste peiling" 3 "$(grep -c '^SLAAP 5$' <<<"$uitvoer")"
+OPEN_STUBS='mkcert_caroot() { echo /ca; };'
+for geval in 'unauthenticated|0' 'unavailable|1'; do
+  code=0
+  uitvoer=$(in_script "$OPEN_STUBS curl() { echo '{\"code\":\"${geval%|*}\"}'; }; organisatie_api_open") || code=$?
+  gelijk "organisatie_api_open: ${geval%|*}: exit ${geval#*|}" "${geval#*|}" "$code"
+done
+code=0
+uitvoer=$(in_script "$OPEN_STUBS curl() { echo 'no healthy upstream'; }; organisatie_api_open") || code=$?
+gelijk "organisatie_api_open: Envoy zonder backend: exit 1" 1 "$code"
+code=0
+uitvoer=$(in_script "$OPEN_STUBS curl() { echo '{\"code\":\"unauthenticated\"}'; return 7; }; organisatie_api_open") || code=$?
+gelijk "organisatie_api_open: curl faalt: exit 1" 1 "$code"
+uitvoer=$(in_script "$OPEN_STUBS curl() { echo \"CURL \$*\" >&2; echo '{}'; }; organisatie_api_open || true; echo \"\$ORG_API_LAATSTE\"") || true
+bevat "organisatie_api_open: curl met melding (-sS)" "CURL -sS " "$uitvoer"
+bevat "organisatie_api_open: vraagt organization-api zonder token" "organization.fundament.localhost:8443/organization.v1.OrganizationService/ListOrganizations" "$uitvoer"
+bevat_niet "organisatie_api_open: zonder token" "Authorization" "$uitvoer"
+bevat_niet "organisatie_api_open: zonder token, ook niet uit een bestand" " -H @" "$uitvoer"
+# wacht_tot kijkt pas tussen twee pogingen naar de klok; een curl zonder limiet houdt op vast.
+bevat "organisatie_api_open: met een tijdslimiet" "--max-time " "$uitvoer"
+bevat "organisatie_api_open: als Connect-POST" "-X POST" "$uitvoer"
+bevat "organisatie_api_open: met de CA van mkcert" "--cacert /ca/rootCA.pem" "$uitvoer"
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; platform_op") || code=$?
 gelijk "platform_op: al uitgerold: exit 0" 0 "$code"
@@ -896,6 +1137,20 @@ for bestand in "${GECONTROLEERDE_SCRIPTS[@]}"; do
     grep -vE '^[0-9]+:[[:space:]]*(kc|kcp|hm|kconfig)\(\)' || true)
   gelijk "geen kale kubectl/helm in $(basename "$bestand")" "" "$kaal"
 done
+
+echo "== de README noemt de worktree van de pin =="
+
+# De blokken om te pauzeren en te herstarten gaan naar de worktree van Fundament; na een ophoging
+# van FUNDAMENT_REF zou een oud pad naar een map wijzen die er niet meer is.
+pin=$(sed -nE 's/^FUNDAMENT_REF=\$\{FUNDAMENT_REF:-([0-9a-f]{8})[0-9a-f]{32}\}$/\1/p' "$HIER/../fundament-testcluster.sh")
+paden=$(grep -E '^[[:space:]]*\(?cd .*fbs-fundament-testcluster/fundament-' "$HIER/../README.md" || true)
+gelijk "de pin is te lezen uit het script" 8 "${#pin}"
+gelijk "de README heeft blokken met de worktree" 1 "$([ -n "$paden" ] && echo 1 || echo 0)"
+gelijk "elk blok noemt de worktree van de pin" "" "$(grep -v "/fundament-$pin\"" <<<"$paden" || true)"
+# Elk blok met k3d gaat eerst naar de worktree en daarna terug; buiten die map vindt mise geen k3d.
+k3d_blokken=$(grep -cE '^mise exec -- k3d cluster stop ' "$HIER/../README.md" || true)
+gelijk "elk k3d-blok gaat naar de worktree" "$k3d_blokken" "$(grep -c . <<<"$paden")"
+gelijk "elk k3d-blok gaat daarna terug" "$k3d_blokken" "$(grep -cxE 'cd -' "$HIER/../README.md" || true)"
 
 echo "== geen umask voor het hele proces =="
 

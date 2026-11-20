@@ -26,6 +26,10 @@ set -euo pipefail
 # Met deze variabele schrijven Fundaments recipes hun contexten in de kubeconfig van de aanroeper
 # (zonder KUBECONFIG ~/.kube/config) en wisselen ze daar de huidige context. Hij is voor hun test-VM.
 unset FUNDAMENT_TEST_ENV
+# Deze gaan in functl vóór zijn configuratie in FUNCTL_CONFIG_DIR. Uit de shell van de gebruiker
+# zouden ze een key van een echt platform meegeven, of functl daarheen sturen; en een geweigerde key
+# uit de omgeving blijft gelden na een nieuwe login. FUNCTL_URL zet hun mise.toml zelf.
+unset FUNDAMENT_API_KEY FUNCTL_API_ENDPOINT FUNCTL_AUTHN_URL FUNCTL_REGISTRY_URL
 
 CHARTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$CHARTS/.." && pwd)
@@ -39,7 +43,7 @@ readonly PLATFORM_CONTEXT=k3d-fundament
 readonly NS=tnt-fbs--fbs
 HTTPS_POORT=${HTTPS_POORT:-9443}
 FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
-FUNDAMENT_REF=${FUNDAMENT_REF:-e18ad710f62966769f03bf5a9505ce4c91f198b0}
+FUNDAMENT_REF=${FUNDAMENT_REF:-b363604dbed1d3d389504e5bb9e1b48e800618b6}
 # Fundament neemt anders 172.19.0.0/16, alleen om 172.18 (Gardener) te ontwijken; op een machine met
 # meer compose-projecten is dat subnet vaak al bezet. Hun cluster-create leest dezelfde variabele.
 export FUNDAMENT_K3D_SUBNET=${FUNDAMENT_K3D_SUBNET:-172.29.0.0/16}
@@ -216,6 +220,45 @@ console_antwoordt() {
   curl -sf -o /dev/null --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" https://console.fundament.localhost:8443/
 }
 
+# organization-api heeft een circuit breaker vóór de authenticatie: die peilt om de 2 s de oudste
+# open rij in de authz-outbox, en weigert elk verzoek met unavailable zolang die ouder is dan 5 s.
+# Een verzoek zonder token krijgt bij een dichte breaker unauthenticated.
+organisatie_api_antwoord() {
+  curl -sS --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" -X POST \
+    https://organization.fundament.localhost:8443/organization.v1.OrganizationService/ListOrganizations \
+    -H 'Content-Type: application/json' -d '{}'
+}
+
+# Het laatst geziene antwoord, voor de melding als het wachten opgeeft.
+ORG_API_LAATSTE=""
+
+organisatie_api_open() {
+  ORG_API_LAATSTE=$(organisatie_api_antwoord 2>&1) || return 1
+  [ "$(connect_code "$ORG_API_LAATSTE")" = unauthenticated ]
+}
+
+# Van de pods, niet van de Deployment: die toont na een hervatting nog de stand van vóór de pauze.
+# De worker wordt pas gereed nadat hij OpenFGA bereikte, vlak voordat hij mislukte outbox-rijen
+# terugzet op pending.
+authz_worker_gereed() {
+  alle_pods_gereed "$(kcp -n fundament get pods -l app.kubernetes.io/name=authz-worker \
+    -o jsonpath='{range .items[*]}{.metadata.name} - {.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null)"
+}
+
+# Een dichte breaker op één moment zegt na een hervatting niet genoeg. Zodra de authz-worker OpenFGA
+# bereikt, zet hij mislukte rijen terug op pending met hun oude tijd, en gaat de breaker binnen een
+# peiling alsnog open. Daarom eerst een gereede worker, en dan vier peilingen over 15 s, waarin
+# worker en breaker samen ruim de tijd hebben om te reageren.
+organisatie_api_stabiel() {
+  local poging
+
+  for poging in 1 2 3 4; do
+    [ "$poging" = 1 ] || sleep 5
+    authz_worker_gereed || { ORG_API_LAATSTE="(authz-worker niet gereed)"; return 1; }
+    organisatie_api_open || return 1
+  done
+}
+
 platform_maken() {
   fj cluster-create || stop 2 "het platform aanmaken faalde (melding hierboven)"
   # Meteen, niet pas na de uitrol: die bouwt de eerste keer lang, met een eventueel open poort.
@@ -254,6 +297,10 @@ platform_op() {
 
   wacht_tot 900 "console bereikbaar op https://console.fundament.localhost:8443" console_antwoordt ||
     stop 1 "de console antwoordt niet; zie: $KC_PLATFORM -n fundament get pods"
+  wacht_tot 300 "organization-api handelt verzoeken af" organisatie_api_stabiel || {
+    echo "Laatste peiling van organization-api, zonder token: ${ORG_API_LAATSTE:0:300}" >&2
+    stop 1 "organization-api handelt geen verzoeken af (een open circuit breaker geeft unavailable); zie: $KC_PLATFORM -n fundament logs deploy/organization-api, en $KC_PLATFORM -n fundament logs deploy/authz-worker"
+  }
 
   alleen_loopback ||
     stop 2 "het platform publiceert poorten op alle adressen (hierboven); ruim het op met: $0 af --met-platform"
@@ -268,15 +315,28 @@ platform_op() {
 # tweede met dezelfde (already_exists).
 api_key_maken() {
   local ca token antwoord naam
-  ca="$(mkcert_caroot)/rootCA.pem"
+  ca=$(mkcert_caroot) || { echo "mkcert vindt zijn CA niet (mkcert -CAROOT)" >&2; return 1; }
+  ca=$ca/rootCA.pem
   naam=fbs-fundament-testcluster-$(date -u +%Y%m%dT%H%M%S)-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')
 
-  token=$(curl -sf --cacert "$ca" -X POST https://authn.fundament.localhost:8443/login/password \
-    -H 'Content-Type: application/json' -d '{"email":"platform-admin@fundament.io","password":"password"}' |
-    jq -er .access_token) || return 1
+  # Met de melding van curl en het foutantwoord: zonder sessie vraagt `functl auth status` het
+  # platform niets, dus dit is de eerste aanroep die merkt dat authn niet antwoordt.
+  antwoord=$(curl -sS --fail-with-body --max-time 30 --cacert "$ca" -X POST \
+    https://authn.fundament.localhost:8443/login/password -H 'Content-Type: application/json' \
+    -d '{"email":"platform-admin@fundament.io","password":"password"}') || {
+    # curl kan ook na een geslaagd antwoord falen (timeout tijdens de body, verbinding weg).
+    # Op tekst, niet als JSON: ook een afgekapt antwoord kan het token al bevatten.
+    case "$antwoord" in
+      *access_token*) echo "login/password: antwoord met token niet getoond" >&2 ;;
+      *) printf '%s\n' "$antwoord" >&2 ;;
+    esac
+    return 1
+  }
+  # Een geslaagd antwoord niet tonen: daar staat een token in.
+  token=$(jq -er .access_token <<<"$antwoord" 2>/dev/null) || { echo "login/password: geen access_token in het antwoord" >&2; return 1; }
 
   printf 'Authorization: Bearer %s\n' "$token" >"$WERK/auth-header"
-  antwoord=$(curl -s --cacert "$ca" -X POST \
+  antwoord=$(curl -sS --max-time 30 --cacert "$ca" -X POST \
     https://organization.fundament.localhost:8443/organization.v1.APIKeyService/CreateAPIKey \
     -H 'Content-Type: application/json' -H @"$WERK/auth-header" \
     -H "Fun-Organization: $SYSTEM_ORGANISATIE_ID" -H "Idempotency-Key: $(nieuw_uuid)" \
@@ -297,22 +357,38 @@ api_key_maken() {
 functl_inloggen() {
   stap "functl"
 
-  local uitvoer key=${FUNCTL_API_KEY:-}
-
-  # `functl auth status` slaagt ook zonder login; `org set` vraagt een geldige sessie.
-  if [ -z "$key" ] && uitvoer=$(fj functl org set "$SYSTEM_ORGANISATIE_ID" 2>&1); then
-    echo "OK: functl was al ingelogd"
-    return
-  fi
+  local uitvoer sessie key=${FUNCTL_API_KEY:-}
 
   if [ -z "$key" ]; then
-    [ "$(functl_fout_soort "$uitvoer")" = niet-ingelogd ] || { echo "$uitvoer" >&2; stop 1 "functl org set faalde"; }
-    key=$(api_key_maken) || stop 1 "kon geen API-key maken met het seed-account platform-admin@fundament.io"
+    # Alleen stdout is JSON; mise zet FUNCTL_DEBUG aan, en de debuglog gaat naar stderr. Een exit
+    # die niet 0 is, betekent dat functl het niet kon controleren (platform onbereikbaar, config
+    # onleesbaar) of zelf niet draaide: dan geen nieuwe key, want die lost dat niet op en verbergt
+    # de oorzaak.
+    uitvoer=$(fj functl auth status -o json 2>"$WERK/functl-status.err") || {
+      cat "$WERK/functl-status.err" >&2
+      stop 1 "functl kon de sessie niet controleren (melding hierboven)"
+    }
+    sessie=$(functl_sessie "$uitvoer") || {
+      cat "$WERK/functl-status.err" >&2
+      printf '%s\n' "$uitvoer" >&2
+      stop 1 "onbekend antwoord van functl auth status -o json (hierboven); is FUNDAMENT_REF van vóór fundament-oss/fundament#661?"
+    }
+
+    if [ "$sessie" = ingelogd ]; then
+      # De sessie is hierboven getoetst; dit kiest alleen de organisatie.
+      uitvoer=$(fj functl org set "$SYSTEM_ORGANISATIE_ID" 2>&1) || { echo "$uitvoer" >&2; stop 1 "functl org set faalde"; }
+      echo "OK: functl was al ingelogd"
+      return
+    fi
+
+    echo "INFO: geen geldige functl-sessie ($(jq -r '.message // .reason' <<<"$uitvoer")); een nieuwe API-key"
+    key=$(api_key_maken) || stop 1 "kon geen API-key maken met het seed-account platform-admin@fundament.io (melding hierboven)"
   fi
 
   uitvoer=$(printf '%s\n' "$key" | fj functl auth login 2>&1) || {
     echo "$uitvoer" >&2
-    stop 1 "functl auth login faalde (na een nieuwe uitrol van het platform is een oude FUNCTL_API_KEY ongeldig)"
+    [ -z "${FUNCTL_API_KEY:-}" ] || stop 1 "functl auth login faalde met FUNCTL_API_KEY; na een nieuwe uitrol van het platform is een oude key ongeldig"
+    stop 1 "functl auth login faalde met een net gemaakte key"
   }
   uitvoer=$(fj functl org set "$SYSTEM_ORGANISATIE_ID" 2>&1) || { echo "$uitvoer" >&2; stop 1 "functl org set faalde"; }
   echo "OK: functl ingelogd voor de organisatie system"
@@ -348,15 +424,24 @@ voorcontrole() {
   fi
 }
 
+# Herstarten via k3d, zoals Fundaments eigen cluster-start, niet met docker restart: k3d zet bij het
+# starten ook de adressen van het netwerk opnieuw in CoreDNS.
+readonly K3D_HERSTART="(cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin)"
+
 # De node moet de registry van de images kunnen opzoeken: de chart haalt ze bij elke start
 # (pullPolicy Always). Docker legt de DNS-server van de host vast bij het starten van een
 # container. Na een wissel van netwerk, zoals op het fieldlab, vraagt de node het dus nog aan de
-# server van het vorige netwerk, en blijft elke nieuwe pod in ImagePullBackOff hangen. Herstarten
-# via k3d, zoals Fundaments eigen cluster-start, niet met docker restart: k3d zet bij het starten
-# ook de adressen van het netwerk opnieuw in CoreDNS.
+# server van het vorige netwerk. Ook na een herstart van de machine, waarna Docker de nodes zelf
+# start (restart-policy unless-stopped), kon de node ghcr.io niet opzoeken. Een pod die zijn image
+# moet ophalen, zoals elke dienst (pullPolicy Always), blijft dan in ImagePullBackOff hangen.
+sandbox_dns_ok() {
+  wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io
+}
+
+readonly DNS_MELDING="de sandbox-node kan ghcr.io niet opzoeken, dus pods die hun image ophalen blijven in ImagePullBackOff hangen. Na een herstart van de machine of een wissel van netwerk helpt een herstart van beide clusters via k3d: $K3D_HERSTART"
+
 sandbox_dns_werkt() {
-  wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io ||
-    stop 1 "de sandbox-node kan ghcr.io niet opzoeken. Na een wissel van netwerk helpt een herstart van beide clusters: (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin)"
+  sandbox_dns_ok || stop 1 "$DNS_MELDING"
 }
 
 # De sandbox van Fundament, maar op Kubernetes 1.36 en met de https-poort van de Gateway op
@@ -795,6 +880,10 @@ controleer() {
   [ -s "$WERK/lokale-ca.crt" ] ||
     kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
 
+  # Anders toont een kapotte DNS zich pas als een rollout die na vijf minuten niet klaar is, zonder
+  # oorzaak; of, na een netwerkwissel zonder herstart, helemaal niet zolang de pods blijven draaien.
+  sandbox_dns_ok || fout "$DNS_MELDING"
+
   local dienst
 
   for dienst in "${DIENSTEN[@]}"; do
@@ -852,14 +941,20 @@ af() {
 
 # Wat er na een proef met de opstelling gebeurt, is een keuze van wie hem draait: laten staan scheelt
 # een volgende keer de opbouw, maar de twee clusters houden ook zonder verkeer de processor wakker
-# (op een laptop op batterij bijna een derde van het verbruik bij stilstand), en met restart-policy
-# unless-stopped komen draaiende clusters na een herstart vanzelf terug. Pauzeren via k3d, zoals
+# (op een laptop op batterij bijna een derde van het verbruik bij stilstand). Na een herstart van de
+# machine start Docker draaiende clusters zelf (restart-policy unless-stopped), en kon de node ghcr.io
+# niet opzoeken (zie sandbox_dns_ok); een herstart via k3d herstelt dat. Pauzeren via k3d, zoals
 # Fundament het doet, niet met docker stop/start.
 na_afloop() {
   cat <<EOF
 
-De opstelling blijft draaien en kost ook zonder verkeer stroom; na een herstart van de machine start
-hij vanzelf weer. Kies:
+De opstelling blijft draaien en kost ook zonder verkeer stroom. Na een herstart van de machine
+start Docker de containers zelf weer, en kunnen pods daarna hun image soms niet ophalen. Herstart
+beide clusters dan via k3d en draai daarna op:
+  $K3D_HERSTART
+  TAG=<tag> $0 op
+
+Kies:
   laten draaien   niets doen
   pauzeren        (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament)
                   hervatten, vóór een volgende op of controleer:
@@ -937,7 +1032,7 @@ main() {
       ;;
     controleer)
       [ "$#" -eq 1 ] || stop 2 "controleer kent geen argumenten"
-      vereis_tools curl
+      vereis_tools curl docker
       [ -f "$KUBECONFIG_LOKAAL" ] ||
         stop 2 "geen opstelling op Fundament ${FUNDAMENT_REF:0:8} ($KUBECONFIG_LOKAAL ontbreekt); zet dezelfde FUNDAMENT_REF als bij op, of draai eerst op"
       werkmap
