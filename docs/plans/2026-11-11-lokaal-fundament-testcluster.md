@@ -384,7 +384,7 @@ Wat er in het script veranderde:
 - **Na een herstart van de machine.** Op 20 november bleven de pods na een herstart 25 uur in
   ImagePullBackOff (`lookup ghcr.io: Try again`), tot `k3d cluster stop`/`start` en een nieuwe
   `op`. Docker start de containers zelf (restart-policy `unless-stopped`), niet k3d, en de nodes
-  konden daarna niet opzoeken. Het slotbericht zei "na een herstart van de machine start hij vanzelf
+  konden ghcr.io daarna niet opzoeken. Het slotbericht zei "na een herstart van de machine start hij vanzelf
   weer"; nu zegt het dat je dan beide clusters via k3d herstart en `op` draait. `controleer` toetst
   ook of de sandbox-node ghcr.io kan opzoeken, met dezelfde remedie. Zonder die toets kan de
   controle groen zijn zolang de pods uit hun cache draaien, en faalt pas hun volgende start.
