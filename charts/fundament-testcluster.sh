@@ -8,6 +8,7 @@
 #
 #   TAG=main-<sha7> charts/fundament-testcluster.sh op        opzetten, installeren, controleren
 #   ... op --rol beheerder|projectlid|beide                    één rol, of beide na elkaar (default)
+#   TAG=main-<sha7> charts/fundament-testcluster.sh demo       daarna: de hele demo (charts/fbs-demo)
 #   charts/fundament-testcluster.sh controleer                 alleen controleren
 #   charts/fundament-testcluster.sh af [--met-platform]        sandbox weg; het platform alleen op verzoek
 #
@@ -869,6 +870,43 @@ hij vanzelf weer. Kies:
 EOF
 }
 
+# --- De demo -------------------------------------------------------------------------------------
+
+# De hele demo (charts/fbs-demo plus vier stelselreleases) op de sandbox, als oefening voor het
+# fieldlab: charts/demo-op-fundament.sh, met wat de sandbox anders vraagt. Draait na `op`, in
+# dezelfde namespace; de ene magazijn-release van die proef maakt plaats voor magazijn A en B.
+demo() {
+  stap "demo: voorbereiden in $NS"
+  hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null 2>&1 || true
+
+  local svc
+  svc=$(kc -n envoy-gateway-system get service \
+    -l "gateway.envoyproxy.io/owning-gateway-name=web,gateway.envoyproxy.io/owning-gateway-namespace=$NS" \
+    -o jsonpath='{.items[0].metadata.name}')
+  [ -n "$svc" ] || stop 1 "geen Service voor de proxy's van Gateway web; draai eerst: $0 op"
+
+  manifest_coredns_demo "$svc.envoy-gateway-system.svc.cluster.local" | kc apply -f - >/dev/null
+  kc -n kube-system rollout restart deployment/coredns >/dev/null
+  kc -n kube-system rollout status deployment/coredns --timeout=2m >/dev/null
+  echo "OK: *.fbs.localhost wijst binnen het cluster naar $svc"
+
+  kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
+  kc -n "$NS" delete secret gateway-ca --ignore-not-found >/dev/null
+  kc -n "$NS" create secret generic gateway-ca --from-file=ca.crt="$WERK/lokale-ca.crt" >/dev/null
+
+  local release
+  mkdir -p "$WERK/demo-values"
+
+  for release in berichtenuitvraag berichtenmagazijn-a berichtenmagazijn-b; do
+    values_demo_lokale_ca >"$WERK/demo-values/$release.yaml"
+  done
+
+  # Via env: NS en HTTPS_POORT zijn hier readonly, en bash weigert dan een toewijzing vóór de opdracht.
+  env KUBECONFIG="$KUBECONFIG_LOKAAL" KUBE_CONTEXT="$SANDBOX_CONTEXT" NS="$NS" TAG="$TAG" BASISDOMEIN=fbs.localhost \
+    GATEWAY_ADRES=127.0.0.1 HTTPS_POORT="$HTTPS_POORT" CA_BESTAND="$WERK/lokale-ca.crt" \
+    EXTRA_VALUES="$WERK/demo-values" "$CHARTS/demo-op-fundament.sh" op
+}
+
 # --- Subcommando's -------------------------------------------------------------------------------
 
 op() {
@@ -935,6 +973,16 @@ main() {
         *) stop 2 "af kent alleen --met-platform" ;;
       esac
       ;;
+    demo)
+      [ "$#" -eq 1 ] || stop 2 "demo kent geen argumenten"
+      : "${TAG:?zet TAG op een main-<sha7> waarvoor alle acht images bestaan}"
+      geen_test_vm
+      vereis_tools curl jq openssl python3 docker
+      [ -f "$KUBECONFIG_LOKAAL" ] ||
+        stop 2 "geen opstelling op Fundament ${FUNDAMENT_REF:0:8} ($KUBECONFIG_LOKAAL ontbreekt); draai eerst op"
+      werkmap
+      demo
+      ;;
     controleer)
       [ "$#" -eq 1 ] || stop 2 "controleer kent geen argumenten"
       vereis_tools curl
@@ -944,7 +992,7 @@ main() {
       controleer
       ;;
     *)
-      echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | controleer | af [--met-platform]" >&2
+      echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | demo | controleer | af [--met-platform]" >&2
       exit 2
       ;;
   esac

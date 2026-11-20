@@ -905,5 +905,22 @@ echo "== geen umask voor het hele proces =="
 umask_regels=$(grep -nE '^[[:space:]]*umask[[:space:]]' "$HIER/../fundament-testcluster.sh" || true)
 gelijk "geen umask in fundament-testcluster.sh" "" "$umask_regels"
 
+echo "== de demo op de sandbox =="
+
+coredns=$(manifest_coredns_demo envoy-x.envoy-gateway-system.svc.cluster.local)
+bevat "CoreDNS: *.fbs.localhost naar de proxy's" \
+  'rewrite name regex (.*)\.fbs\.localhost envoy-x.envoy-gateway-system.svc.cluster.local answer auto' "$coredns"
+bevat "CoreDNS: in coredns-custom, dat k3s inleest" 'name: coredns-custom' "$coredns"
+bevat "CoreDNS: als .override, binnen het standaardblok" 'fbs-demo.override: |' "$coredns"
+
+ca=$(values_demo_lokale_ca)
+bevat "lokale CA via de keystore-mount" 'secretName: gateway-ca' "$ca"
+bevat "lokale CA als trust-store van Quarkus" 'QUARKUS_TLS_TRUST_STORE_PEM_CERTS: /etc/fbs/gateway-ca/ca.crt' "$ca"
+# Een lijst hier zou de lijst uit charts/fbs-demo/stelsel/ vervangen: het register of de CA van de
+# database viel dan stil weg.
+bevat_niet "geen extraVolumes: Helm vervangt lijsten" 'extraVolumes' "$ca"
+bevat_niet "geen extraVolumeMounts" 'extraVolumeMounts' "$ca"
+bevat_niet "geen extraEnvVars" 'extraEnvVars' "$ca"
+
 echo "ASSERTIES=$asserties"
 exit "$mislukt"

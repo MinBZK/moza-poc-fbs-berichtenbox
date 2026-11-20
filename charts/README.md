@@ -18,6 +18,7 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 | `fundament-testcluster.sh` | de drie diensten op een sandbox van Fundament, met de echte plug-ins |
 | `voorbeelden/` | values voor een opzet die niet bij elke installatie hoort, zoals een database uit CloudNativePG |
 | `fbs-demo/` | de demo (berichtenbox, bedieningspaneel, simulator, stubs) naast de drie diensten; zie [`fbs-demo/README.md`](fbs-demo/README.md) |
+| `demo-op-fundament.sh` | de demo installeren en controleren op een cluster van Fundament; zie [`fbs-demo/README.md`](fbs-demo/README.md) |
 
 ## Installeren
 
@@ -248,6 +249,7 @@ via de echte plugin-controller, zoals op het fieldlab. Het ontwerp staat in
 ```bash
 TAG=main-<sha7> charts/fundament-testcluster.sh op       # opzetten, installeren, controleren
 TAG=main-<sha7> charts/fundament-testcluster.sh op --rol projectlid
+TAG=main-<sha7> charts/fundament-testcluster.sh demo      # daarna: de hele demo (fbs-demo)
 charts/fundament-testcluster.sh controleer                # alleen controleren
 charts/fundament-testcluster.sh af                        # sandbox weg; het platform blijft
 charts/fundament-testcluster.sh af --met-platform         # ook het platform
@@ -294,6 +296,18 @@ Waarin het afwijkt van het fieldlab:
 - de namespace draagt Pod Security `restricted`, zoals een namespace van een plug-in, en mist
   de beheerlabels van Fundament: de cluster-worker van het lokale platform ziet de sandbox, en
   verwijdert een namespace met die labels die hij niet kent.
+
+`demo` zet na `op` de hele demo neer met `demo-op-fundament.sh`, in dezelfde namespace, zoals op
+het fieldlab. De ene magazijn-release van `op` maakt plaats voor magazijn A en B. Wat de sandbox
+anders vraagt:
+- **De hostnamen.** `*.fbs.localhost` wijst binnen het cluster nergens heen. Een regel in CoreDNS
+  (`coredns-custom` in `kube-system`) stuurt die namen naar de proxy's van de Gateway. Op het fieldlab
+  doet sslip.io dat via het publieke adres.
+- **Het certificaat.** De lokale CA tekent het, en die vertrouwt de JVM niet. Uitvraag en magazijnen
+  krijgen hem als trust-store (`QUARKUS_TLS_TRUST_STORE_PEM_CERTS`).
+- **Aanmelding en notificatie.** Die stuurt het magazijn niet naar een privé-adres
+  (SSRF-blocklist), en in de sandbox resolveert de Gateway naar een privé-adres. Berichten ophalen
+  werkt wel. Toets aanmelding en notificatie dus op het fieldlab: daar is het adres publiek.
 
 Wat hier kan omdat de routes alleen op loopback staan, maar op het fieldlab een keuze vraagt:
 - **`ingress.allowUnauthenticated=true`.** Op het fieldlab krijgt de Gateway een publiek adres.

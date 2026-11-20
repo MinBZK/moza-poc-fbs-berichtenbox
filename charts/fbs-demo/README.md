@@ -145,6 +145,42 @@ voor dit cluster bestaan, en zet er alleen demo-gegevens achter.
    rm -r "$D"
    ```
 
+## Installeren met het script
+
+`charts/demo-op-fundament.sh` doet de stappen hieronder in één keer, en controleert daarna de demo.
+Alleen de namespace en de Gateway met zijn https-listener maak je zelf (stap 1 en 2).
+
+```bash
+NS=tnt-fbs--demo TAG=main-<sha7> charts/demo-op-fundament.sh op
+NS=tnt-fbs--demo charts/demo-op-fundament.sh controleer      # alleen controleren
+```
+
+`op` doet:
+- **controleert de tag:** bestaan alle acht images op `TAG`;
+- **het basisdomein:** `fbs.<adres-met-streepjes>.sslip.io` uit het adres van de Gateway, of
+  `BASISDOMEIN`;
+- **het certificaat** met de negen namen, als `ISSUER` gezet is;
+- **de databases** `db` en `ldv-uitvraag`. Een Cluster dat er al is, laat het staan; van `db` zet
+  het alleen het aantal verbindingen op 200;
+- **de geheimen**, alleen als ze er nog niet zijn. Het wachtwoord van het paneel staat in het Secret
+  `fbs-demo-bediening` (key `wachtwoord`);
+- **het register en de set** in een tijdelijke map, zodat `demo/generated/` van een lokale demo
+  blijft staan;
+- **de vijf releases**, met `--wait`, en een herstart van uitvraag en stelselregister voor een
+  nieuw register.
+
+`controleer` eist:
+- elke Deployment gereed;
+- via de Gateway: berichtenbox, personalijst en de OpenAPI-documenten bereikbaar; paneel en
+  gereedschap met wachtwoord; een verzoek van een andere site geweigerd; aanleveren, `/q` en het
+  beheer van de simulator niet van buiten;
+- de keten: een sessie voor Garage Van Dijk B.V. (`KETEN_ONTVANGER`), een ophaalronde, en daarna
+  berichten uit minstens twee magazijnen. Het paneel vult de magazijnen kort na het starten; de
+  controle probeert het vijf minuten.
+
+Zonder `KUBE_CONTEXT` gebruikt het script de huidige context van kubectl, en noemt het die bij de
+start. Controleer die naam voordat het verder gaat.
+
 ## Installeren
 
 Eerst de demo, dan het stelsel. De uitvraag en het stelselregister lezen het magazijnregister uit

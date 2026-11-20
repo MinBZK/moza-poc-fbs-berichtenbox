@@ -552,3 +552,40 @@ helm_route_args() {
     --set cluster.gateway.name=web \
     --set cluster.gateway.sectionName=https
 }
+
+# --- De demo op de sandbox (charts/demo-op-fundament.sh) ----------------------------------------
+
+# Op het fieldlab wijst <naam>.<basisdomein> via sslip.io naar het publieke adres van de Gateway.
+# In de sandbox kent CoreDNS *.fbs.localhost niet; deze regel stuurt die namen binnen het cluster
+# naar de Service van de Gateway-proxy's. k3s neemt elk *.override uit coredns-custom op.
+manifest_coredns_demo() {
+  local doel=$1
+
+  cat <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  fbs-demo.override: |
+    rewrite name regex (.*)\.fbs\.localhost $doel answer auto
+EOF
+}
+
+# Op het fieldlab tekent Let's Encrypt het certificaat van de Gateway, en dat vertrouwt de JVM al.
+# In de sandbox tekent de lokale CA het; deze values laten uitvraag en magazijnen die vertrouwen.
+# Via dienst.keystore, niet extraVolumes: Helm vervangt lijsten, en dan viel het register of de CA
+# van de database weg. Het stelselregister roept niemand aan en krijgt dit niet.
+values_demo_lokale_ca() {
+  cat <<'EOF'
+dienst:
+  keystore:
+    enabled: true
+    secretName: gateway-ca
+    key: ca.crt
+    mountPath: /etc/fbs/gateway-ca
+  env:
+    QUARKUS_TLS_TRUST_STORE_PEM_CERTS: /etc/fbs/gateway-ca/ca.crt
+EOF
+}
