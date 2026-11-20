@@ -1375,7 +1375,7 @@ function vulPersonas(personas, uitlezingGelukt) {
  * Een eigen melding en niet die van `meldOnbruikbareLijst`: de lijst kwám binnen en was wél op te
  * halen, er ontbreekt een veld. Met de verkeerde reden afhaken stuurt de bediener de andere kant
  * op. Het label van de eerste die iets mist wijst de inrichting aan; de lijst zelf blijft uit de
- * console-regel, want daar staan de identificatienummers in. */
+ * console-regel: wat het antwoord er later bij krijgt, bepaalt dit script niet. */
 function heeftAlleVelden(bron, personas, velden, keuze, knop, keuzeId) {
     // `!persona ||` vóór de rest: een null in de lijst zou anders een TypeError geven, die de
     // aanroeper opvangt en als "niet als lijst binnengekomen" toont — weer de verkeerde diagnose.
@@ -1428,8 +1428,8 @@ function vulBerichtPersonas(personas, uitlezingGelukt) {
  * houdt, en alleen het tweede geval is een dode bediening die blijft staan. Altijd loggen, ook bij
  * `null`: anders is "de console antwoordde met null" van de andere twee niet te onderscheiden. */
 function meldOnbruikbareLijst(veld, waarde, keuze, knop, keuzeId, uitlezingGelukt) {
-    // De vorm en niet de waarde: die kan het antwoord zijn dát binnenkwam, met de
-    // identificatienummers van de persona's erin, en de browserconsole is daar geen plek voor.
+    // De vorm en niet de waarde: die kan elk antwoord zijn dat binnenkwam, en wat daarin staat
+    // bepaalt dit script niet; de browserconsole is daar geen plek voor.
     // `null` apart, want `typeof null` is `'object'` — juist het onderscheid dat hierboven de reden
     // is om altijd te loggen zou anders wegvallen.
     const vorm = waarde === null ? 'null' : typeof waarde;
@@ -1716,7 +1716,7 @@ function geleden(tijd) {
     return 'om ' + new Date(tijd).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 }
 
-/* Alleen tijd en inhoud; de persona's zijn daarin al door `personaInfo` ontdaan van hun nummers.
+/* Alleen tijd en inhoud; de persona's zijn daarin al door `personaInfo` tot id, label en magazijnvlag beperkt.
  * Storage kan gooien wanneer site-data geblokkeerd is; het blad werkt dan zonder geheugen. */
 function bewaarInfo() {
     const bewaard = {};
@@ -2237,10 +2237,10 @@ function klokTijd(moment) {
     return 'om ' + tijd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-/* Per persona alleen de id, het label en of er een echt magazijn voor is. Nooit de persona zelf: die
- * draagt ook zijn BSN of KVK-nummer, en dit belandt in sessionStorage. De id is een naam en nooit een
- * nummer (de personadienst weigert er een); hij koppelt de persona's aan de berichtpersona's en aan
- * de lopende sessies. */
+/* Per persona alleen de id, het label en of er een echt magazijn voor is: dit belandt in
+ * sessionStorage, en daar hoort niets in dat het omgevingsantwoord er later bij zou krijgen. De id
+ * is een naam (de personadienst weigert een kale reeks van acht of negen cijfers); hij koppelt de
+ * persona's aan de berichtpersona's en aan de lopende sessies. */
 function personaInfo(omgeving) {
     if (!omgeving || typeof omgeving !== 'object' || !Array.isArray(omgeving.personas)) return null;
 
