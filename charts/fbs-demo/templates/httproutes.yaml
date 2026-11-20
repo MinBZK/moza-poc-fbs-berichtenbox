@@ -7,8 +7,10 @@ De routes van de demo, elk op <naam>.<basisdomein> en aan één benoemde listene
   de uitvraag gebruikt (lezen, status wijzigen, verwijderen): aanleveren (POST) en /beheer blijven
   binnen het cluster.
 - profiel: de stub rechtstreeks, voor de magazijnen.
-- toxiproxy-profiel, notificatie, aanmelding: via Toxiproxy, zodat een storingsknop ook dit
-  verkeer raakt. Het magazijn eist https en een publiek adres.
+- toxiproxy-profiel: de stub via Toxiproxy, voor de uitvraag.
+- notificatie, aanmelding: via Toxiproxy, voor de magazijnen.
+Via Toxiproxy raakt een storingsknop ook dit verkeer. Buiten het profiel dev eisen uitvraag en
+magazijn https; het magazijn ook een publiek adres.
 Uitvraag, magazijnen en stelselregister krijgen hun route van fbs-dienst (stelsel/).
 */}}
 {{- $toxiproxy := include "fbs-demo.naam" (dict "context" . "onderdeel" "toxiproxy") }}

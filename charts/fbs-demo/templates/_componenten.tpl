@@ -17,7 +17,7 @@ Per onderdeel:
   inkomend     per regel: van pods met het clientlabel van `label`, of van de Gateway; met poorten
   uitgaand     TCP-poorten naar elke bestemming (de NetworkPolicy ziet de poort van de pod)
 
-Alles draait met één replica: console, simulator en Toxiproxy houden toestand in het geheugen
+Alles draait met één replica: het paneel, de simulator en Toxiproxy houden toestand in het geheugen
 (tempo, gedrag, proxies), en twee replica's zouden die per verzoek anders tonen.
 */}}
 {{- define "fbs-demo.componenten" -}}
@@ -125,7 +125,7 @@ proeftuin:
   # Het entrypoint van nginx schrijft de config bij het starten in conf.d.
   schrijfbaar: [/tmp, /etc/nginx/conf.d]
   env:
-    # De standaarden in het image wijzen naar de testomgeving op ZAD. De demo-proxy vangt
+    # De standaardwaarden in het image wijzen naar de testomgeving op ZAD. De demo-proxy vangt
     # /api/v1 en /api/demo al af; deze adressen gelden alleen als er toch iets hier aankomt.
     - {name: BACKEND_KETEN, value: "http://{{ $uitvraagFqdn }}:{{ $s.servicePoort }}"}
     - {name: BACKEND_KETEN_HOST, value: {{ $uitvraagFqdn | quote }}}

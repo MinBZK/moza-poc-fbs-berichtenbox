@@ -261,3 +261,118 @@ test_route_naar_benoemde_poort_tussen_meerdere_faalt if {
 		gateway_np("toxiproxy", [18089]),
 	])
 }
+
+# --- Gateway, routes en kleppen (vervolg) ---
+
+test_gateway_selectie_per_pod if {
+	d := object.union(pod("toxiproxy", {}, []), {"spec": {"template": {"spec": {"containers": [{"name": "c", "ports": [{"name": "aanmeld", "containerPort": 18086}]}]}}}})
+	deny == {"HTTPRoute 'aanmelding' wijst naar toxiproxy:18086, maar de NetworkPolicy van 'toxiproxy' laat de Gateway niet binnen op poort 18086"} with input as als_invoer([
+		route_obj("aanmelding", "aanmelding.x.nl", "toxiproxy", 18086),
+		svc("toxiproxy", 18086, "aanmeld"),
+		d,
+		pod("anders", {}, []),
+		gateway_np("toxiproxy", [18089]),
+		gateway_np("anders", [18086]),
+	])
+}
+
+test_gateway_uit_twee_namespaces_faalt if {
+	np2 := object.union(gateway_np("b", [80]), {"spec": {"ingress": [{"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "gw2"}}}], "ports": [{"port": 80}]}]}})
+	deny == {`De NetworkPolicies laten de Gateway uit verschillende namespaces binnen: ["{\"kubernetes.io/metadata.name\":\"gw\"}", "{\"kubernetes.io/metadata.name\":\"gw2\"}"]`} with input as als_invoer([
+		gateway_np("a", [80]),
+		np2,
+	])
+}
+
+test_klep_via_value_from_faalt if {
+	deny == {"Deployment 'uitvraag' zet FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT; de demo laat alleen FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT toe"} with input as als_invoer([
+		met_env(pod("uitvraag", {}, []), [{"name": "FBS_LDV_UNSAFE_ALLOW_PLAINTEXT_ENDPOINT", "valueFrom": {"configMapKeyRef": {"name": "x", "key": "y"}}}]),
+	])
+}
+
+test_https_adres_dieper_onder_het_domein_faalt if {
+	deny == {"Deployment 'uitvraag' zet MAGAZIJN_A_URL op https://berichtenmagazijn-a.demo.x.nl, maar geen HTTPRoute heeft hostnaam berichtenmagazijn-a.demo.x.nl"} with input as als_invoer([
+		route_obj("profiel", "profiel.x.nl", "p", 8080),
+		svc("p", 8080, 8080),
+		met_poort(pod("p", {}, []), "http", 8080),
+		gateway_np("p", [8080]),
+		met_env(pod("uitvraag", {}, []), [{"name": "MAGAZIJN_A_URL", "value": "https://berichtenmagazijn-a.demo.x.nl"}]),
+	])
+}
+
+test_schema_zonder_magazijn_faalt if {
+	every invoer in [
+		[met_env(pod("console", {}, []), [{"name": "MAGAZIJN_A_DB_SCHEMA", "value": "magazijn_a"}])],
+		[
+			met_env(pod("console", {}, []), [{"name": "MAGAZIJN_A_DB_SCHEMA", "value": "magazijn_a"}]),
+			met_env(pod("berichtenmagazijn-a", {}, []), [{"name": "MAGAZIJN_OIN", "value": "1"}]),
+		],
+	] {
+		deny == {"Deployment 'console' leegt schema magazijn_a van berichtenmagazijn-a, maar er is geen Deployment berichtenmagazijn-a met DB_SCHEMA"} with input as als_invoer(invoer)
+	}
+}
+
+route_met(naam, labelnaam, regels) := {
+	"kind": "HTTPRoute",
+	"metadata": {"name": naam, "labels": {"app.kubernetes.io/name": labelnaam}},
+	"spec": {"hostnames": ["x.nl"], "rules": regels},
+}
+
+pad(type, waarde) := {"path": {"type": type, "value": waarde}}
+
+test_simulator_met_de_drie_methoden_slaagt if {
+	count(deny) == 0 with input as als_invoer([route_met("sim", "simulator", [{"matches": [
+		object.union(pad("PathPrefix", "/magazijn/"), {"method": "GET"}),
+		object.union(pad("PathPrefix", "/magazijn/"), {"method": "PATCH"}),
+		object.union(pad("PathPrefix", "/magazijn/"), {"method": "DELETE"}),
+	]}])])
+}
+
+test_simulator_met_andere_methode_faalt if {
+	every geval in [
+		{"match": object.union(pad("PathPrefix", "/magazijn/"), {"method": "POST"}), "getoond": "POST"},
+		{"match": object.union(pad("PathPrefix", "/magazijn/"), {"method": "PUT"}), "getoond": "PUT"},
+		{"match": pad("PathPrefix", "/magazijn/"), "getoond": "elke"},
+	] {
+		deny == {sprintf("HTTPRoute 'sim' laat methode '%s' door; alleen GET, PATCH en DELETE", [geval.getoond])} with input as als_invoer([route_met("sim", "simulator", [{"matches": [
+			object.union(pad("PathPrefix", "/magazijn/"), {"method": "GET"}),
+			object.union(pad("PathPrefix", "/magazijn/"), {"method": "PATCH"}),
+			object.union(pad("PathPrefix", "/magazijn/"), {"method": "DELETE"}),
+			geval.match,
+		]}])])
+	}
+}
+
+test_simulator_zonder_patch_faalt if {
+	deny == {`HTTPRoute 'sim' mist methode(n) ["PATCH"]; de uitvraag gebruikt ze`} with input as als_invoer([route_met("sim", "simulator", [{"matches": [
+		object.union(pad("PathPrefix", "/magazijn/"), {"method": "GET"}),
+		object.union(pad("PathPrefix", "/magazijn/"), {"method": "DELETE"}),
+	]}])])
+}
+
+test_magazijn_alleen_berichten_slaagt if {
+	count(deny) == 0 with input as als_invoer([route_met("m", "berichtenmagazijn", [{"matches": [pad("PathPrefix", "/api/v1/berichten"), pad("Exact", "/openapi.json")]}])])
+}
+
+test_magazijn_met_ander_pad_faalt if {
+	every waarde in ["/api/v1/aanleveringen", "/api/v1", "/api", "/"] {
+		deny == {sprintf(`HTTPRoute 'm' laat %s door; alleen ["/api/v1/berichten", "/openapi.json"]`, [waarde])} with input as als_invoer([route_met("m", "berichtenmagazijn", [{"matches": [pad("PathPrefix", "/api/v1/berichten"), pad("PathPrefix", waarde)]}])])
+	}
+}
+
+test_streams_met_0s_en_rest_met_grens_slaagt if {
+	count(deny) == 0 with input as als_invoer([route_met("demo", "demo", [
+		{"matches": [pad("PathPrefix", "/")], "timeouts": {"request": "5m"}},
+		{"matches": [pad("Exact", "/api/v1/berichten/_ophalen"), pad("Exact", "/api/v1/berichten/_volgen")], "timeouts": {"request": "0s"}},
+	])])
+}
+
+test_streams_omgedraaid_faalt if {
+	deny == {
+		"HTTPRoute 'demo': / zonder grens op de request-timeout; alleen de streams",
+		"HTTPRoute 'demo': stream /api/v1/berichten/_ophalen zonder timeouts.request 0s; Envoy breekt hem anders af",
+	} with input as als_invoer([route_met("demo", "demo", [
+		{"matches": [pad("PathPrefix", "/")], "timeouts": {"request": "0s"}},
+		{"matches": [pad("Exact", "/api/v1/berichten/_ophalen")], "timeouts": {"request": "5m"}},
+	])])
+}

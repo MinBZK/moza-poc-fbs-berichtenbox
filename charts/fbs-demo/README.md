@@ -34,7 +34,7 @@ eisen ze dat. Het magazijn eist daarnaast een publiek adres:
 
 | Hostnaam | Naar | Voor |
 |---|---|---|
-| `berichtenmagazijn-a.<basisdomein>`, `berichtenmagazijn-b.<basisdomein>` | magazijn A (RVO) en B (Belastingdienst), alleen `/api/v1/berichten` | de uitvraag |
+| `berichtenmagazijn-a.<basisdomein>`, `berichtenmagazijn-b.<basisdomein>` | magazijn A (RVO) en B (Belastingdienst), alleen `/api/v1/berichten` en `/openapi.json` | de uitvraag |
 | `simulator.<basisdomein>` | de 98 gesimuleerde magazijnen, alleen `/magazijn/` en alleen lezen, status wijzigen en verwijderen | de uitvraag |
 | `profiel.<basisdomein>` | de profiel-stub | de magazijnen |
 | `toxiproxy-profiel.<basisdomein>` | de profiel-stub, via Toxiproxy | de uitvraag |
@@ -122,13 +122,15 @@ voor dit cluster bestaan, en zet er alleen demo-gegevens achter.
 
    ```bash
    D=$(mktemp -d) && umask 077
-   openssl rand -hex 32 >"$D/redis-wachtwoord"
-   openssl rand -hex 32 >"$D/beheer-token"
+   # Zonder regelovergang: die kwam anders wel in de env van de uitvraag, maar niet in het
+   # wachtwoord van Redis, en dan weigert Redis.
+   openssl rand -hex 32 | tr -d '\n' >"$D/redis-wachtwoord"
+   openssl rand -hex 32 | tr -d '\n' >"$D/beheer-token"
    kubectl -n $NS create secret generic fbs-demo-geheimen \
      --from-file=REDIS_PASSWORD="$D/redis-wachtwoord" --from-file=BEHEER_TOKEN="$D/beheer-token"
 
    # Het bedieningspaneel staat op een publiek adres: een lang, willekeurig wachtwoord.
-   openssl rand -base64 24 >"$D/paneel-wachtwoord"
+   openssl rand -base64 24 | tr -d '\n' >"$D/paneel-wachtwoord"
    printf 'demo:%s\n' "$(openssl passwd -6 -stdin <"$D/paneel-wachtwoord")" >"$D/htpasswd"
    kubectl -n $NS create secret generic fbs-demo-bediening --from-file=htpasswd="$D/htpasswd"
    cat "$D/paneel-wachtwoord"   # in de wachtwoordkluis van het team
@@ -244,15 +246,24 @@ De Redis-knop kondigt zich niet aan in Mattermost: dat hoort bij de bewaakte tes
 ## Wat er publiek staat
 
 De Gateway krijgt op het fieldlab een publiek adres. Daarachter staat:
-- **zonder wachtwoord:** de berichtenbox, de personalijst, de uitvraag, het lezen van de magazijnen
-  en de simulator, de stubs en het stelseldocument. Zoals op ZAD: de API's authenticeren hun
-  aanroepers niet. Wie de uitvraag bereikt, leest met elk demo-nummer in `X-Ontvanger` de
-  berichten. Zet er daarom alleen demo-gegevens achter. Aanleveren kan alleen binnen het cluster,
-  via het paneel;
+- **zonder wachtwoord:**
+  - de berichtenbox, de personalijst, de uitvraag, de stubs en het stelseldocument;
+  - bij de magazijnen en de simulator: berichten lezen, de status wijzigen en verwijderen.
+
+  Zoals op ZAD: de API's authenticeren hun aanroepers niet. Wie de uitvraag bereikt, leest en
+  wijzigt met elk demo-nummer in `X-Ontvanger` de berichten van die persona. Zet er daarom alleen
+  demo-gegevens achter. Aanleveren kan alleen binnen het cluster, via het paneel;
+- **de aanmelding** (`aanmelding.<basisdomein>`): de webhook waarmee een magazijn een nieuw
+  bericht meldt. Hij moet publiek bereikbaar zijn, want het magazijn eist een publiek adres. Wie
+  hem kent, zet een bericht in de sessiecache van een persona die net heeft opgehaald, met een
+  onderwerp naar keuze. Zo is het ook op ZAD. Een `SecurityPolicy` van Envoy Gateway die alleen
+  het uitgaande adres van het cluster toelaat, sluit dat af; die hangt af van wat Fundament
+  daarvoor biedt. De demo-proxy zet deze webhook niet open;
 - **met wachtwoord:** het paneel en zijn gereedschap, ook `/q` van het paneel onder
-  `/bediening/q/`. De knop *legen* wist de magazijnen. Een verzoek van een andere site weigert de
-  proxy, ook met een opgeslagen wachtwoord (CSRF). Het wachtwoord gaat niet door naar de diensten
-  erachter;
+  `/bediening/q/`. De knop *legen* wist de magazijnen. Een verzoek dat een andere site veroorzaakt
+  (CSRF), weigert de proxy, ook met een opgeslagen wachtwoord. Hij kijkt daarvoor naar
+  `Sec-Fetch-Site` en `Origin`. Een gewone link naar het paneel werkt wel. Het wachtwoord gaat niet
+  door naar de diensten erachter;
 - **alleen binnen het cluster:** `/q` van de andere diensten, het beheer van de simulator (met
   `BEHEER_TOKEN`) en de beheer-API van Toxiproxy. Die laatste heeft geen authenticatie, en alleen
   het paneel mag erbij.

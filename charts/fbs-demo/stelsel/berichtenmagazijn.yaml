@@ -30,7 +30,7 @@ ingress:
   # De uitvraag spreekt de magazijnen over https aan, dus via de Gateway. Alleen proefgegevens.
   enabled: true
   allowUnauthenticated: true
-  # Alleen wat de uitvraag gebruikt. Zonder deze lijst staat heel /api/v1 open, ook aanleveren: dan
+  # Alleen wat de uitvraag gebruikt, plus het OpenAPI-document. Zonder deze lijst staat heel /api/v1 open, ook aanleveren: dan
   # zet iedereen op internet berichten in de demo. Het paneel levert binnen het cluster aan.
   paths:
     - type: PathPrefix

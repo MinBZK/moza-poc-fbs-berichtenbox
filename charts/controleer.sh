@@ -29,8 +29,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=417
-MINIMUM_REGO_TESTS=107
+VERWACHTE_CONTROLES=432
+MINIMUM_REGO_TESTS=119
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -616,16 +616,17 @@ magazijn_demo=(-f "$CHART/diensten/berichtenmagazijn.yaml" -f "$CHARTS/voorbeeld
   -f "$DEMO/stelsel/berichtenmagazijn.yaml")
 
 # Een env-variabele met zijn waarde. In een render staat de waarde op de regel na de naam, met of
-# zonder aanhalingstekens; een grep op één regel ziet dus alleen de naam. $1 = label,
-# $2 = beschrijving, $3 = naam, $4 = waarde (leeg = lege waarde).
+# zonder aanhalingstekens; een grep op één regel ziet dus alleen de naam. De naam komt precies één
+# keer voor: bij een tweede telt in Kubernetes de laatste, en dan zegt een kloppende eerste niets.
+# $1 = label, $2 = beschrijving, $3 = naam, $4 = waarde (leeg = lege waarde).
 toets_env() {
   local label=$1 wat=$2 naam=$3 waarde=$4
 
   if awk -v naam="$naam" -v waarde="$waarde" '
     { gsub(/"/, "") }
-    vorige == 1 { if ($0 ~ /^ *value: */) { sub(/^ *value: */, ""); if ($0 == waarde) gevonden = 1 }; vorige = 0 }
-    $0 ~ "^ *- name: " naam "$" { vorige = 1 }
-    END { exit !gevonden }' "$WERK/$label.yaml"; then
+    vorige == 1 { if ($0 ~ /^ *value: */) { sub(/^ *value: */, ""); if ($0 == waarde) gevonden++ }; vorige = 0 }
+    $0 ~ "^ *- name: " naam "$" { vorige = 1; namen++ }
+    END { exit !(gevonden == 1 && namen == 1) }' "$WERK/$label.yaml"; then
     ok "$label: $wat"
   else
     fout "$label: $wat (verwacht $naam=$waarde)"
@@ -650,7 +651,12 @@ toets_aantal "demo" "zes routes" 'kind: HTTPRoute' 6
 toets_aantal "demo" "één replica per onderdeel" 'replicas: 1' 9
 toets_aantal "demo" "nooit twee tegelijk tijdens een uitrol" 'type: Recreate' 9
 toets_aantal "demo" "paneel en zijn gereedschap achter een wachtwoord" 'auth_basic_user_file /etc/nginx/bediening/htpasswd;' 2
-toets_aantal "demo" "paneel en zijn gereedschap weigeren een andere site" 'if ($http_sec_fetch_site ~ "^(cross-site|same-site)$") {' 2
+toets_bevat "demo" "paneel weigert een andere site, behalve een link" 'if ($paneel_van_andere_site) {'
+toets_bevat "demo" "gereedschap weigert een andere site" 'if ($gereedschap_van_andere_site) {'
+toets_aantal "demo" "paneel en gereedschap weigeren een andere origin" 'if ($andere_origin) {' 2
+toets_aantal "demo" "elke weigering is een 403" 'return 403;' 4
+toets_bevat "demo" "aanmeld-webhook niet via de demo-proxy" 'location = /api/v1/aanmeldingen {'
+toets_bevat "demo" "HSTS van de uitvraag niet dubbel" 'proxy_hide_header Strict-Transport-Security;'
 toets_bevat "demo" "personalijst zonder wachtwoord, exact" 'location = /api/demo/personas {'
 toets_bevat "demo" "alleen over https" 'add_header Strict-Transport-Security "max-age=31536000" always;'
 toets_aantal "demo" "geen Origin naar de uitvraag" 'proxy_set_header Origin "";' 2
@@ -703,9 +709,10 @@ conftest_met_regels "demo: samenhang van de vijf releases" --combine --namespace
   "$WERK/demo.yaml" "$WERK/demo-uitvraag.yaml" "$WERK/demo-magazijn-a.yaml" "$WERK/demo-magazijn-b.yaml" \
   "$WERK/demo-stelselregister.yaml"
 
-# De tag-vormen die de keten publiceert.
+# De tag-vormen die de keten publiceert, in elk eigen image.
 for t in pr-467-0123abc main-0123abc-r2-k1; do
-  TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_slaagt "demo-tag-$t" "${demo[@]}" --set "images.tag=$t"
+  TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-tag-$t" "${demo[@]}" --set "images.tag=$t"
+  toets_aantal "demo-tag-$t" "tag in de vijf eigen images" ":$t" 5
 done
 
 for dienst in berichtenuitvraag berichtenmagazijn stelselregister; do

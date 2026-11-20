@@ -43,7 +43,8 @@ bruikbaar. Lokaal zet `compose.yaml` ze neer met een nginx ervoor (`demo-proxy`)
   vraagt de demo-proxy basic-auth op `/bediening/` en `/api/demo/`. Alleen `/api/demo/personas`
   blijft open: de berichtenbox leest daar de testaccounts, en verder gebruikt hij `/api/demo` niet.
   Een browser stuurt een opgeslagen wachtwoord ook mee bij een formulier van een andere site;
-  daarom weigert de proxy daar een verzoek dat volgens `Sec-Fetch-Site` van een andere site komt.
+  daarom weigert de proxy daar een verzoek dat volgens `Sec-Fetch-Site` of `Origin` van een andere
+  site komt. Een gewone link naar het paneel (navigatie met GET) mag wel.
 - **Naar buiten alleen wat de uitvraag gebruikt.** De magazijnen laten via hun route alleen
   `/api/v1/berichten` door, de simulator alleen lezen, status wijzigen en verwijderen. Anders kan
   iedereen op internet berichten aanleveren. Het paneel levert binnen het cluster aan.
@@ -79,6 +80,14 @@ bruikbaar. Lokaal zet `compose.yaml` ze neer met een nginx ervoor (`demo-proxy`)
 - **Eén replica per onderdeel.** Paneel, simulator en Toxiproxy houden toestand in het geheugen
   (tempo, proxies, gedrag). Twee replica's geven per verzoek een andere toestand. Ze rollen uit
   met `Recreate`.
+
+## Wat open blijft
+
+- **De aanmeld-webhook is publiek.** Het magazijn eist voor de aanmelding een publiek https-adres.
+  Wie de route kent, zet een bericht in de sessiecache van een persona die net heeft opgehaald.
+  Zo is het ook op ZAD. Een `SecurityPolicy` van Envoy Gateway die alleen het uitgaande adres van
+  het cluster toelaat, sluit dat af; of en hoe dat op Fundament kan, is een vraag voor de
+  opdrachtgever.
 
 ## Wat op Fundament niet kan
 
