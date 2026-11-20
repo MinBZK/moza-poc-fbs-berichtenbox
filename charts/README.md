@@ -17,6 +17,7 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 | `lokaal-testcluster.sh` | de drie diensten op een k3d-cluster achter Envoy Gateway |
 | `fundament-testcluster.sh` | de drie diensten op een sandbox van Fundament, met de echte plug-ins |
 | `voorbeelden/` | values voor een opzet die niet bij elke installatie hoort, zoals een database uit CloudNativePG |
+| `fbs-demo/` | de demo (berichtenbox, bedieningspaneel, simulator, stubs) naast de drie diensten; zie [`fbs-demo/README.md`](fbs-demo/README.md) |
 
 ## Installeren
 

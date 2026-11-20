@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Magazijn A (RVO) in de demo, als release `berichtenmagazijn-a` van charts/fbs-dienst, na
+# diensten/berichtenmagazijn.yaml en stelsel/berichtenmagazijn.yaml. Mee te geven:
+# --set demo.basisdomein=<basisdomein van fbs-demo>, --set ingress.hostname=berichtenmagazijn-a.<basisdomein>
+# en de image-tag. De OIN staat ook in het register van de uitvraag en in het paneel.
+
+dienst:
+  env:
+    MAGAZIJN_OIN: "00000000000000100000"
+    # Gelijk aan database.schemas.magazijnA van fbs-demo: het paneel leegt dit schema.
+    DB_SCHEMA: magazijn_a

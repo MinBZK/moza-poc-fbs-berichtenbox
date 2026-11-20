@@ -450,6 +450,36 @@ test_httproute_naar_q_of_alles_faalt if {
 	}
 }
 
+zonder_q(reden, pad) := {
+	"kind": "HTTPRoute",
+	"metadata": {"name": "r", "annotations": {"fbs.minbzk.nl/backend-zonder-q": reden}},
+	"spec": {"parentRefs": [gw_ref], "hostnames": ["a.example.nl"], "rules": [{"matches": [{"path": {"type": "PathPrefix", "value": pad}}]}]},
+}
+
+test_httproute_naar_alles_met_reden_backend_zonder_q_slaagt if {
+	count(fbs_deny(zonder_q("nginx zonder /q", "/"))) == 0
+}
+
+test_httproute_backend_zonder_q_opent_q_niet if {
+	every pad in ["/q", "/q/", "/q/health"] {
+		fbs_deny(zonder_q("nginx zonder /q", pad)) == {sprintf("HTTPRoute 'r' zet %s open; /q hoort binnen het cluster", [pad])}
+	}
+}
+
+test_httproute_backend_zonder_q_met_meerdere_paden_weigert_alleen_q if {
+	r := object.union(zonder_q("nginx zonder /q", "/"), {"spec": {"rules": [{"matches": [
+		{"path": {"type": "PathPrefix", "value": "/"}},
+		{"path": {"type": "Exact", "value": "/q/health"}},
+	]}]}})
+	fbs_deny(r) == {"HTTPRoute 'r' zet /q/health open; /q hoort binnen het cluster"}
+}
+
+test_httproute_backend_zonder_q_zonder_reden_faalt if {
+	every reden in ["", "  ", null, true] {
+		fbs_deny(zonder_q(reden, "/")) == {"HTTPRoute 'r' zet / open; /q hoort binnen het cluster"}
+	}
+}
+
 test_httproute_ander_padtype_of_geen_pad_faalt if {
 	every match in [
 		{"path": {"type": "RegularExpression", "value": "/.*"}},

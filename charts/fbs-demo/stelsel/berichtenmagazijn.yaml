@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Wat magazijn A en B in de demo delen. Volgorde van de values-bestanden:
+#   charts/fbs-dienst/diensten/berichtenmagazijn.yaml
+#   charts/voorbeelden/berichtenmagazijn-cnpg.yaml     database en logboek uit CloudNativePG
+#   charts/fbs-demo/stelsel/berichtenmagazijn.yaml     dit bestand
+#   charts/fbs-demo/stelsel/berichtenmagazijn-a.yaml   (of -b) OIN en schema
+# Beide delen het Cluster `db`, elk in een eigen schema; het logboek staat in hetzelfde schema.
+
+demo:
+  basisdomein: ""
+
+dienst:
+  env:
+    # Over https via de Gateway: buiten het profiel dev eist het magazijn https en een publiek adres.
+    # Rechtstreeks naar de stub, niet via Toxiproxy: zoals lokaal en op ZAD raakt "profiel uit" alleen
+    # de uitvraag. Anders weigert het magazijn tijdens die storing ook elke aanlevering.
+    PROFIEL_SERVICE_URL: 'https://profiel.{{ required "demo.basisdomein is verplicht" .Values.demo.basisdomein }}'
+    # Aanmelding en notificatie via Toxiproxy. De aanmelding gaat naar de echte uitvraag, die zo kan
+    # ontdubbelen.
+    AANMELD_URL: 'https://aanmelding.{{ .Values.demo.basisdomein }}/api/v1/aanmeldingen'
+    NOTIFICATIE_URL: 'https://notificatie.{{ .Values.demo.basisdomein }}/events'
+    # Zoals lokaal: een nieuw bericht komt binnen vijf seconden door, en een storing van een paar
+    # minuten (de knoppen) verbruikt niet alle pogingen.
+    MAGAZIJN_PUBLICATIE_POLLING_INTERVAL: 5s
+    MAGAZIJN_PUBLICATIE_DOWNSTREAMS_AANMELD_MAX_POGINGEN: "50"
+    MAGAZIJN_PUBLICATIE_DOWNSTREAMS_NOTIFICATIE_MAX_POGINGEN: "50"
+
+ingress:
+  # De uitvraag spreekt de magazijnen over https aan, dus via de Gateway. Alleen proefgegevens.
+  enabled: true
+  allowUnauthenticated: true
+  # Alleen wat de uitvraag gebruikt, plus het OpenAPI-document. Zonder deze lijst staat heel /api/v1 open, ook aanleveren: dan
+  # zet iedereen op internet berichten in de demo. Het paneel levert binnen het cluster aan.
+  paths:
+    - type: PathPrefix
+      value: /api/v1/berichten
+    - type: Exact
+      value: /openapi.json

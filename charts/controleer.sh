@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: EUPL-1.2
 #
-# Controleert de chart fbs-dienst zonder cluster: lint, schema's, beleidsregels en de renders die
-# moeten falen. Draait in ci-scripts.yml en lokaal; vereist helm, conftest en kubeconform.
+# Controleert de charts fbs-dienst en fbs-demo zonder cluster: lint, schema's, beleidsregels en de
+# renders die moeten falen. Draait in ci-scripts.yml en lokaal; vereist helm, conftest en kubeconform.
 #
 #   charts/controleer.sh
 #
@@ -29,8 +29,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=311
-MINIMUM_REGO_TESTS=82
+VERWACHTE_CONTROLES=440
+MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -90,11 +90,12 @@ toets_aantal() {
 }
 
 # Een render die moet slagen, zonder verdere controle. $1 = label, rest = argumenten voor helm.
+# Ook hier TOETS_CHART en TOETS_RELEASE.
 toets_slaagt() {
   local label=$1
   shift
 
-  if helm template fbs "$CHART" --namespace fbs "$@" >/dev/null 2>"$WERK/slaagt.log"; then
+  if helm template "${TOETS_RELEASE:-fbs}" "${TOETS_CHART:-$CHART}" --namespace fbs "$@" >/dev/null 2>"$WERK/slaagt.log"; then
     ok "$label: render slaagt"
   else
     cat "$WERK/slaagt.log"
@@ -102,13 +103,14 @@ toets_slaagt() {
   fi
 }
 
-# Toetst één render. $1 = label, rest = argumenten voor helm.
+# Toetst één render. $1 = label, rest = argumenten voor helm. TOETS_CHART en TOETS_RELEASE kiezen
+# een andere chart of releasenaam (de demo); standaard fbs-dienst als release fbs.
 toets_render() {
   local label=$1
   shift
   local manifest="$WERK/$label.yaml"
 
-  if ! helm lint --strict --quiet "$CHART" "$@" >"$WERK/lint.log" 2>&1; then
+  if ! helm lint --strict --quiet "${TOETS_CHART:-$CHART}" "$@" >"$WERK/lint.log" 2>&1; then
     cat "$WERK/lint.log"
     fout "$label: helm lint"
     return
@@ -116,7 +118,7 @@ toets_render() {
 
   ok "$label: helm lint"
 
-  if ! helm template fbs "$CHART" --namespace fbs "$@" >"$manifest" 2>"$WERK/template.log"; then
+  if ! helm template "${TOETS_RELEASE:-fbs}" "${TOETS_CHART:-$CHART}" --namespace fbs "$@" >"$manifest" 2>"$WERK/template.log"; then
     cat "$WERK/template.log"
     fout "$label: helm template"
     return
@@ -170,12 +172,12 @@ toets_bevat_niet() {
 }
 
 # Een render die moet falen, met een melding die de oorzaak noemt. $1 = label, $2 = verwacht
-# fragment van de melding, rest = argumenten voor helm.
+# fragment van de melding, rest = argumenten voor helm. Ook hier TOETS_CHART en TOETS_RELEASE.
 toets_weigering() {
   local label=$1 verwacht=$2
   shift 2
 
-  if helm template fbs "$CHART" --namespace fbs "$@" >/dev/null 2>"$WERK/weigering.log"; then
+  if helm template "${TOETS_RELEASE:-fbs}" "${TOETS_CHART:-$CHART}" --namespace fbs "$@" >/dev/null 2>"$WERK/weigering.log"; then
     fout "$label: render slaagde, maar had moeten falen"
   elif grep -qF -- "$verwacht" "$WERK/weigering.log"; then
     ok "$label: geweigerd ($verwacht)"
@@ -208,12 +210,13 @@ fi
 # Een bestand in een ander package valt buiten de run, en conftest blijft dan groen. conftest leest
 # de map recursief, dus elke submap telt mee.
 verkeerd=$(
-  find "$POLICY" -name '*.rego' ! -path "$POLICY/samenhang/*" -exec grep -L '^package main$' {} +
+  find "$POLICY" -name '*.rego' ! -path "$POLICY/samenhang/*" ! -path "$POLICY/demo/*" -exec grep -L '^package main$' {} +
   find "$POLICY/samenhang" -name '*.rego' -exec grep -L '^package samenhang$' {} +
+  find "$POLICY/demo" -name '*.rego' -exec grep -L '^package demo$' {} +
 )
 
 if [ -z "$verkeerd" ]; then
-  ok "beleidsregels: elk bestand in package main of samenhang"
+  ok "beleidsregels: elk bestand in package main, samenhang of demo"
 else
   fout "beleidsregels: verkeerd package in $verkeerd"
 fi
@@ -599,6 +602,189 @@ toets_weigering "stelselregister-twee-replicas" "dienst.replicaCount is 2" "${st
 toets_weigering "stelselregister-nul-replicas" "dienst.replicaCount is 0" "${stelsel[@]}" --set dienst.replicaCount=0
 toets_weigering "stelselregister-hpa" "dienst.autoscaling.hpa.enabled kan niet" "${stelsel[@]}" \
   --set dienst.autoscaling.hpa.enabled=true
+
+echo "== de demo (fbs-demo) =="
+
+# De demo als geheel: fbs-demo plus de vier releases van fbs-dienst met de values onder
+# fbs-demo/stelsel/, onder de namen waarmee ze elkaar aanroepen.
+DEMO="$CHARTS/fbs-demo"
+DEMO_DOMEIN=fbs.192-0-2-10.sslip.io
+demo=(-f "$DEMO/ci/standaard-values.yaml")
+stelsel_demo=(--set "demo.basisdomein=$DEMO_DOMEIN" --set dienst.image.tag=main-0123abc --set dienst.tlsTermination=mesh
+  --set cluster.gateway.name=web)
+magazijn_demo=(-f "$CHART/diensten/berichtenmagazijn.yaml" -f "$CHARTS/voorbeelden/berichtenmagazijn-cnpg.yaml"
+  -f "$DEMO/stelsel/berichtenmagazijn.yaml")
+
+# Een env-variabele met zijn waarde. In een render staat de waarde op de regel na de naam, met of
+# zonder aanhalingstekens; een grep op één regel ziet dus alleen de naam. De naam komt precies één
+# keer voor: bij een tweede telt in Kubernetes de laatste, en dan zegt een kloppende eerste niets.
+# $1 = label, $2 = beschrijving, $3 = naam, $4 = waarde (leeg = lege waarde).
+toets_env() {
+  local label=$1 wat=$2 naam=$3 waarde=$4
+
+  if awk -v naam="$naam" -v waarde="$waarde" '
+    { gsub(/"/, "") }
+    vorige == 1 { if ($0 ~ /^ *value: */) { sub(/^ *value: */, ""); if ($0 == waarde) gevonden++ }; vorige = 0 }
+    $0 ~ "^ *- name: " naam "$" { vorige = 1; namen++ }
+    END { exit !(gevonden == 1 && namen == 1) }' "$WERK/$label.yaml"; then
+    ok "$label: $wat"
+  else
+    fout "$label: $wat (verwacht $naam=$waarde)"
+  fi
+}
+
+# Een regel binnen een blok van de nginx-config: van de regel met $3 tot de sluitende accolade op
+# dezelfde inspringing. Een grep op de hele render zegt niet in welke location een regel staat.
+# $1 = label, $2 = beschrijving, $3 = beginregel (vaste tekst), $4 = regel erin (vaste tekst). Via
+# ENVIRON, niet -v: awk leest backslashes in -v als escapes, en de maps bevatten \| en \1.
+toets_blok() {
+  local label=$1 wat=$2
+
+  if BEGIN_REGEL=$3 REGEL=$4 awk '
+    BEGIN { begin = ENVIRON["BEGIN_REGEL"]; regel = ENVIRON["REGEL"] }
+    !binnen && index($0, begin) { binnen = 1; match($0, /^ */); sluit = substr($0, 1, RLENGTH) "}"; next }
+    binnen && $0 == sluit { binnen = 0 }
+    binnen && index($0, regel) { gevonden = 1 }
+    END { exit !gevonden }' "$WERK/$label.yaml"; then
+    ok "$label: $wat"
+  else
+    fout "$label: $wat (verwacht '$4' in het blok '$3')"
+  fi
+}
+
+TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo" "${demo[@]}"
+# De berichtenbox op de versie uit compose.yaml, zoals de installatie hem leest.
+TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-proeftuin-uit-compose" "${demo[@]}" \
+  --set "images.proeftuin=$("$CHARTS/../.github/scripts/proeftuin-image.sh")"
+
+soorten=$(sed -n 's/^kind: //p' "$WERK/demo.yaml" | sort -u | paste -sd, -)
+
+if [ "$soorten" = "ConfigMap,Deployment,HTTPRoute,NetworkPolicy,PodDisruptionBudget,Service,ServiceAccount" ]; then
+  ok "demo: soorten objecten"
+else
+  fout "demo: soorten objecten '$soorten'"
+fi
+
+toets_aantal "demo" "negen onderdelen" 'kind: Deployment' 9
+toets_aantal "demo" "zes routes" 'kind: HTTPRoute' 6
+toets_aantal "demo" "één replica per onderdeel" 'replicas: 1' 9
+toets_aantal "demo" "nooit twee tegelijk tijdens een uitrol" 'type: Recreate' 9
+toets_aantal "demo" "paneel en zijn gereedschap achter een wachtwoord" 'auth_basic_user_file /etc/nginx/bediening/htpasswd;' 2
+# De CSRF-weigering: de maps zelf, en welke location welke map gebruikt.
+toets_blok "demo" "paneel: een link van een andere site mag" 'map "$http_sec_fetch_site:$http_sec_fetch_mode:$request_method" $paneel_van_andere_site {' \
+  '"~^(cross-site|same-site):navigate:GET$" 0;'
+toets_blok "demo" "paneel: de rest van een andere site niet" 'map "$http_sec_fetch_site:$http_sec_fetch_mode:$request_method" $paneel_van_andere_site {' \
+  '"~^(cross-site|same-site):" 1;'
+toets_blok "demo" "gereedschap: cross-site niet" 'map "$http_sec_fetch_site" $gereedschap_van_andere_site {' 'cross-site 1;'
+toets_blok "demo" "gereedschap: same-site niet" 'map "$http_sec_fetch_site" $gereedschap_van_andere_site {' 'same-site 1;'
+toets_blok "demo" "origin: standaard vreemd" 'map "$http_origin|$http_host" $andere_origin {' 'default 1;'
+toets_blok "demo" "origin: leeg mag" 'map "$http_origin|$http_host" $andere_origin {' '"~^\|" 0;'
+toets_blok "demo" "origin: alleen https en precies de host" 'map "$http_origin|$http_host" $andere_origin {' \
+  '"~^https://([^|]+)\|\1$" 0;'
+for map in paneel_van_andere_site andere_origin; do
+  toets_blok "demo" "/bediening/ weigert met \$$map" 'location /bediening/ {' "if (\$$map) {"
+done
+for map in gereedschap_van_andere_site andere_origin; do
+  toets_blok "demo" "/api/demo/ weigert met \$$map" 'location /api/demo/ {' "if (\$$map) {"
+done
+toets_aantal "demo" "elke weigering is een 403" 'return 403;' 4
+toets_blok "demo" "aanmeld-webhook niet via de demo-proxy" 'location ^~ /api/v1/aanmeldingen {' 'return 404;'
+toets_bevat "demo" "HSTS van de uitvraag niet dubbel" 'proxy_hide_header Strict-Transport-Security;'
+toets_bevat "demo" "personalijst zonder wachtwoord, exact" 'location = /api/demo/personas {'
+toets_bevat "demo" "alleen over https" 'add_header Strict-Transport-Security "max-age=31536000" always;'
+toets_aantal "demo" "geen Origin naar de uitvraag" 'proxy_set_header Origin "";' 2
+toets_aantal "demo" "beheer-API van Toxiproxy alleen voor het paneel" 'client.fbs.minbzk.nl/fbs-demo-toxiproxy-beheer: "true"' 2
+toets_bevat "demo" "simulator alleen met zijn magazijnen naar buiten" 'value: "/magazijn/"'
+toets_bevat_niet "demo" "beheer van de simulator niet naar buiten" '/beheer'
+toets_aantal "demo" "simulator: lezen, status en verwijderen" 'method: ' 3
+toets_bevat_niet "demo" "simulator: geen aanleveren van buiten" 'method: POST'
+toets_env "demo" "storingsknop magazijn A verborgen" TOXIPROXY_MAGAZIJN_A_URL ''
+toets_env "demo" "storingsknop magazijn B verborgen" TOXIPROXY_MAGAZIJN_B_URL ''
+for pad in /api/v1/berichten/_ophalen /api/v1/berichten/_volgen; do
+  toets_bevat "demo" "stream $pad zonder request-timeout" "value: \"$pad\""
+done
+toets_aantal "demo" "één regel zonder request-timeout" 'request: 0s' 1
+toets_bevat "demo" "uitzondering op /q alleen met reden" 'fbs.minbzk.nl/backend-zonder-q: "de demo-proxy'
+# De standaarden in het proeftuin-image wijzen naar de testomgeving op ZAD.
+toets_env "demo" "proeftuin naar de eigen uitvraag" BACKEND_KETEN 'http://berichtenuitvraag.fbs.svc.cluster.local:80'
+toets_env "demo" "proeftuin met de host van de eigen uitvraag" BACKEND_KETEN_HOST 'berichtenuitvraag.fbs.svc.cluster.local'
+toets_env "demo" "proeftuin naar de eigen personadienst" BACKEND_PERSONAS 'http://fbs-demo-personas.fbs.svc.cluster.local:8098'
+toets_env "demo" "proeftuin met de host van de eigen personadienst" BACKEND_PERSONAS_HOST 'fbs-demo-personas.fbs.svc.cluster.local'
+
+TOETS_RELEASE=berichtenuitvraag toets_render "demo-uitvraag" -f "$CHART/diensten/berichtenuitvraag.yaml" \
+  -f "$DEMO/stelsel/berichtenuitvraag.yaml" "${stelsel_demo[@]}"
+toets_bevat "demo-uitvraag" "register als config-bestand in de werkmap" 'mountPath: /home/jboss/config'
+toets_env "demo-uitvraag" "Redis via Toxiproxy" REDIS_HOSTS 'redis://fbs-demo-toxiproxy:16379'
+toets_env "demo-uitvraag" "profiel via Toxiproxy" PROFIEL_SERVICE_URL "https://toxiproxy-profiel.$DEMO_DOMEIN"
+toets_env "demo-uitvraag" "simulator over https" MAGAZIJN_SIMULATOR_URL "https://simulator.$DEMO_DOMEIN"
+toets_bevat_niet "demo-uitvraag" "geen eigen route" 'kind: HTTPRoute'
+
+for m in a b; do
+  TOETS_RELEASE=berichtenmagazijn-$m toets_render "demo-magazijn-$m" "${magazijn_demo[@]}" \
+    -f "$DEMO/stelsel/berichtenmagazijn-$m.yaml" "${stelsel_demo[@]}" --set "ingress.hostname=berichtenmagazijn-$m.$DEMO_DOMEIN"
+  toets_env "demo-magazijn-$m" "eigen schema" DB_SCHEMA "magazijn_$m"
+  toets_env "demo-magazijn-$m" "profiel rechtstreeks, niet via Toxiproxy" PROFIEL_SERVICE_URL "https://profiel.$DEMO_DOMEIN"
+  toets_bevat "demo-magazijn-$m" "route alleen voor wat de uitvraag leest" 'value: "/api/v1/berichten"'
+  toets_bevat_niet "demo-magazijn-$m" "aanleveren niet van buiten" 'value: "/api/v1"'
+done
+
+toets_env "demo-magazijn-a" "aanmelding naar de uitvraag via Toxiproxy" AANMELD_URL \
+  "https://aanmelding.$DEMO_DOMEIN/api/v1/aanmeldingen"
+toets_env "demo-magazijn-a" "OIN van RVO, zoals in het register van de uitvraag" MAGAZIJN_OIN '00000000000000100000'
+toets_env "demo-magazijn-b" "OIN van de Belastingdienst, zoals in het register van de uitvraag" MAGAZIJN_OIN '00000001823288444000'
+
+TOETS_RELEASE=stelselregister toets_render "demo-stelselregister" -f "$CHART/diensten/stelselregister.yaml" \
+  -f "$DEMO/stelsel/stelselregister.yaml" "${stelsel_demo[@]}" --set "ingress.hostname=stelselregister.$DEMO_DOMEIN"
+toets_bevat "demo-stelselregister" "keystore blijft gemount naast het register" 'mountPath: /etc/stelselregister'
+
+# Wat per release klopt, kan samen nog mis zijn; de regels staan in policy/demo/.
+conftest_met_regels "demo: samenhang van de vijf releases" --combine --namespace demo --policy "$POLICY" \
+  "$WERK/demo.yaml" "$WERK/demo-uitvraag.yaml" "$WERK/demo-magazijn-a.yaml" "$WERK/demo-magazijn-b.yaml" \
+  "$WERK/demo-stelselregister.yaml"
+
+# De tag-vormen die de keten publiceert, in elk eigen image.
+for t in pr-467-0123abc main-0123abc-r2-k1; do
+  TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-tag-$t" "${demo[@]}" --set "images.tag=$t"
+  toets_aantal "demo-tag-$t" "tag in de vijf eigen images" ":$t" 5
+done
+
+for dienst in berichtenuitvraag berichtenmagazijn stelselregister; do
+  TOETS_RELEASE=$dienst toets_weigering "demo-$dienst-zonder-domein" "demo.basisdomein is verplicht" \
+    -f "$CHART/diensten/$dienst.yaml" -f "$DEMO/stelsel/$dienst.yaml" --set dienst.image.tag=main-0123abc \
+    --set dienst.tlsTermination=mesh --set cluster.gateway.name=web --set ingress.hostname=x.example.nl
+done
+
+demo_weigering() {
+  TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_weigering "$1" "$2" "${demo[@]}" "${@:3}"
+}
+
+demo_weigering "demo-zonder-domein" "basisdomein is verplicht" --set basisdomein=
+for d in Fbs.Example.nl https://fbs.example.nl fbs.example.nl. localhost -fbs.example.nl; do
+  demo_weigering "demo-domein-$d" "basisdomein \"$d\" is geen DNS-naam" --set "basisdomein=$d"
+done
+demo_weigering "demo-zonder-gateway" "cluster.gateway.name is verplicht" --set cluster.gateway.name=
+demo_weigering "demo-zonder-listener" "cluster.gateway.sectionName is verplicht" --set cluster.gateway.sectionName=
+demo_weigering "demo-zonder-tag" "images.tag is verplicht" --set images.tag=
+for t in latest main main-0123ab main-0123ABC main-0123abcd pr--0123abc pr-12-0123abc-x1; do
+  demo_weigering "demo-tag-$t" "images.tag \"$t\" is geen main-<sha7>" --set "images.tag=$t"
+done
+demo_weigering "demo-proeftuin-zonder-digest" 'images.proeftuin "ghcr.io/minbzk/moza-poc:latest" staat niet op digest' \
+  --set images.proeftuin=ghcr.io/minbzk/moza-poc:latest
+demo_weigering "demo-nginx-op-tag" 'images.nginx "nginx:1.31" staat niet op digest' --set images.nginx=nginx:1.31
+demo_weigering "demo-toxiproxy-op-tag" 'images.toxiproxy "ghcr.io/shopify/toxiproxy:2.13.0" staat niet op digest' \
+  --set images.toxiproxy=ghcr.io/shopify/toxiproxy:2.13.0
+demo_weigering "demo-redis-op-tag" 'images.redis "redis:7" staat niet op digest' --set images.redis=redis:7
+demo_weigering "demo-zonder-register" "magazijnenregister is leeg" --set magazijnenregister=
+demo_weigering "demo-zonder-set" "simulatorSet is leeg" --set simulatorSet=
+# De twee bestanden verwisseld: elk heeft een eigen voorvoegsel.
+demo_weigering "demo-set-als-register" "magazijnenregister is leeg of bevat geen magazijnen" \
+  --set-string 'magazijnenregister=magazijnsimulator.magazijnen."00000009000000000001".naam=x'
+for p in servicePoort uitvraagPoort magazijnPoort; do
+  demo_weigering "demo-$p-als-tekst" "stelsel.$p is geen poortnummer" --set-string "stelsel.$p=http"
+done
+# Alle fouten in één keer, niet alleen de eerste.
+demo_weigering "demo-twee-fouten" "basisdomein is verplicht" --set basisdomein= --set images.tag=
+demo_weigering "demo-twee-fouten-tweede" "images.tag is verplicht" --set basisdomein= --set images.tag=
 
 echo "== uitkomst =="
 
