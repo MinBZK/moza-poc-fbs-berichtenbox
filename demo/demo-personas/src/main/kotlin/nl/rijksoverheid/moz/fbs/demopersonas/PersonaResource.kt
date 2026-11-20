@@ -10,7 +10,7 @@ import jakarta.ws.rs.core.MediaType
 data class PersonaDto(val id: String, val label: String, val ontvanger: String, val bron: PersonaBron)
 
 /**
- * De enige plek waar een [DemoPersona] zijn lijnvorm krijgt. Twee handgeschreven mappings met vier
+ * De enige plek waar een [DemoPersona] de lijnvorm krijgt die een berichtenbox leest. Twee handgeschreven mappings met vier
  * positionele strings zouden `label` en `ontvanger` laten verwisselen zonder compilatiefout, en de
  * omzetting van [PersonaBron] naar zijn lijnvorm laten vergeten — waarna een afnemer die op
  * `"keten"` zoekt `"KETEN"` krijgt en stil niets meer vindt.

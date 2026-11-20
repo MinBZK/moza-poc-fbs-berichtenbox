@@ -53,8 +53,6 @@ Open `$CONSOLE/api/demo/omgeving`.
 
 Verwacht:
 
-- `uitvraagBasis` wijst naar de publieke uitvraag van dezelfde deployment, **inclusief** `/api/v1`.
-  Zonder dat pad faalt elke aanroep vanaf de Berichtenbox-pagina zichtbaar voor de gebruiker.
 - `storingen` bevat precies `aanmeld`, `notificatie`, `profiel` en `redis`, zodra stap 6 van
   `README.md` gedaan is. `magazijn-a` en `magazijn-b` horen er níet in te staan: op ZAD bestaan er
   geen `toxiproxy-magazijn*`-componenten, dus hun knop zou gegarandeerd falen. Lokaal houden A en B
@@ -91,13 +89,14 @@ externe-stubs van dezelfde deployment draaien.
 
 ## 3. De keten
 
-Open `$CONSOLE/berichtenbox.html`, kies een persona en haal berichten op.
+Open `$CONSOLE/` en kies in de berichtenbox in het frame `Aangesloten onderneming 3` (Demo-onderneming
+3, KVK `90000013`).
 
-Verwacht: de berichten uit de basisvulling verschijnen, uit beide magazijnen. Dit is de enige stap
-die de hele keten aanraakt — console → magazijn → uitvraag → sessiecache → terug.
+Verwacht: de berichten uit de basisvulling verschijnen, uit beide magazijnen. Dit is de stap die de
+hele keten aanraakt — console → magazijn → uitvraag → sessiecache → berichtenbox.
 
-Blijft de lijst leeg terwijl stap 2 wel berichten telde, kijk dan in de browserconsole naar een
-CORS-fout: dan dekt de regex in `QUARKUS_HTTP_CORS_ORIGINS` op de uitvraag deze console-origin niet.
+Toont het frame het blok "Berichtenbox niet bereikbaar", of meldt de berichtenbox dat het ophalen
+misgaat, ga dan eerst naar stap 7: die loopt het frame en de personalijst na.
 
 ## 4. De schemacontrole
 
@@ -114,11 +113,11 @@ wijst minstens één schema naar de verkeerde plek. Lees de juiste waarden af me
 
 ## 5. De cache-verval-knop
 
-Druk op tabblad **Scenario's** op **Cache verlopen** en haal daarna in de Berichtenbox opnieuw
-berichten op.
+Houd de berichtenbox uit stap 3 open, druk op tabblad **Scenario's** op **Cache verlopen** en
+klik daarna in de berichtenbox.
 
-Verwacht: de knop meldt geen fout, en de eerstvolgende `GET /berichten` geeft 409 tot je opnieuw
-ophaalt — de sessie is weg.
+Verwacht: de knop meldt geen fout, en de berichtenbox start een nieuwe sessie en een nieuwe
+ophaalronde — de oude sessie is weg.
 
 Blijft de groep *Sessie* onzichtbaar, dan staat `SESSIECACHE_BEREIKBAAR` nog op `false`. Geeft hij
 `NOAUTH Authentication required`, dan ontbreekt `REDIS_PASSWORD` of wijkt hij af van die van de
@@ -131,15 +130,20 @@ een preview zetten `deploy.yml` en `cleanup-preview.yml` die, op `test` staat hi
 De vier knoppen staan in de groep **Omliggende diensten** op het tabblad Storingen. Doe ze niet
 allemaal tegelijk: elke knop hoort een eigen, herkenbaar effect te hebben.
 
-**Druk op `Profielservice uit`** en haal daarna in de Berichtenbox berichten op. Verwacht: het
-ophalen faalt, want de **uitvraag** kan niet bepalen welke magazijnen bij deze ontvanger horen. Druk
-op **Alles normaal** en haal opnieuw op — nu slaagt het.
+Een nieuwe ophaalronde komt er pas als de sessies van de persona weg zijn: Info → klap de persona
+open → *Alle sessies van deze persona beëindigen*, en klik daarna in de berichtenbox. Hieronder heet
+dat "een nieuwe ronde".
+
+**Druk op `Profielservice uit`**, wacht een halve minuut en start een nieuwe ronde. Zonder
+wachten slaagt de ronde nog: de uitvraag onthoudt de organisaties per ontvanger 30 seconden. Verwacht: het ophalen faalt, want de
+**uitvraag** kan niet bepalen welke magazijnen bij deze ontvanger horen. Druk op **Alles normaal**
+en start opnieuw een ronde — nu slaagt het.
 
 > Toets dit níet met opvoeren. De magazijnen bevragen de profielservice ook, maar hún
 > `PROFIEL_SERVICE_URL` gaat bewust rechtstreeks en niet door de proxy; het aanleveren blijft dus
 > gewoon slagen. Zie de tabel in `README.md` §6, "De keten door de proxies leiden".
 
-**Druk op `Redis uit`** en haal opnieuw op. Verwacht: het ophalen faalt op de sessiecache. De
+**Druk op `Redis uit`** en start een nieuwe ronde. Verwacht: het ophalen faalt op de sessiecache. De
 `Traag`-knoppen staan alleen bij Magazijn A en B, en die twee groepen zijn op ZAD verborgen — een
 traag-toets voor de omliggende diensten is er dus niet via het paneel. Wil je de latency-toxic toch
 zien, dan kan dat rechtstreeks:
@@ -178,7 +182,7 @@ adres niet, dus een leeg frame komt hier nooit door een mislukte toets. Staat de
 open het adres dan los in de browser: geeft het daar een pagina, dan is het frame het probleem;
 geeft het een fout, dan staat het proeftuin-component niet of wijst de alias mis.
 
-Kies daarna in de berichtenbox een testaccount van het stelsel — `Garage Van Dijk B.V.` is er een
+Kies daarna in de berichtenbox een testaccount van het stelsel — `Aangesloten onderneming 4 (met bijlagen)` (Garage Van Dijk B.V.) is er een
 met een KVK-nummer. Verwacht berichten. Krijg je "Er gaat iets mis met het ophalen van uw berichten
 bij de bronnen", kijk dan eerst hier:
 
@@ -211,8 +215,8 @@ Een `403` hier terwijl de dienst zelf `200` geeft, betekent dat `BACKEND_PERSONA
 proeftuin op `BACKEND_DEMO` terugvalt — dus op het bedieningspaneel, dat wél een muur draagt.
 `BACKEND_DEMO` hoort naar `democonsole` te blijven wijzen; verzet die niet.
 
-Druk daarna in de berichtenbox op **Ophalen** en laat de ronde helemaal uitlopen, ook als er tussen
-twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het
+Kies daarna `Aangesloten onderneming, landelijk concern` (honderd organisaties) en laat de ronde
+helemaal uitlopen, ook als er tussen twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het
 keten-verkeer nog door de catch-all `/api/` van de proeftuin, met zijn leestijdslimiet van zestig
 seconden: die deployment draait dan op een image van vóór de splitsing van `/api/v1/`, of
 `BACKEND_KETEN` staat er niet — zie stap 7 van `README.md`.

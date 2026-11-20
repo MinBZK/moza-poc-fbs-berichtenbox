@@ -1,10 +1,13 @@
 package nl.rijksoverheid.moz.fbs.democonsole
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.CsvSource
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
+import java.io.File
 
 /**
  * Bewaakt dat een verlopen inlogsessie het paneel niet als kapot laat overkomen.
@@ -26,24 +29,32 @@ class PaneelInlogmuurTest {
 
     private val script: String = PaneelBestanden.script()
 
-    private val boxScript: String = PaneelBestanden.boxScript()
+    @Test
+    fun `elke pagina van dit component laadt het inlogmuur-script als eerste`() {
+        // Elke pagina hier valt achter dezelfde muur; een pagina die het script niet laadt, toont een
+        // verlopen inlogsessie als storing in de keten. Alle pagina's en niet een vaste lijst, zodat
+        // een nieuwe pagina vanzelf meetelt.
+        val resources = File(PaneelBestanden.RESOURCES_PAD)
+        val scripts = resources.walkTopDown()
+            .filter { it.extension == "html" }
+            .associate { it.relativeTo(resources).path to scriptsIn(it.readText()) }
 
-    @ParameterizedTest(name = "{0} laadt het inlogmuur-script vóór {1}")
-    @CsvSource("index.html,bediening.js", "berichtenbox.html,berichtenbox.js")
-    fun `elke pagina van dit component laadt het inlogmuur-script eerst`(pagina: String, eigenScript: String) {
-        // Beide pagina's komen van dit component en vallen dus achter dezelfde muur; een pagina die
-        // het script niet laadt, valt terug op het oude gedrag zonder dat iets dat meldt.
-        val bron = if (pagina == "index.html") PaneelBestanden.paneel() else PaneelBestanden.boxPagina()
+        // Het paneel zelf met naam en volledige lijst: zonder `bediening.js` werkt geen enkele knop,
+        // en geen andere test merkt dat, want die lezen het script van schijf.
+        assertEquals(listOf("inlogmuur.js", "bediening.js"), scripts["index.html"], "de scripts van index.html")
 
-        val muurTag = bron.indexOf("""src="inlogmuur.js"""")
-        val eigenTag = bron.indexOf("""src="$eigenScript"""")
-
-        assertTrue(muurTag >= 0, "$pagina laadt inlogmuur.js niet")
-        assertTrue(eigenTag >= 0, "$pagina laadt $eigenScript niet")
-
-        // De volgorde is de invariant: het eigen script roept de muur-functies aan zodra het zijn
+        // De volgorde is de invariant: een eigen script roept de muur-functies aan zodra het zijn
         // eerste aanvraag doet, en dat kan al vóór de laatste regel van de pagina gebeuren.
-        assertTrue(muurTag < eigenTag, "$pagina laadt inlogmuur.js ná $eigenScript")
+        val verkeerd = scripts.filterValues { it.isNotEmpty() && it.first() != "inlogmuur.js" }
+
+        assertEquals(emptyMap<String, List<String>>(), verkeerd, "laadt inlogmuur.js niet als eerste script")
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("paginas")
+    fun `de scripts van een pagina worden in volgorde gelezen`(geval: String, html: String, verwacht: List<String>) {
+        // Een script dat deze lezing mist, kan vóór de muur staan zonder dat de test hierboven het ziet.
+        assertEquals(verwacht, scriptsIn(html), geval)
     }
 
     @Test
@@ -90,13 +101,12 @@ class PaneelInlogmuurTest {
 
     @Test
     fun `elke plek die een mislukte aanvraag toont, raadpleegt eerst de muur`() {
-        // Alle drie de plekken waar een 403 zichtbaar wordt: de knoppen, de toestandsbalk en het
-        // laden van de omgeving in de berichtenbox. Eén ervan overslaan levert precies de storing
-        // op die dit script moet wegnemen — op één plek, wat het lastiger maakt te herkennen.
+        // Beide plekken waar een 403 zichtbaar wordt: de knoppen en de toestandsbalk. Eén ervan
+        // overslaan levert precies de storing op die dit script moet wegnemen — op één plek, wat
+        // het lastiger maakt te herkennen.
         val zonderControle = mapOf(
             "roep" to functieBody(script, "roep"),
             "lees" to functieBody(script, "lees"),
-            "berichtenbox.js" to boxScript,
         ).filterValues { !it.contains("inlogsessieVerlopen(") }.keys
 
         assertEquals(emptySet<String>(), zonderControle, "raadpleegt de inlogmuur niet bij een mislukte aanvraag")
@@ -153,12 +163,7 @@ class PaneelInlogmuurTest {
         // Eén ingang voor melden en herstellen: een aanroeper die de tekst zelf opschrijft, meldt
         // wel dat je uitgelogd bent maar doet er niets aan — en dat is de toestand van vóór dit
         // script.
-        val elders = mapOf(
-            "bediening.js" to script,
-            "berichtenbox.js" to boxScript,
-        ).filterValues { it.contains("uitgelogd") }.keys
-
-        assertEquals(emptySet<String>(), elders, "schrijft de melding over uitloggen zelf op i.p.v. muurMelding()")
+        assertFalse(script.contains("uitgelogd"), "bediening.js schrijft de melding over uitloggen zelf op i.p.v. muurMelding()")
         assertTrue(inlogmuur.contains("uitgelogd"), "muurMelding() zegt niet dat je uitgelogd bent")
     }
 
@@ -177,6 +182,41 @@ class PaneelInlogmuurTest {
         assertTrue(einde > 0, "einde van functie $naam niet gevonden")
 
         return rest.substring(0, einde)
+    }
+
+    private companion object {
+
+        @JvmStatic
+        fun paginas() = listOf(
+            Arguments.of("geen scripts", "<p>tekst</p>", emptyList<String>()),
+            Arguments.of("dubbele aanhalingstekens", """<script src="inlogmuur.js"></script>""", listOf("inlogmuur.js")),
+            Arguments.of("enkele aanhalingstekens", "<script src='bediening.js'></script>", listOf("bediening.js")),
+            Arguments.of("pad ervoor", """<script defer src="./js/inlogmuur.js"></script>""", listOf("inlogmuur.js")),
+            Arguments.of(
+                "inline telt mee",
+                """<script>fetch('/x')</script><script src="inlogmuur.js"></script>""",
+                listOf("(inline)", "inlogmuur.js"),
+            ),
+            Arguments.of(
+                "in commentaar telt niet",
+                """<!-- <script src="oud.js"></script> --><script src="inlogmuur.js"></script>""",
+                listOf("inlogmuur.js"),
+            ),
+        )
+
+        val HTML_COMMENTAAR = Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL)
+
+        val SCRIPT_TAG = Regex("""<script\b([^>]*)>""", RegexOption.IGNORE_CASE)
+
+        val SRC = Regex("""\bsrc\s*=\s*["']?([^"'\s>]+)""", RegexOption.IGNORE_CASE)
+
+        /**
+         * De bestandsnaam van elk script in de volgorde van de pagina, een inline script als
+         * `(inline)`: ook dat draait vóór wat erna komt.
+         */
+        fun scriptsIn(html: String): List<String> = SCRIPT_TAG.findAll(html.replace(HTML_COMMENTAAR, ""))
+            .map { tag -> SRC.find(tag.groupValues[1])?.groupValues?.get(1)?.substringAfterLast('/') ?: "(inline)" }
+            .toList()
     }
 
     /** Zonder commentaar, zodat een toelichting die een regel citeert niet voor die regel doorgaat. */
