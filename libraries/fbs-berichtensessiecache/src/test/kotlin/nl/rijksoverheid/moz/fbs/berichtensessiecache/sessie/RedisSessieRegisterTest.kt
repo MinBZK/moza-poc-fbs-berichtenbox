@@ -57,18 +57,18 @@ class RedisSessieRegisterTest {
 
     @Test
     fun `start meldt het verloop na de inactiviteit, het plafond na de maximale duur en geen resten bij een eerste sessie`() {
-        val voor = Instant.now()
+        val voor = redisNu()
 
         val start = sessiecache.startSessie(ontvanger)
 
         assertFalse(start.restenOpgeruimd)
-        assertTussen(voor.plusMillis(INACTIVITEIT_MS - 500), start.geldigheid.geldigTot, Instant.now().plusMillis(INACTIVITEIT_MS + 500))
-        assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(MAX_DUUR_MS + 500))
+        assertTussen(voor.plusMillis(INACTIVITEIT_MS - 500), start.geldigheid.geldigTot, redisNu().plusMillis(INACTIVITEIT_MS + 500))
+        assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, redisNu().plusMillis(MAX_DUUR_MS + 500))
     }
 
     @Test
     fun `een plafond eerder dan start plus max-duur wordt het plafond, en verlengen gaat er niet voorbij`() {
-        val plafond = Instant.now().plusMillis(2000)
+        val plafond = redisNu().plusMillis(2000)
 
         val start = sessiecache.startSessie(ontvanger, plafond)
 
@@ -85,18 +85,18 @@ class RedisSessieRegisterTest {
     @ParameterizedTest(name = "plafond {0} na nu")
     @ValueSource(strings = ["PT6.5S", "PT24H", "PT876000H"])
     fun `een plafond later dan start plus max-duur wordt afgekapt op de maximale duur`(na: String) {
-        val voor = Instant.now()
+        val voor = redisNu()
 
         val start = sessiecache.startSessie(ontvanger, voor.plus(Duration.parse(na)))
 
-        assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, Instant.now().plusMillis(MAX_DUUR_MS + 500))
+        assertTussen(voor.plusMillis(MAX_DUUR_MS - 500), start.geldigheid.uiterlijkGeldigTot, redisNu().plusMillis(MAX_DUUR_MS + 500))
     }
 
     @Test
     fun `een plafond voorbij wat in milliseconden past, geldt als later dan de maximale duur`() {
         val start = sessiecache.startSessie(ontvanger, Instant.MAX)
 
-        assertTrue(start.geldigheid.uiterlijkGeldigTot < Instant.now().plusMillis(MAX_DUUR_MS + 500), "Niet afgekapt: ${start.geldigheid}")
+        assertTrue(start.geldigheid.uiterlijkGeldigTot < redisNu().plusMillis(MAX_DUUR_MS + 500), "Niet afgekapt: ${start.geldigheid}")
     }
 
     @ParameterizedTest(name = "plafond {0}")
@@ -105,9 +105,9 @@ class RedisSessieRegisterTest {
         val k = BerichtenCache.cacheKey(ontvanger)
         redis.value(String::class.java).set("$k:status", "{}").await().atMost(WACHTTIJD)
         val moment = when (plafond) {
-            "nu" -> Instant.now()
+            "nu" -> redisNu()
             "MIN" -> Instant.MIN
-            else -> if (plafond.startsWith("-")) Instant.now().plus(Duration.parse(plafond)) else Instant.parse(plafond)
+            else -> if (plafond.startsWith("-")) redisNu().plus(Duration.parse(plafond)) else Instant.parse(plafond)
         }
 
         assertThrows<SessiecacheException.OngeldigeInvoer> { sessiecache.startSessie(ontvanger, moment) }
@@ -287,14 +287,14 @@ class RedisSessieRegisterTest {
 
     @Test
     fun `heeftSessieGestartVoor telt alleen lopende sessies die voor het moment begonnen`() {
-        // Pod en Redis-container delen hier één klok; de pauzes houden de starttijden uit elkaar.
-        val straks = Instant.now().plusSeconds(60)
+        // De pauzes houden de starttijden uit elkaar.
+        val straks = redisNu().plusSeconds(60)
 
         assertFalse(gestartVoor(ontvanger, straks), "nog geen sessie")
 
         val eerste = sessiecache.startSessie(ontvanger).sessieId
         Thread.sleep(PAUZE_MS)
-        val grens = Instant.now()
+        val grens = redisNu()
         Thread.sleep(PAUZE_MS)
         val tweede = sessiecache.startSessie(ontvanger).sessieId
 
@@ -326,7 +326,7 @@ class RedisSessieRegisterTest {
 
     @Test
     fun `heeftSessieGestartVoor telt een verlopen sessie niet`() {
-        val straks = Instant.now().plusSeconds(60)
+        val straks = redisNu().plusSeconds(60)
         sessiecache.startSessie(ontvanger)
 
         assertTrue(gestartVoor(ontvanger, straks))
@@ -468,7 +468,7 @@ class RedisSessieRegisterTest {
         // De vroegste is nu de tweede (gestart op 400 ms, verloopt op 4,4 s), niet de net verlengde
         // eerste (4,7 s): het antwoord volgt het verloop, niet de startvolgorde.
         assertTrue(fout.vrijOver.isPositive, "Geen wachttijd: ${fout.vrijOver}")
-        assertTrue(Instant.now().plus(fout.vrijOver) < eersteTot, "Niet de vroegste: ${fout.vrijOver}, eerste tot $eersteTot")
+        assertTrue(redisNu().plus(fout.vrijOver) < eersteTot, "Niet de vroegste: ${fout.vrijOver}, eerste tot $eersteTot")
         assertTrue(fout.vrijOver <= Duration.ofMillis(INACTIVITEIT_MS), "Langer dan de inactiviteit: ${fout.vrijOver}")
     }
 
@@ -563,11 +563,16 @@ class RedisSessieRegisterTest {
         assertTrue(moment < laatst, "Te laat: $moment (laatst $laatst)")
     }
 
-    private fun redisTijdMs(): Double {
+    // Het register rekent met de klok van Redis. Een container in een VM (Docker Desktop, podman
+    // machine) loopt daar niet gelijk mee met de JVM, dus elk moment dat een test met het register
+    // vergelijkt, komt hiervandaan.
+    private fun redisNu(): Instant {
         val tijd = redis.execute("TIME").await().atMost(WACHTTIJD)
 
-        return tijd.get(0).toLong() * 1000.0 + tijd.get(1).toLong() / 1000
+        return Instant.ofEpochSecond(tijd.get(0).toLong(), tijd.get(1).toLong() * 1000)
     }
+
+    private fun redisTijdMs(): Double = redisNu().toEpochMilli().toDouble()
 
     private fun verloopIndexScore(): Double =
         redis.sortedSet(String::class.java).zscore(VERLOOP_INDEX, BerichtenCache.kenmerk(ontvanger))

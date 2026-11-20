@@ -34,7 +34,6 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.net.ConnectException
 import java.time.Duration
-import java.time.Instant
 import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -1051,8 +1050,14 @@ internal class BerichtensessiecacheService(
      * zijn resultaten niet bewaard zijn. Is dat niet vast te stellen, dan ook `true`: stil eindigen
      * zou een storing verbergen.
      */
-    private fun lockVerlopenTerwijlSessieLoopt(ronde: Ronde, errorId: UUID): Uni<Boolean> =
-        sessies.heeftSessieGestartVoor(ronde.ontvanger, ronde.gestart)
+    private fun lockVerlopenTerwijlSessieLoopt(ronde: Ronde, errorId: UUID): Uni<Boolean> {
+        // Gemeten vóór de vraag naar de klok van het register: het begin van de ronde valt daardoor
+        // hooguit iets te laat, en een sessie die vlak erna begon telt mee. Een melding te veel,
+        // geen melding die uitblijft.
+        val duur = ronde.duur()
+
+        return sessies.nu()
+            .chain { nu -> sessies.heeftSessieGestartVoor(ronde.ontvanger, nu.minus(duur)) }
             .ifNoItem().after(Duration.ofSeconds(cacheAwaitTimeoutSeconds)).fail()
             .invoke { sessieLoopt ->
                 if (sessieLoopt) {
@@ -1074,6 +1079,7 @@ internal class BerichtensessiecacheService(
 
                 true
             }
+    }
 
     /** Zonder [event] eindigt de stream zonder slotevent. */
     private fun slotevent(event: MagazijnEvent?): Uni<MagazijnEvent> =
@@ -1339,8 +1345,11 @@ private class Ronde(val ontvanger: Identificatienummer) {
     val cacheKey: String = BerichtenCache.cacheKey(ontvanger)
     val token: String = UUID.randomUUID().toString()
 
-    /** Een sessie die al vóór dit moment liep, is er een waarvoor deze ronde ophaalt. */
-    val gestart: Instant = Instant.now()
+    // Monotoon en niet als tijdstip: een sessie heeft een starttijd op de klok van het register, en
+    // de klok van de pod loopt daar niet gelijk mee.
+    private val gestartNanos: Long = System.nanoTime()
+
+    fun duur(): Duration = Duration.ofNanos(System.nanoTime() - gestartNanos)
 }
 
 /**

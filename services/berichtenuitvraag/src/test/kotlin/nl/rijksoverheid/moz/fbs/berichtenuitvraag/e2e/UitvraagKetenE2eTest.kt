@@ -43,8 +43,10 @@ import org.hamcrest.Matchers.empty
 import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.fail
-import java.net.HttpURLConnection
 import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse.BodyHandlers
 import java.security.MessageDigest
 import java.util.HexFormat
 import java.util.concurrent.CompletableFuture
@@ -877,18 +879,19 @@ class UitvraagKetenE2eTest {
 
         val regels = LinkedBlockingQueue<String>()
 
-        val connection = (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection)
-            .apply {
-                setRequestProperty("X-Ontvanger", "BSN:$bsn")
-                setRequestProperty("X-Sessie", sessie(bsn))
-                setRequestProperty("Accept", "text/event-stream")
-                readTimeout = 10_000
-            }
+        // Niet HttpURLConnection: zijn disconnect() wacht op de lock die de blokkerende lezer vasthoudt,
+        // dus tot de read-timeout. shutdownNow() breekt de open stream meteen af.
+        val http = HttpClient.newHttpClient()
+        val verzoek = HttpRequest.newBuilder(URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen"))
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .header("Accept", "text/event-stream")
+            .build()
+        val antwoord = http.send(verzoek, BodyHandlers.ofLines())
 
-        // Eerst de status, dan pas de lezer: HttpURLConnection is niet thread-safe.
-        assertEquals(200, connection.responseCode)
+        assertEquals(200, antwoord.statusCode())
 
-        val lezer = Thread { runCatching { connection.inputStream.bufferedReader().lineSequence().forEach { regels += it } } }
+        val lezer = Thread { runCatching { antwoord.body().forEach { regels += it } } }
             .apply { isDaemon = true; start() }
 
         try {
@@ -906,8 +909,86 @@ class UitvraagKetenE2eTest {
             assertTrue(frame.contains("\"berichtId\":\"$nieuwId\""), "Verwacht het aangemelde bericht in: $frame")
             assertEquals(naOphalen, lijstVerzoeken(), "het bericht hoort zonder nieuwe bevraging van het magazijn te komen")
         } finally {
-            connection.disconnect()
+            http.shutdownNow()
             lezer.join(2_000)
+        }
+    }
+
+    @Test
+    fun `lezen, verplaatsen en verwijderen in de ene sessie komt aan op _volgen van een andere sessie`() {
+        // Twee tabbladen van dezelfde ondernemer, elk met een eigen inlogsessie.
+        val bsn = "999990019"
+        val berichtId = "44444444-4444-4444-4444-444444444444"
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, berichtId, bsn, "magazijn-a", OIN_A)
+        magazijnA.stubFor(wmPatch(urlPathMatching("/api/v1/berichten/$berichtId")).willReturn(aResponse().withStatus(204)))
+        magazijnA.stubFor(wmDelete(urlPathMatching("/api/v1/berichten/$berichtId")).willReturn(aResponse().withStatus(204)))
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+        val tweedeTabblad = given().contentType("application/json").header("X-Ontvanger", "BSN:$bsn")
+            .`when`().post("/api/v1/sessies")
+            .then()
+            .statusCode(201)
+            .extract().path<String>("sessieId")
+
+        val regels = LinkedBlockingQueue<String>()
+        val http = HttpClient.newHttpClient()
+        val verzoek = HttpRequest.newBuilder(URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen"))
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", tweedeTabblad)
+            .header("Accept", "text/event-stream")
+            .build()
+
+        try {
+            val antwoord = http.send(verzoek, BodyHandlers.ofLines())
+
+            assertEquals(200, antwoord.statusCode())
+
+            val lezer = Thread { runCatching { antwoord.body().forEach { regels += it } } }
+                .apply { isDaemon = true; start() }
+
+            wachtOpRegel(regels, "\"event\":\"volgen-gestart\"")
+
+            given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", sessie(bsn))
+                .header("Content-Type", "application/merge-patch+json")
+                .body("""{"status":"gelezen","map":"werk"}""")
+                .`when`().patch("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+                .then()
+                .statusCode(200)
+
+            assertEquals(
+                """data:{"event":"bericht-gewijzigd","magazijnId":"$OIN_A","berichtId":"$berichtId","status":"gelezen","map":"werk"}""",
+                wachtOpRegel(regels, "\"event\":\"bericht-gewijzigd\"").replace("data: ", "data:"),
+            )
+
+            given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", sessie(bsn))
+                .`when`().delete("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+                .then()
+                .statusCode(204)
+
+            assertEquals(
+                """data:{"event":"bericht-verwijderd","magazijnId":"$OIN_A","berichtId":"$berichtId"}""",
+                wachtOpRegel(regels, "\"event\":\"bericht-verwijderd\"").replace("data: ", "data:"),
+            )
+
+            http.shutdownNow()
+            lezer.join(2_000)
+        } finally {
+            http.shutdownNow()
+            given()
+                .header("X-Ontvanger", "BSN:$bsn")
+                .header("X-Sessie", tweedeTabblad)
+                .`when`().delete("/api/v1/sessies/huidige")
+                .then()
+                .statusCode(204)
         }
     }
 
