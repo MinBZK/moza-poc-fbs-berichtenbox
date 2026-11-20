@@ -35,13 +35,19 @@ sinds 2026-11-06:
   zou elke pom-wijziging op main hem tien keer tegelijk laten ophalen. Hij komt bewust niet via de
   mirror (`MVNW_REPOURL`), want die kent geen terugval op Central.
 - **Google's mirror als extra repository vóór Central**, via een settings-bestand dat de action naar
-  `~/.m2/settings.xml` schrijft, met `checksumPolicy` `fail`. Geen `<mirrorOf>`: dan vervangt de
-  mirror Central, en breekt een artefact dat de mirror nog niet heeft de build. Alleen CI; lokaal
-  verandert niets. De settings tellen mee in de cachesleutel.
+  `~/.m2/settings.xml` schrijft. Geen `<mirrorOf>`: dan vervangt de mirror Central, en breekt een
+  artefact dat de mirror nog niet heeft de build. Alleen CI; lokaal verandert niets. De settings
+  tellen mee in de cachesleutel.
+- **`checksumPolicy` `fail` op de mirror én op Central** (Central opnieuw gedefinieerd met de id
+  uit de super-POM). Een kapot artefact valt zo door naar de volgende repository of laat de build
+  falen, in plaats van onder `warn` in de cache van main te belanden.
 - **`jdk-handtekening.py` eist per setup-java-stap dat `cache:` uit staat en dat
-  `./.github/actions/maven-cache` erna volgt.** Een `cache: maven`, een ontbrekende action of een
-  action vóór setup-java (die dan de settings overschrijft) bouwt allemaal groen, maar zonder de
-  bescherming.
+  `./.github/actions/maven-cache` erna volgt, vóór de eerste `mvnw`/`mvn` in een `run:` en onder
+  dezelfde `if:`.** Al die varianten bouwen groen, maar zonder de mirror. Een Maven-aanroep in een
+  script dat een `run:` aanroept, ziet de guard niet.
+- **`test-maven-cache.sh` toetst het bewaarbesluit** (welke ref/event-combinaties bewaren) en dat
+  bewaar- en herstelstap per pad dezelfde sleutel en complementaire voorwaarden hebben. Een
+  uiteenlopende sleutel faalt stil: PR's vinden de cache van main dan niet meer.
 
 ## Bewust geaccepteerd restrisico
 
@@ -51,6 +57,16 @@ sinds 2026-11-06:
   jib-builds die met `packages: write` naar ghcr pushen. Bij Central over https geldt hetzelfde
   voor Sonatype; het verschil is wie die positie kan innemen. Een verdwenen bucket blijft stil (alles
   valt terug op Central), en een opnieuw geclaimde bucketnaam zou daarna weer vóór Central staan.
+- **Doorwerking via de cache.** Een vervalst artefact dat main binnenhaalt, staat daarna in
+  `maven-repo-*` en wordt bij het herstellen niet opnieuw gecontroleerd. Elke PR-, merge-queue- en
+  main-run erft het tot de pom- of settings-hash wijzigt, en via `restore-keys` ook latere sleutels.
+  Hetzelfde geldt voor de wrapper-distributie: mvnw toetst `distributionSha256Sum` alleen bij de
+  download, en die cache leeft tot de volgende wrapper-bump. Incidentstap: alle caches met prefix
+  `maven-repo-` en `maven-wrapper-` verwijderen (`gh cache delete`), daarna bouwt main ze opnieuw.
+- **Een rode job op main bewaart niets** (`actions/cache` bewaart alleen bij succes), en main heeft
+  geen terugval. Zolang een scope op main rood is, haalt elke main-run die boom opnieuw op en lezen
+  PR's een oudere pom-stand. Bewaren bij falen zou een halve repository onder de exacte sleutel
+  vastzetten, precies wat dit ontwerp oplost; de oplossing is main groen maken.
 - **Een mirror die verbindingen aanneemt en dan blijft hangen**, is niet getest en kost per artefact
   de resolver-time-out. Een kortere time-out helpt nauwelijks: honderden artefacten keer een paar
   seconden is nog steeds een vastgelopen job.
@@ -63,7 +79,10 @@ sinds 2026-11-06:
   628 downloads van `google-maven-central`, 0 van `central`.
 - Mirror die alles mist (404): alle 628 vallen terug op `central`, build slaagt.
 - Mirror onbereikbaar (connection refused): idem, build slaagt.
-- `test-jdk-handtekening.sh`: 32 asserties groen; mutaties van de cache-checks worden gevangen.
+- Met `checksumPolicy` `fail` op beide repositories: nog steeds 628 van de mirror, en bij een
+  404-mirror 628 van Central.
+- `test-jdk-handtekening.sh` (41 asserties) en `test-maven-cache.sh` (21) groen; 15 mutaties van
+  guard en action worden alle gevangen.
 - Na de merge op main: de eerste push bewaart per scope `maven-repo-Linux-<scope>-<hash>` en één
   `maven-wrapper-Linux-<hash>`; PR's tonen daarna `Cache restored from key: maven-…` en geen 429
   meer.

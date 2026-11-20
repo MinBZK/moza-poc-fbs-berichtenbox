@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bewaakt drie eisen aan elke `actions/setup-java`-stap: de handtekening van de JDK wordt
-geverifieerd, de stap zet zijn eigen Maven-cache niet aan, en later in dezelfde job volgt
-`./.github/actions/maven-cache`.
+geverifieerd, de stap zet zijn eigen Maven-cache niet aan, en in dezelfde job volgt
+`./.github/actions/maven-cache` vóór de eerste Maven-aanroep, onder dezelfde `if:`.
 
 De vlag `verify-signature` staat in de action zelf niet vast aan: laat je hem weg bij een
 distributie zonder ondersteuning, dan verifieert de action niets en blijft de run groen. Afwezig
@@ -12,8 +12,10 @@ regel, en niemand ziet er iets aan.
 De cache loopt via `.github/actions/maven-cache`. Eén `cache: maven` ernaast werkt gewoon en valt
 daardoor in geen run op, maar bewaart weer per PR een kopie onder één sleutel voor alle jobs —
 precies wat de 10 GB van de repository vulde en de caches liet verdringen. Een job zonder de
-action, of met de action vóór setup-java, bouwt evengoed groen, maar zonder de Central-mirror:
-dan keren de 429's terug zonder herkenbare oorzaak.
+action, met de action vóór setup-java of pas na Maven, of met een action die onder een andere
+voorwaarde draait, bouwt evengoed groen, maar zonder de Central-mirror: dan keren de 429's terug
+zonder herkenbare oorzaak. Wat de guard niet ziet: een Maven-aanroep in een script dat een
+`run:`-stap aanroept.
 
 Een echte YAML-parser en geen regex. Dezelfde reden als bij `workflow-jobs.py` voor workflows en
 `pom-artifactids.py` voor pom's: GitHub sluit op YAML-vorm en een patroon op tekstvorm. Een
@@ -31,12 +33,15 @@ Gebruik: jdk-handtekening.py [map-met-workflows]
 """
 
 import pathlib
+import re
 import sys
 
 import yaml
 
 ACTION = "actions/setup-java"
 CACHE_ACTION = "./.github/actions/maven-cache"
+# `./mvnw` of een kale `mvn` als commando, niet als deel van een pad of woord (`mvnw-wrapper`, `mvn.log`).
+MAVEN_AANROEP = re.compile(r"(^|[\s;&|(])(\./mvnw|mvnw|mvn)(\s|$)", re.MULTILINE)
 
 
 def waar(waarde: object) -> bool:
@@ -68,23 +73,42 @@ def setup_java_stappen(workflow: dict) -> list[tuple[str, int, dict, bool]]:
 
     for job_id, job in (workflow.get("jobs") or {}).items():
         # Een job die een reusable workflow aanroept heeft geen `steps`; die is hier niets.
-        stappen = [
-            (nummer, stap, stap.get("uses").split("@", 1)[0].strip())
-            for nummer, stap in enumerate(job.get("steps") or [], start=1)
-            if isinstance(stap, dict) and isinstance(stap.get("uses"), str)
-        ]
+        stappen = [stap if isinstance(stap, dict) else {} for stap in job.get("steps") or []]
 
-        for nummer, stap, action in stappen:
-            if action != ACTION:
+        for index, stap in enumerate(stappen):
+            if uses_naam(stap) != ACTION:
                 continue
 
             met = stap.get("with")
-            # Ná setup-java en niet ervoor: setup-java schrijft zijn eigen ~/.m2/settings.xml, en
-            # die zou de mirror-instellingen van de action dan overschrijven.
-            cache_volgt = any(later > nummer and naam == CACHE_ACTION for later, _, naam in stappen)
-            gevonden.append((job_id, nummer, met if isinstance(met, dict) else {}, cache_volgt))
+            gevonden.append((job_id, index + 1, met if isinstance(met, dict) else {}, cache_volgt(stappen, index)))
 
     return gevonden
+
+
+def uses_naam(stap: dict) -> str | None:
+    uses = stap.get("uses")
+
+    return uses.split("@", 1)[0].strip() if isinstance(uses, str) else None
+
+
+def cache_volgt(stappen: list[dict], index: int) -> bool:
+    """Of de maven-cache-action op de setup-java-stap op `index` volgt, op tijd en onder dezelfde
+    voorwaarde.
+
+    Ná setup-java: die schrijft zijn eigen ~/.m2/settings.xml, en zou de mirror anders
+    overschrijven. Vóór de eerste stap die Maven draait: daarna komt de mirror te laat. En met
+    dezelfde `if:` als setup-java, anders kan de action overgeslagen worden terwijl Maven draait.
+    """
+    voorwaarde = stappen[index].get("if")
+
+    for stap in stappen[index + 1:]:
+        if uses_naam(stap) == CACHE_ACTION and stap.get("if") == voorwaarde:
+            return True
+
+        if isinstance(stap.get("run"), str) and MAVEN_AANROEP.search(stap["run"]):
+            return False
+
+    return False
 
 
 def controleer(map_pad: pathlib.Path) -> int:
@@ -138,7 +162,8 @@ def controleer(map_pad: pathlib.Path) -> int:
             if not cache_volgt:
                 bevindingen.append(
                     f"FOUT: {pad.name} job '{job_id}' stap {nummer}: na {ACTION} volgt geen "
-                    f"`{CACHE_ACTION}` — de job draait dan zonder cache en zonder Central-mirror."
+                    f"`{CACHE_ACTION}` vóór de eerste Maven-aanroep en onder dezelfde `if:` — "
+                    "de job draait dan zonder cache en zonder Central-mirror."
                 )
 
     if stappen_totaal == 0:

@@ -6,10 +6,11 @@
   het niet heeft of niet bereikbaar is. Geen <mirrorOf>: die vervangt Central, en dan breekt
   een artefact dat de mirror nog niet heeft de build.
 
-  checksumPolicy fail: een artefact dat niet bij zijn checksum past, wordt geweigerd en via Central
-  opnieuw opgehaald. Onder de standaard `warn` belandt het in de cache van main, en elke PR erft
-  het tot de volgende pom-wijziging. Tegen een mirror die artefact én checksum vervalst helpt dit
-  niet; die vergelijkt alleen met zichzelf.
+  checksumPolicy fail: een artefact dat niet bij zijn checksum past, wordt geweigerd en bij de
+  volgende repository opnieuw opgehaald. Onder de standaard `warn` belandt het in de cache van main,
+  en elke PR erft het tot de volgende pom-wijziging. Central staat hier daarom ook, met dezelfde id
+  als in de super-POM, zodat de terugval die policy ook krijgt. Tegen een bron die artefact én
+  checksum vervalst helpt dit niet; die vergelijkt alleen met zichzelf.
 -->
 <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -24,11 +25,23 @@
           <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
           <snapshots><enabled>false</enabled></snapshots>
         </repository>
+        <repository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
       </repositories>
       <pluginRepositories>
         <pluginRepository>
           <id>google-maven-central</id>
           <url>https://maven-central-eu.storage-download.googleapis.com/maven2</url>
+          <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+        <pluginRepository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
           <releases><enabled>true</enabled><checksumPolicy>fail</checksumPolicy></releases>
           <snapshots><enabled>false</enabled></snapshots>
         </pluginRepository>

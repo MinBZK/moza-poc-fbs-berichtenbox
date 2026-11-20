@@ -155,16 +155,65 @@ map=$(nieuwe_map)
 printf "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@abc\n$CACHE  b:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n" > "$map/andere-job.yml"
 verwacht_fout "maven-cache-action in een andere job telt niet" "$map" "job 'b' stap 1: na actions/setup-java volgt geen"
 
-# Beide eisen tegelijk geschonden: elk levert een eigen regel, zodat de fix van de ene de andere
-# niet pas in de volgende run aan het licht brengt.
+# Een setup-java-stap met handtekening, als printf-fragment.
+SJ='      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n'
+
+# Een tweede setup-java na de action overschrijft de settings opnieuw.
 map=$(nieuwe_map)
-stap '          cache: gradle' > "$map/beide.yml"
+printf "jobs:\n  bouw:\n    steps:\n$SJ$CACHE$SJ" > "$map/tweede-java-na-cache.yml"
+verwacht_fout "een tweede setup-java na de action is een bevinding" "$map" "job 'bouw' stap 3: na actions/setup-java volgt geen"
+
+if grep -qF "stap 1" <<<"$UITVOER"; then
+  fout "alleen de tweede setup-java wordt gemeld: stap 1 staat er ook in — $UITVOER"
+else
+  ok "de setup-java vóór de action wordt niet gemeld"
+fi
+
+# Twee JDK's na elkaar en dan de action: die schrijft de settings na allebei.
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ$SJ$CACHE" > "$map/twee-java-dan-cache.yml"
+verwacht_ok "twee setup-java's vóór de action zijn in orde" "$map" "alle 2 "
+
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - uses: ./.github/actions/maven-cache-oud\n" > "$map/lijkt-op-cache.yml"
+verwacht_fout "een action met maven-cache als naamprefix telt niet" "$map" "volgt geen"
+
+# Pas na Maven komt de mirror te laat.
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - run: ./mvnw -B verify\n$CACHE" > "$map/cache-na-mvnw.yml"
+verwacht_fout "de action na een Maven-aanroep is een bevinding" "$map" "volgt geen"
+
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - run: |\n          echo voorbereiden\n          mvn -q package\n$CACHE" > "$map/cache-na-mvn.yml"
+verwacht_fout "een kale mvn in een meerregelige run telt als Maven-aanroep" "$map" "volgt geen"
+
+# Een pad of woord met mvnw erin is geen aanroep.
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - run: cat .mvn/wrapper/maven-wrapper.properties mvnw.log\n$CACHE" > "$map/geen-aanroep.yml"
+verwacht_ok "een run zonder Maven-aanroep vóór de action is in orde" "$map" "alle 1 "
+
+# Een action die overgeslagen kan worden terwijl setup-java (en dus Maven) draait.
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - uses: ./.github/actions/maven-cache\n        if: false\n" > "$map/cache-met-if.yml"
+verwacht_fout "een action met een eigen if is een bevinding" "$map" "volgt geen"
+
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        if: inputs.java\n        with:\n          verify-signature: true\n      - uses: ./.github/actions/maven-cache\n        if: inputs.java\n" > "$map/zelfde-if.yml"
+verwacht_ok "action en setup-java onder dezelfde if zijn in orde" "$map" "alle 1 "
+
+# Alle drie de eisen tegelijk geschonden: elk levert een eigen regel, zodat de fix van de ene de
+# andere niet pas in de volgende run aan het licht brengt.
+map=$(nieuwe_map)
+printf 'jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          cache: maven\n' > "$map/alle-drie.yml"
 draai "$map"
 
-if [ "$STATUS" -ne 0 ] && grep -qF 'zonder `verify-signature: true`' <<<"$UITVOER" && grep -qF 'zet `cache:` aan' <<<"$UITVOER"; then
-  ok "een stap die beide eisen schendt levert beide bevindingen"
+if [ "$STATUS" -ne 0 ] \
+  && grep -qF 'zonder `verify-signature: true`' <<<"$UITVOER" \
+  && grep -qF 'zet `cache:` aan' <<<"$UITVOER" \
+  && grep -qF 'volgt geen' <<<"$UITVOER"; then
+  ok "een stap die alle drie de eisen schendt levert drie bevindingen"
 else
-  fout "een stap die beide eisen schendt levert beide bevindingen: $STATUS — $UITVOER"
+  fout "een stap die alle drie de eisen schendt levert drie bevindingen: $STATUS — $UITVOER"
 fi
 
 # --- de melding wijst de stap aan --------------------------------------------------------------
@@ -253,7 +302,7 @@ verwacht_ok "niet-YAML-bestanden worden overgeslagen" "$map" "alle 1 "
 
 # Alles hierboven draait op fixtures; deze assertie is de enige die de guard tegen de werkelijke
 # workflows houdt. Zonder haar blijft de suite groen terwijl de repo zelf een stap zonder vlag heeft.
-verwacht_ok "de workflows van deze repo dragen de vlag allemaal en geen setup-java-cache" "$HERE/../workflows" "OK:"
+verwacht_ok "de workflows van deze repo dragen de vlag, geen setup-java-cache en de maven-cache-action" "$HERE/../workflows" "OK:"
 
 if [ "$fails" -eq 0 ]; then
   echo "Alle tests geslaagd."
