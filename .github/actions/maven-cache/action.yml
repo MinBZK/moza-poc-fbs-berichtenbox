@@ -70,6 +70,38 @@ runs:
         path: ~/.m2/wrapper
         key: maven-wrapper-${{ runner.os }}-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
 
+    # mvnw haalt de distributie in één poging op, zonder retry. Bij een cache-miss (de eerste run op
+    # main, elke wrapper-bump, en PR's tot main heeft bewaard) liep een 429 van Central daardoor
+    # direct stuk. Daarom eerst via de mirror met herhaalpogingen, en pas daarna via Central; mvnw
+    # toetst bij elke download de sha256 uit maven-wrapper.properties. MVNW_REPOURL blijft voor de
+    # rest van de job staan, want mvnw leidt de map van de distributie af uit de URL: zonder die
+    # variabele zoekt een latere aanroep in een andere map en downloadt opnieuw. Bij een hit kost
+    # dit één `--version`.
+    - name: Maven-distributie klaarzetten
+      shell: bash
+      env:
+        MIRROR: https://maven-central-eu.storage-download.googleapis.com/maven2
+        WACHT_S: '10'
+      run: |
+        set -uo pipefail
+
+        # Een lege MVNW_REPOURL betekent voor mvnw: de distributionUrl zelf, dus Central.
+        for bron in "$MIRROR" ""; do
+          for poging in 1 2 3; do
+            if MVNW_REPOURL="$bron" ./mvnw -q --version > /dev/null; then
+              echo "MVNW_REPOURL=$bron" >> "$GITHUB_ENV"
+              exit 0
+            fi
+
+            [ "$poging" -eq 3 ] || sleep "$((poging * WACHT_S))"
+          done
+
+          echo "::warning::Maven-distributie niet op te halen via ${bron:-Central}."
+        done
+
+        echo "::error::Maven-distributie niet op te halen, ook niet via Central."
+        exit 1
+
     # De settings tellen mee in de sleutel: een andere repository-configuratie begint schoon.
     - name: Maven-repository herstellen en bewaren
       if: steps.bewaren.outputs.ja == 'true'

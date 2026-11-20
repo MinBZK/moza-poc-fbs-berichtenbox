@@ -38,6 +38,10 @@ elif vraag == "bewaren-env":
     print(env.get("EVENT", ""))
 elif vraag == "settings-run":
     print(stappen[0]["run"])
+elif vraag == "distributie-run":
+    print(next(s for s in stappen if s.get("name") == "Maven-distributie klaarzetten")["run"])
+elif vraag == "distributie-mirror":
+    print(next(s for s in stappen if s.get("name") == "Maven-distributie klaarzetten")["env"]["MIRROR"])
 elif vraag == "cache-stappen":
     # Per stap: pad, soort, if, sleutel, restore-keys (gescheiden door |). Exact op de naam vóór
     # `@`: een `actions/cache/save` bewaart wel maar herstelt niet, en mag niet als "bewaren" tellen.
@@ -210,6 +214,72 @@ while IFS= read -r rk; do
     fout "restore-key '$rk' is geen prefix van de sleutel '$repo_sleutel'"
   fi
 done <<<"$restore_keys"
+
+# --- de Maven-distributie klaarzetten ----------------------------------------------------------
+
+DISTRIBUTIE_RUN=$(yaml_veld distributie-run)
+MIRROR_URL=$(yaml_veld distributie-mirror)
+
+# Een nep-mvnw die per aanroep de bron logt en slaagt of faalt volgens $MVNW_UITKOMSTEN: één
+# teken per aanroep, `j` of `n`. Zo is te zien welke bron in welke volgorde geprobeerd is.
+distributie() {
+  local uitkomsten=$1 map
+  map=$(mktemp -d "$WERKMAP/dist.XXXXXX")
+  printf '%s' "$uitkomsten" > "$map/uitkomsten"
+  : > "$map/env"
+  cat > "$map/mvnw" <<'NEP'
+#!/usr/bin/env bash
+map=$(dirname "$0")
+echo "${MVNW_REPOURL:-central}" >> "$map/log"
+rest=$(cat "$map/uitkomsten")
+printf '%s' "${rest:1}" > "$map/uitkomsten"
+[ "${rest:0:1}" = j ]
+NEP
+  chmod +x "$map/mvnw"
+  (cd "$map" && GITHUB_ENV="$map/env" MIRROR="$MIRROR_URL" WACHT_S=0 bash -c "$DISTRIBUTIE_RUN") > "$map/uitvoer" 2>&1 \
+    && STATUS=0 || STATUS=$?
+  LOG=$(tr '\n' ' ' < "$map/log")
+  ENV_REGEL=$(cat "$map/env")
+  UITVOER=$(cat "$map/uitvoer")
+}
+
+if [ "$MIRROR_URL" = "https://maven-central-eu.storage-download.googleapis.com/maven2" ]; then
+  ok "de distributie komt eerst van dezelfde mirror als de settings"
+else
+  fout "de distributie-mirror is '$MIRROR_URL'"
+fi
+
+distributie j
+if [ "$STATUS" -eq 0 ] && [ "$LOG" = "$MIRROR_URL " ] && [ "$ENV_REGEL" = "MVNW_REPOURL=$MIRROR_URL" ]; then
+  ok "distributie: mirror in één keer, MVNW_REPOURL blijft op de mirror"
+else
+  fout "distributie bij een werkende mirror: status=$STATUS log='$LOG' env='$ENV_REGEL'"
+fi
+
+# Een 429 is tijdelijk: dezelfde bron opnieuw proberen voordat hij wordt opgegeven.
+distributie nj
+if [ "$STATUS" -eq 0 ] && [ "$LOG" = "$MIRROR_URL $MIRROR_URL " ] && [ "$ENV_REGEL" = "MVNW_REPOURL=$MIRROR_URL" ]; then
+  ok "distributie: een mislukte poging op de mirror wordt herhaald"
+else
+  fout "distributie na één mislukte poging: status=$STATUS log='$LOG' env='$ENV_REGEL'"
+fi
+
+# Lege MVNW_REPOURL voor de rest van de job: anders zoekt mvnw in de map van de mirror-URL.
+distributie nnnj
+if [ "$STATUS" -eq 0 ] && [ "$LOG" = "$MIRROR_URL $MIRROR_URL $MIRROR_URL central " ] \
+  && [ "$ENV_REGEL" = "MVNW_REPOURL=" ] && grep -qF "::warning::" <<<"$UITVOER"; then
+  ok "distributie: na drie mislukte pogingen op de mirror via Central, met een waarschuwing"
+else
+  fout "distributie bij een dichte mirror: status=$STATUS log='$LOG' env='$ENV_REGEL'"
+fi
+
+distributie nnnnnn
+if [ "$STATUS" -ne 0 ] && [ -z "$ENV_REGEL" ] && grep -qF "::error::" <<<"$UITVOER" \
+  && [ "$(wc -w <<<"$LOG")" -eq 6 ]; then
+  ok "distributie: faalt met een fout als mirror en Central elk drie keer falen"
+else
+  fout "distributie als alles faalt: status=$STATUS log='$LOG' env='$ENV_REGEL'"
+fi
 
 # --- de settings die de action neerzet ---------------------------------------------------------
 

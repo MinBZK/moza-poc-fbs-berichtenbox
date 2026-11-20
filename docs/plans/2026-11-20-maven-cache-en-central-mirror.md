@@ -32,8 +32,13 @@ sinds 2026-11-06:
   alleen het verschil ophaalt.
 - **De Maven-distributie van de wrapper heeft een eigen cache**, met als sleutel alleen
   `maven-wrapper.properties`. `mvnw` haalt hem zonder retry van Central; onder de repository-sleutel
-  zou elke pom-wijziging op main hem tien keer tegelijk laten ophalen. Hij komt bewust niet via de
-  mirror (`MVNW_REPOURL`), want die kent geen terugval op Central.
+  zou elke pom-wijziging op main hem tien keer tegelijk laten ophalen.
+- **Bij een miss wordt de distributie vooraf klaargezet: via de mirror, drie pogingen, en daarna via
+  Central.** Tot main de wrapper-cache bewaard heeft (en na elke wrapper-bump) haalt elke job hem
+  op. In de eerste CI-run van deze wijziging faalde dat al: `wget: Failed to fetch …/apache-maven-3.10.1-bin.zip`.
+  `MVNW_REPOURL` blijft daarna voor de hele job staan, want mvnw leidt de map van de distributie af
+  uit de URL. mvnw toetst bij elke download `distributionSha256Sum`, dus de mirror kan de
+  distributie niet ongemerkt vervangen.
 - **Google's mirror als extra repository vóór Central**, via een settings-bestand dat de action naar
   `~/.m2/settings.xml` schrijft. Geen `<mirrorOf>`: dan vervangt de mirror Central, en breekt een
   artefact dat de mirror nog niet heeft de build. Alleen CI; lokaal verandert niets. De settings
@@ -95,8 +100,10 @@ sinds 2026-11-06:
 - Mirror onbereikbaar (connection refused): idem, build slaagt.
 - Met `checksumPolicy` `fail` op beide repositories: nog steeds 628 van de mirror, en bij een
   404-mirror 628 van Central.
-- `test-jdk-handtekening.sh` (53 asserties) en `test-maven-cache.sh` (40) groen. Over vier rondes
-  zijn 49 mutaties van guard, action en settings geprobeerd; alle worden gevangen.
+- `test-jdk-handtekening.sh` (53 asserties) en `test-maven-cache.sh` (45) groen. Over vier rondes
+  plus de fix daarna zijn 55 mutaties van guard, action en settings geprobeerd; alle worden gevangen.
+- Echte mvnw met `MVNW_REPOURL` op de mirror en een lege `MAVEN_USER_HOME`: download van de mirror,
+  sha256 geaccepteerd, tweede aanroep hergebruikt de map.
 - Na de merge op main: de eerste push bewaart per scope `maven-repo-Linux-<scope>-<hash>` en één
   `maven-wrapper-Linux-<hash>`; PR's tonen daarna `Cache restored from key: maven-…` en geen 429
   meer.
