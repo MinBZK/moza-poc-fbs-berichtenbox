@@ -167,7 +167,7 @@ halverwege stuurt niets naar een ander cluster.
   `BASISDOMEIN`;
 - **het certificaat** met de negen namen, als `ISSUER` gezet is;
 - **de databases** `db` en `ldv-uitvraag`. Een Cluster dat er al is, laat het staan. Van `db` zet
-  het alleen het aantal verbindingen op 200, en wacht tot PostgreSQL die waarde gebruikt;
+  alleen een lager aantal verbindingen op 200, en wacht tot PostgreSQL die waarde gebruikt;
 - **de geheimen**, alleen als ze er nog niet zijn. Het wachtwoord van het paneel staat in het Secret
   `fbs-demo-bediening` (key `wachtwoord`);
 - **het register en de set van de simulator** in een tijdelijke map, zodat `demo/generated/` van een
@@ -179,7 +179,9 @@ halverwege stuurt niets naar een ander cluster.
 - **elke Deployment** van de demo aanwezig en gereed, bij naam;
 - **via de Gateway:**
   - berichtenbox, personalijst, OpenAPI-documenten en het stelseldocument bereikbaar;
-  - paneel en gereedschap met wachtwoord, en het paneel mét het wachtwoord uit het Secret;
+  - paneel en gereedschap met wachtwoord, en het paneel mét het wachtwoord uit het Secret. Een
+    Secret dat je met de hand maakte (stap 4) heeft dat wachtwoord niet; `controleer` meldt dat als
+    fout;
   - een verzoek van een andere site of origin geweigerd;
   - de simulator bereikbaar;
   - aanleveren, de aanmeld-webhook, `/q` en het beheer van de simulator niet van buiten;

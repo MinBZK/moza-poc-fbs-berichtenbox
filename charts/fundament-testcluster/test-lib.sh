@@ -921,7 +921,7 @@ echo "== demo(): de flow =="
 DEMO_STUBS='WERK=$(mktemp -d); TAG=main-1234567;
 hm() { echo "HM $*" >&2; case "$*" in "list "*) [ "${HMLIST:-leeg}" = fout ] && return 1; [ "${HMLIST:-leeg}" = ja ] && echo berichtenmagazijn; return 0 ;; esac; };
 kc() { case "$*" in *"get service"*) echo "${SVC-envoy-x}" ;; *"get configmap coredns"*) echo "${COREFILE-import /etc/coredns/custom/*.override}" ;; *"get secret web-tls"*) printf CA | base64 ;; *"-f -"*) cat >/dev/null ;; esac; };
-docker() { case "$*" in *berichtenmagazijn*JAVA_HOME*) echo "${JH_MAGAZIJN-/usr/lib/jvm/jre}" ;; *JAVA_HOME*) echo "${JH-/usr/lib/jvm/jre}" ;; *) cat >/dev/null; echo KEYSTORE ;; esac; };
+docker() { case "$*" in *berichtenmagazijn*JAVA_HOME*) echo "${JH_MAGAZIJN-/usr/lib/jvm/jre}" ;; *importkeystore*) cat >/dev/null; echo "KEYTOOL $*" >&2; [ "${KEYTOOL:-ok}" = ok ] && echo KEYSTORE ;; *JAVA_HOME*) echo "${JH-/usr/lib/jvm/jre}" ;; esac; };
 env() { echo "ENV $*"; ls "$WERK/demo-values"; };'
 
 uitvoer=$(in_script "$DEMO_STUBS demo")
@@ -932,16 +932,27 @@ gelijk "demo: extra values voor uitvraag en beide magazijnen, niet het stelselre
   "berichtenmagazijn-a.yaml berichtenmagazijn-b.yaml berichtenuitvraag.yaml" \
   "$(echo "$uitvoer" | grep '\.yaml$' | sort | paste -sd' ' -)"
 bevat_niet "demo: geen uninstall zonder oude release" "HM uninstall" "$uitvoer"
+keytool=$(echo "$uitvoer" | sed -n '/^KEYTOOL/,/cat \/tmp\/jssecacerts/p')
+bevat "demo: jssecacerts met de keytool van de uitvraag" "ghcr.io/minbzk/fbs-berichtenuitvraag:main-1234567" "$keytool"
+bevat "demo: certificaten zonder versleuteling" "-Dkeystore.pkcs12.certProtectionAlgorithm=NONE" "$keytool"
+bevat "demo: zonder MAC" "-Dkeystore.pkcs12.macAlgorithm=NONE" "$keytool"
+regel=$(echo "$keytool" | grep -o 'keytool -list[^<]*')
+bevat "demo: leest de lokale CA terug" "-alias fbs-lokale-ca" "$regel"
+bevat_niet "demo: leest hem terug zonder wachtwoord, zoals de JVM" "storepass" "$regel"
 
 uitvoer=$(in_script "$DEMO_STUBS HMLIST=ja; demo")
 bevat "demo: de oude magazijn-release verdwijnt" "HM uninstall berichtenmagazijn" "$uitvoer"
 
+# Met een oude release: een stop laat die staan.
 for geval in "HMLIST=fout|helm list in" "SVC=|geen Service voor de proxy's" "SVC='a b'|meer dan één Service" \
     "COREFILE=|importeert coredns-custom niet" "JH=|JAVA_HOME van fbs-berichtenuitvraag" \
-    "JH_MAGAZIJN=/anders|JAVA_HOME verschilt"; do
-  uitvoer=$(in_script "$DEMO_STUBS ${geval%%|*}; demo" || true)
+    "JH_MAGAZIJN=/anders|JAVA_HOME verschilt" "KEYTOOL=fout|jssecacerts die de JVM zonder wachtwoord leest"; do
+  stub=${geval%%|*}
+  [ "$stub" = HMLIST=fout ] || stub="HMLIST=ja; $stub"
+  uitvoer=$(in_script "$DEMO_STUBS $stub; demo" || true)
   bevat "demo stopt bij ${geval%%|*}" "${geval#*|}" "$uitvoer"
   bevat_niet "demo stopt bij ${geval%%|*}: niets geïnstalleerd" "ENV " "$uitvoer"
+  bevat_niet "demo stopt bij ${geval%%|*}: de oude release blijft" "HM uninstall" "$uitvoer"
 done
 
 echo "ASSERTIES=$asserties"

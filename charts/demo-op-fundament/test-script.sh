@@ -126,6 +126,15 @@ bevat_niet "context: na het vastzetten niet te wijzigen" "NIET HIER" "$UIT"
 ECHT=1 draai geen-context 'NS=ns; stub_kubectl() { return 1; }; context_vastzetten'
 gelijk "geen huidige context: exit 2" 2 "$CODE"
 
+# EXTRA_VALUES: welke inhoud van de map mag. "<bestanden>|<exit>".
+for geval in "|0" "fbs-demo.yaml|0" "berichtenuitvraag.yaml berichtenmagazijn-a.yaml|0" "berichtenmagazijn.yaml|2" "berichtenuitvraag.yml|2"; do
+  map="$WERKMAP/extra-$RANDOM"
+  mkdir -p "$map"
+  for f in ${geval%%|*}; do echo "x: 1" >"$map/$f"; done
+  draai "extra-tabel-$RANDOM" "NS=ns KUBE_CONTEXT=x BASISDOMEIN=fbs.x.nl EXTRA_VALUES='$map' voorwaarden"
+  gelijk "EXTRA_VALUES met '${geval%%|*}': exit ${geval#*|}" "${geval#*|}" "$CODE"
+done
+
 mkdir -p "$WERKMAP/extra-vreemd"
 echo "x: 1" >"$WERKMAP/extra-vreemd/berichtenmagazijn.yaml"
 # Met BASISDOMEIN: anders stopt voorwaarden ook op het ontbrekende adres, met dezelfde exitcode.
@@ -150,23 +159,31 @@ gelijk "alle acht gevraagd" 8 "$(grep -c 'manifest inspect' <<<"$LOG")"
 
 echo "== databases =="
 
-draai db-bestaat-200 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in *max_connections*) echo 200 ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
+draai db-bestaat-200 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in *"-o name --ignore-not-found") echo "cluster/$3" ;; *max_connections*) echo 200 ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
 gelijk "db met 200: in orde" 0 "$CODE"
 bevat_niet "db met 200: geen patch" "patch" "$LOG"
-bevat_niet "db met 200: niets nieuw" "create" "$LOG"
+bevat_niet "db met 200: niets nieuw" "create -f" "$LOG"
+
+draai db-bestaat-300 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in *"-o name --ignore-not-found") echo "cluster/$3" ;; *max_connections*) echo 300 ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
+bevat_niet "db met 300: niet omlaag" "patch" "$LOG"
+
+draai db-niet-op-te-vragen 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in *"-o name --ignore-not-found") return 1 ;; esac; }; databases'
+gelijk "kubectl-fout bij een Cluster: exit 1" 1 "$CODE"
+bevat "kubectl-fout bij een Cluster: zegt het" "Cluster db niet op te vragen" "$UIT"
+bevat_niet "kubectl-fout bij een Cluster: niets nieuw" "create -f" "$LOG"
 
 # De fase via een teller in een bestand: de stub draait in een command substitution, en een
 # variabele daarin overleeft de aanroep niet.
-draai db-bestaat-100 'NS=ns; KUBE_CONTEXT=x; echo 0 >"$WERK/n"; stub_kc() { case "$*" in *"parameters.max_connections"*) echo 100 ;; *"exec db-1"*) n=$(( $(cat "$WERK/n") + 1 )); echo $n >"$WERK/n"; [ $n -gt 2 ] && echo " 200" || echo " 100" ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
+draai db-bestaat-100 'NS=ns; KUBE_CONTEXT=x; echo 0 >"$WERK/n"; stub_kc() { case "$*" in *"-o name --ignore-not-found") echo "cluster/$3" ;; *"parameters.max_connections"*) echo 100 ;; *currentPrimary*) echo db-2 ;; *"exec db-2"*) n=$(( $(cat "$WERK/n") + 1 )); echo $n >"$WERK/n"; [ $n -gt 2 ] && echo " 200" || echo " 100" ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
 gelijk "db met 100: in orde" 0 "$CODE"
-gelijk "db met 100: wacht tot PostgreSQL 200 gebruikt" 3 "$(grep -c 'exec db-1 -c postgres -- psql -tAc show max_connections' <<<"$LOG")"
+gelijk "db met 100: wacht tot PostgreSQL 200 gebruikt, op de primary uit de status" 3 "$(grep -c 'exec db-2 -c postgres -- psql -tAc show max_connections' <<<"$LOG")"
 
-draai db-blijft-100 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in *"parameters.max_connections"*) echo 100 ;; *"exec db-1"*) echo 100 ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
+draai db-blijft-100 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in *"-o name --ignore-not-found") echo "cluster/$3" ;; *"parameters.max_connections"*) echo 100 ;; *currentPrimary*) echo db-1 ;; *"exec db-1"*) echo 100 ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
 gelijk "db blijft op 100: exit 1" 1 "$CODE"
 bevat "db blijft op 100: zegt waarom" "db gebruikt max_connections 200 niet" "$UIT"
 bevat "db met 100: max_connections naar 200" 'patch cluster.postgresql.cnpg.io db --type merge -p {"spec":{"postgresql":{"parameters":{"max_connections":"200"}}}}' "$LOG"
 
-draai db-ontbreekt 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in "get cluster.postgresql.cnpg.io db"|"get cluster.postgresql.cnpg.io ldv-uitvraag") return 1 ;; *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
+draai db-ontbreekt 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in *phase*) echo "Cluster in healthy state" ;; esac; }; databases'
 gelijk "geen databases: twee nieuwe" 2 "$(grep -c 'create -f -' <<<"$LOG")"
 
 echo "== geheimen =="
@@ -181,6 +198,12 @@ bevat "nieuwe geheimen: Redis en beheer" "create secret generic fbs-demo-geheime
 gelijk "Redis-wachtwoord zonder regelovergang" 64 "$(wc -c <"$WERKMAP/geheimen-nieuw/redis-wachtwoord")"
 [[ $(cat "$WERKMAP/geheimen-nieuw/htpasswd") =~ ^demo:\$6\$ ]] && ok "htpasswd: gebruiker demo met SHA-512" || faal "htpasswd: $(cat "$WERKMAP/geheimen-nieuw/htpasswd")"
 bevat_niet "bestaande keystore blijft" "delete secret" "$LOG"
+
+draai keystore-half 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in "get secret stelselregister-keystore -o name --ignore-not-found"|"get secret fbs-demo-"*" -o name --ignore-not-found") echo "secret/$3" ;; esac; }; geheimen'
+gelijk "half keystore-paar: in orde" 0 "$CODE"
+bevat "half keystore-paar: het oude weg" "delete secret stelselregister-keystore stelselregister-geheimen" "$LOG"
+bevat "half keystore-paar: de keystore opnieuw" "create secret generic stelselregister-keystore" "$LOG"
+bevat "half keystore-paar: het wachtwoord opnieuw" "create secret generic stelselregister-geheimen" "$LOG"
 
 draai secret-fout 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in "get secret "*) return 1 ;; esac; }; geheimen'
 gelijk "kubectl-fout bij een Secret: exit 1" 1 "$CODE"
@@ -232,6 +255,11 @@ alle=$(source "$HIER/lib.sh" && printf 'deployment.apps/%s\n' "${DEMO_DEPLOYMENT
 draai rollouts-alle "NS=ns; KUBE_CONTEXT=x; stub_kc() { case \"\$*\" in 'get deployments -o name') echo '$alle' ;; esac; }; controleer_rollouts; echo FOUTEN=\$fouten"
 gelijk "alle Deployments gereed: geen fout" 0 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
 
+draai rollouts-een-faalt "NS=ns; KUBE_CONTEXT=x; stub_kc() { case \"\$*\" in 'get deployments -o name') echo '$alle' ;; *'rollout status deployment/berichtenmagazijn-b'*) echo 'progress deadline exceeded' >&2; return 1 ;; esac; }; controleer_rollouts; echo FOUTEN=\$fouten"
+gelijk "rollout faalt: één fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
+bevat "rollout faalt: noemt hem, met de reden" "berichtenmagazijn-b is niet gereed" "$UIT"
+bevat "rollout faalt: de melding van kubectl erbij" "progress deadline exceeded" "$UIT"
+
 draai rollouts-kubectl-faalt 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in "get deployments -o name") return 1 ;; esac; }; controleer_rollouts; echo FOUTEN=$fouten'
 gelijk "kubectl faalt: precies die fout, niet dertien keer \"ontbreekt\"" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
 bevat "kubectl faalt: zegt waarom" "Deployments in ns niet op te vragen" "$UIT"
@@ -246,9 +274,9 @@ gelijk "stelselregister ontbreekt: één fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$
 echo "== controleren =="
 
 # code(): (verwacht, gekregen) → in orde of fout.
-for geval in "200 200 0" "200 000 1" "200 404 1" "!404 503 0" "!404 404 1" "!404 000 1" "400 400 0" "400 503 1"; do
+for geval in "200 200 0" "200 000 1" "200 404 1" "404 404 0" "404 503 1" "400 400 0" "400 503 1"; do
   read -r verwacht gekregen fouten_verwacht <<<"$geval"
-  draai "code-${verwacht//!/niet}-$gekregen" "BASISDOMEIN=fbs.x.nl; gw_curl() { printf '$gekregen'; }; code demo '$verwacht' proef https://x; echo FOUTEN=\$fouten"
+  draai "code-$verwacht-$gekregen" "BASISDOMEIN=fbs.x.nl; gw_curl() { printf '$gekregen'; }; code demo '$verwacht' proef https://x; echo FOUTEN=\$fouten"
   gelijk "code(): verwacht $verwacht, kreeg $gekregen" "$fouten_verwacht" "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
 done
 
@@ -259,7 +287,7 @@ gelijk "controleer met een fout: exit 1" 1 "$CODE"
 bevat "controleer met een fout: telt hem" "1 fout(en)" "$UIT"
 
 # controleer_routes: welke adressen met welke verwachting. code() zelf staat hierboven.
-draai routes 'NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; HTTPS_POORT=443; stub_kc() { printf pw | base64; }; code() { echo "CODE $2 $*" >>"$LOG"; }; controleer_routes'
+draai routes 'NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; HTTPS_POORT=443; stub_kc() { printf pw | base64; }; code() { local a; echo "CODE $2 $*" >>"$LOG"; for a in "$@"; do case "$a" in @*) cat "${a#@}" >>"$LOG" ;; esac; done; }; controleer_routes'
 bevat "routes: de simulator met een gesimuleerd magazijn, en een 400 van de simulator zelf" \
   "CODE 400 simulator 400 simulator: berichten lezen bereikt de simulator https://simulator.fbs.x.nl:443/magazijn/00000009000000000001/api/v1/berichten" "$LOG"
 bevat "routes: aanleveren bij de simulator dicht" "/magazijn/00000009000000000001/api/v1/aanleveringen" "$(grep 'CODE 404' <<<"$LOG")"
@@ -267,12 +295,17 @@ bevat "routes: het stelseldocument" "CODE 200 stelselregister 200 stelselregiste
 bevat "routes: de aanmeld-webhook dicht" "CODE 404 demo 404 aanmeld-webhook niet via de berichtenbox -X POST" "$LOG"
 bevat "routes: paneel met het wachtwoord" "CODE 200 demo 200 paneel met het wachtwoord" "$LOG"
 bevat_niet "routes: het wachtwoord niet als argument" "pw" "$(grep 'paneel met het wachtwoord' <<<"$LOG")"
+bevat "routes: paneel als gebruiker demo" "Authorization: Basic ZGVtbzpwdw==" "$LOG"
+
+draai routes-zonder-wachtwoord 'NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; HTTPS_POORT=443; code() { :; }; controleer_routes; echo FOUTEN=$fouten'
+gelijk "Secret zonder wachtwoord: een fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
+bevat "Secret zonder wachtwoord: zegt het" "heeft geen key wachtwoord" "$UIT"
 
 # gw_curl: het certificaat getoetst, nooit -k.
 draai gw-curl 'curl() { echo "curl $*"; }; BASISDOMEIN=fbs.x.nl; CA_BESTAND=/ca; GATEWAY_ADRES=127.0.0.1; HTTPS_POORT=9443; gw_curl demo https://x'
 bevat "gw_curl: de CA van de Gateway" "--cacert /ca" "$UIT"
 bevat "gw_curl: naar het adres, met de hostnaam" "--resolve demo.fbs.x.nl:9443:127.0.0.1" "$UIT"
-bevat_niet "gw_curl: nooit -k" " -k " "$UIT"
+gelijk "gw_curl: precies deze opties, zonder -k" "curl -q -sS --max-time 30 --cacert /ca --resolve demo.fbs.x.nl:9443:127.0.0.1 https://x" "$UIT"
 bevat_niet "gw_curl: nooit --insecure" "--insecure" "$UIT"
 draai gw-curl-dns 'curl() { echo "curl $*"; }; BASISDOMEIN=fbs.x.nl; HTTPS_POORT=443; gw_curl demo https://x'
 bevat_niet "gw_curl zonder CA_BESTAND: de standaard-CA's" "--cacert" "$UIT"
@@ -290,8 +323,9 @@ sse "$B" FOUT 0 >>"$WERKMAP/keten-b-fout.sse"
 : >"$WERKMAP/keten-leeg.sse"
 
 # Een gw_curl die sessie, ophaalrondes en beëindigen nadoet. $1 = antwoord op POST /sessies (body,
-# regelovergang, code), $2 = de rondes als "<code>:<sse-bestand>" na elkaar (de laatste herhaalt),
-# $3 = code van DELETE.
+# regelovergang, code), $2 = de rondes als "<code>:<sse-bestand>" na elkaar (de laatste herhaalt;
+# bestand - schrijft niets, zoals curl zonder antwoord),
+# $3 = code van DELETE, $4 = exitcode van curl bij _ophalen (standaard 0).
 stub_keten() {
   cat <<EOF
 echo 0 >"\$WERK/ronde"
@@ -305,7 +339,7 @@ gw_curl() {
       local rondes=($2) n
       n=\$(cat "\$WERK/ronde"); echo \$((n + 1)) >"\$WERK/ronde"
       [ "\$n" -lt "\${#rondes[@]}" ] || n=\$((\${#rondes[@]} - 1))
-      cp "\${rondes[\$n]#*:}" "\$uit"; printf '%s' "\${rondes[\$n]%%:*}" ;;
+      [ "\${rondes[\$n]#*:}" = - ] || cp "\${rondes[\$n]#*:}" "\$uit"; printf '%s' "\${rondes[\$n]%%:*}"; return ${4:-0} ;;
     *DELETE*) printf '$3' ;;
   esac
 }
@@ -337,9 +371,29 @@ bevat "B faalt: sessie toch beëindigd" "-X DELETE" "$LOG"
 draai keten-409 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; KETEN_SECONDEN=0; $(stub_keten "$sessie_ok" "409:$WERKMAP/keten-leeg.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
 bevat "409 op _ophalen: de code in de reden" "_ophalen gaf 409" "$UIT"
 
-draai keten-401 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; KETEN_SECONDEN=300; $(stub_keten "$sessie_ok" "401:$WERKMAP/keten-leeg.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
-gelijk "401 op _ophalen: meteen gestopt" 1 "$(grep -c '_ophalen' <<<"$LOG")"
-bevat "401 op _ophalen: de code in de reden" "_ophalen gaf 401" "$UIT"
+for c in 401 403; do
+  draai "keten-$c" "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; KETEN_SECONDEN=300; $(stub_keten "$sessie_ok" "$c:$WERKMAP/keten-leeg.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
+  gelijk "$c op _ophalen: meteen gestopt" 1 "$(grep -c '_ophalen' <<<"$LOG")"
+  bevat "$c op _ophalen: de code in de reden" "_ophalen gaf $c" "$UIT"
+done
+
+# Eerst een 409 met uitleg, dan geen antwoord: de uitleg van de vorige ronde hoort niet bij de tweede.
+printf '{"detail":"ophalen loopt al"}' >"$WERKMAP/keten-409.json"
+draai keten-geen-antwoord "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; KETEN_SECONDEN=15; $(stub_keten "$sessie_ok" "409:$WERKMAP/keten-409.json 000:-" 204); controleer_keten; echo FOUTEN=\$fouten"
+bevat "geen antwoord: de code van de laatste ronde" "_ophalen gaf 000" "$UIT"
+bevat_niet "geen antwoord: niet de uitleg van de ronde ervoor" "ophalen loopt al" "$(grep 'keten na' <<<"$UIT")"
+
+# Afgebroken stream: 200, maar curl faalt halverwege.
+draai keten-afgebroken "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; KETEN_SECONDEN=0; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-leeg.sse" 204 28); controleer_keten; echo FOUTEN=\$fouten"
+bevat "afgebroken stream: zegt het" "stream afgebroken" "$UIT"
+
+# Ctrl-C tijdens het wachten tussen twee rondes: opruimen beëindigt de sessie toch, kort.
+draai keten-onderbroken "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; KETEN_SECONDEN=300; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-b-fout.sse" 204); sleep() { kill -INT \$\$; }; werkmap; WERK=\$PWD/w; mkdir -p \$WERK; controleer_keten"
+gelijk "onderbroken: exit 130" 130 "$CODE"
+bevat "onderbroken: sessie toch beëindigd, met een korte timeout" "--max-time 10 -X DELETE" "$LOG"
+
+draai keten-klaar-opruimen "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-ok.sse" 204); werkmap; WERK=\$PWD/w; mkdir -p \$WERK; controleer_keten"
+gelijk "na de controle: opruimen beëindigt niet nog eens" 1 "$(grep -c 'X DELETE' <<<"$LOG")"
 
 draai keten-delete-401 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-ok.sse" 401); controleer_keten; echo FOUTEN=\$fouten"
 bevat "DELETE gaf 401: zegt het" "niet beëindigd: DELETE gaf 401" "$UIT"

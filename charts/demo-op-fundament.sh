@@ -76,7 +76,14 @@ wacht_tot() {
 
 werkmap() {
   WERK=$(mktemp -d)
-  trap 'rm -rf "$WERK"' EXIT
+  trap opruimen EXIT
+}
+
+# Ook na Ctrl-C (bash draait de EXIT-trap ook bij INT, TERM en HUP): een sessie die openblijft, telt mee tot de inactiviteitstermijn verloopt, en de
+# uitvraag staat er vijf per ontvanger toe.
+opruimen() {
+  [ -z "${SESSIE_OPEN:-}" ] || sessie_beeindigen stil
+  rm -rf "$WERK"
 }
 
 # --- Voorwaarden -------------------------------------------------------------------------------
@@ -101,6 +108,11 @@ voorwaarden() {
     local bestand naam
 
     # Een verkeerd genoemd bestand viel anders stil weg.
+    for bestand in "$EXTRA_VALUES"/*.yml; do
+      [ -e "$bestand" ] || continue
+      stop 2 "EXTRA_VALUES: $(basename "$bestand") heeft .yml; het script leest alleen <release>.yaml"
+    done
+
     for bestand in "$EXTRA_VALUES"/*.yaml; do
       [ -e "$bestand" ] || continue
       naam=$(basename "$bestand" .yaml)
@@ -164,26 +176,35 @@ database_fase() { kc get cluster.postgresql.cnpg.io "$1" -o jsonpath='{.status.p
 database_gezond() { [ "$(database_fase "$1")" = "Cluster in healthy state" ]; }
 
 # De waarde die PostgreSQL zelf gebruikt, niet die in de spec: CloudNativePG past hem pas toe na een
-# herstart. De primary van een Cluster met één instantie heet <cluster>-1.
+# herstart. Op de primary uit de status: na een nieuwe instantie heet die niet meer <cluster>-1.
 max_connections_actief() {
-  [ "$(kc exec db-1 -c postgres -- psql -tAc 'show max_connections' | tr -d '[:space:]')" = 200 ]
+  local primary
+  primary=$(kc get cluster.postgresql.cnpg.io db -o jsonpath='{.status.currentPrimary}') && [ -n "$primary" ] || return 1
+  [ "$(kc exec "$primary" -c postgres -- psql -tAc 'show max_connections' | tr -d '[:space:]')" -ge 200 ]
+}
+
+# Of een Cluster er is. Een fout van kubectl is een stop, geen "is er niet".
+cluster_bestaat() {
+  local uit
+  uit=$(kc get cluster.postgresql.cnpg.io "$1" -o name --ignore-not-found) || stop 1 "Cluster $1 niet op te vragen"
+  [ -n "$uit" ]
 }
 
 # Een Cluster dat er al is, blijft zoals het is: een kleinere opslag of andere labels zou CloudNativePG
-# willen doorvoeren. Alleen het aantal verbindingen van db gaat omhoog.
+# willen doorvoeren. Alleen het aantal connections van db gaat omhoog, nooit omlaag.
 databases() {
   stap "databases (CloudNativePG)"
 
-  if kc get cluster.postgresql.cnpg.io db >/dev/null 2>&1; then
+  if cluster_bestaat db; then
     local huidig
     huidig=$(kc get cluster.postgresql.cnpg.io db -o jsonpath='{.spec.postgresql.parameters.max_connections}')
 
-    if [ "$huidig" != 200 ]; then
+    if [ "${huidig:-100}" -lt 200 ]; then
       kc patch cluster.postgresql.cnpg.io db --type merge \
         -p '{"spec":{"postgresql":{"parameters":{"max_connections":"200"}}}}' >/dev/null
       # CloudNativePG herstart de database voor deze parameter. Wachten tot PostgreSQL de waarde
-      # gebruikt: zonder valt de herstart midden in de installatie van de magazijnen, en kwamen hun
-      # 134 verbindingen tegen de oude grens van 100.
+      # gebruikt: anders valt de herstart midden in de installatie van de magazijnen, en lopen hun
+      # 134 connections tegen de oude grens van 100.
       wacht_tot 600 "max_connections 200 in db" max_connections_actief ||
         stop 1 "db gebruikt max_connections 200 niet; zie: kubectl --context $KUBE_CONTEXT -n $NS describe cluster.postgresql.cnpg.io db"
     fi
@@ -191,7 +212,7 @@ databases() {
     manifest_cluster db "$NS" 200 | kc create -f - >/dev/null
   fi
 
-  kc get cluster.postgresql.cnpg.io ldv-uitvraag >/dev/null 2>&1 || manifest_cluster ldv-uitvraag "$NS" | kc create -f - >/dev/null
+  cluster_bestaat ldv-uitvraag || manifest_cluster ldv-uitvraag "$NS" | kc create -f - >/dev/null
 
   local db
 
@@ -255,8 +276,10 @@ geheimen() {
     cp "$REPO/demo/environment/stelselregister/pki/maak-keten.sh" "$WERK/pki/"
     (cd "$WERK/pki" && STELSELDOCUMENT_OMGEVING=demo ./maak-keten.sh >/dev/null)
     kc delete secret stelselregister-keystore stelselregister-geheimen --ignore-not-found >/dev/null
-    secret_eenmalig stelselregister-keystore --from-file=keystore.p12="$WERK/pki/out/keystore.p12"
-    secret_eenmalig stelselregister-geheimen --from-file=STELSELDOCUMENT_KEYSTORE_WACHTWOORD="$WERK/pki/out/wachtwoord"
+    kc create secret generic stelselregister-keystore --from-file=keystore.p12="$WERK/pki/out/keystore.p12" >/dev/null
+    kc create secret generic stelselregister-geheimen \
+      --from-file=STELSELDOCUMENT_KEYSTORE_WACHTWOORD="$WERK/pki/out/wachtwoord" >/dev/null
+    echo "OK: keystore en wachtwoord van het stelselregister gemaakt"
   fi
 }
 
@@ -349,17 +372,14 @@ gw_curl() {
     ${GATEWAY_ADRES:+--resolve "$host:$HTTPS_POORT:$GATEWAY_ADRES"} "$@"
 }
 
-# De statuscode van een verzoek. $1 = host, $2 = verwachte code, $3 = beschrijving, rest = curl. Een
-# verwachting met ! ervoor: elke code behalve die, en behalve 000 (geen antwoord).
+# De statuscode van een verzoek. $1 = host, $2 = verwachte code, $3 = beschrijving, rest = curl.
 code() {
   local host=$1 verwacht=$2 wat=$3 gekregen
   shift 3
 
   gekregen=$(gw_curl "$host" -o /dev/null -w '%{http_code}' "$@" 2>"$WERK/curl.err" || true)
 
-  if [ "${verwacht#!}" != "$verwacht" ] && [ "$gekregen" != "${verwacht#!}" ] && [ "$gekregen" != 000 ]; then
-    echo "OK: $wat ($gekregen)"
-  elif [ "$gekregen" = "$verwacht" ]; then
+  if [ "$gekregen" = "$verwacht" ]; then
     echo "OK: $wat ($gekregen)"
   else
     fout "$wat: $gekregen, verwacht $verwacht $(tail -1 "$WERK/curl.err" 2>/dev/null)"
@@ -395,10 +415,15 @@ controleer_routes() {
 
   # Met het wachtwoord uit het Secret, als header-bestand: een argument van curl is via ps zichtbaar.
   local wachtwoord
-  wachtwoord=$(kc get secret fbs-demo-bediening -o jsonpath='{.data.wachtwoord}' | base64 -d) ||
-    fout "het wachtwoord van het paneel is niet te lezen"
-  code demo 200 "paneel met het wachtwoord" \
-    -H @<(printf 'Authorization: Basic %s\n' "$(printf 'demo:%s' "$wachtwoord" | base64 | tr -d '\n')") "$(url demo /bediening/)"
+  wachtwoord=$(kc get secret fbs-demo-bediening -o jsonpath='{.data.wachtwoord}' | base64 -d) || wachtwoord=""
+
+  if [ -z "$wachtwoord" ]; then
+    # Met de hand gemaakt volgens de README staat het wachtwoord in de kluis, niet in het Secret.
+    fout "Secret fbs-demo-bediening heeft geen key wachtwoord; het paneel met wachtwoord is niet getoetst"
+  else
+    code demo 200 "paneel met het wachtwoord" \
+      -H @<(printf 'Authorization: Basic %s\n' "$(printf 'demo:%s' "$wachtwoord" | base64 | tr -d '\n')") "$(url demo /bediening/)"
+  fi
 
   code berichtenmagazijn-a 200 "magazijn A: OpenAPI-document" "$(url berichtenmagazijn-a /openapi.json)"
   code berichtenmagazijn-b 200 "magazijn B: OpenAPI-document" "$(url berichtenmagazijn-b /openapi.json)"
@@ -424,14 +449,18 @@ controleer_keten() {
   code_sessie=${antwoord##*$'\n'}
 
   if ! sessie=$(sessie_uit_antwoord "${antwoord%$'\n'*}"); then
-    fout "geen sessie: POST /api/v1/sessies gaf $code_sessie $(jq -r '.detail? // empty' <<<"${antwoord%$'\n'*}" 2>/dev/null)$(tail -1 "$WERK/curl.err")"
+    fout "geen sessie: POST /api/v1/sessies gaf $code_sessie; $(jq -r '.detail? // empty' <<<"${antwoord%$'\n'*}" 2>/dev/null) $(tail -1 "$WERK/curl.err")"
     return
   fi
 
   # Het sessie-id via een header-bestand: een argument van curl is via ps zichtbaar.
   printf 'X-Sessie: %s\n' "$sessie" >"$WERK/sessie.hdr"
+  SESSIE_OPEN=1
 
   while :; do
+    # Leeg: bij een verbinding die niets oplevert, schrijft curl het bestand niet, en stond er
+    # anders nog de body van de vorige ronde.
+    : >"$WERK/ophalen.sse"
     curl_code=0
     status=$(gw_curl demo --max-time 120 -o "$WERK/ophalen.sse" -w '%{http_code}' -H "X-Ontvanger: $KETEN_ONTVANGER" \
       -H @"$WERK/sessie.hdr" -H 'Accept: text/event-stream' "$(url demo /api/v1/berichten/_ophalen)" \
@@ -443,9 +472,9 @@ controleer_keten() {
     fi
 
     if [ "$status" != 200 ]; then
-      reden="_ophalen gaf $status $(jq -r '.detail? // empty' "$WERK/ophalen.sse" 2>/dev/null)$(tail -1 "$WERK/curl.err")"
+      reden="_ophalen gaf $status; $(jq -r '.detail? // empty' "$WERK/ophalen.sse" 2>/dev/null) $(tail -1 "$WERK/curl.err")"
     elif [ "$curl_code" -ne 0 ]; then
-      reden="stroom afgebroken ($(tail -1 "$WERK/curl.err")); $reden"
+      reden="stream afgebroken ($(tail -1 "$WERK/curl.err")); $reden"
     fi
 
     # Een ongeldige sessie of een weigering wordt niet beter door te wachten.
@@ -458,14 +487,16 @@ controleer_keten() {
   done
 
   sessie_beeindigen
+  SESSIE_OPEN=
 }
 
-# Eén sessie per controle, en die hoort weg: de uitvraag staat er vijf per ontvanger toe.
+# $1 = stil: bij het opruimen, kort en zonder fout te tellen.
 sessie_beeindigen() {
   local status
-  status=$(gw_curl demo -o /dev/null -w '%{http_code}' -X DELETE -H "X-Ontvanger: $KETEN_ONTVANGER" \
+  status=$(gw_curl demo -o /dev/null -w '%{http_code}' ${1:+--max-time 10} -X DELETE -H "X-Ontvanger: $KETEN_ONTVANGER" \
     -H @"$WERK/sessie.hdr" "$(url demo /api/v1/sessies/huidige)" 2>"$WERK/curl.err" || true)
-  [ "$status" = 204 ] || fout "de sessie van de controle is niet beëindigd: DELETE gaf $status $(tail -1 "$WERK/curl.err")"
+  [ -z "${1:-}" ] || return 0
+  [ "$status" = 204 ] || fout "de sessie van de controle is niet beëindigd: DELETE gaf $status; $(tail -1 "$WERK/curl.err")"
 }
 
 controleer() {

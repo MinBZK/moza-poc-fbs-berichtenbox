@@ -878,16 +878,6 @@ EOF
 demo() {
   stap "demo: voorbereiden in $NS"
 
-  # De ene magazijn-release van `op`. Alleen als hij er is: een "niet gevonden" is geen fout, een
-  # time-out of een weigering wel. Met --all, zodat ook een release die halverwege bleef staan
-  # meetelt.
-  local releases
-  releases=$(hm list --namespace "$NS" -q --all) || stop 1 "helm list in $NS faalde"
-
-  if grep -qx berichtenmagazijn <<<"$releases"; then
-    hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null
-  fi
-
   local svc
   svc=$(kc -n envoy-gateway-system get service \
     -l "gateway.envoyproxy.io/owning-gateway-name=web,gateway.envoyproxy.io/owning-gateway-namespace=$NS" \
@@ -927,13 +917,25 @@ demo() {
     p="-J-Dkeystore.pkcs12.certProtectionAlgorithm=NONE -J-Dkeystore.pkcs12.macAlgorithm=NONE"
     cat >/tmp/lokale-ca.crt
     keytool $p -importkeystore -noprompt -srckeystore "$JAVA_HOME/lib/security/cacerts" -srcstorepass changeit \
-      -destkeystore /tmp/jssecacerts -deststoretype PKCS12 -deststorepass changeit >/dev/null 2>&1
+      -destkeystore /tmp/jssecacerts -deststoretype PKCS12 -deststorepass changeit >/dev/null
     keytool $p -importcert -noprompt -alias fbs-lokale-ca -file /tmp/lokale-ca.crt \
-      -keystore /tmp/jssecacerts -storepass changeit >/dev/null 2>&1
+      -keystore /tmp/jssecacerts -storepass changeit >/dev/null
     keytool -list -keystore /tmp/jssecacerts -alias fbs-lokale-ca </dev/null >/dev/null 2>&1
     cat /tmp/jssecacerts' <"$WERK/lokale-ca.crt" >"$WERK/jssecacerts" ||
     stop 1 "keytool maakte geen jssecacerts die de JVM zonder wachtwoord leest"
   [ -s "$WERK/jssecacerts" ] || stop 1 "jssecacerts is leeg"
+
+  # Pas na de controles hierboven: een stop daar laat de proef van `op` zoals hij was. De ene
+  # magazijn-release van `op`. Alleen als hij er is: een "niet gevonden" is geen fout, een
+  # time-out of een weigering wel. Met --all, zodat ook een release die halverwege bleef staan
+  # meetelt.
+  local releases
+  releases=$(hm list --namespace "$NS" -q --all) || stop 1 "helm list in $NS faalde"
+
+  if grep -qx berichtenmagazijn <<<"$releases"; then
+    hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null
+  fi
+
   kc -n "$NS" delete secret gateway-ca --ignore-not-found >/dev/null
   kc -n "$NS" create secret generic gateway-ca --from-file=jssecacerts="$WERK/jssecacerts" >/dev/null
   echo "OK: de lokale CA staat in jssecacerts voor $java_home"
