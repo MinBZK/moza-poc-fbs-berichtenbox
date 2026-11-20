@@ -344,3 +344,50 @@ Live, met images `main-7ab403f`:
 | `af`, dan `op` | groen; de hashes komen uit de catalogus via de route op het platform |
 | Poorten | alles op loopback; de relays zonder hostpoort |
 | Huidige kube-context | blijft ongewijzigd |
+
+### Pin-ophoging naar Fundament `b363604d` (2026-11-20)
+
+fundament-oss/fundament#661 is gemerged (`ab868a3b`, 19 november). De pin gaat van `e18ad710` naar
+`b363604d`, de nieuwste commit op `master` die `ab868a3b` bevat.
+
+Wat er tussen de twee pins veranderde, en wat het voor het script betekent:
+- **Recipes, `mise.toml`, de k3d-configs en de plek van de kubeconfig** (`.dev/`): niet gewijzigd.
+  Alleen `e2e/mod.just` kreeg recipes voor belastingtests; die gebruikt het script niet.
+- **Seed-accounts:** ongewijzigd. In `values-local.yaml` kwam alleen `cookieAllowedOrigins` voor de
+  kube-api-proxy bij. Het secret `db-fun-operator`, dat `just funops` leest, heet nog zo.
+- **`functl auth status`** (#661): eindigt met exit 0 als het de sessie kon controleren, en geeft met
+  `-o json` `authenticated`, en bij `false` een `reason`: `not_logged_in` of `rejected`. Een exit
+  die niet 0 is, betekent dat het niet te controleren was (platform onbereikbaar, config
+  onleesbaar).
+- **Plug-ins:** de definities kregen `metadata.categories`. `functl plugin publish --create` zoekt ze
+  op in het register en weigert een onbekende. Dezelfde versienummers, dus na `af` gaat het verder via
+  de catalogus zoals eerder.
+- **Platform:** sessies eindigen een vaste tijd na het inloggen (#684); het wachtwoord-inloggen
+  geeft nog steeds `access_token`. De chart vraagt Kubernetes 1.30 of nieuwer (het platform draait
+  1.35), begrenst de databasepools en zet `max_connections` op 400. Migratie 063 voor API-keys.
+  Geen van deze vraagt iets van het script.
+
+Wat er in het script veranderde:
+- **`functl_inloggen`** leest de sessie uit `functl auth status -o json`, alleen van stdout: mise zet
+  `FUNCTL_DEBUG` aan, en de debuglog gaat naar stderr. Ingelogd: `org set` blijft, maar alleen om
+  de organisatie te kiezen. `not_logged_in` of `rejected`: een nieuwe API-key en inloggen. Een exit
+  die niet 0 is, of een antwoord dat het script niet kent (ook een nieuwe `reason`): stoppen met de
+  melding van functl. Een nieuwe key lost een onbereikbaar platform niet op en verbergt de oorzaak.
+- **`functl_fout_soort`** kent `niet-ingelogd` niet meer; die tak was alleen voor de omweg. De
+  soorten `geen-listing` en `bestaat-al` blijven nodig voor het publiceren.
+- **Instellingen van functl uit de shell** (`FUNDAMENT_API_KEY`, `FUNDAMENT_ORGANIZATION_ID`,
+  `FUNCTL_API_ENDPOINT`, `FUNCTL_AUTHN_URL`, `FUNCTL_REGISTRY_URL`) zet het script uit. functl leest
+  ze vóór zijn configuratie in `FUNCTL_CONFIG_DIR`, dus een eigen key voor een echt platform zou
+  anders de sessie van de opstelling vervangen, en een geweigerde key in de omgeving bleef ook na
+  een nieuwe login gelden. Dat speelde al vóór deze ophoging, maar `auth status` maakte het
+  zichtbaar: het controleert de key uit de omgeving.
+- **Na een herstart van de machine.** Op 20 november bleven de pods na een herstart 25 uur in
+  ImagePullBackOff (`lookup ghcr.io: Try again`), tot `k3d cluster stop`/`start` en een nieuwe
+  `op`. Docker start de containers zelf (restart-policy `unless-stopped`), niet k3d, en de nodes
+  konden daarna niet opzoeken. Het slotbericht zei "na een herstart van de machine start hij vanzelf
+  weer"; nu zegt het dat je dan beide clusters via k3d herstart en `op` draait. `controleer` toetst
+  ook of de sandbox-node ghcr.io kan opzoeken, met dezelfde remedie. Zonder die toets kan de
+  controle groen zijn zolang de pods uit hun cache draaien, en faalt pas hun volgende start.
+
+Wat bleef: het eigen aanmaken van de sandbox (hun recipe kent nog geen k3s-image of extra poort),
+en het pinnen op de hash van de definitie.
