@@ -32,9 +32,12 @@ draai() {
   UITVOER=$(python3 "$GUARD" "$1" 2>&1) && STATUS=0 || STATUS=$?
 }
 
-# Eén setup-java-stap, met het meegegeven with-blok eronder.
+# De stap die na elke setup-java hoort; als printf-fragment, voor de fixtures die hem nodig hebben.
+CACHE='      - uses: ./.github/actions/maven-cache\n'
+
+# Eén setup-java-stap, met het meegegeven with-blok eronder, gevolgd door de maven-cache-action.
 stap() {
-  printf 'jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc123\n        with:\n%s\n' "$1"
+  printf "jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc123\n        with:\n%s\n$CACHE" "$1"
 }
 
 verwacht_ok() {
@@ -116,6 +119,42 @@ stap "          verify-signature: true
           cache: ''" > "$map/cache-leeg.yml"
 verwacht_ok "een lege cache-waarde zet de cache uit en is in orde" "$map" "alle 1 "
 
+# De runner leest inputs zonder onderscheid in hoofdletters (`INPUT_CACHE`).
+map=$(nieuwe_map)
+stap '          verify-signature: true
+          Cache: maven' > "$map/cache-hoofdletter.yml"
+verwacht_fout "Cache: met hoofdletter is een bevinding" "$map" 'zet `cache:` aan'
+
+# setup-java faalt zelf al op `false`; als bevinding vastgelegd zodat een guard die alleen op
+# waarheidswaarde toetst (`if met.get("cache")`) niet ongemerkt binnensluipt.
+map=$(nieuwe_map)
+stap '          verify-signature: true
+          cache: false' > "$map/cache-false.yml"
+verwacht_fout "cache: false is een bevinding" "$map" 'zet `cache:` aan'
+
+map=$(nieuwe_map)
+stap '          verify-signature: true
+          cache:' > "$map/cache-null.yml"
+verwacht_ok "cache zonder waarde is in orde" "$map" "alle 1 "
+
+# --- de maven-cache-action volgt op setup-java -------------------------------------------------
+
+map=$(nieuwe_map)
+printf 'jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n' > "$map/zonder-action.yml"
+verwacht_fout "setup-java zonder maven-cache-action is een bevinding" "$map" "volgt geen"
+
+# Vóór setup-java overschrijft setup-java de settings.xml met de mirror.
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$CACHE      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n" > "$map/action-ervoor.yml"
+verwacht_fout "maven-cache-action vóór setup-java is een bevinding" "$map" "volgt geen"
+
+# De action in een andere job telt niet: elke job draait op een eigen runner. In job a staat hij
+# op een hoger stapnummer dan setup-java in job b, zodat een guard die over jobs heen kijkt hem
+# als "later" zou meetellen.
+map=$(nieuwe_map)
+printf "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@abc\n$CACHE  b:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n" > "$map/andere-job.yml"
+verwacht_fout "maven-cache-action in een andere job telt niet" "$map" "job 'b' stap 1: na actions/setup-java volgt geen"
+
 # Beide eisen tegelijk geschonden: elk levert een eigen regel, zodat de fix van de ene de andere
 # niet pas in de volgende run aan het licht brengt.
 map=$(nieuwe_map)
@@ -131,7 +170,7 @@ fi
 # --- de melding wijst de stap aan --------------------------------------------------------------
 
 map=$(nieuwe_map)
-printf 'jobs:\n  publiceer:\n    steps:\n      - uses: actions/checkout@abc\n      - uses: actions/setup-java@abc123\n        with:\n          verify-signature: true\n      - uses: actions/setup-java@abc123\n' > "$map/tweede.yml"
+printf "jobs:\n  publiceer:\n    steps:\n      - uses: actions/checkout@abc\n      - uses: actions/setup-java@abc123\n        with:\n          verify-signature: true\n      - uses: actions/setup-java@abc123\n$CACHE" > "$map/tweede.yml"
 draai "$map"
 
 if [ "$STATUS" -eq 0 ]; then
@@ -161,7 +200,7 @@ verwacht_ok "één stap wordt geteld" "$map" "alle 1 "
 # Meerdere stappen, verdeeld over meerdere jobs én meerdere bestanden: een guard die alleen de
 # eerste job of het eerste bestand leest, telt hier te laag en valt door de mand.
 map=$(nieuwe_map)
-printf 'jobs:\n  a:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n  b:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n' > "$map/veel.yml"
+printf "jobs:\n  a:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n$CACHE  b:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n$CACHE" > "$map/veel.yml"
 stap '          verify-signature: true' > "$map/nog-een.yaml"
 verwacht_ok "meerdere stappen over meerdere jobs en bestanden worden alle geteld" "$map" "alle 4 "
 
@@ -195,12 +234,12 @@ printf 'jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java-toolkit@abc
 verwacht_fout "een action met setup-java als naamprefix telt niet mee" "$map" "bewaakt niets meer"
 
 map=$(nieuwe_map)
-printf 'jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-node@abc\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n' > "$map/andere-action.yml"
+printf "jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-node@abc\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n$CACHE" > "$map/andere-action.yml"
 verwacht_ok "andere actions worden genegeerd" "$map" "alle 1 "
 
 # Een job die een reusable workflow aanroept heeft geen `steps`; de parser mag daar niet op vallen.
 map=$(nieuwe_map)
-printf 'jobs:\n  hergebruik:\n    uses: ./.github/workflows/iets.yml\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n' > "$map/reusable.yml"
+printf "jobs:\n  hergebruik:\n    uses: ./.github/workflows/iets.yml\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        with:\n          verify-signature: true\n$CACHE" > "$map/reusable.yml"
 verwacht_ok "een job zonder steps laat de guard niet vallen" "$map" "alle 1 "
 
 # Alleen .yml/.yaml: een notitiebestand naast de workflows mag de meting niet beïnvloeden — niet

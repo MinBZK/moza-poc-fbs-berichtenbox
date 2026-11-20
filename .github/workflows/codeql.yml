@@ -53,9 +53,8 @@ jobs:
           distribution: temurin
           verify-signature: true
           java-version: 21
-      # Zonder cache haalde deze workflow de volledige dependency-boom bij élke run opnieuw op,
-      # terwijl test.yml, detekt.yml en deploy.yml diezelfde artefacten al hergebruiken. Het
-      # herstellen van de cache kost een fractie van wat dat downloaden kostte.
+      # Zonder cache haalde deze workflow de volledige dependency-boom bij élke run opnieuw op;
+      # het herstellen kost een fractie daarvan. Eigen scope, omdat CodeQL alleen compileert.
       - uses: ./.github/actions/maven-cache
         with:
           scope: codeql

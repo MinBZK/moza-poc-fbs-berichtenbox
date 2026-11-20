@@ -1,9 +1,9 @@
 name: Maven-cache
 description: >-
-  Zet de CI-settings met de Central-spiegel neer en herstelt de lokale Maven-repository. Alleen
-  main bewaart de cache; PR's en de merge queue herstellen hem alleen. Plaats deze stap ná
-  actions/setup-java: die schrijft zijn eigen ~/.m2/settings.xml, en die moet hier overschreven
-  worden.
+  Zet de CI-settings met de Central-mirror neer en herstelt de lokale Maven-repository en de
+  Maven-distributie van de wrapper. Alleen main bewaart; PR's en de merge queue herstellen alleen.
+  Plaats deze stap ná actions/setup-java: die schrijft zijn eigen ~/.m2/settings.xml, en die moet
+  hier overschreven worden.
 
 # Waarom niet `cache: maven` van setup-java:
 # - Eén sleutel voor alle jobs. De job die het eerst klaar is (detekt: alleen plugins) bewaart een
@@ -14,9 +14,13 @@ description: >-
 # - Elke PR en elke merge-queue-entry bewaart een eigen kopie. Samen kwam dat boven de 10 GB per
 #   repository, en dan gooit GitHub caches weg die nog gebruikt worden.
 #
-# Main bewaart zonder `restore-keys`, dus elke sleutel begint leeg en bevat alleen wat die
-# pom-stand nodig heeft. Met een terugval zou de cache bij elke versiebump de oude versie
-# meenemen en ongemerkt blijven groeien. De koude start op main gaat via de spiegel.
+# Main bewaart de repository zonder `restore-keys`, dus elke sleutel begint leeg en bevat alleen
+# wat die pom-stand nodig heeft. Met een terugval zou de cache bij elke versiebump de oude versie
+# meenemen en ongemerkt blijven groeien. De koude start op main gaat via de mirror.
+#
+# Bewaren alleen bij een push, schedule of handmatige run op main. `github.ref` alleen is niet
+# genoeg: bij `pull_request_target` of `workflow_run` is die ook main, terwijl daar PR-code kan
+# draaien die dan de cache van main zou vullen.
 
 inputs:
   scope:
@@ -29,32 +33,58 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: CI-settings met de Central-spiegel
+    - name: CI-settings met de Central-mirror
       shell: bash
       env:
         SETTINGS: ${{ github.action_path }}/settings.xml
       run: install -D -m 0644 "$SETTINGS" "$HOME/.m2/settings.xml"
 
-    - name: Maven-cache herstellen en bewaren
-      if: github.ref == 'refs/heads/main'
+    - name: Bepaal of deze run de cache bewaart
+      id: bewaren
+      shell: bash
+      env:
+        REF: ${{ github.ref }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        case "$REF:$EVENT" in
+          refs/heads/main:push | refs/heads/main:schedule | refs/heads/main:workflow_dispatch) echo "ja=true" ;;
+          *) echo "ja=false" ;;
+        esac >> "$GITHUB_OUTPUT"
+
+    # Apart van de repository: de wrapper haalt de distributie zonder retry van Central, en hoort
+    # dus niet bij elke pom-wijziging koud te starten. Zijn sleutel hangt alleen aan de
+    # wrapper-configuratie, dus PR's vinden die van main exact terug.
+    - name: Maven-distributie herstellen en bewaren
+      if: steps.bewaren.outputs.ja == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: |
-          ~/.m2/repository
-          ~/.m2/wrapper
-        key: maven-${{ runner.os }}-${{ inputs.scope }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+        path: ~/.m2/wrapper
+        key: maven-wrapper-${{ runner.os }}-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+    - name: Maven-distributie herstellen
+      if: steps.bewaren.outputs.ja != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/wrapper
+        key: maven-wrapper-${{ runner.os }}-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+    # De settings tellen mee in de sleutel: een andere repository-configuratie begint schoon.
+    - name: Maven-repository herstellen en bewaren
+      if: steps.bewaren.outputs.ja == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/repository
+        key: maven-repo-${{ runner.os }}-${{ inputs.scope }}-${{ hashFiles('**/pom.xml', '.github/actions/maven-cache/settings.xml') }}
 
     # Een PR mag de cache van main lezen maar niet zelf bewaren: dat laatste vulde de 10 GB. Na
     # een pom-wijziging komt de laatste cache van dezelfde scope terug, en anders die van een
     # andere scope; Maven haalt dan alleen het verschil op.
-    - name: Maven-cache herstellen
-      if: github.ref != 'refs/heads/main'
+    - name: Maven-repository herstellen
+      if: steps.bewaren.outputs.ja != 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: |
-          ~/.m2/repository
-          ~/.m2/wrapper
-        key: maven-${{ runner.os }}-${{ inputs.scope }}-${{ hashFiles('**/pom.xml', '.mvn/wrapper/maven-wrapper.properties') }}
+        path: ~/.m2/repository
+        key: maven-repo-${{ runner.os }}-${{ inputs.scope }}-${{ hashFiles('**/pom.xml', '.github/actions/maven-cache/settings.xml') }}
         restore-keys: |
-          maven-${{ runner.os }}-${{ inputs.scope }}-
-          maven-${{ runner.os }}-
+          maven-repo-${{ runner.os }}-${{ inputs.scope }}-
+          maven-repo-${{ runner.os }}-

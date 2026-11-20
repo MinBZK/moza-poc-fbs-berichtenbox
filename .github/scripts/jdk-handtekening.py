@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Bewaakt twee eisen aan elke `actions/setup-java`-stap: de handtekening van de JDK wordt
-geverifieerd, en de stap zet zijn eigen Maven-cache niet aan.
+"""Bewaakt drie eisen aan elke `actions/setup-java`-stap: de handtekening van de JDK wordt
+geverifieerd, de stap zet zijn eigen Maven-cache niet aan, en later in dezelfde job volgt
+`./.github/actions/maven-cache`.
 
 De vlag `verify-signature` staat in de action zelf niet vast aan: laat je hem weg bij een
 distributie zonder ondersteuning, dan verifieert de action niets en blijft de run groen. Afwezig
@@ -10,7 +11,9 @@ regel, en niemand ziet er iets aan.
 
 De cache loopt via `.github/actions/maven-cache`. Eén `cache: maven` ernaast werkt gewoon en valt
 daardoor in geen run op, maar bewaart weer per PR een kopie onder één sleutel voor alle jobs —
-precies wat de 10 GB van de repository vulde en de caches liet verdringen.
+precies wat de 10 GB van de repository vulde en de caches liet verdringen. Een job zonder de
+action, of met de action vóór setup-java, bouwt evengoed groen, maar zonder de Central-mirror:
+dan keren de 429's terug zonder herkenbare oorzaak.
 
 Een echte YAML-parser en geen regex. Dezelfde reden als bij `workflow-jobs.py` voor workflows en
 `pom-artifactids.py` voor pom's: GitHub sluit op YAML-vorm en een patroon op tekstvorm. Een
@@ -33,6 +36,7 @@ import sys
 import yaml
 
 ACTION = "actions/setup-java"
+CACHE_ACTION = "./.github/actions/maven-cache"
 
 
 def waar(waarde: object) -> bool:
@@ -48,8 +52,14 @@ def waar(waarde: object) -> bool:
     return isinstance(waarde, str) and waarde.strip().lower() == "true"
 
 
-def setup_java_stappen(workflow: dict) -> list[tuple[str, int, dict]]:
-    """Elke setup-java-stap als (job-id, stapnummer, with-blok).
+def cache_waarde(met: dict) -> object:
+    """De `cache`-input, ongeacht hoofdletters: de runner geeft inputs door als `INPUT_<NAAM>`, dus
+    `Cache: maven` zet de cache net zo goed aan als `cache: maven`."""
+    return next((waarde for sleutel, waarde in met.items() if str(sleutel).lower() == "cache"), None)
+
+
+def setup_java_stappen(workflow: dict) -> list[tuple[str, int, dict, bool]]:
+    """Elke setup-java-stap als (job-id, stapnummer, with-blok, maven-cache-action volgt).
 
     Ook een ongepinde `uses: actions/setup-java` (zonder `@`) telt mee: die hoort de vlag net zo
     goed te dragen, en hem hier overslaan zou de guard laten zwijgen over de slechtste variant.
@@ -58,20 +68,21 @@ def setup_java_stappen(workflow: dict) -> list[tuple[str, int, dict]]:
 
     for job_id, job in (workflow.get("jobs") or {}).items():
         # Een job die een reusable workflow aanroept heeft geen `steps`; die is hier niets.
-        for nummer, stap in enumerate(job.get("steps") or [], start=1):
-            if not isinstance(stap, dict):
-                continue
+        stappen = [
+            (nummer, stap, stap.get("uses").split("@", 1)[0].strip())
+            for nummer, stap in enumerate(job.get("steps") or [], start=1)
+            if isinstance(stap, dict) and isinstance(stap.get("uses"), str)
+        ]
 
-            uses = stap.get("uses")
-
-            if not isinstance(uses, str):
-                continue
-
-            if uses.split("@", 1)[0].strip() != ACTION:
+        for nummer, stap, action in stappen:
+            if action != ACTION:
                 continue
 
             met = stap.get("with")
-            gevonden.append((job_id, nummer, met if isinstance(met, dict) else {}))
+            # Ná setup-java en niet ervoor: setup-java schrijft zijn eigen ~/.m2/settings.xml, en
+            # die zou de mirror-instellingen van de action dan overschrijven.
+            cache_volgt = any(later > nummer and naam == CACHE_ACTION for later, _, naam in stappen)
+            gevonden.append((job_id, nummer, met if isinstance(met, dict) else {}, cache_volgt))
 
     return gevonden
 
@@ -107,7 +118,7 @@ def controleer(map_pad: pathlib.Path) -> int:
 
             return 1
 
-        for job_id, nummer, met in setup_java_stappen(inhoud):
+        for job_id, nummer, met, cache_volgt in setup_java_stappen(inhoud):
             stappen_totaal += 1
 
             if not waar(met.get("verify-signature")):
@@ -118,10 +129,16 @@ def controleer(map_pad: pathlib.Path) -> int:
 
             # Een lege waarde zet de cache in setup-java uit; al het andere, ook een expressie,
             # telt als aan.
-            if met.get("cache") not in (None, ""):
+            if cache_waarde(met) not in (None, ""):
                 bevindingen.append(
                     f"FOUT: {pad.name} job '{job_id}' stap {nummer} zet `cache:` aan op {ACTION} — "
-                    "gebruik `./.github/actions/maven-cache` voor de Maven-cache."
+                    f"gebruik `{CACHE_ACTION}` voor de Maven-cache."
+                )
+
+            if not cache_volgt:
+                bevindingen.append(
+                    f"FOUT: {pad.name} job '{job_id}' stap {nummer}: na {ACTION} volgt geen "
+                    f"`{CACHE_ACTION}` — de job draait dan zonder cache en zonder Central-mirror."
                 )
 
     if stappen_totaal == 0:
@@ -137,8 +154,8 @@ def controleer(map_pad: pathlib.Path) -> int:
         return 1
 
     print(
-        f"OK: alle {stappen_totaal} {ACTION}-stap(pen) verifiëren de handtekening van de JDK "
-        "en laten de Maven-cache aan .github/actions/maven-cache."
+        f"OK: alle {stappen_totaal} {ACTION}-stap(pen) verifiëren de handtekening van de JDK, "
+        f"zetten `cache:` niet aan en worden gevolgd door {CACHE_ACTION}."
     )
 
     return 0

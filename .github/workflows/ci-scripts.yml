@@ -2,10 +2,10 @@
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
 # demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
-# handtekening controleert en de Maven-cache aan .github/actions/maven-cache laat. De suites onder demo/lib/ toetsen de modus-keuze waarmee elke lokale
-# opstelling start, demo/test-meet-fanout.sh toetst dat de fan-out-meting een niet-geleegde
-# cache weigert, en charts/controleer.sh toetst de Helm-chart, die geen andere check in de keten
-# raakt; die horen bij een required check, en draaien daarom hier. Een fout daarin is
+# handtekening controleert en door .github/actions/maven-cache gevolgd wordt. De suites onder
+# demo/lib/ toetsen de modus-keuze waarmee elke lokale opstelling start, demo/test-meet-fanout.sh
+# toetst dat de fan-out-meting een niet-geleegde cache weigert, en charts/controleer.sh toetst de
+# Helm-chart, die geen andere check in de keten raakt; die horen bij een required check, en draaien daarom hier. Een fout daarin is
 # stil — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
 # Vandaar een eigen, lichte workflow: shellcheck, actionlint en de bash-unittests, zonder de docker
 # build van de FSC-harness.
@@ -75,7 +75,7 @@ jobs:
           # Vangt onder meer een `needs.<job>.result` die verwijst naar een job die niet in
           # `needs:` staat, en een `cancelled()` op een plek waar die niet mag staan.
           /tmp/actionlint
-      - name: Elke setup-java verifieert de JDK en laat de Maven-cache aan de eigen action
+      - name: Elke setup-java verifieert de JDK en wordt gevolgd door de maven-cache-action
         # De suite hierboven toetst de guard tegen fixtures; deze stap laat hem los op de
         # werkelijke workflows. Los, zodat een falende guard als eigen regel in de log staat en
         # niet als één van de twintig meldingen van de unittest-stap.
@@ -177,7 +177,7 @@ jobs:
             [.github/scripts/test-ghcr-package-bestaat.sh]=29
             [.github/scripts/test-images-gepubliceerd.sh]=35
             [.github/scripts/test-preview-comment.sh]=130
-            [.github/scripts/test-jdk-handtekening.sh]=26
+            [.github/scripts/test-jdk-handtekening.sh]=32
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=74
             [.github/scripts/test-proeftuin-image.sh]=20
