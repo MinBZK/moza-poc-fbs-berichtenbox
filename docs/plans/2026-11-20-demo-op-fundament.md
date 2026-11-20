@@ -46,8 +46,9 @@ bruikbaar. Lokaal zet `compose.yaml` ze neer met een nginx ervoor (`demo-proxy`)
   daarom weigert de proxy daar een verzoek dat volgens `Sec-Fetch-Site` of `Origin` van een andere
   site komt. Een gewone link naar het paneel (navigatie met GET) mag wel.
 - **Naar buiten alleen wat de uitvraag gebruikt.** De magazijnen laten via hun route alleen
-  `/api/v1/berichten` door, de simulator alleen lezen, status wijzigen en verwijderen. Anders kan
-  iedereen op internet berichten aanleveren. Het paneel levert binnen het cluster aan.
+  `/api/v1/berichten` en `/openapi.json` door, de simulator alleen lezen, status wijzigen en
+  verwijderen. Anders kan iedereen op internet berichten aanleveren. Het paneel levert binnen het
+  cluster aan.
 - **Toxiproxy als één instantie, achter de routes.** De storingsknoppen werken via Toxiproxy,
   zoals op ZAD. Eén instantie draagt de vier proxies (profiel, notificatie, aanmelding, Redis);
   het paneel maakt ze aan via de beheer-API. De routes `toxiproxy-profiel`, `notificatie` en

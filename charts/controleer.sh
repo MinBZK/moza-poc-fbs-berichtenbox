@@ -29,8 +29,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=432
-MINIMUM_REGO_TESTS=119
+VERWACHTE_CONTROLES=440
+MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -633,6 +633,25 @@ toets_env() {
   fi
 }
 
+# Een regel binnen een blok van de nginx-config: van de regel met $3 tot de sluitende accolade op
+# dezelfde inspringing. Een grep op de hele render zegt niet in welke location een regel staat.
+# $1 = label, $2 = beschrijving, $3 = beginregel (vaste tekst), $4 = regel erin (vaste tekst). Via
+# ENVIRON, niet -v: awk leest backslashes in -v als escapes, en de maps bevatten \| en \1.
+toets_blok() {
+  local label=$1 wat=$2
+
+  if BEGIN_REGEL=$3 REGEL=$4 awk '
+    BEGIN { begin = ENVIRON["BEGIN_REGEL"]; regel = ENVIRON["REGEL"] }
+    !binnen && index($0, begin) { binnen = 1; match($0, /^ */); sluit = substr($0, 1, RLENGTH) "}"; next }
+    binnen && $0 == sluit { binnen = 0 }
+    binnen && index($0, regel) { gevonden = 1 }
+    END { exit !gevonden }' "$WERK/$label.yaml"; then
+    ok "$label: $wat"
+  else
+    fout "$label: $wat (verwacht '$4' in het blok '$3')"
+  fi
+}
+
 TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo" "${demo[@]}"
 # De berichtenbox op de versie uit compose.yaml, zoals de installatie hem leest.
 TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-proeftuin-uit-compose" "${demo[@]}" \
@@ -651,11 +670,25 @@ toets_aantal "demo" "zes routes" 'kind: HTTPRoute' 6
 toets_aantal "demo" "één replica per onderdeel" 'replicas: 1' 9
 toets_aantal "demo" "nooit twee tegelijk tijdens een uitrol" 'type: Recreate' 9
 toets_aantal "demo" "paneel en zijn gereedschap achter een wachtwoord" 'auth_basic_user_file /etc/nginx/bediening/htpasswd;' 2
-toets_bevat "demo" "paneel weigert een andere site, behalve een link" 'if ($paneel_van_andere_site) {'
-toets_bevat "demo" "gereedschap weigert een andere site" 'if ($gereedschap_van_andere_site) {'
-toets_aantal "demo" "paneel en gereedschap weigeren een andere origin" 'if ($andere_origin) {' 2
+# De CSRF-weigering: de maps zelf, en welke location welke map gebruikt.
+toets_blok "demo" "paneel: een link van een andere site mag" 'map "$http_sec_fetch_site:$http_sec_fetch_mode:$request_method" $paneel_van_andere_site {' \
+  '"~^(cross-site|same-site):navigate:GET$" 0;'
+toets_blok "demo" "paneel: de rest van een andere site niet" 'map "$http_sec_fetch_site:$http_sec_fetch_mode:$request_method" $paneel_van_andere_site {' \
+  '"~^(cross-site|same-site):" 1;'
+toets_blok "demo" "gereedschap: cross-site niet" 'map "$http_sec_fetch_site" $gereedschap_van_andere_site {' 'cross-site 1;'
+toets_blok "demo" "gereedschap: same-site niet" 'map "$http_sec_fetch_site" $gereedschap_van_andere_site {' 'same-site 1;'
+toets_blok "demo" "origin: standaard vreemd" 'map "$http_origin|$http_host" $andere_origin {' 'default 1;'
+toets_blok "demo" "origin: leeg mag" 'map "$http_origin|$http_host" $andere_origin {' '"~^\|" 0;'
+toets_blok "demo" "origin: alleen https en precies de host" 'map "$http_origin|$http_host" $andere_origin {' \
+  '"~^https://([^|]+)\|\1$" 0;'
+for map in paneel_van_andere_site andere_origin; do
+  toets_blok "demo" "/bediening/ weigert met \$$map" 'location /bediening/ {' "if (\$$map) {"
+done
+for map in gereedschap_van_andere_site andere_origin; do
+  toets_blok "demo" "/api/demo/ weigert met \$$map" 'location /api/demo/ {' "if (\$$map) {"
+done
 toets_aantal "demo" "elke weigering is een 403" 'return 403;' 4
-toets_bevat "demo" "aanmeld-webhook niet via de demo-proxy" 'location = /api/v1/aanmeldingen {'
+toets_blok "demo" "aanmeld-webhook niet via de demo-proxy" 'location ^~ /api/v1/aanmeldingen {' 'return 404;'
 toets_bevat "demo" "HSTS van de uitvraag niet dubbel" 'proxy_hide_header Strict-Transport-Security;'
 toets_bevat "demo" "personalijst zonder wachtwoord, exact" 'location = /api/demo/personas {'
 toets_bevat "demo" "alleen over https" 'add_header Strict-Transport-Security "max-age=31536000" always;'

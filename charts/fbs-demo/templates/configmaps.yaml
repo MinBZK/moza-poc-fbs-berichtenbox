@@ -57,7 +57,7 @@ ${NGINX_LOCAL_RESOLVERS} vult het entrypoint van nginx in; de rest laat envsubst
 #   dezelfde site. Een gewone link naar het paneel (navigatie met GET) mag wel: die wijzigt niets,
 #   en anders werkt een gedeelde link niet;
 # - Origin: een browser zet die bij elke POST, ook zonder fetch-metadata. Leeg (een link, curl) mag;
-#   anders moet hij gelijk zijn aan de host van het verzoek.
+#   anders moet hij https zijn en gelijk aan de host van het verzoek.
 map "$http_sec_fetch_site:$http_sec_fetch_mode:$request_method" $paneel_van_andere_site {
     default 0;
     "~^(cross-site|same-site):navigate:GET$" 0;
@@ -73,7 +73,7 @@ map "$http_sec_fetch_site" $gereedschap_van_andere_site {
 map "$http_origin|$http_host" $andere_origin {
     default 1;
     "~^\|" 0;
-    "~^https?://([^|]+)\|\1$" 0;
+    "~^https://([^|]+)\|\1$" 0;
 }
 
 server {
@@ -91,8 +91,9 @@ server {
     # Niets bewaren: de onderdelen worden tijdens het werken eraan vervangen.
     add_header Cache-Control "no-store" always;
 
-    # Alleen over https te bereiken; de Gateway luistert voor Let's Encrypt ook op 80. De uitvraag
-    # zet hem zelf ook; zonder proxy_hide_header kreeg dat antwoord hem twee keer.
+    # Alleen over https; de Gateway luistert voor Let's Encrypt ook op 80. De uitvraag zet zelf HSTS
+    # met includeSubDomains en preload. Dat hoort niet op een basisdomein van sslip.io, en zonder
+    # proxy_hide_header kreeg dat antwoord de header twee keer. Eén eigen waarde voor elk pad.
     add_header Strict-Transport-Security "max-age=31536000" always;
     proxy_hide_header Strict-Transport-Security;
 
@@ -157,10 +158,11 @@ server {
         proxy_set_header X-Sessie $cookie_sessie;
     }
 
-    # De webhook waarmee een magazijn aanmeldt. Zonder sessie te gebruiken (zo werkt een webhook),
-    # dus wie hem bereikt, zet een bericht in de sessiecache. De browser gebruikt hem nooit; de
-    # magazijnen komen via de route `aanmelding`.
-    location = /api/v1/aanmeldingen {
+    # De webhook waarmee een magazijn een nieuw bericht aanmeldt. Hij vraagt geen sessie, dus wie
+    # hem bereikt, zet een bericht in de sessiecache. De browser gebruikt hem nooit; de magazijnen
+    # komen via de route `aanmelding`. Een prefix met ^~: de uitvraag leest ook
+    # aanmeldingen;x en aanmeldingen/ als dit pad.
+    location ^~ /api/v1/aanmeldingen {
         return 404;
     }
 

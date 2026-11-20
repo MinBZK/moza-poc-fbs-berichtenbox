@@ -191,9 +191,9 @@ gateway_poorten(labels) := {p.port |
 	some p in object.get(regel, "ports", [])
 }
 
-# Alle releases laten de proxy's van dezelfde Gateway binnen. Een afwijkende namespace laat in het
-# cluster elke route van die release in een timeout lopen.
-gateway_namespaces contains json.marshal(peer.namespaceSelector.matchLabels) if {
+# Alle releases laten de proxy's van dezelfde Gateway binnen: dezelfde namespace en dezelfde
+# Gateway. Een afwijkende peer laat in het cluster elke route van die release in een timeout lopen.
+gateway_namespaces contains json.marshal(peer) if {
 	some np in netpols
 	some regel in object.get(np.spec, "ingress", [])
 	some peer in object.get(regel, "from", [])
@@ -265,6 +265,15 @@ deny contains msg if {
 
 route_naam(r) := r.metadata.labels["app.kubernetes.io/name"]
 
+# Gateway API vult weg wat ontbreekt: een regel zonder matches, of een match zonder pad, geldt als
+# PathPrefix / met elke methode.
+regel_matches(regel) := m if {
+	m := object.get(regel, "matches", [])
+	count(m) > 0
+} else := [{}]
+
+pad_van(match) := object.get(match, ["path", "value"], "/")
+
 # De simulator: alleen wat de uitvraag doet. Een match zonder method laat elke methode door, ook
 # aanleveren.
 simulator_methoden := {"GET", "PATCH", "DELETE"}
@@ -273,7 +282,7 @@ deny contains msg if {
 	some r in routes
 	route_naam(r) == "simulator"
 	some regel in r.spec.rules
-	some match in regel.matches
+	some match in regel_matches(regel)
 	not object.get(match, "method", "") in simulator_methoden
 	msg := sprintf("HTTPRoute '%s' laat methode '%s' door; alleen GET, PATCH en DELETE", [r.metadata.name, object.get(match, "method", "elke")])
 }
@@ -287,17 +296,17 @@ deny contains msg if {
 	msg := sprintf("HTTPRoute '%s' mist methode(n) %v; de uitvraag gebruikt ze", [r.metadata.name, sort(ontbrekend)])
 }
 
-# De magazijnen: alleen het lezen door de uitvraag en het OpenAPI-document. Aanleveren gaat binnen
-# het cluster, via het paneel.
+# De magazijnen: alleen wat de uitvraag gebruikt (lezen, status wijzigen, verwijderen) en het
+# OpenAPI-document. Aanleveren gaat binnen het cluster, via het paneel.
 magazijn_paden := {"/api/v1/berichten", "/openapi.json"}
 
 deny contains msg if {
 	some r in routes
 	route_naam(r) == "berichtenmagazijn"
 	some regel in r.spec.rules
-	some match in regel.matches
-	not match.path.value in magazijn_paden
-	msg := sprintf("HTTPRoute '%s' laat %s door; alleen %v", [r.metadata.name, match.path.value, sort(magazijn_paden)])
+	some match in regel_matches(regel)
+	not pad_van(match) in magazijn_paden
+	msg := sprintf("HTTPRoute '%s' laat %s door; alleen %v", [r.metadata.name, pad_van(match), sort(magazijn_paden)])
 }
 
 # De streams van de uitvraag lopen tot een uur; elke andere regel heeft een grens.

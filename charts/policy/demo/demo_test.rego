@@ -278,10 +278,30 @@ test_gateway_selectie_per_pod if {
 
 test_gateway_uit_twee_namespaces_faalt if {
 	np2 := object.union(gateway_np("b", [80]), {"spec": {"ingress": [{"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "gw2"}}}], "ports": [{"port": 80}]}]}})
-	deny == {`De NetworkPolicies laten de Gateway uit verschillende namespaces binnen: ["{\"kubernetes.io/metadata.name\":\"gw\"}", "{\"kubernetes.io/metadata.name\":\"gw2\"}"]`} with input as als_invoer([
+	deny == {`De NetworkPolicies laten de Gateway uit verschillende namespaces binnen: ["{\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"gw\"}}}", "{\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"gw2\"}}}"]`} with input as als_invoer([
 		gateway_np("a", [80]),
 		np2,
 	])
+}
+
+# Dezelfde namespace, een andere Gateway: ook dan komt de route niet binnen.
+gw_peer(gateway) := {
+	"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "gw"}},
+	"podSelector": {"matchLabels": {"gateway.envoyproxy.io/owning-gateway-name": gateway}},
+}
+
+gw_np(doel, gateway) := {
+	"kind": "NetworkPolicy",
+	"metadata": {"name": doel},
+	"spec": {"podSelector": {"matchLabels": {"app": doel}}, "ingress": [{"from": [gw_peer(gateway)], "ports": [{"port": 80}]}]},
+}
+
+test_gateway_andere_gateway_zelfde_namespace_faalt if {
+	count(deny) == 1 with input as als_invoer([gw_np("a", "web"), gw_np("b", "web2")])
+}
+
+test_gateway_zelfde_gateway_slaagt if {
+	count(deny) == 0 with input as als_invoer([gw_np("a", "web"), gw_np("b", "web")])
 }
 
 test_klep_via_value_from_faalt if {
@@ -375,4 +395,22 @@ test_streams_omgedraaid_faalt if {
 		{"matches": [pad("PathPrefix", "/")], "timeouts": {"request": "0s"}},
 		{"matches": [pad("Exact", "/api/v1/berichten/_ophalen")], "timeouts": {"request": "5m"}},
 	])])
+}
+
+# Gateway API vult weg wat ontbreekt: een regel zonder matches of een match zonder pad is PathPrefix
+# / met elke methode.
+test_simulator_regel_zonder_matches_faalt if {
+	deny == {"HTTPRoute 'sim' laat methode 'elke' door; alleen GET, PATCH en DELETE", `HTTPRoute 'sim' mist methode(n) ["DELETE", "GET", "PATCH"]; de uitvraag gebruikt ze`} with input as als_invoer([route_met("sim", "simulator", [{"backendRefs": [{"name": "s", "port": 1}]}])])
+}
+
+test_magazijn_regel_zonder_matches_of_pad_faalt if {
+	every regel in [{"backendRefs": []}, {"matches": [{"method": "POST"}]}] {
+		deny == {`HTTPRoute 'm' laat / door; alleen ["/api/v1/berichten", "/openapi.json"]`} with input as als_invoer([route_met("m", "berichtenmagazijn", [regel])])
+	}
+}
+
+test_stream_varianten_zonder_exact_of_met_staart_krijgen_een_grens if {
+	every match in [pad("PathPrefix", "/api/v1/berichten/_ophalen"), pad("Exact", "/api/v1/berichten/_ophalenX")] {
+		deny == {sprintf("HTTPRoute 'demo': %s zonder grens op de request-timeout; alleen de streams", [match.path.value])} with input as als_invoer([route_met("demo", "demo", [{"matches": [match], "timeouts": {"request": "0s"}}])])
+	}
 }

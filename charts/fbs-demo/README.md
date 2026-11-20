@@ -27,7 +27,7 @@ onder één origin, zoals lokaal in `compose.yaml`:
 | `/bediening/` | het bedieningspaneel | ja |
 | `/api/demo/personas` | de demo-identiteiten (de berichtenbox kiest er een testaccount mee) | nee |
 | de rest van `/api/demo/` | het gereedschap van het paneel: storingen, vullen, legen | ja |
-| `/api/v1/` | de uitvraag | nee |
+| `/api/v1/`, behalve `/api/v1/aanmeldingen` | de uitvraag | nee |
 
 De andere routes zijn er omdat de diensten elkaar over https aanroepen. Buiten het profiel `dev`
 eisen ze dat. Het magazijn eist daarnaast een publiek adres:
