@@ -2,7 +2,7 @@
 <!--
   Alleen voor CI. GitHub-runners delen hun uitgaande adressen, en Maven Central beantwoordt een
   piek vanaf die adressen met HTTP 429. Google's mirror van Central staat daarom vóór Central:
-  Maven vraagt elk artefact eerst daar op en valt terug op Central (de super-POM) als de mirror
+  Maven vraagt elk artefact eerst daar op en valt terug op Central (hieronder) als de mirror
   het niet heeft of niet bereikbaar is. Geen <mirrorOf>: die vervangt Central, en dan breekt
   een artefact dat de mirror nog niet heeft de build.
 

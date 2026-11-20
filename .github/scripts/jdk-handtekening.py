@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bewaakt drie eisen aan elke `actions/setup-java`-stap: de handtekening van de JDK wordt
 geverifieerd, de stap zet zijn eigen Maven-cache niet aan, en in dezelfde job volgt
-`./.github/actions/maven-cache` vóór de eerste Maven-aanroep, onder dezelfde `if:`.
+`./.github/actions/maven-cache` met een `scope`, vóór de eerste Maven-aanroep, onder dezelfde `if:`.
 
 De vlag `verify-signature` staat in de action zelf niet vast aan: laat je hem weg bij een
 distributie zonder ondersteuning, dan verifieert de action niets en blijft de run groen. Afwezig
@@ -15,7 +15,7 @@ precies wat de 10 GB van de repository vulde en de caches liet verdringen. Een j
 action, met de action vóór setup-java of pas na Maven, of met een action die onder een andere
 voorwaarde draait, bouwt evengoed groen, maar zonder de Central-mirror: dan keren de 429's terug
 zonder herkenbare oorzaak. Wat de guard niet ziet: een Maven-aanroep in een script dat een
-`run:`-stap aanroept.
+`run:`-stap aanroept, en een action die zelf Maven draait (bv. `github/codeql-action/autobuild`).
 
 Een echte YAML-parser en geen regex. Dezelfde reden als bij `workflow-jobs.py` voor workflows en
 `pom-artifactids.py` voor pom's: GitHub sluit op YAML-vorm en een patroon op tekstvorm. Een
@@ -40,8 +40,9 @@ import yaml
 
 ACTION = "actions/setup-java"
 CACHE_ACTION = "./.github/actions/maven-cache"
-# `./mvnw` of een kale `mvn` als commando, niet als deel van een pad of woord (`mvnw-wrapper`, `mvn.log`).
-MAVEN_AANROEP = re.compile(r"(^|[\s;&|(])(\./mvnw|mvnw|mvn)(\s|$)", re.MULTILINE)
+# `mvnw` of `mvn` als commando: na een scheidingsteken, quote, backtick of `/` (`../mvnw`), en
+# gevolgd door een scheidingsteken of regeleinde. Niet als deel van een woord (`mvnw.log`, `mvnd`).
+MAVEN_AANROEP = re.compile(r"""(?:^|[\s;&|(`"'/])(?:mvnw|mvn)(?=[\s;&|)`"'<>]|$)""", re.MULTILINE)
 
 
 def waar(waarde: object) -> bool:
@@ -91,18 +92,29 @@ def uses_naam(stap: dict) -> str | None:
     return uses.split("@", 1)[0].strip() if isinstance(uses, str) else None
 
 
+def heeft_scope(stap: dict) -> bool:
+    """De runner dwingt `required: true` bij een composite action niet af; zonder scope delen alle
+    jobs één sleutel, de halfgevulde cache waar de action voor bestaat."""
+    met = stap.get("with")
+    scope = met.get("scope") if isinstance(met, dict) else None
+
+    return isinstance(scope, str) and scope.strip() != ""
+
+
 def cache_volgt(stappen: list[dict], index: int) -> bool:
     """Of de maven-cache-action op de setup-java-stap op `index` volgt, op tijd en onder dezelfde
     voorwaarde.
 
     Ná setup-java: die schrijft zijn eigen ~/.m2/settings.xml, en zou de mirror anders
-    overschrijven. Vóór de eerste stap die Maven draait: daarna komt de mirror te laat. En met
-    dezelfde `if:` als setup-java, anders kan de action overgeslagen worden terwijl Maven draait.
+    overschrijven. Vóór de eerste stap die Maven draait: daarna komt de mirror te laat. Met
+    dezelfde `if:` als setup-java, anders kan de action overgeslagen worden terwijl Maven draait;
+    ook een action zonder `if:` na een setup-java mét `if:` telt niet, omdat de guard niet kan
+    zien of die twee voorwaarden samenvallen. En met een niet-lege `scope`.
     """
     voorwaarde = stappen[index].get("if")
 
     for stap in stappen[index + 1:]:
-        if uses_naam(stap) == CACHE_ACTION and stap.get("if") == voorwaarde:
+        if uses_naam(stap) == CACHE_ACTION and stap.get("if") == voorwaarde and heeft_scope(stap):
             return True
 
         if isinstance(stap.get("run"), str) and MAVEN_AANROEP.search(stap["run"]):
@@ -162,7 +174,7 @@ def controleer(map_pad: pathlib.Path) -> int:
             if not cache_volgt:
                 bevindingen.append(
                     f"FOUT: {pad.name} job '{job_id}' stap {nummer}: na {ACTION} volgt geen "
-                    f"`{CACHE_ACTION}` vóór de eerste Maven-aanroep en onder dezelfde `if:` — "
+                    f"`{CACHE_ACTION}` met `scope` vóór de eerste Maven-aanroep en onder dezelfde `if:` — "
                     "de job draait dan zonder cache en zonder Central-mirror."
                 )
 

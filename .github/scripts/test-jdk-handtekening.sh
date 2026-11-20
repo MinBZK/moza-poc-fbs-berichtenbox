@@ -33,7 +33,7 @@ draai() {
 }
 
 # De stap die na elke setup-java hoort; als printf-fragment, voor de fixtures die hem nodig hebben.
-CACHE='      - uses: ./.github/actions/maven-cache\n'
+CACHE='      - uses: ./.github/actions/maven-cache\n        with:\n          scope: bouw\n'
 
 # Eén setup-java-stap, met het meegegeven with-blok eronder, gevolgd door de maven-cache-action.
 stap() {
@@ -194,12 +194,54 @@ verwacht_ok "een run zonder Maven-aanroep vóór de action is in orde" "$map" "a
 
 # Een action die overgeslagen kan worden terwijl setup-java (en dus Maven) draait.
 map=$(nieuwe_map)
-printf "jobs:\n  bouw:\n    steps:\n$SJ      - uses: ./.github/actions/maven-cache\n        if: false\n" > "$map/cache-met-if.yml"
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - uses: ./.github/actions/maven-cache\n        if: false\n        with:\n          scope: bouw\n" > "$map/cache-met-if.yml"
 verwacht_fout "een action met een eigen if is een bevinding" "$map" "volgt geen"
 
 map=$(nieuwe_map)
-printf "jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        if: inputs.java\n        with:\n          verify-signature: true\n      - uses: ./.github/actions/maven-cache\n        if: inputs.java\n" > "$map/zelfde-if.yml"
+printf "jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        if: inputs.java\n        with:\n          verify-signature: true\n      - uses: ./.github/actions/maven-cache\n        if: inputs.java\n        with:\n          scope: bouw\n" > "$map/zelfde-if.yml"
 verwacht_ok "action en setup-java onder dezelfde if zijn in orde" "$map" "alle 1 "
+
+# Andersom ook niet: of `inputs.java` altijd waar is, ziet de guard niet, dus hij eist gelijkheid.
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc\n        if: inputs.java\n        with:\n          verify-signature: true\n$CACHE" > "$map/alleen-java-if.yml"
+verwacht_fout "setup-java met if en de action zonder is een bevinding" "$map" "volgt geen"
+
+# --- de action krijgt een scope ----------------------------------------------------------------
+
+# De runner dwingt `required: true` van een composite action niet af.
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - uses: ./.github/actions/maven-cache\n" > "$map/zonder-scope.yml"
+verwacht_fout "de action zonder scope is een bevinding" "$map" "volgt geen"
+
+map=$(nieuwe_map)
+printf "jobs:\n  bouw:\n    steps:\n$SJ      - uses: ./.github/actions/maven-cache\n        with:\n          scope: ' '\n" > "$map/lege-scope.yml"
+verwacht_fout "de action met een lege scope is een bevinding" "$map" "volgt geen"
+
+# --- vormen van een Maven-aanroep vóór de action -----------------------------------------------
+
+# Elke vorm een eigen fixture: een regex die één scheidingsteken mist, valt dan op die ene.
+maven_vorm() {
+  local naam=$1 run=$2 verwachting=$3 map
+
+  map=$(nieuwe_map)
+  printf "jobs:\n  bouw:\n    steps:\n$SJ      - run: %s\n$CACHE" "$run" > "$map/vorm.yml"
+
+  if [ "$verwachting" = aanroep ]; then
+    verwacht_fout "Maven-aanroep vóór de action: $naam" "$map" "volgt geen"
+  else
+    verwacht_ok "geen Maven-aanroep: $naam" "$map" "alle 1 "
+  fi
+}
+
+maven_vorm 'command substitution' "'v=\$(./mvnw -q help:evaluate)'" aanroep
+maven_vorm 'backticks' "'v=\`./mvnw -q help:evaluate\`'" aanroep
+maven_vorm 'vanuit een submap' "'cd x && ../mvnw -B'" aanroep
+maven_vorm 'binnen sh -c' "'sh -c \"mvn -B package\"'" aanroep
+maven_vorm 'na &&' "'echo x && mvn'" aanroep
+maven_vorm 'direct gevolgd door ;' "'./mvnw;echo klaar'" aanroep
+maven_vorm 'gequote commando' "'\"./mvnw\" -B verify'" aanroep
+maven_vorm 'mvnd is een andere tool' "'mvnd -B verify'" geen
+maven_vorm 'mvnw.cmd is Windows' "'type mvnw.cmd'" geen
 
 # Alle drie de eisen tegelijk geschonden: elk levert een eigen regel, zodat de fix van de ene de
 # andere niet pas in de volgende run aan het licht brengt.
