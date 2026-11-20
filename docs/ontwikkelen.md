@@ -46,6 +46,69 @@ start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij 
 `quarkus.redis.hosts` altijd zelf aan, en dan start Quarkus geen Dev Service. Zijn andere tests
 draaien zonder Docker.
 
+### Tijdens het werk: alleen de geraakte testklassen
+
+Een volledige run van de uitvraag met zijn bibliotheken duurt een paar minuten. Draai tussendoor
+alleen de klassen die je wijziging raakt, en de volledige suite vóór je pusht (CI draait hem
+sowieso):
+
+```bash
+./mvnw clean test -pl services/berichtenuitvraag -am \
+  -Dtest='BijlageStreamenTest,*Volgen*Test' \
+  -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true
+```
+
+- `-Dtest` neemt klassenamen met wildcards, en `Klasse#methode` voor één test.
+- `-Dsurefire.failIfNoSpecifiedTests=false` is nodig door `-am`: de bibliotheken die meebouwen
+  hebben geen klasse die op het filter past, en Surefire faalt dan.
+- `-Djacoco.skip=true`, omdat een deel van de tests nooit aan de 90%-grens komt. De gate hoort bij
+  de volledige suite.
+- Gebruik geen `-Dsurefire.runOrder`. Surefire zet daarmee ook de JUnit-volgorde van de
+  testklassen, en Quarkus weigert dan te starten (`Critical failure ... the Quarkus JUnit
+  configuration has been overridden`), omdat het die volgorde zelf nodig heeft om per testprofiel
+  te groeperen.
+
+### De volledige suite: parallel
+
+```bash
+./mvnw clean verify -pl services/berichtenuitvraag,demo/demo-console -am -T 1C
+```
+
+`-T 1C` bouwt onafhankelijke modules naast elkaar: de demo-modules lopen dan naast de keten
+fbs-common → sessiecache → uitvraag. Binnen fbs-berichtensessiecache en berichtenuitvraag draaien
+de testklassen bovendien over drie Surefire-forks, elk met een eigen Quarkus en eigen Dev
+Services-containers. Een fout in de Quarkus-tests die je in één JVM wilt nalopen, draai je met
+`-Dfbs.test.forks=1`; de gewone tests draaien altijd apart (zie hieronder).
+
+Over die forks:
+
+- Surefire geeft een fork één testklasse tegelijk, en elke `@QuarkusTest`-klasse start daardoor
+  een eigen Quarkus — ook als de vorige klasse in die fork hetzelfde testprofiel had. Een extra
+  testprofiel kost in een fork dus niets extra; een extra `@QuarkusTest`-klasse kost een
+  opstart van enkele seconden.
+- JaCoCo schrijft per fork een eigen databestand (`target/jacoco-quarkus-<n>.exec`); de build voegt
+  ze samen vóór de gate. Lees de dekking zoals altijd in `target/site/jacoco/`.
+- De forks delen `target/test-classes`. Quarkus schrijft daar bij elke start `test-classes.idx` en
+  verwijdert dat bij het stoppen; een fork die op dat moment de map doorloopt, faalt bij de
+  discovery met een `NoSuchFileException`. Een niet-lege map `test-classes.idx/` in de
+  testresources voorkomt dat (`leesmij.txt` daarin legt uit hoe). Die map zet ook de forks aan:
+  zonder de map draait een module in één fork (profiel `test-forks` in de root-pom). Krijgt een
+  andere module forks, dan horen de map en `TestClassesIndexTest` daar ook in. Een achtergebleven
+  bestand `target/test-classes/test-classes.idx` van een build zonder die map laat het kopiëren
+  van de map falen; `clean` lost dat op.
+- Elke fork moet zijn eigen poort kunnen pakken, en elke module ook, want onder `-T` lopen ze naast
+  elkaar. Een vaste `quarkus.http.test-port`, de standaard 8081 incluis, of een vaste WireMock-poort
+  laat ze op elkaar botsen (`QuarkusBindException: Port already bound: 8081`); zet
+  `quarkus.http.test-port=0` in de testconfiguratie en gebruik `wireMockConfig().dynamicPort()`.
+  Alleen in een module die zelf een HTTP-server start: de sessiecache heeft er geen, en daar levert
+  de sleutel alleen een "Unrecognized configuration key"-waarschuwing op.
+- De tests zonder Quarkus draaien daarna apart, in de Surefire-executie `gewone-tests` met één
+  fork. In één JVM met Quarkus-tests kan een MockK-mock uit zo'n test een latere `any()` in een
+  Quarkus-test breken (`InstantiationError` op een interface); `TestsoortFilter` in de
+  testbronnen legt uit hoe. Wat bij welke executie hoort, volgt uit `@QuarkusTest` op de klasse
+  of een omsluitende klasse. In de uitvoer staan daarom twee testtellingen per module; een
+  `-Dtest` die maar één soort raakt, meldt in de andere executie `Tests run: 0`.
+
 ## Kwaliteitsgates
 
 Er zijn twee gates, elk gebonden aan een andere Maven-fase:

@@ -22,6 +22,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.toSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ApiInfo
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtSamenvatting
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.api.model.BerichtStatus
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
@@ -35,7 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * SSE-endpoint `GET /berichten/_volgen`: een geopende berichtenbox krijgt hierover elk bericht
- * dat tijdens de sessie binnenkomt. Buiten codegen om dezelfde reden als `_ophalen` (de
+ * dat tijdens de sessie binnenkomt, en elke bijwerking of verwijdering in een ander venster van
+ * dezelfde ontvanger. Buiten codegen om dezelfde reden als `_ophalen` (de
  * generator kent geen `Multi<>`); het pad staat wél in de spec als contractbron.
  *
  * Eén connection per open berichtenbox, en die blijft open tot de berichtenbox sluit of de
@@ -174,6 +176,13 @@ class VolgenSseResource(
         SessieGebeurtenis.VolgenGestart -> VolgGebeurtenis.gestart()
         SessieGebeurtenis.Hartslag -> VolgGebeurtenis.hartslag()
         SessieGebeurtenis.SessieVerlopen -> VolgGebeurtenis.verlopen()
+        is SessieGebeurtenis.BerichtGewijzigd -> VolgGebeurtenis.gewijzigd(
+            gebeurtenis.magazijnId,
+            gebeurtenis.berichtId,
+            UitvraagDtoMapper.toApiStatus(gebeurtenis.status),
+            gebeurtenis.map,
+        )
+        is SessieGebeurtenis.BerichtVerwijderd -> VolgGebeurtenis.verwijderd(gebeurtenis.magazijnId, gebeurtenis.berichtId)
         is SessieGebeurtenis.BerichtBijgekomen -> VolgGebeurtenis.bijgekomen(
             UitvraagDtoMapper.toApiSamenvatting(
                 gebeurtenis.bericht.toSamenvatting(),
@@ -194,22 +203,30 @@ enum class VolgEventType(@get:JsonValue val value: String) {
     BERICHT_BIJGEKOMEN("bericht-bijgekomen"),
     HARTSLAG("hartslag"),
     SESSIE_VERLOPEN("sessie-verlopen"),
+    BERICHT_GEWIJZIGD("bericht-gewijzigd"),
+    BERICHT_VERWIJDERD("bericht-verwijderd"),
 }
 
 /**
- * Wire-vorm van één volg-bericht. Alleen `bericht-bijgekomen` draagt een `bericht`, en dat is hier
- * afgedwongen en niet alleen beschreven: de constructor is privé, en de fabrieken laten geen soort
- * zonder bericht toe waar de spec er een eist, of mét een waar hij er geen kent. `NON_NULL` zorgt
- * dat het ontbrekende veld wegblijft in plaats van als `null` op de lijn te komen.
+ * Wire-vorm van één volg-bericht. Alleen `bericht-bijgekomen` draagt een `bericht`, en alleen
+ * `bericht-gewijzigd` en `bericht-verwijderd` dragen de sleutel (`magazijnId`, `berichtId`). Dat
+ * is hier afgedwongen en niet alleen beschreven: de constructor is privé, en de fabrieken laten
+ * geen soort zonder veld toe waar de spec het eist, of mét een waar hij het niet kent. `NON_NULL`
+ * zorgt dat een ontbrekend veld wegblijft in plaats van als `null` op de lijn te komen; voor `map`
+ * betekent dat Postvak IN, net als in de lijst.
  *
  * Geen `data class`: die geeft een publieke `copy()`, en daarmee zou precies die combinatie weer te
  * bouwen zijn.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder("event", "bericht")
+@JsonPropertyOrder("event", "bericht", "magazijnId", "berichtId", "status", "map")
 class VolgGebeurtenis private constructor(
     val event: VolgEventType,
-    val bericht: BerichtSamenvatting?,
+    val bericht: BerichtSamenvatting? = null,
+    val magazijnId: String? = null,
+    val berichtId: UUID? = null,
+    val status: BerichtStatus? = null,
+    val map: String? = null,
 ) {
     companion object {
         fun gestart() = VolgGebeurtenis(VolgEventType.VOLGEN_GESTART, null)
@@ -219,5 +236,11 @@ class VolgGebeurtenis private constructor(
         fun hartslag() = VolgGebeurtenis(VolgEventType.HARTSLAG, null)
 
         fun verlopen() = VolgGebeurtenis(VolgEventType.SESSIE_VERLOPEN, null)
+
+        fun gewijzigd(magazijnId: String, berichtId: UUID, status: BerichtStatus?, map: String?) =
+            VolgGebeurtenis(VolgEventType.BERICHT_GEWIJZIGD, magazijnId = magazijnId, berichtId = berichtId, status = status, map = map)
+
+        fun verwijderd(magazijnId: String, berichtId: UUID) =
+            VolgGebeurtenis(VolgEventType.BERICHT_VERWIJDERD, magazijnId = magazijnId, berichtId = berichtId)
     }
 }

@@ -67,7 +67,7 @@ class AanmeldingenPogingenTest {
     @Test
     fun `de late subscriber van een opgegeven poging raakt de volgende poging niet`() {
         val ontvangen = LinkedBlockingQueue<BerichtSleutel>()
-        pod.registreer("sessie", { ontvangen += it }, {}, {})
+        pod.registreer("sessie", { sleutel, _ -> ontvangen += sleutel }, {}, {})
 
         // De eerste poging geeft op: de probe gaat niet over het kanaal, en de subscriber is er nog niet.
         assertThrows<RuntimeException> { pod.actief().await().atMost(WACHTTIJD) }
@@ -80,7 +80,7 @@ class AanmeldingenPogingenTest {
         verify(exactly = 0) { tweedeSubscriber.unsubscribe() }
 
         val aangemeld = BerichtSleutel(MAGAZIJN, UUID.randomUUID())
-        pod.meld("sessie", aangemeld).await().atMost(WACHTTIJD)
+        pod.meld("sessie", aangemeld, Berichtwijziging.BIJGEKOMEN).await().atMost(WACHTTIJD)
 
         assertEquals(aangemeld, ontvangen.poll())
 

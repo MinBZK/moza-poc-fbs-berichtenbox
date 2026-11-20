@@ -44,7 +44,7 @@
         <!-- Bij een bump: kijk welke jackson-databind de nieuwe BOM meelevert en vergelijk met
              jackson-bom.version hierboven. Die pin staat vóór de Quarkus-BOM en wint ook neerwaarts,
              dus hij trekt een nieuwere jackson stil terug zonder dat de build of CI iets meldt. -->
-        <quarkus.platform.version>3.40.1.1</quarkus.platform.version>
+        <quarkus.platform.version>3.40.1.2</quarkus.platform.version>
         <openapi-generator.version>7.27.0</openapi-generator.version>
         <!-- Het type van elk `type: string, format: binary`-schema in de gegenereerde API, ook in een
              request body of modelveld. Een service die de vorm van zo'n response per antwoord kiest
@@ -62,9 +62,14 @@
              waarschuwt Maven 'build.plugins.plugin.version is missing'. -->
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
+        <maven-surefire-plugin.version>3.6.1</maven-surefire-plugin.version>
+        <!-- Aantal parallelle Surefire-forks in de modules die het gebruiken (sessiecache en
+             uitvraag). Eén, tenzij het profiel test-forks hieronder actief is; overschrijfbaar
+             met -Dfbs.test.forks=1 om een fout in één JVM na te lopen. -->
+        <fbs.test.forks>1</fbs.test.forks>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
-        <jandex-maven-plugin.version>3.6.0</jandex-maven-plugin.version>
+        <jandex-maven-plugin.version>3.6.1</jandex-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
         <logboekdataverwerking-wrapper.version>2.2.1</logboekdataverwerking-wrapper.version>
         <mockk.version>1.14.12</mockk.version>
@@ -197,6 +202,24 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>${maven-jar-plugin.version}</version>
+                </plugin>
+                <!-- Quarkus lost bij de teststart de dependencies op in worker threads, terwijl de
+                     main-thread de lock van de FacadeClassLoader vasthoudt en op die threads
+                     wacht. Downloadt een worker thread een artefact, dan schrijft JBoss LogManager
+                     bij de eerste HTTPS-connection een waarschuwing. Surefire laadt voor het
+                     opvangen daarvan een klasse via diezelfde classloader, en de run hangt zonder
+                     melding vóór de eerste test. Met de blocking task runner voert de main-thread
+                     die taken zelf uit. De versie staat vast omdat een deel van die keten in
+                     Surefire zelf zit. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven-surefire-plugin.version}</version>
+                    <configuration>
+                        <systemPropertyVariables>
+                            <quarkus.bootstrap.blocking-task-runner>true</quarkus.bootstrap.blocking-task-runner>
+                        </systemPropertyVariables>
+                    </configuration>
                 </plugin>
 
                 <!-- API-generatie uit de OpenAPI-spec. Identiek voor elke service op
@@ -443,4 +466,21 @@ public final class ApiInfo {
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Forks alleen in een module met de map src/test/resources/test-classes.idx/: zonder
+             die map verwijderen de forks elkaars index uit de gedeelde target/test-classes (de
+             leesmij.txt daarin legt uit hoe). Hoort bij die map ook TestClassesIndexTest. -->
+        <profile>
+            <id>test-forks</id>
+            <activation>
+                <file>
+                    <exists>${basedir}/src/test/resources/test-classes.idx/leesmij.txt</exists>
+                </file>
+            </activation>
+            <properties>
+                <fbs.test.forks>3</fbs.test.forks>
+            </properties>
+        </profile>
+    </profiles>
 </project>
