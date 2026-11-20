@@ -466,6 +466,14 @@ test_httproute_backend_zonder_q_opent_q_niet if {
 	}
 }
 
+test_httproute_backend_zonder_q_met_meerdere_paden_weigert_alleen_q if {
+	r := object.union(zonder_q("nginx zonder /q", "/"), {"spec": {"rules": [{"matches": [
+		{"path": {"type": "PathPrefix", "value": "/"}},
+		{"path": {"type": "Exact", "value": "/q/health"}},
+	]}]}})
+	fbs_deny(r) == {"HTTPRoute 'r' zet /q/health open; /q hoort binnen het cluster"}
+}
+
 test_httproute_backend_zonder_q_zonder_reden_faalt if {
 	every reden in ["", "  ", null, true] {
 		fbs_deny(zonder_q(reden, "/")) == {"HTTPRoute 'r' zet / open; /q hoort binnen het cluster"}

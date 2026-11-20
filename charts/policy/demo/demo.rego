@@ -77,8 +77,6 @@ deny contains msg if {
 	msg := sprintf("Deployment '%s' mag %s aanroepen op poort %v, maar zijn NetworkPolicy laat die poort niet uit", [d.metadata.name, np.metadata.name, poort])
 }
 
-# Alleen de NetworkPolicies van de demo zelf: een stelseldienst laat zijn clientlabel ook toe als
-# niemand in de demo hem aanroept (het stelselregister).
 draagt_label(sleutel) if {
 	some d in deployments
 	pod_labels(d)[sleutel] == "true"
@@ -86,6 +84,8 @@ draagt_label(sleutel) if {
 
 deny contains msg if {
 	some np in netpols
+	# Alleen de NetworkPolicies van de demo zelf: een stelseldienst laat zijn clientlabel ook toe
+	# als niemand in de demo hem aanroept (het stelselregister).
 	np.metadata.labels["app.kubernetes.io/part-of"] == "fbs-demo"
 	some regel in object.get(np.spec, "ingress", [])
 	some peer in object.get(regel, "from", [])
@@ -107,4 +107,124 @@ deny contains msg if {
 	naam := v.configMap.name
 	not configmap(naam)
 	msg := sprintf("Deployment '%s' mount ConfigMap '%s', maar geen release maakt die", [d.metadata.name, naam])
+}
+
+# --- Via de Gateway ----------------------------------------------------------------------------
+# De diensten roepen elkaar over https via de Gateway aan. Een hostnaam zonder route, of een route
+# waarvan de NetworkPolicy de Gateway niet binnenlaat, geeft in het cluster een stille timeout.
+
+routes contains r if {
+	some r in objecten
+	r.kind == "HTTPRoute"
+}
+
+route_hosts contains h if {
+	some r in routes
+	some h in r.spec.hostnames
+}
+
+# Het domein van een hostnaam: alles na het eerste label.
+domein(host) := concat(".", array.slice(delen, 1, count(delen))) if {
+	delen := split(host, ".")
+}
+
+route_domeinen contains domein(h) if some h in route_hosts
+
+env_waarden(d) := {[e.name, e.value] |
+	some c in d.spec.template.spec.containers
+	some e in object.get(c, "env", [])
+	is_string(e.value)
+}
+
+deny contains msg if {
+	some d in deployments
+	some [naam, waarde] in env_waarden(d)
+	host := regex.find_all_string_submatch_n(`^https://([^/:]+)`, waarde, 1)[0][1]
+	domein(host) in route_domeinen
+	not host in route_hosts
+	msg := sprintf("Deployment '%s' zet %s op %s, maar geen HTTPRoute heeft hostnaam %s", [d.metadata.name, naam, waarde, host])
+}
+
+services contains s if {
+	some s in objecten
+	s.kind == "Service"
+}
+
+# De containerpoort achter een Service-poort: targetPort bij naam of nummer, of de poort zelf.
+containerpoort(svc, p, d) := nummer if {
+	doel := object.get(p, "targetPort", p.port)
+	is_number(doel)
+	nummer := doel
+} else := nummer if {
+	doel := p.targetPort
+	is_string(doel)
+	some c in d.spec.template.spec.containers
+	some cp in c.ports
+	cp.name == doel
+	nummer := cp.containerPort
+}
+
+geselecteerd_door_service(svc, d) if {
+	every k, v in svc.spec.selector {
+		pod_labels(d)[k] == v
+	}
+}
+
+# Een ingress-regel met een namespaceSelector: de proxy's van de Gateway draaien in een andere
+# namespace dan de release.
+gateway_poorten(labels) := {p.port |
+	some np in netpols
+	geselecteerd(np, labels)
+	some regel in object.get(np.spec, "ingress", [])
+	some peer in object.get(regel, "from", [])
+	peer.namespaceSelector
+	some p in object.get(regel, "ports", [])
+}
+
+deny contains msg if {
+	some r in routes
+	some regel in r.spec.rules
+	some ref in regel.backendRefs
+	some svc in services
+	svc.metadata.name == ref.name
+	some p in svc.spec.ports
+	p.port == ref.port
+	some d in deployments
+	geselecteerd_door_service(svc, d)
+	poort := containerpoort(svc, p, d)
+	not poort in gateway_poorten(pod_labels(d))
+	msg := sprintf("HTTPRoute '%s' wijst naar %s:%v, maar de NetworkPolicy van '%s' laat de Gateway niet binnen op poort %v", [r.metadata.name, ref.name, ref.port, d.metadata.name, poort])
+}
+
+# --- Paneel en magazijnen ----------------------------------------------------------------------
+# Het paneel leegt een magazijn rechtstreeks in zijn schema. Een ander schema dan dat van het
+# magazijn leegt stil een leeg schema.
+paneel_schema := {"MAGAZIJN_A_DB_SCHEMA": "berichtenmagazijn-a", "MAGAZIJN_B_DB_SCHEMA": "berichtenmagazijn-b"}
+
+env_van(naam, sleutel) := waarde if {
+	some d in deployments
+	d.metadata.name == naam
+	some paar in env_waarden(d)
+	paar[0] == sleutel
+	waarde := paar[1]
+}
+
+deny contains msg if {
+	some d in deployments
+	some [sleutel, schema] in env_waarden(d)
+	magazijn := paneel_schema[sleutel]
+	eigen := env_van(magazijn, "DB_SCHEMA")
+	schema != eigen
+	msg := sprintf("Deployment '%s' leegt schema %s van %s, maar dat magazijn gebruikt %s", [d.metadata.name, schema, magazijn, eigen])
+}
+
+# --- Onveilige kleppen -------------------------------------------------------------------------
+# fbs-dienst kent één schakelaar voor alle kleppen. De demo heeft er één nodig, Redis zonder TLS;
+# een andere, zoals het logboek zonder TLS, hoort ook in de demo niet.
+deny contains msg if {
+	some d in deployments
+	some [naam, _] in env_waarden(d)
+	contains(upper(naam), "UNSAFE")
+	naam != "FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT"
+	msg := sprintf("Deployment '%s' zet %s; de demo laat alleen FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT toe", [d.metadata.name, naam])
 }

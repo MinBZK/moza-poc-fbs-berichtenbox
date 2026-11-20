@@ -35,8 +35,8 @@ een knop niets doet.
 {{- if not (regexMatch "(?m)^magazijnsimulator\\.magazijnen\\." (toString $v.simulatorSet)) }}
 {{- $fouten = append $fouten "simulatorSet is leeg of bevat geen magazijnen: geef demo/generated/magazijn-simulator.properties mee met --set-file" }}
 {{- end }}
-{{- /* Een getal in plaats van een poortnaam of omgekeerd laat de NetworkPolicy stil iets anders
-     doorlaten dan de bedoeling. */}}
+{{- /* Een poortnaam of andere tekst in plaats van een nummer laat de NetworkPolicy stil iets
+     anders doorlaten dan de bedoeling. */}}
 {{- range $sleutel := list "servicePoort" "uitvraagPoort" "magazijnPoort" }}
 {{- $poort := get $v.stelsel $sleutel }}
 {{- if not (or (kindIs "float64" $poort) (kindIs "int64" $poort) (kindIs "int" $poort)) }}
