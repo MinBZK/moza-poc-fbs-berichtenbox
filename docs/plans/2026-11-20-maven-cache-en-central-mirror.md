@@ -90,7 +90,9 @@ sinds 2026-11-06:
   de resolver-time-out. Een kortere time-out helpt nauwelijks: honderden artefacten keer een paar
   seconden is nog steeds een vastgelopen job.
 - Structureel te dichten met Maven Resolver *trusted checksums* (ingecheckte hashes per artefact,
-  los van de bron). Dat is een eigen stuk werk.
+  los van de bron). Besluit opdrachtgever 2026-11-20: de mirror wordt vertrouwd en trusted
+  checksums worden niet ingevoerd. Het risico is van dezelfde soort als bij Central; een kapot
+  artefact weigert `checksumPolicy fail` al.
 
 ## Verificatie
 
