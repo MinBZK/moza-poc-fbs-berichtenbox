@@ -23,7 +23,8 @@ if (omwisseling.status !== 303 || !cookie) throw new Error(`register_app gaf ${o
 const keuze = await fetch(new URL('register_app/kies', basis), {
   method: 'POST',
   redirect: 'manual',
-  // De keuzepagina staat op de App Manager zelf; een browser zet die origin in de Origin-header.
+  // De keuzepagina staat op de App Manager zelf; een browser zet die origin in de Origin-header,
+  // omdat de pagina zijn referrer-policy op same-origin zet (onder no-referrer zou het `null` zijn).
   headers: { Cookie: cookie, Origin: new URL(issuer).origin, 'Content-Type': 'application/x-www-form-urlencoded' },
   body: new URLSearchParams({ persona }).toString(),
 });
