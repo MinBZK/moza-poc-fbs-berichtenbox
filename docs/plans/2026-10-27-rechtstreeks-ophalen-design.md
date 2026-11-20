@@ -96,14 +96,18 @@ sequenceDiagram
     en stuurt met een `303` door naar een adres zonder token; het token werkt één keer;
   - het `registration_token` komt terug in het fragment (`#registration_token=…`), dat de server
     van de app nooit ziet, en de app wist het meteen met `history.replaceState`;
-  - App Manager en app zetten `Referrer-Policy: no-referrer`;
+  - App Manager en app zetten `Referrer-Policy: no-referrer`. Alleen de keuzepagina zet met een
+    `<meta name="referrer">` `same-origin`: onder `no-referrer` stuurt een browser bij de POST van
+    het formulier `Origin: null`, en dan faalt de `Origin`-controle hieronder. Haar adres draagt
+    geen token meer, en naar andere origins gaat nog steeds geen `Referer`;
   - de cookie heet `__Host-activatie` (`Secure`, `Path=/`, zonder `Domain`), zodat een andere host
     op hetzelfde domein hem niet kan planten. `SameSite=Lax` geldt per site en niet per origin;
     daarom eist de keuze ook een `Origin` van de App Manager zelf. De doorverwijzing na de keuze
     is daarna nog maar tien seconden opnieuw op te vragen, voor een dubbele submit.
 - De pagina van de Berichten-app verdwijnt tijdens de navigatie. De app bewaart de AES-sleutel
-  daarom vooraf als niet-exporteerbare AES-GCM-`CryptoKey` in IndexedDB, en het `session_token`
-  in `sessionStorage`.
+  daarom vooraf als niet-exporteerbare AES-GCM-`CryptoKey` in IndexedDB, samen met het
+  `session_token`. Het tabblad dat het activeren begon, houdt dat token ook in `sessionStorage`;
+  bij terugkomst rondt alleen dat tabblad af, zodat een tweede tabblad geen activering overneemt.
 - **Bekend restrisico: het quotum op keuzes.** Een keuze leeft een dag; per adres (IPv6: per /64)
   mogen er 50 open staan, in totaal 10.000. Wie veel adressen heeft, kan het totaal vullen en het
   activeren dan een dag voor iedereen blokkeren; een zaal achter één adres loopt na 50 activeringen
@@ -387,13 +391,16 @@ Wat geen controle in het protocol tegenhoudt, is script dat al in de origin van 
     - alles uit magazijnen en het stelseldocument gaat via `textContent` de pagina in, nooit via
       `innerHTML`;
     - een strikte CSP als response-header (in een `<meta>` werkt `frame-ancestors` niet):
-      `default-src 'none'; script-src 'self'; style-src 'self'; connect-src <stelselregister>
-      <App Manager> <magazijnen>; frame-ancestors 'none'; base-uri 'none'; form-action 'none';
-      require-trusted-types-for 'script'`, zonder inline script. `connect-src` komt per omgeving
+      `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' <stelselregister>
+      <App Manager> <magazijnen>; img-src 'self'; frame-ancestors 'none'; base-uri 'none';
+      form-action 'none'; require-trusted-types-for 'script'; trusted-types 'none'`, zonder inline
+      script. `'self'` in `connect-src` is voor de eigen `config.json`; `trusted-types 'none'` staat
+      geen enkele policy toe, dus ook geen HTML-sink. `connect-src` komt per omgeving
       uit de configuratie; de lokale stack draait op `http://localhost`;
-    - JOSE in de browser via `jose` (panva), als ESM-bestand met een vaste versie meegeleverd in
-      de module, niet van een CDN. Die library kan JWS en JWE `ECDH-ES` met WebCrypto-sleutels,
-      ook niet-exporteerbare;
+    - JOSE in de browser via `jose` (panva), met een vaste versie uit npm. De build haalt hem met
+      `npm ci` (getoetst aan de lockfile) en zet hem op de eigen origin, niet op een CDN; Dependabot
+      houdt de versie bij. Die library kan JWS en JWE `ECDH-ES` met WebCrypto-sleutels, ook
+      niet-exporteerbare;
     - bijlagen worden later gedownload, niet inline getoond op de origin van de app.
 
 13. **CORS op de tweede ingang en de App Manager.** De app draait op een andere origin dan de
@@ -530,7 +537,7 @@ magazijn, dus de Verifier-library komt eerst.
 |---|---|---|---|
 | **0. Ontwerp + contract** | Dit document, `rechtstreeks-ophalen-api.yaml`, gekozen variant in de architectuur | #1213 (keuze vastleggen) | Review; Spectral op de spec; proefgeneratie |
 | **1. Verifier-library** | `libraries/fbs-rechtstreeks`: challenge maken, presentatie en VC controleren (beide certificaattypen), sessies, begrensde opslag in het geheugen | #1213, #1215 | Unit- en property-based tests met een Kotlin-testclient in de rol van app: elke rij uit "Wat elke controle tegenhoudt" als afwijzing (`401`) of ongeldig verzoek (`400`), plus een token van magazijn A bij magazijn B |
-| **2. Sleutel + demo-App Manager** | `demo/app-manager` (activeren volgens 4.4.1, persona-keuze, VC uitgeven en verversen, binding van het `registration_token`, vaste terug-URL); App Manager en sleutels in het stelseldocument en het toepassingsprofiel; `demo/berichten-app` met de sleutel en het activeren | #1213, #1214 | Een VC per persona; een VC met een andere sleutel faalt; een `registration_token` met een andere sleutel faalt; de sleutel is niet te exporteren (browsertest) |
+| **2. Sleutel + demo-App Manager** | `demo/app-manager` (activeren volgens 4.4.1, persona-keuze, VC uitgeven en verversen, binding van het `registration_token`, vaste terug-URL); App Manager en sleutels in het stelseldocument en het toepassingsprofiel; `demo/berichten-app` met de sleutel en het activeren | #1213, #1214 | Een VC per persona; een VC met een andere sleutel faalt; een `registration_token` met een andere sleutel faalt; de sleutel is niet te exporteren (WebCrypto onder Node; in de browser handmatig volgens `docs/ontwikkelen.md`) |
 | **3. Magazijnsessie in de simulator** | Sleutel per gesimuleerd magazijn (register, stelseldocument, `genereer-magazijnen.py`); `challenges`/`sessies`; CORS met preflight | #1215 | Geldig VC geeft een sessie; ongeldig VC, verkeerde handtekening, verkeerde `aud` of hergebruikte nonce geeft `401`; een JWE-header met een ander `alg`, `enc` of `typ` geeft `400` en laat de nonce bruikbaar; volle nonce-opslag geeft `503`; CORS-headers ook op `401`; contracttest op alle statussen, plus de compacte string tegen het patroon van `CompactJws`/`CompactJwe` en de payload na verifiëren tegen het `x-payload`-schema (de validator slaat `application/jose` over); `challenges` en `sessies` geven `201` |
 | **4. Berichten lezen in de simulator** | `GET /rechtstreeks/berichten` en `/{berichtId}`, versleuteld, alleen voor de ontvanger uit de sessie | #1215 (deels) | Alleen de berichten van de eigen ontvanger; een bericht van een ander of een verwijderd bericht geeft `404`; een verlopen of onbekende sessie geeft `401`; het 200-antwoord valideert na ontsleutelen tegen het `x-payload`-schema |
 | **5. Berichten-app: ophalen en samenvoegen** | Stelseldocument ophalen en controleren, parallel bij elk magazijn ophalen, samenvoegen en sorteren, niet-reagerende magazijnen tonen; knop in het bedieningspaneel die de Berichten-app opent | #1216, #1211 | Eén gesorteerde lijst voor een persona; een gestopt magazijn wordt bij naam getoond; de CSP staat geen inline script toe en noemt in `connect-src` alleen de geconfigureerde adressen |

@@ -212,6 +212,12 @@ jobs:
         with:
           sarif_file: demo/app-manager/target/detekt.sarif
           category: detekt-app-manager
+      - name: Upload SARIF — berichten-app
+        if: ${{ always() && hashFiles('demo/berichten-app/target/detekt.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: demo/berichten-app/target/detekt.sarif
+          category: detekt-berichten-app
       - name: Upload SARIF — demo-console
         if: ${{ always() && hashFiles('demo/demo-console/target/detekt.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
