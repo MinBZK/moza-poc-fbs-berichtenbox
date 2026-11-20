@@ -230,3 +230,12 @@ test('een App Manager die bij complete of credential wegvalt, of halverwege afbr
   );
   await assert.rejects(maakSessie({ basis: BASIS, oin: OIN, sleutelpaar, fetch: afgebroken }), VerbindingFout);
 });
+
+test('een registratiebericht dat geen JSON is, geeft een fout zonder de ontsleutelde inhoud', async () => {
+  const sleutel = await aesSleutel();
+  const fout = await leesRegistratie(await registratiebericht('BSN 999999990', sleutel), sleutel, BASIS).catch((f) => f);
+
+  assert.ok(fout instanceof ActiverenFout);
+  assert.equal(fout.cause, undefined);
+  assert.doesNotMatch(fout.message, /999999990/);
+});

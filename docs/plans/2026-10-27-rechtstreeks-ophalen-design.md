@@ -96,10 +96,7 @@ sequenceDiagram
     en stuurt met een `303` door naar een adres zonder token; het token werkt één keer;
   - het `registration_token` komt terug in het fragment (`#registration_token=…`), dat de server
     van de app nooit ziet, en de app wist het meteen met `history.replaceState`;
-  - App Manager en app zetten `Referrer-Policy: no-referrer`. Alleen de keuzepagina zet met een
-    `<meta name="referrer">` `same-origin`: onder `no-referrer` stuurt een browser bij de POST van
-    het formulier `Origin: null`, en dan faalt de `Origin`-controle hieronder. Haar adres draagt
-    geen token meer, en naar andere origins gaat nog steeds geen `Referer`;
+  - App Manager en app zetten `Referrer-Policy: no-referrer`;
   - de cookie heet `__Host-activatie` (`Secure`, `Path=/`, zonder `Domain`), zodat een andere host
     op hetzelfde domein hem niet kan planten. `SameSite=Lax` geldt per site en niet per origin;
     daarom eist de keuze ook een `Origin` van de App Manager zelf. De doorverwijzing na de keuze

@@ -5,6 +5,7 @@ import { errors } from '../vendor/jose/index.js';
 import {
   ActiverenFout, VerbindingFout, haalCredential, leesCredential, leesRegistratie, maakSessie, publiekeJwk, registratieAdres,
 } from './activeren.js';
+import { StelseldocumentFout } from './ophalen.js';
 import { ACTIVATIE, KluisFout, REGISTRATIE, SLEUTELPAAR } from './sleutelkluis.js';
 
 // Het session_token van het activeren overleeft zo de navigatie naar de App Manager, maar niet het
@@ -164,6 +165,8 @@ export function melding(fout) {
   if (fout instanceof VerbindingFout) return 'Geen verbinding met de App Manager. Controleer uw verbinding en probeer het opnieuw.';
 
   if (fout instanceof KluisFout) return OPSLAG_GEWEIGERD;
+
+  if (fout instanceof StelseldocumentFout) return 'De lijst van magazijnen is niet te lezen. Probeer het later opnieuw.';
 
   if (fout instanceof ActiverenFout && fout.stap === 'instelling') return 'De app en de App Manager zijn verschillend ingesteld. Meld dit aan de beheerder.';
 

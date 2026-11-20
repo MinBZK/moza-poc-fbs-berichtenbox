@@ -249,6 +249,28 @@ function bepaalBox(url) {
         .catch(() => toonBox(false));
 }
 
+/* Alleen een http(s)-adres wordt een link: een `javascript:`-adres uit de configuratie zou anders
+ * script op de origin van dit paneel draaien. Zonder adres heeft deze omgeving geen Berichten-app,
+ * en dan is er geen knop. */
+function toonBerichtenApp(url) {
+    let adres = null;
+
+    try {
+        adres = url ? new URL(url) : null;
+    } catch {
+        adres = null;
+    }
+
+    const bruikbaar = adres !== null && (adres.protocol === 'https:' || adres.protocol === 'http:');
+
+    // Zonder de waarde: wie hem instelde, kent hem, en de console is geen plek voor configuratie.
+    if (url && !bruikbaar) console.warn('BERICHTEN_APP_URL is geen absoluut http(s)-adres; de knop naar de Berichten-app blijft weg');
+
+    document.getElementById('groep-berichten-app').hidden = !bruikbaar;
+
+    if (bruikbaar) document.getElementById('berichten-app').href = adres.href;
+}
+
 function toonBox(bereikbaar) {
     const box = document.getElementById('box');
 
@@ -1116,6 +1138,7 @@ async function pasOmgevingToe() {
     // Het adres van de berichtenbox komt uit ditzelfde antwoord. Is de console onbereikbaar, dan
     // blijft het eigen pad over — lokaal is dat het juiste adres.
     bepaalBox(omgeving ? omgeving.berichtenboxUrl : '');
+    toonBerichtenApp(omgeving ? omgeving.berichtenAppUrl : '');
 
 
     if (omgeving) {

@@ -36,7 +36,7 @@ ongewijzigde code.
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
 ./mvnw clean test -pl demo/app-manager -am                     # @QuarkusTest, geen Docker; node en npm voor de koppeltest met de Berichten-app
 ./mvnw clean test -pl demo/berichten-app -am                   # @QuarkusTest plus de browsercode onder Node (node en npm op het PATH)
-./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
+./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers); node en npm voor BerichtenAppTest
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
@@ -49,13 +49,14 @@ start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij 
 `quarkus.redis.hosts` altijd zelf aan, en dan start Quarkus geen Dev Service. Zijn andere tests
 draaien zonder Docker.
 
-Twee modules hebben Node nodig (`node` en `npm` op het `PATH`, versie 20.6 of nieuwer: de tests
+Drie modules hebben Node nodig (`node` en `npm` op het `PATH`, versie 20.6 of nieuwer: de tests
 laden `jose` via een resolve-hook, met `module.registerHooks` of op oudere versies `module.register`). De build van de Berichten-app draait
 `npm ci` en zet `jose` uit npm op `/vendor/jose`; daarvoor moet de npm-registry bereikbaar zijn,
 net als Maven Central. Daarna draait ze de tests van haar browsercode met `node --test`, met
-`fake-indexeddb` voor de opslag in de browser. De App Manager draait diezelfde code in
-`BerichtenAppTest` tegen zichzelf: dat is de toets dat browser en Verifier-library elkaars JWS en
-JWE lezen. Zonder Node falen beide; de tests slaan niet over.
+`fake-indexeddb` voor de opslag in de browser. De App Manager en de magazijn-simulator
+draaien diezelfde code elk in een `BerichtenAppTest` tegen zichzelf (activeren, en ophalen bij
+meerdere magazijnen): dat is de toets dat browser en Verifier-library elkaars JWS en JWE lezen.
+Zonder Node falen die tests; ze slaan niet over.
 
 ### Tijdens het werk: alleen de geraakte testklassen
 
@@ -143,6 +144,19 @@ const db = await new Promise((ok) => { const v = indexedDB.open('berichten-app')
 const paar = await new Promise((ok) => { const v = db.transaction('kluis').objectStore('kluis').get('sleutelpaar'); v.onsuccess = () => ok(v.result); });
 await crypto.subtle.exportKey('pkcs8', paar.privateKey);
 ```
+
+**Berichten ophalen** leest de magazijnen uit het stelseldocument (`berichten-app.stelselregister-url`,
+in ontwikkelmodus `http://localhost:8094/`) en haalt via de tweede ingang parallel op, hooguit zes
+magazijnen tegelijk. Lokaal de hele keten doorlopen vraagt drie dingen die de compose-bedrading nog
+niet levert (MinBZK/MijnOverheidZakelijk#1216): een stelselregister
+dat de gesimuleerde magazijnen noemt met een adres dat de browser bereikt, een simulator die de
+sleutel van de App Manager vertrouwt (`simulator.rechtstreeks.app-managers."<OIN>".sleutels."<kid>"`,
+met de coördinaten die de App Manager bij de start logt), en die magazijn-origins in
+`berichten-app.magazijnen`. De tests doorlopen de keten wel: `BerichtenAppTest` in de simulator draait
+het ophalen tegen twee gesimuleerde magazijnen en een onbekend magazijn.
+
+Het bedieningspaneel heeft in het tabblad Demo de knop **Berichten-app openen** zodra
+`BERICHTEN_APP_URL` gezet is; in ontwikkelmodus wijst hij naar `http://localhost:8099/`.
 
 ## Kwaliteitsgates
 

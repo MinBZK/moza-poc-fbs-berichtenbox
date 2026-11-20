@@ -29,7 +29,7 @@ class PaginaTest {
                 "default-src" to "'none'",
                 "script-src" to "'self'",
                 "style-src" to "'self'",
-                "connect-src" to "'self' https://app-manager.test/",
+                "connect-src" to "'self' https://app-manager.test/ https://stelselregister.test/ https://magazijn-a.test https://simulator.test",
                 "img-src" to "'self'",
                 "frame-ancestors" to "'none'",
                 "base-uri" to "'none'",
@@ -63,11 +63,12 @@ class PaginaTest {
         given().get("/config.json").then().statusCode(200)
             .body("appManager.url", equalTo("https://app-manager.test/"))
             .body("appManager.oin", equalTo(BerichtenAppConfig.DEMO_APP_MANAGER_OIN))
+            .body("stelselregister.url", equalTo("https://stelselregister.test/"))
     }
 
     @Test
     fun `de scripts en de meegeleverde jose komen als JavaScript van deze origin`() {
-        listOf("/js/app.js", "/js/activeren.js", "/js/sleutelkluis.js", "/js/verloop.js", "/js/vangnet.js", "/vendor/jose/index.js").forEach { pad ->
+        listOf("/js/app.js", "/js/activeren.js", "/js/ophalen.js", "/js/sleutelkluis.js", "/js/verloop.js", "/js/vangnet.js", "/vendor/jose/index.js").forEach { pad ->
             given().get(pad).then().statusCode(200).contentType(containsString("javascript"))
         }
     }

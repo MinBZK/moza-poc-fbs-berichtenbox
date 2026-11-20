@@ -24,6 +24,13 @@ interface OmgevingConfig {
     fun berichtenboxUrl(): Optional<String>
 
     /**
+     * Het adres van de Berichten-app zoals de browser het opent, voor de knop die de route via de
+     * Blauwe Knop start. Leeg laten betekent "deze omgeving heeft geen Berichten-app": dan toont het
+     * paneel de knop niet, want een knop naar een adres dat niet bestaat faalt gegarandeerd.
+     */
+    fun berichtenAppUrl(): Optional<String>
+
+    /**
      * Kan deze omgeving bij de sessiecache van de uitvraag? Lokaal deelt de console het
      * compose-netwerk met Redis; op een gedeelde omgeving staat Redis in een ander project, en
      * verkeer daarheen is er alleen als er een netwerkregel voor geschreven is.

@@ -81,16 +81,6 @@ class OnderdelenTest {
     }
 
     @Test
-    fun `alleen de keuzepagina laat de browser bij het formulier de eigen Origin meesturen`() {
-        // Onder de no-referrer van de response stuurt een browser `Origin: null` bij de POST, en dan
-        // weigert de App Manager elke keuze. De foutpagina heeft geen formulier en blijft streng.
-        val meta = """<meta name="referrer" content="same-origin">"""
-
-        assertTrue(Keuzepagina.html(emptyList()).contains(meta))
-        assertFalse(Keuzepagina.foutpagina("t", "x").contains("referrer"))
-    }
-
-    @Test
     fun `de keuzepagina escapet labels en ids`() {
         val persona = DemoPersona("a\"b", "<script>&'", "KVK", "90000014", emptyList(), PersonaBron.KETEN)
 
