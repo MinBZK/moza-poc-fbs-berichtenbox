@@ -66,6 +66,7 @@ services:
     volumes:
       - ./demo/environment/stelselregister/pki/out:/etc/stelselregister:ro,z
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro,z
+      - ./demo/environment/app-manager/pki/out/stelselregister:/demo-config/app-manager:ro,z
 
   demo-console:
     image: localhost/fbs-demo/fbs-demo-console:demo
