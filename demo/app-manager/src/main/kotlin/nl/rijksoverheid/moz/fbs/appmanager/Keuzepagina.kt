@@ -35,16 +35,27 @@ object Keuzepagina {
                 </ul>
               </form>
             """.trimIndent(),
+            REFERRER_SAME_ORIGIN,
         )
     }
 
     fun foutpagina(titel: String, tekst: String): String = pagina("<h1>${escape(titel)}</h1>\n<p>${escape(tekst)}</p>")
 
-    private fun pagina(inhoud: String): String = """
+    /**
+     * Gaat boven de `Referrer-Policy: no-referrer` van de response, alleen voor de keuzepagina. Onder
+     * `no-referrer` stuurt een browser bij de POST van het formulier `Origin: null` (Fetch-standaard,
+     * "append a request Origin header"), en dan weigert [ActiverenResource.kies] elke keuze. Met
+     * `same-origin` gaat de echte `Origin` mee naar de eigen origin en naar andere origins, zoals de
+     * terug-URL, nog steeds geen `Referer`. Het adres van deze pagina draagt geen `session_token`
+     * meer; dat is bij de eerste doorverwijzing omgewisseld. Niet terugzetten naar `no-referrer`.
+     */
+    private const val REFERRER_SAME_ORIGIN = "\n  <meta name=\"referrer\" content=\"same-origin\">"
+
+    private fun pagina(inhoud: String, kop: String = ""): String = """
         |<!doctype html>
         |<html lang="nl">
         |<head>
-        |  <meta charset="utf-8">
+        |  <meta charset="utf-8">$kop
         |  <title>Demo-App Manager</title>
         |</head>
         |<body>

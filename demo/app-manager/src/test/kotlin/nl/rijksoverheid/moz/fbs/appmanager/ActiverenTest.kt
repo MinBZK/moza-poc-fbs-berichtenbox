@@ -84,7 +84,10 @@ class ActiverenTest {
         fun waarschuwingen(): List<String> = synchronized(regels) { regels.filter { it.level == Level.WARNING }.map(opmaak::format) }
     }
 
-    /** Een keuze zoals de eigen keuzepagina hem verstuurt: met de cookie en de eigen `Origin`. */
+    /**
+     * Een keuze zoals de eigen keuzepagina hem verstuurt: met de cookie en de eigen `Origin`. Die
+     * `Origin` stuurt een browser alleen dankzij de referrer-policy `same-origin` op die pagina.
+     */
     private fun keuze(koppeling: String?, origin: String? = EIGEN_ORIGIN): RequestSpecification = given().redirects().follow(false)
         .apply { if (koppeling != null) cookie(ActiverenResource.COOKIE, koppeling) }
         .apply { if (origin != null) header("Origin", origin) }
@@ -309,7 +312,7 @@ class ActiverenTest {
     }
 
     @Test
-    fun `de keuzepagina laadt niets van buiten en geeft geen Referer door`() {
+    fun `de keuzepagina laadt niets van buiten, geeft geen Referer door en stuurt bij een keuze de eigen Origin mee`() {
         val koppeling = App().maakSessie().koppel()
 
         given().cookie(ActiverenResource.COOKIE, koppeling).get("/register_app")
@@ -320,6 +323,8 @@ class ActiverenTest {
             .header("X-Content-Type-Options", "nosniff")
             .header("Cache-Control", "no-store")
             .body(containsString("Garage Van Dijk B.V."))
+            // Gaat voor deze pagina boven de header; zonder stuurt een browser `Origin: null`.
+            .body(containsString("""<meta name="referrer" content="same-origin">"""))
     }
 
     @Test

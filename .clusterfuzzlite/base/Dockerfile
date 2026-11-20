@@ -37,6 +37,7 @@ COPY services/stelselregister/pom.xml services/stelselregister/pom.xml
 COPY demo/demo-console/pom.xml demo/demo-console/pom.xml
 COPY demo/demo-personas/pom.xml demo/demo-personas/pom.xml
 COPY demo/app-manager/pom.xml demo/app-manager/pom.xml
+COPY demo/berichten-app/pom.xml demo/berichten-app/pom.xml
 COPY demo/magazijn-simulator/pom.xml demo/magazijn-simulator/pom.xml
 
 RUN chmod +x mvnw
