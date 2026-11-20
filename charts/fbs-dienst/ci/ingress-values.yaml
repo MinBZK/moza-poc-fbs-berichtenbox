@@ -1,0 +1,23 @@
+# Een cluster zonder Gateway API, zoals een kaal k3d met Traefik.
+dienst:
+  image:
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  tlsTermination: mesh
+
+cluster:
+  routingMode: ingress
+
+ingress:
+  enabled: true
+  allowUnauthenticated: true
+  hostname: dienst.localhost
+  ingressClassName: traefik
+  tls: true
+  # Een Ingress kent geen timeout per pad; die hoort bij de controller.
+  streamPaths: null
+  requestTimeout: null
+
+networkPolicy:
+  ingressNSMatchLabels:
+    kubernetes.io/metadata.name: kube-system
+  ingressNSPodMatchLabels: null

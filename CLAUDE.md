@@ -171,6 +171,15 @@ docker compose up -d                                             # Redis, WireMo
 faalt de resolution van de `libraries/`-jars die nog niet in de lokale Maven-repository staan.
 De JaCoCo-90%-gate hangt aan de fase `test`, detekt aan `verify`.
 
+**Na een clusterproef ligt de keuze bij de gebruiker.** `charts/fundament-testcluster.sh` en
+`charts/lokaal-testcluster.sh` laten clusters achter die ook zonder verkeer stroom kosten: op
+batterij gemeten bijna een derde van het verbruik bij stilstand. Draaide de proef vanuit Claude,
+vraag dan na afloop of de opstelling mag blijven draaien, gepauzeerd of opgeruimd moet worden, met
+pauzeren of opruimen als aanbeveling; beslis het niet zelf. Pauzeer en hervat de Fundament-clusters
+met `k3d cluster stop`/`start` via `mise exec` in de worktree die het script noemt (`k3d` staat niet
+op het PATH), zoals Fundaments eigen `cluster-start`, nooit met `docker stop`/`start`: k3d zet bij het
+starten ook de adressen van het netwerk opnieuw in CoreDNS.
+
 ### Build- en test-warnings nalopen
 
 Bij elke wijziging de build-/test-output op waarschuwingen controleren en per stuk
@@ -252,6 +261,7 @@ Wat je hoe dan ook moet weten:
 | `docs/operator-handleiding*.md`        | Productie-overrides per service (magazijn en uitvraag), incl. de onveilige kleppen en hun alert-tokens; voor het stelselregister de ondertekensleutel |
 | `docs/operations/`                     | Operationele notities per onderwerp: `zad-gitops.md` (deploy-debug), `statusdashboard.md` (Gatus-bewaking van `test` en de Redis-knop-aankondiging), `profiel-404-alert.md`, `redisearch-schema-bump.md` |
 | `bruno/<service-naam>/`                | Bruno-collectie per service (handmatige / exploratieve API-requests tegen de lokale dev-mode) |
+| `charts/fbs-dienst/`                   | Generieke Helm-chart voor uitvraag, magazijn en stelselregister op een cluster buiten ZAD (Fundament): values per dienst in `diensten/`, `common` gevendord van mijn-bureau-infra (niet hier wijzigen, zie `HERKOMST.md`). `charts/controleer.sh` toetst zonder cluster en draait in `ci-scripts.yml`; `charts/lokaal-testcluster.sh` is de proef op k3d |
 | `compose.yaml`                         | Lokale dev-omgeving (Redis, WireMock, PostgreSQL, magazijn-simulator). Draagt ook de enige pin van de berichtenbox uit de proeftuin; `.github/scripts/proeftuin-image.sh` leest die regel voor de deploy en het ZAD-creatiescript |
 | `compose.proeftuin-versie.yaml`         | Overlay om de berichtenbox op een andere versie te zetten dan de gepinde digest (release-tag, of nog niet gemergd werk uit hun preview-repository) |
 | `.github/workflows/`                   | CI: tests + coverage, detekt, CodeQL, Scorecard, ClusterFuzzLite, pin-consistentie, architectuursite, FSC-harness en ZAD-deploy — zie de directory voor de volledige lijst |

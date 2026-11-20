@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Berichtenuitvraag: de API achter de berichtenbox. Leest de magazijnen uit, houdt een sessiecache
+# in Redis (met RediSearch) bij en schrijft naar het logboek.
+#
+# Mee te geven bij de installatie (zie docs/operator-handleiding-uitvraag.md):
+#   dienst.tlsTermination
+#   via env of extraEnvVarsCM: REDIS_HOSTS (rediss://), PROFIEL_SERVICE_URL, MAGAZIJN_A_URL,
+#     MAGAZIJN_B_URL (https), LDV_POSTGRES_URL (met sslmode=require), LDV_POSTGRES_USERNAME
+#   via extraEnvVarsSecret: REDIS_PASSWORD, LDV_POSTGRES_PASSWORD
+
+nameOverride: berichtenuitvraag
+
+dienst:
+  image:
+    repository: minbzk/fbs-berichtenuitvraag
+  containerPorts:
+    http: 8086
+
+ingress:
+  # Het ophalen en volgen van berichten loopt als SSE-stream, tot een uur lang.
+  streamPaths:
+    - /api/v1/berichten/_ophalen
+    - /api/v1/berichten/_volgen
+  # Een bijlage tot 25 MiB komt als één antwoord; de dienst bewaakt zelf het stilvallen.
+  requestTimeout: 5m
+
+networkPolicy:
+  # Magazijnen en profielservice (https), het logboek (PostgreSQL) en de sessiecache (Redis).
+  allowedEgressPorts: [443, 5432, 6379]
+  # De uitvraag bereikt een magazijn in hetzelfde cluster via de Gateway.
+  gatewayEgress:
+    enabled: true

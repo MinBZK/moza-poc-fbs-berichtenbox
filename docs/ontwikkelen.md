@@ -146,6 +146,27 @@ afwijking (relatieve `servers`-URL achter een TLS-terminerende gateway; de motiv
 spec). Een bump van de checker kan een nieuwe ADR-versie met strengere regels meebrengen; draai de
 lint dus opnieuw op zo'n Dependabot-PR.
 
+## De Helm-chart controleren
+
+`charts/fbs-dienst` installeert de diensten op een Kubernetes-cluster buiten ZAD, zoals Fundament.
+Gebruik en standaarden staan in [`charts/README.md`](../charts/README.md).
+
+```bash
+charts/controleer.sh                       # zonder cluster: lint, schema's, beleidsregels
+TAG=main-<sha7> charts/lokaal-testcluster.sh   # op een k3d-cluster op de host
+TAG=main-<sha7> charts/fundament-testcluster.sh op   # op een sandbox van Fundament, zoals het fieldlab
+```
+
+`controleer.sh` vereist `helm`, `conftest` en `kubeconform`; de CI (`ci-scripts.yml`) draait het op
+elke PR, met de versies die daar gepind staan. Raakt een wijziging de chart, draai dan ook de
+clusterproef: alleen die laat zien dat de pods echt starten en de Gateway ze bereikt.
+`fundament-testcluster.sh` zet het lokale platform van Fundament op, met de plug-ins zoals het
+fieldlab ze installeert, en installeert de diensten in twee rollen. De eerste keer duurt dat lang,
+omdat het alle images van Fundament bouwt. Daarna blijft de opstelling draaien en kost ze ook
+zonder verkeer merkbaar stroom: laten staan, pauzeren of opruimen is na elke proef een keuze, en
+`op` sluit af met de opties. Voorwaarden en afwijkingen staan in
+[`charts/README.md`](../charts/README.md#proef-op-een-fundament-sandbox).
+
 ## Een tweede magazijn draaien
 
 Het stelsel is federatief, dus interessant gedrag (aggregatie, partial failure) zie je pas met meer

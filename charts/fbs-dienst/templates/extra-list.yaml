@@ -1,0 +1,8 @@
+{{- /*
+SPDX-License-Identifier: APACHE-2.0
+Afgeleid van template/CHART_NAME/templates/extra-list.yaml uit MinBZK/mijn-bureau-infra.
+*/}}
+{{- range .Values.extraDeploy }}
+---
+{{ include "common.tplvalues.render" (dict "value" . "context" $) }}
+{{- end }}

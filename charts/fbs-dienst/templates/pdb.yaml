@@ -1,0 +1,34 @@
+{{- /*
+SPDX-License-Identifier: APACHE-2.0
+Afgeleid van template/CHART_NAME/templates/pdb.yaml uit MinBZK/mijn-bureau-infra.
+*/}}
+{{- $pdb := .Values.dienst.pdb }}
+{{- if $pdb.create }}
+{{- $component := include "fbs-dienst.component" . }}
+apiVersion: {{ include "common.capabilities.policy.apiVersion" . }}
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- /* Niet op truthiness toetsen: 0 is een geldige waarde. Leeg en null (ook een met --set
+       weggehaalde sleutel) betekenen: niet gezet. */}}
+  {{- $min := ternary "" (toString $pdb.minAvailable) (kindIs "invalid" $pdb.minAvailable) }}
+  {{- $max := ternary "" (toString $pdb.maxUnavailable) (kindIs "invalid" $pdb.maxUnavailable) }}
+  {{- if ne $min "" }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else if ne $max "" }}
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  {{- else }}
+  maxUnavailable: 1
+  {{- end }}
+  {{- $podLabels := include "fbs-dienst.podLabels" . }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" $podLabels "context" $ ) | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+{{- end }}
