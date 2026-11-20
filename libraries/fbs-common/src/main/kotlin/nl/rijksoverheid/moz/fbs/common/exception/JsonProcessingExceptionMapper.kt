@@ -1,13 +1,20 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
 import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.core.exc.StreamWriteException
+import com.fasterxml.jackson.databind.JsonMappingException
+import com.fasterxml.jackson.databind.exc.InvalidDefinitionException
 import com.fasterxml.jackson.databind.exc.MismatchedInputException
 import jakarta.annotation.Priority
 import jakarta.ws.rs.Priorities
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
+import nl.rijksoverheid.moz.fbs.kern.exception.Veldpad
 import org.jboss.logging.Logger
+import java.net.URI
+import java.util.UUID
 
 private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.exception.JsonProcessingExceptionMapper")
 
@@ -16,10 +23,30 @@ private val log: Logger = Logger.getLogger("nl.rijksoverheid.moz.fbs.common.exce
 private val SAFE_PATH_PATTERN = Regex("""^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*|\[\d+])*$""")
 
 internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingException): Response {
-    // Jackson-boodschappen bevatten vaak class-/package-namen en input fragments. Nooit
-    // verbatim terug — wel intern loggen. Debug-niveau: malformed JSON is een client-fout
-    // en veroorzaakt anders onnodig log-volume bij een kapotte of kwaadwillende client.
-    log.debugf(exception, "JSON-deserialisatiefout (detail niet naar client): %s", exception.originalMessage)
+    val errorId = UUID.randomUUID()
+
+    if (isEigenFout(exception)) {
+        // Een model dat Jackson niet kan bouwen, of een antwoord dat niet te schrijven is: een fout
+        // van onszelf, dus op error met het spoor, en een 500. Een 400 zou de aanroeper laten denken
+        // dat zijn invoer niet klopt, en monitoring op 5xx zou hem missen.
+        log.errorf(Foutspoor.van(exception), "Jackson-fout buiten de invoer (errorId=%s, type=%s)", errorId, exception.javaClass.name)
+
+        return maskedServerErrorProblem(errorId = errorId)
+    }
+
+    // De melding van Jackson blijft uit de log, op elk niveau: `Cannot deserialize value … from
+    // String "<invoer>"` zet een stuk van de aangeboden waarde erin, en dat kan een BSN zijn. Type,
+    // veldpad en positie zeggen wat er niet paste. Op info, als de andere clientfouten: op debug
+    // staat het id uit `instance` in productie nergens. De stack alleen op debug: bij een clientfout
+    // zegt hij niets, en elke kapotte body zou anders tientallen regels opleveren.
+    log.infof(
+        "JSON-invoer niet te lezen (errorId=%s, type=%s, veld=%s, positie=%s)",
+        errorId,
+        exception.javaClass.name,
+        jsonVeld(exception),
+        jsonPositie(exception),
+    )
+    log.debugf(Foutspoor.van(exception), "JSON-invoer niet te lezen (errorId=%s)", errorId)
 
     val detail = when (exception) {
         is MismatchedInputException -> {
@@ -36,8 +63,29 @@ internal fun jsonProcessingExceptionToResponse(exception: JsonProcessingExceptio
         else -> "Ongeldige JSON-invoer."
     }
 
-    return problemResponse(status = 400, title = "Bad Request", detail = detail, foutcode = Foutcode.ONGELDIG_VERZOEK)
+    return problemResponse(
+        status = 400,
+        title = "Bad Request",
+        detail = detail,
+        foutcode = Foutcode.ONGELDIG_VERZOEK,
+        instance = URI.create("urn:uuid:$errorId"),
+    )
 }
+
+/**
+ * Wat uit eigen code of model komt. De rest is invoer, ook een `ValueInstantiationException` uit een
+ * enum-`fromValue` die een onbekende waarde weigert.
+ */
+private fun isEigenFout(exception: JsonProcessingException): Boolean =
+    exception is InvalidDefinitionException || exception is StreamWriteException
+
+/** Het veld dat niet paste, zoals het in de log mag; `geen` als Jackson het niet kent. */
+internal fun jsonVeld(exception: JsonProcessingException): String =
+    (exception as? JsonMappingException)?.let { fout -> Veldpad.van(fout.path.map { it.fieldName ?: it.index }) } ?: "geen"
+
+/** Regel en kolom in de body; nooit de bron zelf, die Jackson in `location.toString` kan opnemen. */
+internal fun jsonPositie(exception: JsonProcessingException): String =
+    exception.location?.let { "${it.lineNr}:${it.columnNr}" } ?: "onbekend"
 
 /**
  * Mapt generieke Jackson [JsonProcessingException]s naar een 400 Problem JSON.

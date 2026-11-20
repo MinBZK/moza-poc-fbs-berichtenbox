@@ -7,6 +7,10 @@ import org.hamcrest.Matchers.endsWith
 import org.hamcrest.Matchers.emptyIterable
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.not
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
@@ -174,6 +178,28 @@ class MagazijnPadFilterTest : MagazijnTestBasis() {
             .then()
             .statusCode(404)
             .contentType("application/problem+json")
+    }
+
+    /**
+     * Quarkus REST kan van zo'n pad geen URI maken en antwoordt met een 404 met een
+     * `IllegalArgumentException` als oorzaak; de melding daarvan citeert het aangeboden pad. De
+     * log noemt de oorzaak, maar neemt de melding niet over.
+     */
+    @Test
+    fun `een pad dat geen URI oplevert, komt niet in de log`() {
+        val log = Logvanger().use { logvanger ->
+            given()
+                .urlEncodingEnabled(false)
+                .header(ONTVANGER_HEADER, ONTVANGER)
+                .`when`().get("/magazijn/$MAGAZIJN_EEN/api/v1/berichten/%7B999993653x%7D?afzender=999993653x")
+                .then()
+                .statusCode(404)
+
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("oorzaak=java.lang.IllegalArgumentException"), log)
+        herkenbareDelen("999993653x").forEach { deel -> assertFalse(log.contains(deel), "'$deel' in de log: $log") }
     }
 
     private companion object {

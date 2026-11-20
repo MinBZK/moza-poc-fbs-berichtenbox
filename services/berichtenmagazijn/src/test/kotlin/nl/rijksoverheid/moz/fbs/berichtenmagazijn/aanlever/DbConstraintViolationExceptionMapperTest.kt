@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
 import io.quarkus.test.junit.QuarkusTest
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -52,6 +54,30 @@ class DbConstraintViolationExceptionMapperTest {
         assertEquals(500, problem.status)
         assertNotNull(problem.instance)
         assertTrue(problem.instance!!.toString().startsWith("urn:uuid:"))
+    }
+
+    /**
+     * PostgreSQL zet bij een NOT NULL- of CHECK-schending de hele rij in zijn melding, en Hibernate
+     * neemt die over. In de log horen alleen errorId, SQLState, constraint en de typen van de keten.
+     */
+    @Test
+    fun `een 500 op een constraint zet de rij met de ontvanger niet in de log`() {
+        val rij = "Failing row contains (7, BSN, 999993653, Onderwerp)"
+        val hibernateEx = HibernateConstraintViolationException(
+            "could not execute statement [ERROR: new row violates check constraint \"ck_onderwerp\"  Detail: $rij]",
+            SQLException("ERROR: new row violates check constraint \"ck_onderwerp\"\n  Detail: $rij", "23514"),
+            "ck_onderwerp",
+        )
+
+        val (problem, log) = Logvanger().use { logvanger ->
+            (mapper.toResponse(hibernateEx).entity as Problem) to logvanger.tekst()
+        }
+
+        herkenbareDelen("999993653").forEach { deel -> assertFalse(log.contains(deel), "'$deel' hoort niet in de log: $log") }
+
+        assertTrue(log.contains(problem.instance.toString().removePrefix("urn:uuid:")), log)
+        assertTrue(log.contains("state=23514 constraint=ck_onderwerp"), log)
+        assertTrue(log.contains("java.sql.SQLException (SQLState=23514)"), log)
     }
 
     @Test

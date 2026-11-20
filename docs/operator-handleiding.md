@@ -132,8 +132,21 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
 
 * **PII**: persoonsgegevens (BSN, RSIN, KvK) horen **niet** in de reguliere
   applicatielog (AVG art. 5 lid 1c, BIO 12.4.1). LDV is de enige plek voor
-  `dataSubjectId`; de service forceert dit via `LogboekContextDefaultFilter`
-  + `FoutBeschrijving.saneer()`.
+  `dataSubjectId`; de service forceert dit via `LogboekContextDefaultFilter`.
+* **DEBUG op `nl.rijksoverheid.moz` mag; elders let je op.** De exception mappers loggen een
+  exceptie als `Foutspoor` (types en stack, geen meldingen) en een veld als `Veldpad`. `FoutBeschrijving.saneer()`
+  haalt alleen lange cijferreeksen weg en is geen garantie. Bibliotheken citeren de invoer wel. Deze
+  categorieën staan daarom vast, met `level` én `min-level` in `application.properties`, zodat ook
+  een lager niveau op precies die categorie niets opent:
+  `org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler`,
+  `org.jboss.resteasy.reactive.server.handlers.ParameterHandler`,
+  `org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext` en `WebApplicationException`
+  op INFO, en `org.jboss.resteasy.reactive.client.logging` op WARN: de REST-client logt verzoek en
+  antwoord met body op INFO, en de Profiel-aanvraag draagt het BSN. Het verkeer van de client is
+  daardoor niet in de log te krijgen, ook niet met `quarkus.rest-client.logging.scope`. De database-driver laat de rij uit zijn foutmelding
+  (`logServerErrorDetail=false`). Zet de root niet op DEBUG: andere bibliotheken zijn niet
+  nagelopen. Een `415` noemt de reden niet: die staat op DEBUG in
+  `RequestDeserializeHandler`, en die categorie is bewust niet open te zetten.
 * **Categorie-logs**: zoek op `categorie=` in MISLUKT/retry-logs voor
   programmatische aggregatie van foutsoorten.
 * **`Content-Disposition` op een bijlage-download kan persoonsgegevens dragen.** De header

@@ -1,6 +1,5 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
-import com.fasterxml.jackson.core.JsonProcessingException
 import io.opentelemetry.api.trace.Span
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.ProcessingException
@@ -93,13 +92,6 @@ class BerichtOphaalService(
             }
 
             throw e
-        } catch (e: JsonProcessingException) {
-            // Een 200 met een body die niet op het contract past. Zonder deze tak landt hij op de
-            // Jackson-mapper, die er een 400 van maakt: de gebruiker leest dan dat zíjn verzoek
-            // fout is terwijl de fout volledig bovenstrooms zit.
-            log.errorf(e, "%s: onleesbaar antwoord (schema-drift?) berichtId=%s magazijnId=%s → 502", MAGAZIJN_DETAIL, berichtId, magazijnId)
-
-            throw upstreamBadGateway("$MAGAZIJN_DETAIL: onleesbaar antwoord", e)
         }
 
         // Het contract eist een niet-lege tekst. Levert een magazijn er tóch een, dan is een leeg

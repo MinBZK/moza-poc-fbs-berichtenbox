@@ -20,11 +20,15 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtenPagina
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -158,6 +162,40 @@ class ServiceCoverageTest {
             .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
             .then()
             .statusCode(502)
+    }
+
+    /**
+     * Een onleesbaar antwoord is een storing bij het magazijn, en de melding van Jackson citeert het
+     * token dat niet paste. Komt daar een ontvanger in voor, dan hoort die niet in de log. De
+     * REST-client levert zo'n antwoord als een 200 met de Jackson-fout als cause.
+     */
+    @Test
+    fun `bericht-detail geeft 502 bij een onleesbaar antwoord, zonder het antwoord in de log`() {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            get(urlPathEqualTo("/api/v1/berichten/$id")).willReturn(
+                aResponse().withStatus(200)
+                    .withHeader("Content-Type", "application/json")
+                    .withBody("""{"ontvanger": x999993653}"""),
+            ),
+        )
+
+        val log = Logvanger().use { logvanger ->
+            given()
+                .header("X-Ontvanger", "BSN:999990019")
+                .header("X-Sessie", sessie)
+                .`when`()
+                .get("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+                .then()
+                .statusCode(502)
+
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("upstream non-4xx (status=200)"), log)
+        assertTrue(log.contains("com.fasterxml.jackson.core.JsonParseException"), "het type van de cause hoort in het spoor: $log")
+        herkenbareDelen("999993653").forEach { deel -> assertFalse(log.contains(deel), "'$deel' hoort niet in de log: $log") }
     }
 
     @Test

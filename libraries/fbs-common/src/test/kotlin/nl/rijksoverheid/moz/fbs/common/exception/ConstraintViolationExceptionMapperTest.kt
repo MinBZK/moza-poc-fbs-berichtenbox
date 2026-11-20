@@ -5,9 +5,16 @@ import io.mockk.mockk
 import jakarta.validation.ConstraintViolation
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.metadata.ConstraintDescriptor
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 class ConstraintViolationExceptionMapperTest {
 
@@ -50,6 +57,7 @@ class ConstraintViolationExceptionMapperTest {
         every { mockPath.iterator() } answers { mutableListOf<Path.Node>().iterator() }
         every { mock.propertyPath } returns mockPath
         every { mock.message } returns "verplicht"
+        every { mock.constraintDescriptor } returns null
 
         val exception = ConstraintViolationException(setOf(mock))
         val response = mapper.toResponse(exception)
@@ -125,15 +133,101 @@ class ConstraintViolationExceptionMapperTest {
         )
     }
 
-    private fun violation(propertyName: String, message: String): ConstraintViolation<Any> {
+    @ParameterizedTest
+    @ValueSource(strings = ["BSN:99999365", "BSN:99999365x", "BSN:999993654"])
+    fun `de log noemt pad en regel van een schending, maar nooit de aangeboden waarde`(waarde: String) {
+        val schending = violation(
+            knopen = listOf(knoop("getBerichten"), knoop("xOntvanger")),
+            message = "waarde '$waarde' past niet",
+            ongeldigeWaarde = waarde,
+        )
+
+        val problem = Logvanger().use { logvanger ->
+            val problem = mapper.toResponse(ConstraintViolationException(setOf(schending))).entity as Problem
+            val log = logvanger.tekst()
+
+            herkenbareDelen(waarde.removePrefix("BSN:")).forEach { deel ->
+                assertFalse(log.contains(deel), "'$deel' hoort niet in de log: $log")
+            }
+
+            assertTrue(log.contains("getBerichten.xOntvanger (Pattern)"), "pad en regel horen in de log: $log")
+            assertTrue(log.contains(problem.instance.toString().removePrefix("urn:uuid:")), "het id hoort in de log: $log")
+            problem
+        }
+
+        assertEquals(400, problem.status)
+    }
+
+    @Test
+    fun `van een element in een collectie gaat de positie mee, een map-sleutel niet`() {
+        val schending = violation(
+            knopen = listOf(
+                knoop("aanleveren"),
+                knoop("bijlagen"),
+                knoop("naam", inCollectie = true, index = 2),
+                knoop("kenmerken"),
+                knoop("waarde", inCollectie = true, index = null),
+            ),
+            message = "ongeldig",
+            ongeldigeWaarde = "999993653",
+        )
+
+        Logvanger().use { logvanger ->
+            mapper.toResponse(ConstraintViolationException(setOf(schending)))
+
+            val log = logvanger.tekst()
+            assertTrue(log.contains("aanleveren.bijlagen[2].naam.kenmerken.?.waarde (Pattern)"), log)
+            assertFalse(log.contains("99999"), log)
+        }
+    }
+
+    private fun violation(propertyName: String, message: String): ConstraintViolation<Any> =
+        violation(listOf(knoop(propertyName)), message, ongeldigeWaarde = null)
+
+    /**
+     * Een schending zoals Hibernate Validator haar aanlevert: de aangeboden waarde in `invalidValue`,
+     * in een eigen melding met `${validatedValue}` en daarmee in `toString`, en een map-sleutel in
+     * het pad. Precies wat er níét in de log mag komen.
+     */
+    private fun violation(knopen: List<Path.Node>, message: String, ongeldigeWaarde: Any?): ConstraintViolation<Any> {
         val violation = mockk<ConstraintViolation<Any>>()
         val path = mockk<Path>()
-        val node = mockk<Path.Node>()
-        every { node.name } returns propertyName
-        every { path.iterator() } answers { mutableListOf(node).iterator() }
-        every { path.toString() } returns propertyName
+        val descriptor = mockk<ConstraintDescriptor<*>>()
+        val pad = alsHibernateValidator(knopen)
+        every { path.iterator() } answers { knopen.toMutableList().iterator() }
+        every { path.toString() } returns pad
+        every { descriptor.annotation } returns PATTERN
         every { violation.propertyPath } returns path
         every { violation.message } returns message
+        every { violation.invalidValue } returns ongeldigeWaarde
+        every { violation.constraintDescriptor } returns descriptor
+        every { violation.toString() } returns
+            "ConstraintViolationImpl{interpolatedMessage='$message', propertyPath=$pad, rootBeanClass=class Object, " +
+            "messageTemplate='{jakarta.validation.constraints.Pattern.message}'}"
         return violation
+    }
+
+    /** Zoals `PathImpl.toString`: een element in een collectie met zijn positie of sleutel tussen haken. */
+    private fun alsHibernateValidator(knopen: List<Path.Node>): String = buildString {
+        knopen.forEach { knoop ->
+            if (knoop.isInIterable) append('[').append(knoop.index ?: knoop.key ?: "").append(']')
+
+            knoop.name?.let { naam -> append(if (isEmpty()) naam else ".$naam") }
+        }
+    }
+
+    private fun knoop(naam: String?, inCollectie: Boolean = false, index: Int? = null): Path.Node {
+        val node = mockk<Path.Node>()
+        every { node.name } returns naam
+        every { node.isInIterable } returns inCollectie
+        every { node.index } returns index
+        every { node.key } returns if (inCollectie && index == null) "999993653" else null
+        return node
+    }
+
+    private class MetPatroon(@field:Pattern(regexp = "^BSN:[0-9]{9}$") val veld: String)
+
+    private companion object {
+        val PATTERN: Annotation = MetPatroon::class.java.getDeclaredField("veld").annotations.single()
     }
 }

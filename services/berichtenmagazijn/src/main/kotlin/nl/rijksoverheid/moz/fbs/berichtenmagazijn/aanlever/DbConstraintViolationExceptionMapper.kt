@@ -6,6 +6,7 @@ import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
 import nl.rijksoverheid.moz.fbs.common.exception.ProblemMediaType
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import org.hibernate.exception.ConstraintViolationException
 import org.jboss.logging.Logger
 import java.net.URI
@@ -40,8 +41,10 @@ class DbConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolation
                 .build()
         } else {
             val errorId = UUID.randomUUID()
+            // Het spoor en niet de exceptie: de melding van een driver kan de rij of het statement
+            // citeren, met de ontvanger erin.
             log.errorf(
-                exception,
+                Foutspoor.van(exception),
                 "DB-constraint geschonden (errorId=%s): state=%s constraint=%s",
                 errorId,
                 sqlState ?: "(onbekend)",

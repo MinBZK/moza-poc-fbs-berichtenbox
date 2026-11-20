@@ -8,6 +8,8 @@ import jakarta.validation.Path
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -279,40 +281,87 @@ class FoutMappersTest {
         assertNull((ConstraintViolationExceptionMapper().toResponse(schendingen()).entity as Problem).detail)
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["BSN:99999365", "BSN:99999365x", "BSN:999993654"])
+    fun `de log noemt pad en aantal van een schending, nooit de waarde of de melding`(waarde: String) {
+        val schending = VasteSchending("xOntvanger", "waarde '$waarde' past niet", waarde)
+
+        val (problem, log) = Logvanger().use { logvanger ->
+            (ConstraintViolationExceptionMapper().toResponse(ConstraintViolationException(setOf(schending))).entity as Problem) to
+                logvanger.tekst()
+        }
+
+        assertTrue(log.contains("1 schending(en)"), log)
+        assertTrue(log.contains("schendingen=xOntvanger (onbekend)"), log)
+        assertTrue(log.contains(problem.instance!!.removePrefix("urn:uuid:")), log)
+        herkenbareDelen(waarde.removePrefix("BSN:")).forEach { deel -> assertFalse(log.contains(deel), "'$deel' in de log: $log") }
+    }
+
+    @Test
+    fun `een segment dat op invoer lijkt, komt als vraagteken in de log`() {
+        val log = Logvanger().use { logvanger ->
+            ConstraintViolationExceptionMapper().toResponse(schendingen("999993653" to "ongeldig"))
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("schendingen=? (onbekend)"), log)
+        assertFalse(log.contains("99999"), log)
+    }
+
+    /** Ook een sleutel die op een veldnaam lijkt, zoals een naam: een map-sleutel is altijd invoer. */
+    @ParameterizedTest
+    @ValueSource(strings = ["999993653", "JanJansen"])
+    fun `de sleutel van een element in een map komt als vraagteken in de log`(sleutel: String) {
+        val schending = VasteSchending("waarde", "ongeldig", sleutelInMap = sleutel)
+
+        val log = Logvanger().use { logvanger ->
+            ConstraintViolationExceptionMapper().toResponse(ConstraintViolationException(setOf(schending)))
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("schendingen=?.waarde (onbekend)"), log)
+        assertFalse(log.contains(sleutel), log)
+    }
+
     private fun schendingen(vararg velden: Pair<String, String>): ConstraintViolationException =
         ConstraintViolationException(velden.map { (naam, melding) -> VasteSchending(naam, melding) }.toSet())
 
     /**
-     * Een minimale [ConstraintViolation]: alleen `propertyPath` en `message` worden gelezen. Met een
-     * mock zou dit twintig `every {}`-regels kosten voor twee waardes.
+     * Een minimale [ConstraintViolation]: `propertyPath` en `message` voor het antwoord, en een
+     * [ongeldig]e waarde die ook in `toString` staat, zoals een eigen melding met
+     * `${validatedValue}` haar zou noemen. Met een mock zou dit twintig `every {}`-regels kosten.
      */
     private class VasteSchending(
         private val naam: String,
         private val melding: String,
+        private val ongeldig: Any? = null,
+        private val sleutelInMap: Any? = null,
     ) : ConstraintViolation<Any> {
+        override fun toString(): String = "ConstraintViolationImpl{interpolatedMessage='$melding', propertyPath=$naam, invalidValue=$ongeldig}"
         override fun getMessage(): String = melding
-        override fun getPropertyPath(): Path = VastPad(naam)
+        override fun getPropertyPath(): Path = VastPad(naam, sleutelInMap)
         override fun getMessageTemplate(): String = melding
         override fun getRootBean(): Any? = null
         override fun getRootBeanClass(): Class<Any>? = null
         override fun getLeafBean(): Any? = null
         override fun getExecutableParameters(): Array<Any>? = null
         override fun getExecutableReturnValue(): Any? = null
-        override fun getInvalidValue(): Any? = null
+        override fun getInvalidValue(): Any? = ongeldig
         override fun getConstraintDescriptor(): jakarta.validation.metadata.ConstraintDescriptor<*>? = null
         override fun <U : Any?> unwrap(type: Class<U>?): U = throw UnsupportedOperationException()
     }
 
-    private class VastPad(private val naam: String) : Path {
-        override fun iterator(): MutableIterator<Path.Node> = mutableListOf<Path.Node>(VasteNode(naam)).iterator()
-        override fun toString(): String = naam
+    private class VastPad(private val naam: String, private val sleutel: Any?) : Path {
+        override fun iterator(): MutableIterator<Path.Node> = mutableListOf<Path.Node>(VasteNode(naam, sleutel)).iterator()
+        override fun toString(): String = if (sleutel == null) naam else "[$sleutel].$naam"
     }
 
-    private class VasteNode(private val naam: String) : Path.Node {
+    /** Met een [sleutel]: een element in een map, zoals Hibernate Validator het aanlevert. */
+    private class VasteNode(private val naam: String, private val sleutel: Any?) : Path.Node {
         override fun getName(): String = naam
-        override fun isInIterable(): Boolean = false
+        override fun isInIterable(): Boolean = sleutel != null
         override fun getIndex(): Int? = null
-        override fun getKey(): Any? = null
+        override fun getKey(): Any? = sleutel
         override fun getKind(): jakarta.validation.ElementKind = jakarta.validation.ElementKind.PARAMETER
         override fun <T : Path.Node?> `as`(nodeType: Class<T>?): T = throw UnsupportedOperationException()
     }
