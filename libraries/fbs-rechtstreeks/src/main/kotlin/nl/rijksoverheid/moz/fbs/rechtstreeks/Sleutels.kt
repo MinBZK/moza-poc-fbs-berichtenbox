@@ -20,7 +20,28 @@ class VerifierSleutel(val kid: String, internal val privateKey: ECPrivateKey, va
 }
 
 /** Een publieke sleutel van een App Manager, met het moment waarop hij verloopt (4.6). */
-class AppManagerSleutel(val publicKey: ECPublicKey, val geldigTot: Instant)
+class AppManagerSleutel(val publicKey: ECPublicKey, val geldigTot: Instant) {
+
+    companion object {
+
+        /**
+         * Uit de base64url-coördinaten van een P-256-JWK, met dezelfde controles als een sleutel uit
+         * een credential: precies 32 bytes per coördinaat en een punt op de curve. Voor een dienst
+         * die de sleutel uit zijn configuratie of uit het stelseldocument leest.
+         */
+        fun uitCoordinaten(x: String, y: String, geldigTot: Instant): AppManagerSleutel {
+            val jwk = mapOf("kty" to "EC", "crv" to "P-256", "x" to x, "y" to y)
+
+            val sleutel = try {
+                Jose.ecSleutel(jwk, Afwijzing.APPSLEUTEL_ONGELDIG)
+            } catch (fout: AfgewezenException) {
+                throw IllegalArgumentException("geen geldige P-256-sleutel", fout)
+            }
+
+            return AppManagerSleutel(sleutel, geldigTot)
+        }
+    }
+}
 
 /**
  * Zoekt de sleutel van een App Manager op. De bron is het stelseldocument dat de dienst zelf

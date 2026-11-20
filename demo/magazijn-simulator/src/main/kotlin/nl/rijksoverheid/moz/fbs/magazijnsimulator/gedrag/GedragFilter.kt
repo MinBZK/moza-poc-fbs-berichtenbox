@@ -36,6 +36,11 @@ import org.jboss.logging.Logger
  * Het magazijn is op dit punt al gekozen door
  * [nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPadFilter]; een verzoek dat daar is
  * afgebroken komt hier niet langs.
+ *
+ * **Ook op de tweede ingang (rechtstreeks ophalen)**, want een magazijn in storing is dat voor elke
+ * app. Daar volgt het antwoord wel het contract van die ingang: een storing is een `503` met
+ * `Retry-After` (ook bij `WEIGERT`, want een `403` kent dat contract niet), en een onbruikbaar
+ * antwoord is een geslaagd antwoord met `application/jose` dat geen JWS of JWE is.
  */
 @Provider
 class GedragFilter(
@@ -51,11 +56,15 @@ class GedragFilter(
         // magazijn dat hier komt, kan dus alleen het beheerpad zijn.
         val magazijn = context.magazijnOfNiets ?: return
         val gedrag = magazijn.gedrag
+        val rechtstreeks = requestContext.uriInfo.path.startsWith(RECHTSTREEKS)
 
         if (gedrag.modus == GedragModus.NORMAAL && gedrag.latencyP50Ms == 0) return
 
+        // Op de tweede ingang kent het contract alleen `503`; de log noemt wat de app werkelijk krijgt.
+        val foutStatus = if (rechtstreeks) Response.Status.SERVICE_UNAVAILABLE.statusCode else gedrag.foutStatus
+
         if (!wacht(uitvoering.vertragingMs(magazijn.oin, gedrag))) {
-            requestContext.abortWith(afgebroken())
+            requestContext.abortWith(afgebroken(rechtstreeks))
 
             return
         }
@@ -66,22 +75,25 @@ class GedragFilter(
         // alsnog een gezond antwoord met echte berichten krijgen: dan spreekt het magazijn zijn eigen
         // overzicht tegen. Het antwoord komt dus te laat én zegt dat er niets te halen viel.
         if (gedrag.modus == GedragModus.UIT) {
-            meld(magazijn.oin, gedrag, gedrag.foutStatus)
-            requestContext.abortWith(storing(gedrag))
+            meld(magazijn.oin, gedrag, foutStatus)
+            requestContext.abortWith(storing(gedrag, foutStatus, rechtstreeks))
 
             return
         }
 
         if (gedrag.modus == GedragModus.MALFORMED) {
-            meld(magazijn.oin, gedrag, Response.Status.OK.statusCode)
-            requestContext.abortWith(onbruikbaarAntwoord())
+            // Een geslaagde POST wordt 201 in CreatedStatusFilter; de log noemt wat de app krijgt.
+            val geslaagd = if (requestContext.method == "POST") Response.Status.CREATED else Response.Status.OK
+
+            meld(magazijn.oin, gedrag, geslaagd.statusCode)
+            requestContext.abortWith(onbruikbaarAntwoord(rechtstreeks))
 
             return
         }
 
         if (uitvoering.valtOm(magazijn.oin, gedrag)) {
-            meld(magazijn.oin, gedrag, gedrag.foutStatus)
-            requestContext.abortWith(storing(gedrag))
+            meld(magazijn.oin, gedrag, foutStatus)
+            requestContext.abortWith(storing(gedrag, foutStatus, rechtstreeks))
         }
     }
 
@@ -120,30 +132,41 @@ class GedragFilter(
     }
 
     /** Niet het gesimuleerde gedrag maar de simulator zelf: het wachten van dit verzoek is onderbroken. */
-    private fun afgebroken(): Response = problemResponse(
-        status = Response.Status.SERVICE_UNAVAILABLE.statusCode,
-        title = "Service Unavailable",
-        detail = "De simulator kon dit verzoek niet afmaken",
+    private fun afgebroken(rechtstreeks: Boolean): Response = metRetryAfter(
+        problemResponse(
+            status = Response.Status.SERVICE_UNAVAILABLE.statusCode,
+            title = "Service Unavailable",
+            detail = "De simulator kon dit verzoek niet afmaken",
+        ),
+        rechtstreeks,
     )
 
     /**
-     * Een antwoord dat de aanroeper wél krijgt maar niet kan gebruiken: status 200, `application/json`,
-     * en een body die niet aan het schema voldoet.
+     * Een antwoord dat de aanroeper wél krijgt maar niet kan gebruiken: een geslaagde status met een
+     * body die niet aan het contract voldoet (`application/json` op de eerste ingang, `application/jose`
+     * die geen JWS of JWE is op de tweede).
      *
      * Dit is de tak die de Berichtenbox ánders behandelt dan onbereikbaarheid — hij telt niet mee
      * voor de circuit breaker — en die zonder deze modus in een demo nooit geraakt wordt, terwijl
      * juist die eerder een echte fout opleverde.
      */
-    private fun onbruikbaarAntwoord(): Response = Response.ok()
-        .type(MediaType.APPLICATION_JSON_TYPE)
-        .entity(ONBRUIKBARE_BODY)
-        .build()
+    private fun onbruikbaarAntwoord(rechtstreeks: Boolean): Response = if (rechtstreeks) {
+        Response.ok().type(JOSE).entity(ONBRUIKBARE_JOSE).build()
+    } else {
+        Response.ok().type(MediaType.APPLICATION_JSON_TYPE).entity(ONBRUIKBARE_BODY).build()
+    }
 
-    private fun storing(gedrag: Gedrag): Response = problemResponse(
-        status = gedrag.foutStatus,
-        title = Response.Status.fromStatusCode(gedrag.foutStatus)?.reasonPhrase ?: "Error",
-        detail = "Dit magazijn is ingesteld op ${gedrag.modus.name.lowercase()}",
+    private fun storing(gedrag: Gedrag, status: Int, rechtstreeks: Boolean): Response = metRetryAfter(
+        problemResponse(
+            status = status,
+            title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error",
+            detail = "Dit magazijn is ingesteld op ${gedrag.modus.name.lowercase()}",
+        ),
+        rechtstreeks,
     )
+
+    private fun metRetryAfter(antwoord: Response, rechtstreeks: Boolean): Response =
+        if (rechtstreeks) Response.fromResponse(antwoord).header("Retry-After", OPNIEUW_NA_SECONDEN).build() else antwoord
 
     private companion object {
         /**
@@ -152,5 +175,10 @@ class GedragFilter(
          * kunnen tonen.
          */
         const val ONBRUIKBARE_BODY = """{"berichten": "dit is geen lijst"}"""
+
+        const val RECHTSTREEKS = "/rechtstreeks/"
+        const val JOSE = "application/jose"
+        const val ONBRUIKBARE_JOSE = "dit-is-geen-jose"
+        const val OPNIEUW_NA_SECONDEN = 30
     }
 }

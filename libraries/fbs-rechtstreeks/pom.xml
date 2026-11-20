@@ -66,8 +66,8 @@
                 </configuration>
             </plugin>
             <!-- TestApp (de app-kant van het protocol op de JCA) gaat mee als test-jar: de
-                 App Manager toetst zijn ingangen ermee, zonder een tweede client die uit de pas
-                 kan lopen. TODO(#1215): de magazijnsessie in de simulator ook. -->
+                 App Manager en de magazijn-simulator toetsen hun ingangen ermee, zonder een tweede client
+                 die uit de pas kan lopen. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
