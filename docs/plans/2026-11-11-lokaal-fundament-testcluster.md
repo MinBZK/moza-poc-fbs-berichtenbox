@@ -381,9 +381,9 @@ Wat er in het script veranderde:
   anders de sessie van de opstelling vervangen, en een geweigerde key in de omgeving bleef ook na
   een nieuwe login gelden. Dat speelde al vóór deze ophoging, maar `auth status` maakte het
   zichtbaar: het controleert de key uit de omgeving.
-- **Na een herstart van de machine.** Op 20 november bleven de pods na een herstart 25 uur in
-  ImagePullBackOff (`lookup ghcr.io: Try again`), tot `k3d cluster stop`/`start` en een nieuwe
-  `op`. Docker start de containers dan zelf (restart-policy `unless-stopped`), en de sandbox-node
+- **Na een herstart van de machine.** Op 20 november bleek dat de pods na een herstart 25 uur in
+  ImagePullBackOff hadden gestaan (`lookup ghcr.io: Try again`), tot `k3d cluster stop`/`start` en
+  een nieuwe `op`. Docker start de containers dan zelf (restart-policy `unless-stopped`), en de sandbox-node
   kon ghcr.io daarna niet opzoeken. Waarom precies, is niet vastgesteld; waarschijnlijk legde de
   node bij het booten een DNS-server vast die nog niet werkte, zoals na een wissel van netwerk. De
   herstart via k3d lost het op. Het slotbericht zei "na een herstart van de machine start hij

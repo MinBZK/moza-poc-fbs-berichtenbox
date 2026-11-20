@@ -146,6 +146,14 @@ gelijk "de tekst van een oude functl: exit 1" 1 \
 Run '"'"'functl auth login'"'"' to authenticate')"
 gelijk "lege uitvoer: exit 1" 1 "$(code_van functl_sessie '')"
 
+echo "== connect_code =="
+
+gelijk "unauthenticated" unauthenticated "$(connect_code '{"code":"unauthenticated","message":"no authorization header or auth cookie found"}')"
+gelijk "unavailable" unavailable "$(connect_code '{"code":"unavailable","message":"service temporarily unavailable"}')"
+gelijk "geen code: exit 1" 1 "$(code_van connect_code '{"message":"x"}')"
+gelijk "een getal als code (gRPC-stijl): exit 1" 1 "$(code_van connect_code '{"code":16}')"
+gelijk "geen JSON (Envoy): exit 1" 1 "$(code_van connect_code 'no healthy upstream')"
+
 echo "== api_key_uit_antwoord =="
 
 gelijk "token uit CreateAPIKey" fun_abc123 \
@@ -857,6 +865,8 @@ uitvoer=$(in_script 'na_afloop')
 bevat "na_afloop: na een herstart van de machine via k3d herstarten" \
   "k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin" "$uitvoer"
 bevat "na_afloop: en daarna op" "TAG=<tag> " "$uitvoer"
+gelijk "na_afloop: de herstart draait k3d uit de worktree van Fundament" 1 \
+  "$(grep -cE "^  \\(cd $TESTCACHE/fbs-fundament-testcluster/fundament-[0-9a-f]{8} && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin\\)\$" <<<"$uitvoer")"
 bevat_niet "na_afloop: belooft niet dat hij vanzelf weer start" "vanzelf" "$uitvoer"
 bevat_niet "na_afloop: geen docker restart" "docker restart" "$uitvoer"
 
@@ -946,17 +956,27 @@ code=0
 uitvoer=$(in_script "$KEY_STUBS curl() { echo 'curl: (7) Failed to connect to authn.fundament.localhost port 8443' >&2; return 7; }; api_key_maken") || code=$?
 gelijk "api_key_maken: authn onbereikbaar: exit 1" 1 "$code"
 bevat "api_key_maken: authn onbereikbaar: toont de melding van curl" "Failed to connect" "$uitvoer"
-# Zonder -S zwijgt curl over een geweigerde verbinding of TLS-fout, zonder --fail-with-body over het
-# antwoord van een 4xx of 5xx.
+# Zonder -S zwijgt curl over een geweigerde verbinding of TLS-fout; met alleen -f valt het antwoord
+# van een 4xx of 5xx weg.
 uitvoer=$(in_script "$KEY_STUBS curl() { echo \"CURL \$*\" >&2; return 7; }; api_key_maken") || true
 bevat "api_key_maken: curl met melding en foutantwoord" "CURL -sS --fail-with-body" "$uitvoer"
 uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"error\":\"invalid credentials\"}'; return 22; }; api_key_maken") || true
 bevat "api_key_maken: login geweigerd: toont het foutantwoord" "invalid credentials" "$uitvoer"
 code=0
-uitvoer=$(in_script "$KEY_STUBS mkcert_caroot() { return 1; }; curl() { echo CURL-AANGEROEPEN; }; api_key_maken") || code=$?
+uitvoer=$(in_script "$KEY_STUBS mkcert_caroot() { return 1; }; curl() { echo CURL-AANGEROEPEN >&2; }; api_key_maken") || code=$?
 gelijk "api_key_maken: geen CA: exit 1" 1 "$code"
 bevat "api_key_maken: geen CA: zegt dat" "mkcert vindt zijn CA niet" "$uitvoer"
 bevat_niet "api_key_maken: geen CA: geen curl" "CURL-AANGEROEPEN" "$uitvoer"
+# curl kan ook na een geslaagd antwoord falen; dan staat het token in wat curl gaf.
+uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"access_token\":\"geheim-token\"}'; return 28; }; api_key_maken") || true
+bevat_niet "api_key_maken: curl faalt na een geslaagd antwoord: toont het token niet" "geheim-token" "$uitvoer"
+# De key is wat op stdout komt; functl auth login leest alleen de eerste regel. Beide aanroepen met
+# de melding van curl en een tijdslimiet.
+uitvoer=$(in_script "$KEY_STUBS curl() { echo \"CURL \$*\" >>\"\$WERK/curl\"; case \"\$*\" in *login/password*) echo '{\"access_token\":\"t\"}' ;; *) echo '{\"token\":\"fun_k\"}' ;; esac; };
+  key=\$(api_key_maken); echo \"KEY=[\$key]\"; cat \"\$WERK/curl\"")
+bevat "api_key_maken: alleen de key op stdout" "KEY=[fun_k]" "$uitvoer"
+gelijk "api_key_maken: beide aanroepen met -sS en --max-time" 2 "$(grep -c -- '^CURL -sS .*--max-time 30 ' <<<"$uitvoer")"
+gelijk "api_key_maken: het toegangstoken niet op de commandoregel" 0 "$(grep -c -- 'Bearer' <<<"$uitvoer")"
 # Een geslaagd login-antwoord dat de parser niet herkent, kan toch een token bevatten.
 uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"accessToken\":\"geheim-token\"}'; }; api_key_maken") || true
 bevat "api_key_maken: onbekend login-antwoord: zegt dat" "geen access_token" "$uitvoer"
@@ -965,7 +985,7 @@ bevat_niet "api_key_maken: onbekend login-antwoord: toont het niet" "geheim-toke
 # --- platform_op: alleen uitrollen als het platform er aantoonbaar niet is ---
 
 PLATFORM_STUBS='platform_bestaat() { true; }; fj() { case "$*" in deploy*) echo "UITROL $*" ;; esac; };
-wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; };
+wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; }; organisatie_api_open() { true; };
 docker_poorten() { :; }; mkdir -p "$WORKTREE";'
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Unable to connect to the server: dial tcp 127.0.0.1:43917: connect: connection refused' >&2; return 1 ;; esac; }; platform_op") || code=$?
@@ -979,6 +999,28 @@ code=0
 uitvoer=$(in_script "$PLATFORM_STUBS fj() { return 1; }; kcp() { return 0; }; platform_op") || code=$?
 gelijk "platform_op: starten faalt: exit 1" 1 "$code"
 bevat "platform_op: starten faalt: noemt opnieuw opzetten" "af --met-platform" "$uitvoer"
+
+# Na een hervatting is de Deployment van organization-api al gereed terwijl zijn circuit breaker nog
+# elk verzoek weigert; functl org set faalde dan met unavailable.
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; organisatie_api_open() { false; }; platform_op") || code=$?
+gelijk "platform_op: organization-api weigert nog: exit 1" 1 "$code"
+bevat "platform_op: organization-api weigert nog: noemt de breaker" "circuit breaker" "$uitvoer"
+OPEN_STUBS='mkcert_caroot() { echo /ca; };'
+for geval in 'unauthenticated|0' 'unavailable|1'; do
+  code=0
+  uitvoer=$(in_script "$OPEN_STUBS curl() { echo '{\"code\":\"${geval%|*}\"}'; }; organisatie_api_open") || code=$?
+  gelijk "organisatie_api_open: ${geval%|*}: exit ${geval#*|}" "${geval#*|}" "$code"
+done
+code=0
+uitvoer=$(in_script "$OPEN_STUBS curl() { echo 'no healthy upstream'; }; organisatie_api_open") || code=$?
+gelijk "organisatie_api_open: Envoy zonder backend: exit 1" 1 "$code"
+code=0
+uitvoer=$(in_script "$OPEN_STUBS curl() { echo '{\"code\":\"unauthenticated\"}'; return 7; }; organisatie_api_open") || code=$?
+gelijk "organisatie_api_open: curl faalt: exit 1" 1 "$code"
+uitvoer=$(in_script "$OPEN_STUBS curl() { echo \"CURL \$*\" >&2; echo '{}'; }; organisatie_api_open") || true
+bevat "organisatie_api_open: vraagt organization-api zonder token" "organization.fundament.localhost:8443/organization.v1.OrganizationService/" "$uitvoer"
+bevat_niet "organisatie_api_open: zonder token" "Authorization" "$uitvoer"
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; platform_op") || code=$?
 gelijk "platform_op: al uitgerold: exit 0" 0 "$code"
@@ -1053,7 +1095,7 @@ echo "== de README noemt de worktree van de pin =="
 # De blokken om te pauzeren en te herstarten gaan naar de worktree van Fundament; na een ophoging
 # van FUNDAMENT_REF zou een oud pad naar een map wijzen die er niet meer is.
 pin=$(sed -nE 's/^FUNDAMENT_REF=\$\{FUNDAMENT_REF:-([0-9a-f]{8})[0-9a-f]{32}\}$/\1/p' "$HIER/../fundament-testcluster.sh")
-paden=$(grep -E '^cd .*# worktree van Fundament$' "$HIER/../README.md" || true)
+paden=$(grep -E '^[[:space:]]*\(?cd .*fbs-fundament-testcluster/fundament-' "$HIER/../README.md" || true)
 gelijk "de pin is te lezen uit het script" 8 "${#pin}"
 gelijk "de README heeft blokken met de worktree" 1 "$([ -n "$paden" ] && echo 1 || echo 0)"
 gelijk "elk blok noemt de worktree van de pin" "" "$(grep -v "/fundament-$pin\"" <<<"$paden" || true)"

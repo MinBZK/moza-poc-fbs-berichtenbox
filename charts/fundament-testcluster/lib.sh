@@ -59,14 +59,19 @@ functl_fout_soort() {
 }
 
 # De sessie uit `functl auth status -o json` (stdout): ingelogd, of niet-ingelogd bij de redenen
-# not_logged_in (nooit ingelogd) en rejected (key ongeldig of verlopen, ook na een nieuwe uitrol van
-# het platform). Faalt op al het andere, ook op een reden die functl er later bij krijgt: dan is
+# not_logged_in (geen key opgeslagen, zoals na `af`) en rejected (key ongeldig of verlopen, ook na
+# een nieuwe uitrol van het platform). Faalt op al het andere, ook op een reden die functl er later bij krijgt: dan is
 # opnieuw inloggen geen gefundeerde keuze meer.
 functl_sessie() {
   jq -er '
     if .authenticated == true then "ingelogd"
     elif .authenticated == false and (.reason == "not_logged_in" or .reason == "rejected") then "niet-ingelogd"
     else empty end' <<<"$1" 2>/dev/null || return 1
+}
+
+# De foutcode uit een Connect-antwoord (JSON), zoals unauthenticated of unavailable.
+connect_code() {
+  jq -er '.code | select(type == "string")' <<<"$1" 2>/dev/null || return 1
 }
 
 # De key uit het antwoord van CreateAPIKey (Connect, JSON). Een Connect-fout heeft geen token.

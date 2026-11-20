@@ -259,10 +259,11 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
   `mise.toml`. Het voert hun code en recipes uit, met de rechten van Docker;
 - **het platform** (`k3d-fundament`), alleen uitgerold als Kubernetes meldt dat het er niet is:
   elke uitrol wist zijn databases. Antwoordt de API niet, dan stopt het script. De eerste keer
-  bouwt dit alle images van Fundament;
+  bouwt dit alle images van Fundament. Daarna wacht het tot organization-api verzoeken afhandelt:
+  na een hervatting weigert zijn circuit breaker ze een poos, tot de authz-outbox is bijgewerkt;
 - **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite. Alleen als
-  `functl auth status` geen geldige sessie meldt: nooit ingelogd, of een verlopen of geweigerde
-  key. Kan functl de sessie niet controleren, bijvoorbeeld omdat het platform niet antwoordt, dan
+  `functl auth status` geen geldige sessie meldt: geen key opgeslagen (zoals na `af`), of een
+  verlopen of geweigerde key. Met `FUNCTL_API_KEY` logt het script meteen daarmee in. Kan functl de sessie niet controleren, bijvoorbeeld omdat het platform niet antwoordt, dan
   stopt het script. Zonder sessie vraagt functl het platform niets; antwoordt het dan niet, dan
   meldt het maken van de key de fout;
 - **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
@@ -330,6 +331,7 @@ van Fundament (de melding noemt het pad):
 cd "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-b363604d"   # worktree van Fundament
 mise exec -- k3d cluster stop fundament-plugin fundament     # pauzeren; blijft ook na een herstart uit
 mise exec -- k3d cluster start fundament fundament-plugin    # hervatten, vóór een volgende op of controleer
+cd -
 ```
 
 Niet met `docker stop` en `docker start`, om de reden hieronder. Opruimen gaat met
@@ -339,7 +341,8 @@ Niet met `docker stop` en `docker start`, om de reden hieronder. Opruimen gaat m
 opzoeken, en blijven pods die starten in ImagePullBackOff hangen. Docker legt de DNS-server vast
 bij het starten van een container: na een wissel van netwerk, zoals op het fieldlab, vraagt de node
 het nog aan de server van het vorige netwerk. Na een herstart van de machine start Docker draaiende
-containers zelf weer (restart-policy `unless-stopped`); ook dan kon de node ghcr.io niet opzoeken.
+containers zelf weer (restart-policy `unless-stopped`); ook dan kan de node ghcr.io niet opzoeken
+(waarom precies, is niet vastgesteld).
 Herstart in beide gevallen de clusters via k3d, en draai daarna `op`: dat koppelt ook de relays
 opnieuw, die na een herstart van Docker een ander adres kunnen hebben.
 
@@ -347,6 +350,7 @@ opnieuw, die na een herstart van Docker een ander adres kunnen hebben.
 cd "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-b363604d"   # worktree van Fundament
 mise exec -- k3d cluster stop fundament-plugin fundament
 mise exec -- k3d cluster start fundament fundament-plugin
+cd -
 ```
 
 Niet met `docker restart`, maar via k3d, zoals Fundaments eigen `cluster-start`: k3d zet bij het
@@ -369,8 +373,8 @@ hun builds halen base-images en Helm-charts op tag op.
 rolt een bestaand platform niet opnieuw uit, dus dat zou op de code van de vorige pin blijven
 draaien. Het makkelijkst gaat het met het script van vóór de ophoging, nog vóór je de branch
 bijwerkt: `af --met-platform` haalt dan ook de oude worktree weg. Heb je al bijgewerkt, ruim dan op
-met het nieuwe script en verwijder de oude worktree zelf. In beide gevallen heeft de clone van
-Fundament de nieuwe commit nodig:
+met het nieuwe script en verwijder de oude worktree zelf. Het nieuwe script heeft de nieuwe commit
+in de clone van Fundament nodig, ook voor `af`:
 
 ```bash
 git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" fetch
