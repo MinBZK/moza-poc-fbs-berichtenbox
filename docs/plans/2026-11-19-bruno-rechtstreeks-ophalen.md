@@ -37,8 +37,11 @@ In de echte flow haalt de app het credential bij de demo-App Manager (4.4.1, `de
 Bruno kan die flow zonder browser doorlopen: `tegen-app-manager.mjs` in de Berichten-app doet het
 met fetch, door de doorverwijzing handmatig te volgen en de cookie en `Origin` van de keuzepagina mee
 te sturen. Dat lost het probleem alleen niet op. De demo-App Manager tekent in ontwikkelmodus met
-een wegwerpsleutel die elke start anders is, en de simulator vertrouwt een App Manager alleen via
-`simulator.rechtstreeks.app-managers."<OIN>".sleutels."<kid>"`. Ook via de App Manager moet een
+een wegwerpsleutel die elke start anders is, of met de vaste sleutel uit
+`demo/environment/app-manager/pki/maak-sleutel.sh` (#455). Die staat in het stelseldocument, maar
+de simulator vertrouwt een App Manager alleen via
+`simulator.rechtstreeks.app-managers."<OIN>".sleutels."<kid>"` (TODO(#1215) in
+`RechtstreeksConfig`). Ook via de App Manager moet een
 ontwikkelaar dus een sleutel met de hand bij de simulator instellen. Daarbovenop zouden er vier
 requests zijn tegen een dienst zonder OpenAPI-spec, die een browser nabootsen.
 

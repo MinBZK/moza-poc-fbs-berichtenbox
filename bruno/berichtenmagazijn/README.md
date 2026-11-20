@@ -26,8 +26,9 @@ een collectie mee die je vertrouwt.
 
 Het credential komt van een **lokale App Manager** die alleen op je eigen machine bestaat, en niet
 van de demo-App Manager (`demo/app-manager`). Bij die demo kies je een persona in de browser, en
-een simulator vertrouwt zijn sleutel alleen als je hem met de hand instelt; elke herstart van de
-App Manager maakt er een nieuwe. Het pre-request-script van `4-sessie-starten` ondertekent het
+een simulator vertrouwt zijn sleutel alleen als je hem met de hand instelt. Dat geldt ook voor de
+vaste sleutel uit `demo/environment/app-manager/`: die staat in het stelseldocument, maar de
+simulator leest dat document niet. Het pre-request-script van `4-sessie-starten` ondertekent het
 credential daarom zelf, met een sleutel die je één keer maakt:
 
 ```bash
