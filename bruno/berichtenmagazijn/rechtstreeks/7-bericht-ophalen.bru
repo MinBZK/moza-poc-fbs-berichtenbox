@@ -1,0 +1,51 @@
+meta {
+  name: 7. Bericht ophalen
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten/{{rechtstreeksBerichtId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{rechtstreeksSessieToken}}
+}
+
+headers {
+  Accept: application/jose
+}
+
+script:post-response {
+  const { leesAntwoord } = require('./lib/rechtstreeks.js');
+
+  if (res.getStatus() === 200) res.setBody(leesAntwoord(res.getBody(), bru.getVar('rechtstreeksAesSleutel')));
+}
+
+assert {
+  res.status: eq 200
+  res.headers["content-type"]: startsWith application/jose
+  res.headers["cache-control"]: eq no-store
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
+  res.body.berichtId: eq {{rechtstreeksBerichtId}}
+  res.body.onderwerp: eq Bruno-test: rechtstreeks opgehaald
+  res.body.inhoud: eq Dit bericht komt via de tweede ingang bij de app van de ondernemer.
+  res.body._links.self.href: endsWith /rechtstreeks/berichten/{{rechtstreeksBerichtId}}
+}
+
+tests {
+  test("het bericht is van de ontvanger uit de sessie", function () {
+    const { ontvanger } = res.getBody();
+
+    expect(`${ontvanger.type}:${ontvanger.waarde}`).to.equal(bru.getEnvVar('rechtstreeksOntvanger'));
+  });
+}
+
+docs {
+  Eén bericht met inhoud, als het hoort bij de ontvanger uit de sessie. Een bericht van een ander
+  geeft `404` (request 8).
+}

@@ -1,0 +1,20 @@
+{
+  "name": "fbs-bruno-berichtenmagazijn",
+  "private": true,
+  "description": "Hulpmiddelen voor de Bruno-collectie van het magazijn: de CLI om de requests te draaien, en jose om de eigen JOSE-code in lib/ tegen een tweede implementatie te toetsen. Dependabot houdt de versies bij.",
+  "scripts": {
+    "sleutel": "node lib/maak-sleutel.mjs",
+    "test": "node --test lib/*.test.mjs",
+    "rechtstreeks": "bru run rechtstreeks --env lokaal --sandbox developer"
+  },
+  "devDependencies": {
+    "@usebruno/cli": "4.3.0",
+    "jose": "6.2.13"
+  },
+  "overrides": {
+    "axios": "^1.21.0",
+    "form-data": "^4.0.6",
+    "js-yaml": "^4.3.2",
+    "yaml": "^2.8.3"
+  }
+}

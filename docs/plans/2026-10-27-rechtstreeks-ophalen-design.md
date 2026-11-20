@@ -598,3 +598,4 @@ gebruikt de uitvraag niet. Wel drie raakvlakken:
 - Bruno: de afspraak is een `.bru` per nieuw endpoint. Hier komen ze met de implementatie (PR 3
   en 4), omdat er nu niets is om ze tegen te draaien. `challenges` is een kaal verzoek;
   `sessies` en de `berichten`-paden vragen versleuteling en krijgen een pre-request-script.
+  Ze kwamen in een aparte PR na de Berichten-app: `2026-11-19-bruno-rechtstreeks-ophalen.md`.

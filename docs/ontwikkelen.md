@@ -331,7 +331,8 @@ Zolang [#1038](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1038) opens
 De `bruno/`-folder bevat per service een collectie van voorbeeld-requests die je tegen de lokale
 dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
 
-- `bruno/berichtenmagazijn/` — aanlever- en beheer-API
+- `bruno/berichtenmagazijn/` — aanlever- en beheer-API, en onder `rechtstreeks/` de tweede ingang
+  (tegen de magazijn-simulator)
 - `bruno/berichtenuitvraag/` — frontend-facade (lijst, zoek, ophalen-SSE, detail, bijlage,
   PATCH/DELETE) en de aanmeld-webhook
 - `bruno/stelselregister/` — het stelseldocument, de sleutelset en `security.txt`
@@ -341,6 +342,24 @@ Start voor requests onder `/berichten` eerst een sessie (`bruno/berichtenuitvraa
 `POST /api/v1/sessies`); dat request zet het id in de runtime-variabele `sessie`, en de requests
 sturen het als `X-Sessie`. Met curl: zelfde `POST`, daarna `-H "X-Sessie: <id>"` meegeven. De collectie spiegelt de
 OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een bijbehorende `.bru`-request.
+
+De requests van rechtstreeks ophalen (`bruno/berichtenmagazijn/rechtstreeks/`) versleutelen en
+ondertekenen zelf, met een App Manager-sleutel die alleen op je eigen machine bestaat. Ze draaien
+in de developer-sandbox. Opzet en waarom staan in `bruno/berichtenmagazijn/README.md`; in het kort:
+
+```bash
+npm ci --ignore-scripts --prefix bruno/berichtenmagazijn
+npm run sleutel --prefix bruno/berichtenmagazijn     # eenmalig: .env (gitignored) met de lokale sleutel
+docker compose --profile demo up -d postgres-simulator
+./mvnw install -pl demo/magazijn-simulator -am -DskipTests
+./mvnw quarkus:dev -pl demo/magazijn-simulator $(npm --prefix bruno/berichtenmagazijn run -s sleutel 2>/dev/null)
+# in een tweede terminal:
+npm run rechtstreeks --prefix bruno/berichtenmagazijn   # bru run rechtstreeks --env lokaal --sandbox developer
+```
+
+`@usebruno/cli` staat vast in `bruno/berichtenmagazijn/package-lock.json`; `npm run` start die
+versie uit `node_modules`. Geen kale `npx bru` (zonder lokale installatie is dat een ander
+npm-pakket) en nooit `npx @usebruno/cli@latest`.
 
 ## Configuratie
 

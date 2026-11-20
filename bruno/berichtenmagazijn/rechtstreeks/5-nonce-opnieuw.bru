@@ -1,0 +1,43 @@
+meta {
+  name: 5. Dezelfde nonce opnieuw (401)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrlSimulator}}/rechtstreeks/sessies
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/jose
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  const verzoek = bru.getVar('rechtstreeksSessieverzoek');
+
+  if (!verzoek) throw new Error('geen sessieverzoek: draai eerst "4. Magazijnsessie starten"');
+
+  bru.deleteVar('rechtstreeksSessieverzoek');
+  req.setBody(JSON.parse(verzoek));
+}
+
+assert {
+  res.status: eq 401
+  res.headers["content-type"]: startsWith application/problem+json
+  res.headers["www-authenticate"]: eq 'Bearer realm="{{simulatorOin}}"'
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
+  res.body.type: eq urn:fbs:fout:geen-toegang
+}
+
+docs {
+  Stuurt het verzoek van request 4 nog een keer, met dezelfde nonce. Een nonce is één keer
+  bruikbaar: het magazijn weigert met `401`, en zegt niet waarom.
+}

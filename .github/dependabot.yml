@@ -80,3 +80,23 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+  # Wekelijks: de Bruno-CLI en jose voor de Bruno-collectie van het magazijn. Alleen voor een
+  # ontwikkelmachine; geen workflow draait ze. Veertien dagen wachten: de CLI draait scripts uit de
+  # collectie met toegang tot Node. Security updates wachten niet op die termijn. Voor een pakket
+  # onder `overrides` hogen ze de lockfile op binnen de major van de override; een fix in een nieuwe
+  # major vraagt een handmatige wijziging van `overrides`, en geen workflow draait `npm test` op zo'n
+  # PR. Zie de README van de collectie. Eén PR per ronde: ze kosten elk een CI-run.
+  - package-ecosystem: "npm"
+    directory: "/bruno/berichtenmagazijn"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      bruno:
+        patterns:
+          - "*"
+      bruno-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
