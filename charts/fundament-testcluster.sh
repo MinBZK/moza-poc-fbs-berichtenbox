@@ -877,13 +877,19 @@ EOF
 # dezelfde namespace; de ene magazijn-release van die proef maakt plaats voor magazijn A en B.
 demo() {
   stap "demo: voorbereiden in $NS"
-  hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null 2>&1 || true
+
+  # De ene magazijn-release van `op`. Alleen als hij er is: een "niet gevonden" is geen fout, een
+  # time-out of een weigering wel.
+  if hm list --namespace "$NS" -q --filter '^berichtenmagazijn$' | grep -q .; then
+    hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null
+  fi
 
   local svc
   svc=$(kc -n envoy-gateway-system get service \
     -l "gateway.envoyproxy.io/owning-gateway-name=web,gateway.envoyproxy.io/owning-gateway-namespace=$NS" \
-    -o jsonpath='{.items[0].metadata.name}')
+    -o jsonpath='{.items[*].metadata.name}')
   [ -n "$svc" ] || stop 1 "geen Service voor de proxy's van Gateway web; draai eerst: $0 op"
+  [[ $svc != *" "* ]] || stop 1 "meer dan één Service voor de proxy's van Gateway web: $svc"
 
   manifest_coredns_demo "$svc.envoy-gateway-system.svc.cluster.local" | kc apply -f - >/dev/null
   kc -n kube-system rollout restart deployment/coredns >/dev/null
@@ -891,14 +897,39 @@ demo() {
   echo "OK: *.fbs.localhost wijst binnen het cluster naar $svc"
 
   kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
-  kc -n "$NS" delete secret gateway-ca --ignore-not-found >/dev/null
-  kc -n "$NS" create secret generic gateway-ca --from-file=ca.crt="$WERK/lokale-ca.crt" >/dev/null
+  [ -s "$WERK/lokale-ca.crt" ] || stop 1 "Secret web-tls heeft geen ca.crt; draai eerst: $0 op"
 
+  # cacerts van het image plus de lokale CA, als jssecacerts: de JVM leest dat vóór cacerts, voor
+  # elke client. Gemaakt met de keytool van het image zelf, zodat de JVM het formaat leest. De CA gaat
+  # via stdin naar binnen en de keystore via stdout naar buiten: een gemounte map is onder rootless
+  # podman niet beschrijfbaar voor de gebruiker in de container.
+  local image=ghcr.io/minbzk/fbs-berichtenuitvraag:$TAG java_home
+  java_home=$(docker run --rm --entrypoint sh "$image" -c 'echo "$JAVA_HOME"')
+  [ -n "$java_home" ] || stop 1 "JAVA_HOME van $image niet te bepalen"
+  # shellcheck disable=SC2016 # de variabelen zijn voor de shell in de container
+  docker run --rm -i --entrypoint sh "$image" -c '
+    set -e
+    cat >/tmp/lokale-ca.crt
+    keytool -importkeystore -noprompt -srckeystore "$JAVA_HOME/lib/security/cacerts" -srcstorepass changeit \
+      -destkeystore /tmp/jssecacerts -deststoretype PKCS12 -deststorepass changeit >/dev/null 2>&1
+    keytool -importcert -noprompt -alias fbs-lokale-ca -file /tmp/lokale-ca.crt \
+      -keystore /tmp/jssecacerts -storepass changeit >/dev/null 2>&1
+    cat /tmp/jssecacerts' <"$WERK/lokale-ca.crt" >"$WERK/jssecacerts" ||
+    stop 1 "keytool in $image maakte geen jssecacerts"
+  [ -s "$WERK/jssecacerts" ] || stop 1 "jssecacerts is leeg"
+  kc -n "$NS" delete secret gateway-ca --ignore-not-found >/dev/null
+  kc -n "$NS" create secret generic gateway-ca --from-file=jssecacerts="$WERK/jssecacerts" >/dev/null
+  echo "OK: de lokale CA staat in jssecacerts voor $java_home"
+
+  # shellcheck source=charts/demo-op-fundament/lib.sh
+  source "$CHARTS/demo-op-fundament/lib.sh"
   local release
   mkdir -p "$WERK/demo-values"
 
-  for release in berichtenuitvraag berichtenmagazijn-a berichtenmagazijn-b; do
-    values_demo_lokale_ca >"$WERK/demo-values/$release.yaml"
+  for release in "${STELSEL_RELEASES[@]}"; do
+    # Het stelselregister roept niemand aan.
+    [ "$release" != stelselregister ] || continue
+    values_demo_jssecacerts "$release" "$java_home" >"$WERK/demo-values/$release.yaml"
   done
 
   # Via env: NS en HTTPS_POORT zijn hier readonly, en bash weigert dan een toewijzing vóór de opdracht.

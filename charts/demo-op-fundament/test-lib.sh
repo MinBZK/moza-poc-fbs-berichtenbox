@@ -65,13 +65,16 @@ for host in "${DEMO_HOSTS[@]}"; do
 done
 
 grep -q '^  secretName: web-tls$' <<<"$cert" && ok "certificaat naar het Secret van de listener" || faal "secretName"
+grep -qx '  name: web-tls' <<<"$cert" && ok "certificaat heet als het Secret" || faal "metadata.name"
+grep -qx '  namespace: tnt-fbs--demo' <<<"$cert" && ok "certificaat in de namespace van de demo" || faal "namespace"
 grep -q '^  issuerRef: {name: letsencrypt, kind: Issuer}$' <<<"$cert" && ok "Issuer in de namespace, geen ClusterIssuer" ||
   faal "issuerRef"
 grep -q '\*' <<<"$cert" && faal "certificaat vraagt een wildcard" || ok "geen wildcard: Let's Encrypt geeft die niet met HTTP-01"
 
 # De routes van de chart en de hostnamen van de stelselreleases: dezelfde verzameling als DEMO_HOSTS.
 chart_hosts=$(sed -n 's/^  (dict "naam" "\([a-z-]*\)".*/\1/p' "$HIER/../fbs-demo/templates/httproutes.yaml")
-stelsel_hosts="berichtenmagazijn-a berichtenmagazijn-b stelselregister"
+# De stelselreleases met een route: alle behalve de uitvraag (stelsel/berichtenuitvraag.yaml).
+stelsel_hosts=$(printf '%s\n' "${STELSEL_RELEASES[@]}" | grep -vx berichtenuitvraag)
 gelijk "DEMO_HOSTS = routes van fbs-demo + hostnamen van het stelsel" \
   "$(printf '%s\n' $chart_hosts $stelsel_hosts | sort | paste -sd' ' -)" \
   "$(printf '%s\n' "${DEMO_HOSTS[@]}" | sort | paste -sd' ' -)"
@@ -84,19 +87,40 @@ grep -q 'major: 18' <<<"$db" && ok "PostgreSQL 18" || faal "major"
 ldv=$(manifest_cluster ldv-uitvraag ns)
 grep -q 'max_connections' <<<"$ldv" && faal "ldv-uitvraag zonder eigen max_connections" || ok "ldv-uitvraag met de standaard"
 
-# --- aantal_magazijnen ---
+# --- keten_oordeel ---
 
-gelijk "lege lijst: nul" 0 "$(aantal_magazijnen '{"berichten": []}')"
-gelijk "één magazijn, twee berichten" 1 \
-  "$(aantal_magazijnen '{"berichten": [{"magazijnId": "00000000000000100000"}, {"magazijnId": "00000000000000100000"}]}')"
-gelijk "twee magazijnen" 2 \
-  "$(aantal_magazijnen '{"berichten": [{"magazijnId": "00000000000000100000"}, {"magazijnId": "00000001823288444000"}]}')"
-gelijk "dieper genest, HAL" 3 \
-  "$(aantal_magazijnen '{"_embedded": {"berichten": [{"magazijnId": "a"}, {"magazijnId": "b"}, {"magazijnId": "c"}]}}')"
-gelijk "null of getal telt niet" 1 \
-  "$(aantal_magazijnen '{"berichten": [{"magazijnId": null}, {"magazijnId": 5}, {"magazijnId": "a"}]}')"
-faalt "geen JSON" aantal_magazijnen '<html>502</html>'
-faalt "leeg antwoord" aantal_magazijnen ''
+A=$MAGAZIJN_A_OIN
+B=$MAGAZIJN_B_OIN
+voltooid() { printf 'event: magazijn-bevraging-voltooid\ndata: {"event":"magazijn-bevraging-voltooid","magazijnId":"%s","status":"%s","aantalBerichten":%s}\n\n' "$1" "$2" "$3"; }
+gereed='event: ophalen-gereed
+data: {"event":"ophalen-gereed"}'
+
+stroom="$(voltooid "$A" OK 3; voltooid 00000009000000000001 OK 27; voltooid "$B" OK 2)
+$gereed"
+keten_oordeel "$stroom" >/dev/null && ok "A en B leverden, met een gesimuleerd magazijn ertussen" || faal "A en B OK gaf geen oordeel in orde"
+
+# Zonder spatie na data: mag volgens de SSE-spec ook.
+stroom=$(printf 'data:{"event":"magazijn-bevraging-voltooid","magazijnId":"%s","status":"OK","aantalBerichten":1}\ndata:{"event":"magazijn-bevraging-voltooid","magazijnId":"%s","status":"OK","aantalBerichten":1}\n' "$A" "$B")
+keten_oordeel "$stroom" >/dev/null && ok "data: zonder spatie" || faal "data: zonder spatie"
+
+# Een regel die geen JSON is, mag de rest niet verbergen.
+stroom="data: geen json
+$(voltooid "$A" OK 1; voltooid "$B" OK 1)"
+keten_oordeel "$stroom" >/dev/null && ok "een regel zonder JSON ertussen" || faal "een regel zonder JSON verbergt de rest"
+
+gelijk "B faalde" "magazijn $B: FOUT, 0 berichten" "$(keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" FOUT 0)" || true)"
+gelijk "B leverde niets" "magazijn $B: OK, 0 berichten" "$(keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" OK 0)" || true)"
+gelijk "A meldde niets" "magazijn $A meldde geen uitkomst" "$(keten_oordeel "$(voltooid "$B" OK 3)" || true)"
+gelijk "alleen gesimuleerde magazijnen" "magazijn $A meldde geen uitkomst" \
+  "$(keten_oordeel "$(voltooid 00000009000000000001 OK 27; voltooid 00000009000000000002 OK 27)" || true)"
+gelijk "lege stroom" "magazijn $A meldde geen uitkomst" "$(keten_oordeel "" || true)"
+gelijk "ophalen-fout zonder magazijnen" "magazijn $A meldde geen uitkomst" \
+  "$(keten_oordeel 'data: {"event":"ophalen-fout","detail":"x"}' || true)"
+# Alleen het voltooid-event telt: een ander event met dezelfde OIN na de fout maakt hem niet goed.
+stroom="$(voltooid "$A" OK 3; voltooid "$B" FOUT 0)
+data: {\"event\":\"magazijn-bericht\",\"magazijnId\":\"$B\",\"status\":\"OK\",\"aantalBerichten\":5}"
+gelijk "een ander event na de fout telt niet" "magazijn $B: FOUT, 0 berichten" "$(keten_oordeel "$stroom" || true)"
+faalt "B faalde: geen oordeel in orde" keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" TIMEOUT 0)"
 
 # --- sessie_uit_antwoord ---
 
@@ -109,6 +133,28 @@ done
 # --- vaste lijsten ---
 
 gelijk "acht images" 8 "${#DEMO_IMAGES[@]}"
+
+# De Deployments van fbs-demo: één per onderdeel in charts/fbs-demo/templates/_componenten.tpl.
+onderdelen=$(sed -n 's/^\([a-z-]*\):$/fbs-demo-\1/p' "$HIER/../fbs-demo/templates/_componenten.tpl" | sort | paste -sd' ' -)
+gelijk "DEMO_DEPLOYMENTS = de onderdelen van fbs-demo" "$onderdelen" "$(printf '%s\n' "${DEMO_DEPLOYMENTS[@]}" | sort | paste -sd' ' -)"
+
+# --- values_demo_jssecacerts ---
+
+for release in berichtenuitvraag berichtenmagazijn-a berichtenmagazijn-b; do
+  v=$(values_demo_jssecacerts "$release" /usr/lib/jvm/jre)
+  grep -qx '      mountPath: /usr/lib/jvm/jre/lib/security/jssecacerts' <<<"$v" && ok "$release: jssecacerts op JAVA_HOME" || faal "$release: mountPath"
+  grep -qx '      subPath: jssecacerts' <<<"$v" && ok "$release: alleen het bestand" || faal "$release: subPath"
+  grep -qx '        secretName: gateway-ca' <<<"$v" && ok "$release: uit gateway-ca" || faal "$release: secret"
+done
+
+v=$(values_demo_jssecacerts berichtenuitvraag /j)
+grep -qx '        name: fbs-demo-magazijnenregister' <<<"$v" && ok "uitvraag houdt het register" || faal "uitvraag: register"
+grep -qx '      mountPath: /home/jboss/config' <<<"$v" && ok "uitvraag: register op de werkmap" || faal "uitvraag: register-mount"
+grep -qx '        secretName: ldv-uitvraag-ca' <<<"$v" && ok "uitvraag houdt de CA van het logboek" || faal "uitvraag: ldv-ca"
+v=$(values_demo_jssecacerts berichtenmagazijn-a /j)
+grep -qx '        secretName: db-ca' <<<"$v" && ok "magazijn houdt de CA van de database" || faal "magazijn: db-ca"
+grep -q 'magazijnenregister' <<<"$v" && faal "magazijn krijgt het register" || ok "magazijn zonder register"
+faalt "stelselregister krijgt geen jssecacerts" values_demo_jssecacerts stelselregister /j
 gelijk "vier stelselreleases" 4 "${#STELSEL_RELEASES[@]}"
 
 for release in "${STELSEL_RELEASES[@]}"; do

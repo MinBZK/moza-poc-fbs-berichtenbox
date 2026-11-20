@@ -298,16 +298,23 @@ Waarin het afwijkt van het fieldlab:
   verwijdert een namespace met die labels die hij niet kent.
 
 `demo` zet na `op` de hele demo neer met `demo-op-fundament.sh`, in dezelfde namespace, zoals op
-het fieldlab. De ene magazijn-release van `op` maakt plaats voor magazijn A en B. Wat de sandbox
-anders vraagt:
+het fieldlab. De ene magazijn-release van `op` maakt plaats voor magazijn A en B. Een `controleer`
+of `op` daarna kent die demo niet: `controleer` zoekt de verwijderde release, en `op` zet de uitvraag
+terug op zijn eigen values. Draai na een `op` dus opnieuw `demo`.
+
+Wat de sandbox anders vraagt:
 - **De hostnamen.** `*.fbs.localhost` wijst binnen het cluster nergens heen. Een regel in CoreDNS
   (`coredns-custom` in `kube-system`) stuurt die namen naar de proxy's van de Gateway. Op het fieldlab
   doet sslip.io dat via het publieke adres.
-- **Het certificaat.** De lokale CA tekent het, en die vertrouwt de JVM niet. Uitvraag en magazijnen
-  krijgen hem als trust-store (`QUARKUS_TLS_TRUST_STORE_PEM_CERTS`).
+- **Het certificaat.** De lokale CA tekent het, en die vertrouwt de JVM niet.
+  - Uitvraag en magazijnen krijgen `cacerts` plus de lokale CA als `jssecacerts`. De JVM leest dat
+    bestand vóór `cacerts`, voor elke client. Het wordt gemaakt met de `keytool` van het image.
+  - De trust-store van het TLS-register van Quarkus helpt hier niet: de REST-clients gebruiken
+    alleen een benoemde configuratie, en anders die van de JVM.
 - **Aanmelding en notificatie.** Die stuurt het magazijn niet naar een privé-adres
-  (SSRF-blocklist), en in de sandbox resolveert de Gateway naar een privé-adres. Berichten ophalen
-  werkt wel. Toets aanmelding en notificatie dus op het fieldlab: daar is het adres publiek.
+  (SSRF-blocklist), en in de sandbox resolveert de Gateway naar een privé-adres. Toets aanmelding en
+  notificatie dus op het fieldlab: daar is het adres publiek. Berichten ophalen hangt daar niet van
+  af.
 
 Wat hier kan omdat de routes alleen op loopback staan, maar op het fieldlab een keuze vraagt:
 - **`ingress.allowUnauthenticated=true`.** Op het fieldlab krijgt de Gateway een publiek adres.

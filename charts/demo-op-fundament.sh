@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: EUPL-1.2
 #
 # Installeert de demo op een cluster van Fundament (fbs-demo plus vier releases van fbs-dienst) en
-# controleert hem: via de Gateway, en de keten tot berichten uit meer dan één magazijn. Wat het
-# cluster vooraf nodig heeft en wat er publiek staat: charts/fbs-demo/README.md.
+# controleert hem: via de Gateway, en de keten tot een ophaalronde waarin magazijn A en B berichten
+# leveren. Wat het cluster vooraf nodig heeft en wat er publiek staat: charts/fbs-demo/README.md.
 #
 #   NS=<namespace> TAG=main-<sha7> charts/demo-op-fundament.sh op
 #   NS=<namespace> charts/demo-op-fundament.sh controleer
 #
 # Instelbaar:
-#   KUBE_CONTEXT    de context; zonder de huidige van kubectl, en het script noemt hem
+#   KUBE_CONTEXT    de context; zonder de huidige van kubectl. Het script zet hem bij de start vast,
+#                   zodat een wissel in een andere terminal halverwege niets naar elders stuurt
 #   GATEWAY         de Gateway in de namespace (web), met een https-listener `https`
 #   BASISDOMEIN     standaard fbs.<adres-met-streepjes>.sslip.io uit het adres van de Gateway
 #   ISSUER          een Issuer in de namespace; dan maakt het script het Certificate GATEWAY_SECRET
@@ -32,6 +33,8 @@ GATEWAY_SECRET=${GATEWAY_SECRET:-web-tls}
 HTTPS_POORT=${HTTPS_POORT:-443}
 # Een persona met berichten in magazijn A én B (Garage Van Dijk B.V.).
 KETEN_ONTVANGER=${KETEN_ONTVANGER:-KVK:90000014}
+# Hoe lang de ketencontrole het probeert: het paneel vult de magazijnen kort na het starten.
+KETEN_SECONDEN=${KETEN_SECONDEN:-300}
 
 stap() { echo "== $* =="; }
 
@@ -42,8 +45,8 @@ stop() {
   exit "$code"
 }
 
-kc() { kubectl ${KUBE_CONTEXT:+--context "$KUBE_CONTEXT"} --namespace "$NS" "$@"; }
-hm() { helm ${KUBE_CONTEXT:+--kube-context "$KUBE_CONTEXT"} --namespace "$NS" "$@"; }
+kc() { kubectl --context "$KUBE_CONTEXT" --namespace "$NS" "$@"; }
+hm() { helm --kube-context "$KUBE_CONTEXT" --namespace "$NS" "$@"; }
 
 vereis_tools() {
   local t
@@ -53,13 +56,20 @@ vereis_tools() {
   done
 }
 
+# Wacht tot een opdracht slaagt. De foutuitvoer van de laatste poging komt in de melding: een
+# weigering (forbidden) of een ontbrekende CRD leest anders na tien minuten als "niet gereed".
 wacht_tot() {
   local seconden=$1 wat=$2
   shift 2
   local einde=$((SECONDS + seconden))
 
-  until "$@" >/dev/null 2>&1; do
-    [ "$SECONDS" -lt "$einde" ] || { echo "time-out na ${seconden}s: $wat" >&2; return 1; }
+  until "$@" >/dev/null 2>"$WERK/wacht.err"; do
+    if [ "$SECONDS" -ge "$einde" ]; then
+      echo "time-out na ${seconden}s: $wat" >&2
+      tail -3 "$WERK/wacht.err" >&2
+      return 1
+    fi
+
     sleep 5
   done
 }
@@ -71,21 +81,59 @@ werkmap() {
 
 # --- Voorwaarden -------------------------------------------------------------------------------
 
+# De context één keer vastzetten: kc en hm lezen de kubeconfig anders bij elke aanroep opnieuw, en een
+# run duurt lang genoeg voor een wissel in een andere terminal.
+context_vastzetten() {
+  if [ -z "${KUBE_CONTEXT:-}" ]; then
+    KUBE_CONTEXT=$(kubectl config current-context 2>/dev/null) || stop 2 "geen huidige kube-context; zet KUBE_CONTEXT"
+  fi
+
+  readonly KUBE_CONTEXT
+}
+
 voorwaarden() {
-  : "${NS:?zet NS op de namespace uit de console van Fundament, bijvoorbeeld tnt-fbs--demo}"
-  echo "context: ${KUBE_CONTEXT:-$(kubectl config current-context 2>/dev/null || echo onbekend)}, namespace: $NS"
-  kc get namespace "$NS" >/dev/null 2>&1 || kc get serviceaccounts >/dev/null ||
-    stop 2 "namespace $NS niet bereikbaar; maak hem in de console van Fundament"
-  kc get gateway "$GATEWAY" >/dev/null || stop 2 "Gateway $GATEWAY ontbreekt in $NS; zie stap 2 in charts/fbs-demo/README.md"
+  [ -n "${NS:-}" ] || stop 2 "zet NS op de namespace uit de console van Fundament, bijvoorbeeld tnt-fbs--demo"
+  context_vastzetten
+  echo "context: $KUBE_CONTEXT, namespace: $NS"
+
+  if [ -n "${EXTRA_VALUES:-}" ] && [ ! -d "$EXTRA_VALUES" ]; then
+    stop 2 "EXTRA_VALUES ($EXTRA_VALUES) is geen map"
+  fi
+
+  kc get serviceaccounts >/dev/null || stop 2 "namespace $NS niet bereikbaar; maak hem in de console van Fundament"
+  kc get gateways.gateway.networking.k8s.io "$GATEWAY" >/dev/null ||
+    stop 2 "Gateway $GATEWAY ontbreekt in $NS; zie stap 2 in charts/fbs-demo/README.md"
 
   if [ -z "${BASISDOMEIN:-}" ]; then
     local adres
-    adres=$(kc get gateway "$GATEWAY" -o jsonpath='{.status.addresses[0].value}')
+    adres=$(kc get gateways.gateway.networking.k8s.io "$GATEWAY" -o jsonpath='{.status.addresses[0].value}')
     BASISDOMEIN=$(basisdomein_uit_adres "$adres") ||
       stop 2 "geen IPv4-adres op Gateway $GATEWAY ('$adres'); zet BASISDOMEIN"
   fi
 
   echo "basisdomein: $BASISDOMEIN"
+}
+
+# Alle acht images op de tag. Met docker manifest inspect, dat ook podman kent; de stderr van het
+# eerste ontbrekende image staat in de melding, zodat een ontbrekende login niet als "bestaat niet"
+# leest.
+images_op_tag() {
+  stap "images op $TAG"
+  local image ontbreekt=()
+
+  for image in "${DEMO_IMAGES[@]}"; do
+    if docker manifest inspect "ghcr.io/minbzk/$image:$TAG" >/dev/null 2>"$WERK/image.err"; then
+      echo "OK: $image"
+    else
+      [ "${#ontbreekt[@]}" -gt 0 ] || cp "$WERK/image.err" "$WERK/eerste.err"
+      ontbreekt+=("$image")
+    fi
+  done
+
+  if [ "${#ontbreekt[@]}" -gt 0 ]; then
+    tail -3 "$WERK/eerste.err" >&2
+    stop 2 "niet op $TAG: ${ontbreekt[*]}; kies een main-<sha7> waarvoor de keten ze alle acht publiceerde"
+  fi
 }
 
 # --- Opzetten ----------------------------------------------------------------------------------
@@ -95,16 +143,17 @@ certificaat() {
 
   stap "certificaat $GATEWAY_SECRET via Issuer $ISSUER"
   manifest_certificaat "$NS" "$BASISDOMEIN" "$ISSUER" "$GATEWAY_SECRET" | kc apply -f - >/dev/null
-  wacht_tot 600 "certificaat $GATEWAY_SECRET" certificaat_klaar || stop 1 "certificaat $GATEWAY_SECRET is niet Ready; zie: kubectl -n $NS describe certificate $GATEWAY_SECRET"
+  wacht_tot 600 "certificaat $GATEWAY_SECRET" certificaat_klaar ||
+    stop 1 "certificaat $GATEWAY_SECRET is niet Ready; zie: kubectl --context $KUBE_CONTEXT -n $NS describe certificate $GATEWAY_SECRET"
 }
 
 certificaat_klaar() {
   [ "$(kc get certificate "$GATEWAY_SECRET" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" = True ]
 }
 
-database_gezond() {
-  [ "$(kc get cluster.postgresql.cnpg.io "$1" -o jsonpath='{.status.phase}')" = "Cluster in healthy state" ]
-}
+database_fase() { kc get cluster.postgresql.cnpg.io "$1" -o jsonpath='{.status.phase}'; }
+database_gezond() { [ "$(database_fase "$1")" = "Cluster in healthy state" ]; }
+database_niet_gezond() { ! database_gezond "$1"; }
 
 # Een Cluster dat er al is, blijft zoals het is: een kleinere opslag of andere labels zou CloudNativePG
 # willen doorvoeren. Alleen het aantal verbindingen van db gaat omhoog.
@@ -112,8 +161,18 @@ databases() {
   stap "databases (CloudNativePG)"
 
   if kc get cluster.postgresql.cnpg.io db >/dev/null 2>&1; then
-    kc patch cluster.postgresql.cnpg.io db --type merge \
-      -p '{"spec":{"postgresql":{"parameters":{"max_connections":"200"}}}}' >/dev/null
+    local huidig
+    huidig=$(kc get cluster.postgresql.cnpg.io db -o jsonpath='{.spec.postgresql.parameters.max_connections}')
+
+    if [ "$huidig" != 200 ]; then
+      kc patch cluster.postgresql.cnpg.io db --type merge \
+        -p '{"spec":{"postgresql":{"parameters":{"max_connections":"200"}}}}' >/dev/null
+      # CloudNativePG herstart de database voor deze parameter. Zonder te wachten tot die herstart
+      # begint, leest de gezondheidscheck hieronder nog de oude stand, en valt de herstart midden in
+      # de installatie van de magazijnen.
+      wacht_tot 120 "herstart van db na max_connections" database_niet_gezond db ||
+        echo "INFO: db bleef gezond na de wijziging van max_connections"
+    fi
   else
     manifest_cluster db "$NS" 200 | kc create -f - >/dev/null
   fi
@@ -124,7 +183,7 @@ databases() {
 
   for db in db ldv-uitvraag; do
     wacht_tot 600 "database $db" database_gezond "$db" ||
-      stop 1 "database $db is niet gezond; zie: kubectl -n $NS describe cluster.postgresql.cnpg.io $db"
+      stop 1 "database $db is niet gezond; zie: kubectl --context $KUBE_CONTEXT -n $NS describe cluster.postgresql.cnpg.io $db"
   done
 
   echo "OK: db en ldv-uitvraag"
@@ -155,8 +214,14 @@ geheimen() {
   # Het wachtwoord van het paneel staat naast het htpasswd in het Secret, zodat het team het terug
   # kan lezen. Op het fieldlab kan iedereen in de organisatie dat ook; het is een demo-wachtwoord.
   if ! kc get secret fbs-demo-bediening >/dev/null 2>&1; then
+    local hash
     (umask 077 && openssl rand -base64 24 | tr -d '\n' >"$WERK/paneel-wachtwoord")
-    printf 'demo:%s\n' "$(openssl passwd -6 -stdin <"$WERK/paneel-wachtwoord")" >"$WERK/htpasswd"
+    # Een openssl zonder -6 (LibreSSL) gaf anders een htpasswd zonder hash, en dat Secret maakt
+    # een volgende run niet opnieuw.
+    hash=$(openssl passwd -6 -stdin <"$WERK/paneel-wachtwoord") ||
+      stop 2 "openssl passwd -6 faalde; gebruik OpenSSL 1.1.1 of nieuwer"
+    [[ $hash == '$6$'* ]] || stop 2 "openssl passwd -6 gaf geen SHA-512-hash; gebruik OpenSSL 1.1.1 of nieuwer"
+    printf 'demo:%s\n' "$hash" >"$WERK/htpasswd"
     secret_eenmalig fbs-demo-bediening --from-file=htpasswd="$WERK/htpasswd" --from-file=wachtwoord="$WERK/paneel-wachtwoord"
   fi
 
@@ -186,21 +251,19 @@ register() {
   SIMULATOR_SET="$WERK/repo/demo/generated/magazijn-simulator.properties"
 }
 
+# Het laatste values-bestand van een release uit EXTRA_VALUES, als `-f <bestand>` op twee regels.
 extra() {
   local bestand=${EXTRA_VALUES:-}/$1.yaml
 
-  [ -n "${EXTRA_VALUES:-}" ] && [ -f "$bestand" ] && printf '%s\n' -f "$bestand"
-  return 0
+  if [ -n "${EXTRA_VALUES:-}" ] && [ -f "$bestand" ]; then
+    echo "INFO: extra values voor $1: $bestand" >&2
+    printf '%s\n' -f "$bestand"
+  fi
 }
 
 installeren() {
-  : "${TAG:?zet TAG op een main-<sha7> waarvoor alle acht images bestaan}"
-  local proeftuin=${PROEFTUIN:-$("$REPO/.github/scripts/proeftuin-image.sh")}
-  local args
-
-  stap "images op $TAG"
-  "$REPO/.github/scripts/images-gepubliceerd.sh" ghcr.io/minbzk "$TAG" "${DEMO_IMAGES[@]}" ||
-    stop 2 "niet alle images bestaan op $TAG; kies een main-<sha7> waarvoor de keten ze alle acht publiceerde"
+  local proeftuin args
+  proeftuin=${PROEFTUIN:-$("$REPO/.github/scripts/proeftuin-image.sh")} || stop 2 "proeftuin-image.sh faalde"
 
   register
 
@@ -209,10 +272,10 @@ installeren() {
   hm upgrade --install fbs-demo "$CHARTS/fbs-demo" --wait --timeout 10m \
     --set "basisdomein=$BASISDOMEIN" --set "cluster.gateway.name=$GATEWAY" \
     --set "images.tag=$TAG" --set "images.proeftuin=$proeftuin" \
-    --set-file "magazijnenregister=$REGISTER" --set-file "simulatorSet=$SIMULATOR_SET" "${args[@]}" >/dev/null
+    --set-file "magazijnenregister=$REGISTER" --set-file "simulatorSet=$SIMULATOR_SET" "${args[@]}" >/dev/null ||
+    stop 1 "installeren van fbs-demo faalde; zie: kubectl --context $KUBE_CONTEXT -n $NS get pods -l app.kubernetes.io/instance=fbs-demo"
   echo "OK: fbs-demo"
 
-  # De uitvraag en het stelselregister lezen het register alleen bij het starten.
   local release dienst
   local stelsel=(--wait --timeout 10m --set "demo.basisdomein=$BASISDOMEIN" --set "dienst.image.tag=$TAG"
     --set dienst.tlsTermination=mesh --set "cluster.gateway.name=$GATEWAY")
@@ -231,10 +294,12 @@ installeren() {
     mapfile -t -O "${#args[@]}" args < <(extra "$release")
 
     hm upgrade --install "$release" "$CHARTS/fbs-dienst" "${stelsel[@]}" "${args[@]}" >/dev/null ||
-      stop 1 "installeren van $release faalde; zie: kubectl -n $NS get pods -l app.kubernetes.io/instance=$release"
+      stop 1 "installeren van $release faalde; zie: kubectl --context $KUBE_CONTEXT -n $NS get pods -l app.kubernetes.io/instance=$release"
     echo "OK: $release"
   done
 
+  # De uitvraag en het stelselregister lezen het register alleen bij het starten; een upgrade zonder
+  # wijziging in hun eigen values start ze niet opnieuw.
   kc rollout restart deployment/berichtenuitvraag deployment/stelselregister >/dev/null
   kc rollout status deployment/berichtenuitvraag --timeout=10m >/dev/null
   kc rollout status deployment/stelselregister --timeout=10m >/dev/null
@@ -249,6 +314,8 @@ fout() {
   echo "FOUT: $*"
 }
 
+url() { echo "https://$1.$BASISDOMEIN:$HTTPS_POORT$2"; }
+
 # curl via de Gateway naar <host>.<basisdomein>. Met GATEWAY_ADRES gaat het verkeer naar dat adres,
 # met de hostnaam in SNI en Host; anders via DNS. Het certificaat wordt getoetst: een TLS-fout geeft
 # 000, geen stille -k. Een latere --max-time in de argumenten gaat voor.
@@ -256,35 +323,40 @@ gw_curl() {
   local host=$1.$BASISDOMEIN
   shift
 
-  curl -q -s --max-time 30 ${CA_BESTAND:+--cacert "$CA_BESTAND"} \
+  curl -q -sS --max-time 30 ${CA_BESTAND:+--cacert "$CA_BESTAND"} \
     ${GATEWAY_ADRES:+--resolve "$host:$HTTPS_POORT:$GATEWAY_ADRES"} "$@"
 }
 
-# De statuscode van een verzoek. $1 = host, $2 = verwachte code, $3 = beschrijving, rest = curl.
+# De statuscode van een verzoek. $1 = host, $2 = verwachte code, $3 = beschrijving, rest = curl. Een
+# verwachting met ! ervoor: elke code behalve die.
 code() {
   local host=$1 verwacht=$2 wat=$3 gekregen
   shift 3
 
-  gekregen=$(gw_curl "$host" -o /dev/null -w '%{http_code}' "$@" || true)
+  gekregen=$(gw_curl "$host" -o /dev/null -w '%{http_code}' "$@" 2>"$WERK/curl.err" || true)
 
-  if [ "$gekregen" = "$verwacht" ]; then
+  if [ "${verwacht#!}" != "$verwacht" ] && [ "$gekregen" != "${verwacht#!}" ] && [ "$gekregen" != 000 ]; then
+    echo "OK: $wat ($gekregen)"
+  elif [ "$gekregen" = "$verwacht" ]; then
     echo "OK: $wat ($gekregen)"
   else
-    fout "$wat: $gekregen, verwacht $verwacht"
+    fout "$wat: $gekregen, verwacht $verwacht $(tail -1 "$WERK/curl.err" 2>/dev/null)"
   fi
 }
 
-url() { echo "https://$1.$BASISDOMEIN:$HTTPS_POORT$2"; }
-
 controleer_rollouts() {
   stap "rollouts"
-  local d
+  local namen d
 
-  for d in $(kc get deployments -o name -l 'app.kubernetes.io/instance in (fbs-demo,berichtenuitvraag,berichtenmagazijn-a,berichtenmagazijn-b,stelselregister)'); do
-    if kc rollout status "$d" --timeout=5m >/dev/null 2>&1; then
+  namen=$(kc get deployments -o name) || { fout "Deployments in $NS niet op te vragen"; return; }
+
+  for d in "${DEMO_DEPLOYMENTS[@]}" "${STELSEL_RELEASES[@]}"; do
+    if ! grep -qx "deployment.apps/$d" <<<"$namen"; then
+      fout "Deployment $d ontbreekt"
+    elif kc rollout status "deployment/$d" --timeout=5m >/dev/null 2>&1; then
       echo "OK: $d"
     else
-      fout "$d is niet gereed; zie: kubectl -n $NS describe $d"
+      fout "$d is niet gereed; zie: kubectl --context $KUBE_CONTEXT -n $NS describe deployment/$d"
     fi
   done
 }
@@ -298,44 +370,59 @@ controleer_routes() {
   code demo 403 "paneel weigert een andere site" -H 'Sec-Fetch-Site: cross-site' "$(url demo /bediening/)"
   code demo 403 "gereedschap weigert een andere origin" -X POST -H 'Origin: https://elders.example' "$(url demo /api/demo/legen)"
   code demo 404 "aanmeld-webhook niet via de berichtenbox" -X POST "$(url demo /api/v1/aanmeldingen)"
+
+  # Met het wachtwoord uit het Secret, als header-bestand: een argument van curl is via ps zichtbaar.
+  local wachtwoord
+  wachtwoord=$(kc get secret fbs-demo-bediening -o jsonpath='{.data.wachtwoord}' | base64 -d) ||
+    fout "het wachtwoord van het paneel is niet te lezen"
+  code demo 200 "paneel met het wachtwoord" \
+    -H @<(printf 'Authorization: Basic %s\n' "$(printf 'demo:%s' "$wachtwoord" | base64 | tr -d '\n')") "$(url demo /bediening/)"
+
   code berichtenmagazijn-a 200 "magazijn A: OpenAPI-document" "$(url berichtenmagazijn-a /openapi.json)"
   code berichtenmagazijn-b 200 "magazijn B: OpenAPI-document" "$(url berichtenmagazijn-b /openapi.json)"
   code berichtenmagazijn-a 404 "magazijn A: aanleveren niet van buiten" -X POST "$(url berichtenmagazijn-a /api/v1/aanleveringen)"
   code berichtenmagazijn-a 404 "magazijn A: /q niet van buiten" "$(url berichtenmagazijn-a /q/health/ready)"
+  # Een 404 van Envoy zegt ook "geen route"; daarom eerst een verzoek dat de route moet doorlaten.
+  code simulator '!404' "simulator: berichten lezen bereikt de simulator" "$(url simulator "/magazijn/$MAGAZIJN_A_OIN/api/v1/berichten")"
   code simulator 404 "simulator: aanleveren niet van buiten" -X POST "$(url simulator /magazijn/00000009000000000001/api/v1/aanleveringen)"
   code simulator 404 "simulator: beheer niet van buiten" "$(url simulator /beheer/magazijnen)"
-  code stelselregister 200 "stelseldocument" "$(url stelselregister /openapi.json)"
+  code stelselregister 200 "stelselregister: het stelseldocument" "$(url stelselregister /api/v1/stelseldocument)"
 }
 
-# De keten zoals een bezoeker hem ziet: een sessie, een ophaalronde, en berichten uit meer dan één
-# magazijn. Het paneel vult de magazijnen kort na het starten, dus een paar pogingen.
+# De keten zoals een bezoeker hem ziet: een sessie, en ophaalrondes tot magazijn A en B berichten
+# leveren. Eén sessie voor alle pogingen, en die wordt beëindigd: de uitvraag staat maar vijf
+# sessies per ontvanger toe, en een achtergebleven sessie houdt een bezoeker met deze persona buiten.
 controleer_keten() {
-  stap "keten: berichten uit meer dan één magazijn voor $KETEN_ONTVANGER"
-  local antwoord sessie aantal=0
+  stap "keten: ophaalronde voor $KETEN_ONTVANGER"
+  local antwoord sessie code_sessie reden="" einde=$((SECONDS + KETEN_SECONDEN))
 
-  for _ in $(seq 1 20); do
-    antwoord=$(gw_curl demo -X POST -H "X-Ontvanger: $KETEN_ONTVANGER" "$(url demo /api/v1/sessies)" || true)
+  antwoord=$(gw_curl demo -X POST -w '\n%{http_code}' -H "X-Ontvanger: $KETEN_ONTVANGER" "$(url demo /api/v1/sessies)" 2>&1 || true)
+  code_sessie=${antwoord##*$'\n'}
 
-    if sessie=$(sessie_uit_antwoord "$antwoord"); then
-      # De ophaalronde is een stream die eindigt als elk magazijn geantwoord heeft.
-      # Het sessie-id via een header-bestand: een argument van curl is via ps zichtbaar.
-      gw_curl demo -o /dev/null --max-time 120 -H "X-Ontvanger: $KETEN_ONTVANGER" \
-        -H @<(printf 'X-Sessie: %s\n' "$sessie") -H 'Accept: text/event-stream' \
-        "$(url demo /api/v1/berichten/_ophalen)" || true
-      antwoord=$(gw_curl demo -H "X-Ontvanger: $KETEN_ONTVANGER" -H @<(printf 'X-Sessie: %s\n' "$sessie") \
-        "$(url demo /api/v1/berichten)" || true)
-      aantal=$(aantal_magazijnen "$antwoord" || echo 0)
-      [ "$aantal" -ge 2 ] && break
+  if ! sessie=$(sessie_uit_antwoord "${antwoord%$'\n'*}"); then
+    fout "geen sessie: POST /api/v1/sessies gaf $code_sessie"
+    return
+  fi
+
+  # Het sessie-id via een header-bestand: een argument van curl is via ps zichtbaar.
+  printf 'X-Sessie: %s\n' "$sessie" >"$WERK/sessie.hdr"
+
+  while :; do
+    gw_curl demo --max-time 120 -H "X-Ontvanger: $KETEN_ONTVANGER" -H @"$WERK/sessie.hdr" \
+      -H 'Accept: text/event-stream' "$(url demo /api/v1/berichten/_ophalen)" >"$WERK/ophalen.sse" 2>"$WERK/curl.err" || true
+
+    if reden=$(keten_oordeel "$(cat "$WERK/ophalen.sse")"); then
+      echo "OK: magazijn A en B leverden berichten"
+      break
     fi
 
+    [ -s "$WERK/ophalen.sse" ] || reden="geen antwoord op _ophalen: $(tail -1 "$WERK/curl.err")"
+    [ "$SECONDS" -lt "$einde" ] || { fout "keten na ${KETEN_SECONDEN}s: $reden"; break; }
     sleep 15
   done
 
-  if [ "$aantal" -ge 2 ]; then
-    echo "OK: berichten uit $aantal magazijnen"
-  else
-    fout "de berichtenlijst noemt $aantal magazijn(en), verwacht minstens 2; zie: kubectl -n $NS logs deploy/berichtenuitvraag"
-  fi
+  gw_curl demo -o /dev/null -X DELETE -H "X-Ontvanger: $KETEN_ONTVANGER" -H @"$WERK/sessie.hdr" \
+    "$(url demo /api/v1/sessies/huidige)" || echo "INFO: de sessie van de controle is niet beëindigd"
 }
 
 controleer() {
@@ -348,7 +435,7 @@ controleer() {
   if [ "$fouten" -eq 0 ]; then
     echo "OK: de demo draait op $(url demo /moza/berichtenbox/)"
     echo "    paneel: $(url demo /bediening/) (gebruiker demo; wachtwoord:"
-    echo "    kubectl ${KUBE_CONTEXT:+--context $KUBE_CONTEXT }-n $NS get secret fbs-demo-bediening -o jsonpath='{.data.wachtwoord}' | base64 -d)"
+    echo "    kubectl --context $KUBE_CONTEXT -n $NS get secret fbs-demo-bediening -o jsonpath='{.data.wachtwoord}' | base64 -d)"
     return 0
   fi
 
@@ -359,9 +446,12 @@ controleer() {
 main() {
   case "${1:-}" in
     op)
-      vereis_tools kubectl helm openssl python3 curl jq docker
+      # Vóór iets schrijft: zonder tag stopte het pas na de databases en de geheimen.
+      [ -n "${TAG:-}" ] || stop 2 "zet TAG op een main-<sha7> waarvoor alle acht images bestaan"
+      vereis_tools kubectl helm openssl python3 curl jq docker base64
       werkmap
       voorwaarden
+      images_op_tag
       certificaat
       databases
       geheimen
@@ -369,7 +459,8 @@ main() {
       controleer
       ;;
     controleer)
-      vereis_tools kubectl curl jq
+      vereis_tools kubectl curl jq base64
+      werkmap
       voorwaarden
       controleer
       ;;
@@ -380,7 +471,7 @@ main() {
   esac
 }
 
-# Gesourcet (door de tests) draait er niets.
+# Gesourcet (door test-script.sh) draait er niets.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   main "$@"
 fi
