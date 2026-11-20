@@ -220,16 +220,33 @@ console_antwoordt() {
   curl -sf -o /dev/null --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" https://console.fundament.localhost:8443/
 }
 
-# organization-api heeft een circuit breaker vóór de authenticatie, die opent zolang de authz-outbox
-# achterloopt. Na een hervatting is dat zo tot de authz-worker OpenFGA bereikt en de outbox wegwerkt;
-# tot dan weigert hij elk verzoek met unavailable, ook als de Deployment al gereed is. Een verzoek
-# zonder token krijgt pas unauthenticated als hij verzoeken echt afhandelt.
+# organization-api heeft een circuit breaker vóór de authenticatie: die peilt om de 2 s de oudste
+# open rij in de authz-outbox, en weigert elk verzoek met unavailable zolang die ouder is dan 5 s.
+# Een verzoek zonder token krijgt bij een dichte breaker unauthenticated.
+organisatie_api_antwoord() {
+  curl -s --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" -X POST \
+    https://organization.fundament.localhost:8443/organization.v1.OrganizationService/ListOrganizations \
+    -H 'Content-Type: application/json' -d '{}'
+}
+
 organisatie_api_open() {
   local antwoord
-  antwoord=$(curl -s --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" -X POST \
-    https://organization.fundament.localhost:8443/organization.v1.OrganizationService/ListOrganizations \
-    -H 'Content-Type: application/json' -d '{}') || return 1
+  antwoord=$(organisatie_api_antwoord) || return 1
   [ "$(connect_code "$antwoord")" = unauthenticated ]
+}
+
+# Een dichte breaker op één moment zegt na een hervatting niet genoeg: de Deployment is dan al
+# gereed, en zodra de authz-worker OpenFGA bereikt, zet hij mislukte rijen terug op pending met hun
+# oude tijd. Binnen een peiling gaat de breaker dan alsnog open (live gezien: twaalf seconden, en
+# functl org set faalde). Daarom moet hij 15 s dicht blijven, ruim langer dan worker en breaker samen
+# nodig hebben om te reageren.
+organisatie_api_stabiel() {
+  local poging
+
+  for poging in 1 2 3 4; do
+    [ "$poging" = 1 ] || sleep 5
+    organisatie_api_open || return 1
+  done
 }
 
 platform_maken() {
@@ -270,8 +287,10 @@ platform_op() {
 
   wacht_tot 900 "console bereikbaar op https://console.fundament.localhost:8443" console_antwoordt ||
     stop 1 "de console antwoordt niet; zie: $KC_PLATFORM -n fundament get pods"
-  wacht_tot 300 "organization-api handelt verzoeken af" organisatie_api_open ||
-    stop 1 "organization-api weigert nog verzoeken (circuit breaker van de authz-outbox?); zie: $KC_PLATFORM -n fundament logs deploy/organization-api en deploy/authz-worker"
+  wacht_tot 300 "organization-api handelt verzoeken af" organisatie_api_stabiel || {
+    echo "Laatste antwoord van organization-api op een verzoek zonder token: $(organisatie_api_antwoord 2>&1 | head -c 300)" >&2
+    stop 1 "organization-api handelt geen verzoeken af (een open circuit breaker geeft unavailable); zie: $KC_PLATFORM -n fundament logs deploy/organization-api, en $KC_PLATFORM -n fundament logs deploy/authz-worker"
+  }
 
   alleen_loopback ||
     stop 2 "het platform publiceert poorten op alle adressen (hierboven); ruim het op met: $0 af --met-platform"
@@ -296,7 +315,11 @@ api_key_maken() {
     https://authn.fundament.localhost:8443/login/password -H 'Content-Type: application/json' \
     -d '{"email":"platform-admin@fundament.io","password":"password"}') || {
     # curl kan ook na een geslaagd antwoord falen (timeout tijdens de body, verbinding weg).
-    jq -e 'has("access_token")' <<<"$antwoord" >/dev/null 2>&1 || printf '%s\n' "$antwoord" >&2
+    # Op tekst, niet als JSON: ook een afgekapt antwoord kan het token al bevatten.
+    case "$antwoord" in
+      *access_token*) echo "login/password: antwoord met token niet getoond" >&2 ;;
+      *) printf '%s\n' "$antwoord" >&2 ;;
+    esac
     return 1
   }
   # Een geslaagd antwoord niet tonen: daar staat een token in.

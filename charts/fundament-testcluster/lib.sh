@@ -60,8 +60,8 @@ functl_fout_soort() {
 
 # De sessie uit `functl auth status -o json` (stdout): ingelogd, of niet-ingelogd bij de redenen
 # not_logged_in (geen key opgeslagen, zoals na `af`) en rejected (key ongeldig of verlopen, ook na
-# een nieuwe uitrol van het platform). Faalt op al het andere, ook op een reden die functl er later bij krijgt: dan is
-# opnieuw inloggen geen gefundeerde keuze meer.
+# een nieuwe uitrol van het platform). Faalt op al het andere, ook op een reden die functl er later
+# bij krijgt: dan is opnieuw inloggen geen gefundeerde keuze meer.
 functl_sessie() {
   jq -er '
     if .authenticated == true then "ingelogd"

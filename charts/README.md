@@ -263,9 +263,10 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
   na een hervatting weigert zijn circuit breaker ze een poos, tot de authz-outbox is bijgewerkt;
 - **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite. Alleen als
   `functl auth status` geen geldige sessie meldt: geen key opgeslagen (zoals na `af`), of een
-  verlopen of geweigerde key. Met `FUNCTL_API_KEY` logt het script meteen daarmee in. Kan functl de sessie niet controleren, bijvoorbeeld omdat het platform niet antwoordt, dan
-  stopt het script. Zonder sessie vraagt functl het platform niets; antwoordt het dan niet, dan
-  meldt het maken van de key de fout;
+  verlopen of geweigerde key. Met `FUNCTL_API_KEY` logt het script meteen daarmee in. Kan functl de
+  sessie niet controleren, bijvoorbeeld omdat het platform niet antwoordt, dan stopt het script.
+  Zonder sessie vraagt functl het platform niets; antwoordt het dan niet, dan meldt het maken van de
+  key de fout;
 - **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
   de relays van de sandbox naar het platform (Fundaments `just plugins sandbox-catalog`);
 - **de plug-ins**: publiceren, goedkeuren en installeren;

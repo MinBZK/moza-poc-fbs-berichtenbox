@@ -383,15 +383,55 @@ Wat er in het script veranderde:
   zichtbaar: het controleert de key uit de omgeving.
 - **Na een herstart van de machine.** Op 20 november bleek dat de pods na een herstart 25 uur in
   ImagePullBackOff hadden gestaan (`lookup ghcr.io: Try again`), tot `k3d cluster stop`/`start` en
-  een nieuwe `op`. Docker start de containers dan zelf (restart-policy `unless-stopped`), en de sandbox-node
-  kon ghcr.io daarna niet opzoeken. Waarom precies, is niet vastgesteld; waarschijnlijk legde de
-  node bij het booten een DNS-server vast die nog niet werkte, zoals na een wissel van netwerk. De
-  herstart via k3d lost het op. Het slotbericht zei "na een herstart van de machine start hij
-  vanzelf weer"; nu zegt het dat je dan beide clusters via k3d herstart en `op` draait. De README
-  behandelt herstart en netwerkwissel nu in één alinea, met de map van de worktree in de blokken.
-  `controleer` toetst ook of de sandbox-node ghcr.io kan opzoeken, met dezelfde remedie. Anders
-  toont een kapotte DNS zich daar pas als een rollout die na vijf minuten niet klaar is, zonder
-  oorzaak; of, na een netwerkwissel zonder herstart, helemaal niet zolang de pods blijven draaien.
+  een nieuwe `op`. Docker start de containers dan zelf (restart-policy `unless-stopped`), en de
+  sandbox-node kon ghcr.io daarna niet opzoeken. Waarom precies, is niet vastgesteld; waarschijnlijk
+  legde de node bij het booten een DNS-server vast die nog niet werkte, zoals na een wissel van
+  netwerk. De herstart via k3d lost het op. Het slotbericht zei "na een herstart van de machine
+  start hij vanzelf weer"; nu zegt het dat je dan beide clusters via k3d herstart en `op` draait. De
+  README behandelt herstart en netwerkwissel nu in één alinea, met de map van de worktree in de
+  blokken. `controleer` toetst ook of de sandbox-node ghcr.io kan opzoeken, met dezelfde remedie.
+  Anders toont een kapotte DNS zich daar pas als een rollout die na vijf minuten niet klaar is,
+  zonder oorzaak; of, na een netwerkwissel zonder herstart, helemaal niet zolang de pods blijven
+  draaien.
 
 Wat bleef: het eigen aanmaken van de sandbox (hun recipe kent nog geen k3s-image of extra poort),
 en het pinnen op de hash van de definitie.
+
+Wat het live draaien opleverde:
+- **organization-api na een hervatting.** Na `k3d cluster stop`/`start` faalde `op` bij `functl org
+  set` met `unavailable: service temporarily unavailable`. De Deployment van organization-api was al
+  gereed en authn antwoordde, maar zijn circuit breaker stond twaalf seconden open (log: `circuit
+  breaker OPEN` en `CLOSED`). Die breaker zit vóór de authenticatie, peilt om de 2 s de oudste open
+  rij in de authz-outbox, en opent als die ouder is dan 5 s; de authz-worker wachtte nog op OpenFGA.
+  De breaker bestond al op `e18ad710`; dat deze stap toen groen was, was timing. `platform_op` wacht
+  nu tot een verzoek zonder token 15 s lang `unauthenticated` krijgt: één dichte peiling is niet
+  genoeg, want zodra de worker OpenFGA bereikt, zet hij mislukte rijen terug op pending met hun oude
+  tijd, en gaat de breaker alsnog open. Na een uitrol geldt dezelfde wachtstap, voor CreateAPIKey.
+- **`api_key_maken` meldt de oorzaak.** Zonder opgeslagen key vraagt `functl auth status` het
+  platform niets, dus `api_key_maken` is dan de eerste aanroep die merkt dat het niet antwoordt.
+  curl draait nu met `-sS` en tijdslimiet, en toont het foutantwoord van authn, maar nooit een
+  antwoord waarin `access_token` staat, ook niet als het is afgekapt.
+
+Review: drie rondes, met een codereview (samen met de foutafhandeling), een review van de tests en
+van het commentaar. Geen hoge bevindingen. Middelzwaar en opgelost: `api_key_maken` verzweeg waarom
+het platform niet antwoordde; `FUNDAMENT_ORGANIZATION_ID` stond in de `unset` maar wordt door functl
+niet gelezen; de reden voor de DNS-toets in `controleer` ging uit van pods die uit hun cache draaien,
+terwijl de chart `pullPolicy: Always` zet; en de eerste wachtstap op organization-api was een
+momentopname. Van de lage punten zijn de goedkope opgelost: de README noemt de map van de worktree
+in de blokken (getoetst tegen `FUNDAMENT_REF`), herstart en netwerkwissel staan in één alinea,
+meldingen bij een mislukte login of een onbekend antwoord noemen de echte oorzaak, en tests die ook
+met kapotte code slaagden zijn scherper. Bewust gelaten, omdat ze er al vóór deze ophoging waren:
+een sessie die halverwege `op` verloopt, de status van een niet-JSON-antwoord van CreateAPIKey, en
+de DNS-melding als `docker` een andere daemon ziet dan kubectl. Elke nieuwe test is met een mutatie
+van het script rood gezien.
+
+Live, met images `main-ae73d9d`:
+
+| Situatie | Uitkomst |
+|---|---|
+| `af --met-platform` met het nieuwe script op een opstelling van `e18ad710` | gelukt; daarna de oude worktree weg met het commando uit de README |
+| Vanaf nul, beide rollen | groen in 16 minuten; functl via `not_logged_in` en een nieuwe key |
+| Gepauzeerd met `k3d cluster stop`, dan `op --rol beheerder` | eerst rood (`org set`, breaker open); na de wachtstap groen in 3,5 minuten, via "al ingelogd" |
+| `af`, dan `op --rol beheerder` | groen in 5,5 minuten; nieuwe key, plug-ins uit de catalogus |
+| Poorten | alles op loopback; de relays zonder hostpoort |
+| `~/.kube/config` | sha256 voor en na gelijk |

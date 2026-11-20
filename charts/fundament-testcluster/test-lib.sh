@@ -959,7 +959,8 @@ bevat "api_key_maken: authn onbereikbaar: toont de melding van curl" "Failed to 
 # Zonder -S zwijgt curl over een geweigerde verbinding of TLS-fout; met alleen -f valt het antwoord
 # van een 4xx of 5xx weg.
 uitvoer=$(in_script "$KEY_STUBS curl() { echo \"CURL \$*\" >&2; return 7; }; api_key_maken") || true
-bevat "api_key_maken: curl met melding en foutantwoord" "CURL -sS --fail-with-body" "$uitvoer"
+bevat "api_key_maken: curl met melding (-sS)" "CURL -sS " "$uitvoer"
+bevat "api_key_maken: curl met het foutantwoord" " --fail-with-body " "$uitvoer"
 uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"error\":\"invalid credentials\"}'; return 22; }; api_key_maken") || true
 bevat "api_key_maken: login geweigerd: toont het foutantwoord" "invalid credentials" "$uitvoer"
 code=0
@@ -970,12 +971,14 @@ bevat_niet "api_key_maken: geen CA: geen curl" "CURL-AANGEROEPEN" "$uitvoer"
 # curl kan ook na een geslaagd antwoord falen; dan staat het token in wat curl gaf.
 uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"access_token\":\"geheim-token\"}'; return 28; }; api_key_maken") || true
 bevat_niet "api_key_maken: curl faalt na een geslaagd antwoord: toont het token niet" "geheim-token" "$uitvoer"
+uitvoer=$(in_script "$KEY_STUBS curl() { printf '%s' '{\"access_token\":\"geheim-token\",\"expi'; return 28; }; api_key_maken") || true
+bevat_niet "api_key_maken: afgekapt antwoord: toont het token niet" "geheim-token" "$uitvoer"
 # De key is wat op stdout komt; functl auth login leest alleen de eerste regel. Beide aanroepen met
 # de melding van curl en een tijdslimiet.
 uitvoer=$(in_script "$KEY_STUBS curl() { echo \"CURL \$*\" >>\"\$WERK/curl\"; case \"\$*\" in *login/password*) echo '{\"access_token\":\"t\"}' ;; *) echo '{\"token\":\"fun_k\"}' ;; esac; };
   key=\$(api_key_maken); echo \"KEY=[\$key]\"; cat \"\$WERK/curl\"")
 bevat "api_key_maken: alleen de key op stdout" "KEY=[fun_k]" "$uitvoer"
-gelijk "api_key_maken: beide aanroepen met -sS en --max-time" 2 "$(grep -c -- '^CURL -sS .*--max-time 30 ' <<<"$uitvoer")"
+gelijk "api_key_maken: beide aanroepen met -sS en een tijdslimiet" 2 "$(grep -E -- '^CURL ' <<<"$uitvoer" | grep -- ' -sS ' | grep -c -- ' --max-time [0-9]')"
 gelijk "api_key_maken: het toegangstoken niet op de commandoregel" 0 "$(grep -c -- 'Bearer' <<<"$uitvoer")"
 # Een geslaagd login-antwoord dat de parser niet herkent, kan toch een token bevatten.
 uitvoer=$(in_script "$KEY_STUBS curl() { echo '{\"accessToken\":\"geheim-token\"}'; }; api_key_maken") || true
@@ -985,7 +988,7 @@ bevat_niet "api_key_maken: onbekend login-antwoord: toont het niet" "geheim-toke
 # --- platform_op: alleen uitrollen als het platform er aantoonbaar niet is ---
 
 PLATFORM_STUBS='platform_bestaat() { true; }; fj() { case "$*" in deploy*) echo "UITROL $*" ;; esac; };
-wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; }; organisatie_api_open() { true; };
+wacht_tot() { shift 2; "$@"; }; console_antwoordt() { true; }; platform_gereed() { true; }; organisatie_api_stabiel() { true; }; organisatie_api_open() { false; };
 docker_poorten() { :; }; mkdir -p "$WORKTREE";'
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Unable to connect to the server: dial tcp 127.0.0.1:43917: connect: connection refused' >&2; return 1 ;; esac; }; platform_op") || code=$?
@@ -1003,9 +1006,31 @@ bevat "platform_op: starten faalt: noemt opnieuw opzetten" "af --met-platform" "
 # Na een hervatting is de Deployment van organization-api al gereed terwijl zijn circuit breaker nog
 # elk verzoek weigert; functl org set faalde dan met unavailable.
 code=0
-uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; organisatie_api_open() { false; }; platform_op") || code=$?
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; organisatie_api_stabiel() { false; };
+  organisatie_api_antwoord() { echo '{\"code\":\"unavailable\",\"message\":\"service temporarily unavailable\"}'; }; platform_op") || code=$?
 gelijk "platform_op: organization-api weigert nog: exit 1" 1 "$code"
 bevat "platform_op: organization-api weigert nog: noemt de breaker" "circuit breaker" "$uitvoer"
+bevat "platform_op: organization-api weigert nog: toont het laatste antwoord" "service temporarily unavailable" "$uitvoer"
+bevat "platform_op: organization-api weigert nog: logs per deployment" "logs deploy/organization-api, en " "$uitvoer"
+# Ook na een verse uitrol: CreateAPIKey is de eerstvolgende aanroep op organization-api.
+code=0
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Error from server (NotFound): deployments.apps \"organization-api\" not found' >&2; return 1 ;; esac; };
+  organisatie_api_stabiel() { false; }; organisatie_api_antwoord() { :; }; platform_op") || code=$?
+gelijk "platform_op: na een verse uitrol ook wachten op organization-api: exit 1" 1 "$code"
+# Dicht op één moment is niet genoeg: de breaker kan een peiling later alsnog opengaan.
+STABIEL_STUBS='sleep() { :; }; organisatie_api_open() { echo x >>"$XDG_CACHE_HOME/peilingen"; n=$(wc -l <"$XDG_CACHE_HOME/peilingen"); [ "$n" != "${FAALT_BIJ:-0}" ]; };'
+rm -f "$TESTCACHE/peilingen"
+code=0
+uitvoer=$(in_script "$STABIEL_STUBS organisatie_api_stabiel") || code=$?
+gelijk "organisatie_api_stabiel: steeds dicht: exit 0" 0 "$code"
+gelijk "organisatie_api_stabiel: vier peilingen" 4 "$(wc -l <"$TESTCACHE/peilingen")"
+rm -f "$TESTCACHE/peilingen"
+code=0
+uitvoer=$(FAALT_BIJ=3 in_script "$STABIEL_STUBS organisatie_api_stabiel") || code=$?
+gelijk "organisatie_api_stabiel: de derde peiling open: exit 1" 1 "$code"
+rm -f "$TESTCACHE/peilingen"
+uitvoer=$(in_script 'sleep() { echo "SLAAP $1"; }; organisatie_api_open() { true; }; organisatie_api_stabiel')
+gelijk "organisatie_api_stabiel: 15 s tussen eerste en laatste peiling" 3 "$(grep -c '^SLAAP 5$' <<<"$uitvoer")"
 OPEN_STUBS='mkcert_caroot() { echo /ca; };'
 for geval in 'unauthenticated|0' 'unavailable|1'; do
   code=0
@@ -1019,8 +1044,13 @@ code=0
 uitvoer=$(in_script "$OPEN_STUBS curl() { echo '{\"code\":\"unauthenticated\"}'; return 7; }; organisatie_api_open") || code=$?
 gelijk "organisatie_api_open: curl faalt: exit 1" 1 "$code"
 uitvoer=$(in_script "$OPEN_STUBS curl() { echo \"CURL \$*\" >&2; echo '{}'; }; organisatie_api_open") || true
-bevat "organisatie_api_open: vraagt organization-api zonder token" "organization.fundament.localhost:8443/organization.v1.OrganizationService/" "$uitvoer"
+bevat "organisatie_api_open: vraagt organization-api zonder token" "organization.fundament.localhost:8443/organization.v1.OrganizationService/ListOrganizations" "$uitvoer"
 bevat_niet "organisatie_api_open: zonder token" "Authorization" "$uitvoer"
+bevat_niet "organisatie_api_open: zonder token, ook niet uit een bestand" " -H @" "$uitvoer"
+# wacht_tot kijkt pas tussen twee pogingen naar de klok; een curl zonder limiet houdt op vast.
+bevat "organisatie_api_open: met een tijdslimiet" "--max-time " "$uitvoer"
+bevat "organisatie_api_open: als Connect-POST" "-X POST" "$uitvoer"
+bevat "organisatie_api_open: met de CA van mkcert" "--cacert /ca/rootCA.pem" "$uitvoer"
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; platform_op") || code=$?
 gelijk "platform_op: al uitgerold: exit 0" 0 "$code"
@@ -1099,6 +1129,10 @@ paden=$(grep -E '^[[:space:]]*\(?cd .*fbs-fundament-testcluster/fundament-' "$HI
 gelijk "de pin is te lezen uit het script" 8 "${#pin}"
 gelijk "de README heeft blokken met de worktree" 1 "$([ -n "$paden" ] && echo 1 || echo 0)"
 gelijk "elk blok noemt de worktree van de pin" "" "$(grep -v "/fundament-$pin\"" <<<"$paden" || true)"
+# Elk blok met k3d gaat eerst naar de worktree en daarna terug; buiten die map vindt mise geen k3d.
+k3d_blokken=$(grep -cE '^mise exec -- k3d cluster stop ' "$HIER/../README.md" || true)
+gelijk "elk k3d-blok gaat naar de worktree" "$k3d_blokken" "$(grep -c . <<<"$paden")"
+gelijk "elk k3d-blok gaat daarna terug" "$k3d_blokken" "$(grep -cxE 'cd -' "$HIER/../README.md" || true)"
 
 echo "== geen umask voor het hele proces =="
 
