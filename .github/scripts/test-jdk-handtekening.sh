@@ -98,6 +98,36 @@ map=$(nieuwe_map)
 printf 'jobs:\n  bouw:\n    steps:\n      - uses: actions/setup-java@abc123\n' > "$map/geen-with.yml"
 verwacht_fout "stap zonder with-blok is een bevinding" "$map" 'zonder `verify-signature: true`'
 
+# --- de Maven-cache van setup-java blijft uit --------------------------------------------------
+
+map=$(nieuwe_map)
+stap '          verify-signature: true
+          cache: maven' > "$map/cache.yml"
+verwacht_fout "cache: maven is een bevinding" "$map" 'zet `cache:` aan'
+
+# Een expressie kan naar "maven" evalueren; wat eruit komt is hier niet te zien.
+map=$(nieuwe_map)
+stap '          verify-signature: true
+          cache: ${{ inputs.cache }}' > "$map/cache-expressie.yml"
+verwacht_fout "een cache-expressie is een bevinding" "$map" 'zet `cache:` aan'
+
+map=$(nieuwe_map)
+stap "          verify-signature: true
+          cache: ''" > "$map/cache-leeg.yml"
+verwacht_ok "een lege cache-waarde zet de cache uit en is in orde" "$map" "alle 1 "
+
+# Beide eisen tegelijk geschonden: elk levert een eigen regel, zodat de fix van de ene de andere
+# niet pas in de volgende run aan het licht brengt.
+map=$(nieuwe_map)
+stap '          cache: gradle' > "$map/beide.yml"
+draai "$map"
+
+if [ "$STATUS" -ne 0 ] && grep -qF 'zonder `verify-signature: true`' <<<"$UITVOER" && grep -qF 'zet `cache:` aan' <<<"$UITVOER"; then
+  ok "een stap die beide eisen schendt levert beide bevindingen"
+else
+  fout "een stap die beide eisen schendt levert beide bevindingen: $STATUS — $UITVOER"
+fi
+
 # --- de melding wijst de stap aan --------------------------------------------------------------
 
 map=$(nieuwe_map)
@@ -184,7 +214,7 @@ verwacht_ok "niet-YAML-bestanden worden overgeslagen" "$map" "alle 1 "
 
 # Alles hierboven draait op fixtures; deze assertie is de enige die de guard tegen de werkelijke
 # workflows houdt. Zonder haar blijft de suite groen terwijl de repo zelf een stap zonder vlag heeft.
-verwacht_ok "de workflows van deze repo dragen de vlag allemaal" "$HERE/../workflows" "OK:"
+verwacht_ok "de workflows van deze repo dragen de vlag allemaal en geen setup-java-cache" "$HERE/../workflows" "OK:"
 
 if [ "$fails" -eq 0 ]; then
   echo "Alle tests geslaagd."

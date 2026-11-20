@@ -171,7 +171,9 @@ jobs:
           distribution: temurin
           verify-signature: true
           java-version: 21
-          cache: maven
+      - uses: ./.github/actions/maven-cache
+        with:
+          scope: test-${{ matrix.shard.id }}
       - name: Test
         env:
           MODULES: ${{ matrix.shard.modules }}

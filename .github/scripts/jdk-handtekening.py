@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Bewaakt dat elke `actions/setup-java`-stap de handtekening van de JDK laat verifiëren.
+"""Bewaakt twee eisen aan elke `actions/setup-java`-stap: de handtekening van de JDK wordt
+geverifieerd, en de stap zet zijn eigen Maven-cache niet aan.
 
 De vlag `verify-signature` staat in de action zelf niet vast aan: laat je hem weg bij een
 distributie zonder ondersteuning, dan verifieert de action niets en blijft de run groen. Afwezig
 is daarmee niet "standaard veilig" maar "stil onbeschermd", en dat is precies de vorm die in een
 review over het hoofd wordt gezien — een nieuwe workflow kopieert een bestaand blok zonder de
 regel, en niemand ziet er iets aan.
+
+De cache loopt via `.github/actions/maven-cache`. Eén `cache: maven` ernaast werkt gewoon en valt
+daardoor in geen run op, maar bewaart weer per PR een kopie onder één sleutel voor alle jobs —
+precies wat de 10 GB van de repository vulde en de caches liet verdringen.
 
 Een echte YAML-parser en geen regex. Dezelfde reden als bij `workflow-jobs.py` voor workflows en
 `pom-artifactids.py` voor pom's: GitHub sluit op YAML-vorm en een patroon op tekstvorm. Een
@@ -111,6 +116,14 @@ def controleer(map_pad: pathlib.Path) -> int:
                     "`verify-signature: true` — de JDK-download wordt dan niet op herkomst gecontroleerd."
                 )
 
+            # Een lege waarde zet de cache in setup-java uit; al het andere, ook een expressie,
+            # telt als aan.
+            if met.get("cache") not in (None, ""):
+                bevindingen.append(
+                    f"FOUT: {pad.name} job '{job_id}' stap {nummer} zet `cache:` aan op {ACTION} — "
+                    "gebruik `./.github/actions/maven-cache` voor de Maven-cache."
+                )
+
     if stappen_totaal == 0:
         # Geen enkele setup-java betekent dat de guard niets meer bewaakt: de stappen zijn
         # verplaatst, hernoemd of vervangen. Stil groen worden is hier de verkeerde uitkomst.
@@ -123,7 +136,10 @@ def controleer(map_pad: pathlib.Path) -> int:
 
         return 1
 
-    print(f"OK: alle {stappen_totaal} {ACTION}-stap(pen) verifiëren de handtekening van de JDK.")
+    print(
+        f"OK: alle {stappen_totaal} {ACTION}-stap(pen) verifiëren de handtekening van de JDK "
+        "en laten de Maven-cache aan .github/actions/maven-cache."
+    )
 
     return 0
 
