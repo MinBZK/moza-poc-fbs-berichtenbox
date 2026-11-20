@@ -6,7 +6,6 @@ import jakarta.ws.rs.container.ContainerRequestContext
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.core.UriBuilder
-import jakarta.ws.rs.core.UriInfo
 import nl.rijksoverheid.moz.fbs.kern.bijlage.BijlageMediaType
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.BerichtenApi
@@ -37,7 +36,6 @@ import java.util.UUID
 class SimulatorBerichtenResource(
     private val service: BerichtService,
     private val magazijnContext: MagazijnContext,
-    @param:Context private val uriInfo: UriInfo,
     @param:Context private val request: ContainerRequestContext,
 ) : BerichtenApi {
 
@@ -117,7 +115,7 @@ class SimulatorBerichtenResource(
         service.verwijder(berichtId, Identificatienummer.fromHeader(xOntvanger))
     }
 
-    private fun basis(): UriBuilder = MagazijnPad.basisUri(uriInfo, magazijnContext.magazijn.oin)
+    private fun basis(): UriBuilder = MagazijnPad.basisUri(magazijnContext.magazijn.oin)
 
     private companion object {
         private val log: Logger = Logger.getLogger(SimulatorBerichtenResource::class.java)

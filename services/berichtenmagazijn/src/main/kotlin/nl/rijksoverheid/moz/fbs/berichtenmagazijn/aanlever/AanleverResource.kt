@@ -8,12 +8,12 @@ import jakarta.transaction.HeuristicCommitException
 import jakarta.transaction.HeuristicMixedException
 import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.HttpHeaders
-import jakarta.ws.rs.core.UriInfo
 import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.Logregel
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.HalBasis
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.AanleverApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtAanleverenRequest
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.BerichtLinks
@@ -58,7 +58,7 @@ class AanleverResource(
     private val logboekContext: LogboekContext,
     private val processingHandler: ProcessingHandler,
     private val publicatieConfig: PublicatieConfig,
-    @param:Context private val uriInfo: UriInfo,
+    private val halBasis: HalBasis,
     @param:Context private val httpHeaders: HttpHeaders,
 ) : AanleverApi {
 
@@ -166,7 +166,7 @@ class AanleverResource(
     }
 
     private fun naarBerichtResponse(bericht: Bericht): BerichtResponse {
-        val selfHref = uriInfo.baseUriBuilder
+        val selfHref = halBasis.builder()
             .path("berichten")
             .path(bericht.berichtId.toString())
             .build().toString()

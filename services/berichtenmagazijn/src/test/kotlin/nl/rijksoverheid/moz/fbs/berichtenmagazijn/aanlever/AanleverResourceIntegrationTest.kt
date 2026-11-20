@@ -59,7 +59,7 @@ class AanleverResourceIntegrationTest {
             .`when`().post("/api/v1/aanleveringen")
             .then()
             .statusCode(201)
-            .header("API-Version", `is`("0.5.0"))
+            .header("API-Version", `is`("0.5.1"))
             .header("X-Frame-Options", `is`("DENY"))
             .header("X-Content-Type-Options", `is`("nosniff"))
             .header("Strict-Transport-Security", containsString("max-age=31536000"))
@@ -77,7 +77,33 @@ class AanleverResourceIntegrationTest {
             .body("ontvanger.waarde", `is`("999993653"))
             .body("onderwerp", `is`("Voorlopige aanslag 2026"))
             .body("tijdstipOntvangst", notNullValue())
-            .body("_links.self.href", containsString("/api/v1/berichten/"))
+            .body("_links.self.href", matchesRegex("^/api/v1/berichten/[0-9a-f-]{36}$"))
+    }
+
+    @Test
+    fun `aanleveren negeert een vervalste Host en X-Forwarded-Proto http in _links_self`() {
+        val antwoord = given()
+            .contentType(ContentType.JSON)
+            .header("Host", "evil.example")
+            .header("X-Forwarded-Proto", "http")
+            .header("X-Forwarded-Host", "evil.example")
+            .header("Forwarded", "proto=http;host=evil.example")
+            .body(
+                """
+                {
+                  "afzender": "00000001003214345000",
+                  "ontvanger": {"type": "BSN", "waarde": "999993653"},
+                  "onderwerp": "Voorlopige aanslag 2026",
+                  "inhoud": "Hierbij ontvangt u..."
+                }
+                """.trimIndent(),
+            )
+            .`when`().post("/api/v1/aanleveringen")
+            .then()
+            .statusCode(201)
+            .extract().jsonPath()
+
+        assertEquals("/api/v1/berichten/${antwoord.getString("berichtId")}", antwoord.getString("_links.self.href"))
     }
 
     @Test
@@ -99,7 +125,7 @@ class AanleverResourceIntegrationTest {
             .contentType("application/problem+json")
             // API-Version en security-headers horen óók op fout-responses te staan;
             // anders is het contract voor clients die op die headers steunen inconsistent.
-            .header("API-Version", `is`("0.5.0"))
+            .header("API-Version", `is`("0.5.1"))
             .header("X-Content-Type-Options", `is`("nosniff"))
             .body("status", `is`(400))
             .body("title", `is`("Bad Request"))

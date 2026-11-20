@@ -3,7 +3,6 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.Matchers.containsString
-import org.hamcrest.Matchers.endsWith
 import org.hamcrest.Matchers.emptyIterable
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.not
@@ -16,10 +15,9 @@ import org.junit.jupiter.params.provider.ValueSource
  * Pint het gedrag van de pad-routering vast: welk magazijn er wordt gekozen, wat er gebeurt als er
  * geen te kiezen valt, en — het scherpste punt — dat het magazijn-prefix in de HAL-links terugkomt.
  *
- * Die laatste assertie is de reden dat deze test bestaat. De resources bouwen hun links uit
- * `UriInfo.baseUriBuilder`, en of de herschreven `baseUri` daar doorkomt is een eigenschap van de
- * JAX-RS-implementatie, niet van onze code. Breekt dat bij een Quarkus-upgrade, dan wijzen de links
- * van honderd magazijnen stilzwijgend naar het verkeerde adres; hier valt het om.
+ * Die laatste assertie is de reden dat deze test bestaat. Het pad-filter haalt het prefix eraf en
+ * [nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad.basisUri] zet het terug; lopen die
+ * twee uiteen, dan wijzen de links van honderd magazijnen stilzwijgend naar het verkeerde adres.
  */
 @QuarkusTest
 class MagazijnPadFilterTest : MagazijnTestBasis() {
@@ -48,9 +46,9 @@ class MagazijnPadFilterTest : MagazijnTestBasis() {
             .statusCode(200)
             // Exact en niet "bevat": een link die het prefix draagt maar er iets achter plakt, is
             // net zo kapot als een link zonder prefix, en `containsString` ziet dat verschil niet.
-            .body("_links.self.href", endsWith("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
-            .body("_links.first.href", endsWith("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
-            .body("_links.last.href", endsWith("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
+            .body("_links.self.href", equalTo("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
+            .body("_links.first.href", equalTo("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
+            .body("_links.last.href", equalTo("/magazijn/$MAGAZIJN_EEN/api/v1/berichten?page=0&pageSize=20"))
     }
 
     /**

@@ -124,6 +124,15 @@ class MagazijnPadTest {
         assertEquals("/magazijn/<OIN>/api/v1/…", MagazijnPad.VORM)
     }
 
+    @Test
+    fun `de basis van de HAL-links is een pad zonder schema en host`() {
+        val basis = MagazijnPad.basisUri(OIN).path("berichten").build()
+
+        assertEquals("/magazijn/$OIN/api/v1/berichten", basis.toString())
+        assertNull(basis.scheme)
+        assertNull(basis.rawAuthority)
+    }
+
     private companion object {
         const val OIN = "00000009000000000001"
         const val UUID = "11111111-2222-3333-4444-555555555555"

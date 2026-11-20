@@ -51,7 +51,7 @@ class BerichtenKetenTest : MagazijnTestBasis() {
             // Zonder publicatietijdstip in de aanlevering valt het magazijn terug op het tijdstip
             // van ontvangst — niet op een tweede klokaflezing.
             .body("publicatietijdstip", equalTo(gelezenVeld(EEN, berichtId, "tijdstipOntvangst")))
-            .body("_links.self.href", org.hamcrest.Matchers.endsWith("${basis(EEN)}/berichten/$berichtId"))
+            .body("_links.self.href", equalTo("${basis(EEN)}/berichten/$berichtId"))
     }
 
     /**

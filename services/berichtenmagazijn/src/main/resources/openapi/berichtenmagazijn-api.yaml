@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FBS Berichtenmagazijn API
-  version: 0.5.0
+  version: 0.5.1
   description: |
     API van het decentrale berichtenmagazijn binnen het Federatief Berichtenstelsel (FBS).
 
@@ -370,7 +370,7 @@ components:
       description: Versie van de API
       schema:
         type: string
-        example: "0.3.0"
+        example: "0.5.1"
 
   parameters:
     OntvangerHeader:
@@ -767,6 +767,13 @@ components:
         href:
           type: string
           format: uri-reference
+          description: |
+            Een URI-reference. Los hem altijd op tegen het adres waarop je dit antwoord
+            opvroeg (RFC 3986 §5) en gebruik hem niet als volledige URL; zo volg je de link
+            met het schema en de host van je eigen aanroep, ook via je eigen outway of als
+            het magazijn achter een ingress staat die TLS beëindigt. Dit magazijn levert een
+            absolute-path reference, bijvoorbeeld `/api/v1/berichten?page=1&pageSize=20`;
+            het pad kan een prefix vóór `/api/v1` dragen.
 
     Problem:
       type: object

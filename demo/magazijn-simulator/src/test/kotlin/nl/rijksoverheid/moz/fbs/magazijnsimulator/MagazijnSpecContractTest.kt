@@ -1,8 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator
 
 import com.atlassian.oai.validator.OpenApiInteractionValidator
-import com.atlassian.oai.validator.report.LevelResolver
-import com.atlassian.oai.validator.report.ValidationReport
 import com.atlassian.oai.validator.restassured.OpenApiValidationFilter
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
@@ -31,20 +29,11 @@ class MagazijnSpecContractTest : MagazijnTestBasis() {
      * `withBasePathOverride` vertelt de validator dat de operaties van de spec hier achter het
      * magazijn-prefix zitten. Zonder die regel zou hij de paden niet herkennen en niets valideren —
      * en dan meldt hij groen zonder iets gemeten te hebben.
-     *
-     * De HAL-`_links.*.href` zijn URI-references; networknt dwingt `format: uri` strikt als
-     * absolute RFC 3986 URI af, dus die assertie op WARN — gelijk aan wat de contracttests van het
-     * magazijn zelf doen, zodat beide kanten dezelfde lat hanteren.
      */
     private val specValidatie = OpenApiValidationFilter(
         OpenApiInteractionValidator
             .createForSpecificationUrl("openapi/berichtenmagazijn-api.yaml")
             .withBasePathOverride(BASIS)
-            .withLevelResolver(
-                LevelResolver.create()
-                    .withLevel("validation.response.body.schema.format.uri", ValidationReport.Level.WARN)
-                    .build(),
-            )
             .build(),
     )
 
