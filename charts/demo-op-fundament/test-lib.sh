@@ -95,31 +95,33 @@ voltooid() { printf 'event: magazijn-bevraging-voltooid\ndata: {"event":"magazij
 gereed='event: ophalen-gereed
 data: {"event":"ophalen-gereed"}'
 
-stroom="$(voltooid "$A" OK 3; voltooid 00000009000000000001 OK 27; voltooid "$B" OK 2)
+stream="$(voltooid "$A" OK 3; voltooid 00000009000000000001 OK 27; voltooid "$B" OK 2)
 $gereed"
-keten_oordeel "$stroom" >/dev/null && ok "A en B leverden, met een gesimuleerd magazijn ertussen" || faal "A en B OK gaf geen oordeel in orde"
+keten_oordeel "$stream" >/dev/null && ok "A en B leverden, met een gesimuleerd magazijn ertussen" || faal "A en B OK gaf geen oordeel in orde"
 
 # Zonder spatie na data: mag volgens de SSE-spec ook.
-stroom=$(printf 'data:{"event":"magazijn-bevraging-voltooid","magazijnId":"%s","status":"OK","aantalBerichten":1}\ndata:{"event":"magazijn-bevraging-voltooid","magazijnId":"%s","status":"OK","aantalBerichten":1}\n' "$A" "$B")
-keten_oordeel "$stroom" >/dev/null && ok "data: zonder spatie" || faal "data: zonder spatie"
+stream=$(printf 'data:{"event":"magazijn-bevraging-voltooid","magazijnId":"%s","status":"OK","aantalBerichten":1}\ndata:{"event":"magazijn-bevraging-voltooid","magazijnId":"%s","status":"OK","aantalBerichten":1}\n' "$A" "$B")
+keten_oordeel "$stream" >/dev/null && ok "data: zonder spatie" || faal "data: zonder spatie"
 
 # Een regel die geen JSON is, mag de rest niet verbergen.
-stroom="data: geen json
+stream="data: geen json
 $(voltooid "$A" OK 1; voltooid "$B" OK 1)"
-keten_oordeel "$stroom" >/dev/null && ok "een regel zonder JSON ertussen" || faal "een regel zonder JSON verbergt de rest"
+keten_oordeel "$stream" >/dev/null && ok "een regel zonder JSON ertussen" || faal "een regel zonder JSON verbergt de rest"
 
 gelijk "B faalde" "magazijn $B: FOUT, 0 berichten" "$(keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" FOUT 0)" || true)"
 gelijk "B leverde niets" "magazijn $B: OK, 0 berichten" "$(keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" OK 0)" || true)"
 gelijk "A meldde niets" "magazijn $A meldde geen uitkomst" "$(keten_oordeel "$(voltooid "$B" OK 3)" || true)"
 gelijk "alleen gesimuleerde magazijnen" "magazijn $A meldde geen uitkomst" \
   "$(keten_oordeel "$(voltooid 00000009000000000001 OK 27; voltooid 00000009000000000002 OK 27)" || true)"
-gelijk "lege stroom" "magazijn $A meldde geen uitkomst" "$(keten_oordeel "" || true)"
+gelijk "lege stream" "magazijn $A meldde geen uitkomst" "$(keten_oordeel "" || true)"
 gelijk "ophalen-fout zonder magazijnen" "magazijn $A meldde geen uitkomst" \
   "$(keten_oordeel 'data: {"event":"ophalen-fout","detail":"x"}' || true)"
 # Alleen het voltooid-event telt: een ander event met dezelfde OIN na de fout maakt hem niet goed.
-stroom="$(voltooid "$A" OK 3; voltooid "$B" FOUT 0)
+stream="$(voltooid "$A" OK 3; voltooid "$B" FOUT 0)
 data: {\"event\":\"magazijn-bericht\",\"magazijnId\":\"$B\",\"status\":\"OK\",\"aantalBerichten\":5}"
-gelijk "een ander event na de fout telt niet" "magazijn $B: FOUT, 0 berichten" "$(keten_oordeel "$stroom" || true)"
+gelijk "een ander event na de fout telt niet" "magazijn $B: FOUT, 0 berichten" "$(keten_oordeel "$stream" || true)"
+# Twee uitkomsten voor B: de laatste telt.
+gelijk "de laatste uitkomst van B telt" "magazijn $B: FOUT, 0 berichten" "$(keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" OK 2; voltooid "$B" FOUT 0)" || true)"
 faalt "B faalde: geen oordeel in orde" keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" TIMEOUT 0)"
 
 # --- sessie_uit_antwoord ---

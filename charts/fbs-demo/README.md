@@ -74,7 +74,7 @@ voor dit cluster bestaan, en zet er alleen demo-gegevens achter.
    apiVersion: cert-manager.io/v1
    kind: Certificate
    metadata:
-     name: web
+     name: web-tls
    spec:
      secretName: web-tls
      issuerRef: {name: letsencrypt, kind: Issuer}   # een Issuer in de eigen namespace
@@ -148,8 +148,8 @@ voor dit cluster bestaan, en zet er alleen demo-gegevens achter.
 ## Installeren met het script
 
 `charts/demo-op-fundament.sh` doet stap 3 en 4 hierboven en de installatie hieronder in één keer, en
-controleert daarna de demo. Alleen de namespace en de Gateway met zijn https-listener maak je zelf
-(stap 1 en 2).
+controleert daarna de demo. Het certificaat uit stap 2 maakt het alleen als `ISSUER` gezet is. De
+namespace en de Gateway met zijn https-listener maak je altijd zelf (stap 1 en 2).
 
 ```bash
 KUBE_CONTEXT=<context van het fieldlab> NS=tnt-fbs--demo TAG=main-<sha7> charts/demo-op-fundament.sh op
@@ -167,8 +167,7 @@ halverwege stuurt niets naar een ander cluster.
   `BASISDOMEIN`;
 - **het certificaat** met de negen namen, als `ISSUER` gezet is;
 - **de databases** `db` en `ldv-uitvraag`. Een Cluster dat er al is, laat het staan. Van `db` zet
-  het alleen het aantal verbindingen op 200, en wacht dan tot CloudNativePG de database heeft
-  herstart;
+  het alleen het aantal verbindingen op 200, en wacht tot PostgreSQL die waarde gebruikt;
 - **de geheimen**, alleen als ze er nog niet zijn. Het wachtwoord van het paneel staat in het Secret
   `fbs-demo-bediening` (key `wachtwoord`);
 - **het register en de set van de simulator** in een tijdelijke map, zodat `demo/generated/` van een
@@ -186,10 +185,13 @@ halverwege stuurt niets naar een ander cluster.
   - aanleveren, de aanmeld-webhook, `/q` en het beheer van de simulator niet van buiten;
 - **de keten:**
   - een sessie voor Garage Van Dijk B.V. (`KETEN_ONTVANGER`);
-  - ophaalrondes tot magazijn A én B in de stroom "voltooid, OK" melden, met berichten;
+  - ophaalrondes tot magazijn A én B tijdens de ronde melden dat ze klaar zijn en berichten
+    leverden;
   - het paneel vult de magazijnen kort na het starten, dus de controle probeert het tot vijf
     minuten (`KETEN_SECONDEN`);
-  - daarna beëindigt hij de sessie: de uitvraag staat er vijf per persona toe.
+  - daarna beëindigt hij de sessie: de uitvraag staat er vijf per persona toe. Lukt dat niet, dan
+    is dat een fout;
+  - een ongeldige sessie (401) of een weigering (403) stopt meteen; een lopende ronde (409) wacht.
 
 ## Installeren
 

@@ -307,8 +307,10 @@ Wat de sandbox anders vraagt:
   (`coredns-custom` in `kube-system`) stuurt die namen naar de proxy's van de Gateway. Op het fieldlab
   doet sslip.io dat via het publieke adres.
 - **Het certificaat.** De lokale CA tekent het, en die vertrouwt de JVM niet.
-  - Uitvraag en magazijnen krijgen `cacerts` plus de lokale CA als `jssecacerts`. De JVM leest dat
-    bestand vóór `cacerts`, voor elke client. Het wordt gemaakt met de `keytool` van het image.
+  - Uitvraag en magazijnen krijgen `cacerts` plus de lokale CA als `jssecacerts`. Bestaat dat
+    bestand, dan gebruikt de JVM het in plaats van `cacerts`, voor elke client. Het wordt gemaakt
+    met de `keytool` van het image, zonder versleuteling: de JVM opent het zonder wachtwoord en
+    slaat versleutelde certificaten dan stil over. `demo` leest het daarom ook zonder wachtwoord na.
   - De trust-store van het TLS-register van Quarkus helpt hier niet: de REST-clients gebruiken
     alleen een benoemde configuratie, en anders die van de JVM.
 - **Aanmelding en notificatie.** Die stuurt het magazijn niet naar een privé-adres

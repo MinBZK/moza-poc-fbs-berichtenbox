@@ -914,5 +914,35 @@ bevat "CoreDNS: in coredns-custom, dat k3s inleest" 'name: coredns-custom' "$cor
 bevat "CoreDNS: in kube-system, waar k3s hem zoekt" 'namespace: kube-system' "$coredns"
 bevat "CoreDNS: als .override, binnen het standaardblok" 'fbs-demo.override: |' "$coredns"
 
+echo "== demo(): de flow =="
+
+# demo() met stubs voor hm, kc, docker en env: welke release verdwijnt, wat er naar
+# demo-op-fundament.sh gaat, en waar het stopt.
+DEMO_STUBS='WERK=$(mktemp -d); TAG=main-1234567;
+hm() { echo "HM $*" >&2; case "$*" in "list "*) [ "${HMLIST:-leeg}" = fout ] && return 1; [ "${HMLIST:-leeg}" = ja ] && echo berichtenmagazijn; return 0 ;; esac; };
+kc() { case "$*" in *"get service"*) echo "${SVC-envoy-x}" ;; *"get configmap coredns"*) echo "${COREFILE-import /etc/coredns/custom/*.override}" ;; *"get secret web-tls"*) printf CA | base64 ;; *"-f -"*) cat >/dev/null ;; esac; };
+docker() { case "$*" in *berichtenmagazijn*JAVA_HOME*) echo "${JH_MAGAZIJN-/usr/lib/jvm/jre}" ;; *JAVA_HOME*) echo "${JH-/usr/lib/jvm/jre}" ;; *) cat >/dev/null; echo KEYSTORE ;; esac; };
+env() { echo "ENV $*"; ls "$WERK/demo-values"; };'
+
+uitvoer=$(in_script "$DEMO_STUBS demo")
+bevat "demo: geeft de kubeconfig van de sandbox door" "KUBECONFIG=$TESTCACHE/fbs-fundament-testcluster/" "$(echo "$uitvoer" | grep "^ENV")"
+bevat "demo: met de context van de sandbox" "KUBE_CONTEXT=k3d-fundament-plugin" "$uitvoer"
+bevat "demo: met de lokale CA voor de controle" "CA_BESTAND=" "$uitvoer"
+gelijk "demo: extra values voor uitvraag en beide magazijnen, niet het stelselregister" \
+  "berichtenmagazijn-a.yaml berichtenmagazijn-b.yaml berichtenuitvraag.yaml" \
+  "$(echo "$uitvoer" | grep '\.yaml$' | sort | paste -sd' ' -)"
+bevat_niet "demo: geen uninstall zonder oude release" "HM uninstall" "$uitvoer"
+
+uitvoer=$(in_script "$DEMO_STUBS HMLIST=ja; demo")
+bevat "demo: de oude magazijn-release verdwijnt" "HM uninstall berichtenmagazijn" "$uitvoer"
+
+for geval in "HMLIST=fout|helm list in" "SVC=|geen Service voor de proxy's" "SVC='a b'|meer dan één Service" \
+    "COREFILE=|importeert coredns-custom niet" "JH=|JAVA_HOME van fbs-berichtenuitvraag" \
+    "JH_MAGAZIJN=/anders|JAVA_HOME verschilt"; do
+  uitvoer=$(in_script "$DEMO_STUBS ${geval%%|*}; demo" || true)
+  bevat "demo stopt bij ${geval%%|*}" "${geval#*|}" "$uitvoer"
+  bevat_niet "demo stopt bij ${geval%%|*}: niets geïnstalleerd" "ENV " "$uitvoer"
+done
+
 echo "ASSERTIES=$asserties"
 exit "$mislukt"

@@ -879,8 +879,12 @@ demo() {
   stap "demo: voorbereiden in $NS"
 
   # De ene magazijn-release van `op`. Alleen als hij er is: een "niet gevonden" is geen fout, een
-  # time-out of een weigering wel.
-  if hm list --namespace "$NS" -q --filter '^berichtenmagazijn$' | grep -q .; then
+  # time-out of een weigering wel. Met --all, zodat ook een release die halverwege bleef staan
+  # meetelt.
+  local releases
+  releases=$(hm list --namespace "$NS" -q --all) || stop 1 "helm list in $NS faalde"
+
+  if grep -qx berichtenmagazijn <<<"$releases"; then
     hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null
   fi
 
@@ -891,6 +895,9 @@ demo() {
   [ -n "$svc" ] || stop 1 "geen Service voor de proxy's van Gateway web; draai eerst: $0 op"
   [[ $svc != *" "* ]] || stop 1 "meer dan één Service voor de proxy's van Gateway web: $svc"
 
+  # Zonder deze import in de Corefile leest CoreDNS coredns-custom niet, en wijst de regel nergens heen.
+  kc -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}' | grep -qF 'import /etc/coredns/custom/*.override' ||
+    stop 1 "de Corefile van CoreDNS importeert coredns-custom niet; de regel voor *.fbs.localhost zou niets doen"
   manifest_coredns_demo "$svc.envoy-gateway-system.svc.cluster.local" | kc apply -f - >/dev/null
   kc -n kube-system rollout restart deployment/coredns >/dev/null
   kc -n kube-system rollout status deployment/coredns --timeout=2m >/dev/null
@@ -899,23 +906,33 @@ demo() {
   kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
   [ -s "$WERK/lokale-ca.crt" ] || stop 1 "Secret web-tls heeft geen ca.crt; draai eerst: $0 op"
 
-  # cacerts van het image plus de lokale CA, als jssecacerts: de JVM leest dat vóór cacerts, voor
-  # elke client. Gemaakt met de keytool van het image zelf, zodat de JVM het formaat leest. De CA gaat
-  # via stdin naar binnen en de keystore via stdout naar buiten: een gemounte map is onder rootless
-  # podman niet beschrijfbaar voor de gebruiker in de container.
-  local image=ghcr.io/minbzk/fbs-berichtenuitvraag:$TAG java_home
-  java_home=$(docker run --rm --entrypoint sh "$image" -c 'echo "$JAVA_HOME"')
-  [ -n "$java_home" ] || stop 1 "JAVA_HOME van $image niet te bepalen"
+  # cacerts van het image plus de lokale CA, als jssecacerts: bestaat dat bestand, dan gebruikt de
+  # JVM het in plaats van cacerts, voor elke client. Gemaakt met de keytool van het image zelf. De CA
+  # gaat via stdin naar binnen en de keystore via stdout naar buiten: een gemounte map is onder
+  # rootless podman niet beschrijfbaar voor de gebruiker in de container.
+  local java_home release jh
+  java_home=$(docker run --rm --entrypoint sh "ghcr.io/minbzk/fbs-berichtenuitvraag:$TAG" -c 'echo "$JAVA_HOME"') ||
+    stop 1 "docker run met fbs-berichtenuitvraag:$TAG faalde"
+  [ -n "$java_home" ] || stop 1 "JAVA_HOME van fbs-berichtenuitvraag:$TAG niet te bepalen"
+  jh=$(docker run --rm --entrypoint sh "ghcr.io/minbzk/fbs-berichtenmagazijn:$TAG" -c 'echo "$JAVA_HOME"') ||
+    stop 1 "docker run met fbs-berichtenmagazijn:$TAG faalde"
+  [ "$jh" = "$java_home" ] || stop 1 "JAVA_HOME verschilt: uitvraag $java_home, magazijn $jh; de mount past dan niet op beide"
+
+  # Zonder versleuteling en MAC, zoals de cacerts van de JDK: de JVM opent de standaard-truststore
+  # zonder wachtwoord en slaat versleutelde certificaten dan stil over. De controle aan het eind
+  # leest hem net zo, en faalt als de JVM er niets uit zou halen.
   # shellcheck disable=SC2016 # de variabelen zijn voor de shell in de container
-  docker run --rm -i --entrypoint sh "$image" -c '
+  docker run --rm -i --entrypoint sh "ghcr.io/minbzk/fbs-berichtenuitvraag:$TAG" -c '
     set -e
+    p="-J-Dkeystore.pkcs12.certProtectionAlgorithm=NONE -J-Dkeystore.pkcs12.macAlgorithm=NONE"
     cat >/tmp/lokale-ca.crt
-    keytool -importkeystore -noprompt -srckeystore "$JAVA_HOME/lib/security/cacerts" -srcstorepass changeit \
+    keytool $p -importkeystore -noprompt -srckeystore "$JAVA_HOME/lib/security/cacerts" -srcstorepass changeit \
       -destkeystore /tmp/jssecacerts -deststoretype PKCS12 -deststorepass changeit >/dev/null 2>&1
-    keytool -importcert -noprompt -alias fbs-lokale-ca -file /tmp/lokale-ca.crt \
+    keytool $p -importcert -noprompt -alias fbs-lokale-ca -file /tmp/lokale-ca.crt \
       -keystore /tmp/jssecacerts -storepass changeit >/dev/null 2>&1
+    keytool -list -keystore /tmp/jssecacerts -alias fbs-lokale-ca </dev/null >/dev/null 2>&1
     cat /tmp/jssecacerts' <"$WERK/lokale-ca.crt" >"$WERK/jssecacerts" ||
-    stop 1 "keytool in $image maakte geen jssecacerts"
+    stop 1 "keytool maakte geen jssecacerts die de JVM zonder wachtwoord leest"
   [ -s "$WERK/jssecacerts" ] || stop 1 "jssecacerts is leeg"
   kc -n "$NS" delete secret gateway-ca --ignore-not-found >/dev/null
   kc -n "$NS" create secret generic gateway-ca --from-file=jssecacerts="$WERK/jssecacerts" >/dev/null
@@ -923,7 +940,6 @@ demo() {
 
   # shellcheck source=charts/demo-op-fundament/lib.sh
   source "$CHARTS/demo-op-fundament/lib.sh"
-  local release
   mkdir -p "$WERK/demo-values"
 
   for release in "${STELSEL_RELEASES[@]}"; do

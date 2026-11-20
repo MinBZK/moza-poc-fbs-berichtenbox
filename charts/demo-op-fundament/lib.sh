@@ -27,9 +27,12 @@ DEMO_IMAGES=(fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-stelselregister fbs
 DEMO_HOSTS=(demo simulator profiel toxiproxy-profiel notificatie aanmelding berichtenmagazijn-a berichtenmagazijn-b
   stelselregister)
 
-# Magazijn A (RVO) en B (Belastingdienst), zoals in charts/fbs-demo/stelsel/.
+# Magazijn A (RVO) en B (Belastingdienst), zoals in charts/fbs-demo/stelsel/, en het eerste
+# gesimuleerde magazijn uit demo/genereer-magazijnen.py. De simulator kent alleen de gesimuleerde.
 MAGAZIJN_A_OIN=00000000000000100000
 MAGAZIJN_B_OIN=00000001823288444000
+# shellcheck disable=SC2034 # gelezen door demo-op-fundament.sh
+SIMULATOR_OIN=00000009000000000001
 
 # Het basisdomein bij een IPv4-adres van de Gateway: sslip.io wijst <iets>.<a-b-c-d>.sslip.io naar
 # dat adres. Een hostnaam of IPv6 geeft niets: dan is een eigen basisdomein nodig.
@@ -104,7 +107,7 @@ sessie_uit_antwoord() {
   jq -er '.sessieId | select(type == "string" and length > 0)' <<<"$1" 2>/dev/null || return 1
 }
 
-# Het oordeel over een ophaalronde, uit de SSE-stroom van GET /api/v1/berichten/_ophalen: magazijn
+# Het oordeel over een ophaalronde, uit de SSE-stream van GET /api/v1/berichten/_ophalen: magazijn
 # A én B melden `magazijn-bevraging-voltooid` met status OK en berichten. Een lijst van berichten
 # zegt dat niet: daarin staan ook de gesimuleerde magazijnen, en een organisatie die niet leverde
 # staat er ook in (nietGeleverd). Zonder oordeel "in orde" print het de reden.
@@ -133,7 +136,9 @@ keten_oordeel() {
 # Values die uitvraag en magazijnen in de sandbox de lokale CA laten vertrouwen. Op het fieldlab
 # tekent Let's Encrypt, en dat vertrouwt de JVM al.
 #
-# Via jssecacerts: de JVM leest dat bestand vóór cacerts, voor elke client. De trust-store van het
+# Via jssecacerts: bestaat dat bestand, dan gebruikt de JVM het in plaats van cacerts, voor elke
+# client. Het bevat daarom cacerts plus de lokale CA, zonder versleuteling: de JVM opent het zonder
+# wachtwoord, en slaat versleutelde certificaten dan over. De trust-store van het
 # TLS-register van Quarkus helpt niet: de REST-clients gebruiken alleen een benoemde configuratie,
 # en zonder naam de JVM. De lijsten herhalen die uit charts/fbs-demo/stelsel/ en
 # charts/voorbeelden/berichtenmagazijn-cnpg.yaml, want Helm vervangt een lijst; charts/controleer.sh
