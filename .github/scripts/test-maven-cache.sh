@@ -192,10 +192,13 @@ fi
 # vóór deze action. Elke restore-key moet een prefix van de sleutel zijn, anders vindt hij niets.
 restore_keys=$(cut -f5 <<<"$repo_herstel" | tr '|' '\n')
 
-if [ -n "$restore_keys" ]; then
-  ok "het herstellen van de repository heeft restore-keys"
+# Exact, in deze volgorde: eerst de eigen scope. Staat de generieke key voorop of alleen, dan krijgt
+# een job na elke pom-wijziging de nieuwste cache van welke scope dan ook, vaak de halve van detekt.
+# shellcheck disable=SC2016 # ${{ }} is letterlijke tekst uit de action
+if [ "$restore_keys" = $'maven-repo-${{ runner.os }}-${{ inputs.scope }}-\nmaven-repo-${{ runner.os }}-' ]; then
+  ok "het herstellen van de repository valt eerst terug op de eigen scope, dan op elke scope"
 else
-  fout "het herstellen van de repository heeft geen restore-keys"
+  fout "de restore-keys van de repository zijn niet [eigen scope, elke scope] — $(tr '\n' ' ' <<<"$restore_keys")"
 fi
 
 while IFS= read -r rk; do
@@ -232,6 +235,8 @@ for soort, element in (("repositories", "repository"), ("pluginRepositories", "p
     repos = profiel.findall(f"s:{soort}/s:{element}", ns) if profiel is not None else []
     print(f"{soort}-volgorde=" + ",".join(r.findtext("s:id", namespaces=ns) for r in repos))
     print(f"{soort}-central=" + "".join(r.findtext("s:url", namespaces=ns) for r in repos if r.findtext("s:id", namespaces=ns) == "central"))
+    print(f"{soort}-mirror=" + "".join(r.findtext("s:url", namespaces=ns) for r in repos if r.findtext("s:id", namespaces=ns) == "google-maven-central"))
+    print(f"{soort}-releases=" + ",".join(r.findtext("s:releases/s:enabled", default="", namespaces=ns) for r in repos))
     print(f"{soort}-policies=" + ",".join(r.findtext("s:releases/s:checksumPolicy", default="", namespaces=ns) for r in repos))
 PY
 )
@@ -252,6 +257,10 @@ verwacht_feit "het actieve profiel bestaat" actief-bestaat True
 for soort in repositories pluginRepositories; do
   verwacht_feit "$soort: mirror vóór Central" "$soort-volgorde" "google-maven-central,central"
   verwacht_feit "$soort: Central wijst naar repo.maven.apache.org" "$soort-central" "https://repo.maven.apache.org/maven2"
+  # Een typo of `enabled false` zet de mirror stil uit: Maven valt terug op Central, de build blijft
+  # groen en de 429's komen terug.
+  verwacht_feit "$soort: de mirror wijst naar Google's Central-mirror" "$soort-mirror" "https://maven-central-eu.storage-download.googleapis.com/maven2"
+  verwacht_feit "$soort: releases aan op beide" "$soort-releases" "true,true"
   verwacht_feit "$soort: checksumPolicy fail op beide" "$soort-policies" "fail,fail"
 done
 

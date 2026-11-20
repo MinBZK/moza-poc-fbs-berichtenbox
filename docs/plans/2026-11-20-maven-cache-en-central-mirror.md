@@ -67,12 +67,16 @@ sinds 2026-11-06:
   zolang die job rood is. Hetzelfde geldt voor de wrapper-distributie: mvnw toetst
   `distributionSha256Sum` alleen bij de download, en die cache leeft tot de volgende wrapper-bump.
   Incidentstappen, in deze volgorde:
-  1. Haal de bron uit `.github/actions/maven-cache/settings.xml` en merge dat. Anders haalt main
-     het vervalste artefact bij het opnieuw opbouwen weer bij dezelfde bron.
-  2. Verwijder de caches; `gh cache delete` kent geen prefix:
-     `gh cache list --key maven-repo- --limit 1000 --json id -q '.[].id' | xargs -n1 gh cache delete`,
+  1. Verwijder de caches. Anders herstelt de fix-PR in stap 2 via `restore-keys` juist de
+     vervalste cache, in de merge queue ook in de jib-builds met `packages: write`.
+     `gh cache delete` kent geen prefix:
+     `gh cache list --key maven-repo- --limit 1000 --json id -q '.[].id' | xargs -r -n1 gh cache delete`,
      en hetzelfde voor `maven-wrapper-`.
-  3. Draai main opnieuw, zodat elke scope een schone cache bewaart.
+  2. Haal de bron uit `.github/actions/maven-cache/settings.xml` en merge dat; merge in dit venster
+     niets anders naar main. Andere PR-branches halen tot de merge nog bij de oude bron.
+  3. Verwijder de caches opnieuw: een push naar main tussen stap 1 en 2 kan vanuit de oude bron
+     opnieuw bewaard hebben.
+  4. Draai main opnieuw, zodat elke scope een schone cache bewaart.
 - **Een rode job op main bewaart niets** (`actions/cache` bewaart alleen bij succes), en main heeft
   geen terugval. Zolang een scope op main rood is, haalt elke main-run die boom opnieuw op en lezen
   PR's een oudere pom-stand. Bewaren bij falen zou een halve repository onder de exacte sleutel
@@ -91,12 +95,12 @@ sinds 2026-11-06:
 - Mirror onbereikbaar (connection refused): idem, build slaagt.
 - Met `checksumPolicy` `fail` op beide repositories: nog steeds 628 van de mirror, en bij een
   404-mirror 628 van Central.
-- `test-jdk-handtekening.sh` (53 asserties) en `test-maven-cache.sh` (36) groen. Over drie rondes
+- `test-jdk-handtekening.sh` (53 asserties) en `test-maven-cache.sh` (40) groen. Over drie rondes
   zijn 43 mutaties van guard, action en settings geprobeerd; alle worden gevangen.
 - Na de merge op main: de eerste push bewaart per scope `maven-repo-Linux-<scope>-<hash>` en één
   `maven-wrapper-Linux-<hash>`; PR's tonen daarna `Cache restored from key: maven-…` en geen 429
   meer.
 - Na de merge: de oude `setup-java-Linux-x64-maven-*`-caches verdwijnen na 7 dagen zonder gebruik,
   of direct met
-  `gh cache list --key setup-java-Linux-x64-maven- --limit 1000 --json id -q '.[].id' | xargs -n1 gh cache delete`. Open PR's die niet op main zijn bijgewerkt, blijven
+  `gh cache list --key setup-java-Linux-x64-maven- --limit 1000 --json id -q '.[].id' | xargs -r -n1 gh cache delete`. Open PR's die niet op main zijn bijgewerkt, blijven
   ze tot dan aanmaken.

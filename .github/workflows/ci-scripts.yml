@@ -178,7 +178,7 @@ jobs:
             [.github/scripts/test-images-gepubliceerd.sh]=35
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=53
-            [.github/scripts/test-maven-cache.sh]=36
+            [.github/scripts/test-maven-cache.sh]=40
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=74
             [.github/scripts/test-proeftuin-image.sh]=20
