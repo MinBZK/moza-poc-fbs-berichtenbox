@@ -2,13 +2,13 @@
 # bepaalt welke jobs draaien, uitrol-poort.sh bepaalt of een run een merge mag dragen,
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
 # demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
-# handtekening controleert. De suites onder demo/lib/ toetsen de modus-keuze waarmee elke lokale
-# opstelling start, demo/test-meet-fanout.sh toetst dat de fan-out-meting een niet-geleegde
-# cache weigert, en charts/controleer.sh toetst de Helm-chart, die geen andere check in de keten
-# raakt; die horen bij een required check, en draaien daarom hier. Een fout daarin is
-# stil — een overgeslagen job rapporteert 'skipped' en dat telt als succes voor branch protection.
-# Vandaar een eigen, lichte workflow: shellcheck, actionlint en de bash-unittests, zonder de docker
-# build van de FSC-harness.
+# handtekening controleert en door .github/actions/maven-cache gevolgd wordt. De suites onder
+# demo/lib/ toetsen de modus-keuze waarmee elke lokale opstelling start, demo/test-meet-fanout.sh
+# toetst dat de fan-out-meting een niet-geleegde cache weigert, en charts/controleer.sh toetst de
+# Helm-chart, die geen andere check in de keten raakt; die horen bij een required check, en
+# draaien daarom hier. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped' en
+# dat telt als succes voor branch protection. Vandaar een eigen, lichte workflow: shellcheck,
+# actionlint en de bash-unittests, zonder de docker build van de FSC-harness.
 name: CI-scripts
 
 # Op een PR bewust ZONDER pad-filter. Twee redenen. Ten eerste kruiscontroleren de unittests de
@@ -31,7 +31,7 @@ on:
     types: [checks_requested]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**', 'demo/lib/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-*.yaml', 'charts/**']
+    paths: ['.github/scripts/**', '.github/actions/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**', 'demo/lib/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-*.yaml', 'charts/**']
 
 permissions:
   contents: read
@@ -75,7 +75,7 @@ jobs:
           # Vangt onder meer een `needs.<job>.result` die verwijst naar een job die niet in
           # `needs:` staat, en een `cancelled()` op een plek waar die niet mag staan.
           /tmp/actionlint
-      - name: Elke setup-java verifieert de handtekening van de JDK
+      - name: Elke setup-java verifieert de JDK en wordt gevolgd door de maven-cache-action
         # De suite hierboven toetst de guard tegen fixtures; deze stap laat hem los op de
         # werkelijke workflows. Los, zodat een falende guard als eigen regel in de log staat en
         # niet als één van de twintig meldingen van de unittest-stap.
@@ -177,7 +177,8 @@ jobs:
             [.github/scripts/test-ghcr-package-bestaat.sh]=29
             [.github/scripts/test-images-gepubliceerd.sh]=35
             [.github/scripts/test-preview-comment.sh]=130
-            [.github/scripts/test-jdk-handtekening.sh]=22
+            [.github/scripts/test-jdk-handtekening.sh]=53
+            [.github/scripts/test-maven-cache.sh]=45
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=74
             [.github/scripts/test-proeftuin-image.sh]=20
@@ -261,12 +262,14 @@ jobs:
           # kan dan nog bestaan, dus ook hier: draaide hij. Een vervangende stub die één `OK:`
           # print haalt elke telling. Deze dragen elk een controle die nergens anders in de keten
           # wordt aangeroepen — demo-grens.sh is de architectuurgrens zelf, de twee onder demo/lib/
-          # zijn de enige toets van de modus-keuze, en test-meet-fanout.sh de enige bewaking dat de
-          # fan-out-meting een niet-geleegde cache weigert.
+          # zijn de enige toets van de modus-keuze, test-meet-fanout.sh de enige bewaking dat de
+          # fan-out-meting een niet-geleegde cache weigert, en test-maven-cache.sh de enige toets
+          # dat PR-code de Maven-cache van main niet kan vullen.
           for verplicht in .github/scripts/test-wijzigingsfilter.sh \
                            .github/scripts/test-uitrol-poort.sh \
                            .github/scripts/test-demo-grens.sh \
                            .github/scripts/test-jdk-handtekening.sh \
+                           .github/scripts/test-maven-cache.sh \
                            demo/lib/test-podman-modus.sh \
                            demo/lib/test-opstellingen.sh \
                            demo/test-meet-fanout.sh; do
