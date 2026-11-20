@@ -115,14 +115,29 @@ echo "== functl_fout_soort =="
 
 gelijk "geen listing" geen-listing \
   "$(functl_fout_soort 'Error: no listing named "cloudnativepg" in this organization — pass --create to reserve it')"
-gelijk "unauthenticated" niet-ingelogd "$(functl_fout_soort 'unauthenticated: invalid api key')"
-gelijk "http 401" niet-ingelogd "$(functl_fout_soort 'request failed: 401 Unauthorized')"
-gelijk "nog nooit ingelogd" niet-ingelogd \
-  "$(functl_fout_soort "Error: not authenticated: run 'functl auth login' to authenticate")"
 gelijk "versie bestaat al" bestaat-al \
   "$(functl_fout_soort 'Error: already_exists: version "1.21.3" already exists for this plugin')"
 gelijk "iets anders" onbekend "$(functl_fout_soort 'connection refused')"
-gelijk "401 in een poortnummer is geen 401" onbekend "$(functl_fout_soort 'dial tcp 127.0.0.1:34012: connection refused')"
+
+echo "== functl_sessie =="
+
+# De vorm uit functl/pkg/cli/auth.go van Fundament (sinds fundament-oss/fundament#661).
+gelijk "ingelogd" ingelogd \
+  "$(functl_sessie '{"authenticated":true,"organization_ids":["019b4000-0000-7000-8000-000000000000"],"user_id":"01","user_name":"platform-admin"}')"
+gelijk "nooit ingelogd" niet-ingelogd \
+  "$(functl_sessie '{"authenticated":false,"hint":"Run '"'"'functl auth login'"'"' to authenticate.","message":"not logged in","reason":"not_logged_in"}')"
+gelijk "key geweigerd" niet-ingelogd \
+  "$(functl_sessie '{"authenticated":false,"hint":"...","message":"credentials rejected, they may be invalid or expired","reason":"rejected"}')"
+# Een reden die functl er later bij krijgt, zegt niet dat een nieuwe key helpt.
+gelijk "onbekende reden: exit 1" 1 "$(code_van functl_sessie '{"authenticated":false,"reason":"suspended"}')"
+gelijk "niet ingelogd zonder reden: exit 1" 1 "$(code_van functl_sessie '{"authenticated":false}')"
+gelijk "authenticated als tekst: exit 1" 1 "$(code_van functl_sessie '{"authenticated":"true"}')"
+gelijk "zonder authenticated: exit 1" 1 "$(code_van functl_sessie '{"reason":"not_logged_in"}')"
+# Zo antwoordde functl vóór #661, met exit 0.
+gelijk "de tekst van een oude functl: exit 1" 1 \
+  "$(code_van functl_sessie 'Not authenticated
+Run '"'"'functl auth login'"'"' to authenticate')"
+gelijk "lege uitvoer: exit 1" 1 "$(code_van functl_sessie '')"
 
 echo "== api_key_uit_antwoord =="
 
@@ -810,6 +825,93 @@ code=0
 uitvoer=$(in_script 'docker() { echo "docker $*"; }; wacht_tot() { shift 2; "$@"; }; sandbox_dns_werkt') || code=$?
 gelijk "sandbox_dns_werkt: DNS werkt: exit 0" 0 "$code"
 bevat "sandbox_dns_werkt: zoekt de registry van de images op" "nslookup ghcr.io" "$uitvoer"
+
+# Na een herstart van de machine draaien de pods soms nog uit hun cache, en faalt pas de volgende
+# start. controleer moet dat dan al zien, met dezelfde remedie.
+CONTROLEER_STUBS='WERK=$(mktemp -d); echo ca >"$WERK/lokale-ca.crt"; controleer_dienst() { :; }; na_afloop() { echo NA_AFLOOP; };'
+code=0
+uitvoer=$(in_script "$CONTROLEER_STUBS sandbox_dns_ok() { return 1; }; controleer") || code=$?
+gelijk "controleer: geen DNS in de sandbox-node: exit 1" 1 "$code"
+bevat "controleer: geen DNS: noemt de herstart via k3d" "k3d cluster stop fundament-plugin fundament" "$uitvoer"
+bevat "controleer: geen DNS: noemt de herstart van de machine" "herstart van de machine" "$uitvoer"
+code=0
+uitvoer=$(in_script "$CONTROLEER_STUBS sandbox_dns_ok() { return 0; }; controleer") || code=$?
+gelijk "controleer: DNS werkt: exit 0" 0 "$code"
+uitvoer=$(in_script 'vereis_tools() { echo "TOOLS $*"; exit 9; }; main controleer') || true
+bevat "controleer: vraagt docker voor de DNS-controle" "TOOLS curl docker" "$uitvoer"
+
+# --- het slotbericht ---
+
+# Na een herstart van de machine start Docker de containers, niet k3d; zonder herstart via k3d bleven
+# de pods een dag in ImagePullBackOff hangen.
+uitvoer=$(in_script 'na_afloop')
+bevat "na_afloop: na een herstart van de machine via k3d herstarten" \
+  "k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin" "$uitvoer"
+bevat "na_afloop: en daarna op" "TAG=<tag> " "$uitvoer"
+bevat_niet "na_afloop: belooft niet dat hij vanzelf weer start" "vanzelf" "$uitvoer"
+bevat_niet "na_afloop: geen docker restart" "docker restart" "$uitvoer"
+
+# --- functl ---
+
+# De sessie volgt uit `functl auth status -o json`. Debuglog op stderr (mise zet FUNCTL_DEBUG aan)
+# hoort niet bij de JSON. De stubs loggen naar een bestand: het script slikt de uitvoer van een
+# geslaagde recipe in.
+FUNCTL_STUBS='WERK=$(mktemp -d); LOG=$WERK/aanroepen; : >"$LOG"; trap "cat \"$LOG\"" EXIT;
+api_key_maken() { echo "KEY GEMAAKT" >>"$LOG"; echo fun_nieuw; };
+fj() { case "$*" in
+  "functl auth status -o json") echo "STATUS GEVRAAGD" >>"$LOG"; echo "time=... level=DEBUG msg=GetUserInfo" >&2
+    [ -z "${STATUS_FAALT:-}" ] || { echo "Error: could not reach https://authn.fundament.localhost:8443: unavailable" >&2; return 1; }
+    echo "$STATUS" ;;
+  "functl auth login") echo "LOGIN met $(cat)" >>"$LOG" ;;
+  "functl org set 019b4000-0000-7000-8000-000000000000") echo "ORG SET" >>"$LOG"; [ -z "${ORG_FAALT:-}" ] || return 1 ;;
+  *) echo "ONVERWACHT fj $*" >>"$LOG"; return 1 ;;
+esac; };'
+INGELOGD='{"authenticated":true,"organization_ids":[],"user_id":"01","user_name":"platform-admin"}'
+code=0
+uitvoer=$(STATUS=$INGELOGD in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: ingelogd: exit 0" 0 "$code"
+bevat "functl_inloggen: ingelogd: debuglog op stderr stoort niet" "OK: functl was al ingelogd" "$uitvoer"
+bevat "functl_inloggen: ingelogd: kiest de organisatie" "ORG SET" "$uitvoer"
+bevat_niet "functl_inloggen: ingelogd: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+bevat_niet "functl_inloggen: ingelogd: niet opnieuw inloggen" "LOGIN" "$uitvoer"
+bevat_niet "functl_inloggen: ingelogd: alleen de verwachte recipes" "ONVERWACHT" "$uitvoer"
+for reden in not_logged_in rejected; do
+  code=0
+  uitvoer=$(STATUS="{\"authenticated\":false,\"reason\":\"$reden\"}" in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+  gelijk "functl_inloggen: $reden: exit 0" 0 "$code"
+  bevat "functl_inloggen: $reden: logt in met een nieuwe key" "LOGIN met fun_nieuw" "$uitvoer"
+  bevat "functl_inloggen: $reden: kiest daarna de organisatie" "ORG SET" "$uitvoer"
+done
+# Niet te controleren: een nieuwe key lost een onbereikbaar platform niet op, en verbergt de oorzaak.
+code=0
+uitvoer=$(STATUS_FAALT=1 in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: status niet te controleren: exit 1" 1 "$code"
+bevat "functl_inloggen: status niet te controleren: zegt dat" "kon de sessie niet controleren" "$uitvoer"
+bevat "functl_inloggen: status niet te controleren: toont de melding van functl" "could not reach" "$uitvoer"
+bevat_niet "functl_inloggen: status niet te controleren: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+bevat_niet "functl_inloggen: status niet te controleren: niet inloggen" "LOGIN" "$uitvoer"
+code=0
+uitvoer=$(STATUS='Not authenticated' in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: onbekend antwoord: exit 1" 1 "$code"
+bevat "functl_inloggen: onbekend antwoord: toont het" "Not authenticated" "$uitvoer"
+bevat_niet "functl_inloggen: onbekend antwoord: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+code=0
+uitvoer=$(STATUS=$INGELOGD ORG_FAALT=1 in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: ingelogd maar org set faalt: exit 1" 1 "$code"
+bevat "functl_inloggen: ingelogd maar org set faalt: zegt dat" "functl org set faalde" "$uitvoer"
+code=0
+uitvoer=$(FUNCTL_API_KEY=fun_eigen in_script "$FUNCTL_STUBS functl_inloggen") || code=$?
+gelijk "functl_inloggen: eigen key: exit 0" 0 "$code"
+bevat "functl_inloggen: eigen key: logt daarmee in" "LOGIN met fun_eigen" "$uitvoer"
+bevat_niet "functl_inloggen: eigen key: vraagt geen status" "STATUS GEVRAAGD" "$uitvoer"
+bevat_niet "functl_inloggen: eigen key: geen nieuwe key" "KEY GEMAAKT" "$uitvoer"
+
+# Een key, organisatie of adres uit de shell gaat in functl vóór zijn configuratie, en kan naar een
+# echt platform wijzen.
+uitvoer=$(FUNDAMENT_API_KEY=k FUNDAMENT_ORGANIZATION_ID=o FUNCTL_API_ENDPOINT=https://a.invalid \
+  FUNCTL_AUTHN_URL=https://b.invalid FUNCTL_REGISTRY_URL=c.invalid \
+  in_script 'bash -c "env | grep -E \"^(FUNDAMENT_API_KEY|FUNDAMENT_ORGANIZATION_ID|FUNCTL_API_ENDPOINT|FUNCTL_AUTHN_URL|FUNCTL_REGISTRY_URL)=\" || echo geen"')
+gelijk "de functl-instellingen uit de shell gaan niet mee naar functl" geen "$uitvoer"
 
 # --- platform_op: alleen uitrollen als het platform er aantoonbaar niet is ---
 

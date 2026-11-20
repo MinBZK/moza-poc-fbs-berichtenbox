@@ -26,6 +26,10 @@ set -euo pipefail
 # Met deze variabele schrijven Fundaments recipes hun contexten in de kubeconfig van de aanroeper
 # (zonder KUBECONFIG ~/.kube/config) en wisselen ze daar de huidige context. Hij is voor hun test-VM.
 unset FUNDAMENT_TEST_ENV
+# Deze gaan in functl vóór zijn configuratie in FUNCTL_CONFIG_DIR. Uit de shell van de gebruiker
+# zouden ze een key of organisatie van een echt platform meegeven, of functl daarheen sturen; en een
+# geweigerde key uit de omgeving blijft gelden na een nieuwe login. FUNCTL_URL zet hun mise.toml zelf.
+unset FUNDAMENT_API_KEY FUNDAMENT_ORGANIZATION_ID FUNCTL_API_ENDPOINT FUNCTL_AUTHN_URL FUNCTL_REGISTRY_URL
 
 CHARTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$CHARTS/.." && pwd)
@@ -39,7 +43,7 @@ readonly PLATFORM_CONTEXT=k3d-fundament
 readonly NS=tnt-fbs--fbs
 HTTPS_POORT=${HTTPS_POORT:-9443}
 FUNDAMENT_REPO=${FUNDAMENT_REPO:-$HOME/dev/fundament}
-FUNDAMENT_REF=${FUNDAMENT_REF:-e18ad710f62966769f03bf5a9505ce4c91f198b0}
+FUNDAMENT_REF=${FUNDAMENT_REF:-b363604dbed1d3d389504e5bb9e1b48e800618b6}
 # Fundament neemt anders 172.19.0.0/16, alleen om 172.18 (Gardener) te ontwijken; op een machine met
 # meer compose-projecten is dat subnet vaak al bezet. Hun cluster-create leest dezelfde variabele.
 export FUNDAMENT_K3D_SUBNET=${FUNDAMENT_K3D_SUBNET:-172.29.0.0/16}
@@ -297,16 +301,28 @@ api_key_maken() {
 functl_inloggen() {
   stap "functl"
 
-  local uitvoer key=${FUNCTL_API_KEY:-}
-
-  # `functl auth status` slaagt ook zonder login; `org set` vraagt een geldige sessie.
-  if [ -z "$key" ] && uitvoer=$(fj functl org set "$SYSTEM_ORGANISATIE_ID" 2>&1); then
-    echo "OK: functl was al ingelogd"
-    return
-  fi
+  local uitvoer sessie key=${FUNCTL_API_KEY:-}
 
   if [ -z "$key" ]; then
-    [ "$(functl_fout_soort "$uitvoer")" = niet-ingelogd ] || { echo "$uitvoer" >&2; stop 1 "functl org set faalde"; }
+    # Alleen stdout is JSON; mise zet FUNCTL_DEBUG aan, en de debuglog gaat naar stderr. Een exit
+    # die niet 0 is, betekent dat functl het niet kon controleren (platform onbereikbaar, config
+    # onleesbaar): dan geen nieuwe key, want die lost dat niet op en verbergt de oorzaak.
+    uitvoer=$(fj functl auth status -o json 2>"$WERK/functl-status.err") || {
+      cat "$WERK/functl-status.err" >&2
+      stop 1 "functl kon de sessie niet controleren (melding hierboven)"
+    }
+    sessie=$(functl_sessie "$uitvoer") || {
+      printf '%s\n' "$uitvoer" >&2
+      stop 1 "onbekend antwoord van functl auth status -o json (hierboven)"
+    }
+
+    if [ "$sessie" = ingelogd ]; then
+      # Niet meer als test op de sessie, wel om de organisatie te kiezen.
+      uitvoer=$(fj functl org set "$SYSTEM_ORGANISATIE_ID" 2>&1) || { echo "$uitvoer" >&2; stop 1 "functl org set faalde"; }
+      echo "OK: functl was al ingelogd"
+      return
+    fi
+
     key=$(api_key_maken) || stop 1 "kon geen API-key maken met het seed-account platform-admin@fundament.io"
   fi
 
@@ -348,15 +364,24 @@ voorcontrole() {
   fi
 }
 
+# Herstarten via k3d, zoals Fundaments eigen cluster-start, niet met docker restart: k3d zet bij het
+# starten ook de adressen van het netwerk opnieuw in CoreDNS.
+readonly K3D_HERSTART="(cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin)"
+
 # De node moet de registry van de images kunnen opzoeken: de chart haalt ze bij elke start
 # (pullPolicy Always). Docker legt de DNS-server van de host vast bij het starten van een
 # container. Na een wissel van netwerk, zoals op het fieldlab, vraagt de node het dus nog aan de
-# server van het vorige netwerk, en blijft elke nieuwe pod in ImagePullBackOff hangen. Herstarten
-# via k3d, zoals Fundaments eigen cluster-start, niet met docker restart: k3d zet bij het starten
-# ook de adressen van het netwerk opnieuw in CoreDNS.
+# server van het vorige netwerk. Na een herstart van de machine start Docker de nodes zelf
+# (restart-policy unless-stopped), niet k3d, en kon de node ghcr.io ook niet opzoeken (live gezien,
+# 25 uur lang). In beide gevallen blijft elke nieuwe pod in ImagePullBackOff hangen.
+sandbox_dns_ok() {
+  wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io
+}
+
+readonly DNS_MELDING="de sandbox-node kan ghcr.io niet opzoeken, dus nieuwe pods blijven in ImagePullBackOff hangen. Na een herstart van de machine of een wissel van netwerk helpt een herstart van beide clusters via k3d: $K3D_HERSTART"
+
 sandbox_dns_werkt() {
-  wacht_tot 30 "DNS in de sandbox-node" docker exec k3d-fundament-plugin-server-0 nslookup ghcr.io ||
-    stop 1 "de sandbox-node kan ghcr.io niet opzoeken. Na een wissel van netwerk helpt een herstart van beide clusters: (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament && mise exec -- k3d cluster start fundament fundament-plugin)"
+  sandbox_dns_ok || stop 1 "$DNS_MELDING"
 }
 
 # De sandbox van Fundament, maar op Kubernetes 1.36 en met de https-poort van de Gateway op
@@ -795,6 +820,10 @@ controleer() {
   [ -s "$WERK/lokale-ca.crt" ] ||
     kc -n "$NS" get secret web-tls -o jsonpath='{.data.ca\.crt}' | base64 -d >"$WERK/lokale-ca.crt"
 
+  # Pods die al draaien, merken een kapotte DNS pas bij hun volgende start; de rest van de controle
+  # kan dan nog groen zijn. Na een herstart van de machine is dit wat er misgaat.
+  sandbox_dns_ok || fout "$DNS_MELDING"
+
   local dienst
 
   for dienst in "${DIENSTEN[@]}"; do
@@ -852,14 +881,20 @@ af() {
 
 # Wat er na een proef met de opstelling gebeurt, is een keuze van wie hem draait: laten staan scheelt
 # een volgende keer de opbouw, maar de twee clusters houden ook zonder verkeer de processor wakker
-# (op een laptop op batterij bijna een derde van het verbruik bij stilstand), en met restart-policy
-# unless-stopped komen draaiende clusters na een herstart vanzelf terug. Pauzeren via k3d, zoals
-# Fundament het doet, niet met docker stop/start.
+# (op een laptop op batterij bijna een derde van het verbruik bij stilstand). Na een herstart van de
+# machine start Docker draaiende clusters zelf (restart-policy unless-stopped), niet k3d; dan werkt
+# de DNS van de nodes niet (zie sandbox_dns_ok). Pauzeren via k3d, zoals Fundament het doet, niet
+# met docker stop/start.
 na_afloop() {
   cat <<EOF
 
-De opstelling blijft draaien en kost ook zonder verkeer stroom; na een herstart van de machine start
-hij vanzelf weer. Kies:
+De opstelling blijft draaien en kost ook zonder verkeer stroom. Na een herstart van de machine
+start Docker de containers weer, maar niet via k3d: nieuwe pods kunnen hun image dan niet ophalen.
+Herstart beide clusters dan via k3d en draai daarna op:
+  $K3D_HERSTART
+  TAG=<tag> $0 op
+
+Kies:
   laten draaien   niets doen
   pauzeren        (cd $WORKTREE && mise exec -- k3d cluster stop fundament-plugin fundament)
                   hervatten, vóór een volgende op of controleer:
@@ -937,7 +972,7 @@ main() {
       ;;
     controleer)
       [ "$#" -eq 1 ] || stop 2 "controleer kent geen argumenten"
-      vereis_tools curl
+      vereis_tools curl docker
       [ -f "$KUBECONFIG_LOKAAL" ] ||
         stop 2 "geen opstelling op Fundament ${FUNDAMENT_REF:0:8} ($KUBECONFIG_LOKAAL ontbreekt); zet dezelfde FUNDAMENT_REF als bij op, of draai eerst op"
       werkmap

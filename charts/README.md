@@ -260,7 +260,10 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
 - **het platform** (`k3d-fundament`), alleen uitgerold als Kubernetes meldt dat het er niet is:
   elke uitrol wist zijn databases. Antwoordt de API niet, dan stopt het script. De eerste keer
   bouwt dit alle images van Fundament;
-- **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite;
+- **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite. Alleen als
+  `functl auth status` zegt dat er geen geldige sessie is (nooit ingelogd, of de key is verlopen of
+  geweigerd). Kan functl dat niet controleren, bijvoorbeeld omdat het platform niet antwoordt, dan
+  stopt het script;
 - **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
   de relays van de sandbox naar het platform (Fundaments `just plugins sandbox-catalog`);
 - **de plug-ins**: publiceren, goedkeuren en installeren;
@@ -316,8 +319,19 @@ van platform en sandbox. Zo valt een platform op dat met een oudere versie van F
 gemaakt, toen die zijn poorten nog op alle adressen zette. Een weigering na het opzetten laat staan
 wat er al draait. Ruim het dan meteen op met `af --met-platform`.
 
-De containers starten na een herstart van de machine vanzelf weer. Draai daarna `op`: na een
-herstart van Docker kunnen de relays een ander adres hebben, en `op` koppelt ze opnieuw.
+**Na een herstart van de machine** start Docker draaiende containers zelf weer (restart-policy
+`unless-stopped`), maar niet via k3d. Daarna kon de sandbox-node ghcr.io niet meer opzoeken, en
+bleven nieuwe pods een dag in ImagePullBackOff hangen. Ook kunnen de relays een ander adres hebben.
+Herstart beide clusters daarom via k3d, in de worktree van Fundament (de melding van `op` noemt het
+pad), en draai daarna `op`; dat koppelt de relays opnieuw:
+
+```bash
+mise exec -- k3d cluster stop fundament-plugin fundament
+mise exec -- k3d cluster start fundament fundament-plugin
+```
+
+`op` en `controleer` toetsen of de sandbox-node ghcr.io kan opzoeken, en noemen deze herstart als
+dat niet lukt. Een gepauzeerde opstelling blijft na een herstart uit.
 
 **Na een proef is wat er met de opstelling gebeurt jouw keuze**; `op` sluit af met de opties.
 Laten staan scheelt een volgende keer de opbouw, maar de twee clusters kosten ook zonder verkeer
@@ -357,15 +371,29 @@ daarna ook in een Secret in het platformcluster. Wie die sleutel heeft, kan elke
 van deze machine onderscheppen. De pin op `FUNDAMENT_REF` dekt alleen de broncode van Fundament:
 hun builds halen base-images en Helm-charts op tag op.
 
-**Een opstelling op de vorige pin** (Fundament `b9c12531`) zette zijn poorten nog deels op alle
-adressen; `op` weigert die. Ruim hem op met `af --met-platform`. Die versie schreef de contexten in
-`~/.kube/config` en had een eigen worktree; haal die resten daarna zelf weg:
+**Een opstelling op de vorige pin** (Fundament `e18ad710`) ruim je op en zet je opnieuw op. `op`
+rolt een bestaand platform niet opnieuw uit, dus dat zou op de code van de vorige pin blijven
+draaien. Het makkelijkst gaat het met het script van vóór de ophoging, nog vóór je de branch
+bijwerkt: `af --met-platform` haalt dan ook de oude worktree weg. Heb je al bijgewerkt, haal dan
+eerst de nieuwe commit op, ruim op met het nieuwe script en verwijder de oude worktree zelf:
+
+```bash
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" fetch
+charts/fundament-testcluster.sh af --met-platform
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove --force \
+  "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-e18ad710"
+```
+
+Daarna `TAG=main-<sha7> charts/fundament-testcluster.sh op`. De eerste keer bouwt dat weer alle
+images van Fundament. Kom je nog van `b9c12531`, die de contexten in `~/.kube/config` schreef,
+haal dan na `af --met-platform` ook die resten weg:
 
 ```bash
 for c in k3d-fundament k3d-fundament-plugin; do
   kubectl config delete-context $c; kubectl config delete-cluster $c; kubectl config delete-user admin@$c
 done
-git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove ~/.cache/fbs-fundament-testcluster/fundament-b9c12531
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove --force \
+  "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-b9c12531"
 ```
 
 Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl` (7.76 of nieuwer), `ss` (op
