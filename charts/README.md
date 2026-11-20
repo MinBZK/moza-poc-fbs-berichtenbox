@@ -15,6 +15,7 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 | `policy/` | beleidsregels voor conftest: overgenomen van mijn-bureau-infra, plus eigen regels met tests |
 | `controleer.sh` | controle zonder cluster |
 | `lokaal-testcluster.sh` | de drie diensten op een k3d-cluster achter Envoy Gateway |
+| `fundament-testcluster.sh` | de drie diensten op een sandbox van Fundament, met de echte plug-ins |
 | `voorbeelden/` | values voor een opzet die niet bij elke installatie hoort, zoals een database uit CloudNativePG |
 
 ## Installeren
@@ -235,3 +236,153 @@ Het script:
 Elke aanroep noemt de context van het proefcluster, en het script wisselt de huidige context niet.
 Het vereist `k3d`, `kubectl`, `helm`, `openssl` en `curl`, en een host met Docker of podman: in een
 container zonder `/dev/fuse` en `/lib/modules` start k3d niet.
+
+## Proef op een Fundament-sandbox
+
+Dichter bij het fieldlab dan de k3d-proef: het lokale platform van Fundament met zijn
+plugin-sandbox als cluster, op Kubernetes 1.36. Envoy Gateway, cert-manager en CloudNativePG komen
+via de echte plugin-controller, zoals op het fieldlab. Het ontwerp staat in
+[`docs/plans/2026-11-11-lokaal-fundament-testcluster.md`](../docs/plans/2026-11-11-lokaal-fundament-testcluster.md).
+
+```bash
+TAG=main-<sha7> charts/fundament-testcluster.sh op       # opzetten, installeren, controleren
+TAG=main-<sha7> charts/fundament-testcluster.sh op --rol projectlid
+charts/fundament-testcluster.sh controleer                # alleen controleren
+charts/fundament-testcluster.sh af                        # sandbox weg; het platform blijft
+charts/fundament-testcluster.sh af --met-platform         # ook het platform
+```
+
+`op` doet:
+- **Fundament** op een vaste commit (`FUNDAMENT_REF`, een volledige SHA) in een eigen worktree
+  van een clone (`FUNDAMENT_REPO`, standaard `~/dev/fundament`), met de tools uit hun
+  `mise.toml`. Het voert hun code en recipes uit, met de rechten van Docker;
+- **het platform** (`k3d-fundament`), alleen uitgerold als Kubernetes meldt dat het er niet is:
+  elke uitrol wist zijn databases. Antwoordt de API niet, dan stopt het script. De eerste keer
+  bouwt dit alle images van Fundament;
+- **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite;
+- **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
+  de relays van de sandbox naar het platform (Fundaments `just plugins sandbox-catalog`);
+- **de plug-ins**: publiceren, goedkeuren en installeren;
+- **in `tnt-fbs--fbs`**: Gateway `web` met een https-listener en een certificaat van cert-manager
+  uit een lokale CA, twee databases uit CloudNativePG (PostgreSQL 18, TLS) en Redis Stack;
+- **de diensten** in twee rollen, elk gevolgd door de controle:
+  - als **organisatiebeheerder** (cluster-admin), met route;
+  - als **projectlid** (alleen de rol `admin` in de namespace). Die mag geen HTTPRoute maken, dus
+    installeert het script zonder route en maakt de beheerder de route apart. Zet ook dan
+    `cluster.gateway.name`: zonder laat de NetworkPolicy de proxy's van de Gateway niet binnen.
+
+De controle eist per dienst:
+- een rollout waarin alle pods gereed zijn, standaard twee (`REPLICAS`), voor het stelselregister één;
+- binnen het cluster `/q/health/ready` 200 vanaf een pod mét het clientlabel, en geen verbinding
+  vanaf een pod zonder. Beide probes herhalen ruim een halve minuut, want de policy-controller
+  kent een nieuwe pod pas na een vertraging. De weigering telt alleen als curl de verbinding
+  geweigerd kreeg (exitcode 7, zonder TCP-verbinding) en alle pods de hele probe gereed bleven:
+  een Service zonder gereede pods weigert op dezelfde manier. Een timeout, een probe-pod die niet start,
+  of een naam die niet gevonden wordt, is een fout. Een netwerklaag die verkeer stil laat vallen in
+  plaats van te weigeren, geeft dus ook een fout;
+- via de Gateway, over https met het certificaat getoetst, `/openapi.json` 200 en `/q` 404.
+
+Waarin het afwijkt van het fieldlab:
+- opslag via local-path in plaats van Ceph;
+- een lokale CA in plaats van Let's Encrypt. Let's Encrypt met HTTP-01 vraagt op het fieldlab ook
+  een `http`-listener op 80 voor de challenge; houd de route dan met `sectionName=https` aan de
+  https-listener;
+- PostgreSQL 18 via een eigen `Cluster`-manifest. De console van de plug-in biedt 16 en 17;
+- de NetworkPolicy wordt hier afgedwongen door k3s, op het fieldlab door een andere netwerklaag.
+  Toets de weigering daar opnieuw;
+- de namespace draagt Pod Security `restricted`, zoals een namespace van een plug-in, en mist
+  de beheerlabels van Fundament: de cluster-worker van het lokale platform ziet de sandbox, en
+  verwijdert een namespace met die labels die hij niet kent.
+
+Wat hier kan omdat de routes alleen op loopback staan, maar op het fieldlab een keuze vraagt:
+- **`ingress.allowUnauthenticated=true`.** Op het fieldlab krijgt de Gateway een publiek adres.
+  Beperk de toegang in de Gateway, of zet er bewust alleen proefgegevens achter;
+- **`dienst.tlsTermination=mesh`.** Ga na of het pod-netwerk van het fieldlab het verkeer tussen
+  Gateway en pod versleutelt voordat er echte berichten overheen gaan;
+- **Redis zonder TLS**, met de klep `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT`. Er is geen Redis-plug-in.
+  Op het fieldlab hoort het `rediss://` met wachtwoord te zijn, of de klep bewust, met het alert
+  `REDIS_UNPROTECTED`.
+
+Wat er op de machine openstaat:
+- **op loopback:** de https-poort, de console (8443), de registries (5111, 5112), de database
+  van het platform (54328) en de Kubernetes-API's van beide clusters;
+- **zonder hostpoort:** de relays naar de catalogus en de inlog van het platform. Ze hangen aan
+  beide Docker-netwerken; alleen containers op die netwerken kunnen erbij.
+
+Publiceert een container van de opstelling een poort op alle adressen, ook als hij gestopt is,
+dan weigert `op`. Dat gebeurt vóórdat het iets aanmaakt of start, en nog een keer na het opzetten
+van platform en sandbox. Zo valt een platform op dat met een oudere versie van Fundament is
+gemaakt, toen die zijn poorten nog op alle adressen zette. Een weigering na het opzetten laat staan
+wat er al draait. Ruim het dan meteen op met `af --met-platform`.
+
+De containers starten na een herstart van de machine vanzelf weer. Draai daarna `op`: na een
+herstart van Docker kunnen de relays een ander adres hebben, en `op` koppelt ze opnieuw.
+
+**Na een proef is wat er met de opstelling gebeurt jouw keuze**; `op` sluit af met de opties.
+Laten staan scheelt een volgende keer de opbouw, maar de twee clusters kosten ook zonder verkeer
+stroom: op een laptop op batterij gemeten ruim 6 W, bijna een derde van het verbruik bij stilstand.
+Werk je op batterij, of heb je de opstelling voorlopig niet nodig, pauzeer hem dan in de worktree
+van Fundament (de melding noemt het pad):
+
+```bash
+mise exec -- k3d cluster stop fundament-plugin fundament     # pauzeren; blijft ook na een herstart uit
+mise exec -- k3d cluster start fundament fundament-plugin    # hervatten, vóór een volgende op of controleer
+```
+
+Niet met `docker stop` en `docker start`, om dezelfde reden als hieronder bij een wissel van
+netwerk. Opruimen gaat met `af --met-platform`; een kale `af` laat het platform draaien.
+
+**Na een wissel van netwerk**, zoals op het fieldlab, vraagt een k3d-node zijn DNS nog aan de
+server van het vorige netwerk. Docker legt die vast bij het starten van de container. Nieuwe pods
+blijven dan in ImagePullBackOff hangen. `op` controleert dat vooraf. Herstel het door beide
+clusters via k3d te herstarten, in de worktree van Fundament (de melding noemt het pad):
+
+```bash
+mise exec -- k3d cluster stop fundament-plugin fundament
+mise exec -- k3d cluster start fundament fundament-plugin
+```
+
+Niet met `docker restart`, maar via k3d, zoals Fundaments eigen `cluster-start`: k3d zet bij het
+starten ook de adressen van het netwerk opnieuw in CoreDNS.
+
+**Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: alles staat op
+loopback, maar de opstelling draagt een openbaar seed-wachtwoord en registries zonder
+authenticatie. Ruim hem op met `charts/fundament-testcluster.sh af --met-platform`, of pauzeer
+hem zoals hierboven.
+
+Het lokale platform installeert bij het aanmaken de mkcert-CA in de trust-stores van de machine
+en van de browsers (`mkcert -install`, met `certutil`). De private sleutel van die CA staat
+daarna ook in een Secret in het platformcluster. Wie die sleutel heeft, kan elke https-verbinding
+van deze machine onderscheppen. De pin op `FUNDAMENT_REF` dekt alleen de broncode van Fundament:
+hun builds halen base-images en Helm-charts op tag op.
+
+**Een opstelling op de vorige pin** (Fundament `b9c12531`) zette zijn poorten nog deels op alle
+adressen; `op` weigert die. Ruim hem op met `af --met-platform`. Die versie schreef de contexten in
+`~/.kube/config` en had een eigen worktree; haal die resten daarna zelf weg:
+
+```bash
+for c in k3d-fundament k3d-fundament-plugin; do
+  kubectl config delete-context $c; kubectl config delete-cluster $c; kubectl config delete-user admin@$c
+done
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove ~/.cache/fbs-fundament-testcluster/fundament-b9c12531
+```
+
+Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl` (7.76 of nieuwer), `ss` (op
+macOS `lsof`), `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
+- `HTTPS_POORT` (standaard 9443);
+- `REPLICAS` (standaard 2): pods per dienst. Twee toetst ook wat één pod verbergt: een tweede pod
+  die niet start, en twee pods die tegelijk migreren. Het stelselregister blijft op één: zijn
+  chart-values zetten `singleReplica`. Spreiding over nodes en de PodDisruptionBudget toetst de
+  proef niet; de sandbox heeft één node;
+- `FUNDAMENT_K3D_SUBNET` (standaard `172.29.0.0/16`), dezelfde variabele als in Fundaments eigen
+  recipes: Fundament neemt anders 172.19, dat op een machine met meer compose-projecten vaak
+  bezet is;
+- `FUNCTL_API_KEY`: een eigen key in plaats van een gemaakte. Zet hem met `read -rs
+  FUNCTL_API_KEY && export FUNCTL_API_KEY`, niet inline: dan belandt hij niet in de
+  shellgeschiedenis.
+
+Ook dit script noemt bij elke aanroep de context, en daarbij de kubeconfig in de worktree van
+Fundament (`.dev/kubeconfig`): daar zetten hun recipes de contexten van beide clusters, en
+`~/.kube/config` en je huidige context blijven onaangeroerd. Het zet daarom `FUNDAMENT_TEST_ENV`
+uit en weigert in hun test-VM: daar schrijven hun recipes wel in `~/.kube/config`. Een kale
+`kubectl` of `helm` in het script breekt het af.
