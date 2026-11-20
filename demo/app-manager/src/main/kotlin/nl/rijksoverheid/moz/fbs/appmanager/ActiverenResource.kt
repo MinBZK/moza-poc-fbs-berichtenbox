@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.appmanager
 
+import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.netty.util.NetUtil
@@ -25,6 +26,7 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
 import java.net.URLDecoder
+import java.time.Clock
 
 /**
  * Activeren volgens FSC voor Burgers 4.4.1, met de persona-keuze in plaats van DigiD:
@@ -36,8 +38,9 @@ import java.net.URLDecoder
  * 4. `/credential`, dat op dat token een credential uitgeeft voor de sleutel van die sessie.
  *
  * Bodies worden hier zelf gelezen in plaats van door JAX-RS: een kapotte invoer hoort een `400` of
- * `401` te geven, geen `500` uit de parser van het framework. Een envelop of JWE die zonder sleutel
- * al niet klopt, is `400` en laat de nonce staan; alles daarna is `401`.
+ * `401` te geven, geen `500` uit de parser van het framework. Bij `/v1/complete` is een envelop of
+ * JWE die zonder sleutel al niet klopt `400`, en blijft de nonce bruikbaar; alles daarna is `401`.
+ * Bij `/credential` gaat de sessie voor: zonder geldige sessie is elke body `401`.
  */
 @Path("/")
 class ActiverenResource(
@@ -47,6 +50,7 @@ class ActiverenResource(
     private val personas: PersonaService,
     private val config: AppManagerConfig,
     private val json: ObjectMapper,
+    private val klok: Clock,
 ) {
 
     private val log = Logger.getLogger(ActiverenResource::class.java)
@@ -54,9 +58,14 @@ class ActiverenResource(
     @POST
     @Path("v1/challenge")
     @Produces(JOSE)
-    fun challenge(@Context verzoek: HttpServerRequest): String = verifier.maakChallenge(client(verzoek))
+    fun challenge(@Context verzoek: HttpServerRequest): String {
+        // Een challenge met een sleutel die verloopt voordat de app hem gebruikt, weigert elke app.
+        if (!klok.instant().plus(Verifier.NONCE_GELDIG).isBefore(config.sleutelGeldigTot())) throw SleutelVerlopen()
 
-    /** Stap 20 van `CreateSession`; de veldnamen komen uit de standaard. */
+        return verifier.maakChallenge(client(verzoek))
+    }
+
+    /** Stap 20 van `CreateSession` (4.3.4.2); de veldnamen komen uit de standaard. */
     @POST
     @Path("v1/complete")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -73,7 +82,8 @@ class ActiverenResource(
 
     /**
      * Met `session_token`: omwisselen voor een cookie en doorsturen naar dit adres zonder token, zodat
-     * het niet in geschiedenis of logs blijft staan. Zonder: de keuzepagina.
+     * het niet in de adresbalk of de geschiedenis blijft staan. Een log van de ingress ziet het eerste
+     * verzoek wel; daarom werkt het token hier één keer. Zonder token: de keuzepagina.
      */
     @GET
     @Path("register_app")
@@ -81,29 +91,49 @@ class ActiverenResource(
     fun registreer(@QueryParam("session_token") sessieToken: String?, @CookieParam(COOKIE) koppeling: String?): Response {
         if (sessieToken != null) {
             val (sessie, _) = appSessie(sessieToken)
-            val id = registraties.koppel(sessieToken, sessie.verlooptOp) ?: throw ActivatieAfgewezen(Activatiefout.SESSIE_ONBEKEND)
+            val id = registraties.koppel(sessieToken, sessie.verlooptOp) ?: throw ActivatieAfgewezen(Activatiefout.SESSIE_TOKEN_HERGEBRUIKT)
 
-            return Response.seeOther(URI.create(REGISTER_APP)).cookie(cookie(id, maxAge = -1)).build()
+            // Absoluut uit de configuratie: een relatief adres neemt schema en host van het verzoek over,
+            // en achter een ingress die TLS afhandelt is dat http, waar de Secure-cookie niet meegaat.
+            return Response.seeOther(URI.create(config.issuerUrl() + REGISTER_APP.trimStart('/'))).cookie(cookie(id, maxAge = -1)).build()
         }
 
         appSessie(koppeling?.let(registraties::sessieToken) ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND))
 
-        val terug = URI.create(config.terugUrl())
-        val csp = "default-src 'none'; form-action 'self' ${terug.scheme}://${terug.authority}; frame-ancestors 'none'; base-uri 'none'"
-
-        return Response.ok(Keuzepagina.html(personas.alle())).header("Content-Security-Policy", csp).build()
+        return Response.ok(Keuzepagina.html(personas.alle()))
+            .header("Content-Security-Policy", Keuzepagina.csp(origin(config.terugUrl())))
+            .build()
     }
 
+    /**
+     * De keuze. Alleen van de eigen keuzepagina: de cookie is `SameSite=Lax`, en dat geldt per site,
+     * niet per origin. Een andere host op hetzelfde domein kan dus een formulier hierheen sturen;
+     * de `Origin`-header houdt dat tegen.
+     */
     @POST
     @Path("register_app/kies")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-    fun kies(body: String, @CookieParam(COOKIE) koppeling: String?, @Context verzoek: HttpServerRequest): Response {
-        val personaId = formulierveld(body, "persona")
-        val persona = personas.alle().firstOrNull { it.id == personaId }
-            ?: return Response.status(Response.Status.BAD_REQUEST).entity("onbekende persona").type(MediaType.TEXT_PLAIN).build()
-        koppeling?.let(registraties::afgerond)?.let { return doorverwijzing(it) }
+    @Produces(MediaType.TEXT_HTML)
+    fun kies(
+        body: String,
+        @CookieParam(COOKIE) koppeling: String?,
+        @HeaderParam("Origin") herkomst: String?,
+        @Context verzoek: HttpServerRequest,
+    ): Response {
+        if (herkomst != origin(config.issuerUrl())) throw ActivatieAfgewezen(Activatiefout.ANDERE_ORIGIN)
 
-        val sessieToken = koppeling?.let(registraties::sessieToken) ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND)
+        val personaId = formulierveld(body, "persona")
+        val persona = personas.alle().firstOrNull { it.id == personaId } ?: throw EnvelopOngeldig()
+
+        val id = koppeling ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND)
+
+        registraties.afgerond(id)?.let { return doorverwijzing(it) }
+
+        // Tussen de vorige regel en deze kan een gelijktijdige submit de koppeling afronden; dan is
+        // de doorverwijzing van die submit het juiste antwoord.
+        val sessieToken = registraties.sessieToken(id)
+            ?: registraties.afgerond(id)?.let { return doorverwijzing(it) }
+            ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND)
         val (sessie, app) = appSessie(sessieToken)
 
         // Eerst registreren, dan pas de koppeling verbruiken: bij een volle opslag kan de gebruiker zo
@@ -114,24 +144,28 @@ class ActiverenResource(
         try {
             val versleuteld = verifier.versleutel(sessie, registratiebericht(token))
 
-            terug = registraties.bevestig(koppeling, token, "${config.terugUrl()}#registration_token=$versleuteld")
+            terug = registraties.bevestig(id, token, "${config.terugUrl()}#registration_token=$versleuteld")
         } finally {
-            // Elk fouttype, ook een checked exceptie uit de JOSE-laag: het token bereikte de app niet.
+            // Elk fouttype, ook een checked exception uit de JOSE-laag: het token bereikte de app niet.
             if (terug == null) registraties.vergeet(token)
         }
 
-        return doorverwijzing(terug ?: throw ActivatieAfgewezen(Activatiefout.KOPPELING_ONBEKEND))
+        // Een gelijktijdige keuze met dezelfde sleutel kan deze registratie al verdrongen hebben.
+        return doorverwijzing(terug ?: throw ActivatieAfgewezen(Activatiefout.KEUZE_NIET_BEVESTIGD))
     }
 
     private fun doorverwijzing(terug: String): Response =
         Response.seeOther(URI.create(terug)).cookie(cookie("", maxAge = 0)).build()
 
-    /** Stap 20 tot en met 28: het credential voor de sleutel van deze sessie, als die bij de registratie hoort. */
+    /** Stap 20 tot en met 28 van 4.4.1: het credential voor de sleutel van deze sessie, als die bij de registratie hoort. */
     @POST
     @Path("credential")
     @Consumes(JOSE)
     @Produces(JOSE)
     fun credential(@HeaderParam("Authorization") sessieToken: String?, body: String): String {
+        // De standaard stuurt het token hier zonder schema; een app die het magazijn nadoet, zet er `Bearer` voor.
+        if (sessieToken?.startsWith("Bearer ") == true) log.debug("Authorization met Bearer-schema; de App Manager verwacht het token zonder schema")
+
         val (sessie, app) = appSessie(sessieToken ?: throw ActivatieAfgewezen(Activatiefout.SESSIE_ONBEKEND))
         val verzoek = leesJson(verifier.ontsleutel(sessie, body))
 
@@ -143,7 +177,8 @@ class ActiverenResource(
             ?: throw ActivatieAfgewezen(Activatiefout.REGISTRATIE_ONBEKEND)
 
         // Alleen de sleutel die bij het activeren de persona koos: een gestolen token levert zo geen
-        // credential op een andere sleutel op. Een poging daartoe hoort in de log op te vallen.
+        // credential op een andere sleutel op. Een poging daartoe hoort in de log op te vallen, en
+        // trekt de registratie niet in: anders kan wie het token steelt, de echte app hinderen.
         if (registratie.thumbprint != app.thumbprint) {
             log.warnf("Een registration_token is aangeboden met een andere sleutel (thumbprint %s)", app.thumbprint)
 
@@ -163,13 +198,19 @@ class ActiverenResource(
         return sessie to app
     }
 
-    private fun leesJson(tekst: String): JsonNode? = runCatching { json.readTree(tekst) }.getOrNull()?.takeIf(JsonNode::isObject)
+    private fun leesJson(tekst: String): JsonNode? = try {
+        json.readTree(tekst)?.takeIf(JsonNode::isObject)
+    } catch (ignored: JsonProcessingException) {
+        null
+    }
 
     private fun client(verzoek: HttpServerRequest): String = clientSleutel(verzoek.remoteAddress()?.hostAddress())
 
     private fun cookie(waarde: String, maxAge: Int): NewCookie = NewCookie.Builder(COOKIE)
         .value(waarde)
-        .path(REGISTER_APP)
+        // __Host- met Path=/: de browser neemt hem alleen aan van deze host, met Secure en zonder
+        // Domain, dus een andere host op hetzelfde domein kan hem niet planten.
+        .path("/")
         .httpOnly(true)
         .secure(true)
         // Lax en niet Strict: de eerste navigatie komt van de origin van de app, en een Strict-cookie
@@ -180,16 +221,20 @@ class ActiverenResource(
 
     companion object {
         const val JOSE = "application/jose"
-        const val COOKIE = "activatie"
+        const val COOKIE = "__Host-activatie"
         const val REGISTER_APP = "/register_app"
 
         /** Vaste `iss` van de app in het `registration_token`-verzoek (4.4.1, stap 19). */
         const val APP_ISS = "bk-connect://app/"
 
+        /** `scheme://host[:poort]` van een absolute URL, zoals een browser hem in `Origin` zet. */
+        fun origin(adres: String): String = URI.create(adres).let { "${it.scheme}://${it.rawAuthority}" }
+
         /**
          * Wie een quotum draagt: het IP-adres van de aanroeper, voor IPv6 per /64, want één aansluiting
          * krijgt daar een hele /64 en zou anders elk quotum omzeilen. Achter een proxy is het het
-         * adres dat de vertrouwde proxy doorgeeft.
+         * adres dat de vertrouwde proxy doorgeeft. Alles wat geen IP-literal is, deelt het quotum
+         * `onbekend`.
          */
         fun clientSleutel(adres: String?): String {
             // Alleen een IP-literal: InetAddress.getByName zou op een naam een DNS-lookup doen.
@@ -207,6 +252,12 @@ class ActiverenResource(
         fun formulierveld(body: String, naam: String): String? = body.split('&')
             .map { it.split('=', limit = 2) }
             .firstOrNull { it[0] == naam && it.size == 2 }
-            ?.let { runCatching { URLDecoder.decode(it[1], Charsets.UTF_8) }.getOrNull() }
+            ?.let { veld ->
+                try {
+                    URLDecoder.decode(veld[1], Charsets.UTF_8)
+                } catch (ignored: IllegalArgumentException) {
+                    null
+                }
+            }
     }
 }
