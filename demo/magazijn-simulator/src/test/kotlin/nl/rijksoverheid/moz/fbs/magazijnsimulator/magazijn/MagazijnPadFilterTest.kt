@@ -7,8 +7,8 @@ import org.hamcrest.Matchers.endsWith
 import org.hamcrest.Matchers.emptyIterable
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.not
-import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
-import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

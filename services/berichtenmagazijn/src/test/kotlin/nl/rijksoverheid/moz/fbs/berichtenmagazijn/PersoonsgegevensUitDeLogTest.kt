@@ -5,11 +5,11 @@ import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import io.restassured.response.ExtractableResponse
 import io.restassured.response.Response
-import nl.rijksoverheid.moz.fbs.kern.testhulp.ALLES
-import nl.rijksoverheid.moz.fbs.kern.testhulp.REST_CLIENT_LOGGING
-import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
-import nl.rijksoverheid.moz.fbs.kern.testhulp.QUARKUS_REST_MET_INVOER
-import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
+import nl.rijksoverheid.moz.fbs.testhulp.ALLES
+import nl.rijksoverheid.moz.fbs.testhulp.REST_CLIENT_LOGGING
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.QUARKUS_REST_MET_INVOER
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import org.eclipse.microprofile.config.ConfigProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

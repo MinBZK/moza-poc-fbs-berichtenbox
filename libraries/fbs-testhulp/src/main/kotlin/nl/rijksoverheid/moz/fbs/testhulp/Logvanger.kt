@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.kern.testhulp
+package nl.rijksoverheid.moz.fbs.testhulp
 
 import java.text.MessageFormat
 import java.util.logging.Handler

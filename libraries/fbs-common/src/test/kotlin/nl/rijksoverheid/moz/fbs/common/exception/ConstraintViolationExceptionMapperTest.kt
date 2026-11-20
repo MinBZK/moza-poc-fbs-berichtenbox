@@ -7,8 +7,8 @@ import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
 import jakarta.validation.constraints.Pattern
 import jakarta.validation.metadata.ConstraintDescriptor
-import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
-import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue

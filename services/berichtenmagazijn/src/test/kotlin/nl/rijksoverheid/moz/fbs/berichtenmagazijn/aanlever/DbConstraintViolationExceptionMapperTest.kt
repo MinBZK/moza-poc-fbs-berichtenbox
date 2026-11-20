@@ -2,8 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
 import io.quarkus.test.junit.QuarkusTest
 import nl.rijksoverheid.moz.fbs.common.exception.Problem
-import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
-import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import org.hibernate.exception.ConstraintViolationException as HibernateConstraintViolationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

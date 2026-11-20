@@ -8,8 +8,8 @@ import jakarta.validation.Path
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
-import nl.rijksoverheid.moz.fbs.kern.testhulp.Logvanger
-import nl.rijksoverheid.moz.fbs.kern.testhulp.herkenbareDelen
+import nl.rijksoverheid.moz.fbs.testhulp.Logvanger
+import nl.rijksoverheid.moz.fbs.testhulp.herkenbareDelen
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
