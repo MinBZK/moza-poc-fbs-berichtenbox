@@ -375,19 +375,23 @@ Wat er in het script veranderde:
   melding van functl. Een nieuwe key lost een onbereikbaar platform niet op en verbergt de oorzaak.
 - **`functl_fout_soort`** kent `niet-ingelogd` niet meer; die tak was alleen voor de omweg. De
   soorten `geen-listing` en `bestaat-al` blijven nodig voor het publiceren.
-- **Instellingen van functl uit de shell** (`FUNDAMENT_API_KEY`, `FUNDAMENT_ORGANIZATION_ID`,
-  `FUNCTL_API_ENDPOINT`, `FUNCTL_AUTHN_URL`, `FUNCTL_REGISTRY_URL`) zet het script uit. functl leest
-  ze vóór zijn configuratie in `FUNCTL_CONFIG_DIR`, dus een eigen key voor een echt platform zou
+- **Instellingen van functl uit de shell** (`FUNDAMENT_API_KEY`, `FUNCTL_API_ENDPOINT`,
+  `FUNCTL_AUTHN_URL`, `FUNCTL_REGISTRY_URL`) zet het script uit. functl leest ze vóór zijn
+  configuratie in `FUNCTL_CONFIG_DIR`, dus een eigen key voor een echt platform zou
   anders de sessie van de opstelling vervangen, en een geweigerde key in de omgeving bleef ook na
   een nieuwe login gelden. Dat speelde al vóór deze ophoging, maar `auth status` maakte het
   zichtbaar: het controleert de key uit de omgeving.
 - **Na een herstart van de machine.** Op 20 november bleven de pods na een herstart 25 uur in
   ImagePullBackOff (`lookup ghcr.io: Try again`), tot `k3d cluster stop`/`start` en een nieuwe
-  `op`. Docker start de containers zelf (restart-policy `unless-stopped`), niet k3d, en de nodes
-  konden ghcr.io daarna niet opzoeken. Het slotbericht zei "na een herstart van de machine start hij vanzelf
-  weer"; nu zegt het dat je dan beide clusters via k3d herstart en `op` draait. `controleer` toetst
-  ook of de sandbox-node ghcr.io kan opzoeken, met dezelfde remedie. Zonder die toets kan de
-  controle groen zijn zolang de pods uit hun cache draaien, en faalt pas hun volgende start.
+  `op`. Docker start de containers dan zelf (restart-policy `unless-stopped`), en de sandbox-node
+  kon ghcr.io daarna niet opzoeken. Waarom precies, is niet vastgesteld; waarschijnlijk legde de
+  node bij het booten een DNS-server vast die nog niet werkte, zoals na een wissel van netwerk. De
+  herstart via k3d lost het op. Het slotbericht zei "na een herstart van de machine start hij
+  vanzelf weer"; nu zegt het dat je dan beide clusters via k3d herstart en `op` draait. De README
+  behandelt herstart en netwerkwissel nu in één alinea, met de map van de worktree in de blokken.
+  `controleer` toetst ook of de sandbox-node ghcr.io kan opzoeken, met dezelfde remedie. Anders
+  toont een kapotte DNS zich daar pas als een rollout die na vijf minuten niet klaar is, zonder
+  oorzaak; of, na een netwerkwissel zonder herstart, helemaal niet zolang de pods blijven draaien.
 
 Wat bleef: het eigen aanmaken van de sandbox (hun recipe kent nog geen k3s-image of extra poort),
 en het pinnen op de hash van de definitie.
