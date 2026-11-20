@@ -95,8 +95,8 @@ sinds 2026-11-06:
 - Mirror onbereikbaar (connection refused): idem, build slaagt.
 - Met `checksumPolicy` `fail` op beide repositories: nog steeds 628 van de mirror, en bij een
   404-mirror 628 van Central.
-- `test-jdk-handtekening.sh` (53 asserties) en `test-maven-cache.sh` (40) groen. Over drie rondes
-  zijn 43 mutaties van guard, action en settings geprobeerd; alle worden gevangen.
+- `test-jdk-handtekening.sh` (53 asserties) en `test-maven-cache.sh` (40) groen. Over vier rondes
+  zijn 49 mutaties van guard, action en settings geprobeerd; alle worden gevangen.
 - Na de merge op main: de eerste push bewaart per scope `maven-repo-Linux-<scope>-<hash>` en één
   `maven-wrapper-Linux-<hash>`; PR's tonen daarna `Cache restored from key: maven-…` en geen 429
   meer.
