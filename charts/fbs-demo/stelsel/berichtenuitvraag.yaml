@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# De uitvraag in de demo, als release `berichtenuitvraag` van charts/fbs-dienst, na
+# diensten/berichtenuitvraag.yaml. Mee te geven: --set demo.basisdomein=<basisdomein van fbs-demo>
+# en de image-tag. Zie charts/fbs-demo/README.md.
+#
+# Geen eigen route: de browser komt via de demo-proxy binnen, en het magazijn meldt aan via de
+# route `aanmelding` van fbs-demo (Toxiproxy).
+
+demo:
+  basisdomein: ""
+
+dienst:
+  # Redis zonder TLS: de demo draait zijn eigen Redis in de namespace, met proefgegevens. De klep
+  # logt bij elke start REDIS_UNPROTECTED.
+  allowUnsafeFlags: true
+  podLabels:
+    # Naar Redis via Toxiproxy, zodat de Redis-knop van het paneel de sessiecache stillegt.
+    client.fbs.minbzk.nl/fbs-demo-toxiproxy: "true"
+  env:
+    REDIS_HOSTS: redis://fbs-demo-toxiproxy:16379
+    FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT: "true"
+    # Over https via de Gateway: buiten het profiel dev eist de uitvraag dat.
+    PROFIEL_SERVICE_URL: 'https://profiel.{{ required "demo.basisdomein is verplicht" .Values.demo.basisdomein }}'
+    MAGAZIJN_A_URL: 'https://berichtenmagazijn-a.{{ .Values.demo.basisdomein }}'
+    MAGAZIJN_B_URL: 'https://berichtenmagazijn-b.{{ .Values.demo.basisdomein }}'
+    # De gesimuleerde magazijnen; het register noemt ${MAGAZIJN_SIMULATOR_URL}/magazijn/<OIN>.
+    MAGAZIJN_SIMULATOR_URL: 'https://simulator.{{ .Values.demo.basisdomein }}'
+  extraEnvVars:
+    - name: REDIS_PASSWORD
+      valueFrom: {secretKeyRef: {name: fbs-demo-geheimen, key: REDIS_PASSWORD}}
+    # Het logboek in een eigen Cluster van CloudNativePG; de pod stelt de JDBC-URL zelf samen.
+    - name: LDV_HOST
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: host}}
+    - name: LDV_PORT
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: port}}
+    - name: LDV_DBNAME
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: dbname}}
+    - name: LDV_POSTGRES_USERNAME
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: username}}
+    - name: LDV_POSTGRES_PASSWORD
+      valueFrom: {secretKeyRef: {name: ldv-uitvraag-app, key: password}}
+    - name: LDV_POSTGRES_URL
+      value: jdbc:postgresql://$(LDV_HOST):$(LDV_PORT)/$(LDV_DBNAME)?sslmode=verify-full&sslrootcert=/etc/fbs/ldv-ca/ca.crt
+  extraVolumes:
+    # Het register van de gesimuleerde magazijnen. Quarkus leest config/application.properties in de
+    # werkmap (/home/jboss) uit zichzelf; SMALLRYE_CONFIG_LOCATIONS weigert de chart.
+    - name: magazijnenregister
+      configMap:
+        name: fbs-demo-magazijnenregister
+    - name: ldv-ca
+      secret:
+        secretName: ldv-uitvraag-ca
+        items:
+          - key: ca.crt
+            path: ca.crt
+  extraVolumeMounts:
+    - name: magazijnenregister
+      mountPath: /home/jboss/config
+      readOnly: true
+    - name: ldv-ca
+      mountPath: /etc/fbs/ldv-ca
+      readOnly: true
+
+networkPolicy:
+  # Profiel, magazijnen en simulator over https (via de Gateway), het logboek, en Redis via de
+  # Toxiproxy-poort.
+  allowedEgressPorts: [443, 5432, 16379]
+
+ingress:
+  enabled: false

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: EUPL-1.2
+apiVersion: v2
+name: fbs-demo
+description: >-
+  De demo van het Federatief Berichtenstelsel: de berichtenbox van de proeftuin, het
+  bedieningspaneel, de demo-identiteiten, de magazijn-simulator, de stubs, Toxiproxy en Redis.
+  Hoort bij vier releases van fbs-dienst met de values onder stelsel/. Draait nooit in productie.
+type: application
+version: 0.1.0
+# Vaste semver, zoals in fbs-dienst: policy/labels.rego eist semver op app.kubernetes.io/version.
+appVersion: 0.1.0
+home: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+sources:
+  - https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+keywords:
+  - mijnoverheid-zakelijk
+  - berichtenbox
+  - demo
+annotations:
+  licenses: EUPL-1.2
+maintainers:
+  - name: MijnOverheid Zakelijk
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox

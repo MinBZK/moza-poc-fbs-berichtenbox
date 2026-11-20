@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# De demo op een cluster met Gateway API (Fundament). De bedrading tussen de onderdelen staat in
+# templates/_componenten.tpl; hier staat wat per omgeving verschilt. Zie README.md voor de
+# installatie, samen met de vier releases van fbs-dienst (values onder stelsel/).
+
+commonLabels:
+  app.kubernetes.io/part-of: fbs-demo
+
+# Verplicht. Elk onderdeel met een route krijgt de hostnaam <naam>.<basisdomein>, bijvoorbeeld
+# demo.fbs.1-2-3-4.sslip.io. Dezelfde waarde gaat als demo.basisdomein naar de stelseldiensten.
+basisdomein: ""
+
+# Voor de volledige namen die nginx opzoekt: zijn resolver kent geen zoekdomeinen.
+clusterDomain: cluster.local
+
+cluster:
+  gateway:
+    # Verplicht: de Gateway waaraan de routes hangen, en waarvan de proxy's binnen mogen.
+    name: ""
+    # Leeg = de namespace van de release.
+    namespace: ""
+    # De listener met TLS; zonder hangt een route ook aan een listener zonder TLS.
+    sectionName: https
+
+# Waar de proxy's van de Gateway draaien, voor de NetworkPolicy. Gelijk aan fbs-dienst.
+gatewayProxy:
+  namespaceMatchLabels:
+    kubernetes.io/metadata.name: envoy-gateway-system
+  podMatchLabels:
+    gateway.envoyproxy.io/owning-gateway-name: '{{ .Values.cluster.gateway.name }}'
+    gateway.envoyproxy.io/owning-gateway-namespace: '{{ .Values.cluster.gateway.namespace | default .Release.Namespace }}'
+
+# Op Gardener (Fundament) luistert CoreDNS op 8053 achter Service-poort 53.
+dnsPorts: [53, 8053]
+
+# De releases van fbs-dienst die bij deze demo horen. Hun namen staan ook in de values onder
+# stelsel/; wijzig ze op beide plekken.
+stelsel:
+  uitvraag: berichtenuitvraag
+  magazijnA: berichtenmagazijn-a
+  magazijnB: berichtenmagazijn-b
+  # De Service-poort van fbs-dienst (service.ports.http).
+  servicePoort: 80
+  # De containerpoorten, voor de NetworkPolicy: die ziet de poort na de vertaling door de Service.
+  uitvraagPoort: 8086
+  magazijnPoort: 8090
+
+images:
+  # Verplicht: dezelfde tag als de stelseldiensten, main-<sha7> of pr-<n>-<sha7> (eventueel met
+  # -r<n>/-k<n>). Geldt voor de vijf images die deze repository bouwt.
+  tag: ""
+  personas: ghcr.io/minbzk/fbs-demo-personas
+  console: ghcr.io/minbzk/fbs-demo-console
+  simulator: ghcr.io/minbzk/fbs-magazijn-simulator
+  profiel: ghcr.io/minbzk/fbs-demo-profiel
+  notificatie: ghcr.io/minbzk/fbs-externe-stubs
+  # Verplicht, met digest: de proeftuin-regel uit compose.yaml (.github/scripts/proeftuin-image.sh
+  # leest hem). Zo draait de berichtenbox dezelfde versie als de rest van de demo.
+  proeftuin: ""
+  # Images van anderen staan op digest. Toxiproxy op het amd64-image: zijn manifest-list gaf op
+  # een mirror een 500 (zie TOXIPROXY_IMAGE in .github/workflows/deploy.yml).
+  nginx: docker.io/nginxinc/nginx-unprivileged:1.31-alpine@sha256:c3bcf3d1a53a027bfa515b9fe4fbbe7bf6b791476a5af853de439ad494b145bd
+  toxiproxy: ghcr.io/shopify/toxiproxy:2.13.0@sha256:9941f0357759e6c9bfe0ad45e20c415100505113da0f5c436cfd0a4d27579fdc
+  redis: docker.io/redis/redis-stack-server:7.4.0-v3@sha256:7d8e657d60d525534d6abe96e7645ab30ef1b4f1ffedc6eeb2d4d4283b3a49b9
+
+# Bestaande Secrets; de chart maakt ze niet, zodat er geen geheim in values belandt.
+geheimen:
+  # Keys REDIS_PASSWORD en BEHEER_TOKEN. Dezelfde REDIS_PASSWORD gaat naar de uitvraag.
+  demo: fbs-demo-geheimen
+  # Key htpasswd: gebruikers van het bedieningspaneel, in het formaat van nginx (htpasswd -B).
+  bediening: fbs-demo-bediening
+
+# De database van de magazijnen en de simulator: één Cluster van CloudNativePG, een schema per
+# onderdeel. Het paneel leegt de magazijnen rechtstreeks, met hetzelfde account en schema.
+database:
+  # Het Secret dat CloudNativePG maakt (<cluster>-app): host, port, dbname, username, password.
+  secret: db-app
+  # Het CA-certificaat van het Cluster (<cluster>-ca, key ca.crt), voor sslmode=verify-full.
+  caSecret: db-ca
+  schemas:
+    magazijnA: magazijn_a
+    magazijnB: magazijn_b
+    simulator: magazijnsimulator
+
+# Verplicht: de inhoud van demo/generated/magazijnen-register.properties en
+# demo/generated/magazijn-simulator.properties, met --set-file. Maak ze met
+#   SIMULATOR_URL='${MAGAZIJN_SIMULATOR_URL}' python3 demo/genereer-magazijnen.py
+# Het aantal moet passen bij de profiel-stubs in het image fbs-demo-profiel (standaard 98).
+magazijnenregister: ""
+simulatorSet: ""
+
+# Per onderdeel, overschrijfbaar. De JVM-onderdelen nemen 80% van de geheugenlimiet als heap.
+resources:
+  personas:
+    requests: {cpu: 50m, memory: 192Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: "1", memory: 384Mi, ephemeral-storage: 1Gi}
+  console:
+    requests: {cpu: 100m, memory: 384Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: "1", memory: 768Mi, ephemeral-storage: 1Gi}
+  simulator:
+    requests: {cpu: 100m, memory: 512Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: "1", memory: 768Mi, ephemeral-storage: 1Gi}
+  proeftuin:
+    requests: {cpu: 20m, memory: 32Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: 500m, memory: 128Mi, ephemeral-storage: 1Gi}
+  demo-proxy:
+    requests: {cpu: 20m, memory: 32Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: 500m, memory: 128Mi, ephemeral-storage: 1Gi}
+  profiel:
+    requests: {cpu: 50m, memory: 256Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 1Gi}
+  notificatie:
+    requests: {cpu: 50m, memory: 256Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 1Gi}
+  toxiproxy:
+    requests: {cpu: 20m, memory: 32Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: 500m, memory: 128Mi, ephemeral-storage: 1Gi}
+  redis:
+    requests: {cpu: 50m, memory: 128Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 1Gi}

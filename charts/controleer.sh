@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: EUPL-1.2
 #
-# Controleert de chart fbs-dienst zonder cluster: lint, schema's, beleidsregels en de renders die
-# moeten falen. Draait in ci-scripts.yml en lokaal; vereist helm, conftest en kubeconform.
+# Controleert de charts fbs-dienst en fbs-demo zonder cluster: lint, schema's, beleidsregels en de
+# renders die moeten falen. Draait in ci-scripts.yml en lokaal; vereist helm, conftest en kubeconform.
 #
 #   charts/controleer.sh
 #
@@ -29,8 +29,8 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=311
-MINIMUM_REGO_TESTS=82
+VERWACHTE_CONTROLES=379
+MINIMUM_REGO_TESTS=94
 
 for gereedschap in helm conftest kubeconform; do
   if ! command -v "$gereedschap" >/dev/null; then
@@ -102,13 +102,14 @@ toets_slaagt() {
   fi
 }
 
-# Toetst één render. $1 = label, rest = argumenten voor helm.
+# Toetst één render. $1 = label, rest = argumenten voor helm. TOETS_CHART en TOETS_RELEASE kiezen
+# een andere chart of releasenaam (de demo); standaard fbs-dienst als release fbs.
 toets_render() {
   local label=$1
   shift
   local manifest="$WERK/$label.yaml"
 
-  if ! helm lint --strict --quiet "$CHART" "$@" >"$WERK/lint.log" 2>&1; then
+  if ! helm lint --strict --quiet "${TOETS_CHART:-$CHART}" "$@" >"$WERK/lint.log" 2>&1; then
     cat "$WERK/lint.log"
     fout "$label: helm lint"
     return
@@ -116,7 +117,7 @@ toets_render() {
 
   ok "$label: helm lint"
 
-  if ! helm template fbs "$CHART" --namespace fbs "$@" >"$manifest" 2>"$WERK/template.log"; then
+  if ! helm template "${TOETS_RELEASE:-fbs}" "${TOETS_CHART:-$CHART}" --namespace fbs "$@" >"$manifest" 2>"$WERK/template.log"; then
     cat "$WERK/template.log"
     fout "$label: helm template"
     return
@@ -170,12 +171,12 @@ toets_bevat_niet() {
 }
 
 # Een render die moet falen, met een melding die de oorzaak noemt. $1 = label, $2 = verwacht
-# fragment van de melding, rest = argumenten voor helm.
+# fragment van de melding, rest = argumenten voor helm. Ook hier TOETS_CHART en TOETS_RELEASE.
 toets_weigering() {
   local label=$1 verwacht=$2
   shift 2
 
-  if helm template fbs "$CHART" --namespace fbs "$@" >/dev/null 2>"$WERK/weigering.log"; then
+  if helm template "${TOETS_RELEASE:-fbs}" "${TOETS_CHART:-$CHART}" --namespace fbs "$@" >/dev/null 2>"$WERK/weigering.log"; then
     fout "$label: render slaagde, maar had moeten falen"
   elif grep -qF -- "$verwacht" "$WERK/weigering.log"; then
     ok "$label: geweigerd ($verwacht)"
@@ -208,12 +209,13 @@ fi
 # Een bestand in een ander package valt buiten de run, en conftest blijft dan groen. conftest leest
 # de map recursief, dus elke submap telt mee.
 verkeerd=$(
-  find "$POLICY" -name '*.rego' ! -path "$POLICY/samenhang/*" -exec grep -L '^package main$' {} +
+  find "$POLICY" -name '*.rego' ! -path "$POLICY/samenhang/*" ! -path "$POLICY/demo/*" -exec grep -L '^package main$' {} +
   find "$POLICY/samenhang" -name '*.rego' -exec grep -L '^package samenhang$' {} +
+  find "$POLICY/demo" -name '*.rego' -exec grep -L '^package demo$' {} +
 )
 
 if [ -z "$verkeerd" ]; then
-  ok "beleidsregels: elk bestand in package main of samenhang"
+  ok "beleidsregels: elk bestand in package main, samenhang of demo"
 else
   fout "beleidsregels: verkeerd package in $verkeerd"
 fi
@@ -599,6 +601,97 @@ toets_weigering "stelselregister-twee-replicas" "dienst.replicaCount is 2" "${st
 toets_weigering "stelselregister-nul-replicas" "dienst.replicaCount is 0" "${stelsel[@]}" --set dienst.replicaCount=0
 toets_weigering "stelselregister-hpa" "dienst.autoscaling.hpa.enabled kan niet" "${stelsel[@]}" \
   --set dienst.autoscaling.hpa.enabled=true
+
+echo "== de demo (fbs-demo) =="
+
+# De demo als geheel: fbs-demo plus de vier releases van fbs-dienst met de values onder
+# fbs-demo/stelsel/, onder de namen waarmee ze elkaar aanroepen.
+DEMO="$CHARTS/fbs-demo"
+DEMO_DOMEIN=fbs.192-0-2-10.sslip.io
+demo=(-f "$DEMO/ci/standaard-values.yaml")
+stelsel_demo=(--set "demo.basisdomein=$DEMO_DOMEIN" --set dienst.image.tag=main-0123abc --set dienst.tlsTermination=mesh
+  --set cluster.gateway.name=web)
+magazijn_demo=(-f "$CHART/diensten/berichtenmagazijn.yaml" -f "$CHARTS/voorbeelden/berichtenmagazijn-cnpg.yaml"
+  -f "$DEMO/stelsel/berichtenmagazijn.yaml")
+
+TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo" "${demo[@]}"
+# De berichtenbox op de versie uit compose.yaml, zoals de installatie hem leest.
+TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-proeftuin-uit-compose" "${demo[@]}" \
+  --set "images.proeftuin=$("$CHARTS/../.github/scripts/proeftuin-image.sh")"
+
+soorten=$(sed -n 's/^kind: //p' "$WERK/demo.yaml" | sort -u | paste -sd, -)
+
+if [ "$soorten" = "ConfigMap,Deployment,HTTPRoute,NetworkPolicy,PodDisruptionBudget,Service,ServiceAccount" ]; then
+  ok "demo: soorten objecten"
+else
+  fout "demo: soorten objecten '$soorten'"
+fi
+
+toets_aantal "demo" "negen onderdelen" 'kind: Deployment' 9
+toets_aantal "demo" "vijf routes" 'kind: HTTPRoute' 5
+toets_aantal "demo" "één replica per onderdeel" 'replicas: 1' 9
+toets_aantal "demo" "nooit twee tegelijk tijdens een uitrol" 'type: Recreate' 9
+toets_aantal "demo" "paneel en zijn gereedschap achter een wachtwoord" 'auth_basic_user_file /etc/nginx/bediening/htpasswd;' 2
+toets_bevat "demo" "personalijst zonder wachtwoord, exact" 'location = /api/demo/personas {'
+toets_aantal "demo" "admin-API van Toxiproxy alleen voor het paneel" 'client.fbs.minbzk.nl/fbs-demo-toxiproxy-beheer: "true"' 2
+toets_bevat "demo" "simulator alleen met zijn magazijnen naar buiten" 'value: "/magazijn/"'
+toets_bevat_niet "demo" "beheer van de simulator niet naar buiten" '/beheer'
+toets_bevat "demo" "storingsknoppen van de magazijnen verborgen" 'name: TOXIPROXY_MAGAZIJN_A_URL'
+toets_bevat "demo" "streams van de uitvraag zonder request-timeout" 'request: 0s'
+toets_bevat "demo" "uitzondering op /q alleen met reden" 'fbs.minbzk.nl/backend-zonder-q: "de demo-proxy'
+toets_bevat_niet "demo" "standaardadres van de proeftuin overschreven" 'quattro.rijksapps.nl'
+
+TOETS_RELEASE=berichtenuitvraag toets_render "demo-uitvraag" -f "$CHART/diensten/berichtenuitvraag.yaml" \
+  -f "$DEMO/stelsel/berichtenuitvraag.yaml" "${stelsel_demo[@]}"
+toets_bevat "demo-uitvraag" "register als config-bestand in de werkmap" 'mountPath: /home/jboss/config'
+toets_bevat "demo-uitvraag" "Redis via Toxiproxy" 'value: "redis://fbs-demo-toxiproxy:16379"'
+toets_bevat "demo-uitvraag" "simulator over https" "value: \"https://simulator.$DEMO_DOMEIN\""
+toets_bevat_niet "demo-uitvraag" "geen eigen route" 'kind: HTTPRoute'
+
+for m in a b; do
+  TOETS_RELEASE=berichtenmagazijn-$m toets_render "demo-magazijn-$m" "${magazijn_demo[@]}" \
+    -f "$DEMO/stelsel/berichtenmagazijn-$m.yaml" "${stelsel_demo[@]}" --set "ingress.hostname=berichtenmagazijn-$m.$DEMO_DOMEIN"
+  toets_bevat "demo-magazijn-$m" "eigen schema" "value: \"magazijn_$m\""
+done
+
+toets_bevat "demo-magazijn-a" "aanmelding naar de uitvraag via Toxiproxy" \
+  "value: \"https://aanmelding.$DEMO_DOMEIN/api/v1/aanmeldingen\""
+toets_bevat "demo-magazijn-a" "OIN van RVO, zoals in het register van de uitvraag" 'value: "00000000000000100000"'
+toets_bevat "demo-magazijn-b" "OIN van de Belastingdienst, zoals in het register van de uitvraag" 'value: "00000001823288444000"'
+
+TOETS_RELEASE=stelselregister toets_render "demo-stelselregister" -f "$CHART/diensten/stelselregister.yaml" \
+  -f "$DEMO/stelsel/stelselregister.yaml" "${stelsel_demo[@]}" --set "ingress.hostname=stelselregister.$DEMO_DOMEIN"
+toets_bevat "demo-stelselregister" "keystore blijft gemount naast het register" 'mountPath: /etc/stelselregister'
+
+# Wat per release klopt, kan samen nog mis zijn: een clientlabel zonder NetworkPolicy, een poort die
+# de aanroeper niet uit mag, een ConfigMap die geen release maakt.
+conftest_met_regels "demo: samenhang van de vijf releases" --combine --namespace demo --policy "$POLICY" \
+  "$WERK/demo.yaml" "$WERK/demo-uitvraag.yaml" "$WERK/demo-magazijn-a.yaml" "$WERK/demo-magazijn-b.yaml" \
+  "$WERK/demo-stelselregister.yaml"
+
+TOETS_RELEASE=berichtenuitvraag toets_weigering "demo-uitvraag-zonder-domein" "demo.basisdomein is verplicht" \
+  -f "$CHART/diensten/berichtenuitvraag.yaml" -f "$DEMO/stelsel/berichtenuitvraag.yaml" --set dienst.image.tag=main-0123abc \
+  --set dienst.tlsTermination=mesh
+
+demo_weigering() {
+  TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_weigering "$1" "$2" "${demo[@]}" "${@:3}"
+}
+
+demo_weigering "demo-zonder-domein" "basisdomein is verplicht" --set basisdomein=
+demo_weigering "demo-domein-hoofdletters" 'basisdomein "Fbs.Example.nl" is geen DNS-naam' --set basisdomein=Fbs.Example.nl
+demo_weigering "demo-zonder-gateway" "cluster.gateway.name is verplicht" --set cluster.gateway.name=
+demo_weigering "demo-zonder-listener" "cluster.gateway.sectionName is verplicht" --set cluster.gateway.sectionName=
+demo_weigering "demo-zonder-tag" "images.tag is verplicht" --set images.tag=
+demo_weigering "demo-tag-latest" 'images.tag "latest" is geen main-<sha7>' --set images.tag=latest
+demo_weigering "demo-proeftuin-zonder-digest" 'images.proeftuin "ghcr.io/minbzk/moza-poc:latest" staat niet op digest' \
+  --set images.proeftuin=ghcr.io/minbzk/moza-poc:latest
+demo_weigering "demo-redis-op-tag" 'images.redis "redis:7" staat niet op digest' --set images.redis=redis:7
+demo_weigering "demo-zonder-register" "magazijnenregister is leeg" --set magazijnenregister=
+demo_weigering "demo-zonder-set" "simulatorSet is leeg" --set simulatorSet=
+# De twee bestanden verwisseld: elk heeft een eigen voorvoegsel.
+demo_weigering "demo-set-als-register" "magazijnenregister is leeg of bevat geen magazijnen" \
+  --set-string 'magazijnenregister=magazijnsimulator.magazijnen."00000009000000000001".naam=x'
+demo_weigering "demo-poort-als-tekst" "stelsel.servicePoort is geen poortnummer" --set-string stelsel.servicePoort=http
 
 echo "== uitkomst =="
 

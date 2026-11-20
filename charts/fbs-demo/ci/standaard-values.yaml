@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# De demo zoals op het fieldlab: een Gateway `web` in de eigen namespace, een basisdomein op
+# sslip.io. Het register en de set zijn ingekort; de echte komen uit demo/genereer-magazijnen.py.
+basisdomein: fbs.192-0-2-10.sslip.io
+cluster:
+  gateway:
+    name: web
+images:
+  tag: main-410b239
+  proeftuin: ghcr.io/minbzk/moza-poc:latest@sha256:66d5f28d4d3114ec6ca460ca25d5d491f7eb418f681da95921da26e0d711403e
+magazijnenregister: |
+  magazijnen."00000009000000000001".url=${MAGAZIJN_SIMULATOR_URL}/magazijn/00000009000000000001
+  magazijnen."00000009000000000001".naam=Centraal Justitieel Incassobureau
+simulatorSet: |
+  magazijnsimulator.magazijnen."00000009000000000001".naam=Centraal Justitieel Incassobureau
+  magazijnsimulator.magazijnen."00000009000000000001".index=1
