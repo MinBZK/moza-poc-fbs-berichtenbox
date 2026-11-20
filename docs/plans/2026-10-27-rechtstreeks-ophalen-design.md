@@ -166,6 +166,12 @@ sequenceDiagram
 Het magazijn leidt de ontvanger af uit de sessie, en dus uit het gecontroleerde VC. Er is geen
 `X-Ontvanger`-header. Elk antwoord is versleuteld met de AES-sleutel van de sessie, bovenop TLS.
 
+Dat houdt alleen stand zolang de eerste ingang niet even open staat. Daar kiest de aanroeper de
+ontvanger zelf, in `X-Ontvanger`. In het echte magazijn is de eerste ingang daarom alleen
+bereikbaar via de FSC-inway, voor de berichten-uitvraag; alleen de tweede ingang staat publiek.
+De simulator zet beide ingangen op hetzelfde publieke adres. Voor de verzonnen gegevens van de
+demo is dat aanvaardbaar.
+
 De app doet stap 3 en 4 parallel voor elk magazijn uit het stelseldocument, voegt de lijsten
 samen, sorteert ze op publicatietijdstip en toont welke magazijnen niet of te laat antwoordden.
 

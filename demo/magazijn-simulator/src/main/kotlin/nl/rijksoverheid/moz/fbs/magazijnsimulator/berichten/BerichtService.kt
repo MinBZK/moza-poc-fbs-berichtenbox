@@ -21,7 +21,8 @@ import java.time.Clock
 import java.util.UUID
 
 /**
- * De zes operaties van de spec, uitgevoerd op het magazijn dat het pad-filter heeft gekozen.
+ * De zes operaties van de spec, plus het ophalen via de tweede ingang, uitgevoerd op het magazijn
+ * dat het pad-filter heeft gekozen.
  *
  * Wat hier telt is niet dat het werkt, maar dat het **hetzelfde** werkt als het echte magazijn: de
  * volgorde van 403, 404 en 410, de merge-patch-semantiek, en dat een tweede `DELETE` gewoon opnieuw
@@ -59,6 +60,10 @@ class BerichtService(
 
         return bericht
     }
+
+    /** Voor de tweede ingang; zie [nl.rijksoverheid.moz.fbs.magazijnsimulator.opslag.BerichtRepository.zoekVoorOntvanger]. */
+    fun haalOpVoorOntvanger(berichtId: UUID, ontvanger: Identificatienummer): Bericht =
+        repository.zoekVoorOntvanger(magazijnDbId(), berichtId, ontvanger) ?: throw nietGevonden(berichtId)
 
     /**
      * De autorisatie hangt aan het bericht, niet aan de bijlage: eerst het bericht ophalen (404 of
@@ -160,11 +165,9 @@ class BerichtService(
     }
 
     /**
-     * De ontvanger-check op één plek. Type én waarde tellen mee: `RSIN:999993653` is een ander
+     * De ontvanger-check van de eerste ingang; de tweede zet de ontvanger in de query
+     * ([haalOpVoorOntvanger]). Type én waarde tellen mee: `RSIN:999993653` is een ander
      * identificatienummer dan `BSN:999993653`, ook al is de cijferreeks gelijk.
-     *
-     * De waarde blijft uit de log — die kan een BSN zijn. Het bericht-id en het type volstaan om een
-     * geweigerde aanroep terug te vinden.
      */
     private fun vereisOntvanger(bericht: Bericht, ontvanger: Identificatienummer) {
         if (bericht.ontvanger != ontvanger) {

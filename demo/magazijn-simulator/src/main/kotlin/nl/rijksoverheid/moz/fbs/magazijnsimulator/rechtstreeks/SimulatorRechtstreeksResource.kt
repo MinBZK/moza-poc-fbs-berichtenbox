@@ -1,22 +1,42 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.rechtstreeks
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest
-import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
+import jakarta.ws.rs.core.Context
+import jakarta.ws.rs.core.UriBuilder
+import jakarta.ws.rs.core.UriInfo
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.rechtstreeks.RechtstreeksOphalenApi
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.rechtstreeks.model.MagazijnsessieVerzoek
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten.BerichtDtoMapper
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.berichten.BerichtService
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
+import nl.rijksoverheid.moz.fbs.rechtstreeks.Identiteit
+import nl.rijksoverheid.moz.fbs.rechtstreeks.Sessie
+import nl.rijksoverheid.moz.fbs.rechtstreeks.Verifier
 import org.jboss.logging.Logger
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * De tweede ingang van een gesimuleerd magazijn: een magazijnsessie op een credential van een App
- * Manager (FSC voor Burgers 4.3.4). Welk magazijn, staat in [MagazijnContext]; de paden komen uit
+ * Manager (FSC voor Burgers 4.3.4), en daarbinnen de berichten van de ontvanger uit dat
+ * credential. Welk magazijn, staat in [MagazijnContext]; de paden komen uit
  * [RechtstreeksOphalenApi]. Wat de Verifier gooit, vertaalt [VerifierFoutMapper].
+ *
+ * De berichten komen uit dezelfde [BerichtService] als op de eerste ingang. Verschillen: de
+ * ontvanger komt uit de sessie in plaats van uit `X-Ontvanger`, andermans bericht is een `404` in
+ * plaats van een `403` ([BerichtService.haalOpVoorOntvanger]), en het antwoord gaat versleuteld
+ * onder de AES-sleutel van de sessie de deur uit.
  */
 class SimulatorRechtstreeksResource(
     private val context: MagazijnContext,
     private val verifiers: MagazijnVerifiers,
+    private val berichten: BerichtService,
+    private val json: ObjectMapper,
     private val verzoek: CurrentVertxRequest,
+    @param:Context private val uriInfo: UriInfo,
 ) : RechtstreeksOphalenApi {
 
     override fun maakChallenge(): String = verifier().maakChallenge(client())
@@ -24,26 +44,40 @@ class SimulatorRechtstreeksResource(
     override fun startMagazijnsessie(magazijnsessieVerzoek: MagazijnsessieVerzoek): String =
         verifier().voltooiMetCredential(magazijnsessieVerzoek.nonce, magazijnsessieVerzoek.encryptedChallengeResult, client()).antwoord
 
-    override fun getRechtstreeksBerichten(page: Int, pageSize: Int): String = nogNiet()
+    override fun getRechtstreeksBerichten(page: Int, pageSize: Int): String {
+        val (verifier, sessie, ontvanger) = magazijnsessie()
+        val pagina = berichten.lijst(ontvanger = ontvanger, afzender = null, page = page, pageSize = pageSize)
 
-    override fun getRechtstreeksBericht(berichtId: UUID): String = nogNiet()
+        return verifier.versleutel(sessie, json.writeValueAsString(BerichtDtoMapper.naarBerichtenLijst(pagina, null, basis())))
+    }
+
+    override fun getRechtstreeksBericht(berichtId: UUID): String {
+        val (verifier, sessie, ontvanger) = magazijnsessie()
+
+        val bericht = berichten.haalOpVoorOntvanger(berichtId, ontvanger)
+
+        return verifier.versleutel(sessie, json.writeValueAsString(BerichtDtoMapper.naarBericht(bericht, basis())))
+    }
 
     private fun verifier() = verifiers.voor(context.magazijn.oin)
 
-    /**
-     * Wel de sessie toetsen: een app zonder geldige sessie hoort de `401` te krijgen waarop hij
-     * opnieuw begint, ook nu de berichten nog niet te lezen zijn.
-     * TODO(#1215): berichten lezen binnen de magazijnsessie.
-     */
-    private fun nogNiet(): Nothing {
+    private data class Magazijnsessie(val verifier: Verifier, val sessie: Sessie, val ontvanger: Identificatienummer)
+
+    /** De sessie uit `Authorization: Bearer <token>`, met de ontvanger die het credential vaststelde. */
+    private fun magazijnsessie(): Magazijnsessie {
         // Een herhaalde header faalt dicht: een proxy die de laatste leest, zou een ander token beoordelen.
         val waarden = verzoek.current?.request()?.headers()?.getAll(AUTHORIZATION).orEmpty()
         val token = waarden.singleOrNull()?.let(::bearerToken) ?: throw SessieOntbreektException()
+        val verifier = verifier()
+        val sessie = verifier.sessie(token)
+        // Een magazijn geeft alleen sessies op een credential uit, dus altijd met een ontvanger.
+        val identiteit = sessie.identiteit as? Identiteit.Ontvanger ?: error("magazijnsessie zonder ontvanger bij magazijn ${context.magazijn.oin}")
 
-        verifier().sessie(token)
-
-        throw NogNietBeschikbaarException()
+        return Magazijnsessie(verifier, sessie, identiteit.ontvanger)
     }
+
+    /** De links in de payload wijzen naar de paden van deze ingang. */
+    private fun basis(): UriBuilder = MagazijnPad.basisUri(uriInfo, context.magazijn.oin).path(RECHTSTREEKS)
 
     private fun client(): String {
         val request = verzoek.current?.request()
@@ -60,6 +94,9 @@ class SimulatorRechtstreeksResource(
     }
 
     companion object {
+        // Gelijk aan de @Path van RechtstreeksOphalenApi; de tests op de links in RechtstreeksBerichtenTest bewaken de koppeling.
+        private const val RECHTSTREEKS = "rechtstreeks"
+
         private val log: Logger = Logger.getLogger(SimulatorRechtstreeksResource::class.java)
         private val onbekendGemeld = AtomicBoolean(false)
         private val BEARER = Regex("^Bearer +([^ ]+) *$", RegexOption.IGNORE_CASE)
