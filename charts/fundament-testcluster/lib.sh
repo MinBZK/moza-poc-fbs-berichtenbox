@@ -552,3 +552,24 @@ helm_route_args() {
     --set cluster.gateway.name=web \
     --set cluster.gateway.sectionName=https
 }
+
+# --- De demo op de sandbox (charts/demo-op-fundament.sh) ----------------------------------------
+
+# Op het fieldlab wijst <naam>.<basisdomein> via sslip.io naar het publieke adres van de Gateway.
+# In de sandbox kent CoreDNS *.fbs.localhost niet; deze regel stuurt die namen binnen het cluster
+# naar de Service van de Gateway-proxy's. k3s neemt elk *.override uit coredns-custom op. Verankerd,
+# zodat een naam als x.fbs.localhost.voorbeeld.nl er niet onder valt.
+manifest_coredns_demo() {
+  local doel=$1
+
+  cat <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  fbs-demo.override: |
+    rewrite name regex ^(.*)\.fbs\.localhost\.$ $doel. answer auto
+EOF
+}
