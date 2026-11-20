@@ -184,9 +184,9 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         }
 
         // De route waarin een burger of ondernemer berichten met een app rechtstreeks bij de magazijnen ophaalt
-        // (BK Connect), naast de route via Interactielaag en Uitvraag Systeem. Zie de view RechtstreeksOphalen.
-        berichtenApp = softwareSystem "Berichten-app" "App op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt BK Connect; de app vangt zelf op dat een magazijn niet antwoordt." "Extern Systeem"
-        appManager = softwareSystem "App Manager" "Laat de burger inloggen met DigiD of de ondernemer met eHerkenning, en geeft daarna een credential uit aan de app: een bevestiging van de identiteit, gebonden aan het sleutelpaar van de app (BK Connect). Hoe de machtiging van een ondernemer daarin meekomt, is nog open." "Extern Systeem"
+        // (FSC voor Burgers), naast de route via Interactielaag en Uitvraag Systeem. Zie de view RechtstreeksOphalen.
+        berichtenApp = softwareSystem "Berichten-app" "App op het apparaat van de burger of ondernemer die berichten rechtstreeks bij de magazijnen ophaalt, zonder Interactielaag of Berichten Uitvraag Systeem ertussen. Volgt FSC voor Burgers; de app vangt zelf op dat een magazijn niet antwoordt." "Extern Systeem"
+        appManager = softwareSystem "App Manager" "Laat de burger inloggen met DigiD of de ondernemer met eHerkenning, en geeft daarna een credential uit aan de app: een bevestiging van de identiteit, gebonden aan het sleutelpaar van de app (FSC voor Burgers). Hoe de machtiging van een ondernemer daarin meekomt, is nog open." "Extern Systeem"
 
         medewerkerA -> orgA "Verstuurt berichten via" "HTTPS"
         medewerkerB -> orgB "Verstuurt berichten via" "HTTPS"
@@ -211,8 +211,8 @@ workspace "MOZa PoC Federatief Berichtenstelsel" "Doel-architectuur van het Fede
         appManager -> digiD "Authenticatie burgers" "SAML 2.0"
         appManager -> eHerkenning "Authenticatie en machtigingen zakelijke gebruikers" "SAML 2.0"
         berichtenApp -> stelselregister "Haalt het stelseldocument op en verifieert de handtekening tot de vastgelegde root" "HTTPS (JWS, publiek, zonder FSC)"
-        berichtenApp -> magazijnOphaalBeheerApi "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
-        berichtenApp -> eigenMagazijn "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens BK Connect (variant nog niet gekozen)"
+        berichtenApp -> magazijnOphaalBeheerApi "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens FSC voor Burgers, variant HTTPS-JWT (CreateSession)"
+        berichtenApp -> eigenMagazijn "Haalt de berichten van de gebruiker rechtstreeks op, op het adres uit het stelseldocument" "HTTPS volgens FSC voor Burgers, variant HTTPS-JWT (CreateSession)"
 
         // Drie componentrelaties (ophalen, sessiecache-aggregatie, beheer) lopen naar hetzelfde magazijn.
         // Structurizr leidt daaruit per elementenpaar hooguit één systeemlijn af, die dan willekeurig de

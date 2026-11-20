@@ -384,6 +384,12 @@ body.ingeklapt #paneel {
     text-align: left;
 }
 
+/* Een link die als knop oogt: hij opent een andere app en doet hier niets. */
+a.knop {
+    display: inline-block;
+    text-decoration: none;
+}
+
 .knop:hover:not(:disabled) {
     border-color: var(--bediening-color-accent-default);
 }

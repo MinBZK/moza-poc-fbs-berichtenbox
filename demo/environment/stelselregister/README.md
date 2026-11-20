@@ -16,6 +16,9 @@ pki/maak-keten.sh --roteer   # nieuw ondertekencertificaat onder dezelfde root
 `demo/up.sh` roept het script zelf aan. Wie de stack met de hand via `docker compose` start,
 draait het één keer vooraf; zonder keystore start de container `stelselregister` niet.
 
+De demo-App Manager in het document komt niet hiervandaan: zijn sleutel hoort bij de App Manager
+en niet bij de stelselbeheerder. Zie [`../app-manager/`](../app-manager/README.md).
+
 De uitgever in het certificaat is standaard de test-OIN `00000000000000001000` (Logius in deze
 omgeving). Een andere waarde gaat via `STELSELDOCUMENT_UITGEVER_OIN` en moet dan ook bij de dienst
 gezet worden: die weigert een uitgever die niet in zijn certificaat staat.

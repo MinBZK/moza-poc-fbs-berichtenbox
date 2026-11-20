@@ -656,6 +656,16 @@ class PaneelContractTest {
         )
     }
 
+    @Test
+    fun `de omgeving levert het adres van de Berichten-app`() {
+        // `bediening.js` leest precies deze naam. Hernoemd toont het paneel de knop nooit, en dan
+        // lijkt de omgeving geen Berichten-app te hebben terwijl hij wel geconfigureerd is.
+        assertTrue(
+            haalJson(omgevingUrl).contains(""""berichtenAppUrl":"""),
+            "veldnaam berichtenAppUrl ontbreekt in de omgeving-respons",
+        )
+    }
+
     /**
      * Elk pad achter een knop moet in deze applicatie op een route uitkomen.
      *

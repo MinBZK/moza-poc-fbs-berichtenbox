@@ -1,0 +1,84 @@
+meta {
+  name: 6. Berichtenlijst ophalen
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten?pageSize=20
+  body: none
+  auth: bearer
+}
+
+params:query {
+  pageSize: 20
+}
+
+auth:bearer {
+  token: {{rechtstreeksSessieToken}}
+}
+
+headers {
+  Accept: application/jose
+}
+
+script:pre-request {
+  // Het totaal van deze ontvanger volgens de eerste ingang. Beide ingangen tellen in de simulator via
+  // dezelfde query, dus dit toetst dat de tweede ingang niet anders telt, niet de telling zelf; die
+  // toetsen de tests van de simulator.
+  const telling = await bru.sendRequest({
+    method: 'GET',
+    url: `${bru.interpolate('{{baseUrlSimulator}}')}/berichten?pageSize=1`,
+    headers: { 'X-Ontvanger': bru.getEnvVar('rechtstreeksOntvanger') },
+  });
+
+  bru.setVar('rechtstreeksAantal', telling.data.totalElements);
+}
+
+script:post-response {
+  const { leesAntwoord } = require('./lib/rechtstreeks.js');
+
+  if (res.getStatus() === 200) res.setBody(leesAntwoord(res.getBody(), bru.getVar('rechtstreeksAesSleutel')));
+}
+
+assert {
+  res.status: eq 200
+  res.headers["content-type"]: startsWith application/jose
+  res.headers["cache-control"]: eq no-store
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
+  res.body.berichten: isArray
+  res.body.totalElements: isNumber
+  res.body._links.self.href: contains /rechtstreeks/berichten
+}
+
+tests {
+  test("de lijst bevat het klaargezette bericht", function () {
+    const ids = res.getBody().berichten.map((b) => b.berichtId);
+
+    expect(ids).to.include(bru.getVar('rechtstreeksBerichtId'));
+  });
+
+  test("de lijst bevat alleen berichten van de ontvanger uit de sessie", function () {
+    const { berichten } = res.getBody();
+
+    expect(berichten.map((b) => b.berichtId)).to.not.include(bru.getVar('rechtstreeksAnderBerichtId'));
+    berichten.forEach((b) => expect(`${b.ontvanger.type}:${b.ontvanger.waarde}`).to.equal(bru.getEnvVar('rechtstreeksOntvanger')));
+  });
+
+  test("totalElements is gelijk aan dat van de eerste ingang voor dezelfde ontvanger", function () {
+    expect(res.getBody().totalElements).to.equal(bru.getVar('rechtstreeksAantal'));
+  });
+
+  test("elk bericht wijst naar de tweede ingang", function () {
+    res.getBody().berichten.forEach((b) => expect(b._links.self.href).to.contain(`/rechtstreeks/berichten/${b.berichtId}`));
+  });
+}
+
+docs {
+  Dezelfde lijst als `GET /berichten` van de eerste ingang, voor de ontvanger uit de sessie. Het
+  antwoord is versleuteld met de AES-sleutel van de sessie; Bruno toont het ontsleuteld. Het
+  pre-request-script vraagt het totaal van dezelfde ontvanger op bij de eerste ingang; het totaal
+  hier moet daaraan gelijk zijn.
+}

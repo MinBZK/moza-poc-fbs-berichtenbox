@@ -7,7 +7,8 @@ import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
 
 /**
- * Zet de status van een geslaagde `POST` op 201, zoals de spec voor `/aanleveringen` voorschrijft.
+ * Zet de status van een geslaagde `POST` op 201, zoals de spec voor `/aanleveringen` voorschrijft, en
+ * die van de tweede ingang voor `/rechtstreeks/challenges` en `/rechtstreeks/sessies`.
  *
  * De generator maakt methodes die het antwoordtype teruggeven (`returnResponse=false`), en dan is de
  * statuscode niet per methode te kiezen — Quarkus zou 200 sturen. Het echte magazijn lost dat op

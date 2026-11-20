@@ -51,7 +51,7 @@ class StelseldocumentApiTest {
             .then()
             .statusCode(200)
             .contentType("application/jose")
-            .header("API-Version", "0.1.0")
+            .header("API-Version", "0.2.0")
             .header("Cache-Control", "public, max-age=300")
             .header("ETag", startsWith("W/\""))
             .body(matchesPattern("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"))
@@ -69,6 +69,22 @@ class StelseldocumentApiTest {
         assertEquals("00000000000000001000", payload.path("iss").asText())
         assertEquals("test", payload.path("environment").asText())
         assertEquals(24 * 3600L, payload.path("exp").asLong() - payload.path("iat").asLong())
+    }
+
+    @Test
+    fun `het document bevat de geconfigureerde App Manager met zijn sleutel`() {
+        val payload = Afnemer.payload(given().get(pad).then().statusCode(200).extract().asString())
+        val appManager = payload.path("app_managers")[0]
+        val sleutel = appManager.path("public_keys")[1]
+
+        assertEquals(1, payload.path("app_managers").size())
+        assertEquals("00000000000000001100", appManager.path("oin").asText())
+        assertEquals("Test-App Manager", appManager.path("name").asText())
+        assertEquals(listOf("app-manager-0", "app-manager-1"), appManager.path("public_keys").map { it.path("kid").asText() })
+        assertTrue(sleutel.path("exp").isIntegralNumber)
+        assertEquals("app-manager-1", sleutel.path("kid").asText())
+        assertEquals(Instant.parse("2030-01-01T00:00:00Z").epochSecond, sleutel.path("exp").asLong())
+        assertEquals("PdzXYrW5QJGuvJKZB38Di5QGJMkze7gSsETqjY1lJpo", sleutel.path("jwk").path("x").asText())
     }
 
     @Test
@@ -93,7 +109,7 @@ class StelseldocumentApiTest {
             .statusCode(304)
             .header("ETag", etag)
             .header("Cache-Control", "public, max-age=300")
-            .header("API-Version", "0.1.0")
+            .header("API-Version", "0.2.0")
             .body(equalTo(""))
     }
 
@@ -136,7 +152,7 @@ class StelseldocumentApiTest {
             .then()
             .statusCode(406)
             .contentType("application/problem+json")
-            .header("API-Version", "0.1.0")
+            .header("API-Version", "0.2.0")
             .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
             .body("status", equalTo(406))
     }
@@ -155,7 +171,7 @@ class StelseldocumentApiTest {
             .then()
             .statusCode(405)
             .contentType("application/problem+json")
-            .header("API-Version", "0.1.0")
+            .header("API-Version", "0.2.0")
             .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
             .body("status", equalTo(405))
     }

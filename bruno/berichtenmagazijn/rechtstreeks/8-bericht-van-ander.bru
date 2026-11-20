@@ -1,0 +1,62 @@
+meta {
+  name: 8. Bericht van een andere ontvanger (404)
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten/{{rechtstreeksAnderBerichtId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{rechtstreeksSessieToken}}
+}
+
+headers {
+  Accept: application/jose
+}
+
+script:post-response {
+  // Een id dat niet bestaat, binnen dezelfde sessie: het antwoord moet niet te onderscheiden zijn.
+  // Eerst weg, zodat een mislukte vergelijking niet slaagt op de waarde van een vorige run.
+  bru.deleteVar('rechtstreeksOnbekend');
+
+  const nil = '00000000-0000-0000-0000-000000000000';
+  const onbekend = await bru.sendRequest({
+    method: 'GET',
+    url: `${bru.interpolate('{{baseUrlSimulator}}')}/rechtstreeks/berichten/${nil}`,
+    headers: { Authorization: `Bearer ${bru.getVar('rechtstreeksSessieToken')}`, Accept: 'application/jose' },
+    validateStatus: () => true,
+  });
+
+  // De hele body behalve `instance` (een correlatie-id per verzoek); `detail` noemt het gevraagde id.
+  const { instance, ...rest } = onbekend.data ?? {};
+
+  bru.setVar('rechtstreeksOnbekend', JSON.stringify({ httpStatus: onbekend.status, ...rest, detail: rest.detail?.replace(nil, '<id>') ?? null }));
+}
+
+assert {
+  res.status: eq 404
+  res.headers["content-type"]: startsWith application/problem+json
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
+  res.body.type: eq urn:fbs:fout:bericht-onbekend
+}
+
+tests {
+  test("een bericht van een ander is niet te onderscheiden van een bericht dat niet bestaat", function () {
+    const { instance, ...rest } = res.getBody();
+
+    expect(JSON.parse(bru.getVar('rechtstreeksOnbekend'))).to.deep.equal({
+      httpStatus: res.getStatus(), ...rest, detail: rest.detail?.replace(bru.getVar('rechtstreeksAnderBerichtId'), '<id>') ?? null,
+    });
+  });
+}
+
+docs {
+  Het bericht van request 2 bestaat wel, maar hoort bij een andere ontvanger. De tweede ingang
+  onderscheidt dat niet van een bericht dat niet bestaat: allebei `404`, onversleuteld.
+}

@@ -1,0 +1,36 @@
+meta {
+  name: 9. Ongeldig sessietoken (401)
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrlSimulator}}/rechtstreeks/berichten
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: OngeldigTokenOngeldigToken000000
+}
+
+headers {
+  Accept: application/jose
+}
+
+assert {
+  res.status: eq 401
+  res.headers["content-type"]: startsWith application/problem+json
+  res.headers["www-authenticate"]: eq 'Bearer realm="{{simulatorOin}}", error="invalid_token"'
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
+  res.body.type: eq urn:fbs:fout:geen-toegang
+  res.body.status: eq 401
+}
+
+docs {
+  Een token dat het magazijn niet kent: `401`, onversleuteld als `application/problem+json`, met
+  `WWW-Authenticate` volgens RFC 6750. Een verlopen sessie geeft hetzelfde antwoord; de app begint
+  dan opnieuw bij de challenge.
+}

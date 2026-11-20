@@ -31,9 +31,12 @@ ongewijzigde code.
 ./mvnw clean test -pl libraries/fbs-kern -am                  # pure JVM
 ./mvnw clean test -pl libraries/fbs-common -am                # pure JVM
 ./mvnw clean test -pl libraries/fbs-magazijnregister -am      # pure JVM
+./mvnw clean test -pl libraries/fbs-rechtstreeks -am          # pure JVM
 ./mvnw clean test -pl demo/demo-console -am                   # Docker vereist voor één Redis-test (Testcontainers)
 ./mvnw clean test -pl demo/demo-personas -am                   # pure JVM + één @QuarkusTest, geen Docker
-./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers)
+./mvnw clean test -pl demo/app-manager -am                     # @QuarkusTest, geen Docker; node en npm voor de koppeltest met de Berichten-app
+./mvnw clean test -pl demo/berichten-app -am                   # @QuarkusTest plus de browsercode onder Node (node en npm op het PATH)
+./mvnw clean test -pl demo/magazijn-simulator -am              # Docker vereist (Testcontainers); node en npm voor BerichtenAppTest
 ./mvnw clean test -pl libraries/fbs-berichtensessiecache -am  # Docker vereist (Testcontainers)
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
@@ -45,6 +48,15 @@ De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Servic
 start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij wijst
 `quarkus.redis.hosts` altijd zelf aan, en dan start Quarkus geen Dev Service. Zijn andere tests
 draaien zonder Docker.
+
+Drie modules hebben Node nodig (`node` en `npm` op het `PATH`, versie 20.6 of nieuwer: de tests
+laden `jose` via een resolve-hook, met `module.registerHooks` of op oudere versies `module.register`). De build van de Berichten-app draait
+`npm ci` en zet `jose` uit npm op `/vendor/jose`; daarvoor moet de npm-registry bereikbaar zijn,
+net als Maven Central. Daarna draait ze de tests van haar browsercode met `node --test`, met
+`fake-indexeddb` voor de opslag in de browser. De App Manager en de magazijn-simulator
+draaien diezelfde code elk in een `BerichtenAppTest` tegen zichzelf (activeren, en ophalen bij
+meerdere magazijnen): dat is de toets dat browser en Verifier-library elkaars JWS en JWE lezen.
+Zonder Node falen die tests; ze slaan niet over.
 
 ### Tijdens het werk: alleen de geraakte testklassen
 
@@ -108,6 +120,43 @@ Over die forks:
   testbronnen legt uit hoe. Wat bij welke executie hoort, volgt uit `@QuarkusTest` op de klasse
   of een omsluitende klasse. In de uitvoer staan daarom twee testtellingen per module; een
   `-Dtest` die maar één soort raakt, meldt in de andere executie `Tests run: 0`.
+
+### Rechtstreeks ophalen: activeren in de browser
+
+App Manager en Berichten-app draaien in ontwikkelmodus al op elkaars adressen (8093 en 8099):
+
+```bash
+./mvnw install -pl demo/app-manager,demo/berichten-app -am -DskipTests
+./mvnw quarkus:dev -pl demo/app-manager     # zonder -am: anders start de personadienst
+./mvnw quarkus:dev -pl demo/berichten-app   # in een tweede terminal
+```
+
+Open `http://localhost:8099/`, kies **Activeren** en daarna een persona. Terug in de app staat het
+credential van die ondernemer, op een sleutel die de browser niet kan exporteren. De App Manager
+houdt registraties in het geheugen: na een herstart werkt **Bewijs vernieuwen** niet meer en
+activeer je opnieuw.
+
+Dat de sleutel echt niet te exporteren is, controleer je in de console van de DevTools op die
+pagina. De poging tot exporteren moet mislukken met een `InvalidAccessError`:
+
+```js
+const db = await new Promise((ok) => { const v = indexedDB.open('berichten-app'); v.onsuccess = () => ok(v.result); });
+const paar = await new Promise((ok) => { const v = db.transaction('kluis').objectStore('kluis').get('sleutelpaar'); v.onsuccess = () => ok(v.result); });
+await crypto.subtle.exportKey('pkcs8', paar.privateKey);
+```
+
+**Berichten ophalen** leest de magazijnen uit het stelseldocument (`berichten-app.stelselregister-url`,
+in ontwikkelmodus `http://localhost:8094/`) en haalt via de tweede ingang parallel op, hooguit zes
+magazijnen tegelijk. Lokaal de hele keten doorlopen vraagt drie dingen die de compose-bedrading nog
+niet levert (MinBZK/MijnOverheidZakelijk#1216): een stelselregister
+dat de gesimuleerde magazijnen noemt met een adres dat de browser bereikt, een simulator die de
+sleutel van de App Manager vertrouwt (`simulator.rechtstreeks.app-managers."<OIN>".sleutels."<kid>"`,
+met de coördinaten die de App Manager bij de start logt), en die magazijn-origins in
+`berichten-app.magazijnen`. De tests doorlopen de keten wel: `BerichtenAppTest` in de simulator draait
+het ophalen tegen twee gesimuleerde magazijnen en een onbekend magazijn.
+
+Het bedieningspaneel heeft in het tabblad Demo de knop **Berichten-app openen** zodra
+`BERICHTEN_APP_URL` gezet is; in ontwikkelmodus wijst hij naar `http://localhost:8099/`.
 
 ## Kwaliteitsgates
 
@@ -303,7 +352,8 @@ Zolang [#1038](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1038) opens
 De `bruno/`-folder bevat per service een collectie van voorbeeld-requests die je tegen de lokale
 dev-mode kunt uitvoeren met [Bruno](https://www.usebruno.com/).
 
-- `bruno/berichtenmagazijn/` — aanlever- en beheer-API
+- `bruno/berichtenmagazijn/` — aanlever- en beheer-API, en onder `rechtstreeks/` de tweede ingang
+  (tegen de magazijn-simulator)
 - `bruno/berichtenuitvraag/` — frontend-facade (lijst, zoek, ophalen-SSE, detail, bijlage,
   PATCH/DELETE) en de aanmeld-webhook
 - `bruno/stelselregister/` — het stelseldocument, de sleutelset en `security.txt`
@@ -313,6 +363,24 @@ Start voor requests onder `/berichten` eerst een sessie (`bruno/berichtenuitvraa
 `POST /api/v1/sessies`); dat request zet het id in de runtime-variabele `sessie`, en de requests
 sturen het als `X-Sessie`. Met curl: zelfde `POST`, daarna `-H "X-Sessie: <id>"` meegeven. De collectie spiegelt de
 OpenAPI-spec: nieuwe endpoints in de spec krijgen direct een bijbehorende `.bru`-request.
+
+De requests van rechtstreeks ophalen (`bruno/berichtenmagazijn/rechtstreeks/`) versleutelen en
+ondertekenen zelf, met een App Manager-sleutel die alleen op je eigen machine bestaat. Ze draaien
+in de developer-sandbox. Opzet en waarom staan in `bruno/berichtenmagazijn/README.md`; in het kort:
+
+```bash
+npm ci --ignore-scripts --prefix bruno/berichtenmagazijn
+npm run sleutel --prefix bruno/berichtenmagazijn     # eenmalig: .env (gitignored) met de lokale sleutel
+docker compose --profile demo up -d postgres-simulator
+./mvnw install -pl demo/magazijn-simulator -am -DskipTests
+./mvnw quarkus:dev -pl demo/magazijn-simulator $(npm --prefix bruno/berichtenmagazijn run -s sleutel 2>/dev/null)
+# in een tweede terminal:
+npm run rechtstreeks --prefix bruno/berichtenmagazijn   # bru run rechtstreeks --env lokaal --sandbox developer
+```
+
+`@usebruno/cli` staat vast in `bruno/berichtenmagazijn/package-lock.json`; `npm run` start die
+versie uit `node_modules`. Geen kale `npx bru` (zonder lokale installatie is dat een ander
+npm-pakket) en nooit `npx @usebruno/cli@latest`.
 
 ## Configuratie
 

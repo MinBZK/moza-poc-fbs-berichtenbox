@@ -1,0 +1,51 @@
+meta {
+  name: 3. Challenge opvragen
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrlSimulator}}/rechtstreeks/challenges
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/jose
+}
+
+script:post-response {
+  const { leesChallenge } = require('./lib/rechtstreeks.js');
+
+  if (res.getStatus() === 201) {
+    const challenge = leesChallenge(res.getBody());
+
+    // De ruwe JWS voor de volgende request; de nonce is 60 seconden en één keer bruikbaar.
+    bru.setVar('rechtstreeksChallenge', res.getBody());
+    console.warn(`handtekening niet gecontroleerd: het stelseldocument noemt geen sleutel ${challenge.header.kid}`);
+    res.setBody({ header: challenge.header, payload: challenge.payload });
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.headers["content-type"]: startsWith application/jose
+  res.headers["cache-control"]: eq no-store
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
+  res.headers.location: isUndefined
+  res.body.header.alg: eq ES256
+  res.body.header.typ: eq jwt
+  res.body.header.kid: isString
+  res.body.payload.sub: eq challenge
+  res.body.payload.nonce: isString
+  res.body.payload.ephemeral_organization_ec_public_key: isString
+}
+
+docs {
+  Stap 1 tot en met 9 van `CreateSession` (FSC voor Burgers 4.3.4.2): een kaal verzoek. Het
+  antwoord is een JWS; na het antwoord toont Bruno header en payload in plaats van de JWS. Het script
+  toetst de vorm en de tijdelijke sleutel (P-256), niet de handtekening: de simulator ondertekent met
+  een sleutel die in geen stelseldocument staat.
+}

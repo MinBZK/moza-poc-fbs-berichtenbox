@@ -43,6 +43,12 @@
             <artifactId>fbs-kern</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- De Verifier-kant van rechtstreeks ophalen uit de library, geen eigen kopie in de simulator. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-rechtstreeks</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-rest-jackson</artifactId>
@@ -113,6 +119,18 @@
             <artifactId>quarkus-jacoco</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- De app-kant van het protocol (test-jar van fbs-rechtstreeks) staat in het profiel
+             testhulp-rechtstreeks onderaan. -->
+        <!-- Alleen voor de volgorde in de reactor: BerichtenAppTest draait de browsercode van de
+             Berichten-app, en die laadt jose uit haar node_modules, die haar build vult. Als pom,
+             zodat er geen klassen of configuratie van die app op dit classpath komen. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>demo-berichten-app</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -150,6 +168,42 @@
                             <apisToGenerate>Aanlever,Berichten</apisToGenerate>
                         </configuration>
                     </execution>
+                    <!-- De tweede ingang (rechtstreeks ophalen) uit zijn eigen contract, in een eigen
+                         pakket. Alleen het verzoekmodel van het openen van een sessie: de antwoorden
+                         zijn versleuteld en dus tekst. De schemaMappings wijzen de gedeelde modellen (BerichtenLijst,
+                         Bericht, Problem) naar de eerste generatie, zodat een volgende generatie ze
+                         niet dubbel aanmaakt zodra de berichtpaden ze in hun signatuur gebruiken.
+                         Een eigen execution erft de configuratie van `generate` niet; vandaar de
+                         herhaalde opties. -->
+                    <execution>
+                        <id>generate-rechtstreeks</id>
+                        <goals><goal>generate</goal></goals>
+                        <configuration>
+                            <inputSpec>${api.spec.dir}/rechtstreeks-ophalen-api.yaml</inputSpec>
+                            <generatorName>jaxrs-spec</generatorName>
+                            <output>${project.build.directory}/generated-sources/openapi</output>
+                            <apiPackage>${api.base.package}.api.rechtstreeks</apiPackage>
+                            <modelPackage>${api.base.package}.api.rechtstreeks.model</modelPackage>
+                            <apisToGenerate>RechtstreeksOphalen</apisToGenerate>
+                            <modelsToGenerate>MagazijnsessieVerzoek</modelsToGenerate>
+                            <schemaMappings>
+                                <schemaMapping>Problem=${api.base.package}.api.model.Problem</schemaMapping>
+                                <schemaMapping>BerichtenLijst=${api.base.package}.api.model.BerichtenLijst</schemaMapping>
+                                <schemaMapping>Bericht=${api.base.package}.api.model.Bericht</schemaMapping>
+                            </schemaMappings>
+                            <configOptions>
+                                <interfaceOnly>true</interfaceOnly>
+                                <returnResponse>false</returnResponse>
+                                <useJakartaEe>true</useJakartaEe>
+                                <useSwaggerAnnotations>false</useSwaggerAnnotations>
+                                <useTags>true</useTags>
+                                <openApiNullable>false</openApiNullable>
+                            </configOptions>
+                            <generateSupportingFiles>false</generateSupportingFiles>
+                            <generateApiTests>false</generateApiTests>
+                            <generateModelTests>false</generateModelTests>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
@@ -181,6 +235,7 @@
                                     <directory>${api.spec.dir}</directory>
                                     <includes>
                                         <include>berichtenmagazijn-api.yaml</include>
+                                        <include>rechtstreeks-ophalen-api.yaml</include>
                                     </includes>
                                 </resource>
                             </resources>
@@ -316,4 +371,30 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- De app-kant van het protocol, op de JCA, uit de tests van de library. In een profiel dat
+             uit staat bij -Dmaven.test.skip: de ApiInfo-generatie (maven-antrun-plugin:run) lost ook
+             de test-scope op, en de CodeQL-build (compile -Dmaven.test.skip=true) maakt geen
+             test-jar. Zonder profiel faalt die build op "Could not find artifact …:jar:tests".
+             Valkuil: ook -Dmaven.test.skip=false zet het profiel uit, want de activatie kijkt alleen
+             of de property bestaat. Wortelfix: MinBZK/MijnOverheidZakelijk#1640. -->
+        <profile>
+            <id>testhulp-rechtstreeks</id>
+            <activation>
+                <property>
+                    <name>!maven.test.skip</name>
+                </property>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>nl.rijksoverheid.moz</groupId>
+                    <artifactId>fbs-rechtstreeks</artifactId>
+                    <version>${project.version}</version>
+                    <type>test-jar</type>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>

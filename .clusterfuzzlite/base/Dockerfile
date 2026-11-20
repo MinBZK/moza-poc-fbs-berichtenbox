@@ -30,11 +30,14 @@ COPY libraries/fbs-kern/pom.xml libraries/fbs-kern/pom.xml
 COPY libraries/fbs-common/pom.xml libraries/fbs-common/pom.xml
 COPY libraries/fbs-magazijnregister/pom.xml libraries/fbs-magazijnregister/pom.xml
 COPY libraries/fbs-berichtensessiecache/pom.xml libraries/fbs-berichtensessiecache/pom.xml
+COPY libraries/fbs-rechtstreeks/pom.xml libraries/fbs-rechtstreeks/pom.xml
 COPY services/berichtenmagazijn/pom.xml services/berichtenmagazijn/pom.xml
 COPY services/berichtenuitvraag/pom.xml services/berichtenuitvraag/pom.xml
 COPY services/stelselregister/pom.xml services/stelselregister/pom.xml
 COPY demo/demo-console/pom.xml demo/demo-console/pom.xml
 COPY demo/demo-personas/pom.xml demo/demo-personas/pom.xml
+COPY demo/app-manager/pom.xml demo/app-manager/pom.xml
+COPY demo/berichten-app/pom.xml demo/berichten-app/pom.xml
 COPY demo/magazijn-simulator/pom.xml demo/magazijn-simulator/pom.xml
 
 RUN chmod +x mvnw

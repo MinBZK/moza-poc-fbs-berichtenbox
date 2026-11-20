@@ -77,9 +77,9 @@ De uitdaging is: *"Kan een decentraal systeem de authenticatie vertrouwen, maar 
 
 ## Wat FBS kan overnemen
 
-1. **Verifiable Credentials als machtigingsbewijs**: In plaats van machtigingsclaims als "gewone" JWT-claims door te sturen, zou de Interactielaag een **cryptografisch ondertekend machtigingsbewijs** kunnen meesturen dat het decentrale magazijn zelfstandig kan verifiëren — vergelijkbaar met hoe BK Connect Verifiable Credentials gebruikt.
+1. **Verifiable Credentials als machtigingsbewijs**: In plaats van machtigingsclaims als "gewone" JWT-claims door te sturen, zou de Interactielaag een **cryptografisch ondertekend machtigingsbewijs** kunnen meesturen dat het decentrale magazijn zelfstandig kan verifiëren — vergelijkbaar met hoe FSC voor Burgers Verifiable Credentials gebruikt.
 
-2. **Stelseldocument-concept**: FBS heeft FSC-contracts en het OIN-stelsel, en daarmee een trust-basis *tussen organisaties*. Voor een app van een burger of ondernemer is die basis onbereikbaar: de FSC-directory vraagt mTLS onder de trust anchor van de group. De makers van VoRijk noemen Blauwe Knop Connect zelf "een soort FSC voor burgers": FSC beveiligt het verkeer tussen organisaties, Blauwe Knop Connect dat tussen burger en organisatie. De twee vullen elkaar aan en zijn geen alternatieven voor elkaar. In FBS geldt de route ook voor ondernemers; daar moet naast de identiteit ook de machtiging naar het magazijn meekomen (zie punt 3 hierboven). FBS publiceert het magazijnregister daarom ook als stelseldocument — één document, ondertekend door de stelselbeheerder, dat een app zonder FSC-toegang ophaalt en verifieert. Het register blijft leidend; het document is de publieke afgeleide. Zie [het toepassingsprofiel](stelseldocument-toepassingsprofiel.md).
+2. **Stelseldocument-concept**: FBS heeft FSC-contracts en het OIN-stelsel, en daarmee een trust-basis *tussen organisaties*. Voor een app van een burger of ondernemer is die basis onbereikbaar: de FSC-directory vraagt mTLS onder de trust anchor van de group. De makers van VoRijk noemden Blauwe Knop Connect zelf "een soort FSC voor burgers", en zo heet de opvolger inmiddels ook: FSC beveiligt het verkeer tussen organisaties, FSC voor Burgers dat tussen burger en organisatie. De twee vullen elkaar aan en zijn geen alternatieven voor elkaar. In FBS geldt de route ook voor ondernemers; daar moet naast de identiteit ook de machtiging naar het magazijn meekomen (zie punt 3 hierboven). FBS publiceert het magazijnregister daarom ook als stelseldocument — één document, ondertekend door de stelselbeheerder, dat een app zonder FSC-toegang ophaalt en verifieert. Het register blijft leidend; het document is de publieke afgeleide. Zie [het toepassingsprofiel](stelseldocument-toepassingsprofiel.md).
 
 3. **OpenID4VP als aanvulling**: Naast het huidige JWT-bearer model zou OpenID4VP gebruikt kunnen worden om machtigingsbewijzen te presenteren aan decentrale systemen, waardoor die systemen het bewijs zelf kunnen verifiëren in plaats van de JWT-issuer te moeten vertrouwen.
 
@@ -99,7 +99,7 @@ De kern: VoRijk kiest voor **"de burger bewijst zelf wie hij is"** terwijl FBS k
 
 ## Bronnen
 
-- [Blauwe Knop Connect specificatie](https://vorijk.nl/standaard/connect/draft-bk-connect-00.html)
+- [FSC voor Burgers](https://docs.fsc4b.nl/specs/protocol/), de opvolger van Blauwe Knop Connect
 - [VoRijk Introductie](https://vorijk.nl/docs/introductie/)
 - [VoRijk Standaarden](https://vorijk.nl/docs/architectuur/standaarden/)
 - [VoRijk Als bronorganisatie](https://vorijk.nl/docs/aan-de-slag/bronorganisatie/)
@@ -296,11 +296,11 @@ Daar staat tegenover dat **VoRijk een native mobiele app is, geen browser**. Dan
 
 ### Aanleiding
 
-VoRijk kan aannemen dat er één instantie van het overzicht bestaat: de app op de telefoon van de burger. Het berichtenoverzicht van FBS moet op meerdere plekken getoond kunnen worden — een app, het portaal van MijnOverheid Zakelijk en mogelijk andere plekken. Dat roept twee vragen op als FBS het certificaatmodel van Blauwe Knop Connect zou volgen: hoeveel certificaten heeft één persoon dan nodig, en hoe bereikt een melding over een nieuw bericht al die plekken?
+VoRijk kan aannemen dat er één instantie van het overzicht bestaat: de app op de telefoon van de burger. Het berichtenoverzicht van FBS moet op meerdere plekken getoond kunnen worden — een app, het portaal van MijnOverheid Zakelijk en mogelijk andere plekken. Dat roept twee vragen op als FBS het certificaatmodel van FSC voor Burgers zou volgen: hoeveel certificaten heeft één persoon dan nodig, en hoe bereikt een melding over een nieuw bericht al die plekken?
 
 ### Eén certificaat per instantie, niet per persoon
 
-Het certificaat van Blauwe Knop Connect is een Verifiable Credential met daarin gegevens over de gebruiker en "een (referentie naar een) public key van de gebruiker" (sectie 1.3). De bijbehorende privésleutel blijft in de app. Het certificaat zegt dus: *deze sleutel hoort bij deze persoon*.
+Het certificaat van FSC voor Burgers is een Verifiable Credential met daarin gegevens over de gebruiker en "een (referentie naar een) public key van de gebruiker" (sectie 1.3). De bijbehorende privésleutel blijft in de app. Het certificaat zegt dus: *deze sleutel hoort bij deze persoon*.
 
 Daaruit volgt dat elke plek waar het overzicht draait een eigen sleutelpaar en een eigen certificaat krijgt, elk na een eigen login bij de App Manager. Voor een bronorganisatie maakt het aantal niet uit: die toetst alleen of het aangeboden certificaat geldig is. De specificatie behandelt meerdere apparaten niet expliciet, maar sluit meerdere certificaten ook niet uit — een app mag er al meerdere hebben, per toepassing (sectie 4.3.2).
 
@@ -325,7 +325,7 @@ Welke van de twee het wordt is een open ontwerpvraag, en een wezenlijker keuze d
 
 ### Meldingen: de organisatie kent de apparaten niet
 
-Bij VoRijk begint de burger altijd zelf. In een berichtenstelsel begint de organisatie — mogelijk een waarmee de ontvanger nog nooit contact had. De specificatie van Blauwe Knop Connect beschrijft daarvoor geen mechanisme. Een organisatie kent de ontvanger, niet diens apparaten; de vraag is waar die koppeling dan ligt.
+Bij VoRijk begint de burger altijd zelf. In een berichtenstelsel begint de organisatie — mogelijk een waarmee de ontvanger nog nooit contact had. FSC voor Burgers beschrijft daarvoor geen mechanisme. Een organisatie kent de ontvanger, niet diens apparaten; de vraag is waar die koppeling dan ligt.
 
 | Route | Hoe | Bezwaar |
 |-------|-----|---------|
@@ -349,4 +349,4 @@ De prijs is dat "alle verwerking vindt plaats bij de burger en bij de bron" dan 
 
 ### Bronnen
 
-- [Blauwe Knop Connect specificatie](https://vorijk.nl/standaard/connect/draft-bk-connect-00.html) — secties 1.3, 2.2.7, 4.3.2 en 4.5
+- [FSC voor Burgers](https://docs.fsc4b.nl/specs/protocol/) — secties 1.3, 2.2.7, 4.3.2 en 4.5

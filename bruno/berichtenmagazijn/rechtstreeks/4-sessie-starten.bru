@@ -1,0 +1,90 @@
+meta {
+  name: 4. Magazijnsessie starten
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrlSimulator}}/rechtstreeks/sessies
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/jose
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  const r = require('./lib/rechtstreeks.js');
+  const jws = bru.getVar('rechtstreeksChallenge');
+
+  if (!jws) throw new Error('geen challenge: draai eerst "3. Challenge opvragen"');
+
+  // Eén keer: een tweede poging met dezelfde nonce geeft 401 (request 5).
+  bru.deleteVar('rechtstreeksChallenge');
+
+  const { body, aesSleutel } = r.bouwSessieverzoek({
+    challenge: r.leesChallenge(jws),
+    magazijnOin: bru.getEnvVar('simulatorOin'),
+    ontvanger: bru.getEnvVar('rechtstreeksOntvanger'),
+    appManager: { ...r.LOKALE_APP_MANAGER, sleutel: r.appManagerSleutel(bru.getProcessEnv('RECHTSTREEKS_APP_MANAGER_SLEUTEL')) },
+    nu: Math.floor(Date.now() / 1000),
+  });
+
+  bru.setVar('rechtstreeksAesSleutel', aesSleutel);
+  bru.setVar('rechtstreeksSessieverzoek', JSON.stringify(body));
+  req.setBody(body);
+}
+
+script:post-response {
+  const { leesAntwoord } = require('./lib/rechtstreeks.js');
+
+  if (res.getStatus() === 201) {
+    const sessie = leesAntwoord(res.getBody(), bru.getVar('rechtstreeksAesSleutel'));
+
+    bru.setVar('rechtstreeksSessieToken', sessie.sessieToken);
+    // Het token staat al in een variabele; in het antwoordvenster alleen dat het er is.
+    res.setBody({ sessieToken: '(in rechtstreeksSessieToken)', sessieTokenVorm: /^[A-Za-z0-9]{32}$/.test(sessie.sessieToken), geldigTot: sessie.geldigTot });
+  } else {
+    bru.deleteVar('rechtstreeksAesSleutel');
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.headers["content-type"]: startsWith application/jose
+  res.headers["cache-control"]: eq no-store
+  res.headers["api-version"]: matches ^[0-9]+\.[0-9]+\.[0-9]+$
+  res.headers["access-control-allow-origin"]: eq *
+  res.headers["access-control-expose-headers"]: eq 'API-Version, WWW-Authenticate, Retry-After'
+  res.headers.location: isUndefined
+  res.body.sessieTokenVorm: isTruthy
+  res.body.geldigTot: isString
+}
+
+tests {
+  test("geldigTot ligt in de toekomst, hooguit 15 minuten, op een hele seconde", function () {
+    const tot = Date.parse(res.getBody().geldigTot);
+
+    expect(tot).to.be.above(Date.now());
+    expect(tot - Date.now()).to.be.at.most(15 * 60 * 1000);
+    expect(tot % 1000).to.equal(0);
+  });
+}
+
+docs {
+  Stap 13 tot en met 26 van `CreateSession` (FSC voor Burgers 4.3.4.2). Het pre-request-script
+  maakt een app-sleutelpaar (P-256), een Verifiable Credential van de lokale App Manager voor
+  `rechtstreeksOntvanger`, de ondertekende nonce (ES256) en een AES-sleutel van 32 bytes, en
+  versleutelt de presentatie naar de tijdelijke sleutel uit de challenge (`ECDH-ES`, `A256GCM`,
+  `typ` `JWE`). Het antwoord (`dir`, `A256GCM`) wordt ontsleuteld; sessietoken en AES-sleutel
+  staan daarna in de runtime-variabelen `rechtstreeksSessieToken` en `rechtstreeksAesSleutel`,
+  niet in een bestand.
+
+  Vereist de sleutel van de lokale App Manager in `.env` (`npm run sleutel`) en een simulator die
+  hem vertrouwt; zie de README van de collectie.
+}

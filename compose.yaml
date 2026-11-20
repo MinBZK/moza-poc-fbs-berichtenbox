@@ -390,6 +390,10 @@ services:
   # start deze container niet: buiten ontwikkel- en testmodus ondertekent de dienst alleen met
   # een beheerde keystore. De map wordt gemount en niet het bestand, zodat een ontbrekende
   # keystore een leesbare foutmelding geeft in plaats van een map met de naam van het bestand.
+  #
+  # De demo-App Manager en zijn publieke sleutel komen uit
+  # demo/environment/app-manager/pki/maak-sleutel.sh. Alleen de map met de publieke coördinaten
+  # gaat erin; de private sleutel ernaast is voor de App Manager.
   stelselregister:
     image: fbs-demo/fbs-stelselregister:demo
     profiles: [demo]
@@ -409,10 +413,11 @@ services:
       STELSELDOCUMENT_KEYSTORE_PAD: /etc/stelselregister/keystore.p12
       MAGAZIJN_A_URL: http://${DEMO_HOST:-localhost}:8090
       MAGAZIJN_B_URL: http://${DEMO_HOST:-localhost}:8091
-      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties
+      SMALLRYE_CONFIG_LOCATIONS: /demo-config/magazijnen-register.properties,/demo-config/app-manager/app-managers.properties
     volumes:
       - ./demo/environment/stelselregister/pki/out:/etc/stelselregister:ro
       - ./demo/generated/magazijnen-register.properties:/demo-config/magazijnen-register.properties:ro
+      - ./demo/environment/app-manager/pki/out/stelselregister:/demo-config/app-manager:ro
 
   # De demo-identiteiten, als eigen dienst. Wél op DEMO_BIND en niet op DEMO_BEDIENING_BIND: dit is
   # een leeslijst zonder knoppen, en een berichtenbox moet erbij kunnen zonder dat daarmee het legen
