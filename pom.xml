@@ -65,6 +65,10 @@
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
         <maven-surefire-plugin.version>3.6.1</maven-surefire-plugin.version>
+        <!-- Aantal parallelle Surefire-forks in de modules die het gebruiken (sessiecache en
+             uitvraag). Eén, tenzij het profiel test-forks hieronder actief is; overschrijfbaar
+             met -Dfbs.test.forks=1 om een fout in één JVM na te lopen. -->
+        <fbs.test.forks>1</fbs.test.forks>
         <!-- Niet-BOM-beheerde dependencies en plugins: één versie hier zodat de modules
              niet uiteenlopen (drift). -->
         <jandex-maven-plugin.version>3.6.1</jandex-maven-plugin.version>
@@ -464,4 +468,21 @@ public final class ApiInfo {
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Forks alleen in een module met de map src/test/resources/test-classes.idx/: zonder
+             die map verwijderen de forks elkaars index uit de gedeelde target/test-classes (de
+             leesmij.txt daarin legt uit hoe). Hoort bij die map ook TestClassesIndexTest. -->
+        <profile>
+            <id>test-forks</id>
+            <activation>
+                <file>
+                    <exists>${basedir}/src/test/resources/test-classes.idx/leesmij.txt</exists>
+                </file>
+            </activation>
+            <properties>
+                <fbs.test.forks>3</fbs.test.forks>
+            </properties>
+        </profile>
+    </profiles>
 </project>

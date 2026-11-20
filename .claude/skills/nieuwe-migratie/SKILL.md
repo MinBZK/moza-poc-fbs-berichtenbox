@@ -92,8 +92,7 @@ test de schuldige.
 ./mvnw clean test -pl services/berichtenmagazijn -am
 ```
 
-Docker of Podman moet draaien (Dev Services start Testcontainers). Draait de demo-stack, voeg dan
-`-Dquarkus.http.test-port=0` toe — anders faalt elke `@QuarkusTest` op de bezette poort 8081.
+Docker of Podman moet draaien (Dev Services start Testcontainers).
 
 ## 7. Laat de conventies nalopen
 
