@@ -12,4 +12,10 @@ FROM ghcr.io/minbzk/fbs-fuzz-base@sha256:d138ae737b51984545f23924efa9c9b4691ee1c
 COPY . $SRC/moza-poc-fbs-berichtenbox
 WORKDIR $SRC/moza-poc-fbs-berichtenbox
 RUN chmod +x mvnw
+
+# De Central-mirror ook hier en niet alleen in het basis-image: dat is op digest gepind, en een
+# wijziging zou anders pas na de volgende pin-PR in de fuzz-build doorwerken. build.sh haalt via
+# Maven op wat de warme repository mist, en dat kreeg zonder mirror een 429 van Central.
+RUN install -D -m 0644 .github/actions/maven-cache/settings.xml /root/.m2/settings.xml
+ENV MVNW_REPOURL=https://maven-central-eu.storage-download.googleapis.com/maven2
 COPY .clusterfuzzlite/build.sh $SRC/

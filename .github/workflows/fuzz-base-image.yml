@@ -18,6 +18,7 @@ on:
       - '.mvn/**'
       - 'mvnw'
       - '.clusterfuzzlite/base/Dockerfile'
+      - '.github/actions/maven-cache/settings.xml'
       - '.github/workflows/fuzz-base-image.yml'
   workflow_dispatch:
 
@@ -57,7 +58,9 @@ jobs:
       - name: Bepaal de pom-hash
         id: hash
         env:
-          POMS: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw') }}
+          # De settings horen bij de dependency-set: andere repositories kunnen een andere warme
+          # repository opleveren.
+          POMS: ${{ hashFiles('**/pom.xml', '.mvn/**', 'mvnw', '.github/actions/maven-cache/settings.xml') }}
         run: |
           set -euo pipefail
 

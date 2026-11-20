@@ -39,6 +39,12 @@ COPY demo/magazijn-simulator/pom.xml demo/magazijn-simulator/pom.xml
 
 RUN chmod +x mvnw
 
+# Dezelfde Central-mirror als de CI-jobs (zie .github/actions/maven-cache): het vullen van de
+# repository hieronder is één grote piek vanaf een gedeeld runner-adres, en die beantwoordt Central
+# met 429. De wrapper haalt ook de distributie via de mirror; mvnw toetst daarbij de sha256.
+COPY .github/actions/maven-cache/settings.xml /root/.m2/settings.xml
+ENV MVNW_REPOURL=https://maven-central-eu.storage-download.googleapis.com/maven2
+
 # De COPY-lijst hierboven is handwerk, de pom-hash die dit image tagt is dat niet. Een nieuwe
 # module die niet meegekopieerd wordt, laat `go-offline` struikelen op iets heel anders dan de
 # reactor-artefacten waarvoor de tolerantie hieronder bedoeld is — en zou dan ongemerkt een

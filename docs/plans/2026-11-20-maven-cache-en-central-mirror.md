@@ -56,6 +56,13 @@ sinds 2026-11-06:
   `restore-keys`, en de settings die de installatiestap neerzet (volgorde, Central, checksum-policy,
   geen `<mirrors>`). Elk daarvan faalt stil als het misgaat.
 
+- **De fuzz-builds krijgen dezelfde mirror.** ClusterFuzzLite bouwt Maven in Docker, buiten de
+  action (op 2026-11-14 faalde een batch-run op een 429). Het basis-image
+  (`.clusterfuzzlite/base/Dockerfile`) én het fuzz-image (`.clusterfuzzlite/Dockerfile`) krijgen
+  dezelfde `settings.xml` en `MVNW_REPOURL`. In het fuzz-image ook, omdat het basis-image op digest
+  gepind is: anders werkt een wijziging pas na de volgende pin-PR door. `fuzz-base-image.yml`
+  bouwt opnieuw bij een wijziging van de settings, en die tellen mee in de pom-hash van de tag.
+
 ## Bewust geaccepteerd restrisico
 
 - **Een nieuwe vertrouwde partij.** De mirror is de publieke GCS-bucket `maven-central-eu`, zonder
