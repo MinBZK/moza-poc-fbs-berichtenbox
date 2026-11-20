@@ -13,10 +13,14 @@ import io.restassured.RestAssured.given
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
+import nl.rijksoverheid.moz.fbs.common.exception.DOORGEGEVEN_WEIGERING_DETAIL
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
 import java.util.UUID
 
@@ -166,6 +170,53 @@ class DualWriteFaultTest {
             // De REST-client-message noemt de aangeroepen client-methode voluit; die hoort niet in
             // een antwoord dat naar buiten gaat.
             .body("detail", org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("MagazijnClient")))
+
+        assertEquals(0, sessiecache.werkBijAanroepen)
+    }
+
+    /**
+     * Een weigering van het magazijn die de uitvraag ongewijzigd doorgeeft. De melding van de
+     * REST-client noemt onze klasse- en methodenamen; die horen niet in een foutantwoord, en de
+     * vaste tekst van een frameworkfout (die naar het verzoek van de afnemer wijst) ook niet.
+     * Alleen de statussen die de spec op deze operatie declareert.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = [400, 409, 415])
+    fun `PATCH magazijn-weigering geeft geen klassenaam en geen frameworktekst door`(status: Int) {
+        val id = UUID.randomUUID()
+        seedBericht(id)
+        WireMockBackendsResource.magazijnA.stubFor(
+            wmPatch(urlPathEqualTo("/api/v1/berichten/$id"))
+                .willReturn(aResponse().withStatus(status)),
+        )
+
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/$id?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(status)
+            .body("detail", org.hamcrest.Matchers.equalTo(DOORGEGEVEN_WEIGERING_DETAIL))
+
+        assertEquals(0, sessiecache.werkBijAanroepen)
+    }
+
+    @Test
+    fun `PATCH met een bericht-id dat geen UUID is geeft 400 met de vaste tekst`() {
+        given()
+            .header("X-Ontvanger", "BSN:999990019")
+            .header("X-Sessie", sessie)
+            .header("Content-Type", "application/merge-patch+json")
+            .body("""{"status":"gelezen"}""")
+            .`when`()
+            .patch("/api/v1/berichten/geen-uuid?magazijnId=${WireMockBackendsResource.OIN_A}")
+            .then()
+            .statusCode(400)
+            .body("type", org.hamcrest.Matchers.equalTo("urn:fbs:fout:ongeldig-verzoek"))
+            .body("detail", org.hamcrest.Matchers.equalTo(FrameworkfoutDetail.PARAMETER_ONGELDIG))
 
         assertEquals(0, sessiecache.werkBijAanroepen)
     }

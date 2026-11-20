@@ -84,9 +84,9 @@ class MagazijnPadFilter(
      * Dat laatste is geen theoretisch geval en het is de reden dat dit in een `try` staat: een pad
      * met accolades erin — `/berichten/{id}` — is door elke client te sturen, en Quarkus REST bouwt
      * `UriInfo.requestUri` met een `UriBuilder` die accolades als URI-template leest. Het opvragen
-     * van die URI gooit dan al, nog vóór wij eraan rekenen. Een echt magazijn geeft op zo'n pad een
-     * 404 omdat `{id}` geen UUID is; hier hoort hetzelfde uit te komen, niet een 500 die de demo-log
-     * volschrijft met "onverwachte fout".
+     * van die URI gooit dan al, nog vóór wij eraan rekenen. Een echt magazijn wijst zo'n pad af als
+     * clientfout; hier hoort ook een clientfout uit te komen, niet een 500 die de demo-log volschrijft
+     * met "onverwachte fout".
      *
      * Herkennen gebeurt op het gedecodeerde pad, herschrijven op het onbewerkte; waarom dat veilig
      * is, staat bij [MagazijnPad].

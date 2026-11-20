@@ -7,6 +7,9 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.MagazijnTestBasis
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.DetailVerwachting
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.assertProblemVelden
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -43,6 +46,16 @@ class BeheerTokenTest : MagazijnTestBasis() {
             .then()
             .statusCode(401)
             .contentType(PROBLEM_JSON)
+    }
+
+    @Test
+    fun `een geweigerd beheerverzoek heeft precies de velden van een foutantwoord`() {
+        assertProblemVelden(
+            given().get("/beheer/magazijnen"),
+            401,
+            Foutcode.GEEN_TOEGANG,
+            DetailVerwachting.Bevat(HEADER),
+        )
     }
 
     @Test

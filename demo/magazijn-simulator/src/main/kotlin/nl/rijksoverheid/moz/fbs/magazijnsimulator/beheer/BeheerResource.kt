@@ -3,13 +3,15 @@ package nl.rijksoverheid.moz.fbs.magazijnsimulator.beheer
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.ws.rs.Consumes
 import jakarta.ws.rs.GET
-import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.POST
 import jakarta.ws.rs.PUT
 import jakarta.ws.rs.Path
 import jakarta.ws.rs.PathParam
 import jakarta.ws.rs.Produces
 import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.SimulatorFout
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnPad
 
 /**
@@ -53,7 +55,11 @@ class BeheerResource(private val service: BeheerService) {
     @Path("/magazijnen/{oin}/gedrag")
     @Consumes(MediaType.APPLICATION_JSON)
     fun zetGedrag(@PathParam("oin") oin: String, verzoek: GedragVerzoek): MagazijnOverzicht =
-        service.zetGedrag(oin, verzoek) ?: throw NotFoundException("Geen gesimuleerd magazijn met OIN $oin")
+        service.zetGedrag(oin, verzoek) ?: throw SimulatorFout(
+            Foutcode.NIET_GEVONDEN,
+            Response.Status.NOT_FOUND,
+            "Geen gesimuleerd magazijn met OIN $oin",
+        )
 
     /**
      * Stelt het gedrag van een reeks magazijnen in één aanroep bij.

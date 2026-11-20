@@ -24,6 +24,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.NietGeleverd
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Afgekapt
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BijlageSamenvatting
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.hasKey
@@ -32,6 +33,7 @@ import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.notNullValue
 import org.hamcrest.Matchers.nullValue
 import org.hamcrest.Matchers.startsWith
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -79,6 +81,21 @@ class OpenApiContractTest {
     )
 
     private val ontvanger = "BSN:999990019"
+
+    private val alleenAntwoordValidatie = OpenApiValidationFilter(
+        OpenApiInteractionValidator
+            .createForSpecificationUrl("openapi/berichtenuitvraag-api.yaml")
+            .withLevelResolver(
+                LevelResolver.create()
+                    .withLevel("validation.request", ValidationReport.Level.IGNORE)
+                    // Zonder deze twee valideert de filter niets als het pad of de methode niet in
+                    // de spec staat, en blijft de test stil groen.
+                    .withLevel("validation.request.path.missing", ValidationReport.Level.ERROR)
+                    .withLevel("validation.request.operation.notAllowed", ValidationReport.Level.ERROR)
+                    .build(),
+            )
+            .build(),
+    )
 
     @Inject
     lateinit var sessiecache: MockSessiecache
@@ -742,6 +759,40 @@ class OpenApiContractTest {
             .body("type", startsWith("urn:fbs:fout:"))
     }
 
+    /**
+     * Een pad- of queryparameter die niet te converteren is: 400 met de vaste tekst, zoals de spec
+     * declareert, en geen 404 zoals Jakarta REST zelf zou geven. Met de validator op het antwoord;
+     * het verzoek schendt de spec met opzet.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = ["/api/v1/berichten?pagina=abc", "/api/v1/berichten/geen-uuid?magazijnId=00000001003214345000"])
+    fun `een ongeldige parameter geeft een valide 400 met de vaste tekst`(pad: String) {
+        given()
+            .filter(alleenAntwoordValidatie)
+            .header("X-Ontvanger", ONTVANGER_HEADER)
+            .header("X-Sessie", sessie)
+            .`when`().get(pad)
+            .then()
+            .statusCode(400)
+            .body("type", equalTo("urn:fbs:fout:ongeldig-verzoek"))
+            .body("detail", equalTo(FrameworkfoutDetail.PARAMETER_ONGELDIG))
+    }
+
+    /**
+     * Bij deze fouten geeft Quarkus een melding mee die zijn eigen werking beschrijft. In `detail`
+     * hoort de vaste Nederlandse zin te staan, en verder geen extra veld.
+     */
+    @ParameterizedTest
+    @MethodSource("kromRequests")
+    fun `een frameworkfout draagt de vaste tekst en precies de velden van een foutantwoord`(krom: KromRequest) {
+        val antwoord = krom.stuur()
+        val velden = antwoord.jsonPath().getMap<String, Any?>("$")
+
+        assertEquals(krom.status, antwoord.statusCode, antwoord.asString())
+        assertEquals(setOf("type", "title", "status", "detail", "instance"), velden.keys, antwoord.asString())
+        assertEquals(krom.detail, velden["detail"])
+    }
+
     @Test
     fun `GET berichten - cache nog niet gevuld levert valide Problem-409`() {
         sessiecache.lijstFout = SessiecacheException.NogNietGevuld("Berichten zijn nog niet opgehaald.")
@@ -1068,7 +1119,12 @@ class OpenApiContractTest {
     }
 
     /** Eén spec-schendend request plus de naam die in de testuitvoer leesbaar is. */
-    class KromRequest(private val naam: String, val stuur: () -> io.restassured.response.Response) {
+    class KromRequest(
+        private val naam: String,
+        val status: Int,
+        val detail: String,
+        val stuur: () -> io.restassured.response.Response,
+    ) {
         override fun toString() = naam
     }
 
@@ -1077,20 +1133,25 @@ class OpenApiContractTest {
 
         @JvmStatic
         fun kromRequests(): List<KromRequest> = listOf(
-            KromRequest("405 verkeerde methode") {
+            KromRequest("405 verkeerde methode", 405, FrameworkfoutDetail.METHODE_NIET_TOEGESTAAN) {
                 given().header("X-Ontvanger", ONTVANGER_HEADER)
                     .`when`().post("/api/v1/berichten/${UUID.randomUUID()}")
             },
-            KromRequest("415 niet-ondersteund request-mediatype") {
+            KromRequest("415 niet-ondersteund request-mediatype", 415, FrameworkfoutDetail.MEDIATYPE_NIET_ONDERSTEUND) {
                 given().header("X-Ontvanger", ONTVANGER_HEADER)
                     .contentType("text/plain")
                     .body("geen merge-patch")
                     .queryParam("magazijnId", "00000001003214345000")
                     .`when`().patch("/api/v1/berichten/${UUID.randomUUID()}")
             },
-            KromRequest("404 onbekend pad") {
+            KromRequest("404 onbekend pad", 404, FrameworkfoutDetail.PAD_ONBEKEND) {
                 given().header("X-Ontvanger", ONTVANGER_HEADER)
                     .`when`().get("/api/v1/bestaat-niet")
+            },
+            KromRequest("406 onhaalbare Accept-header", 406, FrameworkfoutDetail.ACCEPT_NIET_TE_LEVEREN) {
+                given().header("X-Ontvanger", ONTVANGER_HEADER)
+                    .accept("application/xml")
+                    .`when`().get("/api/v1/berichten")
             },
         )
     }
