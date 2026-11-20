@@ -1006,8 +1006,8 @@ bevat "platform_op: starten faalt: noemt opnieuw opzetten" "af --met-platform" "
 # Na een hervatting is de Deployment van organization-api al gereed terwijl zijn circuit breaker nog
 # elk verzoek weigert; functl org set faalde dan met unavailable.
 code=0
-uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; }; organisatie_api_stabiel() { false; };
-  organisatie_api_antwoord() { echo '{\"code\":\"unavailable\",\"message\":\"service temporarily unavailable\"}'; }; platform_op") || code=$?
+uitvoer=$(in_script "$PLATFORM_STUBS kcp() { return 0; };
+  organisatie_api_stabiel() { ORG_API_LAATSTE='{\"code\":\"unavailable\",\"message\":\"service temporarily unavailable\"}'; false; }; platform_op") || code=$?
 gelijk "platform_op: organization-api weigert nog: exit 1" 1 "$code"
 bevat "platform_op: organization-api weigert nog: noemt de breaker" "circuit breaker" "$uitvoer"
 bevat "platform_op: organization-api weigert nog: toont het laatste antwoord" "service temporarily unavailable" "$uitvoer"
@@ -1015,21 +1015,38 @@ bevat "platform_op: organization-api weigert nog: logs per deployment" "logs dep
 # Ook na een verse uitrol: CreateAPIKey is de eerstvolgende aanroep op organization-api.
 code=0
 uitvoer=$(in_script "$PLATFORM_STUBS kcp() { case \"\$*\" in *readyz*) return 0 ;; *) echo 'Error from server (NotFound): deployments.apps \"organization-api\" not found' >&2; return 1 ;; esac; };
-  organisatie_api_stabiel() { false; }; organisatie_api_antwoord() { :; }; platform_op") || code=$?
+  organisatie_api_stabiel() { false; }; platform_op") || code=$?
 gelijk "platform_op: na een verse uitrol ook wachten op organization-api: exit 1" 1 "$code"
+bevat "platform_op: na een verse uitrol: eerst uitgerold" "UITROL deploy local" "$uitvoer"
+bevat "platform_op: na een verse uitrol: dan gewacht op organization-api" "circuit breaker" "$uitvoer"
 # Dicht op één moment is niet genoeg: de breaker kan een peiling later alsnog opengaan.
-STABIEL_STUBS='sleep() { :; }; organisatie_api_open() { echo x >>"$XDG_CACHE_HOME/peilingen"; n=$(wc -l <"$XDG_CACHE_HOME/peilingen"); [ "$n" != "${FAALT_BIJ:-0}" ]; };'
+# Aangeroepen zoals wacht_tot het doet: daar staat errexit in de functie uit.
+STABIEL_STUBS='sleep() { :; }; authz_worker_gereed() { [ -z "${WORKER_NIET_GEREED:-}" ]; };
+organisatie_api_open() { echo x >>"$XDG_CACHE_HOME/peilingen"; n=$(wc -l <"$XDG_CACHE_HOME/peilingen"); [ "$n" != "${FAALT_BIJ:-0}" ]; };'
+for geval in '0|0|4' '1|1|1' '3|1|3' '4|1|4'; do
+  IFS='|' read -r bij verwacht peilingen <<<"$geval"
+  rm -f "$TESTCACHE/peilingen"
+  code=0
+  uitvoer=$(FAALT_BIJ=$bij in_script "$STABIEL_STUBS if organisatie_api_stabiel; then exit 0; else exit 1; fi") || code=$?
+  gelijk "organisatie_api_stabiel: peiling $bij open (0 = geen): exit $verwacht" "$verwacht" "$code"
+  gelijk "organisatie_api_stabiel: peiling $bij open: $peilingen peiling(en)" "$peilingen" "$(wc -l <"$TESTCACHE/peilingen")"
+done
 rm -f "$TESTCACHE/peilingen"
 code=0
-uitvoer=$(in_script "$STABIEL_STUBS organisatie_api_stabiel") || code=$?
-gelijk "organisatie_api_stabiel: steeds dicht: exit 0" 0 "$code"
-gelijk "organisatie_api_stabiel: vier peilingen" 4 "$(wc -l <"$TESTCACHE/peilingen")"
+uitvoer=$(WORKER_NIET_GEREED=1 in_script "$STABIEL_STUBS if organisatie_api_stabiel; then exit 0; else echo \"\$ORG_API_LAATSTE\"; exit 1; fi") || code=$?
+gelijk "organisatie_api_stabiel: authz-worker niet gereed: exit 1" 1 "$code"
+gelijk "organisatie_api_stabiel: authz-worker niet gereed: geen peiling van organization-api" 0 "$( [ -f "$TESTCACHE/peilingen" ] && wc -l <"$TESTCACHE/peilingen" || echo 0)"
+bevat "organisatie_api_stabiel: authz-worker niet gereed: zegt dat" "authz-worker niet gereed" "$uitvoer"
 rm -f "$TESTCACHE/peilingen"
-code=0
-uitvoer=$(FAALT_BIJ=3 in_script "$STABIEL_STUBS organisatie_api_stabiel") || code=$?
-gelijk "organisatie_api_stabiel: de derde peiling open: exit 1" 1 "$code"
-rm -f "$TESTCACHE/peilingen"
-uitvoer=$(in_script 'sleep() { echo "SLAAP $1"; }; organisatie_api_open() { true; }; organisatie_api_stabiel')
+# Van de pods, niet van de Deployment: die toont na een hervatting nog de stand van vóór de pauze.
+for geval in 'authz-worker-1 - True|0' 'authz-worker-1 - False|1' '|1'; do
+  code=0
+  uitvoer=$(in_script "kcp() { echo \"KCP \$*\" >>\"\$XDG_CACHE_HOME/kcp\"; printf '%s\\n' '${geval%|*}'; }; if authz_worker_gereed; then exit 0; else exit 1; fi") || code=$?
+  gelijk "authz_worker_gereed: '${geval%|*}': exit ${geval#*|}" "${geval#*|}" "$code"
+done
+bevat "authz_worker_gereed: kijkt naar de pods van de worker" "-n fundament get pods -l app.kubernetes.io/name=authz-worker" "$(cat "$TESTCACHE/kcp")"
+rm -f "$TESTCACHE/kcp"
+uitvoer=$(in_script 'sleep() { echo "SLAAP $1"; }; authz_worker_gereed() { true; }; organisatie_api_open() { true; }; organisatie_api_stabiel')
 gelijk "organisatie_api_stabiel: 15 s tussen eerste en laatste peiling" 3 "$(grep -c '^SLAAP 5$' <<<"$uitvoer")"
 OPEN_STUBS='mkcert_caroot() { echo /ca; };'
 for geval in 'unauthenticated|0' 'unavailable|1'; do
@@ -1043,7 +1060,8 @@ gelijk "organisatie_api_open: Envoy zonder backend: exit 1" 1 "$code"
 code=0
 uitvoer=$(in_script "$OPEN_STUBS curl() { echo '{\"code\":\"unauthenticated\"}'; return 7; }; organisatie_api_open") || code=$?
 gelijk "organisatie_api_open: curl faalt: exit 1" 1 "$code"
-uitvoer=$(in_script "$OPEN_STUBS curl() { echo \"CURL \$*\" >&2; echo '{}'; }; organisatie_api_open") || true
+uitvoer=$(in_script "$OPEN_STUBS curl() { echo \"CURL \$*\" >&2; echo '{}'; }; organisatie_api_open || true; echo \"\$ORG_API_LAATSTE\"") || true
+bevat "organisatie_api_open: curl met melding (-sS)" "CURL -sS " "$uitvoer"
 bevat "organisatie_api_open: vraagt organization-api zonder token" "organization.fundament.localhost:8443/organization.v1.OrganizationService/ListOrganizations" "$uitvoer"
 bevat_niet "organisatie_api_open: zonder token" "Authorization" "$uitvoer"
 bevat_niet "organisatie_api_open: zonder token, ook niet uit een bestand" " -H @" "$uitvoer"

@@ -224,27 +224,37 @@ console_antwoordt() {
 # open rij in de authz-outbox, en weigert elk verzoek met unavailable zolang die ouder is dan 5 s.
 # Een verzoek zonder token krijgt bij een dichte breaker unauthenticated.
 organisatie_api_antwoord() {
-  curl -s --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" -X POST \
+  curl -sS --max-time 5 --cacert "$(mkcert_caroot)/rootCA.pem" -X POST \
     https://organization.fundament.localhost:8443/organization.v1.OrganizationService/ListOrganizations \
     -H 'Content-Type: application/json' -d '{}'
 }
 
+# Het laatst geziene antwoord, voor de melding als het wachten opgeeft.
+ORG_API_LAATSTE=""
+
 organisatie_api_open() {
-  local antwoord
-  antwoord=$(organisatie_api_antwoord) || return 1
-  [ "$(connect_code "$antwoord")" = unauthenticated ]
+  ORG_API_LAATSTE=$(organisatie_api_antwoord 2>&1) || return 1
+  [ "$(connect_code "$ORG_API_LAATSTE")" = unauthenticated ]
 }
 
-# Een dichte breaker op één moment zegt na een hervatting niet genoeg: de Deployment is dan al
-# gereed, en zodra de authz-worker OpenFGA bereikt, zet hij mislukte rijen terug op pending met hun
-# oude tijd. Binnen een peiling gaat de breaker dan alsnog open (live gezien: twaalf seconden, en
-# functl org set faalde). Daarom moet hij 15 s dicht blijven, ruim langer dan worker en breaker samen
-# nodig hebben om te reageren.
+# Van de pods, niet van de Deployment: die toont na een hervatting nog de stand van vóór de pauze.
+# De worker wordt pas gereed nadat hij OpenFGA bereikte, vlak voordat hij mislukte outbox-rijen
+# terugzet op pending.
+authz_worker_gereed() {
+  alle_pods_gereed "$(kcp -n fundament get pods -l app.kubernetes.io/name=authz-worker \
+    -o jsonpath='{range .items[*]}{.metadata.name} - {.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null)"
+}
+
+# Een dichte breaker op één moment zegt na een hervatting niet genoeg. Zodra de authz-worker OpenFGA
+# bereikt, zet hij mislukte rijen terug op pending met hun oude tijd, en gaat de breaker binnen een
+# peiling alsnog open. Daarom eerst een gereede worker, en dan vier peilingen over 15 s, waarin
+# worker en breaker samen ruim de tijd hebben om te reageren.
 organisatie_api_stabiel() {
   local poging
 
   for poging in 1 2 3 4; do
     [ "$poging" = 1 ] || sleep 5
+    authz_worker_gereed || { ORG_API_LAATSTE="(authz-worker niet gereed)"; return 1; }
     organisatie_api_open || return 1
   done
 }
@@ -288,7 +298,7 @@ platform_op() {
   wacht_tot 900 "console bereikbaar op https://console.fundament.localhost:8443" console_antwoordt ||
     stop 1 "de console antwoordt niet; zie: $KC_PLATFORM -n fundament get pods"
   wacht_tot 300 "organization-api handelt verzoeken af" organisatie_api_stabiel || {
-    echo "Laatste antwoord van organization-api op een verzoek zonder token: $(organisatie_api_antwoord 2>&1 | head -c 300)" >&2
+    echo "Laatste peiling van organization-api, zonder token: ${ORG_API_LAATSTE:0:300}" >&2
     stop 1 "organization-api handelt geen verzoeken af (een open circuit breaker geeft unavailable); zie: $KC_PLATFORM -n fundament logs deploy/organization-api, en $KC_PLATFORM -n fundament logs deploy/authz-worker"
   }
 

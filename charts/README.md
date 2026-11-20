@@ -259,8 +259,9 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
   `mise.toml`. Het voert hun code en recipes uit, met de rechten van Docker;
 - **het platform** (`k3d-fundament`), alleen uitgerold als Kubernetes meldt dat het er niet is:
   elke uitrol wist zijn databases. Antwoordt de API niet, dan stopt het script. De eerste keer
-  bouwt dit alle images van Fundament. Daarna wacht het tot organization-api verzoeken afhandelt:
-  na een hervatting weigert zijn circuit breaker ze een poos, tot de authz-outbox is bijgewerkt;
+  bouwt dit alle images van Fundament. Daarna wacht het tot de authz-worker gereed is en
+  organization-api 15 s lang verzoeken afhandelt: na een hervatting weigert zijn circuit breaker ze
+  een poos, tot de authz-outbox is bijgewerkt;
 - **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite. Alleen als
   `functl auth status` geen geldige sessie meldt: geen key opgeslagen (zoals na `af`), of een
   verlopen of geweigerde key. Met `FUNCTL_API_KEY` logt het script meteen daarmee in. Kan functl de

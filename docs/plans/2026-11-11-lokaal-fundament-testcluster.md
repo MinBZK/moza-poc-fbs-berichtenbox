@@ -402,28 +402,33 @@ Wat het live draaien opleverde:
   set` met `unavailable: service temporarily unavailable`. De Deployment van organization-api was al
   gereed en authn antwoordde, maar zijn circuit breaker stond twaalf seconden open (log: `circuit
   breaker OPEN` en `CLOSED`). Die breaker zit vóór de authenticatie, peilt om de 2 s de oudste open
-  rij in de authz-outbox, en opent als die ouder is dan 5 s; de authz-worker wachtte nog op OpenFGA.
-  De breaker bestond al op `e18ad710`; dat deze stap toen groen was, was timing. `platform_op` wacht
-  nu tot een verzoek zonder token 15 s lang `unauthenticated` krijgt: één dichte peiling is niet
-  genoeg, want zodra de worker OpenFGA bereikt, zet hij mislukte rijen terug op pending met hun oude
-  tijd, en gaat de breaker alsnog open. Na een uitrol geldt dezelfde wachtstap, voor CreateAPIKey.
+  rij in de authz-outbox, en weigert alles zolang die ouder is dan 5 s. Na een hervatting kan dat
+  twee keer gebeuren: zolang de authz-worker OpenFGA nog niet bereikt en er rijen open staan, en
+  zodra hij het bereikt, omdat hij dan mislukte rijen met hun oude tijd terugzet op pending. De
+  breaker bestond al op `e18ad710`; dat deze stap toen groen was, was timing. `platform_op` wacht nu
+  tot de pods van de authz-worker gereed zijn (van de pods, want de Deployment toont na een
+  hervatting nog de stand van vóór de pauze) en een verzoek zonder token `unauthenticated` krijgt,
+  vier peilingen achter elkaar over 15 s. Een eerste versie peilde één keer; de review wees erop dat
+  de breaker daarna alsnog open kan gaan. Na een uitrol geldt dezelfde wachtstap, voor CreateAPIKey.
 - **`api_key_maken` meldt de oorzaak.** Zonder opgeslagen key vraagt `functl auth status` het
   platform niets, dus `api_key_maken` is dan de eerste aanroep die merkt dat het niet antwoordt.
   curl draait nu met `-sS` en tijdslimiet, en toont het foutantwoord van authn, maar nooit een
   antwoord waarin `access_token` staat, ook niet als het is afgekapt.
 
-Review: drie rondes, met een codereview (samen met de foutafhandeling), een review van de tests en
+Review: vier rondes, met een codereview (samen met de foutafhandeling), een review van de tests en
 van het commentaar. Geen hoge bevindingen. Middelzwaar en opgelost: `api_key_maken` verzweeg waarom
 het platform niet antwoordde; `FUNDAMENT_ORGANIZATION_ID` stond in de `unset` maar wordt door functl
-niet gelezen; de reden voor de DNS-toets in `controleer` ging uit van pods die uit hun cache draaien,
-terwijl de chart `pullPolicy: Always` zet; en de eerste wachtstap op organization-api was een
-momentopname. Van de lage punten zijn de goedkope opgelost: de README noemt de map van de worktree
-in de blokken (getoetst tegen `FUNDAMENT_REF`), herstart en netwerkwissel staan in één alinea,
-meldingen bij een mislukte login of een onbekend antwoord noemen de echte oorzaak, en tests die ook
-met kapotte code slaagden zijn scherper. Bewust gelaten, omdat ze er al vóór deze ophoging waren:
-een sessie die halverwege `op` verloopt, de status van een niet-JSON-antwoord van CreateAPIKey, en
-de DNS-melding als `docker` een andere daemon ziet dan kubectl. Elke nieuwe test is met een mutatie
-van het script rood gezien.
+niet gelezen; de reden voor de DNS-toets in `controleer` ging uit van pods die uit hun cache
+draaien, terwijl de chart `pullPolicy: Always` zet; en de eerste wachtstap op organization-api was
+een momentopname, en daarna nog zonder een gereede authz-worker te eisen. De tests van die wachtstap
+draaiden eerst met errexit aan, terwijl het script hem in `wacht_tot` aanroept, waar errexit uit
+staat; ze slaagden daardoor ook zonder `|| return 1`. Van de lage punten zijn de goedkope opgelost:
+de README noemt de map van de worktree in de blokken (getoetst tegen `FUNDAMENT_REF`), herstart en
+netwerkwissel staan in één alinea, meldingen bij een mislukte login of een onbekend antwoord noemen
+de echte oorzaak, en tests die ook met kapotte code slaagden zijn scherper. Bewust gelaten, omdat ze
+er al vóór deze ophoging waren: een sessie die halverwege `op` verloopt, de status van een
+niet-JSON-antwoord van CreateAPIKey, en de DNS-melding als `docker` een andere daemon ziet dan
+kubectl. Elke nieuwe test is met een mutatie van het script rood gezien.
 
 Live, met images `main-ae73d9d`:
 
@@ -431,7 +436,7 @@ Live, met images `main-ae73d9d`:
 |---|---|
 | `af --met-platform` met het nieuwe script op een opstelling van `e18ad710` | gelukt; daarna de oude worktree weg met het commando uit de README |
 | Vanaf nul, beide rollen | groen in 16 minuten; functl via `not_logged_in` en een nieuwe key |
-| Gepauzeerd met `k3d cluster stop`, dan `op --rol beheerder` | eerst rood (`org set`, breaker open); na de wachtstap groen in 3,5 minuten, via "al ingelogd" |
+| Gepauzeerd met `k3d cluster stop`, dan `op --rol beheerder` | zonder wachtstap rood (`org set`, breaker twaalf seconden open); met de wachtstap groen, via "al ingelogd". In de laatste run stond de breaker acht seconden open en wachtte `op` dat uit |
 | `af`, dan `op --rol beheerder` | groen in 5,5 minuten; nieuwe key, plug-ins uit de catalogus |
 | Poorten | alles op loopback; de relays zonder hostpoort |
 | `~/.kube/config` | sha256 voor en na gelijk |
