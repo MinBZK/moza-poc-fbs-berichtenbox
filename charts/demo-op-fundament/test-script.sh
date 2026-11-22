@@ -224,6 +224,7 @@ echo "dienst: {}" >"$WERKMAP/extra/berichtenuitvraag.yaml"
 draai installeren "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; installeren"
 gelijk "installeren: in orde" 0 "$CODE"
 gelijk "vijf releases" 5 "$(grep -c '^hm upgrade --install' <<<"$LOG")"
+bevat "fbs-demo: de poort van de Gateway, standaard 443" "--set httpsPoort=443" "$(grep '^hm upgrade --install fbs-demo ' <<<"$LOG")"
 uitvraag=$(grep '^hm upgrade --install berichtenuitvraag ' <<<"$LOG")
 bevat "uitvraag: extra values als laatste" "-f charts/fbs-demo/stelsel/berichtenuitvraag.yaml -f $WERKMAP/extra/berichtenuitvraag.yaml" \
   "${uitvraag//$CHARTS_PAD\//charts/}"
@@ -243,6 +244,9 @@ bevat_niet "magazijn A: geen extra values van de uitvraag" "extra/" "$magazijn"
 gelijk "precies één extra values-bestand" 1 "$(grep -o "$WERKMAP/extra/[a-z-]*.yaml" <<<"$LOG" | wc -l)"
 bevat "register herstart na de installatie" "rollout restart deployment/berichtenuitvraag deployment/stelselregister" "$LOG"
 bevat "register uit een kopie, niet uit demo/generated" "magazijnenregister=$WERKMAP/installeren/repo/demo/generated/" "$LOG"
+
+draai installeren-poort "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; HTTPS_POORT=9443; PROEFTUIN=p@sha256:0; installeren"
+bevat "fbs-demo: een andere poort gaat naar de chart" "--set httpsPoort=9443" "$(grep '^hm upgrade --install fbs-demo ' <<<"$LOG")"
 
 draai installeren-faalt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; hm() { echo \"hm \$*\" >>\"\$LOG\"; case \"\$*\" in *'install berichtenmagazijn-b '*) return 1 ;; esac; }; installeren"
 gelijk "magazijn B faalt: exit 1" 1 "$CODE"

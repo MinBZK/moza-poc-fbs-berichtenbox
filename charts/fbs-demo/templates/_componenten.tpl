@@ -32,7 +32,7 @@ Alles draait met één replica: het paneel, de simulator en Toxiproxy houden toe
 {{- $notificatie := include "fbs-demo.naam" (dict "context" . "onderdeel" "notificatie") -}}
 {{- $toxiproxy := include "fbs-demo.naam" (dict "context" . "onderdeel" "toxiproxy") -}}
 {{- $redis := include "fbs-demo.naam" (dict "context" . "onderdeel" "redis") -}}
-{{- $demoHost := include "fbs-demo.host" (dict "context" . "onderdeel" "demo") -}}
+{{- $demoOrigin := include "fbs-demo.origin" (dict "context" . "onderdeel" "demo") -}}
 {{- $uitvraagFqdn := include "fbs-demo.fqdn" (dict "context" . "naam" $s.uitvraag) -}}
 {{- $personasFqdn := include "fbs-demo.fqdn" (dict "context" . "naam" $personas) -}}
 {{- $dbCa := "/etc/fbs/db-ca/ca.crt" -}}
@@ -57,8 +57,8 @@ console:
   env:
     {{- include "fbs-demo.dbEnv" . | nindent 4 }}
     # Wat de browser ziet: de demo-proxy zet paneel, berichtenbox en uitvraag achter één origin.
-    - {name: UITVRAAG_BASIS, value: "https://{{ $demoHost }}/api/v1"}
-    - {name: BERICHTENBOX_URL, value: "https://{{ $demoHost }}/moza/berichtenbox/"}
+    - {name: UITVRAAG_BASIS, value: "{{ $demoOrigin }}/api/v1"}
+    - {name: BERICHTENBOX_URL, value: "{{ $demoOrigin }}/moza/berichtenbox/"}
     - {name: UITVRAAG_URL, value: "http://{{ $s.uitvraag }}:{{ $s.servicePoort }}"}
     - {name: MAGAZIJN_A_URL, value: "http://{{ $s.magazijnA }}:{{ $s.servicePoort }}"}
     - {name: MAGAZIJN_B_URL, value: "http://{{ $s.magazijnB }}:{{ $s.servicePoort }}"}

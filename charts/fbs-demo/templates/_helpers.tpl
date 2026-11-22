@@ -12,6 +12,12 @@ SPDX-License-Identifier: EUPL-1.2
 {{- printf "%s.%s" .onderdeel .context.Values.basisdomein -}}
 {{- end -}}
 
+{{- /* Het adres van een onderdeel zoals de browser het ziet, met de poort alleen als die niet 443 is. */}}
+{{- define "fbs-demo.origin" -}}
+{{- $poort := int .context.Values.httpsPoort -}}
+https://{{ include "fbs-demo.host" . }}{{ if ne $poort 443 }}:{{ $poort }}{{ end }}
+{{- end -}}
+
 {{- /* Een Service in deze namespace bij zijn volledige naam: nginx zoekt namen op zonder de
      zoekdomeinen uit resolv.conf. */}}
 {{- define "fbs-demo.fqdn" -}}

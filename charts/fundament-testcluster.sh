@@ -1031,6 +1031,14 @@ demo() {
     hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null
   fi
 
+  # Na een ronde als projectlid staan de routes er los van Helm, ook die van het oude magazijn;
+  # die bleef anders als wees achter.
+  local dienst
+
+  for dienst in "${DIENSTEN[@]}"; do
+    losse_route_weg "$dienst"
+  done
+
   kc -n "$NS" delete secret gateway-ca --ignore-not-found >/dev/null
   kc -n "$NS" create secret generic gateway-ca --from-file=jssecacerts="$WERK/jssecacerts" >/dev/null
   echo "OK: de lokale CA staat in jssecacerts voor $java_home"

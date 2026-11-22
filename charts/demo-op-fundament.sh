@@ -16,7 +16,9 @@
 #   ISSUER          een Issuer in de namespace; dan maakt het script het Certificate GATEWAY_SECRET
 #   GATEWAY_SECRET  het Secret van het certificaat op de listener (web-tls)
 #   PROEFTUIN       de berichtenbox; standaard de pin uit compose.yaml
-#   GATEWAY_ADRES, HTTPS_POORT, CA_BESTAND
+#   HTTPS_POORT     de poort van de Gateway voor de browser, standaard 443: voor de adressen die het
+#                   paneel de browser geeft, en voor de controle
+#   GATEWAY_ADRES, CA_BESTAND
 #                   voor de controle als het basisdomein niet naar de Gateway wijst (de sandbox)
 #   EXTRA_VALUES    een map met <release>.yaml, als laatste values-bestand per release
 #
@@ -315,7 +317,7 @@ installeren() {
   stap "fbs-demo"
   mapfile -t args < <(extra fbs-demo)
   hm upgrade --install fbs-demo "$CHARTS/fbs-demo" --wait --timeout 10m \
-    --set "basisdomein=$BASISDOMEIN" --set "cluster.gateway.name=$GATEWAY" \
+    --set "basisdomein=$BASISDOMEIN" --set "httpsPoort=$HTTPS_POORT" --set "cluster.gateway.name=$GATEWAY" \
     --set "images.tag=$TAG" --set "images.proeftuin=$proeftuin" \
     --set-file "magazijnenregister=$REGISTER" --set-file "simulatorSet=$SIMULATOR_SET" "${args[@]}" >/dev/null ||
     stop 1 "installeren van fbs-demo faalde; zie: kubectl --context $KUBE_CONTEXT -n $NS get pods -l app.kubernetes.io/instance=fbs-demo"

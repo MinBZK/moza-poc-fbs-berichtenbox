@@ -11,6 +11,10 @@ commonLabels:
 # demo.fbs.1-2-3-4.sslip.io. Dezelfde waarde gaat als demo.basisdomein naar de stelseldiensten.
 basisdomein: ""
 
+# De poort waarop de browser de Gateway bereikt, voor de adressen die het paneel aan de browser
+# geeft. Bij 443 blijft hij uit die adressen weg; een lokaal cluster luistert vaak op een andere.
+httpsPoort: 443
+
 # Voor de volledige namen die nginx opzoekt: zijn resolver kent geen zoekdomeinen.
 clusterDomain: cluster.local
 
