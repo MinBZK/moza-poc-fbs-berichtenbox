@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.democonsole.personas
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.runtime.Startup
 import io.quarkus.test.common.http.TestHTTPResource
@@ -109,9 +110,9 @@ class PersonaConfiguratieTest {
     }
 
     @Test
-    fun `levert de keuzelijst mee in de omgeving, met de bron in kleine letters`() {
+    fun `levert de keuzelijst mee in de omgeving, zonder identificatienummers`() {
         // Via /api/demo/omgeving: het personas-adres hoort bij de personadienst, en deze module
-        // beantwoordt het bewust niet. De twee pagina's die zij wél serveert lezen de lijst hier.
+        // beantwoordt het bewust niet. Het paneel leest de lijst hier.
         val respons = HttpClient.newHttpClient().send(
             HttpRequest.newBuilder(omgevingUrl.toURI()).GET().build(),
             HttpResponse.BodyHandlers.ofString(),
@@ -121,12 +122,24 @@ class PersonaConfiguratieTest {
         assertTrue(respons.headers().firstValue("content-type").orElse("").startsWith("application/json"))
 
         val geleverd = ObjectMapper().readTree(respons.body()).path("personas").map {
-            listOf(it.path("id").asText(), it.path("label").asText(), it.path("ontvanger").asText(), it.path("bron").asText())
+            listOf(it.path("id").asText(), it.path("label").asText())
         }
 
-        assertEquals(
-            personaService.alle().map { listOf(it.id, it.label, it.ontvanger, it.bron.name.lowercase()) },
-            geleverd,
-        )
+        assertEquals(personaService.alle().map { listOf(it.id, it.label) }, geleverd)
+
+        // Elke waarde in het antwoord en niet alleen de bekende velden: een nummer dat onder een andere
+        // naam terugkomt, telt net zo goed. Alleen de cijfers per waarde, zodat `999-993-653` ook
+        // telt; per waarde en niet over de hele tekst, anders plakken cijfers van buren aan elkaar.
+        val waarden = mutableListOf<String>()
+
+        fun verzamel(knoop: JsonNode) {
+            if (knoop.isValueNode) waarden += knoop.asText().filter(Char::isDigit) else knoop.forEach(::verzamel)
+        }
+
+        verzamel(ObjectMapper().readTree(respons.body()))
+
+        val gelekt = personaService.alle().map { it.waarde }.filter { nummer -> waarden.any { it.contains(nummer) } }
+
+        assertEquals(emptyList<String>(), gelekt, "het omgevingsantwoord draagt identificatienummers")
     }
 }

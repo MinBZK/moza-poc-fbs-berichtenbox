@@ -20,12 +20,8 @@ object PaneelBestanden {
 
     const val STIJL_PAD = "$RESOURCES_PAD/bediening.css"
 
-    /** Het gedeelde herstel van de inlogsessie; zowel het paneel als de berichtenbox laadt dit. */
+    /** Het herstel van de inlogsessie; elke pagina van dit component laadt het als eerste script. */
     const val INLOGMUUR_PAD = "$RESOURCES_PAD/inlogmuur.js"
-
-    const val BOX_PAGINA_PAD = "$RESOURCES_PAD/berichtenbox.html"
-
-    const val BOX_SCRIPT_PAD = "$RESOURCES_PAD/berichtenbox.js"
 
     const val LEESMIJ_PAD = "README.md"
 
@@ -36,10 +32,6 @@ object PaneelBestanden {
     fun stijl(): String = File(STIJL_PAD).readText()
 
     fun inlogmuur(): String = File(INLOGMUUR_PAD).readText()
-
-    fun boxPagina(): String = File(BOX_PAGINA_PAD).readText()
-
-    fun boxScript(): String = File(BOX_SCRIPT_PAD).readText()
 
     fun leesmij(): String = File(LEESMIJ_PAD).readText()
 }

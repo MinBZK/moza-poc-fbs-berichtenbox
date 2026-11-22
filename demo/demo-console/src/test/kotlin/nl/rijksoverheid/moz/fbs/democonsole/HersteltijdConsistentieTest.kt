@@ -14,7 +14,7 @@ import java.util.Properties
  * Faalscenario zonder deze test: iemand zet `open-seconds` op 120 — één regel in een andere service.
  * Het paneel blijft dan na élke reset, elk herstel en elk legen melden dat wachten volstaat en dat
  * het een halve minuut duurt. De demonstrateur wacht dertig seconden, ziet de organisatie nog steeds
- * als "tijdelijk niet beschikbaar", en gaat zoeken naar een magazijn dat niet stuk is — precies wat
+ * als niet geleverd, en gaat zoeken naar een magazijn dat niet stuk is — precies wat
  * deze melding moet voorkomen.
  *
  * De tekst wordt bewust niet uit die configuratie opgebouwd: dat maakt een user-facing zin

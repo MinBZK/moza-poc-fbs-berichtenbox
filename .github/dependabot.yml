@@ -52,7 +52,11 @@ updates:
   # repo zijn op commit-SHA gepind (supply-chain-eis). Ook hier is de version-update
   # dus het enige kanaal; de groepering hieronder houdt het bij hooguit twee PR's.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # "/" dekt alleen .github/workflows; een lokale composite action pint zijn eigen actions en
+    # zou zonder de tweede regel nooit een bump krijgen.
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "daily"
     groups:
