@@ -302,11 +302,26 @@ route_pad_open(pad) if {
 
 route_pad_open(pad) if startswith(pad.value, "/q/")
 
+# Een route naar een backend die zelf geen /q heeft, zoals de nginx van de demo (charts/fbs-demo),
+# mag PathPrefix / doorlaten. De annotatie noemt de reden, zodat hij in review zichtbaar is; leeg
+# telt niet. Alleen /: /q en de paden eronder blijven geweigerd.
+backend_zonder_q if {
+	reden := object.get(input.metadata, ["annotations", "fbs.minbzk.nl/backend-zonder-q"], "")
+	is_string(reden)
+	trim_space(reden) != ""
+}
+
+route_uitzondering(pad) if {
+	pad.value == "/"
+	backend_zonder_q
+}
+
 deny contains msg if {
 	input.kind == "HTTPRoute"
 	some regel in input.spec.rules
 	some match in regel.matches
 	route_pad_open(match.path)
+	not route_uitzondering(match.path)
 	msg := sprintf("HTTPRoute '%s' zet %s open; /q hoort binnen het cluster", [input.metadata.name, match.path.value])
 }
 

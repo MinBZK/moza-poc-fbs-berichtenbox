@@ -1,0 +1,225 @@
+{{- /*
+SPDX-License-Identifier: EUPL-1.2
+
+Per onderdeel uit _componenten.tpl: ServiceAccount, Deployment, Service, PodDisruptionBudget en
+NetworkPolicy. De standaarden zijn die van fbs-dienst: vaste non-root UID, read-only
+root-filesystem, geen capabilities, seccomp RuntimeDefault, geen service-account-token.
+*/}}
+{{- $onderdelen := include "fbs-demo.componenten" . | fromYaml }}
+{{- range $onderdeel := keys $onderdelen | sortAlpha }}
+{{- $o := get $onderdelen $onderdeel }}
+{{- $ctx := dict "context" $ "onderdeel" $onderdeel }}
+{{- $naam := include "fbs-demo.naam" $ctx }}
+{{- $eerste := index $o.poorten 0 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $naam }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "fbs-demo.labels" $ctx | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $naam }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "fbs-demo.labels" $ctx | nindent 4 }}
+spec:
+  replicas: 1
+  # Nooit twee tegelijk, ook niet tijdens een uitrol: zie _componenten.tpl.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "fbs-demo.selector" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "fbs-demo.labels" $ctx | nindent 8 }}
+        {{- range $o.roeptAan }}
+        {{ include "fbs-demo.clientlabel" . }}: "true"
+        {{- end }}
+      {{- $configMaps := list }}
+      {{- range $o.mounts }}{{ if .configMap }}{{ $configMaps = append $configMaps .configMap }}{{ end }}{{ end }}
+      {{- if $configMaps }}
+      annotations:
+        # Een nieuwe config start de pod opnieuw: hij wordt alleen bij het starten gelezen.
+        checksum/config: {{ include "fbs-demo.configmaps" $ | sha256sum }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $naam }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: {{ $o.uid }}
+        runAsGroup: {{ $o.uid }}
+        runAsNonRoot: true
+        fsGroup: {{ $o.uid }}
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $onderdeel }}
+          image: {{ $o.image }}
+          imagePullPolicy: Always
+          securityContext:
+            runAsUser: {{ $o.uid }}
+            runAsGroup: {{ $o.uid }}
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            {{- range $o.poorten }}
+            - name: {{ .naam }}
+              containerPort: {{ .poort }}
+              protocol: TCP
+            {{- end }}
+          {{- with $o.env }}
+          env: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "fbs-demo.probes" (dict "probe" $o.probe "poort" $eerste.naam) | trim | nindent 10 }}
+          resources: {{- toYaml (get $.Values.resources $onderdeel) | nindent 12 }}
+          {{- if or $o.schrijfbaar $o.mounts }}
+          volumeMounts:
+            {{- range $i, $pad := $o.schrijfbaar }}
+            - name: schrijfbaar-{{ $i }}
+              mountPath: {{ $pad }}
+            {{- end }}
+            {{- range $o.mounts }}
+            - name: {{ .naam }}
+              mountPath: {{ .pad }}
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or $o.schrijfbaar $o.mounts }}
+      volumes:
+        {{- range $i, $pad := $o.schrijfbaar }}
+        - name: schrijfbaar-{{ $i }}
+          emptyDir:
+            sizeLimit: 256Mi
+        {{- end }}
+        {{- range $o.mounts }}
+        - name: {{ .naam }}
+          {{- if .secret }}
+          secret:
+            secretName: {{ .secret }}
+          {{- else }}
+          configMap:
+            name: {{ .configMap }}
+          {{- end }}
+            items:
+              - key: {{ .key }}
+                path: {{ .bestand }}
+        {{- end }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $naam }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "fbs-demo.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "fbs-demo.selector" $ctx | nindent 4 }}
+  ports:
+    {{- range $o.poorten }}
+    - name: {{ .naam }}
+      port: {{ .poort }}
+      targetPort: {{ .naam }}
+      protocol: TCP
+    {{- end }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $naam }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "fbs-demo.labels" $ctx | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {{- include "fbs-demo.selector" $ctx | nindent 6 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $naam }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "fbs-demo.labels" $ctx | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "fbs-demo.selector" $ctx | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    {{- range $o.inkomend }}
+    - from:
+        {{- if .gateway }}
+        - namespaceSelector:
+            matchLabels: {{- toYaml $.Values.gatewayProxy.namespaceMatchLabels | nindent 14 }}
+          podSelector:
+            matchLabels: {{- tpl (toYaml $.Values.gatewayProxy.podMatchLabels) $ | nindent 14 }}
+        {{- else }}
+        - podSelector:
+            matchLabels:
+              {{ include "fbs-demo.clientlabel" .label }}: "true"
+        {{- end }}
+      ports:
+        {{- range .poorten }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+  egress:
+    - ports:
+        {{- range $.Values.dnsPorts }}
+        - port: {{ . }}
+          protocol: UDP
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- with $o.uitgaand }}
+    - ports:
+        {{- range . }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+{{- end }}
+
+{{- define "fbs-demo.probes" -}}
+{{- if eq (toString .probe) "quarkus" -}}
+livenessProbe:
+  httpGet: {path: /q/health/live, port: {{ .poort }}}
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+readinessProbe:
+  httpGet: {path: /q/health/ready, port: {{ .poort }}}
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+# Ruim: de simulator draait Flyway-migraties vóór hij zich gestart meldt.
+startupProbe:
+  httpGet: {path: /q/health/started, port: {{ .poort }}}
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+{{- else -}}
+{{- $poort := default .poort .probe.poort -}}
+{{- $actie := ternary (dict "tcpSocket" (dict "port" .probe.tcp)) (dict "httpGet" (dict "path" .probe.http "port" $poort)) (hasKey .probe "tcp") -}}
+{{- range $soort := list "livenessProbe" "readinessProbe" "startupProbe" }}
+{{ $soort }}:
+  {{- toYaml $actie | nindent 2 }}
+  periodSeconds: {{ ternary 5 10 (eq $soort "startupProbe") }}
+  timeoutSeconds: 3
+  failureThreshold: {{ ternary 24 3 (eq $soort "startupProbe") }}
+{{- end }}
+{{- end -}}
+{{- end -}}

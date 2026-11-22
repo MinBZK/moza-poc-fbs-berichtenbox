@@ -1,0 +1,84 @@
+{{- /*
+SPDX-License-Identifier: EUPL-1.2
+
+De routes van de demo, elk op <naam>.<basisdomein> en aan één benoemde listener.
+- demo: de demo-proxy, voor de browser.
+- simulator: de uitvraag spreekt de gesimuleerde magazijnen over https aan. Alleen de methoden die
+  de uitvraag gebruikt (lezen, status wijzigen, verwijderen): aanleveren (POST) en /beheer blijven
+  binnen het cluster.
+- profiel: de stub rechtstreeks, voor de magazijnen.
+- toxiproxy-profiel: de stub via Toxiproxy, voor de uitvraag.
+- notificatie, aanmelding: via Toxiproxy, voor de magazijnen.
+Via Toxiproxy raakt een storingsknop ook dit verkeer. Buiten het profiel dev eisen uitvraag en
+magazijn https; het magazijn ook een publiek adres.
+Uitvraag, magazijnen en stelselregister krijgen hun route van fbs-dienst (stelsel/).
+*/}}
+{{- $toxiproxy := include "fbs-demo.naam" (dict "context" . "onderdeel" "toxiproxy") }}
+{{- $profiel := include "fbs-demo.naam" (dict "context" . "onderdeel" "profiel") }}
+{{- $routes := list
+  (dict "naam" "demo" "backend" (include "fbs-demo.naam" (dict "context" . "onderdeel" "demo-proxy")) "poort" 8080 "pad" "/"
+        "streams" (list "/api/v1/berichten/_ophalen" "/api/v1/berichten/_volgen") "timeout" "5m"
+        "zonderQ" "de demo-proxy (nginx) heeft geen /q; die van het paneel staat onder /bediening/, achter een wachtwoord")
+  (dict "naam" "simulator" "backend" (include "fbs-demo.naam" (dict "context" . "onderdeel" "simulator")) "poort" 8092 "pad" "/magazijn/"
+        "methoden" (list "GET" "PATCH" "DELETE") "timeout" "5m")
+  (dict "naam" "profiel" "backend" $profiel "poort" 8080 "pad" "/api/profielservice" "timeout" "1m")
+  (dict "naam" "toxiproxy-profiel" "backend" $toxiproxy "poort" 18089 "pad" "/api/profielservice" "timeout" "1m")
+  (dict "naam" "notificatie" "backend" $toxiproxy "poort" 18084 "pad" "/events" "timeout" "1m")
+  (dict "naam" "aanmelding" "backend" $toxiproxy "poort" 18086 "pad" "/api/v1/aanmeldingen" "timeout" "1m")
+}}
+{{- $gw := .Values.cluster.gateway }}
+{{- range $routes }}
+{{- $ctx := dict "context" $ "onderdeel" .naam }}
+{{- $route := . }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "fbs-demo.naam" $ctx }}
+  namespace: {{ $.Release.Namespace | quote }}
+  labels: {{- include "fbs-demo.labels" $ctx | nindent 4 }}
+  {{- with .zonderQ }}
+  annotations:
+    # De berichtenbox gebruikt paden vanaf /; de beleidsregel tegen een open /q laat dat alleen
+    # met een reden toe.
+    fbs.minbzk.nl/backend-zonder-q: {{ . | quote }}
+  {{- end }}
+spec:
+  parentRefs:
+    - name: {{ $gw.name }}
+      {{- with $gw.namespace }}
+      namespace: {{ . }}
+      {{- end }}
+      sectionName: {{ $gw.sectionName }}
+  hostnames:
+    - {{ include "fbs-demo.host" $ctx | quote }}
+  rules:
+    - matches:
+        {{- range (default (list "") .methoden) }}
+        - path:
+            type: PathPrefix
+            value: {{ $route.pad | quote }}
+          {{- with . }}
+          method: {{ . }}
+          {{- end }}
+        {{- end }}
+      timeouts:
+        request: {{ .timeout }}
+      backendRefs:
+        - name: {{ .backend }}
+          port: {{ .poort }}
+    {{- with .streams }}
+    - matches:
+        {{- range . }}
+        - path:
+            type: Exact
+            value: {{ . | quote }}
+        {{- end }}
+      timeouts:
+        # 0s: geen grens. Een stream eindigt aan de kant van de uitvraag.
+        request: 0s
+      backendRefs:
+        - name: {{ $route.backend }}
+          port: {{ $route.poort }}
+    {{- end }}
+{{- end }}

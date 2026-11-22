@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: EUPL-1.2
+#
+# Het stelselregister in de demo, als release `stelselregister` van charts/fbs-dienst, na
+# diensten/stelselregister.yaml. Mee te geven: --set demo.basisdomein=<basisdomein van fbs-demo>,
+# --set ingress.hostname=stelselregister.<basisdomein> en de image-tag. Het Secret
+# stelselregister-keystore en stelselregister-geheimen (STELSELDOCUMENT_KEYSTORE_WACHTWOORD) bestaan
+# al; maak de sleutel met demo/environment/stelselregister/pki/maak-keten.sh, alleen voor dit
+# cluster.
+
+demo:
+  basisdomein: ""
+
+dienst:
+  extraEnvVarsSecret: stelselregister-geheimen
+  env:
+    STELSELDOCUMENT_UITGEVER_OIN: "00000000000000001000"
+    STELSELDOCUMENT_OMGEVING: demo
+    # Het document noemt de adressen van de magazijnen zoals afnemers ze zien.
+    MAGAZIJN_A_URL: 'https://berichtenmagazijn-a.{{ required "demo.basisdomein is verplicht" .Values.demo.basisdomein }}'
+    MAGAZIJN_B_URL: 'https://berichtenmagazijn-b.{{ .Values.demo.basisdomein }}'
+    MAGAZIJN_SIMULATOR_URL: 'https://simulator.{{ .Values.demo.basisdomein }}'
+  extraVolumes:
+    - name: magazijnenregister
+      configMap:
+        name: fbs-demo-magazijnenregister
+  extraVolumeMounts:
+    - name: magazijnenregister
+      mountPath: /home/jboss/config
+      readOnly: true
+
+ingress:
+  enabled: true

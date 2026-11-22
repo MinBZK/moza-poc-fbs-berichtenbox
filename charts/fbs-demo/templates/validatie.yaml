@@ -1,0 +1,48 @@
+{{- /*
+SPDX-License-Identifier: EUPL-1.2
+
+Faalt de render bij values waarmee de demo in het cluster niet kan werken. Een fout bij
+`helm template` komt vóór de uitrol boven; een fout in het cluster pas als een pod niet start of
+een knop niets doet.
+*/}}
+{{- $fouten := list }}
+{{- $v := .Values }}
+{{- if not $v.basisdomein }}
+{{- $fouten = append $fouten "basisdomein is verplicht, bijvoorbeeld fbs.1-2-3-4.sslip.io: elke route krijgt <naam>.<basisdomein>" }}
+{{- else if not (regexMatch "^([a-z0-9]([-a-z0-9]*[a-z0-9])?\\.)+[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $v.basisdomein) }}
+{{- $fouten = append $fouten (printf "basisdomein %q is geen DNS-naam in kleine letters" $v.basisdomein) }}
+{{- end }}
+{{- if not $v.cluster.gateway.name }}
+{{- $fouten = append $fouten "cluster.gateway.name is verplicht: de routes hangen eraan, en de NetworkPolicy laat zijn proxy's binnen" }}
+{{- end }}
+{{- if not $v.cluster.gateway.sectionName }}
+{{- $fouten = append $fouten "cluster.gateway.sectionName is verplicht: zonder hangt een route ook aan een listener zonder TLS" }}
+{{- end }}
+{{- if not $v.images.tag }}
+{{- $fouten = append $fouten "images.tag is verplicht: dezelfde tag als de stelseldiensten, main-<sha7> of pr-<n>-<sha7>" }}
+{{- else if not (regexMatch "^(main|pr-[0-9]+)-[0-9a-f]{7}(-[rk][0-9]+)*$" (toString $v.images.tag)) }}
+{{- $fouten = append $fouten (printf "images.tag %q is geen main-<sha7> of pr-<n>-<sha7> (eventueel met -r<n>/-k<n>): een meebewegende tag laat een herinstallatie stil een ander image draaien" (toString $v.images.tag)) }}
+{{- end }}
+{{- range $naam := list "proeftuin" "nginx" "toxiproxy" "redis" }}
+{{- $ref := toString (get $v.images $naam) }}
+{{- if not (regexMatch "@sha256:[0-9a-f]{64}$" $ref) }}
+{{- $fouten = append $fouten (printf "images.%s %q staat niet op digest; neem voor de proeftuin de regel uit compose.yaml" $naam $ref) }}
+{{- end }}
+{{- end }}
+{{- if not (regexMatch "(?m)^magazijnen\\." (toString $v.magazijnenregister)) }}
+{{- $fouten = append $fouten "magazijnenregister is leeg of bevat geen magazijnen: geef demo/generated/magazijnen-register.properties mee met --set-file" }}
+{{- end }}
+{{- if not (regexMatch "(?m)^magazijnsimulator\\.magazijnen\\." (toString $v.simulatorSet)) }}
+{{- $fouten = append $fouten "simulatorSet is leeg of bevat geen magazijnen: geef demo/generated/magazijn-simulator.properties mee met --set-file" }}
+{{- end }}
+{{- /* Een poortnaam of andere tekst in plaats van een nummer laat de NetworkPolicy stil iets
+     anders doorlaten dan de bedoeling. */}}
+{{- range $sleutel := list "servicePoort" "uitvraagPoort" "magazijnPoort" }}
+{{- $poort := get $v.stelsel $sleutel }}
+{{- if not (or (kindIs "float64" $poort) (kindIs "int64" $poort) (kindIs "int" $poort)) }}
+{{- $fouten = append $fouten (printf "stelsel.%s is geen poortnummer" $sleutel) }}
+{{- end }}
+{{- end }}
+{{- if $fouten }}
+{{- fail (printf "\nVALUES ONGELDIG:\n- %s" (join "\n- " $fouten)) }}
+{{- end }}
