@@ -475,9 +475,11 @@ jobs:
           # wordt; komt hij uit de toolcache van de runner, dan valt er niets te verifiëren.
           verify-signature: true
           java-version: '21'
-          # Cache de Maven-dependency-tree tussen runs; elke PR-push bouwt anders de
-          # volledige boom opnieuw (~/.m2 redownload) — onnodig netwerk/energie/CI-tijd.
-          cache: maven
+      # Cache de Maven-dependency-tree tussen runs; elke PR-push bouwt anders de
+      # volledige boom opnieuw (~/.m2 redownload) — onnodig netwerk/energie/CI-tijd.
+      - uses: ./.github/actions/maven-cache
+        with:
+          scope: build-${{ matrix.service }}
       - name: Build + push image (jib)
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         # Het GHCR-token gaat via de MicroProfile-env-vorm QUARKUS_CONTAINER_IMAGE_PASSWORD
@@ -710,7 +712,9 @@ jobs:
           distribution: temurin
           verify-signature: true
           java-version: '21'
-          cache: maven
+      - uses: ./.github/actions/maven-cache
+        with:
+          scope: build-demo-images
       - name: Build + push image (jib)
         env:
           GROUP: ${{ needs.meta.outputs.owner }}

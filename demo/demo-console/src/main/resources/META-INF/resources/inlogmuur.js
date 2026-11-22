@@ -2,10 +2,7 @@
  * oauth2-proxy: die beantwoordt een aanvraag zónder sessie met HTTP 403 en de inlogpagina als
  * HTML — geen 302. Een fetch() ziet dus een gewone mislukking met een body die geen JSON is, en
  * elke pagina hier zou dat als een storing in de keten tonen terwijl er alleen opnieuw ingelogd
- * moet worden.
- *
- * Gedeeld door het paneel en de berichtenbox-pagina, want beide worden door dit component
- * uitgeserveerd en vallen dus achter dezelfde muur. */
+ * moet worden. */
 
 'use strict';
 

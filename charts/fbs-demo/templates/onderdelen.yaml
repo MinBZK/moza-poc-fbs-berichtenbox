@@ -36,7 +36,7 @@ spec:
   template:
     metadata:
       labels: {{- include "fbs-demo.labels" $ctx | nindent 8 }}
-        {{- range $o.roept }}
+        {{- range $o.roeptAan }}
         {{ include "fbs-demo.clientlabel" . }}: "true"
         {{- end }}
       {{- $configMaps := list }}

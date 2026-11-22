@@ -171,7 +171,11 @@ jobs:
           distribution: temurin
           verify-signature: true
           java-version: 21
-          cache: maven
+      # De demo-shard bestaat alleen op een PR die uitsluitend demo/ raakt, dus main bewaart voor
+      # hem nooit een cache. Hij leest die van `overig`, het complement waar demo/ in valt.
+      - uses: ./.github/actions/maven-cache
+        with:
+          scope: test-${{ matrix.shard.id == 'demo' && 'overig' || matrix.shard.id }}
       - name: Test
         env:
           MODULES: ${{ matrix.shard.modules }}

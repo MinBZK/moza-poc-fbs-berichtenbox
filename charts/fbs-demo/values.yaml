@@ -68,7 +68,8 @@ images:
 geheimen:
   # Keys REDIS_PASSWORD en BEHEER_TOKEN. Dezelfde REDIS_PASSWORD gaat naar de uitvraag.
   demo: fbs-demo-geheimen
-  # Key htpasswd: gebruikers van het bedieningspaneel, in het formaat van nginx (htpasswd -B).
+  # Key htpasswd: gebruikers van het bedieningspaneel, in het formaat van nginx; zie README.md
+  # (openssl passwd -6).
   bediening: fbs-demo-bediening
 
 # De database van de magazijnen en de simulator: één Cluster van CloudNativePG, een schema per

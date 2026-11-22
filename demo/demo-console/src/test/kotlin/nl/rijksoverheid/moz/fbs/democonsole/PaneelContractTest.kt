@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.quarkus.test.Mock
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
+import jakarta.inject.Inject
 import jakarta.inject.Singleton
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverResultaat
 import nl.rijksoverheid.moz.fbs.democonsole.aanlever.AanleverService
@@ -29,6 +30,7 @@ import nl.rijksoverheid.moz.fbs.democonsole.simulator.SimulatorStand
 import nl.rijksoverheid.moz.fbs.democonsole.sessie.GeheugenSessieOpslag
 import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessieOpslag
 import nl.rijksoverheid.moz.fbs.democonsole.sessie.SessiecacheSleutels
+import nl.rijksoverheid.moz.fbs.demopersonas.PersonaService
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -86,6 +88,9 @@ class PaneelContractTest {
 
     @TestHTTPResource("/")
     lateinit var basis: URL
+
+    @Inject
+    lateinit var personaService: PersonaService
 
     // Onvoorwaardelijk en niet in de testbody: de dubbels vervangen hun service voor élke
     // @QuarkusTest van deze module, dus de eerste test die een ander vulpad aanroept zou anders
@@ -201,15 +206,15 @@ class PaneelContractTest {
     }
 
     @Test
-    fun `de omgeving draagt de persona-lijst voor de twee pagina's van deze module`() {
-        // Het paneel en de wegwerp-berichtenbox lezen hem hieruit; zonder dit veld blijft hun
-        // keuzelijst leeg en meldt de pagina dat er niets is ingericht. Op de geparste boom, want
+    fun `de omgeving draagt de persona-lijst voor het paneel`() {
+        // Het paneel leest hem hieruit; zonder dit veld blijven zijn keuzelijsten leeg en meldt het
+        // dat er niets is ingericht. Op de geparste boom, want
         // een assertie op ruwe tekst hangt aan de veldvolgorde en aan een niet-lege lijst.
         val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas")
 
         assertTrue(personas.isArray, "veld personas ontbreekt of is geen lijst")
         personas.forEach {
-            assertEquals(setOf("id", "label", "ontvanger", "bron"), it.fieldNames().asSequence().toSet())
+            assertEquals(setOf("id", "label"), it.fieldNames().asSequence().toSet())
         }
     }
 
@@ -490,31 +495,28 @@ class PaneelContractTest {
     /**
      * Het paneel biedt voor de ontdubbeling elke persona aan, en een berichtenbox kiest uit dezelfde
      * personadienst. Een persona die de resource weigert, is in de berichtenbox dus wel te kiezen
-     * maar niet te demonstreren. Uit de omgeving-respons gelezen en niet uit een vaste lijst, zodat
-     * een persona die erbij komt vanzelf meedoet.
+     * maar niet te demonstreren. De id's uit de omgeving-respons, zodat een persona die erbij komt
+     * vanzelf meedoet; de verwachte ontvanger uit de personadienst, want die respons draagt hem niet.
      */
     @Test
     fun `elke ingerichte persona speelt de ontdubbeling met zijn eigen ontvanger`() {
-        val personas = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").toList()
-        val types = personas.map { it.path("ontvanger").asText().substringBefore(':') }.toSet()
+        val ids = ObjectMapper().readTree(haalJson(omgevingUrl)).path("personas").map { it.path("id").asText() }
+        val ontvangers = personaService.alle().associate { it.id to Ontvanger(type = it.type, waarde = it.waarde) }
+        val types = ontvangers.values.map { it.type }.toSet()
+
+        assertEquals(ontvangers.keys.toList(), ids, "de omgeving-respons noemt andere persona's dan de personadienst")
 
         // Met één type zou dit "zet het type vast" niet van "neemt het type van de persona" onderscheiden.
         assertTrue(types.size >= 2, "minder dan twee types ingericht ($types); dan toetst dit niets")
 
-        personas.forEach { persona ->
+        ids.forEach { id ->
             VasteOntdubbelingService.ontvangers.clear()
 
-            val id = persona.path("id").asText()
-            val ontvanger = persona.path("ontvanger").asText()
-
             // Zonder id zou de blank-check van de resource het antwoord bepalen, niet de opzoeking.
-            // En zonder dubbele punt geven `substringBefore` en `substringAfter` allebei de héle
-            // waarde terug; dan faalt de laatste assertie op iets anders dan wat er mis is.
             assertTrue(id.isNotBlank(), "persona zonder id in de omgeving-respons")
-            assertTrue(ontvanger.contains(':'), "ontvanger van '$id' heeft niet de vorm <TYPE>:<WAARDE>")
             assertEquals(200, speelOntdubbeling("?persona=$id").statusCode(), "persona '$id'")
             assertEquals(
-                listOf(Ontvanger(type = ontvanger.substringBefore(':'), waarde = ontvanger.substringAfter(':'))),
+                listOf(ontvangers.getValue(id)),
                 VasteOntdubbelingService.ontvangers,
                 "persona '$id' hoort zijn eigen ontvanger op te leveren",
             )
@@ -646,6 +648,18 @@ class PaneelContractTest {
     }
 
     @Test
+    fun `de omgeving levert precies de velden die het paneel leest`() {
+        // Een hernoemd veld laat een keuzelijst of knoppengroep stil verdwijnen, en een veld dat
+        // niemand meer leest blijft anders ongemerkt staan. Afgeleid uit het script, zodat een
+        // nieuwe lezing in het paneel deze test meteen laat meetellen.
+        val geleverd = ObjectMapper().readTree(haalJson(omgevingUrl)).fieldNames().asSequence().toSet()
+        val gelezen = Regex("""\bomgeving\.([A-Za-z]+)""").findAll(PaneelBestanden.script()).map { it.groupValues[1] }.toSet()
+
+        assertTrue(gelezen.isNotEmpty(), "geen enkele lezing van omgeving.* in bediening.js; deze test meet dan niets")
+        assertEquals(gelezen, geleverd)
+    }
+
+    @Test
     fun `de omgeving levert het adres van de berichtenbox`() {
         // Het paneel toont de berichtenbox in een frame en kent zelf alleen het lokale pad achter
         // de demo-proxy. Ontbreekt dit veld, dan valt het frame op een gedeelde omgeving terug op
@@ -712,7 +726,7 @@ class PaneelContractTest {
 
         /**
          * Hoe een bediener het nummer in de parameter kan krijgen: kaal, met witruimte of een punt
-         * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel uit `ontvanger`, met een
+         * die met een dubbelklik meekomt, met het `BSN:`-voorvoegsel van de personadienst, met een
          * voorloopnul, en met scheidingstekens ertussen. Alle acht afgeleid van de constante, zodat
          * er geen tweede nummer in dit bestand staat.
          */

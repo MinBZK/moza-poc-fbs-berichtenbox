@@ -13,11 +13,11 @@ Per onderdeel:
   schrijfbaar  paden waar het image schrijft; een emptyDir, want het root-filesystem is read-only
   mounts       ConfigMaps en Secrets als bestand
   env          EnvVar-lijst
-  roept        doelen waarvoor de pod het clientlabel krijgt
+  roeptAan     doelen waarvoor de pod het clientlabel krijgt
   inkomend     per regel: van pods met het clientlabel van `label`, of van de Gateway; met poorten
   uitgaand     TCP-poorten naar elke bestemming (de NetworkPolicy ziet de poort van de pod)
 
-Alles draait met één replica: console, simulator en Toxiproxy houden toestand in het geheugen
+Alles draait met één replica: het paneel, de simulator en Toxiproxy houden toestand in het geheugen
 (tempo, gedrag, proxies), en twee replica's zouden die per verzoek anders tonen.
 */}}
 {{- define "fbs-demo.componenten" -}}
@@ -89,7 +89,7 @@ console:
     # via Toxiproxy. Zo ook op ZAD.
     - {name: TOXIPROXY_MAGAZIJN_A_URL, value: ""}
     - {name: TOXIPROXY_MAGAZIJN_B_URL, value: ""}
-  roept: [{{ $s.magazijnA }}, {{ $s.magazijnB }}, {{ $s.uitvraag }}, {{ $simulator }}, {{ $personas }}, {{ $toxiproxy }}-beheer, {{ $redis }}]
+  roeptAan: [{{ $s.magazijnA }}, {{ $s.magazijnB }}, {{ $s.uitvraag }}, {{ $simulator }}, {{ $personas }}, {{ $toxiproxy }}-beheer, {{ $redis }}]
   inkomend:
     - {label: {{ $console }}, poorten: [8095]}
   uitgaand: [{{ $s.magazijnPoort }}, {{ $s.uitvraagPoort }}, 8092, 8098, 8474, 6379, 5432]
@@ -108,9 +108,6 @@ simulator:
     {{- include "fbs-demo.dbEnv" . | nindent 4 }}
     - {name: DB_JDBC_URL, value: "{{ $jdbc }}"}
     - {name: DB_SCHEMA, value: {{ $v.database.schemas.simulator | quote }}}
-    # De simulator deelt het Cluster met beide magazijnen en het paneel; zijn standaard van vijftig
-    # verbindingen zou met de pools van de magazijnen boven max_connections uitkomen.
-    - {name: DB_POOL_MAX, value: "20"}
     - name: BEHEER_TOKEN
       valueFrom: {secretKeyRef: {name: {{ $v.geheimen.demo }}, key: BEHEER_TOKEN}}
   inkomend:
@@ -122,17 +119,19 @@ proeftuin:
   image: {{ $v.images.proeftuin }}
   uid: 101
   poorten: [{naam: http, poort: 8080}]
-  probe: {http: /api/livecheck}
+  # TCP, zoals op ZAD: een HTTP-pad in het image van een ander team kan bij een nieuwe versie
+  # verdwijnen, en dan herstart de pod in een lus.
+  probe: {tcp: http}
   # Het entrypoint van nginx schrijft de config bij het starten in conf.d.
   schrijfbaar: [/tmp, /etc/nginx/conf.d]
   env:
-    # De standaarden in het image wijzen naar de testomgeving op ZAD. De demo-proxy vangt
+    # De standaardwaarden in het image wijzen naar de testomgeving op ZAD. De demo-proxy vangt
     # /api/v1 en /api/demo al af; deze adressen gelden alleen als er toch iets hier aankomt.
     - {name: BACKEND_KETEN, value: "http://{{ $uitvraagFqdn }}:{{ $s.servicePoort }}"}
     - {name: BACKEND_KETEN_HOST, value: {{ $uitvraagFqdn | quote }}}
     - {name: BACKEND_PERSONAS, value: "http://{{ $personasFqdn }}:8098"}
     - {name: BACKEND_PERSONAS_HOST, value: {{ $personasFqdn | quote }}}
-  roept: [{{ $s.uitvraag }}, {{ $personas }}]
+  roeptAan: [{{ $s.uitvraag }}, {{ $personas }}]
   inkomend:
     - {label: {{ $proeftuin }}, poorten: [8080]}
   # 443: /api/profielservice/ gaat naar de profielservice van de proeftuin zelf, buiten het cluster.
@@ -152,7 +151,7 @@ demo-proxy:
     # van nginx zelf laat staan.
     - {name: NGINX_ENTRYPOINT_LOCAL_RESOLVERS, value: "1"}
     - {name: NGINX_ENVSUBST_FILTER, value: "^NGINX_LOCAL_RESOLVERS$"}
-  roept: [{{ $proeftuin }}, {{ $console }}, {{ $personas }}, {{ $s.uitvraag }}]
+  roeptAan: [{{ $proeftuin }}, {{ $console }}, {{ $personas }}, {{ $s.uitvraag }}]
   inkomend:
     - {gateway: true, poorten: [8080]}
   uitgaand: [8080, 8095, 8098, {{ $s.uitvraagPoort }}]
@@ -166,6 +165,9 @@ profiel:
   schrijfbaar: [/tmp]
   inkomend:
     - {label: {{ $profiel }}, poorten: [8080]}
+    # De magazijnen roepen de stub rechtstreeks aan via de route `profiel`, niet via Toxiproxy:
+    # zoals lokaal en op ZAD raakt "profiel uit" alleen de uitvraag, niet het aanleveren.
+    - {gateway: true, poorten: [8080]}
 
 notificatie:
   image: {{ include "fbs-demo.eigenImage" (dict "context" . "repository" $v.images.notificatie) }}
@@ -185,15 +187,15 @@ toxiproxy:
     - {naam: notificatie, poort: 18084}
     - {naam: aanmeld, poort: 18086}
     - {naam: redis, poort: 16379}
-  # Op de admin-poort: de proxies bestaan pas als de console ze aanmaakt, en een probe op een
+  # Op de beheerpoort: de proxies bestaan pas als het paneel ze aanmaakt, en een probe op een
   # proxy-poort herstart de pod zodra een storing hem uitzet. Dan zijn alle proxies weg.
   probe: {http: /version, poort: beheer}
   inkomend:
-    # De admin-API heeft geen authenticatie; alleen het paneel komt erbij.
+    # De beheer-API van Toxiproxy heeft geen authenticatie; alleen het paneel komt erbij.
     - {label: {{ $toxiproxy }}-beheer, poorten: [8474]}
     - {label: {{ $toxiproxy }}, poorten: [16379]}
     - {gateway: true, poorten: [18089, 18084, 18086]}
-  roept: [{{ $profiel }}, {{ $notificatie }}, {{ $s.uitvraag }}, {{ $redis }}]
+  roeptAan: [{{ $profiel }}, {{ $notificatie }}, {{ $s.uitvraag }}, {{ $redis }}]
   uitgaand: [8080, {{ $s.uitvraagPoort }}, 6379]
 
 redis:

@@ -20,8 +20,9 @@ dienst:
   env:
     REDIS_HOSTS: redis://fbs-demo-toxiproxy:16379
     FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT: "true"
-    # Over https via de Gateway: buiten het profiel dev eist de uitvraag dat.
-    PROFIEL_SERVICE_URL: 'https://profiel.{{ required "demo.basisdomein is verplicht" .Values.demo.basisdomein }}'
+    # Over https via de Gateway: buiten het profiel dev eist de uitvraag dat. Via Toxiproxy, zodat
+    # "profiel uit" de uitvraag raakt; de magazijnen gaan rechtstreeks (stelsel/berichtenmagazijn.yaml).
+    PROFIEL_SERVICE_URL: 'https://toxiproxy-profiel.{{ required "demo.basisdomein is verplicht" .Values.demo.basisdomein }}'
     MAGAZIJN_A_URL: 'https://berichtenmagazijn-a.{{ .Values.demo.basisdomein }}'
     MAGAZIJN_B_URL: 'https://berichtenmagazijn-b.{{ .Values.demo.basisdomein }}'
     # De gesimuleerde magazijnen; het register noemt ${MAGAZIJN_SIMULATOR_URL}/magazijn/<OIN>.

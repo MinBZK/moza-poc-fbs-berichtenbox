@@ -198,8 +198,8 @@ class PaneelInfoTest {
     }
 
     /**
-     * Het omgevingsantwoord draagt de persona's met hun `ontvanger` — een BSN of KVK-nummer — en de
-     * Info-tab bewaart zijn antwoorden in `sessionStorage`. Alleen de labels mogen daarheen.
+     * De Info-tab bewaart zijn antwoorden in `sessionStorage`. Per persona mogen daar alleen de id,
+     * het label en de magazijnvlag in, ook als het omgevingsantwoord er later een veld bij krijgt.
      */
     @Test
     fun `de cache bewaart geen identificatienummer van een persona`() {

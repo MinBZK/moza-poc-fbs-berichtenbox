@@ -13,11 +13,9 @@ bedieningspaneel, de demo-identiteiten, de magazijn-simulator en de stubs. Op ZA
 losse componenten met aliassen, attachments en een authenticatiemuur. Dat is op Fundament niet
 bruikbaar. Lokaal zet `compose.yaml` ze neer met een nginx ervoor (`demo-proxy`).
 
-## Snede
+## Opdeling in twee PR's
 
-Twee PR's, gestapeld:
-
-1. **Deze PR: de chart `charts/fbs-demo` en de values van de stelseldiensten voor de demo.** Een
+1. **PR #467: de chart `charts/fbs-demo` en de values van de stelseldiensten voor de demo.** Een
    chart voor alle demo-onderdelen, plus de values waarmee de vier releases van `fbs-dienst`
    (uitvraag, magazijn A en B, stelselregister) in de demo passen. De controle zonder cluster
    (`controleer.sh`) neemt de demo mee. De handleiding beschrijft de installatie stap voor stap,
@@ -44,15 +42,24 @@ Twee PR's, gestapeld:
   knop "legen" wist de magazijnen. Fundament heeft geen muur die wij kunnen gebruiken. Daarom
   vraagt de demo-proxy basic-auth op `/bediening/` en `/api/demo/`. Alleen `/api/demo/personas`
   blijft open: de berichtenbox leest daar de testaccounts, en verder gebruikt hij `/api/demo` niet.
+  Een browser stuurt een opgeslagen wachtwoord ook mee bij een formulier van een andere site;
+  daarom weigert de proxy daar een verzoek dat volgens `Sec-Fetch-Site` of `Origin` van een andere
+  site komt. Een gewone link naar het paneel (navigatie met GET) mag wel.
+- **Naar buiten alleen wat de uitvraag gebruikt.** De magazijnen laten via hun route alleen
+  `/api/v1/berichten` en `/openapi.json` door, de simulator alleen lezen, status wijzigen en
+  verwijderen. Anders kan iedereen op internet berichten aanleveren. Het paneel levert binnen het
+  cluster aan.
 - **Toxiproxy als één instantie, achter de routes.** De storingsknoppen werken via Toxiproxy,
   zoals op ZAD. Eén instantie draagt de vier proxies (profiel, notificatie, aanmelding, Redis);
-  de console maakt ze aan via de admin-API. De routes voor profiel, notificatie en aanmelding
-  wijzen naar de Toxiproxy-poort in plaats van naar de stub. Zo zet "uit" ook het verkeer via de
-  Gateway uit, zonder een extra hostnaam per proxy. De admin-API staat alleen open voor de console.
+  het paneel maakt ze aan via de beheer-API. De routes `toxiproxy-profiel`, `notificatie` en
+  `aanmelding` wijzen naar een Toxiproxy-poort in plaats van naar de stub. Zo zet "uit" ook het
+  verkeer via de Gateway uit. Zoals lokaal en op ZAD gaat alleen de uitvraag via Toxiproxy naar het
+  profiel; de magazijnen hebben een eigen route rechtstreeks naar de stub. De beheer-API staat
+  alleen open voor het paneel.
 - **Hostnamen onder één basisdomein.** `<naam>.<basisdomein>`, bijvoorbeeld
   `demo.fbs.1-2-3-4.sslip.io`. De Gateway krijgt één https-listener met een wildcard-hostnaam en
-  een certificaat met alle namen erin. Zo blijft `sectionName: https` voor elke route gelijk, zoals
-  in `fbs-dienst`.
+  een certificaat met alle negen namen erin. Zo blijft `sectionName: https` voor elke route gelijk,
+  zoals in `fbs-dienst`.
 - **Diensten roepen elkaar via de Gateway aan, over https.** Buiten het profiel `dev` eisen de
   uitvraag (magazijnen, profielservice) en het magazijn (profiel, aanmelding, notificatie) https.
   Het magazijn weigert daarnaast een bestemming die naar een privé-adres resolveert
@@ -71,9 +78,17 @@ Twee PR's, gestapeld:
   root-filesystem met `emptyDir` waar het image schrijft, geen capabilities, seccomp
   `RuntimeDefault`, geen service-account-token, probes, requests en limits, een NetworkPolicy die
   standaard dicht is, en een PDB. De render gaat door dezelfde beleidsregels (`policy/`).
-- **Eén replica per onderdeel.** Console, simulator en Toxiproxy houden toestand in het geheugen
+- **Eén replica per onderdeel.** Paneel, simulator en Toxiproxy houden toestand in het geheugen
   (tempo, proxies, gedrag). Twee replica's geven per verzoek een andere toestand. Ze rollen uit
   met `Recreate`.
+
+## Wat open blijft
+
+- **De aanmeld-webhook is publiek.** Het magazijn eist voor de aanmelding een publiek https-adres.
+  Wie de route kent, zet een bericht in de sessiecache van een persona die net heeft opgehaald.
+  Zo is het ook op ZAD. Een `SecurityPolicy` van Envoy Gateway die alleen het uitgaande adres van
+  het cluster toelaat, sluit dat af; of en hoe dat op Fundament kan, is een vraag voor de
+  opdrachtgever.
 
 ## Wat op Fundament niet kan
 

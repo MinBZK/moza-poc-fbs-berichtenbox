@@ -13,9 +13,6 @@
 # De basis-images staan al volledig gekwalificeerd in compose.yaml (met de reden erbij); ze hier
 # nog eens overschrijven zou dezelfde pin op twee plekken zetten, die bij een Dependabot-bump uit
 # elkaar lopen.
-#
-# De CORS-allowlist staat óók in compose.yaml: de Berichtenbox-UI leidt de API-host af uit de
-# browser-locatie, en dat gedrag is niet podman-specifiek.
 services:
   magazijn-a:
     volumes:

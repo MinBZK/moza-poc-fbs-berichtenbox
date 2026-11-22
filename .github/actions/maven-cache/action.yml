@@ -1,0 +1,124 @@
+name: Maven-cache
+description: >-
+  Zet de CI-settings met de Central-mirror neer en herstelt de lokale Maven-repository en de
+  Maven-distributie van de wrapper. Alleen main bewaart; PR's en de merge queue herstellen alleen.
+  Plaats deze stap ná actions/setup-java: die schrijft zijn eigen ~/.m2/settings.xml, en die moet
+  hier overschreven worden.
+
+# Waarom niet `cache: maven` van setup-java:
+# - Eén sleutel voor alle jobs. De job die het eerst klaar is (detekt: alleen plugins) bewaart een
+#   halve repository onder die sleutel; elke andere job krijgt daarna een "hit" zonder zijn eigen
+#   dependencies en haalt ze bij elke run opnieuw op, zonder dat iemand de cache ooit aanvult.
+# - Geen terugval. Elke pom-wijziging, ook elke Dependabot-bump, geeft alle jobs tegelijk een
+#   lege repository, en die piek vanaf de gedeelde runner-adressen beantwoordt Central met 429.
+# - Elke PR en elke merge-queue-entry bewaart een eigen kopie. Samen kwam dat boven de 10 GB per
+#   repository, en dan gooit GitHub caches weg die nog gebruikt worden.
+#
+# Main bewaart de repository zonder `restore-keys`, dus elke sleutel begint leeg en bevat alleen
+# wat die pom-stand nodig heeft. Met een terugval zou de cache bij elke versiebump de oude versie
+# meenemen en ongemerkt blijven groeien. De koude start op main gaat via de mirror.
+#
+# Bewaren alleen bij een push, schedule of handmatige run op main. `github.ref` alleen is niet
+# genoeg: bij `pull_request_target` of `workflow_run` is die ook main, terwijl daar PR-code kan
+# draaien die dan de cache van main zou vullen.
+
+inputs:
+  scope:
+    description: >-
+      Welk deel van de reactor deze job bouwt, bv. `detekt` of `test-berichtenmagazijn`. Jobs met
+      verschillende dependencies krijgen elk een eigen cache, zodat de ene de andere niet half
+      vult.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: CI-settings met de Central-mirror
+      shell: bash
+      env:
+        SETTINGS: ${{ github.action_path }}/settings.xml
+      run: install -D -m 0644 "$SETTINGS" "$HOME/.m2/settings.xml"
+
+    - name: Bepaal of deze run de cache bewaart
+      id: bewaren
+      shell: bash
+      env:
+        REF: ${{ github.ref }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        case "$REF:$EVENT" in
+          refs/heads/main:push | refs/heads/main:schedule | refs/heads/main:workflow_dispatch) echo "ja=true" ;;
+          *) echo "ja=false" ;;
+        esac >> "$GITHUB_OUTPUT"
+
+    # Apart van de repository: de wrapper haalt de distributie zonder retry van Central, en hoort
+    # dus niet bij elke pom-wijziging koud te starten. Zijn sleutel hangt alleen aan de
+    # wrapper-configuratie, dus PR's vinden die van main exact terug. mvnw toetst
+    # `distributionSha256Sum` alleen bij die eerste download op main, niet bij een herstelde
+    # distributie.
+    - name: Maven-distributie herstellen en bewaren
+      if: steps.bewaren.outputs.ja == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/wrapper
+        key: maven-wrapper-${{ runner.os }}-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+    - name: Maven-distributie herstellen
+      if: steps.bewaren.outputs.ja != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/wrapper
+        key: maven-wrapper-${{ runner.os }}-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+
+    # mvnw haalt de distributie in één poging op, zonder retry. Bij een cache-miss (de eerste run op
+    # main, elke wrapper-bump, en PR's tot main heeft bewaard) liep een 429 van Central daardoor
+    # direct stuk. Daarom eerst via de mirror met herhaalpogingen, en pas daarna via Central; mvnw
+    # toetst bij elke download de sha256 uit maven-wrapper.properties. MVNW_REPOURL blijft voor de
+    # rest van de job staan, want mvnw leidt de map van de distributie af uit de URL: zonder die
+    # variabele zoekt een latere aanroep in een andere map en downloadt opnieuw. Bij een hit kost
+    # dit één `--version`.
+    - name: Maven-distributie klaarzetten
+      shell: bash
+      env:
+        MIRROR: https://maven-central-eu.storage-download.googleapis.com/maven2
+        WACHT_S: '10'
+      run: |
+        set -uo pipefail
+
+        # Een lege MVNW_REPOURL betekent voor mvnw: de distributionUrl zelf, dus Central.
+        for bron in "$MIRROR" ""; do
+          for poging in 1 2 3; do
+            if MVNW_REPOURL="$bron" ./mvnw -q --version > /dev/null; then
+              echo "MVNW_REPOURL=$bron" >> "$GITHUB_ENV"
+              exit 0
+            fi
+
+            [ "$poging" -eq 3 ] || sleep "$((poging * WACHT_S))"
+          done
+
+          echo "::warning::Maven-distributie niet op te halen via ${bron:-Central}."
+        done
+
+        echo "::error::Maven-distributie niet op te halen, ook niet via Central."
+        exit 1
+
+    # De settings tellen mee in de sleutel: een andere repository-configuratie begint schoon.
+    - name: Maven-repository herstellen en bewaren
+      if: steps.bewaren.outputs.ja == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/repository
+        key: maven-repo-${{ runner.os }}-${{ inputs.scope }}-${{ hashFiles('**/pom.xml', '.github/actions/maven-cache/settings.xml') }}
+
+    # Een PR mag de cache van main lezen maar niet zelf bewaren: dat laatste vulde de 10 GB. Na
+    # een pom-wijziging komt de laatste cache van dezelfde scope terug, en anders die van een
+    # andere scope; Maven haalt dan alleen het verschil op.
+    - name: Maven-repository herstellen
+      if: steps.bewaren.outputs.ja != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/repository
+        key: maven-repo-${{ runner.os }}-${{ inputs.scope }}-${{ hashFiles('**/pom.xml', '.github/actions/maven-cache/settings.xml') }}
+        restore-keys: |
+          maven-repo-${{ runner.os }}-${{ inputs.scope }}-
+          maven-repo-${{ runner.os }}-
