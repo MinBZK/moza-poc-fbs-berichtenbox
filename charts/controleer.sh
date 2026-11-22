@@ -29,7 +29,7 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=440
+VERWACHTE_CONTROLES=458
 MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
@@ -785,6 +785,31 @@ done
 # Alle fouten in één keer, niet alleen de eerste.
 demo_weigering "demo-twee-fouten" "basisdomein is verplicht" --set basisdomein= --set images.tag=
 demo_weigering "demo-twee-fouten-tweede" "images.tag is verplicht" --set basisdomein= --set images.tag=
+
+# De sandbox (fundament-testcluster.sh demo) geeft uitvraag en magazijnen de lokale CA als
+# jssecacerts. Die values herhalen de lijsten uit stelsel/ en uit het voorbeeld met CloudNativePG,
+# want Helm vervangt een lijst; het register en de CA's van de databases moeten blijven staan. In een
+# subshell: lib.sh zet globale namen, en die horen niet in deze controle.
+for release in berichtenuitvraag berichtenmagazijn-a; do
+  # shellcheck source=charts/demo-op-fundament/lib.sh
+  (source "$CHARTS/demo-op-fundament/lib.sh" && values_demo_jssecacerts "$release" /usr/lib/jvm/jre) \
+    >"$WERK/jssecacerts-$release.yaml"
+done
+
+TOETS_RELEASE=berichtenuitvraag toets_render "demo-uitvraag-sandbox" -f "$CHART/diensten/berichtenuitvraag.yaml" \
+  -f "$DEMO/stelsel/berichtenuitvraag.yaml" "${stelsel_demo[@]}" -f "$WERK/jssecacerts-berichtenuitvraag.yaml"
+toets_bevat "demo-uitvraag-sandbox" "register blijft gemount" 'mountPath: /home/jboss/config'
+toets_bevat "demo-uitvraag-sandbox" "register uit de ConfigMap van fbs-demo" 'name: fbs-demo-magazijnenregister'
+toets_bevat "demo-uitvraag-sandbox" "CA van het logboek blijft gemount" 'mountPath: /etc/fbs/ldv-ca'
+toets_bevat "demo-uitvraag-sandbox" "lokale CA als jssecacerts van de JVM" 'mountPath: /usr/lib/jvm/jre/lib/security/jssecacerts'
+toets_bevat "demo-uitvraag-sandbox" "alleen dat bestand, niet de hele map" 'subPath: jssecacerts'
+
+TOETS_RELEASE=berichtenmagazijn-a toets_render "demo-magazijn-sandbox" "${magazijn_demo[@]}" \
+  -f "$DEMO/stelsel/berichtenmagazijn-a.yaml" "${stelsel_demo[@]}" --set "ingress.hostname=berichtenmagazijn-a.$DEMO_DOMEIN" \
+  -f "$WERK/jssecacerts-berichtenmagazijn-a.yaml"
+toets_bevat "demo-magazijn-sandbox" "CA van de database blijft gemount" 'mountPath: /etc/fbs/db-ca'
+toets_aantal "demo-magazijn-sandbox" "datasource en logboek controleren de server nog" 'sslmode=verify-full&sslrootcert=/etc/fbs/db-ca/ca.crt' 2
+toets_bevat "demo-magazijn-sandbox" "lokale CA als jssecacerts van de JVM" 'mountPath: /usr/lib/jvm/jre/lib/security/jssecacerts'
 
 echo "== uitkomst =="
 

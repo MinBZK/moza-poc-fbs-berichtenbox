@@ -74,7 +74,7 @@ voor dit cluster bestaan, en zet er alleen demo-gegevens achter.
    apiVersion: cert-manager.io/v1
    kind: Certificate
    metadata:
-     name: web
+     name: web-tls
    spec:
      secretName: web-tls
      issuerRef: {name: letsencrypt, kind: Issuer}   # een Issuer in de eigen namespace
@@ -144,6 +144,56 @@ voor dit cluster bestaan, en zet er alleen demo-gegevens achter.
 
    rm -r "$D"
    ```
+
+## Installeren met het script
+
+`charts/demo-op-fundament.sh` doet stap 3 en 4 hierboven en de installatie hieronder in één keer, en
+controleert daarna de demo. Het certificaat uit stap 2 maakt het alleen als `ISSUER` gezet is. De
+namespace en de Gateway met zijn https-listener maak je altijd zelf (stap 1 en 2).
+
+```bash
+KUBE_CONTEXT=<context van het fieldlab> NS=tnt-fbs--demo TAG=main-<sha7> charts/demo-op-fundament.sh op
+KUBE_CONTEXT=<context van het fieldlab> NS=tnt-fbs--demo charts/demo-op-fundament.sh controleer
+```
+
+Zonder `KUBE_CONTEXT` neemt het script de huidige context van kubectl, noemt die, en gaat zonder
+bevestiging door. Het zet de context bij de start vast: een wissel in een andere terminal
+halverwege stuurt niets naar een ander cluster.
+
+`op` doet:
+- **de tag:** of alle acht images op `TAG` bestaan, met `docker manifest inspect` (Docker of
+  podman, met toegang tot ghcr.io);
+- **het basisdomein:** `fbs.<adres-met-streepjes>.sslip.io` uit het adres van de Gateway, of
+  `BASISDOMEIN`;
+- **het certificaat** met de negen namen, als `ISSUER` gezet is;
+- **de databases** `db` en `ldv-uitvraag`. Een Cluster dat er al is, laat het staan. Van `db` zet
+  alleen een lager aantal verbindingen op 200, en wacht tot PostgreSQL die waarde gebruikt;
+- **de geheimen**, alleen als ze er nog niet zijn. Het wachtwoord van het paneel staat in het Secret
+  `fbs-demo-bediening` (key `wachtwoord`);
+- **het register en de set van de simulator** in een tijdelijke map, zodat `demo/generated/` van een
+  lokale demo blijft staan;
+- **de vijf releases**, met `--wait`, en een herstart van uitvraag en stelselregister voor een
+  nieuw register.
+
+`controleer` eist:
+- **elke Deployment** van de demo aanwezig en gereed, bij naam;
+- **via de Gateway:**
+  - berichtenbox, personalijst, OpenAPI-documenten en het stelseldocument bereikbaar;
+  - paneel en gereedschap met wachtwoord, en het paneel mét het wachtwoord uit het Secret. Een
+    Secret dat je met de hand maakte (stap 4) heeft dat wachtwoord niet; `controleer` meldt dat als
+    fout;
+  - een verzoek van een andere site of origin geweigerd;
+  - de simulator bereikbaar;
+  - aanleveren, de aanmeld-webhook, `/q` en het beheer van de simulator niet van buiten;
+- **de keten:**
+  - een sessie voor Garage Van Dijk B.V. (`KETEN_ONTVANGER`);
+  - ophaalrondes tot magazijn A én B tijdens de ronde melden dat ze klaar zijn en berichten
+    leverden;
+  - het paneel vult de magazijnen kort na het starten, dus de controle probeert het tot vijf
+    minuten (`KETEN_SECONDEN`);
+  - daarna beëindigt hij de sessie: de uitvraag staat er vijf per persona toe. Lukt dat niet, dan
+    is dat een fout;
+  - een ongeldige sessie (401) of een weigering (403) stopt meteen; een lopende ronde (409) wacht.
 
 ## Installeren
 
