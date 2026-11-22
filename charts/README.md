@@ -261,8 +261,15 @@ charts/fundament-testcluster.sh af --met-platform         # ook het platform
   `mise.toml`. Het voert hun code en recipes uit, met de rechten van Docker;
 - **het platform** (`k3d-fundament`), alleen uitgerold als Kubernetes meldt dat het er niet is:
   elke uitrol wist zijn databases. Antwoordt de API niet, dan stopt het script. De eerste keer
-  bouwt dit alle images van Fundament;
-- **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite;
+  bouwt dit alle images van Fundament. Daarna wacht het tot de authz-worker gereed is en
+  organization-api 15 s lang verzoeken afhandelt: na een hervatting weigert zijn circuit breaker ze
+  een poos, tot de authz-outbox is bijgewerkt;
+- **een API-key** voor `functl`, met het lokale seed-account, zoals hun e2e-suite. Alleen als
+  `functl auth status` geen geldige sessie meldt: geen key opgeslagen (zoals na `af`), of een
+  verlopen of geweigerde key. Met `FUNCTL_API_KEY` logt het script meteen daarmee in. Kan functl de
+  sessie niet controleren, bijvoorbeeld omdat het platform niet antwoordt, dan stopt het script.
+  Zonder sessie vraagt functl het platform niets; antwoordt het dan niet, dan meldt het maken van de
+  key de fout;
 - **de sandbox** (`k3d-fundament-plugin`) op k3s 1.36, met https op `127.0.0.1:$HTTPS_POORT`, en
   de relays van de sandbox naar het platform (Fundaments `just plugins sandbox-catalog`);
 - **de plug-ins**: publiceren, goedkeuren en installeren;
@@ -339,9 +346,6 @@ van platform en sandbox. Zo valt een platform op dat met een oudere versie van F
 gemaakt, toen die zijn poorten nog op alle adressen zette. Een weigering na het opzetten laat staan
 wat er al draait. Ruim het dan meteen op met `af --met-platform`.
 
-De containers starten na een herstart van de machine vanzelf weer. Draai daarna `op`: na een
-herstart van Docker kunnen de relays een ander adres hebben, en `op` koppelt ze opnieuw.
-
 **Na een proef is wat er met de opstelling gebeurt jouw keuze**; `op` sluit af met de opties.
 Laten staan scheelt een volgende keer de opbouw, maar de twee clusters kosten ook zonder verkeer
 stroom: op een laptop op batterij gemeten ruim 6 W, bijna een derde van het verbruik bij stilstand.
@@ -349,25 +353,35 @@ Werk je op batterij, of heb je de opstelling voorlopig niet nodig, pauzeer hem d
 van Fundament (de melding noemt het pad):
 
 ```bash
+cd "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-b363604d"   # worktree van Fundament
 mise exec -- k3d cluster stop fundament-plugin fundament     # pauzeren; blijft ook na een herstart uit
 mise exec -- k3d cluster start fundament fundament-plugin    # hervatten, vóór een volgende op of controleer
+cd -
 ```
 
-Niet met `docker stop` en `docker start`, om dezelfde reden als hieronder bij een wissel van
-netwerk. Opruimen gaat met `af --met-platform`; een kale `af` laat het platform draaien.
+Niet met `docker stop` en `docker start`, om de reden hieronder. Opruimen gaat met
+`af --met-platform`; een kale `af` laat het platform draaien.
 
-**Na een wissel van netwerk**, zoals op het fieldlab, vraagt een k3d-node zijn DNS nog aan de
-server van het vorige netwerk. Docker legt die vast bij het starten van de container. Nieuwe pods
-blijven dan in ImagePullBackOff hangen. `op` controleert dat vooraf. Herstel het door beide
-clusters via k3d te herstarten, in de worktree van Fundament (de melding noemt het pad):
+**Na een herstart van de machine of een wissel van netwerk** kan de sandbox-node ghcr.io niet
+opzoeken, en blijven pods die starten in ImagePullBackOff hangen. Docker legt de DNS-server vast
+bij het starten van een container: na een wissel van netwerk, zoals op het fieldlab, vraagt de node
+het nog aan de server van het vorige netwerk. Na een herstart van de machine start Docker draaiende
+containers zelf weer (restart-policy `unless-stopped`); ook dan kan de node ghcr.io niet opzoeken
+(waarom precies, is niet vastgesteld).
+Herstart in beide gevallen de clusters via k3d, en draai daarna `op`: dat koppelt ook de relays
+opnieuw, die na een herstart van Docker een ander adres kunnen hebben.
 
 ```bash
+cd "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-b363604d"   # worktree van Fundament
 mise exec -- k3d cluster stop fundament-plugin fundament
 mise exec -- k3d cluster start fundament fundament-plugin
+cd -
 ```
 
 Niet met `docker restart`, maar via k3d, zoals Fundaments eigen `cluster-start`: k3d zet bij het
-starten ook de adressen van het netwerk opnieuw in CoreDNS.
+starten ook de adressen van het netwerk opnieuw in CoreDNS. `op` en `controleer` toetsen of de
+sandbox-node ghcr.io kan opzoeken, en noemen deze herstart als dat niet lukt. Een gepauzeerde
+opstelling blijft na een herstart van de machine uit.
 
 **Vóór je de laptop op een gedeeld netwerk zet**, zoals op het fieldlab: alles staat op
 loopback, maar de opstelling draagt een openbaar seed-wachtwoord en registries zonder
@@ -380,16 +394,34 @@ daarna ook in een Secret in het platformcluster. Wie die sleutel heeft, kan elke
 van deze machine onderscheppen. De pin op `FUNDAMENT_REF` dekt alleen de broncode van Fundament:
 hun builds halen base-images en Helm-charts op tag op.
 
-**Een opstelling op de vorige pin** (Fundament `b9c12531`) zette zijn poorten nog deels op alle
-adressen; `op` weigert die. Ruim hem op met `af --met-platform`. Die versie schreef de contexten in
-`~/.kube/config` en had een eigen worktree; haal die resten daarna zelf weg:
+**Een opstelling op de vorige pin** (Fundament `e18ad710`) ruim je op en zet je opnieuw op: `op`
+rolt een bestaand platform niet opnieuw uit, dus dat zou op de code van de vorige pin blijven
+draaien. Het makkelijkst gaat het met het script van vóór de ophoging, nog vóór je de branch
+bijwerkt: `af --met-platform` haalt dan ook de oude worktree weg. Heb je al bijgewerkt, ruim dan op
+met het nieuwe script en verwijder de oude worktree zelf. Het nieuwe script heeft de nieuwe commit
+in de clone van Fundament nodig, ook voor `af`:
+
+```bash
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" fetch
+charts/fundament-testcluster.sh af --met-platform
+# Alleen na het nieuwe script:
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove --force \
+  "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-e18ad710"
+```
+
+Kom je nog van `b9c12531`, die de contexten in `~/.kube/config` schreef, haal dan na
+`af --met-platform` deze resten weg, in plaats van de worktree van `e18ad710`:
 
 ```bash
 for c in k3d-fundament k3d-fundament-plugin; do
   kubectl config delete-context $c; kubectl config delete-cluster $c; kubectl config delete-user admin@$c
 done
-git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove ~/.cache/fbs-fundament-testcluster/fundament-b9c12531
+git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove --force \
+  "${XDG_CACHE_HOME:-$HOME/.cache}/fbs-fundament-testcluster/fundament-b9c12531"
 ```
+
+Zet de opstelling daarna opnieuw op met `TAG=main-<sha7> charts/fundament-testcluster.sh op`; de
+eerste keer bouwt dat weer alle images van Fundament.
 
 Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl` (7.76 of nieuwer), `ss` (op
 macOS `lsof`), `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
