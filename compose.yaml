@@ -109,7 +109,7 @@ services:
   # LDV-logboek van de uitvraag. Elke organisatie voert een eigen verwerkingenlogboek;
   # de magazijnen schrijven daarom in hun eigen postgres-a/-b, de uitvraag hier.
   postgres-uitvraag:
-    image: docker.io/library/postgres:18
+    image: docker.io/library/postgres:19
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5434:5432"
     environment:
@@ -126,7 +126,7 @@ services:
       retries: 5
 
   postgres-a:
-    image: docker.io/library/postgres:18
+    image: docker.io/library/postgres:19
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5432:5432"
     environment:
@@ -147,7 +147,7 @@ services:
       retries: 5
 
   postgres-b:
-    image: docker.io/library/postgres:18
+    image: docker.io/library/postgres:19
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5433:5432"
     environment:
@@ -260,7 +260,7 @@ services:
   # demonstreren. De simulator slaat wél op, en genereert uit dezelfde OpenAPI-spec als het echte
   # magazijn.
   postgres-simulator:
-    image: docker.io/library/postgres:18
+    image: docker.io/library/postgres:19
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:5435:5432"
