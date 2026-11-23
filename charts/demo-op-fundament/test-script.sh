@@ -97,6 +97,15 @@ draai() {
 
 echo "== voorwaarden =="
 
+# Een te oude bash, zoals die van macOS: stoppen vóór er iets naar het cluster gaat. De databases en
+# de geheimen stonden er anders al toen mapfile ontbrak.
+for opdracht in op controleer; do
+  draai "oude-bash-$opdracht" "bash_44_of_nieuwer() { return 1; }; NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; main $opdracht"
+  gelijk "$opdracht onder een te oude bash: exit 2" 2 "$CODE"
+  bevat "$opdracht onder een te oude bash: zegt hoe het verder moet" "brew install bash" "$UIT"
+  gelijk "$opdracht onder een te oude bash: niets naar het cluster" "" "$LOG"
+done
+
 draai zonder-tag 'main op'
 gelijk "zonder TAG: exit 2" 2 "$CODE"
 bevat "zonder TAG: zegt waarom" "zet TAG" "$UIT"

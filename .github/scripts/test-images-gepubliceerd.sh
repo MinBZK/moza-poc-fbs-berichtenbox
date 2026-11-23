@@ -58,12 +58,20 @@ bevat_niet() {
 werkmap=$(mktemp -d)
 trap 'rm -rf "$werkmap"' EXIT
 
-# De stub kent de refs in `bestaat`. Een ref in `hikt` faalt bij de eerste opvraging en bestaat
-# daarna, zoals een register na een 5xx.
+# De vormen die een register teruggeeft: een los manifest (zoals jib), de index die `docker build`
+# met provenance-attestation maakt, en een index voor beide platforms.
+readonly LOS='{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:c"},"layers":[]}'
+readonly INDEX_AMD64='{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"platform":{"os":"linux","architecture":"amd64"}},{"platform":{"os":"unknown","architecture":"unknown"},"annotations":{"vnd.docker.reference.type":"attestation-manifest"}}]}'
+readonly INDEX_BEIDE='{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"platform":{"os":"linux","architecture":"amd64"}},{"platform":{"os":"linux","architecture":"arm64","variant":"v8"}}]}'
+
+# De stub kent de refs in `bestaat` en geeft ze als los manifest, tenzij `vorm` er met zet_vorm een
+# andere voor heeft. Een ref in `hikt` faalt bij de eerste opvraging en bestaat daarna, zoals een
+# register na een 5xx.
 maak_stub() {
   printf '%s\n' "$@" >"$werkmap/bestaat"
   : >"$werkmap/hikt"
-  rm -f "$werkmap/aanroepen" "$werkmap/gehikt"
+  rm -rf "$werkmap/aanroepen" "$werkmap/gehikt" "$werkmap/vorm"
+  mkdir -p "$werkmap/vorm"
 
   cat >"$werkmap/docker" <<STUB
 #!/usr/bin/env bash
@@ -76,11 +84,21 @@ if grep -qxF "\$ref" "$werkmap/hikt" && ! grep -qxF "\$ref" "$werkmap/gehikt" 2>
   exit 1
 fi
 
-grep -qxF "\$ref" "$werkmap/bestaat" && exit 0
+if grep -qxF "\$ref" "$werkmap/bestaat"; then
+  vorm="$werkmap/vorm/\${ref//[\/:]/_}"
+  [ -f "\$vorm" ] && cat "\$vorm" || printf '%s\n' '$LOS'
+  exit 0
+fi
+
 echo "ERROR: \$ref: not found" >&2
 exit 1
 STUB
   chmod +x "$werkmap/docker"
+}
+
+# $1 = ref, $2 = het manifest dat de stub ervoor teruggeeft.
+zet_vorm() {
+  printf '%s\n' "$2" >"$werkmap/vorm/${1//[\/:]/_}"
 }
 
 draai() {
@@ -146,6 +164,59 @@ gelijk "zonder image-namen wordt het register niet gevraagd" '' "$AANROEPEN"
 
 draai
 gelijk "zonder argumenten faalt de controle" 1 "$RC"
+
+# --- de vorm: wat een arm64-node start, en wat niet -----------------------------------------------
+maak_stub "$B/fbs-a:t1"
+zet_vorm "$B/fbs-a:t1" "$INDEX_AMD64"
+draai "$B" t1 fbs-a
+gelijk "een index met alleen amd64 en een attestation faalt" 1 "$RC"
+bevat "de melding noemt het image en de oorzaak" '::error title=Image niet te starten op arm64::fbs-a ' "$UITVOER"
+bevat "de melding noemt de uitweg" '--provenance=false' "$UITVOER"
+bevat "de melding noemt wat er wél stond" 'als application/vnd.oci.image.index.v1+json met linux/amd64, unknown/unknown,' "$UITVOER"
+bevat_niet "een verkeerde vorm is geen ontbrekend image" 'Image niet gepubliceerd' "$UITVOER"
+gelijk "een verkeerde vorm wordt niet opnieuw opgevraagd" 1 "$(grep -c . <<<"$AANROEPEN")"
+
+maak_stub "$B/fbs-a:t1"
+zet_vorm "$B/fbs-a:t1" "$INDEX_BEIDE"
+draai "$B" t1 fbs-a
+gelijk "een index met amd64 en arm64 slaagt" 0 "$RC"
+
+maak_stub "$B/fbs-a:t1"
+zet_vorm "$B/fbs-a:t1" '{"schemaVersion":2,"manifests":[{"platform":{"os":"unknown","architecture":"unknown"}}]}'
+draai "$B" t1 fbs-a
+gelijk "een index met alleen een attestation faalt" 1 "$RC"
+
+maak_stub "$B/fbs-a:t1"
+zet_vorm "$B/fbs-a:t1" '{"schemaVersion":2,"manifests":[{"platform":{"os":"windows","architecture":"arm64"}}]}'
+draai "$B" t1 fbs-a
+gelijk "een index met arm64 voor een ander os faalt" 1 "$RC"
+
+for onleesbaar in 'geen json' '{}' '[]'; do
+  maak_stub "$B/fbs-a:t1"
+  zet_vorm "$B/fbs-a:t1" "$onleesbaar"
+  draai "$B" t1 fbs-a
+  gelijk "een manifest '$onleesbaar' faalt" 1 "$RC"
+done
+
+bevat "een onleesbaar manifest heet zo in de melding" 'als een onleesbaar manifest,' "$UITVOER"
+
+# Eén van elk: elk probleem wordt gemeld, en het goede image blijft goed.
+maak_stub "$B/fbs-a:t1" "$B/fbs-b:t1"
+zet_vorm "$B/fbs-b:t1" "$INDEX_AMD64"
+draai "$B" t1 fbs-a fbs-b fbs-c
+gelijk "een goed, een verkeerd gevormd en een ontbrekend image falen samen" 1 "$RC"
+bevat "het goede image is gepubliceerd" "Gepubliceerd: $B/fbs-a:t1" "$UITVOER"
+bevat "het verkeerd gevormde staat in de samenvatting" 'Niet te starten op arm64: fbs-b' "$UITVOER"
+bevat "het ontbrekende staat in de samenvatting" 'Niet gepubliceerd: fbs-c' "$UITVOER"
+
+# Zonder jq zou elk image als verkeerd gevormd lezen; dat moet als ontbrekende jq lezen.
+mkdir -p "$werkmap/zonder-jq"
+maak_stub "$B/fbs-a:t1"
+RC=0
+UITVOER=$(IMAGES_DOCKER="$werkmap/docker" IMAGES_WACHT=0 PATH="$werkmap/zonder-jq" "$(command -v bash)" "$SCRIPT" "$B" t1 fbs-a 2>&1) || RC=$?
+gelijk "zonder jq faalt de controle" 1 "$RC"
+bevat "en zegt dat jq ontbreekt" 'jq ontbreekt' "$UITVOER"
+bevat_niet "zonder jq wordt geen image als verkeerd gemeld" 'niet te starten op arm64' "$UITVOER"
 
 # --- kruiscontrole met deploy.yml -----------------------------------------------------------------
 # Een YAML-parser en geen regex, om dezelfde reden als in workflow-jobs.py: GitHub leest YAML-vorm.

@@ -38,6 +38,9 @@ readonly CHARTS REPO
 
 # shellcheck source=charts/fundament-testcluster/lib.sh
 source "$CHARTS/fundament-testcluster/lib.sh"
+# Voor `demo`, en al hier: main() roept bash_44_of_nieuwer aan vóór demo().
+# shellcheck source=charts/demo-op-fundament/lib.sh
+source "$CHARTS/demo-op-fundament/lib.sh"
 
 readonly SANDBOX_CONTEXT=k3d-fundament-plugin
 readonly PLATFORM_CONTEXT=k3d-fundament
@@ -70,6 +73,9 @@ readonly SYSTEM_ORGANISATIE_ID=019b4000-0000-7000-8000-000000000000
 readonly PLUGINS=(gateway-api/envoy-gateway:gateway-api-envoy cert-manager:cert-manager cloudnativepg:cloudnativepg)
 # Een geseede DCIM-gebruiker van Fundament die versies mag goedkeuren (zoals in test-env).
 readonly REVIEWER=alice@acme-corp.com
+# Elke status van een release. Helm 4 kent --all niet meer en toont zonder filter alles; Helm 3
+# toont zonder filter alleen deployed en failed. Samen betekenen deze filters in beide "alles".
+readonly HELM_ALLE_STATUSSEN=(--deployed --failed --pending --superseded --uninstalled --uninstalling)
 
 # Een eigen functl-configuratie: de sessie van deze opstelling mag die van de gebruiker niet
 # overschrijven.
@@ -1022,10 +1028,10 @@ demo() {
 
   # Pas na de controles hierboven: een stop daar laat de proef van `op` zoals hij was. De ene
   # magazijn-release van `op`. Alleen als hij er is: een "niet gevonden" is geen fout, een
-  # time-out of een weigering wel. Met --all, zodat ook een release die halverwege bleef staan
-  # meetelt.
+  # time-out of een weigering wel. Met elke status, zodat ook een release die halverwege bleef
+  # staan meetelt.
   local releases
-  releases=$(hm list --namespace "$NS" -q --all) || stop 1 "helm list in $NS faalde"
+  releases=$(hm list --namespace "$NS" -q "${HELM_ALLE_STATUSSEN[@]}") || stop 1 "helm list in $NS faalde"
 
   if grep -qx berichtenmagazijn <<<"$releases"; then
     hm uninstall berichtenmagazijn --namespace "$NS" --wait >/dev/null
@@ -1035,8 +1041,6 @@ demo() {
   kc -n "$NS" create secret generic gateway-ca --from-file=jssecacerts="$WERK/jssecacerts" >/dev/null
   echo "OK: de lokale CA staat in jssecacerts voor $java_home"
 
-  # shellcheck source=charts/demo-op-fundament/lib.sh
-  source "$CHARTS/demo-op-fundament/lib.sh"
   mkdir -p "$WERK/demo-values"
 
   for release in "${STELSEL_RELEASES[@]}"; do
@@ -1119,6 +1123,8 @@ main() {
       ;;
     demo)
       [ "$#" -eq 1 ] || stop 2 "demo kent geen argumenten"
+      # Voordat demo() de proef van `op` aanpast: demo-op-fundament.sh weigert anders pas daarna.
+      bash_44_of_nieuwer || stop 2 "demo vraagt bash 4.4 of nieuwer, deze is $BASH_VERSION; op macOS: brew install bash"
       : "${TAG:?zet TAG op een main-<sha7> waarvoor alle acht images bestaan}"
       geen_test_vm
       vereis_tools curl jq openssl python3 docker

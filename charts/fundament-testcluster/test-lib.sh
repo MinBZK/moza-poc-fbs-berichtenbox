@@ -1180,6 +1180,9 @@ docker() { case "$*" in *berichtenmagazijn*JAVA_HOME*) echo "${JH_MAGAZIJN-/usr/
 env() { echo "ENV $*"; ls "$WERK/demo-values"; };'
 
 uitvoer=$(in_script "$DEMO_STUBS demo")
+bevat "demo: helm list met elke status" \
+  "HM list --namespace tnt-fbs--fbs -q --deployed --failed --pending --superseded --uninstalled --uninstalling" "$uitvoer"
+bevat_niet "demo: helm list zonder --all, dat Helm 4 niet kent" "--all" "$(grep '^HM list' <<<"$uitvoer")"
 bevat "demo: geeft de kubeconfig van de sandbox door" "KUBECONFIG=$TESTCACHE/fbs-fundament-testcluster/" "$(echo "$uitvoer" | grep "^ENV")"
 bevat "demo: met de context van de sandbox" "KUBE_CONTEXT=k3d-fundament-plugin" "$uitvoer"
 bevat "demo: met de lokale CA voor de controle" "CA_BESTAND=" "$uitvoer"
@@ -1209,6 +1212,36 @@ for geval in "HMLIST=fout|helm list in" "SVC=|geen Service voor de proxy's" "SVC
   bevat_niet "demo stopt bij ${geval%%|*}: niets geïnstalleerd" "ENV " "$uitvoer"
   bevat_niet "demo stopt bij ${geval%%|*}: de oude release blijft" "HM uninstall" "$uitvoer"
 done
+
+echo "== demo onder een te oude bash =="
+
+# De bash van macOS (3.2): stoppen vóór demo() de proef van `op` aanpast, en vóór de vraag om TAG.
+code=0
+uitvoer=$(in_script "$DEMO_STUBS bash_44_of_nieuwer() { return 1; }; unset TAG; main demo") || code=$?
+gelijk "demo onder een te oude bash: exit 2" 2 "$code"
+bevat "demo onder een te oude bash: zegt hoe het verder moet" "brew install bash" "$uitvoer"
+bevat_niet "demo onder een te oude bash: vóór de vraag om TAG" "zet TAG" "$uitvoer"
+bevat_niet "demo onder een te oude bash: helm niet aangeroepen" "HM " "$uitvoer"
+
+# De eis hoort alleen bij demo: `op` en `controleer` gebruiken geen mapfile.
+uitvoer=$(in_script "bash_44_of_nieuwer() { return 1; }; main controleer" || true)
+bevat_niet "controleer onder een te oude bash: geen bash-eis" "bash 4.4" "$uitvoer"
+
+echo "== de statusfilters tegen de echte helm =="
+
+# Een stub accepteert elke vlag en ziet dus niet of de geïnstalleerde helm een vlag kent. Daarom de
+# echte helm tegen een lege kubeconfig: komt hij tot "cluster unreachable", dan kent hij elke vlag.
+if ! type -P helm >/dev/null; then
+  faal "helm ontbreekt op het PATH: de statusfilters zijn niet te toetsen"
+else
+  helm_versie=$(command helm version --short 2>/dev/null || echo "helm")
+  leeg=$(mktemp)
+  uitvoer=$(in_script "command helm list --kubeconfig '$leeg' --namespace x -q \"\${HELM_ALLE_STATUSSEN[@]}\"" || true)
+  rm -f "$leeg"
+  bevat_niet "$helm_versie kent elke statusfilter" "unknown flag" "$uitvoer"
+  bevat "$helm_versie komt met de statusfilters tot het cluster" "cluster unreachable" \
+    "$(tr '[:upper:]' '[:lower:]' <<<"$uitvoer")"
+fi
 
 echo "ASSERTIES=$asserties"
 exit "$mislukt"

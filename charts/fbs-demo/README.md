@@ -160,6 +160,10 @@ Zonder `KUBE_CONTEXT` neemt het script de huidige context van kubectl, noemt die
 bevestiging door. Het zet de context bij de start vast: een wissel in een andere terminal
 halverwege stuurt niets naar een ander cluster.
 
+Het script vraagt bash 4.4 of nieuwer en weigert vooraf als die ontbreekt. De bash van macOS is
+3.2; installeer dan eerst een nieuwere met `brew install bash`. Ook
+`.github/scripts/proeftuin-image.sh` in de handmatige installatie hieronder struikelt over 3.2.
+
 `op` doet:
 - **de tag:** of alle acht images op `TAG` bestaan, met `docker manifest inspect` (Docker of
   podman, met toegang tot ghcr.io);
@@ -254,6 +258,13 @@ for i in berichtenuitvraag berichtenmagazijn stelselregister demo-console demo-p
   docker manifest inspect ghcr.io/minbzk/fbs-$i:$TAG >/dev/null && echo "ok   $i" || echo "MIST $i"
 done
 ```
+
+Op een arm64-node, zoals k3d op een Mac, vraagt de tag nog iets. Daar starten `fbs-demo-profiel` en
+`fbs-externe-stubs` alleen als ze als los manifest gepubliceerd zijn. Oudere tags hebben een index
+met alleen amd64, en dan blijven die twee in `ImagePullBackOff` hangen met
+`no match for platform in manifest`. De controle hierboven ziet dat niet. Met
+`docker buildx imagetools inspect --raw ghcr.io/minbzk/fbs-externe-stubs:$TAG` zie je de vorm:
+een los manifest heeft `config`, een index heeft `manifests`.
 
 **De berichtenbox** draait de versie die in `compose.yaml` is gepind, dezelfde als de rest van de
 demo. `.github/scripts/proeftuin-image.sh` leest die regel. De chart weigert een referentie zonder
