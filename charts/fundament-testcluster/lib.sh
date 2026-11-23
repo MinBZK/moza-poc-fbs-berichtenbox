@@ -587,3 +587,77 @@ data:
     rewrite name regex ^(.*)\.fbs\.localhost\.$ $doel. answer auto
 EOF
 }
+
+# --- Een eigen plug-in (subcommando plugin) ------------------------------------------------------
+
+# Een veld van metadata uit een definition.yaml: name of version. Alleen sleutels met precies twee
+# spaties inspringing vóór `spec:`; de configSchema-regels (`    - name:`) vallen daar niet onder.
+definitie_veld() {
+  local bestand=$1 veld=$2
+
+  awk -v veld="$veld" '
+    /^spec:/ { exit }
+    $0 ~ "^  " veld ":[ ]" { sub("^  " veld ":[ ]+", ""); gsub(/["'\'']/, ""); print; gevonden = 1; exit }
+    END { exit !gevonden }
+  ' "$bestand"
+}
+
+# De definitie met een andere metadata.version. Versies zijn create-only; een eigen versie per
+# commit (<versie>-<sha7>) laat elke build van de plug-in publiceren, en een herhaalde run van
+# dezelfde commit vindt zijn versie terug.
+definitie_met_versie() {
+  local bestand=$1 versie=$2
+
+  [[ $versie =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 1
+  [ "$(awk '/^spec:/ { exit } /^  version:[ ]/ { n++ } END { print n + 0 }' "$bestand")" = 1 ] || return 1
+  awk -v versie="$versie" '
+    !klaar && /^  version:[ ]/ { print "  version: " versie; klaar = 1; next }
+    { print }
+  ' "$bestand"
+}
+
+# De configuratie van een PluginInstallation uit een bestand met regels SLEUTEL=waarde, als
+# JSON-object. Lege regels en regels met # ervoor tellen niet; de waarde loopt tot het einde van de
+# regel, ook met = erin, zonder aanhalingstekens te verwerken. Een andere regel is een fout: een
+# typfout zou anders stil een sleutel weglaten.
+config_als_json() {
+  local bestand=$1
+
+  jq -Rn '
+    [inputs | sub("\r$"; "") | select(test("^\\s*(#|$)") | not)]
+    | map(
+        if test("^[A-Z][A-Z0-9_]*=") then {key: sub("=.*$"; ""), value: sub("^[^=]*="; "")}
+        else error("geen SLEUTEL=waarde: \(.)") end)
+    | if (map(.key) | length) != (map(.key) | unique | length) then error("een sleutel staat er twee keer in") else . end
+    | from_entries
+  ' <"$bestand"
+}
+
+# Een PluginInstallation van de organisatie system met configuratie, als JSON: zo komen waarden met
+# een dubbele punt of aanhalingsteken heel aan.
+manifest_plugininstallatie_config() {
+  local plugin=$1 versie=$2 hash=$3 config=$4
+
+  [ -n "$hash" ] || return 1
+
+  jq -n --arg plugin "$plugin" --arg versie "$versie" --arg hash "$hash" --argjson config "$config" '{
+    apiVersion: "plugins.fundament.io/v1",
+    kind: "PluginInstallation",
+    metadata: {name: "system--\($plugin)"},
+    spec: {
+      definitionRef: {organizationName: "system", pluginName: $plugin, pluginVersion: $versie, definitionHash: $hash},
+      config: $config
+    }
+  }'
+}
+
+# Een kopie van een Secret (JSON op stdin) voor een andere namespace: alleen naam, type en data,
+# zonder uid, resourceVersion of ownerReferences van het origineel. Faalt als de sleutel ontbreekt
+# die de afnemer nodig heeft.
+secret_kopie() {
+  local ns=$1 sleutel=$2
+
+  jq -e --arg ns "$ns" --arg sleutel "$sleutel" '
+    select(.data[$sleutel] // "" | length > 0)
+    | {apiVersion: "v1", kind: "Secret", metadata: {name: .metadata.name, namespace: $ns}, type: (.type // "Opaque"), data: .data}'
+}
