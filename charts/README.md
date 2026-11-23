@@ -16,6 +16,7 @@ maar werkt op elk cluster met Gateway API of een Ingress-controller. Het ontwerp
 | `controleer.sh` | controle zonder cluster |
 | `lokaal-testcluster.sh` | de drie diensten op een k3d-cluster achter Envoy Gateway |
 | `fundament-testcluster.sh` | de drie diensten op een sandbox van Fundament, met de echte plug-ins |
+| `sandbox-relay.sh` | die opstelling bereikbaar maken vanuit de claude-sandbox |
 | `voorbeelden/` | values voor een opzet die niet bij elke installatie hoort, zoals een database uit CloudNativePG |
 | `fbs-demo/` | de demo (berichtenbox, bedieningspaneel, simulator, stubs) naast de drie diensten; zie [`fbs-demo/README.md`](fbs-demo/README.md) |
 | `demo-op-fundament.sh` | de demo installeren en controleren op een cluster van Fundament; zie [`fbs-demo/README.md`](fbs-demo/README.md) |
@@ -442,3 +443,30 @@ Fundament (`.dev/kubeconfig`): daar zetten hun recipes de contexten van beide cl
 `~/.kube/config` en je huidige context blijven onaangeroerd. Het zet daarom `FUNDAMENT_TEST_ENV`
 uit en weigert in hun test-VM: daar schrijven hun recipes wel in `~/.kube/config`. Een kale
 `kubectl` of `helm` in het script breekt het af.
+
+### Vanuit de claude-sandbox
+
+De opstelling luistert alleen op `127.0.0.1` van de host, en de claude-sandbox (een container)
+bereikt dat niet. `sandbox-relay.sh` zet er een relay tussen: een socat-container op het netwerk
+van de sandbox en op `k3d-fundament-plugin`, die alleen de Gateway van FBS doorzet, op dezelfde
+poort als op de host (9443). De hostnamen van die Gateway wijzen in de sandbox naar de relay.
+
+```bash
+charts/sandbox-relay.sh op        # starten; opnieuw na nieuwe HTTPRoutes
+charts/sandbox-relay.sh status
+charts/sandbox-relay.sh af        # ook na fundament-testcluster.sh af --met-platform
+```
+
+- **Niet het platform, niet de API-server.** Anders dan op het fieldlab geeft een projectrol hier
+  geen grens: de lokale kube-api-proxy van Fundament draait in mock-modus en stuurt verzoeken van
+  gebruikers met de admin-gegevens van de sandbox-cluster door. Met het seed-account (openbaar
+  wachtwoord) is dan iedereen die authn bereikt cluster-admin, en de nodes van k3d zijn privileged
+  containers op de Docker van de host: root op de machine. `functl` en `kubectl` blijven daarom
+  op de host.
+- **Niet de sandbox op een k3d-netwerk.** Daar staan ook `registry.localhost` en
+  `plugin-registry.localhost`, die zonder authenticatie images aannemen die het platform draait.
+- **curl** wijst `*.localhost` altijd naar `127.0.0.1`, zonder DNS. Geef in de sandbox
+  `--resolve <host>:9443:<ip van de relay>` mee; `getent hosts demo.fbs.localhost` geeft dat ip.
+- De sandbox moet de lokale CA van de Gateway vertrouwen (Secret `web-tls`, `ca.crt`): alleen het
+  certificaat. De sleutel staat in Secret `lokale-ca` in `tnt-fbs--fbs`; vertrouw die CA daarom
+  niet op de host zelf.
