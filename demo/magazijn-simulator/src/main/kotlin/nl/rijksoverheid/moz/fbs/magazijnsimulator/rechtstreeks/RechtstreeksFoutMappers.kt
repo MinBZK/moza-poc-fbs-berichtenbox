@@ -7,7 +7,6 @@ import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.Foutcode
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.fout.problemResponse
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import nl.rijksoverheid.moz.fbs.rechtstreeks.AfgewezenException
-import nl.rijksoverheid.moz.fbs.rechtstreeks.Afwijzing
 import nl.rijksoverheid.moz.fbs.rechtstreeks.JweOngeldigException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.OpslagVolException
 import nl.rijksoverheid.moz.fbs.rechtstreeks.VerifierFout
@@ -36,8 +35,7 @@ class VerifierFoutMapper(private val context: MagazijnContext) : ExceptionMapper
             is AfgewezenException -> {
                 log.infof("Rechtstreeks verzoek bij magazijn %s afgewezen (%s): %s %s", oin, foutId, fout.reden, fout.cause?.message.orEmpty())
 
-                // Alleen bij die reden is er een token getoetst; bij het openen van een sessie gaat het om de presentatie.
-                geenToegang(oin, foutId, tokenGetoetst = fout.reden == Afwijzing.SESSIE_ONBEKEND)
+                geenToegang(oin, foutId, tokenAfgewezen = fout.reden.tokenAfgewezen)
             }
 
             is JweOngeldigException -> {
@@ -68,7 +66,7 @@ class SessieOntbreektMapper(private val context: MagazijnContext) : ExceptionMap
 
         log.infof("Rechtstreeks verzoek bij magazijn %s zonder Bearer-token (%s)", context.magazijn.oin, foutId)
 
-        return geenToegang(context.magazijn.oin, foutId, tokenGetoetst = false)
+        return geenToegang(context.magazijn.oin, foutId, tokenAfgewezen = false)
     }
 }
 
@@ -78,8 +76,8 @@ class SessieOntbreektMapper(private val context: MagazijnContext) : ExceptionMap
  * getoetst en afgewezen is; zonder token, of bij een afgewezen presentatie, hoort er geen foutcode
  * in (RFC 6750, 3.1).
  */
-private fun geenToegang(oin: String, foutId: UUID, tokenGetoetst: Boolean): Response {
-    val wwwAuthenticate = if (tokenGetoetst) "Bearer realm=\"$oin\", error=\"invalid_token\"" else "Bearer realm=\"$oin\""
+private fun geenToegang(oin: String, foutId: UUID, tokenAfgewezen: Boolean): Response {
+    val wwwAuthenticate = if (tokenAfgewezen) "Bearer realm=\"$oin\", error=\"invalid_token\"" else "Bearer realm=\"$oin\""
 
     return Response.fromResponse(problemResponse(UNAUTHORIZED, "Unauthorized", foutId = foutId, foutcode = Foutcode.GEEN_TOEGANG))
         .header("WWW-Authenticate", wwwAuthenticate)

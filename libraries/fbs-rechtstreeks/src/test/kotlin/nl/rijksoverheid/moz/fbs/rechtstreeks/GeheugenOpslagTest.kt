@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.rechtstreeks
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -199,11 +200,126 @@ class GeheugenOpslagTest {
         assertTrue(kopie.contentEquals(verlopen.aesSleutel))
     }
 
+    @ParameterizedTest(name = "{0} sessie(s)")
+    @ValueSource(ints = [0, 1, 3])
+    fun `alleen een token met een verlopen sessie bij die Verifier is verlopen`(aantal: Int) {
+        val opslag = GeheugenOpslag(opzet.klok)
+
+        repeat(aantal) { opslag.bewaar(sessie("m", "t$it", Duration.ofSeconds(10)), "c$it", "c$it") }
+
+        (0 until aantal).forEach { assertFalse(opslag.verlopen("m", "t$it"), "een levende sessie is niet verlopen") }
+
+        opzet.nu = opzet.nu.plusSeconds(10)
+        // Zoals de Verifier: een gemiste zoek ruimt op, dus het antwoord komt uit de verzameling.
+        opslag.zoek("m", "iets")
+
+        (0 until aantal).forEach { assertTrue(opslag.verlopen("m", "t$it"), "t$it is verlopen") }
+
+        assertFalse(opslag.verlopen("m", "nooit"))
+        assertFalse(opslag.verlopen("m2", "t0"))
+    }
+
+    @Test
+    fun `een verlopen token blijft de bewaartermijn lang herkenbaar, en niet langer`() {
+        val opslag = GeheugenOpslag(opzet.klok, verlopenOnthouden = Duration.ofMinutes(10))
+
+        opslag.bewaar(sessie("m", "t", Duration.ofSeconds(10)), "c", "c")
+        opzet.nu = opzet.nu.plusSeconds(10).plus(Duration.ofMinutes(10)).minusSeconds(1)
+        opslag.zoek("m", "iets")
+
+        assertTrue(opslag.verlopen("m", "t"))
+
+        opzet.nu = opzet.nu.plusSeconds(1)
+
+        assertFalse(opslag.verlopen("m", "t"))
+    }
+
+    @Test
+    fun `bij een volle verzameling verliest het oudste verlopen token het eerst zijn onderscheid`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxVerlopen = 2)
+
+        listOf("oud", "midden", "nieuw").forEach { token ->
+            opslag.bewaar(sessie("m", token, Duration.ofSeconds(1)), token, token)
+            opzet.nu = opzet.nu.plusSeconds(1)
+            opslag.zoek("m", token)
+        }
+
+        assertFalse(opslag.verlopen("m", "oud"))
+        assertTrue(opslag.verlopen("m", "midden"))
+        assertTrue(opslag.verlopen("m", "nieuw"))
+    }
+
+    /**
+     * Verlopen er meer sessies tegelijk dan het plafond toelaat, dan vallen de vroegst verlopen weg.
+     * Meerdere volgordes van verlopen, zodat de volgorde van de onderliggende map niet toevallig
+     * dezelfde is.
+     */
+    @ParameterizedTest(name = "stap {0}")
+    @ValueSource(ints = [1, 3, 7, 9])
+    fun `ook binnen één opruimronde verliest het oudste verlopen token het eerst zijn onderscheid`(stap: Int) {
+        val opslag = GeheugenOpslag(opzet.klok, maxVerlopen = 5)
+        val looptijd = (0 until 10).associate { i -> "t$i" to (i * stap % 10 + 1).toLong() }
+
+        looptijd.forEach { (token, seconden) -> opslag.bewaar(sessie("m", token, Duration.ofSeconds(seconden)), token, token) }
+
+        opzet.nu = opzet.nu.plusSeconds(10)
+        opslag.zoek("m", "iets")
+
+        val onthouden = looptijd.keys.filter { opslag.verlopen("m", it) }.toSet()
+
+        assertEquals(looptijd.filterValues { it > 5 }.keys, onthouden)
+    }
+
+    /** Twee plekken, dus twaalf; met dertien verlopen tokens valt precies het oudste weg. */
+    @Test
+    fun `standaard onthoudt de opslag zes verlopen tokens per plek voor een sessie`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxSessies = 2)
+
+        (1..13).forEach { i ->
+            opslag.bewaar(sessie("m", "t$i", Duration.ofSeconds(1)), "h", "c")
+            opzet.nu = opzet.nu.plusSeconds(1)
+            opslag.zoek("m", "iets")
+        }
+
+        assertFalse(opslag.verlopen("m", "t1"))
+        assertTrue((2..13).all { opslag.verlopen("m", "t$it") })
+    }
+
+    @Test
+    fun `een sessie die verliep maar nog niet is opgeruimd, is ook verlopen`() {
+        val opslag = GeheugenOpslag(opzet.klok)
+
+        opslag.bewaar(sessie("m", "t", Duration.ofSeconds(1)), "h", "c")
+        opzet.nu = opzet.nu.plusSeconds(1)
+
+        assertTrue(opslag.verlopen("m", "t"))
+        assertFalse(opslag.verlopen("m", "u"))
+    }
+
+    @Test
+    fun `verlopen tokens tellen voor geen quotum mee`() {
+        val opslag = GeheugenOpslag(opzet.klok, maxSessies = 1, maxSessiesPerHouder = 1, maxSessiesPerClientOverVerifiers = 1)
+
+        opslag.bewaar(sessie("m", "t", Duration.ofSeconds(1)), "h", "c")
+        opzet.nu = opzet.nu.plusSeconds(1)
+
+        opslag.bewaar(sessie("m", "u"), "h", "c")
+
+        assertTrue(opslag.verlopen("m", "t"))
+        assertNotNull(opslag.zoek("m", "u"))
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = [0, -1])
+    fun `een bewaartermijn van nul of minder wordt geweigerd`(seconden: Long) {
+        assertThrows<IllegalArgumentException> { GeheugenOpslag(opzet.klok, verlopenOnthouden = Duration.ofSeconds(seconden)) }
+    }
+
     @ParameterizedTest(name = "{0}")
     @ValueSource(
         strings = [
             "maxChallenges", "maxChallengesPerClient", "maxSessies", "maxSessiesPerHouder",
-            "maxPerClientOverVerifiers", "maxSessiesPerHouderOverVerifiers", "maxSessiesPerClientOverVerifiers",
+            "maxPerClientOverVerifiers", "maxSessiesPerHouderOverVerifiers", "maxSessiesPerClientOverVerifiers", "maxVerlopen",
         ],
     )
     fun `een grens van nul wordt geweigerd`(grens: String) {
@@ -217,6 +333,7 @@ class GeheugenOpslagTest {
                 maxPerClientOverVerifiers = if (grens == "maxPerClientOverVerifiers") 0 else 1,
                 maxSessiesPerHouderOverVerifiers = if (grens == "maxSessiesPerHouderOverVerifiers") 0 else 1,
                 maxSessiesPerClientOverVerifiers = if (grens == "maxSessiesPerClientOverVerifiers") 0 else 1,
+                maxVerlopen = if (grens == "maxVerlopen") 0 else 1,
             )
         }
     }

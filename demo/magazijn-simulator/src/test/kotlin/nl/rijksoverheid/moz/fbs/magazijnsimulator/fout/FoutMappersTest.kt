@@ -8,7 +8,9 @@ import jakarta.validation.Path
 import jakarta.ws.rs.NotFoundException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.Logvanger
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
+import nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn.MagazijnContext
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -32,14 +34,14 @@ class FoutMappersTest {
     fun `een zelfgebouwde problem-response gaat ongewijzigd door`() {
         val response = problemResponse(status = 404, title = "Not Found", detail = "Geen bericht")
 
-        val uitkomst = ProblemExceptionMapper().toResponse(WebApplicationException(response))
+        val uitkomst = ProblemExceptionMapper(MagazijnContext()).toResponse(WebApplicationException(response))
 
         assertSame(response, uitkomst)
     }
 
     @Test
     fun `een exception van elders krijgt alsnog een problem-body met dezelfde status`() {
-        val uitkomst = ProblemExceptionMapper().toResponse(NotFoundException("Bericht bestaat niet"))
+        val uitkomst = ProblemExceptionMapper(MagazijnContext()).toResponse(NotFoundException("Bericht bestaat niet"))
 
         assertEquals(404, uitkomst.status)
         assertEquals(PROBLEM_JSON, uitkomst.mediaType.toString())
@@ -51,6 +53,17 @@ class FoutMappersTest {
         // Bij een 4xx is de melding juist nuttig: dat is wat de aanroeper nodig heeft om te zien wat
         // er mis is.
         assertEquals("Bericht bestaat niet", problem.detail)
+    }
+
+    /** Het beheerpad kiest geen magazijn; de regel zegt dat dan, in plaats van een leeg veld. */
+    @Test
+    fun `een clientfout zonder gekozen magazijn noemt dat in de log`() {
+        val log = Logvanger().use { logvanger ->
+            ProblemExceptionMapper(MagazijnContext()).toResponse(NotFoundException("Geen gesimuleerd magazijn"))
+            logvanger.tekst()
+        }
+
+        assertTrue(log.contains("foutcode=niet-gevonden, magazijn=geen)"), log)
     }
 
     /**
@@ -67,7 +80,7 @@ class FoutMappersTest {
         ],
     )
     fun `een melding die naar interne toestand ruikt blijft weg`(melding: String) {
-        val problem = ProblemExceptionMapper().toResponse(NotFoundException(melding)).entity as Problem
+        val problem = ProblemExceptionMapper(MagazijnContext()).toResponse(NotFoundException(melding)).entity as Problem
 
         assertNull(problem.detail)
     }
@@ -76,7 +89,7 @@ class FoutMappersTest {
     fun `een 5xx geeft de melding niet door, ook niet als hij onschuldig lijkt`() {
         val exception = WebApplicationException("kan de database niet bereiken op host db-01", 503)
 
-        val problem = ProblemExceptionMapper().toResponse(exception).entity as Problem
+        val problem = ProblemExceptionMapper(MagazijnContext()).toResponse(exception).entity as Problem
 
         assertEquals(503, problem.status)
         assertNull(problem.detail)
@@ -86,7 +99,7 @@ class FoutMappersTest {
     fun `een onbekende status levert een neutrale titel op in plaats van een lege`() {
         val exception = WebApplicationException(Response.status(499).build())
 
-        val problem = ProblemExceptionMapper().toResponse(exception).entity as Problem
+        val problem = ProblemExceptionMapper(MagazijnContext()).toResponse(exception).entity as Problem
 
         assertEquals("Error", problem.title)
         assertEquals(499, problem.status)
@@ -165,7 +178,7 @@ class FoutMappersTest {
     @Test
     fun `elk foutantwoord draagt een correlatie-id in instance`() {
         val antwoorden = listOf(
-            ProblemExceptionMapper().toResponse(NotFoundException()),
+            ProblemExceptionMapper(MagazijnContext()).toResponse(NotFoundException()),
             UncaughtExceptionMapper().toResponse(IllegalStateException()),
             ConstraintViolationExceptionMapper().toResponse(schendingen("xOntvanger" to "moet aan het patroon voldoen")),
             problemResponse(status = 404, title = "Not Found"),
@@ -190,8 +203,8 @@ class FoutMappersTest {
     @Test
     fun `elk foutantwoord draagt een ketenkenmerk in type`() {
         val antwoorden = listOf(
-            ProblemExceptionMapper().toResponse(NotFoundException()),
-            ProblemExceptionMapper().toResponse(
+            ProblemExceptionMapper(MagazijnContext()).toResponse(NotFoundException()),
+            ProblemExceptionMapper(MagazijnContext()).toResponse(
                 SimulatorFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE, "weg"),
             ),
             UncaughtExceptionMapper().toResponse(IllegalStateException()),
@@ -213,7 +226,7 @@ class FoutMappersTest {
     fun `een throw-site met een eigen kenmerk houdt dat kenmerk`() {
         val fout = SimulatorFout(Foutcode.BERICHT_VERWIJDERD, Response.Status.GONE, "weg")
 
-        val problem = ProblemExceptionMapper().toResponse(fout).entity as Problem
+        val problem = ProblemExceptionMapper(MagazijnContext()).toResponse(fout).entity as Problem
 
         assertEquals(Foutcode.BERICHT_VERWIJDERD.uri, problem.type)
         assertEquals(410, problem.status)

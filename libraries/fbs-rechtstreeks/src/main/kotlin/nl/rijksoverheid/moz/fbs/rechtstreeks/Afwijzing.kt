@@ -3,28 +3,45 @@ package nl.rijksoverheid.moz.fbs.rechtstreeks
 import java.time.Duration
 
 /**
- * Welke controle een verzoek afwees. Alleen voor de eigen log van de Verifier: naar de app gaat
- * voor elke reden hetzelfde antwoord (`401`), zodat de app niet kan afleiden welke controle faalde.
+ * Welke controle een verzoek afwees. Alleen voor de eigen log van de Verifier: naar de app gaat voor
+ * elke reden een `401` met dezelfde body, zodat de app niet kan afleiden welke controle faalde.
+ * Alleen `WWW-Authenticate` zegt of er een sessietoken is afgewezen ([tokenAfgewezen]); de
+ * aanroeper zet dan `error="invalid_token"` (RFC 6750, 3.1).
+ *
+ * Zonder standaardwaarde: elke nieuwe reden kiest. Een tokenreden zonder die vlag zou de app via de
+ * header het verschil met de andere tokenredenen verraden.
  */
-enum class Afwijzing {
-    NONCE_ONBEKEND,
-    PRESENTATIE_ONLEESBAAR,
-    PRESENTATIE_ONVOLLEDIG,
-    TIJDELIJKE_SLEUTEL_ONGELDIG,
-    AES_SLEUTEL_ONGELDIG,
-    CERTIFICAATSOORT_ONJUIST,
-    HEADER_NIET_TOEGESTAAN,
-    APP_MANAGER_ONBEKEND,
-    HANDTEKENING_ONGELDIG,
-    CREDENTIAL_ONVOLLEDIG,
-    APP_MANAGER_SLEUTEL_VERLOPEN,
-    CREDENTIAL_NIET_GELDIG,
-    SCOPE_ONJUIST,
-    ONTVANGER_ONGELDIG,
-    APPSLEUTEL_ONGELDIG,
-    NONCEHANDTEKENING_ONGELDIG,
-    SESSIE_ONBEKEND,
-    VERSLEUTELING_ONGELDIG,
+enum class Afwijzing(val tokenAfgewezen: Boolean) {
+    NONCE_ONBEKEND(tokenAfgewezen = false),
+    PRESENTATIE_ONLEESBAAR(tokenAfgewezen = false),
+    PRESENTATIE_ONVOLLEDIG(tokenAfgewezen = false),
+    TIJDELIJKE_SLEUTEL_ONGELDIG(tokenAfgewezen = false),
+    AES_SLEUTEL_ONGELDIG(tokenAfgewezen = false),
+    CERTIFICAATSOORT_ONJUIST(tokenAfgewezen = false),
+    HEADER_NIET_TOEGESTAAN(tokenAfgewezen = false),
+    APP_MANAGER_ONBEKEND(tokenAfgewezen = false),
+    HANDTEKENING_ONGELDIG(tokenAfgewezen = false),
+    CREDENTIAL_ONVOLLEDIG(tokenAfgewezen = false),
+    APP_MANAGER_SLEUTEL_VERLOPEN(tokenAfgewezen = false),
+    CREDENTIAL_NIET_GELDIG(tokenAfgewezen = false),
+    SCOPE_ONJUIST(tokenAfgewezen = false),
+    ONTVANGER_ONGELDIG(tokenAfgewezen = false),
+    APPSLEUTEL_ONGELDIG(tokenAfgewezen = false),
+    NONCEHANDTEKENING_ONGELDIG(tokenAfgewezen = false),
+
+    /**
+     * Het token is bij deze Verifier niet (meer) bekend: verzonnen, van vóór een herstart van de
+     * dienst, langer geleden verlopen dan de opslag onthoudt, of verdrongen uit een volle
+     * verzameling van verlopen tokens.
+     */
+    SESSIE_ONBEKEND(tokenAfgewezen = true),
+
+    /**
+     * Het token hoorde kort geleden bij een sessie die nu verlopen is: een app die over de grens
+     * liep. Voor de app hetzelfde antwoord als [SESSIE_ONBEKEND]; alleen de log onderscheidt ze.
+     */
+    SESSIE_VERLOPEN(tokenAfgewezen = true),
+    VERSLEUTELING_ONGELDIG(tokenAfgewezen = false),
 }
 
 /** Wat er aan een JWE niet klopt dat zonder sleutel al te zien is. Ook alleen voor de eigen log. */
