@@ -15,7 +15,8 @@
 #   BASISDOMEIN     standaard fbs.<adres-met-streepjes>.sslip.io uit het adres van de Gateway
 #   ISSUER          een Issuer in de namespace; dan maakt het script het Certificate GATEWAY_SECRET
 #   GATEWAY_SECRET  het Secret van het certificaat op de listener (web-tls)
-#   PROEFTUIN       de berichtenbox; standaard de pin uit compose.yaml
+#   PROEFTUIN       de berichtenbox; standaard de pin uit compose.yaml, of PROEFTUIN_IMAGE als die
+#                   gezet is (zie .github/scripts/proeftuin-image.sh); altijd met digest
 #   HTTPS_POORT     de poort van de Gateway voor de browser, standaard 443: voor de adressen die het
 #                   paneel de browser geeft, en voor de controle
 #   GATEWAY_ADRES, CA_BESTAND
