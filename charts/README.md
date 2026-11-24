@@ -473,3 +473,25 @@ charts/fundament-testcluster.sh plugin ~/dev/moza/fundament-fbs-magazijn <commit
 Binnen het cluster wijzen `*.fbs.localhost` na `demo` via CoreDNS naar de Gateway, op 443. Een
 plug-in kan dus `https://aanmelding.fbs.localhost/api/v1/aanmeldingen` gebruiken, zoals magazijn A
 en B.
+
+**Via de console** gaat het installeren ook, zoals een organisatie dat op het fieldlab doet; het
+script publiceert dan alleen (de versie staat daarna goedgekeurd in de catalogus):
+
+1. Lokaal is er geen Gardener: `cluster-worker` zet het seed-cluster `acme-cluster` op `lost`, en de
+   console installeert alleen op een cluster dat draait. Fundaments `just plugin-sandbox-kubeconfig`
+   zet het op `ready`; alleen dat deel:
+   ```bash
+   kubectl --kubeconfig "$KC" --context k3d-fundament -n fundament exec db-1 -c postgres -- \
+     psql -U postgres -d fundament -qtAc "UPDATE tenant.clusters SET shoot_status = 'ready', shoot_status_updated = now() WHERE deleted IS NULL"
+   ```
+   De volgende controle van `cluster-worker` (binnen 30 minuten) zet het terug; een geïnstalleerde
+   plug-in draait gewoon door.
+2. Log in op https://console.fundament.localhost:8443 als `alice@acme-corp.com` (wachtwoord
+   `password`, een openbaar seed-account), en installeer de plug-in op `acme-cluster`. Elk
+   cluster-id gaat lokaal naar de sandbox, dus de installatie komt daar.
+3. Daarna als beheerder van het cluster, in `plugin-system--<naam>`, wat `plugin` anders zelf doet:
+   de Role `httproutes` voor ServiceAccount `plugin`, de uitzondering in `allowedRoutes` van Gateway
+   `web`, en met `TRUSTSTORE_SECRET` een kopie van `gateway-ca`. Die laatste is alleen lokaal nodig:
+   de diensten van de demo hebben een certificaat van de lokale CA. Op het fieldlab blijft
+   `TRUSTSTORE_SECRET` leeg. Zolang de kopie ontbreekt, start het magazijn niet
+   (`secret "gateway-ca" not found`); daarna vanzelf.
