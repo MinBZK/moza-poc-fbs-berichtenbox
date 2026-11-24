@@ -195,6 +195,48 @@ halverwege stuurt niets naar een ander cluster.
     is dat een fout;
   - een ongeldige sessie (401) of een weigering (403) stopt meteen; een lopende ronde (409) wacht.
 
+## Een magazijn aanmelden
+
+Een organisatie die op het fieldlab een eigen magazijn neerzet (de plug-in berichtenmagazijn), staat
+daarmee nog niet in het stelsel. Het magazijnregister is configuratie van de uitvraag en het
+stelselregister, en een ontvanger krijgt alleen berichten van een afzender waarvoor hij een opt-in
+heeft. `aanmelden` regelt beide voor de demo:
+
+```bash
+# De twee regels van de plug-in, uit zijn ConfigMap (of uit zijn statusbericht, in een bestand)
+kubectl --context <cluster van de organisatie> -n <namespace van de plug-in> \
+  get configmap berichtenmagazijn-magazijnregister -o jsonpath='{.data.magazijnregister\.properties}' >magazijn.properties
+
+KUBE_CONTEXT=<context van de demo> NS=tnt-fbs--demo \
+  charts/demo-op-fundament.sh aanmelden magazijn.properties KVK:90000014
+KUBE_CONTEXT=<context van de demo> NS=tnt-fbs--demo charts/demo-op-fundament.sh afmelden <OIN>
+```
+
+`aanmelden` doet:
+- **het register:** de regels `magazijnen."<OIN>".url=` en `.naam=` komen in de value
+  `aanmeldingen.register` van fbs-demo, achter het gegenereerde register in dezelfde ConfigMap.
+  Opnieuw aanmelden met dezelfde OIN vervangt de regels. Andere regels weigert de chart, net als een
+  OIN die al in het gegenereerde register staat;
+- **de opt-ins:** voor elke ontvanger (`KVK:<nummer>` of `BSN:<nummer>`) het antwoord dat de
+  profielstub nu geeft, met de OIN erbij in de berichtenbox-voorkeur. Dat komt als mapping met
+  voorrang naast de stubs uit het image. Kies een ontvanger uit de demo, met een berichtenbox-voorkeur;
+  zonder ontvanger komen er geen berichten aan;
+- **de upgrade** van fbs-demo met de chart uit deze checkout en de values van de release
+  (`--reset-then-reuse-values`, Helm 3.14 of nieuwer). Daarna starten uitvraag en stelselregister
+  opnieuw, want ze lezen het register alleen bij het starten. De profielstub start Helm zelf opnieuw;
+  de rest van de demo niet;
+- **de controle:** het stelseldocument noemt de OIN met zijn url, en de profielstub geeft elke
+  ontvanger de opt-in.
+
+`afmelden` haalt de regels en de OIN uit elke opt-in weer weg; een ontvanger zonder aangemeld
+magazijn krijgt dan weer het antwoord uit het image. Een volgende `op` neemt de aanmeldingen over uit
+de release.
+
+Wat het niet doet: het magazijn zelf bereikbaar maken. De uitvraag haalt berichten op bij de url uit
+het register, dus die moet vanuit dit cluster te bereiken zijn, met een certificaat dat de JVM
+vertrouwt (op het fieldlab Let's Encrypt). Het magazijn levert aan bij de aanmelding en notificatie
+van deze demo (`AANMELD_URL` en `NOTIFICATIE_URL` van de plug-in).
+
 ## Installeren
 
 Eerst de demo, dan het stelsel. De uitvraag en het stelselregister lezen het magazijnregister uit
