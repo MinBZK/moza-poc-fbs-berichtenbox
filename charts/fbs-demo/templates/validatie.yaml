@@ -45,14 +45,14 @@ een knop niets doet.
 {{- end }}
 {{- /* Aangemelde magazijnen: alleen de twee regels per OIN, zodat er via het register geen andere
      instelling van uitvraag of stelselregister mee kan. Een naam die op een backslash eindigt, laat
-     de volgende regel aansluiten (properties-formaat); een OIN uit het gegenereerde register zou
-     twee keer voorkomen. */}}
+     de volgende regel aansluiten (properties-formaat), en Java leest ook CR als regeleinde: geen
+     stuurtekens. Een OIN uit het gegenereerde register zou twee keer voorkomen. */}}
 {{- $aanmeldingen := $v.aanmeldingen | default dict }}
 {{- $aangemeld := dict }}
 {{- range $regel := splitList "\n" (toString $aanmeldingen.register) }}
 {{- $regel = trim $regel }}
 {{- if and $regel (not (hasPrefix "#" $regel)) }}
-{{- if not (regexMatch "^magazijnen\\.\"[0-9]{20}\"\\.(url=https://[^\\s\\\\]+|naam=\\S([^\\\\]|\\\\.)*)$" $regel) }}
+{{- if not (regexMatch "^magazijnen\\.\"[0-9]{20}\"\\.(url=https://[^\\s\\x00-\\x1f\\x7f\\\\]+|naam=[^\\s\\x00-\\x1f\\x7f]([^\\x00-\\x1f\\x7f\\\\]|\\\\[^\\x00-\\x1f\\x7f])*)$" $regel) }}
 {{- $fouten = append $fouten (printf "aanmeldingen.register: %q is geen regel magazijnen.\"<OIN>\".url=https://... of magazijnen.\"<OIN>\".naam=..." $regel) }}
 {{- else }}
 {{- $oin := regexFind "[0-9]{20}" $regel }}

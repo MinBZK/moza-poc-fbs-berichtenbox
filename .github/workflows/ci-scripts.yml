@@ -191,7 +191,7 @@ jobs:
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223
             [charts/fundament-testcluster/test-lib.sh]=473
-            [charts/demo-op-fundament/test-lib.sh]=126
+            [charts/demo-op-fundament/test-lib.sh]=130
             [charts/demo-op-fundament/test-script.sh]=188
           )
           declare -A GEDRAAID=()

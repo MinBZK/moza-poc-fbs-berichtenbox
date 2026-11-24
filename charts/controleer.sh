@@ -29,7 +29,7 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=480
+VERWACHTE_CONTROLES=481
 MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
@@ -837,6 +837,10 @@ printf '%s\n' 'magazijnen."00000009000000000777".url=https://c.voorbeeld.nl' 'ma
   'quarkus.http.port=1' >"$WERK/aanmelding-backslash.properties"
 aanmelding_weigering "demo-aanmelding-backslash" 'naam=C\\" is geen regel magazijnen' \
   --set-file "aanmeldingen.register=$WERK/aanmelding-backslash.properties"
+printf '%s\n%s\r%s\n' 'magazijnen."00000009000000000777".url=https://c.voorbeeld.nl' 'magazijnen."00000009000000000777".naam=C' \
+  'quarkus.http.port=1' >"$WERK/aanmelding-cr.properties"
+aanmelding_weigering "demo-aanmelding-cr-in-naam" 'is geen regel magazijnen' \
+  --set-file "aanmeldingen.register=$WERK/aanmelding-cr.properties"
 aanmelding_weigering "demo-aanmelding-zonder-naam" "00000009000000000777 heeft niet zowel url als naam" \
   --set-string 'aanmeldingen.register=magazijnen."00000009000000000777".url=https://c.voorbeeld.nl'
 printf '%s\n' 'magazijnen."00000009000000000001".url=https://c.voorbeeld.nl' 'magazijnen."00000009000000000001".naam=C' \

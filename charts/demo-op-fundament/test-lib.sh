@@ -205,6 +205,10 @@ weigert_regels "een OIN van 19 cijfers" 'magazijnen."0000000900000000077".url=ht
 weigert_regels "een OIN zonder aanhalingstekens" 'magazijnen.00000009000000000777.url=https://a'$'\n'"$NAAM_C"
 weigert_regels "een lege naam" "$URL_C"$'\n''magazijnen."00000009000000000777".naam='
 weigert_regels "een naam die op een backslash eindigt" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C\'
+weigert_regels "een CR midden in de naam (regeleinde voor Java)" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C'$'\r''quarkus.http.port=1'
+weigert_regels "een form feed in de naam" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C'$'\f''x'
+weigert_regels "een backslash voor een CR" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C\'$'\r''x'
+weigert_regels "een tab in de url" 'magazijnen."00000009000000000777".url=https://a'$'\t''b'$'\n'"$NAAM_C"
 weigert_regels "de zin uit het statusbericht" \
   "voeg toe aan het magazijnregister: $URL_C en $NAAM_C"
 

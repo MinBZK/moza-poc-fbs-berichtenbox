@@ -218,9 +218,11 @@ EOF
 
 # Een regel van het magazijnregister zoals de plug-in berichtenmagazijn hem geeft. Gelijk aan de
 # toets in charts/fbs-demo/templates/validatie.yaml: alleen url (https) en naam, en geen naam die op
-# een losse backslash eindigt (die laat in het properties-formaat de volgende regel aansluiten).
+# een losse backslash eindigt (die laat in het properties-formaat de volgende regel aansluiten), en
+# geen stuurteken: Java leest ook CR en FF als regeleinde of witruimte, en zo kwam er via de naam
+# een andere instelling bij.
 # shellcheck disable=SC2034 # gelezen door test-lib.sh
-AANMELD_REGEL='^magazijnen\."([0-9]{20})"\.(url=https://[^[:space:]\\]+|naam=[^[:space:]]([^\\]|\\.)*)$'
+AANMELD_REGEL='^magazijnen\."([0-9]{20})"\.(url=https://[^[:space:][:cntrl:]\\]+|naam=[^[:space:][:cntrl:]]([^\\[:cntrl:]]|\\[^[:cntrl:]])*)$'
 
 # Een ontvanger zoals de uitvraag hem in X-Ontvanger kent.
 ONTVANGER_REGEL='^(KVK|BSN):[0-9]{8,9}$'
