@@ -140,6 +140,13 @@ env:
   PROJECT_EXTERNE_STUBS: mpfpsm-lcl
   PROJECT_MAGAZIJNEN: mpfm-w3h
   PROJECT_STELSELREGISTER: mpfs-rab
+  # De FSC-peers `logius` (OIN …1000) en `magazijn-a` (…100000) draaien sinds 24 november 2026 op
+  # Fundament, met dezelfde OIN's (MinBZK/MijnOverheidZakelijk#1661; het plan staat in fbs-charts,
+  # docs/plans/2026-11-24-fsc-op-het-fieldlab.md). Een OIN mag in de groep maar één keer
+  # voorkomen, en een uitrol van `fsc-logius` of `fsc-magazijna` zet hun gestopte componenten weer
+  # aan. Daarom slaan beide stappen over zolang dit niet "true" is. Terug naar ZAD: eerst de peers
+  # op Fundament stoppen, dan dit op "true".
+  FSC_PEERS_OP_ZAD: "false"
   # Publiek infra-image (niet door de cleanup verwijderd). Pin in sync met compose.yaml
   # (zie pin-consistency.yml).
   #
@@ -1327,6 +1334,8 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/logius/deploy/zad/upsert-peer.sh.
       - name: Deploy uitvraag-project (fsc-logius — FSC-peer)
+        # Zie FSC_PEERS_OP_ZAD bovenaan.
+        if: env.FSC_PEERS_OP_ZAD == 'true'
         uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
@@ -1450,6 +1459,8 @@ jobs:
       # Deze stap doet alleen tag-updates; de eenmalige creatie (env/ports) loopt via
       # demo/environment/magazijn-a/deploy/zad/upsert-peer.sh.
       - name: Deploy magazijnen-project (fsc-magazijna — FSC-peer)
+        # Zie FSC_PEERS_OP_ZAD bovenaan.
+        if: env.FSC_PEERS_OP_ZAD == 'true'
         uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_MAGAZIJNEN }}

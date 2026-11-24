@@ -10,6 +10,14 @@ door meerdere consumer-repo's tegelijk gebruikt).
 | [`magazijn-a`](magazijn-a/) | provider (biedt `berichtenmagazijn` aan) | `00000000000000100000` | `mpfm-w3h`, deployment `fsc-magazijna` (co-located met de `magazijna`/`magazijnb`-app) |
 | [`logius`](logius/) | afnemer (outway naar `magazijn-a`) + aanbieder (inway, nog zonder dienst) | `00000000000000001000` | `mpfb-8wh`, deployment `fsc-logius` (co-located met de `uitvraag`-app) |
 
+**Sinds 24 november 2026 staan beide peers op ZAD stil.** Hun OIN's draaien op Fundament, voor het
+fieldlab (MinBZK/MijnOverheidZakelijk#1661; het plan staat in fbs-charts,
+`docs/plans/2026-11-24-fsc-op-het-fieldlab.md`). Een OIN mag in de groep maar één keer voorkomen.
+`deploy.yml` slaat de uitrol van `fsc-logius` en `fsc-magazijna` over zolang `FSC_PEERS_OP_ZAD` niet
+`"true"` is. De uitvraag op `test` gaat zolang rechtstreeks naar magazijn A en het profiel, zonder
+FSC. Draai zolang ook `upsert-peer.sh apply` van beide peers niet: een upsert zet hun gestopte
+componenten weer aan.
+
 Elke peer-map bevat dezelfde indeling: `pki/` (certificaat-scripts), `deploy/local/`
 (lokale compose-harness, gestart met `deploy/local/up.sh`), `deploy/zad/` (ZAD-rollout-runbooks + plan/validate-
 script) en `docs/` (ontwerpachtergrond).
