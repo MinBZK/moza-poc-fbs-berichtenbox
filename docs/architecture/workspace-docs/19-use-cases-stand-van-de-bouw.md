@@ -29,6 +29,13 @@ PoC-afwijkingen.
 | 10 | Niet-verwijderde berichten worden nooit opgeruimd | `BerichtRepository`: hard-delete selecteert alleen `verwijderd_op IS NOT NULL` | [#1597](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1597) |
 | 11 | Een bericht uit een magazijn dat bij het ophalen niet leverde, geeft bij openen `404 bericht-onbekend` | Uitvraag `BerichtOphaalService`: eerst de sessielijst | [#1591](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591) |
 | 11 | Geen alert per magazijn dat lang niet levert | Sessiecache-aggregatie, circuit breaker per magazijn | [#1480](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1480), [#1478](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1478) |
+| 13, 14 | Het register is configuratie, apart in uitvraag en stelselregister. In- en uitschrijven vraagt een uitrol van beide; niet te herleiden wie wat wijzigde | `magazijnen."<OIN>".{url,naam,grantHash}` in `application.properties` van uitvraag en stelselregister; `ConfigMagazijnregister` valideert bij het opstarten, `MagazijnClientFactory` bouwt de clients eenmalig | [#1484](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1484), [#1485](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1485) |
+| 13 | Geen zicht op de ingeschreven magazijnen, en geen controle dat uitvraag en stelselregister dezelfde lijst hebben | – | [#1483](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1483) |
+| 13 | Een magazijn neerzetten en aanmelden is handwerk: database, `MAGAZIJN_OIN`, downstream-URL's, grant-hashes, registerregel | Plug-in op Fundament in beproeving | [#1538](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1538) |
+| 13 | De Profiel Service kent geen lijst van deelnemende organisaties; een voorkeur noemt alleen een OIN | `ProfielVoorkeuren.optedInAfzenderOinStrings` | – (open vraag) |
+| 14 | Een magazijn kan niet op een datum stoppen met aannemen terwijl ophalen en beheren doorgaan | Magazijn-API | – (open vraag) |
+| 14 | Geen melding aan alle ontvangers van een magazijn; de Publicatie Stream meldt alleen per bericht | `PublicatieOutbox`, `CloudEventBuilder` | – (open vraag) |
+| 14 | Een vervallen voorkeur haalt ook eerder rechtmatig gestuurde berichten uit de berichtenbox | `ProfielMagazijnResolver`: alleen actuele voorkeuren | [#1413](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1413) |
 
 ## Wanneer het logboek vastlegt
 
@@ -57,3 +64,4 @@ handeling verschilt per pad:
 | 6 | Uitvraag `GET /api/v1/berichten/{berichtId}/bijlagen/{bijlageId}?magazijnId=`; magazijn idem zonder `magazijnId` |
 | 7 | Uitvraag `PATCH /api/v1/berichten/{berichtId}?magazijnId=` (`application/merge-patch+json`); magazijn `PATCH /api/v1/berichten/{berichtId}` |
 | 8 | Uitvraag `DELETE /api/v1/berichten/{berichtId}?magazijnId=`; magazijn `DELETE /api/v1/berichten/{berichtId}` (soft-delete); `HardDeleteJob` dagelijks 03:00 Europe/Amsterdam |
+| 13, 14 | Geen API: registerregels `magazijnen."<OIN>".{url,naam}` in uitvraag en stelselregister; stelselregister `GET /api/v1/stelseldocument`; per magazijn `MAGAZIJN_OIN`, `AANMELD_URL`, `NOTIFICATIE_URL` en de grant-hashes voor FSC |
