@@ -8,6 +8,9 @@ import io.smallrye.mutiny.Multi
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import org.awaitility.Awaitility.await
+import org.hamcrest.Matchers.equalTo
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -15,11 +18,15 @@ import org.junit.jupiter.api.Test
 import java.net.HttpURLConnection
 import java.net.URI
 import java.time.Duration
-import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * De plafonds op open streams: twee per pod en één per ontvanger in dit profiel. Een gesloten
  * connection geeft haar plek terug, en een aanvraag die vóór de stream strandt ook.
+ *
+ * Een `disconnect()` komt pas asynchroon bij de server aan. De tests wachten daarom tot de server
+ * elke stream heeft afgezegd, en niet tot een nieuwe stream weer opengaat: die houdt zelf een plek
+ * bezet, en op een drukke runner was die bij de start van de volgende test nog niet terug.
  */
 @QuarkusTest
 @TestProfile(VolgenPlafondTest.KleinePlafondsProfile::class)
@@ -31,13 +38,29 @@ class VolgenPlafondTest {
     /** Per ontvanger één sessie; het plafond telt open streams, niet sessies. */
     private val sessies = mutableMapOf<String, String>()
 
+    /**
+     * Streams die de server van de sessiecache afneemt en nog niet heeft afgezegd. De resource geeft
+     * de plek terug in een `onTermination` stroomafwaarts van deze teller, en een afzegging passeert
+     * die eerst (vastgelegd in de laatste test). Nul betekent dus dat elke plek terug is.
+     */
+    private val openStreams = AtomicInteger()
+
     @BeforeEach
     fun openBlijvendeStream() {
         sessiecache.reset()
-        sessiecache.volgGebeurtenissen = Multi.createBy().concatenating().streams(
-            Multi.createFrom().item(SessieGebeurtenis.VolgenGestart),
-            Multi.createFrom().nothing(),
-        )
+        sessiecache.volgGebeurtenissen = Multi.createBy().concatenating()
+            .streams<SessieGebeurtenis>(
+                Multi.createFrom().item(SessieGebeurtenis.VolgenGestart),
+                Multi.createFrom().nothing(),
+            )
+            .onSubscription().invoke { -> openStreams.incrementAndGet() }
+            .onTermination().invoke { -> openStreams.decrementAndGet() }
+    }
+
+    /** Ook de stream van de laatste controle mag de volgende test geen plek kosten. */
+    @AfterEach
+    fun geenPlekAchterlaten() {
+        wachtTotAlleStreamsAfgezegd()
     }
 
     @Test
@@ -56,7 +79,9 @@ class VolgenPlafondTest {
             eerste.disconnect()
         }
 
-        assertEquals(200, wachtOpStatus(A, 200))
+        wachtTotAlleStreamsAfgezegd()
+
+        assertEquals(200, statusVan(A))
     }
 
     @Test
@@ -73,18 +98,41 @@ class VolgenPlafondTest {
             tweede.disconnect()
         }
 
-        assertEquals(200, wachtOpStatus(C, 200))
+        wachtTotAlleStreamsAfgezegd()
+
+        assertEquals(200, statusVan(C))
     }
 
     @Test
     fun `een aanvraag die vóór de stream strandt, houdt geen plek bezet`() {
         sessiecache.volgFout = SessiecacheException.NogNietGevuld("nog niet")
 
+        // De plek gaat terug voordat de 409 vertrekt; hier valt niets af te wachten.
         repeat(3) { assertEquals(409, statusVan(A)) }
 
         sessiecache.volgFout = null
 
-        assertEquals(200, wachtOpStatus(A, 200))
+        assertEquals(200, statusVan(A))
+    }
+
+    @Test
+    fun `een afzegging passeert onTermination stroomafwaarts vóór die stroomopwaarts`() {
+        val volgorde = mutableListOf<String>()
+
+        Multi.createFrom().nothing<Int>()
+            .onTermination().invoke { -> volgorde += "sessiecache" }
+            .map { it }
+            .onTermination().invoke { -> volgorde += "resource" }
+            .subscribe().with { }
+            .cancel()
+
+        assertEquals(listOf("resource", "sessiecache"), volgorde)
+    }
+
+    private fun wachtTotAlleStreamsAfgezegd() {
+        await("alle streams door de server afgezegd")
+            .atMost(Duration.ofSeconds(10))
+            .untilAtomic(openStreams, equalTo(0))
     }
 
     private fun assertWeigering(connection: HttpURLConnection) {
@@ -107,20 +155,6 @@ class VolgenPlafondTest {
         val connection = open(ontvanger)
 
         return connection.responseCode.also { connection.disconnect() }
-    }
-
-    /** Het sluiten komt asynchroon bij de server aan; wacht tot de plek vrij is. */
-    private fun wachtOpStatus(ontvanger: String, verwacht: Int): Int {
-        val deadline = Instant.now().plus(Duration.ofSeconds(5))
-        var status: Int
-
-        do {
-            status = statusVan(ontvanger)
-
-            if (status != verwacht) Thread.sleep(100)
-        } while (status != verwacht && Instant.now().isBefore(deadline))
-
-        return status
     }
 
     private fun open(ontvanger: String): HttpURLConnection =
