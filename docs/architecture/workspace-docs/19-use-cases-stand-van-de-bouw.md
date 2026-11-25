@@ -33,8 +33,8 @@ PoC-afwijkingen.
 | 13 | Geen zicht op de ingeschreven magazijnen, en geen controle dat uitvraag en stelselregister dezelfde lijst hebben | – | [#1483](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1483) |
 | 13 | Een magazijn neerzetten en aanmelden is handwerk: database, `MAGAZIJN_OIN`, downstream-URL's, grant-hashes, registerregel | Plug-in op Fundament in beproeving | [#1538](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1538) |
 | 13 | De Profiel Service kent geen lijst van deelnemende organisaties; een voorkeur noemt alleen een OIN | `ProfielVoorkeuren.optedInAfzenderOinStrings` | – (open vraag) |
-| 14 | Een magazijn kan niet op een datum stoppen met aannemen terwijl ophalen en beheren doorgaan | Magazijn-API | – (open vraag) |
-| 14 | Geen melding aan alle ontvangers van een magazijn; de Publicatie Stream meldt alleen per bericht | `PublicatieOutbox`, `CloudEventBuilder` | – (open vraag) |
+| 14 | Een magazijn kan niet op een datum stoppen met aannemen terwijl ophalen en beheren doorgaan | Magazijn-API | [#1683](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1683) |
+| 14 | Geen melding aan alle ontvangers van een magazijn; de Publicatie Stream meldt alleen per bericht | `PublicatieOutbox`, `CloudEventBuilder` | [#1684](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1684) |
 | 14 | Een vervallen voorkeur haalt ook eerder rechtmatig gestuurde berichten uit de berichtenbox | `ProfielMagazijnResolver`: alleen actuele voorkeuren | [#1413](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1413) |
 
 ## Wanneer het logboek vastlegt

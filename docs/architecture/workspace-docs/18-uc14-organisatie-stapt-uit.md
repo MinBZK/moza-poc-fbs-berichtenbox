@@ -105,13 +105,13 @@ sequenceDiagram
 
 ## Nog niet gerealiseerd
 
-Deze use case is nog niet gebouwd en nog niet afgesproken.
+Deze use case is nog niet gebouwd en nog niet afgesproken ([#1682](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1682)).
 
 - De stelselbeheerder kan een organisatie niet zelf uit het register halen; dat vraagt een nieuwe
   uitrol van uitvraag en Stelselregister ([#1485](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1485)).
 - Een magazijn kan niet op een datum stoppen met aannemen, terwijl ophalen en beheren blijven
-  werken.
-- Een organisatie kan al haar ontvangers geen melding sturen dat ze stopt.
+  werken ([#1683](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1683)).
+- Een organisatie kan al haar ontvangers geen melding sturen dat ze stopt ([#1684](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1684)).
 - Vervalt een voorkeur, dan verdwijnen ook de berichten die de organisatie eerder rechtmatig
   stuurde uit de berichtenbox ([#1413](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1413)).
 - Het vernietigen van berichten staat nog niet in het logboek van het magazijn (use case 8) ([#549](https://github.com/MinBZK/MijnOverheidZakelijk/issues/549)).
