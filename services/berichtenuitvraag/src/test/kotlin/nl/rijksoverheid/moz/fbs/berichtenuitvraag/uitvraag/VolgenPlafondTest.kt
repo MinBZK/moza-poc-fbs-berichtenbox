@@ -57,22 +57,29 @@ class VolgenPlafondTest {
     }
 
     /**
-     * Neemt het hele pod-plafond in: met één stream valt een weggelekte plek niet op. Een fout
-     * hier staat als `Suppressed` onder die van de test zelf.
+     * Toetst dat beide plafonds na de test precies terug zijn: met één stream valt een weggelekte
+     * plek niet op, en zonder weigering een plek die dubbel terugkwam evenmin. Een fout hier staat
+     * als `Suppressed` onder die van de test zelf.
      */
     @AfterEach
     fun plafondWeerHeel() {
-        wachtTotAlleStreamsGeannuleerd()
+        sessiecache.volgFout = null
+        wachtTotOpenStreams(0)
 
-        val streams = listOf(open(A), open(C))
+        val eerste = open(A)
+        val tweede = open(C)
 
         try {
-            streams.forEach { assertEquals(200, it.responseCode, "na de test hoort het hele pod-plafond vrij te zijn") }
+            assertEquals(200, eerste.responseCode, "na de test hoort het hele pod-plafond vrij te zijn")
+            assertWeigering(open(A))
+            assertEquals(200, tweede.responseCode, "na de test hoort het hele pod-plafond vrij te zijn")
+            assertWeigering(open(B))
         } finally {
-            streams.forEach { it.disconnect() }
+            eerste.disconnect()
+            tweede.disconnect()
         }
 
-        wachtTotAlleStreamsGeannuleerd()
+        wachtTotOpenStreams(0)
     }
 
     @Test
@@ -88,7 +95,7 @@ class VolgenPlafondTest {
             eerste.disconnect()
         }
 
-        wachtTotAlleStreamsGeannuleerd()
+        wachtTotOpenStreams(0)
 
         assertEquals(200, statusVan(A), "de gesloten stream hoort zijn plek per ontvanger terug te geven")
     }
@@ -102,12 +109,17 @@ class VolgenPlafondTest {
             assertEquals(200, eerste.responseCode)
             assertEquals(200, tweede.responseCode)
             assertWeigering(open(C))
+            // A staat al open: een weigering op het pod-plafond mag zijn telling per ontvanger niet wissen.
+            assertWeigering(open(A))
+            tweede.disconnect()
+            wachtTotOpenStreams(1)
+            assertWeigering(open(A))
         } finally {
             eerste.disconnect()
             tweede.disconnect()
         }
 
-        wachtTotAlleStreamsGeannuleerd()
+        wachtTotOpenStreams(0)
 
         assertEquals(200, statusVan(C), "de gesloten streams horen hun plek op de pod terug te geven")
     }
@@ -138,10 +150,11 @@ class VolgenPlafondTest {
         assertEquals(listOf("resource", "sessiecache"), volgorde)
     }
 
-    private fun wachtTotAlleStreamsGeannuleerd() {
-        await("elke afgegeven stream door de server geannuleerd")
+    /** Wacht tot de server op [aantal] na elke afgegeven stream heeft geannuleerd. */
+    private fun wachtTotOpenStreams(aantal: Int) {
+        await("server houdt $aantal stream(s) open")
             .atMost(VANGNET)
-            .untilAsserted { assertEquals(sessiecache.volgAfgegeven.get(), geannuleerd.get()) }
+            .untilAsserted { assertEquals(aantal, sessiecache.volgAfgegeven.get() - geannuleerd.get()) }
     }
 
     private fun assertWeigering(connection: HttpURLConnection) {
@@ -169,7 +182,6 @@ class VolgenPlafondTest {
             connection.disconnect()
         }
     }
-
 
     private fun open(ontvanger: String): HttpURLConnection =
         (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection).apply {
