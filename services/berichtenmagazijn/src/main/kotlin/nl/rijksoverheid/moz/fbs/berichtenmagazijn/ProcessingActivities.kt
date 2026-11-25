@@ -21,4 +21,7 @@ object ProcessingActivities {
     const val MAGAZIJN_OPHALEN = "$NAMESPACE:ophalen"
     const val MAGAZIJN_BEHEER = "$NAMESPACE:beheer"
     const val MAGAZIJN_RETENTIE = "$NAMESPACE:retentie"
+
+    /** Inzage in het logboek door een beheerder, bv. bij een verzoek tot inzage (AVG art. 15). */
+    const val MAGAZIJN_INZAGE = "$NAMESPACE:inzage"
 }

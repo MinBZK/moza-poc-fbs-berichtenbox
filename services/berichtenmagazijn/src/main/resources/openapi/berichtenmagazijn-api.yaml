@@ -73,6 +73,10 @@ tags:
     description: Aanlevering van berichten aan het magazijn
   - name: Berichten
     description: Berichten en bijlagen opvragen, status bijwerken en verwijderen
+  - name: Logboek
+    description: |
+      Inzage in het Logboek Dataverwerkingen per betrokkene, bijvoorbeeld bij een verzoek tot
+      inzage (AVG art. 15). Demonstratie: dit endpoint is niet afgeschermd.
   - name: Specificatie
     description: Dit OpenAPI-document, op de plek waar de API Design Rules het verwachten.
 
@@ -336,6 +340,52 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /logboek/verwerkingen:
+    get:
+      tags: [Logboek]
+      summary: Verwerkingen van één betrokkene uit het Logboek Dataverwerkingen
+      operationId: getLogboekVerwerkingen
+      description: |
+        Geeft per verwerking van persoonsgegevens van de betrokkene uit `X-Betrokkene` één
+        regel, met één uitkomst volgens de leesregel van het logboek: een logregel op `UNSET`
+        zonder ERROR-child is geslaagd; een logregel op `ERROR`, of met een ERROR-child, is
+        mislukt. Nieuwste verwerking eerst.
+
+        Ook publicaties van een al verwijderd bericht, die het logboek op het bericht-id
+        vastlegt, staan erin zolang het bericht nog in het magazijn staat.
+
+        De inzage zelf wordt ook als verwerking in het logboek vastgelegd.
+      parameters:
+        - $ref: '#/components/parameters/BetrokkeneHeader'
+        - name: van
+          in: query
+          required: false
+          description: Alleen verwerkingen vanaf dit tijdstip (inclusief).
+          schema:
+            type: string
+            format: date-time
+        - name: tot
+          in: query
+          required: false
+          description: Alleen verwerkingen vóór dit tijdstip (exclusief).
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: De verwerkingen van de betrokkene; een lege lijst als er geen zijn.
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogboekVerwerkingen'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /openapi.json:
     get:
       tags: [Specificatie]
@@ -385,6 +435,18 @@ components:
         De regex koppelt de lengte aan het type: BSN/RSIN = 9 cijfers (elfproef),
         KVK = 8 cijfers, OIN = 20 cijfers. Verdere domein-invarianten (elfproef voor
         BSN/RSIN, niet-geheel-nullen) worden in de service-laag afgedwongen.
+      schema:
+        type: string
+        pattern: '^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$'
+        minLength: 12
+        maxLength: 24
+    BetrokkeneHeader:
+      name: X-Betrokkene
+      in: header
+      required: true
+      description: |
+        Betrokkene in formaat `<TYPE>:<WAARDE>`, bijvoorbeeld `BSN:123456782`. Als header,
+        zodat persoonsgegevens niet in URL en toegangslogs verschijnen.
       schema:
         type: string
         pattern: '^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$'
@@ -730,6 +792,53 @@ components:
           type: integer
         _links:
           $ref: '#/components/schemas/PaginationLinks'
+
+    LogboekVerwerkingen:
+      type: object
+      required: [betrokkene, verwerkingen]
+      properties:
+        betrokkene:
+          $ref: '#/components/schemas/Identificatienummer'
+        verwerkingen:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogboekVerwerking'
+
+    LogboekVerwerking:
+      type: object
+      required: [tijdstip, handeling, uitkomst]
+      properties:
+        tijdstip:
+          type: string
+          format: date-time
+          description: Begin van de verwerking.
+        handeling:
+          type: string
+          description: Wat het magazijn deed, zoals `aanleveren-bericht`, `ophalen-bericht` of `publicatie-default`.
+          example: aanleveren-bericht
+        verwerkingsactiviteit:
+          type: string
+          description: Identificatie van de verwerkingsactiviteit in het verwerkingsregister.
+          example: urn:nl:moz:fbs:verwerkingsactiviteit:berichtenmagazijn:aanleveren
+        uitkomst:
+          type: string
+          enum: [geslaagd, mislukt]
+        berichtId:
+          type: string
+          format: uuid
+          description: Het bericht waarop de verwerking betrekking had, als het logboek dat vastlegt.
+        verstrektAan:
+          type: string
+          description: Partij waaraan het bericht verstrekt is of had moeten worden.
+          example: default
+        poging:
+          type: integer
+          format: int64
+          description: Nummer van de leverpoging bij een verstrekking.
+        foutcategorie:
+          type: string
+          description: Bij een mislukte verwerking de soort fout, zonder details uit het verzoek.
+          example: NetwerkFout
 
     BerichtLinks:
       type: object
