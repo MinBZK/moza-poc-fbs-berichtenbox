@@ -20,4 +20,7 @@ object ProcessingActivities {
 
     /** Starten en beëindigen van inlogsessies, en het wissen van de berichtgegevens dat erbij hoort. */
     const val UITVRAAG_SESSIE = "$NAMESPACE:sessie"
+
+    /** Inzage in het logboek door een beheerder, bv. bij een verzoek tot inzage (AVG art. 15). */
+    const val UITVRAAG_INZAGE = "$NAMESPACE:inzage"
 }

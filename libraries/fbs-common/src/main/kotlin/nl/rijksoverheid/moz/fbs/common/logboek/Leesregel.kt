@@ -1,4 +1,4 @@
-package nl.rijksoverheid.moz.fbs.berichtenmagazijn.logboek
+package nl.rijksoverheid.moz.fbs.common.logboek
 
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import java.time.Instant

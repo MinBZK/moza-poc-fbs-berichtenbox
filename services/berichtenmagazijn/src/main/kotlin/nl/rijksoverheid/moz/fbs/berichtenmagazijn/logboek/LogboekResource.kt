@@ -7,6 +7,9 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.LogboekApi
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.LogboekVerwerking
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.api.model.LogboekVerwerkingen
+import nl.rijksoverheid.moz.fbs.common.logboek.Leesregel
+import nl.rijksoverheid.moz.fbs.common.logboek.Uitkomst
+import nl.rijksoverheid.moz.fbs.common.logboek.Verwerking
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import java.time.Instant
 import java.util.UUID

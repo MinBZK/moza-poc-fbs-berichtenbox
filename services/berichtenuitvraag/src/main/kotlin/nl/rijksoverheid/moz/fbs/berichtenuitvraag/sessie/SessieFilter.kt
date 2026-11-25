@@ -138,9 +138,9 @@ class SessieFilter(private val sessiecache: Sessiecache) : ContainerRequestFilte
 
         /**
          * Paden zonder sessie: een sessie starten, de aanmelding van een magazijn (geen gebruiker), en
-         * het OpenAPI-document. Bij `sessies` volstaat het pad, want daar bestaat alleen `POST`.
+         * het OpenAPI-document, en de logboekinzage door een beheerder (geen gebruiker). Bij `sessies` volstaat het pad, want daar bestaat alleen `POST`.
          */
-        private val VRIJGESTELD = setOf("sessies", "aanmeldingen", "openapi.json")
+        private val VRIJGESTELD = setOf("sessies", "aanmeldingen", "openapi.json", "logboek/verwerkingen")
 
         // JAX-RS beantwoordt een HEAD met de GET-resource; die verlengt dus evenmin.
         private val LEESMETHODES = setOf("GET", "HEAD")
