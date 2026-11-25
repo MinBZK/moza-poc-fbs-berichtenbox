@@ -21,6 +21,8 @@ alleen voor een van beide geldt, staat dat erbij.
 | 10 | De ontvanger laat alle eigen berichten wissen | Ontvanger, met de stelselbeheerder |
 | 11 | Een magazijn is langere tijd onbereikbaar | Ontvanger, stelselbeheerder en organisatie |
 | 12 | De ontvanger filtert en sorteert de berichten op onderwerp, afzender, map of datum | Ontvanger |
+| 13 | Een organisatie sluit aan op het stelsel, met een eigen berichtenmagazijn | Overheidsorganisatie, met de stelselbeheerder |
+| 14 | Een organisatie stapt uit het stelsel | Overheidsorganisatie, met de stelselbeheerder |
 
 Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag
 ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan
@@ -59,6 +61,7 @@ architectuurmodel, zodat je ze in de andere diagrammen terugvindt.
 | Berichtenmagazijn | De opslag van de berichten van één organisatie. Een organisatie host haar magazijn zelf of neemt een gedeeld magazijn af (in het model: bij BBO). Elk magazijn volgt dezelfde stelselafspraken, dus de lijn in de diagrammen staat voor elk magazijn |
 | Profiel Service | Dienst met de voorkeuren van de ontvanger: van welke organisaties die berichten via de berichtenbox wil ontvangen. Er is één Profiel Service voor burgers en ondernemers; op termijn kunnen dat er twee worden |
 | Notificatie Service | Dienst die de ontvanger laat weten dat er een bericht is, bijvoorbeeld per e-mail. Hij is identiteitsneutraal: één dienst voor burgers en ondernemers, zodat het melden overal hetzelfde voelt |
+| Stelselregister | Publiceert de deelnemende organisaties en het adres van hun magazijn als één document, ondertekend door de stelselbeheerder. Een app die berichten rechtstreeks bij de magazijnen ophaalt, leest daar welke magazijnen er zijn |
 | Stelselbeheerder | Beheert het stelsel: de afspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten. Welke organisatie die rol krijgt, maakt voor de use cases niet uit |
 
 ## Wat voor alle use cases geldt

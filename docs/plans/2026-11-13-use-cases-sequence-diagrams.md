@@ -115,6 +115,16 @@ berichten van een ondernemer wissen, een magazijn dat lang plat ligt) zijn use c
 11, ook waar ze nog niet gebouwd of afgesproken zijn. Het verloop daarvan is een voorstel; wat nog
 afgesproken moet worden, staat onder "Open vragen".
 
+### Aansluiten en uitstappen
+
+Later toegevoegd: use case 13 (een organisatie sluit aan: magazijn neerzetten, verbindingen
+afspreken, opnemen in register en stelseldocument, bekend maken bij de Profiel Service) en use
+case 14 (een organisatie stapt uit: aankondigen, overgangstermijn, uit register en Profiel
+Service, berichten overdragen, archiveren of vernietigen). Ook dit zijn beheersituaties, met de
+stelselbeheerder als tweede actor. Het Stelselregister staat als deelnemer in het overzicht,
+omdat de stelselbeheerder het in beide use cases bijwerkt. Een overstap naar een ander magazijn is
+geen uitstappen en staat als open vraag bij use case 14.
+
 ### Rechtstreeks ophalen nog niet uitgewerkt
 
 Use case 9 uit het voorstel (een burger of ondernemer haalt berichten met een app rechtstreeks bij
@@ -128,7 +138,9 @@ ontwikkeling. Het overzicht verwijst naar de bestaande `dynamic`-views `Rechtstr
 | `docs/architecture/workspace-docs/04-use-cases.md` | Overzicht, leeswijzer, deelnemers, wat voor alle use cases geldt |
 | `05-` t/m `12-` | Use case 1 t/m 8 uit het issue, één pagina per use case |
 | `13-` t/m `15-` | Use case 9 t/m 11: de beheersituaties uit het overleg met Logius |
-| `16-use-cases-stand-van-de-bouw.md` | Voor ontwikkelaars: afwijkingen met de plek in de code, logboekvolgorde, koppelvlakken |
+| `16-` | Use case 12: filteren en sorteren op kopgegevens |
+| `17-` en `18-` | Use case 13 en 14: een organisatie sluit aan, of stapt uit |
+| `19-use-cases-stand-van-de-bouw.md` | Voor ontwikkelaars: afwijkingen met de plek in de code, logboekvolgorde, koppelvlakken |
 | `docs/architecture/workspace.dsl` | Algemene namen voor organisaties, ondernemer en medewerkers, en de persoon Stelselbeheerder |
 | `.github/scripts/use-case-deelnemers.py` | Guard |
 | `.github/scripts/test-use-case-deelnemers.sh` | Testsuite van de guard, op fixtures en op de echte documentatie |
