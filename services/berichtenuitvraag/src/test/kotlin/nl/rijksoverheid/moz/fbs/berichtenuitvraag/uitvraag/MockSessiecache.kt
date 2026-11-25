@@ -66,6 +66,13 @@ class MockSessiecache : Sessiecache {
     var volgGebeurtenissen: Multi<SessieGebeurtenis> = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
     val volgSessies = mutableListOf<String>()
 
+    /**
+     * Streams die `volg` heeft teruggegeven. De resource reserveert zijn plek vóór deze aanroep,
+     * maar de server abonneert zich pas na het versturen van de headers: wie bij de abonnering telt,
+     * mist een stream waarvan de client de 200 al heeft.
+     */
+    val volgAfgegeven = AtomicInteger()
+
     var lijstResultaat: BerichtenPagina? = null
 
     var laatstePagina: Int? = null
@@ -152,6 +159,7 @@ class MockSessiecache : Sessiecache {
         volgFout = null
         volgGebeurtenissen = Multi.createFrom().item(SessieGebeurtenis.SessieVerlopen)
         volgSessies.clear()
+        volgAfgegeven.set(0)
         lijstResultaat = null
         laatstePagina = null
         laatsteGrootte = null
@@ -241,6 +249,7 @@ class MockSessiecache : Sessiecache {
     override fun volg(ontvanger: Identificatienummer, sessieId: String): Multi<SessieGebeurtenis> {
         volgSessies += sessieId
         volgFout?.let { throw it }
+        volgAfgegeven.incrementAndGet()
 
         return volgGebeurtenissen
     }

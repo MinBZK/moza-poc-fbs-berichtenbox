@@ -9,7 +9,6 @@ import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
 import org.awaitility.Awaitility.await
-import org.hamcrest.Matchers.equalTo
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -25,8 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * connection geeft haar plek terug, en een aanvraag die vóór de stream strandt ook.
  *
  * Een `disconnect()` komt pas asynchroon bij de server aan. De tests wachten daarom tot de server
- * elke stream heeft afgezegd, en niet tot een nieuwe stream weer opengaat: die houdt zelf een plek
- * bezet, en op een drukke runner was die bij de start van de volgende test nog niet terug.
+ * elke stream heeft geannuleerd, en niet tot een nieuwe stream weer opengaat: die houdt zelf een
+ * plek bezet, en die kan bij de start van de volgende test nog niet terug zijn.
  */
 @QuarkusTest
 @TestProfile(VolgenPlafondTest.KleinePlafondsProfile::class)
@@ -39,11 +38,12 @@ class VolgenPlafondTest {
     private val sessies = mutableMapOf<String, String>()
 
     /**
-     * Streams die de server van de sessiecache afneemt en nog niet heeft afgezegd. De resource geeft
-     * de plek terug in een `onTermination` stroomafwaarts van deze teller, en een afzegging passeert
-     * die eerst (vastgelegd in de laatste test). Nul betekent dus dat elke plek terug is.
+     * Streams van de sessiecache die de server heeft geannuleerd. De resource geeft zijn plek terug
+     * in een `onTermination` downstream van deze teller, en een annulering passeert die eerst (zie de
+     * test over de volgorde van een annulering). Is elke afgegeven stream geannuleerd, dan is dus
+     * ook elke plek terug.
      */
-    private val openStreams = AtomicInteger()
+    private val geannuleerd = AtomicInteger()
 
     @BeforeEach
     fun openBlijvendeStream() {
@@ -53,14 +53,26 @@ class VolgenPlafondTest {
                 Multi.createFrom().item(SessieGebeurtenis.VolgenGestart),
                 Multi.createFrom().nothing(),
             )
-            .onSubscription().invoke { -> openStreams.incrementAndGet() }
-            .onTermination().invoke { -> openStreams.decrementAndGet() }
+            .onCancellation().invoke { -> geannuleerd.incrementAndGet() }
     }
 
-    /** Ook de stream van de laatste controle mag de volgende test geen plek kosten. */
+    /**
+     * Neemt het hele pod-plafond in: met één stream valt een weggelekte plek niet op. Een fout
+     * hier staat als `Suppressed` onder die van de test zelf.
+     */
     @AfterEach
-    fun geenPlekAchterlaten() {
-        wachtTotAlleStreamsAfgezegd()
+    fun plafondWeerHeel() {
+        wachtTotAlleStreamsGeannuleerd()
+
+        val streams = listOf(open(A), open(C))
+
+        try {
+            streams.forEach { assertEquals(200, it.responseCode, "na de test hoort het hele pod-plafond vrij te zijn") }
+        } finally {
+            streams.forEach { it.disconnect() }
+        }
+
+        wachtTotAlleStreamsGeannuleerd()
     }
 
     @Test
@@ -69,19 +81,16 @@ class VolgenPlafondTest {
 
         try {
             assertEquals(200, eerste.responseCode)
-            assertWeigering(open(A))
-
-            val ander = open(B)
-
-            assertEquals(200, ander.responseCode)
-            ander.disconnect()
+            // Twee keer: een weigering mag de telling van de stream die openstaat niet wissen.
+            repeat(2) { assertWeigering(open(A)) }
+            assertEquals(200, statusVan(B))
         } finally {
             eerste.disconnect()
         }
 
-        wachtTotAlleStreamsAfgezegd()
+        wachtTotAlleStreamsGeannuleerd()
 
-        assertEquals(200, statusVan(A))
+        assertEquals(200, statusVan(A), "de gesloten stream hoort zijn plek per ontvanger terug te geven")
     }
 
     @Test
@@ -98,9 +107,9 @@ class VolgenPlafondTest {
             tweede.disconnect()
         }
 
-        wachtTotAlleStreamsAfgezegd()
+        wachtTotAlleStreamsGeannuleerd()
 
-        assertEquals(200, statusVan(C))
+        assertEquals(200, statusVan(C), "de gesloten streams horen hun plek op de pod terug te geven")
     }
 
     @Test
@@ -112,15 +121,15 @@ class VolgenPlafondTest {
 
         sessiecache.volgFout = null
 
-        assertEquals(200, statusVan(A))
+        assertEquals(200, statusVan(A), "een aanvraag die vóór de stream strandde, hield een plek bezet")
     }
 
     @Test
-    fun `een afzegging passeert onTermination stroomafwaarts vóór die stroomopwaarts`() {
+    fun `een annulering loopt door onTermination downstream voordat de stream upstream hem ziet`() {
         val volgorde = mutableListOf<String>()
 
         Multi.createFrom().nothing<Int>()
-            .onTermination().invoke { -> volgorde += "sessiecache" }
+            .onCancellation().invoke { -> volgorde += "sessiecache" }
             .map { it }
             .onTermination().invoke { -> volgorde += "resource" }
             .subscribe().with { }
@@ -129,10 +138,10 @@ class VolgenPlafondTest {
         assertEquals(listOf("resource", "sessiecache"), volgorde)
     }
 
-    private fun wachtTotAlleStreamsAfgezegd() {
-        await("alle streams door de server afgezegd")
+    private fun wachtTotAlleStreamsGeannuleerd() {
+        await("elke afgegeven stream door de server geannuleerd")
             .atMost(VANGNET)
-            .untilAtomic(openStreams, equalTo(0))
+            .untilAsserted { assertEquals(sessiecache.volgAfgegeven.get(), geannuleerd.get()) }
     }
 
     private fun assertWeigering(connection: HttpURLConnection) {
@@ -154,8 +163,13 @@ class VolgenPlafondTest {
     private fun statusVan(ontvanger: String): Int {
         val connection = open(ontvanger)
 
-        return connection.responseCode.also { connection.disconnect() }
+        try {
+            return connection.responseCode
+        } finally {
+            connection.disconnect()
+        }
     }
+
 
     private fun open(ontvanger: String): HttpURLConnection =
         (URI("http://localhost:${RestAssured.port}/api/v1/berichten/_volgen").toURL().openConnection() as HttpURLConnection).apply {
