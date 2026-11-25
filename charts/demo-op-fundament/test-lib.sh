@@ -274,6 +274,22 @@ gelijk "stelseldocument: de url van een OIN" "https://magazijn-c.voorbeeld.nl" "
 gelijk "stelseldocument: niets voor een andere OIN" "" "$(stelseldocument_url "$(stelseldocument_payload "$jws")" 00000009000000000778)"
 faalt "stelseldocument: geen JWS" stelseldocument_payload "geen-jws"
 
+# --- url_delen en is_openapi ---
+
+gelijk "url: host, standaardpoort, geen pad" "magazijn-c.voorbeeld.nl 443 " "$(url_delen https://magazijn-c.voorbeeld.nl)"
+gelijk "url: slash aan het eind telt niet" "magazijn-c.voorbeeld.nl 443 " "$(url_delen https://magazijn-c.voorbeeld.nl/)"
+gelijk "url: poort en pad" "simulator.fbs.x.nl 8443 /magazijn/00000009000000000001" \
+  "$(url_delen https://simulator.fbs.x.nl:8443/magazijn/00000009000000000001/)"
+for u in http://a.nl https://a.nl?x=1 "https://a b.nl" https:// ftp://a.nl; do
+  faalt "url geweigerd: '$u'" url_delen "$u"
+done
+
+is_openapi '{"openapi":"3.1.0","info":{}}' && ok "openapi: 3.1" || faal "openapi: 3.1"
+is_openapi '{"openapi":"3.0.3"}' && ok "openapi: 3.0" || faal "openapi: 3.0"
+is_openapi '{"swagger":"2.0"}' && faal "openapi: swagger 2" || ok "openapi: geen swagger 2"
+is_openapi '<html>404</html>' && faal "openapi: html" || ok "openapi: geen html"
+is_openapi '' && faal "openapi: leeg" || ok "openapi: niet leeg"
+
 for o in KVK:90000014 BSN:999993653; do
   [[ $o =~ $ONTVANGER_REGEL ]] && ok "ontvanger $o" || faal "ontvanger $o"
 done

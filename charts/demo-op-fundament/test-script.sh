@@ -432,6 +432,15 @@ hm() {
     upgrade*) jq -c . "\$WERK/aanmeldingen.json" >>"\$LOG"; PROFIEL=\$(jq -c '.voorkeuren[0].scopes += [{partij: {identificatieType: "OIN", identificatieNummer: "00000009000000000777"}}]' <<<"\$PROFIEL") ;;
   esac
 }
+MAGAZIJN_STATUS=\${MAGAZIJN_STATUS:-200}
+MAGAZIJN_BODY=\${MAGAZIJN_BODY:-'{"openapi":"3.1.0"}'}
+magazijn_curl() {
+  echo "magazijn_curl \$*" >>"\$LOG"
+  local o=/dev/null
+  while [ \$# -gt 0 ]; do [ "\$1" = -o ] && o=\$2; shift; done
+  printf '%s' "\$MAGAZIJN_BODY" >"\$o"
+  printf '%s' "\$MAGAZIJN_STATUS"
+}
 gw_curl() {
   echo "gw_curl \$*" >>"\$LOG"
   case "\$*" in
@@ -476,6 +485,29 @@ bevat "aanmelden: uitvraag en stelselregister lezen het register opnieuw" \
   "rollout restart deployment/berichtenuitvraag deployment/stelselregister" "$LOG"
 bevat "aanmelden: controle in het stelseldocument" "OK: het stelseldocument noemt 00000009000000000777" "$UIT"
 bevat "aanmelden: controle van de opt-in" "OK: KVK:90000014 heeft een opt-in" "$UIT"
+
+bevat "aanmelden: eerst bereikbaar, met het OpenAPI-document op de url uit het register" \
+  "magazijn_curl -o $WERKMAP/aanmelden/openapi.json -w %{http_code} https://magazijn-c.voorbeeld.nl:443/api/v1/openapi.json" "$LOG"
+bevat_niet "aanmelden: buiten het basisdomein niet via de Gateway van de demo" "--resolve" "$(grep '^magazijn_curl' <<<"$LOG" || true)"
+gelijk "aanmelden: de controle vóór de upgrade" "magazijn_curl" "$(grep -oE '^(magazijn_curl|hm upgrade)' <<<"$LOG" | head -1)"
+
+draai aanmelden-onbereikbaar "$(stub_aanmelden); MAGAZIJN_STATUS=503; aanmelden '$WERKMAP/c.properties' KVK:90000014"
+gelijk "onbereikbaar: exit 1" 1 "$CODE"
+bevat "onbereikbaar: zegt waarom" "het magazijn antwoordt niet: https://magazijn-c.voorbeeld.nl:443/api/v1/openapi.json gaf 503" "$UIT"
+bevat_niet "onbereikbaar: geen upgrade" "upgrade" "$LOG"
+bevat_niet "onbereikbaar: de profielstub niet gevraagd" "partij" "$LOG"
+
+draai aanmelden-geen-openapi "$(stub_aanmelden); MAGAZIJN_BODY='<html>welkom</html>'; aanmelden '$WERKMAP/c.properties'"
+gelijk "200 zonder OpenAPI: exit 1" 1 "$CODE"
+bevat "200 zonder OpenAPI: zegt het" "gaf 200, maar geen OpenAPI-document" "$UIT"
+bevat_niet "200 zonder OpenAPI: geen upgrade" "upgrade" "$LOG"
+
+printf '%s\n%s\n' 'magazijnen."00000009000000000777".url=https://berichtenmagazijn-c.fbs.x.nl' \
+  'magazijnen."00000009000000000777".naam=Testmagazijn C' >"$WERKMAP/lokaal.properties"
+draai aanmelden-onder-basisdomein "$(stub_aanmelden '{}' '' '{"organizations":[{"oin":"00000009000000000777","magazijn_url":"https://berichtenmagazijn-c.fbs.x.nl"}]}'); GATEWAY_ADRES=127.0.0.1; HTTPS_POORT=9443; CA_BESTAND=/ca.crt; aanmelden '$WERKMAP/lokaal.properties'"
+gelijk "onder het basisdomein: in orde" 0 "$CODE"
+bevat "onder het basisdomein: via de Gateway, met de CA van de demo" \
+  "magazijn_curl --cacert /ca.crt --resolve berichtenmagazijn-c.fbs.x.nl:9443:127.0.0.1 -o $WERKMAP/aanmelden-onder-basisdomein/openapi.json -w %{http_code} https://berichtenmagazijn-c.fbs.x.nl:9443/api/v1/openapi.json" "$LOG"
 
 draai aanmelden-zelfde "$(stub_aanmelden "$VALUES_C"); aanmelden '$WERKMAP/c.properties'"
 gelijk "hetzelfde opnieuw: in orde" 0 "$CODE"

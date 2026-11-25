@@ -276,6 +276,20 @@ aanmelding_lezen() {
     '{oin: $oin, url: $url, regels: $regels}'
 }
 
+# Host, poort en pad uit een https-url, als "host poort pad"; zonder poort 443, zonder pad leeg.
+# Het pad zonder afsluitende slash.
+url_delen() {
+  [[ $1 =~ ^https://([^/:?#[:space:]]+)(:([0-9]+))?(/[^?#[:space:]]*)?$ ]] || return 1
+  local pad=${BASH_REMATCH[4]}
+  echo "${BASH_REMATCH[1]} ${BASH_REMATCH[3]:-443} ${pad%/}"
+}
+
+# Of een antwoord een OpenAPI-document is; een andere 200 (een foutpagina van een proxy, een ander
+# document) telt niet als een bereikbaar magazijn.
+is_openapi() {
+  jq -e '.openapi | type == "string" and startswith("3.")' <<<"$1" >/dev/null 2>&1
+}
+
 # De regels van het register zonder die van één OIN, als JSON-array.
 # $1 = aanmeldingen ({register, optIns}), $2 = OIN.
 register_zonder() {

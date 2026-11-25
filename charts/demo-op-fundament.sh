@@ -10,9 +10,9 @@
 #   NS=<namespace> charts/demo-op-fundament.sh aanmelden <regels> [<ontvanger>...]
 #   NS=<namespace> charts/demo-op-fundament.sh afmelden <OIN>
 #
-# aanmelden zet een magazijn dat er later bij komt (de plug-in berichtenmagazijn) in het register
-# van uitvraag en stelselregister, en geeft ontvangers (KVK:<nummer>, BSN:<nummer>) een opt-in
-# ervoor in de profielstub. <regels> is een bestand met de twee regels uit het statusbericht van de
+# aanmelden toetst eerst of een magazijn dat er later bij komt (de plug-in berichtenmagazijn)
+# antwoordt, zet het dan in het register van uitvraag en stelselregister, en geeft ontvangers
+# (KVK:<nummer>, BSN:<nummer>) een opt-in ervoor in de profielstub. <regels> is een bestand met de twee regels uit het statusbericht van de
 # plug-in, of - voor stdin. afmelden haalt het weer weg. Beide werken via de values van fbs-demo,
 # met de chart uit deze checkout; `op` neemt ze daarna over. Zie charts/fbs-demo/README.md.
 #
@@ -594,6 +594,40 @@ aanmeldingen_zetten() {
   fi
 }
 
+# Een verzoek aan een magazijn, los van gw_curl: het magazijn staat meestal niet onder het
+# basisdomein van de demo. Apart, zodat test-script.sh het kan vervangen.
+magazijn_curl() {
+  curl -q -sS --max-time 30 "$@"
+}
+
+# Of het magazijn antwoordt zoals de uitvraag het straks aanroept: zijn OpenAPI-document op de url
+# uit het register. Een host onder het basisdomein gaat, net als gw_curl, naar GATEWAY_ADRES met de
+# CA van de demo; een andere host via DNS, met de publieke CA's.
+magazijn_bereikbaar() {
+  local host poort pad doel args=() status
+
+  read -r host poort pad < <(url_delen "$1") || { echo "geen https-url zonder query: $1"; return 1; }
+  doel="https://$host:$poort$pad/api/v1/openapi.json"
+
+  if [[ $host == *".$BASISDOMEIN" ]]; then
+    args=(${CA_BESTAND:+--cacert "$CA_BESTAND"})
+
+    if [ -n "${GATEWAY_ADRES:-}" ]; then
+      args+=(--resolve "$host:$HTTPS_POORT:$GATEWAY_ADRES")
+      doel="https://$host:$HTTPS_POORT$pad/api/v1/openapi.json"
+    fi
+  fi
+
+  status=$(magazijn_curl "${args[@]}" -o "$WERK/openapi.json" -w '%{http_code}' "$doel" 2>"$WERK/curl.err") || true
+
+  if [ "$status" != 200 ]; then
+    echo "$doel gaf ${status:-geen antwoord} $(tail -1 "$WERK/curl.err" 2>/dev/null)"
+    return 1
+  fi
+
+  is_openapi "$(cat "$WERK/openapi.json")" || { echo "$doel gaf 200, maar geen OpenAPI-document"; return 1; }
+}
+
 # De url van een OIN in het stelseldocument zoals afnemers het ophalen, of niets.
 url_in_stelseldocument() {
   local document payload
@@ -615,6 +649,14 @@ aanmelden() {
   for ontvanger in "$@"; do
     [[ $ontvanger =~ $ONTVANGER_REGEL ]] || stop 2 "ontvanger $ontvanger is geen KVK:<nummer> of BSN:<nummer>"
   done
+
+  # Eerst bereikbaar, dan in het register: een magazijn dat niet antwoordt, sloeg de uitvraag
+  # anders bij elk ophalen over (use case 13, stap 7).
+  stap "bereikbaarheid: $(jq -r .url <<<"$aanmelding")"
+  local reden
+  reden=$(magazijn_bereikbaar "$(jq -r .url <<<"$aanmelding")") ||
+    stop 1 "het magazijn antwoordt niet: $reden; het komt pas in het register als het bereikbaar is"
+  echo "OK: het magazijn geeft zijn OpenAPI-document"
 
   huidig=$(huidige_aanmeldingen)
   stap "aanmelden: $oin"

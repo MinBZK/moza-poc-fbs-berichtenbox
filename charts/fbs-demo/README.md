@@ -213,6 +213,11 @@ KUBE_CONTEXT=<context van de demo> NS=tnt-fbs--demo charts/demo-op-fundament.sh 
 ```
 
 `aanmelden` doet:
+- **de bereikbaarheid:** eerst moet het magazijn op de url uit de regels zijn OpenAPI-document geven
+  (`<url>/api/v1/openapi.json`, 200 met een OpenAPI-document). Anders stopt het script, en verandert
+  er niets. Een host onder het basisdomein gaat, net als `controleer`, naar `GATEWAY_ADRES` met
+  `CA_BESTAND`; een andere host via DNS en de publieke CA's. Het script toetst vanaf de machine
+  waarop het draait, niet vanuit het cluster;
 - **het register:** de regels `magazijnen."<OIN>".url=` en `.naam=` komen in de value
   `aanmeldingen.register` van fbs-demo, achter het gegenereerde register in dezelfde ConfigMap.
   Opnieuw aanmelden met dezelfde OIN vervangt de regels. Andere regels weigert de chart, net als een
