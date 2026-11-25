@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 13: Een organisatie sluit aan op het stelsel | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="./" class="is-active">Use case 13: Een organisatie sluit aan op het stelsel</a><a href="../use-case-14-een-organisatie-stapt-uit-het-stelsel/" class="">Use case 14: Een organisatie stapt uit het stelsel</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 13: Een organisatie sluit aan op het stelsel</h1>
+<p>Een overheidsorganisatie wil berichten versturen via de berichtenbox. Ze zet een berichtenmagazijn neer, en de stelselbeheerder neemt haar op in het stelsel.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een overheidsorganisatie, met de stelselbeheerder</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De organisatie wil burgers of ondernemers berichten sturen die in hun berichtenbox verschijnen</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>De organisatie heeft een werkend magazijn dat in het stelsel bekend is. Ontvangers kunnen kiezen voor berichten van deze organisatie, en vanaf dat moment kan de organisatie hun berichten sturen (use case 1)</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De organisatie meldt zich bij de stelselbeheerder. Ze geeft haar OIN (het nummer waarmee de overheid organisaties herkent) en de naam die ontvangers bij elk bericht zien. Ze kiest of ze het magazijn zelf host of afneemt bij BBO.</li>
+ <li>De stelselbeheerder controleert of de organisatie mag deelnemen, en of ze de stelselafspraken aanvaardt. De organisatie krijgt de afspraken en de gegevens die ze nodig heeft om aan te sluiten.</li>
+ <li>De organisatie zet haar magazijn neer, of laat BBO dat doen. Het magazijn draagt de OIN van de organisatie: zo weet elk ander onderdeel van wie het is, en het neemt alleen berichten aan van die organisatie.</li>
+ <li>Het magazijn maakt afspraken over verbindingen (FSC) met de diensten waarmee het praat: met de uitvraag, die er berichten ophaalt en beheert en waar het nieuwe berichten aanmeldt; met de Profiel Service, die zegt of een ontvanger berichten van deze organisatie wil; en met de Notificatie Service, die de ontvanger een melding stuurt. Elke afspraak is door beide kanten ondertekend.</li>
+ <li>Is de ontvanger een burger of een ondernemer met een BSN, dan krijgt het magazijn een eigen pseudoniem van die persoon. Daarvoor wordt het magazijn als eigen dienst aangemeld voor de pseudoniemen.</li>
+ <li>De organisatie meldt de stelselbeheerder dat het magazijn klaarstaat, met het adres.</li>
+ <li>De stelselbeheerder controleert dat het magazijn bereikbaar is en de stelselafspraken volgt.</li>
+ <li>De stelselbeheerder neemt de organisatie en haar magazijn op in het register. Vanaf dan bevraagt de uitvraag dit magazijn als een ontvanger voor deze organisatie gekozen heeft (use case 2). Het Stelselregister neemt de organisatie op in het ondertekende overzicht van deelnemers.</li>
+ <li>De stelselbeheerder maakt de organisatie bekend bij de Profiel Service. Ontvangers kunnen daarna in het portaal kiezen of ze berichten van deze organisatie via de berichtenbox willen ontvangen.</li>
+ <li>De stelselbeheerder meldt de organisatie dat ze is aangesloten.</li>
+</ol>
+<p>Een bericht dat de organisatie daarna aanlevert, neemt het magazijn alleen aan voor ontvangers die voor haar gekozen hebben (use case 1). Kort na het aansluiten zijn dat er nog weinig.</p>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    participant ORG as Overheidsorganisatie
+    participant SB as Stelselbeheerder
+    participant MAG as Berichtenmagazijn
+    participant FBS as Berichten Uitvraag Systeem
+    participant PRO as Profiel Service
+    participant NOT as Notificatie Service
+    participant SR as Stelselregister
+
+    ORG-&gt;&gt;SB: Wil aansluiten: OIN, naam voor de ontvangers, eigen magazijn of bij BBO
+    SB-&gt;&gt;SB: Mag deze organisatie deelnemen, en aanvaardt ze de stelselafspraken?
+    SB--&gt;&gt;ORG: Toegelaten, met de afspraken en de aansluitgegevens
+    ORG-&gt;&gt;MAG: Zet het magazijn neer, met de eigen OIN
+    par Verbindingen afspreken (FSC)
+        MAG-&gt;&gt;FBS: Verbinding voor ophalen, beheren en aanmelden
+        FBS--&gt;&gt;MAG: Akkoord
+    and
+        MAG-&gt;&gt;PRO: Verbinding voor de vraag naar voorkeuren
+        PRO--&gt;&gt;MAG: Akkoord
+    and
+        MAG-&gt;&gt;NOT: Verbinding voor meldingen
+        NOT--&gt;&gt;MAG: Akkoord
+    end
+    ORG-&gt;&gt;SB: Het magazijn staat klaar, op dit adres
+    SB-&gt;&gt;MAG: Bereikbaar, en volgens de stelselafspraken?
+    MAG--&gt;&gt;SB: Ja
+    SB-&gt;&gt;FBS: Neem de organisatie en haar magazijn op in het register
+    SB-&gt;&gt;SR: Neem de organisatie en haar magazijn op in het stelseldocument
+    SR-&gt;&gt;SR: Onderteken het nieuwe stelseldocument
+    SB-&gt;&gt;PRO: Maak de organisatie kiesbaar voor ontvangers
+    SB--&gt;&gt;ORG: Aangesloten
+    Note over ORG, SR: Ontvangers kunnen nu voor deze organisatie kiezen, en zij kan hun berichten sturen (use case 1)
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de organisatie merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>De organisatie heeft al een magazijn in het stelsel</td>
+   <td>Het register kent per organisatie één magazijn, en weigert een tweede</td>
+   <td>De stelselbeheerder legt uit dat ze haar bestaande magazijn gebruikt</td>
+  </tr>
+  <tr>
+   <td>Het adres van het magazijn is niet beveiligd (geen https)</td>
+   <td>Het register neemt het niet op</td>
+   <td>De stelselbeheerder vraagt om een beveiligd adres</td>
+  </tr>
+  <tr>
+   <td>Het magazijn is niet bereikbaar bij de controle</td>
+   <td>De stelselbeheerder neemt het nog niet op</td>
+   <td>De aansluiting wacht tot het magazijn bereikbaar is</td>
+  </tr>
+  <tr>
+   <td>Een verbinding (FSC) is nog niet afgesproken</td>
+   <td>Het magazijn kan de dienst aan de andere kant niet bereiken: zonder Profiel Service neemt het geen berichten aan, zonder Notificatie Service krijgen ontvangers geen melding, en zonder uitvraag verschijnt niets in de berichtenbox</td>
+   <td>Aanleveren mislukt, of berichten blijven onzichtbaar</td>
+  </tr>
+  <tr>
+   <td>De organisatie levert aan voordat ontvangers voor haar gekozen hebben</td>
+   <td>Het magazijn weigert het bericht (use case 1)</td>
+   <td>Een weigering per bericht. Ze stuurt het bericht langs een andere weg</td>
+  </tr>
+  <tr>
+   <td>Een ontvanger kiest voor de organisatie voordat haar magazijn in het register staat</td>
+   <td>De uitvraag slaat de organisatie over (use case 2)</td>
+   <td>Niets; de ontvanger ziet geen berichten van haar</td>
+  </tr>
+  <tr>
+   <td>Uitvraag en Stelselregister hebben een andere lijst</td>
+   <td>Een app die rechtstreeks ophaalt ziet andere organisaties dan de berichtenbox</td>
+   <td>Niets; de ontvanger mist berichten in een van beide</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Nog niet gerealiseerd</h2>
+<ul>
+ <li>De stelselbeheerder kan het register niet zelf bijwerken. Het register is een instelling van de uitvraag en van het Stelselregister, elk apart. Een organisatie opnemen vraagt een nieuwe uitrol van beide, en niet te herleiden is wie wat wanneer wijzigde (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1484" target="blank">#1484</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1485" target="blank">#1485</a>).</li>
+ <li>De stelselbeheerder kan niet zien welke magazijnen zijn opgenomen, en of uitvraag en Stelselregister dezelfde lijst gebruiken (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1483" target="blank">#1483</a>).</li>
+ <li>Een organisatie kan een magazijn nog niet met één handeling neerzetten en aanmelden. Op Fundament wordt dat beproefd als plug-in (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1538" target="blank">#1538</a>).</li>
+ <li>Het magazijn controleert nog niet dat een bericht van de eigen organisatie komt (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1587" target="blank">#1587</a>).</li>
+ <li>Een ontvanger die voor een organisatie kiest waarvan het magazijn niet in het register staat, krijgt daar geen melding van (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1591" target="blank">#1591</a>).</li>
+ <li>De verbindingen via FSC en de pseudoniemen per magazijn zijn nog niet gebouwd (zie "Wat voor alle use cases geldt").</li>
+</ul>
+<h2>Open vragen</h2>
+<ul>
+ <li><strong>Wie is de stelselbeheerder, en welke aansluitvoorwaarden gelden?</strong> De aansluitvoorwaarden van Logius voor beheer zijn het uitgangspunt, maar moeten nog voor dit stelsel worden vastgelegd.</li>
+ <li><strong>Welke dienst is de bron van het register?</strong> Nu houden de uitvraag en het Stelselregister elk een eigen kopie bij (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1484" target="blank">#1484</a>).</li>
+ <li><strong>Hoe weet het portaal uit welke organisaties een ontvanger kan kiezen?</strong> Een voorkeur in de Profiel Service noemt de organisatie aan haar OIN. Of de Profiel Service een lijst van deelnemende organisaties bijhoudt, of het portaal die uit het register leest, is nog niet afgesproken.</li>
+ <li><strong>Moet de Notificatie Service de organisatie kennen?</strong> Bijvoorbeeld om haar naam in de melding te tonen. Nu krijgt ze bij elke melding alleen de OIN.</li>
+ <li><strong>Hoe toetst de stelselbeheerder dat een magazijn de stelselafspraken volgt?</strong> Een vaste proef, zoals een testbericht door de hele keten, bestaat nog niet.</li>
+</ul></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

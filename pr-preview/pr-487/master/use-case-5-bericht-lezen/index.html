@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 5: Bericht lezen | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="./" class="is-active">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../use-case-13-een-organisatie-sluit-aan-op-het-stelsel/" class="">Use case 13: Een organisatie sluit aan op het stelsel</a><a href="../use-case-14-een-organisatie-stapt-uit-het-stelsel/" class="">Use case 14: Een organisatie stapt uit het stelsel</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 5: Bericht lezen</h1>
+<p>Een burger of ondernemer (de ontvanger) opent een bericht en leest het.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een ontvanger (burger of ondernemer) met een geopende berichtenbox</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De ontvanger klikt op een bericht in de lijst</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>De ontvanger ziet de tekst van het bericht, met de lijst van bijlagen, en het bericht staat als gelezen in het magazijn</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De ontvanger klikt op een bericht. Het portaal vraagt het bericht op bij de uitvraag.</li>
+ <li>De uitvraag kijkt of het bericht in de opgehaalde lijst van deze ontvanger staat.</li>
+ <li>De uitvraag vraagt de tekst op bij het magazijn van de organisatie die het bericht stuurde. De tekst staat alleen in het magazijn, en wordt bij elk openen opnieuw opgehaald.</li>
+ <li>Het magazijn controleert of het bericht bij deze ontvanger hoort, en geeft de tekst.</li>
+ <li>De uitvraag geeft het bericht aan het portaal, en het portaal toont het.</li>
+ <li>Het portaal markeert het bericht als gelezen, op dezelfde manier als het verplaatsen in use case 7.</li>
+</ol>
+<p>Uitvraag en magazijn leggen het lezen allebei vast in hun eigen logboek.</p>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    actor ONT as Ontvanger
+    participant IL as Interactielaag
+    participant FBS as Berichten Uitvraag Systeem
+    participant MAG as Berichtenmagazijn
+
+    ONT-&gt;&gt;IL: Opent een bericht
+    IL-&gt;&gt;FBS: Geef het bericht
+    FBS-&gt;&gt;FBS: Staat dit bericht in de lijst van deze ontvanger?
+    FBS-&gt;&gt;MAG: Geef de tekst van het bericht, voor deze ontvanger
+    MAG-&gt;&gt;MAG: Hoort het bericht bij deze ontvanger?
+    Note over MAG: Legt het lezen vast in het logboek
+    MAG--&gt;&gt;FBS: Tekst
+    Note over FBS: Legt het lezen vast in het logboek
+    FBS--&gt;&gt;IL: Bericht met tekst en bijlagen
+    IL--&gt;&gt;ONT: Toont het bericht
+    IL-&gt;&gt;FBS: Markeer als gelezen (zie use case 7)
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de ontvanger merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Het bericht bestaat niet, of is van een ander</td>
+   <td>De uitvraag geeft in beide gevallen hetzelfde antwoord, zodat niemand kan uitproberen welke berichten van anderen bestaan</td>
+   <td>"Dit bericht is niet (meer) beschikbaar"</td>
+  </tr>
+  <tr>
+   <td>De ontvanger heeft het bericht zelf verwijderd (use case 8)</td>
+   <td>De uitvraag onthoudt dat tot de ontvanger uitlogt</td>
+   <td>"U hebt dit bericht verwijderd"</td>
+  </tr>
+  <tr>
+   <td>Het bericht is buiten de berichtenbox om uit het magazijn verdwenen</td>
+   <td>Het magazijn kent het niet meer. Het bericht blijft in de lijst staan tot het volgende ophalen</td>
+   <td>"Dit bericht is niet (meer) beschikbaar"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn is niet bereikbaar, of antwoordt niet op tijd</td>
+   <td>De uitvraag geeft het bericht niet</td>
+   <td>"Probeer het straks nog eens"</td>
+  </tr>
+  <tr>
+   <td>Er zijn nog geen berichten opgehaald, of het ophalen is mislukt</td>
+   <td>De uitvraag weigert</td>
+   <td>Het portaal haalt eerst (opnieuw) op</td>
+  </tr>
+  <tr>
+   <td>Het markeren als gelezen mislukt</td>
+   <td>Het bericht blijft ongelezen</td>
+   <td>Het bericht blijft als ongelezen in de lijst staan</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Nog niet gerealiseerd</h2>
+<ul>
+ <li>Wat in het overzicht voor alle use cases staat.</li>
+ <li>Het magazijn toetst een verzoek nog niet aan het beleid van de organisatie, inclusief machtigingen. Nu controleert het alleen of de gebruiker de ontvanger van het bericht is (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/418" target="blank">#418</a>).</li>
+ <li>De logboeken leggen niet vast welk bericht gelezen is, en de logregel van de uitvraag legt niet vast of het openen lukte (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592" target="blank">#1592</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1381" target="blank">#1381</a>). Zie use case 9.</li>
+</ul></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="./" class="is-active">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../use-case-13-een-organisatie-sluit-aan-op-het-stelsel/" class="">Use case 13: Een organisatie sluit aan op het stelsel</a><a href="../use-case-14-een-organisatie-stapt-uit-het-stelsel/" class="">Use case 14: Een organisatie stapt uit het stelsel</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</h1>
+<p>Een organisatie gaat na of de ontvanger, een burger of ondernemer, een bericht heeft kunnen zien, en of er een melding van verstuurd is.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>De overheidsorganisatie die het bericht verstuurde, met hulp van de stelselbeheerder</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De organisatie heeft een conflict met de ontvanger over een belangrijk bericht. De ontvanger zegt het nooit ontvangen te hebben</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>De organisatie weet wanneer het bericht is aangenomen en zichtbaar werd, of de melding is verstuurd, wanneer de ontvanger daarna de berichten ophaalde, en of de ontvanger het bericht geopend heeft</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<p>Er is geen centrale plek die bijhoudt wat er met een bericht gebeurd is. Elke dienst legt alleen het eigen deel vast, in het eigen logboek. Het antwoord komt dus uit meerdere logboeken.</p>
+<ol>
+ <li>De organisatie zoekt met het berichtnummer in het logboek van haar eigen magazijn: wanneer is het bericht aangenomen, wanneer werd het zichtbaar, en wanneer is de melding doorgegeven aan de Notificatie Service?</li>
+ <li>De organisatie vraagt de Notificatie Service of de melding verstuurd is, wanneer, en via welk kanaal.</li>
+ <li>In hetzelfde logboek van het magazijn zoekt de organisatie wanneer de uitvraag daarna de berichten van deze ontvanger ophaalde, en of de tekst van dit bericht is verstrekt. Elk verzoek draagt een kenmerk dat ook in het logboek van de uitvraag staat.</li>
+ <li>Met die kenmerken vraagt de organisatie de stelselbeheerder wat er in de berichtenbox gebeurde. De stelselbeheerder zoekt in het logboek van de uitvraag: was de ontvanger ingelogd, is de berichtenlijst getoond, en is dit bericht geopend? De stelselbeheerder zoekt alleen naar dit bericht en deze periode, en legt de raadpleging zelf ook vast in het logboek: ook dat is een verwerking.</li>
+ <li>De organisatie legt de antwoorden naast elkaar.</li>
+</ol>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    participant ORG as Overheidsorganisatie
+    participant MAG as Berichtenmagazijn
+    participant NOT as Notificatie Service
+    participant SB as Stelselbeheerder
+    participant FBS as Berichten Uitvraag Systeem
+
+    ORG-&gt;&gt;MAG: Zoek in het logboek op berichtnummer
+    MAG--&gt;&gt;ORG: Aangenomen, zichtbaar geworden, melding doorgegeven, met tijdstippen
+    ORG-&gt;&gt;NOT: Is de melding over dit bericht verstuurd?
+    NOT--&gt;&gt;ORG: Verstuurd, wanneer en via welk kanaal
+    ORG-&gt;&gt;MAG: Zoek in het logboek: berichten van deze ontvanger opgehaald, tekst van dit bericht verstrekt?
+    MAG--&gt;&gt;ORG: Tijdstippen, met het kenmerk van elk verzoek
+    ORG-&gt;&gt;SB: Wat gebeurde er in de berichtenbox bij deze verzoeken?
+    SB-&gt;&gt;FBS: Zoek in het logboek op die kenmerken, alleen voor dit bericht en deze periode
+    Note over FBS: Legt de raadpleging vast in het logboek
+    FBS--&gt;&gt;SB: Ingelogd, lijst opgehaald, bericht geopend
+    SB--&gt;&gt;ORG: Bevindingen
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de organisatie merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Het magazijn weigerde het bericht</td>
+   <td>Het logboek van het magazijn toont de weigering</td>
+   <td>De organisatie kreeg de weigering al bij het aanleveren (use case 1)</td>
+  </tr>
+  <tr>
+   <td>De Notificatie Service was te lang niet bereikbaar</td>
+   <td>Het logboek van het magazijn toont de mislukte pogingen om de melding door te geven</td>
+   <td>Er is geen melding verstuurd</td>
+  </tr>
+  <tr>
+   <td>De ontvanger heeft na de publicatie niet ingelogd</td>
+   <td>Er is geen ophaalverzoek na de publicatie</td>
+   <td>Het bericht was zichtbaar, maar de ontvanger heeft niet gekeken</td>
+  </tr>
+  <tr>
+   <td>Het magazijn leverde niet toen de ontvanger de berichten ophaalde</td>
+   <td>Het logboek van het magazijn toont op dat moment geen verstrekte lijst</td>
+   <td>De ontvanger heeft het bericht toen niet kunnen zien (zie use case 11)</td>
+  </tr>
+  <tr>
+   <td>De logboekregels zijn al opgeruimd</td>
+   <td>Niets meer na te gaan</td>
+   <td>Geen antwoord</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Nog niet gerealiseerd</h2>
+<ul>
+ <li>De logregels van aanleveren en openen bevatten het berichtnummer niet. Welk bericht het was, blijkt nu alleen bij benadering, uit tijdstippen (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592" target="blank">#1592</a>).</li>
+ <li>De logregel van de uitvraag bij het openen legt niet vast of het openen lukte. Alleen de regel van het magazijn laat zien of de tekst echt verstrekt is (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592" target="blank">#1592</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1381" target="blank">#1381</a>).</li>
+ <li>De uitvraag legt alleen vast hoeveel organisaties niet leverden, niet welke (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1592" target="blank">#1592</a>).</li>
+ <li>Een bericht is nu al vóór zijn publicatiedatum te zien (use case 1). Dat maakt het lastiger om te zeggen vanaf wanneer de ontvanger het kon zien (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1586" target="blank">#1586</a>).</li>
+ <li>Voor de logboekregels is nog geen bewaartermijn ingesteld (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1595" target="blank">#1595</a>).</li>
+</ul>
+<h2>Open vragen</h2>
+<ul>
+ <li><strong>Moet vastgelegd worden welke berichten de ontvanger te zien kreeg?</strong> Nu blijkt alleen dat het magazijn op een moment de lijst afgaf, en dat het bericht toen al bestond. Dat het in de lijst zat en dat het portaal het liet zien, staat nergens. Per getoond bericht een regel vastleggen kost veel: één regel per bericht per keer inloggen, verspreid over de logboeken van alle magazijnen en de uitvraag. Bij een burger, en bij een ondernemer zonder rechtspersoonlijkheid, is het nummer in elke regel een persoonsgegeven, vaak het BSN. Meer vastleggen staat zo op gespannen voet met dataminimalisatie; een pseudoniem in het logboek in plaats van het nummer verzacht dat.</li>
+ <li>Hoe lang moeten logboekregels bewaard worden om zo'n vraag te kunnen beantwoorden?</li>
+ <li><strong>Op welke grondslag mag de stelselbeheerder gegevens uit het logboek van de uitvraag aan de organisatie geven, en hoeveel?</strong> Het logboek is bijgehouden voor verantwoording, niet voor een geschil met de ontvanger. Gebruik voor dit nieuwe doel vraagt een toets of dat verenigbaar is.</li>
+</ul></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

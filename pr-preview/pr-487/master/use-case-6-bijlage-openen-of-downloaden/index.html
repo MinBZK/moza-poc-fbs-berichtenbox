@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use case 6: Bijlage openen of downloaden | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="../use-cases/" class="">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="./" class="is-active">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../use-case-13-een-organisatie-sluit-aan-op-het-stelsel/" class="">Use case 13: Een organisatie sluit aan op het stelsel</a><a href="../use-case-14-een-organisatie-stapt-uit-het-stelsel/" class="">Use case 14: Een organisatie stapt uit het stelsel</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use case 6: Bijlage openen of downloaden</h1>
+<p>Een burger of ondernemer (de ontvanger) opent of downloadt een bijlage bij een bericht.</p>
+<table>
+ <thead>
+  <tr>
+   <th></th>
+   <th></th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td><strong>Actor</strong></td>
+   <td>Een ontvanger (burger of ondernemer) die een bericht heeft geopend (use case 5)</td>
+  </tr>
+  <tr>
+   <td><strong>Aanleiding</strong></td>
+   <td>De ontvanger klikt op een bijlage</td>
+  </tr>
+  <tr>
+   <td><strong>Resultaat</strong></td>
+   <td>Een PDF of afbeelding opent in het portaal. Andere bestanden worden gedownload, onder de bestandsnaam die de organisatie meegaf</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Verloop</h2>
+<ol>
+ <li>De ontvanger klikt op een bijlage. Het portaal vraagt die op bij de uitvraag.</li>
+ <li>De uitvraag kijkt of het bericht in de lijst van deze ontvanger staat.</li>
+ <li>De uitvraag vraagt de bijlage op bij het magazijn van de organisatie. Het magazijn controleert of de bijlage bij een bericht van deze ontvanger hoort.</li>
+ <li>De uitvraag geeft de bijlage door aan het portaal. Een groot bestand gaat in delen, terwijl het binnenkomt, zodat de ontvanger niet hoeft te wachten tot alles binnen is.</li>
+ <li>Een PDF of afbeelding mag het portaal direct tonen. Elk ander bestand biedt de browser aan als download.</li>
+</ol>
+<h2>Sequence diagram</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    actor ONT as Ontvanger
+    participant IL as Interactielaag
+    participant FBS as Berichten Uitvraag Systeem
+    participant MAG as Berichtenmagazijn
+
+    ONT-&gt;&gt;IL: Klikt op een bijlage
+    IL-&gt;&gt;FBS: Geef de bijlage
+    FBS-&gt;&gt;FBS: Staat dit bericht in de lijst van deze ontvanger?
+    FBS-&gt;&gt;MAG: Geef de bijlage, voor deze ontvanger
+    MAG-&gt;&gt;MAG: Hoort de bijlage bij een bericht van deze ontvanger?
+    Note over MAG: Legt het verstrekken vast in het logboek
+    MAG--&gt;&gt;FBS: Bijlage
+    Note over FBS: Legt het verstrekken vast in het logboek
+    FBS--&gt;&gt;IL: Bijlage, een groot bestand in delen
+    alt PDF of afbeelding
+        IL--&gt;&gt;ONT: Toont de bijlage
+    else Ander bestand
+        IL--&gt;&gt;ONT: Biedt de bijlage aan als download
+    end
+</code></pre>
+<h2>Als het misgaat</h2>
+<table>
+ <thead>
+  <tr>
+   <th>Situatie</th>
+   <th>Wat het stelsel doet</th>
+   <th>Wat de ontvanger merkt</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Het bericht of de bijlage bestaat niet, of is van een ander</td>
+   <td>Hetzelfde antwoord als bij een onbekend bericht (use case 5)</td>
+   <td>"Deze bijlage is niet (meer) beschikbaar"</td>
+  </tr>
+  <tr>
+   <td>De ontvanger heeft het bericht verwijderd</td>
+   <td>De uitvraag weigert</td>
+   <td>"U hebt dit bericht verwijderd"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn is niet bereikbaar</td>
+   <td>De uitvraag geeft niets door</td>
+   <td>"Probeer het straks nog eens"</td>
+  </tr>
+  <tr>
+   <td>Het magazijn zegt niet wat voor bestand het is, of het type is onbekend</td>
+   <td>De uitvraag biedt het aan als download, nooit als iets dat het portaal toont</td>
+   <td>Het bestand wordt gedownload</td>
+  </tr>
+  <tr>
+   <td>De ontvanger downloadt veel grote bestanden tegelijk</td>
+   <td>De uitvraag weigert de volgende tot er een klaar is</td>
+   <td>"Te veel downloads tegelijk", even later opnieuw proberen</td>
+  </tr>
+  <tr>
+   <td>De verbinding met het magazijn breekt af halverwege</td>
+   <td>De download stopt. Het logboek houdt de bijlage als verstrekt: liever te veel vastgelegd dan te weinig</td>
+   <td>De download mislukt en moet opnieuw</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Nog niet gerealiseerd</h2>
+<ul>
+ <li>Wat in het overzicht voor alle use cases staat, en de toets aan het beleid van de organisatie zoals bij use case 5 (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/418" target="blank">#418</a>).</li>
+ <li>Het magazijn neemt nu alleen PDF-bijlagen aan (use case 1). Afbeeldingen en andere bestanden komen dus nog niet voor (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/1589" target="blank">#1589</a>).</li>
+</ul></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>

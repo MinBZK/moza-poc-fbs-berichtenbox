@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Use cases | MOZa PoC Federatief Berichtenstelsel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css" rel="stylesheet">
+    <link href="../../style.css" rel="stylesheet">
+    <link href="./../style-branding.css" rel="stylesheet">
+    <script type="text/javascript" src="../../modal.js"></script>
+    <script type="text/javascript" src="../../svg-modal.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+  </head>
+  <body>
+    <script type="text/javascript" src="../../header.js"></script>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand has-site-branding"><a href="../" class="navbar-item"><span class="has-text-weight-semibold has-site-branding">MOZa PoC Federatief Berichtenstelsel</span></a></div>
+      <div class="navbar-menu has-site-branding">
+        <div class="navbar-end">
+          <div class="navbar-item"><input class="input is-small is-rounded" id="search" type="search" size="30" maxlength="50" placeholder="Search..." onkeyup="redirect(event, value, '../search/')"></div>
+          <div class="navbar-item has-dropdown is-hoverable"><a class="navbar-link has-site-branding">master</a>
+            <div class="navbar-dropdown is-right"><a href="../../master/" class="navbar-item">master</a>
+              <hr class="navbar-divider">
+              <div class="navbar-item has-text-grey-light"><span>v</span><span>0.0.0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="site-layout" id="site">
+      <aside class="menu p-3">
+        <p class="menu-label">General</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../" class="">Home</a><a href="../software-systems/" class="">Software Systems</a><a href="../deployment-units-logisch-vs.-fysiek/" class="">Deployment-units: logisch vs. fysiek</a><a href="../poc-afwijkingen-t.o.v.-de-doel-architectuur/" class="">PoC-afwijkingen t.o.v. de doel-architectuur</a><a href="./" class="is-active">Use cases</a><a href="../use-case-1-bericht-versturen-en-melden/" class="">Use case 1: Bericht versturen en melden</a><a href="../use-case-2-berichtenbox-openen/" class="">Use case 2: Berichtenbox openen</a><a href="../use-case-3-nieuwe-berichten-volgen/" class="">Use case 3: Nieuwe berichten volgen</a><a href="../use-case-4-zoeken-in-de-tekst-van-berichten-en-bijlagen/" class="">Use case 4: Zoeken in de tekst van berichten en bijlagen</a><a href="../use-case-5-bericht-lezen/" class="">Use case 5: Bericht lezen</a><a href="../use-case-6-bijlage-openen-of-downloaden/" class="">Use case 6: Bijlage openen of downloaden</a><a href="../use-case-7-bericht-verplaatsen-of-archiveren/" class="">Use case 7: Bericht verplaatsen of archiveren</a><a href="../use-case-8-bericht-verwijderen/" class="">Use case 8: Bericht verwijderen</a><a href="../use-case-9-nagaan-of-een-ontvanger-een-bericht-heeft-kunnen-zien/" class="">Use case 9: Nagaan of een ontvanger een bericht heeft kunnen zien</a><a href="../use-case-10-alle-berichten-van-een-ontvanger-wissen/" class="">Use case 10: Alle berichten van een ontvanger wissen</a><a href="../use-case-11-een-magazijn-is-langere-tijd-onbereikbaar/" class="">Use case 11: Een magazijn is langere tijd onbereikbaar</a><a href="../use-case-12-berichten-filteren-en-sorteren/" class="">Use case 12: Berichten filteren en sorteren</a><a href="../use-case-13-een-organisatie-sluit-aan-op-het-stelsel/" class="">Use case 13: Een organisatie sluit aan op het stelsel</a><a href="../use-case-14-een-organisatie-stapt-uit-het-stelsel/" class="">Use case 14: Een organisatie stapt uit het stelsel</a><a href="../stand-van-de-bouw/" class="">Stand van de bouw</a></li>
+        </ul>
+        <p class="menu-label">Software systems</p>
+        <ul class="menu-list has-site-branding">
+          <li><a href="../berichten-uitvraag-systeem/" class="">Berichten Uitvraag Systeem</a><a href="../berichtenmagazijn-(bbo-gehost)/" class="">Berichtenmagazijn (BBO-gehost)</a><a href="../overheidsorganisatie-(eigen-magazijn)/" class="">Overheidsorganisatie (eigen magazijn)</a><a href="../overheidsorganisatie-(magazijn-bij-bbo)/" class="">Overheidsorganisatie (magazijn bij BBO)</a><a href="../stelselregister/" class="">Stelselregister</a></li>
+        </ul>
+      </aside>
+      <div class="container is-fluid">
+        <div class="content p-3">
+          <div><h1>Use cases</h1>
+<p>De diagrammen elders op deze site laten zien uit welke onderdelen het Federatief Berichtenstelsel bestaat. De use cases hieronder laten zien wat er gebeurt als iemand het gebruikt of beheert: wie wat doet, in welke volgorde de onderdelen met elkaar praten, en wat er gebeurt als iets misgaat.</p>
+<p>De use cases gelden voor burgers en ondernemers. Ze noemen allebei "de ontvanger". Waar iets alleen voor een van beide geldt, staat dat erbij.</p>
+<table>
+ <thead>
+  <tr>
+   <th>Nr</th>
+   <th>Use case</th>
+   <th>Actor</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>1</td>
+   <td>Een organisatie verstuurt een bericht, en de ontvanger krijgt een melding</td>
+   <td>Overheidsorganisatie</td>
+  </tr>
+  <tr>
+   <td>2</td>
+   <td>De ontvanger opent de berichtenbox en ziet de berichten van alle organisaties bij elkaar</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>3</td>
+   <td>Nieuwe berichten verschijnen terwijl de berichtenbox openstaat</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>4</td>
+   <td>De ontvanger zoekt op een woord uit de tekst van berichten en bijlagen</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>5</td>
+   <td>De ontvanger opent een bericht en leest het</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>6</td>
+   <td>De ontvanger opent of downloadt een bijlage</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>7</td>
+   <td>De ontvanger verplaatst een bericht naar een map of archiveert het</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>8</td>
+   <td>De ontvanger verwijdert een bericht</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>9</td>
+   <td>Een organisatie gaat na of de ontvanger een bericht heeft kunnen zien</td>
+   <td>Overheidsorganisatie, met de stelselbeheerder</td>
+  </tr>
+  <tr>
+   <td>10</td>
+   <td>De ontvanger laat alle eigen berichten wissen</td>
+   <td>Ontvanger, met de stelselbeheerder</td>
+  </tr>
+  <tr>
+   <td>11</td>
+   <td>Een magazijn is langere tijd onbereikbaar</td>
+   <td>Ontvanger, stelselbeheerder en organisatie</td>
+  </tr>
+  <tr>
+   <td>12</td>
+   <td>De ontvanger filtert en sorteert de berichten op onderwerp, afzender, map of datum</td>
+   <td>Ontvanger</td>
+  </tr>
+  <tr>
+   <td>13</td>
+   <td>Een organisatie sluit aan op het stelsel, met een eigen berichtenmagazijn</td>
+   <td>Overheidsorganisatie, met de stelselbeheerder</td>
+  </tr>
+  <tr>
+   <td>14</td>
+   <td>Een organisatie stapt uit het stelsel</td>
+   <td>Overheidsorganisatie, met de stelselbeheerder</td>
+  </tr>
+ </tbody>
+</table>
+<p>Het rechtstreeks ophalen door een burger of ondernemer, met een app en zonder portaal of uitvraag ertussen, staat hier nog niet: die route is nog te veel in ontwikkeling. Het doelbeeld daarvan staat in de views <em>RechtstreeksOphalen</em> van het architectuurmodel.</p>
+<h2>Zo lees je een use case</h2>
+<p>Een use case beschrijft hoe het stelsel moet werken. Elke use case heeft dezelfde opbouw:</p>
+<ul>
+ <li><strong>Actor, aanleiding en resultaat</strong>: wie begint, waarom, en wat er is als het goed gaat.</li>
+ <li><strong>Verloop</strong>: de stappen in gewone taal.</li>
+ <li><strong>Sequence diagram</strong>: dezelfde stappen als plaatje. Van boven naar beneden is de tijd. Een doorgetrokken pijl is een verzoek, een gestippelde pijl het antwoord. Een pijl met een open punt is een verzoek waar de afzender niet op wacht. Een kader met <code>alt</code> toont alternatieven, <code>opt</code> iets dat alleen soms gebeurt, <code>loop</code> iets dat zich herhaalt en <code>par</code> dingen die tegelijk gebeuren.</li>
+ <li><strong>Als het misgaat</strong>: per situatie wat het stelsel doet en wat de actor merkt.</li>
+ <li><strong>Nog niet gerealiseerd</strong>: waar wat er nu gebouwd is nog anders werkt dan de use case beschrijft.</li>
+ <li><strong>Open vragen</strong>: keuzes die nog gemaakt moeten worden. Zolang een keuze open is, beschrijft de use case op dat punt hoe het nu werkt.</li>
+</ul>
+<p>Voor ontwikkelaars staat op de pagina "Stand van de bouw", na de use cases, per use case waar de software nog afwijkt, met de plek in de code.</p>
+<h2>De deelnemers</h2>
+<p>De diagrammen tonen het stelsel op het niveau van de systemen. De namen komen uit het architectuurmodel, zodat je ze in de andere diagrammen terugvindt.</p>
+<table>
+ <thead>
+  <tr>
+   <th>Deelnemer</th>
+   <th>Wat het is</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr>
+   <td>Ontvanger</td>
+   <td>Een burger, of iemand die berichten ontvangt namens een onderneming</td>
+  </tr>
+  <tr>
+   <td>Overheidsorganisatie</td>
+   <td>Een organisatie die berichten verstuurt. Elke organisatie heeft haar eigen berichtenmagazijn</td>
+  </tr>
+  <tr>
+   <td>Interactielaag</td>
+   <td>Het portaal waarin de ontvanger de berichtenbox ziet. Het stelsel levert de gegevens, het portaal toont ze</td>
+  </tr>
+  <tr>
+   <td>Berichten Uitvraag Systeem</td>
+   <td>De centrale dienst waar het portaal berichten opvraagt en beheert. Hij weet welk magazijn bij welke organisatie hoort, en houdt de berichtenlijst van een ingelogde ontvanger vast zolang die ingelogd is</td>
+  </tr>
+  <tr>
+   <td>Berichtenmagazijn</td>
+   <td>De opslag van de berichten van één organisatie. Een organisatie host haar magazijn zelf of neemt een gedeeld magazijn af (in het model: bij BBO). Elk magazijn volgt dezelfde stelselafspraken, dus de lijn in de diagrammen staat voor elk magazijn</td>
+  </tr>
+  <tr>
+   <td>Profiel Service</td>
+   <td>Dienst met de voorkeuren van de ontvanger: van welke organisaties die berichten via de berichtenbox wil ontvangen. Er is één Profiel Service voor burgers en ondernemers; op termijn kunnen dat er twee worden</td>
+  </tr>
+  <tr>
+   <td>Notificatie Service</td>
+   <td>Dienst die de ontvanger laat weten dat er een bericht is, bijvoorbeeld per e-mail. Hij is identiteitsneutraal: één dienst voor burgers en ondernemers, zodat het melden overal hetzelfde voelt</td>
+  </tr>
+  <tr>
+   <td>Stelselregister</td>
+   <td>Publiceert de deelnemende organisaties en het adres van hun magazijn als één document, ondertekend door de stelselbeheerder. Een app die berichten rechtstreeks bij de magazijnen ophaalt, leest daar welke magazijnen er zijn</td>
+  </tr>
+  <tr>
+   <td>Stelselbeheerder</td>
+   <td>Beheert het stelsel: de afspraken, de lijst van deelnemende organisaties en hun magazijnen, en de afhandeling van vragen en storingen over de keten. Welke organisatie die rol krijgt, maakt voor de use cases niet uit</td>
+  </tr>
+ </tbody>
+</table>
+<h2>Wat voor alle use cases geldt</h2>
+<p><strong>Er is geen centrale opslag van berichten.</strong> Een bericht staat alleen in het magazijn van de organisatie die het verstuurde. De uitvraag houdt de berichtenlijst van een ontvanger alleen vast zolang die ingelogd is, en wist de lijst zodra de laatste sessie eindigt.</p>
+<p><strong>Inloggen.</strong> Een burger logt in op het portaal met DigiD, een ondernemer met eHerkenning. Daarmee staat vast wie de ontvanger is, en voor wie of namens wie die handelt. Machtigingen werken in die twee stelsels verschillend. Het portaal start een sessie bij de uitvraag, en elk verzoek over berichten hoort bij zo'n sessie.</p>
+<p><strong>Een sessie verloopt.</strong> Na 15 minuten zonder activiteit, en uiterlijk na 12 uur, eindigt de sessie. Daarna is opnieuw inloggen nodig, en worden de berichten opnieuw opgehaald.</p>
+<p><strong>Elk magazijn kent een persoon onder een eigen pseudoniem.</strong> Is de ontvanger een burger of een ondernemer met een BSN, dan krijgt een magazijn niet het BSN, maar een versleutelde verwijzing die alleen voor dat magazijn bruikbaar is. Zo kunnen magazijnen hun gegevens niet onderling koppelen. Een onderneming met een openbaar nummer (KVK-nummer of RSIN) krijgt geen pseudoniem.</p>
+<p><strong>Verbindingen tussen organisaties zijn beveiligd en vastgelegd.</strong> Uitvraag, magazijnen en de diensten van MijnOverheid Zakelijk praten met elkaar via FSC (Federatieve Service Connectiviteit): elke verbinding rust op een afspraak tussen twee organisaties, en beide kanten weten met wie ze praten.</p>
+<p><strong>Wat het stelsel vastlegt.</strong> Elke dienst die persoonsgegevens verwerkt, legt elke verwerking vast in zijn eigen Logboek Dataverwerkingen: welke handeling, voor wie, wanneer, en of die lukte. Er is geen centraal logboek. Wie wil weten wat er met een bericht gebeurd is, raadpleegt de logboeken van de betrokken diensten (use case 9).</p>
+<p><strong>Nog niet gerealiseerd, voor alle use cases.</strong> Inloggen met DigiD of eHerkenning, de pseudoniemen per magazijn, machtigingen en de verbindingen via FSC zijn nog niet (volledig) gebouwd. Nu geeft het portaal bij elk verzoek mee om welke ontvanger het gaat, krijgt elk magazijn het nummer van de ontvanger, en is per verbinding in te stellen of die via FSC loopt (<a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/414" target="blank">#414</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/415" target="blank">#415</a>, <a href="https://github.com/MinBZK/MijnOverheidZakelijk/issues/552" target="blank">#552</a>). De pagina "PoC-afwijkingen" houdt bij wat nog niet gebouwd is.</p></div>
+        </div>
+      </div>
+    </div>
+    <script type="text/javascript" src="../../reformat-mermaid.js"></script>
+    <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.9.0/dist/mermaid.esm.min.mjs';</script>
+  </body>
+</html>
