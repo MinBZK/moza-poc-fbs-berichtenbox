@@ -621,7 +621,9 @@ magazijn_bereikbaar() {
   status=$(magazijn_curl "${args[@]}" -o "$WERK/openapi.json" -w '%{http_code}' "$doel" 2>"$WERK/curl.err") || true
 
   if [ "$status" != 200 ]; then
-    echo "$doel gaf ${status:-geen antwoord} $(tail -1 "$WERK/curl.err" 2>/dev/null)"
+    local melding
+    melding=$(tail -1 "$WERK/curl.err" 2>/dev/null)
+    echo "$doel gaf ${status:-geen antwoord}${melding:+ ($melding)}"
     return 1
   fi
 
