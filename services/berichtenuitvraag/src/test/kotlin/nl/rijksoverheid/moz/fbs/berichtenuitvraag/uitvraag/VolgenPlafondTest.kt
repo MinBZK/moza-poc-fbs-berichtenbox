@@ -131,7 +131,7 @@ class VolgenPlafondTest {
 
     private fun wachtTotAlleStreamsAfgezegd() {
         await("alle streams door de server afgezegd")
-            .atMost(Duration.ofSeconds(10))
+            .atMost(VANGNET)
             .untilAtomic(openStreams, equalTo(0))
     }
 
@@ -163,7 +163,9 @@ class VolgenPlafondTest {
             setRequestProperty("X-Sessie", sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) })
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
-            readTimeout = 2000
+            // Alleen een vangnet tegen een server die nooit antwoordt; de tests meten geen snelheid. De
+            // eerste weigering na een start doet eenmalig werk dat op een krappe runner rond 2 s kost.
+            readTimeout = VANGNET.toMillis().toInt()
         }
 
     class KleinePlafondsProfile : QuarkusTestProfile {
@@ -181,5 +183,8 @@ class VolgenPlafondTest {
         const val A = "BSN:999990019"
         const val B = "BSN:999993653"
         const val C = "KVK:90000011"
+
+        /** Hoe lang een test op de server wacht voor hij hem opgeeft. */
+        val VANGNET: Duration = Duration.ofSeconds(10)
     }
 }
